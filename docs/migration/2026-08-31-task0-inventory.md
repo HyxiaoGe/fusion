@@ -93,8 +93,11 @@ Linux runner 已完成注册：
 - 工作目录：`~/actions-runner/runner-fusion-monorepo`
 - user systemd：`github-runner-fusion-monorepo.service`，enabled / active / running
 - unit 文件：`0644 heyanxiao:heyanxiao`
+- smoke run：[`33397995546`](https://github.com/HyxiaoGe/fusion/actions/runs/33397995546)，提交 `ca82634bc021a29606eba4bd0db401a097e5ad1d`
+- API Linux job：success，使用 `fusion-api` 标签命中 `dev-server-fusion-monorepo`
+- UI Linux job：success，使用 `fusion-ui` 标签命中同一 runner；Windows jobs 按 `platform=linux` 正确 skipped
 
-Windows runner 尚待取得原 Windows runner 主机的连接入口后注册；旧仓 4 个 runner 保持不变。
+两个旧仓 Windows runner 均运行在 `DESKTOP-K5VQNSF`。当前 Mac 到该主机没有 SSH / WinRM 远程命令入口，因此新仓 Windows runner 尚未注册；旧仓 4 个 runner 保持不变。
 
 ## dev 宿主机状态
 
