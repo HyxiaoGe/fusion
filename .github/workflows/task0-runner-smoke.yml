@@ -1,0 +1,48 @@
+name: Task 0 runner smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  api-linux:
+    name: API Linux runner
+    runs-on: [self-hosted, Linux, X64, fusion-api]
+    steps:
+      - name: 输出 runner 身份
+        shell: bash
+        run: |
+          echo "application=fusion-api"
+          echo "platform=linux"
+
+  api-windows:
+    name: API Windows runner
+    runs-on: [self-hosted, Windows, X64, fusion-api]
+    steps:
+      - name: 输出 runner 身份
+        shell: pwsh
+        run: |
+          Write-Output "application=fusion-api"
+          Write-Output "platform=windows"
+
+  ui-linux:
+    name: UI Linux runner
+    runs-on: [self-hosted, Linux, X64, fusion-ui]
+    steps:
+      - name: 输出 runner 身份
+        shell: bash
+        run: |
+          echo "application=fusion-ui"
+          echo "platform=linux"
+
+  ui-windows:
+    name: UI Windows runner
+    runs-on: [self-hosted, Windows, X64, fusion-ui]
+    steps:
+      - name: 输出 runner 身份
+        shell: pwsh
+        run: |
+          Write-Output "application=fusion-ui"
+          Write-Output "platform=windows"
