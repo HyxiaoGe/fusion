@@ -97,7 +97,21 @@ Linux runner 已完成注册：
 - API Linux job：success，使用 `fusion-api` 标签命中 `dev-server-fusion-monorepo`
 - UI Linux job：success，使用 `fusion-ui` 标签命中同一 runner；Windows jobs 按 `platform=linux` 正确 skipped
 
-两个旧仓 Windows runner 均运行在 `DESKTOP-K5VQNSF`。当前 Mac 到该主机没有 SSH / WinRM 远程命令入口，因此新仓 Windows runner 尚未注册；旧仓 4 个 runner 保持不变。
+Windows runner 已完成注册：
+
+- 主机：`DESKTOP-K5VQNSF`
+- 名称：`windows-build-fusion-monorepo-01`
+- 标签：`self-hosted`、`Windows`、`X64`、`fusion-api`、`fusion-ui`
+- GitHub 状态：online / idle
+- 工作目录：`D:\actions-runner\fusion-monorepo`
+- Windows service：`actions.runner.HyxiaoGe-fusion.windows-build-fusion-monorepo-01`，Auto / Running
+- 服务账户：`NT AUTHORITY\NETWORK SERVICE`
+- runner 版本：`2.336.0`
+- smoke run：[`33403653307`](https://github.com/HyxiaoGe/fusion/actions/runs/33403653307)，提交 `77d9fec16e1b0a37e7581c3a242288407be2ff6f`
+- API Windows job：success，使用 `fusion-api` 标签命中 `windows-build-fusion-monorepo-01`；`docker version` daemon 探测成功
+- UI Windows job：success，使用 `fusion-ui` 标签命中同一 runner；Linux jobs 按 `platform=windows` 正确 skipped
+
+旧仓 4 个 runner 保持不变。Windows smoke 曾依次暴露 `pwsh` 缺失和 PowerShell execution policy 两层兼容问题，已在 PR #3、#4 中按旧仓已验证的 Windows PowerShell 模式修复；最终 run 全绿。
 
 ## dev 宿主机状态
 
@@ -131,6 +145,5 @@ Linux runner 已完成注册：
 
 ## 未闭环项
 
-- 在 Windows 主机注册新仓 Windows runner；Linux runner smoke 先独立执行，Windows 接入后再执行完整 smoke。
 - 从原始凭据源重新注入 10 个唯一 secret 名称，逐项记录来源、位置、连通性和轮换状态。
 - 在已登录控制台核实 Vercel / Railway 活跃性与 repo/branch/自动部署绑定。
