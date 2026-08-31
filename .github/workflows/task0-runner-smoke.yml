@@ -38,6 +38,9 @@ jobs:
         run: |
           Write-Output "application=fusion-api"
           Write-Output "platform=windows"
+      - name: 验证 Docker daemon 访问
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: docker version --format '{{.Server.Version}}'
 
   ui-linux:
     name: UI Linux runner
