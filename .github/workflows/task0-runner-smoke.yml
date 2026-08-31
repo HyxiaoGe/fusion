@@ -2,6 +2,16 @@ name: Task 0 runner smoke
 
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: 要验证的 runner 平台
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - linux
+          - windows
 
 permissions:
   contents: read
@@ -9,6 +19,7 @@ permissions:
 jobs:
   api-linux:
     name: API Linux runner
+    if: ${{ inputs.platform == 'all' || inputs.platform == 'linux' }}
     runs-on: [self-hosted, Linux, X64, fusion-api]
     steps:
       - name: 输出 runner 身份
@@ -19,6 +30,7 @@ jobs:
 
   api-windows:
     name: API Windows runner
+    if: ${{ inputs.platform == 'all' || inputs.platform == 'windows' }}
     runs-on: [self-hosted, Windows, X64, fusion-api]
     steps:
       - name: 输出 runner 身份
@@ -29,6 +41,7 @@ jobs:
 
   ui-linux:
     name: UI Linux runner
+    if: ${{ inputs.platform == 'all' || inputs.platform == 'linux' }}
     runs-on: [self-hosted, Linux, X64, fusion-ui]
     steps:
       - name: 输出 runner 身份
@@ -39,6 +52,7 @@ jobs:
 
   ui-windows:
     name: UI Windows runner
+    if: ${{ inputs.platform == 'all' || inputs.platform == 'windows' }}
     runs-on: [self-hosted, Windows, X64, fusion-ui]
     steps:
       - name: 输出 runner 身份

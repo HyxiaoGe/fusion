@@ -44,7 +44,7 @@ API 的 4 个未提交现场如下，均保持原位且未改动：
 - GitHub Actions 启用，允许全部 Actions，未要求 action SHA pinning。
 - 两个旧仓均无 repo deploy key、无 repo webhook。
 
-新仓 bootstrap 后应完成：创建 `dev` Environment 与 `master` policy；复制非 check 类保护；复制可公开读取的 Actions variables。required status check 保持空缺。
+新仓已完成：创建 `dev` Environment 与唯一允许 `master` 的 custom branch policy；复制非 check 类保护；复制可公开读取的 Actions variables。required status check 保持空缺，等待 Task 1 的新 gate 首次成功运行。
 
 ## Secrets 与 variables
 
@@ -70,7 +70,7 @@ API 的 4 个未提交现场如下，均保持原位且未改动：
 
 同名项在新仓只保留一份。原始值不可得时必须轮换；连接验证留待注入后执行。
 
-公开 variables 按原名称和值迁移：API repo 3 项、API `dev` 10 项、UI repo 3 项。执行结果在 GitHub 配置完成后回填。
+公开 variables 已按原名称和值迁移：新仓 repo 层共 6 项，新仓 `dev` Environment 共 10 项；GitHub API 回读值与来源配置一致。
 
 ## Runner
 
@@ -83,7 +83,18 @@ API 的 4 个未提交现场如下，均保持原位且未改动：
 | UI | `dev-server-fusion-ui` | Linux X64 | `self-hosted`, `Linux`, `X64` |
 | UI | `windows-build-01` | Windows X64 | `self-hosted`, `Windows`, `X64` |
 
-新仓 runner 尚未注册。计划新增 API/UI 各一套 Linux 与 Windows runner，并分别增加 `fusion-api` / `fusion-ui` 标签；`.github/workflows/task0-runner-smoke.yml` 只允许手动触发。公开仓库的自托管 runner 会建立长期代码执行入口，注册与持久服务启用需单独明确授权。
+合仓后不再按应用拆分物理 runner，只新增 Linux 与 Windows 各一个 repo-scoped runner；两个 runner 都带 `fusion-api`、`fusion-ui` 标签。应用 job 可按标签保持边界，同一平台的任务由同一个物理 runner 串行执行。
+
+Linux runner 已完成注册：
+
+- 名称：`dev-server-fusion-monorepo`
+- 标签：`self-hosted`、`Linux`、`X64`、`fusion-api`、`fusion-ui`
+- GitHub 状态：online / idle
+- 工作目录：`~/actions-runner/runner-fusion-monorepo`
+- user systemd：`github-runner-fusion-monorepo.service`，enabled / active / running
+- unit 文件：`0644 heyanxiao:heyanxiao`
+
+Windows runner 尚待取得原 Windows runner 主机的连接入口后注册；旧仓 4 个 runner 保持不变。
 
 ## dev 宿主机状态
 
@@ -113,10 +124,10 @@ API 的 4 个未提交现场如下，均保持原位且未改动：
 | UI / Railway | `fusion-ui/railway.json` | 无 webhook、无 deploy key；近期 deployment 均为 GitHub Actions 的 `dev` | 尚不能证明服务是否活跃、绑定哪个 repo/branch 或是否自动部署 | 待控制台核实；若进入当前 dev 链路则 Task 2，否则 Task 4 |
 | UI / Vercel | `fusion-ui/vercel.json` | 无 webhook、无 deploy key | 尚不能证明项目是否活跃、绑定哪个 repo/branch 或是否自动部署 | 待控制台核实；若进入当前 dev 链路则 Task 2，否则 Task 4 |
 
-本机没有 `vercel` / `railway` CLI，也没有仓库内 `.vercel/project.json`。在获得已登录控制台证据前，不把配置文件的存在误判为活跃绑定。
+本机没有 `vercel` / `railway` CLI，也没有仓库内 `.vercel/project.json`。现有 Chrome 标签只有 GitHub 与 Fusion 页面，没有已登录的 Vercel / Railway 标签。在获得已登录控制台证据前，不把配置文件的存在误判为活跃绑定。
 
 ## 未闭环项
 
-- 明确授权后注册新仓 4 个 repo-scoped 自托管 runner，启用持久服务，并手动运行 smoke workflow。
+- 在 Windows 主机注册新仓 Windows runner；Linux runner smoke 先独立执行，Windows 接入后再执行完整 smoke。
 - 从原始凭据源重新注入 10 个唯一 secret 名称，逐项记录来源、位置、连通性和轮换状态。
 - 在已登录控制台核实 Vercel / Railway 活跃性与 repo/branch/自动部署绑定。
