@@ -1,0 +1,191 @@
+"use client";
+
+import { useMemo, useState, useCallback, useEffect } from "react";
+import { usePathname } from "next/navigation";
+import { useAppDispatch, useAppSelector } from "@/redux/hooks";
+import { setSelectedModel } from "@/redux/slices/modelsSlice";
+import { updateConversationModel } from "@/redux/slices/conversationSlice";
+import { getPreferredModelId, isModelVisibleInSelector } from "@/lib/models/modelPreference";
+import { getRecentModels, addRecentModel } from "@/lib/models/recentModels";
+import { getRouteConversationId } from "@/lib/routes/chatRoutes";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import ModelSelectorTrigger from "./ModelSelectorTrigger";
+import ModelSelectorPanel from "./ModelSelectorPanel";
+
+interface ModelSelectorProps {
+  onChange?: (modelId: string) => void;
+  modelId?: string;
+  disabled?: boolean;
+  className?: string;
+  toolbarMode?: boolean;
+}
+
+const ModelSelector: React.FC<ModelSelectorProps> = ({
+  onChange,
+  modelId,
+  disabled,
+  toolbarMode = false,
+}) => {
+  const dispatch = useAppDispatch();
+  const pathname = usePathname();
+  const {
+    models,
+    providers,
+    selectedModelId,
+    loadStatus: modelsLoadStatus,
+  } = useAppSelector((state) => state.models);
+  const chats = useAppSelector((state) => state.conversation.byId);
+  const conversationHydrationStatus = useAppSelector(
+    (state) => state.conversation.hydrationStatus,
+  );
+  const [isOpen, setIsOpen] = useState(false);
+  const [hasHydrated, setHasHydrated] = useState(false);
+  const [recentModelIds, setRecentModelIds] = useState<string[]>(getRecentModels);
+
+  useEffect(() => {
+    setHasHydrated(true);
+  }, []);
+
+  const activeChatId = getRouteConversationId(pathname);
+  const activeChat = activeChatId ? chats[activeChatId] : null;
+  const hasMessages = activeChat?.messages?.some((msg) => msg.role === "user") || false;
+
+  const isDisabled = disabled || (!!activeChatId && hasMessages);
+
+  const activeChatModelId = activeChat?.model_id;
+  const activeChatHydrationStatus = activeChatId
+    ? (conversationHydrationStatus[activeChatId] ?? 'idle')
+    : 'done';
+  const currentModelId = modelId
+    || activeChatModelId
+    || (activeChatId ? null : getPreferredModelId(models, selectedModelId));
+
+  const currentModel = useMemo(
+    () => models.find((m) => m.id === currentModelId) ?? null,
+    [models, currentModelId],
+  );
+
+  const modelsByProvider = useMemo(
+    () =>
+      [...providers]
+        .sort((a, b) => a.order - b.order)
+        .map((provider) => ({
+          ...provider,
+          models: models.filter((m) => (
+            m.provider === provider.id
+            && isModelVisibleInSelector(m)
+          )),
+        }))
+        .filter((group) => group.models.length > 0),
+    [providers, models],
+  );
+
+  const [activeProvider, setActiveProvider] = useState<string>("");
+  const effectiveProvider = useMemo(() => {
+    if (activeProvider && modelsByProvider.some((g) => g.id === activeProvider)) {
+      return activeProvider;
+    }
+    const currentProvider = currentModel?.provider;
+    if (currentProvider && modelsByProvider.some((g) => g.id === currentProvider)) {
+      return currentProvider;
+    }
+    return modelsByProvider[0]?.id || "";
+  }, [activeProvider, currentModel, modelsByProvider]);
+
+  const handleModelChange = useCallback(
+    (value: string) => {
+      dispatch(setSelectedModel(value));
+
+      if (activeChatId && !hasMessages) {
+        dispatch(updateConversationModel({ id: activeChatId, model_id: value }));
+      }
+
+      addRecentModel(value);
+      setRecentModelIds(getRecentModels());
+
+      const selectedModel = models.find((m) => m.id === value);
+      if (selectedModel) {
+        setActiveProvider(selectedModel.provider);
+      }
+
+      onChange?.(value);
+      setIsOpen(false);
+    },
+    [dispatch, activeChatId, hasMessages, onChange, models],
+  );
+
+  const handleProviderChange = useCallback((providerId: string) => {
+    setActiveProvider(providerId);
+  }, []);
+
+  const isModelCatalogPending = modelsLoadStatus === 'idle' || modelsLoadStatus === 'loading';
+  const isExistingConversationPending = Boolean(
+    activeChatId
+    && !currentModelId
+    && activeChatHydrationStatus !== 'done',
+  );
+  const placeholderLabel = (
+    !hasHydrated || isModelCatalogPending || isExistingConversationPending
+      ? '模型加载中'
+      : modelsLoadStatus === 'failed'
+        ? '模型加载失败'
+        : models.length === 0
+          || (!activeChatId && !models.some(isModelVisibleInSelector))
+          || (activeChatId && !currentModel)
+          ? '模型不可用'
+          : null
+  );
+
+  // 服务端没有浏览器内已加载的模型 Store；首帧和已有会话水合窗口都保留同尺寸中性控件，
+  // 避免先展示全局默认模型，再跳变为会话绑定模型。
+  if (placeholderLabel) {
+    return (
+      <span className="inline-flex min-w-0">
+        <ModelSelectorTrigger
+          model={null}
+          providers={[]}
+          isOpen={false}
+          disabled
+          toolbarMode={toolbarMode}
+          placeholderLabel={placeholderLabel}
+        />
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex min-w-0">
+      <Popover open={isOpen} onOpenChange={isDisabled ? undefined : setIsOpen}>
+        <PopoverTrigger asChild>
+          <ModelSelectorTrigger
+            model={currentModel}
+            providers={providers}
+            isOpen={isOpen}
+            disabled={isDisabled}
+            toolbarMode={toolbarMode}
+          />
+        </PopoverTrigger>
+        <PopoverContent
+          data-testid="model-selector-panel"
+          side="top"
+          align="start"
+          avoidCollisions={true}
+          sideOffset={4}
+          className="p-0 w-[calc(100vw-32px)] sm:w-[480px] max-h-[420px] overflow-y-auto"
+        >
+          <ModelSelectorPanel
+            modelsByProvider={modelsByProvider}
+            selectedModelId={currentModelId}
+            recentModelIds={recentModelIds}
+            allModels={models}
+            activeProvider={effectiveProvider}
+            onSelect={handleModelChange}
+            onProviderChange={handleProviderChange}
+          />
+        </PopoverContent>
+      </Popover>
+    </span>
+  );
+};
+
+export default ModelSelector;

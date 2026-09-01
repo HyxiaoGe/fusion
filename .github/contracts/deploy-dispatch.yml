@@ -1,0 +1,33 @@
+version: "1"
+status: task-1-contract-only
+enabled_workflow: null
+workflow_dispatch:
+  target:
+    allowed: [api, ui, both]
+    required: true
+  api_rollback_sha:
+    independent: true
+    format: "^[0-9a-f]{40}$"
+  ui_rollback_sha:
+    independent: true
+    format: "^[0-9a-f]{40}$"
+  rollback_reason:
+    required_with_any_sha: true
+behavior:
+  manual_target_bypasses_path_filter: true
+  both_order: [api, ui]
+  stop_on_api_failure: true
+  update_only_successful_ledgers: true
+release_identity:
+  deploy_ref: repository_digest
+  sha_tag_role: audit_alias_only
+  rollback_lookup: per_app_release_ledger
+  reject_unresolved_digest: true
+concurrency:
+  owner: orchestrator
+  group: fusion-dev
+  cancel_in_progress: false
+  wrappers_define_concurrency: false
+wrappers:
+  api: .github/workflows/_deploy-api.yml
+  ui: .github/workflows/_deploy-ui.yml

@@ -1,0 +1,223 @@
+import logging
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from fastapi.responses import Response
+from sqlalchemy.orm import Session
+
+from app.api.deps import get_current_user, get_db, get_file_service
+from app.core.file_token import verify_file_token
+from app.core.revocation import extract_session_id, is_session_access_revoked, is_user_access_revoked
+from app.core.security import jwt_validator
+from app.db.models import User
+from app.db.repositories import UserRepository
+from app.schemas.files import DirectUploadCompleteRequest, DirectUploadInitRequest
+from app.schemas.response import ApiException, success
+from app.services.file_service import FileService, FileStorageUnavailableError
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+
+def _resolve_user_from_bearer(request: Request, db: Session) -> Optional[User]:
+    """
+    从 Authorization header 中提取 Bearer token 并验证用户。
+    成功返回 User，失败返回 None（不抛异常）。
+    """
+    auth_header = request.headers.get("authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return None
+
+    token = auth_header[len("Bearer ") :]
+    try:
+        auth_user = jwt_validator.verify(token)
+        subject = auth_user.sub
+        if not subject:
+            return None
+        # 跨应用单点登出：别处登出后这张令牌虽签名仍有效，也不得再下载文件。
+        session_id = extract_session_id(auth_user.raw_payload)
+        if is_session_access_revoked(session_id) or is_user_access_revoked(
+            subject,
+            auth_user.raw_payload.get("iat"),
+        ):
+            return None
+        user_repo = UserRepository(db)
+        return user_repo.get(subject)
+    except Exception:
+        return None
+
+
+@router.post("/upload", status_code=201)
+async def upload_files(
+    request: Request,
+    provider: str = Form(...),
+    model: str = Form(...),
+    conversation_id: str = Form(...),
+    files: List[UploadFile] = File(...),
+    current_user: User = Depends(get_current_user),
+    file_service: FileService = Depends(get_file_service),
+):
+    """上传文件到指定对话"""
+    try:
+        results = await file_service.upload_files(files, current_user.id, conversation_id, provider, model)
+    except FileStorageUnavailableError as exc:
+        raise ApiException("FILE_STORAGE_UNAVAILABLE", str(exc), 503) from exc
+    return success(data={"files": results}, message="上传成功", request_id=request.state.request_id)
+
+
+@router.post("/upload/init", status_code=201)
+async def init_direct_upload(
+    payload: DirectUploadInitRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    file_service: FileService = Depends(get_file_service),
+):
+    """初始化浏览器直传上传。"""
+    try:
+        upload = await file_service.create_direct_upload(
+            user_id=current_user.id,
+            conversation_id=payload.conversation_id,
+            provider=payload.provider,
+            model=payload.model,
+            filename=payload.filename,
+            mimetype=payload.mimetype,
+            size=payload.size,
+        )
+    except NotImplementedError:
+        raise ApiException("DIRECT_UPLOAD_DISABLED", "当前存储后端未开启直传上传", 400)
+    except ValueError as e:
+        raise ApiException.bad_request(str(e))
+
+    return success(data={"upload": upload}, message="上传初始化成功", request_id=request.state.request_id)
+
+
+@router.post("/upload/complete")
+async def complete_direct_upload(
+    payload: DirectUploadCompleteRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    file_service: FileService = Depends(get_file_service),
+):
+    """确认浏览器直传完成，并接入文件处理管线。"""
+    try:
+        file = await file_service.complete_direct_upload(payload.file_id, current_user.id)
+    except FileNotFoundError:
+        raise ApiException.not_found("文件不存在或无权访问")
+    except FileStorageUnavailableError as exc:
+        raise ApiException("FILE_STORAGE_UNAVAILABLE", str(exc), 503) from exc
+    except ValueError as e:
+        raise ApiException.bad_request(str(e))
+
+    return success(data={"file": file}, message="上传完成", request_id=request.state.request_id)
+
+
+@router.get("/{file_id}/url")
+async def get_file_url(
+    file_id: str,
+    request: Request,
+    variant: str = Query("thumbnail", pattern="^(processed|thumbnail)$"),
+    current_user: User = Depends(get_current_user),
+    file_service: FileService = Depends(get_file_service),
+):
+    """获取文件访问 URL"""
+    url = await file_service.get_file_url(file_id, current_user.id, variant)
+    if not url:
+        raise ApiException.not_found("文件不存在或无权访问")
+    return success(data={"url": url}, request_id=request.state.request_id)
+
+
+@router.get("/{file_id}/content")
+async def get_file_content(
+    file_id: str,
+    variant: str = Query("thumbnail", pattern="^(processed|thumbnail)$"),
+    token: Optional[str] = Query(None),
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    """
+    直接返回文件内容（用于本地存储模式的代理访问）。
+
+    认证方式（二选一）：
+    - Bearer token（Authorization header）
+    - 签名 token（?token=xxx query 参数，本地存储签名 URL 使用）
+    """
+    user_id: Optional[str] = None
+
+    # 优先尝试 Bearer token 认证
+    current_user = _resolve_user_from_bearer(request, db)
+    if current_user:
+        user_id = current_user.id
+    elif token:
+        # 签名 token 认证：验证签名和过期时间，匹配 file_id
+        verified_file_id = verify_file_token(token)
+        if not verified_file_id or verified_file_id != file_id:
+            raise ApiException.unauthorized("无效或过期的文件访问令牌")
+        # 签名 token 已验证 file_id，跳过 user_id 过滤（token 本身即授权凭证）
+        user_id = None
+    else:
+        raise ApiException.unauthorized("需要认证才能访问文件")
+
+    file_service = FileService(db)
+    result = await file_service.get_file_content(file_id, user_id, variant)
+    if not result:
+        raise ApiException.not_found("文件不存在或无权访问")
+
+    data, mime_type = result
+    return Response(
+        content=data,
+        media_type=mime_type,
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
+@router.get("/")
+async def get_user_files(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    file_service: FileService = Depends(get_file_service),
+):
+    """获取当前用户的所有文件"""
+    files = await file_service.get_files_by_user(current_user.id)
+    return success(data={"files": files}, request_id=request.state.request_id)
+
+
+@router.get("/conversation/{conversation_id}")
+async def get_conversation_files(
+    conversation_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    file_service: FileService = Depends(get_file_service),
+):
+    """获取对话关联的所有文件"""
+    files = await file_service.get_conversation_files_for_user(conversation_id, current_user.id)
+    if files is None:
+        raise ApiException.not_found("对话不存在或无权访问")
+    return success(data={"files": files}, request_id=request.state.request_id)
+
+
+@router.get("/{file_id}/status")
+def get_file_status(
+    file_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    file_service: FileService = Depends(get_file_service),
+):
+    """获取文件处理状态"""
+    file = file_service.get_file_status(file_id, user_id=current_user.id)
+    if not file:
+        raise ApiException.not_found("文件不存在或无权访问")
+    return success(data=file, request_id=request.state.request_id)
+
+
+@router.delete("/{file_id}")
+async def delete_file(
+    file_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    file_service: FileService = Depends(get_file_service),
+):
+    """删除文件"""
+    result = await file_service.delete_file(file_id, user_id=current_user.id)
+    if not result:
+        raise ApiException.not_found("文件不存在或删除失败")
+    return success(message="文件已删除", request_id=request.state.request_id)

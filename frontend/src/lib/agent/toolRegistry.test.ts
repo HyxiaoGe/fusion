@@ -1,0 +1,74 @@
+import { describe, it, expect } from 'vitest';
+import { TOOL_REGISTRY, getToolMeta } from './toolRegistry';
+
+describe('toolRegistry', () => {
+  it('包含 web_search 的元数据', () => {
+    expect(TOOL_REGISTRY.web_search).toBeDefined();
+    expect(TOOL_REGISTRY.web_search.label).toBe('搜索');
+  });
+
+  it('包含 url_read 的元数据', () => {
+    expect(TOOL_REGISTRY.url_read).toBeDefined();
+    expect(TOOL_REGISTRY.url_read.label).toBe('读取');
+  });
+
+  it('summarize web_search 提取 query', () => {
+    const summary = TOOL_REGISTRY.web_search.summarize({ query: 'GPT 5.5 评测' });
+    expect(summary).toBe('GPT 5.5 评测');
+  });
+
+  it('summarize url_read 提取 url', () => {
+    const summary = TOOL_REGISTRY.url_read.summarize({ url: 'https://example.com' });
+    expect(summary).toBe('https://example.com');
+  });
+
+  it('包含地点搜索与路线比较的稳定产品工具元数据', () => {
+    expect(TOOL_REGISTRY.local_place_search).toMatchObject({
+      label: '搜索附近地点',
+      color: 'teal',
+    });
+    expect(TOOL_REGISTRY.route_compare).toMatchObject({
+      label: '比较路线',
+      color: 'info',
+    });
+
+    expect(TOOL_REGISTRY.local_place_search.summarize({
+      query: '烤肉',
+      location: '深圳民治',
+    })).toBe('深圳民治 · 烤肉');
+    expect(TOOL_REGISTRY.route_compare.summarize({
+      origin: '民治地铁站',
+      destination: '星河 WORLD',
+    })).toBe('民治地铁站 → 星河 WORLD');
+  });
+
+  it('包含航班与高铁查询的稳定产品工具元数据', () => {
+    expect(TOOL_REGISTRY.search_flights).toMatchObject({ label: '查询航班', color: 'info' });
+    expect(TOOL_REGISTRY.search_trains).toMatchObject({ label: '查询高铁', color: 'teal' });
+    expect(TOOL_REGISTRY.search_flights.summarize({
+      origin: '深圳', destination: '上海', departure_date: '2026-08-01',
+    })).toBe('深圳 → 上海 · 2026-08-01');
+    expect(TOOL_REGISTRY.search_trains.summarize({
+      origin: '深圳北', destination: '广州南', departure_date: '2026-08-01',
+    })).toBe('深圳北 → 广州南 · 2026-08-01');
+  });
+
+  it('天气摘要只展示完整 location，旧事件仅在缺少 location 时回退 city', () => {
+    expect(TOOL_REGISTRY.weather_forecast.summarize({
+      location: '深圳市南山区',
+      location_source: 'named',
+      city: '不应展示的旧参数',
+    })).toBe('深圳市南山区');
+    expect(TOOL_REGISTRY.weather_forecast.summarize({
+      city: '深圳市',
+    })).toBe('深圳市');
+  });
+
+  it('getToolMeta 未知工具返回兜底元数据', () => {
+    const meta = getToolMeta('mcp__learn__microsoft_docs_search');
+    expect(meta.label).toBe('外部工具');
+    expect(meta.label).not.toContain('mcp__');
+    expect(meta.color).toBe('neutral');
+    expect(meta.summarize({})).toBe('');
+  });
+});

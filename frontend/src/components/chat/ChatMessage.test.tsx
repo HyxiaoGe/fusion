@@ -1,0 +1,863 @@
+import React from 'react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AgentRunState } from '@/types/agentRun';
+import trajectoryReducer, {
+  trajectoryRunListReceived,
+  trajectoryRunListRequested,
+} from '@/redux/slices/trajectorySlice';
+
+const dispatchMock = vi.fn();
+const toastMock = vi.fn();
+const initialScrollIntoView = Element.prototype.scrollIntoView;
+let originalScrollIntoView: typeof Element.prototype.scrollIntoView | undefined;
+const selectorState = {
+  trajectory: trajectoryReducer(undefined, { type: 'test/init' }),
+  conversation: {
+    byId: {
+      'chat-1': { id: 'chat-1', model_id: 'model-1', messages: [] },
+    },
+    animatingTitleId: null,
+  },
+  stream: {
+    conversationId: 'chat-1',
+    messageId: null as string | null,
+    staticBlocks: [],
+    textBlocks: {} as Record<string, string>,
+    thinkingBlocks: {} as Record<string, string>,
+    blockOrder: [] as string[],
+    blockTypes: {} as Record<string, 'text' | 'thinking'>,
+    totalTextLength: 0,
+    displayedTextLength: 0,
+    isStreamingReasoning: false,
+    isThinkingPhaseComplete: false,
+    reasoningStartTime: null,
+    reasoningEndTime: null,
+    // Task 13b cut over：streamSlice 用 currentRun + searchSources 替换旧扁平字段
+    currentRun: null as AgentRunState | null,
+    searchSources: [] as unknown[],
+  },
+  settings: {},
+  auth: {
+    isAuthenticated: false,
+    user: null,
+  },
+  models: {
+    models: [{ id: 'model-1', provider: 'qwen', name: 'Qwen Max' }],
+  },
+};
+
+function resetSelectorState() {
+  selectorState.trajectory = trajectoryReducer(undefined, { type: 'test/init' });
+  Object.assign(selectorState.conversation, {
+    byId: {
+      'chat-1': { id: 'chat-1', model_id: 'model-1', messages: [] },
+    },
+    animatingTitleId: null,
+  });
+  Object.assign(selectorState.stream, {
+    conversationId: 'chat-1',
+    messageId: null,
+    staticBlocks: [],
+    textBlocks: {},
+    thinkingBlocks: {},
+    blockOrder: [],
+    blockTypes: {},
+    totalTextLength: 0,
+    displayedTextLength: 0,
+    isStreamingReasoning: false,
+    isThinkingPhaseComplete: false,
+    reasoningStartTime: null,
+    reasoningEndTime: null,
+    currentRun: null,
+    searchSources: [],
+  });
+  Object.assign(selectorState.auth, {
+    isAuthenticated: false,
+    user: null,
+  });
+  selectorState.models.models = [{ id: 'model-1', provider: 'qwen', name: 'Qwen Max' }];
+}
+
+vi.mock('@/redux/hooks', () => ({
+  useAppDispatch: () => dispatchMock,
+  useAppSelector: (selector: (state: typeof selectorState) => unknown) => selector(selectorState),
+}));
+
+vi.mock('@/lib/db/chatStore', () => ({
+  chatStore: { upsertMessage: vi.fn() },
+}));
+
+vi.mock('@/components/ui/toast', () => ({
+  useToast: () => ({ toast: toastMock }),
+}));
+
+vi.mock('./ReasoningContent', () => ({
+  default: ({ content }: { content: string }) => (
+    <div data-testid="reasoning-content">{content}</div>
+  ),
+}));
+
+vi.mock('./SuggestedQuestions', () => ({
+  default: () => null,
+}));
+
+vi.mock('./CodeBlock', () => ({
+  default: ({ value }: { value: string }) => <pre>{value}</pre>,
+}));
+
+vi.mock('./FileCard', () => ({
+  default: () => null,
+}));
+
+vi.mock('./SourcesPanel', () => ({
+  default: () => <div data-testid="old-sources-panel">旧来源入口</div>,
+}));
+
+vi.mock('./UrlCard', () => ({
+  default: () => <div data-testid="old-url-card">旧 URL 卡片</div>,
+}));
+
+vi.mock('../models/ProviderIcon', () => ({
+  default: () => <span>icon</span>,
+}));
+
+import ChatMessage from './ChatMessage';
+
+describe('ChatMessage', () => {
+  it('历史消息没有步骤时间时，从所属会话的精确 Run 摘要显示耗时', () => {
+    for (const [conversationId, duration] of [['chat-1', 19038], ['chat-2', 80000]] as const) {
+      selectorState.trajectory = trajectoryReducer(selectorState.trajectory, trajectoryRunListRequested({
+        conversationId,
+        requestId: conversationId,
+      }));
+      selectorState.trajectory = trajectoryReducer(selectorState.trajectory, trajectoryRunListReceived({
+        conversationId,
+        requestId: conversationId,
+        response: {
+          truncated: false,
+          items: [{
+            run_id: 'run-timing',
+            message_id: 'assistant-timing',
+            turn_message_id: 'user-timing',
+            attempt_index: 1,
+            status: 'completed',
+            trajectory_status: 'complete',
+            total_steps: 4,
+            total_tool_calls: 2,
+            duration_ms: duration,
+            started_at: '2026-08-26T02:27:58.000Z',
+            ended_at: '2026-08-26T02:28:17.038Z',
+            llm_detail_schema_version: 1,
+            llm_round_count: 4,
+          }],
+        },
+      }));
+    }
+
+    render(
+      <ChatMessage
+        message={{
+          id: 'assistant-timing',
+          role: 'assistant',
+          content: [{ type: 'text', id: 'answer', text: '历史回答' }],
+          timestamp: 1,
+          chatId: 'chat-1',
+        }}
+        agentRun={{
+          runId: 'run-timing',
+          messageId: 'assistant-timing',
+          status: 'completed',
+          config: { maxSteps: 8, maxToolCalls: 16, timeoutS: 300 },
+          totalSteps: 4,
+          totalToolCalls: 2,
+          steps: [],
+          lastSequence: 58,
+        }}
+        trajectoryStatus="complete"
+      />,
+    );
+
+    expect(within(screen.getByRole('group', { name: 'Agent 运行状态' })).getByText('耗时 19.04 秒')).toBeInTheDocument();
+  });
+
+  it('为消息提供稳定 DOM 锚点，并从 Agent 状态行发起 inspect', () => {
+    const onInspectTrajectory = vi.fn();
+    const message = {
+      id: 'assistant-inspect',
+      role: 'assistant' as const,
+      content: [{ type: 'text' as const, id: 'answer', text: '回答' }],
+      timestamp: 1,
+      chatId: 'chat-1',
+    };
+    const run: AgentRunState = {
+      runId: 'run-inspect',
+      messageId: message.id,
+      status: 'completed',
+      config: { maxSteps: 8, maxToolCalls: 16, timeoutS: 300 },
+      totalSteps: 0,
+      totalToolCalls: 0,
+      steps: [],
+      lastSequence: 2,
+    };
+
+    render(
+      <ChatMessage
+        message={message}
+        agentRun={run}
+        trajectoryStatus="summary-only"
+        onInspectTrajectory={onInspectTrajectory}
+      />,
+    );
+
+    const anchor = document.getElementById('chat-message-assistant-inspect');
+    expect(anchor).toHaveAttribute('data-chat-message-id', 'assistant-inspect');
+    expect(anchor).toHaveAttribute('tabindex', '-1');
+
+    fireEvent.click(screen.getByRole('button', { name: '查看轨迹' }));
+    expect(onInspectTrajectory).toHaveBeenCalledWith('assistant-inspect', 'run-inspect');
+  });
+
+  it('助手消息在宽屏限制结构化结果最大宽度，不再按视口百分比无限拉伸', () => {
+    const { container } = render(
+      <ChatMessage
+        message={{
+          id: 'assistant-width',
+          role: 'assistant',
+          content: [{ type: 'text', id: 'answer', text: '回答' }],
+          timestamp: 1,
+          chatId: 'chat-1',
+        }}
+      />,
+    );
+
+    const assistantColumn = container.querySelector('.max-w-\\[96rem\\]');
+    expect(assistantColumn).toBeInTheDocument();
+    expect(assistantColumn).not.toHaveClass('max-w-[85%]');
+  });
+
+  beforeEach(() => {
+    resetSelectorState();
+    vi.useFakeTimers();
+    toastMock.mockReset();
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+    originalScrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = vi.fn();
+    Object.defineProperty(window, 'isSecureContext', { value: true, writable: true, configurable: true });
+  });
+
+  afterEach(() => {
+    vi.runOnlyPendingTimers();
+    if (originalScrollIntoView) {
+      Element.prototype.scrollIntoView = originalScrollIntoView;
+    } else {
+      delete (Element.prototype as Partial<Pick<Element, 'scrollIntoView'>>).scrollIntoView;
+    }
+    originalScrollIntoView = undefined;
+    vi.useRealTimers();
+  });
+
+  it('shows a copied label briefly after copying assistant content', async () => {
+    render(
+      <ChatMessage
+        message={{
+          id: 'assistant-1',
+          role: 'assistant',
+          content: [{ type: 'text' as const, id: 'blk_test', text: '复制这条消息' }],
+          timestamp: 1,
+        }}
+      />,
+    );
+
+    const copyButton = screen.getByRole('button', { name: '复制' });
+    fireEvent.click(copyButton);
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('复制这条消息');
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // After successful copy, the icon changes to a check mark
+    expect(copyButton.querySelector('.lucide-check')).toBeTruthy();
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    // After timeout, the icon reverts to copy
+    expect(copyButton.querySelector('.lucide-copy')).toBeTruthy();
+  });
+
+  it('surfaces a toast instead of throwing when clipboard copy fails', async () => {
+    vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('blocked'));
+
+    render(
+      <ChatMessage
+        message={{
+          id: 'assistant-1',
+          role: 'assistant',
+          content: [{ type: 'text' as const, id: 'blk_test', text: '复制失败测试' }],
+          timestamp: 1,
+        }}
+      />,
+    );
+
+    const copyButton = screen.getByRole('button', { name: '复制' });
+    fireEvent.click(copyButton);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(toastMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: '复制失败，请重试',
+        type: 'error',
+      }),
+    );
+  });
+
+  it('renders streaming assistant content from stream state instead of persisted message content', () => {
+    selectorState.stream.messageId = 'assistant-1';
+    selectorState.stream.textBlocks = { 'blk_s1': '流式正文' };
+    selectorState.stream.thinkingBlocks = {};
+    selectorState.stream.blockOrder = ['blk_s1'];
+    selectorState.stream.blockTypes = { 'blk_s1': 'text' };
+    selectorState.stream.totalTextLength = 4;
+    selectorState.stream.displayedTextLength = 4;
+
+    render(
+      <ChatMessage
+        message={{
+          id: 'assistant-1',
+          role: 'assistant',
+          content: [],
+          timestamp: 1,
+          chatId: 'chat-1',
+        }}
+        isStreaming
+        isLastMessage
+      />,
+    );
+
+    expect(screen.getByText('流式正文')).toBeTruthy();
+
+    // Reset stream state
+    selectorState.stream.messageId = null;
+    selectorState.stream.textBlocks = {};
+    selectorState.stream.thinkingBlocks = {};
+    selectorState.stream.blockOrder = [];
+    selectorState.stream.blockTypes = {};
+    selectorState.stream.totalTextLength = 0;
+    selectorState.stream.displayedTextLength = 0;
+  });
+
+  it('does not render search UI when thinking only mentions search', () => {
+    selectorState.stream.messageId = 'assistant-1';
+    selectorState.stream.textBlocks = {};
+    selectorState.stream.thinkingBlocks = { 'blk_t1': '让我搜索一下，但没有真实工具调用。' };
+    selectorState.stream.blockOrder = ['blk_t1'];
+    selectorState.stream.blockTypes = { 'blk_t1': 'thinking' };
+    selectorState.stream.currentRun = null;
+
+    render(
+      <ChatMessage
+        message={{
+          id: 'assistant-1',
+          role: 'assistant',
+          content: [],
+          timestamp: 1,
+          chatId: 'chat-1',
+        }}
+        isStreaming
+        isLastMessage
+      />,
+    );
+
+    expect(screen.queryByText(/正在搜索/)).toBeNull();
+    expect(screen.queryByText(/回答依据/)).toBeNull();
+
+    selectorState.stream.messageId = null;
+    selectorState.stream.thinkingBlocks = {};
+    selectorState.stream.blockOrder = [];
+    selectorState.stream.blockTypes = {};
+  });
+
+  it('renders real running web_search as the main activity', () => {
+    selectorState.stream.messageId = 'assistant-1';
+    selectorState.stream.textBlocks = {};
+    selectorState.stream.thinkingBlocks = { 'blk_t1': '准备调用搜索。' };
+    selectorState.stream.blockOrder = ['blk_t1'];
+    selectorState.stream.blockTypes = { 'blk_t1': 'thinking' };
+    selectorState.stream.currentRun = {
+      runId: 'run-1',
+      messageId: 'assistant-1',
+      status: 'running',
+      config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300 },
+      totalSteps: 1,
+      totalToolCalls: 1,
+      lastSequence: 2,
+      steps: [
+        {
+          stepId: 'step-1',
+          stepNumber: 1,
+          status: 'running',
+          startedAt: 1,
+          contentBlockIds: [],
+          toolCalls: [
+            {
+              toolCallId: 'tool-1',
+              toolName: 'web_search',
+              arguments: { query: 'AI 异常检测' },
+              status: 'running',
+              startedAt: 1,
+            },
+          ],
+        },
+      ],
+    };
+
+    render(
+      <ChatMessage
+        message={{
+          id: 'assistant-1',
+          role: 'assistant',
+          content: [],
+          timestamp: 1,
+          chatId: 'chat-1',
+        }}
+        isStreaming
+        isLastMessage
+      />,
+    );
+
+    expect(screen.getByText('正在搜索：AI 异常检测')).toBeTruthy();
+    expect(screen.queryByTestId('reasoning-content')).toBeNull();
+
+    selectorState.stream.messageId = null;
+    selectorState.stream.thinkingBlocks = {};
+    selectorState.stream.blockOrder = [];
+    selectorState.stream.blockTypes = {};
+    selectorState.stream.currentRun = null;
+  });
+
+  it('刷新后的历史工具回答不重新展示思考过程', () => {
+    render(
+      <ChatMessage
+        message={{
+          id: 'assistant-history',
+          role: 'assistant',
+          content: [
+            { type: 'thinking', id: 'think-history', thinking: '正在综合工具结果。' },
+            { type: 'text', id: 'text-history', text: '历史回答。' },
+          ],
+          timestamp: 1,
+          chatId: 'chat-1',
+        }}
+        agentRun={{
+          runId: 'run-history',
+          messageId: 'assistant-history',
+          status: 'completed',
+          config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300 },
+          totalSteps: 1,
+          totalToolCalls: 1,
+          steps: [],
+          lastSequence: Number.MAX_SAFE_INTEGER,
+        }}
+      />,
+    );
+
+    expect(screen.getByText('历史回答。')).toBeTruthy();
+    expect(screen.queryByTestId('reasoning-content')).toBeNull();
+  });
+
+  it('renders degraded web_search notice without rendering an empty sources panel', () => {
+    const agentRun = {
+      runId: 'run-1',
+      messageId: 'assistant-1',
+      status: 'completed',
+      config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300 },
+      totalSteps: 1,
+      totalToolCalls: 1,
+      lastSequence: 3,
+      steps: [
+        {
+          stepId: 'step-1',
+          stepNumber: 1,
+          status: 'completed',
+          startedAt: 1,
+          completedAt: 2,
+          contentBlockIds: [],
+          toolCalls: [
+            {
+              toolCallId: 'tool-1',
+              toolName: 'web_search',
+              arguments: { query: 'AI 新闻' },
+              status: 'degraded',
+              error: 'timeout',
+              startedAt: 1,
+              completedAt: 2,
+            },
+          ],
+        },
+      ],
+    } as AgentRunState;
+
+    render(
+      <ChatMessage
+        message={{
+          id: 'assistant-1',
+          role: 'assistant',
+          content: [{ type: 'text', id: 'text-1', text: '基于已有信息回答。' }],
+          timestamp: 1,
+          chatId: 'chat-1',
+        }}
+        agentRun={agentRun}
+      />,
+    );
+
+    const degradedNotice = screen.getByText('已基于可用信息回答').closest('[role="status"]');
+    expect(degradedNotice).toHaveTextContent('部分搜索结果未能使用');
+    expect(degradedNotice).toHaveTextContent('已基于可用信息回答');
+    expect(screen.queryByText(/参考 \d+ 篇资料/)).toBeNull();
+
+  });
+
+  it('ignores activity issues from a run owned by another assistant message', () => {
+    selectorState.stream.currentRun = {
+      runId: 'run-1',
+      messageId: 'assistant-other',
+      status: 'completed',
+      config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300 },
+      totalSteps: 1,
+      totalToolCalls: 1,
+      lastSequence: 3,
+      steps: [
+        {
+          stepId: 'step-1',
+          stepNumber: 1,
+          status: 'completed',
+          startedAt: 1,
+          completedAt: 2,
+          contentBlockIds: [],
+          toolCalls: [
+            {
+              toolCallId: 'tool-1',
+              toolName: 'web_search',
+              arguments: { query: 'AI 新闻' },
+              status: 'degraded',
+              error: 'timeout',
+              startedAt: 1,
+              completedAt: 2,
+            },
+          ],
+        },
+      ],
+    };
+
+    const { rerender } = render(
+      <ChatMessage
+        message={{
+          id: 'assistant-1',
+          role: 'assistant',
+          content: [{ type: 'text', id: 'text-1', text: '这条消息正常回答。' }],
+          timestamp: 1,
+          chatId: 'chat-1',
+        }}
+      />,
+    );
+
+    expect(screen.queryByText('搜索暂不可用')).toBeNull();
+    expect(screen.queryByText('已基于现有信息回答')).toBeNull();
+
+    selectorState.stream.currentRun = {
+      runId: 'run-2',
+      messageId: 'assistant-other',
+      status: 'failed',
+      config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300 },
+      totalSteps: 0,
+      totalToolCalls: 0,
+      lastSequence: 1,
+      steps: [],
+      failure: { code: 'provider_error', message: 'failed' },
+    };
+
+    rerender(
+      <ChatMessage
+        message={{
+          id: 'assistant-1',
+          role: 'assistant',
+          content: [{ type: 'text', id: 'text-1', text: '这条消息正常回答。' }],
+          timestamp: 1,
+          chatId: 'chat-1',
+        }}
+      />,
+    );
+
+    expect(screen.queryByText('生成失败，请重试')).toBeNull();
+  });
+
+  it('通过 AnswerEvidence 展示搜索结果，不再渲染旧来源面板和底部参考入口', () => {
+    render(
+      <ChatMessage
+        message={{
+          id: 'assistant-1',
+          role: 'assistant',
+          content: [
+            {
+              type: 'search',
+              id: 'search-1',
+              query: 'AI standards governance',
+              sources: [
+                {
+                  title: 'Global AI Standards Forum G7 functions governance',
+                  url: 'https://standards.example.com/g7-governance',
+                },
+              ],
+            },
+            { type: 'text', id: 'text-1', text: '这是联网回答。[1]' },
+          ],
+          timestamp: 1,
+          chatId: 'chat-1',
+        }}
+      />,
+    );
+
+    expect(screen.getByText('回答依据 · 搜索候选 1 条')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '查看来源：Global AI Standards Forum G7 functions governance' })).toBeInTheDocument();
+    expect(screen.queryByTestId('old-sources-panel')).toBeNull();
+    expect(screen.queryByText(/参考 \d+ 篇资料/)).toBeNull();
+  });
+
+  it('通过 AnswerEvidence 展示 URL 读取结果，不再渲染旧 URL 卡片', () => {
+    render(
+      <ChatMessage
+        message={{
+          id: 'assistant-1',
+          role: 'assistant',
+          content: [
+            {
+              type: 'url_read',
+              id: 'url-1',
+              title: 'Example Article',
+              url: 'https://example.com/article',
+            },
+            { type: 'text', id: 'text-1', text: '已读取网页后回答。' },
+          ],
+          timestamp: 1,
+          chatId: 'chat-1',
+        }}
+      />,
+    );
+
+    expect(screen.getByText('回答依据 · 深读 1 个网页')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '打开网页：Example Article' })).toHaveAttribute('href', 'https://example.com/article');
+    expect(screen.queryByTestId('old-url-card')).toBeNull();
+  });
+
+  it('URL-only 回答通过真实回答依据入口打开统一侧栏', () => {
+    render(
+      <ChatMessage
+        message={{
+          id: 'assistant-1',
+          role: 'assistant',
+          content: [
+            {
+              type: 'url_read',
+              id: 'url-1',
+              title: 'URL Only Article',
+              url: 'https://example.com/url-only',
+            },
+            { type: 'text', id: 'text-1', text: '基于网页回答。' },
+          ],
+          timestamp: 1,
+          chatId: 'chat-1',
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '查看全部依据' }));
+
+    expect(screen.getByRole('dialog', { name: '回答依据' })).toBeInTheDocument();
+    expect(screen.getAllByText('URL Only Article').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('只有异常来源时通过真实回答依据入口打开统一侧栏查看原因', () => {
+    render(
+      <ChatMessage
+        message={{
+          id: 'assistant-1',
+          role: 'assistant',
+          content: [
+            {
+              type: 'url_read',
+              id: 'url-failed',
+              title: '读取失败页面',
+              url: 'https://failed.example.com/article',
+              status: 'failed',
+              error_message: 'reader-service 读取超时，已降级跳过',
+            },
+            { type: 'text', id: 'text-1', text: '部分来源不可用。' },
+          ],
+          timestamp: 1,
+          chatId: 'chat-1',
+        }}
+      />,
+    );
+
+    expect(screen.getByText('回答依据 · 1 个未使用')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '查看全部依据' }));
+
+    expect(screen.getByRole('dialog', { name: '回答依据' })).toBeInTheDocument();
+    expect(screen.getByText('读取失败页面')).toBeInTheDocument();
+    expect(screen.getByText('网页暂时无法读取')).toBeInTheDocument();
+    expect(screen.queryByText(/reader-service/)).not.toBeInTheDocument();
+  });
+
+  it('assistant 回复通过 AssistantResponseStack 渲染正文和辅助层', () => {
+    render(
+      <ChatMessage
+        message={{
+          id: 'assistant-1',
+          role: 'assistant',
+          content: [
+            {
+              type: 'search',
+              id: 'search-1',
+              query: 'AI standards source',
+              sources: [
+                {
+                  title: 'AI Standards Source',
+                  url: 'https://standards.example.com/source',
+                },
+              ],
+            },
+            {
+              type: 'url_read',
+              id: 'url-1',
+              title: 'AI Standards Report',
+              url: 'https://standards.example.com/report',
+            },
+            { type: 'text', id: 'text-1', text: 'AI 标准需要透明的评估流程。[1]' },
+          ],
+          timestamp: 1,
+          chatId: 'chat-1',
+        }}
+      />,
+    );
+
+    const stack = screen.getByTestId('assistant-response-stack');
+
+    expect(stack).toBeInTheDocument();
+    expect(within(stack).getByText('AI 标准需要透明的评估流程。')).toBeInTheDocument();
+    expect(within(stack).getByText('回答依据 · 搜索候选 1 条 · 深读 1 个网页')).toBeInTheDocument();
+    expect(within(stack).getByRole('button', { name: '查看参考资料 1：AI Standards Source' })).toBeInTheDocument();
+  });
+
+  it('正文 Markdown 引用仍能打开来源侧栏', () => {
+    render(
+      <ChatMessage
+        message={{
+          id: 'assistant-1',
+          role: 'assistant',
+          content: [
+            {
+              type: 'search',
+              id: 'search-1',
+              query: 'AI standards source',
+              sources: [
+                {
+                  title: 'AI Standards Source',
+                  url: 'https://standards.example.com/source',
+                },
+              ],
+            },
+            { type: 'text', id: 'text-1', text: '引用来源[1]。' },
+          ],
+          timestamp: 1,
+          chatId: 'chat-1',
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '查看参考资料 1：AI Standards Source' }));
+
+    expect(screen.getByText('回答依据')).toBeInTheDocument();
+    expect(screen.getAllByText('AI Standards Source').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('混合搜索和多个 URL 读取结果时展示统一回答依据预览', () => {
+    render(
+      <ChatMessage
+        message={{
+          id: 'assistant-1',
+          role: 'assistant',
+          content: [
+            {
+              type: 'search',
+              id: 'search-1',
+              query: 'mixed evidence',
+              sources: [
+                {
+                  title: 'Mixed Search Source',
+                  url: 'https://search.example.com/mixed',
+                },
+              ],
+            },
+            { type: 'url_read', id: 'url-1', title: '网页 1', url: 'https://one.example.com' },
+            { type: 'url_read', id: 'url-2', title: '网页 2', url: 'https://two.example.com' },
+            { type: 'url_read', id: 'url-3', title: '网页 3', url: 'https://three.example.com' },
+            { type: 'url_read', id: 'url-4', title: '网页 4', url: 'https://four.example.com' },
+            { type: 'text', id: 'text-1', text: '混合依据回答。[1]' },
+          ],
+          timestamp: 1,
+          chatId: 'chat-1',
+        }}
+      />,
+    );
+
+    expect(screen.getByText('回答依据 · 搜索候选 1 条 · 深读 4 个网页')).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: /打开网页：/ })).toHaveLength(4);
+    expect(screen.queryByText('未预览 2 个网页')).toBeNull();
+    expect(screen.queryByRole('button', { name: '查看全部搜索来源' })).toBeNull();
+  });
+
+  it('keeps reasoning visible while streaming text answer', () => {
+    selectorState.stream.messageId = 'assistant-1';
+    selectorState.stream.textBlocks = { 'blk_s1': '正在输出正文' };
+    selectorState.stream.thinkingBlocks = { 'blk_t1': '先分析上下文' };
+    selectorState.stream.blockOrder = ['blk_t1', 'blk_s1'];
+    selectorState.stream.blockTypes = { 'blk_t1': 'thinking', 'blk_s1': 'text' };
+    selectorState.stream.totalTextLength = 6;
+    selectorState.stream.displayedTextLength = 6;
+
+    render(
+      <ChatMessage
+        message={{
+          id: 'assistant-1',
+          role: 'assistant',
+          content: [],
+          timestamp: 1,
+          chatId: 'chat-1',
+        }}
+        isStreaming
+        isLastMessage
+      />,
+    );
+
+    expect(screen.getByTestId('reasoning-content')).toHaveTextContent('先分析上下文');
+    expect(screen.getByText('正在输出正文')).toBeTruthy();
+  });
+});
+
+describe('ChatMessage 测试环境', () => {
+  it('不会把 scrollIntoView 测试桩泄漏给后续测试', () => {
+    expect(Element.prototype.scrollIntoView).toBe(initialScrollIntoView);
+  });
+});

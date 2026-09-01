@@ -1,0 +1,3104 @@
+import React from 'react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { hydrateRoot } from 'react-dom/client';
+import { renderToString } from 'react-dom/server';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { CONTEXT_STATUS_DEFAULT_OPEN_STORAGE_KEY } from './ContextStatus';
+
+const {
+  currentState,
+  dispatchMock,
+  useAppDispatchMock,
+  useAppSelectorMock,
+  reactReduxUseSelectorMock,
+  storeDispatchMock,
+  toastMock,
+  triggerLoginDialogMock,
+  uploadFilesMock,
+  deleteFileMock,
+  startPollingFileStatusMock,
+  stopPollingFileStatusMock,
+  setReasoningEnabledMock,
+  setComposerAgentModeMock,
+  clearFilesMock,
+  addFileIdMock,
+  updateFileStatusMock,
+  uuidMock,
+  getChatCapabilitiesMock,
+  listKnowledgeBasesMock,
+} = vi.hoisted(() => {
+  const action = (type: string) => vi.fn((payload?: unknown) => ({ type, payload }));
+  let uuidCounter = 0;
+
+  return {
+    currentState: {
+      models: {
+        models: [],
+        providers: [],
+        selectedModelId: null,
+        isLoading: false,
+        loadStatus: 'ready',
+      },
+      conversation: {
+        reasoningEnabled: false,
+        composerAgentMode: 'auto',
+        byId: {},
+        hydrationStatus: {},
+      },
+      stream: {
+        isStreaming: false,
+        conversationId: null,
+        currentRun: null,
+        contextUsage: null,
+        contextUsageMeta: null,
+        contextUsageConversationId: null,
+        contextUsageInFlight: null,
+        contextUsageInFlightMeta: null,
+        contextUsageInFlightConversationId: null,
+      },
+      fileUpload: {
+        files: {},
+        fileIds: {},
+        processingFiles: {},
+        isUploading: false,
+        uploadProgress: 0,
+      },
+      auth: {
+        isAuthenticated: false,
+      },
+      theme: {
+        mode: 'light',
+      },
+    } as any,
+    dispatchMock: vi.fn(),
+    useAppDispatchMock: vi.fn(),
+    useAppSelectorMock: vi.fn(),
+    reactReduxUseSelectorMock: vi.fn(),
+    storeDispatchMock: vi.fn(),
+    toastMock: vi.fn(),
+    triggerLoginDialogMock: vi.fn(),
+    uploadFilesMock: vi.fn(),
+    deleteFileMock: vi.fn(() => Promise.resolve()),
+    startPollingFileStatusMock: vi.fn(),
+    stopPollingFileStatusMock: vi.fn(),
+    setReasoningEnabledMock: action('conversation/setReasoningEnabled'),
+    setComposerAgentModeMock: action('conversation/setComposerAgentMode'),
+    clearFilesMock: action('fileUpload/clearFiles'),
+    addFileIdMock: action('fileUpload/addFileId'),
+    updateFileStatusMock: action('fileUpload/updateFileStatus'),
+    uuidMock: vi.fn(() => `uuid-${++uuidCounter}`),
+    getChatCapabilitiesMock: vi.fn(),
+    listKnowledgeBasesMock: vi.fn(),
+  };
+});
+
+vi.mock('@/redux/hooks', () => ({
+  useAppDispatch: useAppDispatchMock,
+  useAppSelector: useAppSelectorMock,
+}));
+
+vi.mock('react-redux', async () => {
+  const actual = await vi.importActual<typeof import('react-redux')>('react-redux');
+  return {
+    ...actual,
+    useSelector: reactReduxUseSelectorMock,
+    useStore: () => ({
+      dispatch: storeDispatchMock,
+      getState: () => currentState,
+    }),
+  };
+});
+
+vi.mock('@/components/ui/toast', () => ({
+  useToast: () => ({
+    toast: toastMock,
+  }),
+}));
+
+vi.mock('@/redux/slices/conversationSlice', () => ({
+  setReasoningEnabled: setReasoningEnabledMock,
+  setComposerAgentMode: setComposerAgentModeMock,
+}));
+
+vi.mock('@/redux/slices/fileUploadSlice', () => ({
+  clearFiles: clearFilesMock,
+  addFileId: addFileIdMock,
+  updateFileStatus: updateFileStatusMock,
+  makeSelectChatFileIds: () => (state: any, chatId: string) => state.fileUpload.fileIds[chatId] || [],
+  removeFileId: vi.fn((payload?: unknown) => ({ type: 'fileUpload/removeFileId', payload })),
+}));
+
+vi.mock('@/lib/api/files', () => ({
+  uploadFiles: uploadFilesMock,
+  deleteFile: deleteFileMock,
+}));
+
+vi.mock('@/lib/api/knowledgeBases', () => ({
+  listKnowledgeBases: listKnowledgeBasesMock,
+}));
+
+vi.mock('@/lib/api/chat', () => ({
+  getChatCapabilities: getChatCapabilitiesMock,
+}));
+
+vi.mock('@/lib/api/FileStatusPoller', () => ({
+  startPollingFileStatus: startPollingFileStatusMock,
+  stopPollingFileStatus: stopPollingFileStatusMock,
+}));
+
+vi.mock('@/lib/utils/fileHelpers', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/utils/fileHelpers')>('@/lib/utils/fileHelpers');
+  return {
+    ...actual,
+    createFileWithPreview: vi.fn((file: File) => ({
+      ...file,
+      preview: '',
+    })),
+  };
+});
+
+vi.mock('uuid', () => ({
+  v4: uuidMock,
+}));
+
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/',
+}));
+
+vi.mock('next/image', () => ({
+  default: function MockNextImage({ alt = '', ...props }: any) {
+    // 测试环境只需要普通 img 承载 next/image props
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img alt={alt} {...props} />;
+  },
+}));
+
+vi.mock('./FilePreviewList', () => ({
+  default: () => null,
+}));
+
+import ChatInput from './ChatInput';
+import { resetKnowledgeBaseCatalogResource } from '@/lib/chat/knowledgeBaseCatalogResource';
+
+beforeAll(() => {
+  // Radix DropdownMenu 依赖真实浏览器提供的指针与焦点 API。
+  // jsdom 缺少这些接口时菜单会在打开后立即卸载，测试应补齐环境而不是替换产品组件。
+  window.PointerEvent = MouseEvent as typeof PointerEvent;
+  HTMLElement.prototype.hasPointerCapture = () => false;
+  HTMLElement.prototype.setPointerCapture = () => {};
+  HTMLElement.prototype.releasePointerCapture = () => {};
+  HTMLElement.prototype.scrollIntoView = () => {};
+});
+
+function configureAuthenticatedVisionModel(userId = 'user-a') {
+  currentState.auth.isAuthenticated = true;
+  currentState.auth.user = { id: userId };
+  currentState.auth.token = `token-${userId}`;
+  currentState.models.selectedModelId = 'model-1';
+  currentState.models.models = [
+    {
+      id: 'model-1',
+      provider: 'qwen',
+      capabilities: {
+        vision: true,
+        deepThinking: true,
+        functionCalling: true,
+        searchCapable: true,
+        agentTools: true,
+      },
+    },
+  ];
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
+function createConversationBoundToSelectedModel(id: string) {
+  return {
+    id,
+    messages: [],
+    get model_id() {
+      return currentState.models.selectedModelId;
+    },
+  };
+}
+
+describe('ChatInput', () => {
+  beforeEach(() => {
+    resetKnowledgeBaseCatalogResource();
+    localStorage.clear();
+    sessionStorage.clear();
+    dispatchMock.mockReset();
+    useAppDispatchMock.mockReturnValue(dispatchMock);
+    useAppSelectorMock.mockImplementation(selector => selector(currentState));
+    reactReduxUseSelectorMock.mockImplementation(selector => selector(currentState));
+    storeDispatchMock.mockReset();
+    storeDispatchMock.mockImplementation((action: { type?: string; payload?: unknown }) => {
+      if (action.type === 'auth/logout') {
+        Object.assign(currentState.auth, { isAuthenticated: false, user: null, token: null });
+      } else if (action.type === 'auth/testSwitch') {
+        const userId = String(action.payload);
+        Object.assign(currentState.auth, {
+          isAuthenticated: true,
+          user: { id: userId },
+          token: `token-${userId}`,
+        });
+      }
+      return action;
+    });
+    toastMock.mockReset();
+    triggerLoginDialogMock.mockReset();
+    uploadFilesMock.mockReset();
+    deleteFileMock.mockClear();
+    startPollingFileStatusMock.mockReset();
+    stopPollingFileStatusMock.mockReset();
+    setReasoningEnabledMock.mockClear();
+    setComposerAgentModeMock.mockClear();
+    clearFilesMock.mockClear();
+    addFileIdMock.mockClear();
+    updateFileStatusMock.mockClear();
+    uuidMock.mockClear();
+    getChatCapabilitiesMock.mockReset();
+    getChatCapabilitiesMock.mockResolvedValue({
+      knowledge_grounding_v1: true,
+      knowledge_grounding_max_bases: 5,
+    });
+    listKnowledgeBasesMock.mockReset();
+    listKnowledgeBasesMock.mockResolvedValue({
+      items: [],
+      page: 1,
+      page_size: 100,
+      total: 0,
+      total_pages: 1,
+      has_next: false,
+      has_prev: false,
+    });
+    currentState.models.models = [];
+    currentState.models.providers = [];
+    currentState.models.selectedModelId = null;
+    currentState.models.isLoading = false;
+    currentState.models.loadStatus = 'ready';
+    currentState.conversation.reasoningEnabled = false;
+    currentState.conversation.composerAgentMode = 'auto';
+    currentState.conversation.byId = {
+      'chat-1': createConversationBoundToSelectedModel('chat-1'),
+      'chat-a': createConversationBoundToSelectedModel('chat-a'),
+    };
+    currentState.conversation.hydrationStatus = {
+      'chat-1': 'done',
+      'chat-a': 'done',
+    };
+    currentState.stream.isStreaming = false;
+    currentState.stream.conversationId = null;
+    currentState.stream.currentRun = null;
+    currentState.stream.contextUsage = null;
+    currentState.stream.contextUsageMeta = null;
+    currentState.stream.contextUsageConversationId = null;
+    currentState.stream.contextUsageInFlight = null;
+    currentState.stream.contextUsageInFlightMeta = null;
+    currentState.stream.contextUsageInFlightConversationId = null;
+    currentState.fileUpload.files = {};
+    currentState.fileUpload.fileIds = {};
+    currentState.fileUpload.processingFiles = {};
+    currentState.fileUpload.isUploading = false;
+    currentState.fileUpload.uploadProgress = 0;
+    currentState.auth.isAuthenticated = false;
+    currentState.auth.user = null;
+    currentState.auth.token = null;
+    Object.defineProperty(URL, 'createObjectURL', {
+      writable: true,
+      value: vi.fn(() => 'blob:preview'),
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      writable: true,
+      value: vi.fn(),
+    });
+    vi.stubGlobal('triggerLoginDialog', triggerLoginDialogMock);
+  });
+
+  it('blocks image upload button for unauthenticated users', () => {
+    // 即使有可用模型，未登录用户点击上传按钮也应当被拦截并提示登录
+    currentState.models.selectedModelId = 'model-1';
+    currentState.models.models = [
+      {
+        id: 'model-1',
+        provider: 'qwen',
+        capabilities: { vision: true, deepThinking: true },
+      },
+    ];
+
+    render(<ChatInput onSendMessage={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText('上传图片'));
+
+    expect(toastMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: '请先登录后再上传图片',
+        type: 'warning',
+      })
+    );
+    expect(triggerLoginDialogMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('在整个输入卡片上方右对齐展示当前会话上下文，不挤压模型选择器', () => {
+    configureAuthenticatedVisionModel();
+    currentState.conversation.byId = {
+      'chat-a': {
+        id: 'chat-a',
+        messages: [{
+          id: 'assistant-a',
+          role: 'assistant',
+          content: [],
+          usage: {
+            input_tokens: 400,
+            output_tokens: 1,
+            context: { status: 'no_op', window_tokens: 1000, actual_prompt_tokens: 400 },
+          },
+        }],
+      },
+      'chat-b': {
+        id: 'chat-b',
+        messages: [{
+          id: 'assistant-b',
+          role: 'assistant',
+          content: [],
+          usage: {
+            input_tokens: 1500,
+            output_tokens: 1,
+            context: { status: 'no_op', window_tokens: 2000, actual_prompt_tokens: 1500 },
+          },
+        }],
+      },
+    };
+    currentState.stream.conversationId = 'chat-a';
+    currentState.stream.isStreaming = true;
+    currentState.stream.contextUsage = {
+      status: 'no_op',
+      window_tokens: 1000,
+      actual_prompt_tokens: 500,
+    };
+    currentState.stream.contextUsageConversationId = 'chat-a';
+    currentState.stream.contextUsageMeta = {
+      runId: 'run-a', messageId: 'assistant-a', sequence: 2, phase: 'final', roundIndex: 1,
+    };
+    currentState.stream.contextUsageInFlight = currentState.stream.contextUsage;
+    currentState.stream.contextUsageInFlightConversationId = 'chat-a';
+    currentState.stream.contextUsageInFlightMeta = currentState.stream.contextUsageMeta;
+
+    const { rerender } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
+    const statusRow = screen.getByTestId('context-status-row');
+    const inputCard = screen.getByRole('group', { name: '消息输入区' });
+    const toolbar = screen.getByRole('toolbar', { name: '消息工具栏' });
+    expect(statusRow).toHaveClass('justify-end');
+    expect(statusRow.nextElementSibling).toBe(inputCard);
+    expect(within(statusRow).getByRole('button', { name: /50%/ })).toBeInTheDocument();
+    expect(within(inputCard).queryByTestId('context-status-trigger')).toBeNull();
+    expect(within(toolbar).queryByTestId('context-status-trigger')).toBeNull();
+
+    rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-b" />);
+    expect(within(screen.getByTestId('context-status-row')).getByRole('button', { name: /25%/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /50%/ })).toBeNull();
+  });
+
+  it('轨迹视图隐藏上下文入口和已打开弹层，往返不丢失输入草稿', async () => {
+    configureAuthenticatedVisionModel();
+    const onSendMessage = vi.fn();
+    const view = render(<ChatInput onSendMessage={onSendMessage} activeChatId="chat-a" />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '保留这段草稿' } });
+    fireEvent.click(screen.getByTestId('context-status-trigger'));
+    expect(screen.getByRole('dialog', { name: '上下文状态' })).toBeInTheDocument();
+
+    view.rerender(<ChatInput onSendMessage={onSendMessage} activeChatId="chat-a" showContextStatus={false} />);
+    expect(screen.queryByTestId('context-status-row')).toBeNull();
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '上下文状态' })).toBeNull());
+    expect(screen.getByRole('textbox')).toHaveValue('保留这段草稿');
+
+    view.rerender(<ChatInput onSendMessage={onSendMessage} activeChatId="chat-a" showContextStatus />);
+    expect(screen.getByTestId('context-status-trigger')).toBeInTheDocument();
+    expect(screen.getByRole('textbox')).toHaveValue('保留这段草稿');
+  });
+
+  it('轨迹视图不因聊天自动展开偏好而出现上下文弹层', () => {
+    configureAuthenticatedVisionModel();
+    localStorage.setItem(CONTEXT_STATUS_DEFAULT_OPEN_STORAGE_KEY, 'true');
+    render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" showContextStatus={false} />);
+    expect(screen.queryByTestId('context-status-trigger')).toBeNull();
+    expect(screen.queryByRole('dialog', { name: '上下文状态' })).toBeNull();
+  });
+
+  it('窗口已展开时切换到上下文尚未水合或没有用量的对话仍保持展开', async () => {
+    configureAuthenticatedVisionModel();
+    currentState.conversation.byId = {
+      'chat-a': {
+        id: 'chat-a',
+        messages: [{
+          id: 'assistant-a',
+          role: 'assistant',
+          content: [],
+          usage: {
+            input_tokens: 400,
+            output_tokens: 1,
+            context: { status: 'no_op', window_tokens: 1000, actual_prompt_tokens: 400 },
+          },
+        }],
+      },
+    };
+
+    const { rerender } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
+    fireEvent.click(screen.getByRole('button', { name: '查看上下文状态，剩余 60%' }));
+    expect(screen.getByRole('dialog', { name: '上下文状态' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('switch', { name: '回答完成后自动展开' }));
+    expect(screen.getByRole('switch', { name: '回答完成后自动展开' })).toBeChecked();
+
+    currentState.conversation = {
+      ...currentState.conversation,
+      byId: {
+        ...currentState.conversation.byId,
+        'chat-b': {
+          id: 'chat-b',
+          messages: [],
+        },
+      },
+    };
+    useAppSelectorMock.mockImplementation(selector => selector({ ...currentState }));
+    rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-b" />);
+
+    expect(screen.getByRole('dialog', { name: '上下文状态' })).toBeInTheDocument();
+    expect(screen.getByText('chat-b')).toBeInTheDocument();
+    expect(screen.getAllByText('暂不可用').length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole('switch', { name: '回答完成后自动展开' }));
+    expect(screen.getByRole('switch', { name: '回答完成后自动展开' })).not.toBeChecked();
+    expect(screen.getByRole('dialog', { name: '上下文状态' })).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('context-status-trigger'));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '上下文状态' })).toBeNull());
+
+    currentState.conversation = {
+      ...currentState.conversation,
+      byId: {
+        ...currentState.conversation.byId,
+        'chat-c': {
+          id: 'chat-c',
+          messages: [],
+        },
+      },
+    };
+    useAppSelectorMock.mockImplementation(selector => selector({ ...currentState }));
+    rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-c" />);
+
+    expect(screen.queryByRole('dialog', { name: '上下文状态' })).toBeNull();
+    expect(screen.getByRole('button', { name: '查看上下文状态' })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('新一轮尚未收到 actual 时保留最近 confirmed 值并显示更新中', () => {
+    configureAuthenticatedVisionModel();
+    currentState.conversation.byId = {
+      'chat-a': {
+        id: 'chat-a',
+        messages: [
+          {
+            id: 'assistant-old', role: 'assistant', content: [],
+            usage: { input_tokens: 400, output_tokens: 1, context: { status: 'no_op', window_tokens: 1000, actual_prompt_tokens: 400 } },
+          },
+          { id: 'assistant-pending', role: 'assistant', content: [], usage: null },
+        ],
+      },
+    };
+    currentState.stream.isStreaming = true;
+    currentState.stream.conversationId = 'chat-a';
+    currentState.stream.contextUsageConversationId = 'chat-a';
+    currentState.stream.contextUsage = null;
+    currentState.stream.contextUsageMeta = null;
+    currentState.stream.contextUsageInFlight = null;
+    currentState.stream.contextUsageInFlightConversationId = 'chat-a';
+    currentState.stream.contextUsageInFlightMeta = null;
+
+    render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
+
+    expect(screen.getByTestId('context-status-trigger')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /60%/ })).toBeInTheDocument();
+    expect(screen.getByTestId('context-updating-indicator')).toHaveTextContent('更新中');
+  });
+
+  it('首轮生成期间保持收起，首轮完成后自动展开', async () => {
+    configureAuthenticatedVisionModel();
+    localStorage.setItem(CONTEXT_STATUS_DEFAULT_OPEN_STORAGE_KEY, 'true');
+    currentState.conversation.byId = {
+      'chat-first': {
+        id: 'chat-first',
+        messages: [
+          { id: 'user-first', role: 'user', content: [] },
+          { id: 'assistant-first', role: 'assistant', content: [], usage: null },
+        ],
+      },
+    };
+    currentState.stream.isStreaming = true;
+    currentState.stream.conversationId = 'chat-first';
+    currentState.stream.contextUsageConversationId = 'chat-first';
+    currentState.stream.contextUsageInFlightConversationId = 'chat-first';
+
+    const { rerender } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-first" />);
+
+    expect(screen.getByRole('button', { name: '查看上下文状态，计算中' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: '上下文状态' })).toBeNull();
+
+    currentState.stream = {
+      ...currentState.stream,
+      isStreaming: false,
+      conversationId: null,
+    };
+    currentState.conversation = {
+      ...currentState.conversation,
+      byId: {
+        ...currentState.conversation.byId,
+        'chat-first': {
+          ...currentState.conversation.byId['chat-first'],
+          messages: currentState.conversation.byId['chat-first'].messages.map((message: any, index: number) => (
+            index === 1
+              ? {
+                  ...message,
+                  usage: {
+                    input_tokens: 400,
+                    output_tokens: 1,
+                    context: { status: 'no_op', window_tokens: 1000, actual_prompt_tokens: 400 },
+                  },
+                }
+              : message
+          )),
+        },
+      },
+    };
+    useAppSelectorMock.mockImplementation(selector => selector({ ...currentState }));
+    rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-first" />);
+
+    expect(await screen.findByRole('dialog', { name: '上下文状态' })).toBeInTheDocument();
+  });
+
+  it('后续对话轮次完成时不会再次自动展开上下文面板', async () => {
+    configureAuthenticatedVisionModel();
+    currentState.conversation.byId = {
+      'chat-follow-up': {
+        id: 'chat-follow-up',
+        messages: [
+          { id: 'user-old', role: 'user', content: [] },
+          {
+            id: 'assistant-old',
+            role: 'assistant',
+            content: [],
+            usage: {
+              input_tokens: 400,
+              output_tokens: 1,
+              context: { status: 'no_op', window_tokens: 1000, actual_prompt_tokens: 400 },
+            },
+          },
+          { id: 'user-current', role: 'user', content: [] },
+          { id: 'assistant-current', role: 'assistant', content: [], usage: null },
+        ],
+      },
+    };
+    currentState.stream.isStreaming = true;
+    currentState.stream.conversationId = 'chat-follow-up';
+    currentState.stream.contextUsageConversationId = 'chat-follow-up';
+    currentState.stream.contextUsageInFlightConversationId = 'chat-follow-up';
+
+    const { rerender } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-follow-up" />);
+    expect(screen.queryByRole('dialog', { name: '上下文状态' })).toBeNull();
+
+    currentState.stream = {
+      ...currentState.stream,
+      isStreaming: false,
+      conversationId: null,
+    };
+    currentState.conversation = {
+      ...currentState.conversation,
+      byId: {
+        ...currentState.conversation.byId,
+        'chat-follow-up': {
+          ...currentState.conversation.byId['chat-follow-up'],
+          messages: currentState.conversation.byId['chat-follow-up'].messages.map((message: any, index: number) => (
+            index === 3
+              ? {
+                  ...message,
+                  usage: {
+                    input_tokens: 500,
+                    output_tokens: 1,
+                    context: { status: 'no_op', window_tokens: 1000, actual_prompt_tokens: 500 },
+                  },
+                }
+              : message
+          )),
+        },
+      },
+    };
+    useAppSelectorMock.mockImplementation(selector => selector({ ...currentState }));
+    rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-follow-up" />);
+
+    await waitFor(() => expect(
+      screen.queryByRole('dialog', { name: '上下文状态' })
+    ).toBeNull());
+  });
+
+  it('窄屏工具栏隐藏思考文字并保留可收缩边界', () => {
+    configureAuthenticatedVisionModel();
+    render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
+
+    const toolbar = screen.getByRole('toolbar', { name: '消息工具栏' });
+    expect(toolbar).toHaveClass('min-w-0');
+    expect(screen.getByText('思考')).toHaveClass('hidden', 'min-[420px]:inline');
+    expect(screen.getByText('自动')).toHaveClass('max-w-[4.5rem]', 'truncate');
+    expect(screen.getByTestId('model-selector-trigger')).toHaveClass('max-w-[112px]', 'sm:max-w-none');
+  });
+
+  it.each([
+    ['auto', 'lucide-sparkles'],
+    ['plan', 'lucide-list-checks'],
+    ['deep_research', 'lucide-search'],
+  ] as const)('外层触发器在 %s 模式下显示对应图标', (mode, iconClass) => {
+    configureAuthenticatedVisionModel();
+    currentState.conversation.composerAgentMode = mode;
+
+    render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
+
+    const icon = screen.getByTestId('composer-agent-mode-icon');
+    expect(icon).toHaveAttribute('data-mode', mode);
+    expect(icon).toHaveClass(iconClass);
+  });
+
+  it('执行模式菜单支持键盘打开与三态选择', async () => {
+    configureAuthenticatedVisionModel();
+    render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
+
+    const user = userEvent.setup();
+    const trigger = screen.getByRole('button', { name: '执行模式：自动' });
+    trigger.focus();
+    await user.keyboard('{ArrowDown}');
+
+    const menu = await screen.findByRole('menu');
+    expect(menu).toHaveAttribute('aria-label', '选择执行模式');
+    const deepResearchItem = within(menu).getByRole('menuitemradio', { name: /深度研究/ });
+    expect(deepResearchItem).toHaveAttribute('aria-checked', 'false');
+
+    await user.keyboard('{End}');
+    expect(deepResearchItem).toHaveFocus();
+    await user.keyboard('{Enter}');
+
+    expect(setComposerAgentModeMock).toHaveBeenCalledWith('deep_research');
+  });
+
+  it('恢复会话知识库选择后进入严格模式、退出深度研究并随消息发送', async () => {
+    configureAuthenticatedVisionModel();
+    currentState.conversation.composerAgentMode = 'deep_research';
+    listKnowledgeBasesMock.mockResolvedValue({
+      items: [{
+        id: 'kb-1',
+        name: '产品手册',
+        description: '',
+        business_type: '',
+        status: 'active',
+        document_stats: { total: 1, ready: 1, processing: 0, failed: 0 },
+        embedding_provider: 'dashscope',
+        embedding_model: 'text-embedding-v4',
+        embedding_revision: 'v1',
+        embedding_dimension: 1024,
+        distance_metric: 'COSINE',
+        created_at: '2026-08-15T00:00:00Z',
+        updated_at: '2026-08-15T00:00:00Z',
+        deleted_at: null,
+      }],
+      page: 1,
+      page_size: 100,
+      total: 1,
+      total_pages: 1,
+      has_next: false,
+      has_prev: false,
+    });
+    const onSendMessage = vi.fn();
+
+    render(
+      <ChatInput
+        onSendMessage={onSendMessage}
+        activeChatId="chat-a"
+        initialKnowledgeBaseIds={['kb-1']}
+      />,
+    );
+
+    await screen.findByText('产品手册');
+    expect(screen.getByText(/严格知识库模式|Strict knowledge mode/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(setComposerAgentModeMock).toHaveBeenCalledWith('auto');
+    });
+    expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
+      message: '已切换到自动模式：严格知识库模式不能与深度研究同时使用',
+      type: 'warning',
+    }));
+
+    fireEvent.change(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）'), {
+      target: { value: '安装步骤是什么？' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
+
+    expect(onSendMessage).toHaveBeenCalledWith(
+      '安装步骤是什么？',
+      undefined,
+      undefined,
+      ['kb-1'],
+      expect.any(Function),
+      expect.any(Function),
+    );
+  });
+
+  it('同一账号切换知识库对话时复用目录且不重新进入加载态', async () => {
+    configureAuthenticatedVisionModel();
+    currentState.conversation.byId['chat-b'] = createConversationBoundToSelectedModel('chat-b');
+    currentState.conversation.hydrationStatus['chat-b'] = 'done';
+    listKnowledgeBasesMock.mockResolvedValueOnce({
+      items: [{
+        id: 'kb-1',
+        name: '产品手册',
+        description: '',
+        business_type: '',
+        status: 'active',
+        document_stats: { total: 1, ready: 1, processing: 0, failed: 0 },
+        embedding_provider: 'dashscope',
+        embedding_model: 'text-embedding-v4',
+        embedding_revision: 'v1',
+        embedding_dimension: 1024,
+        distance_metric: 'COSINE',
+        created_at: '2026-08-15T00:00:00Z',
+        updated_at: '2026-08-15T00:00:00Z',
+        deleted_at: null,
+      }],
+      page: 1,
+      page_size: 100,
+      total: 1,
+      total_pages: 1,
+      has_next: false,
+      has_prev: false,
+    });
+
+    const { rerender } = render(
+      <ChatInput
+        onSendMessage={vi.fn()}
+        activeChatId="chat-a"
+        initialKnowledgeBaseIds={['kb-1']}
+      />,
+    );
+    await screen.findByText('产品手册');
+    expect(listKnowledgeBasesMock).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <ChatInput
+        onSendMessage={vi.fn()}
+        activeChatId="chat-b"
+        initialKnowledgeBaseIds={['kb-1']}
+      />,
+    );
+
+    expect(screen.getByText('产品手册')).toBeInTheDocument();
+    expect(screen.queryByText('正在确认所选知识库是否可用，请稍后。')).toBeNull();
+    expect(listKnowledgeBasesMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('恢复会话时不按旧客户端常量截断知识库选择', async () => {
+    configureAuthenticatedVisionModel();
+    getChatCapabilitiesMock.mockResolvedValue({
+      knowledge_grounding_v1: true,
+      knowledge_grounding_max_bases: 8,
+    });
+    const items = Array.from({ length: 6 }, (_, index) => ({
+      id: `kb-${index + 1}`,
+      name: `知识库 ${index + 1}`,
+      description: '',
+      business_type: '',
+      status: 'active',
+      document_stats: { total: 1, ready: 1, processing: 0, failed: 0 },
+      embedding_provider: 'dashscope',
+      embedding_model: 'text-embedding-v4',
+      embedding_revision: 'v1',
+      embedding_dimension: 1024,
+      distance_metric: 'COSINE',
+      created_at: '2026-08-15T00:00:00Z',
+      updated_at: '2026-08-15T00:00:00Z',
+      deleted_at: null,
+    }));
+    listKnowledgeBasesMock.mockResolvedValue({
+      items,
+      page: 1,
+      page_size: 100,
+      total: items.length,
+      total_pages: 1,
+      has_next: false,
+      has_prev: false,
+    });
+
+    render(
+      <ChatInput
+        onSendMessage={vi.fn()}
+        activeChatId="chat-a"
+        initialKnowledgeBaseIds={items.map((item) => item.id)}
+      />,
+    );
+
+    await screen.findByText('知识库 6');
+    expect(screen.getAllByRole('button', {
+      name: /Remove knowledge base|移除知识库/u,
+    })).toHaveLength(6);
+  });
+
+  it('知识库发送在能力预检失败时恢复尚未被接收的输入', async () => {
+    configureAuthenticatedVisionModel();
+    listKnowledgeBasesMock.mockResolvedValue({
+      items: [{
+        id: 'kb-1',
+        name: '产品手册',
+        description: '',
+        business_type: '',
+        status: 'active',
+        document_stats: { total: 1, ready: 1, processing: 0, failed: 0 },
+        embedding_provider: 'dashscope',
+        embedding_model: 'text-embedding-v4',
+        embedding_revision: 'v1',
+        embedding_dimension: 1024,
+        distance_metric: 'COSINE',
+        created_at: '2026-08-15T00:00:00Z',
+        updated_at: '2026-08-15T00:00:00Z',
+        deleted_at: null,
+      }],
+      page: 1,
+      page_size: 100,
+      total: 1,
+      total_pages: 1,
+      has_next: false,
+      has_prev: false,
+    });
+    const onSendMessage = vi.fn((
+      _content: string,
+      _attachments: unknown,
+      _pendingConversationId: unknown,
+      _knowledgeBaseIds: unknown,
+      onRejectedBeforeSend?: () => void,
+    ) => {
+      return Promise.resolve().then(() => onRejectedBeforeSend?.());
+    });
+
+    render(
+      <ChatInput
+        onSendMessage={onSendMessage}
+        activeChatId="chat-a"
+        initialKnowledgeBaseIds={['kb-1']}
+      />,
+    );
+
+    await screen.findByText('产品手册');
+    const input = screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）');
+    fireEvent.change(input, { target: { value: '不要丢掉这段草稿' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
+
+    await waitFor(() => {
+      expect(input).toHaveValue('不要丢掉这段草稿');
+    });
+  });
+
+  it('同一会话的乐观知识库同步不会把已验证选择重置为永久加载', async () => {
+    configureAuthenticatedVisionModel();
+    listKnowledgeBasesMock.mockResolvedValue({
+      items: [{
+        id: 'kb-1',
+        name: '产品手册',
+        description: '',
+        business_type: '',
+        status: 'active',
+        document_stats: { total: 1, ready: 1, processing: 0, failed: 0 },
+        embedding_provider: 'dashscope',
+        embedding_model: 'text-embedding-v4',
+        embedding_revision: 'v1',
+        embedding_dimension: 1024,
+        distance_metric: 'COSINE',
+        created_at: '2026-08-15T00:00:00Z',
+        updated_at: '2026-08-15T00:00:00Z',
+        deleted_at: null,
+      }],
+      page: 1,
+      page_size: 100,
+      total: 1,
+      total_pages: 1,
+      has_next: false,
+      has_prev: false,
+    });
+    const onSendMessage = vi.fn();
+    const { rerender } = render(
+      <ChatInput onSendMessage={onSendMessage} activeChatId="chat-a" />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /知识库|Knowledge/ }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: '产品手册' }));
+    await waitFor(() => {
+      expect(screen.getByText(/严格知识库模式|Strict knowledge mode/)).toBeInTheDocument();
+    });
+
+    rerender(
+      <ChatInput
+        onSendMessage={onSendMessage}
+        activeChatId="chat-a"
+        initialKnowledgeBaseIds={['kb-1']}
+      />,
+    );
+    const input = screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）');
+    fireEvent.change(input, { target: { value: '继续提问' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
+
+    expect(onSendMessage).toHaveBeenCalledWith(
+      '继续提问',
+      undefined,
+      undefined,
+      ['kb-1'],
+      expect.any(Function),
+      expect.any(Function),
+    );
+  });
+
+  it('严格知识库模式禁用附件并阻止已有附件与知识库一起发送', async () => {
+    configureAuthenticatedVisionModel();
+    listKnowledgeBasesMock.mockResolvedValue({
+      items: [{
+        id: 'kb-1',
+        name: '产品手册',
+        description: '',
+        business_type: '',
+        status: 'active',
+        document_stats: { total: 1, ready: 1, processing: 0, failed: 0 },
+        embedding_provider: 'dashscope',
+        embedding_model: 'text-embedding-v4',
+        embedding_revision: 'v1',
+        embedding_dimension: 1024,
+        distance_metric: 'COSINE',
+        created_at: '2026-08-15T00:00:00Z',
+        updated_at: '2026-08-15T00:00:00Z',
+        deleted_at: null,
+      }],
+      page: 1,
+      page_size: 100,
+      total: 1,
+      total_pages: 1,
+      has_next: false,
+      has_prev: false,
+    });
+    const onSendMessage = vi.fn();
+
+    render(
+      <ChatInput
+        onSendMessage={onSendMessage}
+        activeChatId="chat-a"
+        initialKnowledgeBaseIds={['kb-1']}
+        conversationAttachments={[{
+          source: 'conversation',
+          fileId: 'file-1',
+          filename: 'diagram.png',
+          mimetype: 'image/png',
+          status: 'processed',
+          thumbnailUrl: '/thumb.png',
+        }]}
+      />,
+    );
+
+    expect(await screen.findByText((content) => (
+      content === '严格知识库模式' || content === 'Strict knowledge mode'
+    ))).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '上传图片' })).toBeDisabled();
+    expect(screen.getByText('严格知识库模式不能同时使用附件，请先移除附件')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）'), {
+      target: { value: '分析资料' },
+    });
+    fireEvent.keyDown(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）'), {
+      key: 'Enter',
+      code: 'Enter',
+    });
+
+    expect(onSendMessage).not.toHaveBeenCalled();
+    expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
+      message: '严格知识库模式不能同时使用附件，请先移除附件',
+      type: 'warning',
+    }));
+  });
+
+  it('已有附件时拒绝新增知识库选择', async () => {
+    configureAuthenticatedVisionModel();
+    listKnowledgeBasesMock.mockResolvedValue({
+      items: [{
+        id: 'kb-1',
+        name: '产品手册',
+        description: '',
+        business_type: '',
+        status: 'active',
+        document_stats: { total: 1, ready: 1, processing: 0, failed: 0 },
+        embedding_provider: 'dashscope',
+        embedding_model: 'text-embedding-v4',
+        embedding_revision: 'v1',
+        embedding_dimension: 1024,
+        distance_metric: 'COSINE',
+        created_at: '2026-08-15T00:00:00Z',
+        updated_at: '2026-08-15T00:00:00Z',
+        deleted_at: null,
+      }],
+      page: 1,
+      page_size: 100,
+      total: 1,
+      total_pages: 1,
+      has_next: false,
+      has_prev: false,
+    });
+
+    render(
+      <ChatInput
+        onSendMessage={vi.fn()}
+        activeChatId="chat-a"
+        conversationAttachments={[{
+          source: 'conversation',
+          fileId: 'file-1',
+          filename: 'diagram.png',
+          mimetype: 'image/png',
+          status: 'processed',
+        }]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /知识库|Knowledge/ }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: '产品手册' }));
+
+    expect(screen.queryByText(/严格知识库模式|Strict knowledge mode/)).toBeNull();
+    expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
+      message: '严格知识库模式不能同时使用附件，请先移除附件',
+      type: 'warning',
+    }));
+  });
+
+  it('已选知识库时粘贴和拖放图片都不会开始上传', async () => {
+    configureAuthenticatedVisionModel();
+    listKnowledgeBasesMock.mockResolvedValue({
+      items: [{
+        id: 'kb-1',
+        name: '产品手册',
+        description: '',
+        business_type: '',
+        status: 'active',
+        document_stats: { total: 1, ready: 1, processing: 0, failed: 0 },
+        embedding_provider: 'dashscope',
+        embedding_model: 'text-embedding-v4',
+        embedding_revision: 'v1',
+        embedding_dimension: 1024,
+        distance_metric: 'COSINE',
+        created_at: '2026-08-15T00:00:00Z',
+        updated_at: '2026-08-15T00:00:00Z',
+        deleted_at: null,
+      }],
+      page: 1,
+      page_size: 100,
+      total: 1,
+      total_pages: 1,
+      has_next: false,
+      has_prev: false,
+    });
+    render(
+      <ChatInput
+        onSendMessage={vi.fn()}
+        activeChatId="chat-a"
+        initialKnowledgeBaseIds={['kb-1']}
+      />,
+    );
+    await screen.findByText(/严格知识库模式|Strict knowledge mode/);
+    const file = new File(['image'], 'diagram.png', { type: 'image/png' });
+    const input = screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）');
+
+    fireEvent.paste(input, {
+      clipboardData: {
+        items: [{ kind: 'file', getAsFile: () => file }],
+      },
+    });
+    fireEvent.drop(screen.getByRole('group', { name: '消息输入区' }), {
+      dataTransfer: { files: [file] },
+    });
+
+    expect(uploadFilesMock).not.toHaveBeenCalled();
+    expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
+      message: '严格知识库模式不能同时使用附件，请先清空知识库',
+      type: 'warning',
+    }));
+  });
+
+  it('按模型能力禁用不兼容模式并说明原因', async () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'model-1';
+    currentState.models.models = [{
+      id: 'model-1',
+      provider: 'qwen',
+      capabilities: {
+        functionCalling: true,
+        searchCapable: false,
+        agentTools: false,
+      },
+    }];
+
+    render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
+    fireEvent.pointerDown(screen.getByRole('button', { name: '执行模式：自动' }), {
+      button: 0,
+      ctrlKey: false,
+      pointerType: 'mouse',
+    });
+
+    expect(await screen.findByRole('menuitemradio', { name: /计划/ })).toBeEnabled();
+    const deepResearchItem = screen.getByRole('menuitemradio', { name: /深度研究/ });
+    expect(deepResearchItem).toHaveAttribute('data-disabled');
+    expect(deepResearchItem).toHaveTextContent('深度研究需要支持联网工具');
+  });
+
+  it('模型切换导致能力降级时回退自动模式并通过 toast 轻提示', async () => {
+    configureAuthenticatedVisionModel();
+    currentState.conversation.composerAgentMode = 'deep_research';
+
+    const { rerender } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
+    setComposerAgentModeMock.mockClear();
+
+    currentState.models.models = [{
+      id: 'model-1',
+      provider: 'qwen',
+      capabilities: {
+        vision: true,
+        deepThinking: true,
+        functionCalling: true,
+        searchCapable: false,
+        agentTools: false,
+      },
+    }];
+    rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
+
+    await waitFor(() => {
+      expect(setComposerAgentModeMock).toHaveBeenCalledWith('auto');
+      expect(sessionStorage.getItem('fusion:composer-agent-mode')).toBe('auto');
+      expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
+        message: '已切换到自动模式：深度研究需要支持联网工具',
+        type: 'warning',
+      }));
+    });
+    expect(screen.queryByTestId('composer-agent-mode-status')).toBeNull();
+  });
+
+  it('从当前标签页恢复执行模式并继续交由模型能力检查', async () => {
+    configureAuthenticatedVisionModel();
+    sessionStorage.setItem('fusion:composer-agent-mode', 'plan');
+
+    render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
+
+    await waitFor(() => {
+      expect(setComposerAgentModeMock).toHaveBeenCalledWith('plan');
+    });
+  });
+
+  it('深度研究运行中的停止按钮使用研究语义', () => {
+    configureAuthenticatedVisionModel();
+    currentState.stream.isStreaming = true;
+    currentState.stream.currentRun = {
+      runId: 'run-deep',
+      messageId: 'assistant-1',
+      status: 'running',
+      config: {
+        maxSteps: 8,
+        maxToolCalls: 20,
+        timeoutS: 300,
+        taskMode: 'deep_research',
+      },
+      totalSteps: 0,
+      totalToolCalls: 0,
+      steps: [],
+      lastSequence: 1,
+    };
+
+    render(
+      <ChatInput
+        onSendMessage={vi.fn()}
+        onStopStreaming={vi.fn()}
+        activeChatId="chat-a"
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '停止研究' })).toHaveAttribute('title', '停止研究');
+    expect(screen.queryByRole('button', { name: '停止生成' })).toBeNull();
+  });
+
+  it('只在当前会话的权威模型计划运行期间把计划固定到输入框上方', () => {
+    configureAuthenticatedVisionModel();
+    currentState.stream.isStreaming = true;
+    currentState.stream.conversationId = 'chat-a';
+    currentState.stream.currentRun = {
+      runId: 'run-plan',
+      messageId: 'assistant-1',
+      status: 'running',
+      config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300, planMode: 'on' },
+      totalSteps: 1,
+      totalToolCalls: 0,
+      steps: [],
+      lastSequence: 2,
+      plan: {
+        planId: 'plan-1',
+        revision: 1,
+        source: 'model',
+        mode: 'on',
+        items: [{
+          id: 'research',
+          title: '核验关键资料',
+          status: 'running',
+          kind: 'search',
+          toolNames: [],
+          evidenceItemIds: [],
+        }],
+      },
+    };
+
+    const { rerender } = render(
+      <ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />,
+    );
+
+    const planStatus = screen.getByTestId('composer-plan-status');
+    expect(planStatus.nextElementSibling).toBe(screen.getByRole('group', { name: '消息输入区' }));
+    expect(planStatus).toHaveAttribute('role', 'status');
+    expect(planStatus).toHaveAttribute('aria-live', 'polite');
+    expect(planStatus).toHaveAttribute('aria-atomic', 'true');
+    expect(within(planStatus).getByRole('button', {
+      name: '查看计划流程，第 1/1 步：核验关键资料',
+    })).toBeInTheDocument();
+
+    for (const status of ['completed', 'failed', 'interrupted'] as const) {
+      currentState.stream.currentRun = {
+        ...currentState.stream.currentRun,
+        status,
+      };
+      rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
+      const terminalPlanStatus = screen.getByTestId('composer-plan-status');
+      expect(within(terminalPlanStatus).queryByTestId('plan-status-research')).toBeNull();
+      fireEvent.click(within(terminalPlanStatus).getByRole('button', { name: /查看计划流程/ }));
+      expect(within(screen.getByRole('dialog', { name: '计划流程详情' }))
+        .getByTestId('plan-status-research').querySelector('svg')).not.toHaveClass('animate-spin');
+      fireEvent.click(within(terminalPlanStatus).getByRole('button', { name: /查看计划流程/ }));
+    }
+
+    currentState.stream.currentRun = {
+      ...currentState.stream.currentRun,
+      status: 'running',
+      plan: {
+        ...currentState.stream.currentRun.plan,
+        source: 'observed',
+      },
+    };
+    rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
+    expect(screen.queryByTestId('composer-plan-status')).toBeNull();
+
+    currentState.stream.currentRun = {
+      ...currentState.stream.currentRun,
+      plan: {
+        ...currentState.stream.currentRun.plan,
+        source: 'model',
+      },
+    };
+    rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-b" />);
+    expect(screen.queryByTestId('composer-plan-status')).toBeNull();
+
+    currentState.stream.isStreaming = false;
+    rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
+    expect(screen.queryByTestId('composer-plan-status')).toBeNull();
+  });
+
+  it('模型能力在服务端渲染后已于客户端加载时不会产生 hydration mismatch', async () => {
+    currentState.conversation.reasoningEnabled = true;
+    const container = document.createElement('div');
+    container.innerHTML = renderToString(<ChatInput onSendMessage={vi.fn()} />);
+
+    currentState.models.selectedModelId = 'reasoning-model';
+    currentState.models.models = [
+      {
+        id: 'reasoning-model',
+        provider: 'deepseek',
+        capabilities: { vision: true, deepThinking: true },
+      },
+    ];
+
+    const recoverableErrors: unknown[] = [];
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+    await act(async () => {
+      root = hydrateRoot(container, <ChatInput onSendMessage={vi.fn()} />, {
+        onRecoverableError: (error) => recoverableErrors.push(error),
+      });
+      await Promise.resolve();
+    });
+
+    expect(recoverableErrors).toEqual([]);
+    expect(container.textContent).toContain('思考已开');
+
+    await act(async () => {
+      root?.unmount();
+    });
+  });
+
+  it('服务端未登录而客户端已恢复知识库选择时不会产生 hydration mismatch', async () => {
+    const container = document.createElement('div');
+    container.innerHTML = renderToString(
+      <ChatInput
+        onSendMessage={vi.fn()}
+        activeChatId="chat-a"
+        initialKnowledgeBaseIds={['kb-1']}
+      />,
+    );
+
+    currentState.auth.isAuthenticated = true;
+    currentState.auth.user = { id: 'user-1' };
+    currentState.auth.token = 'token-user-1';
+
+    const recoverableErrors: unknown[] = [];
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+    await act(async () => {
+      root = hydrateRoot(
+        container,
+        <ChatInput
+          onSendMessage={vi.fn()}
+          activeChatId="chat-a"
+          initialKnowledgeBaseIds={['kb-1']}
+        />,
+        { onRecoverableError: (error) => recoverableErrors.push(error) },
+      );
+      await Promise.resolve();
+    });
+
+    expect(recoverableErrors).toEqual([]);
+    expect(Array.from(container.querySelectorAll('button[aria-label]')).some((button) => (
+      /知识库|Knowledge/.test(button.getAttribute('aria-label') ?? '')
+    ))).toBe(true);
+
+    await act(async () => {
+      root?.unmount();
+    });
+  });
+
+  it('focuses the composer when autoFocus is enabled', () => {
+    render(<ChatInput onSendMessage={vi.fn()} autoFocus />);
+
+    expect(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）')).toHaveFocus();
+  });
+
+  it('applies each explicit prompt prefill request and keeps the composer focused', () => {
+    const { rerender } = render(
+      <ChatInput
+        onSendMessage={vi.fn()}
+        prefillRequest={{ id: 1, content: '第一条任务提示词' }}
+      />,
+    );
+    const composer = screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）');
+    expect(composer).toHaveValue('第一条任务提示词');
+    expect(composer).toHaveFocus();
+
+    fireEvent.change(composer, { target: { value: '用户修改后的内容' } });
+    rerender(
+      <ChatInput
+        onSendMessage={vi.fn()}
+        prefillRequest={{ id: 2, content: '第一条任务提示词' }}
+      />,
+    );
+
+    expect(composer).toHaveValue('第一条任务提示词');
+    expect(composer).toHaveFocus();
+  });
+
+  it('rejects selected non-image files while file conversation is paused', async () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'model-1';
+    currentState.models.models = [
+      {
+        id: 'model-1',
+        provider: 'qwen',
+        capabilities: {
+          vision: true,
+          deepThinking: true,
+          functionCalling: true,
+        },
+      },
+    ];
+
+    const { container } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-1" />);
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['hello'], 'hello.txt', { type: 'text/plain' });
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [file],
+      },
+    });
+
+    await waitFor(() => {
+      expect(toastMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: '当前仅支持上传图片，文件对话后续开放',
+          type: 'warning',
+        }),
+      );
+    });
+    expect(uploadFilesMock).not.toHaveBeenCalled();
+    expect(screen.queryByText('hello.txt')).toBeNull();
+  });
+
+  it('uploads selected images and marks them processed when authenticated', async () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'model-1';
+    currentState.models.models = [
+      {
+        id: 'model-1',
+        provider: 'qwen',
+        capabilities: {
+          vision: true,
+          deepThinking: true,
+          functionCalling: true,
+        },
+      },
+    ];
+    uploadFilesMock.mockResolvedValue([{ file_id: 'file-1' }]);
+
+    const { container } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-1" />);
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['image'], 'diagram.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [file],
+      },
+    });
+
+    await waitFor(() => {
+      expect(uploadFilesMock).toHaveBeenCalledWith('qwen', 'model-1', 'chat-1', [file]);
+      expect(addFileIdMock).toHaveBeenCalledWith({
+        chatId: 'chat-1',
+        fileId: 'file-1',
+        fileIndex: 0,
+      });
+      expect(updateFileStatusMock).toHaveBeenCalledWith({
+        fileId: 'file-1',
+        chatId: 'chat-1',
+        status: 'processed',
+      });
+      expect(startPollingFileStatusMock).not.toHaveBeenCalled();
+    });
+  });
+
+  it('calls onUploadComplete after local upload succeeds', async () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'model-1';
+    currentState.models.models = [
+      {
+        id: 'model-1',
+        provider: 'qwen',
+        capabilities: {
+          vision: true,
+          deepThinking: true,
+        },
+      },
+    ];
+    uploadFilesMock.mockResolvedValue([{ file_id: 'file-1' }]);
+    const onUploadComplete = vi.fn();
+
+    const { container } = render(
+      <ChatInput onSendMessage={vi.fn()} onUploadComplete={onUploadComplete} activeChatId="chat-1" />,
+    );
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['image'], 'diagram.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [file],
+      },
+    });
+
+    await waitFor(() => {
+      expect(uploadFilesMock).toHaveBeenCalledWith('qwen', 'model-1', 'chat-1', [file]);
+      expect(onUploadComplete).toHaveBeenCalledTimes(1);
+      expect(onUploadComplete).toHaveBeenCalledWith(
+        [
+          expect.objectContaining({
+            fileId: 'file-1',
+            filename: 'diagram.png',
+            mimetype: 'image/png',
+            size: file.size,
+            status: 'processed',
+          }),
+        ],
+        'chat-1'
+      );
+    });
+  });
+
+
+  it('turns processed existing-chat uploads into conversation references before sending', async () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'model-1';
+    currentState.models.models = [
+      {
+        id: 'model-1',
+        provider: 'qwen',
+        capabilities: {
+          vision: true,
+          deepThinking: true,
+        },
+      },
+    ];
+    uploadFilesMock.mockResolvedValue([{ file_id: 'file-1', thumbnail_url: '/thumb.png' }]);
+    const onSendMessage = vi.fn();
+
+    function Harness() {
+      const [attachments, setAttachments] = React.useState<any[]>([]);
+
+      return (
+        <ChatInput
+          onSendMessage={onSendMessage}
+          activeChatId="chat-1"
+          conversationAttachments={attachments}
+          onUploadComplete={(files = []) => {
+            setAttachments((current) => [
+              ...current,
+              ...files
+                .filter((file) => file.status === 'processed')
+                .map((file) => ({
+                  source: 'conversation',
+                  fileId: file.fileId,
+                  filename: file.filename,
+                  mimetype: file.mimetype,
+                  status: 'processed',
+                  thumbnailUrl: file.thumbnailUrl,
+                })),
+            ]);
+          }}
+        />
+      );
+    }
+
+    const { container } = render(<Harness />);
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['image'], 'diagram.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [file],
+      },
+    });
+
+    await waitFor(
+      () => {
+        expect(screen.getByRole('button', { name: '移除资料 diagram.png' })).toBeInTheDocument();
+      },
+      { timeout: 3000 }
+    );
+    expect(screen.queryByRole('button', { name: '移除 diagram.png' })).toBeNull();
+
+    fireEvent.change(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）'), {
+      target: {
+        value: '分析这张图',
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
+
+    expect(onSendMessage).toHaveBeenCalledWith(
+      '分析这张图',
+      [
+        {
+          fileId: 'file-1',
+          filename: 'diagram.png',
+          mimeType: 'image/png',
+          previewUrl: '/thumb.png',
+        },
+      ],
+      undefined,
+      undefined,
+      expect.any(Function),
+      expect.any(Function),
+    );
+    expect(uploadFilesMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('turns processed new-chat uploads into a single conversation reference before sending', async () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'model-1';
+    currentState.models.models = [
+      {
+        id: 'model-1',
+        provider: 'qwen',
+        capabilities: {
+          vision: true,
+          deepThinking: true,
+        },
+      },
+    ];
+    uploadFilesMock.mockResolvedValue([{ file_id: 'file-1', thumbnail_url: '/thumb.png' }]);
+    const onSendMessage = vi.fn();
+
+    function Harness() {
+      const [attachments, setAttachments] = React.useState<any[]>([]);
+
+      return (
+        <ChatInput
+          onSendMessage={onSendMessage}
+          activeChatId={null}
+          conversationAttachments={attachments}
+          onUploadComplete={(files = []) => {
+            setAttachments((current) => [
+              ...current,
+              ...files
+                .filter((file) => file.status === 'processed')
+                .map((file) => ({
+                  source: 'conversation',
+                  fileId: file.fileId,
+                  filename: file.filename,
+                  mimetype: file.mimetype,
+                  status: 'processed',
+                  thumbnailUrl: file.thumbnailUrl,
+                })),
+            ]);
+          }}
+        />
+      );
+    }
+
+    const { container } = render(<Harness />);
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['image'], 'diagram.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [file],
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '移除资料 diagram.png' })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: '移除 diagram.png' })).toBeNull();
+
+    fireEvent.change(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）'), {
+      target: {
+        value: '分析这张图',
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
+
+    expect(onSendMessage).toHaveBeenCalledWith(
+      '分析这张图',
+      [
+        {
+          fileId: 'file-1',
+          filename: 'diagram.png',
+          mimeType: 'image/png',
+          previewUrl: '/thumb.png',
+        },
+      ],
+      expect.stringMatching(/^uuid-/),
+      undefined,
+      expect.any(Function),
+      expect.any(Function),
+    );
+    expect(uploadFilesMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends selected conversation files without uploading them again', () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'model-1';
+    currentState.models.models = [
+      {
+        id: 'model-1',
+        provider: 'qwen',
+        capabilities: {
+          vision: true,
+          deepThinking: true,
+        },
+      },
+    ];
+    const onSendMessage = vi.fn();
+    const onClearConversationAttachments = vi.fn();
+
+    render(
+      <ChatInput
+        onSendMessage={onSendMessage}
+        activeChatId="chat-1"
+        conversationAttachments={[
+          {
+            source: 'conversation',
+            fileId: 'file-existing',
+            filename: '已有资料.png',
+            mimetype: 'image/png',
+            status: 'processed',
+            thumbnailUrl: 'https://cdn.example.com/existing-thumb.png',
+          },
+        ]}
+        onClearConversationAttachments={onClearConversationAttachments}
+      />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）'), {
+      target: {
+        value: '请总结这份资料',
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
+
+    expect(uploadFilesMock).not.toHaveBeenCalled();
+    expect(onSendMessage).toHaveBeenCalledTimes(1);
+    expect(onSendMessage.mock.calls[0][0]).toBe('请总结这份资料');
+    expect(onSendMessage.mock.calls[0][1]).toEqual([
+      {
+        fileId: 'file-existing',
+        filename: '已有资料.png',
+        mimeType: 'image/png',
+        previewUrl: 'https://cdn.example.com/existing-thumb.png',
+      },
+    ]);
+    expect(onClearConversationAttachments).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends when only a selected conversation image is present', () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'model-1';
+    currentState.models.models = [
+      {
+        id: 'model-1',
+        provider: 'qwen',
+        capabilities: {
+          vision: true,
+          deepThinking: true,
+        },
+      },
+    ];
+    const onSendMessage = vi.fn();
+
+    render(
+      <ChatInput
+        onSendMessage={onSendMessage}
+        activeChatId="chat-1"
+        conversationAttachments={[
+          {
+            source: 'conversation',
+            fileId: 'file-existing',
+            filename: '仅资料.png',
+            mimetype: 'image/png',
+            status: 'processed',
+            thumbnailUrl: '/thumb.png',
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
+
+    expect(onSendMessage).toHaveBeenCalledTimes(1);
+    expect(onSendMessage.mock.calls[0][0]).toBe('');
+    expect(onSendMessage.mock.calls[0][1]).toEqual([
+      {
+        fileId: 'file-existing',
+        filename: '仅资料.png',
+        mimeType: 'image/png',
+        previewUrl: '/thumb.png',
+      },
+    ]);
+  });
+
+  it('removes selected conversation file from composer without deleting backend file', () => {
+    currentState.auth.isAuthenticated = true;
+    const onRemoveConversationAttachment = vi.fn();
+
+    render(
+      <ChatInput
+        onSendMessage={vi.fn()}
+        activeChatId="chat-1"
+        conversationAttachments={[
+          {
+            source: 'conversation',
+            fileId: 'file-existing',
+            filename: '保留后端资料.png',
+            mimetype: 'image/png',
+            status: 'processed',
+            thumbnailUrl: '/thumb.png',
+          },
+        ]}
+        onRemoveConversationAttachment={onRemoveConversationAttachment}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '移除资料 保留后端资料.png' }));
+
+    expect(onRemoveConversationAttachment).toHaveBeenCalledTimes(1);
+    expect(onRemoveConversationAttachment).toHaveBeenCalledWith('file-existing');
+    expect(deleteFileMock).not.toHaveBeenCalled();
+  });
+
+  it('ignores a completed upload result after the user removes the in-flight attachment', async () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'model-1';
+    currentState.models.models = [
+      {
+        id: 'model-1',
+        provider: 'qwen',
+        capabilities: {
+          vision: true,
+          deepThinking: true,
+        },
+      },
+    ];
+    let resolveUpload: (value: Array<{ file_id: string; thumbnail_url?: string }>) => void = () => {};
+    uploadFilesMock.mockImplementation(
+      () =>
+        new Promise<Array<{ file_id: string; thumbnail_url?: string }>>((resolve) => {
+          resolveUpload = resolve;
+        })
+    );
+    const onUploadComplete = vi.fn();
+
+    const { container } = render(
+      <ChatInput onSendMessage={vi.fn()} onUploadComplete={onUploadComplete} activeChatId="chat-1" />
+    );
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['image'], 'cancel-me.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [file],
+      },
+    });
+
+    await waitFor(() => {
+      expect(uploadFilesMock).toHaveBeenCalledWith('qwen', 'model-1', 'chat-1', [file]);
+      expect(screen.getByRole('button', { name: '移除 cancel-me.png' })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '移除 cancel-me.png' }));
+    expect(screen.queryByText('cancel-me.png')).toBeNull();
+
+    await act(async () => {
+      resolveUpload([{ file_id: 'file-cancelled', thumbnail_url: '/cancelled-thumb.png' }]);
+    });
+
+    expect(onUploadComplete).not.toHaveBeenCalled();
+    expect(addFileIdMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileId: 'file-cancelled',
+      })
+    );
+    expect(updateFileStatusMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileId: 'file-cancelled',
+      })
+    );
+    expect(deleteFileMock).toHaveBeenCalledWith('file-cancelled');
+  });
+
+  it('does not surface an upload failure after the user removes the in-flight attachment', async () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'model-1';
+    currentState.models.models = [
+      {
+        id: 'model-1',
+        provider: 'qwen',
+        capabilities: {
+          vision: true,
+          deepThinking: true,
+        },
+      },
+    ];
+    let rejectUpload: (reason?: unknown) => void = () => {};
+    uploadFilesMock.mockImplementation(
+      () =>
+        new Promise<Array<{ file_id: string }>>((_resolve, reject) => {
+          rejectUpload = reject;
+        })
+    );
+
+    const { container } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-1" />);
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['image'], 'abort-me.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [file],
+      },
+    });
+
+    await waitFor(() => {
+      expect(uploadFilesMock).toHaveBeenCalledWith('qwen', 'model-1', 'chat-1', [file]);
+      expect(screen.getByRole('button', { name: '移除 abort-me.png' })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '移除 abort-me.png' }));
+
+    await act(async () => {
+      rejectUpload(new Error('signal is aborted without reason'));
+    });
+
+    expect(screen.queryByText('abort-me.png')).toBeNull();
+    expect(toastMock).not.toHaveBeenCalled();
+  });
+
+  it('allows the same file to be uploaded again after cancelling the first in-flight upload', async () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'model-1';
+    currentState.models.models = [
+      {
+        id: 'model-1',
+        provider: 'qwen',
+        capabilities: {
+          vision: true,
+          deepThinking: true,
+        },
+      },
+    ];
+    const uploadResolvers: Array<(value: Array<{ file_id: string; thumbnail_url?: string }>) => void> = [];
+    uploadFilesMock.mockImplementation(
+      () =>
+        new Promise<Array<{ file_id: string; thumbnail_url?: string }>>((resolve) => {
+          uploadResolvers.push(resolve);
+        })
+    );
+    const onUploadComplete = vi.fn();
+
+    const { container } = render(
+      <ChatInput onSendMessage={vi.fn()} onUploadComplete={onUploadComplete} activeChatId="chat-1" />
+    );
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['image'], 'retry-after-cancel.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [file],
+      },
+    });
+
+    await waitFor(() => {
+      expect(uploadFilesMock).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('button', { name: '移除 retry-after-cancel.png' })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: '移除 retry-after-cancel.png' }));
+    await waitFor(() => {
+      expect(screen.queryByText('retry-after-cancel.png')).toBeNull();
+    });
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [file],
+      },
+    });
+
+    await waitFor(() => {
+      expect(uploadFilesMock).toHaveBeenCalledTimes(2);
+      expect(screen.getByRole('button', { name: '移除 retry-after-cancel.png' })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      uploadResolvers[1]([{ file_id: 'file-second', thumbnail_url: '/second-thumb.png' }]);
+    });
+
+    await waitFor(() => {
+      expect(onUploadComplete).toHaveBeenCalledTimes(1);
+      expect(onUploadComplete).toHaveBeenLastCalledWith(
+        [
+          expect.objectContaining({
+            fileId: 'file-second',
+            filename: 'retry-after-cancel.png',
+            mimetype: 'image/png',
+            thumbnailUrl: '/second-thumb.png',
+            status: 'processed',
+          }),
+        ],
+        'chat-1'
+      );
+    });
+
+    await act(async () => {
+      uploadResolvers[0]([{ file_id: 'file-first', thumbnail_url: '/first-thumb.png' }]);
+    });
+
+    expect(onUploadComplete).toHaveBeenCalledTimes(1);
+    expect(addFileIdMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileId: 'file-first',
+      })
+    );
+    expect(deleteFileMock).toHaveBeenCalledWith('file-first');
+  });
+
+  it('ignores an upload result when reset switches to another chat before it resolves', async () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'model-1';
+    currentState.models.models = [
+      {
+        id: 'model-1',
+        provider: 'qwen',
+        capabilities: {
+          vision: true,
+          deepThinking: true,
+        },
+      },
+    ];
+    let resolveUpload: (value: Array<{ file_id: string }>) => void = () => {};
+    uploadFilesMock.mockImplementation(
+      () =>
+        new Promise<Array<{ file_id: string }>>((resolve) => {
+          resolveUpload = resolve;
+        })
+    );
+
+    const { container, rerender } = render(
+      <ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" resetSignal="chat-a" />
+    );
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['image'], 'pending.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [file],
+      },
+    });
+
+    await waitFor(() => {
+      expect(uploadFilesMock).toHaveBeenCalledWith('qwen', 'model-1', 'chat-a', [file]);
+    });
+
+    rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-b" resetSignal="chat-b" />);
+    addFileIdMock.mockClear();
+    updateFileStatusMock.mockClear();
+    startPollingFileStatusMock.mockClear();
+
+    await act(async () => {
+      resolveUpload([{ file_id: 'file-stale' }]);
+    });
+
+    expect(addFileIdMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatId: 'chat-a',
+      })
+    );
+    expect(updateFileStatusMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatId: 'chat-a',
+      })
+    );
+    expect(startPollingFileStatusMock).not.toHaveBeenCalledWith(
+      'file-stale',
+      'chat-a',
+      expect.anything(),
+      expect.anything()
+    );
+  });
+
+  it.each([
+    ['logout', { isAuthenticated: false, user: null, token: null }],
+    ['A→B', { isAuthenticated: true, user: { id: 'user-b' }, token: 'token-user-b' }],
+  ])('invalidates a pending upload on auth %s and never carries the attachment forward', async (_label, nextAuth) => {
+    configureAuthenticatedVisionModel('user-a');
+    const uploadRequest = createDeferred<Array<{ file_id: string; thumbnail_url?: string }>>();
+    uploadFilesMock.mockReturnValue(uploadRequest.promise);
+    const onUploadComplete = vi.fn();
+    const onClearConversationAttachments = vi.fn();
+    const onSendMessage = vi.fn();
+
+    const { container, rerender } = render(
+      <ChatInput
+        onSendMessage={onSendMessage}
+        onUploadComplete={onUploadComplete}
+        onClearConversationAttachments={onClearConversationAttachments}
+        activeChatId="chat-a"
+      />,
+    );
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['image'], 'user-a.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    await waitFor(() => {
+      expect(uploadFilesMock).toHaveBeenCalledWith('qwen', 'model-1', 'chat-a', [file]);
+      expect(screen.getByText('user-a.png')).toBeInTheDocument();
+    });
+
+    Object.assign(currentState.auth, nextAuth);
+    rerender(
+      <ChatInput
+        onSendMessage={onSendMessage}
+        onUploadComplete={onUploadComplete}
+        onClearConversationAttachments={onClearConversationAttachments}
+        activeChatId="chat-a"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText('user-a.png')).toBeNull();
+      expect(onClearConversationAttachments).toHaveBeenCalled();
+      expect(clearFilesMock).toHaveBeenCalledWith('chat-a');
+    });
+    addFileIdMock.mockClear();
+    updateFileStatusMock.mockClear();
+    startPollingFileStatusMock.mockClear();
+    toastMock.mockClear();
+
+    await act(async () => {
+      uploadRequest.resolve([{ file_id: 'file-user-a', thumbnail_url: '/user-a.png' }]);
+      await uploadRequest.promise;
+    });
+
+    expect(deleteFileMock).toHaveBeenCalledWith('file-user-a');
+    expect(addFileIdMock).not.toHaveBeenCalled();
+    expect(updateFileStatusMock).not.toHaveBeenCalled();
+    expect(startPollingFileStatusMock).not.toHaveBeenCalled();
+    expect(onUploadComplete).not.toHaveBeenCalled();
+    expect(toastMock).not.toHaveBeenCalled();
+    expect(onSendMessage).not.toHaveBeenCalled();
+    expect(screen.queryByText('user-a.png')).toBeNull();
+  });
+
+  it.each([
+    ['logout', { type: 'auth/logout' }],
+    ['A→B', { type: 'auth/testSwitch', payload: 'user-b' }],
+  ])('reads store identity after auth %s even before React rerender commits', async (_label, authAction) => {
+    configureAuthenticatedVisionModel('user-a');
+    const uploadRequest = createDeferred<Array<{ file_id: string }>>();
+    uploadFilesMock.mockReturnValue(uploadRequest.promise);
+    const onUploadComplete = vi.fn();
+
+    const { container } = render(
+      <ChatInput onSendMessage={vi.fn()} onUploadComplete={onUploadComplete} activeChatId="chat-a" />,
+    );
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['image'], 'store-window.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    await waitFor(() => {
+      expect(uploadFilesMock).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      storeDispatchMock(authAction);
+    });
+    addFileIdMock.mockClear();
+    updateFileStatusMock.mockClear();
+    startPollingFileStatusMock.mockClear();
+    toastMock.mockClear();
+
+    await act(async () => {
+      uploadRequest.resolve([{ file_id: 'file-store-window' }]);
+      await uploadRequest.promise;
+    });
+
+    expect(deleteFileMock).toHaveBeenCalledWith('file-store-window');
+    expect(addFileIdMock).not.toHaveBeenCalled();
+    expect(updateFileStatusMock).not.toHaveBeenCalled();
+    expect(startPollingFileStatusMock).not.toHaveBeenCalled();
+    expect(onUploadComplete).not.toHaveBeenCalled();
+    expect(toastMock).not.toHaveBeenCalled();
+  });
+
+  it('invalidates a pending upload on unmount and best-effort deletes a late file_id', async () => {
+    configureAuthenticatedVisionModel('user-a');
+    const uploadRequest = createDeferred<Array<{ file_id: string }>>();
+    uploadFilesMock.mockReturnValue(uploadRequest.promise);
+    const onUploadComplete = vi.fn();
+
+    const { container, unmount } = render(
+      <ChatInput onSendMessage={vi.fn()} onUploadComplete={onUploadComplete} activeChatId="chat-a" />,
+    );
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['image'], 'unmount.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    await waitFor(() => {
+      expect(uploadFilesMock).toHaveBeenCalledWith('qwen', 'model-1', 'chat-a', [file]);
+    });
+
+    unmount();
+    addFileIdMock.mockClear();
+    updateFileStatusMock.mockClear();
+    startPollingFileStatusMock.mockClear();
+    toastMock.mockClear();
+
+    await act(async () => {
+      uploadRequest.resolve([{ file_id: 'file-after-unmount' }]);
+      await uploadRequest.promise;
+    });
+
+    expect(deleteFileMock).toHaveBeenCalledWith('file-after-unmount');
+    expect(addFileIdMock).not.toHaveBeenCalled();
+    expect(updateFileStatusMock).not.toHaveBeenCalled();
+    expect(startPollingFileStatusMock).not.toHaveBeenCalled();
+    expect(onUploadComplete).not.toHaveBeenCalled();
+    expect(toastMock).not.toHaveBeenCalled();
+  });
+
+  it('drops a late upload rejection after logout without local error or toast', async () => {
+    configureAuthenticatedVisionModel('user-a');
+    const uploadRequest = createDeferred<Array<{ file_id: string }>>();
+    uploadFilesMock.mockReturnValue(uploadRequest.promise);
+
+    const { container, rerender } = render(
+      <ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />,
+    );
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['image'], 'logout-error.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    await waitFor(() => {
+      expect(uploadFilesMock).toHaveBeenCalledTimes(1);
+    });
+
+    Object.assign(currentState.auth, { isAuthenticated: false, user: null, token: null });
+    rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
+    toastMock.mockClear();
+
+    await act(async () => {
+      uploadRequest.reject(new Error('上传失败'));
+      await uploadRequest.promise.catch(() => undefined);
+    });
+
+    expect(screen.queryByText('logout-error.png')).toBeNull();
+    expect(screen.queryByText('上传失败')).toBeNull();
+    expect(toastMock).not.toHaveBeenCalled();
+  });
+
+  it('stops polling on auth switch and rejects a late poll callback before any producer side effect', async () => {
+    configureAuthenticatedVisionModel('user-a');
+    const uploadRequest = createDeferred<Array<{ file_id: string }>>();
+    uploadFilesMock.mockReturnValue(uploadRequest.promise);
+
+    const { container, rerender } = render(
+      <ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />,
+    );
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['image'], 'polling.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    await waitFor(() => {
+      expect(uploadFilesMock).toHaveBeenCalledTimes(1);
+    });
+    Object.defineProperty(file, 'type', {
+      configurable: true,
+      value: 'application/pdf',
+    });
+
+    await act(async () => {
+      uploadRequest.resolve([{ file_id: 'file-polling' }]);
+      await uploadRequest.promise;
+    });
+    await waitFor(() => {
+      expect(startPollingFileStatusMock).toHaveBeenCalledTimes(1);
+    });
+    const pollCallback = startPollingFileStatusMock.mock.calls[0][3];
+    const isProducerActive = startPollingFileStatusMock.mock.calls[0][4];
+    expect(isProducerActive()).toBe(true);
+
+    Object.assign(currentState.auth, {
+      isAuthenticated: true,
+      user: { id: 'user-b' },
+      token: 'token-user-b',
+    });
+    rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
+
+    expect(isProducerActive()).toBe(false);
+    expect(stopPollingFileStatusMock).toHaveBeenCalledWith('file-polling');
+    expect(deleteFileMock).toHaveBeenCalledWith('file-polling');
+    updateFileStatusMock.mockClear();
+    toastMock.mockClear();
+
+    act(() => {
+      pollCallback({ success: true });
+    });
+
+    expect(updateFileStatusMock).not.toHaveBeenCalled();
+    expect(toastMock).not.toHaveBeenCalled();
+    expect(screen.queryByText('polling.png')).toBeNull();
+  });
+
+  it('uses stable accessible actions for upload, reasoning, send and stop', () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'model-1';
+    currentState.models.models = [
+      {
+        id: 'model-1',
+        provider: 'qwen',
+        capabilities: {
+          vision: true,
+          deepThinking: true,
+          functionCalling: true,
+        },
+      },
+    ];
+    const onSendMessage = vi.fn();
+    const onStopStreaming = vi.fn();
+
+    const { rerender } = render(
+      <ChatInput
+        onSendMessage={onSendMessage}
+        onStopStreaming={onStopStreaming}
+        activeChatId="chat-1"
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '上传图片' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '思考模式' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: '执行模式：自动' })).toHaveTextContent('自动');
+    expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: '思考模式' }));
+    expect(setReasoningEnabledMock).toHaveBeenCalledWith(true);
+    fireEvent.pointerDown(screen.getByRole('button', { name: '执行模式：自动' }), {
+      button: 0,
+      ctrlKey: false,
+      pointerType: 'mouse',
+    });
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /计划/ }));
+    expect(setComposerAgentModeMock).toHaveBeenCalledWith('plan');
+    expect(sessionStorage.getItem('fusion:composer-agent-mode')).toBe('plan');
+
+    fireEvent.change(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）'), {
+      target: {
+        value: '你好',
+      },
+    });
+
+    expect(screen.getByRole('button', { name: '发送消息' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
+    expect(onSendMessage).toHaveBeenCalledWith(
+      '你好',
+      undefined,
+      undefined,
+      undefined,
+      expect.any(Function),
+      expect.any(Function),
+    );
+
+    currentState.conversation.reasoningEnabled = true;
+    currentState.conversation.composerAgentMode = 'plan';
+    rerender(
+      <ChatInput
+        onSendMessage={onSendMessage}
+        onStopStreaming={onStopStreaming}
+        activeChatId="chat-1"
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '思考模式' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '执行模式：计划' })).toHaveTextContent('计划');
+
+    currentState.stream.isStreaming = true;
+    rerender(
+      <ChatInput
+        onSendMessage={onSendMessage}
+        onStopStreaming={onStopStreaming}
+        activeChatId="chat-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '停止生成' }));
+    expect(onStopStreaming).toHaveBeenCalledTimes(1);
+
+    onSendMessage.mockClear();
+    fireEvent.change(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）'), {
+      target: { value: '不应在生成中发送' },
+    });
+    fireEvent.keyDown(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）'), {
+      key: 'Enter',
+      code: 'Enter',
+    });
+    expect(onStopStreaming).toHaveBeenCalledTimes(2);
+    expect(onSendMessage).not.toHaveBeenCalled();
+  });
+
+  it('renders composer as a structured input panel with toolbar and attachment status area', async () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'model-1';
+    currentState.models.models = [
+      {
+        id: 'model-1',
+        provider: 'qwen',
+        capabilities: {
+          vision: true,
+          deepThinking: true,
+        },
+      },
+    ];
+    uploadFilesMock.mockResolvedValue([{ file_id: 'file-1' }]);
+
+    const { container } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-1" />);
+    const panel = screen.getByRole('group', { name: '消息输入区' });
+    expect(panel.className).toContain('rounded-xl');
+    expect(screen.getByRole('toolbar', { name: '消息工具栏' })).toBeInTheDocument();
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['image'], 'hello.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [file],
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('list', { name: '已添加附件' })).toBeInTheDocument();
+      expect(screen.getByText('hello.png')).toBeInTheDocument();
+    });
+  });
+
+  it('uses the active chat model capabilities instead of a stale global selection', async () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'model-unsupported';
+    currentState.models.models = [
+      {
+        id: 'model-unsupported',
+        provider: 'qwen',
+        capabilities: {
+          vision: false,
+          deepThinking: false,
+        },
+      },
+      {
+        id: 'model-supported',
+        provider: 'openai',
+        capabilities: {
+          vision: true,
+          deepThinking: false,
+        },
+      },
+    ];
+    currentState.conversation.byId = {
+      'chat-1': {
+        id: 'chat-1',
+        model_id: 'model-supported',
+      },
+    };
+    uploadFilesMock.mockResolvedValue([{ file_id: 'file-1' }]);
+
+    const { container } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-1" />);
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['image'], 'hello.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [file],
+      },
+    });
+
+    await waitFor(() => {
+      expect(uploadFilesMock).toHaveBeenCalledWith('openai', 'model-supported', 'chat-1', [file]);
+    });
+
+    expect(toastMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: '当前选择的模型不支持文件上传功能',
+      })
+    );
+  });
+
+  it('uses the selected model when new-chat mode explicitly clears the active chat', async () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'model-supported';
+    currentState.models.models = [
+      {
+        id: 'legacy-model',
+        provider: 'qwen',
+        capabilities: {
+          vision: false,
+          deepThinking: false,
+        },
+      },
+      {
+        id: 'model-supported',
+        provider: 'openai',
+        capabilities: {
+          vision: true,
+          deepThinking: false,
+        },
+      },
+    ];
+    currentState.conversation.byId = {
+      'chat-1': {
+        id: 'chat-1',
+        model_id: 'legacy-model',
+      },
+    };
+    uploadFilesMock.mockResolvedValue([{ file_id: 'file-1' }]);
+
+    const { container } = render(<ChatInput onSendMessage={vi.fn()} activeChatId={null} />);
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['image'], 'hello.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [file],
+      },
+    });
+
+    await waitFor(() => {
+      // 无 activeChatId 时回退到 pendingChatIdRef.current（由 uuidMock 生成）
+      expect(uploadFilesMock).toHaveBeenCalledWith('openai', 'model-supported', expect.stringMatching(/^uuid-/), [file]);
+    });
+  });
+
+  it('blocks the composer when the current selected model is unavailable', () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'legacy-model';
+    currentState.models.models = [
+      {
+        id: 'legacy-model',
+        provider: 'qwen',
+        enabled: false,
+        capabilities: {
+          vision: false,
+          deepThinking: false,
+        },
+      },
+    ];
+
+    render(<ChatInput onSendMessage={vi.fn()} />);
+
+    expect(screen.getByPlaceholderText('当前会话模型不可用，请新建会话后继续')).toBeTruthy();
+    expect(screen.getByText('当前会话绑定的模型已不可用。请新建会话后切换到可用模型再继续聊天。')).toBeTruthy();
+  });
+
+  it('刷新时模型目录仍在加载则静默阻塞，不误报绑定模型不可用', () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.loadStatus = 'loading';
+    currentState.models.models = [];
+    currentState.conversation.byId = {
+      'chat-1': {
+        id: 'chat-1',
+        model_id: 'kimi-k3',
+      },
+    };
+
+    render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-1" />);
+
+    expect(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）')).toBeDisabled();
+    expect(screen.queryByText('当前会话绑定的模型已不可用。请新建会话后切换到可用模型再继续聊天。')).toBeNull();
+  });
+
+  it('会话绑定信息仍在水合时静默阻塞，不误报绑定模型不可用', () => {
+    configureAuthenticatedVisionModel();
+    currentState.conversation.byId = {};
+    currentState.conversation.hydrationStatus = { 'chat-1': 'loading' };
+
+    render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-1" />);
+
+    expect(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）')).toBeDisabled();
+    expect(screen.queryByText('当前会话绑定的模型已不可用。请新建会话后切换到可用模型再继续聊天。')).toBeNull();
+  });
+
+  it('模型目录加载失败时显示独立错误，不误报绑定模型不可用', () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.loadStatus = 'failed';
+    currentState.models.models = [];
+    currentState.conversation.byId = {
+      'chat-1': {
+        id: 'chat-1',
+        model_id: 'kimi-k3',
+      },
+    };
+
+    render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-1" />);
+
+    expect(screen.getByText('模型列表加载失败，请刷新页面重试。')).toBeTruthy();
+    expect(screen.queryByText('当前会话绑定的模型已不可用。请新建会话后切换到可用模型再继续聊天。')).toBeNull();
+  });
+
+  it('新对话选中模型不健康时回退到健康模型并保持可发送', () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'unhealthy-model';
+    currentState.models.models = [
+      {
+        id: 'unhealthy-model',
+        name: '不健康模型',
+        provider: 'qwen',
+        enabled: true,
+        health: {
+          status: 'unhealthy',
+          error: '服务商认证失败',
+        },
+        capabilities: {
+          vision: false,
+          deepThinking: false,
+        },
+      },
+      {
+        id: 'healthy-model',
+        name: '健康回退模型',
+        provider: 'openai',
+        enabled: true,
+        health: {
+          status: 'healthy',
+        },
+        capabilities: {
+          vision: false,
+          deepThinking: true,
+        },
+      },
+    ];
+
+    render(<ChatInput onSendMessage={vi.fn()} />);
+
+    expect(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）')).not.toBeDisabled();
+    expect(screen.getByTestId('model-selector-trigger')).toHaveTextContent('健康回退模型');
+    expect(screen.getByTestId('model-selector-trigger')).not.toHaveTextContent('不健康模型');
+    expect(screen.queryByText('当前会话绑定的模型已不可用。请新建会话后切换到可用模型再继续聊天。')).toBeNull();
+  });
+
+  it('已有会话绑定的模型不健康时阻塞发送而不回退', () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'healthy-model';
+    currentState.models.models = [
+      {
+        id: 'unhealthy-model',
+        provider: 'qwen',
+        enabled: true,
+        health: {
+          status: 'unhealthy',
+          error: '服务商认证失败',
+        },
+        capabilities: {
+          vision: false,
+          deepThinking: false,
+        },
+      },
+      {
+        id: 'healthy-model',
+        provider: 'openai',
+        enabled: true,
+        health: {
+          status: 'healthy',
+        },
+        capabilities: {
+          vision: false,
+          deepThinking: true,
+        },
+      },
+    ];
+    currentState.conversation.byId = {
+      'chat-1': {
+        id: 'chat-1',
+        model_id: 'unhealthy-model',
+      },
+    };
+
+    render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-1" />);
+
+    expect(screen.getByPlaceholderText('当前会话模型不可用，请新建会话后继续')).toBeDisabled();
+  });
+
+  it('已有会话尚无模型绑定时阻塞发送', () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'healthy-model';
+    currentState.models.models = [
+      {
+        id: 'healthy-model',
+        provider: 'openai',
+        enabled: true,
+        health: {
+          status: 'healthy',
+        },
+        capabilities: {
+          vision: false,
+          deepThinking: true,
+        },
+      },
+    ];
+    currentState.conversation.byId = {
+      'chat-1': {
+        id: 'chat-1',
+      },
+    };
+    currentState.conversation.hydrationStatus = { 'chat-1': 'done' };
+
+    render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-1" />);
+
+    expect(screen.getByPlaceholderText('当前会话模型不可用，请新建会话后继续')).toBeDisabled();
+  });
+
+  it('skips duplicate files in the same batch and warns the user', async () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'model-1';
+    currentState.models.models = [
+      {
+        id: 'model-1',
+        provider: 'qwen',
+        capabilities: {
+          vision: true,
+          deepThinking: true,
+        },
+      },
+    ];
+    uploadFilesMock.mockResolvedValue([{ file_id: 'file-1' }]);
+
+    const { container } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-1" />);
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const duplicateA = new File(['image'], 'same.png', { type: 'image/png', lastModified: 1 });
+    const duplicateB = new File(['image'], 'same.png', { type: 'image/png', lastModified: 1 });
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [duplicateA, duplicateB],
+      },
+    });
+
+    await waitFor(() => {
+      expect(uploadFilesMock).toHaveBeenCalledWith('qwen', 'model-1', 'chat-1', [duplicateA]);
+    });
+
+    expect(toastMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: '已跳过重复文件',
+        type: 'warning',
+      })
+    );
+  });
+
+  it('removes a failed image upload', async () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'model-1';
+    currentState.models.models = [
+      {
+        id: 'model-1',
+        provider: 'qwen',
+        capabilities: {
+          vision: true,
+          deepThinking: true,
+        },
+      },
+    ];
+    uploadFilesMock.mockRejectedValue(new Error('文件处理失败，请重试'));
+
+    const { container } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-1" />);
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['image'], 'remove-me.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [file],
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '移除 remove-me.png' })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '移除 remove-me.png' }));
+
+    expect(stopPollingFileStatusMock).not.toHaveBeenCalled();
+    expect(screen.queryByText('remove-me.png')).toBeNull();
+  });
+
+  it('shows readable retry actions when image upload fails', async () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'model-1';
+    currentState.models.models = [
+      {
+        id: 'model-1',
+        provider: 'qwen',
+        capabilities: {
+          vision: true,
+          deepThinking: true,
+        },
+      },
+    ];
+    uploadFilesMock.mockRejectedValue(new Error('文件上传超时，请重试'));
+
+    const { container } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-1" />);
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['image'], 'hello.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [file],
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('文件处理超时，请重新上传')).toBeTruthy();
+    });
+    expect(screen.getByRole('button', { name: '重试上传 hello.png' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '移除 hello.png' })).toBeTruthy();
+  });
+
+  it('retries a failed file upload from the inline action', async () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'model-1';
+    currentState.models.models = [
+      {
+        id: 'model-1',
+        provider: 'qwen',
+        capabilities: {
+          vision: true,
+          deepThinking: true,
+        },
+      },
+    ];
+    uploadFilesMock
+      .mockRejectedValueOnce(new Error('文件处理失败，请重试'))
+      .mockResolvedValueOnce([{ file_id: 'file-2' }]);
+
+    const { container } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-1" />);
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['image'], 'hello.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [file],
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '重试上传 hello.png' })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '重试上传 hello.png' }));
+
+    await waitFor(() => {
+      expect(stopPollingFileStatusMock).not.toHaveBeenCalled();
+      expect(uploadFilesMock).toHaveBeenCalledTimes(2);
+      expect(uploadFilesMock).toHaveBeenLastCalledWith('qwen', 'model-1', 'chat-1', [file]);
+      expect(addFileIdMock).toHaveBeenLastCalledWith({
+        chatId: 'chat-1',
+        fileId: 'file-2',
+        fileIndex: 0,
+      });
+    });
+  });
+
+  it('blocks sending when failed files still need attention', async () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'model-1';
+    currentState.models.models = [
+      {
+        id: 'model-1',
+        provider: 'qwen',
+        capabilities: {
+          vision: true,
+          deepThinking: true,
+        },
+      },
+    ];
+    uploadFilesMock.mockRejectedValue(new Error('文件处理失败，请重试'));
+    const onSendMessage = vi.fn();
+
+    const { container } = render(<ChatInput onSendMessage={onSendMessage} activeChatId="chat-1" />);
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['image'], 'hello.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [file],
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '重试上传 hello.png' })).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）'), {
+      target: {
+        value: '带失败文件也想发送',
+      },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
+
+    expect(onSendMessage).not.toHaveBeenCalled();
+    expect(toastMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: '请先重试或移除失败文件',
+        type: 'warning',
+      })
+    );
+  });
+
+  it('blocks selected conversation images when the current model has no vision', () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'text-model';
+    currentState.models.models = [
+      {
+        id: 'text-model',
+        provider: 'qwen',
+        capabilities: {
+          vision: false,
+          deepThinking: false,
+        },
+      },
+    ];
+    const onSendMessage = vi.fn();
+
+    render(
+      <ChatInput
+        onSendMessage={onSendMessage}
+        activeChatId="chat-1"
+        conversationAttachments={[
+          {
+            source: 'conversation',
+            fileId: 'file-1',
+            filename: 'diagram.png',
+            mimetype: 'image/png',
+            status: 'processed',
+            thumbnailUrl: '/thumb.png',
+          },
+        ]}
+      />
+    );
+
+    fireEvent.change(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）'), {
+      target: {
+        value: '分析图片',
+      },
+    });
+
+    expect(screen.getByText('当前模型不支持图片理解，请切换到支持读图的模型或移除图片资料')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
+
+    fireEvent.keyDown(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）'), {
+      key: 'Enter',
+      code: 'Enter',
+    });
+
+    expect(onSendMessage).not.toHaveBeenCalled();
+  });
+
+  it('blocks Enter sending for uploaded images after switching to a text-only model', async () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'vision-model';
+    currentState.models.models = [
+      {
+        id: 'vision-model',
+        provider: 'qwen',
+        capabilities: {
+          vision: true,
+          deepThinking: false,
+        },
+      },
+      {
+        id: 'text-model',
+        provider: 'qwen',
+        capabilities: {
+          vision: false,
+          deepThinking: false,
+        },
+      },
+    ];
+    uploadFilesMock.mockResolvedValue([{ file_id: 'file-1', thumbnail_url: '/thumb.png' }]);
+    const onSendMessage = vi.fn();
+
+    const { container, rerender } = render(<ChatInput onSendMessage={onSendMessage} activeChatId="chat-1" />);
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['image'], 'diagram.png', { type: 'image/png' });
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [file],
+      },
+    });
+
+    await waitFor(() => {
+      expect(uploadFilesMock).toHaveBeenCalledWith('qwen', 'vision-model', 'chat-1', [file]);
+      expect(screen.getByText('diagram.png')).toBeTruthy();
+    });
+
+    currentState.models.selectedModelId = 'text-model';
+    rerender(<ChatInput onSendMessage={onSendMessage} activeChatId="chat-1" />);
+
+    fireEvent.change(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）'), {
+      target: {
+        value: '分析图片',
+      },
+    });
+
+    expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
+    fireEvent.keyDown(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）'), {
+      key: 'Enter',
+      code: 'Enter',
+    });
+
+    expect(onSendMessage).not.toHaveBeenCalled();
+    expect(toastMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: '当前模型不支持图片理解，请切换到支持读图的模型或移除图片资料',
+        type: 'warning',
+      })
+    );
+  });
+
+  it('ignores stale non-image conversation files and sends only text', () => {
+    currentState.auth.isAuthenticated = true;
+    currentState.models.selectedModelId = 'text-model';
+    currentState.models.models = [
+      {
+        id: 'text-model',
+        provider: 'qwen',
+        capabilities: {
+          vision: false,
+          deepThinking: false,
+        },
+      },
+    ];
+    const onSendMessage = vi.fn();
+
+    render(
+      <ChatInput
+        onSendMessage={onSendMessage}
+        activeChatId="chat-1"
+        conversationAttachments={[
+          {
+            source: 'conversation',
+            fileId: 'file-1',
+            filename: 'notes.txt',
+            mimetype: 'text/plain',
+            status: 'processed',
+          },
+        ]}
+      />
+    );
+
+    fireEvent.change(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）'), {
+      target: {
+        value: '总结资料',
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
+
+    expect(onSendMessage).toHaveBeenCalledWith(
+      '总结资料',
+      undefined,
+      undefined,
+      undefined,
+      expect.any(Function),
+      expect.any(Function),
+    );
+  });
+
+  it('blocks send action for unauthenticated users', () => {
+    const onSendMessage = vi.fn();
+    render(<ChatInput onSendMessage={onSendMessage} activeChatId="chat-1" />);
+
+    fireEvent.change(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）'), {
+      target: {
+        value: '你好',
+      },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
+
+    expect(onSendMessage).not.toHaveBeenCalled();
+    expect(toastMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: '请先登录后再发送消息',
+        type: 'warning',
+      })
+    );
+    expect(triggerLoginDialogMock).toHaveBeenCalledTimes(1);
+  });
+});

@@ -1,0 +1,17 @@
+self-hosted-runner:
+  labels:
+    - fusion-api
+    - fusion-ui
+
+# 两份 wrapper 在 Task 1 只搬迁、不改部署逻辑。这里仅暂时登记原 workflow 已有的
+# ShellCheck 告警；Task 3 把内联脚本抽到 ops/deploy 后由脚本门禁逐项清零。
+paths:
+  .github/workflows/_deploy-api.yml:
+    ignore:
+      - 'shellcheck reported issue in this script: SC1090:.+'
+      - 'shellcheck reported issue in this script: SC2034:.+'
+      - 'shellcheck reported issue in this script: SC2155:.+'
+  .github/workflows/_deploy-ui.yml:
+    ignore:
+      - 'shellcheck reported issue in this script: SC2034:.+'
+      - 'shellcheck reported issue in this script: SC2155:.+'

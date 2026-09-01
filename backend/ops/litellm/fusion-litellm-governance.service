@@ -1,0 +1,38 @@
+[Unit]
+Description=Fusion LiteLLM 只读治理周期
+After=network-online.target
+Wants=network-online.target
+AssertPathExists=%h/.local/share/fusion/litellm-governance-current/scripts/run_litellm_governance_cycle.py
+AssertPathExists=%h/.local/share/fusion/litellm-governance-current/scripts/run_litellm_governance_unit.py
+AssertPathExists=%h/.local/share/fusion/litellm-governance-current/ops/litellm/candidate-overrides.json
+AssertPathExists=%h/project/litellm-proxy/.env
+AssertPathExists=%h/.config/fusion/litellm-provider-registry.json
+AssertPathExists=%h/.config/fusion/litellm-governance.env
+AssertPathIsDirectory=%h/backups/litellm-governance
+AssertFileIsExecutable=%h/.local/share/fusion/litellm-governance-venv/bin/python
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/.local/share/fusion/litellm-governance-current
+Environment=PYTHONNOUSERSITE=1
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+UnsetEnvironment=PYTHONPATH PYTHONHOME LD_PRELOAD
+UMask=0077
+ExecStart=%h/.local/share/fusion/litellm-governance-venv/bin/python -m scripts.run_litellm_governance_unit \
+  --proxy-env %h/project/litellm-proxy/.env \
+  --governance-env %h/.config/fusion/litellm-governance.env \
+  --registry %h/.config/fusion/litellm-provider-registry.json \
+  --require-env LITELLM_MASTER_KEY \
+  --require-env LITELLM_CANDIDATE_KEY \
+  -- \
+  %h/.local/share/fusion/litellm-governance-venv/bin/python -m scripts.run_litellm_governance_cycle \
+    --registry %h/.config/fusion/litellm-provider-registry.json \
+    --overrides %h/.local/share/fusion/litellm-governance-current/ops/litellm/candidate-overrides.json \
+    --output-dir %h/backups/litellm-governance \
+    --acceptance-dir %h/.local/share/fusion/litellm-acceptance
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/backups/litellm-governance
+ReadOnlyPaths=%h/.config/fusion -%h/.local/share/fusion/litellm-acceptance

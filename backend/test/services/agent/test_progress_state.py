@@ -1,0 +1,402 @@
+from app.services.agent.progress_state import apply_progress_event, empty_progress_state
+
+
+def test_evidence_metadata_merge_preserves_selected_status_and_citation():
+    state = empty_progress_state(run_id="r1", message_id="m1")
+    state = apply_progress_event(
+        state,
+        {
+            "type": "evidence_item_upserted",
+            "protocol_version": 2,
+            "evidence": {
+                "id": "ev-1",
+                "kind": "web",
+                "status": "selected",
+                "title": "来源",
+                "url": "https://example.com/report",
+                "claim": "建议深读",
+                "snippet": "候选摘要",
+            },
+        },
+    )
+    state = apply_progress_event(
+        state,
+        {
+            "type": "evidence_item_upserted",
+            "protocol_version": 2,
+            "evidence": {
+                "id": "ev-1",
+                "kind": "web",
+                "status": "candidate",
+                "title": "来源",
+                "url": "https://example.com/report",
+                "claim": "搜索候选",
+                "snippet": None,
+                "citation_index": 7,
+            },
+        },
+    )
+
+    assert state["evidence"][0]["status"] == "selected"
+    assert state["evidence"][0]["snippet"] == "候选摘要"
+    assert state["evidence"][0]["citation_index"] == 7
+
+
+def test_run_progress_updated_replaces_progress():
+    state = empty_progress_state(run_id="r1", message_id="m1")
+
+    state = apply_progress_event(
+        state,
+        {
+            "type": "run_progress_updated",
+            "protocol_version": 2,
+            "phase": "researching",
+            "label": "正在搜索相关资料",
+            "completed_steps": 1,
+            "total_steps": 4,
+            "completed_tool_calls": 2,
+            "max_tool_calls": 20,
+        },
+    )
+
+    assert state["progress"] == {
+        "phase": "researching",
+        "label": "正在搜索相关资料",
+        "completed_steps": 1,
+        "total_steps": 4,
+        "completed_tool_calls": 2,
+        "max_tool_calls": 20,
+    }
+
+
+def test_context_required_and_result_are_replayable_without_location_payload():
+    state = empty_progress_state(run_id="r1", message_id="m1")
+    state = apply_progress_event(
+        state,
+        {
+            "type": "context_required",
+            "protocol_version": 2,
+            "context_type": "geolocation",
+            "request_id": "ctx-1",
+            "purpose": "nearby_search",
+            "reason": "搜索当前位置附近的地点",
+            "expires_at": 123.5,
+        },
+    )
+
+    assert state["context_request"] == {
+        "request_id": "ctx-1",
+        "context_type": "geolocation",
+        "purpose": "nearby_search",
+        "reason": "搜索当前位置附近的地点",
+        "expires_at": 123.5,
+        "status": "pending",
+    }
+    assert "latitude" not in str(state)
+
+    state = apply_progress_event(
+        state,
+        {
+            "type": "context_result",
+            "protocol_version": 2,
+            "context_type": "geolocation",
+            "request_id": "ctx-1",
+            "status": "provided",
+        },
+    )
+    assert state["context_request"]["status"] == "provided"
+
+
+def test_plan_snapshot_replaces_existing_plan():
+    state = empty_progress_state(run_id="r1", message_id="m1")
+    state = apply_progress_event(
+        state,
+        {
+            "type": "plan_snapshot",
+            "protocol_version": 2,
+            "plan_id": "plan-r1",
+            "revision": 1,
+            "items": [
+                {
+                    "id": "understand",
+                    "title": "理解问题",
+                    "phase_id": "phase-understand",
+                    "phase_title": "分析任务",
+                    "status": "running",
+                    "kind": "reasoning",
+                    "tool_names": [],
+                    "evidence_item_ids": [],
+                }
+            ],
+        },
+    )
+    state = apply_progress_event(
+        state,
+        {
+            "type": "plan_snapshot",
+            "protocol_version": 2,
+            "plan_id": "plan-r1",
+            "revision": 2,
+            "items": [
+                {
+                    "id": "answer",
+                    "title": "整理回答",
+                    "phase_id": "phase-answer",
+                    "phase_title": "整理回答",
+                    "status": "pending",
+                    "kind": "answer",
+                    "tool_names": [],
+                    "evidence_item_ids": [],
+                }
+            ],
+        },
+    )
+
+    assert state["plan"]["revision"] == 2
+    assert [item["id"] for item in state["plan"]["items"]] == ["answer"]
+    assert state["plan"]["items"][0]["phase_id"] == "phase-answer"
+    assert state["plan"]["items"][0]["phase_title"] == "整理回答"
+
+
+def test_plan_snapshot_rejects_stale_same_plan_but_accepts_new_plan_revision_reset():
+    state = empty_progress_state(run_id="r1", message_id="m1")
+    state = apply_progress_event(
+        state,
+        {"type": "plan_snapshot", "protocol_version": 2, "plan_id": "observed", "revision": 9, "items": []},
+    )
+    stale = apply_progress_event(
+        state,
+        {"type": "plan_snapshot", "protocol_version": 2, "plan_id": "observed", "revision": 2, "items": []},
+    )
+    switched = apply_progress_event(
+        stale,
+        {"type": "plan_snapshot", "protocol_version": 2, "plan_id": "model", "revision": 1, "items": []},
+    )
+
+    assert stale["plan"]["revision"] == 9
+    assert switched["plan"]["plan_id"] == "model"
+    assert switched["plan"]["revision"] == 1
+
+
+def test_plan_step_update_ignores_stale_revision():
+    state = empty_progress_state(run_id="r1", message_id="m1")
+    state = apply_progress_event(
+        state,
+        {"type": "plan_snapshot", "protocol_version": 2, "plan_id": "plan-r1", "revision": 2, "items": []},
+    )
+
+    state = apply_progress_event(
+        state,
+        {
+            "type": "plan_step_updated",
+            "protocol_version": 2,
+            "plan_id": "plan-r1",
+            "revision": 2,
+            "item": {
+                "id": "search",
+                "title": "搜索资料",
+                "status": "running",
+                "kind": "search",
+                "tool_names": [],
+                "evidence_item_ids": [],
+            },
+        },
+    )
+
+    assert state["plan"]["items"] == []
+
+
+def test_tool_digest_upserts_and_caps_to_twenty_items():
+    state = empty_progress_state(run_id="r1", message_id="m1")
+
+    for index in range(22):
+        state = apply_progress_event(
+            state,
+            {
+                "type": "tool_result_digest",
+                "protocol_version": 2,
+                "tool_call_id": f"tc-{index}",
+                "tool_name": "web_search",
+                "status": "success",
+                "title": f"工具结果 {index}",
+                "summary": "摘要",
+                "key_findings": [f"发现 {index}"],
+                "source_refs": [],
+                "truncated": False,
+            },
+        )
+
+    assert len(state["tool_digests"]) == 20
+    assert state["tool_digests"][0]["tool_call_id"] == "tc-2"
+
+
+def test_resolved_digest_removes_only_matching_pending_repair():
+    state = empty_progress_state(run_id="r1", message_id="m1")
+    for tool_call_id, repair_id in (
+        ("tc-pending-a", "repair_aaaaaaaaaaaaaaaa"),
+        ("tc-pending-b", "repair_bbbbbbbbbbbbbbbb"),
+    ):
+        state = apply_progress_event(
+            state,
+            {
+                "type": "tool_result_digest",
+                "protocol_version": 2,
+                "tool_call_id": tool_call_id,
+                "tool_name": "weather_forecast",
+                "status": "degraded",
+                "title": "正在修正工具参数",
+                "summary": "参数修正中",
+                "repair_state": "retrying",
+                "repair_id": repair_id,
+            },
+        )
+
+    state = apply_progress_event(
+        state,
+        {
+            "type": "tool_result_digest",
+            "protocol_version": 2,
+            "tool_call_id": "tc-resolved",
+            "tool_name": "weather_forecast",
+            "status": "success",
+            "title": "天气查询完成",
+            "summary": "工具返回了可用结果。",
+            "repair_state": "resolved",
+            "repair_id": "repair_aaaaaaaaaaaaaaaa",
+        },
+    )
+
+    assert [digest["tool_call_id"] for digest in state["tool_digests"]] == [
+        "tc-pending-b",
+        "tc-resolved",
+    ]
+
+
+def test_success_completion_resolves_snapshot_even_when_resolved_digest_is_lost():
+    state = empty_progress_state(run_id="r1", message_id="m1")
+    state = apply_progress_event(
+        state,
+        {
+            "type": "tool_result_digest",
+            "protocol_version": 2,
+            "tool_call_id": "tc-pending",
+            "tool_name": "weather_forecast",
+            "status": "degraded",
+            "title": "正在修正工具参数",
+            "summary": "参数修正中",
+            "repair_state": "retrying",
+            "repair_id": "repair_aaaaaaaaaaaaaaaa",
+        },
+    )
+
+    state = apply_progress_event(
+        state,
+        {
+            "type": "tool_call_completed",
+            "tool_call_id": "tc-success",
+            "tool_name": "weather_forecast",
+            "status": "success",
+            "duration_ms": 10,
+            "result_summary": {
+                "kind": "external_tool",
+                "resolves_repair_id": "repair_aaaaaaaaaaaaaaaa",
+            },
+        },
+    )
+
+    assert state["tool_digests"] == []
+
+
+def test_evidence_upsert_cap_keeps_used_and_truncates_fields():
+    state = empty_progress_state(run_id="r1", message_id="m1")
+
+    for index in range(14):
+        state = apply_progress_event(
+            state,
+            {
+                "type": "evidence_item_upserted",
+                "protocol_version": 2,
+                "evidence": {
+                    "id": f"ev-{index}",
+                    "kind": "web",
+                    "status": "used" if index == 0 else "candidate",
+                    "title": "t" * 100,
+                    "domain": "example.com",
+                    "claim": "c" * 200,
+                    "snippet": "s" * 300,
+                    "used_by_final_answer": index == 0,
+                },
+            },
+        )
+
+    ids = [item["id"] for item in state["evidence"]]
+    assert len(ids) == 12
+    assert "ev-0" in ids
+    kept_used = next(item for item in state["evidence"] if item["id"] == "ev-0")
+    assert kept_used["title"] == "t" * 80
+    assert kept_used["claim"] == "c" * 120
+    assert kept_used["snippet"] == "s" * 180
+
+
+def test_evidence_upsert_cap_keeps_selected_and_read_success():
+    state = empty_progress_state(run_id="r1", message_id="m1")
+
+    for evidence in [
+        {
+            "id": "selected-id",
+            "kind": "web",
+            "status": "selected",
+            "title": "建议深读来源",
+            "url": "https://example.com/selected",
+            "domain": "example.com",
+            "claim": "建议深读：官方来源",
+        },
+        {
+            "id": "read-success-id",
+            "kind": "web",
+            "status": "read_success",
+            "title": "已深读来源",
+            "url": "https://example.com/read",
+            "domain": "example.com",
+            "claim": "已读取网页内容。",
+        },
+    ]:
+        state = apply_progress_event(
+            state,
+            {
+                "type": "evidence_item_upserted",
+                "protocol_version": 2,
+                "evidence": evidence,
+            },
+        )
+
+    for index in range(12):
+        state = apply_progress_event(
+            state,
+            {
+                "type": "evidence_item_upserted",
+                "protocol_version": 2,
+                "evidence": {
+                    "id": f"candidate-{index}",
+                    "kind": "web",
+                    "status": "candidate",
+                    "title": f"普通候选 {index}",
+                    "url": f"https://example.com/candidate-{index}",
+                    "domain": "example.com",
+                    "claim": "普通候选",
+                },
+            },
+        )
+
+    ids = [item["id"] for item in state["evidence"]]
+    assert len(ids) == 12
+    assert "selected-id" in ids
+    assert "read-success-id" in ids
+
+
+def test_terminal_v1_events_update_snapshot_status():
+    state = empty_progress_state(run_id="r1", message_id="m1")
+
+    state = apply_progress_event(state, {"type": "run_failed", "message": "boom"})
+
+    assert state["status"] == "failed"

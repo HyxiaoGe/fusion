@@ -1,0 +1,41 @@
+# 已禁用：旧的 server-side build 部署流程。
+# 当前部署入口是 .github/workflows/build-and-deploy.yml，它会先构建镜像、推送 ACR，再在 dev 服务器拉取镜像部署。
+# 如需恢复此流程，先确认不会绕过镜像制品部署和部署后 smoke check，再改回 .yml 后缀。
+
+name: Deploy to Dev Server
+on:
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Record start time
+        run: echo "BUILD_START=$(date +%s)" >> $GITHUB_ENV
+
+      - name: Sync deploy checkout
+        run: cd ~/project/fusion/fusion-ui && git fetch origin && git reset --hard origin/master && git clean -fd
+      - name: Build and deploy
+        run: |
+          cd ~/project/fusion
+          for attempt in 1 2 3; do
+            if docker compose up -d --build fusion-ui; then
+              exit 0
+            fi
+
+            docker compose rm -sf fusion-ui || true
+            sleep 5
+          done
+
+          exit 1
+      - name: Cleanup
+        run: |
+          docker builder prune --filter "until=72h" -f
+
+      - name: Push deploy metrics
+        if: always()
+        run: |
+          if ! timeout 15s bash ~/scripts/push-deploy-metrics.sh fusion-ui master "${{ job.status }}" "${{ env.BUILD_START }}"; then
+            echo "deploy metrics push failed, ignored"
+          fi

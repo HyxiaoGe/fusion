@@ -1,0 +1,15 @@
+node_modules
+
+.next
+
+.env.production
+.env
+.env.local
+
+.cursor.tsbuildinfo
+tsconfig.tsbuildinfo
+.DS_Store
+.claude/
+
+# Local design survey explicitly marked as not for push.
+docs/migration-survey.md

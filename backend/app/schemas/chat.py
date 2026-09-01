@@ -1,0 +1,1151 @@
+# app/schemas/chat.py
+from datetime import date as CalendarDate
+from datetime import datetime
+from typing import Any, Dict, List, Literal, Optional, Union
+from urllib.parse import parse_qs, urlsplit
+from uuid import RFC_4122, UUID, uuid4
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+
+from app.utils.time import utc_now
+from app.utils.user_visible_content import sanitize_user_visible_reasoning
+
+# ============================================================
+# Content Blocks（消息内容块）
+# ============================================================
+
+
+class TextBlock(BaseModel):
+    """纯文本内容块"""
+
+    type: Literal["text"]
+    id: str = Field(default_factory=lambda: f"blk_{uuid4().hex[:12]}")
+    text: str
+
+
+class ThinkingBlock(BaseModel):
+    """模型推理过程内容块，仅出现在 assistant 消息中"""
+
+    type: Literal["thinking"]
+    id: str = Field(default_factory=lambda: f"blk_{uuid4().hex[:12]}")
+    thinking: str
+
+    @field_validator("thinking")
+    @classmethod
+    def sanitize_legacy_user_visible_thinking(cls, value: str) -> str:
+        """历史记录可能保存过内部协议，只在用户可见 schema 边界净化。"""
+
+        return sanitize_user_visible_reasoning(value, final=True)
+
+
+class FileBlock(BaseModel):
+    """文件引用内容块，仅出现在 user 消息中"""
+
+    type: Literal["file"]
+    id: str = Field(default_factory=lambda: f"blk_{uuid4().hex[:12]}")
+    file_id: str
+    filename: str
+    mime_type: str
+    thumbnail_url: Optional[str] = None  # 缩略图 URL（presigned 或 API 代理）
+    width: Optional[int] = None  # 图片宽度
+    height: Optional[int] = None  # 图片高度
+
+
+class SearchSource(BaseModel):
+    """单条搜索来源"""
+
+    title: str
+    url: str
+    description: str
+    content: Optional[str] = None  # 网页正文摘要（Tavily 等 provider 支持）
+    favicon: Optional[str] = None  # 网站 favicon URL
+    requested_provider: Optional[str] = None
+    result_provider: Optional[str] = None
+    fallback_used: bool = False
+    provider_chain: List[str] = Field(default_factory=list)
+
+
+class SearchSourceSummary(BaseModel):
+    """轻量搜索来源摘要，用于 Message.content 中的 SearchBlock"""
+
+    title: str
+    url: str
+    favicon: Optional[str] = None
+
+
+class SourceReference(BaseModel):
+    """统一来源引用摘要，用于搜索/URL 读取等联网 content block"""
+
+    kind: Literal["search", "url_read"]
+    title: str = ""
+    url: str = ""
+    favicon: Optional[str] = None
+    status: Literal["success", "failed", "degraded"] = "success"
+    tool_call_log_id: str = ""
+    error_message: Optional[str] = None
+    evidence_id: Optional[str] = None
+    citation_index: Optional[int] = Field(default=None, ge=1)
+
+
+class SearchBlock(BaseModel):
+    """搜索结果内容块，出现在 assistant 消息中"""
+
+    type: Literal["search"]
+    id: str = Field(default_factory=lambda: f"blk_{uuid4().hex[:12]}")
+    query: str
+    tool_call_log_id: str = ""  # 关联 tool_call_logs 表
+    sources: List[SearchSourceSummary]  # 轻量版，前端展示用
+    status: Literal["success", "failed", "degraded"] = "success"
+    error_message: Optional[str] = None
+    source_count: int = 0
+    source_refs: List[SourceReference] = Field(default_factory=list)
+    requested_provider: Optional[str] = None
+    result_provider: Optional[str] = None
+    fallback_used: bool = False
+    provider_chain: List[str] = Field(default_factory=list)
+    requested_count: Optional[int] = None
+    actual_count: Optional[int] = None
+    context_source_count: Optional[int] = None
+    context_source_limit: Optional[int] = None
+    search_budget: Optional[str] = None
+    intent: Optional[str] = None
+    domains: List[str] = Field(default_factory=list)
+    recency_days: Optional[int] = None
+    budget_limited: bool = False
+
+
+class UrlBlock(BaseModel):
+    """网页读取内容块，出现在 assistant 消息中"""
+
+    type: Literal["url_read"]
+    id: str = Field(default_factory=lambda: f"blk_{uuid4().hex[:12]}")
+    url: str
+    title: Optional[str] = None
+    favicon: Optional[str] = None
+    tool_call_log_id: str = ""
+    status: Literal["success", "failed", "degraded"] = "success"
+    error_message: Optional[str] = None
+    source_count: int = 0
+    source_refs: List[SourceReference] = Field(default_factory=list)
+    reason: Optional[str] = None
+
+
+class KnowledgeSourceReference(BaseModel):
+    """知识库命中的持久化来源定位；不复制分块正文。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["knowledge"] = "knowledge"
+    evidence_id: str = Field(min_length=1, max_length=160)
+    citation_index: int = Field(ge=1)
+    knowledge_base_id: str = Field(min_length=1, max_length=160)
+    knowledge_base_name: str = Field(min_length=1, max_length=200)
+    document_id: str = Field(min_length=1, max_length=160)
+    index_version: str = Field(min_length=1, max_length=160)
+    chunk_id: str = Field(min_length=1, max_length=160)
+    ordinal: int = Field(ge=0)
+    filename: str = Field(min_length=1, max_length=255)
+    page: Optional[int] = Field(default=None, ge=1)
+    section: Optional[str] = Field(default=None, max_length=120)
+    char_start: int = Field(ge=0)
+    char_end: int = Field(ge=0)
+    status: Literal["success", "unavailable"] = "success"
+
+    @model_validator(mode="after")
+    def validate_offsets(self) -> "KnowledgeSourceReference":
+        if self.char_end < self.char_start:
+            raise ValueError("char_end 不能小于 char_start")
+        return self
+
+
+class KnowledgeEvidenceBlock(BaseModel):
+    """单轮知识库检索证据摘要，可刷新恢复且不永久保存原始分块正文。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["knowledge_evidence"]
+    id: str = Field(default_factory=lambda: f"blk_{uuid4().hex[:12]}", max_length=160)
+    schema_version: Literal[1] = 1
+    query: str = Field(min_length=1, max_length=4000)
+    status: Literal["success", "empty"]
+    source_count: int = Field(ge=0, le=8)
+    knowledge_base_ids: List[str] = Field(min_length=1, max_length=5)
+    source_refs: List[KnowledgeSourceReference] = Field(default_factory=list, max_length=8)
+
+    @model_validator(mode="after")
+    def validate_sources(self) -> "KnowledgeEvidenceBlock":
+        if len(set(self.knowledge_base_ids)) != len(self.knowledge_base_ids):
+            raise ValueError("knowledge_base_ids 不能重复")
+        if any("\x00" in value for value in self.knowledge_base_ids):
+            raise ValueError("knowledge_base_ids 不能包含 NUL 字符")
+        if self.source_count != len(self.source_refs):
+            raise ValueError("source_count 必须等于 source_refs 数量")
+        if self.status == "success" and not self.source_refs:
+            raise ValueError("success 状态必须包含来源")
+        if self.status == "empty" and self.source_refs:
+            raise ValueError("empty 状态不能包含来源")
+        citation_indexes = [item.citation_index for item in self.source_refs]
+        if len(citation_indexes) != len(set(citation_indexes)):
+            raise ValueError("citation_index 不能重复")
+        return self
+
+
+class UnsupportedContentBlock(BaseModel):
+    """无法由当前版本解释的安全占位块，不携带原始 payload 或工具信息。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["unsupported_result"]
+    id: str = Field(min_length=1, max_length=160)
+    source_type: str = Field(min_length=1, max_length=80)
+    source_schema_version: Optional[int] = None
+    reason: Literal["unsupported_type", "unsupported_version", "invalid_payload"]
+
+
+class PlacePhoto(BaseModel):
+    """地点图片的通用展示字段；供应商域名白名单由专用投影器负责。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(max_length=2048)
+    title: Optional[str] = Field(default=None, max_length=120)
+
+    @field_validator("url")
+    @classmethod
+    def validate_official_photo_url(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.port not in {None, 443}
+            or parsed.fragment
+        ):
+            raise ValueError("地点图片必须使用无凭据的标准 HTTPS 地址")
+        return value
+
+
+class StructuredResultAttribution(BaseModel):
+    """富结果的用户可见来源归因；不暴露内部 provider alias。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(min_length=1, max_length=80)
+
+
+class StructuredResultAction(BaseModel):
+    """由专用结果投影器生成的外部操作。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["open_external"]
+    label: str = Field(min_length=1, max_length=40)
+    url: str = Field(max_length=2048)
+
+    @field_validator("url")
+    @classmethod
+    def validate_external_url(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            raise ValueError("富结果外部操作必须使用无凭据的 HTTPS 地址")
+        return value
+
+
+class PlaceResult(BaseModel):
+    """与供应商无关的单个地点结果。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider_place_id: Optional[str] = Field(default=None, max_length=160)
+    name: str = Field(min_length=1, max_length=120)
+    address: Optional[str] = Field(default=None, max_length=240)
+    district: Optional[str] = Field(default=None, max_length=120)
+    category: Optional[str] = Field(default=None, max_length=160)
+    distance_m: Optional[int] = Field(default=None, ge=0, le=10_000_000)
+    photos: List[PlacePhoto] = Field(default_factory=list, max_length=1)
+    rating: Optional[float] = Field(default=None, ge=0, le=5)
+    reference_cost_yuan: Optional[float] = Field(default=None, ge=0, le=1_000_000)
+    actions: List[StructuredResultAction] = Field(default_factory=list, max_length=2)
+    platform_url: Optional[str] = Field(default=None, max_length=2048)
+    business_area: Optional[str] = Field(default=None, max_length=120)
+    open_hours: Optional[str] = Field(default=None, max_length=240)
+    detail_status: Literal["enriched", "unavailable", "budget_limited", "not_requested"] = "not_requested"
+
+    @field_validator("platform_url")
+    @classmethod
+    def validate_platform_url(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        parsed = urlsplit(value)
+        query = parse_qs(parsed.query, keep_blank_values=True, strict_parsing=True)
+        if (
+            parsed.scheme != "https"
+            or (parsed.hostname or "").lower() != "uri.amap.com"
+            or parsed.path != "/marker"
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.port not in {None, 443}
+            or parsed.fragment
+            or set(query) != {"poiid", "src", "callnative"}
+            or any(len(items) != 1 for items in query.values())
+            or not query["poiid"][0]
+            or query["src"] != ["fusion"]
+            or query["callnative"] != ["0"]
+        ):
+            raise ValueError("地点跳转地址不符合高德官方 URI 契约")
+        return value
+
+
+class PlaceResultsBlock(BaseModel):
+    """地点搜索产品结果块。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["place_results"]
+    id: str = Field(default_factory=lambda: f"blk_{uuid4().hex[:12]}", max_length=160)
+    schema_version: Literal[1]
+    provider: str = Field(min_length=1, max_length=40)
+    attribution: Optional[StructuredResultAttribution] = None
+    query: str = Field(min_length=1, max_length=80)
+    near: Optional[str] = Field(default=None, max_length=120)
+    status: Literal["success", "degraded"]
+    result_count: int = Field(ge=0, le=5)
+    places: List[PlaceResult] = Field(default_factory=list, max_length=5)
+    limitations: List[str] = Field(default_factory=list, max_length=8)
+    tool_call_log_id: str = Field(default="", max_length=160)
+
+    @model_validator(mode="after")
+    def validate_result_count(self):
+        if self.result_count != len(self.places):
+            raise ValueError("result_count 必须等于 places 数量")
+        return self
+
+    @field_validator("limitations")
+    @classmethod
+    def validate_limitations(cls, value: List[str]) -> List[str]:
+        if any(not item.strip() or len(item) > 240 for item in value):
+            raise ValueError("limitations 单项不能为空且不能超过 240 字符")
+        return value
+
+
+class RouteEndpoint(BaseModel):
+    """路线端点的安全展示字段，不包含坐标。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(min_length=1, max_length=120)
+    city: Optional[str] = Field(default=None, max_length=40)
+
+
+class TransitLeg(BaseModel):
+    """公共交通单段安全展示字段；所有字段可选以兼容不完整上游结果。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Optional[Literal["walking", "subway", "bus", "other"]] = None
+    line_name: Optional[str] = Field(default=None, max_length=120)
+    departure_stop: Optional[str] = Field(default=None, max_length=120)
+    arrival_stop: Optional[str] = Field(default=None, max_length=120)
+    via_stop_count: Optional[int] = Field(default=None, ge=0, le=100)
+    distance_m: Optional[int] = Field(default=None, ge=0, le=100_000_000)
+    duration_s: Optional[int] = Field(default=None, ge=0, le=10_000_000)
+    entrance: Optional[str] = Field(default=None, max_length=80)
+    exit: Optional[str] = Field(default=None, max_length=80)
+
+
+class TransitAlternative(BaseModel):
+    """公共交通备选方案；不递归嵌套 alternatives。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    transit_type: Optional[Literal["subway", "bus", "mixed", "public_transit"]] = None
+    duration_s: Optional[int] = Field(default=None, ge=0, le=10_000_000)
+    walking_distance_m: Optional[int] = Field(default=None, ge=0, le=100_000_000)
+    transfers: Optional[int] = Field(default=None, ge=0, le=100)
+    summary: Optional[str] = Field(default=None, max_length=160)
+    legs: List[TransitLeg] = Field(default_factory=list, max_length=8)
+
+
+class RouteOption(BaseModel):
+    """单种出行方式的路线摘要。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["driving", "transit", "walking", "bicycling"]
+    distance_m: Optional[int] = Field(default=None, ge=0, le=100_000_000)
+    duration_s: Optional[int] = Field(default=None, ge=0, le=10_000_000)
+    summary: Optional[str] = Field(default=None, max_length=160)
+    toll_yuan: Optional[float] = Field(default=None, ge=0, le=1_000_000)
+    transfers: Optional[int] = Field(default=None, ge=0, le=100)
+    transit_type: Optional[Literal["subway", "bus", "mixed", "public_transit"]] = None
+    walking_distance_m: Optional[int] = Field(default=None, ge=0, le=100_000_000)
+    legs: List[TransitLeg] = Field(default_factory=list, max_length=8)
+    alternatives: List[TransitAlternative] = Field(default_factory=list, max_length=2)
+
+
+class RouteResultsBlock(BaseModel):
+    """路线对比产品结果块。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["route_results"]
+    id: str = Field(default_factory=lambda: f"blk_{uuid4().hex[:12]}", max_length=160)
+    schema_version: Literal[1]
+    provider: str = Field(min_length=1, max_length=40)
+    attribution: Optional[StructuredResultAttribution] = None
+    status: Literal["success", "degraded"]
+    origin: RouteEndpoint
+    destination: RouteEndpoint
+    routes: List[RouteOption] = Field(default_factory=list, min_length=1, max_length=3)
+    unavailable_modes: List[Literal["driving", "transit", "walking", "bicycling"]] = Field(
+        default_factory=list,
+        max_length=3,
+    )
+    limitations: List[str] = Field(default_factory=list, max_length=8)
+    tool_call_log_id: str = Field(default="", max_length=160)
+
+    @field_validator("limitations")
+    @classmethod
+    def validate_limitations(cls, value: List[str]) -> List[str]:
+        if any(not item.strip() or len(item) > 240 for item in value):
+            raise ValueError("limitations 单项不能为空且不能超过 240 字符")
+        return value
+
+
+class WeatherForecastDay(BaseModel):
+    """单日天气预报的供应商无关安全字段。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    date: CalendarDate
+    weekday: int = Field(ge=1, le=7)
+    day_weather: str = Field(min_length=1, max_length=80)
+    night_weather: str = Field(min_length=1, max_length=80)
+    high_c: float = Field(ge=-100, le=100)
+    low_c: float = Field(ge=-100, le=100)
+    day_wind_direction: Optional[str] = Field(default=None, max_length=40)
+    night_wind_direction: Optional[str] = Field(default=None, max_length=40)
+    day_wind_power: Optional[str] = Field(default=None, max_length=40)
+    night_wind_power: Optional[str] = Field(default=None, max_length=40)
+
+    @model_validator(mode="after")
+    def validate_weekday(self):
+        if self.weekday != self.date.isoweekday():
+            raise ValueError("weekday 必须与 date 的 ISO 星期一致")
+        if self.high_c < self.low_c:
+            raise ValueError("high_c 不能低于 low_c")
+        return self
+
+
+class WeatherResultsBlock(BaseModel):
+    """天气预报产品结果块。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["weather_results"]
+    id: str = Field(default_factory=lambda: f"blk_{uuid4().hex[:12]}", max_length=160)
+    schema_version: Literal[1]
+    provider: Literal["amap"]
+    attribution: Optional[StructuredResultAttribution] = None
+    status: Literal["success", "degraded"]
+    query: str = Field(min_length=1, max_length=120)
+    resolved_location: str = Field(min_length=1, max_length=120)
+    day_count: int = Field(ge=1, le=4)
+    forecast_days: List[WeatherForecastDay] = Field(min_length=1, max_length=4)
+    fetched_at: datetime
+    limitations: List[str] = Field(default_factory=list, max_length=8)
+    tool_call_log_id: str = Field(default="", max_length=160)
+
+    @field_validator("fetched_at")
+    @classmethod
+    def validate_fetched_at_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("天气获取时间必须包含时区")
+        return value
+
+    @field_validator("limitations")
+    @classmethod
+    def validate_limitations(cls, value: List[str]) -> List[str]:
+        if any(not item.strip() or len(item) > 240 for item in value):
+            raise ValueError("limitations 单项不能为空且不能超过 240 字符")
+        return value
+
+    @model_validator(mode="after")
+    def validate_forecast_days(self):
+        if self.day_count != len(self.forecast_days):
+            raise ValueError("day_count 必须等于 forecast_days 数量")
+        dates = [item.date for item in self.forecast_days]
+        if dates != sorted(dates) or len(dates) != len(set(dates)):
+            raise ValueError("forecast_days 必须按日期升序且日期唯一")
+        expected_status = "success" if self.day_count == 4 else "degraded"
+        if self.status != expected_status:
+            raise ValueError("四天完整预报必须为 success，其余可用预报必须为 degraded")
+        return self
+
+
+class TravelEndpoint(BaseModel):
+    """航班或高铁班次的单个时刻端点。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    city: str = Field(min_length=1, max_length=80)
+    station_name: str = Field(min_length=1, max_length=120)
+    station_code: Optional[str] = Field(default=None, min_length=1, max_length=16)
+    terminal: Optional[str] = Field(default=None, min_length=1, max_length=32)
+    scheduled_at: datetime
+
+    @field_validator("scheduled_at")
+    @classmethod
+    def validate_scheduled_at_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("班次时间必须包含时区")
+        return value
+
+
+class TravelMoney(BaseModel):
+    """出行参考价格；金额使用最小货币单位。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    currency: Literal["CNY"]
+    amount_minor: int = Field(ge=0, le=100_000_000)
+
+
+class FlightOption(BaseModel):
+    """单个直达航班的安全展示字段。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    option_id: str = Field(min_length=1, max_length=80)
+    airline_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    flight_no: str = Field(min_length=1, max_length=40)
+    departure: TravelEndpoint
+    arrival: TravelEndpoint
+    duration_s: int = Field(ge=0, le=172_800)
+    cabin_class: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    stops: Literal[0]
+    price: Optional[TravelMoney] = None
+    actions: List[StructuredResultAction] = Field(default_factory=list, max_length=1)
+
+
+class TrainOption(BaseModel):
+    """单个直达高铁或火车班次的安全展示字段。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    option_id: str = Field(min_length=1, max_length=80)
+    train_no: str = Field(min_length=1, max_length=40)
+    train_type: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    departure: TravelEndpoint
+    arrival: TravelEndpoint
+    duration_s: int = Field(ge=0, le=172_800)
+    seat_class: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    stops: Literal[0]
+    price: Optional[TravelMoney] = None
+    actions: List[StructuredResultAction] = Field(default_factory=list, max_length=1)
+
+
+class FlightResultsBlock(BaseModel):
+    """航班查询产品结果块。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["flight_results"]
+    id: str = Field(default_factory=lambda: f"blk_{uuid4().hex[:12]}", max_length=160)
+    schema_version: Literal[1]
+    provider: Literal["flyai"]
+    attribution: Optional[StructuredResultAttribution] = None
+    status: Literal["success", "degraded"]
+    origin: str = Field(min_length=1, max_length=80)
+    destination: str = Field(min_length=1, max_length=80)
+    departure_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    observed_at: datetime
+    result_count: int = Field(ge=0, le=5)
+    flights: List[FlightOption] = Field(default_factory=list, max_length=5)
+    limitations: List[str] = Field(default_factory=list, max_length=8)
+    tool_call_log_id: str = Field(default="", max_length=160)
+
+    @model_validator(mode="after")
+    def validate_result(self):
+        if self.result_count != len(self.flights):
+            raise ValueError("result_count 必须等于 flights 数量")
+        if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
+            raise ValueError("observed_at 必须包含时区")
+        return self
+
+    @field_validator("departure_date")
+    @classmethod
+    def validate_departure_date(cls, value: str) -> str:
+        try:
+            datetime.strptime(value, "%Y-%m-%d")
+        except ValueError as error:
+            raise ValueError("departure_date 必须是有效日期") from error
+        return value
+
+    @field_validator("limitations")
+    @classmethod
+    def validate_limitations(cls, value: List[str]) -> List[str]:
+        if any(not item.strip() or len(item) > 240 for item in value):
+            raise ValueError("limitations 单项不能为空且不能超过 240 字符")
+        return value
+
+
+class TrainResultsBlock(BaseModel):
+    """高铁或火车查询产品结果块。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["train_results"]
+    id: str = Field(default_factory=lambda: f"blk_{uuid4().hex[:12]}", max_length=160)
+    schema_version: Literal[1]
+    provider: Literal["flyai"]
+    attribution: Optional[StructuredResultAttribution] = None
+    status: Literal["success", "degraded"]
+    origin: str = Field(min_length=1, max_length=80)
+    destination: str = Field(min_length=1, max_length=80)
+    departure_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    observed_at: datetime
+    result_count: int = Field(ge=0, le=5)
+    trains: List[TrainOption] = Field(default_factory=list, max_length=5)
+    limitations: List[str] = Field(default_factory=list, max_length=8)
+    tool_call_log_id: str = Field(default="", max_length=160)
+
+    @model_validator(mode="after")
+    def validate_result(self):
+        if self.result_count != len(self.trains):
+            raise ValueError("result_count 必须等于 trains 数量")
+        if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
+            raise ValueError("observed_at 必须包含时区")
+        return self
+
+    @field_validator("departure_date")
+    @classmethod
+    def validate_departure_date(cls, value: str) -> str:
+        try:
+            datetime.strptime(value, "%Y-%m-%d")
+        except ValueError as error:
+            raise ValueError("departure_date 必须是有效日期") from error
+        return value
+
+    @field_validator("limitations")
+    @classmethod
+    def validate_limitations(cls, value: List[str]) -> List[str]:
+        if any(not item.strip() or len(item) > 240 for item in value):
+            raise ValueError("limitations 单项不能为空且不能超过 240 字符")
+        return value
+
+
+class ItineraryResultRef(BaseModel):
+    """行程方案对既有规范化产品结果的引用。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    block_id: str = Field(min_length=1, max_length=160)
+    item_ids: List[str] = Field(default_factory=list, max_length=5)
+
+    @field_validator("item_ids")
+    @classmethod
+    def validate_item_ids(cls, value: List[str]) -> List[str]:
+        if any(not item.strip() or len(item) > 80 for item in value):
+            raise ValueError("item_ids 单项不能为空且不能超过 80 字符")
+        if len(value) != len(set(value)):
+            raise ValueError("item_ids 不能重复")
+        return value
+
+
+class ItinerarySection(BaseModel):
+    """一个行程方案内的去程、返程、天气或当地路线。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=80)
+    kind: Literal[
+        "outbound_transport",
+        "return_transport",
+        "destination_weather",
+        "local_route",
+    ]
+    status: Literal["complete", "partial", "unavailable"]
+    title: str = Field(min_length=1, max_length=80)
+    coverage: Optional[Literal["full", "partial", "outside_range"]] = None
+    result_refs: List[ItineraryResultRef] = Field(min_length=1, max_length=8)
+
+    @model_validator(mode="after")
+    def validate_section_contract(self):
+        if self.kind == "destination_weather":
+            if self.coverage is None:
+                raise ValueError("天气 section 必须声明 coverage")
+            if any(ref.item_ids for ref in self.result_refs):
+                raise ValueError("天气 section 不能引用 item_ids")
+            if self.coverage == "full" and self.status != "complete":
+                raise ValueError("完整天气覆盖的 section 必须为 complete")
+            if self.coverage != "full" and self.status == "complete":
+                raise ValueError("非完整天气覆盖的 section 不能为 complete")
+        elif self.coverage is not None:
+            raise ValueError("只有天气 section 可以声明 coverage")
+        return self
+
+
+class ItineraryPlan(BaseModel):
+    """按一个确定性指标选出的行程组合。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=80)
+    title: str = Field(min_length=1, max_length=80)
+    status: Literal["complete", "partial"]
+    strategy: Literal["lowest_reference_price", "shortest_scheduled_duration"]
+    tags: List[Literal["lowest_reference_price", "shortest_scheduled_duration"]] = Field(
+        min_length=1,
+        max_length=1,
+    )
+    known_cost: Optional[TravelMoney] = None
+    known_duration_s: Optional[int] = Field(default=None, ge=0, le=604_800)
+    sections: List[ItinerarySection] = Field(min_length=1, max_length=4)
+
+    @model_validator(mode="after")
+    def validate_plan_contract(self):
+        if self.tags != [self.strategy]:
+            raise ValueError("tags 必须与 strategy 完全一致")
+        section_kinds = [section.kind for section in self.sections]
+        if len(section_kinds) != len(set(section_kinds)):
+            raise ValueError("同一方案不能重复 section kind")
+        if "outbound_transport" not in section_kinds:
+            raise ValueError("行程方案必须包含去程 section")
+        return self
+
+
+class ItineraryAvailability(BaseModel):
+    """不携带内部错误的产品工具可用性摘要。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    journey: Literal["outbound", "return", "destination_weather", "local_route"]
+    mode: Literal["flight", "train", "weather", "route"]
+    status: Literal["available", "unavailable"]
+
+    @model_validator(mode="after")
+    def validate_journey_mode(self):
+        allowed = {
+            "outbound": {"flight", "train"},
+            "return": {"flight", "train"},
+            "destination_weather": {"weather"},
+            "local_route": {"route"},
+        }
+        if self.mode not in allowed[self.journey]:
+            raise ValueError("availability 的 journey 与 mode 不匹配")
+        return self
+
+
+class ItineraryResultsBlock(BaseModel):
+    """引用既有产品结果的统一行程视图。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["itinerary_results"]
+    id: str = Field(default_factory=lambda: f"blk_itinerary_{uuid4().hex[:12]}", max_length=160)
+    schema_version: Literal[1]
+    provider: Literal["fusion"]
+    status: Literal["success", "degraded"]
+    trip_type: Literal["one_way", "round_trip"]
+    origin: str = Field(min_length=1, max_length=80)
+    destination: str = Field(min_length=1, max_length=80)
+    start_date: CalendarDate
+    end_date: Optional[CalendarDate] = None
+    recommended_plan_id: None = None
+    plans: List[ItineraryPlan] = Field(min_length=1, max_length=2)
+    availability: List[ItineraryAvailability] = Field(default_factory=list, max_length=8)
+    limitations: List[str] = Field(default_factory=list, max_length=8)
+
+    @field_validator("limitations")
+    @classmethod
+    def validate_limitations(cls, value: List[str]) -> List[str]:
+        if any(not item.strip() or len(item) > 240 for item in value):
+            raise ValueError("limitations 单项不能为空且不能超过 240 字符")
+        if len(value) != len(set(value)):
+            raise ValueError("limitations 不能重复")
+        return value
+
+    @model_validator(mode="after")
+    def validate_itinerary_contract(self):
+        if self.trip_type == "one_way" and self.end_date is not None:
+            raise ValueError("单程行程的 end_date 必须为空")
+        if self.trip_type == "round_trip" and (self.end_date is None or self.end_date <= self.start_date):
+            raise ValueError("往返行程必须包含晚于 start_date 的 end_date")
+        plan_ids = [plan.id for plan in self.plans]
+        strategies = [plan.strategy for plan in self.plans]
+        if len(plan_ids) != len(set(plan_ids)) or len(strategies) != len(set(strategies)):
+            raise ValueError("行程方案 id 和 strategy 不能重复")
+        availability_keys = [(item.journey, item.mode) for item in self.availability]
+        if len(availability_keys) != len(set(availability_keys)):
+            raise ValueError("availability 不能重复")
+        has_return = any(section.kind == "return_transport" for plan in self.plans for section in plan.sections)
+        if self.trip_type == "one_way" and has_return:
+            raise ValueError("单程行程不能包含返程 section")
+        return self
+
+
+ProductResultBlock = Union[
+    PlaceResultsBlock,
+    RouteResultsBlock,
+    WeatherResultsBlock,
+    FlightResultsBlock,
+    TrainResultsBlock,
+    ItineraryResultsBlock,
+]
+
+
+# content block 的联合类型，后续扩展直接在此添加
+ContentBlock = Union[
+    TextBlock,
+    ThinkingBlock,
+    FileBlock,
+    SearchBlock,
+    UrlBlock,
+    KnowledgeEvidenceBlock,
+    UnsupportedContentBlock,
+    PlaceResultsBlock,
+    RouteResultsBlock,
+    WeatherResultsBlock,
+    FlightResultsBlock,
+    TrainResultsBlock,
+    ItineraryResultsBlock,
+]
+
+# stop 接口只接受客户端实际流式渲染的文本类 block；工具与富结果由服务端持久化。
+ClientPartialContentBlock = Union[TextBlock, ThinkingBlock]
+
+
+# ============================================================
+# Usage（Token 消耗）
+# ============================================================
+
+
+ContextStatus = Literal[
+    "bypass_unknown_window",
+    "no_op_fast_path",
+    "no_op",
+    "trimmed",
+    "trimmed_required_above_target",
+    "required_context_over_budget",
+    "estimator_unavailable",
+]
+
+
+class ContextUsage(BaseModel):
+    """最后一次 LLM 调用的安全上下文状态，不包含消息正文或内部来源。"""
+
+    status: ContextStatus
+    round_index: Optional[int] = Field(default=None, ge=1)
+    window_tokens: Optional[int] = Field(default=None, ge=0)
+    estimated_tokens_before: Optional[int] = Field(default=None, ge=0)
+    estimated_tokens_after: Optional[int] = Field(default=None, ge=0)
+    actual_prompt_tokens: Optional[int] = Field(default=None, ge=0)
+    removed_turns: int = Field(default=0, ge=0)
+    removed_messages: int = Field(default=0, ge=0)
+    removed_tool_transactions: int = Field(default=0, ge=0)
+
+
+class Usage(BaseModel):
+    """Token 消耗统计，仅 assistant 消息携带"""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: Optional[int] = Field(default=None, ge=0)
+    cache_write_tokens: Optional[int] = Field(default=None, ge=0)
+    reasoning_tokens: Optional[int] = Field(default=None, ge=0)
+    context: Optional[ContextUsage] = None
+
+    @field_validator("context", mode="before")
+    @classmethod
+    def discard_invalid_context(cls, value):
+        """坏的新增字段不能拖垮旧会话详情；保留原有 token usage。"""
+        if value is None or isinstance(value, ContextUsage):
+            return value
+        try:
+            return ContextUsage.model_validate(value)
+        except (ValidationError, TypeError, ValueError):
+            return None
+
+
+# ============================================================
+# Agent Run（消息级最新运行摘要）
+# ============================================================
+
+
+class AgentRunSummary(BaseModel):
+    """assistant 消息最近一次 agent run 摘要，用于前端恢复终态和继续执行入口"""
+
+    run_id: str
+    status: Literal["running", "completed", "limit_reached", "incomplete", "interrupted", "error"]
+    config: Dict[str, Any] = Field(default_factory=dict)
+    total_steps: int = 0
+    total_tool_calls: int = 0
+    limit_reason: Optional[Literal["max_steps", "max_tool_calls", "timeout"]] = None
+    progress: Optional[Dict[str, Any]] = None
+
+
+# ============================================================
+# Message（消息）
+# ============================================================
+
+
+class Message(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    sequence: Optional[int] = None
+    role: Literal["user", "assistant"]
+    # content 为 content blocks 数组
+    # user 消息示例：[TextBlock, FileBlock]
+    # assistant 消息示例：[ThinkingBlock, TextBlock]
+    content: List[ContentBlock]
+    # 仅 assistant 消息填充，记录实际生成该消息时使用的模型
+    model_id: Optional[str] = None
+    # 仅 assistant 消息填充
+    usage: Optional[Usage] = None
+    # 仅 assistant 消息填充，持久化推荐问题
+    suggested_questions: Optional[List[str]] = None
+    suggested_questions_revision: int = 0
+    suggested_questions_status: Literal["idle", "pending", "ready", "failed"] = "idle"
+    # 仅 assistant 消息填充，最近一次 agent run 摘要
+    agent_run: Optional[AgentRunSummary] = None
+    created_at: datetime = Field(default_factory=utc_now)
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================================
+# Conversation（会话）
+# ============================================================
+
+
+class Conversation(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    user_id: str
+    model_id: str
+    title: str
+    messages: List[Message] = Field(default_factory=list)
+    knowledge_base_ids: List[str] = Field(default_factory=list, max_length=5)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================================
+# Chat API 请求 / 响应
+# ============================================================
+
+
+class ChatRequest(BaseModel):
+    model_id: str  # 替换原来的 provider + model 两个字段
+    message: str  # 用户输入的文本
+    conversation_id: Optional[str] = None
+    user_message_id: Optional[str] = None
+    assistant_message_id: Optional[str] = None
+    # 重试必须复用原轮次消息 ID，防止把同一用户问题再次追加到会话历史。
+    retry_user_message_id: Optional[str] = None
+    retry_assistant_message_id: Optional[str] = None
+    previous_run_id: Optional[str] = None
+    stream: bool = True  # 默认开启流式
+    options: Optional[Dict[str, Any]] = None  # 扩展选项，如 use_reasoning
+    file_ids: Optional[List[str]] = None  # 附带的文件 ID 列表
+    # None 保留已有会话选择（新会话视为空）；空数组清空；非空数组替换。
+    knowledge_base_ids: Optional[List[str]] = Field(default=None, max_length=5)
+
+    @field_validator("knowledge_base_ids")
+    @classmethod
+    def validate_knowledge_base_ids(cls, values: Optional[List[str]]) -> Optional[List[str]]:
+        if values is None:
+            return None
+        if any("\x00" in value for value in values):
+            raise ValueError("knowledge_base_ids 不能包含 NUL 字符")
+        if len(set(values)) != len(values):
+            raise ValueError("knowledge_base_ids 不能重复")
+        return values
+
+    @field_validator(
+        "user_message_id",
+        "assistant_message_id",
+        "retry_user_message_id",
+        "retry_assistant_message_id",
+    )
+    @classmethod
+    def validate_message_uuid4(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        try:
+            parsed = UUID(value)
+        except (TypeError, ValueError, AttributeError) as error:
+            raise ValueError("消息 ID 必须是合法 UUIDv4") from error
+        if parsed.version != 4 or parsed.variant != RFC_4122 or str(parsed) != value.lower():
+            raise ValueError("消息 ID 必须是合法 UUIDv4")
+        return value
+
+    @model_validator(mode="after")
+    def validate_distinct_message_ids(self) -> "ChatRequest":
+        if (
+            self.user_message_id is not None
+            and self.assistant_message_id is not None
+            and self.user_message_id.lower() == self.assistant_message_id.lower()
+        ):
+            raise ValueError("user_message_id 与 assistant_message_id 必须不同")
+        if self.retry_user_message_id is not None:
+            if self.conversation_id is None:
+                raise ValueError("retry_user_message_id 必须与 conversation_id 同时提供")
+            if self.user_message_id is not None and self.user_message_id.lower() != self.retry_user_message_id.lower():
+                raise ValueError("user_message_id 与 retry_user_message_id 必须一致")
+        if self.retry_assistant_message_id is not None:
+            if self.retry_user_message_id is None:
+                raise ValueError("retry_assistant_message_id 必须与 retry_user_message_id 同时提供")
+            if (
+                self.assistant_message_id is not None
+                and self.assistant_message_id.lower() != self.retry_assistant_message_id.lower()
+            ):
+                raise ValueError("assistant_message_id 与 retry_assistant_message_id 必须一致")
+        if self.previous_run_id is not None and self.retry_user_message_id is None:
+            raise ValueError("previous_run_id 必须与 retry_user_message_id 同时提供")
+        return self
+
+
+class ContinueAgentRunRequest(BaseModel):
+    previous_run_id: Optional[str] = None
+    stream: bool = True
+
+
+class GeolocationContextPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    accuracy_m: float = Field(ge=0, le=50_000)
+    acquired_at: float = Field(ge=0)
+
+
+class AgentContextResultRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    context_type: Literal["geolocation"]
+    status: Literal["provided", "denied", "timeout", "unavailable"]
+    location: Optional[GeolocationContextPayload] = None
+    reason: Optional[str] = Field(default=None, min_length=1, max_length=120)
+
+    @model_validator(mode="after")
+    def validate_status_payload(self) -> "AgentContextResultRequest":
+        if self.status == "provided":
+            if self.location is None or self.reason is not None:
+                raise ValueError("provided 必须且只能携带 location")
+            return self
+        if self.location is not None or self.reason is None:
+            raise ValueError("非 provided 必须且只能携带 reason")
+        return self
+
+
+class StopStreamRequest(BaseModel):
+    """停止流前由客户端提交的当前可见助手内容；空数组兼容旧客户端。"""
+
+    task_id: Optional[str] = Field(default=None, min_length=1, max_length=160)
+    partial_content: List[ClientPartialContentBlock] = Field(default_factory=list)
+
+
+class ChatResponse(BaseModel):
+    """非流式响应结构（流式走 SSE，不走这个）"""
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    conversation_id: str
+    message: Message
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+# ============================================================
+# SSE 流式结构（对齐 OpenAI Chat Completions streaming 格式）
+# ============================================================
+
+
+class StreamDelta(BaseModel):
+    """[DEPRECATED] SSE 输出已切到 {chunk_type, data} envelope（Task 8）。
+    本类待 Task 11/12 FE cut-over 后删除，期间禁止新代码引用。
+    """
+
+    content: Optional[List[ContentBlock]] = None
+
+
+class StreamChoice(BaseModel):
+    """[DEPRECATED] 同 StreamDelta，待 Task 11/12 后删除。"""
+
+    delta: StreamDelta
+    finish_reason: Optional[Literal["stop", "error"]] = None
+
+
+class StreamChunk(BaseModel):
+    """[DEPRECATED] 同 StreamDelta，待 Task 11/12 后删除。"""
+
+    id: str  # 与最终落库的 message.id 一致
+    conversation_id: str  # 会话 ID，前端据此关联消息
+    choices: List[StreamChoice]
+    # 仅在 finish_reason=stop 的最后一个 chunk 携带
+    usage: Optional[Usage] = None
+
+
+# ============================================================
+# 标题生成 / 推荐问题
+# ============================================================
+
+
+class TitleGenerationRequest(BaseModel):
+    conversation_id: str
+    options: Optional[Dict[str, Any]] = None
+
+
+class TitleGenerationResponse(BaseModel):
+    title: str
+    conversation_id: str
+
+
+class SuggestedQuestionsRequest(BaseModel):
+    conversation_id: str
+    assistant_message_id: Optional[str] = None
+    # None 表示旧 UI 未传该字段；为保持“每次请求都换一批”的历史语义，API 按 True 处理。
+    force_refresh: Optional[bool] = None
+    options: Optional[Dict[str, Any]] = None
+
+
+class SuggestedQuestionsResponse(BaseModel):
+    questions: List[str]
+    conversation_id: str
+    assistant_message_id: Optional[str] = None
+    revision: int = 0
+    status: Literal["idle", "pending", "ready", "failed"] = "idle"
+
+
+# ============================================================
+# 会话列表 API
+# ============================================================
+
+
+class ConversationSummary(BaseModel):
+    """会话列表接口返回的轻量结构，不携带 messages"""
+
+    id: str
+    model_id: str
+    title: str
+    knowledge_base_ids: List[str] = Field(default_factory=list, max_length=5)
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class MessageUpdateRequest(BaseModel):
+    """消息更新请求（内部使用）"""
+
+    content: Optional[List[ContentBlock]] = None
+    usage: Optional[Usage] = None

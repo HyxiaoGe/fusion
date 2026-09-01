@@ -1,0 +1,141 @@
+import {
+  clearFusionProfileStorage,
+  clearRemoteSsoSession,
+  forceRefreshAccessToken,
+  getStoredAccessToken,
+  getValidAccessToken,
+} from '@/lib/auth/authService';
+import { ApiError } from '@/types/api';
+import type { ApiResponse } from '@/types/api';
+import {
+  assertAuthSessionStable,
+  bindResponseToAuthSession,
+  captureAuthSessionEpoch,
+  registerAuthBoundRequest,
+  type AuthBoundRequest,
+} from '@/lib/auth/sessionTransition';
+
+// 取一个可用的 access token：优先走 SDK 的按需刷新（过期临界会自动续期）。
+// 续期途中遇到瞬时网络错误时，退回到本地已存 token，把真正的过期交给 401 分支处理——
+// 这里绝不清会话，避免一次网络抖动把用户登出。
+// 返回 null = SDK 已确定性失败并清掉自身 token；此时同步清掉 fusion 侧 profile 等键，
+// 与 401 分支对称，避免请求落到公共接口（200，不触发 401 清理）时残留 user_profile。
+async function resolveToken(): Promise<string | null> {
+  const expectedAccessToken = getStoredAccessToken();
+  try {
+    const token = await getValidAccessToken();
+    if (token === null) {
+      await clearRemoteSsoSession(expectedAccessToken);
+      clearFusionProfileStorage();
+    }
+    return token;
+  } catch (error) {
+    // SDK 在“共享存储已是 B、当前页内存仍是 A”的事件投递窗口会同步建立屏障。
+    // 这类错误绝不能降级读取 localStorage，否则会把 B token 交给 A 页面发起的请求。
+    if (isBlockingAuthTransition(error)) throw error;
+    return getStoredAccessToken();
+  }
+}
+
+function isBlockingAuthTransition(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'blocking' in error && error.blocking === true;
+}
+
+async function runAuthBoundFetch(
+  url: string,
+  options: RequestInit,
+  headers: Headers,
+  expectedEpoch: number,
+): Promise<{ response: Response; request: AuthBoundRequest }> {
+  const request = registerAuthBoundRequest(options.signal, expectedEpoch);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      headers,
+      signal: request.signal,
+    });
+    assertAuthSessionStable(request.epoch);
+    return { response, request };
+  } catch (error) {
+    request.release();
+    throw error;
+  }
+}
+
+async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
+  // 必须在读取 token 之前捕获 epoch。若 await token 期间 A→B 已完整切换又回到
+  // stable，注册请求时的 CAS 仍会拒绝把旧 A token 绑定到新 B epoch。
+  const tokenEpoch = captureAuthSessionEpoch();
+  const token = await resolveToken();
+  assertAuthSessionStable(tokenEpoch);
+
+  const headers = new Headers(options.headers || {});
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  let { response, request } = await runAuthBoundFetch(url, options, headers, tokenEpoch);
+
+  // 401 时强制刷新（SDK 内部会合并并发刷新），成功则用新 token 重试原请求
+  if (response.status === 401) {
+    request.release();
+    const refreshEpoch = captureAuthSessionEpoch();
+    let newToken: string | null;
+    try {
+      newToken = await forceRefreshAccessToken();
+    } catch {
+      // 刷新途中的瞬时网络错误：保留会话，仅把本次请求当作鉴权失败抛出
+      throw new ApiError('AUTH_REFRESH_UNAVAILABLE', '登录状态刷新暂时失败，请稍后重试', '');
+    }
+
+    if (newToken) {
+      assertAuthSessionStable(refreshEpoch);
+      const retryHeaders = new Headers(options.headers || {});
+      retryHeaders.set('Authorization', `Bearer ${newToken}`);
+      ({ response, request } = await runAuthBoundFetch(url, options, retryHeaders, refreshEpoch));
+      return bindResponseToAuthSession(response, request);
+    }
+
+    // 刷新被服务端确定性拒绝：SDK 已清掉自身 token，这里再清掉 fusion 侧 profile 等键
+    await clearRemoteSsoSession(token);
+    clearFusionProfileStorage();
+    throw new ApiError('UNAUTHORIZED', 'Unauthorized', '');
+  }
+
+  return bindResponseToAuthSession(response, request);
+}
+
+async function readApiResponse<T>(response: Response): Promise<ApiResponse<T>> {
+  try {
+    return (await response.json()) as ApiResponse<T>;
+  } catch {
+    const contentType = response.headers.get('content-type') || '';
+    const message = contentType.includes('json')
+      ? '请求返回了无效 JSON 内容'
+      : '请求返回了非 JSON 内容';
+    throw new ApiError('BAD_RESPONSE', message, '');
+  }
+}
+
+/**
+ * 统一 API 请求：自动拆包 {code, data, message, request_id}，
+ * 成功返回 data，失败抛出 ApiError。
+ *
+ * 注意：仅用于 JSON REST 接口，SSE 和文件下载仍用 fetchWithAuth。
+ */
+export async function apiRequest<T>(url: string, options: RequestInit = {}): Promise<T> {
+  const response = await fetchWithAuth(url, options);
+  const body = await readApiResponse<T>(response);
+
+  if (!response.ok || body.code !== 'SUCCESS') {
+    throw new ApiError(
+      body.code || 'UNKNOWN',
+      body.message || '请求失败',
+      body.request_id || '',
+    );
+  }
+
+  return body.data as T;
+}
+
+export default fetchWithAuth;

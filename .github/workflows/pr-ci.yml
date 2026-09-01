@@ -1,0 +1,240 @@
+name: Fusion CI
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fusion-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      api: ${{ steps.detect.outputs.api }}
+      ui: ${{ steps.detect.outputs.ui }}
+      shared: ${{ steps.detect.outputs.shared }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect complete Git diff
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          python3 .github/scripts/test_detect_changes.py
+          python3 .github/scripts/detect_changes.py \
+            --event-name "${EVENT_NAME}" \
+            --head "${GITHUB_SHA}" \
+            --before "${BEFORE_SHA}" \
+            --base-ref "${BASE_REF}"
+
+  workflow-security:
+    name: Workflow security validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install actionlint
+        run: |
+          set -euo pipefail
+          ACTIONLINT_VERSION=1.7.12
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          url="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          mkdir -p .tools
+          curl --fail --location --silent --show-error --output ".tools/${archive}" "${url}"
+          printf '%s  %s\n' \
+            '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8' \
+            ".tools/${archive}" | sha256sum --check
+          tar -xzf ".tools/${archive}" -C .tools actionlint
+
+      - name: Run actionlint
+        run: ./.tools/actionlint -color
+
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
+        with:
+          advanced-security: false
+          annotations: true
+          min-confidence: high
+          min-severity: high
+          online-audits: false
+          version: "1.29.0"
+
+  api:
+    name: API validation
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      CI_IMAGE_NAME: fusion-api-ci
+      CI_FLYAI_ADAPTER_IMAGE_NAME: fusion-flyai-adapter-ci
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install release safety contract dependency
+        run: python3 -m pip install --disable-pip-version-check --no-cache-dir PyYAML==6.0.2
+
+      - name: Run release safety contract
+        id: release_safety_contract
+        run: .github/scripts/release-safety-contract.sh backend/release-safety.yml
+
+      - name: Verify Docker access
+        run: |
+          docker version
+          docker ps
+
+      - name: Test and build API Docker images
+        timeout-minutes: 15
+        run: |
+          bash backend/.github/scripts/linux-build-and-test.sh \
+            "${CI_IMAGE_NAME}" \
+            "${CI_FLYAI_ADAPTER_IMAGE_NAME}" \
+            "${GITHUB_SHA}"
+
+  ui:
+    name: UI validation
+    needs: changes
+    if: needs.changes.outputs.ui == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      NPM_CONFIG_AUDIT: "false"
+      NPM_CONFIG_FUND: "false"
+      NEXT_PUBLIC_AUTH_SERVICE_BASE_URL: ${{ vars.NEXT_PUBLIC_AUTH_SERVICE_BASE_URL }}
+      NEXT_PUBLIC_AUTH_SERVICE_CLIENT_ID: ${{ vars.NEXT_PUBLIC_AUTH_SERVICE_CLIENT_ID }}
+      NEXT_PUBLIC_AUTH_CALLBACK_URL: ${{ vars.NEXT_PUBLIC_AUTH_CALLBACK_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: Run release safety contract
+        id: release_safety_contract
+        run: .github/scripts/release-safety-contract.sh frontend/release-safety.yml
+
+      - name: Test and build UI Docker targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          builder="fusion-ui-pr-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          image="fusion-ui-pr:${GITHUB_SHA}"
+
+          docker buildx create --name "$builder" --driver docker-container --use
+          docker buildx inspect --builder "$builder" --bootstrap
+
+          docker buildx build \
+            --builder "$builder" \
+            --target test \
+            --no-cache-filter test \
+            --progress plain \
+            --provenance=false \
+            frontend
+
+          docker buildx build \
+            --builder "$builder" \
+            --target production \
+            --load \
+            --progress plain \
+            --provenance=false \
+            --build-arg "NEXT_PUBLIC_AUTH_SERVICE_BASE_URL=${NEXT_PUBLIC_AUTH_SERVICE_BASE_URL}" \
+            --build-arg "NEXT_PUBLIC_AUTH_SERVICE_CLIENT_ID=${NEXT_PUBLIC_AUTH_SERVICE_CLIENT_ID}" \
+            --build-arg "NEXT_PUBLIC_AUTH_CALLBACK_URL=${NEXT_PUBLIC_AUTH_CALLBACK_URL}" \
+            --build-arg "API_BACKEND_URL=http://fusion-api:8000" \
+            -t "$image" \
+            frontend
+
+  required:
+    name: Fusion required gate
+    needs: [changes, workflow-security, api, ui]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify required application jobs
+        env:
+          WORKFLOW_SECURITY_RESULT: ${{ needs.workflow-security.result }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          API_EXPECTED: ${{ needs.changes.outputs.api }}
+          API_RESULT: ${{ needs.api.result }}
+          UI_EXPECTED: ${{ needs.changes.outputs.ui }}
+          UI_RESULT: ${{ needs.ui.result }}
+        run: |
+          set -euo pipefail
+          if [ "${WORKFLOW_SECURITY_RESULT}" != "success" ]; then
+            echo "workflow security job 未成功: ${WORKFLOW_SECURITY_RESULT}"
+            exit 1
+          fi
+          if [ "${CHANGES_RESULT}" != "success" ]; then
+            echo "changes job 未成功: ${CHANGES_RESULT}"
+            exit 1
+          fi
+          case "${API_EXPECTED}" in
+            true|false) ;;
+            *)
+              echo "API 变更判定缺失或非法: ${API_EXPECTED:-<empty>}"
+              exit 1
+              ;;
+          esac
+          case "${UI_EXPECTED}" in
+            true|false) ;;
+            *)
+              echo "UI 变更判定缺失或非法: ${UI_EXPECTED:-<empty>}"
+              exit 1
+              ;;
+          esac
+          if [ "${API_EXPECTED}" = "true" ] && [ "${API_RESULT}" != "success" ]; then
+            echo "API 应运行但结果不是 success: ${API_RESULT}"
+            exit 1
+          fi
+          if [ "${API_EXPECTED}" != "true" ] && [ "${API_RESULT}" != "skipped" ]; then
+            echo "API 不应运行但结果不是 skipped: ${API_RESULT}"
+            exit 1
+          fi
+          if [ "${UI_EXPECTED}" = "true" ] && [ "${UI_RESULT}" != "success" ]; then
+            echo "UI 应运行但结果不是 success: ${UI_RESULT}"
+            exit 1
+          fi
+          if [ "${UI_EXPECTED}" != "true" ] && [ "${UI_RESULT}" != "skipped" ]; then
+            echo "UI 不应运行但结果不是 skipped: ${UI_RESULT}"
+            exit 1
+          fi

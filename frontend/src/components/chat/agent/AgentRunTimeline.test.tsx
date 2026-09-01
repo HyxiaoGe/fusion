@@ -1,0 +1,1061 @@
+import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
+import type { AgentRunState, AgentStepState, ToolCallState } from '@/types/agentRun';
+import { useAppSelector } from '@/redux/hooks';
+import { AgentRunTimeline } from './AgentRunTimeline';
+
+vi.mock('@/redux/hooks', () => ({
+  useAppSelector: vi.fn(),
+}));
+
+const mockUseAppSelector = useAppSelector as unknown as Mock;
+const baseConfig = { maxSteps: 8, maxToolCalls: 20, timeoutS: 300 };
+
+function setCurrentRun(currentRun: AgentRunState | null) {
+  mockUseAppSelector.mockImplementation((
+    selector: (state: { stream: { currentRun: AgentRunState | null } }) => unknown,
+  ) => selector({ stream: { currentRun } }));
+}
+
+function toolCall(overrides: Partial<ToolCallState> = {}): ToolCallState {
+  return {
+    toolCallId: 't1',
+    toolName: 'web_search',
+    arguments: { query: 'GPT 5.5' },
+    status: 'success',
+    resultSummary: { kind: 'search', count: 5, truncated: false },
+    startedAt: 1_000,
+    completedAt: 1_100,
+    ...overrides,
+  };
+}
+
+function step(overrides: Partial<AgentStepState> = {}): AgentStepState {
+  return {
+    stepId: 's1',
+    stepNumber: 1,
+    status: 'completed',
+    toolCalls: [toolCall()],
+    contentBlockIds: [],
+    startedAt: 1_000,
+    completedAt: 2_000,
+    ...overrides,
+  };
+}
+
+function run(overrides: Partial<AgentRunState> = {}): AgentRunState {
+  const steps = overrides.steps ?? [step()];
+
+  return {
+    runId: 'r1',
+    messageId: 'm1',
+    status: 'running',
+    config: baseConfig,
+    totalSteps: steps.length,
+    totalToolCalls: steps.reduce((count, currentStep) => count + currentStep.toolCalls.length, 0),
+    steps,
+    lastSequence: 10,
+    ...overrides,
+  };
+}
+
+function renderTimeline(
+  currentRun: AgentRunState | null,
+  props: {
+    assistantMessageId?: string;
+    onRetry?: () => void;
+    onOpenSources?: () => void;
+    searchQueries?: string[];
+  } = {},
+) {
+  setCurrentRun(currentRun);
+
+  return render(
+    <AgentRunTimeline
+      assistantMessageId={props.assistantMessageId ?? 'm1'}
+      onRetry={props.onRetry}
+      onOpenSources={props.onOpenSources}
+      searchQueries={props.searchQueries}
+    />,
+  );
+}
+
+describe('AgentRunTimeline', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('currentRun 为空时不渲染', () => {
+    const { container } = renderTimeline(null, { assistantMessageId: 'm_other' });
+
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('传入 run prop 为 null 时不订阅全局 currentRun 且不渲染', () => {
+    const { container } = render(
+      <AgentRunTimeline
+        assistantMessageId="assistant-1"
+        run={null}
+      />,
+    );
+
+    expect(mockUseAppSelector).not.toHaveBeenCalled();
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('run 为 undefined 时保留旧 store fallback', () => {
+    setCurrentRun(run());
+
+    render(
+      <AgentRunTimeline
+        assistantMessageId="m1"
+        run={undefined}
+      />,
+    );
+
+    expect(mockUseAppSelector).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/已用/)).toBeInTheDocument();
+  });
+
+  it('传入 run prop 时不订阅全局 currentRun 并按传入 run 渲染', () => {
+    render(
+      <AgentRunTimeline
+        assistantMessageId="m1"
+        run={run()}
+      />,
+    );
+
+    expect(mockUseAppSelector).not.toHaveBeenCalled();
+    expect(screen.getByText(/已用/)).toBeInTheDocument();
+  });
+
+  it('传入 run prop 时按 messageId 过滤不匹配 run', () => {
+    const { container } = render(
+      <AgentRunTimeline
+        assistantMessageId="m_other"
+        run={run()}
+      />,
+    );
+
+    expect(mockUseAppSelector).not.toHaveBeenCalled();
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('messageId 不匹配时不渲染（contract §1 message 归属）', () => {
+    const { container } = renderTimeline(run(), { assistantMessageId: 'm_OTHER' });
+
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('running run 渲染：RunHeader + StepTimeline + 工具步骤', () => {
+    renderTimeline(run());
+
+    expect(screen.getByText(/已用/)).toBeInTheDocument();
+    expect(screen.getByText(/搜索/)).toBeInTheDocument();
+    expect(screen.getByText('运行中')).toBeInTheDocument();
+  });
+
+  it('点击 RunBanner 重试按钮触发外层 onRetry callback', () => {
+    const onRetry = vi.fn();
+
+    renderTimeline(run({
+      status: 'failed',
+      steps: [step({ status: 'failed', toolCalls: [] })],
+      failure: { code: 'TEST_FAIL', message: '测试失败' },
+    }), { onRetry });
+
+    fireEvent.click(screen.getByText(/重试运行/));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('serverMessageId 匹配时也能渲染 timeline（messageId 不匹配但 serverMessageId 匹配）', () => {
+    renderTimeline(run({
+      messageId: 'placeholder_local',
+      serverMessageId: 'm_server',
+    }), { assistantMessageId: 'm_server' });
+
+    expect(screen.getByText(/已用/)).toBeInTheDocument();
+  });
+
+  it('completed + steps=[] 不渲染（M1 guard 行为）', () => {
+    const { container } = renderTimeline(run({
+      status: 'completed',
+      steps: [],
+      totalSteps: 0,
+      totalToolCalls: 0,
+    }));
+
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('completed + v2 progress/plan 但没有真实工具调用时不渲染执行过程', () => {
+    const { container } = renderTimeline(run({
+      protocolVersion: 2,
+      status: 'completed',
+      steps: [],
+      totalSteps: 0,
+      totalToolCalls: 0,
+      progress: {
+        phase: 'synthesizing',
+        label: '正在整理结论',
+        completedSteps: 2,
+        totalSteps: 3,
+      },
+      plan: {
+        planId: 'plan-r1',
+        revision: 1,
+        items: [
+          {
+            id: 'search',
+            title: '搜索：iPhone为什么要换USB-C接口',
+            status: 'completed',
+            kind: 'search',
+            summary: '工具：联网搜索；预算：最多 4 次搜索，每次 3-10 条结果',
+            toolNames: ['web_search'],
+            evidenceItemIds: [],
+          },
+          {
+            id: 'read',
+            title: '筛选关键来源',
+            status: 'skipped',
+            kind: 'read',
+            summary: '必要时读取网页核验；预算：最多 5 个网页',
+            toolNames: ['url_read'],
+            evidenceItemIds: [],
+          },
+        ],
+      },
+    }));
+
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByText('执行过程')).not.toBeInTheDocument();
+    expect(screen.queryByText('搜索：iPhone为什么要换USB-C接口')).not.toBeInTheDocument();
+    expect(screen.queryByText('筛选关键来源')).not.toBeInTheDocument();
+  });
+
+  it('completed + 只有回答整理 step 和 plan 时也不展示计划里的搜索/读取', () => {
+    const { container } = renderTimeline(run({
+      protocolVersion: 2,
+      status: 'completed',
+      steps: [
+        step({
+          stepId: 's-answer',
+          stepNumber: 1,
+          toolCalls: [],
+          contentBlockIds: ['answer-1', 'answer-2'],
+        }),
+      ],
+      totalToolCalls: 0,
+      progress: {
+        phase: 'answering',
+        label: '已完成回答整理',
+        completedSteps: 1,
+        totalSteps: 1,
+      },
+      plan: {
+        planId: 'plan-r1',
+        revision: 1,
+        items: [
+          {
+            id: 'understand',
+            title: '制定执行计划',
+            status: 'completed',
+            kind: 'reasoning',
+            summary: '围绕「iPhone为什么要换USB-C接口」判断资料需求和回答路径',
+            toolNames: [],
+            evidenceItemIds: [],
+          },
+          {
+            id: 'search',
+            title: '搜索：iPhone为什么要换USB-C接口',
+            status: 'completed',
+            kind: 'search',
+            summary: '工具：联网搜索；预算：最多 4 次搜索，每次 3-10 条结果',
+            toolNames: ['web_search'],
+            evidenceItemIds: [],
+          },
+          {
+            id: 'read',
+            title: '筛选关键来源',
+            status: 'skipped',
+            kind: 'read',
+            summary: '必要时读取网页核验；预算：最多 5 个网页',
+            toolNames: ['url_read'],
+            evidenceItemIds: [],
+          },
+          {
+            id: 'answer',
+            title: '整理回答',
+            status: 'completed',
+            kind: 'answer',
+            summary: '基于已有知识给出结论',
+            toolNames: [],
+            evidenceItemIds: [],
+          },
+        ],
+      },
+    }));
+
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByText('制定执行计划')).not.toBeInTheDocument();
+    expect(screen.queryByText('搜索：iPhone为什么要换USB-C接口')).not.toBeInTheDocument();
+    expect(screen.queryByText('筛选关键来源')).not.toBeInTheDocument();
+  });
+
+  it('completed + 只有 evidence 没有真实工具时不渲染执行过程', () => {
+    const { container } = renderTimeline(run({
+      protocolVersion: 2,
+      status: 'completed',
+      steps: [],
+      totalSteps: 0,
+      totalToolCalls: 0,
+      evidence: [
+        {
+          id: 'ev-1',
+          kind: 'web',
+          status: 'used',
+          title: '欧盟统一充电接口法规',
+          url: 'https://example.com/eu-usb-c',
+          domain: 'example.com',
+          claim: '欧盟要求便携设备统一使用 USB-C',
+          usedByFinalAnswer: true,
+        },
+      ],
+    }));
+
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByText('执行过程')).not.toBeInTheDocument();
+    expect(screen.queryByText('欧盟统一充电接口法规')).not.toBeInTheDocument();
+  });
+
+  it('running observed plan 只保留兼容进度，不渲染计划入口', () => {
+    renderTimeline(run({
+      protocolVersion: 2,
+      status: 'running',
+      steps: [],
+      totalSteps: 0,
+      totalToolCalls: 0,
+      progress: {
+        phase: 'planning',
+        label: '正在制定执行计划',
+        completedSteps: 0,
+        totalSteps: 4,
+      },
+      plan: {
+        planId: 'plan-r1',
+        revision: 1,
+        items: [
+          {
+            id: 'understand',
+            title: '制定执行计划',
+            status: 'running',
+            kind: 'reasoning',
+            summary: '判断资料需求和回答路径',
+            toolNames: [],
+            evidenceItemIds: [],
+          },
+          {
+            id: 'search',
+            title: '搜索：iPhone为什么要换USB-C接口',
+            status: 'pending',
+            kind: 'search',
+            summary: '工具：联网搜索；预算：最多 4 次搜索，每次 3-10 条结果',
+            toolNames: ['web_search'],
+            evidenceItemIds: [],
+          },
+        ],
+      },
+    }));
+
+    expect(screen.getByText('正在制定执行计划')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /查看计划流程/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/执行过程 ·/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '查看执行过程' })).not.toBeInTheDocument();
+  });
+
+  it('failed + steps=[] 仍显示失败 banner（防 M1 guard 误杀 ProviderOffline 场景）', () => {
+    renderTimeline(run({
+      status: 'failed',
+      steps: [],
+      totalSteps: 0,
+      totalToolCalls: 0,
+      failure: { code: 'PROVIDER_OFFLINE', message: 'OpenAI 上游断流' },
+    }));
+
+    expect(screen.getByText(/运行失败/)).toBeInTheDocument();
+    expect(screen.getByText(/OpenAI 上游断流/)).toBeInTheDocument();
+  });
+
+  it('completed 且工具全成功时收起为执行过程入口', () => {
+    renderTimeline(run({
+      status: 'completed',
+      steps: [
+        step({
+          stepId: 's1',
+          stepNumber: 1,
+          toolCalls: [toolCall({ toolCallId: 't1' })],
+        }),
+        step({
+          stepId: 's2',
+          stepNumber: 2,
+          toolCalls: [],
+          contentBlockIds: ['answer-1'],
+        }),
+      ],
+    }));
+
+    expect(screen.getByText('执行过程 · 搜索 1 次')).toBeInTheDocument();
+    expect(screen.queryByText(/整理答复/)).not.toBeInTheDocument();
+  });
+
+  it('completed model plan 从消息内移除计划，只保留执行过程', () => {
+    renderTimeline(run({
+      protocolVersion: 2,
+      status: 'completed',
+      progress: {
+        phase: 'answering',
+        label: '计划执行完成',
+        completedSteps: 2,
+        totalSteps: 2,
+      },
+      plan: {
+        planId: 'plan-model-r1',
+        revision: 5,
+        mode: 'on',
+        source: 'model',
+        reason: 'model_update',
+        items: [{
+          id: 'compare',
+          title: '比较候选路线并给出结论',
+          status: 'completed',
+          kind: 'other',
+          toolNames: ['route_compare'],
+          evidenceItemIds: [],
+          dependsOn: ['research'],
+          plannedTools: ['route_compare'],
+        }],
+      },
+    }));
+
+    expect(screen.queryByRole('button', { name: /查看计划流程/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('比较候选路线并给出结论')).not.toBeInTheDocument();
+    expect(screen.getByText('执行过程 · 搜索 1 次')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '查看执行过程' })).toBeInTheDocument();
+  });
+
+  it('运行中的模型计划不在 assistant 消息内部渲染', () => {
+    renderTimeline(run({
+      protocolVersion: 2,
+      status: 'running',
+      steps: [
+        step({
+          stepId: 's-search',
+          stepNumber: 2,
+          toolCalls: [toolCall({ toolCallId: 'search-1' })],
+        }),
+        step({
+          stepId: 's-summary',
+          stepNumber: 3,
+          toolCalls: [],
+          contentBlockIds: ['answer-1'],
+        }),
+      ],
+      progress: {
+        phase: 'researching',
+        label: '正在核验资料',
+        completedSteps: 1,
+        totalSteps: 2,
+      },
+      plan: {
+        planId: 'plan-model-running',
+        revision: 2,
+        mode: 'on',
+        source: 'model',
+        items: [
+          {
+            id: 'research',
+            title: '核验资料',
+            status: 'completed',
+            kind: 'search',
+            toolNames: ['web_search'],
+            evidenceItemIds: [],
+          },
+          {
+            id: 'answer',
+            title: '整理最终结论',
+            status: 'running',
+            kind: 'answer',
+            toolNames: [],
+            evidenceItemIds: [],
+          },
+        ],
+      },
+    }));
+
+    expect(screen.queryByTestId('agent-run-timeline')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /查看计划流程/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '查看执行过程' })).not.toBeInTheDocument();
+  });
+
+  it('completed off observed plan 继续沿用低干扰 ExecutionProcess', () => {
+    renderTimeline(run({
+      status: 'completed',
+      plan: {
+        planId: 'plan-off-r1',
+        revision: 1,
+        mode: 'off',
+        source: 'observed',
+        reason: 'control_rejected',
+        items: [{
+          id: 'search',
+          title: '查找资料',
+          status: 'completed',
+          kind: 'search',
+          toolNames: ['web_search'],
+          evidenceItemIds: [],
+        }],
+      },
+    }));
+
+    expect(screen.getByText('执行过程 · 搜索 1 次')).toBeInTheDocument();
+    expect(screen.queryByText('查找资料')).not.toBeInTheDocument();
+  });
+
+  it('completed + 真实 url_read 成功时展示读取过程，不伪造搜索过程', () => {
+    renderTimeline(run({
+      status: 'completed',
+      steps: [
+        step({
+          stepId: 's1',
+          stepNumber: 1,
+          toolCalls: [
+            toolCall({
+              toolCallId: 'read-1',
+              toolName: 'url_read',
+              arguments: { url: 'https://example.com/eu-usb-c' },
+              resultSummary: { kind: 'webpage', count: 1, truncated: false },
+            }),
+          ],
+        }),
+      ],
+    }));
+
+    expect(screen.getByText('执行过程 · 读取 1 个网页')).toBeInTheDocument();
+    expect(screen.queryByText(/搜索 1 次/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '查看执行过程' }));
+
+    expect(screen.getByRole('dialog', { name: '执行过程' })).toBeInTheDocument();
+    expect(screen.getByText('网页读取')).toBeInTheDocument();
+    expect(screen.getByText('example.com')).toBeInTheDocument();
+    expect(screen.queryByText('搜索记录')).not.toBeInTheDocument();
+  });
+
+  it('completed + 实时 MCP 工具不展示不可信远端标题', () => {
+    const internalAlias = 'mcp__learn__microsoft_docs_search';
+    renderTimeline(run({
+      status: 'completed',
+      steps: [
+        step({
+          toolCalls: [
+            toolCall({
+              toolCallId: 'mcp-1',
+              toolName: internalAlias,
+              arguments: { query: 'Responses API' },
+              resultSummary: {
+                kind: 'mcp',
+                title: '找到 2 篇官方文档',
+                truncated: false,
+              },
+            }),
+          ],
+        }),
+      ],
+    }));
+
+    expect(screen.getByText('执行过程 · 调用 1 个外部工具')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '查看执行过程' }));
+
+    expect(screen.getAllByText('外部工具').length).toBeGreaterThan(0);
+    expect(screen.queryByText('找到 2 篇官方文档')).not.toBeInTheDocument();
+    expect(screen.queryByText(new RegExp(internalAlias, 'i'))).not.toBeInTheDocument();
+  });
+
+  it('completed 且存在执行过程时默认收起，并通过侧栏查看过程详情', () => {
+    renderTimeline(run({
+      status: 'completed',
+      toolDigests: [
+        {
+          toolCallId: 'tc-1',
+          toolName: 'web_search',
+          status: 'success',
+          title: '搜索资料',
+          summary: '找到 2 条来源',
+          keyFindings: [],
+          sourceRefs: [],
+          truncated: false,
+        },
+        {
+          toolCallId: 'tc-2',
+          toolName: 'url_read',
+          status: 'degraded',
+          title: 'url_read 降级完成',
+          summary: 'reader-service 返回 HTTP 502，已降级跳过',
+          keyFindings: [],
+          sourceRefs: [],
+          truncated: false,
+        },
+      ],
+      steps: [
+        step({
+          stepId: 's1',
+          stepNumber: 1,
+          toolCalls: [
+            toolCall({ toolCallId: 't1', arguments: { query: 'GPT 5.5' } }),
+            toolCall({
+              toolCallId: 't2',
+              toolName: 'url_read',
+              arguments: { url: 'https://example.com/a' },
+              status: 'degraded',
+              resultSummary: undefined,
+              error: 'reader-service 返回 HTTP 502，已降级跳过',
+            }),
+          ],
+        }),
+      ],
+    }));
+
+    expect(screen.getByText('执行过程 · 搜索 1 次 · 跳过 1 个网页')).toBeInTheDocument();
+    expect(screen.queryByText(/未使用/)).not.toBeInTheDocument();
+    expect(screen.queryByText('工具结果')).not.toBeInTheDocument();
+    expect(screen.queryByText(/url_read/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/reader-service/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '查看执行过程' }));
+
+    expect(screen.getByRole('dialog', { name: '执行过程' })).toBeInTheDocument();
+    expect(screen.getByText('搜索记录')).toBeInTheDocument();
+    expect(screen.getByText('GPT 5.5')).toBeInTheDocument();
+    expect(screen.queryByText('example.com')).not.toBeInTheDocument();
+    expect(screen.getByText('已自动跳过 1 个不可读网页')).toBeInTheDocument();
+    expect(screen.queryByText('网页暂时无法读取')).not.toBeInTheDocument();
+    expect(screen.queryByText(/url_read/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/reader-service/)).not.toBeInTheDocument();
+  });
+
+  it('completed 的单次 web_search 在执行过程侧栏只展示过程摘要，并提供查看依据入口', () => {
+    const onOpenSources = vi.fn();
+
+    renderTimeline(run({
+      status: 'completed',
+      steps: [
+        step({
+          stepId: 's1',
+          stepNumber: 1,
+          toolCalls: [
+            toolCall({
+              toolCallId: 'tc-search',
+              arguments: { query: 'SpaceX 估值 上市 2026年' },
+              resultSummary: {
+                kind: 'search',
+                title: '假的。SpaceX确实在2026年6月上市，估值约1.77兆美元 - Threads',
+                count: 5,
+                truncated: false,
+              },
+            }),
+          ],
+        }),
+      ],
+      toolDigests: [
+        {
+          toolCallId: 'tc-search',
+          toolName: 'web_search',
+          status: 'success',
+          title: '搜索完成',
+          summary: '保留 5 条候选结果，供后续回答筛选。',
+          keyFindings: [],
+          sourceRefs: ['ev-search-0', 'ev-search-1', 'ev-search-2', 'ev-search-3', 'ev-search-4'],
+          truncated: false,
+        },
+      ],
+      evidence: [
+        {
+          id: 'ev-search-0',
+          kind: 'web',
+          status: 'candidate',
+          title: '假的。SpaceX确实在2026年6月上市，估值约1.77兆美元 - Threads',
+          url: 'https://www.threads.com/post/1',
+          domain: 'threads.com',
+          claim: 'Threads 讨论 SpaceX 上市传闻',
+          usedByFinalAnswer: false,
+        },
+        {
+          id: 'ev-search-1',
+          kind: 'web',
+          status: 'candidate',
+          title: '關於SpaceX IPO你需要知道的：支撐2兆估值的是什麼？',
+          url: 'https://www.tradingkey.com/news/1',
+          domain: 'tradingkey.com',
+          claim: 'TradingKey 分析 SpaceX IPO 估值',
+          usedByFinalAnswer: false,
+        },
+        {
+          id: 'ev-search-2',
+          kind: 'web',
+          status: 'candidate',
+          title: 'SpaceX上市首日股價飆升，助馬斯克成全球首位萬億富豪 - BBC',
+          url: 'https://www.bbc.com/zhongwen/articles/1',
+          domain: 'bbc.com',
+          claim: 'BBC 报道 SpaceX 上市传闻',
+          usedByFinalAnswer: false,
+        },
+        {
+          id: 'ev-search-3',
+          kind: 'web',
+          status: 'candidate',
+          title: 'SpaceX 懶人包：SPCX值得投資嗎？ETF納入時間',
+          url: 'https://www.sinotrade.com.tw/article/1',
+          domain: 'sinotrade.com.tw',
+          claim: '永豐金證券整理 SpaceX 投资信息',
+          usedByFinalAnswer: false,
+        },
+        {
+          id: 'ev-search-4',
+          kind: 'web',
+          status: 'candidate',
+          title: 'SpaceX推进史上最大规模IPO，发行价每股135美元 - 纽约时报',
+          url: 'https://cn.nytimes.com/business/1',
+          domain: 'cn.nytimes.com',
+          claim: '纽约时报报道 SpaceX IPO',
+          usedByFinalAnswer: false,
+        },
+      ],
+    }), { onOpenSources });
+
+    expect(screen.getByText('执行过程 · 搜索 1 次')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '查看执行过程' }));
+
+    expect(screen.getByRole('dialog', { name: '执行过程' })).toBeInTheDocument();
+    expect(screen.getByText('搜索记录')).toBeInTheDocument();
+    expect(screen.getByText('搜索 1 次，共保留 5 条候选结果')).toBeInTheDocument();
+    expect(screen.getByText('候选结果已进入回答依据筛选。')).toBeInTheDocument();
+    expect(screen.getByText('搜索关键词')).toBeInTheDocument();
+    expect(screen.getByText('SpaceX 估值 上市 2026年')).toBeInTheDocument();
+    expect(screen.queryByText('假的。SpaceX确实在2026年6月上市，估值约1.77兆美元 - Threads')).not.toBeInTheDocument();
+    expect(screen.queryByText('關於SpaceX IPO你需要知道的：支撐2兆估值的是什麼？')).not.toBeInTheDocument();
+    expect(screen.queryByText('SpaceX上市首日股價飆升，助馬斯克成全球首位萬億富豪 - BBC')).not.toBeInTheDocument();
+    expect(screen.queryByText('SpaceX 懶人包：SPCX值得投資嗎？ETF納入時間')).not.toBeInTheDocument();
+    expect(screen.queryByText('SpaceX推进史上最大规模IPO，发行价每股135美元 - 纽约时报')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /打开来源/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '查看依据' }));
+
+    expect(onOpenSources).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('dialog', { name: '执行过程' })).not.toBeInTheDocument();
+  });
+
+  it('completed 但存在 degraded 工具时默认收起且不在摘要标记未使用数量', () => {
+    renderTimeline(run({
+      status: 'completed',
+      steps: [
+        step({
+          toolCalls: [
+            toolCall({
+              status: 'degraded',
+              resultSummary: undefined,
+              error: '搜索服务降级',
+            }),
+          ],
+        }),
+      ],
+    }));
+
+    expect(screen.getByText('执行过程 · 搜索 1 次')).toBeInTheDocument();
+    expect(screen.queryByText(/未使用/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/搜索部分可用/)).not.toBeInTheDocument();
+  });
+
+  it('completed 历史 digest-only 执行过程按类型聚合，不把失败读取提升成未使用告警', () => {
+    renderTimeline(run({
+      status: 'completed',
+      steps: [],
+      totalSteps: 0,
+      totalToolCalls: 0,
+      toolDigests: [
+        {
+          toolCallId: 'tc-search-1',
+          toolName: 'web_search',
+          status: 'success',
+          title: '搜索完成',
+          summary: '保留 2 条候选结果，供后续回答筛选。',
+          keyFindings: [],
+          sourceRefs: [],
+          truncated: false,
+        },
+        {
+          toolCallId: 'tc-read-1',
+          toolName: 'url_read',
+          status: 'degraded',
+          title: '网页读取部分可用',
+          summary: '网页暂时无法读取，已跳过该来源。',
+          keyFindings: [],
+          sourceRefs: [],
+          truncated: false,
+        },
+        {
+          toolCallId: 'tc-read-2',
+          toolName: 'url_read',
+          status: 'success',
+          title: '网页读取完成',
+          summary: '已读取网页内容，供后续回答核验。',
+          keyFindings: [],
+          sourceRefs: [],
+          truncated: false,
+        },
+        {
+          toolCallId: 'tc-search-2',
+          toolName: 'web_search',
+          status: 'success',
+          title: '搜索完成',
+          summary: '保留 5 条候选结果，供后续回答筛选。',
+          keyFindings: [],
+          sourceRefs: [],
+          truncated: false,
+        },
+        {
+          toolCallId: 'tc-read-3',
+          toolName: 'url_read',
+          status: 'success',
+          title: '网页读取完成',
+          summary: '已读取网页内容，供后续回答核验。',
+          keyFindings: [],
+          sourceRefs: [],
+          truncated: false,
+        },
+        {
+          toolCallId: 'tc-read-4',
+          toolName: 'url_read',
+          status: 'degraded',
+          title: '网页读取部分可用',
+          summary: '网页暂时无法读取，已跳过该来源。',
+          keyFindings: [],
+          sourceRefs: [],
+          truncated: false,
+        },
+      ],
+    }), { searchQueries: ['暑期旅游哪里最火 2026 热门目的地', '2026暑期旅游热门城市 目的地 排行榜'] });
+
+    expect(screen.getByText('执行过程 · 搜索 2 次 · 读取 2 个网页 · 跳过 2 个网页')).toBeInTheDocument();
+    expect(screen.queryByText(/未使用/)).not.toBeInTheDocument();
+    expect(screen.queryByText('搜索完成')).not.toBeInTheDocument();
+    expect(screen.queryByText('网页读取部分可用')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '查看执行过程' }));
+
+    expect(screen.getByRole('dialog', { name: '执行过程' })).toBeInTheDocument();
+    expect(screen.getByText('搜索资料')).toBeInTheDocument();
+    expect(screen.getByText('搜索 2 次，共保留 7 条候选结果')).toBeInTheDocument();
+    expect(screen.getByText('搜索关键词')).toBeInTheDocument();
+    expect(screen.getByText('暑期旅游哪里最火 2026 热门目的地')).toBeInTheDocument();
+    expect(screen.getByText('2026暑期旅游热门城市 目的地 排行榜')).toBeInTheDocument();
+    expect(screen.getByText('网页读取')).toBeInTheDocument();
+    expect(screen.getByText('成功读取 2 个网页')).toBeInTheDocument();
+    expect(screen.getByText('已自动跳过 2 个不可读网页')).toBeInTheDocument();
+    expect(screen.queryByText('2 个未使用')).not.toBeInTheDocument();
+    expect(screen.queryByText('搜索完成')).not.toBeInTheDocument();
+    expect(screen.queryByText('网页读取部分可用')).not.toBeInTheDocument();
+  });
+
+  it('completed 历史 MCP digest-only 刷新后仍显示且不暴露内部 alias', () => {
+    const internalAlias = 'mcp__learn__microsoft_docs_search';
+    renderTimeline(run({
+      status: 'completed',
+      steps: [],
+      totalSteps: 1,
+      totalToolCalls: 1,
+      toolDigests: [
+        {
+          toolCallId: 'mcp-1',
+          toolName: internalAlias,
+          status: 'success',
+          title: `${internalAlias} 已完成`,
+          summary: `${internalAlias} 返回了可用结果`,
+          keyFindings: [],
+          sourceRefs: [],
+          truncated: false,
+        },
+      ],
+    }));
+
+    expect(screen.getByText('执行过程 · 调用 1 个外部工具')).toBeInTheDocument();
+    expect(screen.queryByText(new RegExp(internalAlias, 'i'))).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '查看执行过程' }));
+
+    expect(screen.getByRole('dialog', { name: '执行过程' })).toBeInTheDocument();
+    expect(screen.getAllByText('外部工具').length).toBeGreaterThan(0);
+    expect(screen.getByText('外部工具已完成。')).toBeInTheDocument();
+    expect(screen.queryByText(new RegExp(internalAlias, 'i'))).not.toBeInTheDocument();
+  });
+
+  it('completed 修参 digest 在执行过程侧栏显示修正中而不是部分可用', () => {
+    renderTimeline(run({
+      status: 'completed',
+      steps: [],
+      totalSteps: 1,
+      totalToolCalls: 1,
+      toolDigests: [
+        {
+          toolCallId: 'weather-repair',
+          toolName: 'weather_forecast',
+          status: 'degraded',
+          title: '地点信息待确认',
+          summary: '参数可安全修正，Agent 将在下一轮补齐后重试。',
+          keyFindings: [],
+          sourceRefs: [],
+          truncated: false,
+          repairState: 'retrying',
+          repairId: 'repair_0123456789abcdef',
+        },
+      ],
+    }));
+
+    fireEvent.click(screen.getByRole('button', { name: '查看执行过程' }));
+
+    expect(screen.getByText('正在修正工具参数')).toBeInTheDocument();
+    expect(screen.getByText('修正中')).toBeInTheDocument();
+    expect(screen.getByText('参数校验未通过，正在自动修正后重试。')).toBeInTheDocument();
+    expect(screen.queryByText('部分可用')).not.toBeInTheDocument();
+    expect(screen.queryByText('地点信息待确认')).not.toBeInTheDocument();
+  });
+
+  it('completed 修参 step 与刷新后的 digest 使用同一状态文案', () => {
+    renderTimeline(run({
+      status: 'completed',
+      steps: [
+        step({
+          toolCalls: [
+            toolCall({
+              toolCallId: 'weather-repair-live',
+              toolName: 'weather_forecast',
+              arguments: { location: '南山区' },
+              status: 'degraded',
+              resultSummary: {
+                kind: 'external_tool',
+                title: '地点信息待确认',
+                truncated: false,
+                repair_state: 'retrying',
+                repair_id: 'repair_abcdef0123456789',
+              },
+            }),
+          ],
+        }),
+      ],
+      toolDigests: [
+        {
+          toolCallId: 'weather-repair-live',
+          toolName: 'weather_forecast',
+          status: 'degraded',
+          title: '地点信息待确认',
+          summary: '参数可安全修正，Agent 将在下一轮补齐后重试。',
+          keyFindings: [],
+          sourceRefs: [],
+          truncated: false,
+          repairState: 'retrying',
+          repairId: 'repair_abcdef0123456789',
+        },
+      ],
+    }));
+
+    fireEvent.click(screen.getByRole('button', { name: '查看执行过程' }));
+
+    expect(screen.getByText('修正中')).toBeInTheDocument();
+    expect(screen.queryByText('部分可用')).not.toBeInTheDocument();
+    expect(screen.queryByText('地点信息待确认')).not.toBeInTheDocument();
+  });
+
+  it('completed 但存在 failed step 时仍渲染 timeline', () => {
+    renderTimeline(run({
+      status: 'completed',
+      steps: [
+        step({
+          status: 'failed',
+          toolCalls: [],
+          contentBlockIds: ['answer-1'],
+        }),
+      ],
+    }));
+
+    expect(screen.getByText(/整理失败/)).toBeInTheDocument();
+  });
+
+  it('running 状态仍渲染 timeline', () => {
+    renderTimeline(run({
+      status: 'running',
+      steps: [
+        step({
+          status: 'running',
+          toolCalls: [toolCall({ status: 'running', completedAt: undefined })],
+        }),
+      ],
+    }));
+
+    expect(screen.getByText('运行中')).toBeInTheDocument();
+    expect(screen.getByText(/正在搜索/)).toBeInTheDocument();
+  });
+
+  it('limit_reached 或 limitReachedReason 存在时仍渲染 timeline', () => {
+    const limitReached = renderTimeline(run({
+      status: 'limit_reached',
+      limitReachedReason: 'max_steps',
+    }));
+
+    expect(screen.getByText('本次检索已达到安全上限')).toBeInTheDocument();
+
+    limitReached.unmount();
+
+    renderTimeline(run({
+      status: 'completed',
+      limitReachedReason: 'timeout',
+    }));
+
+    expect(screen.getByText(/搜索/)).toBeInTheDocument();
+  });
+
+  it('limit_reached + 只有 observed plan/progress 时保留触顶说明但不渲染计划入口', () => {
+    renderTimeline(run({
+      protocolVersion: 2,
+      status: 'limit_reached',
+      steps: [],
+      totalSteps: 0,
+      totalToolCalls: 0,
+      limitReachedReason: 'timeout',
+      progress: {
+        phase: 'synthesizing',
+        label: '正在整理回答',
+        completedSteps: 2,
+        totalSteps: 4,
+      },
+      plan: {
+        planId: 'plan-r1',
+        revision: 1,
+        items: [
+          {
+            id: 'answer',
+            title: '整理回答',
+            status: 'running',
+            kind: 'answer',
+            summary: '基于现有信息生成回答',
+            toolNames: [],
+            evidenceItemIds: [],
+          },
+        ],
+      },
+    }));
+
+    expect(screen.getByText('本次检索用时较长，已结束当前检索')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /查看计划流程/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '查看执行过程' })).not.toBeInTheDocument();
+  });
+});

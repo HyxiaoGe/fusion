@@ -1,0 +1,433 @@
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { useState } from 'react';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const apiMocks = vi.hoisted(() => ({
+  getAdminModels: vi.fn(),
+  getAdminModel: vi.fn(),
+  getAdminItineraryStability: vi.fn(),
+}));
+vi.mock('@/lib/api/adminAudit', () => apiMocks);
+vi.mock('@/components/models/ProviderIcon', () => ({
+  default: ({ providerId, size }: { providerId: string; size?: number }) => <span data-testid="provider-icon" data-size={size}>{providerId}</span>,
+}));
+
+import AdminModelsPanel, { formatModelHealthCheckedAt } from './AdminModelsPanel';
+
+const model = {
+  model_id: 'kimi-k2.5', name: 'Kimi K2.5', provider: 'moonshot', provider_display: 'Moonshot',
+  catalog_status: 'active', catalog_availability: 'available',
+  health: { status: 'healthy', error: null, checked_at: 1783828800 },
+  capabilities: { deepThinking: true, vision: true, functionCalling: true, secretKey: false },
+  conversation_count: 12, user_count: 5, assistant_message_count: 34,
+  input_tokens: 1200, output_tokens: 800, last_used_at: '2026-07-12T00:00:00Z',
+  agent_run_count: 7, agent_error_count: 1,
+  latest_performance_run: { run_id: 'perf-1', status: 'completed', environment: 'production', started_at: '2026-07-11T00:00:00Z', finished_at: '2026-07-11T00:10:00Z' },
+};
+const page = {
+  items: [model], total: 1, page: 1, page_size: 25, total_pages: 1, has_next: false, has_prev: false,
+  catalog_availability: 'available', excluded_invalid_model_count: 0,
+  provider_options: [{ value: 'moonshot', label: 'Moonshot' }, { value: 'openai', label: 'OpenAI' }],
+};
+const detail = {
+  ...model,
+  context_window_tokens: 131072,
+  max_output_tokens: 8192,
+  knowledge_cutoff: '2025-01',
+  description: '适合长文本与 Agent 任务',
+  cost_tier: 'medium',
+  recommended_for: ['长文本', 'Agent'],
+};
+const emptyStability = {
+  scope: {
+    created_from: '2026-07-11T00:00:00+08:00',
+    created_to: '2026-07-12T00:00:00+08:00',
+    timezone: 'Asia/Shanghai',
+    sample_definition: 'terminal_run_with_travel_tool',
+    excluded_running_count: 0,
+  },
+  summary: {
+    itinerary: { total: 0, complete: 0, partial: 0, failed: 0 },
+    run_latency_ms: { sample_count: 0, p50_ms: null, p95_ms: null },
+    product_tools: { total: 0, success: 0, degraded: 0, failed: 0 },
+    tool_latency_ms: { sample_count: 0, p50_ms: null, p95_ms: null },
+    signals: {
+      upstream_error: 0,
+      repair_required: 0,
+      repair_retryable: 0,
+      repair_requires_user_input: 0,
+      repair_retry_exhausted: 0,
+      travel_budget_exhausted: 0,
+      server_budget_exhausted: 0,
+      agent_limit_reached: 0,
+    },
+  },
+  by_model: [],
+  by_tool: [],
+};
+const noop = () => undefined;
+
+function ControlledModelsPanel({ onViewConversations = noop, initialModelId = null }: {
+  onViewConversations?: (modelId: string) => void;
+  initialModelId?: string | null;
+}) {
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(initialModelId);
+  return <AdminModelsPanel onForbidden={noop} selectedModelId={selectedModelId} onOpen={setSelectedModelId} onBack={() => setSelectedModelId(null)} onViewConversations={onViewConversations} />;
+}
+
+describe('AdminModelsPanel', () => {
+  beforeAll(() => {
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
+  });
+
+  beforeEach(() => {
+    apiMocks.getAdminModels.mockReset().mockResolvedValue(page);
+    apiMocks.getAdminModel.mockReset().mockResolvedValue(detail);
+    apiMocks.getAdminItineraryStability.mockReset().mockResolvedValue(emptyStability);
+  });
+
+  it('列表紧凑展示模型健康、能力和使用摘要，不泄露配置凭据', async () => {
+    render(<ControlledModelsPanel />);
+    const row = (await screen.findByText('Kimi K2.5')).closest('tr') as HTMLElement;
+    const table = row.closest('table') as HTMLElement;
+    expect(within(row).getByText('Moonshot')).toBeInTheDocument();
+    expect(within(row).getByTestId('provider-icon')).toHaveTextContent('moonshot');
+    expect(within(row).getByText('健康')).toBeInTheDocument();
+    expect(within(row).getByText('2026-07-12 12:00')).toBeInTheDocument();
+    expect(within(row).getByLabelText('检测时间 2026/7/12 12:00:00（北京时间）')).toHaveAttribute('title', '2026/7/12 12:00:00（北京时间）');
+    expect(within(row).getByText('深度思考')).toBeInTheDocument();
+    const conversationStatistic = within(row).getByLabelText('对话 12');
+    expect(conversationStatistic).toHaveTextContent('12');
+    expect(conversationStatistic.querySelector('dd')).toHaveClass('text-sm');
+    expect(within(row).getByLabelText('用户 5')).toHaveTextContent('5');
+    expect(within(row).getByLabelText('回复 34')).toHaveTextContent('34');
+    expect(within(row).getByLabelText('持久化 Token 2,000')).toHaveTextContent('2,000');
+    expect(within(row).getByLabelText('Agent 运行 7')).toHaveTextContent('7');
+    expect(within(row).getByLabelText('错误 1')).toHaveTextContent('1');
+    const recentActivity = within(row).getByLabelText('最近活动 2026/7/12 08:00:00（北京时间）');
+    expect(recentActivity).toHaveAttribute('title', '2026/7/12 08:00:00（北京时间）');
+    expect(recentActivity).toHaveAttribute('dateTime', '2026-07-12T00:00:00.000Z');
+    expect(recentActivity).toHaveTextContent('2026-07-12 08:00');
+    expect(within(row).queryByText('总 Token')).toBeNull();
+    expect(row).not.toHaveTextContent('secretKey');
+    expect(table).toHaveClass('table-fixed', 'min-w-[960px]');
+    expect(within(table).getAllByRole('columnheader')).toHaveLength(6);
+    expect(within(table).getByRole('columnheader', { name: '时间（北京时间）' })).toBeInTheDocument();
+    expect(within(table).queryByRole('columnheader', { name: '提供商' })).toBeNull();
+    expect(within(table).queryByRole('columnheader', { name: 'Token' })).toBeNull();
+    expect(screen.getByText(/Token 仅为当前已持久化助手消息用量，不等同平台全部调用或计费账单。/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '智能行程稳定性' })).toBeInTheDocument();
+  });
+
+  it('提供商筛选使用后端全量选项，支持选择与恢复不限', async () => {
+    render(<ControlledModelsPanel />);
+    await screen.findByText('Kimi K2.5');
+    expect(screen.queryByRole('textbox', { name: '模型提供商' })).toBeNull();
+    const providerSelect = screen.getByRole('combobox', { name: '模型提供商' });
+
+    fireEvent.click(providerSelect);
+    expect(await screen.findByRole('option', { name: '不限' })).toBeInTheDocument();
+    expect(within(screen.getByRole('option', { name: 'Moonshot' })).getByTestId('provider-icon')).toHaveTextContent('moonshot');
+    fireEvent.click(screen.getByRole('option', { name: 'OpenAI' }));
+    expect(within(providerSelect).getByTestId('provider-icon')).toHaveTextContent('openai');
+    fireEvent.click(screen.getByRole('button', { name: '筛选' }));
+    await waitFor(() => expect(apiMocks.getAdminModels).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, provider: 'openai' }), expect.any(AbortSignal)));
+
+    fireEvent.click(providerSelect);
+    fireEvent.click(await screen.findByRole('option', { name: '不限' }));
+    fireEvent.click(screen.getByRole('button', { name: '筛选' }));
+    await waitFor(() => expect(apiMocks.getAdminModels).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, provider: '' }), expect.any(AbortSignal)));
+  }, 15_000);
+
+  it('重置筛选会清空模型名称、提供商和目录状态并立即恢复完整列表', async () => {
+    render(<ControlledModelsPanel />);
+    await screen.findByText('Kimi K2.5');
+
+    fireEvent.change(screen.getByLabelText('搜索模型'), { target: { value: 'gpt' } });
+    const providerSelect = screen.getByRole('combobox', { name: '模型提供商' });
+    fireEvent.click(providerSelect);
+    fireEvent.click(await screen.findByRole('option', { name: 'OpenAI' }));
+    fireEvent.change(screen.getByLabelText('模型目录状态'), { target: { value: 'historical' } });
+    fireEvent.click(screen.getByRole('button', { name: '筛选' }));
+    await waitFor(() => expect(apiMocks.getAdminModels).toHaveBeenLastCalledWith({
+      page: 1,
+      page_size: 25,
+      q: 'gpt',
+      provider: 'openai',
+      catalog_status: 'historical',
+    }, expect.any(AbortSignal)));
+
+    fireEvent.click(screen.getByRole('button', { name: '重置筛选' }));
+
+    expect(screen.getByLabelText('搜索模型')).toHaveValue('');
+    expect(providerSelect).toHaveTextContent('不限');
+    expect(screen.getByLabelText('模型目录状态')).toHaveValue('');
+    await waitFor(() => expect(apiMocks.getAdminModels).toHaveBeenLastCalledWith({
+      page: 1,
+      page_size: 25,
+      q: '',
+      provider: '',
+      catalog_status: '',
+    }, expect.any(AbortSignal)));
+  });
+
+  it('提供商下拉使用舒展宽度和行距，长名称截断且不改变可访问名称', async () => {
+    const longProvider = { value: 'long-provider', label: '这是一个非常非常长的模型提供商名称' };
+    apiMocks.getAdminModels.mockResolvedValue({ ...page, provider_options: [...page.provider_options, longProvider] });
+    render(<ControlledModelsPanel />);
+    await screen.findByText('Kimi K2.5');
+    const providerSelect = screen.getByRole('combobox', { name: '模型提供商' });
+    expect(providerSelect).toHaveClass('h-9', 'w-full');
+    fireEvent.click(providerSelect);
+
+    const moonshotOption = await screen.findByRole('option', { name: 'Moonshot' });
+    expect(moonshotOption).toHaveClass('min-h-10', 'py-2');
+    const providerIcon = within(moonshotOption).getByTestId('provider-icon');
+    expect(providerIcon).toHaveAttribute('data-size', '20');
+    expect(providerIcon.parentElement?.parentElement).toHaveClass('flex', 'min-w-0', 'items-center', 'gap-3');
+    expect(moonshotOption.closest('[data-slot="select-content"]')).toHaveClass('w-[max(232px,var(--radix-select-trigger-width))]', 'max-w-[calc(100vw-2rem)]');
+
+    const longOption = screen.getByRole('option', { name: longProvider.label });
+    expect(within(longOption).getByText(longProvider.label)).toHaveClass('min-w-0', 'flex-1', 'truncate');
+  });
+
+  it('翻页后继续使用不受分页影响的全量提供商选项', async () => {
+    apiMocks.getAdminModels.mockImplementation(({ page: requestedPage }: { page: number }) => Promise.resolve({
+      ...page,
+      page: requestedPage,
+      total: 26,
+      total_pages: 2,
+      has_next: requestedPage === 1,
+      has_prev: requestedPage === 2,
+    }));
+    render(<ControlledModelsPanel />);
+    await screen.findByText('Kimi K2.5');
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    await waitFor(() => expect(apiMocks.getAdminModels).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 }), expect.any(AbortSignal)));
+    fireEvent.click(screen.getByRole('combobox', { name: '模型提供商' }));
+    expect(await screen.findByRole('option', { name: 'Moonshot' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'OpenAI' })).toBeInTheDocument();
+  });
+
+  it('目录降级导致选项为空时保留已选提供商 canonical id', async () => {
+    apiMocks.getAdminModels.mockImplementation(({ provider }: { provider: string }) => Promise.resolve(provider === 'openai'
+      ? { ...page, provider_options: [], catalog_availability: 'degraded' }
+      : page));
+    render(<ControlledModelsPanel />);
+    await screen.findByText('Kimi K2.5');
+    const providerSelect = screen.getByRole('combobox', { name: '模型提供商' });
+    fireEvent.click(providerSelect);
+    fireEvent.click(await screen.findByRole('option', { name: 'OpenAI' }));
+    fireEvent.click(screen.getByRole('button', { name: '筛选' }));
+    await screen.findByText('模型目录暂时不可用，当前信息可能来自缓存或仅包含历史数据。');
+    expect(providerSelect).toHaveTextContent('openai');
+    fireEvent.click(providerSelect);
+    expect(await screen.findByRole('option', { name: 'openai' })).toBeInTheDocument();
+  });
+
+  it('历史模型缺少提供商、健康时间和能力时保持紧凑且信息完整', async () => {
+    apiMocks.getAdminModels.mockResolvedValue({
+      ...page,
+      items: [{
+        ...model,
+        model_id: 'retired-model',
+        name: '历史模型',
+        provider: null,
+        provider_display: null,
+        catalog_status: 'historical',
+        health: { status: 'unknown', error: null, checked_at: null },
+        capabilities: {},
+        last_used_at: null,
+      }],
+    });
+    render(<ControlledModelsPanel />);
+    const row = (await screen.findByRole('button', { name: '查看模型详情 retired-model' })).closest('tr') as HTMLElement;
+    expect(within(row).getByText('未记录')).toBeInTheDocument();
+    expect(within(row).queryByTestId('provider-icon')).toBeNull();
+    expect(within(row).getByText('历史')).toBeInTheDocument();
+    expect(within(row).getByText('尚未检测')).toBeInTheDocument();
+    expect(within(row).getByText('未标注能力')).toBeInTheDocument();
+    expect(within(row).getByLabelText('最近活动 未采集')).toHaveTextContent('未采集');
+  });
+
+  it('列表能力最多展示两项并通过弹层提供完整溢出能力，详情仍展示全部', async () => {
+    const capabilities = {
+      imageGen: true,
+      deepThinking: true,
+      fileSupport: true,
+      functionCalling: true,
+      searchCapable: true,
+      agentTools: true,
+    };
+    apiMocks.getAdminModels.mockResolvedValue({ ...page, items: [{ ...model, capabilities }] });
+    apiMocks.getAdminModel.mockResolvedValue({ ...detail, capabilities });
+    render(<ControlledModelsPanel />);
+    const row = (await screen.findByText('Kimi K2.5')).closest('tr') as HTMLElement;
+    expect(within(row).getByText('图像生成')).toBeInTheDocument();
+    expect(within(row).getByText('深度思考')).toBeInTheDocument();
+    expect(within(row).queryByText('文件处理')).toBeNull();
+    expect(within(row).queryByText('工具调用')).toBeNull();
+    expect(within(row).queryByText('联网搜索')).toBeNull();
+    expect(within(row).queryByText('Agent 工具')).toBeNull();
+    const overflowButton = within(row).getByRole('button', { name: '显示另外 4 项能力：文件处理、工具调用、联网搜索、Agent 工具' });
+    expect(overflowButton).toHaveTextContent('+4项');
+    expect(within(row).getByRole('group', { name: '模型能力：图像生成、深度思考、文件处理、工具调用、联网搜索、Agent 工具' })).toBeInTheDocument();
+    fireEvent.click(overflowButton);
+    const popover = await screen.findByLabelText('其余模型能力');
+    expect(within(popover).getByText('文件处理')).toBeInTheDocument();
+    expect(within(popover).getByText('Agent 工具')).toBeInTheDocument();
+    expect(apiMocks.getAdminModel).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('模型详情 kimi-k2.5')).toBeNull();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByLabelText('其余模型能力')).toBeNull());
+
+    fireEvent.click(within(row).getByRole('button', { name: '查看模型详情 kimi-k2.5' }));
+    const view = await screen.findByLabelText('模型详情 kimi-k2.5');
+    await waitFor(() => expect(view).toHaveTextContent('联网搜索'));
+    expect(view).toHaveTextContent('Agent 工具');
+    expect(view).not.toHaveTextContent('+4项');
+  });
+
+  it('列表提示被安全跳过的异常历史模型数量，但不展示脏模型 ID', async () => {
+    apiMocks.getAdminModels.mockResolvedValue({
+      ...page,
+      excluded_invalid_model_count: 2,
+    });
+    render(<ControlledModelsPanel />);
+    expect(await screen.findByText('有 2 条异常模型记录未展示，请检查历史数据')).toBeInTheDocument();
+    expect(screen.queryByText('retired/model\u0000broken')).toBeNull();
+  });
+
+  it('模型目录降级时显示低干扰告警', async () => {
+    apiMocks.getAdminModels.mockResolvedValue({
+      ...page,
+      items: [{ ...model, catalog_status: 'unknown' }],
+      catalog_availability: 'degraded',
+      excluded_invalid_model_count: 0,
+    });
+    render(<ControlledModelsPanel />);
+    expect(await screen.findByText('模型目录暂时不可用，当前信息可能来自缓存或仅包含历史数据。')).toBeInTheDocument();
+    const row = screen.getByText('Kimi K2.5').closest('tr') as HTMLElement;
+    expect(within(row).getByText('状态未知')).toBeInTheDocument();
+    expect(within(row).queryByText('历史')).toBeNull();
+    expect(screen.getByRole('option', { name: '状态未知' })).toHaveValue('unknown');
+  });
+
+  it('模型目录正常且列表为空时只显示正常空态', async () => {
+    apiMocks.getAdminModels.mockResolvedValue({
+      ...page,
+      items: [],
+      total: 0,
+      total_pages: 0,
+      catalog_availability: 'available',
+      excluded_invalid_model_count: 0,
+    });
+    render(<ControlledModelsPanel />);
+    expect(await screen.findByText('没有匹配的模型')).toBeInTheDocument();
+    expect(screen.queryByText('模型目录暂时不可用，当前信息可能来自缓存或仅包含历史数据。')).toBeNull();
+    expect(screen.queryByText(/异常模型记录未展示/)).toBeNull();
+  });
+
+  it('目录状态 unknown 在详情中显示状态未知，不误标为历史模型', async () => {
+    apiMocks.getAdminModel.mockResolvedValue({ ...detail, catalog_status: 'unknown' });
+    render(<ControlledModelsPanel initialModelId="kimi-k2.5" />);
+    const view = await screen.findByLabelText('模型详情 kimi-k2.5');
+    await waitFor(() => expect(view).toHaveTextContent('目录状态状态未知'));
+    expect(view).not.toHaveTextContent('目录状态历史模型');
+  });
+
+  it('直接深链的 active 模型详情在目录降级时仍显示降级告警', async () => {
+    apiMocks.getAdminModel.mockResolvedValue({ ...detail, catalog_availability: 'degraded' });
+    render(<ControlledModelsPanel initialModelId="kimi-k2.5" />);
+    const view = await screen.findByLabelText('模型详情 kimi-k2.5');
+    await waitFor(() => expect(view).toHaveTextContent('目录状态当前模型'));
+    await waitFor(() => expect(view).toHaveTextContent('模型目录暂时不可用，当前信息可能来自缓存或仅包含历史数据。'));
+  });
+
+  it('详情展示安全运营信息并可关联查看该模型对话', async () => {
+    const onViewConversations = vi.fn();
+    render(<ControlledModelsPanel onViewConversations={onViewConversations} />);
+    await screen.findByText('Kimi K2.5');
+    fireEvent.click(screen.getByRole('button', { name: '查看模型详情 kimi-k2.5' }));
+    const view = await screen.findByLabelText('模型详情 kimi-k2.5');
+    expect(apiMocks.getAdminModel).toHaveBeenCalledWith('kimi-k2.5', expect.any(AbortSignal));
+    await waitFor(() => expect(view).toHaveTextContent('131,072'));
+    expect(view).toHaveTextContent('8,192');
+    expect(view).toHaveTextContent('检测时间');
+    expect(view).toHaveTextContent('北京时间');
+    expect(view).toHaveTextContent('12 个对话');
+    expect(view).toHaveTextContent('7 次 Agent 运行');
+    expect(view).toHaveTextContent('1 次错误');
+    expect(view).toHaveTextContent('perf-1');
+    expect(view).toHaveTextContent('适合长文本与 Agent 任务');
+    expect(view).toHaveTextContent('Token 仅为当前已持久化助手消息用量，不等同平台全部调用或计费账单。');
+    expect(view).toHaveTextContent('最近活动');
+    expect(view).not.toHaveTextContent('最近使用');
+    expect(view).not.toHaveTextContent('价格参考');
+    expect(view).not.toHaveTextContent('api_key');
+    fireEvent.click(within(view).getByRole('button', { name: '查看该模型的对话' }));
+    expect(onViewConversations).toHaveBeenCalledWith('kimi-k2.5');
+  });
+
+  it('URL 深链模型 ID 可直接恢复详情，切换 ID 会中止旧请求', async () => {
+    apiMocks.getAdminModel.mockImplementation(() => new Promise(() => undefined));
+    const { rerender } = render(<AdminModelsPanel onForbidden={noop} selectedModelId="model-a" onOpen={noop} onBack={noop} onViewConversations={noop} />);
+    await waitFor(() => expect(apiMocks.getAdminModel).toHaveBeenCalledWith('model-a', expect.any(AbortSignal)));
+    const firstSignal = apiMocks.getAdminModel.mock.calls[0][1] as AbortSignal;
+    rerender(<AdminModelsPanel onForbidden={noop} selectedModelId="model-b" onOpen={noop} onBack={noop} onViewConversations={noop} />);
+    await waitFor(() => expect(firstSignal.aborted).toBe(true));
+    expect(apiMocks.getAdminModel).toHaveBeenLastCalledWith('model-b', expect.any(AbortSignal));
+  });
+
+  it('异常模型只在详情展示后端分类后的安全异常说明', async () => {
+    const unhealthy = { ...model, health: { status: 'unhealthy', error: '服务商认证失败，请检查服务配置', checked_at: null } };
+    apiMocks.getAdminModels.mockResolvedValue({ ...page, items: [unhealthy] });
+    apiMocks.getAdminModel.mockResolvedValue({ ...detail, ...unhealthy });
+    render(<ControlledModelsPanel />);
+    const row = (await screen.findByText('Kimi K2.5')).closest('tr') as HTMLElement;
+    expect(within(row).getByText('异常')).toBeInTheDocument();
+    expect(within(row).queryByText('服务商认证失败，请检查服务配置')).toBeNull();
+    fireEvent.click(within(row).getByRole('button', { name: '查看模型详情 kimi-k2.5' }));
+    const view = await screen.findByLabelText('模型详情 kimi-k2.5');
+    await waitFor(() => {
+      expect(view).toHaveTextContent('异常说明');
+      expect(view).toHaveTextContent('服务商认证失败，请检查服务配置');
+    });
+  });
+
+  it('历史模型详情对 provider、成本、推荐场景和压测状态做中文安全展示', async () => {
+    apiMocks.getAdminModel.mockResolvedValue({
+      ...detail,
+      model_id: 'model-history',
+      name: '历史模型',
+      provider: null,
+      provider_display: null,
+      catalog_status: 'historical',
+      health: { status: 'unknown', error: null, checked_at: '2026-07-12T00:00:00Z' },
+      cost_tier: 'low',
+      recommended_for: ['agent', 'coding', 'long_context', 'fast_response', 'general', 'custom'],
+      capabilities: { searchCapable: true, webSearch: true },
+      latest_performance_run: {
+        run_id: 'perf-history', status: 'completed', environment: 'production',
+        started_at: null, finished_at: null,
+      },
+    });
+    render(<ControlledModelsPanel initialModelId="model-history" />);
+    const view = await screen.findByLabelText('模型详情 model-history');
+    await waitFor(() => expect(view).toHaveTextContent('model-history · 未记录'));
+    expect(view).not.toHaveTextContent('model-history · ·');
+    expect(view).toHaveTextContent('成本层级低');
+    expect(view).toHaveTextContent('Agent、编程、长上下文、快速响应、通用、custom');
+    expect(view).toHaveTextContent('状态已完成');
+    expect(view).toHaveTextContent('环境生产环境');
+    expect(view).toHaveTextContent('检测时间2026/7/12 08:00:00（北京时间）');
+    expect(view).toHaveTextContent('联网搜索');
+    expect(view).not.toHaveTextContent('网页搜索');
+  });
+
+  it('健康检测时间兼容 epoch 秒、ISO 与空值', () => {
+    expect(formatModelHealthCheckedAt(1783828800)).toContain('北京时间');
+    expect(formatModelHealthCheckedAt('2026-07-12T00:00:00Z')).toBe('2026/7/12 08:00:00（北京时间）');
+    expect(formatModelHealthCheckedAt(null)).toBe('尚未检测');
+  });
+});

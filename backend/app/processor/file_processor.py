@@ -1,0 +1,345 @@
+import base64
+import io
+import os
+from typing import Any, Dict, List, Optional
+
+import litellm
+
+from app.ai.llm_manager import llm_manager
+from app.ai.llm_observability import merge_litellm_kwargs
+from app.ai.prompts import prompt_manager
+from app.core.logger import app_logger as logger
+
+
+class FileProcessor:
+    """文件处理器，统一使用千问视觉大模型来处理文件"""
+
+    LOCAL_TEXT_PREVIEW_LIMIT = 6000
+    PROMPT_TEXT_PREVIEW_LIMIT = 3000
+    VISION_MODEL_ID = "qwen-vl-max"
+
+    def __init__(self):
+        self.model = self.VISION_MODEL_ID
+
+    async def process_files(
+        self, file_paths: List[str], query: str = None, mime_types: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        处理文件并返回处理结果
+
+        参数:
+            file_paths: 文件路径列表
+            query: 用户关于文件的问题或指示
+            mime_types: 文件MIME类型列表，与file_paths顺序对应
+
+        返回:
+            包含处理结果的字典
+        """
+        try:
+            # 生成默认查询（如果未提供）
+            if not query:
+                query = "请分析这些文件的内容并提供详细描述。"
+
+            files_data = []
+            for i, path in enumerate(file_paths):
+                mime_type = mime_types[i] if mime_types and i < len(mime_types) else self._guess_mime_type(path)
+                file_data = self._prepare_file_data(path, mime_type)
+                files_data.append(file_data)
+
+            text_only_content = self._build_text_only_content(files_data)
+            if text_only_content is not None:
+                return {
+                    "content": text_only_content,
+                    "model": "local-text-extraction",
+                }
+
+            # 构造提示信息
+            prompt, prompt_metadata = self._build_prompt_with_metadata(query, files_data)
+            # 调用模型
+            response = await self._call_model(prompt, files_data, prompt_metadata=prompt_metadata)
+
+            return {"content": response, "model": self.model}
+
+        except Exception as e:
+            logger.exception(f"处理文件失败: {e}")
+            return {"content": f"处理文件时发生错误: {str(e)}", "error": str(e)}
+
+    def _build_text_only_content(self, files_data: List[Dict[str, Any]]) -> Optional[str]:
+        """对纯文本类文件直接返回本地提取内容，避免依赖外部视觉模型。"""
+        if not files_data:
+            return ""
+
+        extracted_sections = []
+        for index, file_data in enumerate(files_data, start=1):
+            if file_data["mime_type"].startswith("image/"):
+                return None
+
+            extracted_text = file_data.get("extracted_text")
+            if not extracted_text:
+                return None
+
+            normalized_text = self._truncate_text(
+                extracted_text,
+                self.LOCAL_TEXT_PREVIEW_LIMIT,
+            )
+
+            extracted_sections.append(
+                f"文件 {index}: {file_data['file_name']} (类型: {file_data['mime_type']})\n{normalized_text}"
+            )
+
+        return "\n\n".join(extracted_sections)
+
+    def _prepare_file_data(self, file_path: str, mime_type: str) -> Dict[str, Any]:
+        """准备文件数据"""
+        try:
+            with open(file_path, "rb") as f:
+                file_content = f.read()
+                # 通义千问支持base64编码的文件
+                b64_content = base64.b64encode(file_content).decode("utf-8")
+                # 提取文件内容（对于文本类文件）
+                extracted_text = self._extract_text_content(file_path, file_content, mime_type)
+                return {
+                    "file_name": os.path.basename(file_path),
+                    "mime_type": mime_type,
+                    "content": b64_content,
+                    "extracted_text": extracted_text,
+                }
+        except Exception as e:
+            logger.exception(f"准备文件数据失败 {file_path}: {e}")
+            raise
+
+    def _extract_text_content(self, file_path: str, file_content: bytes, mime_type: str) -> Optional[str]:
+        """从文件中提取文本内容"""
+        try:
+            # 根据文件类型提取文本
+            if mime_type.startswith("text/") or self._has_extension(file_path, ".txt", ".md", ".text"):
+                # 文本文件
+                return file_content.decode("utf-8", errors="replace")
+
+            elif mime_type == "application/pdf" or self._has_extension(file_path, ".pdf"):
+                # PDF文件
+                return self._run_optional_text_extractor(
+                    lambda: self._extract_pdf_text(file_content),
+                    missing_dependency_message="PyPDF2库未安装，无法解析PDF文件内容",
+                    failure_message="解析PDF文件失败",
+                )
+
+            elif mime_type in [
+                "application/vnd.ms-excel",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ] or self._has_extension(file_path, ".xls", ".xlsx"):
+                # Excel文件
+                return self._run_optional_text_extractor(
+                    lambda: self._extract_excel_text(file_content),
+                    missing_dependency_message="pandas库未安装，无法解析Excel文件内容",
+                    failure_message="解析Excel文件失败",
+                )
+
+            elif mime_type == "text/csv" or self._has_extension(file_path, ".csv"):
+                # CSV文件
+                return self._run_optional_text_extractor(
+                    lambda: self._extract_csv_text(file_content),
+                    missing_dependency_message="pandas库未安装，无法解析CSV文件内容",
+                    failure_message="解析CSV文件失败",
+                )
+
+            elif mime_type in [
+                "application/msword",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ] or self._has_extension(file_path, ".doc", ".docx", ".dot"):
+                # Word文档
+                return self._run_optional_text_extractor(
+                    lambda: self._extract_word_text(file_content),
+                    missing_dependency_message="python-docx库未安装，无法解析Word文件内容",
+                    failure_message="解析Word文件失败",
+                )
+
+            # 其他文件类型不提取文本
+            return None
+
+        except Exception as e:
+            logger.error(f"提取文件文本失败: {e}")
+            return None
+
+    @staticmethod
+    def _has_extension(file_path: str, *extensions: str) -> bool:
+        return file_path.endswith(extensions)
+
+    @staticmethod
+    def _run_optional_text_extractor(extractor, missing_dependency_message: str, failure_message: str) -> Optional[str]:
+        try:
+            return extractor()
+        except ImportError:
+            logger.warning(missing_dependency_message)
+            return None
+        except Exception as e:
+            logger.error(f"{failure_message}: {e}")
+            return None
+
+    @staticmethod
+    def _extract_pdf_text(file_content: bytes) -> str:
+        import PyPDF2
+
+        with io.BytesIO(file_content) as pdf_file:
+            reader = PyPDF2.PdfReader(pdf_file)
+            return "".join((page.extract_text() or "") + "\n" for page in reader.pages)
+
+    @staticmethod
+    def _extract_excel_text(file_content: bytes) -> str:
+        import pandas as pd
+
+        with io.BytesIO(file_content) as excel_file:
+            df = pd.read_excel(excel_file)
+            return df.to_string(index=False)
+
+    @staticmethod
+    def _extract_csv_text(file_content: bytes) -> str:
+        import pandas as pd
+
+        with io.BytesIO(file_content) as csv_file:
+            df = pd.read_csv(csv_file)
+            return df.to_string(index=False)
+
+    @staticmethod
+    def _extract_word_text(file_content: bytes) -> str:
+        import docx
+
+        with io.BytesIO(file_content) as doc_file:
+            doc = docx.Document(doc_file)
+            return "\n".join(para.text for para in doc.paragraphs)
+
+    def _guess_mime_type(self, file_path: str) -> str:
+        """根据文件扩展名猜测MIME类型"""
+        ext = os.path.splitext(file_path)[1].lower()
+        mime_map = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".gif": "image/gif",
+            ".bmp": "image/bmp",
+            ".webp": "image/webp",
+            ".pdf": "application/pdf",
+            ".doc": "application/msword",
+            ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".dot": "application/msword",
+            ".txt": "text/plain",
+            ".text": "text/plain",
+            ".md": "text/markdown",
+            ".csv": "text/csv",
+            ".xls": "application/vnd.ms-excel",
+            ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        }
+        return mime_map.get(ext, "application/octet-stream")
+
+    @staticmethod
+    def _truncate_text(text: str, limit: int) -> str:
+        """统一截断长文本，避免提示或本地摘要过大。"""
+        normalized_text = text.strip()
+        if len(normalized_text) > limit:
+            return normalized_text[:limit] + "...(内容过长已截断)"
+        return normalized_text
+
+    def _build_prompt(self, query: str, files_data: List[Dict[str, Any]]) -> str:
+        """构建模型提示"""
+        prompt, _metadata = self._build_prompt_with_metadata(query, files_data)
+        return prompt
+
+    def _build_prompt_with_metadata(
+        self,
+        query: str,
+        files_data: List[Dict[str, Any]],
+    ) -> tuple[str, dict]:
+        """构建模型提示并携带 Prompt 版本观测字段。"""
+
+        # 准备文件内容
+        file_content_text = ""
+        for i, file in enumerate(files_data):
+            file_content_text += f"文件 {i + 1}: {file['file_name']} (类型: {file['mime_type']})\n"
+
+            # 如果有提取的文本内容，添加到提示中
+            if file.get("extracted_text"):
+                text = self._truncate_text(
+                    file["extracted_text"],
+                    self.PROMPT_TEXT_PREVIEW_LIMIT,
+                )
+
+                file_content_text += f"文件内容:\n{text}\n\n"
+
+        # 使用提示词管理器构建提示
+        return prompt_manager.format_prompt_with_metadata(
+            "file_analysis",
+            query=query,
+            file_content=file_content_text,
+        )
+
+    async def _call_model(
+        self,
+        prompt: str,
+        files_data: List[Dict[str, Any]],
+        *,
+        prompt_metadata: Dict[str, Any] | None = None,
+    ) -> str:
+        """通过 LiteLLM Proxy 使用视觉模型处理文件。"""
+        try:
+            # 构建消息内容
+            messages = [
+                {
+                    "role": "system",
+                    "content": [{"type": "text", "text": "你是一个专业的图像分析助手，请详细分析图片内容。"}],
+                }
+            ]
+
+            # 构建用户消息
+            user_content = []
+
+            # 添加图片
+            for file in files_data:
+                if file["mime_type"].startswith("image/"):
+                    user_content.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{file['mime_type']};base64,{file['content']}"},
+                        }
+                    )
+
+            # 添加文本提示
+            user_content.append({"type": "text", "text": prompt})
+
+            # 添加完整的用户消息
+            messages.append({"role": "user", "content": user_content})
+
+            litellm_model, _, litellm_kwargs = llm_manager.resolve_model(self.model)
+
+            stream_response = await litellm.acompletion(
+                model=litellm_model,
+                messages=messages,
+                stream=True,
+                stream_options={"include_usage": True},
+                **merge_litellm_kwargs(
+                    "file_processing",
+                    litellm_kwargs,
+                    prompt_metadata=prompt_metadata,
+                ),
+            )
+
+            # 收集流式响应
+            full_response = ""
+            try:
+                async for chunk in stream_response:
+                    if hasattr(chunk, "choices") and len(chunk.choices) > 0:
+                        delta = chunk.choices[0].delta
+                        if hasattr(delta, "content") and delta.content:
+                            full_response += delta.content
+            except Exception as e:
+                logger.exception(f"处理流式响应时出错: {e}")
+
+            # 返回完整响应
+            if full_response:
+                return full_response
+            else:
+                logger.warning("流式API响应中没有找到有效内容")
+                return "无法处理图片，API返回为空"
+
+        except Exception as e:
+            logger.exception(f"调用千问视觉模型失败: {e}")
+            raise

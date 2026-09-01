@@ -1,0 +1,269 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  buildModelCapabilityLabels,
+  buildModelCapabilityRecommendation,
+  buildModelCapabilityTooltip,
+} from './modelCapabilityPresentation';
+
+describe('modelCapabilityPresentation', () => {
+  it('优先使用后端返回的能力展示配置', () => {
+    const model = {
+      id: 'runtime-model',
+      name: 'Runtime Model',
+      provider: 'deepseek',
+      temperature: 0.7,
+      enabled: true,
+      capabilities: {
+        searchCapable: false,
+        agentTools: false,
+        vision: false,
+      },
+      capabilityPresentation: {
+        score: 91,
+        level: 'recommended' as const,
+        headline: '后端配置标题',
+        reasons: ['后端配置原因'],
+        warnings: ['后端配置警告'],
+        tooltip: '后端配置 tooltip',
+        labels: [{ key: 'runtime-network', text: '后端联网', tone: 'success' as const }],
+      },
+    };
+
+    expect(buildModelCapabilityRecommendation(model)).toEqual({
+      score: 91,
+      level: 'recommended',
+      headline: '后端配置标题',
+      reasons: ['后端配置原因'],
+      warnings: ['后端配置警告'],
+    });
+    expect(buildModelCapabilityLabels(model)).toEqual([
+      { key: 'runtime-network', text: '后端联网', tone: 'success' },
+    ]);
+    expect(buildModelCapabilityTooltip(model)).toBe('后端配置 tooltip');
+  });
+
+  it('为支持 agent tools 的模型展示可联网、读图、工具和深度任务标签', () => {
+    const labels = buildModelCapabilityLabels({
+      id: 'deepseek-v4-flash',
+      name: 'DeepSeek V4 Flash',
+      provider: 'deepseek',
+      temperature: 0.7,
+      enabled: true,
+      contextWindowTokens: 128000,
+      capabilities: {
+        searchCapable: true,
+        agentTools: true,
+        functionCalling: true,
+        webSearch: true,
+        vision: true,
+        deepThinking: true,
+      },
+    });
+
+    expect(labels.map((label) => label.text)).toEqual(['可联网', '读图', '工具', '长上下文', '深度任务']);
+    expect(labels[0].tone).toBe('success');
+  });
+
+  it('上下文窗口达到 128k 时展示长上下文标签和 tooltip 说明', () => {
+    const model = {
+      id: 'long-context-model',
+      name: 'Long Context Model',
+      provider: 'openai',
+      temperature: 0.7,
+      enabled: true,
+      contextWindowTokens: 1_000_000,
+      capabilities: {
+        searchCapable: false,
+        agentTools: false,
+        vision: false,
+      },
+    };
+
+    const labels = buildModelCapabilityLabels(model);
+    const tooltip = buildModelCapabilityTooltip(model);
+
+    expect(labels.map((label) => label.text)).toContain('长上下文');
+    expect(tooltip).toContain('上下文窗口约 100万 tokens');
+  });
+
+  it('优先用 searchCapable=true 判断模型可联网', () => {
+    const labels = buildModelCapabilityLabels({
+      id: 'search-contract-model',
+      name: 'Search Contract Model',
+      provider: 'openai',
+      temperature: 0.7,
+      enabled: true,
+      capabilities: {
+        searchCapable: true,
+        agentTools: false,
+        webSearch: false,
+      },
+    });
+
+    expect(labels.map((label) => label.text)).toContain('可联网');
+    expect(labels.map((label) => label.text)).not.toContain('不可联网');
+  });
+
+  it('searchCapable=false 时即使 webSearch=true 也展示不可联网', () => {
+    const model = {
+      id: 'search-disabled-model',
+      name: 'Search Disabled Model',
+      provider: 'openai',
+      temperature: 0.7,
+      enabled: true,
+      capabilities: {
+        searchCapable: false,
+        agentTools: true,
+        webSearch: true,
+      },
+    };
+
+    const labels = buildModelCapabilityLabels(model);
+    const tooltip = buildModelCapabilityTooltip(model);
+
+    expect(labels.map((label) => label.text)).toContain('不可联网');
+    expect(labels.map((label) => label.text)).not.toContain('可联网');
+    expect(tooltip).toContain('不支持联网搜索');
+  });
+
+  it('为不支持 agent tools 的模型明确展示不可联网而不是工具调用', () => {
+    const labels = buildModelCapabilityLabels({
+      id: 'qwen-vl-max',
+      name: 'Qwen VL Max',
+      provider: 'qwen',
+      temperature: 0.7,
+      enabled: true,
+      capabilities: {
+        searchCapable: false,
+        agentTools: false,
+        functionCalling: true,
+        vision: true,
+      },
+    });
+
+    expect(labels.map((label) => label.text)).toContain('不可联网');
+    expect(labels.map((label) => label.text)).not.toContain('工具');
+  });
+
+  it('为当前模型生成包含能力边界和健康状态的 tooltip 文案', () => {
+    const tooltip = buildModelCapabilityTooltip({
+      id: 'legacy-model',
+      name: '旧模型',
+      provider: 'qwen',
+      temperature: 0.7,
+      enabled: true,
+      capabilities: {
+        searchCapable: false,
+        agentTools: false,
+        functionCalling: true,
+        vision: false,
+        deepThinking: false,
+      },
+      health: {
+        status: 'unhealthy',
+        error: '模型已下线',
+      },
+    });
+
+    expect(tooltip).toContain('旧模型');
+    expect(tooltip).toContain('不建议：当前不可用');
+    expect(tooltip).toContain('不支持联网搜索');
+    expect(tooltip).toContain('不支持图片理解');
+    expect(tooltip).toContain('健康状态异常：模型已下线');
+  });
+
+  it('为全能力模型生成高分推荐和适用场景原因', () => {
+    const recommendation = buildModelCapabilityRecommendation({
+      id: 'deepseek-v4-flash',
+      name: 'DeepSeek V4 Flash',
+      provider: 'deepseek',
+      temperature: 0.7,
+      enabled: true,
+      contextWindowTokens: 1_000_000,
+      capabilities: {
+        searchCapable: true,
+        agentTools: true,
+        functionCalling: true,
+        webSearch: true,
+        vision: true,
+        deepThinking: true,
+      },
+    });
+
+    expect(recommendation.score).toBeGreaterThanOrEqual(90);
+    expect(recommendation.level).toBe('recommended');
+    expect(recommendation.headline).toBe('推荐：实时资料、图片和长任务');
+    expect(recommendation.reasons).toContain('可联网搜索并读取关键来源');
+    expect(recommendation.reasons).toContain('支持图片理解');
+    expect(recommendation.reasons).toContain('适合长上下文任务');
+    expect(recommendation.warnings).toEqual([]);
+  });
+
+  it('tooltip 合并推荐摘要和实时信息边界', () => {
+    const tooltip = buildModelCapabilityTooltip({
+      id: 'plain-model',
+      name: 'Plain Model',
+      provider: 'qwen',
+      temperature: 0.7,
+      enabled: true,
+      capabilities: {
+        searchCapable: false,
+        agentTools: false,
+        functionCalling: true,
+        vision: false,
+        deepThinking: false,
+      },
+    });
+
+    expect(tooltip).toContain('适合：稳定知识与普通对话');
+    expect(tooltip).toContain('不支持实时联网，涉及最新信息时会基于已有知识谨慎回答');
+  });
+
+  it('为非联网文本模型给出实时信息边界提示但不判为不可用', () => {
+    const recommendation = buildModelCapabilityRecommendation({
+      id: 'plain-model',
+      name: 'Plain Model',
+      provider: 'qwen',
+      temperature: 0.7,
+      enabled: true,
+      capabilities: {
+        searchCapable: false,
+        agentTools: false,
+        functionCalling: true,
+        vision: false,
+        deepThinking: false,
+      },
+    });
+
+    expect(recommendation.score).toBeLessThan(70);
+    expect(recommendation.level).toBe('limited');
+    expect(recommendation.headline).toBe('适合：稳定知识与普通对话');
+    expect(recommendation.reasons).toContain('可处理普通文本任务');
+    expect(recommendation.warnings).toContain('不支持实时联网，涉及最新信息时会基于已有知识谨慎回答');
+  });
+
+  it('健康异常模型直接降级为不建议使用', () => {
+    const recommendation = buildModelCapabilityRecommendation({
+      id: 'offline-model',
+      name: 'Offline Model',
+      provider: 'qwen',
+      temperature: 0.7,
+      enabled: true,
+      capabilities: {
+        searchCapable: true,
+        agentTools: true,
+        vision: true,
+      },
+      health: {
+        status: 'unhealthy',
+        error: '模型已下线',
+      },
+    });
+
+    expect(recommendation.score).toBe(0);
+    expect(recommendation.level).toBe('unavailable');
+    expect(recommendation.headline).toBe('不建议：当前不可用');
+    expect(recommendation.warnings).toContain('模型已下线');
+  });
+});

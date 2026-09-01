@@ -1,0 +1,427 @@
+import unittest
+from dataclasses import replace
+from types import SimpleNamespace
+
+from app.ai.skills.registry import SkillReleasePin
+from app.services.stream.agent_loop_policy import AgentLoopLimits
+from app.services.stream.agent_loop_wiring import (
+    AgentLoopRunInput,
+    AgentLoopWiringDependencies,
+    build_agent_loop_lifecycle_call,
+)
+
+
+async def _unused_async(**_kwargs):
+    raise AssertionError("不应调用这个依赖")
+
+
+def _unused_sync(*_args, **_kwargs):
+    raise AssertionError("不应调用这个依赖")
+
+
+class AgentLoopWiringTests(unittest.TestCase):
+    def test_build_lifecycle_call_wires_execution_and_lifecycle_dependencies(self):
+        captured = {}
+        call_config = SimpleNamespace(
+            should_use_reasoning=True,
+            call_kwargs={"tools": ["web_search"]},
+            announced_tools=["web_search"],
+            dynamic_tool_handlers={"mcp_docs_alias": "handler"},
+        )
+        dynamic_tool_set = SimpleNamespace(
+            definitions=[{"type": "function", "function": {"name": "mcp_docs_alias"}}],
+            handlers={"mcp_docs_alias": "handler"},
+            audit_bindings=[{"alias": "mcp_docs_alias", "server_id": "server-1"}],
+        )
+        fake_execution = SimpleNamespace(run_id="run-wiring")
+        redis_writer = object()
+
+        async def append_chunk_fn(*_args, **_kwargs):
+            return None
+
+        async def start_agent_run_fn(**_kwargs):
+            return None
+
+        async def prepare_messages_fn(**_kwargs):
+            return None
+
+        async def run_agent_loop_fn(**_kwargs):
+            return None
+
+        async def finalize_completed_run_fn(**_kwargs):
+            return None
+
+        async def finalize_superseded_run_fn(**_kwargs):
+            return None
+
+        async def finalize_cancelled_run_fn(**_kwargs):
+            return None
+
+        async def finalize_failed_run_fn(**_kwargs):
+            return None
+
+        async def write_fallback_run_error_fn(**_kwargs):
+            return None
+
+        async def complete_agent_run_fn(**_kwargs):
+            return None
+
+        async def interrupt_agent_run_fn(**_kwargs):
+            return None
+
+        async def fail_agent_run_fn(**_kwargs):
+            return None
+
+        async def finalize_stream_fn(*_args, **_kwargs):
+            return None
+
+        async def write_fallback_error_status_fn(**_kwargs):
+            return None
+
+        def build_call_config_fn(**kwargs):
+            captured["call_config_kwargs"] = kwargs
+            return call_config
+
+        def load_dynamic_tools_fn(db):
+            captured["dynamic_tools_db"] = db
+            return dynamic_tool_set
+
+        def load_authorized_tool_names_fn(db):
+            captured["authorized_tool_names_db"] = db
+            return ["mcp_docs_alias"]
+
+        continuation_pins = (
+            SkillReleasePin(
+                skill_id="verified-research",
+                version="0.9.0",
+                content_sha256="a" * 64,
+            ),
+        )
+
+        def load_previous_skill_release_pins_fn(db, *, conversation_id, user_id, previous_run_id):
+            captured["previous_skill_release"] = (db, conversation_id, user_id, previous_run_id)
+            return continuation_pins
+
+        def build_execution_fn(**kwargs):
+            captured["execution_kwargs"] = kwargs
+            return fake_execution
+
+        def redis_writer_factory():
+            captured["redis_writer_factory_called"] = True
+            return redis_writer
+
+        def warning_fn(_message):
+            return None
+
+        def info_fn(_message):
+            return None
+
+        def error_fn(_message):
+            return None
+
+        limits = AgentLoopLimits(max_steps=3, max_tool_calls=5, total_timeout_s=30)
+        run_input = AgentLoopRunInput(
+            conversation_id="conv-wiring",
+            user_id="user-wiring",
+            model_id="gpt-4",
+            litellm_model="openai/gpt-4",
+            litellm_kwargs={"temperature": 0},
+            provider="openai",
+            raw_messages=[{"role": "user", "content": "hi"}],
+            has_vision=False,
+            file_ids=["file-1"],
+            original_message="hi",
+            assistant_message_id="msg-wiring",
+            task_id="task-wiring",
+            options=None,
+            capabilities={"functionCalling": True},
+            trace_id="trace-wiring",
+            initial_content_blocks=["旧块"],
+            extra_system_prompts=["继续执行"],
+            preprocess_user_input=False,
+        )
+
+        dependencies = AgentLoopWiringDependencies(
+            build_call_config_fn=build_call_config_fn,
+            build_execution_fn=build_execution_fn,
+            session_cache="session-cache",
+            redis_writer_factory=redis_writer_factory,
+            start_step_fn=_unused_async,
+            complete_step_fn=_unused_async,
+            run_round_fn=_unused_async,
+            handle_tool_calls_round_fn=_unused_async,
+            run_limit_summary_step_fn=_unused_async,
+            llm_call_fn=_unused_async,
+            stream_round_fn=_unused_async,
+            execute_tools_fn=_unused_async,
+            persist_message_fn=_unused_sync,
+            log_round_summary_fn=lambda **_kwargs: None,
+            clock=lambda: 100.0,
+            append_chunk_fn=append_chunk_fn,
+            start_agent_run_fn=start_agent_run_fn,
+            prepare_messages_fn=prepare_messages_fn,
+            run_agent_loop_fn=run_agent_loop_fn,
+            finalize_completed_run_fn=finalize_completed_run_fn,
+            finalize_superseded_run_fn=finalize_superseded_run_fn,
+            finalize_cancelled_run_fn=finalize_cancelled_run_fn,
+            finalize_failed_run_fn=finalize_failed_run_fn,
+            write_fallback_run_error_fn=write_fallback_run_error_fn,
+            complete_agent_run_fn=complete_agent_run_fn,
+            interrupt_agent_run_fn=interrupt_agent_run_fn,
+            fail_agent_run_fn=fail_agent_run_fn,
+            finalize_stream_fn=finalize_stream_fn,
+            write_fallback_error_status_fn=write_fallback_error_status_fn,
+            info_fn=info_fn,
+            error_fn=error_fn,
+            warning_fn=warning_fn,
+            load_dynamic_tools_fn=load_dynamic_tools_fn,
+            load_authorized_tool_names_fn=load_authorized_tool_names_fn,
+            load_previous_skill_release_pins_fn=load_previous_skill_release_pins_fn,
+        )
+        lifecycle_call = build_agent_loop_lifecycle_call(
+            run_input=run_input,
+            db="db-wiring",
+            limits=limits,
+            dependencies=dependencies,
+        )
+
+        self.assertEqual(
+            captured["call_config_kwargs"],
+            {
+                "provider": "openai",
+                "options": {},
+                "capabilities": {"functionCalling": True},
+                "additional_tools": dynamic_tool_set.definitions,
+                "dynamic_tool_handlers": dynamic_tool_set.handlers,
+                "tool_bindings": dynamic_tool_set.audit_bindings,
+                "original_message": "hi",
+                "task_context_messages": [{"role": "user", "content": "hi"}],
+            },
+        )
+        self.assertEqual(captured["dynamic_tools_db"], "db-wiring")
+        self.assertNotIn("authorized_tool_names_db", captured)
+        self.assertTrue(captured["redis_writer_factory_called"])
+        execution_request = captured["execution_kwargs"]["request"]
+        execution_dependencies = captured["execution_kwargs"]["dependencies"]
+        self.assertEqual(captured["execution_kwargs"]["limits"], limits)
+        self.assertEqual(execution_request.db, "db-wiring")
+        self.assertEqual(execution_request.conversation_id, "conv-wiring")
+        self.assertEqual(execution_request.user_id, "user-wiring")
+        self.assertEqual(execution_request.model_id, "gpt-4")
+        self.assertEqual(execution_request.litellm_model, "openai/gpt-4")
+        self.assertEqual(execution_request.litellm_kwargs, {"temperature": 0})
+        self.assertEqual(execution_request.provider, "openai")
+        self.assertEqual(execution_request.assistant_message_id, "msg-wiring")
+        self.assertEqual(execution_request.task_id, "task-wiring")
+        self.assertIs(execution_request.call_config, call_config)
+        self.assertEqual(execution_request.trace_id, "trace-wiring")
+        self.assertEqual(execution_dependencies.session_cache, "session-cache")
+        self.assertIs(execution_dependencies.redis_writer, redis_writer)
+        self.assertIs(execution_dependencies.llm_call_fn, _unused_async)
+        self.assertIs(execution_dependencies.stream_round_fn, _unused_async)
+        self.assertIs(execution_dependencies.execute_tools_fn, _unused_async)
+        self.assertIs(execution_dependencies.persist_message_fn, _unused_sync)
+        self.assertIs(execution_dependencies.warning_fn, warning_fn)
+
+        self.assertIs(lifecycle_call.execution, fake_execution)
+        self.assertEqual(lifecycle_call.request.raw_messages, [{"role": "user", "content": "hi"}])
+        self.assertFalse(lifecycle_call.request.has_vision)
+        self.assertEqual(lifecycle_call.request.file_ids, ["file-1"])
+        self.assertEqual(lifecycle_call.request.original_message, "hi")
+        self.assertIs(lifecycle_call.request.call_config, call_config)
+        self.assertEqual(lifecycle_call.request.limits, limits)
+        self.assertEqual(lifecycle_call.request.initial_content_blocks, ["旧块"])
+        self.assertEqual(lifecycle_call.request.extra_system_prompts, ["继续执行"])
+        self.assertFalse(lifecycle_call.request.preprocess_user_input)
+        self.assertIs(lifecycle_call.dependencies.append_chunk_fn, append_chunk_fn)
+        self.assertIs(lifecycle_call.dependencies.start_agent_run_fn, start_agent_run_fn)
+        self.assertIs(lifecycle_call.dependencies.prepare_messages_fn, prepare_messages_fn)
+        self.assertIs(lifecycle_call.dependencies.run_agent_loop_fn, run_agent_loop_fn)
+        self.assertIs(lifecycle_call.dependencies.finalize_completed_run_fn, finalize_completed_run_fn)
+        self.assertIs(lifecycle_call.dependencies.finalize_superseded_run_fn, finalize_superseded_run_fn)
+        self.assertIs(lifecycle_call.dependencies.finalize_cancelled_run_fn, finalize_cancelled_run_fn)
+        self.assertIs(lifecycle_call.dependencies.finalize_failed_run_fn, finalize_failed_run_fn)
+        self.assertIs(lifecycle_call.dependencies.write_fallback_run_error_fn, write_fallback_run_error_fn)
+        self.assertIs(lifecycle_call.dependencies.complete_agent_run_fn, complete_agent_run_fn)
+        self.assertIs(lifecycle_call.dependencies.interrupt_agent_run_fn, interrupt_agent_run_fn)
+        self.assertIs(lifecycle_call.dependencies.fail_agent_run_fn, fail_agent_run_fn)
+        self.assertIs(lifecycle_call.dependencies.finalize_stream_fn, finalize_stream_fn)
+        self.assertIs(lifecycle_call.dependencies.write_fallback_error_status_fn, write_fallback_error_status_fn)
+        self.assertIs(lifecycle_call.dependencies.info_fn, info_fn)
+        self.assertIs(lifecycle_call.dependencies.error_fn, error_fn)
+        self.assertIs(lifecycle_call.dependencies.warning_fn, warning_fn)
+
+        captured.clear()
+        build_agent_loop_lifecycle_call(
+            run_input=replace(
+                run_input,
+                previous_run_id="run-previous",
+                run_attempt_kind="continue",
+            ),
+            db="db-wiring",
+            limits=limits,
+            dependencies=dependencies,
+        )
+        self.assertEqual(
+            captured["previous_skill_release"],
+            ("db-wiring", "conv-wiring", "user-wiring", "run-previous"),
+        )
+        self.assertEqual(captured["call_config_kwargs"]["skill_release_pins"], continuation_pins)
+
+        alias_message = "请使用 mcp_docs_alias 查询 Microsoft Learn"
+        from app.services.stream.agent_loop_request_prep import build_agent_loop_call_config
+
+        for options, capabilities, expected_reason in (
+            (
+                {"disable_tools": True},
+                {"functionCalling": True, "agentTools": True},
+                "tools_disabled",
+            ),
+            (
+                {},
+                {"functionCalling": False, "agentTools": False},
+                "function_calling_unavailable",
+            ),
+            (
+                {},
+                {"functionCalling": True, "searchCapable": True, "agentTools": False},
+                "required_tools_unavailable",
+            ),
+        ):
+            with self.subTest(options=options, capabilities=capabilities, expected_reason=expected_reason):
+                captured.clear()
+                build_agent_loop_lifecycle_call(
+                    run_input=replace(
+                        run_input,
+                        raw_messages=[{"role": "user", "content": alias_message}],
+                        original_message=alias_message,
+                        options=options,
+                        capabilities=capabilities,
+                    ),
+                    db="db-wiring",
+                    limits=limits,
+                    dependencies=dependencies,
+                )
+
+                self.assertNotIn("dynamic_tools_db", captured)
+                self.assertEqual(captured["authorized_tool_names_db"], "db-wiring")
+                self.assertEqual(captured["call_config_kwargs"]["additional_tools"], [])
+                self.assertEqual(captured["call_config_kwargs"]["dynamic_tool_handlers"], {})
+                self.assertEqual(captured["call_config_kwargs"]["tool_bindings"], [])
+                self.assertEqual(
+                    captured["call_config_kwargs"]["authorized_tool_names"],
+                    ["mcp_docs_alias"],
+                )
+                real_call_config = build_agent_loop_call_config(**captured["call_config_kwargs"])
+                self.assertEqual(real_call_config.capability_resolution.package_id, "tools_unavailable")
+                self.assertEqual(
+                    real_call_config.capability_resolution.reason_codes,
+                    (expected_reason,),
+                )
+                self.assertTrue(real_call_config.capability_resolution.network_boundary_required)
+                self.assertEqual(real_call_config.announced_tools, [])
+
+        captured.clear()
+        strict_call = build_agent_loop_lifecycle_call(
+            run_input=replace(
+                run_input,
+                options={"knowledge_grounded": True},
+                capabilities={"functionCalling": True, "agentTools": True},
+                knowledge_base_ids=["kb-1"],
+            ),
+            db="db-wiring",
+            limits=limits,
+            dependencies=dependencies,
+        )
+        self.assertNotIn("dynamic_tools_db", captured)
+        self.assertNotIn("authorized_tool_names_db", captured)
+        self.assertEqual(captured["call_config_kwargs"]["additional_tools"], [])
+        self.assertEqual(strict_call.request.knowledge_base_ids, ["kb-1"])
+
+    def test_run_input_and_dependencies_expose_builder_helpers(self):
+        call_config = SimpleNamespace(
+            should_use_reasoning=False,
+            call_kwargs={},
+            announced_tools=[],
+        )
+        limits = AgentLoopLimits(max_steps=1, max_tool_calls=2, total_timeout_s=30)
+        run_input = AgentLoopRunInput(
+            conversation_id="conv-helper",
+            user_id="user-helper",
+            model_id="gpt-4",
+            litellm_model="openai/gpt-4",
+            litellm_kwargs={},
+            provider="openai",
+            raw_messages=[{"role": "user", "content": "hi"}],
+            has_vision=True,
+            file_ids=None,
+            original_message="hi",
+            assistant_message_id="msg-helper",
+            task_id="task-helper",
+            options={},
+            capabilities={},
+            trace_id=None,
+            initial_content_blocks=["旧块"],
+            extra_system_prompts=["继续执行"],
+            preprocess_user_input=False,
+        )
+        redis_writer = object()
+
+        dependencies = AgentLoopWiringDependencies(
+            build_call_config_fn=lambda **_kwargs: call_config,
+            build_execution_fn=lambda **_kwargs: object(),
+            session_cache="session-cache",
+            redis_writer_factory=lambda: redis_writer,
+            start_step_fn=_unused_async,
+            complete_step_fn=_unused_async,
+            run_round_fn=_unused_async,
+            handle_tool_calls_round_fn=_unused_async,
+            run_limit_summary_step_fn=_unused_async,
+            llm_call_fn=_unused_async,
+            stream_round_fn=_unused_async,
+            execute_tools_fn=_unused_async,
+            persist_message_fn=_unused_sync,
+            log_round_summary_fn=lambda **_kwargs: None,
+            clock=lambda: 100.0,
+            append_chunk_fn=_unused_async,
+            start_agent_run_fn=_unused_async,
+            prepare_messages_fn=_unused_async,
+            run_agent_loop_fn=_unused_async,
+            finalize_completed_run_fn=_unused_async,
+            finalize_superseded_run_fn=_unused_async,
+            finalize_cancelled_run_fn=_unused_async,
+            finalize_failed_run_fn=_unused_async,
+            write_fallback_run_error_fn=_unused_async,
+            complete_agent_run_fn=_unused_async,
+            interrupt_agent_run_fn=_unused_async,
+            fail_agent_run_fn=_unused_async,
+            finalize_stream_fn=_unused_async,
+            write_fallback_error_status_fn=_unused_async,
+            info_fn=lambda _message: None,
+            error_fn=lambda _message: None,
+            warning_fn=lambda _message: None,
+        )
+
+        execution_request = run_input.to_execution_request(db="db-helper", call_config=call_config)
+        lifecycle_request = run_input.to_lifecycle_request(call_config=call_config, limits=limits)
+        execution_dependencies = dependencies.to_execution_dependencies()
+        lifecycle_dependencies = dependencies.to_lifecycle_dependencies()
+
+        self.assertEqual(execution_request.db, "db-helper")
+        self.assertEqual(execution_request.conversation_id, "conv-helper")
+        self.assertIs(execution_request.call_config, call_config)
+        self.assertEqual(lifecycle_request.raw_messages, [{"role": "user", "content": "hi"}])
+        self.assertTrue(lifecycle_request.has_vision)
+        self.assertIs(lifecycle_request.call_config, call_config)
+        self.assertEqual(lifecycle_request.limits, limits)
+        self.assertEqual(lifecycle_request.initial_content_blocks, ["旧块"])
+        self.assertEqual(lifecycle_request.extra_system_prompts, ["继续执行"])
+        self.assertFalse(lifecycle_request.preprocess_user_input)
+        self.assertIs(execution_dependencies.redis_writer, redis_writer)
+        self.assertIs(execution_dependencies.session_cache, dependencies.session_cache)
+        self.assertIs(lifecycle_dependencies.run_agent_loop_fn, dependencies.run_agent_loop_fn)
+        self.assertIs(lifecycle_dependencies.finalize_stream_fn, dependencies.finalize_stream_fn)
+
+
+if __name__ == "__main__":
+    unittest.main()
