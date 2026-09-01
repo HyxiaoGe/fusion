@@ -131,7 +131,11 @@ class DeployScriptContractTests(unittest.TestCase):
                 completed = subprocess.run(
                     [str(ROOT / row["script"])],
                     cwd=ROOT,
-                    env={**os.environ, "OPS_DEPLOY_DRY_RUN": "true"},
+                    env={
+                        **os.environ,
+                        "GITHUB_ACTIONS": "false",
+                        "OPS_DEPLOY_DRY_RUN": "true",
+                    },
                     text=True,
                     capture_output=True,
                     check=False,
