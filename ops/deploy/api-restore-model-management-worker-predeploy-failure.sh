@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e
+set -eo pipefail
 
 if [ "${OPS_DEPLOY_DRY_RUN:-false}" = "true" ]; then
   if [ "${GITHUB_ACTIONS:-false}" = "true" ]; then

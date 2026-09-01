@@ -113,7 +113,7 @@ class DeployScriptContractTests(unittest.TestCase):
                 self.assertTrue(script.is_file())
                 self.assertTrue(os.access(script, os.X_OK))
                 content = script.read_text(encoding="utf-8")
-                self.assertTrue(content.startswith("#!/usr/bin/env bash\nset -e\n"))
+                self.assertTrue(content.startswith("#!/usr/bin/env bash\nset -eo pipefail\n"))
                 self.assertIn(BODY_MARKER, content)
                 digest = hashlib.sha256(deploy_script_body(ROOT, row["script"]).encode()).hexdigest()
                 self.assertEqual(digest, row["body_sha256"])
@@ -156,6 +156,41 @@ class DeployScriptContractTests(unittest.TestCase):
                 )
                 self.assertNotEqual(completed.returncode, 0)
                 self.assertIn("GitHub Actions 不允许部署脚本 dry-run", completed.stderr)
+
+    def test_health_check_rejects_matching_body_when_curl_transfer_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture_bin = Path(directory)
+            fixtures = {
+                "curl": "#!/usr/bin/env bash\nprintf '{\"status\":\"healthy\"}\\n'\nexit 18\n",
+                "sleep": "#!/usr/bin/env bash\nexit 0\n",
+                "docker": (
+                    "#!/usr/bin/env bash\n"
+                    "if [ \"${1:-}\" = \"inspect\" ]; then\n"
+                    "  printf '/app/storage/files\\n/var/lib/fusion/litellm-governance\\n'\n"
+                    "fi\n"
+                    "exit 0\n"
+                ),
+            }
+            for name, content in fixtures.items():
+                fixture = fixture_bin / name
+                fixture.write_text(content, encoding="utf-8")
+                fixture.chmod(0o755)
+
+            completed = subprocess.run(
+                [str(ROOT / "ops/deploy/api-verify-health.sh")],
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "PATH": f"{fixture_bin}{os.pathsep}{os.environ['PATH']}",
+                    "KNOWLEDGE_WORKER_SUPPORTED": "false",
+                    "ROLLBACK_REQUESTED": "false",
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+        self.assertNotEqual(completed.returncode, 0)
 
     def test_valid_targets_follow_the_normal_path(self) -> None:
         valid_sha = "a" * 40
