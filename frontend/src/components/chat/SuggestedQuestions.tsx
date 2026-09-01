@@ -1,0 +1,147 @@
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+import { HelpCircle, MessageSquare, RefreshCw } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { useAppSelector } from '@/redux/hooks';
+import { useToast } from '@/components/ui/toast';
+
+interface SuggestedQuestionsProps {
+  questions: string[];
+  isLoading: boolean;
+  onSelectQuestion: (question: string) => void;
+  onRefresh?: () => void; // 添加刷新回调函数
+  className?: string;
+}
+
+const SuggestedQuestions: React.FC<SuggestedQuestionsProps> = ({ 
+  questions, 
+  isLoading,
+  onSelectQuestion,
+  onRefresh,
+  className
+}) => {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [pendingQuestion, setPendingQuestion] = useState<string | null>(null);
+  const { isAuthenticated } = useAppSelector((state) => state.auth);
+  const { toast } = useToast();
+  const isBusy = isLoading || isRefreshing || pendingQuestion !== null;
+
+  useEffect(() => {
+    if (!isLoading) {
+      setIsRefreshing(false);
+    }
+  }, [isLoading]);
+
+  useEffect(() => {
+    if (!questions.length) {
+      setPendingQuestion(null);
+    }
+  }, [questions]);
+
+  if (questions.length === 0 && !isLoading) return null;
+
+  // 处理问题选择的函数，添加登录检查
+  const handleQuestionSelect = (question: string) => {
+    if (isBusy) {
+      return;
+    }
+
+    // 检查登录状态
+    if (!isAuthenticated) {
+      toast({
+        message: "请先登录后再使用聊天功能",
+        type: "warning",
+        duration: 3000
+      });
+      if ((globalThis as any).triggerLoginDialog) {
+        (globalThis as any).triggerLoginDialog();
+      }
+      return;
+    }
+    
+    setPendingQuestion(question);
+    onSelectQuestion(question);
+  };
+  
+  // 处理刷新按钮点击
+  const handleRefresh = () => {
+    if (onRefresh && !isBusy) {
+      setPendingQuestion(null);
+      setIsRefreshing(true);
+      onRefresh();
+    }
+  };
+  
+  return (
+    <div className={cn("mt-4 w-full max-w-full border-t border-border/40 pt-3", className)}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+          <HelpCircle className="w-3 h-3 text-info" />
+          你可能想问：
+        </span>
+        
+        {/* 换一批按钮 */}
+        {onRefresh && questions.length > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 transition-colors duration-fast disabled:opacity-60"
+            onClick={handleRefresh}
+            disabled={isBusy}
+            aria-busy={isRefreshing || isLoading}
+          >
+            <RefreshCw 
+              className={cn(
+                "h-3 w-3 transition-transform duration-500", 
+                isRefreshing && "animate-spin"
+              )} 
+            />
+            <span>{isRefreshing ? '更新中' : '换一批'}</span>
+          </Button>
+        )}
+      </div>
+      
+      <div className="flex flex-col space-y-2">
+        {/* 显示推荐问题列表（loading 时隐藏，避免与 loading 动画重叠） */}
+        {!isLoading && questions.map((question, index) => (
+          <Button
+            key={index}
+            variant="outline"
+            size="sm"
+            className={cn(
+              "flex items-center gap-2 w-full text-left rounded-md border border-border/50 bg-transparent px-2.5 py-1.5 text-sm text-foreground transition-colors duration-fast hover:bg-muted/30 hover:border-border",
+              "h-auto justify-start font-normal disabled:opacity-75",
+              pendingQuestion === question && "border-info-border bg-info-bg text-info"
+            )}
+            onClick={() => handleQuestionSelect(question)}
+            onMouseEnter={() => setHoveredIndex(index)}
+            onMouseLeave={() => setHoveredIndex(null)}
+            disabled={isBusy}
+            aria-busy={pendingQuestion === question}
+          >
+            <MessageSquare className={cn(
+              "h-3.5 w-3.5 flex-shrink-0",
+              hoveredIndex === index || pendingQuestion === question ? "text-foreground" : "text-muted-foreground"
+            )} />
+            <span>{pendingQuestion === question ? '发送中...' : question}</span>
+          </Button>
+        ))}
+        
+        {/* 加载状态显示 */}
+        {isLoading && (
+          <div role="status" className="text-xs text-muted-foreground flex items-center py-3">
+            <div className="flex space-x-1 mr-2">
+              <div className="h-1.5 w-1.5 bg-primary/40 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+              <div className="h-1.5 w-1.5 bg-primary/40 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+              <div className="h-1.5 w-1.5 bg-primary/40 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+            </div>
+            <span>正在生成可继续追问的问题...</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default SuggestedQuestions;

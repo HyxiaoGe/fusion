@@ -1,0 +1,871 @@
+import { renderHook } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AgentRunState } from '@/types/agentRun';
+import type { Message, SearchSourceSummary } from '@/types/conversation';
+
+const selectorState = {
+  stream: {
+    messageId: null as string | null,
+    staticBlocks: [] as Message['content'],
+    textBlocks: {} as Record<string, string>,
+    thinkingBlocks: {} as Record<string, string>,
+    blockOrder: [] as string[],
+    blockTypes: {} as Record<string, 'text' | 'thinking'>,
+    totalTextLength: 0,
+    displayedTextLength: 0,
+    isStreamingReasoning: false,
+    isThinkingPhaseComplete: false,
+    reasoningStartTime: null as number | null,
+    reasoningEndTime: undefined as number | undefined,
+    currentRun: null as AgentRunState | null,
+    searchSources: [] as SearchSourceSummary[],
+  },
+};
+
+vi.mock('@/redux/hooks', () => ({
+  useAppSelector: (selector: (state: typeof selectorState) => unknown) => selector(selectorState),
+}));
+
+import {
+  deriveStaticAssistantMessageViewModel,
+  useAssistantMessageViewModel,
+} from './useAssistantMessageViewModel';
+
+function resetSelectorState() {
+  Object.assign(selectorState.stream, {
+    messageId: null,
+    staticBlocks: [],
+    textBlocks: {},
+    thinkingBlocks: {},
+    blockOrder: [],
+    blockTypes: {},
+    totalTextLength: 0,
+    displayedTextLength: 0,
+    isStreamingReasoning: false,
+    isThinkingPhaseComplete: false,
+    reasoningStartTime: null,
+    reasoningEndTime: undefined,
+    currentRun: null,
+    searchSources: [],
+  });
+}
+
+function renderViewModel(message: Message, overrides: Partial<Parameters<typeof useAssistantMessageViewModel>[0]> = {}) {
+  return renderHook(() => useAssistantMessageViewModel({
+    message,
+    isStreaming: false,
+    isLastMessage: false,
+    isLoadingQuestions: false,
+    suggestedQuestionsCount: 0,
+    ...overrides,
+  }));
+}
+
+describe('useAssistantMessageViewModel', () => {
+  beforeEach(() => {
+    resetSelectorState();
+  });
+
+  it('从历史 assistant 消息内容派生正文、搜索来源和回答依据', () => {
+    const source = {
+      title: 'AI 标准来源',
+      url: 'https://example.com/ai-standard',
+    };
+    const message: Message = {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: [
+        { type: 'search', id: 'search-1', query: 'AI 标准', sources: [source] },
+        { type: 'text', id: 'text-1', text: '历史正文。[1]' },
+      ],
+      timestamp: 1,
+    };
+
+    const { result } = renderViewModel(message);
+
+    expect(result.current.blocksToRender).toBe(message.content);
+    expect(result.current.displayText).toBe('历史正文。[1]');
+    expect(result.current.searchSources).toEqual([source]);
+    expect(result.current.answerEvidence?.summary).toBe('回答依据 · 搜索候选 1 条');
+    expect(result.current.answerEvidence?.items[0]).toEqual(
+      expect.objectContaining({
+        kind: 'search_source',
+        title: 'AI 标准来源',
+        url: 'https://example.com/ai-standard',
+      }),
+    );
+  });
+
+  it('静态消息与流式 staticBlocks 都派生结构化工具结果', () => {
+    const placeResult = {
+      type: 'place_results' as const,
+      id: 'places-1',
+      schema_version: 1 as const,
+      provider: 'amap',
+      status: 'success' as const,
+      result_count: 1,
+      places: [{ provider_place_id: 'p1', name: '民治烤肉店' }],
+      limitations: [],
+    };
+    const message: Message = {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: [placeResult, { type: 'text', id: 'text-1', text: '静态回答' }],
+    };
+
+    const staticModel = deriveStaticAssistantMessageViewModel({
+      message,
+      isLoadingQuestions: false,
+      suggestedQuestionsCount: 0,
+    });
+    expect(staticModel.structuredResults).toEqual([placeResult]);
+
+    selectorState.stream.messageId = 'assistant-1';
+    selectorState.stream.staticBlocks = [placeResult];
+    const { result } = renderViewModel(message, { isStreaming: true, isLastMessage: true });
+    expect(result.current.structuredResults).toEqual([placeResult]);
+  });
+
+  it('静态消息与流式 staticBlocks 都派生天气预报结果', () => {
+    const weatherResult = {
+      type: 'weather_results',
+      id: 'weather-1',
+      schema_version: 1,
+      provider: 'amap',
+      status: 'degraded',
+      query: '南景新村',
+      resolved_location: '龙华区',
+      day_count: 1,
+      forecast_days: [{
+        date: '2026-07-23',
+        weekday: 4,
+        day_weather: '雷阵雨',
+        night_weather: '雷阵雨',
+        high_c: 32,
+        low_c: 27,
+      }],
+      fetched_at: '2026-07-23T12:00:00+08:00',
+      limitations: ['当前仅取得一天有效预报'],
+    } as unknown as Message['content'][number];
+    const message: Message = {
+      id: 'assistant-weather',
+      role: 'assistant',
+      content: [weatherResult, { type: 'text', id: 'text-1', text: '未来有雷阵雨。' }],
+    };
+
+    const staticModel = deriveStaticAssistantMessageViewModel({
+      message,
+      isLoadingQuestions: false,
+      suggestedQuestionsCount: 0,
+    });
+    expect(staticModel.structuredResults).toEqual([weatherResult]);
+
+    selectorState.stream.messageId = message.id;
+    selectorState.stream.staticBlocks = [weatherResult];
+    const { result } = renderViewModel(message, { isStreaming: true, isLastMessage: true });
+    expect(result.current.structuredResults).toEqual([weatherResult]);
+  });
+
+  it('实时与刷新后的静态消息使用同一规则合并并去重高铁结果', () => {
+    const firstTrainResult = {
+      type: 'train_results' as const,
+      id: 'trains-morning',
+      schema_version: 1 as const,
+      provider: 'flyai',
+      status: 'success' as const,
+      origin: '深圳北',
+      destination: '广州南',
+      departure_date: '2026-08-01',
+      observed_at: '2026-07-22T15:00:00+08:00',
+      result_count: 1,
+      trains: [{
+        option_id: 'opt-g2902-a',
+        train_no: 'G2902',
+        departure: { city: '深圳', station_name: '深圳北站', scheduled_at: '2026-08-01T09:00:00+08:00' },
+        arrival: { city: '广州', station_name: '广州南站', scheduled_at: '2026-08-01T09:35:00+08:00' },
+        duration_s: 2_100,
+        stops: 0 as const,
+        actions: [],
+      }],
+      limitations: [],
+    };
+    const secondTrainResult = {
+      ...firstTrainResult,
+      id: 'trains-later',
+      result_count: 2,
+      trains: [
+        {
+          ...firstTrainResult.trains[0],
+          option_id: 'opt-g2902-b',
+          departure: { city: '深圳', station_name: '深圳北站', scheduled_at: '2026-08-01T01:00:00Z' },
+          arrival: { city: '广州', station_name: '广州南站', scheduled_at: '2026-08-01T01:35:00Z' },
+        },
+        {
+          ...firstTrainResult.trains[0],
+          option_id: 'opt-g6012',
+          train_no: 'G6012',
+          departure: { city: '深圳', station_name: '深圳北站', scheduled_at: '2026-08-01T10:00:00+08:00' },
+          arrival: { city: '广州', station_name: '广州南站', scheduled_at: '2026-08-01T10:40:00+08:00' },
+        },
+      ],
+    };
+    const message: Message = {
+      id: 'assistant-trains',
+      role: 'assistant',
+      content: [firstTrainResult, secondTrainResult, { type: 'text', id: 'text-1', text: '推荐 G2902。' }],
+    };
+
+    const staticModel = deriveStaticAssistantMessageViewModel({
+      message,
+      isLoadingQuestions: false,
+      suggestedQuestionsCount: 0,
+    });
+    selectorState.stream.messageId = message.id;
+    selectorState.stream.staticBlocks = message.content;
+    const { result } = renderViewModel(message, { isStreaming: true, isLastMessage: true });
+
+    expect(staticModel.structuredResults).toEqual(result.current.structuredResults);
+    expect(staticModel.structuredResults).toEqual([
+      expect.objectContaining({
+        id: 'trains-morning',
+        result_count: 2,
+        trains: [
+          expect.objectContaining({ train_no: 'G2902', option_id: 'opt-g2902-a' }),
+          expect.objectContaining({ train_no: 'G6012' }),
+        ],
+      }),
+    ]);
+  });
+
+  it('从 SearchBlock 的最终 provider 派生回答依据提供方文案', () => {
+    const message: Message = {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: [
+        {
+          type: 'search',
+          id: 'search-1',
+          query: '中国结婚人数',
+          sources: [{ title: '搜索来源', url: 'https://example.com/search' }],
+          requested_provider: 'firecrawl',
+          result_provider: 'brave',
+          fallback_used: true,
+          provider_chain: ['firecrawl', 'brave'],
+        },
+        { type: 'text', id: 'text-1', text: '历史正文。[1]' },
+      ],
+      timestamp: 1,
+    };
+
+    const { result } = renderViewModel(message);
+
+    expect(result.current.answerEvidence?.summary).toBe('回答依据 · 搜索候选 1 条 · 本次搜索由 Brave 提供');
+  });
+
+  it('历史 assistant 消息优先用统一 source_refs 派生回答依据', () => {
+    const legacySource = {
+      title: '旧搜索来源',
+      url: 'https://legacy.example.com/search',
+    };
+    const message: Message = {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: [
+        {
+          type: 'search',
+          id: 'search-1',
+          query: 'AI 标准',
+          sources: [legacySource],
+          source_refs: [
+            {
+              kind: 'search',
+              title: '统一搜索来源',
+              url: 'https://unified.example.com/search',
+            },
+            {
+              kind: 'url_read',
+              title: '统一读取来源',
+              url: 'https://reader.example.com/article',
+            },
+          ],
+        },
+        {
+          type: 'url_read',
+          id: 'url-1',
+          url: 'https://legacy.example.com/read',
+          title: '旧读取来源',
+        },
+        { type: 'text', id: 'text-1', text: '历史正文。[1]' },
+      ],
+      timestamp: 1,
+    };
+
+    const { result } = renderViewModel(message);
+
+    expect(result.current.answerEvidence?.summary).toBe('回答依据 · 搜索候选 1 条 · 深读 1 个网页');
+    expect(result.current.answerEvidence?.items).toEqual([
+      expect.objectContaining({
+        kind: 'search_source',
+        title: '统一搜索来源',
+        url: 'https://unified.example.com/search',
+      }),
+      expect.objectContaining({
+        kind: 'url_read',
+        title: '统一读取来源',
+        url: 'https://reader.example.com/article',
+      }),
+    ]);
+  });
+
+  it('当前 run 有 evidence 时优先使用 ledger 的 used/candidate 状态', () => {
+    const message: Message = {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: [
+        {
+          type: 'search',
+          id: 'search-1',
+          query: 'OpenAI 最新公告',
+          sources: [{ title: '旧候选来源', url: 'https://legacy.example.com/search' }],
+        },
+        { type: 'text', id: 'text-1', text: '历史正文。[1]' },
+      ],
+      timestamp: 1,
+    };
+
+    const currentRun: AgentRunState = {
+      runId: 'run-1',
+      messageId: 'assistant-1',
+      status: 'completed',
+      config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300 },
+      totalSteps: 1,
+      totalToolCalls: 1,
+      steps: [],
+      evidence: [
+        {
+          id: 'ev-used',
+          kind: 'web',
+          status: 'used',
+          title: 'Ledger 已使用来源',
+          url: 'https://openai.com/news/product',
+          domain: 'openai.com',
+          claim: '最终回答引用了该来源。',
+          usedByFinalAnswer: true,
+        },
+        {
+          id: 'ev-candidate',
+          kind: 'web',
+          status: 'candidate',
+          title: 'Ledger 候选来源',
+          url: 'https://example.com/candidate',
+          domain: 'example.com',
+          claim: '搜索候选。',
+          usedByFinalAnswer: false,
+        },
+      ],
+      lastSequence: 10,
+    };
+
+    const { result } = renderViewModel(message, { currentRun });
+
+    expect(result.current.answerEvidence?.summary).toBe('回答依据 · 已使用 1 条 · 候选 1 条');
+    expect(result.current.answerEvidence?.items.map(item => item.title)).toEqual(['Ledger 已使用来源']);
+    expect(result.current.answerEvidence?.usedItems?.map(item => item.title)).toEqual(['Ledger 已使用来源']);
+    expect(result.current.answerEvidence?.candidateItems?.map(item => item.title)).toEqual(['Ledger 候选来源']);
+  });
+
+  it('聚合历史 assistant 消息里的多次搜索来源', () => {
+    const message: Message = {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: [
+        {
+          type: 'search',
+          id: 'search-1',
+          query: '第一轮搜索',
+          sources: [
+            { title: '第一轮来源', url: 'https://first.example.com/a' },
+          ],
+        },
+        {
+          type: 'search',
+          id: 'search-2',
+          query: '第二轮搜索',
+          sources: [
+            { title: '第二轮来源', url: 'https://second.example.com/b' },
+          ],
+        },
+        { type: 'text', id: 'text-1', text: '聚合后回答。[1][2]' },
+      ],
+      timestamp: 1,
+    };
+
+    const { result } = renderViewModel(message);
+
+    expect(result.current.searchSources).toEqual([
+      { title: '第一轮来源', url: 'https://first.example.com/a' },
+      { title: '第二轮来源', url: 'https://second.example.com/b' },
+    ]);
+    expect(result.current.answerEvidence?.summary).toBe('回答依据 · 搜索候选 2 条');
+    expect(result.current.answerEvidence?.items.map(item => item.title)).toEqual([
+      '第一轮来源',
+      '第二轮来源',
+    ]);
+  });
+
+  it('聚合多个 search block 的 source_refs 作为统一回答依据', () => {
+    const message: Message = {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: [
+        {
+          type: 'search',
+          id: 'search-1',
+          query: '第一轮搜索',
+          sources: [{ title: '旧来源 1', url: 'https://legacy.example.com/one' }],
+          source_refs: [
+            {
+              kind: 'search',
+              title: '统一来源 1',
+              url: 'https://ref-one.example.com',
+            },
+          ],
+        },
+        {
+          type: 'search',
+          id: 'search-2',
+          query: '第二轮搜索',
+          sources: [{ title: '旧来源 2', url: 'https://legacy.example.com/two' }],
+          source_refs: [
+            {
+              kind: 'search',
+              title: '统一来源 2',
+              url: 'https://ref-two.example.com',
+            },
+          ],
+        },
+        { type: 'text', id: 'text-1', text: '聚合后回答。[1][2]' },
+      ],
+      timestamp: 1,
+    };
+
+    const { result } = renderViewModel(message);
+
+    expect(result.current.searchSources).toEqual([
+      { title: '统一来源 1', url: 'https://ref-one.example.com', favicon: undefined },
+      { title: '统一来源 2', url: 'https://ref-two.example.com', favicon: undefined },
+    ]);
+    expect(result.current.searchQueries).toEqual([
+      '第一轮搜索',
+      '第二轮搜索',
+    ]);
+    expect(result.current.answerEvidence?.items.map(item => item.title)).toEqual([
+      '统一来源 1',
+      '统一来源 2',
+    ]);
+  });
+
+  it('多次搜索与读取乱序重复时按稳定引用索引恢复正文映射', () => {
+    const result = deriveStaticAssistantMessageViewModel({
+      message: {
+        id: 'assistant-stable-citations',
+        role: 'assistant',
+        content: [
+          {
+            type: 'search',
+            id: 'search-2',
+            query: '第二轮',
+            sources: [],
+            source_refs: [{
+              kind: 'search',
+              title: '第二来源',
+              url: 'https://example.com/two',
+              evidence_id: 'ev-two',
+              citation_index: 2,
+            }],
+          },
+          {
+            type: 'url_read',
+            id: 'read-1',
+            url: 'https://example.com/one',
+            source_refs: [{
+              kind: 'url_read',
+              title: '第一来源深读',
+              url: 'https://example.com/one',
+              evidence_id: 'ev-one',
+              citation_index: 1,
+            }],
+          },
+          {
+            type: 'search',
+            id: 'search-1',
+            query: '第一轮',
+            sources: [],
+            source_refs: [{
+              kind: 'search',
+              title: '第一来源',
+              url: 'https://example.com/one',
+              evidence_id: 'ev-one',
+              citation_index: 1,
+            }],
+          },
+          { type: 'text', id: 'text-1', text: '第一条 [1]，第二条 [2]。' },
+        ],
+      },
+      isLoadingQuestions: false,
+      suggestedQuestionsCount: 0,
+    });
+
+    expect(result.answerEvidence?.items).toEqual([
+      expect.objectContaining({
+        evidenceId: 'ev-one',
+        citationIndex: 1,
+        sourceIndex: 0,
+        deepRead: true,
+      }),
+      expect.objectContaining({
+        evidenceId: 'ev-two',
+        citationIndex: 2,
+        sourceIndex: 1,
+      }),
+    ]);
+    expect(result.searchSources).toEqual([
+      expect.objectContaining({
+        title: '第一来源',
+        evidence_id: 'ev-one',
+        citation_index: 1,
+      }),
+      expect.objectContaining({
+        title: '第二来源',
+        evidence_id: 'ev-two',
+        citation_index: 2,
+      }),
+    ]);
+  });
+
+  it('静态历史消息派生不订阅 stream 状态', () => {
+    const message: Message = {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: [{ type: 'text', id: 'text-1', text: '历史正文' }],
+      timestamp: 1,
+    };
+
+    const result = deriveStaticAssistantMessageViewModel({
+      message,
+      isLoadingQuestions: false,
+      suggestedQuestionsCount: 0,
+    });
+
+    expect(result.blocksToRender).toBe(message.content);
+    expect(result.displayText).toBe('历史正文');
+    expect(result.isCurrentlyStreaming).toBe(false);
+  });
+
+  it('静态历史消息同样优先用统一 source_refs 派生回答依据', () => {
+    const result = deriveStaticAssistantMessageViewModel({
+      message: {
+        id: 'assistant-1',
+        role: 'assistant',
+        content: [
+          {
+            type: 'search',
+            id: 'search-1',
+            query: 'AI 标准',
+            sources: [{ title: '旧搜索来源', url: 'https://legacy.example.com/search' }],
+            source_refs: [
+              {
+                kind: 'search',
+                title: '统一搜索来源',
+                url: 'https://unified.example.com/search',
+              },
+            ],
+          },
+          { type: 'text', id: 'text-1', text: '历史正文。[1]' },
+        ],
+        timestamp: 1,
+      },
+      isLoadingQuestions: false,
+      suggestedQuestionsCount: 0,
+    });
+
+    expect(result.answerEvidence?.summary).toBe('回答依据 · 搜索候选 1 条');
+    expect(result.searchQueries).toEqual(['AI 标准']);
+    expect(result.answerEvidence?.items[0]).toEqual(
+      expect.objectContaining({
+        kind: 'search_source',
+        title: '统一搜索来源',
+        url: 'https://unified.example.com/search',
+      }),
+    );
+  });
+
+  it('流式最后一条消息从 stream blocks 派生正文', () => {
+    selectorState.stream.messageId = 'assistant-1';
+    selectorState.stream.textBlocks = { 'stream-text-1': '流式正文' };
+    selectorState.stream.blockOrder = ['stream-text-1'];
+    selectorState.stream.blockTypes = { 'stream-text-1': 'text' };
+    selectorState.stream.totalTextLength = 4;
+    selectorState.stream.displayedTextLength = 4;
+
+    const { result } = renderViewModel(
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        content: [{ type: 'text', id: 'persisted-text-1', text: '历史正文' }],
+        timestamp: 1,
+      },
+      { isStreaming: true, isLastMessage: true },
+    );
+
+    expect(result.current.isCurrentlyStreaming).toBe(true);
+    expect(result.current.blocksToRender).toEqual([
+      { type: 'text', id: 'stream-text-1', text: '流式正文' },
+    ]);
+    expect(result.current.displayText).toBe('流式正文');
+  });
+
+  it('流式归属消息不是最后一条时也从 stream blocks 派生正文', () => {
+    selectorState.stream.messageId = 'assistant-1';
+    selectorState.stream.textBlocks = { 'stream-text-1': '继续后的正文' };
+    selectorState.stream.blockOrder = ['stream-text-1'];
+    selectorState.stream.blockTypes = { 'stream-text-1': 'text' };
+    selectorState.stream.totalTextLength = 6;
+    selectorState.stream.displayedTextLength = 6;
+
+    const { result } = renderViewModel(
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        content: [{ type: 'text', id: 'persisted-text-1', text: '历史正文' }],
+        timestamp: 1,
+      },
+      { isStreaming: true, isLastMessage: false },
+    );
+
+    expect(result.current.isCurrentlyStreaming).toBe(true);
+    expect(result.current.blocksToRender).toEqual([
+      { type: 'text', id: 'stream-text-1', text: '继续后的正文' },
+    ]);
+    expect(result.current.displayText).toBe('继续后的正文');
+  });
+
+  it('currentRun 不归属当前消息时不会污染 activity 状态', () => {
+    selectorState.stream.currentRun = {
+      runId: 'run-other',
+      messageId: 'assistant-other',
+      status: 'failed',
+      config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300 },
+      totalSteps: 0,
+      totalToolCalls: 0,
+      lastSequence: 1,
+      steps: [],
+      failure: { code: 'provider_error', message: 'failed' },
+    };
+
+    const { result } = renderViewModel({
+      id: 'assistant-1',
+      role: 'assistant',
+      content: [{ type: 'text', id: 'text-1', text: '当前消息正常回答。' }],
+      timestamp: 1,
+    });
+
+    expect(result.current.activity.kind).toBe('completed');
+    expect(result.current.activity.issue).toBeNull();
+  });
+
+  it('thinking 文本提到搜索但没有真实工具调用时不产生来源或回答依据', () => {
+    selectorState.stream.messageId = 'assistant-1';
+    selectorState.stream.thinkingBlocks = { 'thinking-1': '我需要搜索一下，但这里没有真实工具调用。' };
+    selectorState.stream.blockOrder = ['thinking-1'];
+    selectorState.stream.blockTypes = { 'thinking-1': 'thinking' };
+    selectorState.stream.isStreamingReasoning = true;
+    selectorState.stream.reasoningStartTime = 123;
+
+    const { result } = renderViewModel(
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        content: [],
+        timestamp: 1,
+      },
+      { isStreaming: true, isLastMessage: true },
+    );
+
+    expect(result.current.activity.kind).toBe('reasoning');
+    expect(result.current.displayThinking).toBe('我需要搜索一下，但这里没有真实工具调用。');
+    expect(result.current.hasThinking).toBe(true);
+    expect(result.current.searchSources).toEqual([]);
+    expect(result.current.answerEvidence).toBeNull();
+  });
+
+  it.each([
+    {
+      label: 'K3',
+      modelId: 'kimi-k3',
+      providerId: 'moonshot',
+      expectedSuppression: true,
+      expectedThinking: false,
+    },
+    {
+      label: '其他模型',
+      modelId: 'qwen-max',
+      providerId: 'qwen',
+      expectedSuppression: true,
+      expectedThinking: false,
+    },
+  ])('$label 在工具运行后隐藏已收到的流式思考', ({
+    modelId,
+    providerId,
+    expectedSuppression,
+    expectedThinking,
+  }) => {
+    selectorState.stream.messageId = 'assistant-1';
+    selectorState.stream.thinkingBlocks = { 'thinking-1': '先核对公开资料。' };
+    selectorState.stream.blockOrder = ['thinking-1'];
+    selectorState.stream.blockTypes = { 'thinking-1': 'thinking' };
+    selectorState.stream.isStreamingReasoning = true;
+    selectorState.stream.currentRun = {
+      runId: 'run-1',
+      messageId: 'assistant-1',
+      status: 'running',
+      config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300, planMode: 'on' },
+      totalSteps: 1,
+      totalToolCalls: 0,
+      lastSequence: 1,
+      steps: [{
+        stepId: 'step-1',
+        stepNumber: 1,
+        status: 'running',
+        startedAt: 1,
+        contentBlockIds: ['thinking-1'],
+        toolCalls: [{
+          toolCallId: 'tool-1',
+          toolName: 'web_search',
+          arguments: { query: '公开资料' },
+          status: 'running',
+          startedAt: 1,
+        }],
+      }],
+    };
+
+    const { result } = renderViewModel(
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        content: [],
+        timestamp: 1,
+      },
+      {
+        isStreaming: true,
+        isLastMessage: true,
+        modelId,
+        providerId,
+      },
+    );
+
+    expect(result.current.activity.kind).toBe('tool_running');
+    expect(result.current.suppressThinking).toBe(expectedSuppression);
+    expect(result.current.hasThinking).toBe(expectedThinking);
+    expect(result.current.displayThinking).toBe('先核对公开资料。');
+  });
+
+  it('知识库运行从 run config 生效起隐藏流式思考', () => {
+    selectorState.stream.messageId = 'assistant-1';
+    selectorState.stream.thinkingBlocks = { 'thinking-1': '正在基于知识库整理回答。' };
+    selectorState.stream.blockOrder = ['thinking-1'];
+    selectorState.stream.blockTypes = { 'thinking-1': 'thinking' };
+    selectorState.stream.isStreamingReasoning = true;
+    selectorState.stream.currentRun = {
+      runId: 'run-knowledge',
+      messageId: 'assistant-1',
+      status: 'running',
+      config: {
+        maxSteps: 1,
+        maxToolCalls: 1,
+        timeoutS: 30,
+        evidencePolicy: 'knowledge_grounded_v1',
+      },
+      totalSteps: 0,
+      totalToolCalls: 0,
+      lastSequence: 1,
+      steps: [],
+    };
+
+    const { result } = renderViewModel(
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        content: [],
+        timestamp: 1,
+      },
+      { isStreaming: true, isLastMessage: true },
+    );
+
+    expect(result.current.suppressThinking).toBe(true);
+    expect(result.current.hasThinking).toBe(false);
+    expect(result.current.displayThinking).toBe('正在基于知识库整理回答。');
+  });
+
+  it('刷新后的工具回答根据持久化 totalToolCalls 继续隐藏思考', () => {
+    const model = deriveStaticAssistantMessageViewModel({
+      message: {
+        id: 'assistant-history',
+        role: 'assistant',
+        content: [
+          { type: 'thinking', id: 'thinking-1', thinking: '正在综合搜索结果。' },
+          { type: 'text', id: 'text-1', text: '历史回答。' },
+        ],
+        timestamp: 1,
+      },
+      isLoadingQuestions: false,
+      suggestedQuestionsCount: 0,
+      currentRun: {
+        runId: 'run-history',
+        messageId: 'assistant-history',
+        status: 'completed',
+        config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300 },
+        totalSteps: 1,
+        totalToolCalls: 1,
+        lastSequence: Number.MAX_SAFE_INTEGER,
+        steps: [],
+      },
+    });
+
+    expect(model.suppressThinking).toBe(true);
+    expect(model.hasThinking).toBe(false);
+    expect(model.displayThinking).toBe('正在综合搜索结果。');
+  });
+
+  it('深度研究完成但没有真实来源时不伪造回答依据', () => {
+    selectorState.stream.currentRun = {
+      runId: 'run-deep-empty',
+      messageId: 'assistant-1',
+      status: 'completed',
+      config: {
+        maxSteps: 8,
+        maxToolCalls: 20,
+        timeoutS: 300,
+        taskMode: 'deep_research',
+        networkProfile: 'deep_research',
+        evidencePolicy: 'deep_research_v1',
+      },
+      totalSteps: 1,
+      totalToolCalls: 0,
+      lastSequence: 3,
+      steps: [],
+      evidence: [],
+    };
+
+    const { result } = renderViewModel({
+      id: 'assistant-1',
+      role: 'assistant',
+      content: [{ type: 'text', id: 'text-1', text: '未找到可验证来源。' }],
+      timestamp: 1,
+    });
+
+    expect(result.current.activity.kind).toBe('completed');
+    expect(result.current.searchSources).toEqual([]);
+    expect(result.current.answerEvidence).toBeNull();
+  });
+});

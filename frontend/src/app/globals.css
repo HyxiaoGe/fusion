@@ -1,0 +1,485 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .animate-dot-pulse {
+    animation: dot-pulse 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes dot-pulse {
+  0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1); }
+}
+
+:root {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.87 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.87 0 0);
+  /* 颜色变量别名 */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --select-content-width: 280px;
+  --select-dropdown-max-height: 400px;
+
+  /* === Fusion Design System v2 — 新增 token (additive, 不影响现有) === */
+
+  /* Type scale (desktop-density) */
+  --text-2xs: 10px;
+  --text-fdv2-xs: 11px;
+  --text-fdv2-sm: 12px;
+  --text-fdv2-base: 13px;
+  --text-md: 14px;
+  --text-fdv2-lg: 16px;
+  --text-fdv2-xl: 20px;
+  --text-fdv2-2xl: 24px;
+  --text-fdv2-3xl: 32px;
+  --leading-tight: 1.2;
+  --leading-snug: 1.35;
+  --leading-normal: 1.55;
+  --leading-relaxed: 1.7;
+
+  /* Spacing scale (4px base) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Shadow ladder (restrained, no glow) */
+  /* 注意：shadow-xs 已被 shadcn UI（button/input/textarea/radio/select）用作 className，
+     Tailwind 默认未定义它所以现状是 no-op；用 -fdv2 前缀避免桥接后激活成真 shadow 引发回归 */
+  --shadow-fdv2-xs: 0 1px 0 0 oklch(0 0 0 / 0.04);
+  --shadow-fdv2-sm: 0 1px 2px 0 oklch(0 0 0 / 0.05);
+  --shadow-fdv2-md: 0 2px 8px 0 oklch(0 0 0 / 0.08);
+  --shadow-fdv2-lg: 0 8px 24px -4px oklch(0 0 0 / 0.10);
+  --shadow-popover: 0 10px 32px -6px oklch(0 0 0 / 0.18);
+
+  /* Motion */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-fdv2-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 300ms;
+
+  /* 语义色 — info (engineer blue) */
+  --info: oklch(0.55 0.18 260);
+  --info-bg: oklch(0.97 0.015 260);
+  --info-border: oklch(0.92 0.025 260);
+
+  /* 语义色 — success (green) */
+  --success: oklch(0.62 0.16 152);
+  --success-bg: oklch(0.97 0.025 152);
+  --success-border: oklch(0.9 0.04 152);
+
+  /* 语义色 — warn (amber) */
+  --warn: oklch(0.72 0.155 70);
+  --warn-bg: oklch(0.97 0.04 85);
+  --warn-border: oklch(0.91 0.06 85);
+
+  /* 语义色 — danger (red) */
+  --danger: oklch(0.577 0.245 27);
+  --danger-bg: oklch(0.96 0.03 27);
+  --danger-border: oklch(0.9 0.06 27);
+
+  /* 语义色 — teal */
+  --teal: oklch(0.65 0.12 180);
+
+  /* bg/fg 细分 */
+  --bg-subtle: oklch(0.985 0 0);
+  --bg-elevated: oklch(1 0 0);
+  --fg-secondary: oklch(0.35 0 0);
+  --fg-subtle: oklch(0.7 0 0);
+  --border-strong: oklch(0.85 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.145 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.145 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.6 0.19 260);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.225 0 0);
+  --muted-foreground: oklch(0.74 0 0);
+  --accent: oklch(0.275 0.018 260);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.396 0.141 25.723);
+  --destructive-foreground: oklch(0.637 0.237 25.331);
+  --border: oklch(0.32 0 0);
+  --input: oklch(0.269 0 0);
+  --ring: oklch(0.5 0.1 260);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.185 0.012 260);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.6 0.19 260);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(0.269 0 0);
+  --sidebar-ring: oklch(0.439 0 0);
+
+  /* === Fusion Design System v2 — dark mode 新增 token === */
+  --info: oklch(0.7 0.16 260);
+  --info-bg: oklch(0.245 0.04 260);
+  --info-border: oklch(0.36 0.06 260);
+
+  --success: oklch(0.74 0.16 152);
+  --success-bg: oklch(0.245 0.05 152);
+  --success-border: oklch(0.36 0.07 152);
+
+  --warn: oklch(0.8 0.16 80);
+  --warn-bg: oklch(0.27 0.06 80);
+  --warn-border: oklch(0.4 0.1 80);
+
+  --danger: oklch(0.7 0.2 27);
+  --danger-bg: oklch(0.27 0.07 27);
+  --danger-border: oklch(0.4 0.13 27);
+
+  --teal: oklch(0.74 0.13 180);
+
+  --bg-subtle: oklch(0.185 0.012 260);
+  --bg-elevated: oklch(0.18 0 0);
+  --fg-secondary: oklch(0.86 0 0);
+  --fg-subtle: oklch(0.58 0 0);
+  --border-strong: oklch(0.42 0 0);
+}
+
+.typing::after {
+  content: '|';
+  display: inline-block;
+  animation: blink 1s step-start infinite;
+}
+
+@media (min-width: 640px) {
+  :root {
+    --select-content-width: 320px;
+  }
+}
+
+@media (min-height: 900px) {
+  :root {
+    --select-dropdown-max-height: 500px; /* 在大屏幕上更高 */
+  }
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* 自定义动画效果 */
+@keyframes bounce-subtle {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes gradient-shift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* 自定义动画类 */
+.animate-bounce-subtle {
+  animation: bounce-subtle 2s ease-in-out infinite;
+}
+
+.animate-shimmer {
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradient-shift 3s ease infinite;
+}
+
+/* 复制成功提示动画 */
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out forwards;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* 确保highlight.js样式在我们的CodeBlock组件中正常工作 */
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-title,
+.hljs-section,
+.hljs-doctag,
+.hljs-type,
+.hljs-name,
+.hljs-strong {
+  font-weight: bold;
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: #998;
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-subst {
+  color: #333;
+  font-weight: bold;
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag .hljs-attr {
+  color: #008080;
+}
+
+.hljs-string,
+.hljs-doctag {
+  color: #d14;
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-selector-id {
+  color: #900;
+  font-weight: bold;
+}
+
+.hljs-subst {
+  font-weight: normal;
+}
+
+.hljs-type,
+.hljs-class .hljs-title {
+  color: #458;
+  font-weight: bold;
+}
+
+.hljs-tag,
+.hljs-name,
+.hljs-attribute {
+  color: #000080;
+  font-weight: normal;
+}
+
+.hljs-regexp,
+.hljs-link {
+  color: #009926;
+}
+
+.hljs-symbol,
+.hljs-bullet {
+  color: #990073;
+}
+
+.hljs-built_in,
+.hljs-builtin-name {
+  color: #0086b3;
+}
+
+.hljs-meta {
+  color: #999;
+  font-weight: bold;
+}
+
+.hljs-deletion {
+  background: #fdd;
+}
+
+.hljs-addition {
+  background: #dfd;
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: bold;
+}
+
+/* 暗色主题的语法高亮 */
+.dark .hljs-keyword,
+.dark .hljs-selector-tag,
+.dark .hljs-subst {
+  color: #f92672;
+}
+
+.dark .hljs-number,
+.dark .hljs-literal,
+.dark .hljs-variable,
+.dark .hljs-template-variable {
+  color: #ae81ff;
+}
+
+.dark .hljs-string,
+.dark .hljs-doctag {
+  color: #e6db74;
+}
+
+.dark .hljs-title,
+.dark .hljs-section,
+.dark .hljs-selector-id {
+  color: #a6e22e;
+}
+
+.dark .hljs-type,
+.dark .hljs-class .hljs-title {
+  color: #66d9ef;
+}
+
+.dark .hljs-tag,
+.dark .hljs-name,
+.dark .hljs-attribute {
+  color: #f92672;
+}
+
+.dark .hljs-comment,
+.dark .hljs-quote {
+  color: #75715e;
+  font-style: italic;
+}
+
+.dark .hljs-built_in,
+.dark .hljs-builtin-name {
+  color: #a6e22e;
+}
+
+.dark .hljs-meta {
+  color: #75715e;
+}
+
+/* Reduced motion: 尊重用户的动画偏好设置 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

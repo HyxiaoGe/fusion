@@ -1,0 +1,200 @@
+/**
+ * Auth helpers for fusion-ui — thin adapter over the shared SSO SDK (auth-client-web).
+ *
+ * The token lifecycle (PKCE login, callback exchange, on-demand refresh, revoke) lives in
+ * the SDK; this module only wires fusion's call sites to it and keeps the localStorage
+ * helpers that fusion's Redux slice + fetch layer already depend on. fusion keeps fetching
+ * its own richer profile from fusion-api (`/api/auth/me`); the SDK only owns the tokens.
+ */
+
+import {
+  clearLocalSessionIfCurrent as sdkClearLocalSessionIfCurrent,
+  reconcileSession as sdkReconcileSession,
+  resumeSession as sdkResumeSession,
+  getAccessToken as sdkGetAccessToken,
+  handleCallback as sdkHandleCallback,
+  login as sdkLogin,
+  logout as sdkLogout,
+  refresh as sdkRefresh,
+  subscribe as sdkSubscribe,
+  tokenStore as sdkTokenStore,
+  type AuthState as SdkAuthState,
+  type CallbackResult,
+  type ReconcileSessionOptions,
+  type ReconcileSessionResult,
+  type ResumeSessionOptions,
+  type ClearLocalSessionResult,
+} from 'auth-client-web';
+import { configureAuth } from './auth-sdk';
+import { clearSsoReturn } from './sso-probe';
+import { API_CONFIG, AUTH_SERVICE_CONFIG, getAuthCallbackUrl } from '../config';
+
+const USER_PROFILE_KEY = 'user_profile';
+const USER_PROFILE_TIMESTAMP_KEY = 'user_profile_timestamp';
+
+export type SsoProvider = 'github' | 'google';
+
+export interface EmailLoginCapabilities {
+  headless: boolean;
+}
+
+const EMAIL_LOGIN_UNAVAILABLE: EmailLoginCapabilities = { headless: false };
+
+export function isEmailHeadlessRuntime(
+  protocol: string = typeof window === 'undefined' ? '' : window.location.protocol,
+): boolean {
+  return protocol === 'http:' || protocol === 'https:';
+}
+
+/**
+ * 探测 auth-service 是否明确开放邮箱验证码登录。旧版本、异常响应和网络失败均关闭入口，
+ * 避免 UI 先于后端发布后把用户带到不可用的 provider。
+ */
+export async function getEmailLoginCapabilities(): Promise<EmailLoginCapabilities> {
+  const authBaseUrl = AUTH_SERVICE_CONFIG.HEADLESS_BASE_URL.replace(/\/+$/, '');
+  if (!authBaseUrl) return EMAIL_LOGIN_UNAVAILABLE;
+
+  const query = new URLSearchParams();
+  const clientId = AUTH_SERVICE_CONFIG.CLIENT_ID;
+  const redirectUri = clientId ? getAuthCallbackUrl() : '';
+  if (clientId && redirectUri) {
+    query.set('client_id', clientId);
+    query.set('redirect_uri', redirectUri);
+  }
+  const capabilityUrl = `${authBaseUrl}/auth/capabilities${query.size > 0 ? `?${query.toString()}` : ''}`;
+
+  try {
+    const response = await fetch(capabilityUrl, {
+      method: 'GET',
+      cache: 'no-store',
+    });
+    if (!response.ok) return EMAIL_LOGIN_UNAVAILABLE;
+
+    const capabilities: unknown = await response.json();
+    const headless = (
+      typeof capabilities === 'object'
+      && capabilities !== null
+      && 'email_headless_login' in capabilities
+      && capabilities.email_headless_login === true
+      && clientId.length > 0
+      && redirectUri.length > 0
+      && isEmailHeadlessRuntime()
+    );
+    return { headless };
+  } catch {
+    return EMAIL_LOGIN_UNAVAILABLE;
+  }
+}
+
+/** Interactive login: top-level redirect to /auth/authorize (PKCE + state). */
+export async function startSsoLogin(
+  provider: SsoProvider,
+  redirectPath?: string
+): Promise<void> {
+  configureAuth();
+  // 交互式登录前清掉残留的静默探测原始路径，避免被放弃的探测劫持本次登录的重定向目标。
+  clearSsoReturn();
+  await sdkLogin(provider, redirectPath ? { redirectPath } : undefined);
+}
+
+/** Complete the auth-service callback on the redirect_uri page (CSRF + PKCE enforced). */
+export async function completeSsoCallback(): Promise<CallbackResult> {
+  configureAuth();
+  return sdkHandleCallback();
+}
+
+/** Valid access token, auto-refreshing if within the expiry skew. May throw on transient network errors. */
+export async function getValidAccessToken(): Promise<string | null> {
+  configureAuth();
+  return sdkGetAccessToken();
+}
+
+/** Force a token refresh (coalesced). Returns null only on a definitive refresh failure. */
+export function forceRefreshAccessToken(): Promise<string | null> {
+  configureAuth();
+  return sdkRefresh();
+}
+
+/** 对账当前应用 token 与中央 IdP cookie；换号时由 SDK 在内存中完成 PKCE 换票。 */
+export function reconcileSsoSession(
+  options?: ReconcileSessionOptions,
+): Promise<ReconcileSessionResult> {
+  configureAuth();
+  return sdkReconcileSession(options);
+}
+
+/** 无顶层跳转地恢复中央会话；SDK 负责 PKCE 与 token/user 原子提交。 */
+export function resumeCentralSession(options?: ResumeSessionOptions) {
+  configureAuth();
+  return sdkResumeSession(options);
+}
+
+/** 订阅 SDK 的同步临界态，让宿主能在换票前先封住旧用户请求。 */
+export function subscribeSsoState(listener: (state: SdkAuthState) => void): () => void {
+  configureAuth();
+  return sdkSubscribe(listener);
+}
+
+/**
+ * Read-only single-logout liveness probe. Hits a denylist-protected fusion-api endpoint
+ * (`/api/auth/me` → `get_current_user`, which consults the shared-Redis SLO revocation marker)
+ * with the supplied access token, DELIBERATELY using a raw fetch instead of fetchWithAuth — the
+ * latter force-refreshes on 401, which is exactly the rotation churn we are removing from the
+ * focus path. A token revoked by a logout in another app still has a valid RS256 signature but is
+ * rejected here with 401. Throws an Error whose message carries the HTTP status on any non-2xx, so
+ * the caller can tell a definitive auth rejection (401/403 → logged out elsewhere) apart from a
+ * transient failure (5xx / network throw → keep the session). This performs NO token rotation.
+ */
+export async function probeSessionLiveness(token: string): Promise<void> {
+  const response = await fetch(`${API_CONFIG.BASE_URL}/api/auth/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    throw new Error(`liveness probe failed (${response.status})`);
+  }
+}
+
+/**
+ * Best-effort GLOBAL single-logout: revoke this app's refresh token + clear the SDK session,
+ * then top-level POST-form to /auth/logout to destroy the shared IdP session — so logging out
+ * of fusion logs the user out of every SSO app（一处登出、处处登出）, not just fusion. Without
+ * `{ global: true }` the IdP session would survive and silently re-log-in the user on next load.
+ */
+export async function revokeSsoSession(): Promise<void> {
+  configureAuth();
+  await sdkLogout({ global: true });
+}
+
+/**
+ * 中央会话已明确失效时，只收敛当前应用的 SDK 会话，不销毁新的中央 Cookie 会话。
+ * 这不是用户显式登出，因此宿主不得写“禁止自动重登”守卫；否则 A 登出后中央切到 B，
+ * 当前标签将无法自动恢复 B。
+ */
+export async function clearRemoteSsoSession(
+  expectedAccessToken: string | null,
+): Promise<ClearLocalSessionResult> {
+  configureAuth();
+  return sdkClearLocalSessionIfCurrent(expectedAccessToken);
+}
+
+export function clearAuthStorage(): void {
+  configureAuth();
+  sdkTokenStore().clear();
+  clearFusionProfileStorage();
+}
+
+/** 只清 Fusion 自己的富用户资料缓存，不触碰 SDK 的共享 token store。 */
+export function clearFusionProfileStorage(): void {
+  localStorage.removeItem(USER_PROFILE_KEY);
+  localStorage.removeItem(USER_PROFILE_TIMESTAMP_KEY);
+}
+
+export function getStoredAccessToken(): string | null {
+  configureAuth();
+  return sdkTokenStore().getAccessToken();
+}
+
+export function getStoredRefreshToken(): string | null {
+  configureAuth();
+  return sdkTokenStore().getRefreshToken();
+}

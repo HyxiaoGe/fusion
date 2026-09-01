@@ -1,0 +1,352 @@
+export type AgentRunStatus =
+  | 'running'
+  | 'completed'
+  | 'limit_reached'
+  | 'incomplete'
+  | 'interrupted'
+  | 'failed';
+
+export type AgentStepStatus =
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'interrupted';
+
+export type ToolCallStatus =
+  | 'running'
+  | 'success'
+  | 'failed'
+  | 'degraded'
+  | 'interrupted';
+
+/**
+ * BE tool_call_completed 事件 payload 里 status 的合法值。
+ *
+ * 注意：跟 ToolCallStatus 不同——'running' 是 in-flight 状态、
+ * 'interrupted' 是 FE 在 run-level 中断时派生的（contract §3），
+ * 都不可能由 BE 在 tool_call_completed 事件里发出。
+ */
+export type FinalizeToolCallStatus = Exclude<ToolCallStatus, 'running' | 'interrupted'>;
+
+export type LimitReachedReason = 'max_steps' | 'max_tool_calls' | 'timeout';
+
+export type AgentProgressPhase =
+  | 'planning'
+  | 'thinking'
+  | 'researching'
+  | 'reading'
+  | 'synthesizing'
+  | 'answering'
+  | 'recovering';
+
+export type AgentPlanItemStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'skipped'
+  | 'blocked';
+
+export type AgentPlanItemKind =
+  | 'reasoning'
+  | 'search'
+  | 'read'
+  | 'synthesis'
+  | 'answer'
+  | 'other';
+
+export type AgentPlanMode = 'auto' | 'on' | 'off';
+
+/** 输入框面向用户的任务执行模式。 */
+export type ComposerAgentMode = 'auto' | 'plan' | 'deep_research';
+
+/** 发送给后端并由 run config 持久化的任务类型。 */
+export type AgentTaskMode = 'standard' | 'deep_research';
+
+export type AgentNetworkProfile = 'standard' | 'deep_research';
+
+export type AgentEvidencePolicy = 'standard' | 'deep_research_v1' | 'knowledge_grounded_v1';
+
+export type AgentPlanSource = 'model' | 'observed';
+
+export interface AgentProgressState {
+  phase: AgentProgressPhase;
+  label: string;
+  completedSteps?: number;
+  totalSteps?: number;
+  completedToolCalls?: number;
+  maxToolCalls?: number;
+}
+
+export interface AgentPlanItem {
+  id: string;
+  title: string;
+  /** 服务端推导的用户可见阶段；缺失时以当前任务作为独立阶段。 */
+  phaseId?: string;
+  phaseTitle?: string;
+  status: AgentPlanItemStatus;
+  kind: AgentPlanItemKind;
+  summary?: string;
+  toolNames: string[];
+  evidenceItemIds: string[];
+  /** 新计划协议的依赖关系；旧 observed plan 缺失时按空数组处理。 */
+  dependsOn?: string[];
+  /** 模型计划声明的候选工具，不代表工具已经真实执行。 */
+  plannedTools?: string[];
+}
+
+export interface AgentPlanState {
+  planId: string;
+  revision: number;
+  /** 发送端计划控制模式；旧快照缺失时归一化为 auto。 */
+  mode?: AgentPlanMode;
+  /** plan 的事实来源；model 计划终态必须以服务端 item 状态为准。 */
+  source?: AgentPlanSource;
+  /** 机器可读短码；允许空字符串。 */
+  reason?: string;
+  items: AgentPlanItem[];
+}
+
+export interface AgentEvidenceItem {
+  id: string;
+  kind: 'web' | 'knowledge' | 'file' | 'tool' | 'model';
+  status: 'candidate' | 'selected' | 'read_success' | 'read_degraded' | 'read_failed' | 'used' | 'discarded';
+  title: string;
+  url?: string;
+  domain?: string;
+  /** 当前 run 内稳定的正文引用编号，从 1 开始。 */
+  citationIndex?: number;
+  claim: string;
+  snippet?: string;
+  usedByFinalAnswer: boolean;
+}
+
+export interface AgentToolDigest {
+  toolCallId: string;
+  planItemId?: string;
+  toolName: string;
+  status: 'success' | 'failed' | 'degraded' | 'interrupted';
+  title: string;
+  summary: string;
+  keyFindings: string[];
+  sourceRefs: string[];
+  truncated: boolean;
+  repairState?: 'retrying' | 'requires_user_input' | 'exhausted' | 'resolved';
+  repairId?: string;
+}
+
+export interface ToolCallResultSummary {
+  kind: string;
+  title?: string;
+  count?: number;
+  provider?: string;
+  result_count?: number;
+  mode_count?: number;
+  favicon?: string;
+  truncated: boolean;
+  repair_state?: 'retrying' | 'requires_user_input' | 'exhausted' | 'resolved';
+  repair_id?: string;
+  resolves_repair_id?: string;
+}
+
+export interface ToolCallState {
+  toolCallId: string;
+  planItemId?: string;
+  toolName: string;
+  arguments: Record<string, unknown>;
+  status: ToolCallStatus;
+  resultSummary?: ToolCallResultSummary;
+  error?: string;
+  startedAt: number;
+  completedAt?: number;
+}
+
+export interface AgentStepState {
+  stepId: string;
+  stepNumber: number;
+  status: AgentStepStatus;
+  toolCalls: ToolCallState[];
+  contentBlockIds: string[];
+  startedAt: number;
+  completedAt?: number;
+}
+
+export interface AgentRunConfig {
+  maxSteps: number;
+  maxToolCalls: number;
+  timeoutS: number;
+  /** 旧历史可能缺失；SSE 与新历史会归一化为明确值。 */
+  planMode?: AgentPlanMode;
+  /** 旧历史可能缺失；SSE 与新历史会归一化为明确值。 */
+  taskMode?: AgentTaskMode;
+  networkProfile?: AgentNetworkProfile;
+  evidencePolicy?: AgentEvidencePolicy;
+}
+
+export interface AgentRunState {
+  runId: string;
+  protocolVersion?: number;
+  /** FE 当前渲染期 message.id；useSendMessage 路径是本地 placeholder，
+   * reconnect 路径是 stream-status 拿到的 server messageId。
+   * AgentStepCard 渲染过滤用此字段。 */
+  messageId: string;
+  /** BE run_started 事件携带的真实 server message_id；预留供后续场景用，
+   * 当前 stop 流程已通过 serverMessageIdRef 处理。 */
+  serverMessageId?: string;
+  status: AgentRunStatus;
+  config: AgentRunConfig;
+  totalSteps: number;
+  totalToolCalls: number;
+  steps: AgentStepState[];
+  limitReachedReason?: LimitReachedReason;
+  failure?: { code: string; message: string };
+  progress?: AgentProgressState;
+  plan?: AgentPlanState;
+  evidence?: AgentEvidenceItem[];
+  toolDigests?: AgentToolDigest[];
+  lastSequence: number;
+}
+
+export type AgentContextType = 'geolocation';
+
+export type AgentContextPurpose =
+  | 'nearby_search'
+  | 'route_origin'
+  | 'route_destination'
+  | 'local_weather';
+
+export type AgentContextResultStatus =
+  | 'provided'
+  | 'denied'
+  | 'timeout'
+  | 'unavailable';
+
+export type AgentContextRequestPhase =
+  | 'required'
+  | 'locating'
+  | 'submitting'
+  | 'submit_failed';
+
+export interface PendingAgentContextRequest {
+  conversationId: string;
+  runId: string;
+  requestId: string;
+  contextType: AgentContextType;
+  purpose: AgentContextPurpose;
+  reason: string;
+  expiresAt: number;
+  sequence: number;
+  phase: AgentContextRequestPhase;
+}
+
+export interface AgentContextRequiredEvent extends AgentEventEnvelope {
+  type: 'context_required';
+  protocol_version: 2;
+  request_id: string;
+  context_type: AgentContextType;
+  purpose: AgentContextPurpose;
+  reason: string;
+  expires_at: number;
+}
+
+export interface AgentContextResultEvent extends AgentEventEnvelope {
+  type: 'context_result';
+  protocol_version: 2;
+  request_id: string;
+  context_type: AgentContextType;
+  status: AgentContextResultStatus;
+}
+
+export interface AgentContextLocation {
+  latitude: number;
+  longitude: number;
+  accuracyM: number;
+  acquiredAt: number;
+}
+
+export type SubmitAgentContextResultInput = {
+  conversationId: string;
+  runId: string;
+  requestId: string;
+} & (
+  | {
+      status: 'provided';
+      location: AgentContextLocation;
+      reason?: never;
+    }
+  | {
+      status: Exclude<AgentContextResultStatus, 'provided'>;
+      reason: string;
+      location?: never;
+    }
+);
+
+/** SSE 顶层 envelope（与 BE §4.6 一致）. */
+export interface SseEnvelope<T = unknown> {
+  chunk_type: string;
+  data: T;
+}
+
+/** agent_event 内层 payload 共享字段. */
+export interface AgentEventEnvelope {
+  type: string;
+  /** P0 统一事件版本；部署窗口中的旧 SSE 允许缺失。 */
+  schema_version?: number;
+  protocol_version?: number;
+  run_id: string;
+  parent_run_id: string | null;
+  step_id: string | null;
+  parent_step_id: string | null;
+  tool_call_id: string | null;
+  sequence: number;
+  trace_id: string;
+  ts: number;
+}
+
+
+/** 仅供轨迹展示的系统提示词组装元数据，不包含提示词正文。 */
+export interface AgentSystemPromptPreparedEvent extends AgentEventEnvelope {
+  type: 'system_prompt_prepared';
+  protocol_version: 2;
+  status: 'ready' | 'failed';
+  source: 'code';
+  template_version: string;
+  section_ids: string[];
+  fingerprint?: string | null;
+  char_count?: number | null;
+  duration_ms: number;
+  error_code?: string | null;
+  message?: string | null;
+  detail_status?: 'available' | 'degraded' | null;
+}
+
+export interface AgentResolvedSkillMetadata {
+  skill_id: string;
+  version: string;
+  content_sha256: string;
+  allowed_tool_names: string[];
+  section_id: string;
+  char_count: number;
+}
+
+/** Run 级 Skills 最终解析结果；事件只承载安全元数据，不包含正文。 */
+export interface AgentSkillsResolvedEvent extends AgentEventEnvelope {
+  type: 'skills_resolved';
+  protocol_version: 2;
+  status: 'not_selected' | 'loaded' | 'load_failed';
+  activation_source: 'capability_package';
+  requested_skill_ids: string[];
+  skills: AgentResolvedSkillMetadata[];
+  duration_ms: number;
+  detail_status: 'available' | 'degraded' | null;
+  error_code: string | null;
+}
+
+export interface AgentLlmRoundStartedEvent extends AgentEventEnvelope {
+  type: 'llm_round_started';
+  llm_round_id: string;
+  round_index: number;
+  model: string;
+  provider?: string | null;
+  system_prompt_fingerprint?: string | null;
+}

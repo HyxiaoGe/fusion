@@ -1,0 +1,574 @@
+import React from 'react';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import type { AgentRunState } from '@/types/agentRun';
+import type { PlaceResultsBlock, SearchSourceSummary } from '@/types/conversation';
+import type { AssistantActivity } from './assistantActivity';
+import type { AnswerEvidenceModel } from './answerEvidenceModel';
+import AssistantResponseStack from './AssistantResponseStack';
+
+vi.mock('./ReasoningContent', () => ({
+  default: ({
+    content,
+    isVisible,
+    isStreaming,
+    startTime,
+    endTime,
+    onToggle,
+  }: {
+    content: string;
+    isVisible: boolean;
+    isStreaming: boolean;
+    startTime?: number;
+    endTime?: number;
+    onToggle: () => void;
+  }) => (
+    <section
+      data-testid="stack-reasoning"
+      data-visible={String(isVisible)}
+      data-streaming={String(isStreaming)}
+      data-start-time={startTime}
+      data-end-time={endTime}
+      onClick={onToggle}
+    >
+      {content}
+    </section>
+  ),
+}));
+
+vi.mock('./AssistantActivityStatus', () => ({
+  default: ({ activity }: { activity: AssistantActivity }) => (
+    <section data-testid="stack-activity">{activity.kind}</section>
+  ),
+}));
+
+vi.mock('./AnswerEvidence', () => ({
+  default: ({
+    evidence,
+    onSourceClick,
+    onOpenSources,
+  }: {
+    evidence: AnswerEvidenceModel | null;
+    onSourceClick: (index: number) => void;
+    onOpenSources: () => void;
+  }) => (
+    <section data-testid="stack-evidence">
+      <button type="button" onClick={() => onSourceClick(0)}>打开来源</button>
+      <button type="button" onClick={onOpenSources}>打开全部来源</button>
+      {evidence?.summary}
+    </section>
+  ),
+}));
+
+vi.mock('./MarkdownRenderer', () => ({
+  default: ({
+    content,
+    className,
+    sources,
+    onCitationClick,
+  }: {
+    content: string;
+    className?: string;
+    sources?: SearchSourceSummary[];
+    onCitationClick?: (index: number) => void;
+  }) => (
+    <section
+      data-testid="stack-markdown"
+      data-class-name={className}
+      data-source-count={sources?.length ?? 0}
+    >
+      <button type="button" onClick={() => onCitationClick?.(0)}>引用来源</button>
+      {content}
+    </section>
+  ),
+}));
+
+function activity(overrides: Partial<AssistantActivity> = {}): AssistantActivity {
+  return {
+    kind: 'answering',
+    tool: null,
+    issue: null,
+    searchBlock: null,
+    urlBlocks: [],
+    hasText: true,
+    hasThinking: true,
+    shouldSuppressReasoning: false,
+    shouldShowSources: false,
+    suggestionState: 'idle',
+    ...overrides,
+  };
+}
+
+const sources: SearchSourceSummary[] = [
+  { title: '来源一', url: 'https://example.com/source' },
+];
+
+const answerEvidence: AnswerEvidenceModel = {
+  items: [
+    {
+      id: 'search-0',
+      kind: 'search_source',
+      title: '来源一',
+      url: 'https://example.com/source',
+      domain: 'example.com',
+      sourceIndex: 0,
+    },
+  ],
+  previewItems: [
+    {
+      id: 'search-0',
+      kind: 'search_source',
+      title: '来源一',
+      url: 'https://example.com/source',
+      domain: 'example.com',
+      sourceIndex: 0,
+    },
+  ],
+  searchCount: 1,
+  urlCount: 0,
+  totalCount: 1,
+  hiddenSearchCount: 0,
+  hiddenUrlCount: 0,
+  summary: '回答依据 · 搜索候选 1 条',
+  hasSearchSources: true,
+};
+
+const agentRun: AgentRunState = {
+  runId: 'run-1',
+  messageId: 'assistant-1',
+  status: 'running',
+  config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300 },
+  totalSteps: 0,
+  totalToolCalls: 0,
+  steps: [],
+  lastSequence: 1,
+};
+
+describe('AssistantResponseStack', () => {
+  it('使用真实状态行展示状态、耗时、轨迹 badge 并进入轨迹', () => {
+    const onInspectTrajectory = vi.fn();
+    render(
+      <AssistantResponseStack
+        reasoning={{
+          shouldRender: false,
+          content: '',
+          isVisible: false,
+          isStreaming: false,
+          onToggle: vi.fn(),
+        }}
+        activity={activity()}
+        agentRun={{
+          ...agentRun,
+          status: 'completed',
+          steps: [{
+            stepId: 'step-1',
+            stepNumber: 1,
+            status: 'completed',
+            toolCalls: [],
+            contentBlockIds: [],
+            startedAt: 1_000,
+            completedAt: 2_500,
+          }],
+        }}
+        trajectoryStatus="complete"
+        onInspectTrajectory={onInspectTrajectory}
+        answerEvidence={null}
+        onSourceClick={vi.fn()}
+        onOpenSources={vi.fn()}
+        markdown={{ content: '回答', sources: [] }}
+        showStreamingCursor={false}
+      />,
+    );
+
+    const status = screen.getByRole('group', { name: 'Agent 运行状态' });
+    expect(status).toHaveTextContent('Agent 已完成');
+    expect(status).toHaveTextContent('耗时 1.5 秒');
+    expect(status).toHaveTextContent('轨迹完整');
+
+    fireEvent.click(screen.getByRole('button', { name: '查看轨迹' }));
+    expect(onInspectTrajectory).toHaveBeenCalledTimes(1);
+  });
+
+  it('所有模型在计划期间统一展示经后端净化的思考', () => {
+    const plannedRun: AgentRunState = {
+      ...agentRun,
+      plan: {
+        planId: 'plan-1',
+        revision: 1,
+        source: 'model',
+        items: [{
+          id: 'research',
+          title: '核验资料',
+          status: 'running',
+          kind: 'search',
+          toolNames: [],
+          evidenceItemIds: [],
+        }],
+      },
+    };
+    const props = {
+      reasoning: {
+        shouldRender: true,
+        content: '正在核对问题边界',
+        isVisible: true,
+        isStreaming: true,
+        onToggle: vi.fn(),
+      },
+      activity: activity(),
+      answerEvidence: null,
+      onSourceClick: vi.fn(),
+      onOpenSources: vi.fn(),
+      markdown: { content: '', sources: [] },
+      showStreamingCursor: false,
+    };
+
+    const { rerender } = render(
+      <AssistantResponseStack
+        {...props}
+        agentRun={plannedRun}
+      />,
+    );
+    expect(screen.getByTestId('stack-reasoning')).toHaveTextContent('正在核对问题边界');
+
+    rerender(
+      <AssistantResponseStack
+        {...props}
+        agentRun={plannedRun}
+      />,
+    );
+    expect(screen.getByTestId('stack-reasoning')).toHaveTextContent('正在核对问题边界');
+
+    rerender(
+      <AssistantResponseStack
+        {...props}
+        agentRun={agentRun}
+      />,
+    );
+    expect(screen.getByTestId('stack-reasoning')).toHaveTextContent('正在核对问题边界');
+  });
+
+  it.each([
+    'completed',
+    'incomplete',
+    'failed',
+    'limit_reached',
+    'interrupted',
+  ] as const)('计划进入 %s 或历史恢复后仍展示净化后的思考', (status) => {
+    render(
+      <AssistantResponseStack
+        reasoning={{
+          shouldRender: true,
+          content: '已核对所需资料',
+          isVisible: true,
+          isStreaming: false,
+          onToggle: vi.fn(),
+        }}
+        activity={activity({ kind: 'completed' })}
+        agentRun={{
+          ...agentRun,
+          status,
+          plan: {
+            planId: 'plan-history',
+            revision: 3,
+            source: 'model',
+            items: [{
+              id: 'answer',
+              title: '整理回答',
+              status: status === 'completed' ? 'completed' : 'failed',
+              kind: 'answer',
+              toolNames: [],
+              evidenceItemIds: [],
+            }],
+          },
+        }}
+        answerEvidence={null}
+        onSourceClick={vi.fn()}
+        onOpenSources={vi.fn()}
+        markdown={{ content: '最终回答', sources: [] }}
+        showStreamingCursor={false}
+      />,
+    );
+
+    expect(screen.getByTestId('stack-reasoning')).toHaveTextContent('已核对所需资料');
+  });
+
+  it('已结束的深度研究展示后端持久化思考', () => {
+    render(
+      <AssistantResponseStack
+        reasoning={{
+          shouldRender: true,
+          content: '深度研究内部搜索参数',
+          isVisible: true,
+          isStreaming: false,
+          onToggle: vi.fn(),
+        }}
+        activity={activity({ kind: 'completed' })}
+        agentRun={{
+          ...agentRun,
+          status: 'completed',
+          config: { ...agentRun.config, taskMode: 'deep_research' },
+        }}
+        answerEvidence={null}
+        onSourceClick={vi.fn()}
+        onOpenSources={vi.fn()}
+        markdown={{ content: '研究结论', sources: [] }}
+        showStreamingCursor={false}
+      />,
+    );
+
+    expect(screen.getByTestId('stack-reasoning')).toHaveTextContent('深度研究内部搜索参数');
+  });
+
+  it('深度研究在计划尚未生成时展示流式净化思考', () => {
+    render(
+      <AssistantResponseStack
+        reasoning={{
+          shouldRender: true,
+          content: '正在确认搜索范围',
+          isVisible: true,
+          isStreaming: true,
+          onToggle: vi.fn(),
+        }}
+        activity={activity()}
+        agentRun={{
+          ...agentRun,
+          config: { ...agentRun.config, taskMode: 'deep_research' },
+        }}
+        answerEvidence={null}
+        onSourceClick={vi.fn()}
+        onOpenSources={vi.fn()}
+        markdown={{ content: '', sources: [] }}
+        showStreamingCursor={false}
+      />,
+    );
+
+    expect(screen.getByTestId('stack-reasoning')).toHaveTextContent('正在确认搜索范围');
+  });
+
+  it('强制计划模式在首个计划快照到达前展示流式净化思考', () => {
+    render(
+      <AssistantResponseStack
+        reasoning={{
+          shouldRender: true,
+          content: '正在整理执行步骤',
+          isVisible: true,
+          isStreaming: true,
+          onToggle: vi.fn(),
+        }}
+        activity={activity()}
+        agentRun={{
+          ...agentRun,
+          config: { ...agentRun.config, planMode: 'on' },
+        }}
+        answerEvidence={null}
+        onSourceClick={vi.fn()}
+        onOpenSources={vi.fn()}
+        markdown={{ content: '', sources: [] }}
+        showStreamingCursor={false}
+      />,
+    );
+
+    expect(screen.getByTestId('stack-reasoning')).toHaveTextContent('正在整理执行步骤');
+  });
+
+  it('已有真实思考时不再同时显示正在准备回答占位', () => {
+    render(
+      <AssistantResponseStack
+        reasoning={{
+          shouldRender: true,
+          content: '正在核验问题边界',
+          isVisible: true,
+          isStreaming: true,
+          onToggle: vi.fn(),
+        }}
+        activity={activity({ kind: 'waiting', hasText: false })}
+        agentRun={agentRun}
+        answerEvidence={null}
+        onSourceClick={vi.fn()}
+        onOpenSources={vi.fn()}
+        markdown={{ content: '', sources: [] }}
+        showStreamingCursor={false}
+      />,
+    );
+
+    expect(screen.getByTestId('stack-reasoning')).toHaveTextContent('正在核验问题边界');
+    expect(screen.queryByTestId('stack-activity')).not.toBeInTheDocument();
+  });
+
+  it('移除消息内联执行过程后，仍把结构化工具结果放在 Markdown 正文之前', () => {
+    const structuredResult: PlaceResultsBlock = {
+      type: 'place_results',
+      id: 'places-1',
+      schema_version: 1,
+      provider: 'amap',
+      status: 'success',
+      result_count: 1,
+      places: [{ provider_place_id: 'p1', name: '民治烤肉店' }],
+      limitations: [],
+    };
+
+    render(
+      <AssistantResponseStack
+        reasoning={{
+          shouldRender: false,
+          content: '',
+          isVisible: false,
+          isStreaming: false,
+          onToggle: vi.fn(),
+        }}
+        activity={activity({ kind: 'completed' })}
+        structuredResults={[structuredResult]}
+        answerEvidence={null}
+        onSourceClick={vi.fn()}
+        onOpenSources={vi.fn()}
+        markdown={{ content: '最终回答', sources: [] }}
+        showStreamingCursor={false}
+      />,
+    );
+
+    const result = screen.getByTestId('structured-tool-results');
+    const markdown = screen.getByTestId('stack-markdown');
+    expect(screen.queryByTestId('stack-agent')).toBeNull();
+    expect(result.compareDocumentPosition(markdown) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('按 assistant 内容栈顺序渲染，并收敛根节点和末尾间距', () => {
+    render(
+      <AssistantResponseStack
+        reasoning={{
+          shouldRender: true,
+          content: '先推理',
+          isVisible: true,
+          isStreaming: true,
+          onToggle: vi.fn(),
+          startTime: 10,
+          endTime: 20,
+        }}
+        activity={activity()}
+        answerEvidence={answerEvidence}
+        onSourceClick={vi.fn()}
+        onOpenSources={vi.fn()}
+        markdown={{
+          content: '最终回答',
+          sources,
+          onCitationClick: vi.fn(),
+        }}
+        showStreamingCursor
+      />,
+    );
+
+    const stack = screen.getByTestId('assistant-response-stack');
+
+    expect(stack).toHaveClass('w-full', 'min-w-0');
+    expect(stack.className).toContain('[&>*:last-child]:mb-0');
+    expect(screen.getByTestId('stack-reasoning')).toBeInTheDocument();
+    expect(screen.getByTestId('stack-activity')).toBeInTheDocument();
+    expect(screen.queryByTestId('stack-agent')).toBeNull();
+    expect(screen.getByTestId('stack-evidence')).toBeInTheDocument();
+    expect(screen.getByTestId('stack-markdown')).toBeInTheDocument();
+    expect(screen.getByTestId('streaming-cursor')).toBeInTheDocument();
+    expect(stack.querySelectorAll('.max-w-6xl')).toHaveLength(2);
+  });
+
+  it('透传各子组件事件和 Markdown 渲染参数', () => {
+    const onToggle = vi.fn();
+    const onSourceClick = vi.fn();
+    const onOpenSources = vi.fn();
+    const onCitationClick = vi.fn();
+
+    render(
+      <AssistantResponseStack
+        reasoning={{
+          shouldRender: true,
+          content: '推理内容',
+          isVisible: false,
+          isStreaming: false,
+          onToggle,
+          startTime: 11,
+          endTime: 22,
+        }}
+        activity={activity({ kind: 'completed' })}
+        answerEvidence={answerEvidence}
+        onSourceClick={onSourceClick}
+        onOpenSources={onOpenSources}
+        markdown={{
+          content: '带引用的回答',
+          sources,
+          onCitationClick,
+        }}
+        showStreamingCursor={false}
+      />,
+    );
+
+    expect(screen.getByTestId('stack-reasoning')).toHaveAttribute('data-visible', 'false');
+    expect(screen.getByTestId('stack-reasoning')).toHaveAttribute('data-streaming', 'false');
+    expect(screen.getByTestId('stack-reasoning')).toHaveAttribute('data-start-time', '11');
+    expect(screen.getByTestId('stack-reasoning')).toHaveAttribute('data-end-time', '22');
+    expect(screen.getByTestId('stack-markdown')).toHaveAttribute(
+      'data-class-name',
+      'prose-headings:border-0 prose-hr:border-border/30',
+    );
+    expect(screen.getByTestId('stack-markdown')).toHaveAttribute('data-source-count', '1');
+
+    fireEvent.click(screen.getByTestId('stack-reasoning'));
+    fireEvent.click(screen.getByRole('button', { name: '打开来源' }));
+    fireEvent.click(screen.getByRole('button', { name: '打开全部来源' }));
+    fireEvent.click(screen.getByRole('button', { name: '引用来源' }));
+
+    expect(onToggle).toHaveBeenCalledTimes(1);
+    expect(onOpenSources).toHaveBeenCalledTimes(1);
+    expect(onSourceClick).toHaveBeenCalledWith(0);
+    expect(onCitationClick).toHaveBeenCalledWith(0);
+  });
+
+  it('只在显式要求时渲染推理区和流式光标', () => {
+    const { rerender } = render(
+      <AssistantResponseStack
+        reasoning={{
+          shouldRender: false,
+          content: '',
+          isVisible: false,
+          isStreaming: false,
+          onToggle: vi.fn(),
+        }}
+        activity={activity({ kind: 'completed' })}
+        answerEvidence={null}
+        onSourceClick={vi.fn()}
+        onOpenSources={vi.fn()}
+        markdown={{
+          content: '回答',
+          sources: [],
+          onCitationClick: undefined,
+        }}
+        showStreamingCursor={false}
+      />,
+    );
+
+    expect(screen.queryByTestId('stack-reasoning')).toBeNull();
+    expect(screen.queryByTestId('streaming-cursor')).toBeNull();
+
+    rerender(
+      <AssistantResponseStack
+        reasoning={{
+          shouldRender: false,
+          content: '',
+          isVisible: false,
+          isStreaming: false,
+          onToggle: vi.fn(),
+        }}
+        activity={activity({ kind: 'answering' })}
+        answerEvidence={null}
+        onSourceClick={vi.fn()}
+        onOpenSources={vi.fn()}
+        markdown={{
+          content: '回答',
+          sources: [],
+          onCitationClick: undefined,
+        }}
+        showStreamingCursor
+      />,
+    );
+
+    expect(screen.getByTestId('streaming-cursor')).toHaveTextContent('▌');
+  });
+});

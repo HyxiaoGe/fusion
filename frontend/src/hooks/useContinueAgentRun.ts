@@ -1,0 +1,384 @@
+import { useCallback, useRef } from 'react';
+import { useStore } from 'react-redux';
+import { useAppDispatch } from '@/redux/hooks';
+import {
+  continueAgentRunStream,
+  getConversation,
+  reconnectStream,
+  stopStream,
+} from '@/lib/api/chat';
+import type { StreamCallbacks } from '@/lib/api/chat';
+import { runResumableStream } from '@/lib/api/resumableStream';
+import { createAgentStreamEventHandlers } from '@/lib/agent/streamEventHandlers';
+import {
+  recoverReasoningOnlyFinalBlocks,
+  shouldRecoverReasoningOnlyFinalBlocks,
+} from '@/lib/chat/contentBlocks';
+import { buildChatFromServerConversation } from '@/lib/chat/conversationHydration';
+import {
+  hasFormalTextContent,
+  shouldApplySuggestedQuestionsSnapshot,
+} from '@/lib/chat/suggestedQuestionState';
+import {
+  applySuggestedQuestionsPending,
+  requestSuggestedQuestionsObservation,
+  updateMessage,
+} from '@/redux/slices/conversationSlice';
+import {
+  advanceTypewriter,
+  appendTextDelta,
+  appendThinkingDelta,
+  completeThinkingPhase,
+  endStream,
+  selectFullStreamContentBlocks,
+  setStreamError,
+  setStreamStatus,
+  startStream,
+} from '@/redux/slices/streamSlice';
+import type { StreamState } from '@/redux/slices/streamSlice';
+import type { Conversation } from '@/types/conversation';
+
+interface ContinueAgentRunInput {
+  conversationId: string;
+  assistantMessageId: string;
+  previousRunId?: string;
+  canStart?: () => boolean;
+  onAccepted?: () => void;
+  onRejectedBeforeStart?: () => void;
+}
+
+interface HookDeps {
+  dispatch?: ReturnType<typeof useAppDispatch>;
+  store?: ReturnType<typeof useStore>;
+}
+
+interface RootStateForContinuation {
+  conversation: {
+    byId: Record<string, Conversation>;
+  };
+  stream: StreamState;
+}
+
+interface ContinuationCallbackDeps {
+  conversationId: string;
+  assistantMessageId: string;
+  dispatch: ReturnType<typeof useAppDispatch>;
+  store: ReturnType<typeof useStore>;
+  isActive: () => boolean;
+  setServerMessageId: (messageId: string) => void;
+  setServerTaskId: (taskId?: string) => void;
+  markTerminalErrorHandled: () => void;
+}
+
+interface ActiveContinuation {
+  token: symbol;
+  controller: AbortController;
+  conversationId: string;
+  assistantMessageId: string;
+  serverMessageId?: string;
+  serverTaskId?: string;
+}
+
+function refreshContinuationMessage({
+  conversationId,
+  assistantMessageId,
+  dispatch,
+  store,
+}: Pick<ContinuationCallbackDeps, 'conversationId' | 'assistantMessageId' | 'dispatch' | 'store'>): void {
+  void (async () => {
+    try {
+      const serverConversation = await getConversation(conversationId) as Parameters<
+        typeof buildChatFromServerConversation
+      >[0];
+      const refreshed = buildChatFromServerConversation(serverConversation);
+      const dbMessage = refreshed.messages.find(message => message.id === assistantMessageId);
+      if (dbMessage) {
+        const currentMessage = (
+          store.getState() as RootStateForContinuation
+        ).conversation.byId[conversationId]?.messages.find(
+          message => message.id === assistantMessageId,
+        );
+        const shouldApplySuggestedQuestions = shouldApplySuggestedQuestionsSnapshot(
+          currentMessage,
+          dbMessage,
+        );
+        dispatch(updateMessage({
+          conversationId,
+          messageId: assistantMessageId,
+          patch: {
+            content: dbMessage.content,
+            model_id: dbMessage.model_id,
+            usage: dbMessage.usage,
+            agent_run: dbMessage.agent_run,
+            ...(shouldApplySuggestedQuestions ? {
+              suggestedQuestions: dbMessage.suggestedQuestions,
+              suggestedQuestionsStatus: dbMessage.suggestedQuestionsStatus,
+              suggestedQuestionsRevision: dbMessage.suggestedQuestionsRevision,
+            } : {}),
+          },
+        }));
+      }
+    } catch (error) {
+      console.warn('[chat] 继续执行完成后刷新会话失败，保留本地流式结果', error);
+    }
+  })();
+}
+
+function buildContinuationStreamCallbacks({
+  conversationId,
+  assistantMessageId,
+  dispatch,
+  store,
+  isActive,
+  setServerMessageId,
+  setServerTaskId,
+  markTerminalErrorHandled,
+}: ContinuationCallbackDeps): StreamCallbacks {
+  return {
+    onReady: ({ taskId }) => {
+      if (!isActive()) return;
+      setServerTaskId(taskId);
+    },
+    onReasoning: payload => {
+      if (!isActive()) return;
+      dispatch(appendThinkingDelta({
+        blockId: payload.block_id,
+        delta: payload.delta,
+        runId: payload.run_id,
+        stepId: payload.step_id,
+      }));
+    },
+    onAnswering: payload => {
+      if (!isActive()) return;
+      const streamState = (store.getState() as RootStateForContinuation).stream;
+      if (streamState.isStreamingReasoning) {
+        dispatch(completeThinkingPhase());
+      }
+      dispatch(appendTextDelta({
+        blockId: payload.block_id,
+        delta: payload.delta,
+        runId: payload.run_id,
+        stepId: payload.step_id,
+      }));
+      dispatch(advanceTypewriter(payload.delta.length));
+    },
+    ...createAgentStreamEventHandlers({
+      dispatch,
+      trajectoryDispatch: dispatch,
+      isActive,
+      resolveMessageId: () => assistantMessageId,
+      setServerMessageId,
+      resolveConversationId: () => conversationId,
+      resolveTrajectoryConversationId: () => conversationId,
+    }),
+    onSuggestedQuestionsPending: ev => {
+      if (!isActive()) return;
+      dispatch(applySuggestedQuestionsPending({
+        conversationId,
+        messageId: ev.message_id,
+        localMessageId: assistantMessageId,
+        revision: ev.revision,
+      }));
+    },
+    onDone: () => {
+      if (!isActive()) return;
+      const state = store.getState() as RootStateForContinuation;
+      const streamState = state.stream;
+      const rawFinalBlocks = selectFullStreamContentBlocks(streamState);
+      const finalBlocks = shouldRecoverReasoningOnlyFinalBlocks({
+        runStatus: streamState.currentRun?.status,
+        messageMatches: true,
+      })
+        ? recoverReasoningOnlyFinalBlocks(rawFinalBlocks)
+        : rawFinalBlocks;
+      const existingUsage = state.conversation.byId[conversationId]?.messages
+        .find(message => message.id === assistantMessageId)?.usage;
+      const currentContextUsage = streamState.contextUsageConversationId === conversationId
+        ? streamState.contextUsage
+        : null;
+      dispatch(updateMessage({
+        conversationId,
+        messageId: assistantMessageId,
+        patch: {
+          content: finalBlocks,
+          ...(existingUsage && currentContextUsage
+            ? { usage: { ...existingUsage, context: currentContextUsage } }
+            : {}),
+        },
+      }));
+      if (hasFormalTextContent(rawFinalBlocks)) {
+        dispatch(requestSuggestedQuestionsObservation({
+          conversationId,
+          messageIds: [assistantMessageId],
+        }));
+      }
+      dispatch(endStream());
+      refreshContinuationMessage({ conversationId, assistantMessageId, dispatch, store });
+    },
+    onError: (message, payload) => {
+      if (!isActive()) return;
+      markTerminalErrorHandled();
+      dispatch(setStreamError({ message, code: payload?.code, data: payload?.data }));
+    },
+  };
+}
+
+export function useContinueAgentRun(deps: HookDeps = {}) {
+  const realDispatch = useAppDispatch();
+  const realStore = useStore();
+  const dispatch = deps.dispatch ?? realDispatch;
+  const store = deps.store ?? realStore;
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const activeContinuationRef = useRef<ActiveContinuation | null>(null);
+
+  const continueAgentRun = useCallback(async ({
+    conversationId,
+    assistantMessageId,
+    previousRunId,
+    canStart,
+    onAccepted,
+    onRejectedBeforeStart,
+  }: ContinueAgentRunInput) => {
+    if (activeContinuationRef.current || (canStart && !canStart())) {
+      onRejectedBeforeStart?.();
+      return;
+    }
+
+    const state = store.getState() as RootStateForContinuation;
+    if (state.stream.isStreaming || (canStart && !canStart())) {
+      onRejectedBeforeStart?.();
+      return;
+    }
+    const conversation = state.conversation.byId[conversationId];
+    const assistantMessage = conversation?.messages.find(message => message.id === assistantMessageId);
+    const staticBlocks = assistantMessage?.content ?? [];
+
+    const controller = new AbortController();
+    const token = Symbol('agent-continuation');
+    abortControllerRef.current = controller;
+    activeContinuationRef.current = {
+      token,
+      controller,
+      conversationId,
+      assistantMessageId,
+    };
+    dispatch(startStream({
+      conversationId,
+      messageId: assistantMessageId,
+      staticBlocks,
+    }));
+    onAccepted?.();
+
+    let terminalErrorHandled = false;
+    const isActive = () => activeContinuationRef.current?.token === token;
+    const callbacks = buildContinuationStreamCallbacks({
+      conversationId,
+      assistantMessageId,
+      dispatch,
+      store,
+      isActive,
+      markTerminalErrorHandled: () => {
+        terminalErrorHandled = true;
+      },
+      setServerMessageId: messageId => {
+        const active = activeContinuationRef.current;
+        if (active?.token === token) {
+          active.serverMessageId = messageId;
+        }
+      },
+      setServerTaskId: taskId => {
+        const active = activeContinuationRef.current;
+        if (active?.token === token) {
+          active.serverTaskId = taskId;
+        }
+      },
+    });
+
+    try {
+      await runResumableStream({
+        callbacks,
+        signal: controller.signal,
+        openInitial: (wrappedCallbacks, signal) => continueAgentRunStream(
+          { conversationId, messageId: assistantMessageId, previousRunId },
+          wrappedCallbacks,
+          signal,
+        ),
+        openReconnect: async (lastEntryId, wrappedCallbacks, signal) => {
+          await reconnectStream(
+            conversationId,
+            lastEntryId,
+            wrappedCallbacks,
+            signal,
+          );
+        },
+        onPhaseChange: phase => {
+          if (!isActive()) return;
+          dispatch(setStreamStatus(phase));
+        },
+      });
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        const streamState = (store.getState() as RootStateForContinuation).stream;
+        const partialBlocks = selectFullStreamContentBlocks(streamState);
+        if (partialBlocks.length > 0) {
+          dispatch(updateMessage({
+            conversationId,
+            messageId: assistantMessageId,
+            patch: { content: partialBlocks },
+          }));
+        }
+        if (!terminalErrorHandled) {
+          dispatch(setStreamError({
+            message: error instanceof Error ? error.message : '继续执行失败',
+          }));
+        }
+        dispatch(endStream());
+      }
+    } finally {
+      if (activeContinuationRef.current?.token === token) {
+        activeContinuationRef.current = null;
+        abortControllerRef.current = null;
+      }
+    }
+  }, [dispatch, store]);
+
+  const stopContinueAgentRun = useCallback(async (): Promise<boolean> => {
+    const active = activeContinuationRef.current;
+    if (!active) {
+      return false;
+    }
+
+    activeContinuationRef.current = null;
+    abortControllerRef.current = null;
+
+    const streamState = (store.getState() as RootStateForContinuation).stream;
+    const partialBlocks = selectFullStreamContentBlocks(streamState);
+    if (partialBlocks.length > 0) {
+      dispatch(updateMessage({
+        conversationId: active.conversationId,
+        messageId: active.assistantMessageId,
+        patch: { content: partialBlocks },
+      }));
+    }
+
+    active.controller.abort();
+    const messageId = streamState.currentRun?.serverMessageId
+      ?? active.serverMessageId
+      ?? active.assistantMessageId;
+    if (active.serverTaskId) {
+      await stopStream(
+        active.conversationId,
+        messageId,
+        undefined,
+        undefined,
+        active.serverTaskId,
+      );
+    } else {
+      await stopStream(active.conversationId, messageId);
+    }
+    dispatch(endStream());
+    return true;
+  }, [dispatch, store]);
+
+  return { continueAgentRun, stopContinueAgentRun };
+}

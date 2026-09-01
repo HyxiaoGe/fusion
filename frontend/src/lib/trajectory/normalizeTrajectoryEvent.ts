@@ -1,0 +1,831 @@
+import type {
+  TrajectoryCapabilityPackageId,
+  TrajectoryCapabilityReasonCode,
+  TrajectoryCapabilityResolution,
+  TrajectoryCapabilitySkillResolution,
+  TrajectorySkillMetadata,
+} from '@/types/trajectory';
+
+export interface NormalizedTrajectoryEvent {
+  runId: string;
+  sequence: number;
+  eventType: string;
+  /** 0 表示 P0 升级前缺失的 legacy schema_version。 */
+  schemaVersion: number;
+  timestamp: string;
+  stepId: string | null;
+  toolCallId: string | null;
+  parentStepId: string | null;
+  traceId: string | null;
+  payload: Record<string, unknown>;
+}
+
+const SUPPORTED_SCHEMA_VERSIONS = new Set([0, 1]);
+const MAX_LEDGER_TEXT_LENGTH = 512;
+const MAX_LEDGER_LIST_ITEMS = 50;
+const SECRET_PATTERN = /\b(api[_-]?key|authorization|access[_-]?token|token|password|secret)\s*[:=]\s*(?:bearer\s+)?[^\s,;]+/gi;
+const ISO_TIMESTAMP_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(Z|[+-](\d{2}):(\d{2}))$/;
+
+const EVENT_PAYLOAD_FIELDS: Record<string, readonly string[]> = {
+  run_started: ['conversation_id', 'message_id', 'task_id', 'model', 'tools', 'capability_resolution'],
+  step_started: ['step_number'],
+  tool_call_started: ['tool_name', 'plan_item_id'],
+  tool_call_delta: ['tool_name'],
+  tool_call_completed: ['tool_name', 'status', 'duration_ms', 'plan_item_id'],
+  step_completed: ['step_number', 'tool_call_count', 'duration_ms'],
+  run_limit_reached: ['reason'],
+  run_interrupted: ['reason'],
+  run_failed: ['error_code', 'message'],
+  run_completed: ['total_steps', 'total_tool_calls', 'finish_reason'],
+  llm_round_started: ['llm_round_id', 'round_index', 'model', 'provider', 'system_prompt_fingerprint'],
+  llm_round_first_output_delta: ['llm_round_id', 'delta_kind', 'ttft_ms'],
+  llm_round_completed: [
+    'llm_round_id', 'status', 'finish_reason', 'input_tokens', 'output_tokens', 'total_tokens',
+    'cache_read_tokens', 'cache_write_tokens', 'reasoning_tokens', 'ttft_ms', 'duration_ms',
+  ],
+  llm_round_failed: ['llm_round_id', 'status', 'error_code', 'message'],
+  llm_round_cancelled: ['llm_round_id', 'status', 'reason'],
+  retrieval_started: ['retrieval_id', 'query_summary'],
+  retrieval_completed: ['retrieval_id', 'status', 'document_count', 'duration_ms'],
+  retrieval_failed: ['retrieval_id', 'status', 'error_code', 'message'],
+  retrieval_cancelled: ['retrieval_id', 'status', 'reason'],
+  tool_attempt_started: ['tool_attempt_id', 'tool_name', 'attempt_index'],
+  tool_attempt_completed: ['tool_attempt_id', 'status', 'error_code', 'duration_ms'],
+  suggested_questions_pending: ['protocol_version', 'message_id', 'revision', 'status'],
+  run_progress_updated: [
+    'protocol_version', 'phase', 'label', 'completed_steps', 'total_steps',
+    'completed_tool_calls', 'max_tool_calls',
+  ],
+  plan_snapshot: ['protocol_version', 'plan_id', 'mode', 'source', 'revision', 'reason', 'items'],
+  plan_step_updated: ['protocol_version', 'plan_id', 'mode', 'source', 'revision', 'reason', 'item'],
+  tool_result_digest: [
+    'protocol_version', 'tool_name', 'status', 'title', 'summary', 'key_findings', 'source_refs',
+    'truncated', 'repair_state', 'repair_id', 'plan_item_id',
+  ],
+  evidence_item_upserted: ['protocol_version', 'evidence'],
+  content_block_upserted: ['protocol_version'],
+  content_block_discarded: ['protocol_version', 'block_id'],
+  system_prompt_prepared: [
+    'protocol_version', 'status', 'source', 'template_version', 'section_ids',
+    'fingerprint', 'char_count', 'duration_ms', 'error_code', 'message', 'detail_status',
+  ],
+  skills_resolved: [
+    'protocol_version', 'status', 'activation_source', 'requested_skill_ids', 'skills', 'duration_ms',
+    'detail_status', 'error_code',
+  ],
+  context_status_updated: [
+    'protocol_version', 'message_id', 'phase', 'status', 'round_index', 'window_tokens',
+    'estimated_tokens_before', 'estimated_tokens_after', 'actual_prompt_tokens', 'removed_turns',
+    'removed_messages', 'removed_tool_transactions',
+  ],
+  context_required: ['protocol_version', 'context_type', 'request_id', 'purpose', 'reason', 'expires_at'],
+  context_result: ['protocol_version', 'context_type', 'request_id', 'status'],
+};
+
+const PLAN_ITEM_FIELDS = new Set([
+  'id', 'title', 'phase_id', 'phase_title', 'status', 'kind', 'summary', 'tool_names',
+  'evidence_item_ids', 'depends_on', 'planned_tools',
+]);
+const PLAN_ITEM_LIST_FIELDS = new Set([
+  'tool_names', 'evidence_item_ids', 'depends_on', 'planned_tools',
+]);
+const EVIDENCE_FIELDS = new Set([
+  'id', 'kind', 'status', 'title', 'url', 'domain', 'claim', 'snippet',
+  'used_by_final_answer', 'citation_index',
+]);
+const LIST_FIELDS = new Set(['tools', 'key_findings', 'source_refs', 'section_ids']);
+const CAPABILITY_RESOLUTION_COMMON_FIELDS = [
+  'schema_version',
+  'router_version',
+  'package_id',
+  'confidence',
+  'resolution_mode',
+  'reason_codes',
+  'external_tool_names',
+  'effective_plan_mode',
+  'include_current_date',
+  'network_boundary_required',
+] as const;
+const CAPABILITY_RESOLUTION_V1_FIELDS = new Set([
+  ...CAPABILITY_RESOLUTION_COMMON_FIELDS,
+  'bundle_fingerprint',
+]);
+const CAPABILITY_RESOLUTION_V2_FIELDS = new Set([
+  ...CAPABILITY_RESOLUTION_COMMON_FIELDS,
+  'bundle_fingerprint',
+  'skill_resolution',
+]);
+const CAPABILITY_PACKAGE_IDS = new Set<TrajectoryCapabilityPackageId>([
+  'direct',
+  'transform',
+  'date',
+  'fresh_web',
+  'verified_web',
+  'url_read',
+  'weather',
+  'place_discovery',
+  'mobility_route',
+  'flight',
+  'train',
+  'travel_air_rail',
+  'mobility_intercity',
+  'mixed_itinerary',
+  'deep_research',
+  'knowledge_grounded',
+  'tools_unavailable',
+  'clarification_only',
+  'mcp_explicit',
+]);
+const CAPABILITY_REASON_CODES = new Set<TrajectoryCapabilityReasonCode>([
+  'direct_greeting',
+  'assistant_identity_question',
+  'stable_knowledge_question',
+  'simple_calculation',
+  'text_transform_request',
+  'current_date_question',
+  'fresh_external_fact',
+  'verified_source_request',
+  'explicit_url_read',
+  'explicit_weather_request',
+  'explicit_place_discovery',
+  'explicit_route_task',
+  'explicit_flight_request',
+  'explicit_train_request',
+  'air_rail_comparison',
+  'mixed_itinerary_request',
+  'origin_destination_relation',
+  'intercity_locations',
+  'adjacent_route_followup',
+  'deep_research_mode',
+  'knowledge_grounded_mode',
+  'tools_disabled',
+  'function_calling_unavailable',
+  'search_capability_unavailable',
+  'required_tools_unavailable',
+  'required_skill_unavailable',
+  'explicit_authorized_tool_alias',
+  'insufficient_capability_signal',
+]);
+const CAPABILITY_CONFIDENCE = new Set(['high', 'medium', 'low']);
+const CAPABILITY_RESOLUTION_MODES = new Set(['routed', 'degraded', 'clarification']);
+const CAPABILITY_PLAN_MODES = new Set(['auto', 'on', 'off']);
+const ROUTER_VERSION_PATTERN = /^\d{4}-\d{2}-\d{2}\.\d+$/;
+const BUNDLE_FINGERPRINT_PATTERN = /^sha256:[0-9a-f]{64}$/;
+const TOOL_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_-]{0,127}$/;
+const MCP_TOOL_ALIAS_PATTERN = /^mcp_[A-Za-z0-9_-]+$/;
+const SKILL_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const SKILL_VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
+const SKILL_ALLOWED_TOOL_ORDER = [
+  'web_search',
+  'url_read',
+  'weather_forecast',
+  'local_place_search',
+  'route_compare',
+  'search_flights',
+  'search_trains',
+] as const;
+const SKILL_METADATA_FIELDS = new Set([
+  'skill_id', 'version', 'content_sha256', 'allowed_tool_names', 'section_id', 'char_count',
+]);
+const CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES: Record<
+  Exclude<TrajectoryCapabilityPackageId, 'mcp_explicit'>,
+  readonly string[]
+> = {
+  direct: [],
+  transform: [],
+  date: [],
+  fresh_web: ['web_search'],
+  verified_web: ['web_search', 'url_read'],
+  url_read: ['url_read'],
+  weather: ['weather_forecast'],
+  place_discovery: ['local_place_search'],
+  mobility_route: ['route_compare'],
+  flight: ['search_flights'],
+  train: ['search_trains'],
+  travel_air_rail: ['search_flights', 'search_trains'],
+  mobility_intercity: ['route_compare', 'search_flights', 'search_trains'],
+  mixed_itinerary: [
+    'weather_forecast',
+    'local_place_search',
+    'route_compare',
+    'search_flights',
+    'search_trains',
+  ],
+  deep_research: ['web_search', 'url_read'],
+  knowledge_grounded: [],
+  tools_unavailable: [],
+  clarification_only: [],
+};
+const CAPABILITY_AUTO_PLAN_PACKAGES = new Set<TrajectoryCapabilityPackageId>([
+  'verified_web',
+  'mobility_route',
+  'travel_air_rail',
+  'mobility_intercity',
+  'mixed_itinerary',
+]);
+const FIXED_INCLUDE_CURRENT_DATE: Partial<Record<TrajectoryCapabilityPackageId, boolean>> = {
+  direct: false,
+  transform: false,
+  date: true,
+  fresh_web: true,
+  verified_web: true,
+  url_read: false,
+  weather: true,
+  place_discovery: false,
+  flight: true,
+  train: true,
+  travel_air_rail: true,
+  mobility_intercity: true,
+  mixed_itinerary: true,
+  deep_research: true,
+  clarification_only: false,
+};
+const CAPABILITY_PACKAGE_REASON_CODE_OPTIONS: Record<
+  TrajectoryCapabilityPackageId,
+  readonly (readonly TrajectoryCapabilityReasonCode[])[]
+> = {
+  direct: [
+    ['direct_greeting'],
+    ['assistant_identity_question'],
+    ['stable_knowledge_question'],
+    ['simple_calculation'],
+  ],
+  transform: [['text_transform_request']],
+  date: [['current_date_question']],
+  fresh_web: [['fresh_external_fact']],
+  verified_web: [['verified_source_request']],
+  url_read: [['explicit_url_read']],
+  weather: [['explicit_weather_request']],
+  place_discovery: [['explicit_place_discovery']],
+  mobility_route: [['explicit_route_task'], ['adjacent_route_followup']],
+  flight: [['explicit_flight_request']],
+  train: [['explicit_train_request']],
+  travel_air_rail: [['air_rail_comparison']],
+  mobility_intercity: [['origin_destination_relation', 'intercity_locations']],
+  mixed_itinerary: [['mixed_itinerary_request']],
+  deep_research: [['deep_research_mode']],
+  knowledge_grounded: [['knowledge_grounded_mode']],
+  tools_unavailable: [
+    ['tools_disabled'],
+    ['function_calling_unavailable'],
+    ['search_capability_unavailable'],
+    ['required_tools_unavailable'],
+    ['required_skill_unavailable'],
+  ],
+  clarification_only: [['insufficient_capability_signal']],
+  mcp_explicit: [['explicit_authorized_tool_alias']],
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isUniqueEnumList<T extends string>(
+  value: unknown,
+  allowed: ReadonlySet<T>,
+  minLength: number,
+  maxLength: number,
+): value is T[] {
+  return Array.isArray(value)
+    && value.length >= minLength
+    && value.length <= maxLength
+    && value.every(item => typeof item === 'string' && allowed.has(item as T))
+    && new Set(value).size === value.length;
+}
+
+function hasCanonicalSkillToolOrder(value: readonly unknown[]): value is string[] {
+  if (!value.every(tool => typeof tool === 'string' && SKILL_ALLOWED_TOOL_ORDER.includes(
+    tool as (typeof SKILL_ALLOWED_TOOL_ORDER)[number],
+  ))) return false;
+  const selected = new Set(value as string[]);
+  const canonical = SKILL_ALLOWED_TOOL_ORDER.filter(tool => selected.has(tool));
+  return canonical.length === value.length
+    && canonical.every((tool, index) => tool === value[index]);
+}
+
+/** 将实时与历史来源统一收敛为同一个有界能力路由对象。 */
+export function normalizeTrajectoryCapabilityResolution(
+  value: unknown,
+): TrajectoryCapabilityResolution | null {
+  if (!isRecord(value)) return null;
+  const keys = Object.keys(value);
+  const fields = value.schema_version === 1
+    ? CAPABILITY_RESOLUTION_V1_FIELDS
+    : value.schema_version === 2
+      ? CAPABILITY_RESOLUTION_V2_FIELDS
+      : null;
+  if (!fields
+    || keys.length !== fields.size
+    || keys.some(key => !fields.has(key))) return null;
+  if (typeof value.router_version !== 'string'
+    || value.router_version.length > 32
+    || !ROUTER_VERSION_PATTERN.test(value.router_version)
+    || typeof value.package_id !== 'string'
+    || !CAPABILITY_PACKAGE_IDS.has(value.package_id as TrajectoryCapabilityPackageId)
+    || typeof value.confidence !== 'string'
+    || !CAPABILITY_CONFIDENCE.has(value.confidence)
+    || typeof value.resolution_mode !== 'string'
+    || !CAPABILITY_RESOLUTION_MODES.has(value.resolution_mode)
+    || !isUniqueEnumList(value.reason_codes, CAPABILITY_REASON_CODES, 1, 4)
+    || !Array.isArray(value.external_tool_names)
+    || value.external_tool_names.length > 3
+    || value.external_tool_names.some(tool => (
+      typeof tool !== 'string' || !TOOL_NAME_PATTERN.test(tool) || tool === 'update_plan'
+    ))
+    || new Set(value.external_tool_names).size !== value.external_tool_names.length
+    || typeof value.effective_plan_mode !== 'string'
+    || !CAPABILITY_PLAN_MODES.has(value.effective_plan_mode)
+    || typeof value.include_current_date !== 'boolean'
+    || typeof value.network_boundary_required !== 'boolean'
+    || typeof value.bundle_fingerprint !== 'string'
+    || !BUNDLE_FINGERPRINT_PATTERN.test(value.bundle_fingerprint)) return null;
+
+  const common = {
+    router_version: value.router_version,
+    package_id: value.package_id as TrajectoryCapabilityPackageId,
+    confidence: value.confidence as TrajectoryCapabilityResolution['confidence'],
+    resolution_mode: value.resolution_mode as TrajectoryCapabilityResolution['resolution_mode'],
+    reason_codes: [...value.reason_codes],
+    external_tool_names: [...value.external_tool_names],
+    effective_plan_mode: value.effective_plan_mode as TrajectoryCapabilityResolution['effective_plan_mode'],
+    include_current_date: value.include_current_date,
+    network_boundary_required: value.network_boundary_required,
+    bundle_fingerprint: value.bundle_fingerprint,
+  };
+  const resolution: TrajectoryCapabilityResolution | null = value.schema_version === 1
+    ? { schema_version: 1, ...common }
+    : (() => {
+        const skillResolution = normalizeTrajectoryCapabilitySkillResolution(value.skill_resolution);
+        return skillResolution
+          ? { schema_version: 2, ...common, skill_resolution: skillResolution }
+          : null;
+      })();
+  return resolution
+    && hasValidCapabilityResolutionSemantics(resolution)
+    && hasValidCapabilitySkillSemantics(resolution)
+    ? resolution
+    : null;
+}
+
+function normalizeTrajectorySkillMetadata(value: unknown): TrajectorySkillMetadata | null {
+  if (!isRecord(value)) return null;
+  const keys = Object.keys(value);
+  if (keys.length !== SKILL_METADATA_FIELDS.size
+    || keys.some(key => !SKILL_METADATA_FIELDS.has(key))
+    || typeof value.skill_id !== 'string'
+    || value.skill_id.length > 128
+    || !SKILL_ID_PATTERN.test(value.skill_id)
+    || typeof value.version !== 'string'
+    || !SKILL_VERSION_PATTERN.test(value.version)
+    || typeof value.content_sha256 !== 'string'
+    || !/^[0-9a-f]{64}$/.test(value.content_sha256)
+    || !Array.isArray(value.allowed_tool_names)
+    || value.allowed_tool_names.length === 0
+    || value.allowed_tool_names.length > 3
+    || value.allowed_tool_names.some(tool => (
+      typeof tool !== 'string' || !TOOL_NAME_PATTERN.test(tool) || tool === 'update_plan'
+    ))
+    || new Set(value.allowed_tool_names).size !== value.allowed_tool_names.length
+    || !hasCanonicalSkillToolOrder(value.allowed_tool_names)
+    || typeof value.section_id !== 'string'
+    || value.section_id !== `skill:${value.skill_id}@${value.version}`
+    || typeof value.char_count !== 'number'
+    || !Number.isInteger(value.char_count)
+    || value.char_count < 1
+    || value.char_count > 32_768) return null;
+  return {
+    skill_id: value.skill_id,
+    version: value.version,
+    content_sha256: value.content_sha256,
+    allowed_tool_names: [...value.allowed_tool_names],
+    section_id: value.section_id,
+    char_count: value.char_count,
+  };
+}
+
+const CAPABILITY_SKILL_RESOLUTION_FIELDS = new Set([
+  'status', 'activation_source', 'requested_skill_ids', 'skills', 'duration_ms', 'error_code',
+]);
+
+function normalizeTrajectoryCapabilitySkillResolution(
+  value: unknown,
+): TrajectoryCapabilitySkillResolution | null {
+  if (!isRecord(value)) return null;
+  const keys = Object.keys(value);
+  if (keys.length !== CAPABILITY_SKILL_RESOLUTION_FIELDS.size
+    || keys.some(key => !CAPABILITY_SKILL_RESOLUTION_FIELDS.has(key))
+    || (value.status !== 'not_selected'
+      && value.status !== 'loaded'
+      && value.status !== 'load_failed')
+    || value.activation_source !== 'capability_package'
+    || !Array.isArray(value.requested_skill_ids)
+    || value.requested_skill_ids.length > 1
+    || value.requested_skill_ids.some(skillId => (
+      typeof skillId !== 'string'
+      || skillId.length > 128
+      || !SKILL_ID_PATTERN.test(skillId)
+    ))
+    || new Set(value.requested_skill_ids).size !== value.requested_skill_ids.length
+    || !Array.isArray(value.skills)
+    || value.skills.length > 1
+    || typeof value.duration_ms !== 'number'
+    || !Number.isInteger(value.duration_ms)
+    || value.duration_ms < 0
+    || (value.error_code !== null && value.error_code !== 'skill_load_failed')) return null;
+  const skills = value.skills.map(normalizeTrajectorySkillMetadata);
+  if (skills.some(skill => skill === null)) return null;
+  const normalizedSkills = skills as TrajectorySkillMetadata[];
+  if (value.status === 'not_selected' && (
+    value.requested_skill_ids.length !== 0
+    || normalizedSkills.length !== 0
+    || value.error_code !== null
+  )) return null;
+  if (value.status === 'loaded' && (
+    value.requested_skill_ids.length !== 1
+    || normalizedSkills.length !== 1
+    || normalizedSkills[0].skill_id !== value.requested_skill_ids[0]
+    || value.error_code !== null
+  )) return null;
+  if (value.status === 'load_failed' && (
+    value.requested_skill_ids.length !== 1
+    || normalizedSkills.length !== 0
+    || value.error_code !== 'skill_load_failed'
+  )) return null;
+  return {
+    status: value.status,
+    activation_source: 'capability_package',
+    requested_skill_ids: [...value.requested_skill_ids],
+    skills: normalizedSkills,
+    duration_ms: value.duration_ms,
+    error_code: value.error_code,
+  };
+}
+
+function normalizeSkillsResolvedPayload(
+  value: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const status = value.status;
+  if (value.protocol_version !== 2
+    || (status !== 'not_selected' && status !== 'loaded' && status !== 'load_failed')
+    || value.activation_source !== 'capability_package'
+    || !Array.isArray(value.requested_skill_ids)
+    || value.requested_skill_ids.length > 1
+    || value.requested_skill_ids.some(skillId => (
+      typeof skillId !== 'string'
+      || skillId.length > 128
+      || !SKILL_ID_PATTERN.test(skillId)
+    ))
+    || new Set(value.requested_skill_ids).size !== value.requested_skill_ids.length
+    || !Array.isArray(value.skills)
+    || value.skills.length > 1
+    || typeof value.duration_ms !== 'number'
+    || !Number.isInteger(value.duration_ms)
+    || value.duration_ms < 0
+    || (value.detail_status !== null
+      && value.detail_status !== 'available'
+      && value.detail_status !== 'degraded')
+    || (value.error_code !== null && value.error_code !== 'skill_load_failed')) {
+    return null;
+  }
+  const skills = value.skills.map(normalizeTrajectorySkillMetadata);
+  if (skills.some(skill => skill === null)) return null;
+  const normalizedSkills = skills as TrajectorySkillMetadata[];
+  if (status === 'not_selected' && (
+    value.requested_skill_ids.length !== 0
+    || normalizedSkills.length !== 0
+    || value.detail_status !== null
+    || value.error_code !== null
+  )) return null;
+  if (status === 'loaded' && (
+    value.requested_skill_ids.length !== 1
+    || normalizedSkills.length !== 1
+    || normalizedSkills[0].skill_id !== value.requested_skill_ids[0]
+    || (value.detail_status !== 'available' && value.detail_status !== 'degraded')
+    || value.error_code !== null
+  )) return null;
+  if (status === 'load_failed' && (
+    value.requested_skill_ids.length !== 1
+    || normalizedSkills.length !== 0
+    || value.detail_status !== null
+    || typeof value.error_code !== 'string'
+  )) return null;
+  return {
+    protocol_version: 2,
+    status,
+    activation_source: 'capability_package',
+    requested_skill_ids: [...value.requested_skill_ids],
+    skills: normalizedSkills,
+    duration_ms: value.duration_ms,
+    detail_status: value.detail_status,
+    error_code: value.error_code,
+  };
+}
+
+function hasValidCapabilityResolutionSemantics(
+  resolution: TrajectoryCapabilityResolution,
+): boolean {
+  const tools = resolution.external_tool_names;
+  if (resolution.package_id === 'mcp_explicit') {
+    if (tools.length !== 1 || !MCP_TOOL_ALIAS_PATTERN.test(tools[0])) return false;
+  } else {
+    const allowedTools = CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES[resolution.package_id];
+    if (allowedTools.length === 0 && tools.length > 0) return false;
+    if (allowedTools.length > 0 && tools.length === 0) return false;
+    if (tools.some(tool => !allowedTools.includes(tool))) return false;
+    const canonicalTools = allowedTools.filter(tool => tools.includes(tool));
+    if (tools.length !== canonicalTools.length
+      || tools.some((tool, index) => tool !== canonicalTools[index])) return false;
+    if (resolution.package_id === 'deep_research'
+      && (tools.length !== allowedTools.length
+        || allowedTools.some(tool => !tools.includes(tool)))) return false;
+  }
+
+  if (resolution.package_id === 'deep_research') {
+    if (resolution.effective_plan_mode !== 'on') return false;
+  } else if (resolution.package_id === 'knowledge_grounded'
+    || resolution.package_id === 'tools_unavailable') {
+    if (resolution.effective_plan_mode !== 'off') return false;
+  } else if (!CAPABILITY_AUTO_PLAN_PACKAGES.has(resolution.package_id)
+    && resolution.effective_plan_mode === 'auto') return false;
+
+  const fixedDate = FIXED_INCLUDE_CURRENT_DATE[resolution.package_id];
+  if (fixedDate !== undefined && resolution.include_current_date !== fixedDate) return false;
+
+  if (resolution.package_id !== 'knowledge_grounded') {
+    const expectedBoundary = resolution.package_id === 'tools_unavailable';
+    if (resolution.network_boundary_required !== expectedBoundary) return false;
+  }
+
+  const allowedReasons = CAPABILITY_PACKAGE_REASON_CODE_OPTIONS[resolution.package_id];
+  if (!allowedReasons.some(reasonCodes => (
+    reasonCodes.length === resolution.reason_codes.length
+    && reasonCodes.every((reasonCode, index) => resolution.reason_codes[index] === reasonCode)
+  ))) return false;
+
+  const allowedConfidence = resolution.package_id === 'mobility_intercity'
+    ? resolution.confidence === 'medium'
+    : resolution.package_id === 'tools_unavailable'
+      ? resolution.confidence === 'high' || resolution.confidence === 'medium'
+      : resolution.package_id === 'clarification_only'
+        ? resolution.confidence === 'low'
+        : resolution.confidence === 'high';
+  if (!allowedConfidence) return false;
+
+  const expectedResolutionMode = resolution.package_id === 'tools_unavailable'
+    ? 'degraded'
+    : resolution.package_id === 'clarification_only'
+      ? 'clarification'
+      : 'routed';
+  return resolution.resolution_mode === expectedResolutionMode;
+}
+
+function hasValidCapabilitySkillSemantics(
+  resolution: TrajectoryCapabilityResolution,
+): boolean {
+  if (resolution.schema_version === 1) return true;
+  const skillResolution = resolution.skill_resolution;
+  if (skillResolution.status === 'not_selected') {
+    return resolution.package_id !== 'verified_web';
+  }
+  if (skillResolution.status === 'loaded') {
+    const skill = skillResolution.skills[0];
+    return resolution.package_id === 'verified_web'
+      && skillResolution.requested_skill_ids[0] === 'verified-research'
+      && skill.skill_id === 'verified-research'
+      && skill.allowed_tool_names.length === resolution.external_tool_names.length
+      && skill.allowed_tool_names.every((tool, index) => tool === resolution.external_tool_names[index]);
+  }
+  return resolution.package_id === 'tools_unavailable'
+    && resolution.reason_codes.length === 1
+    && resolution.reason_codes[0] === 'required_skill_unavailable'
+    && skillResolution.requested_skill_ids[0] === 'verified-research';
+}
+
+function nullableString(value: unknown): string | null | undefined {
+  return value === null || typeof value === 'string' ? value : undefined;
+}
+
+function boundedText(value: unknown): string {
+  return String(value).replace(SECRET_PATTERN, (_, key: string) => `${key}=[REDACTED]`)
+    .slice(0, MAX_LEDGER_TEXT_LENGTH);
+}
+
+function boundedList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, MAX_LEDGER_LIST_ITEMS).map(boundedText);
+}
+
+function safeUrl(value: unknown): string | null {
+  if (value === null) return null;
+  try {
+    const url = new URL(boundedText(value));
+    if (!['http:', 'https:'].includes(url.protocol) || !url.hostname) return null;
+    return `${url.protocol}//${url.host}${url.pathname}`.slice(0, MAX_LEDGER_TEXT_LENGTH);
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeScalar(value: unknown): unknown {
+  return value === null || typeof value === 'boolean' || typeof value === 'number'
+    ? value
+    : boundedText(value);
+}
+
+function sanitizePlanItem(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) return {};
+  const item: Record<string, unknown> = {};
+  for (const field of PLAN_ITEM_FIELDS) {
+    if (!(field in value)) continue;
+    item[field] = PLAN_ITEM_LIST_FIELDS.has(field)
+      ? boundedList(value[field])
+      : sanitizeScalar(value[field]);
+  }
+  return item;
+}
+
+function sanitizePlanItems(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, MAX_LEDGER_LIST_ITEMS).map(sanitizePlanItem);
+}
+
+function sanitizeEvidence(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) return {};
+  const evidence: Record<string, unknown> = {};
+  for (const field of EVIDENCE_FIELDS) {
+    if (!(field in value)) continue;
+    evidence[field] = field === 'url' ? safeUrl(value[field]) : sanitizeScalar(value[field]);
+  }
+  return evidence;
+}
+
+function normalizeSchemaVersion(value: unknown): number | null {
+  if (value === undefined || value === null) return 0;
+  return typeof value === 'number' && Number.isInteger(value) && SUPPORTED_SCHEMA_VERSIONS.has(value)
+    ? value
+    : null;
+}
+
+function canonicalTimestamp(value: string): string | null {
+  const match = ISO_TIMESTAMP_PATTERN.exec(value);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const offsetHour = match[9] === undefined ? 0 : Number(match[9]);
+  const offsetMinute = match[10] === undefined ? 0 : Number(match[10]);
+  const isLeapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, isLeapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (
+    month < 1
+    || month > 12
+    || day < 1
+    || day > daysInMonth[month - 1]
+    || hour > 23
+    || minute > 59
+    || second > 59
+    || offsetHour > 23
+    || offsetMinute > 59
+  ) return null;
+  const timestamp = new Date(value);
+  return Number.isNaN(timestamp.getTime()) ? null : timestamp.toISOString();
+}
+
+function sanitizePayload(eventType: string, source: Record<string, unknown>): Record<string, unknown> | null {
+  const fields = EVENT_PAYLOAD_FIELDS[eventType];
+  if (!fields) return null;
+
+  if (eventType === 'skills_resolved') return normalizeSkillsResolvedPayload(source);
+
+  if (eventType === 'system_prompt_prepared' && (
+    source.protocol_version !== 2 || (source.status !== 'ready' && source.status !== 'failed')
+    || source.source !== 'code' || typeof source.template_version !== 'string'
+    || !Array.isArray(source.section_ids) || !source.section_ids.every(item => typeof item === 'string')
+    || typeof source.duration_ms !== 'number' || !Number.isInteger(source.duration_ms) || source.duration_ms < 0
+  )) return null;
+  const payload: Record<string, unknown> = {};
+  for (const field of fields) {
+    if (!(field in source)) continue;
+    if (field === 'fingerprint' || field === 'system_prompt_fingerprint') {
+      if (source[field] === null || (typeof source[field] === 'string' && /^[a-f0-9]{64}$/i.test(source[field]))) payload[field] = source[field];
+    } else if (eventType === 'system_prompt_prepared' && field === 'char_count') {
+      if (source[field] === null || (typeof source[field] === 'number' && Number.isInteger(source[field]) && source[field] >= 0)) payload[field] = source[field];
+    } else if (eventType === 'system_prompt_prepared' && field === 'detail_status') {
+      if (source[field] === null || source[field] === 'available' || source[field] === 'degraded') payload[field] = source[field];
+    } else if (eventType === 'system_prompt_prepared' && field === 'message') {
+      if (source[field] === null
+        || source[field] === '系统提示词组装失败'
+        || source[field] === '系统提示词组装失败，请稍后重试。') payload[field] = source[field];
+    } else if (field === 'capability_resolution') {
+      const resolution = normalizeTrajectoryCapabilityResolution(source[field]);
+      if (resolution) payload[field] = resolution;
+    } else if (field === 'items') payload[field] = sanitizePlanItems(source[field]);
+    else if (field === 'item') payload[field] = sanitizePlanItem(source[field]);
+    else if (field === 'evidence') payload[field] = sanitizeEvidence(source[field]);
+    else if (LIST_FIELDS.has(field)) payload[field] = boundedList(source[field]);
+    else payload[field] = sanitizeScalar(source[field]);
+  }
+  return payload;
+}
+
+function hasValidEnvelope(
+  source: Record<string, unknown>,
+): source is Record<string, unknown> & { type: string; run_id: string; sequence: number; ts: number; trace_id: string } {
+  return typeof source.type === 'string'
+    && typeof source.run_id === 'string'
+    && typeof source.sequence === 'number'
+    && Number.isInteger(source.sequence)
+    && source.sequence >= 0
+    && typeof source.ts === 'number'
+    && Number.isFinite(source.ts)
+    && typeof source.trace_id === 'string';
+}
+
+function hasValidRecordEnvelope(
+  source: Record<string, unknown>,
+): source is Record<string, unknown> & {
+  sequence: number;
+  event_type: string;
+  timestamp: string;
+  payload: Record<string, unknown>;
+} {
+  return typeof source.sequence === 'number'
+    && Number.isInteger(source.sequence)
+    && source.sequence >= 0
+    && typeof source.event_type === 'string'
+    && typeof source.timestamp === 'string'
+    && isRecord(source.payload);
+}
+
+/** 将实时 agent_event 转成普通用户轨迹可消费的受控事件。 */
+export function normalizeSseTrajectoryEvent(input: unknown): NormalizedTrajectoryEvent | null {
+  if (!isRecord(input) || !hasValidEnvelope(input)) {
+    return null;
+  }
+  const schemaVersion = normalizeSchemaVersion(input.schema_version);
+  if (schemaVersion === null) return null;
+  const stepId = nullableString(input.step_id);
+  const toolCallId = nullableString(input.tool_call_id);
+  const parentStepId = nullableString(input.parent_step_id);
+  if (stepId === undefined || toolCallId === undefined || parentStepId === undefined) return null;
+
+  const payload = sanitizePayload(input.type, input);
+  if (payload === null) return null;
+  const timestamp = new Date(input.ts * 1000);
+  if (Number.isNaN(timestamp.getTime())) return null;
+
+  return {
+    runId: input.run_id,
+    sequence: input.sequence,
+    eventType: input.type,
+    schemaVersion,
+    timestamp: timestamp.toISOString(),
+    stepId,
+    toolCallId,
+    parentStepId,
+    traceId: input.trace_id,
+    payload,
+  };
+}
+
+/** 将 P1 durable record 转成与实时 SSE 相同的普通用户事件。 */
+export function normalizeTrajectoryRecord(runId: string, input: unknown): NormalizedTrajectoryEvent | null {
+  if (!isRecord(input)
+    || typeof runId !== 'string'
+    || !hasValidRecordEnvelope(input)) {
+    return null;
+  }
+  const record = input;
+  const schemaVersion = normalizeSchemaVersion(record.schema_version);
+  if (schemaVersion === null) return null;
+  const stepId = nullableString(record.step_id);
+  const toolCallId = nullableString(record.tool_call_id);
+  const parentStepId = nullableString(record.parent_step_id);
+  const traceId = nullableString(record.trace_id);
+  if (stepId === undefined || toolCallId === undefined || parentStepId === undefined || traceId === undefined) {
+    return null;
+  }
+  if (record.payload.type !== undefined && record.payload.type !== record.event_type) return null;
+  if (record.payload.run_id !== undefined && record.payload.run_id !== runId) return null;
+
+  const payload = sanitizePayload(record.event_type, record.payload);
+  if (payload === null) return null;
+  const timestamp = canonicalTimestamp(record.timestamp);
+  if (timestamp === null) return null;
+
+  return {
+    runId,
+    sequence: record.sequence,
+    eventType: record.event_type,
+    schemaVersion,
+    timestamp,
+    stepId,
+    toolCallId,
+    parentStepId,
+    traceId,
+    payload,
+  };
+}

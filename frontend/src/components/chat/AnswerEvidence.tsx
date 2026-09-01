@@ -1,0 +1,248 @@
+'use client';
+
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { BookOpen, ExternalLink, FileSearch, Globe2, Search } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import type { AnswerEvidenceItem, AnswerEvidenceModel } from './answerEvidenceModel';
+import { layoutAnswerEvidenceItems } from './answerEvidenceLayout';
+
+interface AnswerEvidenceProps {
+  evidence: AnswerEvidenceModel | null;
+  onSourceClick: (index: number) => void;
+  onOpenSources: () => void;
+  hasSidebarContent?: boolean;
+  sidebarIssueCount?: number;
+}
+
+export default function AnswerEvidence({
+  evidence,
+  onSourceClick,
+  onOpenSources,
+  hasSidebarContent = false,
+  sidebarIssueCount = 0,
+}: AnswerEvidenceProps) {
+  if (!evidence || evidence.totalCount === 0) {
+    if (hasSidebarContent && sidebarIssueCount > 0) {
+      return (
+        <section className="mb-2 rounded-md border border-border/30 bg-transparent px-2.5 py-2 text-xs text-muted-foreground">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <FileSearch className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate font-medium text-muted-foreground">
+              回答依据 · {sidebarIssueCount} 个未使用
+            </span>
+            <button
+              type="button"
+              aria-label="查看全部依据"
+              data-chat-detail-overlay-trigger="true"
+              onClick={onOpenSources}
+              className="shrink-0 rounded-full border border-border/40 bg-background/70 px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:border-border/60 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            >
+              查看全部依据
+            </button>
+          </div>
+        </section>
+      );
+    }
+    return null;
+  }
+
+  return (
+    <AnswerEvidenceContent
+      evidence={evidence}
+      onSourceClick={onSourceClick}
+      onOpenSources={onOpenSources}
+      hasSidebarContent={hasSidebarContent}
+    />
+  );
+}
+
+function AnswerEvidenceContent({
+  evidence,
+  onSourceClick,
+  onOpenSources,
+  hasSidebarContent,
+}: {
+  evidence: AnswerEvidenceModel;
+  onSourceClick: (index: number) => void;
+  onOpenSources: () => void;
+  hasSidebarContent: boolean;
+}) {
+  const itemsContainerRef = useRef<HTMLDivElement | null>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+  const layout = useMemo(
+    () => layoutAnswerEvidenceItems({
+      items: evidence.items,
+      containerWidth,
+    }),
+    [containerWidth, evidence.items],
+  );
+  const showHiddenSearch = layout.hiddenSearchCount > 0;
+  const showHiddenUrls = layout.hiddenUrlCount > 0;
+  const showHiddenKnowledge = layout.hiddenKnowledgeCount > 0;
+  const showOpenAll = hasSidebarContent || layout.hasHiddenItems;
+
+  useEffect(() => {
+    const node = itemsContainerRef.current;
+    if (!node) {
+      return;
+    }
+
+    const updateWidth = (width?: number) => {
+      setContainerWidth(Math.max(0, Math.floor(width ?? node.getBoundingClientRect().width)));
+    };
+
+    updateWidth();
+
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const observer = new ResizeObserver((entries) => {
+      updateWidth(entries[0]?.contentRect.width);
+    });
+
+    observer.observe(node);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [evidence.totalCount]);
+
+  return (
+    <section className="mb-2 rounded-md border border-border/30 bg-transparent px-2.5 py-2 text-xs text-muted-foreground">
+      <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2">
+        <FileSearch className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate font-medium text-muted-foreground">
+          {evidence.summary}
+        </span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {showHiddenSearch ? (
+            <EvidenceMetaChip>未预览 {layout.hiddenSearchCount} 条搜索</EvidenceMetaChip>
+          ) : null}
+          {showHiddenUrls ? (
+            <EvidenceMetaChip>未预览 {layout.hiddenUrlCount} 个网页</EvidenceMetaChip>
+          ) : null}
+          {showHiddenKnowledge ? (
+            <EvidenceMetaChip>未预览 {layout.hiddenKnowledgeCount} 条知识依据</EvidenceMetaChip>
+          ) : null}
+          {showOpenAll ? (
+            <button
+              type="button"
+              aria-label="查看全部依据"
+              data-chat-detail-overlay-trigger="true"
+              onClick={onOpenSources}
+              className="shrink-0 rounded-full border border-border/40 bg-background/70 px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:border-border/60 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            >
+              查看全部依据
+            </button>
+          ) : null}
+        </div>
+      </div>
+      <div
+        ref={itemsContainerRef}
+        data-testid="answer-evidence-items"
+        className="flex min-w-0 flex-nowrap gap-2 overflow-hidden"
+      >
+        {layout.visibleItems.map(item => (
+          <EvidenceItem
+            key={item.id}
+            item={item}
+            onSourceClick={onSourceClick}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function EvidenceMetaChip({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="shrink-0 rounded-full border border-border/30 bg-muted/20 px-2 py-0.5 text-[11px] text-muted-foreground">
+      {children}
+    </span>
+  );
+}
+
+function EvidenceItem({
+  item,
+  onSourceClick,
+}: {
+  item: AnswerEvidenceItem;
+  onSourceClick: (index: number) => void;
+}) {
+  const content = <EvidenceItemContent item={item} />;
+
+  if (item.kind === 'search_source' || item.kind === 'knowledge') {
+    return (
+      <button
+        type="button"
+        aria-label={`查看来源：${item.title}`}
+        data-chat-detail-overlay-trigger="true"
+        onClick={() => {
+          onSourceClick(item.sourceIndex);
+        }}
+        className="inline-flex min-w-0 w-44 max-w-full items-center gap-1.5 rounded-md border border-border/40 bg-background/70 px-2 py-1 text-left transition-colors hover:border-border/60 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <a
+      href={item.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`打开网页：${item.title}`}
+      className="inline-flex min-w-0 w-44 max-w-full items-center gap-1.5 rounded-md border border-border/40 bg-background/70 px-2 py-1 text-left no-underline transition-colors hover:border-border/60 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+    >
+      {content}
+      <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+    </a>
+  );
+}
+
+function EvidenceItemContent({ item }: { item: AnswerEvidenceItem }) {
+  return (
+    <>
+      <EvidenceItemIcon item={item} />
+      <span className="flex min-w-0 flex-col">
+        <span className="min-w-0 truncate text-[10px] leading-3 text-muted-foreground">
+          {item.domain}
+        </span>
+        <span
+          title={item.title}
+          className="min-w-0 max-w-[14rem] truncate text-xs font-medium text-foreground"
+        >
+          {item.title}
+        </span>
+      </span>
+    </>
+  );
+}
+
+function EvidenceItemIcon({ item }: { item: AnswerEvidenceItem }) {
+  if (item.favicon) {
+    return (
+      <img
+        src={item.favicon}
+        alt=""
+        className="h-4 w-4 shrink-0 rounded-sm object-contain"
+        onError={(event) => {
+          event.currentTarget.style.display = 'none';
+        }}
+      />
+    );
+  }
+
+  const Icon = item.kind === 'search_source' ? Search : item.kind === 'knowledge' ? BookOpen : Globe2;
+
+  return (
+    <span className={cn(
+      'flex h-4 w-4 shrink-0 items-center justify-center rounded-sm',
+      item.kind === 'search_source' ? 'text-info' : item.kind === 'knowledge' ? 'text-primary' : 'text-teal',
+    )}>
+      <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+    </span>
+  );
+}
