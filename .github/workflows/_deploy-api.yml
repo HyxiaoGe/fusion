@@ -1449,9 +1449,9 @@ jobs:
           docker network inspect fusion-prompthub >/dev/null 2>&1 \
             || docker network create fusion-prompthub >/dev/null
           if [ "${knowledge_worker_supported}" = "true" ]; then
-            docker compose -f docker-compose.fusion-api-ghcr.yml --profile knowledge-worker up -d
+            docker compose --project-name fusion -f docker-compose.fusion-api-ghcr.yml --profile knowledge-worker up -d
           else
-            docker compose -f docker-compose.fusion-api-ghcr.yml up -d
+            docker compose --project-name fusion -f docker-compose.fusion-api-ghcr.yml up -d
             docker rm -f fusion-knowledge-worker >/dev/null 2>&1 || true
           fi
 
@@ -2400,9 +2400,9 @@ jobs:
               exit 1
             fi
             if [ "${ROLLBACK_KNOWLEDGE_WORKER_EXISTED}" = "true" ]; then
-              docker compose -f docker-compose.fusion-api-ghcr.yml --profile knowledge-worker up -d
+              docker compose --project-name fusion -f docker-compose.fusion-api-ghcr.yml --profile knowledge-worker up -d
             else
-              docker compose -f docker-compose.fusion-api-ghcr.yml up -d
+              docker compose --project-name fusion -f docker-compose.fusion-api-ghcr.yml up -d
               docker rm -f fusion-knowledge-worker >/dev/null 2>&1 || true
             fi
           else

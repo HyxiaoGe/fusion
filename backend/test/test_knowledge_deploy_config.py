@@ -484,7 +484,9 @@ class KnowledgeDeployConfigTests(unittest.TestCase):
 
     def test_candidate_image_runs_central_knowledge_validation_before_compose_replacement(self):
         validation = self.workflow.index("candidate knowledge settings ok")
-        api_replacement = self.workflow.index("docker compose -f docker-compose.fusion-api-ghcr.yml")
+        api_replacement = self.workflow.index(
+            "docker compose --project-name fusion -f docker-compose.fusion-api-ghcr.yml"
+        )
 
         self.assertLess(validation, api_replacement)
         validation_block = self.workflow[validation - 4000 : validation + 200]

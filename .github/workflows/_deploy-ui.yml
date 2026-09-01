@@ -376,10 +376,8 @@ jobs:
             postgres_default:
               external: true
           EOF
-          # 兜底：清掉旧 compose project 持有的同名容器，避免首次切换镜像源时容器名冲突
-          docker rm -f fusion-ui 2>/dev/null || true
           FUSION_UI_IMAGE="${DEPLOY_UI_IMAGE}" \
-            docker compose -f docker-compose.fusion-ui-ghcr.yml up -d
+            docker compose --project-name fusion -f docker-compose.fusion-ui-ghcr.yml up -d
 
       - name: Smoke check candidate deployment
         id: verify_candidate
@@ -501,9 +499,8 @@ jobs:
             postgres_default:
               external: true
           EOF
-          docker rm -f fusion-ui 2>/dev/null || true
           FUSION_UI_IMAGE="$previousImageRef" \
-            docker compose -f docker-compose.fusion-ui-ghcr.yml up -d
+            docker compose --project-name fusion -f docker-compose.fusion-ui-ghcr.yml up -d
 
           runningImageRef="$(docker inspect --format '{{.Config.Image}}' fusion-ui 2>/dev/null || true)"
           runningImageId="$(docker inspect --format '{{.Image}}' fusion-ui 2>/dev/null || true)"
