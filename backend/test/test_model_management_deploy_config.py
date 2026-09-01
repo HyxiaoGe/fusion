@@ -3,13 +3,18 @@ from pathlib import Path
 
 import yaml
 
+if __package__:
+    from .workflow_script_test_support import read_expanded_workflow
+else:
+    from workflow_script_test_support import read_expanded_workflow
+
 ROOT = Path(__file__).resolve().parents[1]
 MONOREPO_ROOT = ROOT.parent
 
 
 class ModelManagementDeployConfigTests(unittest.TestCase):
     def test_dev_deploy_exports_user_systemd_bus_before_lifecycle_operations(self):
-        workflow = (MONOREPO_ROOT / ".github/workflows/_deploy-api.yml").read_text(encoding="utf-8")
+        workflow = read_expanded_workflow(MONOREPO_ROOT / ".github/workflows/_deploy-api.yml")
         document = yaml.safe_load(workflow)
         steps = document["jobs"]["deploy-dev"]["steps"]
         step_names = [step.get("name") for step in steps]
@@ -27,7 +32,7 @@ class ModelManagementDeployConfigTests(unittest.TestCase):
         self.assertIn("systemctl --user show-environment", configure_step["run"])
 
     def test_dev_deploy_mounts_only_governance_root_read_only(self):
-        workflow = (MONOREPO_ROOT / ".github/workflows/_deploy-api.yml").read_text(encoding="utf-8")
+        workflow = read_expanded_workflow(MONOREPO_ROOT / ".github/workflows/_deploy-api.yml")
 
         self.assertIn(
             "${LITELLM_GOVERNANCE_ROOT_HOST}:/var/lib/fusion/litellm-governance:ro",
@@ -45,7 +50,7 @@ class ModelManagementDeployConfigTests(unittest.TestCase):
         self.assertNotIn("litellm-proxy/.env:/", workflow)
 
     def test_dev_deploy_manages_worker_as_versioned_systemd_unit(self):
-        workflow = (MONOREPO_ROOT / ".github/workflows/_deploy-api.yml").read_text(encoding="utf-8")
+        workflow = read_expanded_workflow(MONOREPO_ROOT / ".github/workflows/_deploy-api.yml")
         unit = (ROOT / "ops/litellm/fusion-litellm-model-management.service").read_text(encoding="utf-8")
 
         self.assertIn("Install model management worker", workflow)
@@ -84,7 +89,7 @@ class ModelManagementDeployConfigTests(unittest.TestCase):
         self.assertNotIn("--governance-max-age-seconds 86400", unit)
 
     def test_deploy_restores_worker_lifecycle_when_deployment_rolls_back(self):
-        workflow = (MONOREPO_ROOT / ".github/workflows/_deploy-api.yml").read_text(encoding="utf-8")
+        workflow = read_expanded_workflow(MONOREPO_ROOT / ".github/workflows/_deploy-api.yml")
         document = yaml.safe_load(workflow)
         steps = document["jobs"]["deploy-dev"]["steps"]
         rollback_step = next(
@@ -173,7 +178,7 @@ class ModelManagementDeployConfigTests(unittest.TestCase):
         self.assertEqual(0, checkout_step["with"]["fetch-depth"])
 
     def test_dev_deploy_manages_discovery_registry_and_governance_timer(self):
-        workflow = (MONOREPO_ROOT / ".github/workflows/_deploy-api.yml").read_text(encoding="utf-8")
+        workflow = read_expanded_workflow(MONOREPO_ROOT / ".github/workflows/_deploy-api.yml")
         document = yaml.safe_load(workflow)
         unit = (ROOT / "ops/litellm/fusion-litellm-governance.service").read_text(encoding="utf-8")
         install_step = next(
@@ -230,7 +235,7 @@ class ModelManagementDeployConfigTests(unittest.TestCase):
         )
 
     def test_manual_rollback_health_probe_tolerates_pre_governance_images(self):
-        workflow = (MONOREPO_ROOT / ".github/workflows/_deploy-api.yml").read_text(encoding="utf-8")
+        workflow = read_expanded_workflow(MONOREPO_ROOT / ".github/workflows/_deploy-api.yml")
         document = yaml.safe_load(workflow)
         verify_step = next(
             step for step in document["jobs"]["deploy-dev"]["steps"] if step.get("name") == "Verify health"
@@ -245,7 +250,7 @@ class ModelManagementDeployConfigTests(unittest.TestCase):
         self.assertIn("旧版回滚目标不含模型治理配置，跳过该项兼容性探针", verify_step["run"])
 
     def test_automatic_rollback_wait_budget_fits_deploy_job(self):
-        workflow = (MONOREPO_ROOT / ".github/workflows/_deploy-api.yml").read_text(encoding="utf-8")
+        workflow = read_expanded_workflow(MONOREPO_ROOT / ".github/workflows/_deploy-api.yml")
         document = yaml.safe_load(workflow)
         deploy_job = document["jobs"]["deploy-dev"]
         rollback_step = next(step for step in deploy_job["steps"] if step.get("name") == "Roll back failed deployment")
@@ -256,7 +261,7 @@ class ModelManagementDeployConfigTests(unittest.TestCase):
         self.assertNotIn("seq 1 120", rollback_step["run"])
 
     def test_dev_deploy_preserves_existing_provider_registry(self):
-        workflow = (MONOREPO_ROOT / ".github/workflows/_deploy-api.yml").read_text(encoding="utf-8")
+        workflow = read_expanded_workflow(MONOREPO_ROOT / ".github/workflows/_deploy-api.yml")
 
         self.assertIn('if [ ! -e "${registry_target}" ]; then', workflow)
         self.assertIn('python3 - "${registry_target}"', workflow)
@@ -264,7 +269,7 @@ class ModelManagementDeployConfigTests(unittest.TestCase):
         self.assertIn("LiteLLM provider registry 权限过宽", workflow)
 
     def test_deploy_refusal_restores_active_governance_and_worker_timers(self):
-        workflow = (MONOREPO_ROOT / ".github/workflows/_deploy-api.yml").read_text(encoding="utf-8")
+        workflow = read_expanded_workflow(MONOREPO_ROOT / ".github/workflows/_deploy-api.yml")
 
         self.assertGreaterEqual(
             workflow.count('if [ "${ROLLBACK_MODEL_MANAGEMENT_TIMER_ACTIVE}" = "true" ]; then'),
@@ -276,7 +281,7 @@ class ModelManagementDeployConfigTests(unittest.TestCase):
         self.assertIn("定时器已恢复部署前状态", workflow)
 
     def test_dev_deploy_uses_repository_vars_for_feature_flags(self):
-        workflow = (MONOREPO_ROOT / ".github/workflows/_deploy-api.yml").read_text(encoding="utf-8")
+        workflow = read_expanded_workflow(MONOREPO_ROOT / ".github/workflows/_deploy-api.yml")
 
         self.assertIn("vars.LITELLM_MODEL_MANAGEMENT_ENABLED", workflow)
         self.assertIn("vars.LITELLM_MODEL_ADMISSION_WORKER_ENABLED", workflow)

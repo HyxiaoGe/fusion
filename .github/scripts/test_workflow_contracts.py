@@ -5,6 +5,8 @@ from pathlib import Path
 
 import yaml
 
+from deploy_workflow_test_support import expand_deploy_scripts
+
 
 ROOT = Path(__file__).resolve().parents[2]
 CI_PATH = ROOT / ".github/workflows/pr-ci.yml"
@@ -16,7 +18,10 @@ ACTIONLINT_CONFIG_PATH = ROOT / ".github/actionlint.yaml"
 
 
 def load_workflow(path: Path) -> dict:
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+    text = path.read_text(encoding="utf-8")
+    if path in (API_WRAPPER_PATH, UI_WRAPPER_PATH):
+        text = expand_deploy_scripts(text, ROOT)
+    return yaml.safe_load(text)
 
 
 class WorkflowContractTests(unittest.TestCase):
@@ -24,8 +29,8 @@ class WorkflowContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.ci_text = CI_PATH.read_text(encoding="utf-8")
         cls.ci = load_workflow(CI_PATH)
-        cls.api_text = API_WRAPPER_PATH.read_text(encoding="utf-8")
-        cls.ui_text = UI_WRAPPER_PATH.read_text(encoding="utf-8")
+        cls.api_text = expand_deploy_scripts(API_WRAPPER_PATH.read_text(encoding="utf-8"), ROOT)
+        cls.ui_text = expand_deploy_scripts(UI_WRAPPER_PATH.read_text(encoding="utf-8"), ROOT)
         cls.orchestrator_text = (
             ORCHESTRATOR_PATH.read_text(encoding="utf-8") if ORCHESTRATOR_PATH.exists() else ""
         )

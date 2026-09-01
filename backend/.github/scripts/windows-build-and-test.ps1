@@ -36,6 +36,7 @@ try {
     docker run --rm `
         --mount "type=bind,source=$appRoot\README.md,target=/app/README.md,readonly" `
         --mount "type=bind,source=$monorepoRoot\.github,target=/.github,readonly" `
+        --mount "type=bind,source=$monorepoRoot\ops,target=/ops,readonly" `
         --mount "type=bind,source=$normalizedLinuxScript,target=/app/.github/scripts/linux-build-and-test.sh,readonly" `
         $image sh -lc "timeout 300s python -m pip install --default-timeout=30 --no-cache-dir -r requirements-ci.txt && python scripts/check_architecture.py && ruff check . && timeout 270s python -u -m unittest discover -s test -t . -v && timeout 120s python -m pytest -q test/services/stream/test_run_capability_router.py test/ai/skills/test_registry.py"
     $testExitCode = $LASTEXITCODE

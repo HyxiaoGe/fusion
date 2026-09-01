@@ -1,0 +1,42 @@
+workflow	step	script	body_sha256
+.github/workflows/_deploy-api.yml	Validate deployment request	ops/deploy/api-validate-deployment-request.sh	7e584e95b312c5565de261bf70b60e9fecdd238187534f40be92a7dfd36f0eb7
+.github/workflows/_deploy-api.yml	Configure user systemd bus	ops/deploy/api-configure-user-systemd-bus.sh	896e3080bc961da9777a0854a2ca3c34924325d8ff67ca07cbe2af7899311d94
+.github/workflows/_deploy-api.yml	Configure Docker credential directory	ops/deploy/api-configure-docker-credential-directory.sh	ea4ea673dbe4dbca0dd0fcb8fef30b6f3546e7dcb87c02b5fcb1a9fdffc388ea
+.github/workflows/_deploy-api.yml	Prepare stable runtime paths	ops/deploy/api-prepare-stable-runtime-paths.sh	8d179689b8824c4fa138ae12a8ef527591413f7b2a972ff2cd394323121f48f0
+.github/workflows/_deploy-api.yml	Capture current deployment for rollback	ops/deploy/api-capture-current-deployment.sh	17f6e230c978469e7be48baac0336f9d2db36490b99053c1b770dc63e0d69816
+.github/workflows/_deploy-api.yml	Login to ACR	ops/deploy/api-login-to-acr.sh	a6326682a092199edcbcaea55779bb5772ece6f7cba8eb4bbcd937e744c0087f
+.github/workflows/_deploy-api.yml	Bootstrap current API release ledger	ops/deploy/api-bootstrap-current-release-ledger.sh	d320ba8f64c98d8c0141f9669c4a7959d541678cbc54bdb8a5661be65adced5f
+.github/workflows/_deploy-api.yml	Resolve API deployment digest	ops/deploy/api-resolve-deployment-digest.sh	b457203ca500d9248d0afbacc8e01ba7f6bf6d29b7e05a923809be4f0778b79c
+.github/workflows/_deploy-api.yml	Pause model management worker before API deploy	ops/deploy/api-pause-model-management-worker.sh	b59738483f76c29d28e31c88a58c2d3ec7797ba6cbdd7848a696120541d4a47b
+.github/workflows/_deploy-api.yml	Apply alembic migrations	ops/deploy/api-apply-alembic-migrations.sh	d551f00a445e352bcedb1b1633f3b03342824e397bdfef1604a6212028203ac3
+.github/workflows/_deploy-api.yml	Pull and restart fusion-api	ops/deploy/api-pull-and-restart.sh	e936b35562243a82f155418f9c365b518eff89ae3e44a4d7463c4743862434d7
+.github/workflows/_deploy-api.yml	Verify deployed image identity	ops/deploy/api-verify-image-identity.sh	0ba67f2cc67cac14f949aefd562af300bb6c2a7546c3a3963934b4e3d67c1ec7
+.github/workflows/_deploy-api.yml	Verify health	ops/deploy/api-verify-health.sh	028032398a9fdee80037a457399889d7d8b36f95e95c1f3ba180d8557aa99113
+.github/workflows/_deploy-api.yml	Install LiteLLM governance discovery	ops/deploy/api-install-litellm-governance.sh	facb85e4c99c36b22044384eb5798ec6fb26fff4669b059ea5152727250e1c13
+.github/workflows/_deploy-api.yml	Install model management worker	ops/deploy/api-install-model-management-worker.sh	9f5b806c503e41275a34e151fd93f47d598a9a1bb246a88e27c3b4fe3ffd8d8b
+.github/workflows/_deploy-api.yml	Run deployment smoke	ops/deploy/api-run-deployment-smoke.sh	9ea72029a93a6b35299c87b13a6ce51f29778171cbf889dd249a9ad15fd6b3cb
+.github/workflows/_deploy-api.yml	Restore model management worker for manual rollback	ops/deploy/api-restore-model-management-worker-manual-rollback.sh	ac2feea71e0902772ef4dbe593acf95519480fec93ae46b0d22626ad5bca4a09
+.github/workflows/_deploy-api.yml	Preserve API rollback images	ops/deploy/api-preserve-rollback-images.sh	17845eaa17a21ca0e7250eebeaec107e92c642b8202354ffeb816b2a86779d6e
+.github/workflows/_deploy-api.yml	Record accepted API release	ops/deploy/api-record-accepted-release.sh	9a01a7270546a2afb653d519113972c33117a60b91a903b06b4c909b7f105add
+.github/workflows/_deploy-api.yml	Restore model management worker after pre-deploy failure	ops/deploy/api-restore-model-management-worker-predeploy-failure.sh	d9ac29a55eb8a92b77489f572e8447cf7eb54ede2b091ea42e406d3539b4caa4
+.github/workflows/_deploy-api.yml	Roll back failed deployment	ops/deploy/api-rollback-failed-deployment.sh	668b601b0cc0023d5edfb2c376066d5b4f0b09220135e610883267f8900e59c9
+.github/workflows/_deploy-api.yml	Push CI/CD metrics	ops/deploy/api-push-cicd-metrics.sh	ef8a2505ec2a58a7d952cf9466bbf2314457d5ba648978b6f7b9daad475e35c6
+.github/workflows/_deploy-api.yml	通知飞书(部署结果)	ops/deploy/api-notify-feishu.sh	fe63c48d3e8699ab378a5ebf101ee6f7e96b27d48a03d0d7a8b0f5a78b94406e
+.github/workflows/_deploy-api.yml	Cleanup Docker credential directory	ops/deploy/api-cleanup-docker-credential-directory.sh	c8eeae01ac0f6bb6525e18487a06b15cf31611ed9192be57df330fbbad9d0c31
+.github/workflows/_deploy-api.yml	Finalize release result	ops/deploy/api-finalize-release-result.sh	26ab932e4e2432e32c57853f239d4093e70d95541228a3678f305104c989f678
+.github/workflows/_deploy-ui.yml	Validate deployment target	ops/deploy/ui-validate-deployment-target.sh	a2faef0979360efde1f70c0741775ebbedede3ce39f7e4ac86e4b3c3ec86a3fb
+.github/workflows/_deploy-ui.yml	Configure Docker credential directory	ops/deploy/ui-configure-docker-credential-directory.sh	09e0afd304f32163a0699a591041ac0b79670fc659e00ef707900822a4134deb
+.github/workflows/_deploy-ui.yml	Prepare stable UI runtime paths	ops/deploy/ui-prepare-stable-runtime-paths.sh	979e1ed87fa46d62648a8bd0812a4622c29b3e44b619e8a807082b59c0297734
+.github/workflows/_deploy-ui.yml	Capture current deployment	ops/deploy/ui-capture-current-deployment.sh	fc9f197b331f80560e68a49f2093e997e7b1b5d630a23e626112eae7bd67a56e
+.github/workflows/_deploy-ui.yml	Bootstrap current UI release ledger	ops/deploy/ui-bootstrap-current-release-ledger.sh	9750d94e4bba51d770b16c97e74987bd90916ac644a0f5420d463e6ba1cc353b
+.github/workflows/_deploy-ui.yml	Resolve UI deployment digest	ops/deploy/ui-resolve-deployment-digest.sh	05be8864088d7d0fd7bfd10fcaa7695f2a04d9e3cdfc3c1b2ddda1a59773ef9c
+.github/workflows/_deploy-ui.yml	Deploy candidate image	ops/deploy/ui-deploy-candidate-image.sh	d894b502b6f487ec47948f4ffc182f4e40bc602922c8d39c7d5737f7a601769c
+.github/workflows/_deploy-ui.yml	Smoke check candidate deployment	ops/deploy/ui-smoke-check-candidate-deployment.sh	c1a894a5cd566b331deca83291348c014f2bf3bdc1a88c5d075870cadbb79ada
+.github/workflows/_deploy-ui.yml	Resolve browser smoke runtime	ops/deploy/ui-resolve-browser-smoke-runtime.sh	978ad127e0c682647b1913c88685292ffb5506b8acd8a24c2b8f04c83348ec8c
+.github/workflows/_deploy-ui.yml	Run dev browser smoke	ops/deploy/ui-run-dev-browser-smoke.sh	7620d702b3493b97ab49cd4c0f6ad848999ec845a5b14ebf74af904f9bf21daf
+.github/workflows/_deploy-ui.yml	Preserve UI rollback image	ops/deploy/ui-preserve-rollback-image.sh	2b03fad72cf08b103e7f52bdccbe9a4ed5cd24f94a922ba4e562544856a760c6
+.github/workflows/_deploy-ui.yml	Record accepted UI release	ops/deploy/ui-record-accepted-release.sh	704692690057217b9b8c8cbbf927bb3a6cf71d99dc08d46217910d93b714db42
+.github/workflows/_deploy-ui.yml	Rollback previous deployment	ops/deploy/ui-rollback-previous-deployment.sh	1d907aabeb2d4c42baeea5a967f3355d9ad579a599a37d3f5a8aca631277d11c
+.github/workflows/_deploy-ui.yml	Push CI/CD metrics	ops/deploy/ui-push-cicd-metrics.sh	852e27cca51d525f086f838e0ef4b5626fdf2bcba93f553dac0b0fc5edf4b8d0
+.github/workflows/_deploy-ui.yml	通知飞书(部署结果)	ops/deploy/ui-notify-feishu.sh	72920f6ceb68a2e1f6ee6836ad25bee462f308e181e598d3a68534db7357edb7
+.github/workflows/_deploy-ui.yml	Cleanup Docker credential directory	ops/deploy/ui-cleanup-docker-credential-directory.sh	ae88e121b7a132aa72b56c72372b707be2a7bca5ad72427457949b9e8396601f

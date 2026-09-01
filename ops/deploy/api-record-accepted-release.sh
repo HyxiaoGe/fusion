@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -eo pipefail
+
+if [ "${OPS_DEPLOY_DRY_RUN:-false}" = "true" ]; then
+  if [ "${GITHUB_ACTIONS:-false}" = "true" ]; then
+    printf "GitHub Actions 不允许部署脚本 dry-run\n" >&2
+    exit 1
+  fi
+  printf "DRY-RUN %s\n" "${BASH_SOURCE[0]##*/}"
+  exit 0
+fi
+
+# OPS_DEPLOY_BODY_BEGIN
+set -euo pipefail
+api_id="$(docker inspect fusion-api --format '{{.Image}}')"
+adapter_id="$(docker inspect fusion-flyai-adapter --format '{{.Image}}')"
+python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" record \
+  --path "${FUSION_API_LEDGER}" --app api --sha "${DEPLOY_TARGET_SHA}" \
+  --run-id "${GITHUB_RUN_ID}" --recorded-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --image "api|${DEPLOY_API_IMAGE}|${api_id}" \
+  --image "adapter|${DEPLOY_ADAPTER_IMAGE}|${adapter_id}"

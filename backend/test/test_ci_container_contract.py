@@ -9,11 +9,16 @@ MONOREPO_ROOT = ROOT.parent
 
 
 class CIContainerContractTest(unittest.TestCase):
-    def test_linux_ci_container_mounts_monorepo_github_read_only(self) -> None:
-        build_script = ROOT / ".github/scripts/linux-build-and-test.sh"
+    def test_linux_ci_container_mounts_monorepo_test_inputs_read_only(self) -> None:
+        source_build_script = ROOT / ".github/scripts/linux-build-and-test.sh"
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
+            monorepo_root = temp_root / "monorepo root with spaces"
+            script_directory = monorepo_root / "backend/.github/scripts"
+            script_directory.mkdir(parents=True)
+            build_script = script_directory / "linux-build-and-test.sh"
+            build_script.write_text(source_build_script.read_text(encoding="utf-8"), encoding="utf-8")
             bin_dir = temp_root / "bin"
             bin_dir.mkdir()
             docker_log = temp_root / "docker.log"
@@ -31,7 +36,7 @@ class CIContainerContractTest(unittest.TestCase):
             env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
             subprocess.run(
                 ["bash", str(build_script), "fusion-api-ci", "fusion-adapter-ci", "test-sha"],
-                cwd=MONOREPO_ROOT,
+                cwd=monorepo_root,
                 env=env,
                 check=True,
             )
@@ -39,8 +44,12 @@ class CIContainerContractTest(unittest.TestCase):
             docker_calls = docker_log.read_text(encoding="utf-8")
 
         self.assertIn(
-            f"type=bind,source={MONOREPO_ROOT}/.github,target=/.github,readonly",
-            docker_calls,
+            f"type=bind,source={monorepo_root}/.github,target=/.github,readonly",
+            docker_calls.splitlines(),
+        )
+        self.assertIn(
+            f"type=bind,source={monorepo_root}/ops,target=/ops,readonly",
+            docker_calls.splitlines(),
         )
 
     def test_development_dependencies_cover_runtime_and_ci(self) -> None:
@@ -129,6 +138,10 @@ class CIContainerContractTest(unittest.TestCase):
         )
         self.assertIn(
             '--mount "type=bind,source=$monorepoRoot\\.github,target=/.github,readonly"',
+            windows_build_script,
+        )
+        self.assertIn(
+            '--mount "type=bind,source=$monorepoRoot\\ops,target=/ops,readonly"',
             windows_build_script,
         )
 
