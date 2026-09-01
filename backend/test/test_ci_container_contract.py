@@ -142,6 +142,19 @@ class CIContainerContractTest(unittest.TestCase):
         for command in build_commands:
             self.assertIn("--provenance=false", command)
 
+    def test_windows_release_normalizes_bash_contract_before_running_tests(self) -> None:
+        windows_build_script = (ROOT / ".github/scripts/windows-build-and-test.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("linux-build-and-test.sh", windows_build_script)
+        self.assertIn('.Replace("`r`n", "`n").Replace("`r", "`n")', windows_build_script)
+        self.assertIn("[System.Text.UTF8Encoding]::new($false)", windows_build_script)
+        self.assertIn(
+            "target=/app/.github/scripts/linux-build-and-test.sh,readonly",
+            windows_build_script,
+        )
+        self.assertIn("finally", windows_build_script)
+        self.assertIn("Remove-Item -LiteralPath $normalizedLinuxScript", windows_build_script)
+
 
 if __name__ == "__main__":
     unittest.main()
