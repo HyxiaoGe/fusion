@@ -297,6 +297,19 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
                     "manifest": "backend/release-safety.yml",
                     "pr_step": "release_safety_contract",
                 },
+                "parameter_contract": {
+                    "workflow": ".github/workflows/_deploy-app.yml",
+                    "app": "api",
+                    "validation_step": "app_contract",
+                    "inputs": {
+                        "app": "api",
+                        "image_repository": "seanfield/fusion-api",
+                        "health_check_endpoint": "http://127.0.0.1:8002/health",
+                        "migration_enabled": True,
+                        "dependency_services": "postgres,redis,litellm,flyai-adapter,knowledge-worker",
+                        "rollback_anchor_policy": "api-and-adapter-image-identities",
+                    },
+                },
                 "jobs": {
                     "prepare": "prepare",
                     "publish": "publish",
@@ -334,7 +347,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
                         "(needs.prepare.outputs.rollback_requested != 'true' && "
                         "needs.publish.result == 'success'))"
                     ),
-                    "migration": "needs.prepare.outputs.rollback_requested != 'true'",
+                    "migration": "inputs.migration_enabled && needs.prepare.outputs.rollback_requested != 'true'",
                     "rollback": (
                         "failure() && steps.capture_rollback_target.outcome == 'success' && "
                         "steps.deploy_candidate.outcome != 'skipped'"
@@ -349,6 +362,31 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
 
         manifest = self.release_safety_manifest
         jobs = self.release_document["jobs"]
+        parameter_contract = manifest["parameter_contract"]
+        workflow_inputs = self.release_document[True]["workflow_call"]["inputs"]
+        environment_fields = {
+            "app": "DEPLOY_APP",
+            "image_repository": "DEPLOY_IMAGE_REPOSITORY",
+            "health_check_endpoint": "API_HEALTH_CHECK_ENDPOINT",
+            "migration_enabled": "DEPLOY_MIGRATION_ENABLED",
+            "dependency_services": "DEPLOY_DEPENDENCY_SERVICES",
+            "rollback_anchor_policy": "DEPLOY_ROLLBACK_ANCHOR_POLICY",
+        }
+        for name, expected in parameter_contract["inputs"].items():
+            with self.subTest(parameter=name):
+                self.assertTrue(workflow_inputs[name]["required"])
+                self.assertNotIn("default", workflow_inputs[name])
+                self.assertEqual(
+                    self.release_document["env"][environment_fields[name]],
+                    f"${{{{ inputs.{name} }}}}",
+                )
+        app_contract_step = workflow_step(jobs[manifest["jobs"]["prepare"]], "Validate application deployment contract")
+        self.assertEqual(app_contract_step["id"], parameter_contract["validation_step"])
+        self.assertIn('expected_dependency_services="postgres,redis,litellm,flyai-adapter,knowledge-worker"', app_contract_step["run"])
+        self.assertIn(
+            "run: ops/deploy/validate-app-deployment-contract.sh",
+            RELEASE_WORKFLOW.read_text(encoding="utf-8"),
+        )
         for job_id in manifest["jobs"].values():
             if job_id is not None:
                 self.assertIn(job_id, jobs)
@@ -439,11 +477,20 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         self.assertIn("cancel-in-progress: true", self.pr_workflow)
 
     def test_all_checkouts_disable_credential_persistence(self) -> None:
-        checkout_without_credentials = f"uses: {CHECKOUT_ACTION}\n        with:\n          persist-credentials: false"
-        self.assertEqual(self.pr_workflow.count(checkout_without_credentials), 3)
-        self.assertEqual(self.release_workflow.count(checkout_without_credentials), 4)
-        self.assertEqual(self.pr_workflow.count(f"uses: {CHECKOUT_ACTION}"), 4)
-        self.assertEqual(self.release_workflow.count(f"uses: {CHECKOUT_ACTION}"), 4)
+        checkout_action = CHECKOUT_ACTION.removesuffix(" # v6")
+        for workflow, expected_checkouts in (
+            (self.pr_document, 4),
+            (self.release_document, 4),
+        ):
+            checkout_steps = [
+                step
+                for job in workflow["jobs"].values()
+                for step in job.get("steps", [])
+                if step.get("uses") == checkout_action
+            ]
+            self.assertEqual(len(checkout_steps), expected_checkouts)
+            for step in checkout_steps:
+                self.assertFalse(step.get("with", {}).get("persist-credentials", True))
 
     def test_active_workflows_pin_external_actions_to_full_commit_sha(self) -> None:
         uses_key_pattern = re.compile(r"^\s*(?:-\s*)?uses\s*:")
@@ -512,10 +559,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         publish_job = self.release_workflow[
             self.release_workflow.index("  publish:") : self.release_workflow.index("  deploy-dev:")
         ]
-        self.assertRegex(
-            publish_job,
-            r"(?ms)^\s{4}environment:\n\s{6}name: dev\n\s{6}deployment: false$",
-        )
+        self.assertEqual(self.release_document["jobs"]["publish"]["environment"], {"name": "dev", "deployment": False})
         self.assertIn(f"uses: {LOGIN_ACTION}", publish_job)
         self.assertIn("username: ${{ secrets.ACR_USERNAME }}", publish_job)
         self.assertIn("password: ${{ secrets.ACR_PASSWORD }}", publish_job)
@@ -592,18 +636,48 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         self.assertEqual(
             workflow_call["inputs"],
             {
+                "app": {
+                    "description": "参数化发布的应用标识",
+                    "required": True,
+                    "type": "string",
+                },
+                "image_repository": {
+                    "description": "ACR 应用 repository",
+                    "required": True,
+                    "type": "string",
+                },
+                "health_check_endpoint": {
+                    "description": "API 健康检查端点",
+                    "required": True,
+                    "type": "string",
+                },
+                "migration_enabled": {
+                    "description": "是否执行 Alembic 迁移",
+                    "required": True,
+                    "type": "boolean",
+                },
+                "dependency_services": {
+                    "description": "逗号分隔的运行时依赖服务",
+                    "required": True,
+                    "type": "string",
+                },
+                "rollback_anchor_policy": {
+                    "description": "回滚运行镜像锚点策略",
+                    "required": True,
+                    "type": "string",
+                },
                 "deploy_sha": {
                     "description": "orchestrator 固定的 master 提交 SHA",
                     "required": True,
                     "type": "string",
                 },
                 "rollback_sha": {
-                    "description": "要恢复的已发布镜像 SHA（40 位小写 Git SHA；留空表示正常发布）",
+                    "description": "要恢复的已发布镜像 SHA",
                     "required": False,
                     "type": "string",
                 },
                 "rollback_reason": {
-                    "description": "手动回滚原因（填写 rollback_sha 时必填）",
+                    "description": "手动回滚原因",
                     "required": False,
                     "type": "string",
                 },
@@ -644,7 +718,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         migration_step = workflow_step(deploy_job, "Apply alembic migrations")
         self.assertEqual(
             normalized_condition(migration_step["if"]),
-            "needs.prepare.outputs.rollback_requested != 'true'",
+            "inputs.migration_enabled && needs.prepare.outputs.rollback_requested != 'true'",
         )
         self.assertIn('"${DEPLOY_API_IMAGE}"', active_commands(migration_step["run"]))
 

@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_PATH = ROOT / "ops/deploy/tests/fixtures/deploy-script-contracts.tsv"
 FIXTURE_BIN = ROOT / "ops/deploy/tests/fixtures/bin"
 PR_WORKFLOW = ROOT / ".github/workflows/pr-ci.yml"
+APP_CONTRACT_SCRIPT = ROOT / "ops/deploy/validate-app-deployment-contract.sh"
 WRAPPERS = (
     ROOT / ".github/workflows/_deploy-api.yml",
     ROOT / ".github/workflows/_deploy-ui.yml",
@@ -101,9 +102,10 @@ class DeployScriptContractTests(unittest.TestCase):
             with self.subTest(wrapper=wrapper.name):
                 self.assertEqual(scripts_before_checkout(wrapper), [])
 
-    def test_wrappers_stay_within_task3_line_budget(self) -> None:
+    def test_wrappers_stay_within_task4_line_budget(self) -> None:
         for wrapper in WRAPPERS:
             with self.subTest(wrapper=wrapper.name):
+                # 保持 Task 3 的 400 行上限，避免 workflow 重新膨胀为内联脚本。
                 self.assertLessEqual(len(wrapper.read_text(encoding="utf-8").splitlines()), 400)
 
     def test_script_bodies_match_the_reviewed_fixtures(self) -> None:
@@ -160,6 +162,39 @@ class DeployScriptContractTests(unittest.TestCase):
                 )
                 self.assertNotEqual(completed.returncode, 0)
                 self.assertIn("GitHub Actions 不允许部署脚本 dry-run", completed.stderr)
+
+    def test_app_contract_rejects_missing_dependency_and_wrong_rollback_policy(self) -> None:
+        self.assertTrue(APP_CONTRACT_SCRIPT.is_file(), "参数化应用契约必须由共用 fail-closed 脚本执行")
+
+        def run(**overrides: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                [str(APP_CONTRACT_SCRIPT)],
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "DEPLOY_APP": "api",
+                    "DEPLOY_IMAGE_REPOSITORY": "seanfield/fusion-api",
+                    "DEPLOY_HEALTH_CHECK_ENDPOINT": "http://127.0.0.1:8002/health",
+                    "DEPLOY_MIGRATION_ENABLED": "true",
+                    "DEPLOY_DEPENDENCY_SERVICES": "postgres,redis,litellm,flyai-adapter,knowledge-worker",
+                    "DEPLOY_ROLLBACK_ANCHOR_POLICY": "api-and-adapter-image-identities",
+                    **overrides,
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+        accepted = run()
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+        missing_dependency = run(DEPLOY_DEPENDENCY_SERVICES="postgres,redis,litellm,knowledge-worker")
+        self.assertNotEqual(missing_dependency.returncode, 0)
+        self.assertIn("依赖服务", missing_dependency.stderr)
+
+        wrong_policy = run(DEPLOY_ROLLBACK_ANCHOR_POLICY="ui-image-identity")
+        self.assertNotEqual(wrong_policy.returncode, 0)
+        self.assertIn("回滚锚点策略", wrong_policy.stderr)
 
     def test_health_check_rejects_matching_body_when_curl_transfer_fails(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -274,6 +309,8 @@ class DeployScriptContractTests(unittest.TestCase):
             **os.environ,
             "PATH": f"{FIXTURE_BIN}{os.pathsep}{os.environ['PATH']}",
             "DEPLOY_TARGET_SHA": "a" * 40,
+            "DEPLOY_REQUIRED_DEPENDENCY_HOOKS": "postgres,redis,litellm,flyai-adapter,knowledge-worker",
+            "DEPLOY_REQUIRED_ROLLBACK_ANCHORS": "fusion-api,fusion-flyai-adapter",
         }
         api = subprocess.run(
             [str(ROOT / "ops/deploy/api-capture-current-deployment.sh")],
@@ -289,13 +326,69 @@ class DeployScriptContractTests(unittest.TestCase):
         ui = subprocess.run(
             [str(ROOT / "ops/deploy/ui-capture-current-deployment.sh")],
             cwd=ROOT,
-            env=dry_env,
+            env={
+                **dry_env,
+                "DEPLOY_REQUIRED_DEPENDENCY_HOOKS": "api",
+                "DEPLOY_REQUIRED_ROLLBACK_ANCHORS": "fusion-ui",
+            },
             text=True,
             capture_output=True,
             check=False,
         )
         self.assertNotEqual(ui.returncode, 0)
-        self.assertIn("无法同时捕获 fusion-ui 当前镜像引用与镜像 ID", ui.stdout)
+        self.assertIn("无法捕获 fusion-ui 当前镜像身份，拒绝变更现有部署", ui.stdout)
+
+    def test_capture_rejects_dependency_and_anchor_contract_before_docker_mutation(self) -> None:
+        base_env = {
+            **os.environ,
+            "PATH": f"{FIXTURE_BIN}{os.pathsep}{os.environ['PATH']}",
+            "DEPLOY_TARGET_SHA": "a" * 40,
+        }
+
+        missing_api_dependency = subprocess.run(
+            [str(ROOT / "ops/deploy/api-capture-current-deployment.sh")],
+            cwd=ROOT,
+            env={
+                **base_env,
+                "DEPLOY_REQUIRED_DEPENDENCY_HOOKS": "postgres,redis,litellm,knowledge-worker",
+                "DEPLOY_REQUIRED_ROLLBACK_ANCHORS": "fusion-api,fusion-flyai-adapter",
+            },
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(missing_api_dependency.returncode, 0)
+        self.assertIn("API 依赖服务契约无效", missing_api_dependency.stdout)
+
+        wrong_api_anchors = subprocess.run(
+            [str(ROOT / "ops/deploy/api-capture-current-deployment.sh")],
+            cwd=ROOT,
+            env={
+                **base_env,
+                "DEPLOY_REQUIRED_DEPENDENCY_HOOKS": "postgres,redis,litellm,flyai-adapter,knowledge-worker",
+                "DEPLOY_REQUIRED_ROLLBACK_ANCHORS": "fusion-api",
+            },
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(wrong_api_anchors.returncode, 0)
+        self.assertIn("API 回滚锚点策略", wrong_api_anchors.stdout)
+
+        wrong_ui_anchors = subprocess.run(
+            [str(ROOT / "ops/deploy/ui-capture-current-deployment.sh")],
+            cwd=ROOT,
+            env={
+                **base_env,
+                "DEPLOY_REQUIRED_DEPENDENCY_HOOKS": "api",
+                "DEPLOY_REQUIRED_ROLLBACK_ANCHORS": "fusion-api",
+            },
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(wrong_ui_anchors.returncode, 0)
+        self.assertIn("UI 回滚锚点策略", wrong_ui_anchors.stdout)
 
     def test_pr_ci_runs_deploy_script_contracts(self) -> None:
         self.assertIn(

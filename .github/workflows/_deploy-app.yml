@@ -1,0 +1,99 @@
+name: Fusion 参数化应用发布
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        description: 应用标识（api 或 ui）
+        required: true
+        type: string
+      image_repository:
+        description: ACR 中应用专属 repository；SHA tag 只作审计别名
+        required: true
+        type: string
+      health_check_endpoint:
+        description: 发布验证使用的应用健康检查端点
+        required: true
+        type: string
+      migration_enabled:
+        description: 是否在正常发布前执行数据库迁移
+        required: true
+        type: boolean
+      dependency_services:
+        description: 逗号分隔的运行时依赖服务清单
+        required: true
+        type: string
+      rollback_anchor_policy:
+        description: 回滚前必须捕获的运行镜像锚点策略
+        required: true
+        type: string
+      deploy_sha:
+        description: orchestrator 固定的 master 提交 SHA
+        required: true
+        type: string
+      rollback_sha:
+        description: 要回滚的已发布提交 SHA；留空表示部署当前提交
+        required: false
+        type: string
+      rollback_reason:
+        description: 手动回滚原因；设置 rollback_sha 时必填
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+# 运行容器的 repository digest + image ID 是权威身份；台账只是可从运行态重建的投影。
+# app-specific workflow 继续执行既有全部校验和原子台账更新，禁止提交运行时台账回 master。
+jobs:
+  validate-parameters:
+    name: Validate parameterized deployment contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Validate application deployment contract
+        env:
+          DEPLOY_APP: ${{ inputs.app }}
+          DEPLOY_IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          DEPLOY_HEALTH_CHECK_ENDPOINT: ${{ inputs.health_check_endpoint }}
+          DEPLOY_MIGRATION_ENABLED: ${{ inputs.migration_enabled }}
+          DEPLOY_DEPENDENCY_SERVICES: ${{ inputs.dependency_services }}
+          DEPLOY_ROLLBACK_ANCHOR_POLICY: ${{ inputs.rollback_anchor_policy }}
+        run: ops/deploy/validate-app-deployment-contract.sh
+
+  deploy-api:
+    name: Deploy API implementation
+    if: inputs.app == 'api'
+    needs: validate-parameters
+    uses: ./.github/workflows/_deploy-api.yml
+    with:
+      app: ${{ inputs.app }}
+      image_repository: ${{ inputs.image_repository }}
+      health_check_endpoint: ${{ inputs.health_check_endpoint }}
+      migration_enabled: ${{ inputs.migration_enabled }}
+      dependency_services: ${{ inputs.dependency_services }}
+      rollback_anchor_policy: ${{ inputs.rollback_anchor_policy }}
+      deploy_sha: ${{ inputs.deploy_sha }}
+      rollback_sha: ${{ inputs.rollback_sha }}
+      rollback_reason: ${{ inputs.rollback_reason }}
+    secrets: inherit
+
+  deploy-ui:
+    name: Deploy UI implementation
+    if: inputs.app == 'ui'
+    needs: validate-parameters
+    uses: ./.github/workflows/_deploy-ui.yml
+    with:
+      app: ${{ inputs.app }}
+      image_repository: ${{ inputs.image_repository }}
+      health_check_endpoint: ${{ inputs.health_check_endpoint }}
+      migration_enabled: ${{ inputs.migration_enabled }}
+      dependency_services: ${{ inputs.dependency_services }}
+      rollback_anchor_policy: ${{ inputs.rollback_anchor_policy }}
+      deploy_sha: ${{ inputs.deploy_sha }}
+      rollback_sha: ${{ inputs.rollback_sha }}
+      rollback_reason: ${{ inputs.rollback_reason }}
+    secrets: inherit

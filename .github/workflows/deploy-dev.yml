@@ -104,8 +104,14 @@ jobs:
     name: Deploy API
     needs: changes
     if: needs.changes.outputs.api == 'true'
-    uses: ./.github/workflows/_deploy-api.yml
+    uses: ./.github/workflows/_deploy-app.yml
     with:
+      app: api
+      image_repository: seanfield/fusion-api
+      health_check_endpoint: http://127.0.0.1:8002/health
+      migration_enabled: true
+      dependency_services: postgres,redis,litellm,flyai-adapter,knowledge-worker
+      rollback_anchor_policy: api-and-adapter-image-identities
       deploy_sha: ${{ github.sha }}
       rollback_sha: ${{ inputs.api_rollback_sha || '' }}
       rollback_reason: ${{ inputs.api_rollback_sha != '' && inputs.rollback_reason || '' }}
@@ -119,8 +125,14 @@ jobs:
       needs.changes.result == 'success' &&
       needs.changes.outputs.ui == 'true' &&
       (needs.changes.outputs.api != 'true' || needs.deploy-api.result == 'success')
-    uses: ./.github/workflows/_deploy-ui.yml
+    uses: ./.github/workflows/_deploy-app.yml
     with:
+      app: ui
+      image_repository: seanfield/fusion-ui
+      health_check_endpoint: http://127.0.0.1:3000/
+      migration_enabled: false
+      dependency_services: api
+      rollback_anchor_policy: ui-image-identity
       deploy_sha: ${{ github.sha }}
       rollback_sha: ${{ inputs.ui_rollback_sha || '' }}
       rollback_reason: ${{ inputs.ui_rollback_sha != '' && inputs.rollback_reason || '' }}

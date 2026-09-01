@@ -4,8 +4,20 @@ contract_test:
   path: .github/scripts/release-safety-contract.sh
   manifest: frontend/release-safety.yml
   pr_step: release_safety_contract
+parameter_contract:
+  workflow: .github/workflows/_deploy-app.yml
+  app: ui
+  validation_job: validate-parameters
+  validation_step: app_contract
+  inputs:
+    app: ui
+    image_repository: seanfield/fusion-ui
+    health_check_endpoint: http://127.0.0.1:3000/
+    migration_enabled: false
+    dependency_services: api
+    rollback_anchor_policy: ui-image-identity
 jobs:
-  prepare: null
+  prepare: validate-parameters
   publish: publish
   deploy: deploy-dev
   finalize: null
@@ -22,8 +34,8 @@ steps:
   finalize: null
   finalize_failure: null
 needs:
-  publish: []
-  deploy: [publish]
+  publish: [validate-parameters]
+  deploy: [validate-parameters, publish]
   finalize: []
 conditions:
   prepare: null
@@ -31,6 +43,7 @@ conditions:
     github.ref == 'refs/heads/master' && inputs.rollback_sha == ''
   deploy: >-
     always() && github.ref == 'refs/heads/master' &&
+    needs.validate-parameters.result == 'success' &&
     (needs.publish.result == 'success' ||
     (needs.publish.result == 'skipped' && inputs.rollback_sha != ''))
   migration: null
