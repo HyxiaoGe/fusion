@@ -2487,7 +2487,21 @@ jobs:
             echo "fusion-api 回滚提交不在当前仓库历史中: ${rollback_api_sha}"
             exit 1
           fi
-          if ! git -C "${GITHUB_WORKSPACE}" show "${rollback_api_sha}:backend/scripts/deployment_smoke.py" \
+          rollback_smoke_path=""
+          for rollback_smoke_path in \
+            backend/scripts/deployment_smoke.py \
+            scripts/deployment_smoke.py; do
+            if git -C "${GITHUB_WORKSPACE}" cat-file -e \
+              "${rollback_api_sha}:${rollback_smoke_path}" 2>/dev/null; then
+              break
+            fi
+            rollback_smoke_path=""
+          done
+          if [ -z "${rollback_smoke_path}" ]; then
+            echo "fusion-api 回滚提交不含受支持的 deployment smoke: ${rollback_api_sha}"
+            exit 1
+          fi
+          if ! git -C "${GITHUB_WORKSPACE}" show "${rollback_api_sha}:${rollback_smoke_path}" \
             | python3 - --base-url http://127.0.0.1:8002; then
             echo "fusion-api rollback deployment smoke failed"
             docker logs --tail=120 fusion-api || true
