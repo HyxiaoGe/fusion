@@ -8,12 +8,17 @@ import textwrap
 import unittest
 from pathlib import Path
 
+if __package__:
+    from .workflow_script_test_support import read_expanded_workflow
+else:
+    from workflow_script_test_support import read_expanded_workflow
+
 
 class KnowledgeDeployConfigTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         app_root = Path(__file__).resolve().parents[1]
-        cls.workflow = (app_root.parent / ".github/workflows/_deploy-api.yml").read_text(encoding="utf-8")
+        cls.workflow = read_expanded_workflow(app_root.parent / ".github/workflows/_deploy-api.yml")
         cls.milvus_compose = (app_root / "ops/knowledge/milvus-compose.yml").read_text(encoding="utf-8")
         cls.fusion_override = (app_root / "ops/knowledge/fusion-compose.override.yml").read_text(encoding="utf-8")
 

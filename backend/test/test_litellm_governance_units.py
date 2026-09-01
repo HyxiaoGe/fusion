@@ -3,6 +3,11 @@ import sys
 import unittest
 from pathlib import Path
 
+if __package__:
+    from .workflow_script_test_support import read_expanded_workflow
+else:
+    from workflow_script_test_support import read_expanded_workflow
+
 ROOT = Path(__file__).resolve().parents[1]
 MONOREPO_ROOT = ROOT.parent
 SERVICE = ROOT / "ops/litellm/fusion-litellm-governance.service"
@@ -18,7 +23,7 @@ DEPLOY_WORKFLOW = MONOREPO_ROOT / ".github/workflows/_deploy-api.yml"
 
 class LiteLLMGovernanceUnitTests(unittest.TestCase):
     def test_deploy_validates_governance_offline_without_running_provider_discovery(self):
-        content = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
+        content = read_expanded_workflow(DEPLOY_WORKFLOW)
         install_step = content.split("- name: Install LiteLLM governance discovery", 1)[1].split(
             "- name: Install model management worker", 1
         )[0]

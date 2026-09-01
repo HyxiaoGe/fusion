@@ -6,6 +6,11 @@ from pathlib import Path
 
 import yaml
 
+if __package__:
+    from .workflow_script_test_support import read_expanded_workflow
+else:
+    from workflow_script_test_support import read_expanded_workflow
+
 ROOT = Path(__file__).resolve().parents[1]
 MONOREPO_ROOT = ROOT.parent
 PR_WORKFLOW = MONOREPO_ROOT / ".github" / "workflows" / "pr-ci.yml"
@@ -62,7 +67,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.pr_workflow = PR_WORKFLOW.read_text(encoding="utf-8")
         self.pr_document = yaml.safe_load(self.pr_workflow)
-        self.release_workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        self.release_workflow = read_expanded_workflow(RELEASE_WORKFLOW)
         self.release_document = yaml.safe_load(self.release_workflow)
         self.release_safety_manifest = yaml.safe_load(RELEASE_SAFETY_MANIFEST.read_text(encoding="utf-8"))
         self.release_safety_contract = RELEASE_SAFETY_CONTRACT.read_text(encoding="utf-8")
@@ -436,9 +441,9 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
     def test_all_checkouts_disable_credential_persistence(self) -> None:
         checkout_without_credentials = f"uses: {CHECKOUT_ACTION}\n        with:\n          persist-credentials: false"
         self.assertEqual(self.pr_workflow.count(checkout_without_credentials), 3)
-        self.assertEqual(self.release_workflow.count(checkout_without_credentials), 2)
+        self.assertEqual(self.release_workflow.count(checkout_without_credentials), 4)
         self.assertEqual(self.pr_workflow.count(f"uses: {CHECKOUT_ACTION}"), 4)
-        self.assertEqual(self.release_workflow.count(f"uses: {CHECKOUT_ACTION}"), 2)
+        self.assertEqual(self.release_workflow.count(f"uses: {CHECKOUT_ACTION}"), 4)
 
     def test_active_workflows_pin_external_actions_to_full_commit_sha(self) -> None:
         uses_key_pattern = re.compile(r"^\s*(?:-\s*)?uses\s*:")

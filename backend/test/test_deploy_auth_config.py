@@ -1,6 +1,11 @@
 import unittest
 from pathlib import Path
 
+if __package__:
+    from .workflow_script_test_support import read_expanded_workflow
+else:
+    from workflow_script_test_support import read_expanded_workflow
+
 
 class DeployAuthConfigTests(unittest.TestCase):
     def setUp(self):
@@ -8,7 +13,9 @@ class DeployAuthConfigTests(unittest.TestCase):
         monorepo_root = root.parent
         self.app_config = (root / "app" / "core" / "config.py").read_text(encoding="utf-8")
         self.env_example = (root / ".env.example").read_text(encoding="utf-8")
-        self.workflow = (monorepo_root / ".github" / "workflows" / "_deploy-api.yml").read_text(encoding="utf-8")
+        self.workflow = read_expanded_workflow(
+            monorepo_root / ".github" / "workflows" / "_deploy-api.yml"
+        )
         self.ci_build_script = (root / ".github" / "scripts" / "windows-build-and-test.ps1").read_text(encoding="utf-8")
         self.compose = (root / "docker-compose.yml").read_text(encoding="utf-8")
         self.ci_requirements = (root / "requirements-ci.txt").read_text(encoding="utf-8")

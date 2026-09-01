@@ -14,7 +14,21 @@ const workflowContractAvailable = [
   pullRequestWorkflowPath,
   releaseSafetyContractPath,
 ].every(existsSync);
-const releaseWorkflow = workflowContractAvailable ? readFileSync(releaseWorkflowPath, 'utf8') : '';
+const deployBodyMarker = '# OPS_DEPLOY_BODY_BEGIN\n';
+const expandDeployScripts = (workflow: string): string =>
+  workflow.replace(/^(\s*)run: (ops\/deploy\/[^\s]+\.sh)\s*$/gm, (_match, indent, path) => {
+    const content = readFileSync(join(monorepoRoot, path), 'utf8');
+    const marker = content.indexOf(deployBodyMarker);
+    if (marker < 0) throw new Error(`部署脚本缺少原始 run 块标记: ${path}`);
+    const body = content.slice(marker + deployBodyMarker.length).trimEnd();
+    return `${indent}run: |\n${body
+      .split(/\r?\n/)
+      .map((line) => `${indent}  ${line}`)
+      .join('\n')}`;
+  });
+const releaseWorkflow = workflowContractAvailable
+  ? expandDeployScripts(readFileSync(releaseWorkflowPath, 'utf8'))
+  : '';
 const pullRequestWorkflow = workflowContractAvailable
   ? readFileSync(pullRequestWorkflowPath, 'utf8')
   : '';
@@ -596,8 +610,14 @@ docker() {
 
   it('自动回滚同时验证旧镜像引用、镜像 ID 与容器内 HTTP smoke', () => {
     const rollbackStep = getSingleDeployStep('Rollback previous deployment');
-    expect(rollbackStep.run).toContain('${{ steps.capture_previous.outputs.previous_image_ref }}');
-    expect(rollbackStep.run).toContain('${{ steps.capture_previous.outputs.previous_image_id }}');
+    expect(rollbackStep.env?.PREVIOUS_IMAGE_REF).toBe(
+      '${{ steps.capture_previous.outputs.previous_image_ref }}',
+    );
+    expect(rollbackStep.env?.PREVIOUS_IMAGE_ID).toBe(
+      '${{ steps.capture_previous.outputs.previous_image_id }}',
+    );
+    expect(rollbackStep.run).toContain('previousImageRef="${PREVIOUS_IMAGE_REF}"');
+    expect(rollbackStep.run).toContain('previousImageId="${PREVIOUS_IMAGE_ID}"');
     expect(rollbackStep.run).toContain("docker inspect --format '{{.Config.Image}}' fusion-ui");
     expect(rollbackStep.run).toContain("docker inspect --format '{{.Image}}' fusion-ui");
     expect(rollbackStep.run).toContain('if [ "$runningImageRef" != "$previousImageRef" ]; then');
@@ -610,7 +630,10 @@ docker() {
   it('Task 2 在候选链路成功后仍保留旧镜像作为恢复点', () => {
     const preserveStep = getSingleDeployStep('Preserve UI rollback image');
     expect(preserveStep.if).toBe('success()');
-    expect(preserveStep.run).toContain('steps.capture_previous.outputs.previous_image_ref');
+    expect(preserveStep.env?.PREVIOUS_IMAGE_REF).toBe(
+      '${{ steps.capture_previous.outputs.previous_image_ref }}',
+    );
+    expect(preserveStep.run).toContain('${PREVIOUS_IMAGE_REF}');
     expect(preserveStep.run).not.toContain('docker rmi');
   });
 

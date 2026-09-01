@@ -204,55 +204,18 @@ jobs:
       - name: Record deploy start time
         run: echo "DEPLOY_START=$(date +%s)" >> "$GITHUB_ENV"
 
-      - name: Validate deployment target
-        id: validate_deploy_target
-        run: |
-          rollbackSha="$ROLLBACK_SHA"
-          rollbackReason="$ROLLBACK_REASON"
-
-          if [ -n "$rollbackSha" ]; then
-            if ! [[ "$rollbackSha" =~ ^[0-9a-f]{40}$ ]]; then
-              echo "rollback_sha 必须是 40 位小写十六进制提交 SHA"
-              exit 1
-            fi
-            if [ -z "$rollbackReason" ] || ! [[ "$rollbackReason" =~ [^[:space:]] ]]; then
-              echo "设置 rollback_sha 时必须填写 rollback_reason"
-              exit 1
-            fi
-          elif [ -n "$rollbackReason" ]; then
-            echo "仅填写 rollback_reason 无效，必须同时设置 rollback_sha"
-            exit 1
-          fi
-
-          if ! [[ "$DEPLOY_TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "实际部署目标不是合法的 40 位小写十六进制提交 SHA"
-            exit 1
-          fi
-
-          echo "部署目标校验通过：${DEPLOY_TARGET_SHA}"
-
-      - name: Configure Docker credential directory
-        run: |
-          dockerConfig="${RUNNER_TEMP}/.docker-${GITHUB_RUN_ID}-${GITHUB_JOB}"
-          mkdir -p -- "$dockerConfig"
-          echo "DOCKER_CONFIG=$dockerConfig" >> "$GITHUB_ENV"
-
-      - name: Prepare stable UI runtime paths
-        run: |
-          set -euo pipefail
-          runtime_dir="${HOME}/.local/share/fusion/ui/runtime"
-          ledger_path="${HOME}/.local/share/fusion/ui/release-ledger.json"
-          install -d -m 0755 "${runtime_dir}"
-          install -d -m 0700 "$(dirname "${ledger_path}")"
-          {
-            printf '%s\n' "FUSION_UI_RUNTIME_DIR=${runtime_dir}"
-            printf '%s\n' "FUSION_UI_LEDGER=${ledger_path}"
-          } >> "${GITHUB_ENV}"
-
       - name: Checkout smoke scripts
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+
+      - name: Validate deployment target
+        id: validate_deploy_target
+        run: ops/deploy/ui-validate-deployment-target.sh
+      - name: Configure Docker credential directory
+        run: ops/deploy/ui-configure-docker-credential-directory.sh
+      - name: Prepare stable UI runtime paths
+        run: ops/deploy/ui-prepare-stable-runtime-paths.sh
 
       - name: Login to ACR
         run: echo "${ACR_PASSWORD}" | docker login "${REGISTRY}" -u "${ACR_USERNAME}" --password-stdin
@@ -262,274 +225,44 @@ jobs:
 
       - name: Capture current deployment
         id: capture_previous
-        run: |
-          previousImageRef="$(docker inspect --format '{{.Config.Image}}' fusion-ui 2>/dev/null || true)"
-          previousImageId="$(docker inspect --format '{{.Image}}' fusion-ui 2>/dev/null || true)"
-          if [ -z "$previousImageRef" ] || [ -z "$previousImageId" ]; then
-            echo "无法同时捕获 fusion-ui 当前镜像引用与镜像 ID，拒绝变更现有部署"
-            docker ps --filter "name=fusion-ui"
-            exit 1
-          fi
-
-          previousTagPrefix="${IMAGE_NAME}:"
-          previousDigestPrefix="${IMAGE_NAME}@sha256:"
-          case "$previousImageRef" in
-            "$previousTagPrefix"*) previousImageSha="${previousImageRef#"$previousTagPrefix"}" ;;
-            "$previousDigestPrefix"*)
-              previousImageSha="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" current-sha --path "${FUSION_UI_LEDGER}" --app ui)"
-              expectedPreviousRef="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" lookup --path "${FUSION_UI_LEDGER}" --app ui --sha "$previousImageSha" --component ui --field ref)"
-              if [ "$previousImageRef" != "$expectedPreviousRef" ]; then
-                echo "fusion-ui 当前摘要引用与发布账本不一致：expected=$expectedPreviousRef actual=$previousImageRef"
-                exit 1
-              fi
-              ;;
-            *) echo "fusion-ui 当前镜像引用不属于受管镜像仓库，拒绝作为回滚目标：$previousImageRef"; exit 1 ;;
-          esac
-          if ! [[ "$previousImageSha" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "fusion-ui 当前镜像引用不是 40 位小写 Git SHA 标签，拒绝作为回滚目标：$previousImageRef"
-            exit 1
-          fi
-          if ! [[ "$previousImageId" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-            echo "fusion-ui 当前镜像 ID 不是规范 sha256 内容 ID，拒绝作为回滚目标：$previousImageId"
-            exit 1
-          fi
-
-          {
-            printf '%s\n' "previous_image_ref=$previousImageRef"
-            printf '%s\n' "previous_image_id=$previousImageId"
-            printf '%s\n' "previous_sha=$previousImageSha"
-          } >> "$GITHUB_OUTPUT"
-          echo "已捕获当前 fusion-ui 部署：ref=$previousImageRef id=$previousImageId"
-
+        run: ops/deploy/ui-capture-current-deployment.sh
       - name: Bootstrap current UI release ledger
         env:
           PREVIOUS_SHA: ${{ steps.capture_previous.outputs.previous_sha }}
           PREVIOUS_REF: ${{ steps.capture_previous.outputs.previous_image_ref }}
           PREVIOUS_ID: ${{ steps.capture_previous.outputs.previous_image_id }}
-        run: |
-          set -euo pipefail
-          resolve_digest_ref() {
-            local manifest_json
-            manifest_json="$(docker buildx imagetools inspect "$1" --format '{{json .Manifest}}')"
-            printf '%s' "${manifest_json}" | python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" manifest-ref --repository "${IMAGE_NAME}"
-          }
-          case "${PREVIOUS_REF}" in
-            "${IMAGE_NAME}:"*)
-              digest_ref="$(resolve_digest_ref "${PREVIOUS_REF}")"
-              docker pull "${digest_ref}"
-              image_id="$(docker image inspect --format '{{.Id}}' "${digest_ref}")"
-              if [ "${image_id}" != "${PREVIOUS_ID}" ]; then
-                echo "旧 UI 标签当前 manifest 与运行中镜像身份不一致，拒绝建立回滚基线"
-                exit 1
-              fi
-              python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" record \
-                --path "${FUSION_UI_LEDGER}" --app ui --sha "${PREVIOUS_SHA}" \
-                --run-id "bootstrap-${GITHUB_RUN_ID}" --recorded-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-                --image "ui|${digest_ref}|${image_id}"
-              ;;
-            "${IMAGE_NAME}@sha256:"*)
-              expected_ref="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" lookup --path "${FUSION_UI_LEDGER}" --app ui --sha "${PREVIOUS_SHA}" --component ui --field ref)"
-              expected_id="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" lookup --path "${FUSION_UI_LEDGER}" --app ui --sha "${PREVIOUS_SHA}" --component ui --field image_id)"
-              if [ "${PREVIOUS_REF}|${PREVIOUS_ID}" != "${expected_ref}|${expected_id}" ]; then
-                echo "运行中 UI 镜像身份与发布账本不一致"
-                exit 1
-              fi
-              ;;
-            *) echo "旧 UI 镜像引用不受管理: ${PREVIOUS_REF}"; exit 1 ;;
-          esac
-
+        run: ops/deploy/ui-bootstrap-current-release-ledger.sh
       - name: Resolve UI deployment digest
-        run: |
-          set -euo pipefail
-          if [ -n "${ROLLBACK_SHA}" ]; then
-            deploy_ref="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" lookup --path "${FUSION_UI_LEDGER}" --app ui --sha "${DEPLOY_TARGET_SHA}" --component ui --field ref)"
-          else
-            manifest_json="$(docker buildx imagetools inspect "${IMAGE_NAME}:${DEPLOY_TARGET_SHA}" --format '{{json .Manifest}}')"
-            deploy_ref="$(printf '%s' "${manifest_json}" | python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" manifest-ref --repository "${IMAGE_NAME}")"
-          fi
-          docker pull "${deploy_ref}"
-          printf '%s\n' "DEPLOY_UI_IMAGE=${deploy_ref}" >> "${GITHUB_ENV}"
-
+        run: ops/deploy/ui-resolve-deployment-digest.sh
       - name: Deploy candidate image
         id: deploy_candidate
-        run: |
-          cd "${FUSION_UI_RUNTIME_DIR}"
-          docker pull "${DEPLOY_UI_IMAGE}"
-          cat > docker-compose.fusion-ui-ghcr.yml <<'EOF'
-          services:
-            fusion-ui:
-              image: ${FUSION_UI_IMAGE}
-              container_name: fusion-ui
-              restart: always
-              ports:
-                - "3004:3000"
-              environment:
-                - NODE_ENV=production
-              deploy:
-                resources:
-                  limits:
-                    memory: 256m
-              networks:
-                - postgres_default
-
-          networks:
-            postgres_default:
-              external: true
-          EOF
-          FUSION_UI_IMAGE="${DEPLOY_UI_IMAGE}" \
-            docker compose --project-name fusion -f docker-compose.fusion-ui-ghcr.yml up -d
-
+        run: ops/deploy/ui-deploy-candidate-image.sh
       - name: Smoke check candidate deployment
         id: verify_candidate
-        run: |
-          expectedImage="${DEPLOY_UI_IMAGE}"
-          runningImage="$(docker inspect --format '{{.Config.Image}}' fusion-ui 2>/dev/null || true)"
-          if [ "$runningImage" != "$expectedImage" ]; then
-            echo "fusion-ui image identity mismatch: expected=$expectedImage actual=${runningImage:-missing}"
-            docker ps --filter "name=fusion-ui"
-            docker logs --tail 80 fusion-ui || true
-            exit 1
-          fi
-
-          expectedImageId="$(docker image inspect --format '{{.Id}}' "$expectedImage" 2>/dev/null || true)"
-          runningImageId="$(docker inspect --format '{{.Image}}' fusion-ui 2>/dev/null || true)"
-          if [ -z "$expectedImageId" ]; then
-            echo "fusion-ui candidate image ID is missing: image=$expectedImage"
-            exit 1
-          fi
-          if [ "$runningImageId" != "$expectedImageId" ]; then
-            echo "fusion-ui image ID mismatch: expected=${expectedImageId:-missing} actual=${runningImageId:-missing}"
-            docker ps --filter "name=fusion-ui"
-            docker logs --tail 80 fusion-ui || true
-            exit 1
-          fi
-
-          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
-            if docker exec fusion-ui node -e 'fetch("http://127.0.0.1:3000/", { signal: AbortSignal.timeout(5000) }).then((response) => { if (!response.ok) throw new Error(`HTTP ${response.status}`); }).catch((error) => { console.error(error); process.exit(1); });'; then
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "fusion-ui dev smoke check failed"
-          docker ps --filter "name=fusion-ui"
-          docker logs --tail 80 fusion-ui || true
-          exit 1
-
+        run: ops/deploy/ui-smoke-check-candidate-deployment.sh
       - name: Resolve browser smoke runtime
-        run: |
-          chromePath="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
-          if [ -z "$chromePath" ]; then
-            echo "browser smoke requires google-chrome/chromium on the dev runner"
-            exit 1
-          fi
-          command -v node
-          command -v npm
-          echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$chromePath" >> "$GITHUB_ENV"
-          echo "Resolved browser smoke Chrome: $chromePath"
-
+        run: ops/deploy/ui-resolve-browser-smoke-runtime.sh
       - name: Run dev browser smoke
         id: verify_browser_smoke
         env:
           SMOKE_BASE_URL: http://127.0.0.1:3004
-        run: |
-          smokeNodeDir="$HOME/.cache/fusion-ui-smoke/playwright-1.58.2"
-          if [ ! -f "$smokeNodeDir/node_modules/playwright/index.js" ]; then
-            rm -rf "$smokeNodeDir"
-            mkdir -p "$smokeNodeDir"
-            PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --prefix "$smokeNodeDir" --no-save --package-lock=false --ignore-scripts --no-audit --no-fund playwright@1.58.2
-          fi
-
-          if ! PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
-            PLAYWRIGHT_MODULE_PATH="$smokeNodeDir/node_modules/playwright/index.js" \
-            PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH" \
-            node frontend/scripts/smoke-dev-deployment.mjs; then
-            echo "fusion-ui dev browser smoke failed"
-            docker ps --filter "name=fusion-ui"
-            docker logs --tail 80 fusion-ui || true
-            exit 1
-          fi
-
+        run: ops/deploy/ui-run-dev-browser-smoke.sh
       - name: Preserve UI rollback image
         id: cleanup_old_images
         if: success()
-        run: |
-          docker image inspect "${{ steps.capture_previous.outputs.previous_image_ref }}" >/dev/null
-          echo "Task 2 保留切换前镜像，待 Task 5 再清理"
-
+        env:
+          PREVIOUS_IMAGE_REF: ${{ steps.capture_previous.outputs.previous_image_ref }}
+        run: ops/deploy/ui-preserve-rollback-image.sh
       - name: Record accepted UI release
         if: success()
-        run: |
-          set -euo pipefail
-          image_id="$(docker inspect fusion-ui --format '{{.Image}}')"
-          python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" record \
-            --path "${FUSION_UI_LEDGER}" --app ui --sha "${DEPLOY_TARGET_SHA}" \
-            --run-id "${GITHUB_RUN_ID}" --recorded-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --image "ui|${DEPLOY_UI_IMAGE}|${image_id}"
-
+        run: ops/deploy/ui-record-accepted-release.sh
       - name: Rollback previous deployment
         id: rollback_previous
         if: ${{ failure() && steps.capture_previous.outcome == 'success' && steps.deploy_candidate.outcome != 'skipped' }}
-        run: |
-          previousImageRef="${{ steps.capture_previous.outputs.previous_image_ref }}"
-          previousImageId="${{ steps.capture_previous.outputs.previous_image_id }}"
-          if [ -z "$previousImageRef" ] || [ -z "$previousImageId" ]; then
-            echo "自动回滚缺少旧镜像引用或镜像 ID"
-            exit 1
-          fi
-
-          cd "${FUSION_UI_RUNTIME_DIR}"
-          cat > docker-compose.fusion-ui-ghcr.yml <<'EOF'
-          services:
-            fusion-ui:
-              image: ${FUSION_UI_IMAGE}
-              container_name: fusion-ui
-              restart: always
-              ports:
-                - "3004:3000"
-              environment:
-                - NODE_ENV=production
-              deploy:
-                resources:
-                  limits:
-                    memory: 256m
-              networks:
-                - postgres_default
-
-          networks:
-            postgres_default:
-              external: true
-          EOF
-          FUSION_UI_IMAGE="$previousImageRef" \
-            docker compose --project-name fusion -f docker-compose.fusion-ui-ghcr.yml up -d
-
-          runningImageRef="$(docker inspect --format '{{.Config.Image}}' fusion-ui 2>/dev/null || true)"
-          runningImageId="$(docker inspect --format '{{.Image}}' fusion-ui 2>/dev/null || true)"
-          if [ "$runningImageRef" != "$previousImageRef" ]; then
-            echo "fusion-ui rollback image reference mismatch: expected=$previousImageRef actual=${runningImageRef:-missing}"
-            docker ps --filter "name=fusion-ui"
-            docker logs --tail 80 fusion-ui || true
-            exit 1
-          fi
-          if [ "$runningImageId" != "$previousImageId" ]; then
-            echo "fusion-ui rollback image ID mismatch: expected=$previousImageId actual=${runningImageId:-missing}"
-            docker ps --filter "name=fusion-ui"
-            docker logs --tail 80 fusion-ui || true
-            exit 1
-          fi
-
-          # 浏览器运行时本身可能是候选失败原因，回滚阻塞验收使用独立的容器内 HTTP 路径。
-          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
-            if docker exec fusion-ui node -e 'fetch("http://127.0.0.1:3000/", { signal: AbortSignal.timeout(5000) }).then((response) => { if (!response.ok) throw new Error(`HTTP ${response.status}`); }).catch((error) => { console.error(error); process.exit(1); });'; then
-              echo "fusion-ui rollback smoke check passed"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "fusion-ui rollback smoke check failed"
-          docker ps --filter "name=fusion-ui"
-          docker logs --tail 80 fusion-ui || true
-          exit 1
-
+        env:
+          PREVIOUS_IMAGE_REF: ${{ steps.capture_previous.outputs.previous_image_ref }}
+          PREVIOUS_IMAGE_ID: ${{ steps.capture_previous.outputs.previous_image_id }}
+        run: ops/deploy/ui-rollback-previous-deployment.sh
       - name: Push CI/CD metrics
         if: always()
         env:
@@ -540,21 +273,7 @@ jobs:
           METRICS_TARGET_SHA: ${{ env.DEPLOY_TARGET_SHA }}
           METRICS_RUNNER_NAME: ${{ needs.publish.outputs.runner_name }}
           METRICS_DEPLOY_START: ${{ env.DEPLOY_START }}
-        run: |
-          if ! timeout 15s bash ~/scripts/push-cicd-metrics.sh \
-            fusion-ui \
-            "${METRICS_REF_NAME}" \
-            dev \
-            "${METRICS_JOB_STATUS}" \
-            "${METRICS_STARTED_AT}" \
-            "${METRICS_IMAGE_REF}" \
-            "${METRICS_TARGET_SHA}" \
-            "${METRICS_RUNNER_NAME}" \
-            fusion-ui \
-            "${METRICS_DEPLOY_START}"; then
-            echo "CI/CD metrics push failed, ignored"
-          fi
-
+        run: ops/deploy/ui-push-cicd-metrics.sh
       - name: 通知飞书(部署结果)
         if: always()
         continue-on-error: true
@@ -566,81 +285,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           # 提交信息可含任意字符,只经 env 传入 python(os.environ→json),绝不进 shell,杜绝注入。
           COMMIT_MSG: ${{ github.event.head_commit.message }}
-        run: |
-          if [ -z "$FEISHU_INFRA_WEBHOOK" ]; then
-            echo "FEISHU_INFRA_WEBHOOK 未配置,跳过飞书通知"
-            exit 0
-          fi
-          export SHORT_SHA="${DEPLOY_TARGET_SHA:0:7}"
-          export DEPLOY_TS="$(date -u '+%Y-%m-%d %H:%M UTC')"
-          python3 - <<'PY'
-          import json, os, urllib.request
-          ok = os.environ.get("JOB_STATUS") == "success"
-          repo = os.environ.get("REPO", "")
-          ref = os.environ.get("REF_NAME", "")
-          sha = os.environ.get("SHORT_SHA", "")
-          status = os.environ.get("JOB_STATUS", "")
-          ts = os.environ.get("DEPLOY_TS", "")
-          run_url = os.environ.get("RUN_URL", "")
-          rollback_reason = os.environ.get("ROLLBACK_REASON", "")
-          raw = os.environ.get("COMMIT_MSG", "") or ""
-          lines = [ln for ln in raw.splitlines() if ln.strip()]
-          msg = "\n".join(lines[:3]) if lines else "(无提交信息)"
-          if rollback_reason:
-              msg = f"手动回滚原因：{rollback_reason}\n{msg}"
-          if len(msg) > 240:
-              msg = msg[:240] + "…"
-          card = {
-              "msg_type": "interactive",
-              "card": {
-                  "config": {"wide_screen_mode": True},
-                  "header": {
-                      "template": "green" if ok else "red",
-                      "title": {"tag": "plain_text",
-                                "content": ("✅ 部署成功 · " if ok else "❌ 部署失败 · ") + repo},
-                  },
-                  "elements": [
-                      {"tag": "div", "text": {"tag": "lark_md", "content": f"**提交信息**\n{msg}"}},
-                      {"tag": "hr"},
-                      {"tag": "div", "fields": [
-                          {"is_short": True, "text": {"tag": "lark_md", "content": f"**分支**\n{ref}"}},
-                          {"is_short": True, "text": {"tag": "lark_md", "content": f"**提交**\n`{sha}`"}},
-                          {"is_short": True, "text": {"tag": "lark_md", "content": f"**结果**\n{status}"}},
-                          {"is_short": True, "text": {"tag": "lark_md", "content": f"**时间**\n{ts}"}},
-                      ]},
-                      {"tag": "action", "actions": [
-                          {"tag": "button", "type": "primary",
-                           "text": {"tag": "plain_text", "content": "查看运行日志"},
-                           "url": run_url}]},
-                      {"tag": "note", "elements": [
-                          {"tag": "plain_text", "content": "🤖 UptimeKuma · CI/CD 部署告警"}]},
-                  ],
-              },
-          }
-          data = json.dumps(card).encode()
-          req = urllib.request.Request(
-              os.environ["FEISHU_INFRA_WEBHOOK"], data=data,
-              headers={"Content-Type": "application/json"})
-          try:
-              with urllib.request.urlopen(req, timeout=15) as r:
-                  print(f"飞书响应 http={r.status} body={r.read().decode()}")
-          except Exception as e:
-              print(f"飞书通知失败(忽略): {e!r}")
-          PY
-
+        run: ops/deploy/ui-notify-feishu.sh
       - name: Cleanup Docker credential directory
         if: always()
-        run: |
-          dockerConfig="${DOCKER_CONFIG:-}"
-          if [ -z "$dockerConfig" ]; then
-            echo "DOCKER_CONFIG 未设置，无需清理"
-            exit 0
-          fi
-
-          expectedDockerConfig="${RUNNER_TEMP}/.docker-${GITHUB_RUN_ID}-${GITHUB_JOB}"
-          if [[ "$dockerConfig" != "$expectedDockerConfig" || "$dockerConfig" != "${RUNNER_TEMP}/.docker-"* ]]; then
-            echo "拒绝清理非本次 job 的 Docker 配置目录: $dockerConfig"
-            exit 1
-          fi
-
-          rm -rf -- "$dockerConfig"
+        run: ops/deploy/ui-cleanup-docker-credential-directory.sh
