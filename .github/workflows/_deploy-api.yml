@@ -11,13 +11,13 @@ on:
       deploy_sha: { description: orchestrator 固定的 master 提交 SHA, required: true, type: string }
       rollback_sha: { description: 要恢复的已发布镜像 SHA, required: false, type: string }
       rollback_reason: { description: 手动回滚原因, required: false, type: string }
-permissions: { contents: read }
-# 顶层 orchestrator 统一持有 fusion-dev concurrency；本 reusable workflow 不定义 concurrency。
+permissions: { contents: read } # 顶层 orchestrator 统一持有 fusion-dev concurrency；本 reusable workflow 不定义 concurrency。
 env:
   REGISTRY: crpi-77w10wlykpqilmmb.cn-shenzhen.personal.cr.aliyuncs.com
   IMAGE_NAME: ${{ format('crpi-77w10wlykpqilmmb.cn-shenzhen.personal.cr.aliyuncs.com/{0}', inputs.image_repository) }}
   FLYAI_ADAPTER_IMAGE_NAME: crpi-77w10wlykpqilmmb.cn-shenzhen.personal.cr.aliyuncs.com/seanfield/fusion-flyai-adapter
   API_HEALTH_CHECK_ENDPOINT: ${{ inputs.health_check_endpoint }}
+  DEPLOY_HEALTH_CHECK_ENDPOINT: ${{ inputs.health_check_endpoint }}
   DEPLOY_APP: ${{ inputs.app }}
   DEPLOY_IMAGE_REPOSITORY: ${{ inputs.image_repository }}
   DEPLOY_MIGRATION_ENABLED: ${{ inputs.migration_enabled }}
