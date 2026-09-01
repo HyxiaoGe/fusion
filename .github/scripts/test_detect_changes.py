@@ -2,6 +2,7 @@ import importlib.util
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 MODULE_PATH = Path(__file__).with_name("detect_changes.py")
@@ -54,6 +55,21 @@ class DetectChangesTests(unittest.TestCase):
             head="b" * 40,
         )
         self.assertEqual(diff_range, MODULE.DiffRange("initial-push", None, "b" * 40))
+
+    def test_initial_push_classifies_the_complete_tree(self) -> None:
+        diff_range = MODULE.DiffRange("initial-push", None, "b" * 40)
+        with patch.object(
+            MODULE.subprocess,
+            "check_output",
+            return_value=b"backend/main.py\0frontend/package.json\0",
+        ) as check_output:
+            self.assertEqual(
+                MODULE.changed_paths(diff_range),
+                ["backend/main.py", "frontend/package.json"],
+            )
+        check_output.assert_called_once_with(
+            ["git", "ls-tree", "--name-only", "-r", "-z", "b" * 40]
+        )
 
     def test_manual_run_honors_explicit_base_and_head(self) -> None:
         diff_range = MODULE.select_diff_range(

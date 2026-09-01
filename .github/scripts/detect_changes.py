@@ -47,9 +47,7 @@ def changed_paths(diff_range: DiffRange) -> list[str]:
     if diff_range.mode == "initial-push":
         command = [
             "git",
-            "diff-tree",
-            "--root",
-            "--no-commit-id",
+            "ls-tree",
             "--name-only",
             "-r",
             "-z",
