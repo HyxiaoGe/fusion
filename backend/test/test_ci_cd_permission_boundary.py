@@ -7,11 +7,12 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-PR_WORKFLOW = ROOT / ".github" / "workflows" / "pr-ci.yml"
-RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "deploy.yml"
-RELEASE_SAFETY_MANIFEST = ROOT / ".github" / "release-safety.yml"
-RELEASE_SAFETY_CONTRACT = ROOT / ".github" / "scripts" / "release-safety-contract.sh"
-DRIFT_AUDIT_WORKFLOW = ROOT / ".github" / "workflows" / "baseline-drift-audit.yml"
+MONOREPO_ROOT = ROOT.parent
+PR_WORKFLOW = MONOREPO_ROOT / ".github" / "workflows" / "pr-ci.yml"
+RELEASE_WORKFLOW = MONOREPO_ROOT / ".github" / "workflows" / "_deploy-api.yml"
+RELEASE_SAFETY_MANIFEST = ROOT / "release-safety.yml"
+RELEASE_SAFETY_CONTRACT = MONOREPO_ROOT / ".github" / "scripts" / "release-safety-contract.sh"
+DRIFT_AUDIT_WORKFLOW = MONOREPO_ROOT / ".github" / "workflows" / "baseline-drift-audit.yml"
 CLEANUP_SCRIPT = ROOT / ".github" / "scripts" / "windows-cleanup.ps1"
 BUILD_SCRIPT = ROOT / ".github" / "scripts" / "windows-build-and-test.ps1"
 LINUX_BUILD_SCRIPT = ROOT / ".github" / "scripts" / "linux-build-and-test.sh"
@@ -22,8 +23,8 @@ LOGIN_ACTION = "docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v
 
 
 def github_action_documents() -> list[Path]:
-    workflow_directory = ROOT / ".github" / "workflows"
-    action_directory = ROOT / ".github" / "actions"
+    workflow_directory = MONOREPO_ROOT / ".github" / "workflows"
+    action_directory = MONOREPO_ROOT / ".github" / "actions"
     workflows = sorted((*workflow_directory.glob("*.yml"), *workflow_directory.glob("*.yaml")))
     actions = []
     if action_directory.exists():
@@ -186,7 +187,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         self.assertIn("docker exec fusion-flyai-adapter", commands)
         self.assertIn("http://127.0.0.1:8080/health", commands)
         self.assertIn(
-            'git -C "${GITHUB_WORKSPACE}" show "${rollback_api_sha}:scripts/deployment_smoke.py"',
+            'git -C "${GITHUB_WORKSPACE}" show "${rollback_api_sha}:backend/scripts/deployment_smoke.py"',
             commands,
         )
         self.assertIn("| python3 - --base-url http://127.0.0.1:8002", commands)
@@ -202,19 +203,21 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
             "漂移审计应由 engineering-baseline 中央工作流统一执行",
         )
         active_workflows = "\n".join(
-            path.read_text(encoding="utf-8") for path in (ROOT / ".github" / "workflows").glob("*.yml")
+            path.read_text(encoding="utf-8")
+            for path in (MONOREPO_ROOT / ".github" / "workflows").glob("*.yml")
         )
         self.assertNotIn("engineering-baseline/.github/actions/audit", active_workflows)
 
-    def test_pr_workflow_only_targets_master_pull_requests(self) -> None:
+    def test_ci_workflow_covers_master_and_manual_diff_validation(self) -> None:
         self.assertRegex(
             self.pr_workflow,
             r"(?ms)^on:\n\s+pull_request:\n\s+branches:\s*\[master\]",
         )
-        self.assertNotRegex(self.pr_workflow, r"(?m)^\s{2}(push|workflow_dispatch):")
+        self.assertRegex(self.pr_workflow, r"(?m)^\s{2}push:")
+        self.assertRegex(self.pr_workflow, r"(?m)^\s{2}workflow_dispatch:")
 
     def test_pr_workflow_has_no_release_privileges(self) -> None:
-        self.assertEqual(self.pr_workflow.count("name: PR container validation"), 1)
+        self.assertEqual(self.pr_workflow.count("name: API validation"), 1)
         self.assertNotIn("name: Build on Windows runner", self.pr_workflow)
         self.assertNotIn("过渡检查名", self.pr_workflow)
         self.assertIn("runs-on: ubuntu-latest", self.pr_workflow)
@@ -224,7 +227,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         self.assertNotIn("docker/login-action", self.pr_workflow)
         self.assertNotRegex(self.pr_workflow, r"(?m)^\s*docker push\b")
         self.assertNotIn("deploy-dev:", self.pr_workflow)
-        self.assertIn(".github/scripts/linux-build-and-test.sh", self.pr_workflow)
+        self.assertIn("backend/.github/scripts/linux-build-and-test.sh", self.pr_workflow)
         self.assertIn("persist-credentials: false", self.pr_workflow)
         self.assertNotIn("windows-cleanup.ps1", self.pr_workflow)
         self.assertNotIn("builder prune", self.pr_workflow)
@@ -232,16 +235,19 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         self.assertNotRegex(self.linux_build_script, r"(?mi)^\s*docker login\b")
         self.assertNotRegex(self.linux_build_script, r"(?mi)^\s*docker push\b")
 
-        pr_steps = self.pr_document["jobs"]["build"]["steps"]
+        pr_steps = self.pr_document["jobs"]["api"]["steps"]
         contract_steps = [step for step in pr_steps if step.get("id") == "release_safety_contract"]
         self.assertEqual(len(contract_steps), 1)
         contract_step = contract_steps[0]
-        self.assertEqual(contract_step["run"], ".github/scripts/release-safety-contract.sh")
+        self.assertEqual(
+            contract_step["run"],
+            ".github/scripts/release-safety-contract.sh backend/release-safety.yml",
+        )
         self.assertEqual(contract_step["id"], "release_safety_contract")
         self.assertNotIn("if", contract_step)
         self.assertNotIn("continue-on-error", contract_step)
 
-        dependency_step = workflow_step(self.pr_document["jobs"]["build"], "Install release safety contract dependency")
+        dependency_step = workflow_step(self.pr_document["jobs"]["api"], "Install release safety contract dependency")
         self.assertNotIn("id", dependency_step)
         self.assertNotIn("if", dependency_step)
         self.assertNotIn("continue-on-error", dependency_step)
@@ -250,21 +256,16 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
             "python3 -m pip install --disable-pip-version-check --no-cache-dir PyYAML==6.0.2",
         )
 
-        docker_step = workflow_step(self.pr_document["jobs"]["build"], "Test and build Docker image")
+        docker_step = workflow_step(self.pr_document["jobs"]["api"], "Test and build API Docker images")
         self.assertNotIn("id", docker_step)
-        checkout_step = workflow_step(self.pr_document["jobs"]["build"], "Checkout")
+        checkout_step = workflow_step(self.pr_document["jobs"]["api"], "Checkout")
         self.assertLess(pr_steps.index(checkout_step), pr_steps.index(dependency_step))
         self.assertLess(pr_steps.index(dependency_step), pr_steps.index(contract_step))
         self.assertLess(pr_steps.index(contract_step), pr_steps.index(docker_step))
 
-        self.assertEqual(
-            self.release_safety_contract.splitlines(),
-            [
-                "#!/usr/bin/env bash",
-                "set -euo pipefail",
-                "exec python3 test/test_ci_cd_permission_boundary.py",
-            ],
-        )
+        self.assertIn('manifest_path="${1:?缺少 release-safety 契约文件路径}"', self.release_safety_contract)
+        self.assertIn("backend/release-safety.yml)", self.release_safety_contract)
+        self.assertIn("exec python3 backend/test/test_ci_cd_permission_boundary.py", self.release_safety_contract)
         self.assertEqual(stat.S_IMODE(RELEASE_SAFETY_CONTRACT.stat().st_mode), 0o755)
 
     def test_release_safety_manifest_maps_real_workflow_roles(self) -> None:
@@ -272,9 +273,10 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
             self.release_safety_manifest,
             {
                 "version": "1",
-                "workflow": ".github/workflows/deploy.yml",
+                "workflow": ".github/workflows/_deploy-api.yml",
                 "contract_test": {
                     "path": ".github/scripts/release-safety-contract.sh",
+                    "manifest": "backend/release-safety.yml",
                     "pr_step": "release_safety_contract",
                 },
                 "jobs": {
@@ -352,11 +354,12 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         finalize_step = workflow_step(jobs[manifest["jobs"]["finalize"]], "Finalize release result")
         self.assertEqual(finalize_step["id"], manifest["steps"]["finalize"])
 
-    def test_release_workflow_only_runs_for_master(self) -> None:
+    def test_release_workflow_is_reusable_only_and_still_guards_master(self) -> None:
         self.assertRegex(
             self.release_workflow,
-            r"(?ms)^on:\n\s+push:\n\s+branches:\s*\[master\]\n\s+workflow_dispatch:",
+            r"(?ms)^on:\n\s+workflow_call:\n\s+inputs:",
         )
+        self.assertNotRegex(self.release_workflow, r"(?m)^\s{2}(push|workflow_dispatch):")
         self.assertNotIn("pull_request:", self.release_workflow)
         publish_job = self.release_workflow[
             self.release_workflow.index("  publish:") : self.release_workflow.index("  deploy-dev:")
@@ -420,9 +423,9 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
 
     def test_all_checkouts_disable_credential_persistence(self) -> None:
         checkout_without_credentials = f"uses: {CHECKOUT_ACTION}\n        with:\n          persist-credentials: false"
-        self.assertEqual(self.pr_workflow.count(checkout_without_credentials), 1)
+        self.assertEqual(self.pr_workflow.count(checkout_without_credentials), 2)
         self.assertEqual(self.release_workflow.count(checkout_without_credentials), 2)
-        self.assertEqual(self.pr_workflow.count(f"uses: {CHECKOUT_ACTION}"), 1)
+        self.assertEqual(self.pr_workflow.count(f"uses: {CHECKOUT_ACTION}"), 3)
         self.assertEqual(self.release_workflow.count(f"uses: {CHECKOUT_ACTION}"), 2)
 
     def test_active_workflows_pin_external_actions_to_full_commit_sha(self) -> None:
@@ -438,7 +441,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
                 action = uses_value_pattern.match(line)
                 self.assertIsNotNone(
                     action,
-                    f"{action_document.relative_to(ROOT)}:{line_number} 的 uses 语法未纳入安全校验",
+                    f"{action_document.relative_to(MONOREPO_ROOT)}:{line_number} 的 uses 语法未纳入安全校验",
                 )
                 reference = action.group(2)
                 if reference.startswith("./"):
@@ -559,7 +562,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
             self.assert_context7_has_no_secret_or_runner_fallback(forged_workflow)
 
     def test_release_keeps_buildkit_cache_governance(self) -> None:
-        shared_script = ".github/scripts/windows-cleanup.ps1"
+        shared_script = "backend/.github/scripts/windows-cleanup.ps1"
         self.assertIn(shared_script, self.release_workflow)
         self.assertIn('"--max-used-space", "10gb"', self.cleanup_script)
         self.assertIn('"--reserved-space", "4gb"', self.cleanup_script)
@@ -567,9 +570,9 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
 
     def test_manual_rollback_request_is_strict_and_skips_entire_publish_job(self) -> None:
         self.assertRegex(self.ci_requirements.lower(), r"(?m)^pyyaml==6\.0\.2$")
-        workflow_dispatch = self.release_document[True]["workflow_dispatch"]
+        workflow_call = self.release_document[True]["workflow_call"]
         self.assertEqual(
-            workflow_dispatch["inputs"],
+            workflow_call["inputs"],
             {
                 "rollback_sha": {
                     "description": "要恢复的已发布镜像 SHA（40 位小写 Git SHA；留空表示正常发布）",
@@ -583,7 +586,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
                 },
             },
         )
-        self.assertNotRegex(self.release_workflow, r"\$\{\{\s*inputs\.rollback_")
+        self.assertRegex(self.release_workflow, r"\$\{\{\s*inputs\.rollback_")
 
         jobs = self.release_document["jobs"]
         prepare_job = jobs["prepare"]
@@ -593,11 +596,11 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         self.assertEqual(request_step["env"]["EVENT_NAME"], "${{ github.event_name }}")
         self.assertEqual(
             request_step["env"]["REQUESTED_ROLLBACK_SHA"],
-            "${{ github.event.inputs.rollback_sha }}",
+            "${{ inputs.rollback_sha }}",
         )
         self.assertEqual(
             request_step["env"]["REQUESTED_ROLLBACK_REASON"],
-            "${{ github.event.inputs.rollback_reason }}",
+            "${{ inputs.rollback_reason }}",
         )
         request_commands = active_commands(request_step["run"])
         self.assertIn('[[ ! "${rollback_sha}" =~ ^[0-9a-f]{40}$ ]]', request_commands)

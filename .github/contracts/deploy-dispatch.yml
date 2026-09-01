@@ -1,0 +1,23 @@
+version: "1"
+status: task-1-contract-only
+enabled_workflow: null
+workflow_dispatch:
+  target:
+    allowed: [api, ui, both]
+    required: true
+  api_rollback_sha:
+    independent: true
+    format: "^[0-9a-f]{40}$"
+  ui_rollback_sha:
+    independent: true
+    format: "^[0-9a-f]{40}$"
+  rollback_reason:
+    required_with_any_sha: true
+behavior:
+  manual_target_bypasses_path_filter: true
+  both_order: [api, ui]
+  stop_on_api_failure: true
+  update_only_successful_ledgers: true
+wrappers:
+  api: .github/workflows/_deploy-api.yml
+  ui: .github/workflows/_deploy-ui.yml

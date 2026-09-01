@@ -1,7 +1,8 @@
 version: "1"
-workflow: .github/workflows/build-and-deploy.yml
+workflow: .github/workflows/_deploy-ui.yml
 contract_test:
   path: .github/scripts/release-safety-contract.sh
+  manifest: frontend/release-safety.yml
   pr_step: release_safety_contract
 jobs:
   prepare: null
@@ -27,13 +28,11 @@ needs:
 conditions:
   prepare: null
   publish: >-
-    github.ref == 'refs/heads/master' &&
-    (github.event_name != 'workflow_dispatch' || github.event.inputs.rollback_sha == '')
+    github.ref == 'refs/heads/master' && inputs.rollback_sha == ''
   deploy: >-
     always() && github.ref == 'refs/heads/master' &&
     (needs.publish.result == 'success' ||
-    (needs.publish.result == 'skipped' &&
-    github.event_name == 'workflow_dispatch' && github.event.inputs.rollback_sha != ''))
+    (needs.publish.result == 'skipped' && inputs.rollback_sha != ''))
   migration: null
   rollback: >-
     failure() && steps.capture_previous.outcome == 'success' &&

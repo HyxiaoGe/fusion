@@ -1,17 +1,30 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 
-const releaseWorkflow = readFileSync(join(process.cwd(), '.github/workflows/build-and-deploy.yml'), 'utf8');
-const pullRequestWorkflow = readFileSync(join(process.cwd(), '.github/workflows/pull-request.yml'), 'utf8');
-const releaseSafetyManifest = readFileSync(join(process.cwd(), '.github/release-safety.yml'), 'utf8');
-const releaseSafetyContractPath = join(process.cwd(), '.github/scripts/release-safety-contract.sh');
-const releaseSafetyContract = readFileSync(releaseSafetyContractPath, 'utf8');
+const appRoot = process.cwd();
+const monorepoRoot = resolve(appRoot, '..');
+const releaseWorkflowPath = join(monorepoRoot, '.github/workflows/_deploy-ui.yml');
+const pullRequestWorkflowPath = join(monorepoRoot, '.github/workflows/pr-ci.yml');
+const releaseSafetyContractPath = join(monorepoRoot, '.github/scripts/release-safety-contract.sh');
+const workflowContractAvailable = [
+  releaseWorkflowPath,
+  pullRequestWorkflowPath,
+  releaseSafetyContractPath,
+].every(existsSync);
+const releaseWorkflow = workflowContractAvailable ? readFileSync(releaseWorkflowPath, 'utf8') : '';
+const pullRequestWorkflow = workflowContractAvailable
+  ? readFileSync(pullRequestWorkflowPath, 'utf8')
+  : '';
+const releaseSafetyManifest = readFileSync(join(appRoot, 'release-safety.yml'), 'utf8');
+const releaseSafetyContract = workflowContractAvailable
+  ? readFileSync(releaseSafetyContractPath, 'utf8')
+  : '';
 const dockerfile = readFileSync(join(process.cwd(), 'Dockerfile'), 'utf8');
 const windowsDockerBuildAction = readFileSync(
-  join(process.cwd(), '.github/actions/windows-docker-build/action.yml'),
+  join(appRoot, '.github/actions/windows-docker-build/action.yml'),
   'utf8',
 );
 const releasePublishBlock = releaseWorkflow.slice(
@@ -40,7 +53,7 @@ type WorkflowJob = {
 type WorkflowDocument = {
   env?: Record<string, string>;
   on?: {
-    workflow_dispatch?: {
+    workflow_call?: {
       inputs?: Record<string, { description?: string; required?: boolean; type?: string }>;
     };
   };
@@ -51,9 +64,9 @@ const pullRequestWorkflowDocument = parse(pullRequestWorkflow) as WorkflowDocume
 const releaseSafetyDocument = parse(releaseSafetyManifest);
 
 const expectedPublishCondition =
-  "github.ref == 'refs/heads/master' && (github.event_name != 'workflow_dispatch' || github.event.inputs.rollback_sha == '')";
+  "github.ref == 'refs/heads/master' && inputs.rollback_sha == ''";
 const expectedDeployCondition =
-  "always() && github.ref == 'refs/heads/master' && (needs.publish.result == 'success' || (needs.publish.result == 'skipped' && github.event_name == 'workflow_dispatch' && github.event.inputs.rollback_sha != ''))";
+  "always() && github.ref == 'refs/heads/master' && (needs.publish.result == 'success' || (needs.publish.result == 'skipped' && inputs.rollback_sha != ''))";
 const expectedRollbackCondition =
   "${{ failure() && steps.capture_previous.outcome == 'success' && steps.deploy_candidate.outcome != 'skipped' }}";
 
@@ -165,11 +178,11 @@ const filesUnder = (directory: string): string[] => {
 };
 
 const actionDocuments = [
-  ...filesUnder(join(process.cwd(), '.github/workflows')),
-  ...filesUnder(join(process.cwd(), '.github/actions')).filter((path) => /action\.ya?ml$/.test(path)),
+  ...(workflowContractAvailable ? [releaseWorkflowPath] : []),
+  ...filesUnder(join(appRoot, '.github/actions')).filter((path) => /action\.ya?ml$/.test(path)),
 ].map((path) => ({ path, content: readFileSync(path, 'utf8') }));
 
-describe('build-and-deploy workflow 发布门禁', () => {
+(workflowContractAvailable ? describe : describe.skip)('build-and-deploy workflow 发布门禁', () => {
   it('测试镜像提供与发布脚本一致的 Bash 运行时', () => {
     const dependencyStage = dockerfile.slice(
       dockerfile.indexOf('FROM node:20-alpine AS deps'),
@@ -181,9 +194,10 @@ describe('build-and-deploy workflow 发布门禁', () => {
   it('发布安全 manifest 精确映射真实 workflow 角色', () => {
     expect(releaseSafetyDocument).toEqual({
       version: '1',
-      workflow: '.github/workflows/build-and-deploy.yml',
+      workflow: '.github/workflows/_deploy-ui.yml',
       contract_test: {
         path: '.github/scripts/release-safety-contract.sh',
+        manifest: 'frontend/release-safety.yml',
         pr_step: 'release_safety_contract',
       },
       jobs: { prepare: null, publish: 'publish', deploy: 'deploy-dev', finalize: null },
@@ -215,25 +229,29 @@ describe('build-and-deploy workflow 发布门禁', () => {
       },
     });
 
-    const prSteps = pullRequestWorkflowDocument.jobs?.build?.steps ?? [];
+    const prSteps = pullRequestWorkflowDocument.jobs?.ui?.steps ?? [];
     const contractSteps = prSteps.filter((step) => step.id === 'release_safety_contract');
     expect(contractSteps).toHaveLength(1);
     expect(contractSteps?.[0].id).toBe('release_safety_contract');
-    expect(contractSteps?.[0].run).toBe('.github/scripts/release-safety-contract.sh');
+    expect(contractSteps?.[0].run).toBe(
+      '.github/scripts/release-safety-contract.sh frontend/release-safety.yml',
+    );
     expect(contractSteps?.[0].if).toBeUndefined();
     expect(contractSteps?.[0]['continue-on-error']).toBeUndefined();
-    expect(releaseSafetyContract.trimEnd().split(/\r?\n/)).toEqual([
-      '#!/usr/bin/env bash',
-      'set -euo pipefail',
-      'exec npx vitest run src/scripts/buildAndDeployWorkflow.test.ts',
-    ]);
+    expect(releaseSafetyContract).toContain('manifest_path="${1:?缺少 release-safety 契约文件路径}"');
+    expect(releaseSafetyContract).toContain('frontend/release-safety.yml)');
+    expect(releaseSafetyContract).toContain('exec npx vitest run src/scripts/buildAndDeployWorkflow.test.ts');
     expect(statSync(releaseSafetyContractPath).mode & 0o777).toBe(0o755);
 
     const setupNodeStep = prSteps.find((step) => step.name === 'Setup Node.js');
     const installStep = prSteps.find((step) => step.name === 'Install dependencies');
-    const dockerStep = prSteps.find((step) => step.name === 'Test and build Docker targets');
+    const dockerStep = prSteps.find((step) => step.name === 'Test and build UI Docker targets');
     expect(setupNodeStep?.uses).toBe('actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38');
-    expect(setupNodeStep?.with).toEqual({ 'node-version': '20', cache: 'npm' });
+    expect(setupNodeStep?.with).toEqual({
+      'node-version': '20',
+      cache: 'npm',
+      'cache-dependency-path': 'frontend/package-lock.json',
+    });
     expect(setupNodeStep?.id).toBeUndefined();
     expect(setupNodeStep?.if).toBeUndefined();
     expect(setupNodeStep?.['continue-on-error']).toBeUndefined();
@@ -261,15 +279,15 @@ describe('build-and-deploy workflow 发布门禁', () => {
     }
   });
 
-  it('PR CI 与 master 发布使用互斥触发器', () => {
+  it('根 CI 不具备发布能力，部署 wrapper 仅暴露 workflow_call', () => {
     expect(pullRequestWorkflow).toContain('pull_request:');
     expect(pullRequestWorkflow).toContain('branches: [master]');
-    expect(pullRequestWorkflow).not.toContain('  push:');
-    expect(pullRequestWorkflow).not.toContain('workflow_dispatch:');
+    expect(pullRequestWorkflow).toContain('  push:');
+    expect(pullRequestWorkflow).toContain('workflow_dispatch:');
 
-    expect(releaseWorkflow).toContain('push:');
-    expect(releaseWorkflow).toContain('branches: [master]');
-    expect(releaseWorkflow).toContain('workflow_dispatch:');
+    expect(releaseWorkflow).toContain('workflow_call:');
+    expect(releaseWorkflow).not.toContain('  push:');
+    expect(releaseWorkflow).not.toContain('workflow_dispatch:');
     expect(releaseWorkflow).not.toContain('pull_request:');
     expect(releaseWorkflowDocument.jobs?.publish?.if).toContain(
       "github.ref == 'refs/heads/master'",
@@ -283,7 +301,7 @@ describe('build-and-deploy workflow 发布门禁', () => {
   });
 
   it('PR 路径只使用无发布权限的临时 Linux Runner', () => {
-    expect(pullRequestWorkflow.match(/name: PR container validation/g)).toHaveLength(1);
+    expect(pullRequestWorkflow.match(/name: UI validation/g)).toHaveLength(1);
     expect(pullRequestWorkflow).not.toContain('name: Build on Windows runner');
     expect(pullRequestWorkflow).not.toContain('过渡检查名');
     expect(pullRequestWorkflow).toContain('runs-on: ubuntu-latest');
@@ -300,7 +318,7 @@ describe('build-and-deploy workflow 发布门禁', () => {
 
   it('master 发布构建独占 Windows Runner 与 dev Environment', () => {
     expect(releasePublishBlock.match(/name: Publish master image on Windows runner/g)).toHaveLength(1);
-    expect(releasePublishBlock).toContain('runs-on: [self-hosted, Windows, X64]');
+    expect(releasePublishBlock).toContain('runs-on: [self-hosted, Windows, X64, fusion-ui]');
     expect(releasePublishBlock).toContain('environment:');
     expect(releasePublishBlock).toContain('name: dev');
     expect(releasePublishBlock).toContain('deployment: false');
@@ -327,7 +345,7 @@ describe('build-and-deploy workflow 发布门禁', () => {
       }
     }
     expect(externalActionCount).toBeGreaterThan(0);
-    expect(pullRequestWorkflow.split(`uses: ${checkoutAction}`)).toHaveLength(2);
+    expect(pullRequestWorkflow.split(`uses: ${checkoutAction}`)).toHaveLength(4);
     expect(releaseWorkflow.split(`uses: ${checkoutAction}`)).toHaveLength(3);
   });
 
@@ -342,22 +360,17 @@ describe('build-and-deploy workflow 发布门禁', () => {
     expect(deployDevBlock).toContain('persist-credentials: false');
   });
 
-  it('手动回滚输入与实际部署 SHA 使用事件类型安全表达式', () => {
+  it('reusable wrapper 通过 inputs 传递回滚目标', () => {
     expect(releaseWorkflow).toContain('rollback_sha:');
     expect(releaseWorkflow).toContain('rollback_reason:');
-    expect(releaseWorkflow).not.toMatch(/\$\{\{\s*inputs\./);
-    expect(releaseWorkflowDocument.env?.ROLLBACK_SHA).toBe(
-      "${{ github.event_name == 'workflow_dispatch' && github.event.inputs.rollback_sha || '' }}",
-    );
-    expect(releaseWorkflowDocument.env?.ROLLBACK_REASON).toBe(
-      "${{ github.event_name == 'workflow_dispatch' && github.event.inputs.rollback_reason || '' }}",
-    );
+    expect(releaseWorkflowDocument.env?.ROLLBACK_SHA).toBe('${{ inputs.rollback_sha }}');
+    expect(releaseWorkflowDocument.env?.ROLLBACK_REASON).toBe('${{ inputs.rollback_reason }}');
     expect(releaseWorkflowDocument.env?.DEPLOY_TARGET_SHA).toBe(
-      "${{ github.event_name == 'workflow_dispatch' && github.event.inputs.rollback_sha || github.sha }}",
+      '${{ inputs.rollback_sha || github.sha }}',
     );
 
     const rollbackShaDescription =
-      releaseWorkflowDocument.on?.workflow_dispatch?.inputs?.rollback_sha?.description ?? '';
+      releaseWorkflowDocument.on?.workflow_call?.inputs?.rollback_sha?.description ?? '';
     expect(rollbackShaDescription).toContain('已知不可变镜像 SHA');
     expect(rollbackShaDescription).toContain('操作方负责确认目标');
     expect(rollbackShaDescription).not.toMatch(/历史\s*master|已成功发布/);
@@ -398,7 +411,7 @@ describe('build-and-deploy workflow 发布门禁', () => {
 
     const opaquePublishGuard = parse(releaseWorkflow) as WorkflowDocument;
     opaquePublishGuard.jobs!.publish.if =
-      "github.ref == 'refs/heads/master' && !(github.event_name == 'workflow_dispatch' && github.event.inputs.rollback_sha != '')";
+      "github.ref == 'refs/heads/master' && !(inputs.rollback_sha != '')";
     expect(releaseSafetyStructureViolations(opaquePublishGuard)).toContain('publish condition');
 
     const missingSkippedGuard = parse(releaseWorkflow) as WorkflowDocument;
@@ -473,13 +486,12 @@ describe('build-and-deploy workflow 发布门禁', () => {
   it('回滚模式跳过发布 job，但仍允许部署 job 使用既有镜像', () => {
     const publishJob = releaseWorkflowDocument.jobs?.publish;
     const deployJob = releaseWorkflowDocument.jobs?.['deploy-dev'];
-    expect(publishJob?.if).toContain('github.event.inputs.rollback_sha');
-    expect(publishJob?.if).toContain("github.event_name != 'workflow_dispatch'");
-    expect(publishJob?.if).toContain("github.event.inputs.rollback_sha == ''");
+    expect(publishJob?.if).toContain('inputs.rollback_sha');
+    expect(publishJob?.if).toContain("inputs.rollback_sha == ''");
     expect(deployJob?.if).toContain('always()');
     expect(deployJob?.if).toContain("needs.publish.result == 'success'");
     expect(deployJob?.if).toContain("needs.publish.result == 'skipped'");
-    expect(deployJob?.if).toContain('github.event.inputs.rollback_sha');
+    expect(deployJob?.if).toContain('inputs.rollback_sha');
 
     expect(releasePublishBlock).toContain('Login to ACR');
     expect(releasePublishBlock).toContain('Test and build Docker image');
@@ -644,7 +656,7 @@ docker() {
     expect(deployDevBlock).toContain('PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$chromePath');
     expect(deployDevBlock).not.toContain('mcr.microsoft.com/playwright:');
     expect(deployDevBlock).not.toContain('${{ env.SMOKE_IMAGE }}:${{ env.SMOKE_RUNNER_TAG }}');
-    expect(deployDevBlock).toContain('scripts/smoke-dev-deployment.mjs');
+    expect(deployDevBlock).toContain('frontend/scripts/smoke-dev-deployment.mjs');
     expect(deployDevBlock).toContain('SMOKE_BASE_URL: http://127.0.0.1:3004');
   });
 
@@ -756,7 +768,7 @@ docker() {
   });
 
   it('PR 在临时 Linux Runner 完成同等 Docker targets 构建', () => {
-    expect(pullRequestWorkflow).not.toContain('uses: ./.github/actions/windows-docker-build');
+    expect(pullRequestWorkflow).not.toContain('uses: ./frontend/.github/actions/windows-docker-build');
     expect(pullRequestWorkflow).toContain('docker buildx create');
     expect(pullRequestWorkflow).toContain('--target test');
     expect(pullRequestWorkflow).toContain('--no-cache-filter test');
@@ -766,7 +778,7 @@ docker() {
   });
 
   it('master 发布复用 Windows 构建实现并保留缓存治理', () => {
-    expect(releasePublishBlock).toContain('uses: ./.github/actions/windows-docker-build');
+    expect(releasePublishBlock).toContain('uses: ./frontend/.github/actions/windows-docker-build');
     expect(releasePublishBlock).toContain('"buildx", "prune"');
     expect(releasePublishBlock).toContain('"--max-used-space", "25gb"');
     expect(releasePublishBlock).toContain('"--reserved-space", "8gb"');

@@ -1,7 +1,8 @@
 version: "1"
-workflow: .github/workflows/deploy.yml
+workflow: .github/workflows/_deploy-api.yml
 contract_test:
   path: .github/scripts/release-safety-contract.sh
+  manifest: backend/release-safety.yml
   pr_step: release_safety_contract
 jobs:
   prepare: prepare

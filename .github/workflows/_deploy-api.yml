@@ -1,9 +1,7 @@
 name: Fusion API Windows CI
 
 on:
-  push:
-    branches: [master]
-  workflow_dispatch:
+  workflow_call:
     inputs:
       rollback_sha:
         description: 要恢复的已发布镜像 SHA（40 位小写 Git SHA；留空表示正常发布）
@@ -43,8 +41,8 @@ jobs:
         id: deployment_request
         env:
           EVENT_NAME: ${{ github.event_name }}
-          REQUESTED_ROLLBACK_SHA: ${{ github.event.inputs.rollback_sha }}
-          REQUESTED_ROLLBACK_REASON: ${{ github.event.inputs.rollback_reason }}
+          REQUESTED_ROLLBACK_SHA: ${{ inputs.rollback_sha }}
+          REQUESTED_ROLLBACK_REASON: ${{ inputs.rollback_reason }}
         run: |
           rollback_sha="${REQUESTED_ROLLBACK_SHA:-}"
           rollback_reason="${REQUESTED_ROLLBACK_REASON:-}"
@@ -82,7 +80,7 @@ jobs:
     name: Publish master images on Windows runner
     if: github.ref == 'refs/heads/master' && needs.prepare.outputs.rollback_requested != 'true'
     needs: prepare
-    runs-on: [self-hosted, Windows, X64]
+    runs-on: [self-hosted, Windows, X64, fusion-api]
     timeout-minutes: 40
     environment:
       name: dev
@@ -158,7 +156,7 @@ jobs:
         timeout-minutes: 15
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
-          & ".github/scripts/windows-build-and-test.ps1" `
+          & "backend/.github/scripts/windows-build-and-test.ps1" `
             -ImageName "${env:IMAGE_NAME}" `
             -AdapterImageName "${env:FLYAI_ADAPTER_IMAGE_NAME}" `
             -ImageTag "${env:GITHUB_SHA}"
@@ -181,7 +179,7 @@ jobs:
         if: always()
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
-          & ".github/scripts/windows-cleanup.ps1" `
+          & "backend/.github/scripts/windows-cleanup.ps1" `
             -ImageName "${env:IMAGE_NAME}" `
             -AdapterImageName "${env:FLYAI_ADAPTER_IMAGE_NAME}" `
             -ImageTag "${env:GITHUB_SHA}"
@@ -194,7 +192,7 @@ jobs:
       ((needs.prepare.outputs.rollback_requested == 'true' && needs.publish.result == 'skipped') ||
       (needs.prepare.outputs.rollback_requested != 'true' && needs.publish.result == 'success')) }}
     needs: [prepare, publish]
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, X64, fusion-api]
     timeout-minutes: 30
     environment: dev
     env:
@@ -1653,10 +1651,10 @@ jobs:
             plan_litellm_candidate_admission.py \
             run_litellm_governance_cycle.py \
             run_litellm_governance_unit.py; do
-            install -m 0644 "${GITHUB_WORKSPACE}/scripts/${script}" "${release_dir}/scripts/${script}"
+            install -m 0644 "${GITHUB_WORKSPACE}/backend/scripts/${script}" "${release_dir}/scripts/${script}"
           done
           install -m 0644 \
-            "${GITHUB_WORKSPACE}/ops/litellm/candidate-overrides.json" \
+            "${GITHUB_WORKSPACE}/backend/ops/litellm/candidate-overrides.json" \
             "${release_dir}/ops/litellm/candidate-overrides.json"
           if [ -e "${current_link}" ] && [ ! -L "${current_link}" ]; then
             echo "LiteLLM 治理当前版本路径不是符号链接，拒绝覆盖"
@@ -1670,7 +1668,7 @@ jobs:
             registry_temp="$(mktemp "${config_dir}/.litellm-provider-registry.XXXXXX")"
             trap 'rm -f "${registry_temp}"' EXIT
             install -m 0600 \
-              "${GITHUB_WORKSPACE}/ops/litellm/provider-registry.example.json" \
+              "${GITHUB_WORKSPACE}/backend/ops/litellm/provider-registry.example.json" \
               "${registry_temp}"
             mv -f "${registry_temp}" "${registry_target}"
             trap - EXIT
@@ -1708,8 +1706,8 @@ jobs:
               os.chmod(path, 0o600, follow_symlinks=False)
           PY
           install -m 0644 \
-            "${GITHUB_WORKSPACE}/ops/litellm/fusion-litellm-governance.service" \
-            "${GITHUB_WORKSPACE}/ops/litellm/fusion-litellm-governance.timer" \
+            "${GITHUB_WORKSPACE}/backend/ops/litellm/fusion-litellm-governance.service" \
+            "${GITHUB_WORKSPACE}/backend/ops/litellm/fusion-litellm-governance.timer" \
             "${unit_dir}/"
           ln -sfn "${release_dir}" "${current_link}"
           systemctl --user daemon-reload
@@ -1770,11 +1768,11 @@ jobs:
             run_litellm_governance_unit.py \
             run_litellm_model_management_worker.py \
             verify_litellm_governance_snapshot.py; do
-            install -m 0644 "${GITHUB_WORKSPACE}/scripts/${script}" "${release_dir}/scripts/${script}"
+            install -m 0644 "${GITHUB_WORKSPACE}/backend/scripts/${script}" "${release_dir}/scripts/${script}"
           done
           install -m 0644 \
-            "${GITHUB_WORKSPACE}/ops/litellm/fusion-litellm-model-management.service" \
-            "${GITHUB_WORKSPACE}/ops/litellm/fusion-litellm-model-management.timer" \
+            "${GITHUB_WORKSPACE}/backend/ops/litellm/fusion-litellm-model-management.service" \
+            "${GITHUB_WORKSPACE}/backend/ops/litellm/fusion-litellm-model-management.timer" \
             "${unit_dir}/"
           if [ -e "${current_link}" ] && [ ! -L "${current_link}" ]; then
             echo "模型准入 Worker 当前版本路径不是符号链接，拒绝覆盖"
@@ -1852,7 +1850,7 @@ jobs:
         id: deployment_smoke
         run: |
           # scripts/deployment_smoke.py checks /health and /api/models/.
-          if ! python3 "${GITHUB_WORKSPACE}/scripts/deployment_smoke.py" --base-url http://127.0.0.1:8002; then
+          if ! python3 "${GITHUB_WORKSPACE}/backend/scripts/deployment_smoke.py" --base-url http://127.0.0.1:8002; then
             echo "fusion-api deployment smoke failed"
             docker logs --tail=120 fusion-api || true
             exit 1
@@ -1874,8 +1872,8 @@ jobs:
           current_link="${HOME}/.local/share/fusion/litellm-model-management-current"
           target_release="${HOME}/.local/share/fusion/litellm-model-management-src-${DEPLOY_TARGET_SHA}"
           unit_dir="${HOME}/.config/systemd/user"
-          target_service_unit="${GITHUB_WORKSPACE}/ops/litellm/fusion-litellm-model-management.service"
-          target_timer_unit="${GITHUB_WORKSPACE}/ops/litellm/fusion-litellm-model-management.timer"
+          target_service_unit="${GITHUB_WORKSPACE}/backend/ops/litellm/fusion-litellm-model-management.service"
+          target_timer_unit="${GITHUB_WORKSPACE}/backend/ops/litellm/fusion-litellm-model-management.timer"
           systemctl --user stop fusion-litellm-model-management.timer >/dev/null 2>&1 || true
           if systemctl --user is-active --quiet fusion-litellm-model-management.service; then
             echo "模型准入 Worker 仍在执行，拒绝切换回滚版本；定时器已安全暂停"
@@ -2259,7 +2257,7 @@ jobs:
             echo "fusion-api 回滚提交不在当前仓库历史中: ${rollback_api_sha}"
             exit 1
           fi
-          if ! git -C "${GITHUB_WORKSPACE}" show "${rollback_api_sha}:scripts/deployment_smoke.py" \
+          if ! git -C "${GITHUB_WORKSPACE}" show "${rollback_api_sha}:backend/scripts/deployment_smoke.py" \
             | python3 - --base-url http://127.0.0.1:8002; then
             echo "fusion-api rollback deployment smoke failed"
             docker logs --tail=120 fusion-api || true
@@ -2439,7 +2437,7 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           TARGET_SHA: ${{ needs.prepare.outputs.target_sha }}
-          ROLLBACK_REASON: ${{ github.event.inputs.rollback_reason }}
+          ROLLBACK_REASON: ${{ inputs.rollback_reason }}
           # 提交信息可含任意字符,只经 env 传入 python(os.environ→json),绝不进 shell,杜绝注入。
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |

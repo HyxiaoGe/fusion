@@ -5,9 +5,10 @@ from pathlib import Path
 class DeployAuthConfigTests(unittest.TestCase):
     def setUp(self):
         root = Path(__file__).resolve().parents[1]
+        monorepo_root = root.parent
         self.app_config = (root / "app" / "core" / "config.py").read_text(encoding="utf-8")
         self.env_example = (root / ".env.example").read_text(encoding="utf-8")
-        self.workflow = (root / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
+        self.workflow = (monorepo_root / ".github" / "workflows" / "_deploy-api.yml").read_text(encoding="utf-8")
         self.ci_build_script = (root / ".github" / "scripts" / "windows-build-and-test.ps1").read_text(encoding="utf-8")
         self.compose = (root / "docker-compose.yml").read_text(encoding="utf-8")
         self.ci_requirements = (root / "requirements-ci.txt").read_text(encoding="utf-8")
@@ -29,12 +30,12 @@ class DeployAuthConfigTests(unittest.TestCase):
     def test_deploy_runs_api_surface_smoke_after_health(self):
         self.assertIn("Run deployment smoke", self.workflow)
         self.assertIn(
-            'python3 "${GITHUB_WORKSPACE}/scripts/deployment_smoke.py" '
+            'python3 "${GITHUB_WORKSPACE}/backend/scripts/deployment_smoke.py" '
             "--base-url http://127.0.0.1:8002",
             self.workflow,
         )
         self.assertIn(
-            'git -C "${GITHUB_WORKSPACE}" show "${rollback_api_sha}:scripts/deployment_smoke.py"',
+            'git -C "${GITHUB_WORKSPACE}" show "${rollback_api_sha}:backend/scripts/deployment_smoke.py"',
             self.workflow,
         )
         self.assertIn("| python3 - --base-url http://127.0.0.1:8002", self.workflow)

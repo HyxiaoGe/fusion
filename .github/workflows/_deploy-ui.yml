@@ -1,9 +1,7 @@
 name: Fusion UI Build & Deploy
 
 on:
-  push:
-    branches: [master]
-  workflow_dispatch:
+  workflow_call:
     inputs:
       rollback_sha:
         description: 要部署的已知不可变镜像 SHA；操作方负责确认目标，留空则发布当前提交
@@ -25,17 +23,17 @@ concurrency:
 env:
   REGISTRY: crpi-77w10wlykpqilmmb.cn-shenzhen.personal.cr.aliyuncs.com
   IMAGE_NAME: crpi-77w10wlykpqilmmb.cn-shenzhen.personal.cr.aliyuncs.com/seanfield/fusion-ui
-  ROLLBACK_SHA: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.rollback_sha || '' }}
-  ROLLBACK_REASON: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.rollback_reason || '' }}
-  DEPLOY_TARGET_SHA: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.rollback_sha || github.sha }}
+  ROLLBACK_SHA: ${{ inputs.rollback_sha }}
+  ROLLBACK_REASON: ${{ inputs.rollback_reason }}
+  DEPLOY_TARGET_SHA: ${{ inputs.rollback_sha || github.sha }}
 
 jobs:
   publish:
     name: Publish master image on Windows runner
     if: >-
       github.ref == 'refs/heads/master' &&
-      (github.event_name != 'workflow_dispatch' || github.event.inputs.rollback_sha == '')
-    runs-on: [self-hosted, Windows, X64]
+      inputs.rollback_sha == ''
+    runs-on: [self-hosted, Windows, X64, fusion-ui]
     timeout-minutes: 30
     environment:
       name: dev
@@ -95,7 +93,7 @@ jobs:
           persist-credentials: false
 
       - name: Test and build Docker image
-        uses: ./.github/actions/windows-docker-build
+        uses: ./frontend/.github/actions/windows-docker-build
         with:
           image-name: ${{ env.IMAGE_NAME }}
           image-tag: ${{ github.sha }}
@@ -192,9 +190,9 @@ jobs:
       github.ref == 'refs/heads/master' &&
       (needs.publish.result == 'success' ||
       (needs.publish.result == 'skipped' &&
-      github.event_name == 'workflow_dispatch' && github.event.inputs.rollback_sha != ''))
+      inputs.rollback_sha != ''))
     needs: publish
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, X64, fusion-ui]
     timeout-minutes: 25
     environment: dev
 
@@ -370,7 +368,7 @@ jobs:
           if ! PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
             PLAYWRIGHT_MODULE_PATH="$smokeNodeDir/node_modules/playwright/index.js" \
             PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH" \
-            node scripts/smoke-dev-deployment.mjs; then
+            node frontend/scripts/smoke-dev-deployment.mjs; then
             echo "fusion-ui dev browser smoke failed"
             docker ps --filter "name=fusion-ui"
             docker logs --tail 80 fusion-ui || true

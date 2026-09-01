@@ -60,7 +60,7 @@
 | `LITELLM_HEALTH_INTERVAL_SECONDS` | `1800` | 探测间隔（秒）；两服务应保持一致，改小会按最小的那个生效 |
 | `LITELLM_HEALTH_REQUEST_TIMEOUT` | `90` | 单次 `/health` 请求超时（秒） |
 
-已同步到 `.env.example`、`docker-compose.yml`、`.github/workflows/deploy.yml`
+已同步到 `.env.example`、`docker-compose.yml`、monorepo 根目录 `.github/workflows/_deploy-api.yml`
 （均带 `:-false` 默认，dev / prod 缺省即关闭）。
 
 ## 迁移步骤

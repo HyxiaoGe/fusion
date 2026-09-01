@@ -12,9 +12,10 @@ from pathlib import Path
 class KnowledgeDeployConfigTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.workflow = Path(".github/workflows/deploy.yml").read_text(encoding="utf-8")
-        cls.milvus_compose = Path("ops/knowledge/milvus-compose.yml").read_text(encoding="utf-8")
-        cls.fusion_override = Path("ops/knowledge/fusion-compose.override.yml").read_text(encoding="utf-8")
+        app_root = Path(__file__).resolve().parents[1]
+        cls.workflow = (app_root.parent / ".github/workflows/_deploy-api.yml").read_text(encoding="utf-8")
+        cls.milvus_compose = (app_root / "ops/knowledge/milvus-compose.yml").read_text(encoding="utf-8")
+        cls.fusion_override = (app_root / "ops/knowledge/fusion-compose.override.yml").read_text(encoding="utf-8")
 
     def _run_rollback_snapshot(self, containers):
         marker = 'docker inspect "${rollback_containers[@]}" | python3 -c \'\n'

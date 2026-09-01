@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+MONOREPO_ROOT = ROOT.parent
 SERVICE = ROOT / "ops/litellm/fusion-litellm-governance.service"
 TIMER = ROOT / "ops/litellm/fusion-litellm-governance.timer"
 COST_SERVICE = ROOT / "ops/litellm/fusion-litellm-cost-sync.service"
@@ -12,7 +13,7 @@ MODEL_MANAGEMENT_SERVICE = ROOT / "ops/litellm/fusion-litellm-model-management.s
 MODEL_MANAGEMENT_TIMER = ROOT / "ops/litellm/fusion-litellm-model-management.timer"
 REQUIREMENTS = ROOT / "ops/litellm/requirements-governance.txt"
 GOVERNANCE_ENV = ROOT / "ops/litellm/litellm-governance.env.example"
-DEPLOY_WORKFLOW = ROOT / ".github/workflows/deploy.yml"
+DEPLOY_WORKFLOW = MONOREPO_ROOT / ".github/workflows/_deploy-api.yml"
 
 
 class LiteLLMGovernanceUnitTests(unittest.TestCase):

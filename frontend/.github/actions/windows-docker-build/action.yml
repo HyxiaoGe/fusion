@@ -110,6 +110,7 @@ runs:
         if (-not $runnerKey) { $runnerKey = "runner" }
         $builder = "fusion-ui-ci-$runnerKey"
         $image = "${env:BUILD_IMAGE_NAME}:${env:BUILD_IMAGE_TAG}"
+        $context = Join-Path $env:GITHUB_WORKSPACE "frontend"
 
         cmd /c "docker buildx inspect $builder >NUL 2>NUL"
         if ($LASTEXITCODE -ne 0) {
@@ -132,7 +133,7 @@ runs:
           "--no-cache-filter", "test",
           "--progress", "plain",
           "--provenance=false",
-          "."
+          $context
         )
 
         docker @testArgs
@@ -150,7 +151,7 @@ runs:
           "--build-arg", "NEXT_PUBLIC_AUTH_CALLBACK_URL=$env:NEXT_PUBLIC_AUTH_CALLBACK_URL",
           "--build-arg", "API_BACKEND_URL=http://fusion-api:8000",
           "-t", $image,
-          "."
+          $context
         )
 
         for ($attempt = 1; $attempt -le 3; $attempt++) {

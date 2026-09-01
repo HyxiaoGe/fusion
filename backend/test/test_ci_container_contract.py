@@ -2,6 +2,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+MONOREPO_ROOT = ROOT.parent
 
 
 class CIContainerContractTest(unittest.TestCase):
@@ -52,13 +53,13 @@ class CIContainerContractTest(unittest.TestCase):
         self.assertIn('if [ "$attempt" -eq 5 ]', dependency_stage)
 
     def test_pr_and_release_workflows_run_equivalent_container_tests(self) -> None:
-        release_workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
-        pr_workflow = (ROOT / ".github/workflows/pr-ci.yml").read_text(encoding="utf-8")
+        release_workflow = (MONOREPO_ROOT / ".github/workflows/_deploy-api.yml").read_text(encoding="utf-8")
+        pr_workflow = (MONOREPO_ROOT / ".github/workflows/pr-ci.yml").read_text(encoding="utf-8")
         windows_build_script = (ROOT / ".github/scripts/windows-build-and-test.ps1").read_text(encoding="utf-8")
         linux_build_script = (ROOT / ".github/scripts/linux-build-and-test.sh").read_text(encoding="utf-8")
 
-        self.assertIn(".github/scripts/windows-build-and-test.ps1", release_workflow)
-        self.assertIn(".github/scripts/linux-build-and-test.sh", pr_workflow)
+        self.assertIn("backend/.github/scripts/windows-build-and-test.ps1", release_workflow)
+        self.assertIn("backend/.github/scripts/linux-build-and-test.sh", pr_workflow)
         for build_script in (windows_build_script, linux_build_script):
             self.assertIn("docker build --target production", build_script)
             self.assertIn(
@@ -74,11 +75,11 @@ class CIContainerContractTest(unittest.TestCase):
             )
 
         self.assertIn(
-            '--mount "type=bind,source=${PWD}/README.md,target=/app/README.md,readonly"',
+            '--mount "type=bind,source=${app_root}/README.md,target=/app/README.md,readonly"',
             linux_build_script,
         )
         self.assertIn(
-            '--mount "type=bind,source=$((Get-Location).Path)\\README.md,target=/app/README.md,readonly"',
+            '--mount "type=bind,source=$appRoot\\README.md,target=/app/README.md,readonly"',
             windows_build_script,
         )
 
