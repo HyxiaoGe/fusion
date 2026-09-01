@@ -163,9 +163,11 @@ class ModelManagementDeployConfigTests(unittest.TestCase):
             rollback_step["run"].index("ensure_rollback_image"),
         )
         self.assertIn(
-            'git -C "${GITHUB_WORKSPACE}" show "${rollback_api_sha}:backend/scripts/deployment_smoke.py"',
+            'git -C "${GITHUB_WORKSPACE}" show "${rollback_api_sha}:${rollback_smoke_path}"',
             rollback_step["run"],
         )
+        self.assertIn("backend/scripts/deployment_smoke.py", rollback_step["run"])
+        self.assertIn("scripts/deployment_smoke.py", rollback_step["run"])
         self.assertIn("| python3 - --base-url http://127.0.0.1:8002", rollback_step["run"])
         checkout_step = next(step for step in steps if step.get("name") == "Checkout smoke scripts")
         self.assertEqual(0, checkout_step["with"]["fetch-depth"])

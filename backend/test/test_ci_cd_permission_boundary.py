@@ -197,9 +197,12 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         self.assertIn("docker exec fusion-flyai-adapter", commands)
         self.assertIn("http://127.0.0.1:8080/health", commands)
         self.assertIn('rollback_api_sha="${ROLLBACK_DEPLOYMENT_SHA}"', commands)
+        self.assertIn("for rollback_smoke_path in \\", commands)
+        self.assertIn("backend/scripts/deployment_smoke.py \\", commands)
+        self.assertIn("scripts/deployment_smoke.py; do", commands)
         self.assertIn(
             'git -C "${GITHUB_WORKSPACE}" show '
-            '"${rollback_api_sha}:backend/scripts/deployment_smoke.py"',
+            '"${rollback_api_sha}:${rollback_smoke_path}"',
             commands,
         )
         self.assertIn("--base-url http://127.0.0.1:8002", commands)
