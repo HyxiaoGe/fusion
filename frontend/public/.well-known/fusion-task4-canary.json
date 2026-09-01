@@ -1,0 +1,7 @@
+{
+  "purpose": "task4-ui-only-deployment-canary",
+  "scope": "frontend-only",
+  "expected_api_deploy": false,
+  "expected_ui_deploy": true,
+  "created_at": "2026-09-02T04:38:39+08:00"
+}
