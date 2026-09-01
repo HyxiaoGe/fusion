@@ -182,7 +182,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         )
         commands = active_commands(step["run"])
         expected_commands = (
-            "docker compose -f docker-compose.fusion-api-ghcr.yml up -d",
+            "docker compose --project-name fusion -f docker-compose.fusion-api-ghcr.yml up -d",
             "restored_api_ref=\"$(docker inspect fusion-api --format '{{.Config.Image}}')\"",
             "restored_api_id=\"$(docker inspect fusion-api --format '{{.Image}}')\"",
             "restored_adapter_ref=\"$(docker inspect fusion-flyai-adapter --format '{{.Config.Image}}')\"",
