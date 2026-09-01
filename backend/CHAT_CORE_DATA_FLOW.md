@@ -4,7 +4,7 @@
 
 ## Runtime Surface
 
-默认启动入口是 [`main.py`](/Users/sean/code/fusion/fusion-api/main.py)。
+默认启动入口是 [`main.py`](main.py)。
 
 当前默认暴露的主路由只有四组：
 
@@ -15,14 +15,14 @@
 
 对应文件：
 
-- [`app/api/auth.py`](/Users/sean/code/fusion/fusion-api/app/api/auth.py)
-- [`app/api/chat.py`](/Users/sean/code/fusion/fusion-api/app/api/chat.py)
-- [`app/api/files.py`](/Users/sean/code/fusion/fusion-api/app/api/files.py)
-- [`app/api/models.py`](/Users/sean/code/fusion/fusion-api/app/api/models.py)
+- [`app/api/auth.py`](app/api/auth.py)
+- [`app/api/chat.py`](app/api/chat.py)
+- [`app/api/files.py`](app/api/files.py)
+- [`app/api/models.py`](app/api/models.py)
 
 ## Auth Flow
 
-登录主线在 [`app/api/auth.py`](/Users/sean/code/fusion/fusion-api/app/api/auth.py)。
+登录主线在 [`app/api/auth.py`](app/api/auth.py)。
 
 1. 前端打开 `/api/auth/login/{provider}`。
 2. 后端基于 `SERVER_HOST` 生成 OAuth callback URL。
@@ -31,11 +31,11 @@
 5. 后端生成 JWT。
 6. 后端重定向到 `FRONTEND_AUTH_CALLBACK_URL?token=...`。
 
-JWT 校验在 [`app/core/security.py`](/Users/sean/code/fusion/fusion-api/app/core/security.py)。
+JWT 校验在 [`app/core/security.py`](app/core/security.py)。
 
 ## Chat Flow
 
-聊天入口在 [`app/api/chat.py`](/Users/sean/code/fusion/fusion-api/app/api/chat.py)，主编排在 [`app/services/chat_service.py`](/Users/sean/code/fusion/fusion-api/app/services/chat_service.py)。
+聊天入口在 [`app/api/chat.py`](app/api/chat.py)，主编排在 [`app/services/chat_service.py`](app/services/chat_service.py)。
 
 一次普通聊天的主线是：
 
@@ -49,8 +49,8 @@ JWT 校验在 [`app/core/security.py`](/Users/sean/code/fusion/fusion-api/app/co
 
 聊天持久化使用：
 
-- [`app/services/memory_service.py`](/Users/sean/code/fusion/fusion-api/app/services/memory_service.py)
-- [`app/db/repositories.py`](/Users/sean/code/fusion/fusion-api/app/db/repositories.py)
+- [`app/services/memory_service.py`](app/services/memory_service.py)
+- [`app/db/repositories.py`](app/db/repositories.py)
 
 核心表是：
 
@@ -64,7 +64,7 @@ JWT 校验在 [`app/core/security.py`](/Users/sean/code/fusion/fusion-api/app/co
 
 ## Streaming Flow
 
-流式主逻辑在 [`app/services/stream_handler.py`](/Users/sean/code/fusion/fusion-api/app/services/stream_handler.py)。
+流式主逻辑在 [`app/services/stream_handler.py`](app/services/stream_handler.py)。
 
 当前有三种流：
 
@@ -87,7 +87,7 @@ JWT 校验在 [`app/core/security.py`](/Users/sean/code/fusion/fusion-api/app/co
 
 ## File Flow
 
-文件链路在 [`app/api/files.py`](/Users/sean/code/fusion/fusion-api/app/api/files.py) 和 [`app/services/file_service.py`](/Users/sean/code/fusion/fusion-api/app/services/file_service.py)。
+文件链路在 [`app/api/files.py`](app/api/files.py) 和 [`app/services/file_service.py`](app/services/file_service.py)。
 
 主线是：
 
@@ -100,7 +100,7 @@ JWT 校验在 [`app/core/security.py`](/Users/sean/code/fusion/fusion-api/app/co
 7. 失败时标记 `error`
 8. 聊天时按 `file_ids` 把 `parsed_content` 注入上下文
 
-底层解析器在 [`app/processor/file_processor.py`](/Users/sean/code/fusion/fusion-api/app/processor/file_processor.py)。
+底层解析器在 [`app/processor/file_processor.py`](app/processor/file_processor.py)。
 
 ## Model Flow
 
@@ -108,8 +108,8 @@ JWT 校验在 [`app/core/security.py`](/Users/sean/code/fusion/fusion-api/app/co
 
 主入口：
 
-- [`app/api/models.py`](/Users/sean/code/fusion/fusion-api/app/api/models.py)
-- [`app/ai/llm_manager.py`](/Users/sean/code/fusion/fusion-api/app/ai/llm_manager.py)
+- [`app/api/models.py`](app/api/models.py)
+- [`app/ai/llm_manager.py`](app/ai/llm_manager.py)
 
 主线是：
 
@@ -122,12 +122,12 @@ JWT 校验在 [`app/core/security.py`](/Users/sean/code/fusion/fusion-api/app/co
 
 如果只给 10 分钟，按这个顺序读：
 
-1. [`main.py`](/Users/sean/code/fusion/fusion-api/main.py)
-2. [`app/api/chat.py`](/Users/sean/code/fusion/fusion-api/app/api/chat.py)
-3. [`app/services/chat_service.py`](/Users/sean/code/fusion/fusion-api/app/services/chat_service.py)
-4. [`app/services/stream_handler.py`](/Users/sean/code/fusion/fusion-api/app/services/stream_handler.py)
-5. [`app/services/file_service.py`](/Users/sean/code/fusion/fusion-api/app/services/file_service.py)
-6. [`app/api/auth.py`](/Users/sean/code/fusion/fusion-api/app/api/auth.py)
-7. [`app/api/models.py`](/Users/sean/code/fusion/fusion-api/app/api/models.py)
+1. [`main.py`](main.py)
+2. [`app/api/chat.py`](app/api/chat.py)
+3. [`app/services/chat_service.py`](app/services/chat_service.py)
+4. [`app/services/stream_handler.py`](app/services/stream_handler.py)
+5. [`app/services/file_service.py`](app/services/file_service.py)
+6. [`app/api/auth.py`](app/api/auth.py)
+7. [`app/api/models.py`](app/api/models.py)
 
 读完这几处，应该就能解释当前聊天主产品的数据流和边界。

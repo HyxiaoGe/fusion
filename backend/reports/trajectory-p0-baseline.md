@@ -19,7 +19,7 @@
 可复现命令（固定运行 3 轮 × 每路径 500 样本，并输出全部三轮分位数）：
 
 ```bash
-/Users/sean/code/fusion/fusion-api/.venv/bin/python scripts/trajectory_p0_baseline.py
+backend/.venv/bin/python backend/scripts/trajectory_p0_baseline.py
 ```
 
 同一 runner 也由 `test_tracked_runner_reproduces_three_rounds_of_500_samples` 实际执行并校验返回结构，不再依赖一次性的 `python -c` 命令。
