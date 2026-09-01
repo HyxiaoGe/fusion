@@ -105,7 +105,7 @@ class ModelManagementDeployConfigTests(unittest.TestCase):
         )
         self.assertIn("Restore model management worker after automatic rollback", workflow)
         self.assertIn("Restore model management worker for manual rollback", workflow)
-        self.assertIn("ref: ${{ needs.prepare.outputs.target_sha }}", workflow)
+        self.assertIn("ref: ${{ inputs.deploy_sha }}", workflow)
         self.assertIn("id: pause_model_management_worker", workflow)
         self.assertIn("Restore model management worker after pre-deploy failure", workflow)
         self.assertIn("steps.deploy_candidate.outcome != 'skipped'", workflow)
@@ -208,7 +208,7 @@ class ModelManagementDeployConfigTests(unittest.TestCase):
         self.assertIn("restore_governance_unit", workflow)
         self.assertIn("base64 --decode", workflow)
         self.assertIn('rm -f "${target}"', workflow)
-        self.assertEqual(workflow.count("restore_governance_unit \\"), 4)
+        self.assertEqual(workflow.count("restore_governance_unit \\"), 6)
         self.assertIn("%h/.local/share/fusion/litellm-governance-current", unit)
         self.assertNotIn("%h/project/fusion/fusion-api/scripts", unit)
         install_script = install_step["run"]

@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CI_PATH = ROOT / ".github/workflows/pr-ci.yml"
 API_WRAPPER_PATH = ROOT / ".github/workflows/_deploy-api.yml"
 UI_WRAPPER_PATH = ROOT / ".github/workflows/_deploy-ui.yml"
+ORCHESTRATOR_PATH = ROOT / ".github/workflows/deploy-dev.yml"
 DISPATCH_CONTRACT_PATH = ROOT / ".github/contracts/deploy-dispatch.yml"
 ACTIONLINT_CONFIG_PATH = ROOT / ".github/actionlint.yaml"
 
@@ -25,6 +26,10 @@ class WorkflowContractTests(unittest.TestCase):
         cls.ci = load_workflow(CI_PATH)
         cls.api_text = API_WRAPPER_PATH.read_text(encoding="utf-8")
         cls.ui_text = UI_WRAPPER_PATH.read_text(encoding="utf-8")
+        cls.orchestrator_text = (
+            ORCHESTRATOR_PATH.read_text(encoding="utf-8") if ORCHESTRATOR_PATH.exists() else ""
+        )
+        cls.orchestrator = load_workflow(ORCHESTRATOR_PATH) if ORCHESTRATOR_PATH.exists() else {}
         cls.api = load_workflow(API_WRAPPER_PATH)
         cls.ui = load_workflow(UI_WRAPPER_PATH)
         cls.dispatch = load_workflow(DISPATCH_CONTRACT_PATH)
@@ -204,6 +209,52 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("concurrency", self.ui)
         self.assertNotIn("不可变镜像 SHA", self.ui_text)
         self.assertNotIn("不可变 SHA 标签", self.ui_text)
+
+    def test_task2_orchestrator_serializes_api_then_ui(self) -> None:
+        self.assertTrue(ORCHESTRATOR_PATH.exists(), "Task 2 必须启用独立 dev orchestrator")
+        triggers = self.orchestrator[True]
+        self.assertEqual(triggers["push"]["branches"], ["master"])
+        dispatch = triggers["workflow_dispatch"]["inputs"]
+        self.assertEqual(dispatch["target"]["options"], ["api", "ui", "both"])
+
+        concurrency = self.orchestrator["concurrency"]
+        self.assertEqual(concurrency["group"], "fusion-dev")
+        self.assertFalse(concurrency["cancel-in-progress"])
+
+        jobs = self.orchestrator["jobs"]
+        self.assertEqual(jobs["deploy-api"]["needs"], "changes")
+        self.assertEqual(jobs["deploy-api"]["uses"], "./.github/workflows/_deploy-api.yml")
+        self.assertEqual(jobs["deploy-api"]["secrets"], "inherit")
+        self.assertEqual(jobs["deploy-ui"]["needs"], ["changes", "deploy-api"])
+        self.assertEqual(jobs["deploy-ui"]["uses"], "./.github/workflows/_deploy-ui.yml")
+        self.assertEqual(jobs["deploy-ui"]["secrets"], "inherit")
+        self.assertIn("always()", jobs["deploy-ui"]["if"])
+        self.assertIn("needs.deploy-api.result == 'success'", jobs["deploy-ui"]["if"])
+
+    def test_task2_uses_digest_ledger_and_checkout_independent_runtime_paths(self) -> None:
+        combined = self.api_text + "\n" + self.ui_text
+        for legacy in (
+            "cd ~/project/fusion",
+            "source .env",
+            "--env-file .env",
+            "./fusion-api/storage/files",
+        ):
+            self.assertNotIn(legacy, combined)
+
+        self.assertIn('config_dir="${HOME}/.config/fusion"', self.api_text)
+        self.assertIn('runtime_env="${config_dir}/runtime.env"', self.api_text)
+        self.assertIn("${HOME}/.local/share/fusion/api/storage/files", self.api_text)
+        self.assertIn("${HOME}/.local/share/fusion/api/runtime", self.api_text)
+        self.assertIn("${HOME}/.local/share/fusion/ui/runtime", self.ui_text)
+        self.assertIn("storage.upload(key, payload", self.api_text)
+        self.assertIn("storage.download(key)", self.api_text)
+        self.assertIn("storage.delete(key)", self.api_text)
+        self.assertIn("systemctl --user enable --now fusion-litellm-cost-sync.timer", self.api_text)
+        self.assertIn("ExecMainStatus --value", self.api_text)
+        for wrapper in (self.api_text, self.ui_text):
+            self.assertIn(".github/scripts/release_ledger.py", wrapper)
+            self.assertIn("docker buildx imagetools inspect", wrapper)
+            self.assertIn("@sha256:", wrapper)
 
 
 if __name__ == "__main__":

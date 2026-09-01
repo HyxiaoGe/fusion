@@ -131,19 +131,20 @@ Windows runner 已完成注册：
 | `fusion-litellm-governance.service` | `~/.local/share/fusion/litellm-governance-current` | inactive/dead |
 | `fusion-litellm-model-management.service` | `~/.local/share/fusion/litellm-model-management-current` | activating/start |
 
-前两项为 timer 驱动的一次性 service；Task 2 切换时仍需按 unit/timer 语义逐项验证。
+三项均为 timer 驱动的 oneshot service；Task 2 按“timer active + service 最近一次 `Result=success`、`ExecMainStatus=0`”逐项验证，不把 service 的 inactive/dead 误判为异常。
 
 ## Vercel / Railway
 
 | 应用 | 配置证据 | GitHub 侧证据 | 当前判断 | Task 归属 |
 |---|---|---|---|---|
-| API / Railway | `fusion-api/railway.json` | 无 webhook、无 deploy key；近期 deployment 均为 GitHub Actions 的 `dev` | 尚不能证明服务是否活跃、绑定哪个 repo/branch 或是否自动部署 | 待控制台核实；若进入当前 dev 链路则 Task 2，否则 Task 4 |
-| UI / Railway | `fusion-ui/railway.json` | 无 webhook、无 deploy key；近期 deployment 均为 GitHub Actions 的 `dev` | 尚不能证明服务是否活跃、绑定哪个 repo/branch 或是否自动部署 | 待控制台核实；若进入当前 dev 链路则 Task 2，否则 Task 4 |
-| UI / Vercel | `fusion-ui/vercel.json` | 无 webhook、无 deploy key | 尚不能证明项目是否活跃、绑定哪个 repo/branch 或是否自动部署 | 待控制台核实；若进入当前 dev 链路则 Task 2，否则 Task 4 |
+| API / Railway | `fusion-api/railway.json` | 无 webhook、无 deploy key；近期 deployment 均为 GitHub Actions 的 `dev` | 尚不能证明服务是否活跃、绑定哪个 repo/branch 或是否自动部署 | 本次迁移明确排除，不属于 Task 2 门禁 |
+| UI / Railway | `fusion-ui/railway.json` | 无 webhook、无 deploy key；近期 deployment 均为 GitHub Actions 的 `dev` | 尚不能证明服务是否活跃、绑定哪个 repo/branch 或是否自动部署 | 本次迁移明确排除，不属于 Task 2 门禁 |
+| UI / Vercel | `fusion-ui/vercel.json` | 无 webhook、无 deploy key | 尚不能证明项目是否活跃、绑定哪个 repo/branch 或是否自动部署 | 本次迁移明确排除，不属于 Task 2 门禁 |
 
 本机没有 `vercel` / `railway` CLI，也没有仓库内 `.vercel/project.json`。现有 Chrome 标签只有 GitHub 与 Fusion 页面，没有已登录的 Vercel / Railway 标签。在获得已登录控制台证据前，不把配置文件的存在误判为活跃绑定。
+
+2026-09-01 的执行边界已明确：本次 Fusion monorepo 迁移不读取、不修改、不验证 Vercel / Railway，以上条目仅保留为历史盘点证据。
 
 ## 未闭环项
 
 - 从原始凭据源重新注入 10 个唯一 secret 名称，逐项记录来源、位置、连通性和轮换状态。
-- 在已登录控制台核实 Vercel / Railway 活跃性与 repo/branch/自动部署绑定。

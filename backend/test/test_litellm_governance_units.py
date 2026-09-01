@@ -100,6 +100,8 @@ class LiteLLMGovernanceUnitTests(unittest.TestCase):
         self.assertIn("litellm-governance-venv/bin/python", service)
         self.assertNotIn("sk-", service)
         self.assertNotIn("/usr/bin/python3", service)
+        self.assertIn("%h/.local/share/fusion/litellm-governance-current", service)
+        self.assertNotIn("%h/project/fusion/fusion-api", service)
         self.assertIn("*:00/15:00 Asia/Shanghai", timer)
         self.assertNotIn("OnUnitActiveSec=", timer)
         self.assertIn("Persistent=true", timer)

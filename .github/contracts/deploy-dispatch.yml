@@ -1,6 +1,6 @@
 version: "1"
-status: task-1-contract-only
-enabled_workflow: null
+status: task-2-enabled
+enabled_workflow: .github/workflows/deploy-dev.yml
 workflow_dispatch:
   target:
     allowed: [api, ui, both]

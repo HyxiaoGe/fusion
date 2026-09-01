@@ -3,6 +3,10 @@ name: Fusion UI Build & Deploy
 on:
   workflow_call:
     inputs:
+      deploy_sha:
+        description: orchestrator 固定的 master 提交 SHA
+        required: true
+        type: string
       rollback_sha:
         description: 要回滚的已发布提交 SHA；Task 2 由发布台账解析 repository digest，留空则发布当前提交
         required: false
@@ -24,7 +28,7 @@ env:
   IMAGE_NAME: crpi-77w10wlykpqilmmb.cn-shenzhen.personal.cr.aliyuncs.com/seanfield/fusion-ui
   ROLLBACK_SHA: ${{ inputs.rollback_sha }}
   ROLLBACK_REASON: ${{ inputs.rollback_reason }}
-  DEPLOY_TARGET_SHA: ${{ inputs.rollback_sha || github.sha }}
+  DEPLOY_TARGET_SHA: ${{ inputs.rollback_sha || inputs.deploy_sha }}
 
 jobs:
   publish:
@@ -41,6 +45,7 @@ jobs:
       started_at: ${{ steps.pipeline_start.outputs.started_at }}
       runner_name: ${{ steps.pipeline_start.outputs.runner_name }}
     env:
+      DEPLOY_SHA: ${{ inputs.deploy_sha }}
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
       NPM_CONFIG_AUDIT: "false"
@@ -95,7 +100,7 @@ jobs:
         uses: ./frontend/.github/actions/windows-docker-build
         with:
           image-name: ${{ env.IMAGE_NAME }}
-          image-tag: ${{ github.sha }}
+          image-tag: ${{ inputs.deploy_sha }}
           auth-service-base-url: ${{ vars.NEXT_PUBLIC_AUTH_SERVICE_BASE_URL }}
           auth-service-client-id: ${{ vars.NEXT_PUBLIC_AUTH_SERVICE_CLIENT_ID }}
           auth-callback-url: ${{ vars.NEXT_PUBLIC_AUTH_CALLBACK_URL }}
@@ -111,7 +116,7 @@ jobs:
       - name: Push Docker image
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
-          $image = "${env:IMAGE_NAME}:${env:GITHUB_SHA}"
+          $image = "${env:IMAGE_NAME}:${env:DEPLOY_SHA}"
           for ($attempt = 1; $attempt -le 4; $attempt++) {
             docker push $image
             $exitCode = $LASTEXITCODE
@@ -136,7 +141,7 @@ jobs:
           $runnerKey = '${{ runner.name }}' -replace '[^A-Za-z0-9_.-]', '-'
           if (-not $runnerKey) { $runnerKey = "runner" }
           $builder = "fusion-ui-ci-$runnerKey"
-          $image = "${env:IMAGE_NAME}:${env:GITHUB_SHA}"
+          $image = "${env:IMAGE_NAME}:${env:DEPLOY_SHA}"
 
           # GitHub 的 PowerShell 包装器使用 ErrorActionPreference=Stop；镜像不存在是清理的正常分支，
           # 通过 cmd 静默探测，避免 native stderr 把 always cleanup 误判为失败。
@@ -232,6 +237,18 @@ jobs:
           mkdir -p -- "$dockerConfig"
           echo "DOCKER_CONFIG=$dockerConfig" >> "$GITHUB_ENV"
 
+      - name: Prepare stable UI runtime paths
+        run: |
+          set -euo pipefail
+          runtime_dir="${HOME}/.local/share/fusion/ui/runtime"
+          ledger_path="${HOME}/.local/share/fusion/ui/release-ledger.json"
+          install -d -m 0755 "${runtime_dir}"
+          install -d -m 0700 "$(dirname "${ledger_path}")"
+          {
+            printf '%s\n' "FUSION_UI_RUNTIME_DIR=${runtime_dir}"
+            printf '%s\n' "FUSION_UI_LEDGER=${ledger_path}"
+          } >> "${GITHUB_ENV}"
+
       - name: Checkout smoke scripts
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -254,12 +271,20 @@ jobs:
             exit 1
           fi
 
-          previousImagePrefix="${IMAGE_NAME}:"
-          if [[ "$previousImageRef" != "$previousImagePrefix"* ]]; then
-            echo "fusion-ui 当前镜像引用不属于受管镜像仓库，拒绝作为回滚目标：$previousImageRef"
-            exit 1
-          fi
-          previousImageSha="${previousImageRef#"$previousImagePrefix"}"
+          previousTagPrefix="${IMAGE_NAME}:"
+          previousDigestPrefix="${IMAGE_NAME}@sha256:"
+          case "$previousImageRef" in
+            "$previousTagPrefix"*) previousImageSha="${previousImageRef#"$previousTagPrefix"}" ;;
+            "$previousDigestPrefix"*)
+              previousImageSha="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" current-sha --path "${FUSION_UI_LEDGER}" --app ui)"
+              expectedPreviousRef="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" lookup --path "${FUSION_UI_LEDGER}" --app ui --sha "$previousImageSha" --component ui --field ref)"
+              if [ "$previousImageRef" != "$expectedPreviousRef" ]; then
+                echo "fusion-ui 当前摘要引用与发布账本不一致：expected=$expectedPreviousRef actual=$previousImageRef"
+                exit 1
+              fi
+              ;;
+            *) echo "fusion-ui 当前镜像引用不属于受管镜像仓库，拒绝作为回滚目标：$previousImageRef"; exit 1 ;;
+          esac
           if ! [[ "$previousImageSha" =~ ^[0-9a-f]{40}$ ]]; then
             echo "fusion-ui 当前镜像引用不是 40 位小写 Git SHA 标签，拒绝作为回滚目标：$previousImageRef"
             exit 1
@@ -269,15 +294,67 @@ jobs:
             exit 1
           fi
 
-          echo "previous_image_ref=$previousImageRef" >> "$GITHUB_OUTPUT"
-          echo "previous_image_id=$previousImageId" >> "$GITHUB_OUTPUT"
+          {
+            printf '%s\n' "previous_image_ref=$previousImageRef"
+            printf '%s\n' "previous_image_id=$previousImageId"
+            printf '%s\n' "previous_sha=$previousImageSha"
+          } >> "$GITHUB_OUTPUT"
           echo "已捕获当前 fusion-ui 部署：ref=$previousImageRef id=$previousImageId"
+
+      - name: Bootstrap current UI release ledger
+        env:
+          PREVIOUS_SHA: ${{ steps.capture_previous.outputs.previous_sha }}
+          PREVIOUS_REF: ${{ steps.capture_previous.outputs.previous_image_ref }}
+          PREVIOUS_ID: ${{ steps.capture_previous.outputs.previous_image_id }}
+        run: |
+          set -euo pipefail
+          resolve_digest_ref() {
+            local manifest_json
+            manifest_json="$(docker buildx imagetools inspect "$1" --format '{{json .Manifest}}')"
+            printf '%s' "${manifest_json}" | python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" manifest-ref --repository "${IMAGE_NAME}"
+          }
+          case "${PREVIOUS_REF}" in
+            "${IMAGE_NAME}:"*)
+              digest_ref="$(resolve_digest_ref "${PREVIOUS_REF}")"
+              docker pull "${digest_ref}"
+              image_id="$(docker image inspect --format '{{.Id}}' "${digest_ref}")"
+              if [ "${image_id}" != "${PREVIOUS_ID}" ]; then
+                echo "旧 UI 标签当前 manifest 与运行中镜像身份不一致，拒绝建立回滚基线"
+                exit 1
+              fi
+              python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" record \
+                --path "${FUSION_UI_LEDGER}" --app ui --sha "${PREVIOUS_SHA}" \
+                --run-id "bootstrap-${GITHUB_RUN_ID}" --recorded-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                --image "ui|${digest_ref}|${image_id}"
+              ;;
+            "${IMAGE_NAME}@sha256:"*)
+              expected_ref="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" lookup --path "${FUSION_UI_LEDGER}" --app ui --sha "${PREVIOUS_SHA}" --component ui --field ref)"
+              expected_id="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" lookup --path "${FUSION_UI_LEDGER}" --app ui --sha "${PREVIOUS_SHA}" --component ui --field image_id)"
+              if [ "${PREVIOUS_REF}|${PREVIOUS_ID}" != "${expected_ref}|${expected_id}" ]; then
+                echo "运行中 UI 镜像身份与发布账本不一致"
+                exit 1
+              fi
+              ;;
+            *) echo "旧 UI 镜像引用不受管理: ${PREVIOUS_REF}"; exit 1 ;;
+          esac
+
+      - name: Resolve UI deployment digest
+        run: |
+          set -euo pipefail
+          if [ -n "${ROLLBACK_SHA}" ]; then
+            deploy_ref="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" lookup --path "${FUSION_UI_LEDGER}" --app ui --sha "${DEPLOY_TARGET_SHA}" --component ui --field ref)"
+          else
+            manifest_json="$(docker buildx imagetools inspect "${IMAGE_NAME}:${DEPLOY_TARGET_SHA}" --format '{{json .Manifest}}')"
+            deploy_ref="$(printf '%s' "${manifest_json}" | python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" manifest-ref --repository "${IMAGE_NAME}")"
+          fi
+          docker pull "${deploy_ref}"
+          printf '%s\n' "DEPLOY_UI_IMAGE=${deploy_ref}" >> "${GITHUB_ENV}"
 
       - name: Deploy candidate image
         id: deploy_candidate
         run: |
-          cd ~/project/fusion
-          docker pull "${IMAGE_NAME}:${DEPLOY_TARGET_SHA}"
+          cd "${FUSION_UI_RUNTIME_DIR}"
+          docker pull "${DEPLOY_UI_IMAGE}"
           cat > docker-compose.fusion-ui-ghcr.yml <<'EOF'
           services:
             fusion-ui:
@@ -301,13 +378,13 @@ jobs:
           EOF
           # 兜底：清掉旧 compose project 持有的同名容器，避免首次切换镜像源时容器名冲突
           docker rm -f fusion-ui 2>/dev/null || true
-          FUSION_UI_IMAGE="${IMAGE_NAME}:${DEPLOY_TARGET_SHA}" \
+          FUSION_UI_IMAGE="${DEPLOY_UI_IMAGE}" \
             docker compose -f docker-compose.fusion-ui-ghcr.yml up -d
 
       - name: Smoke check candidate deployment
         id: verify_candidate
         run: |
-          expectedImage="${IMAGE_NAME}:${DEPLOY_TARGET_SHA}"
+          expectedImage="${DEPLOY_UI_IMAGE}"
           runningImage="$(docker inspect --format '{{.Config.Image}}' fusion-ui 2>/dev/null || true)"
           if [ "$runningImage" != "$expectedImage" ]; then
             echo "fusion-ui image identity mismatch: expected=$expectedImage actual=${runningImage:-missing}"
@@ -374,6 +451,23 @@ jobs:
             exit 1
           fi
 
+      - name: Preserve UI rollback image
+        id: cleanup_old_images
+        if: success()
+        run: |
+          docker image inspect "${{ steps.capture_previous.outputs.previous_image_ref }}" >/dev/null
+          echo "Task 2 保留切换前镜像，待 Task 5 再清理"
+
+      - name: Record accepted UI release
+        if: success()
+        run: |
+          set -euo pipefail
+          image_id="$(docker inspect fusion-ui --format '{{.Image}}')"
+          python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" record \
+            --path "${FUSION_UI_LEDGER}" --app ui --sha "${DEPLOY_TARGET_SHA}" \
+            --run-id "${GITHUB_RUN_ID}" --recorded-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --image "ui|${DEPLOY_UI_IMAGE}|${image_id}"
+
       - name: Rollback previous deployment
         id: rollback_previous
         if: ${{ failure() && steps.capture_previous.outcome == 'success' && steps.deploy_candidate.outcome != 'skipped' }}
@@ -385,7 +479,7 @@ jobs:
             exit 1
           fi
 
-          cd ~/project/fusion
+          cd "${FUSION_UI_RUNTIME_DIR}"
           cat > docker-compose.fusion-ui-ghcr.yml <<'EOF'
           services:
             fusion-ui:
@@ -439,23 +533,13 @@ jobs:
           docker logs --tail 80 fusion-ui || true
           exit 1
 
-      - name: Cleanup old images
-        id: cleanup_old_images
-        if: success()
-        run: |
-          current="${IMAGE_NAME}:${DEPLOY_TARGET_SHA}"
-          docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' ${{ env.IMAGE_NAME }} \
-            | awk -v current="$current" '$1 != current {print $2}' \
-            | sort -u \
-            | xargs -r docker rmi || true
-
       - name: Push CI/CD metrics
         if: always()
         env:
           METRICS_REF_NAME: ${{ github.ref_name }}
           METRICS_JOB_STATUS: ${{ job.status }}
           METRICS_STARTED_AT: ${{ needs.publish.outputs.started_at }}
-          METRICS_IMAGE_REF: ${{ env.IMAGE_NAME }}:${{ env.DEPLOY_TARGET_SHA }}
+          METRICS_IMAGE_REF: ${{ env.DEPLOY_UI_IMAGE }}
           METRICS_TARGET_SHA: ${{ env.DEPLOY_TARGET_SHA }}
           METRICS_RUNNER_NAME: ${{ needs.publish.outputs.runner_name }}
           METRICS_DEPLOY_START: ${{ env.DEPLOY_START }}
