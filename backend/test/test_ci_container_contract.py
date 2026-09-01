@@ -1,3 +1,6 @@
+import os
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -6,6 +9,40 @@ MONOREPO_ROOT = ROOT.parent
 
 
 class CIContainerContractTest(unittest.TestCase):
+    def test_linux_ci_container_mounts_monorepo_github_read_only(self) -> None:
+        build_script = ROOT / ".github/scripts/linux-build-and-test.sh"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            bin_dir = temp_root / "bin"
+            bin_dir.mkdir()
+            docker_log = temp_root / "docker.log"
+            fake_docker = bin_dir / "docker"
+            fake_docker.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf '<call>\\n' >> \"${DOCKER_LOG}\"\n"
+                "printf '%s\\n' \"$@\" >> \"${DOCKER_LOG}\"\n",
+                encoding="utf-8",
+            )
+            fake_docker.chmod(0o755)
+
+            env = os.environ.copy()
+            env["DOCKER_LOG"] = str(docker_log)
+            env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+            subprocess.run(
+                ["bash", str(build_script), "fusion-api-ci", "fusion-adapter-ci", "test-sha"],
+                cwd=MONOREPO_ROOT,
+                env=env,
+                check=True,
+            )
+
+            docker_calls = docker_log.read_text(encoding="utf-8")
+
+        self.assertIn(
+            f"type=bind,source={MONOREPO_ROOT}/.github,target=/.github,readonly",
+            docker_calls,
+        )
+
     def test_development_dependencies_cover_runtime_and_ci(self) -> None:
         development = (ROOT / "requirements-dev.txt").read_text(encoding="utf-8")
 
@@ -88,6 +125,10 @@ class CIContainerContractTest(unittest.TestCase):
         )
         self.assertIn(
             '--mount "type=bind,source=$appRoot\\README.md,target=/app/README.md,readonly"',
+            windows_build_script,
+        )
+        self.assertIn(
+            '--mount "type=bind,source=$monorepoRoot\\.github,target=/.github,readonly"',
             windows_build_script,
         )
 
