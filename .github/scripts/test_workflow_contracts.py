@@ -70,7 +70,7 @@ class WorkflowContractTests(unittest.TestCase):
             zizmor["uses"],
             "zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054",
         )
-        self.assertEqual(zizmor["with"]["version"], "1.30.0")
+        self.assertEqual(zizmor["with"]["version"], "1.29.0")
         self.assertFalse(zizmor["with"]["advanced-security"])
         self.assertEqual(zizmor["with"]["min-severity"], "high")
         self.assertEqual(zizmor["with"]["min-confidence"], "high")
