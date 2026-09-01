@@ -51,6 +51,7 @@ env:
   REGISTRY: crpi-77w10wlykpqilmmb.cn-shenzhen.personal.cr.aliyuncs.com
   IMAGE_NAME: ${{ format('crpi-77w10wlykpqilmmb.cn-shenzhen.personal.cr.aliyuncs.com/{0}', inputs.image_repository) }}
   UI_HEALTH_CHECK_ENDPOINT: ${{ inputs.health_check_endpoint }}
+  DEPLOY_HEALTH_CHECK_ENDPOINT: ${{ inputs.health_check_endpoint }}
   DEPLOY_APP: ${{ inputs.app }}
   DEPLOY_IMAGE_REPOSITORY: ${{ inputs.image_repository }}
   DEPLOY_MIGRATION_ENABLED: ${{ inputs.migration_enabled }}

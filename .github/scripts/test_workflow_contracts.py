@@ -311,6 +311,10 @@ class WorkflowContractTests(unittest.TestCase):
         api_env = self.api["env"]
         self.assertIn("inputs.image_repository", api_env["IMAGE_NAME"])
         self.assertEqual(api_env["API_HEALTH_CHECK_ENDPOINT"], "${{ inputs.health_check_endpoint }}")
+        self.assertEqual(
+            api_env.get("DEPLOY_HEALTH_CHECK_ENDPOINT"),
+            "${{ inputs.health_check_endpoint }}",
+        )
         self.assertEqual(api_env["DEPLOY_DEPENDENCY_SERVICES"], "${{ inputs.dependency_services }}")
         self.assertEqual(api_env["DEPLOY_ROLLBACK_ANCHOR_POLICY"], "${{ inputs.rollback_anchor_policy }}")
         api_migration = next(
@@ -323,6 +327,10 @@ class WorkflowContractTests(unittest.TestCase):
         ui_env = self.ui["env"]
         self.assertIn("inputs.image_repository", ui_env["IMAGE_NAME"])
         self.assertEqual(ui_env["UI_HEALTH_CHECK_ENDPOINT"], "${{ inputs.health_check_endpoint }}")
+        self.assertEqual(
+            ui_env.get("DEPLOY_HEALTH_CHECK_ENDPOINT"),
+            "${{ inputs.health_check_endpoint }}",
+        )
         self.assertEqual(ui_env["DEPLOY_DEPENDENCY_SERVICES"], "${{ inputs.dependency_services }}")
         self.assertEqual(ui_env["DEPLOY_ROLLBACK_ANCHOR_POLICY"], "${{ inputs.rollback_anchor_policy }}")
         self.assertIn('curl -fsS "${API_HEALTH_CHECK_ENDPOINT}"', self.api_text)
