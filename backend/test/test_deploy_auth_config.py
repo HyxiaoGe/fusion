@@ -35,9 +35,11 @@ class DeployAuthConfigTests(unittest.TestCase):
             self.workflow,
         )
         self.assertIn(
-            'git -C "${GITHUB_WORKSPACE}" show "${rollback_api_sha}:backend/scripts/deployment_smoke.py"',
+            'git -C "${GITHUB_WORKSPACE}" show "${rollback_api_sha}:${rollback_smoke_path}"',
             self.workflow,
         )
+        self.assertIn("backend/scripts/deployment_smoke.py", self.workflow)
+        self.assertIn("scripts/deployment_smoke.py", self.workflow)
         self.assertIn("| python3 - --base-url http://127.0.0.1:8002", self.workflow)
         self.assertIn("/api/models/", self.workflow)
 
