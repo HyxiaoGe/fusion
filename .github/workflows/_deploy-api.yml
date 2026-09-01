@@ -3,6 +3,10 @@ name: Fusion API Windows CI
 on:
   workflow_call:
     inputs:
+      deploy_sha:
+        description: orchestrator 固定的 master 提交 SHA
+        required: true
+        type: string
       rollback_sha:
         description: 要恢复的已发布镜像 SHA（40 位小写 Git SHA；留空表示正常发布）
         required: false
@@ -39,13 +43,19 @@ jobs:
         id: deployment_request
         env:
           EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_DEPLOY_SHA: ${{ inputs.deploy_sha }}
           REQUESTED_ROLLBACK_SHA: ${{ inputs.rollback_sha }}
           REQUESTED_ROLLBACK_REASON: ${{ inputs.rollback_reason }}
         run: |
           rollback_sha="${REQUESTED_ROLLBACK_SHA:-}"
           rollback_reason="${REQUESTED_ROLLBACK_REASON:-}"
-          target_sha="${GITHUB_SHA}"
+          target_sha="${REQUESTED_DEPLOY_SHA}"
           rollback_requested="false"
+
+          if [[ ! "${target_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "deploy_sha 必须是 40 位小写 Git SHA"
+            exit 1
+          fi
 
           if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
             if [ -n "${rollback_sha}" ]; then
@@ -83,6 +93,8 @@ jobs:
     environment:
       name: dev
       deployment: false
+    env:
+      DEPLOY_SHA: ${{ inputs.deploy_sha }}
     outputs:
       started_at: ${{ steps.pipeline_start.outputs.started_at }}
       runner_name: ${{ steps.pipeline_start.outputs.runner_name }}
@@ -157,7 +169,7 @@ jobs:
           & "backend/.github/scripts/windows-build-and-test.ps1" `
             -ImageName "${env:IMAGE_NAME}" `
             -AdapterImageName "${env:FLYAI_ADAPTER_IMAGE_NAME}" `
-            -ImageTag "${env:GITHUB_SHA}"
+            -ImageTag "${env:DEPLOY_SHA}"
 
       - name: Login to ACR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -170,8 +182,8 @@ jobs:
 
       - name: Push Docker image
         run: |
-          docker push "%IMAGE_NAME%:%GITHUB_SHA%"
-          docker push "%FLYAI_ADAPTER_IMAGE_NAME%:%GITHUB_SHA%"
+          docker push "%IMAGE_NAME%:%DEPLOY_SHA%"
+          docker push "%FLYAI_ADAPTER_IMAGE_NAME%:%DEPLOY_SHA%"
 
       - name: Cleanup local Docker artifacts
         if: always()
@@ -180,7 +192,7 @@ jobs:
           & "backend/.github/scripts/windows-cleanup.ps1" `
             -ImageName "${env:IMAGE_NAME}" `
             -AdapterImageName "${env:FLYAI_ADAPTER_IMAGE_NAME}" `
-            -ImageTag "${env:GITHUB_SHA}"
+            -ImageTag "${env:DEPLOY_SHA}"
 
   deploy-dev:
     name: Deploy master on dev server
@@ -204,7 +216,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-          ref: ${{ needs.prepare.outputs.target_sha }}
+          ref: ${{ inputs.deploy_sha }}
           fetch-depth: 0
 
       - name: Configure user systemd bus
@@ -231,6 +243,46 @@ jobs:
           mkdir -p -- "${docker_config}"
           printf '%s\n' "DOCKER_CONFIG=${docker_config}" >> "${GITHUB_ENV}"
 
+      - name: Prepare stable runtime paths
+        run: |
+          set -euo pipefail
+          config_dir="${HOME}/.config/fusion"
+          runtime_env="${config_dir}/runtime.env"
+          legacy_env="${HOME}/project/fusion/.env"
+          runtime_dir="${HOME}/.local/share/fusion/api/runtime"
+          storage_dir="${HOME}/.local/share/fusion/api/storage/files"
+          ledger_path="${HOME}/.local/share/fusion/api/release-ledger.json"
+          install -d -m 0700 "${config_dir}" "$(dirname "${ledger_path}")"
+          install -d -m 0755 "${runtime_dir}" "${storage_dir}"
+          if [ ! -e "${runtime_env}" ]; then
+            if [ ! -f "${legacy_env}" ] || [ -L "${legacy_env}" ]; then
+              echo "缺少可迁移的旧运行时配置"
+              exit 1
+            fi
+            install -m 0600 "${legacy_env}" "${runtime_env}"
+          fi
+          if [ ! -f "${runtime_env}" ] || [ -L "${runtime_env}" ]; then
+            echo "运行时配置必须是普通文件"
+            exit 1
+          fi
+          if [ "$(stat -c '%U:%a' "${runtime_env}")" != "$(id -un):600" ]; then
+            echo "运行时配置 owner 或权限无效"
+            exit 1
+          fi
+          set -a
+          source "${runtime_env}"
+          set +a
+          if [ "${STORAGE_BACKEND:-}" != "oss" ]; then
+            echo "Task 2 仅允许已确认的 STORAGE_BACKEND=oss"
+            exit 1
+          fi
+          {
+            printf '%s\n' "FUSION_RUNTIME_ENV=${runtime_env}"
+            printf '%s\n' "FUSION_API_RUNTIME_DIR=${runtime_dir}"
+            printf '%s\n' "FUSION_STORAGE_DIR=${storage_dir}"
+            printf '%s\n' "FUSION_API_LEDGER=${ledger_path}"
+          } >> "${GITHUB_ENV}"
+
       - name: Capture current deployment for rollback
         id: capture_rollback_target
         run: |
@@ -252,16 +304,28 @@ jobs:
           api_image_id="$(docker inspect fusion-api --format '{{.Image}}')"
           adapter_image_ref="$(docker inspect fusion-flyai-adapter --format '{{.Config.Image}}')"
           adapter_image_id="$(docker inspect fusion-flyai-adapter --format '{{.Image}}')"
-          api_image_prefix="${IMAGE_NAME}:"
+          api_tag_prefix="${IMAGE_NAME}:"
+          api_digest_prefix="${IMAGE_NAME}@sha256:"
           case "${api_image_ref}" in
-            "${api_image_prefix}"*) api_sha="${api_image_ref#"${api_image_prefix}"}" ;;
+            "${api_tag_prefix}"*)
+              api_sha="${api_image_ref#"${api_tag_prefix}"}"
+              expected_adapter_ref="${FLYAI_ADAPTER_IMAGE_NAME}:${api_sha}"
+              ;;
+            "${api_digest_prefix}"*)
+              api_sha="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" current-sha --path "${FUSION_API_LEDGER}" --app api)"
+              expected_api_ref="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" lookup --path "${FUSION_API_LEDGER}" --app api --sha "${api_sha}" --component api --field ref)"
+              expected_adapter_ref="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" lookup --path "${FUSION_API_LEDGER}" --app api --sha "${api_sha}" --component adapter --field ref)"
+              if [ "${api_image_ref}" != "${expected_api_ref}" ]; then
+                echo "fusion-api 当前摘要引用与发布账本不一致: expected=${expected_api_ref} actual=${api_image_ref}"
+                exit 1
+              fi
+              ;;
             *) echo "fusion-api 镜像仓库不受当前 workflow 管理: ${api_image_ref}"; exit 1 ;;
           esac
           if [[ ! "${api_sha}" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "fusion-api 镜像标签不是 40 位小写 Git SHA: ${api_image_ref}"
+            echo "fusion-api 发布 SHA 不是 40 位小写 Git SHA: ${api_sha}"
             exit 1
           fi
-          expected_adapter_ref="${FLYAI_ADAPTER_IMAGE_NAME}:${api_sha}"
           if [ "${adapter_image_ref}" != "${expected_adapter_ref}" ]; then
             echo "fusion-flyai-adapter 与 fusion-api 未运行同一 SHA: expected=${expected_adapter_ref} actual=${adapter_image_ref}"
             exit 1
@@ -460,11 +524,15 @@ jobs:
           fi
           governance_timer_enabled="false"
           governance_timer_active="false"
+          cost_timer_active="false"
           if systemctl --user is-enabled --quiet fusion-litellm-governance.timer; then
             governance_timer_enabled="true"
           fi
           if systemctl --user is-active --quiet fusion-litellm-governance.timer; then
             governance_timer_active="true"
+          fi
+          if systemctl --user is-active --quiet fusion-litellm-cost-sync.timer; then
+            cost_timer_active="true"
           fi
           governance_unit_dir="${HOME}/.config/systemd/user"
           governance_service_unit="${governance_unit_dir}/fusion-litellm-governance.service"
@@ -517,6 +585,7 @@ jobs:
             printf '%s\n' "api_image_id=${api_image_id}"
             printf '%s\n' "adapter_image_ref=${adapter_image_ref}"
             printf '%s\n' "adapter_image_id=${adapter_image_id}"
+            printf '%s\n' "deployment_sha=${api_sha}"
             printf '%s\n' "knowledge_worker_existed=${knowledge_worker_existed}"
             printf '%s\n' "knowledge_worker_image_ref=${knowledge_worker_image_ref}"
             printf '%s\n' "knowledge_worker_image_id=${knowledge_worker_image_id}"
@@ -528,6 +597,7 @@ jobs:
             printf '%s\n' "governance_current_target=${governance_current_target}"
             printf '%s\n' "governance_timer_enabled=${governance_timer_enabled}"
             printf '%s\n' "governance_timer_active=${governance_timer_active}"
+            printf '%s\n' "cost_timer_active=${cost_timer_active}"
             printf '%s\n' "governance_service_unit_existed=${governance_service_unit_existed}"
             printf '%s\n' "governance_timer_unit_existed=${governance_timer_unit_existed}"
             printf '%s\n' "governance_service_unit_b64=${governance_service_unit_b64}"
@@ -551,6 +621,79 @@ jobs:
         env:
           ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
           ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Bootstrap current API release ledger
+        env:
+          PREVIOUS_SHA: ${{ steps.capture_rollback_target.outputs.deployment_sha }}
+          PREVIOUS_API_REF: ${{ steps.capture_rollback_target.outputs.api_image_ref }}
+          PREVIOUS_API_ID: ${{ steps.capture_rollback_target.outputs.api_image_id }}
+          PREVIOUS_ADAPTER_REF: ${{ steps.capture_rollback_target.outputs.adapter_image_ref }}
+          PREVIOUS_ADAPTER_ID: ${{ steps.capture_rollback_target.outputs.adapter_image_id }}
+        run: |
+          set -euo pipefail
+          resolve_digest_ref() {
+            local repository="$1"
+            local tag_ref="$2"
+            local manifest_json
+            manifest_json="$(docker buildx imagetools inspect "${tag_ref}" --format '{{json .Manifest}}')"
+            printf '%s' "${manifest_json}" | python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" manifest-ref --repository "${repository}"
+          }
+          case "${PREVIOUS_API_REF}" in
+            "${IMAGE_NAME}:"*)
+              api_ref="$(resolve_digest_ref "${IMAGE_NAME}" "${PREVIOUS_API_REF}")"
+              adapter_ref="$(resolve_digest_ref "${FLYAI_ADAPTER_IMAGE_NAME}" "${PREVIOUS_ADAPTER_REF}")"
+              docker pull "${api_ref}"
+              docker pull "${adapter_ref}"
+              api_id="$(docker image inspect --format '{{.Id}}' "${api_ref}")"
+              adapter_id="$(docker image inspect --format '{{.Id}}' "${adapter_ref}")"
+              if [ "${api_id}" != "${PREVIOUS_API_ID}" ] || [ "${adapter_id}" != "${PREVIOUS_ADAPTER_ID}" ]; then
+                echo "旧 API 标签当前 manifest 与运行中镜像身份不一致，拒绝建立回滚基线"
+                exit 1
+              fi
+              python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" record \
+                --path "${FUSION_API_LEDGER}" --app api --sha "${PREVIOUS_SHA}" \
+                --run-id "bootstrap-${GITHUB_RUN_ID}" --recorded-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                --image "api|${api_ref}|${api_id}" \
+                --image "adapter|${adapter_ref}|${adapter_id}"
+              ;;
+            "${IMAGE_NAME}@sha256:"*)
+              expected_api_ref="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" lookup --path "${FUSION_API_LEDGER}" --app api --sha "${PREVIOUS_SHA}" --component api --field ref)"
+              expected_api_id="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" lookup --path "${FUSION_API_LEDGER}" --app api --sha "${PREVIOUS_SHA}" --component api --field image_id)"
+              expected_adapter_ref="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" lookup --path "${FUSION_API_LEDGER}" --app api --sha "${PREVIOUS_SHA}" --component adapter --field ref)"
+              expected_adapter_id="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" lookup --path "${FUSION_API_LEDGER}" --app api --sha "${PREVIOUS_SHA}" --component adapter --field image_id)"
+              if [ "${PREVIOUS_API_REF}|${PREVIOUS_API_ID}|${PREVIOUS_ADAPTER_REF}|${PREVIOUS_ADAPTER_ID}" != "${expected_api_ref}|${expected_api_id}|${expected_adapter_ref}|${expected_adapter_id}" ]; then
+                echo "运行中 API 镜像身份与发布账本不一致"
+                exit 1
+              fi
+              ;;
+            *) echo "旧 API 镜像引用不受管理: ${PREVIOUS_API_REF}"; exit 1 ;;
+          esac
+
+      - name: Resolve API deployment digest
+        env:
+          ROLLBACK_REQUESTED: ${{ needs.prepare.outputs.rollback_requested }}
+        run: |
+          set -euo pipefail
+          resolve_digest_ref() {
+            local repository="$1"
+            local tag_ref="$2"
+            local manifest_json
+            manifest_json="$(docker buildx imagetools inspect "${tag_ref}" --format '{{json .Manifest}}')"
+            printf '%s' "${manifest_json}" | python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" manifest-ref --repository "${repository}"
+          }
+          if [ "${ROLLBACK_REQUESTED}" = "true" ]; then
+            api_ref="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" lookup --path "${FUSION_API_LEDGER}" --app api --sha "${DEPLOY_TARGET_SHA}" --component api --field ref)"
+            adapter_ref="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" lookup --path "${FUSION_API_LEDGER}" --app api --sha "${DEPLOY_TARGET_SHA}" --component adapter --field ref)"
+          else
+            api_ref="$(resolve_digest_ref "${IMAGE_NAME}" "${IMAGE_NAME}:${DEPLOY_TARGET_SHA}")"
+            adapter_ref="$(resolve_digest_ref "${FLYAI_ADAPTER_IMAGE_NAME}" "${FLYAI_ADAPTER_IMAGE_NAME}:${DEPLOY_TARGET_SHA}")"
+          fi
+          docker pull "${api_ref}"
+          docker pull "${adapter_ref}"
+          {
+            printf '%s\n' "DEPLOY_API_IMAGE=${api_ref}"
+            printf '%s\n' "DEPLOY_ADAPTER_IMAGE=${adapter_ref}"
+          } >> "${GITHUB_ENV}"
 
       - name: Pause model management worker before API deploy
         id: pause_model_management_worker
@@ -580,21 +723,14 @@ jobs:
         id: apply_migrations
         if: needs.prepare.outputs.rollback_requested != 'true'
         run: |
-          cd ~/project/fusion
+          cd "${FUSION_API_RUNTIME_DIR}"
           set -a
-          source .env
+          source "${FUSION_RUNTIME_ENV}"
           set +a
-          n=0
-          until docker pull "${IMAGE_NAME}:${DEPLOY_TARGET_SHA}"; do
-            n=$((n+1))
-            if [ $n -ge 6 ]; then echo "docker pull 重试 $n 次仍失败"; exit 1; fi
-            echo "docker pull 失败（网络抖动），第 $n 次，10s 后重试..."
-            sleep 10
-          done
           docker run --rm \
             --network postgres_default \
             -e DATABASE_URL="${DATABASE_URL}" \
-            "${IMAGE_NAME}:${DEPLOY_TARGET_SHA}" \
+            "${DEPLOY_API_IMAGE}" \
             alembic upgrade head
 
       - name: Pull and restart fusion-api
@@ -651,10 +787,10 @@ jobs:
           DEPLOY_MILVUS_TIMEOUT_SECONDS: ${{ vars.MILVUS_TIMEOUT_SECONDS || '10' }}
           DEPLOY_MILVUS_DOCKER_NETWORK: ${{ vars.MILVUS_DOCKER_NETWORK || 'fusion_knowledge_milvus' }}
         run: |
-          cd ~/project/fusion
+          cd "${FUSION_API_RUNTIME_DIR}"
           set -o pipefail
           set -a
-          source .env
+          source "${FUSION_RUNTIME_ENV}"
           set +a
           export CONTEXT7_API_KEY=""
           export PROMPTHUB_API_KEY="${DEPLOY_PROMPTHUB_API_KEY:-}"
@@ -941,8 +1077,6 @@ jobs:
             exit 1
           fi
           export FLYAI_ADAPTER_TOKEN="$(python3 -c 'import hashlib,hmac,os; print(hmac.new(os.environ["FLYAI_API_KEY"].encode(), b"fusion-deploy-flyai-adapter-v1", hashlib.sha256).hexdigest(), end="")')"
-          export DEPLOY_API_IMAGE="${IMAGE_NAME}:${DEPLOY_TARGET_SHA}"
-          export DEPLOY_ADAPTER_IMAGE="${FLYAI_ADAPTER_IMAGE_NAME}:${DEPLOY_TARGET_SHA}"
           n=0
           until docker pull "${DEPLOY_API_IMAGE}"; do
             n=$((n+1))
@@ -951,7 +1085,7 @@ jobs:
             sleep 10
           done
           if [ "${KNOWLEDGE_BASE_ENABLED}" = "true" ]; then
-            docker run --rm -i --entrypoint python --env-file .env \
+            docker run --rm -i --entrypoint python --env-file "${FUSION_RUNTIME_ENV}" \
               -e "KNOWLEDGE_BASE_ENABLED" \
               -e "KNOWLEDGE_MAX_BASES_PER_USER" \
               -e "KNOWLEDGE_MAX_DOCUMENTS_PER_BASE" \
@@ -1029,13 +1163,13 @@ jobs:
           test -d "${LITELLM_GOVERNANCE_ROOT_HOST}"
           docker network inspect "${MILVUS_DOCKER_NETWORK}" >/dev/null 2>&1 \
             || docker network create "${MILVUS_DOCKER_NETWORK}" >/dev/null
-          mkdir -p ./fusion-api/storage/files
+          install -d -m 0755 "${FUSION_STORAGE_DIR}"
           mkdir -p ./knowledge-worker-logs
           if docker container inspect fusion-api >/dev/null 2>&1; then
             if docker inspect fusion-api --format '{{range .Mounts}}{{println .Destination}}{{end}}' | grep -qx '/app/storage/files'; then
               echo "file storage already mounted; skip container file migration"
             elif docker exec fusion-api sh -lc 'test -d /app/storage/files'; then
-              docker exec fusion-api sh -lc 'tar -C /app/storage/files -cf - .' | tar -C ./fusion-api/storage/files -xf -
+              docker exec fusion-api sh -lc 'tar -C /app/storage/files -cf - .' | tar -C "${FUSION_STORAGE_DIR}" -xf -
             fi
           fi
           cat > docker-compose.fusion-api-ghcr.yml <<'EOF'
@@ -1069,8 +1203,8 @@ jobs:
               ports:
                 - "8002:8000"
               volumes:
-                - ./fusion-api/logs:/app/logs
-                - ./fusion-api/storage/files:/app/storage/files
+                - ./logs:/app/logs
+                - ${FUSION_STORAGE_DIR}:/app/storage/files
                 - ${LITELLM_GOVERNANCE_ROOT_HOST}:/var/lib/fusion/litellm-governance:ro
               environment:
                 - DATABASE_URL=${DATABASE_URL}
@@ -1199,7 +1333,7 @@ jobs:
               restart: always
               volumes:
                 - ./knowledge-worker-logs:/app/logs
-                - ./fusion-api/storage/files:/app/storage/files
+                - ${FUSION_STORAGE_DIR}:/app/storage/files
               environment:
                 - DATABASE_URL=${DATABASE_URL}
                 - STORAGE_BACKEND=${STORAGE_BACKEND:-local}
@@ -1295,7 +1429,7 @@ jobs:
         env:
           KNOWLEDGE_WORKER_SUPPORTED: ${{ steps.deploy_candidate.outputs.knowledge_worker_supported }}
         run: |
-          expected_api_image="${IMAGE_NAME}:${DEPLOY_TARGET_SHA}"
+          expected_api_image="${DEPLOY_API_IMAGE}"
           actual_api_image="$(docker inspect fusion-api --format '{{.Config.Image}}')"
           if [ "${actual_api_image}" != "${expected_api_image}" ]; then
             echo "fusion-api 镜像不匹配: expected=${expected_api_image} actual=${actual_api_image}"
@@ -1308,7 +1442,7 @@ jobs:
             exit 1
           fi
 
-          expected_adapter_image="${FLYAI_ADAPTER_IMAGE_NAME}:${DEPLOY_TARGET_SHA}"
+          expected_adapter_image="${DEPLOY_ADAPTER_IMAGE}"
           actual_adapter_image="$(docker inspect fusion-flyai-adapter --format '{{.Config.Image}}')"
           if [ "${actual_adapter_image}" != "${expected_adapter_image}" ]; then
             echo "fusion-flyai-adapter 镜像不匹配: expected=${expected_adapter_image} actual=${actual_adapter_image}"
@@ -1459,6 +1593,7 @@ jobs:
           docker exec -i fusion-api python - <<'PY'
           import asyncio
           import urllib.request
+          import uuid
 
           from app.core.config import settings
 
@@ -1513,6 +1648,22 @@ jobs:
                   raise SystemExit("oss cors PUT method is not allowed")
               if "*" not in allow_headers and "CONTENT-TYPE" not in allow_headers.upper():
                   raise SystemExit("oss cors Content-Type header is not allowed")
+              key = f"health/monorepo-task2-{uuid.uuid4().hex}.txt"
+              payload = b"fusion monorepo task2 oss acceptance\n"
+              try:
+                  uploaded_key = asyncio.run(storage.upload(key, payload, "text/plain"))
+                  if uploaded_key != key:
+                      raise SystemExit("oss upload returned an unexpected key")
+                  downloaded = asyncio.run(storage.download(key))
+                  if downloaded != payload:
+                      raise SystemExit("oss upload/download payload mismatch")
+                  if asyncio.run(storage.get_size(key)) != len(payload):
+                      raise SystemExit("oss object size mismatch")
+              finally:
+                  asyncio.run(storage.delete(key))
+              if asyncio.run(storage.exists(key)):
+                  raise SystemExit("oss acceptance object cleanup failed")
+              print("oss real upload/download acceptance passed")
           print(f"file storage backend ok: {settings.STORAGE_BACKEND}")
           PY
 
@@ -1615,8 +1766,10 @@ jobs:
           PY
 
       - name: Install LiteLLM governance discovery
+        if: needs.prepare.outputs.rollback_requested != 'true'
         env:
           ROLLBACK_GOVERNANCE_TIMER_ACTIVE: ${{ steps.capture_rollback_target.outputs.governance_timer_active }}
+          ROLLBACK_COST_TIMER_ACTIVE: ${{ steps.capture_rollback_target.outputs.cost_timer_active }}
         run: |
           set -euo pipefail
           release_dir="${HOME}/.local/share/fusion/litellm-governance-src-${DEPLOY_TARGET_SHA}"
@@ -1630,13 +1783,20 @@ jobs:
           unit_dir="${HOME}/.config/systemd/user"
           install -d -m 0755 "${release_dir}/scripts" "${release_dir}/ops/litellm" "${unit_dir}"
           install -d -m 0700 "${config_dir}" "${governance_output_dir}" "${acceptance_dir}"
-          systemctl --user stop fusion-litellm-governance.timer >/dev/null 2>&1 || true
-          if systemctl --user is-active --quiet fusion-litellm-governance.service; then
+          restore_timers_on_error() {
             if [ "${ROLLBACK_GOVERNANCE_TIMER_ACTIVE}" = "true" ]; then
-              systemctl --user start fusion-litellm-governance.timer
-              systemctl --user is-active --quiet fusion-litellm-governance.timer
+              systemctl --user start fusion-litellm-governance.timer >/dev/null 2>&1 || true
             fi
-            echo "LiteLLM 治理周期仍在执行，拒绝切换发现版本；定时器已恢复部署前状态"
+            if [ "${ROLLBACK_COST_TIMER_ACTIVE}" = "true" ]; then
+              systemctl --user start fusion-litellm-cost-sync.timer >/dev/null 2>&1 || true
+            fi
+          }
+          trap restore_timers_on_error ERR
+          systemctl --user stop fusion-litellm-governance.timer >/dev/null 2>&1 || true
+          systemctl --user stop fusion-litellm-cost-sync.timer >/dev/null 2>&1 || true
+          if systemctl --user is-active --quiet fusion-litellm-governance.service \
+            || systemctl --user is-active --quiet fusion-litellm-cost-sync.service; then
+            echo "LiteLLM 治理或成本同步周期仍在执行，拒绝切换运行版本"
             exit 1
           fi
           for script in \
@@ -1644,7 +1804,9 @@ jobs:
             check_litellm_governance_runtime.py \
             discover_litellm_model_candidates.py \
             enrich_litellm_model_candidates.py \
+            ensure_litellm_cost_map_sync.py \
             fetch_litellm_cost_map.py \
+            check_litellm_cost_map_sync_status.py \
             orchestrate_litellm_model_candidates.py \
             plan_litellm_candidate_admission.py \
             run_litellm_governance_cycle.py \
@@ -1706,12 +1868,16 @@ jobs:
           install -m 0644 \
             "${GITHUB_WORKSPACE}/backend/ops/litellm/fusion-litellm-governance.service" \
             "${GITHUB_WORKSPACE}/backend/ops/litellm/fusion-litellm-governance.timer" \
+            "${GITHUB_WORKSPACE}/backend/ops/litellm/fusion-litellm-cost-sync.service" \
+            "${GITHUB_WORKSPACE}/backend/ops/litellm/fusion-litellm-cost-sync.timer" \
             "${unit_dir}/"
           ln -sfn "${release_dir}" "${current_link}"
           systemctl --user daemon-reload
           systemd-analyze --user verify \
             "${unit_dir}/fusion-litellm-governance.service" \
-            "${unit_dir}/fusion-litellm-governance.timer"
+            "${unit_dir}/fusion-litellm-governance.timer" \
+            "${unit_dir}/fusion-litellm-cost-sync.service" \
+            "${unit_dir}/fusion-litellm-cost-sync.timer"
           governance_python="${HOME}/.local/share/fusion/litellm-governance-venv/bin/python"
           systemctl --user reset-failed fusion-litellm-governance.service >/dev/null 2>&1 || true
           (
@@ -1726,6 +1892,13 @@ jobs:
           )
           systemctl --user enable --now fusion-litellm-governance.timer
           systemctl --user is-active --quiet fusion-litellm-governance.timer
+          systemctl --user reset-failed fusion-litellm-cost-sync.service >/dev/null 2>&1 || true
+          systemctl --user start fusion-litellm-cost-sync.service
+          [ "$(systemctl --user show fusion-litellm-cost-sync.service -p Result --value)" = "success" ]
+          [ "$(systemctl --user show fusion-litellm-cost-sync.service -p ExecMainStatus --value)" = "0" ]
+          systemctl --user enable --now fusion-litellm-cost-sync.timer
+          systemctl --user is-active --quiet fusion-litellm-cost-sync.timer
+          trap - ERR
 
       - name: Install model management worker
         if: needs.prepare.outputs.rollback_requested != 'true'
@@ -1901,6 +2074,26 @@ jobs:
           systemctl --user enable --now fusion-litellm-model-management.timer
           systemctl --user is-active --quiet fusion-litellm-model-management.timer
 
+      - name: Preserve API rollback images
+        id: cleanup_old_images
+        if: success()
+        run: |
+          docker image inspect "${{ steps.capture_rollback_target.outputs.api_image_ref }}" >/dev/null
+          docker image inspect "${{ steps.capture_rollback_target.outputs.adapter_image_ref }}" >/dev/null
+          echo "Task 2 保留切换前镜像，待 Task 5 再清理"
+
+      - name: Record accepted API release
+        if: success()
+        run: |
+          set -euo pipefail
+          api_id="$(docker inspect fusion-api --format '{{.Image}}')"
+          adapter_id="$(docker inspect fusion-flyai-adapter --format '{{.Image}}')"
+          python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" record \
+            --path "${FUSION_API_LEDGER}" --app api --sha "${DEPLOY_TARGET_SHA}" \
+            --run-id "${GITHUB_RUN_ID}" --recorded-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --image "api|${DEPLOY_API_IMAGE}|${api_id}" \
+            --image "adapter|${DEPLOY_ADAPTER_IMAGE}|${adapter_id}"
+
       - name: Restore model management worker after pre-deploy failure
         if: >-
           ${{ failure() && steps.capture_rollback_target.outcome == 'success' &&
@@ -1921,6 +2114,7 @@ jobs:
         id: rollback_failed_deployment
         if: ${{ failure() && steps.capture_rollback_target.outcome == 'success' && steps.deploy_candidate.outcome != 'skipped' }}
         env:
+          ROLLBACK_DEPLOYMENT_SHA: ${{ steps.capture_rollback_target.outputs.deployment_sha }}
           ROLLBACK_API_IMAGE_REF: ${{ steps.capture_rollback_target.outputs.api_image_ref }}
           ROLLBACK_API_IMAGE_ID: ${{ steps.capture_rollback_target.outputs.api_image_id }}
           ROLLBACK_ADAPTER_IMAGE_REF: ${{ steps.capture_rollback_target.outputs.adapter_image_ref }}
@@ -1987,10 +2181,10 @@ jobs:
             return 1
           }
           wait_for_user_services
-          cd ~/project/fusion
+          cd "${FUSION_API_RUNTIME_DIR}"
           set -o pipefail
           set -a
-          source .env
+          source "${FUSION_RUNTIME_ENV}"
           set +a
           export ROLLBACK_KNOWLEDGE_CONFIG_FILE="${RUNNER_TEMP}/fusion-knowledge-rollback-${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}.env"
           case "${ROLLBACK_KNOWLEDGE_CONFIG_FILE}" in
@@ -2242,21 +2436,13 @@ jobs:
             fi
           fi
 
-          rollback_api_prefix="${IMAGE_NAME}:"
-          case "${ROLLBACK_API_IMAGE_REF}" in
-            "${rollback_api_prefix}"*) rollback_api_sha="${ROLLBACK_API_IMAGE_REF#"${rollback_api_prefix}"}" ;;
-            *) echo "fusion-api 回滚镜像仓库不受当前 workflow 管理: ${ROLLBACK_API_IMAGE_REF}"; exit 1 ;;
-          esac
+          rollback_api_sha="${ROLLBACK_DEPLOYMENT_SHA}"
           if [[ ! "${rollback_api_sha}" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "fusion-api 回滚镜像标签不是 40 位小写 Git SHA: ${ROLLBACK_API_IMAGE_REF}"
+            echo "fusion-api 回滚发布 SHA 不是 40 位小写 Git SHA: ${rollback_api_sha}"
             exit 1
           fi
-          if ! git -C "${GITHUB_WORKSPACE}" cat-file -e "${rollback_api_sha}^{commit}"; then
-            echo "fusion-api 回滚提交不在当前仓库历史中: ${rollback_api_sha}"
-            exit 1
-          fi
-          if ! git -C "${GITHUB_WORKSPACE}" show "${rollback_api_sha}:backend/scripts/deployment_smoke.py" \
-            | python3 - --base-url http://127.0.0.1:8002; then
+          if ! python3 "${GITHUB_WORKSPACE}/backend/scripts/deployment_smoke.py" \
+            --base-url http://127.0.0.1:8002; then
             echo "fusion-api rollback deployment smoke failed"
             docker logs --tail=120 fusion-api || true
             exit 1
@@ -2393,21 +2579,6 @@ jobs:
           fi
           echo "旧镜像已恢复且回滚后验收通过；原始发布失败状态保持不变"
 
-      - name: Cleanup old images
-        id: cleanup_old_images
-        if: success()
-        run: |
-          current="${IMAGE_NAME}:${DEPLOY_TARGET_SHA}"
-          adapter_current="${FLYAI_ADAPTER_IMAGE_NAME}:${DEPLOY_TARGET_SHA}"
-          docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' ${{ env.IMAGE_NAME }} \
-            | awk -v current="$current" '$1 != current {print $2}' \
-            | sort -u \
-            | xargs -r docker rmi || true
-          docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' ${{ env.FLYAI_ADAPTER_IMAGE_NAME }} \
-            | awk -v current="$adapter_current" '$1 != current {print $2}' \
-            | sort -u \
-            | xargs -r docker rmi || true
-
       - name: Push CI/CD metrics
         if: always()
         env:
@@ -2423,7 +2594,7 @@ jobs:
             dev \
             "${METRICS_JOB_STATUS}" \
             "${METRICS_STARTED_AT}" \
-            "${IMAGE_NAME}:${DEPLOY_TARGET_SHA}" \
+            "${DEPLOY_API_IMAGE:-${IMAGE_NAME}:${DEPLOY_TARGET_SHA}}" \
             "${DEPLOY_TARGET_SHA}" \
             "${METRICS_RUNNER_NAME}" \
             fusion-api \

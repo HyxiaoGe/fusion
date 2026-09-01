@@ -367,7 +367,7 @@ const actionDocuments = [
     expect(releaseWorkflowDocument.env?.ROLLBACK_SHA).toBe('${{ inputs.rollback_sha }}');
     expect(releaseWorkflowDocument.env?.ROLLBACK_REASON).toBe('${{ inputs.rollback_reason }}');
     expect(releaseWorkflowDocument.env?.DEPLOY_TARGET_SHA).toBe(
-      '${{ inputs.rollback_sha || github.sha }}',
+      '${{ inputs.rollback_sha || inputs.deploy_sha }}',
     );
 
     const rollbackShaDescription =
@@ -507,8 +507,10 @@ const actionDocuments = [
     expect(candidateStep.id).toBe('deploy_candidate');
     expect(captureStep.run).toContain("docker inspect --format '{{.Config.Image}}' fusion-ui");
     expect(captureStep.run).toContain("docker inspect --format '{{.Image}}' fusion-ui");
-    expect(captureStep.run).toContain('previousImagePrefix="${IMAGE_NAME}:"');
-    expect(captureStep.run).toContain('previousImageSha="${previousImageRef#"$previousImagePrefix"}"');
+    expect(captureStep.run).toContain('previousTagPrefix="${IMAGE_NAME}:"');
+    expect(captureStep.run).toContain('previousDigestPrefix="${IMAGE_NAME}@sha256:"');
+    expect(captureStep.run).toContain('previousImageSha="${previousImageRef#"$previousTagPrefix"}"');
+    expect(captureStep.run).toContain('.github/scripts/release_ledger.py');
     expect(captureStep.run).toContain('if ! [[ "$previousImageSha" =~ ^[0-9a-f]{40}$ ]]; then');
     expect(captureStep.run).toContain('if ! [[ "$previousImageId" =~ ^sha256:[0-9a-f]{64}$ ]]; then');
     expect(captureStep.run).toContain('exit 1');
@@ -566,12 +568,12 @@ docker() {
     }
   });
 
-  it('候选部署统一使用经过校验的实际目标 SHA', () => {
+  it('候选部署统一使用从实际目标 SHA 解析出的 repository digest', () => {
     const candidateStep = getSingleDeployStep('Deploy candidate image');
     const smokeStep = getSingleDeployStep('Smoke check candidate deployment');
-    expect(candidateStep.run).toContain('${IMAGE_NAME}:${DEPLOY_TARGET_SHA}');
+    expect(candidateStep.run).toContain('${DEPLOY_UI_IMAGE}');
     expect(candidateStep.run).not.toContain('${{ github.sha }}');
-    expect(smokeStep.run).toContain('expectedImage="${IMAGE_NAME}:${DEPLOY_TARGET_SHA}"');
+    expect(smokeStep.run).toContain('expectedImage="${DEPLOY_UI_IMAGE}"');
     expect(smokeStep.run).not.toContain('${{ github.sha }}');
     expect(smokeStep.run).toContain("docker image inspect --format '{{.Id}}' \"$expectedImage\"");
     expect(smokeStep.run).toContain("docker inspect --format '{{.Image}}' fusion-ui");
@@ -605,17 +607,17 @@ docker() {
     expect(rollbackStep.run).toContain('rollback smoke check failed');
   });
 
-  it('旧镜像只在候选链路全部成功后清理', () => {
-    const cleanupStep = getSingleDeployStep('Cleanup old images');
-    expect(cleanupStep.if).toBe('success()');
-    expect(cleanupStep.run).toContain('${IMAGE_NAME}:${DEPLOY_TARGET_SHA}');
-    expect(cleanupStep.run).not.toContain('${{ github.sha }}');
+  it('Task 2 在候选链路成功后仍保留旧镜像作为恢复点', () => {
+    const preserveStep = getSingleDeployStep('Preserve UI rollback image');
+    expect(preserveStep.if).toBe('success()');
+    expect(preserveStep.run).toContain('steps.capture_previous.outputs.previous_image_ref');
+    expect(preserveStep.run).not.toContain('docker rmi');
   });
 
   it('部署指标与通知记录实际 DEPLOY_TARGET_SHA', () => {
     const metricsStep = getSingleDeployStep('Push CI/CD metrics');
     const notificationStep = getSingleDeployStep('通知飞书(部署结果)');
-    expect(metricsStep.env?.METRICS_IMAGE_REF).toBe('${{ env.IMAGE_NAME }}:${{ env.DEPLOY_TARGET_SHA }}');
+    expect(metricsStep.env?.METRICS_IMAGE_REF).toBe('${{ env.DEPLOY_UI_IMAGE }}');
     expect(metricsStep.env?.METRICS_TARGET_SHA).toBe('${{ env.DEPLOY_TARGET_SHA }}');
     expect(metricsStep.run).toContain('${METRICS_IMAGE_REF}');
     expect(metricsStep.run).toContain('${METRICS_TARGET_SHA}');
@@ -686,7 +688,7 @@ docker() {
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter((line) => line && !line.startsWith('#'));
-    const expectedImageLine = 'expectedImage="${IMAGE_NAME}:${DEPLOY_TARGET_SHA}"';
+    const expectedImageLine = 'expectedImage="${DEPLOY_UI_IMAGE}"';
     const runningImageLine =
       'runningImage="$(docker inspect --format \'{{.Config.Image}}\' fusion-ui 2>/dev/null || true)"';
     const compareLine = 'if [ "$runningImage" != "$expectedImage" ]; then';

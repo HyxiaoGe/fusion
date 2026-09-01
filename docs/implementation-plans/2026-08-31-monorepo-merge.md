@@ -162,15 +162,15 @@
 
 ### 2.2 开发环境切换步骤
 
-1. **备份：** 保存 Task 0 的 git bundle / 未提交资产归档；在 dev 主机备份 `.env`、systemd unit 文件和当前容器的 repository digest + image ID，并记录平台当前 repo/branch 绑定。
-2. **切换：** 启用新仓 orchestrator，由同一条 workflow 按 `detect changes → deploy API → deploy UI` 执行；orchestrator 独占 `fusion-dev` concurrency 且不取消运行中的发布，两个应用 wrapper 保持不定义 concurrency；发布后解析并校验 registry digest，按 digest 部署并原子更新 per-app 发布台账；同步把当前 dev 使用的平台绑定改到新仓与目标分支。
-3. **验证：** 核对 API/UI 实际运行 repository digest + image ID、健康检查与 smoke；确认 `<sha>` tag 仅是审计别名且台账能把每个应用提交唯一解析到 digest；确认三个 systemd unit active、`cost-sync` 不再依赖旧 checkout；确认 `STORAGE_BACKEND=oss`、兼容挂载断言通过，并完成一次真实 OSS 上传/下载；最后核对平台绑定已指向新仓。
+1. **备份：** 保存 Task 0 的 git bundle / 未提交资产归档；在 dev 主机备份 `.env`、systemd unit 文件和当前容器的 repository digest + image ID。
+2. **切换：** 启用新仓 orchestrator，由同一条 workflow 按 `detect changes → deploy API → deploy UI` 执行；orchestrator 独占 `fusion-dev` concurrency 且不取消运行中的发布，两个应用 wrapper 保持不定义 concurrency；发布后解析并校验 registry digest，按 digest 部署并原子更新 per-app 发布台账。
+3. **验证：** 核对 API/UI 实际运行 repository digest + image ID、健康检查与 smoke；确认 `<sha>` tag 仅是审计别名且台账能把每个应用提交唯一解析到 digest；确认三个 systemd timer active，且对应 oneshot service 最近一次 `Result=success`、`ExecMainStatus=0`，并确认 `cost-sync` 不再依赖旧 checkout；确认 `STORAGE_BACKEND=oss`、兼容挂载断言通过，并完成一次真实 OSS 上传/下载。
 
-### 2.3 外部平台绑定
+### 2.3 外部平台边界
 
-Task 0 第 7 步判定为当前 dev 链路使用的 Vercel / Railway 绑定，在本 Task 的切换步骤中完成；纯历史或未启用绑定留到 Task 4 整理。
+按本次迁移授权，Vercel / Railway 不属于 Task 2，也不作为 dev 切换验收门禁；本 Task 不读取、不修改、不验证其绑定。
 
-**验收：** 新仓完成一次 dev API → UI 顺序部署；两应用运行的 repository digest + image ID 与发布输出及台账一致，健康检查和 smoke 通过；任意时刻仅有一个 `fusion-dev` 发布运行；三个 systemd unit 均 active 且 `cost-sync` 已脱离旧 checkout；兼容挂载存在且 owner/mode 可用；真实 OSS 上传/下载成功；当前 dev 平台绑定全部指向新仓。任一项失败即停止推进，按备份恢复受影响的主机配置后在新仓修复并重试。
+**验收：** 新仓完成一次 dev API → UI 顺序部署；两应用运行的 repository digest + image ID 与发布输出及台账一致，健康检查和 smoke 通过；任意时刻仅有一个 `fusion-dev` 发布运行；三个 systemd timer 均 active、对应 oneshot service 最近一次执行成功，且 `cost-sync` 已脱离旧 checkout；兼容挂载存在且 owner/mode 可用；真实 OSS 上传/下载成功。任一项失败即停止推进，按备份恢复受影响的主机配置后在新仓修复并重试。
 
 ## Task 3：抽取 shell 到 ops/deploy
 

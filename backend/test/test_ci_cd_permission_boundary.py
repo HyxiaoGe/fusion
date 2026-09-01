@@ -84,7 +84,10 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         self.assertNotIn("${{ secrets.CONTEXT7_API_KEY }}", workflow)
         self.assertNotIn("DEPLOY_CONTEXT7_API_KEY", restart_step)
         self.assertRegex(active_shell, r'(?m)^\s*export CONTEXT7_API_KEY=""\s*$')
-        self.assertLess(active_shell.index("source .env"), active_shell.index('export CONTEXT7_API_KEY=""'))
+        self.assertLess(
+            active_shell.index('source "${FUSION_RUNTIME_ENV}"'),
+            active_shell.index('export CONTEXT7_API_KEY=""'),
+        )
         self.assertNotRegex(
             active_shell,
             r"(?m)^\s*export CONTEXT7_API_KEY=.*\$\{(?:DEPLOY_CONTEXT7_API_KEY|CONTEXT7_API_KEY)",
@@ -139,19 +142,22 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
             "api_image_id=\"$(docker inspect fusion-api --format '{{.Image}}')\"",
             "adapter_image_ref=\"$(docker inspect fusion-flyai-adapter --format '{{.Config.Image}}')\"",
             "adapter_image_id=\"$(docker inspect fusion-flyai-adapter --format '{{.Image}}')\"",
-            'api_image_prefix="${IMAGE_NAME}:"',
+            'api_tag_prefix="${IMAGE_NAME}:"',
+            'api_digest_prefix="${IMAGE_NAME}@sha256:"',
             'case "${api_image_ref}" in',
-            '"${api_image_prefix}"*) api_sha="${api_image_ref#"${api_image_prefix}"}" ;;',
+            '"${api_tag_prefix}"*)',
+            '"${api_digest_prefix}"*)',
             'if [[ ! "${api_sha}" =~ ^[0-9a-f]{40}$ ]]; then',
-            'expected_adapter_ref="${FLYAI_ADAPTER_IMAGE_NAME}:${api_sha}"',
             'if [ "${adapter_image_ref}" != "${expected_adapter_ref}" ]; then',
             'if [[ ! "${api_image_id}" =~ ^sha256:[0-9a-f]{64}$ ]]; then',
             'if [[ ! "${adapter_image_id}" =~ ^sha256:[0-9a-f]{64}$ ]]; then',
         )
         for command in expected_commands:
             self.assertRegex(commands, rf"(?m)^{re.escape(command)}$")
+        self.assertIn(".github/scripts/release_ledger.py", commands)
         for output_name in ("api_image_ref", "api_image_id", "adapter_image_ref", "adapter_image_id"):
             self.assertEqual(script.count(f'"{output_name}=${{{output_name}}}"'), 1)
+        self.assertEqual(script.count('"deployment_sha=${api_sha}"'), 1)
 
     def assert_rollback_restore_contract(self, step: dict) -> None:
         self.assert_rollback_step_guard(step["if"])
@@ -170,6 +176,10 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
             step["env"]["ROLLBACK_ADAPTER_IMAGE_ID"],
             "${{ steps.capture_rollback_target.outputs.adapter_image_id }}",
         )
+        self.assertEqual(
+            step["env"]["ROLLBACK_DEPLOYMENT_SHA"],
+            "${{ steps.capture_rollback_target.outputs.deployment_sha }}",
+        )
         commands = active_commands(step["run"])
         expected_commands = (
             "docker compose -f docker-compose.fusion-api-ghcr.yml up -d",
@@ -186,16 +196,10 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         self.assertIn("http://127.0.0.1:8000/health", commands)
         self.assertIn("docker exec fusion-flyai-adapter", commands)
         self.assertIn("http://127.0.0.1:8080/health", commands)
-        self.assertIn(
-            'git -C "${GITHUB_WORKSPACE}" show "${rollback_api_sha}:backend/scripts/deployment_smoke.py"',
-            commands,
-        )
-        self.assertIn("| python3 - --base-url http://127.0.0.1:8002", commands)
-        self.assertIn('git -C "${GITHUB_WORKSPACE}" cat-file -e "${rollback_api_sha}^{commit}"', commands)
-        self.assertNotIn(
-            'python3 "${GITHUB_WORKSPACE}/scripts/deployment_smoke.py" --base-url http://127.0.0.1:8002',
-            commands,
-        )
+        self.assertIn('rollback_api_sha="${ROLLBACK_DEPLOYMENT_SHA}"', commands)
+        self.assertIn('python3 "${GITHUB_WORKSPACE}/backend/scripts/deployment_smoke.py"', commands)
+        self.assertIn("--base-url http://127.0.0.1:8002", commands)
+        self.assertNotIn('git -C "${GITHUB_WORKSPACE}" show', commands)
 
     def test_drift_audit_is_owned_by_central_baseline_repository(self) -> None:
         self.assertFalse(
@@ -531,12 +535,12 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         identity_step = deploy_job[deploy_job.index(identity_step_name) : deploy_job.index(health_step_name)]
         active_shell = "\n".join(line for line in identity_step.splitlines() if not line.lstrip().startswith("#"))
         expected_commands = (
-            'expected_api_image="${IMAGE_NAME}:${DEPLOY_TARGET_SHA}"',
+            'expected_api_image="${DEPLOY_API_IMAGE}"',
             "actual_api_image=\"$(docker inspect fusion-api --format '{{.Config.Image}}')\"",
             'if [ "${actual_api_image}" != "${expected_api_image}" ]; then',
             "actual_api_id=\"$(docker inspect fusion-api --format '{{.Image}}')\"",
             'if [ "${actual_api_id}" != "${expected_api_id}" ]; then',
-            'expected_adapter_image="${FLYAI_ADAPTER_IMAGE_NAME}:${DEPLOY_TARGET_SHA}"',
+            'expected_adapter_image="${DEPLOY_ADAPTER_IMAGE}"',
             "actual_adapter_image=\"$(docker inspect fusion-flyai-adapter --format '{{.Config.Image}}')\"",
             'if [ "${actual_adapter_image}" != "${expected_adapter_image}" ]; then',
             "actual_adapter_id=\"$(docker inspect fusion-flyai-adapter --format '{{.Image}}')\"",
@@ -573,6 +577,11 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         self.assertEqual(
             workflow_call["inputs"],
             {
+                "deploy_sha": {
+                    "description": "orchestrator 固定的 master 提交 SHA",
+                    "required": True,
+                    "type": "string",
+                },
                 "rollback_sha": {
                     "description": "要恢复的已发布镜像 SHA（40 位小写 Git SHA；留空表示正常发布）",
                     "required": False,
@@ -604,7 +613,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         request_commands = active_commands(request_step["run"])
         self.assertIn('[[ ! "${rollback_sha}" =~ ^[0-9a-f]{40}$ ]]', request_commands)
         self.assertIn('[[ ! "${rollback_reason}" =~ [^[:space:]] ]]', request_commands)
-        self.assertIn('target_sha="${GITHUB_SHA}"', request_commands)
+        self.assertIn('target_sha="${REQUESTED_DEPLOY_SHA}"', request_commands)
         self.assertIn('rollback_requested="true"', request_commands)
 
         publish_job = jobs["publish"]
@@ -622,7 +631,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
             normalized_condition(migration_step["if"]),
             "needs.prepare.outputs.rollback_requested != 'true'",
         )
-        self.assertIn("${DEPLOY_TARGET_SHA}", active_commands(migration_step["run"]))
+        self.assertIn('"${DEPLOY_API_IMAGE}"', active_commands(migration_step["run"]))
 
     def test_windows_offline_does_not_block_manual_rollback_or_enable_normal_deploy(self) -> None:
         jobs = self.release_document["jobs"]
@@ -721,8 +730,9 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
 
     def test_cleanup_only_runs_after_success_and_rollback_never_downgrades_database(self) -> None:
         deploy_job = self.release_document["jobs"]["deploy-dev"]
-        cleanup_step = workflow_step(deploy_job, "Cleanup old images")
+        cleanup_step = workflow_step(deploy_job, "Preserve API rollback images")
         self.assert_cleanup_success_guard(cleanup_step)
+        self.assertNotIn("docker rmi", active_commands(cleanup_step["run"]))
 
         forged_cleanup = copy.deepcopy(cleanup_step)
         forged_cleanup.pop("if")
@@ -744,7 +754,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         self.assertEqual(deploy_job["env"]["DEPLOY_TARGET_SHA"], "${{ needs.prepare.outputs.target_sha }}")
         metrics_step = workflow_step(deploy_job, "Push CI/CD metrics")
         metrics_commands = active_commands(metrics_step["run"])
-        self.assertIn('"${IMAGE_NAME}:${DEPLOY_TARGET_SHA}"', metrics_commands)
+        self.assertIn('"${DEPLOY_API_IMAGE:-${IMAGE_NAME}:${DEPLOY_TARGET_SHA}}"', metrics_commands)
         self.assertIn('"${DEPLOY_TARGET_SHA}"', metrics_commands)
         self.assertNotIn("github.sha", metrics_commands)
         self.assertNotIn("GITHUB_SHA", metrics_commands)

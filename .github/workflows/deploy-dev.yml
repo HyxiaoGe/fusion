@@ -1,0 +1,127 @@
+name: Fusion dev deploy
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 要部署或回滚的应用
+        required: true
+        type: choice
+        options: [api, ui, both]
+      api_rollback_sha:
+        description: API 回滚 SHA；留空表示部署当前 master
+        required: false
+        type: string
+      ui_rollback_sha:
+        description: UI 回滚 SHA；留空表示部署当前 master
+        required: false
+        type: string
+      rollback_reason:
+        description: 任一回滚 SHA 非空时必填
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fusion-dev
+  cancel-in-progress: false
+
+jobs:
+  changes:
+    name: Detect deployment targets
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      api: ${{ steps.targets.outputs.api }}
+      ui: ${{ steps.targets.outputs.ui }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate request and detect targets
+        id: targets
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          TARGET: ${{ inputs.target }}
+          API_ROLLBACK_SHA: ${{ inputs.api_rollback_sha }}
+          UI_ROLLBACK_SHA: ${{ inputs.ui_rollback_sha }}
+          ROLLBACK_REASON: ${{ inputs.rollback_reason }}
+        run: |
+          set -euo pipefail
+          if [ "${EVENT_NAME}" = "push" ]; then
+            python3 .github/scripts/test_detect_changes.py
+            python3 .github/scripts/detect_changes.py \
+              --event-name push \
+              --head "${GITHUB_SHA}" \
+              --before "${BEFORE_SHA}"
+            exit 0
+          fi
+
+          case "${TARGET}" in
+            api) api=true; ui=false ;;
+            ui) api=false; ui=true ;;
+            both) api=true; ui=true ;;
+            *) echo "target 必须是 api、ui 或 both"; exit 1 ;;
+          esac
+          for value in "${API_ROLLBACK_SHA}" "${UI_ROLLBACK_SHA}"; do
+            if [ -n "${value}" ] && [[ ! "${value}" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "回滚 SHA 必须是 40 位小写十六进制"
+              exit 1
+            fi
+          done
+          if [ -n "${API_ROLLBACK_SHA}" ] && [ "${api}" != "true" ]; then
+            echo "api_rollback_sha 只能用于 api 或 both"
+            exit 1
+          fi
+          if [ -n "${UI_ROLLBACK_SHA}" ] && [ "${ui}" != "true" ]; then
+            echo "ui_rollback_sha 只能用于 ui 或 both"
+            exit 1
+          fi
+          if { [ -n "${API_ROLLBACK_SHA}" ] || [ -n "${UI_ROLLBACK_SHA}" ]; } \
+            && [[ ! "${ROLLBACK_REASON}" =~ [^[:space:]] ]]; then
+            echo "设置回滚 SHA 时 rollback_reason 必填"
+            exit 1
+          fi
+          if [ -z "${API_ROLLBACK_SHA}" ] && [ -z "${UI_ROLLBACK_SHA}" ] \
+            && [[ "${ROLLBACK_REASON}" =~ [^[:space:]] ]]; then
+            echo "没有回滚 SHA 时不能单独填写 rollback_reason"
+            exit 1
+          fi
+          {
+            printf '%s\n' "api=${api}"
+            printf '%s\n' "ui=${ui}"
+          } >> "${GITHUB_OUTPUT}"
+
+  deploy-api:
+    name: Deploy API
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    uses: ./.github/workflows/_deploy-api.yml
+    with:
+      deploy_sha: ${{ github.sha }}
+      rollback_sha: ${{ inputs.api_rollback_sha || '' }}
+      rollback_reason: ${{ inputs.api_rollback_sha != '' && inputs.rollback_reason || '' }}
+    secrets: inherit
+
+  deploy-ui:
+    name: Deploy UI
+    needs: [changes, deploy-api]
+    if: >-
+      always() &&
+      needs.changes.result == 'success' &&
+      needs.changes.outputs.ui == 'true' &&
+      (needs.changes.outputs.api != 'true' || needs.deploy-api.result == 'success')
+    uses: ./.github/workflows/_deploy-ui.yml
+    with:
+      deploy_sha: ${{ github.sha }}
+      rollback_sha: ${{ inputs.ui_rollback_sha || '' }}
+      rollback_reason: ${{ inputs.ui_rollback_sha != '' && inputs.rollback_reason || '' }}
+    secrets: inherit
