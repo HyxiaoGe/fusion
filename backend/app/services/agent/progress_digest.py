@@ -1,0 +1,203 @@
+"""从工具执行结果派生用户可读 digest/evidence。"""
+
+from __future__ import annotations
+
+import re
+from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
+
+from app.services.source_evidence_ledger import build_search_source_evidence_item, build_url_read_evidence_item
+
+if TYPE_CHECKING:
+    from app.services.stream.tool_execution_result import ToolExecutionRecord
+
+
+def build_tool_result_digest(record: ToolExecutionRecord) -> dict[str, Any]:
+    evidence_items = build_evidence_items(record)
+    summary = _result_summary(record)
+    status = "degraded" if summary.get("repairable") is True else _digest_status(record.result.status)
+    title = _digest_title(record.tool_name, status, summary)
+
+    digest = {
+        "tool_call_id": str(record.tool_call.get("id", "")),
+        "tool_name": record.tool_name,
+        "status": status,
+        "title": title,
+        "summary": _digest_summary(record, status, summary),
+        "key_findings": _key_findings(evidence_items),
+        "source_refs": [item["id"] for item in evidence_items],
+        "truncated": bool(summary.get("truncated", False)),
+    }
+    repair_state, repair_id = _repair_digest_state(record)
+    if repair_state:
+        digest["repair_state"] = repair_state
+    if repair_id:
+        digest["repair_id"] = repair_id
+    return digest
+
+
+def build_evidence_items(record: ToolExecutionRecord) -> list[dict[str, Any]]:
+    tool_call_id = str(record.tool_call.get("id", "tool"))
+    if record.tool_name == "url_read":
+        item = build_url_read_evidence_item(
+            _result_data(record),
+            status=record.result.status,
+            tool_call_id=tool_call_id,
+        )
+        if item is None:
+            return []
+        url = item.get("url")
+        return [item] if not url or _is_public_url(url) else []
+
+    sources = _extract_sources(record)
+    evidence = []
+    for index, source in enumerate(sources[:12]):
+        url = _source_value(source, "url")
+        if url and not _is_public_url(url):
+            continue
+        evidence.append(build_search_source_evidence_item(source, tool_call_id=tool_call_id, source_index=index))
+    return evidence
+
+
+def _result_summary(record: ToolExecutionRecord) -> dict[str, Any]:
+    if record.handler is None:
+        return {"kind": record.tool_name, "truncated": False}
+    builder = getattr(record.handler, "_build_result_summary", None)
+    if builder is None:
+        return {"kind": record.tool_name, "truncated": False}
+    try:
+        summary = builder(record.result)
+    except Exception:
+        return {"kind": record.tool_name, "truncated": True}
+    if not isinstance(summary, dict):
+        summary = {"kind": record.tool_name, "truncated": False}
+    repair = _result_data(record).get("repair")
+    if isinstance(repair, dict):
+        summary = {
+            **summary,
+            "repairable": repair.get("retryable") is True,
+            "requires_user_input": repair.get("requires_user_input") is True,
+        }
+    return summary
+
+
+def _digest_status(status: str) -> str:
+    if status in {"success", "failed", "degraded", "interrupted"}:
+        return status
+    return "failed"
+
+
+def _default_title(tool_name: str, status: str, summary: dict[str, Any]) -> str:
+    if tool_name == "url_read":
+        if status == "success":
+            return "网页读取完成"
+        if status == "degraded":
+            return "网页读取部分可用"
+        return "网页暂时无法读取"
+
+    count = summary.get("count")
+    if status == "success" and isinstance(count, int):
+        return f"找到 {count} 条结果"
+    if status == "success":
+        return f"{tool_name} 已完成"
+    if status == "degraded":
+        return f"{tool_name} 降级完成"
+    return f"{tool_name} 未取得可用结果"
+
+
+def _digest_title(tool_name: str, status: str, summary: dict[str, Any]) -> str:
+    if summary.get("repairable") is True:
+        return "正在修正工具参数"
+    if summary.get("requires_user_input") is True:
+        return "需要补充查询条件"
+    if status == "success" and tool_name == "web_search" and summary.get("kind") == "search":
+        return "搜索完成"
+    if tool_name == "url_read" and status != "success":
+        return _default_title(tool_name, status, summary)
+    return _safe_text(summary.get("title"), 80) or _default_title(tool_name, status, summary)
+
+
+def _digest_summary(record: ToolExecutionRecord, status: str, summary: dict[str, Any]) -> str:
+    if summary.get("repairable") is True:
+        return "参数可安全修正，Agent 将在下一轮补齐后重试。"
+    if summary.get("requires_user_input") is True:
+        return "现有信息不足以安全修正参数，需要用户补充查询条件。"
+
+    if record.tool_name == "url_read":
+        if status == "success":
+            return "已读取网页内容，供后续回答核验。"
+        if status == "interrupted":
+            return "网页读取已中断，未使用该来源。"
+        return "网页暂时无法读取，已跳过该来源。"
+
+    if status == "success":
+        count = summary.get("count")
+        if isinstance(count, int):
+            return _safe_text(f"保留 {count} 条候选结果，供后续回答筛选。", 120)
+        return "工具返回了可用结果。"
+    if record.result.error_message:
+        return _safe_text(record.result.error_message, 120)
+    if status == "degraded":
+        return "工具降级返回，结果可能不完整。"
+    return "工具未取得可用结果。"
+
+
+def _key_findings(evidence_items: list[dict[str, Any]]) -> list[str]:
+    findings = []
+    for item in evidence_items[:5]:
+        claim = item.get("claim")
+        if claim:
+            findings.append(_safe_text(claim, 80))
+    return findings
+
+
+def _extract_sources(record: ToolExecutionRecord) -> list[Any]:
+    data = _result_data(record)
+    sources = data.get("sources") or data.get("source_refs") or []
+    return sources if isinstance(sources, list) else []
+
+
+def _source_value(source: Any, key: str) -> str | None:
+    if isinstance(source, dict):
+        value = source.get(key)
+    else:
+        value = getattr(source, key, None)
+    return str(value) if value else None
+
+
+def _is_public_url(url: str) -> bool:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    host = parsed.hostname or ""
+    return host not in {"localhost", "127.0.0.1", "::1"}
+
+
+def _safe_text(value: Any, max_chars: int) -> str:
+    text = "" if value is None else str(value)
+    return text[:max_chars]
+
+
+def _repair_digest_state(record: ToolExecutionRecord) -> tuple[str | None, str | None]:
+    data = _result_data(record)
+    repair = data.get("repair")
+    if isinstance(repair, dict):
+        state = (
+            "retrying"
+            if repair.get("retryable") is True
+            else "requires_user_input"
+            if repair.get("requires_user_input") is True
+            else "exhausted"
+        )
+        return state, _safe_repair_id(repair.get("repair_id"))
+    resolves_repair_id = _safe_repair_id(data.get("resolves_repair_id"))
+    return ("resolved", resolves_repair_id) if resolves_repair_id else (None, None)
+
+
+def _safe_repair_id(value: Any) -> str | None:
+    return value if isinstance(value, str) and re.fullmatch(r"repair_[a-f0-9]{16}", value) else None
+
+
+def _result_data(record: ToolExecutionRecord) -> dict[str, Any]:
+    data = getattr(record.result, "data", None)
+    return data if isinstance(data, dict) else {}

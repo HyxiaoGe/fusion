@@ -1,0 +1,1127 @@
+import os
+import uuid
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Sequence,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+    func,
+    text,
+)
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql.functions import next_value
+
+from app.db.database import Base
+from app.utils.time import utc_now
+
+# 生产环境（PostgreSQL）使用 JSONB 以获得更好的查询性能；
+# 测试环境（SQLite）回退到通用 JSON 类型
+_db_url = os.getenv("DATABASE_URL", "")
+if _db_url.startswith("postgresql"):
+    from sqlalchemy.dialects.postgresql import JSONB
+
+    JSON_EMPTY_SERVER_DEFAULT = text("'[]'::jsonb")
+else:
+    JSONB = JSON  # type: ignore[misc,assignment]
+    JSON_EMPTY_SERVER_DEFAULT = text("'[]'")
+
+
+def get_china_time():
+    return datetime.now(timezone(timedelta(hours=8)))
+
+
+message_order_sequence = Sequence("message_order_sequence", start=1, increment=2)
+
+
+@compiles(next_value, "sqlite")
+def _compile_next_value_for_sqlite(element, compiler, **kwargs):
+    """SQLite 测试库没有 sequence；生产 PostgreSQL 仍编译为 nextval。"""
+    return "NULL"
+
+
+class User(Base):
+    __tablename__ = "users"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    username = Column(String, unique=True, index=True, nullable=False)
+    nickname = Column(String, nullable=True)
+    avatar = Column(String, nullable=True)
+    mobile = Column(String, nullable=True)
+    email = Column(String, unique=True, index=True, nullable=True)
+    system_prompt = Column(Text, nullable=False, default="", server_default="")
+    is_superuser = Column(Boolean, nullable=False, server_default="false", default=False)
+    created_at = Column(DateTime, default=get_china_time)
+    updated_at = Column(DateTime, default=get_china_time, onupdate=get_china_time)
+
+    social_accounts = relationship("SocialAccount", back_populates="user", cascade="all, delete-orphan")
+    conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
+    files = relationship("File", back_populates="user", cascade="all, delete-orphan")
+    knowledge_bases = relationship("KnowledgeBase", back_populates="user", cascade="all, delete-orphan")
+
+
+class SocialAccount(Base):
+    __tablename__ = "social_accounts"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    provider = Column(String, nullable=False)
+    provider_user_id = Column(String, nullable=False)
+    created_at = Column(DateTime, default=get_china_time)
+    updated_at = Column(DateTime, default=get_china_time, onupdate=get_china_time)
+
+    user = relationship("User", back_populates="social_accounts")
+
+    __table_args__ = (UniqueConstraint("provider", "provider_user_id", name="uix_provider_user_id"),)
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(String, nullable=False)
+    # model_id 对应 model_sources 表中的 model_id，支持中途切换模型
+    model_id = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=utc_now,
+        server_default=func.now(),
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+    user = relationship("User", back_populates="conversations")
+    messages = relationship(
+        "Message",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="(Message.sequence.asc().nullsfirst(), Message.created_at.asc(), Message.id.asc())",
+    )
+    files = relationship("ConversationFile", back_populates="conversation", cascade="all, delete-orphan")
+    knowledge_base_selections = relationship(
+        "ConversationKnowledgeBase",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="ConversationKnowledgeBase.position",
+    )
+
+    __table_args__ = (
+        Index("ix_conversations_updated_id", "updated_at", "id"),
+        Index("ix_conversations_user_updated_id", "user_id", "updated_at", "id"),
+    )
+
+
+class File(Base):
+    __tablename__ = "files"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    filename = Column(String, nullable=False)  # 存储的文件名
+    original_filename = Column(String, nullable=False)  # 原始文件名
+    mimetype = Column(String, nullable=False)  # 文件MIME类型
+    size = Column(Integer, nullable=False)  # 文件大小(字节)
+    path = Column(String, nullable=False)  # 存储路径（兼容旧数据）
+    status = Column(String, nullable=False, default="pending")  # 状态
+    processing_result = Column(JSON, nullable=True)  # 处理结果
+    parsed_content = Column(Text, nullable=True)  # 解析后的内容
+
+    # 图片相关字段（阶段2新增）
+    storage_key = Column(String, nullable=True)  # 处理图的存储键
+    thumbnail_key = Column(String, nullable=True)  # 缩略图的存储键
+    storage_backend = Column(String, default="local")  # 存储后端标识（"local" 或 "minio"）
+    width = Column(Integer, nullable=True)  # 图片宽度
+    height = Column(Integer, nullable=True)  # 图片高度
+
+    created_at = Column(DateTime, default=get_china_time)
+    updated_at = Column(DateTime, default=get_china_time, onupdate=get_china_time)
+
+    user = relationship("User", back_populates="files")
+
+
+class ConversationFile(Base):
+    __tablename__ = "conversation_files"
+
+    conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), primary_key=True)
+    file_id = Column(String, ForeignKey("files.id", ondelete="CASCADE"), primary_key=True)
+    created_at = Column(DateTime, default=get_china_time)
+
+    # 关系
+    conversation = relationship("Conversation", back_populates="files")
+    file = relationship("File")
+
+
+class ConversationKnowledgeBase(Base):
+    """会话当前启用的知识库集合；position 保留用户选择顺序。"""
+
+    __tablename__ = "conversation_knowledge_bases"
+
+    conversation_id = Column(
+        String,
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    knowledge_base_id = Column(
+        String,
+        ForeignKey("knowledge_bases.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    position = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
+
+    conversation = relationship("Conversation", back_populates="knowledge_base_selections")
+    knowledge_base = relationship("KnowledgeBase", back_populates="conversation_selections")
+
+    __table_args__ = (
+        UniqueConstraint("conversation_id", "position", name="uq_conversation_knowledge_bases_position"),
+        CheckConstraint("position >= 0 AND position < 5", name="ck_conversation_knowledge_bases_position"),
+        Index("ix_conversation_knowledge_bases_knowledge_base_id", "knowledge_base_id"),
+    )
+
+
+class KnowledgeBase(Base):
+    """用户私有知识库；PostgreSQL 是生命周期和配置的事实来源。"""
+
+    __tablename__ = "knowledge_bases"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(120), nullable=False)
+    name_normalized = Column(String(200), nullable=False)
+    description = Column(Text, nullable=False, default="", server_default="")
+    business_type = Column(String(60), nullable=False, default="general", server_default="general")
+    status = Column(String(20), nullable=False, default="active", server_default="active")
+    embedding_provider = Column(String(60), nullable=False)
+    embedding_model = Column(String(200), nullable=False)
+    embedding_revision = Column(String(120), nullable=False)
+    embedding_dimension = Column(Integer, nullable=False)
+    distance_metric = Column(String(20), nullable=False, default="COSINE", server_default="COSINE")
+    created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=utc_now,
+        server_default=func.now(),
+        onupdate=utc_now,
+        nullable=False,
+    )
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+
+    user = relationship("User", back_populates="knowledge_bases")
+    documents = relationship("KnowledgeDocument", back_populates="knowledge_base", cascade="all, delete-orphan")
+    tasks = relationship("KnowledgeIndexTask", back_populates="knowledge_base", cascade="all, delete-orphan")
+    conversation_selections = relationship(
+        "ConversationKnowledgeBase",
+        back_populates="knowledge_base",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "name_normalized", name="uq_knowledge_bases_user_name"),
+        CheckConstraint("embedding_dimension > 1", name="ck_knowledge_bases_embedding_dimension"),
+        CheckConstraint(
+            "status IN ('active', 'deleting', 'deleted')",
+            name="ck_knowledge_bases_status",
+        ),
+        CheckConstraint("distance_metric IN ('COSINE')", name="ck_knowledge_bases_distance_metric"),
+        Index("ix_knowledge_bases_user_updated_id", "user_id", "updated_at", "id"),
+    )
+
+
+class KnowledgeDocument(Base):
+    """知识库原始文档和当前可检索索引版本。"""
+
+    __tablename__ = "knowledge_documents"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    knowledge_base_id = Column(
+        String,
+        ForeignKey("knowledge_bases.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    original_filename = Column(String(255), nullable=False)
+    mimetype = Column(String(120), nullable=False)
+    size = Column(Integer, nullable=False)
+    checksum_sha256 = Column(String(64), nullable=False)
+    dedupe_key = Column(String(120), nullable=False)
+    storage_backend = Column(String(20), nullable=False)
+    storage_key = Column(String(600), nullable=False)
+    status = Column(String(20), nullable=False, default="queued", server_default="queued")
+    parser_version = Column(String(40), nullable=False)
+    chunker_version = Column(String(40), nullable=False)
+    embedding_provider = Column(String(60), nullable=False)
+    embedding_model = Column(String(200), nullable=False)
+    embedding_revision = Column(String(120), nullable=False)
+    embedding_dimension = Column(Integer, nullable=False)
+    distance_metric = Column(String(20), nullable=False, default="COSINE", server_default="COSINE")
+    desired_index_version = Column(String(36), nullable=False)
+    active_index_version = Column(String(36), nullable=True)
+    chunk_count = Column(Integer, nullable=False, default=0, server_default="0")
+    error_code = Column(String(120), nullable=True)
+    error_summary = Column(String(500), nullable=True)
+    attempt_count = Column(Integer, nullable=False, default=0, server_default="0")
+    created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=utc_now,
+        server_default=func.now(),
+        onupdate=utc_now,
+        nullable=False,
+    )
+    ready_at = Column(DateTime(timezone=True), nullable=True)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+
+    knowledge_base = relationship("KnowledgeBase", back_populates="documents")
+    tasks = relationship("KnowledgeIndexTask", back_populates="document")
+    index_versions = relationship(
+        "KnowledgeIndexVersion",
+        back_populates="document",
+        cascade="all, delete-orphan",
+        foreign_keys="KnowledgeIndexVersion.document_id",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("knowledge_base_id", "dedupe_key", name="uq_knowledge_documents_base_dedupe"),
+        CheckConstraint("size >= 0", name="ck_knowledge_documents_size"),
+        CheckConstraint("embedding_dimension > 1", name="ck_knowledge_documents_embedding_dimension"),
+        CheckConstraint("chunk_count >= 0", name="ck_knowledge_documents_chunk_count"),
+        CheckConstraint("attempt_count >= 0", name="ck_knowledge_documents_attempt_count"),
+        CheckConstraint(
+            "status IN ('queued', 'parsing', 'chunking', 'embedding', 'writing', "
+            "'ready', 'failed', 'deleting', 'deleted')",
+            name="ck_knowledge_documents_status",
+        ),
+        CheckConstraint("distance_metric IN ('COSINE')", name="ck_knowledge_documents_distance_metric"),
+        Index("ix_knowledge_documents_base_updated_id", "knowledge_base_id", "updated_at", "id"),
+        Index("ix_knowledge_documents_user_status", "user_id", "status"),
+    )
+
+
+class KnowledgeIndexVersion(Base):
+    """一次不可变索引构建的 PostgreSQL 版本记录。"""
+
+    __tablename__ = "knowledge_index_versions"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    knowledge_base_id = Column(
+        String,
+        ForeignKey("knowledge_bases.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    document_id = Column(
+        String,
+        ForeignKey("knowledge_documents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="building", server_default="building")
+    parser_version = Column(String(40), nullable=False)
+    chunker_version = Column(String(40), nullable=False)
+    chunk_size = Column(Integer, nullable=False)
+    chunk_overlap = Column(Integer, nullable=False)
+    embedding_provider = Column(String(60), nullable=False)
+    embedding_model = Column(String(200), nullable=False)
+    embedding_revision = Column(String(120), nullable=False)
+    embedding_dimension = Column(Integer, nullable=False)
+    distance_metric = Column(String(20), nullable=False, default="COSINE", server_default="COSINE")
+    collection_name = Column(String(200), nullable=False)
+    milvus_uri = Column(String(500), nullable=True)
+    milvus_database = Column(String(120), nullable=True)
+    chunk_count = Column(Integer, nullable=False, default=0, server_default="0")
+    error_code = Column(String(120), nullable=True)
+    error_summary = Column(String(500), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
+    activated_at = Column(DateTime(timezone=True), nullable=True)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+
+    document = relationship(
+        "KnowledgeDocument",
+        back_populates="index_versions",
+        foreign_keys=[document_id],
+    )
+
+    __table_args__ = (
+        CheckConstraint("embedding_dimension > 1", name="ck_knowledge_index_versions_embedding_dimension"),
+        CheckConstraint("chunk_size >= 100", name="ck_knowledge_index_versions_chunk_size"),
+        CheckConstraint(
+            "chunk_overlap >= 0 AND chunk_overlap < chunk_size",
+            name="ck_knowledge_index_versions_chunk_overlap",
+        ),
+        CheckConstraint("chunk_count >= 0", name="ck_knowledge_index_versions_chunk_count"),
+        CheckConstraint(
+            "status IN ('building', 'active', 'superseded', 'deleting', 'deleted', 'failed')",
+            name="ck_knowledge_index_versions_status",
+        ),
+        CheckConstraint("distance_metric IN ('COSINE')", name="ck_knowledge_index_versions_distance_metric"),
+        Index("ix_knowledge_index_versions_document_created", "document_id", "created_at", "id"),
+        Index("ix_knowledge_index_versions_base_status", "knowledge_base_id", "status"),
+    )
+
+
+class KnowledgeChunkManifest(Base):
+    """PostgreSQL 保存的不可变切片正文，检索时作为最终授权数据源。"""
+
+    __tablename__ = "knowledge_chunk_manifests"
+
+    chunk_id = Column(String(64), primary_key=True)
+    knowledge_base_id = Column(String, ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=False)
+    document_id = Column(String, ForeignKey("knowledge_documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    index_version = Column(
+        String(36),
+        ForeignKey("knowledge_index_versions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    ordinal = Column(Integer, nullable=False)
+    text = Column(Text, nullable=False)
+    text_sha256 = Column(String(64), nullable=False)
+    filename = Column(String(255), nullable=False)
+    char_start = Column(Integer, nullable=False)
+    char_end = Column(Integer, nullable=False)
+    page = Column(Integer, nullable=True)
+    section = Column(String(120), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("index_version", "ordinal", name="uq_knowledge_chunk_manifests_version_ordinal"),
+        CheckConstraint("ordinal >= 0", name="ck_knowledge_chunk_manifests_ordinal"),
+        CheckConstraint("char_start >= 0 AND char_end >= char_start", name="ck_knowledge_chunk_manifests_offsets"),
+        Index("ix_knowledge_chunk_manifests_auth", "user_id", "knowledge_base_id", "document_id", "index_version"),
+    )
+
+
+class KnowledgeIndexTask(Base):
+    """可租约恢复的知识库持久任务。"""
+
+    __tablename__ = "knowledge_index_tasks"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    knowledge_base_id = Column(
+        String,
+        ForeignKey("knowledge_bases.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    document_id = Column(
+        String,
+        ForeignKey("knowledge_documents.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    task_type = Column(String(30), nullable=False)
+    index_version = Column(
+        String(36),
+        ForeignKey("knowledge_index_versions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    status = Column(String(20), nullable=False, default="pending", server_default="pending")
+    phase = Column(String(20), nullable=False, default="queued", server_default="queued")
+    attempt_count = Column(Integer, nullable=False, default=0, server_default="0")
+    max_attempts = Column(Integer, nullable=False, default=5, server_default="5")
+    available_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
+    lease_owner = Column(String(120), nullable=True)
+    lease_token_hash = Column(String(64), nullable=True)
+    lease_expires_at = Column(DateTime(timezone=True), nullable=True)
+    heartbeat_at = Column(DateTime(timezone=True), nullable=True)
+    error_code = Column(String(120), nullable=True)
+    error_summary = Column(String(500), nullable=True)
+    cleanup_profile_cursor = Column(String(36), nullable=True)
+    cleanup_cursor = Column(String(36), nullable=True)
+    cleanup_vectors_completed = Column(Boolean, nullable=False, default=False, server_default="false")
+    created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=utc_now,
+        server_default=func.now(),
+        onupdate=utc_now,
+        nullable=False,
+    )
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    knowledge_base = relationship("KnowledgeBase", back_populates="tasks")
+    document = relationship("KnowledgeDocument", back_populates="tasks")
+
+    __table_args__ = (
+        CheckConstraint("attempt_count >= 0", name="ck_knowledge_index_tasks_attempt_count"),
+        CheckConstraint("max_attempts > 0", name="ck_knowledge_index_tasks_max_attempts"),
+        CheckConstraint(
+            "task_type IN ('index_document', 'delete_document', 'delete_knowledge_base', 'delete_index_version')",
+            name="ck_knowledge_index_tasks_type",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'running', 'retry', 'completed', 'failed', 'cancelled')",
+            name="ck_knowledge_index_tasks_status",
+        ),
+        CheckConstraint(
+            "phase IN ('queued', 'parsing', 'chunking', 'embedding', 'writing', 'deleting', 'completed')",
+            name="ck_knowledge_index_tasks_phase",
+        ),
+        Index("ix_knowledge_index_tasks_claim", "status", "available_at", "created_at", "id"),
+        Index("ix_knowledge_index_tasks_base_status", "knowledge_base_id", "status"),
+    )
+
+
+class KnowledgeStorageCleanupTask(Base):
+    """对象上传与数据库提交脱节时的持久删除补偿。"""
+
+    __tablename__ = "knowledge_storage_cleanup_tasks"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    storage_backend = Column(String(20), nullable=False)
+    storage_key = Column(String(600), nullable=False)
+    status = Column(String(20), nullable=False, default="pending", server_default="pending")
+    # File 上传使用独立逻辑状态，物理 status 固定 completed，使旧版 Worker
+    # 无法领取新任务；知识库任务继续使用既有 status，保证滚动升级兼容。
+    file_status = Column(String(20), nullable=True)
+    attempt_count = Column(Integer, nullable=False, default=0, server_default="0")
+    max_attempts = Column(Integer, nullable=False, default=5, server_default="5")
+    available_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
+    lease_owner = Column(String(120), nullable=True)
+    lease_token_hash = Column(String(64), nullable=True)
+    lease_expires_at = Column(DateTime(timezone=True), nullable=True)
+    heartbeat_at = Column(DateTime(timezone=True), nullable=True)
+    delete_started_at = Column(DateTime(timezone=True), nullable=True)
+    error_code = Column(String(120), nullable=True)
+    error_summary = Column(String(500), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=utc_now,
+        server_default=func.now(),
+        onupdate=utc_now,
+        nullable=False,
+    )
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("storage_backend", "storage_key", name="uq_knowledge_storage_cleanup_object"),
+        CheckConstraint("attempt_count >= 0", name="ck_knowledge_storage_cleanup_attempt_count"),
+        CheckConstraint("max_attempts > 0", name="ck_knowledge_storage_cleanup_max_attempts"),
+        CheckConstraint(
+            "status IN ('pending', 'running', 'retry', 'completed', 'failed')",
+            name="ck_knowledge_storage_cleanup_status",
+        ),
+        CheckConstraint(
+            "file_status IS NULL OR file_status IN ('pending', 'running', 'retry', 'completed', 'failed')",
+            name="ck_knowledge_storage_cleanup_file_status",
+        ),
+        Index("ix_knowledge_storage_cleanup_claim", "status", "available_at", "created_at", "id"),
+        Index("ix_knowledge_storage_cleanup_file_claim", "file_status", "available_at", "created_at", "id"),
+    )
+
+
+class KnowledgeStorageUploadIntent(Base):
+    """保护上传与文档事务，并持久记录远端 PUT 结果。"""
+
+    __tablename__ = "knowledge_storage_upload_intents"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    cleanup_task_id = Column(
+        String,
+        ForeignKey("knowledge_storage_cleanup_tasks.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    outcome = Column(String(20), nullable=False, default="uploading", server_default="uploading")
+    outcome_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "outcome IN ('uploading', 'succeeded', 'failed', 'uncertain')",
+            name="ck_knowledge_storage_upload_intents_outcome",
+        ),
+        Index("ix_knowledge_storage_upload_intents_guard", "cleanup_task_id", "expires_at"),
+    )
+
+
+class Message(Base):
+    __tablename__ = "messages"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
+    # 新消息使用全局数据库 sequence；旧数据保留 NULL，避免用不可信时间戳伪造顺序。
+    sequence = Column(
+        BigInteger,
+        nullable=True,
+        server_default=message_order_sequence.next_value(),
+    )
+    role = Column(String, nullable=False)  # 'user' | 'assistant'
+
+    # content blocks 数组，结构示例：
+    # 用户消息: [{"type": "text", "text": "..."}, {"type": "file", "file_id": "...", "filename": "...", "mime_type": "..."}]
+    # AI 回复:  [{"type": "thinking", "id": "blk_001", "thinking": "..."}, {"type": "text", "id": "blk_002", "text": "..."}]
+    content = Column(JSONB, nullable=False)
+
+    # 仅 assistant 消息填充，记录实际生成该消息时使用的模型
+    model_id = Column(String, nullable=True)
+
+    # 仅 assistant 消息填充，记录本次请求的 token 消耗
+    # 结构: {"input_tokens": 312, "output_tokens": 876}
+    usage = Column(JSONB, nullable=True)
+
+    # 当前有权完成该消息轮次的 Redis 生成任务。
+    # assistant 重生成直接保护原回答；未回答 user 重试则保护后续唯一回答的创建。
+    generation_task_id = Column(String, nullable=True)
+
+    # 仅 assistant 消息填充，持久化推荐问题（只保留最新一批）
+    # 结构: ["问题1", "问题2", "问题3"]
+    suggested_questions = Column(JSONB, nullable=True)
+    # 推荐问题采用独立 revision 做 CAS，防止自动生成的迟到结果覆盖用户“换一批”。
+    suggested_questions_revision = Column(Integer, nullable=False, default=0, server_default="0")
+    suggested_questions_status = Column(String(20), nullable=False, default="idle", server_default="idle")
+    # 记录已领取自动生成的 agent run；continuation 复用消息 ID 时仍可按新 run 刷新。
+    suggested_questions_auto_run_id = Column(String, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
+
+    conversation = relationship("Conversation", back_populates="messages")
+
+    __table_args__ = (
+        Index("ix_messages_conversation_created_id", "conversation_id", "created_at", "id"),
+        Index("ux_messages_sequence", "sequence", unique=True),
+        Index(
+            "ix_messages_suggested_questions_pending",
+            "created_at",
+            "id",
+            postgresql_where=text("suggested_questions_status = 'pending'"),
+        ),
+    )
+
+
+class PromptExample(Base):
+    """动态示例问题（由 Kimi $web_search 定时生成）"""
+
+    __tablename__ = "prompt_examples"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    question = Column(String, nullable=False)
+    category = Column(String, nullable=False)  # "news" | "tech" | "general"
+    source = Column(String, default="kimi")  # 预留给未来其他来源
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=get_china_time)
+    expires_at = Column(DateTime, nullable=True)
+
+
+class RuntimeConfigEntry(Base):
+    """运行时配置条目 — 用于产品策略、Agent 策略和 Prompt 资产。"""
+
+    __tablename__ = "runtime_config_entries"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    namespace = Column(String(80), nullable=False, index=True)
+    key = Column(String(120), nullable=False, index=True)
+    version = Column(String(80), nullable=False)
+    payload = Column(JSONB, nullable=False)
+    is_active = Column(Boolean, nullable=False, server_default="true", default=True, index=True)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=get_china_time, index=True)
+    updated_at = Column(DateTime, default=get_china_time, onupdate=get_china_time, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("namespace", "key", "version", name="uq_runtime_config_namespace_key_version"),
+        Index("ix_runtime_config_active_lookup", "namespace", "key", "is_active", "updated_at"),
+    )
+
+
+class McpServer(Base):
+    """管理员维护的远程 MCP 服务配置，不保存凭证原文。"""
+
+    __tablename__ = "mcp_servers"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String(120), nullable=False)
+    provider = Column(String(80), nullable=False, index=True)
+    endpoint_url = Column(String(2048), nullable=False)
+    transport = Column(String(32), nullable=False, default="streamable_http", server_default="streamable_http")
+    auth_type = Column(String(20), nullable=False, default="none", server_default="none")
+    auth_name = Column(String(128), nullable=True)
+    credential_ref = Column(String(128), nullable=True)
+    config_version = Column(Integer, nullable=False, default=1, server_default="1")
+    is_enabled = Column(Boolean, nullable=False, default=False, server_default="false", index=True)
+    allowed_tools = Column(JSONB, nullable=False, default=list, server_default=JSON_EMPTY_SERVER_DEFAULT)
+    discovered_tools = Column(JSONB, nullable=False, default=list, server_default=JSON_EMPTY_SERVER_DEFAULT)
+    health_status = Column(String(20), nullable=False, default="disabled", server_default="disabled", index=True)
+    last_checked_at = Column(DateTime(timezone=True), nullable=True)
+    last_error_code = Column(String(80), nullable=True)
+    last_error_message = Column(String(300), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=func.now(),
+        onupdate=utc_now,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_mcp_servers_name"),
+        CheckConstraint("transport = 'streamable_http'", name="ck_mcp_servers_transport"),
+        CheckConstraint("auth_type IN ('none', 'bearer', 'header', 'query')", name="ck_mcp_servers_auth_type"),
+        CheckConstraint(
+            "health_status IN ('unknown', 'healthy', 'unhealthy', 'disabled')",
+            name="ck_mcp_servers_health_status",
+        ),
+        CheckConstraint(
+            "(auth_type = 'none' AND auth_name IS NULL AND credential_ref IS NULL) OR "
+            "(auth_type = 'bearer' AND auth_name IS NULL AND credential_ref IS NOT NULL) OR "
+            "(auth_type IN ('header', 'query') AND auth_name IS NOT NULL AND credential_ref IS NOT NULL)",
+            name="ck_mcp_servers_auth_shape",
+        ),
+        Index("ix_mcp_servers_provider_enabled", "provider", "is_enabled"),
+        Index("ix_mcp_servers_health_updated", "health_status", "updated_at"),
+    )
+
+
+class ToolCallLog(Base):
+    """工具调用统计日志"""
+
+    __tablename__ = "tool_call_logs"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
+    message_id = Column(String, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    tool_name = Column(String(50), nullable=False, index=True)
+    status = Column(String(20), nullable=False)  # 'success' | 'failed' | 'degraded'
+    error_message = Column(Text, nullable=True)
+    duration_ms = Column(Integer, nullable=True)
+    model_id = Column(String(100), nullable=False)
+    provider = Column(String(50), nullable=False)
+
+    input_params = Column(JSONB, nullable=True)
+    output_data = Column(JSONB, nullable=True)
+    extra_metadata = Column("metadata", JSONB, nullable=True)
+
+    trace_id = Column(String, nullable=True, index=True)
+    tool_call_id = Column(String, nullable=True)
+    step_number = Column(Integer, nullable=True)
+
+    created_at = Column(DateTime, default=get_china_time, index=True)
+
+    __table_args__ = (
+        Index("ix_tool_call_logs_conversation_created_id", "conversation_id", "created_at", "id"),
+        Index("ix_tool_call_logs_user_created_id", "user_id", "created_at", "id"),
+        Index("ix_tool_call_logs_trace_step_created_id", "trace_id", "step_number", "created_at", "id"),
+        Index(
+            "uq_tool_call_logs_trace_tool_call",
+            "trace_id",
+            "tool_call_id",
+            unique=True,
+            postgresql_where=text("trace_id IS NOT NULL AND tool_call_id IS NOT NULL"),
+        ),
+    )
+
+
+class AgentSession(Base):
+    """Agent 执行会话记录 — 一次 Agent Loop 一条"""
+
+    __tablename__ = "agent_sessions"
+
+    id = Column(String, primary_key=True)  # = HTTP request_id
+    conversation_id = Column(
+        String,
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    message_id = Column(String, nullable=True)
+    turn_message_id = Column(String, nullable=True)
+    previous_run_id = Column(
+        String,
+        ForeignKey("agent_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    attempt_index = Column(Integer, nullable=True)
+    user_id = Column(String, nullable=False, index=True)
+    model_id = Column(String(100), nullable=False)
+    provider = Column(String(50), nullable=False)
+    run_config = Column("config", JSONB, nullable=True)
+
+    total_steps = Column(Integer, default=0)
+    total_tool_calls = Column(Integer, default=0)
+    total_duration_ms = Column(Integer, nullable=True)
+
+    status = Column(
+        String(20), nullable=False
+    )  # "running" | "completed" | "limit_reached" | "incomplete" | "error" | "interrupted"
+    terminal_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    limit_reason = Column(String(30), nullable=True)  # "max_steps" | "max_tool_calls" | "timeout"
+    error_message = Column(Text, nullable=True)
+
+    created_at = Column(
+        DateTime(timezone=True),
+        default=utc_now,
+        server_default=func.now(),
+        nullable=False,
+        index=True,
+    )
+
+    previous_run = relationship(
+        "AgentSession",
+        remote_side=[id],
+        foreign_keys=[previous_run_id],
+        back_populates="next_runs",
+    )
+    next_runs = relationship(
+        "AgentSession",
+        foreign_keys=[previous_run_id],
+        back_populates="previous_run",
+    )
+
+    __table_args__ = (
+        Index(
+            "uq_agent_sessions_turn_attempt",
+            "turn_message_id",
+            "attempt_index",
+            unique=True,
+            postgresql_where=text("turn_message_id IS NOT NULL AND attempt_index IS NOT NULL"),
+        ),
+        Index("ix_agent_sessions_conversation_message_created_at", "conversation_id", "message_id", "created_at"),
+        Index("ix_agent_sessions_conversation_created_id", "conversation_id", "created_at", "id"),
+        Index("ix_agent_sessions_user_created_id", "user_id", "created_at", "id"),
+    )
+
+
+class AgentSystemPromptSnapshot(Base):
+    """与 Run 精确关联、不会被旧版会话投影或重入覆盖的提示词正文。"""
+
+    __tablename__ = "agent_system_prompt_snapshots"
+
+    run_id = Column(
+        String,
+        ForeignKey("agent_sessions.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    conversation_id = Column(
+        String,
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id = Column(String, nullable=False)
+    snapshot = Column(JSONB, nullable=False)
+    recorded_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, server_default=func.now())
+
+    __table_args__ = (Index("ix_agent_system_prompt_snapshots_conversation_run", "conversation_id", "run_id"),)
+
+
+class AgentEvent(Base):
+    """用户安全的 Agent 事件追加账本。"""
+
+    __tablename__ = "agent_events"
+
+    event_id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    conversation_id = Column(
+        String,
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    message_id = Column(String, nullable=True)
+    run_id = Column(
+        String,
+        ForeignKey("agent_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    sequence = Column(Integer, nullable=False)
+    event_type = Column(String, nullable=False)
+    schema_version = Column(Integer, nullable=False, default=1, server_default="1")
+    step_id = Column(String, nullable=True)
+    tool_call_id = Column(String, nullable=True)
+    parent_step_id = Column(String, nullable=True)
+    trace_id = Column(String, nullable=True)
+    event_ts = Column(DateTime(timezone=True), nullable=False)
+    recorded_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, server_default=func.now())
+    payload = Column(JSONB, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("run_id", "sequence", name="uq_agent_events_run_sequence"),
+        Index("ix_agent_events_conversation_ts", "conversation_id", "event_ts"),
+        Index("ix_agent_events_run", "run_id"),
+    )
+
+
+class RunTrajectoryMeta(Base):
+    """run 级轨迹完整性状态，与 AgentSession 业务终态分离。"""
+
+    __tablename__ = "run_trajectory_meta"
+
+    run_id = Column(
+        String,
+        ForeignKey("agent_sessions.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    conversation_id = Column(
+        String,
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    message_id = Column(String, nullable=True)
+    trajectory_status = Column(String, nullable=False)
+    event_count = Column(Integer, nullable=False, default=0, server_default="0")
+    expected_last_sequence = Column(Integer, nullable=True)
+    first_event_ts = Column(DateTime(timezone=True), nullable=True)
+    last_event_ts = Column(DateTime(timezone=True), nullable=True)
+    finalized_at = Column(DateTime(timezone=True), nullable=True)
+    degraded_reason = Column(Text, nullable=True)
+    terminal_intent_id = Column(String, nullable=True)
+    terminal_intent_status = Column(String, nullable=True)
+    terminal_intent_reason = Column(Text, nullable=True)
+    terminal_intent_version = Column(Integer, nullable=True)
+    terminal_intent_pending_at = Column(DateTime(timezone=True), nullable=True)
+    llm_detail_schema_version = Column(Integer, nullable=True)
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=func.now(),
+        onupdate=utc_now,
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_run_trajectory_meta_terminal_intent_pending",
+            "trajectory_status",
+            "terminal_intent_pending_at",
+            postgresql_where=text("terminal_intent_pending_at IS NOT NULL"),
+        ),
+    )
+
+
+class AgentLlmRoundDetail(Base):
+    """按 LLM round 精确关联的用户可见正文详情。"""
+
+    __tablename__ = "agent_llm_round_details"
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    conversation_id = Column(
+        String,
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    run_id = Column(
+        String,
+        ForeignKey("agent_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    message_id = Column(String, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
+    llm_round_id = Column(String, nullable=False)
+    reasoning_text = Column(Text, nullable=True)
+    content_text = Column(Text, nullable=True)
+    reasoning_preview = Column(Text, nullable=True)
+    output_preview = Column(Text, nullable=True)
+    redacted_fields = Column(JSONB, nullable=False, default=list, server_default=JSON_EMPTY_SERVER_DEFAULT)
+    truncated_fields = Column(JSONB, nullable=False, default=list, server_default=JSON_EMPTY_SERVER_DEFAULT)
+    recorded_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("run_id", "llm_round_id", name="uq_agent_llm_round_details_run_round"),
+        Index("ix_agent_llm_round_details_conversation_run", "conversation_id", "run_id"),
+    )
+
+
+class TrajectoryLedgerSettings(Base):
+    """轨迹账本的环境级不可变启用水位。"""
+
+    __tablename__ = "trajectory_ledger_settings"
+
+    singleton_key = Column(String, primary_key=True)
+    ledger_enabled_at = Column(DateTime(timezone=True), nullable=False)
+    trajectory_detail_enabled_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, server_default=func.now())
+
+    __table_args__ = (CheckConstraint("singleton_key = 'default'", name="ck_trajectory_ledger_settings_singleton_key"),)
+
+
+class AgentProgressSnapshot(Base):
+    """Agent 可读进度 compact snapshot — 按 run_id 保存最新折叠状态"""
+
+    __tablename__ = "agent_progress_snapshots"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    run_id = Column(String, ForeignKey("agent_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id = Column(
+        String,
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    message_id = Column(String, nullable=True, index=True)
+    user_id = Column(String, nullable=False, index=True)
+    protocol_version = Column(Integer, nullable=False, default=2)
+    state = Column(JSONB, nullable=False)
+    created_at = Column(DateTime, default=get_china_time, index=True)
+    updated_at = Column(DateTime, default=get_china_time, onupdate=get_china_time, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("run_id", name="uq_agent_progress_snapshots_run_id"),
+        Index("ix_agent_progress_message_updated", "conversation_id", "message_id", "updated_at"),
+    )
+
+
+class AgentStep(Base):
+    """Agent 单步执行记录 — 每步工具调用完成后写入"""
+
+    __tablename__ = "agent_steps"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    trace_id = Column(String, ForeignKey("agent_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    step_number = Column(Integer, nullable=False)
+
+    status = Column(
+        String(20), nullable=False, server_default="completed"
+    )  # "running" | "completed" | "failed" | "interrupted"
+    # 注：ORM 层无 default，新建必须显式传 status；server_default 仅用于 ALTER 时兜底已有历史行。
+
+    tool_calls_count = Column(Integer, default=0)
+    tool_names = Column(JSONB, nullable=True)  # ["web_search", "url_read"]
+    duration_ms = Column(Integer, nullable=True)
+
+    created_at = Column(DateTime, default=get_china_time)
+
+    __table_args__ = (UniqueConstraint("trace_id", "step_number", name="uq_trace_step"),)
+
+
+class AdminAuditEvent(Base):
+    """管理员内容审计事件，只记录安全元数据，不复制用户正文。"""
+
+    __tablename__ = "admin_audit_events"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    admin_user_id = Column(String, nullable=False)
+    admin_snapshot = Column(JSONB, nullable=False)
+    action = Column(String(80), nullable=False)
+    resource_type = Column(String(40), nullable=False)
+    resource_id = Column(String, nullable=True)
+    target_user_id = Column(String, nullable=True)
+    request_id = Column(String, nullable=False)
+    reason = Column(String(300), nullable=True)
+    extra_metadata = Column("metadata", JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), default=get_china_time, nullable=False)
+
+    __table_args__ = (
+        Index("ix_admin_audit_events_created_id", "created_at", "id"),
+        Index("ix_admin_audit_events_admin_created_id", "admin_user_id", "created_at", "id"),
+        Index("ix_admin_audit_events_target_created_id", "target_user_id", "created_at", "id"),
+        Index(
+            "ix_admin_audit_events_resource_created_id",
+            "resource_type",
+            "resource_id",
+            "created_at",
+            "id",
+        ),
+    )
+
+
+class ModelCatalogControl(Base):
+    """模型选择器可见性控制；不承载 LiteLLM 路由开关。"""
+
+    __tablename__ = "model_catalog_controls"
+
+    model_id = Column(String(200), primary_key=True)
+    selectable = Column(Boolean, nullable=False, default=True, server_default="true")
+    routable = Column(Boolean, nullable=False, default=True, server_default="true")
+    revision = Column(Integer, nullable=False, default=1, server_default="1")
+    reason = Column(String(300), nullable=False)
+    updated_by = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=utc_now,
+        server_default=func.now(),
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint("routable IS TRUE", name="ck_model_catalog_controls_routable_true"),
+        CheckConstraint("revision > 0", name="ck_model_catalog_controls_revision_positive"),
+    )
+
+
+class ModelAdmissionOperation(Base):
+    """管理员请求、隔离 Worker 执行的模型准入持久任务。"""
+
+    __tablename__ = "model_admission_operations"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    model_id = Column(String(200), nullable=False)
+    candidate_fingerprint = Column(String(64), nullable=False)
+    governance_run_id = Column(String(32), nullable=False)
+    status = Column(String(20), nullable=False, default="pending", server_default="pending")
+    requested_by = Column(String, nullable=False)
+    request_id = Column(String, nullable=False)
+    reason = Column(String(300), nullable=False)
+    attempts = Column(Integer, nullable=False, default=0, server_default="0")
+    lease_token_hash = Column(String(64), nullable=True)
+    lease_expires_at = Column(DateTime(timezone=True), nullable=True)
+    catalog_invalidated_at = Column(DateTime(timezone=True), nullable=True)
+    result = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'"))
+    created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=utc_now,
+        server_default=func.now(),
+        onupdate=utc_now,
+        nullable=False,
+    )
+    terminal_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "candidate_fingerprint",
+            "governance_run_id",
+            name="uq_model_admission_operation_candidate_run",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'running', 'succeeded', 'failed')",
+            name="ck_model_admission_operations_status",
+        ),
+        Index("ix_model_admission_operations_status_created", "status", "created_at", "id"),
+        Index(
+            "uq_model_admission_operations_single_running",
+            "status",
+            unique=True,
+            postgresql_where=text("status = 'running'"),
+            sqlite_where=text("status = 'running'"),
+        ),
+    )
+
+
+class PerformanceRun(Base):
+    """管理员显式导入的脱敏压测汇总。"""
+
+    __tablename__ = "performance_runs"
+
+    run_id = Column(String, primary_key=True)
+    environment = Column(String(30), nullable=False)
+    model_id = Column(String(100), nullable=True)
+    status = Column(String(30), nullable=False)
+    schema_version = Column(Integer, nullable=False, default=1)
+    safe_summary = Column(JSONB, nullable=False)
+    imported_by_user_id = Column(String, nullable=False)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=get_china_time, nullable=False)
+
+    __table_args__ = (
+        Index("ix_performance_runs_created_id", "created_at", "run_id"),
+        Index("ix_performance_runs_environment_created_id", "environment", "created_at", "run_id"),
+    )

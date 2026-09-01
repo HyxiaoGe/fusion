@@ -1,0 +1,137 @@
+"""Agent run 触顶后的 continuation 上下文构造。"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from sqlalchemy.orm import Session
+
+from app.ai.prompts.agent_loop import (
+    CONTINUATION_SYSTEM_PROMPT as _CONTINUATION_SYSTEM_PROMPT,
+)
+from app.ai.prompts.agent_loop import get_continuation_system_prompt
+from app.db.models import AgentSession
+from app.db.models import Message as MessageModel
+from app.schemas.chat import ContentBlock
+from app.schemas.content_block_registry import deserialize_content_blocks
+from app.schemas.response import ApiException
+from app.services.agent.plan_coordinator import PlanMode, normalize_plan_mode
+from app.services.agent.session_cache import InvalidPreviousRunError, validate_previous_run_candidate
+from app.services.stream.agent_loop_policy import AgentLoopLimits
+from app.services.stream.agent_task_policy import AgentTaskPolicy, restore_agent_task_policy
+
+CONTINUATION_SYSTEM_PROMPT = _CONTINUATION_SYSTEM_PROMPT
+
+
+@dataclass(frozen=True)
+class AgentContinuationContext:
+    assistant_message: MessageModel
+    previous_session: AgentSession
+    limits: AgentLoopLimits
+    plan_mode: PlanMode
+    task_policy: AgentTaskPolicy
+    initial_content_blocks: list[ContentBlock]
+
+
+def inject_continuation_prompt(messages: list[dict]) -> list[dict]:
+    insert_at = 0
+    while insert_at < len(messages) and messages[insert_at].get("role") == "system":
+        insert_at += 1
+    prompt = {"role": "system", "content": get_continuation_system_prompt()}
+    return [*messages[:insert_at], prompt, *messages[insert_at:]]
+
+
+def resolve_continuation_limits(session: AgentSession, *, default_limits: AgentLoopLimits) -> AgentLoopLimits:
+    config = session.run_config if isinstance(session.run_config, dict) else {}
+    try:
+        return AgentLoopLimits(
+            max_steps=int(config.get("max_steps", default_limits.max_steps)),
+            max_tool_calls=int(config.get("max_tool_calls", default_limits.max_tool_calls)),
+            total_timeout_s=float(config.get("timeout_s", default_limits.total_timeout_s)),
+        )
+    except (TypeError, ValueError):
+        return default_limits
+
+
+def resolve_continuation_plan_mode(session: AgentSession) -> PlanMode:
+    """续跑必须继承原 run 的计划契约，非法旧值安全降级为 auto。"""
+
+    config = session.run_config if isinstance(session.run_config, dict) else {}
+    return normalize_plan_mode(config.get("plan_mode"))
+
+
+def resolve_continuation_task_policy(session: AgentSession) -> AgentTaskPolicy:
+    config = session.run_config if isinstance(session.run_config, dict) else {}
+    return restore_agent_task_policy(config)
+
+
+def find_latest_limit_reached_session(
+    db: Session,
+    *,
+    conversation_id: str,
+    user_id: str,
+    message_id: str,
+    turn_message_id: str,
+    previous_run_id: str | None = None,
+) -> AgentSession:
+    query = db.query(AgentSession).filter(
+        AgentSession.conversation_id == conversation_id,
+        AgentSession.user_id == user_id,
+        AgentSession.message_id == message_id,
+    )
+    session = query.order_by(AgentSession.created_at.desc()).first()
+    try:
+        if previous_run_id and (session is None or session.id != previous_run_id):
+            raise InvalidPreviousRunError("previous run 不是当前 assistant 的最新运行")
+        return validate_previous_run_candidate(
+            session,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            turn_message_id=turn_message_id,
+            message_id=message_id,
+            run_attempt_kind="continue",
+        )
+    except InvalidPreviousRunError as error:
+        raise ApiException.not_found("待接续的 Agent 运行不存在或不可用") from error
+
+
+def build_continuation_context(
+    db: Session,
+    *,
+    conversation_id: str,
+    user_id: str,
+    message_id: str,
+    turn_message_id: str,
+    previous_run_id: str | None,
+    default_limits: AgentLoopLimits,
+) -> AgentContinuationContext:
+    assistant_message = (
+        db.query(MessageModel)
+        .filter(
+            MessageModel.id == message_id,
+            MessageModel.conversation_id == conversation_id,
+            MessageModel.role == "assistant",
+        )
+        .first()
+    )
+    if assistant_message is None:
+        raise ApiException.not_found("会话消息不存在或无权访问")
+
+    previous_session = find_latest_limit_reached_session(
+        db,
+        conversation_id=conversation_id,
+        user_id=user_id,
+        message_id=message_id,
+        turn_message_id=turn_message_id,
+        previous_run_id=previous_run_id,
+    )
+
+    task_policy = resolve_continuation_task_policy(previous_session)
+    return AgentContinuationContext(
+        assistant_message=assistant_message,
+        previous_session=previous_session,
+        limits=resolve_continuation_limits(previous_session, default_limits=default_limits),
+        plan_mode=task_policy.plan_mode,
+        task_policy=task_policy,
+        initial_content_blocks=deserialize_content_blocks(assistant_message.content),
+    )

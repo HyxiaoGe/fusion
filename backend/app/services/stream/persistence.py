@@ -1,0 +1,415 @@
+"""消息落库 + URL 路径 A 预处理。
+
+spec §4.4。两个独立功能放一起的理由：都是 runner 之外的"副作用胶水"，
+跟 runner 的"控制流"职责正交。
+"""
+
+import asyncio
+import copy
+import re
+import uuid
+from typing import Optional
+
+from sqlalchemy import text
+
+from app.ai.tools import build_url_read_tool
+from app.core.config import settings
+from app.core.logger import app_logger as logger
+from app.schemas.chat import ClientPartialContentBlock, UrlBlock, Usage
+from app.services.security.url_policy import evaluate_url_policy
+from app.services.source_context import UntrustedSourceContext, format_untrusted_source_context
+from app.utils.time import utc_now
+
+URL_PATTERN = re.compile(r'https?://[^\s<>"\')\]]+')
+
+
+def acquire_message_persistence_lock(db, assistant_message_id: str) -> None:
+    """PostgreSQL 下按 assistant message 获取事务级 advisory lock。"""
+    bind = db.get_bind()
+    dialect_name = getattr(getattr(bind, "dialect", None), "name", None)
+    if dialect_name != "postgresql":
+        return
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+        {"key": f"assistant_message:{assistant_message_id}"},
+    )
+
+
+def _serialize_content_block(block) -> dict:
+    serialized = block.model_dump() if hasattr(block, "model_dump") else block
+    return copy.deepcopy(serialized)
+
+
+def _merge_same_id_block(existing: dict, incoming: dict) -> dict:
+    """合并同 ID block；流式文本按前缀关系保留更完整的一侧。"""
+    block_type = incoming.get("type")
+    if existing.get("type") != block_type:
+        return existing
+    if block_type not in {"text", "thinking"}:
+        return existing
+
+    content_field = "text" if block_type == "text" else "thinking"
+    existing_text = existing.get(content_field)
+    incoming_text = incoming.get(content_field)
+    if not isinstance(existing_text, str) or not isinstance(incoming_text, str):
+        return incoming
+    if incoming_text.startswith(existing_text):
+        return incoming
+    if existing_text.startswith(incoming_text):
+        return existing
+    # 同 ID 出现分叉时保留已持久化的服务端分支，禁止 partial 覆盖。
+    return existing
+
+
+def filter_authoritative_partial_content(
+    authoritative_content: list,
+    requested_content: list[ClientPartialContentBlock],
+) -> list[ClientPartialContentBlock]:
+    """仅保留与服务端流同 type/id 且内容是服务端前缀的客户端 partial。"""
+    authority: dict[tuple[str, str], str] = {}
+    for raw_block in authoritative_content:
+        block = _serialize_content_block(raw_block)
+        if not isinstance(block, dict):
+            continue
+        block_type = block.get("type")
+        content_field = "text" if block_type == "text" else "thinking" if block_type == "thinking" else None
+        block_id = block.get("id")
+        content = block.get(content_field) if content_field else None
+        if content_field and isinstance(block_id, str) and isinstance(content, str):
+            authority[(block_type, block_id)] = content
+
+    selected: dict[tuple[str, str], ClientPartialContentBlock] = {}
+    selected_lengths: dict[tuple[str, str], int] = {}
+    order: list[tuple[str, str]] = []
+    for raw_block in requested_content:
+        block = _serialize_content_block(raw_block)
+        if not isinstance(block, dict):
+            continue
+        block_type = block.get("type")
+        content_field = "text" if block_type == "text" else "thinking" if block_type == "thinking" else None
+        block_id = block.get("id")
+        content = block.get(content_field) if content_field else None
+        if not content_field or not isinstance(block_id, str) or not isinstance(content, str) or not content:
+            continue
+        key = (block_type, block_id)
+        server_content = authority.get(key)
+        if server_content is None or not server_content.startswith(content):
+            continue
+        if key not in selected:
+            order.append(key)
+        if key not in selected or len(content) > selected_lengths[key]:
+            selected[key] = raw_block
+            selected_lengths[key] = len(content)
+
+    return [selected[key] for key in order]
+
+
+def merge_partial_content_blocks(existing_content: list, incoming_content: list) -> list[dict]:
+    """按 block ID 合并 partial，并保留两侧独有的内容块。"""
+    merged = [_serialize_content_block(block) for block in existing_content]
+    positions = {
+        block.get("id"): index for index, block in enumerate(merged) if isinstance(block, dict) and block.get("id")
+    }
+
+    for raw_block in incoming_content:
+        incoming = _serialize_content_block(raw_block)
+        if not isinstance(incoming, dict) or incoming.get("type") not in {"text", "thinking"}:
+            continue
+        block_id = incoming.get("id") if isinstance(incoming, dict) else None
+        if not block_id or block_id not in positions:
+            positions[block_id] = len(merged)
+            merged.append(incoming)
+            continue
+        position = positions[block_id]
+        merged[position] = _merge_same_id_block(merged[position], incoming)
+
+    return merged
+
+
+def persist_message(
+    db,
+    assistant_message_id: str,
+    conversation_id: str,
+    model_id: str,
+    content_blocks: list,
+    usage_data: Optional[Usage] = None,
+    partial: bool = False,
+    *,
+    sequence: int | None = None,
+    generation_task_id: str | None = None,
+    defer_partial: bool = False,
+    replace_on_success: bool = False,
+    create_after_retry_user_id: str | None = None,
+) -> bool | None:
+    """
+    将 assistant 消息写入 PostgreSQL。
+    partial=True 时增量更新 content blocks（checkpoint）；若传入 usage，
+    同步保存已产生的累计 Token 与最后上下文快照，供失败/中止后恢复。
+    partial=False 时写入完整数据（最终落库）。
+    """
+    if partial and defer_partial:
+        # retry 生成期间只通过 Redis 展示新内容；成功前 PostgreSQL 始终保留原回答。
+        return True
+
+    try:
+        from app.db.models import Conversation as ConversationModel
+        from app.db.models import Message as MessageModel
+
+        acquire_message_persistence_lock(db, assistant_message_id)
+        conversation = None
+        existing = (
+            db.query(MessageModel)
+            .populate_existing()
+            .filter_by(id=assistant_message_id)
+            .with_for_update()
+            .first()
+        )
+
+        if existing is None and create_after_retry_user_id is not None:
+            # 首次创建 assistant 前，校验目标 user 仍是最后一条且代际匹配，
+            # 阻止已被重试接管后的旧任务通过 partial 落库创建陈旧回答。
+            conversation = (
+                db.query(ConversationModel).populate_existing().filter_by(id=conversation_id).with_for_update().first()
+            )
+            if conversation is None:
+                db.rollback()
+                return False
+            latest = (
+                db.query(MessageModel)
+                .populate_existing()
+                .filter_by(conversation_id=conversation_id)
+                .order_by(
+                    MessageModel.sequence.desc().nullslast(),
+                    MessageModel.created_at.desc(),
+                    MessageModel.id.desc(),
+                )
+                .with_for_update()
+                .first()
+            )
+            if (
+                latest is None
+                or latest.id != create_after_retry_user_id
+                or latest.role != "user"
+                or latest.generation_task_id != generation_task_id
+            ):
+                db.rollback()
+                return False
+
+        if replace_on_success and not partial:
+            if existing is None:
+                db.rollback()
+                return False
+            conversation = (
+                db.query(ConversationModel).populate_existing().filter_by(id=conversation_id).with_for_update().first()
+            )
+            if conversation is None:
+                db.rollback()
+                return False
+            latest = (
+                db.query(MessageModel)
+                .populate_existing()
+                .filter_by(conversation_id=conversation_id)
+                .order_by(
+                    MessageModel.sequence.desc().nullslast(),
+                    MessageModel.created_at.desc(),
+                    MessageModel.id.desc(),
+                )
+                .with_for_update()
+                .first()
+            )
+            if latest is None or latest.id != assistant_message_id or latest.role != "assistant":
+                db.rollback()
+                return False
+        if existing is not None and generation_task_id is not None:
+            current_task_id = getattr(existing, "generation_task_id", None)
+            if current_task_id != generation_task_id:
+                logger.info(
+                    "拒绝迟到 assistant 写入: message_id=%s, task_id=%s, current_task_id=%s",
+                    assistant_message_id,
+                    generation_task_id,
+                    current_task_id,
+                )
+                db.rollback()
+                return False
+            existing.generation_task_id = generation_task_id
+        # PostgreSQL JSONB 只能接收 JSON 原生值；富结果中的 aware datetime、URL 等
+        # 必须先按 Pydantic JSON 模式序列化，不能把 Python 对象直接交给驱动。
+        serialized_content = [block.model_dump(mode="json") for block in content_blocks]
+        if existing:
+            if sequence is not None:
+                if existing.sequence is None:
+                    existing.sequence = sequence
+                elif existing.sequence != sequence:
+                    raise ValueError("assistant 消息顺序号与预留值不一致")
+            existing.content = (
+                merge_partial_content_blocks(existing.content or [], serialized_content)
+                if partial
+                else serialized_content
+            )
+            if usage_data:
+                existing.usage = usage_data.model_dump()
+            elif replace_on_success and not partial:
+                existing.usage = None
+            if replace_on_success and not partial:
+                existing.model_id = model_id
+                existing.suggested_questions = None
+                existing.suggested_questions_revision = (existing.suggested_questions_revision or 0) + 1
+                existing.suggested_questions_status = "idle"
+                existing.suggested_questions_auto_run_id = None
+                existing.created_at = utc_now()
+        else:
+            db_message = MessageModel(
+                id=assistant_message_id,
+                conversation_id=conversation_id,
+                sequence=sequence,
+                role="assistant",
+                content=serialized_content,
+                model_id=model_id,
+                usage=usage_data.model_dump() if usage_data else None,
+                generation_task_id=generation_task_id,
+                created_at=utc_now(),
+            )
+            db.add(db_message)
+        if conversation is not None:
+            conversation.updated_at = utc_now()
+        db.commit()
+        return True
+    except Exception as e:
+        logger.error(f"写入 assistant 消息失败: {e}")
+        db.rollback()
+        return None
+
+
+def extract_first_url(message: str) -> str | None:
+    urls_in_message = URL_PATTERN.findall(message)
+    return urls_in_message[0] if urls_in_message else None
+
+
+def ensure_url_read_tool(call_kwargs: dict) -> None:
+    tools = call_kwargs.setdefault("tools", [])
+    if not any(_tool_name(tool) == "url_read" for tool in tools):
+        tools.append(build_url_read_tool())
+
+
+def _tool_name(tool: dict) -> str | None:
+    function = tool.get("function") if isinstance(tool, dict) else None
+    if isinstance(function, dict) and function.get("name"):
+        return str(function["name"])
+    return None
+
+
+def resolve_reader_url(policy, detected_url: str) -> str:
+    return policy.normalized_url or detected_url
+
+
+async def read_url_for_context(*, policy, detected_url: str):
+    from app.services.external.reader_client import read_url
+
+    timeout = settings.READER_SERVICE_TIMEOUT
+    try:
+        return await asyncio.wait_for(
+            read_url(resolve_reader_url(policy, detected_url), timeout=timeout),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(f"URL 自动抓取超时: url={policy.safe_log_url}")
+        return None
+
+
+def build_url_context_message(*, read_result, policy, detected_url: str) -> dict:
+    from app.services.tool_handlers.url_read import MAX_CONTENT_CHARS
+
+    return {
+        "role": "user",
+        "content": format_untrusted_source_context(
+            UntrustedSourceContext(
+                source_id="U1",
+                source_type="url_read",
+                title=read_result.title or "未知",
+                url=read_result.url or resolve_reader_url(policy, detected_url),
+                content=read_result.content,
+                provider="web",
+            ),
+            max_chars=MAX_CONTENT_CHARS,
+        ),
+    }
+
+
+def build_url_read_block(*, read_result, policy, detected_url: str, block_id: str) -> UrlBlock:
+    return UrlBlock(
+        type="url_read",
+        id=block_id,
+        url=read_result.url or resolve_reader_url(policy, detected_url),
+        title=read_result.title,
+        favicon=read_result.favicon,
+    )
+
+
+def remove_disabled_thinking(call_kwargs: dict) -> None:
+    if "extra_body" in call_kwargs and call_kwargs["extra_body"].get("thinking", {}).get("type") == "disabled":
+        del call_kwargs["extra_body"]
+
+
+def fallback_to_url_read_tool(call_kwargs: dict, detected_url: str | None = None):
+    ensure_url_read_tool(call_kwargs)
+    return None, None, detected_url
+
+
+def build_successful_url_preprocess_result(
+    *,
+    read_result,
+    policy,
+    detected_url: str,
+    block_id: str,
+    call_kwargs: dict,
+):
+    remove_disabled_thinking(call_kwargs)
+    return (
+        build_url_read_block(
+            read_result=read_result,
+            policy=policy,
+            detected_url=detected_url,
+            block_id=block_id,
+        ),
+        build_url_context_message(
+            read_result=read_result,
+            policy=policy,
+            detected_url=detected_url,
+        ),
+        detected_url,
+    )
+
+
+async def preprocess_url_in_message(
+    original_message: str,
+    supports_fc: bool,
+    call_kwargs: dict,
+) -> tuple[Optional[UrlBlock], Optional[dict], Optional[str]]:
+    """URL 路径 A：自动读取首个 URL，成功时注入不可信上下文，失败时交给 url_read 工具。"""
+    if not supports_fc:
+        return None, None, None
+
+    # 消息中无 URL：仍然把 URL_READ_TOOL 加入 tools，让 LLM 自决
+    auto_detected_url = extract_first_url(original_message)
+    if not auto_detected_url:
+        return fallback_to_url_read_tool(call_kwargs)
+
+    url_read_block_id = f"blk_{uuid.uuid4().hex[:12]}"
+    policy = evaluate_url_policy(auto_detected_url)
+    if not policy.allowed:
+        logger.info(f"URL 自动抓取被策略拒绝: reason={policy.reason}, url={policy.safe_log_url}")
+        return fallback_to_url_read_tool(call_kwargs, auto_detected_url)
+
+    read_result = await read_url_for_context(policy=policy, detected_url=auto_detected_url)
+    if not read_result:
+        # 抓取失败 → 追加 URL_READ_TOOL，让 LLM 自决
+        return fallback_to_url_read_tool(call_kwargs, auto_detected_url)
+
+    # 抓取成功 → 注入 user role 不可信上下文 + 关闭 volcengine thinking + 返回 UrlBlock
+    return build_successful_url_preprocess_result(
+        read_result=read_result,
+        policy=policy,
+        detected_url=auto_detected_url,
+        block_id=url_read_block_id,
+        call_kwargs=call_kwargs,
+    )

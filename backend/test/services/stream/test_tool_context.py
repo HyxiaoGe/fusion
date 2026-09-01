@@ -1,0 +1,402 @@
+import unittest
+from datetime import datetime
+from unittest.mock import AsyncMock
+from zoneinfo import ZoneInfo
+
+from app.schemas.chat import (
+    FlightOption,
+    FlightResultsBlock,
+    TrainOption,
+    TrainResultsBlock,
+    TravelEndpoint,
+)
+from app.services.agent.context_broker import Geolocation, ResolvedContext
+from app.services.stream.agent_loop_state import AgentLoopState
+from app.services.stream.tool_context import ToolRuntimeContext, enrich_tool_runtime_context
+
+
+class ToolContextResolutionTests(unittest.IsolatedAsyncioTestCase):
+    def test_runtime_context_receives_step_number_and_shared_repair_state(self):
+        state = AgentLoopState(argument_repair_state={})
+        enhanced_messages = [
+            {
+                "role": "user",
+                "content": "南山区明天天气怎么样？\n\n附件内容：公司地址位于深圳市。",
+            }
+        ]
+
+        context = enrich_tool_runtime_context(
+            ToolRuntimeContext(),
+            messages=enhanced_messages,
+            state=state,
+            step_number=1,
+        )
+
+        self.assertEqual(context.step_number, 1)
+        self.assertIs(context.argument_repair_state, state.argument_repair_state)
+
+    def test_runtime_context_only_exposes_unique_trusted_travel_station_cities(self):
+        observed_at = datetime(2026, 7, 26, 8, tzinfo=ZoneInfo("Asia/Shanghai"))
+        flight_block = FlightResultsBlock(
+            type="flight_results",
+            schema_version=1,
+            provider="flyai",
+            status="success",
+            origin="深圳",
+            destination="上海",
+            departure_date="2026-08-02",
+            observed_at=observed_at,
+            result_count=2,
+            flights=[
+                FlightOption(
+                    option_id="flight-1",
+                    flight_no="CZ1001",
+                    departure=TravelEndpoint(
+                        city="深圳市",
+                        station_name="深圳宝安国际机场",
+                        scheduled_at=observed_at,
+                    ),
+                    arrival=TravelEndpoint(
+                        city="上海",
+                        station_name="浦东国际机场",
+                        scheduled_at=observed_at,
+                    ),
+                    duration_s=7_200,
+                    stops=0,
+                ),
+                FlightOption(
+                    option_id="flight-invalid-city",
+                    flight_no="CZ1002",
+                    departure=TravelEndpoint(
+                        city="深圳市",
+                        station_name="深圳宝安国际机场",
+                        scheduled_at=observed_at,
+                    ),
+                    arrival=TravelEndpoint(
+                        city="北京",
+                        station_name="浦东国际机场",
+                        scheduled_at=observed_at,
+                    ),
+                    duration_s=7_200,
+                    stops=0,
+                ),
+            ],
+        )
+        train_block = TrainResultsBlock(
+            type="train_results",
+            schema_version=1,
+            provider="flyai",
+            status="success",
+            origin="深圳",
+            destination="上海",
+            departure_date="2026-08-02",
+            observed_at=observed_at,
+            result_count=3,
+            trains=[
+                TrainOption(
+                    option_id="train-1",
+                    train_no="G1001",
+                    departure=TravelEndpoint(
+                        city="深圳市",
+                        station_name="深圳北站",
+                        scheduled_at=observed_at,
+                    ),
+                    arrival=TravelEndpoint(
+                        city="上海市",
+                        station_name="上海虹桥站",
+                        scheduled_at=observed_at,
+                    ),
+                    duration_s=28_800,
+                    stops=0,
+                ),
+                TrainOption(
+                    option_id="train-2",
+                    train_no="G1002",
+                    departure=TravelEndpoint(
+                        city="深圳市",
+                        station_name="同名站",
+                        scheduled_at=observed_at,
+                    ),
+                    arrival=TravelEndpoint(
+                        city="上海",
+                        station_name="同名站",
+                        scheduled_at=observed_at,
+                    ),
+                    duration_s=3_600,
+                    stops=0,
+                ),
+                TrainOption(
+                    option_id="train-3",
+                    train_no="G1003",
+                    departure=TravelEndpoint(
+                        city="深圳",
+                        station_name="深圳东站",
+                        scheduled_at=observed_at,
+                    ),
+                    arrival=TravelEndpoint(
+                        city="上海",
+                        station_name="上海虹桥站",
+                        scheduled_at=observed_at,
+                    ),
+                    duration_s=3_600,
+                    stops=0,
+                ),
+            ],
+        )
+        state = AgentLoopState(content_blocks=[flight_block, train_block])
+
+        context = enrich_tool_runtime_context(
+            ToolRuntimeContext(),
+            messages=[],
+            state=state,
+            step_number=2,
+        )
+
+        self.assertEqual(context.route_city_hints["浦东国际机场"], ("上海",))
+        self.assertEqual(context.route_city_hints["上海虹桥站"], ("上海",))
+        self.assertNotIn("同名站", context.route_city_hints)
+
+    async def test_current_location_weather_requests_local_weather_context(self):
+        from app.services.stream.tool_context import resolve_tool_context
+
+        emitter = AsyncMock()
+        create_request = AsyncMock(return_value=object())
+        wait_result = AsyncMock(
+            return_value=ResolvedContext(
+                request_id="ctx-weather",
+                status="provided",
+                location=Geolocation(latitude=22.616, longitude=114.031, accuracy_m=25, acquired_at=99),
+            )
+        )
+        call = {
+            "id": "weather-current",
+            "name": "weather_forecast",
+            "arguments": '{"location":"当前位置","location_source":"current_location"}',
+        }
+
+        result = await resolve_tool_context(
+            tool_calls=[call],
+            state=AgentLoopState(),
+            emitter=emitter,
+            user_id="user-1",
+            conversation_id="conv-1",
+            message_id="msg-1",
+            run_id="run-1",
+            task_id="task-1",
+            clock=lambda: 100.0,
+            request_id_factory=lambda: "ctx-weather",
+            create_request_fn=create_request,
+            wait_result_fn=wait_result,
+        )
+
+        self.assertEqual(result.executable_calls, [call])
+        self.assertEqual(result.runtime_context.geolocation.latitude, 22.616)
+        self.assertEqual(create_request.await_args.kwargs["purpose"], "local_weather")
+        self.assertEqual(create_request.await_args.kwargs["reason"], "查询当前位置所在行政区的天气预报")
+
+    async def test_broker_failure_blocks_dependent_call_without_crashing_or_reprompting(self):
+        from app.services.stream.tool_context import resolve_tool_context
+
+        state = AgentLoopState()
+        emitter = AsyncMock()
+        create_request = AsyncMock(side_effect=RuntimeError("redis down"))
+        current = {
+            "id": "local-current",
+            "name": "local_place_search",
+            "arguments": '{"query":"咖啡","anchor_source":"current_location"}',
+        }
+
+        first = await resolve_tool_context(
+            tool_calls=[current],
+            state=state,
+            emitter=emitter,
+            user_id="user-1",
+            conversation_id="conv-1",
+            message_id="msg-1",
+            run_id="run-1",
+            task_id="task-1",
+            clock=lambda: 100.0,
+            create_request_fn=create_request,
+            wait_result_fn=AsyncMock(),
+        )
+        second = await resolve_tool_context(
+            tool_calls=[current],
+            state=state,
+            emitter=emitter,
+            user_id="user-1",
+            conversation_id="conv-1",
+            message_id="msg-1",
+            run_id="run-1",
+            task_id="task-1",
+            clock=lambda: 101.0,
+            create_request_fn=create_request,
+            wait_result_fn=AsyncMock(),
+        )
+
+        self.assertEqual(first.blocked_calls["local-current"].status, "unavailable")
+        self.assertEqual(second.executable_calls, [])
+        create_request.assert_awaited_once()
+        emitter.context_required.assert_not_awaited()
+
+    async def test_named_and_city_searches_do_not_request_geolocation(self):
+        from app.services.stream.tool_context import resolve_tool_context
+
+        create_request = AsyncMock()
+        result = await resolve_tool_context(
+            tool_calls=[
+                {
+                    "id": "local-named",
+                    "name": "local_place_search",
+                    "arguments": '{"query":"咖啡","near":"民治地铁站","anchor_source":"named"}',
+                },
+                {
+                    "id": "local-city",
+                    "name": "local_place_search",
+                    "arguments": '{"query":"咖啡","city":"深圳","anchor_source":"none"}',
+                },
+                {
+                    "id": "route-named",
+                    "name": "route_compare",
+                    "arguments": '{"origin":"民治","destination":"市民中心"}',
+                },
+            ],
+            state=AgentLoopState(),
+            emitter=AsyncMock(),
+            user_id="user-1",
+            conversation_id="conv-1",
+            message_id="msg-1",
+            run_id="run-1",
+            task_id="task-1",
+            clock=lambda: 100.0,
+            create_request_fn=create_request,
+            wait_result_fn=AsyncMock(),
+        )
+
+        self.assertEqual([call["id"] for call in result.executable_calls], ["local-named", "local-city", "route-named"])
+        self.assertEqual(result.blocked_calls, {})
+        create_request.assert_not_awaited()
+
+    async def test_current_location_waits_in_same_state_caches_result_and_excludes_wait_time(self):
+        from app.services.stream.tool_context import resolve_tool_context
+
+        state = AgentLoopState()
+        emitter = AsyncMock()
+        create_request = AsyncMock(return_value=object())
+        wait_result = AsyncMock(
+            return_value=ResolvedContext(
+                request_id="ctx-1",
+                status="provided",
+                location=Geolocation(latitude=22.616, longitude=114.031, accuracy_m=25, acquired_at=99),
+            )
+        )
+        times = iter((100.0, 145.0))
+        call = {
+            "id": "local-current",
+            "name": "local_place_search",
+            "arguments": '{"query":"咖啡","anchor_source":"current_location"}',
+        }
+
+        first = await resolve_tool_context(
+            tool_calls=[call],
+            state=state,
+            emitter=emitter,
+            user_id="user-1",
+            conversation_id="conv-1",
+            message_id="msg-1",
+            run_id="run-1",
+            task_id="task-1",
+            clock=lambda: next(times),
+            request_id_factory=lambda: "ctx-1",
+            create_request_fn=create_request,
+            wait_result_fn=wait_result,
+        )
+
+        self.assertEqual(first.executable_calls, [call])
+        self.assertEqual(first.runtime_context.geolocation.latitude, 22.616)
+        self.assertEqual(state.context_wait_seconds, 45.0)
+        emitter.context_required.assert_awaited_once()
+        emitter.context_result.assert_awaited_once_with(
+            request_id="ctx-1",
+            context_type="geolocation",
+            status="provided",
+        )
+
+        second = await resolve_tool_context(
+            tool_calls=[call],
+            state=state,
+            emitter=emitter,
+            user_id="user-1",
+            conversation_id="conv-1",
+            message_id="msg-1",
+            run_id="run-1",
+            task_id="task-1",
+            clock=lambda: 200.0,
+            create_request_fn=create_request,
+            wait_result_fn=wait_result,
+        )
+        self.assertEqual(second.runtime_context.geolocation.latitude, 22.616)
+        create_request.assert_awaited_once()
+        wait_result.assert_awaited_once()
+
+    async def test_denied_blocks_only_dependent_calls_without_reprompting(self):
+        from app.services.stream.tool_context import resolve_tool_context
+
+        state = AgentLoopState()
+        create_request = AsyncMock(return_value=object())
+        wait_result = AsyncMock(
+            return_value=ResolvedContext(request_id="ctx-1", status="denied", reason="permission_denied")
+        )
+        current = {
+            "id": "route-current",
+            "name": "route_compare",
+            "arguments": (
+                '{"origin":"当前位置","origin_source":"current_location",'
+                '"destination":"市民中心","destination_source":"named"}'
+            ),
+        }
+        independent = {
+            "id": "local-city",
+            "name": "local_place_search",
+            "arguments": '{"query":"咖啡","city":"深圳","anchor_source":"none"}',
+        }
+        times = iter((100.0, 101.0))
+
+        first = await resolve_tool_context(
+            tool_calls=[current, independent],
+            state=state,
+            emitter=AsyncMock(),
+            user_id="user-1",
+            conversation_id="conv-1",
+            message_id="msg-1",
+            run_id="run-1",
+            task_id="task-1",
+            clock=lambda: next(times),
+            request_id_factory=lambda: "ctx-1",
+            create_request_fn=create_request,
+            wait_result_fn=wait_result,
+        )
+
+        self.assertEqual(first.executable_calls, [independent])
+        self.assertEqual(first.blocked_calls["route-current"].status, "denied")
+        self.assertEqual(state.context_wait_seconds, 1.0)
+
+        second = await resolve_tool_context(
+            tool_calls=[current],
+            state=state,
+            emitter=AsyncMock(),
+            user_id="user-1",
+            conversation_id="conv-1",
+            message_id="msg-1",
+            run_id="run-1",
+            task_id="task-1",
+            clock=lambda: 200.0,
+            create_request_fn=create_request,
+            wait_result_fn=wait_result,
+        )
+        self.assertEqual(second.executable_calls, [])
+        self.assertEqual(second.blocked_calls["route-current"].status, "denied")
+        create_request.assert_awaited_once()
+
+
+if __name__ == "__main__":
+    unittest.main()

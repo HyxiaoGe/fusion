@@ -1,0 +1,454 @@
+import unittest
+from datetime import datetime
+from types import SimpleNamespace
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.db.database import Base
+from app.db.models import AgentSession
+from app.db.models import Message as MessageModel
+from app.schemas.chat import TextBlock, ThinkingBlock
+from app.schemas.response import ApiException
+from app.services.agent.continuation import (
+    CONTINUATION_SYSTEM_PROMPT,
+    build_continuation_context,
+    deserialize_content_blocks,
+    find_latest_limit_reached_session,
+    inject_continuation_prompt,
+    resolve_continuation_limits,
+    resolve_continuation_plan_mode,
+    resolve_continuation_task_policy,
+)
+from app.services.stream.agent_loop_policy import AgentLoopLimits
+
+
+class FakeQuery:
+    def __init__(self, rows):
+        self.rows = list(rows)
+        self.filters = []
+        self.ordered = False
+
+    def filter(self, *criteria):
+        self.filters.extend(criteria)
+        return self
+
+    def order_by(self, *_criteria):
+        self.ordered = True
+        return self
+
+    def first(self):
+        return self.rows[0] if self.rows else None
+
+
+class FakeDb:
+    def __init__(self, *, message=None, sessions=None):
+        self.message_query = FakeQuery([message] if message else [])
+        self.session_query = FakeQuery(sessions or [])
+
+    def query(self, model):
+        if model is MessageModel:
+            return self.message_query
+        if model is AgentSession:
+            return self.session_query
+        raise AssertionError(f"未预期查询模型: {model!r}")
+
+
+class AgentContinuationTests(unittest.TestCase):
+    def test_build_continuation_context_rejects_invalid_run_scope_before_continue(self):
+        message = SimpleNamespace(
+            id="assistant-1",
+            conversation_id="conv-1",
+            role="assistant",
+            content=[],
+        )
+        base = {
+            "id": "run-old",
+            "conversation_id": "conv-1",
+            "user_id": "user-1",
+            "turn_message_id": "user-message-1",
+            "message_id": "assistant-1",
+            "status": "limit_reached",
+            "run_config": {},
+        }
+        cases = (
+            ("跨 user", {"user_id": "user-other"}),
+            ("跨 turn", {"turn_message_id": "user-message-other"}),
+            ("错误 assistant", {"message_id": "assistant-other"}),
+            ("非法状态", {"status": "completed"}),
+        )
+
+        for label, overrides in cases:
+            with self.subTest(case=label):
+                db = FakeDb(message=message, sessions=[SimpleNamespace(**{**base, **overrides})])
+                with self.assertRaises(ApiException) as raised:
+                    build_continuation_context(
+                        db,
+                        conversation_id="conv-1",
+                        user_id="user-1",
+                        message_id="assistant-1",
+                        turn_message_id="user-message-1",
+                        previous_run_id="run-old",
+                        default_limits=AgentLoopLimits(max_steps=8, max_tool_calls=20, total_timeout_s=300),
+                    )
+
+                self.assertEqual(raised.exception.status_code, 404)
+
+    def test_build_continuation_context_accepts_strict_legacy_turn_alias(self):
+        message = SimpleNamespace(
+            id="assistant-1",
+            conversation_id="conv-1",
+            role="assistant",
+            content=[],
+        )
+        legacy = SimpleNamespace(
+            id="run-legacy",
+            conversation_id="conv-1",
+            user_id="user-1",
+            turn_message_id="assistant-1",
+            message_id="assistant-1",
+            status="limit_reached",
+            run_config={},
+        )
+
+        for previous_run_id in (None, "run-legacy"):
+            with self.subTest(previous_run_id=previous_run_id):
+                context = build_continuation_context(
+                    FakeDb(message=message, sessions=[legacy]),
+                    conversation_id="conv-1",
+                    user_id="user-1",
+                    message_id="assistant-1",
+                    turn_message_id="user-message-1",
+                    previous_run_id=previous_run_id,
+                    default_limits=AgentLoopLimits(max_steps=8, max_tool_calls=20, total_timeout_s=300),
+                )
+
+                self.assertIs(context.previous_session, legacy)
+
+    def test_build_continuation_context_rejects_forged_legacy_turn_alias(self):
+        message = SimpleNamespace(
+            id="assistant-1",
+            conversation_id="conv-1",
+            role="assistant",
+            content=[],
+        )
+        forged = SimpleNamespace(
+            id="run-forged",
+            conversation_id="conv-1",
+            user_id="user-1",
+            turn_message_id="assistant-1",
+            message_id="assistant-other",
+            status="limit_reached",
+            run_config={},
+        )
+
+        with self.assertRaises(ApiException) as raised:
+            build_continuation_context(
+                FakeDb(message=message, sessions=[forged]),
+                conversation_id="conv-1",
+                user_id="user-1",
+                message_id="assistant-1",
+                turn_message_id="user-message-1",
+                previous_run_id="run-forged",
+                default_limits=AgentLoopLimits(max_steps=8, max_tool_calls=20, total_timeout_s=300),
+            )
+
+        self.assertEqual(raised.exception.status_code, 404)
+
+    def test_deserialize_content_blocks_isolates_invalid_blocks(self):
+        blocks = deserialize_content_blocks(
+            [
+                {"type": "text", "id": "answer-1", "text": "有效回答"},
+                {"type": "future_widget", "id": "future-1"},
+                {"type": "place_results", "id": "future-place", "schema_version": 2},
+                {"type": "text", "id": "answer-2", "text": "继续回答"},
+            ]
+        )
+
+        self.assertEqual(
+            [block.type for block in blocks],
+            ["text", "unsupported_result", "unsupported_result", "text"],
+        )
+        self.assertEqual(blocks[1].reason, "unsupported_type")
+        self.assertEqual(blocks[2].reason, "unsupported_version")
+
+    def test_build_continuation_context_keeps_future_only_content_as_fallback(self):
+        message = SimpleNamespace(
+            id="msg-1",
+            conversation_id="conv-1",
+            role="assistant",
+            content=[{"type": "route_results", "id": "route-future", "schema_version": 2}],
+        )
+        previous_session = SimpleNamespace(
+            id="run-old",
+            conversation_id="conv-1",
+            user_id="user-1",
+            turn_message_id="user-msg-1",
+            message_id="msg-1",
+            status="limit_reached",
+            run_config={},
+        )
+        db = FakeDb(message=message, sessions=[previous_session])
+
+        context = build_continuation_context(
+            db,
+            conversation_id="conv-1",
+            user_id="user-1",
+            message_id="msg-1",
+            turn_message_id="user-msg-1",
+            previous_run_id="run-old",
+            default_limits=AgentLoopLimits(max_steps=8, max_tool_calls=20, total_timeout_s=300),
+        )
+
+        self.assertEqual(len(context.initial_content_blocks), 1)
+        fallback = context.initial_content_blocks[0]
+        self.assertEqual(fallback.type, "unsupported_result")
+        self.assertEqual(fallback.id, "route-future")
+        self.assertEqual(fallback.reason, "unsupported_version")
+
+    def test_deserialize_content_blocks_preserves_existing_block_id(self):
+        blocks = deserialize_content_blocks([{"type": "text", "id": "blk_old", "text": "旧回答"}])
+
+        self.assertEqual(blocks, [TextBlock(type="text", id="blk_old", text="旧回答")])
+
+    def test_deserialize_content_blocks_keeps_legacy_thinking_verbatim(self):
+        blocks = deserialize_content_blocks(
+            [
+                {
+                    "type": "thinking",
+                    "id": "thinking-old",
+                    "thinking": "调用 web_search，再用 url_read 读取网页。",
+                }
+            ]
+        )
+
+        self.assertEqual(
+            blocks,
+            [
+                ThinkingBlock(
+                    type="thinking",
+                    id="thinking-old",
+                    thinking="调用 web_search，再用 url_read 读取网页。",
+                )
+            ],
+        )
+
+    def test_inject_continuation_prompt_after_existing_system_messages(self):
+        messages = [
+            {"role": "system", "content": "用户自定义系统提示"},
+            {"role": "user", "content": "问题"},
+            {"role": "assistant", "content": "旧回答"},
+        ]
+
+        result = inject_continuation_prompt(messages)
+
+        self.assertEqual(result[0]["content"], "用户自定义系统提示")
+        self.assertEqual(result[1], {"role": "system", "content": CONTINUATION_SYSTEM_PROMPT})
+        self.assertEqual(result[2]["role"], "user")
+
+    def test_resolve_continuation_limits_uses_session_config(self):
+        session = SimpleNamespace(run_config={"max_steps": 4, "max_tool_calls": 7, "timeout_s": 90})
+
+        limits = resolve_continuation_limits(
+            session,
+            default_limits=AgentLoopLimits(max_steps=8, max_tool_calls=20, total_timeout_s=300),
+        )
+
+        self.assertEqual(limits, AgentLoopLimits(max_steps=4, max_tool_calls=7, total_timeout_s=90))
+
+    def test_resolve_continuation_limits_falls_back_to_default_for_missing_config(self):
+        session = SimpleNamespace(run_config=None)
+        default_limits = AgentLoopLimits(max_steps=8, max_tool_calls=20, total_timeout_s=300)
+
+        self.assertEqual(resolve_continuation_limits(session, default_limits=default_limits), default_limits)
+
+    def test_resolve_continuation_plan_mode_preserves_previous_run_contract(self):
+        for stored, expected in (("on", "on"), ("off", "off"), ("auto", "auto"), ("legacy", "auto"), (None, "auto")):
+            with self.subTest(stored=stored):
+                session = SimpleNamespace(run_config={"plan_mode": stored} if stored is not None else None)
+                self.assertEqual(resolve_continuation_plan_mode(session), expected)
+
+    def test_resolve_continuation_task_policy_preserves_deep_research_contract(self):
+        session = SimpleNamespace(
+            run_config={
+                "task_mode": "deep_research",
+                "plan_mode": "on",
+                "network_profile": "deep_research",
+                "evidence_policy": "deep_research_v1",
+            }
+        )
+
+        policy = resolve_continuation_task_policy(session)
+
+        self.assertEqual(policy.task_mode, "deep_research")
+        self.assertEqual(policy.plan_mode, "on")
+        self.assertEqual(policy.network_profile, "deep_research")
+        self.assertEqual(policy.evidence_policy, "deep_research_v1")
+
+    def test_find_latest_limit_reached_session_rejects_missing_session(self):
+        db = FakeDb(sessions=[])
+
+        with self.assertRaises(ApiException) as raised:
+            find_latest_limit_reached_session(
+                db,
+                conversation_id="conv-1",
+                user_id="user-1",
+                message_id="msg-1",
+                turn_message_id="user-msg-1",
+                previous_run_id=None,
+            )
+
+        self.assertEqual(raised.exception.status_code, 404)
+
+    def test_find_latest_limit_reached_session_rejects_when_latest_session_completed(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        try:
+            old_limit = AgentSession(
+                id="run-old",
+                conversation_id="conv-1",
+                message_id="msg-1",
+                turn_message_id="user-msg-1",
+                attempt_index=1,
+                user_id="user-1",
+                model_id="deepseek-chat",
+                provider="deepseek",
+                status="limit_reached",
+                created_at=datetime(2026, 6, 28, 10, 0, 0),
+            )
+            latest_completed = AgentSession(
+                id="run-new",
+                conversation_id="conv-1",
+                message_id="msg-1",
+                turn_message_id="user-msg-1",
+                previous_run_id="run-old",
+                attempt_index=2,
+                user_id="user-1",
+                model_id="deepseek-chat",
+                provider="deepseek",
+                status="completed",
+                created_at=datetime(2026, 6, 28, 10, 1, 0),
+            )
+            db.add_all([old_limit, latest_completed])
+            db.commit()
+
+            with self.assertRaises(ApiException) as raised:
+                find_latest_limit_reached_session(
+                    db,
+                    conversation_id="conv-1",
+                    user_id="user-1",
+                    message_id="msg-1",
+                    turn_message_id="user-msg-1",
+                    previous_run_id=None,
+                )
+
+            self.assertEqual(raised.exception.status_code, 404)
+        finally:
+            db.close()
+            engine.dispose()
+
+    def test_find_latest_limit_reached_session_accepts_latest_limit_reached(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        try:
+            old_completed = AgentSession(
+                id="run-old",
+                conversation_id="conv-1",
+                message_id="msg-1",
+                turn_message_id="user-msg-1",
+                attempt_index=1,
+                user_id="user-1",
+                model_id="deepseek-chat",
+                provider="deepseek",
+                status="completed",
+                created_at=datetime(2026, 6, 28, 10, 0, 0),
+            )
+            latest_limit = AgentSession(
+                id="run-new",
+                conversation_id="conv-1",
+                message_id="msg-1",
+                turn_message_id="user-msg-1",
+                previous_run_id="run-old",
+                attempt_index=2,
+                user_id="user-1",
+                model_id="deepseek-chat",
+                provider="deepseek",
+                status="limit_reached",
+                created_at=datetime(2026, 6, 28, 10, 1, 0),
+            )
+            other_message_newer_limit = AgentSession(
+                id="run-other",
+                conversation_id="conv-1",
+                message_id="msg-other",
+                user_id="user-1",
+                model_id="deepseek-chat",
+                provider="deepseek",
+                status="limit_reached",
+                created_at=datetime(2026, 6, 28, 10, 2, 0),
+            )
+            db.add_all([old_completed, latest_limit, other_message_newer_limit])
+            db.commit()
+
+            result = find_latest_limit_reached_session(
+                db,
+                conversation_id="conv-1",
+                user_id="user-1",
+                message_id="msg-1",
+                turn_message_id="user-msg-1",
+                previous_run_id=None,
+            )
+
+            self.assertEqual(result.id, "run-new")
+            self.assertEqual(result.turn_message_id, "user-msg-1")
+            self.assertEqual(result.previous_run_id, "run-old")
+            self.assertEqual(result.attempt_index, 2)
+        finally:
+            db.close()
+            engine.dispose()
+
+    def test_build_continuation_context_reuses_assistant_message_blocks_and_limits(self):
+        message = SimpleNamespace(
+            id="msg-1",
+            conversation_id="conv-1",
+            role="assistant",
+            content=[{"type": "text", "id": "blk_old", "text": "旧回答"}],
+        )
+        previous_session = SimpleNamespace(
+            id="run-old",
+            conversation_id="conv-1",
+            user_id="user-1",
+            turn_message_id="user-msg-1",
+            message_id="msg-1",
+            status="limit_reached",
+            run_config={
+                "max_steps": 3,
+                "max_tool_calls": 5,
+                "timeout_s": 60,
+                "plan_mode": "on",
+            },
+        )
+        db = FakeDb(message=message, sessions=[previous_session])
+
+        context = build_continuation_context(
+            db,
+            conversation_id="conv-1",
+            user_id="user-1",
+            message_id="msg-1",
+            turn_message_id="user-msg-1",
+            previous_run_id="run-old",
+            default_limits=AgentLoopLimits(max_steps=8, max_tool_calls=20, total_timeout_s=300),
+        )
+
+        self.assertIs(context.assistant_message, message)
+        self.assertIs(context.previous_session, previous_session)
+        self.assertEqual(context.limits, AgentLoopLimits(max_steps=3, max_tool_calls=5, total_timeout_s=60))
+        self.assertEqual(context.plan_mode, "on")
+        self.assertEqual(context.initial_content_blocks, [TextBlock(type="text", id="blk_old", text="旧回答")])
+
+
+if __name__ == "__main__":
+    unittest.main()

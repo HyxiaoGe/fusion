@@ -1,0 +1,109 @@
+import sys
+import types
+import unittest
+from unittest.mock import patch
+
+from app.services.storage.base import DefinitiveStorageUploadError
+from app.services.storage.oss_storage import OSSStorageBackend
+
+UPLOAD_KEY = "files/v1/users/user-1/conversations/conv-1/files/file-1/original"
+
+
+class OSSStorageBackendTests(unittest.IsolatedAsyncioTestCase):
+    async def test_upload_maps_only_definitive_client_rejection(self):
+        class UploadError(RuntimeError):
+            def __init__(self, status):
+                super().__init__(f"status={status}")
+                self.status = status
+
+        backend = object.__new__(OSSStorageBackend)
+        backend._bucket = type(
+            "FakeBucket",
+            (),
+            {"put_object": lambda _self, *_args, **_kwargs: (_ for _ in ()).throw(UploadError(403))},
+        )()
+        with self.assertRaises(DefinitiveStorageUploadError):
+            await backend.upload("document", b"content", "text/plain")
+
+        backend._bucket = type(
+            "FakeBucket",
+            (),
+            {"put_object": lambda _self, *_args, **_kwargs: (_ for _ in ()).throw(UploadError(503))},
+        )()
+        with self.assertRaises(UploadError):
+            await backend.upload("document", b"content", "text/plain")
+
+    async def test_get_upload_url_signs_put_with_content_type_header(self):
+        calls = {}
+
+        class FakeAuth:
+            def __init__(self, access_key_id, access_key_secret):
+                calls["auth"] = (access_key_id, access_key_secret)
+
+        class FakeBucket:
+            def __init__(self, auth, endpoint, bucket):
+                calls["bucket"] = (auth, endpoint, bucket)
+
+            def sign_url(self, method, key, expires, headers=None, slash_safe=False):
+                calls["sign_url"] = {
+                    "method": method,
+                    "key": key,
+                    "expires": expires,
+                    "headers": headers,
+                    "slash_safe": slash_safe,
+                }
+                return "https://oss.example.com/signed"
+
+            def head_object(self, key):
+                calls["head_object"] = key
+                return types.SimpleNamespace(headers={"Content-Length": "123"})
+
+        fake_oss2 = types.SimpleNamespace(
+            Auth=FakeAuth,
+            Bucket=FakeBucket,
+            exceptions=types.SimpleNamespace(NoSuchKey=RuntimeError),
+        )
+
+        with patch.dict(sys.modules, {"oss2": fake_oss2}):
+            backend = OSSStorageBackend(
+                endpoint="oss-cn-shenzhen.aliyuncs.com",
+                access_key_id="access-key-id",
+                access_key_secret="access-key-secret",
+                bucket="fusion-file",
+                use_ssl=True,
+            )
+
+            result = await backend.get_upload_url(
+                UPLOAD_KEY,
+                content_type="image/png",
+                expires=600,
+            )
+            size = await backend.get_size(UPLOAD_KEY)
+
+        self.assertEqual(calls["auth"], ("access-key-id", "access-key-secret"))
+        self.assertEqual(calls["bucket"][1:], ("https://oss-cn-shenzhen.aliyuncs.com", "fusion-file"))
+        self.assertEqual(
+            calls["sign_url"],
+            {
+                "method": "PUT",
+                "key": UPLOAD_KEY,
+                "expires": 600,
+                "headers": {"Content-Type": "image/png"},
+                "slash_safe": True,
+            },
+        )
+        self.assertEqual(calls["head_object"], UPLOAD_KEY)
+        self.assertEqual(size, 123)
+        self.assertEqual(
+            result,
+            {
+                "url": "https://oss.example.com/signed",
+                "method": "PUT",
+                "headers": {"Content-Type": "image/png"},
+                "expires_in": 600,
+            },
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

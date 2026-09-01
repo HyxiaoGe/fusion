@@ -1,0 +1,46 @@
+aiofiles==24.1.0
+alembic==1.18.4
+anthropic==0.49.0
+fastapi==0.115.12
+httpx==0.28.1
+litellm>=1.40.0,<2.0.0
+fastapi-sso==0.21.0  # LiteLLM logging path 可选 import，不装会刷 ModuleNotFoundError
+orjson>=3.9.0
+backoff>=2.2.1
+dashscope==1.23.1
+openai==1.73.0
+pandas==2.2.3
+psycopg2-binary==2.9.9
+pydantic==2.11.3
+email-validator==2.2.0
+pydantic_settings==2.8.1
+PyPDF2==3.0.1
+python_docx==1.1.2
+SQLAlchemy==2.0.38
+uvicorn==0.34.1
+python-multipart==0.0.20
+watchfiles==1.0.4
+authlib==1.3.2
+websockets==15.0
+python-dotenv==1.1.0
+mcp==1.28.1
+# MCP 1.28.1 允许浮动到 sse-starlette 3.x，但 3.4+ 要求 Starlette >=0.49，
+# 与 FastAPI 0.115.12 的 Starlette <0.47 约束冲突，因此固定兼容版本。
+sse-starlette==2.4.1
+PyJWT[crypto]>=2.8.0
+# 共享 JWT 校验 SDK：固定 PyPI 版本，保证本地、CI 与生产镜像解析到同一发布物。
+seanfield-auth-client[fastapi]==0.3.1
+passlib[bcrypt]
+itsdangerous
+# 锁 <6：redis 8.x 改了 XREAD 字段键的解码（decode_responses 下不再回字符串键），
+# 导致 read_stream_chunks 取不到 chunk["type"]、识别不到终止标记而无限轮询，
+# stream 测试在 CI 偶发卡死到 5min 超时（floating pin 漂到 redis 8.0.0 才暴露）。
+# 代码按 redis 5.x 行为编写，固定到 5.x 与历史绿构建一致。
+redis[hiredis]>=5.0.0,<6.0.0
+apscheduler>=3.10.0,<4.0.0
+boto3>=1.34.0
+oss2>=2.18.0
+Pillow>=10.0.0
+pillow-heif>=0.15.0
+# Milvus 2.6.x 服务端对应的官方推荐 Python SDK；精确固定以保证镜像可复现。
+pymilvus==2.6.12
