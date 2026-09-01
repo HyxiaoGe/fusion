@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CI_PATH = ROOT / ".github/workflows/pr-ci.yml"
 API_WRAPPER_PATH = ROOT / ".github/workflows/_deploy-api.yml"
 UI_WRAPPER_PATH = ROOT / ".github/workflows/_deploy-ui.yml"
+APP_WORKFLOW_PATH = ROOT / ".github/workflows/_deploy-app.yml"
 ORCHESTRATOR_PATH = ROOT / ".github/workflows/deploy-dev.yml"
 DISPATCH_CONTRACT_PATH = ROOT / ".github/contracts/deploy-dispatch.yml"
 ACTIONLINT_CONFIG_PATH = ROOT / ".github/actionlint.yaml"
@@ -37,6 +38,7 @@ class WorkflowContractTests(unittest.TestCase):
         cls.orchestrator = load_workflow(ORCHESTRATOR_PATH) if ORCHESTRATOR_PATH.exists() else {}
         cls.api = load_workflow(API_WRAPPER_PATH)
         cls.ui = load_workflow(UI_WRAPPER_PATH)
+        cls.app = load_workflow(APP_WORKFLOW_PATH) if APP_WORKFLOW_PATH.exists() else {}
         cls.dispatch = load_workflow(DISPATCH_CONTRACT_PATH)
         cls.actionlint = load_workflow(ACTIONLINT_CONFIG_PATH)
 
@@ -228,13 +230,101 @@ class WorkflowContractTests(unittest.TestCase):
 
         jobs = self.orchestrator["jobs"]
         self.assertEqual(jobs["deploy-api"]["needs"], "changes")
-        self.assertEqual(jobs["deploy-api"]["uses"], "./.github/workflows/_deploy-api.yml")
+        self.assertEqual(jobs["deploy-api"]["uses"], "./.github/workflows/_deploy-app.yml")
         self.assertEqual(jobs["deploy-api"]["secrets"], "inherit")
         self.assertEqual(jobs["deploy-ui"]["needs"], ["changes", "deploy-api"])
-        self.assertEqual(jobs["deploy-ui"]["uses"], "./.github/workflows/_deploy-ui.yml")
+        self.assertEqual(jobs["deploy-ui"]["uses"], "./.github/workflows/_deploy-app.yml")
         self.assertEqual(jobs["deploy-ui"]["secrets"], "inherit")
         self.assertIn("always()", jobs["deploy-ui"]["if"])
         self.assertIn("needs.deploy-api.result == 'success'", jobs["deploy-ui"]["if"])
+
+    def test_task4_parameterized_workflow_preserves_per_app_contracts(self) -> None:
+        self.assertTrue(APP_WORKFLOW_PATH.exists(), "Task 4 必须提供参数化 _deploy-app.yml")
+        inputs = self.app[True]["workflow_call"]["inputs"]
+        self.assertEqual(
+            set(inputs),
+            {
+                "app",
+                "image_repository",
+                "health_check_endpoint",
+                "migration_enabled",
+                "dependency_services",
+                "rollback_anchor_policy",
+                "deploy_sha",
+                "rollback_sha",
+                "rollback_reason",
+            },
+        )
+
+        jobs = self.app["jobs"]
+        self.assertEqual(jobs["deploy-api"]["uses"], "./.github/workflows/_deploy-api.yml")
+        self.assertEqual(jobs["deploy-ui"]["uses"], "./.github/workflows/_deploy-ui.yml")
+        self.assertIn("inputs.app == 'api'", jobs["deploy-api"]["if"])
+        self.assertIn("inputs.app == 'ui'", jobs["deploy-ui"]["if"])
+
+        for name, app, repository, endpoint, migrations, dependencies, policy in (
+            (
+                "deploy-api",
+                "api",
+                "seanfield/fusion-api",
+                "http://127.0.0.1:8002/health",
+                True,
+                "postgres,redis,litellm,flyai-adapter,knowledge-worker",
+                "api-and-adapter-image-identities",
+            ),
+            (
+                "deploy-ui",
+                "ui",
+                "seanfield/fusion-ui",
+                "http://127.0.0.1:3000/",
+                False,
+                "api",
+                "ui-image-identity",
+            ),
+        ):
+            with self.subTest(job=name):
+                supplied = self.orchestrator["jobs"][name]["with"]
+                self.assertEqual(supplied["app"], app)
+                self.assertEqual(supplied["image_repository"], repository)
+                self.assertEqual(supplied["health_check_endpoint"], endpoint)
+                self.assertEqual(supplied["migration_enabled"], migrations)
+                self.assertEqual(supplied["dependency_services"], dependencies)
+                self.assertEqual(supplied["rollback_anchor_policy"], policy)
+
+    def test_task4_parameters_drive_the_selected_implementation_hooks(self) -> None:
+        parameter_names = {
+            "app",
+            "image_repository",
+            "health_check_endpoint",
+            "migration_enabled",
+            "dependency_services",
+            "rollback_anchor_policy",
+        }
+        for workflow in (self.api, self.ui):
+            self.assertTrue(parameter_names.issubset(workflow[True]["workflow_call"]["inputs"]))
+
+        for job in (self.app["jobs"]["deploy-api"], self.app["jobs"]["deploy-ui"]):
+            self.assertTrue(parameter_names.issubset(job["with"]))
+
+        api_env = self.api["env"]
+        self.assertIn("inputs.image_repository", api_env["IMAGE_NAME"])
+        self.assertEqual(api_env["API_HEALTH_CHECK_ENDPOINT"], "${{ inputs.health_check_endpoint }}")
+        self.assertEqual(api_env["DEPLOY_DEPENDENCY_SERVICES"], "${{ inputs.dependency_services }}")
+        self.assertEqual(api_env["DEPLOY_ROLLBACK_ANCHOR_POLICY"], "${{ inputs.rollback_anchor_policy }}")
+        api_migration = next(
+            step
+            for step in self.api["jobs"]["deploy-dev"]["steps"]
+            if step["name"] == "Apply alembic migrations"
+        )
+        self.assertIn("inputs.migration_enabled", api_migration["if"])
+
+        ui_env = self.ui["env"]
+        self.assertIn("inputs.image_repository", ui_env["IMAGE_NAME"])
+        self.assertEqual(ui_env["UI_HEALTH_CHECK_ENDPOINT"], "${{ inputs.health_check_endpoint }}")
+        self.assertEqual(ui_env["DEPLOY_DEPENDENCY_SERVICES"], "${{ inputs.dependency_services }}")
+        self.assertEqual(ui_env["DEPLOY_ROLLBACK_ANCHOR_POLICY"], "${{ inputs.rollback_anchor_policy }}")
+        self.assertIn('curl -fsS "${API_HEALTH_CHECK_ENDPOINT}"', self.api_text)
+        self.assertIn('process.env.FUSION_UI_HEALTH_CHECK_ENDPOINT', self.ui_text)
 
     def test_task2_uses_digest_ledger_and_checkout_independent_runtime_paths(self) -> None:
         combined = self.api_text + "\n" + self.ui_text

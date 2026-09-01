@@ -34,7 +34,7 @@ if [ "$runningImageId" != "$expectedImageId" ]; then
 fi
 
 for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
-  if docker exec fusion-ui node -e 'fetch("http://127.0.0.1:3000/", { signal: AbortSignal.timeout(5000) }).then((response) => { if (!response.ok) throw new Error(`HTTP ${response.status}`); }).catch((error) => { console.error(error); process.exit(1); });'; then
+  if docker exec -e "FUSION_UI_HEALTH_CHECK_ENDPOINT=${UI_HEALTH_CHECK_ENDPOINT}" fusion-ui node -e 'fetch(process.env.FUSION_UI_HEALTH_CHECK_ENDPOINT, { signal: AbortSignal.timeout(5000) }).then((response) => { if (!response.ok) throw new Error(`HTTP ${response.status}`); }).catch((error) => { console.error(error); process.exit(1); });'; then
     exit 0
   fi
   sleep 2

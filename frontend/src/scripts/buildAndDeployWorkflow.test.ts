@@ -717,8 +717,8 @@ docker() {
     const compareLine = 'if [ "$runningImage" != "$expectedImage" ]; then';
     const containerSmokeLine = executableLines.find(
       (line) =>
-        line.startsWith('if docker exec fusion-ui node -e ') &&
-        line.includes('fetch("http://127.0.0.1:3000/"'),
+        line.startsWith('if docker exec -e "FUSION_UI_HEALTH_CHECK_ENDPOINT=${UI_HEALTH_CHECK_ENDPOINT}" fusion-ui node -e ') &&
+        line.includes('fetch(process.env.FUSION_UI_HEALTH_CHECK_ENDPOINT'),
     );
     const retryLine = 'for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do';
 

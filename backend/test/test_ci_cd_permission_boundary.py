@@ -592,18 +592,54 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         self.assertEqual(
             workflow_call["inputs"],
             {
+                "app": {
+                    "description": "参数化发布的应用标识",
+                    "required": False,
+                    "default": "api",
+                    "type": "string",
+                },
+                "image_repository": {
+                    "description": "ACR 应用 repository",
+                    "required": False,
+                    "default": "seanfield/fusion-api",
+                    "type": "string",
+                },
+                "health_check_endpoint": {
+                    "description": "API 健康检查端点",
+                    "required": False,
+                    "default": "http://127.0.0.1:8002/health",
+                    "type": "string",
+                },
+                "migration_enabled": {
+                    "description": "是否执行 Alembic 迁移",
+                    "required": False,
+                    "default": True,
+                    "type": "boolean",
+                },
+                "dependency_services": {
+                    "description": "逗号分隔的运行时依赖服务",
+                    "required": False,
+                    "default": "postgres,redis,litellm,flyai-adapter,knowledge-worker",
+                    "type": "string",
+                },
+                "rollback_anchor_policy": {
+                    "description": "回滚运行镜像锚点策略",
+                    "required": False,
+                    "default": "api-and-adapter-image-identities",
+                    "type": "string",
+                },
                 "deploy_sha": {
                     "description": "orchestrator 固定的 master 提交 SHA",
                     "required": True,
                     "type": "string",
                 },
                 "rollback_sha": {
-                    "description": "要恢复的已发布镜像 SHA（40 位小写 Git SHA；留空表示正常发布）",
+                    "description": "要恢复的已发布镜像 SHA",
                     "required": False,
                     "type": "string",
                 },
                 "rollback_reason": {
-                    "description": "手动回滚原因（填写 rollback_sha 时必填）",
+                    "description": "手动回滚原因",
                     "required": False,
                     "type": "string",
                 },
@@ -644,7 +680,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         migration_step = workflow_step(deploy_job, "Apply alembic migrations")
         self.assertEqual(
             normalized_condition(migration_step["if"]),
-            "needs.prepare.outputs.rollback_requested != 'true'",
+            "inputs.migration_enabled && needs.prepare.outputs.rollback_requested != 'true'",
         )
         self.assertIn('"${DEPLOY_API_IMAGE}"', active_commands(migration_step["run"]))
 

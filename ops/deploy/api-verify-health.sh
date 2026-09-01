@@ -13,7 +13,7 @@ fi
 # OPS_DEPLOY_BODY_BEGIN
 healthy=0
 for attempt in $(seq 1 30); do
-  if curl -fsS http://127.0.0.1:8002/health | grep -q '"status":"healthy"'; then
+  if curl -fsS "${API_HEALTH_CHECK_ENDPOINT}" | grep -q '"status":"healthy"'; then
     healthy=1
     break
   fi

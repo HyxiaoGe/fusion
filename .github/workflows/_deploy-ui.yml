@@ -3,6 +3,36 @@ name: Fusion UI Build & Deploy
 on:
   workflow_call:
     inputs:
+      app:
+        description: 参数化发布的应用标识
+        required: false
+        default: ui
+        type: string
+      image_repository:
+        description: ACR 应用 repository
+        required: false
+        default: seanfield/fusion-ui
+        type: string
+      health_check_endpoint:
+        description: UI 健康检查端点
+        required: false
+        default: http://127.0.0.1:3000/
+        type: string
+      migration_enabled:
+        description: 是否执行数据库迁移（UI 必须为 false）
+        required: false
+        default: false
+        type: boolean
+      dependency_services:
+        description: 逗号分隔的运行时依赖服务
+        required: false
+        default: api
+        type: string
+      rollback_anchor_policy:
+        description: 回滚运行镜像锚点策略
+        required: false
+        default: ui-image-identity
+        type: string
       deploy_sha:
         description: orchestrator 固定的 master 提交 SHA
         required: true
@@ -25,7 +55,10 @@ permissions:
 # 镜像源:阿里云 ACR 个人版(深圳,境内端点);改仓名只动 IMAGE_NAME 一行
 env:
   REGISTRY: crpi-77w10wlykpqilmmb.cn-shenzhen.personal.cr.aliyuncs.com
-  IMAGE_NAME: crpi-77w10wlykpqilmmb.cn-shenzhen.personal.cr.aliyuncs.com/seanfield/fusion-ui
+  IMAGE_NAME: ${{ format('crpi-77w10wlykpqilmmb.cn-shenzhen.personal.cr.aliyuncs.com/{0}', inputs.image_repository) }}
+  UI_HEALTH_CHECK_ENDPOINT: ${{ inputs.health_check_endpoint }}
+  DEPLOY_DEPENDENCY_SERVICES: ${{ inputs.dependency_services }}
+  DEPLOY_ROLLBACK_ANCHOR_POLICY: ${{ inputs.rollback_anchor_policy }}
   ROLLBACK_SHA: ${{ inputs.rollback_sha }}
   ROLLBACK_REASON: ${{ inputs.rollback_reason }}
   DEPLOY_TARGET_SHA: ${{ inputs.rollback_sha || inputs.deploy_sha }}

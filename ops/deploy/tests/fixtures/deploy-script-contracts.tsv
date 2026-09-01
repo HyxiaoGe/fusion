@@ -11,7 +11,7 @@ workflow	step	script	body_sha256
 .github/workflows/_deploy-api.yml	Apply alembic migrations	ops/deploy/api-apply-alembic-migrations.sh	d551f00a445e352bcedb1b1633f3b03342824e397bdfef1604a6212028203ac3
 .github/workflows/_deploy-api.yml	Pull and restart fusion-api	ops/deploy/api-pull-and-restart.sh	e936b35562243a82f155418f9c365b518eff89ae3e44a4d7463c4743862434d7
 .github/workflows/_deploy-api.yml	Verify deployed image identity	ops/deploy/api-verify-image-identity.sh	0ba67f2cc67cac14f949aefd562af300bb6c2a7546c3a3963934b4e3d67c1ec7
-.github/workflows/_deploy-api.yml	Verify health	ops/deploy/api-verify-health.sh	028032398a9fdee80037a457399889d7d8b36f95e95c1f3ba180d8557aa99113
+.github/workflows/_deploy-api.yml	Verify health	ops/deploy/api-verify-health.sh	7c7e8338e86c0622d2889579165562ea70ab2a4553e9e8068afe7b8ec059f819
 .github/workflows/_deploy-api.yml	Install LiteLLM governance discovery	ops/deploy/api-install-litellm-governance.sh	facb85e4c99c36b22044384eb5798ec6fb26fff4669b059ea5152727250e1c13
 .github/workflows/_deploy-api.yml	Install model management worker	ops/deploy/api-install-model-management-worker.sh	9f5b806c503e41275a34e151fd93f47d598a9a1bb246a88e27c3b4fe3ffd8d8b
 .github/workflows/_deploy-api.yml	Run deployment smoke	ops/deploy/api-run-deployment-smoke.sh	9ea72029a93a6b35299c87b13a6ce51f29778171cbf889dd249a9ad15fd6b3cb
@@ -31,7 +31,7 @@ workflow	step	script	body_sha256
 .github/workflows/_deploy-ui.yml	Bootstrap current UI release ledger	ops/deploy/ui-bootstrap-current-release-ledger.sh	9750d94e4bba51d770b16c97e74987bd90916ac644a0f5420d463e6ba1cc353b
 .github/workflows/_deploy-ui.yml	Resolve UI deployment digest	ops/deploy/ui-resolve-deployment-digest.sh	05be8864088d7d0fd7bfd10fcaa7695f2a04d9e3cdfc3c1b2ddda1a59773ef9c
 .github/workflows/_deploy-ui.yml	Deploy candidate image	ops/deploy/ui-deploy-candidate-image.sh	d894b502b6f487ec47948f4ffc182f4e40bc602922c8d39c7d5737f7a601769c
-.github/workflows/_deploy-ui.yml	Smoke check candidate deployment	ops/deploy/ui-smoke-check-candidate-deployment.sh	c1a894a5cd566b331deca83291348c014f2bf3bdc1a88c5d075870cadbb79ada
+.github/workflows/_deploy-ui.yml	Smoke check candidate deployment	ops/deploy/ui-smoke-check-candidate-deployment.sh	f6b3f65fd89eb9d6953a109bd4bfa2186dd494472c30bcac80a2496ccc2f120a
 .github/workflows/_deploy-ui.yml	Resolve browser smoke runtime	ops/deploy/ui-resolve-browser-smoke-runtime.sh	978ad127e0c682647b1913c88685292ffb5506b8acd8a24c2b8f04c83348ec8c
 .github/workflows/_deploy-ui.yml	Run dev browser smoke	ops/deploy/ui-run-dev-browser-smoke.sh	7620d702b3493b97ab49cd4c0f6ad848999ec845a5b14ebf74af904f9bf21daf
 .github/workflows/_deploy-ui.yml	Preserve UI rollback image	ops/deploy/ui-preserve-rollback-image.sh	2b03fad72cf08b103e7f52bdccbe9a4ed5cd24f94a922ba4e562544856a760c6
