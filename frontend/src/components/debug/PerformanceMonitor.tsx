@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { componentCache, apiCache } from '@/lib/utils/preloader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -11,7 +11,6 @@ import {
   Trash2, 
   RefreshCw,
   BarChart3,
-  TrendingUp,
   Activity
 } from 'lucide-react';
 
@@ -22,6 +21,24 @@ interface PerformanceMetrics {
   componentRenderTimes: Record<string, number>;
   cacheHitRate: number;
   memoryUsage: number;
+}
+
+function getComponentRenderTimes(): Record<string, number> {
+  const measures = performance.getEntriesByType('measure');
+  const componentTimes: Record<string, number> = {};
+
+  measures.forEach(measure => {
+    if (measure.name.startsWith('⚛️')) {
+      componentTimes[measure.name] = measure.duration;
+    }
+  });
+
+  return componentTimes;
+}
+
+function calculateCacheHitRate(): number {
+  // 这里需要根据实际的缓存统计来计算，当前继续沿用原有模拟值。
+  return Math.random() * 100;
 }
 
 const PerformanceMonitor: React.FC = () => {
@@ -39,7 +56,7 @@ const PerformanceMonitor: React.FC = () => {
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // 收集性能指标
-  const collectMetrics = () => {
+  const collectMetrics = useCallback(() => {
     // 页面性能指标
     const navigation = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming;
     const paintEntries = performance.getEntriesByType('paint');
@@ -48,10 +65,6 @@ const PerformanceMonitor: React.FC = () => {
     const lcpEntries = performance.getEntriesByType('largest-contentful-paint');
     const lcpEntry = lcpEntries[lcpEntries.length - 1];
 
-    // 缓存统计
-    const componentCacheStats = componentCache.getStats();
-    const apiCacheStats = apiCache.getStats();
-    
     // 内存使用（如果可用）
     const memoryInfo = (performance as any).memory;
 
@@ -63,28 +76,7 @@ const PerformanceMonitor: React.FC = () => {
       cacheHitRate: calculateCacheHitRate(),
       memoryUsage: memoryInfo ? memoryInfo.usedJSHeapSize / 1024 / 1024 : 0
     });
-  };
-
-  // 获取组件渲染时间（模拟数据，实际需要使用React Profiler）
-  const getComponentRenderTimes = (): Record<string, number> => {
-    const measures = performance.getEntriesByType('measure');
-    const componentTimes: Record<string, number> = {};
-    
-    measures.forEach(measure => {
-      if (measure.name.startsWith('⚛️')) {
-        componentTimes[measure.name] = measure.duration;
-      }
-    });
-    
-    return componentTimes;
-  };
-
-  // 计算缓存命中率
-  const calculateCacheHitRate = (): number => {
-    // 这里需要根据实际的缓存统计来计算
-    // 暂时返回模拟数据
-    return Math.random() * 100;
-  };
+  }, []);
 
   // 清理所有缓存
   const clearCaches = () => {
@@ -131,12 +123,12 @@ const PerformanceMonitor: React.FC = () => {
         clearInterval(intervalRef.current);
       }
     };
-  }, [autoRefresh]);
+  }, [autoRefresh, collectMetrics]);
 
   // 初始收集指标
   useEffect(() => {
     collectMetrics();
-  }, []);
+  }, [collectMetrics]);
 
   // 键盘快捷键切换显示
   useEffect(() => {
@@ -280,4 +272,4 @@ const PerformanceMonitor: React.FC = () => {
   );
 };
 
-export default PerformanceMonitor; 
+export default PerformanceMonitor;

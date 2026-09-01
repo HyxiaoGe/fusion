@@ -40,7 +40,7 @@ export function extractCodeBlocks(markdown: string): { language: string; code: s
       try {
         const parsed = JSON.parse(code);
         return JSON.stringify(parsed, null, 2);
-      } catch (e) {
+      } catch {
         return code;
       }
     }

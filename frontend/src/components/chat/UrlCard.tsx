@@ -25,6 +25,8 @@ const UrlCard: React.FC<UrlCardProps> = ({ url, title, favicon }) => {
       className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-border/50 bg-muted/30 hover:bg-muted/50 transition-colors mb-3 no-underline group"
     >
       {favicon ? (
+        // 外部站点 favicon 尺寸很小且需保留原始 URL，Next Image 优化没有收益。
+        // eslint-disable-next-line @next/next/no-img-element
         <img src={favicon} alt="" className="w-5 h-5 rounded shrink-0" />
       ) : (
         <Globe className="w-5 h-5 text-muted-foreground shrink-0" />

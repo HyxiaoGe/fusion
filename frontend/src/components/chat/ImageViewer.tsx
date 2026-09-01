@@ -215,6 +215,8 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ fileBlock, imageUrl, onClose 
               </div>
             </div>
           ) : fullImageUrl ? (
+            // Lightbox 支持 blob 与鉴权图片地址，不能由 Next Image 服务端重新请求。
+            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={fullImageUrl}
               alt={altText}

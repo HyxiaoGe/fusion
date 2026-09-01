@@ -27,7 +27,7 @@ function getFileSize(filePath) {
   try {
     const stats = fs.statSync(filePath);
     return stats.size;
-  } catch (error) {
+  } catch {
     return 0;
   }
 }
@@ -173,4 +173,4 @@ if (fs.existsSync(packageJsonPath)) {
     console.log('\n🚀 快速安装bundle analyzer:');
     console.log('   npm install --save-dev @next/bundle-analyzer');
   }
-} 
+}

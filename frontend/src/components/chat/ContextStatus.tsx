@@ -224,6 +224,8 @@ export default function ContextStatus({
       && !hasSuppressedFirstTurn(conversationId)
       && (!recoveredPendingFirstTurn || recoveredFirstTurnSucceeded),
     );
+    // 此 effect 负责会话/run 身份切换；流式与用量变化由下方独立 effect 处理，加入依赖会重复恢复首轮状态。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRunId, conversationId]);
 
   useLayoutEffect(() => {

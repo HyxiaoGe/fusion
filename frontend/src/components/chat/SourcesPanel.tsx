@@ -32,6 +32,8 @@ const SourcesPanel: React.FC<SourcesPanelProps> = ({ sources }) => {
                   className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border/40 bg-bg-subtle hover:bg-muted text-xs text-muted-foreground hover:text-foreground transition-colors duration-fast"
                 >
                   {source.favicon ? (
+                    // 外部站点 favicon 尺寸很小且需保留原始 URL，Next Image 优化没有收益。
+                    // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={source.favicon}
                       alt=""

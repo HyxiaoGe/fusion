@@ -9,6 +9,7 @@
     "dev": "cross-env NODE_ENV=development concurrently \"next dev\" \"wait-on http://localhost:3000 && electron src/electron/main.js --inspect=5858\"",
     "build": "next build",
     "build:electron": "next build && electron-builder",
+    "lint": "eslint . --max-warnings 0",
     "start": "next start",
     "test": "vitest run",
     "test:watch": "vitest",

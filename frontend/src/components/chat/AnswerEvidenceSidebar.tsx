@@ -20,6 +20,8 @@ interface AnswerEvidenceSidebarProps {
   highlightTick?: number;
 }
 
+const EMPTY_USED_ITEMS: AnswerEvidenceSidebarUsedItem[] = [];
+
 export default function AnswerEvidenceSidebar({
   model,
   isOpen,
@@ -30,7 +32,7 @@ export default function AnswerEvidenceSidebar({
   const itemRefs = useRef<Array<HTMLDivElement | null>>([]);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
-  const usedItems = model?.usedItems ?? [];
+  const usedItems = model?.usedItems ?? EMPTY_USED_ITEMS;
   const candidateItems = model?.candidateItems ?? [];
   useChatDetailOverlayRegistration(isOpen && Boolean(model?.isRenderable));
 
@@ -288,6 +290,8 @@ UsedSourceItem.displayName = 'UsedSourceItem';
 function UsedSourceIcon({ item }: { item: AnswerEvidenceSidebarUsedItem }) {
   if (item.favicon) {
     return (
+      // 外部站点 favicon 尺寸很小且需保留原始 URL，Next Image 优化没有收益。
+      // eslint-disable-next-line @next/next/no-img-element
       <img
         src={item.favicon}
         alt=""

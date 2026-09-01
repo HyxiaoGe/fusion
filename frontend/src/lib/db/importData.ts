@@ -68,9 +68,8 @@ export async function importDataFromFile(file: File, dispatch: AppDispatch): Pro
         }
         
         // 添加不含消息的聊天记录到chats表
-        const { messages: _, ...chatWithoutMessages } = chat;
         await db.chats.put({
-          ...chatWithoutMessages,
+          ...chat,
           messages: [],
         });
       }

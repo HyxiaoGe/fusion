@@ -1,6 +1,5 @@
 import type {
   CapabilityLabel,
-  CapabilityTone,
   ModelCapabilityRecommendation,
   ModelInfo,
   ModelRecommendationLevel,

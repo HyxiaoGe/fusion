@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import { FileWithPreview } from '@/lib/utils/fileHelpers';
 import { ImageIcon } from 'lucide-react';
 
@@ -9,7 +9,7 @@ interface ImagePreviewProps {
   className?: string;
 }
 
-const ImagePreview: React.FC<ImagePreviewProps> = ({ file, className }) => {
+const ImagePreview: React.FC<ImagePreviewProps> = ({ className }) => {
   // 简化组件，只显示图标
   return (
     <div

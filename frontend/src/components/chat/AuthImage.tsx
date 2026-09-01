@@ -128,6 +128,8 @@ const AuthImage: React.FC<AuthImageProps> = ({
   }
 
   return (
+    // 图片地址由鉴权请求动态生成，不能交给 Next Image 服务端优化器重新请求。
+    // eslint-disable-next-line @next/next/no-img-element
     <img
       src={src}
       alt={alt}

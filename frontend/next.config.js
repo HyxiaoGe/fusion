@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
 /** @type {import('next').NextConfig} */
 // 只在需要分析时加载 bundle analyzer
 const withBundleAnalyzer = process.env.ANALYZE === 'true' 

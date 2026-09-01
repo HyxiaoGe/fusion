@@ -224,6 +224,8 @@ function EvidenceItemContent({ item }: { item: AnswerEvidenceItem }) {
 function EvidenceItemIcon({ item }: { item: AnswerEvidenceItem }) {
   if (item.favicon) {
     return (
+      // 外部站点 favicon 尺寸很小且需保留原始 URL，Next Image 优化没有收益。
+      // eslint-disable-next-line @next/next/no-img-element
       <img
         src={item.favicon}
         alt=""

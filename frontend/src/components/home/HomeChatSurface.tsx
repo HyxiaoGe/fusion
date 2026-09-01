@@ -351,11 +351,10 @@ export default function HomeChatSurface() {
     });
   }, [addConversationAttachment, filesConversationId, refreshConversationFiles]);
 
-  const pendingAutoAttachFileIds = pendingAutoAttachState.chatId === attachmentScopeId
-    ? pendingAutoAttachState.fileIds
-    : [];
-
   useEffect(() => {
+    const pendingAutoAttachFileIds = pendingAutoAttachState.chatId === attachmentScopeId
+      ? pendingAutoAttachState.fileIds
+      : [];
     if (pendingAutoAttachFileIds.length === 0) {
       return;
     }
@@ -386,7 +385,13 @@ export default function HomeChatSurface() {
       chatId: attachmentScopeId,
       fileIds: Array.from(remainingFileIds),
     });
-  }, [addConversationAttachment, attachmentScopeId, conversationFiles, pendingAutoAttachFileIds]);
+  }, [
+    addConversationAttachment,
+    attachmentScopeId,
+    conversationFiles,
+    pendingAutoAttachState.chatId,
+    pendingAutoAttachState.fileIds,
+  ]);
 
   const handleSendMessage = useCallback((
     content: string,

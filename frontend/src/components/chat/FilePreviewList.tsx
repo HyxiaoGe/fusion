@@ -20,7 +20,6 @@ const FilePreviewList: React.FC<FilePreviewListProps> = ({ files, onRemove }) =>
         <FilePreviewItem
           key={fileItem.id}
           file={fileItem.file}
-          previewUrl={fileItem.previewUrl}
           onRemove={() => onRemove(fileItem.id)}
         />
       ))}

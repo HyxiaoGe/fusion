@@ -26,6 +26,8 @@ FROM source AS test
 
 ENV NODE_ENV=test
 
+RUN npm run lint
+
 RUN npm test
 
 

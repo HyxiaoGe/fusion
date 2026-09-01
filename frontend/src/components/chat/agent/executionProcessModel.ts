@@ -360,13 +360,6 @@ function isExternalToolName(toolName: string): boolean {
   return toolName !== 'web_search' && toolName !== 'url_read';
 }
 
-function containsInternalToolAlias(value: string, toolName: string): boolean {
-  const normalizedValue = value.toLowerCase();
-  const normalizedToolName = toolName.trim().toLowerCase();
-  return Boolean(normalizedToolName && normalizedValue.includes(normalizedToolName))
-    || /(?:^|[^a-z0-9])mcp(?:__|[_:-])[a-z0-9_.:-]+/i.test(value);
-}
-
 function sanitizeInternalText(value: string): string {
   const normalized = value.trim();
   const lower = normalized.toLowerCase();

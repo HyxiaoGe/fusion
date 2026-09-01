@@ -6,10 +6,8 @@ import { deleteFile } from '@/lib/api/files';
 import { FileWithPreview, formatFileSize, getFileType } from '@/lib/utils/fileHelpers';
 import { useAppDispatch } from '@/redux/hooks';
 import { removeFileId } from '@/redux/slices/fileUploadSlice';
-import { ArchiveIcon, FileCodeIcon, FileIcon, FileTextIcon, Loader2, X } from 'lucide-react';
+import { ArchiveIcon, FileCodeIcon, FileIcon, FileTextIcon, ImageIcon, Loader2, X } from 'lucide-react';
 import React, { useState } from 'react';
-import ImagePreview from './ImagePreview';
-import { ImageIcon } from 'lucide-react';
 
 interface FileCardProps {
   file: FileWithPreview & { fileId?: string };

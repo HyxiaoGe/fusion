@@ -1,6 +1,5 @@
 import {
     format,
-    formatDistance,
     formatDistanceToNow,
     formatRelative,
     isToday,

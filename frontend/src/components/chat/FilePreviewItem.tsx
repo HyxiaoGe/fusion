@@ -5,13 +5,11 @@ import { formatFileSize, getFileType } from '@/lib/utils/fileHelpers';
 
 interface FilePreviewItemProps {
   file: File;
-  previewUrl: string;
   onRemove: () => void;
 }
 
 const FilePreviewItem: React.FC<FilePreviewItemProps> = ({ 
   file, 
-  previewUrl, 
   onRemove 
 }) => {
   const fileType = getFileType(file);

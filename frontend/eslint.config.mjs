@@ -10,10 +10,31 @@ const compat = new FlatCompat({
 });
 
 const eslintConfig = [
+  {
+    ignores: [
+      ".next/**",
+      "build/**",
+      "coverage/**",
+      "dist/**",
+      "node_modules/**",
+      "out/**",
+    ],
+  },
   ...compat.extends("next/core-web-vitals", "next/typescript"),
   {
     rules: {
       "@typescript-eslint/no-explicit-any": "off", // 关闭any警告
+    },
+  },
+  {
+    files: [
+      "next.config.js",
+      "tailwind.config.js",
+      "src/electron/**/*.js",
+      "src/scripts/**/*.js",
+    ],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
     },
   },
 ];

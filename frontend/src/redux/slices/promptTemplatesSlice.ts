@@ -34,7 +34,7 @@ export const initializeTemplates = createAsyncThunk(
       await initializeDefaultPromptTemplates();
       const templates = await getAllPromptTemplates();
       return templates;
-    } catch (error) {
+    } catch {
       return rejectWithValue('无法初始化提示词模板');
     }
   }
@@ -47,7 +47,7 @@ export const fetchAllTemplates = createAsyncThunk(
     try {
       const templates = await getAllPromptTemplates();
       return templates;
-    } catch (error) {
+    } catch {
       return rejectWithValue('无法加载提示词模板');
     }
   }
@@ -70,7 +70,7 @@ export const createTemplate = createAsyncThunk(
         createdAt: now,
         updatedAt: now,
       } as PromptTemplate;
-    } catch (error) {
+    } catch {
       return rejectWithValue('无法创建提示词模板');
     }
   }
@@ -90,7 +90,7 @@ export const updateTemplate = createAsyncThunk(
         throw new Error('找不到更新后的模板');
       }
       return updatedTemplate;
-    } catch (error) {
+    } catch {
       return rejectWithValue('无法更新提示词模板');
     }
   }
@@ -103,7 +103,7 @@ export const removeTemplate = createAsyncThunk(
     try {
       await deletePromptTemplate(id);
       return id;
-    } catch (error) {
+    } catch {
       return rejectWithValue('无法删除提示词模板');
     }
   }

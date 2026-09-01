@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session } = require('electron');
+const { app, BrowserWindow, session } = require('electron');
 const path = require('path');
 
 // 自己检测开发环境
