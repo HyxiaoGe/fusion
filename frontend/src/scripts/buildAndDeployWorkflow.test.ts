@@ -76,6 +76,8 @@ type WorkflowDocument = {
   };
   jobs?: Record<string, WorkflowJob>;
 };
+const normalizedNeeds = (needs: WorkflowJob['needs']): string[] =>
+  needs === undefined ? [] : Array.isArray(needs) ? needs : [needs];
 const releaseWorkflowDocument = parse(releaseWorkflow) as WorkflowDocument;
 const pullRequestWorkflowDocument = parse(pullRequestWorkflow) as WorkflowDocument;
 const releaseSafetyDocument = parse(releaseSafetyManifest);
@@ -245,7 +247,7 @@ const actionDocuments = [
         finalize: null,
         finalize_failure: null,
       },
-      needs: { publish: [], deploy: ['validate-parameters', 'publish'], finalize: [] },
+      needs: { publish: ['validate-parameters'], deploy: ['validate-parameters', 'publish'], finalize: [] },
       conditions: {
         prepare: null,
         publish: expectedPublishCondition,
@@ -286,6 +288,12 @@ const actionDocuments = [
     const appContractStep = validationJob?.steps?.find((step) => step.id === parameterContract.validation_step);
     expect(appContractStep?.run).toContain('expected_dependency_services="api"');
     expect(releaseWorkflowSource).toContain('run: ops/deploy/validate-app-deployment-contract.sh');
+    expect(normalizedNeeds(releaseWorkflowDocument.jobs?.publish?.needs)).toEqual(
+      releaseSafetyDocument.needs.publish,
+    );
+    expect(normalizedNeeds(releaseWorkflowDocument.jobs?.['deploy-dev']?.needs)).toEqual(
+      releaseSafetyDocument.needs.deploy,
+    );
 
     const prSteps = pullRequestWorkflowDocument.jobs?.ui?.steps ?? [];
     const contractSteps = prSteps.filter((step) => step.id === 'release_safety_contract');

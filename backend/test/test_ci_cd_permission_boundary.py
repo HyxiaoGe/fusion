@@ -477,11 +477,20 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         self.assertIn("cancel-in-progress: true", self.pr_workflow)
 
     def test_all_checkouts_disable_credential_persistence(self) -> None:
-        checkout_without_credentials = f"uses: {CHECKOUT_ACTION}\n        with:\n          persist-credentials: false"
-        self.assertEqual(self.pr_workflow.count(checkout_without_credentials), 3)
-        self.assertEqual(self.release_workflow.count(checkout_without_credentials), 4)
-        self.assertEqual(self.pr_workflow.count(f"uses: {CHECKOUT_ACTION}"), 4)
-        self.assertEqual(self.release_workflow.count(f"uses: {CHECKOUT_ACTION}"), 4)
+        checkout_action = CHECKOUT_ACTION.removesuffix(" # v6")
+        for workflow, expected_checkouts in (
+            (self.pr_document, 4),
+            (self.release_document, 4),
+        ):
+            checkout_steps = [
+                step
+                for job in workflow["jobs"].values()
+                for step in job.get("steps", [])
+                if step.get("uses") == checkout_action
+            ]
+            self.assertEqual(len(checkout_steps), expected_checkouts)
+            for step in checkout_steps:
+                self.assertFalse(step.get("with", {}).get("persist-credentials", True))
 
     def test_active_workflows_pin_external_actions_to_full_commit_sha(self) -> None:
         uses_key_pattern = re.compile(r"^\s*(?:-\s*)?uses\s*:")
@@ -550,10 +559,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         publish_job = self.release_workflow[
             self.release_workflow.index("  publish:") : self.release_workflow.index("  deploy-dev:")
         ]
-        self.assertRegex(
-            publish_job,
-            r"(?ms)^\s{4}environment:\n\s{6}name: dev\n\s{6}deployment: false$",
-        )
+        self.assertEqual(self.release_document["jobs"]["publish"]["environment"], {"name": "dev", "deployment": False})
         self.assertIn(f"uses: {LOGIN_ACTION}", publish_job)
         self.assertIn("username: ${{ secrets.ACR_USERNAME }}", publish_job)
         self.assertIn("password: ${{ secrets.ACR_PASSWORD }}", publish_job)

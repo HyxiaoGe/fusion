@@ -34,7 +34,7 @@ steps:
   finalize: null
   finalize_failure: null
 needs:
-  publish: []
+  publish: [validate-parameters]
   deploy: [validate-parameters, publish]
   finalize: []
 conditions:

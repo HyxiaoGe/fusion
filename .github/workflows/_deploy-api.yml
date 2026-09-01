@@ -36,8 +36,7 @@ jobs:
       rollback_anchors: ${{ steps.app_contract.outputs.rollback_anchors }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
+        with: { persist-credentials: false }
       - name: Validate application deployment contract
         id: app_contract
         run: ops/deploy/validate-app-deployment-contract.sh
@@ -55,17 +54,11 @@ jobs:
     needs: prepare
     runs-on: [self-hosted, Windows, X64, fusion-api]
     timeout-minutes: 40
-    environment:
-      name: dev
-      deployment: false
+    environment: { name: dev, deployment: false }
     env:
       DEPLOY_SHA: ${{ inputs.deploy_sha }}
-    outputs:
-      started_at: ${{ steps.pipeline_start.outputs.started_at }}
-      runner_name: ${{ steps.pipeline_start.outputs.runner_name }}
-    defaults:
-      run:
-        shell: cmd
+    outputs: { started_at: "${{ steps.pipeline_start.outputs.started_at }}", runner_name: "${{ steps.pipeline_start.outputs.runner_name }}" }
+    defaults: { run: { shell: cmd } }
     steps:
       - name: Record pipeline start
         id: pipeline_start
@@ -105,8 +98,7 @@ jobs:
           }
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
+        with: { persist-credentials: false }
       - name: Verify Docker access
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
@@ -397,8 +389,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
+        with: { persist-credentials: false }
       - name: Finalize release result
         id: finalize_release_result
         env:

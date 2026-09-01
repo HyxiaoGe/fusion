@@ -105,8 +105,8 @@ class DeployScriptContractTests(unittest.TestCase):
     def test_wrappers_stay_within_task4_line_budget(self) -> None:
         for wrapper in WRAPPERS:
             with self.subTest(wrapper=wrapper.name):
-                # Task 4 为 direct workflow_call 新增 hosted fail-closed guard；仍限制 wrapper 体量。
-                self.assertLessEqual(len(wrapper.read_text(encoding="utf-8").splitlines()), 420)
+                # 保持 Task 3 的 400 行上限，避免 workflow 重新膨胀为内联脚本。
+                self.assertLessEqual(len(wrapper.read_text(encoding="utf-8").splitlines()), 400)
 
     def test_script_bodies_match_the_reviewed_fixtures(self) -> None:
         for row in self.rows:
