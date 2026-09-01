@@ -34,8 +34,8 @@ ssh dev "docker exec middleware-redis redis-cli hgetall 'stream:meta:{conv_id}'"
 # 查看 lock
 ssh dev "docker exec middleware-redis redis-cli get 'stream:lock:{conv_id}'"
 
-# 查看 Stream 内容（最近 5 条）
-ssh dev "docker exec middleware-redis redis-cli xrevrange 'stream:chunks:{conv_id}' + - COUNT 5"
+# 只查看 Stream 条目数元数据，不输出 entry body
+ssh dev "docker exec middleware-redis redis-cli XLEN 'stream:chunks:{conv_id}'"
 ```
 
 ## 3. 端到端测试流程

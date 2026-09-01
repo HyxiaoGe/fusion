@@ -49,7 +49,8 @@ JWT 校验在 [`app/core/security.py`](app/core/security.py)。
 
 聊天持久化使用：
 
-- [`app/services/memory_service.py`](app/services/memory_service.py)
+- [`app/services/conversation_service.py`](app/services/conversation_service.py)
+- [`app/services/stream/persistence.py`](app/services/stream/persistence.py)
 - [`app/db/repositories.py`](app/db/repositories.py)
 
 核心表是：
@@ -64,7 +65,7 @@ JWT 校验在 [`app/core/security.py`](app/core/security.py)。
 
 ## Streaming Flow
 
-流式主逻辑在 [`app/services/stream_handler.py`](app/services/stream_handler.py)。
+流式生成由 [`app/services/stream/runner.py`](app/services/stream/runner.py) 编排 agent loop，Redis Stream 状态由 [`app/services/stream_state_service.py`](app/services/stream_state_service.py) 管理，面向客户端的 SSE 读取与编码在 [`app/services/stream/sse_encoder.py`](app/services/stream/sse_encoder.py)。
 
 当前有三种流：
 
@@ -125,9 +126,10 @@ JWT 校验在 [`app/core/security.py`](app/core/security.py)。
 1. [`main.py`](main.py)
 2. [`app/api/chat.py`](app/api/chat.py)
 3. [`app/services/chat_service.py`](app/services/chat_service.py)
-4. [`app/services/stream_handler.py`](app/services/stream_handler.py)
-5. [`app/services/file_service.py`](app/services/file_service.py)
-6. [`app/api/auth.py`](app/api/auth.py)
-7. [`app/api/models.py`](app/api/models.py)
+4. [`app/services/stream/runner.py`](app/services/stream/runner.py)
+5. [`app/services/stream/sse_encoder.py`](app/services/stream/sse_encoder.py)
+6. [`app/services/file_service.py`](app/services/file_service.py)
+7. [`app/api/auth.py`](app/api/auth.py)
+8. [`app/api/models.py`](app/api/models.py)
 
 读完这几处，应该就能解释当前聊天主产品的数据流和边界。

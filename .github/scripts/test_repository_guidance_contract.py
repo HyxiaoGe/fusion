@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -380,7 +382,7 @@ class RepositoryGuidanceContractTest(unittest.TestCase):
         offenders: list[str] = []
         for path in sorted((ROOT / "docs/implementation-plans").rglob("*.md")):
             content = read(path)
-            for old_path in ("../fusion-api/", "../fusion-ui/"):
+            for old_path in ("../" + "fusion-api/", "../" + "fusion-ui/"):
                 if old_path in content:
                     offenders.append(f"{path.relative_to(ROOT)}: {old_path}")
         self.assertEqual(offenders, [], f"实施计划仍含旧兄弟仓路径: {offenders}")
@@ -402,6 +404,35 @@ class RepositoryGuidanceContractTest(unittest.TestCase):
                 if old_path in content:
                     offenders.append(f"{relative}: {old_path}")
         self.assertEqual(offenders, [], f"现行入口仍含旧绝对 checkout 路径: {offenders}")
+
+    def test_current_entry_markdown_relative_link_targets_exist(self) -> None:
+        entries = (
+            "README.md",
+            "backend/README.md",
+            "frontend/README.md",
+            "backend/CHAT_CORE_DATA_FLOW.md",
+            "frontend/CHAT_UI_DATA_FLOW.md",
+        )
+        offenders: list[str] = []
+        for relative in entries:
+            document = ROOT / relative
+            for target in re.findall(r"(?<!!)\[[^\]]*\]\(([^)]+)\)", read(document)):
+                normalized = target.strip().strip("<>").split(maxsplit=1)[0]
+                parsed = urlsplit(normalized)
+                if parsed.scheme in {"http", "https", "mailto"} or not parsed.path:
+                    continue
+                link_path = Path(unquote(parsed.path))
+                resolved = link_path if link_path.is_absolute() else document.parent / link_path
+                if not resolved.exists():
+                    offenders.append(f"{relative}: {target}")
+        self.assertEqual(offenders, [], f"现行入口含无效 Markdown 文件链接: {offenders}")
+
+    def test_debug_stream_uses_only_payload_safe_stream_metadata_commands(self) -> None:
+        content = read(ROOT / "backend/.agents/skills/debug-stream/SKILL.md")
+        for command in ("XRANGE", "XREVRANGE", "XREAD", "XREADGROUP", "XINFO STREAM"):
+            self.assertNotRegex(content, rf"(?i)\b{command}\b", f"debug-stream 不得读取 entry body: {command}")
+        self.assertIn("XLEN", content, "debug-stream 应只读取 Stream 长度元数据")
+        self.assertIn("不输出 entry body", content)
 
     def test_task5_introducing_change_does_not_touch_business_code(self) -> None:
         forbidden = task5_business_path_violations(task5_changed_paths())

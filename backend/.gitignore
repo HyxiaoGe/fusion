@@ -17,8 +17,6 @@ docs/*
 !docs/KNOWLEDGE_BASE.md
 !docs/LITELLM_HEALTH.md
 !docs/TRAJECTORY_DESIGN.md
-!docs/superpowers/
-!docs/implementation-plans/
 
 .cursor
 
