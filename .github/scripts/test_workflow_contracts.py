@@ -256,6 +256,25 @@ class WorkflowContractTests(unittest.TestCase):
             self.assertIn("docker buildx imagetools inspect", wrapper)
             self.assertIn("@sha256:", wrapper)
 
+    def test_task2_compose_handoff_keeps_legacy_project_identity(self) -> None:
+        api_compose_calls = [
+            line.strip()
+            for line in self.api_text.splitlines()
+            if "docker compose" in line and "docker-compose.fusion-api-ghcr.yml" in line
+        ]
+        ui_compose_calls = [
+            line.strip()
+            for line in self.ui_text.splitlines()
+            if "docker compose" in line and "docker-compose.fusion-ui-ghcr.yml" in line
+        ]
+
+        self.assertGreaterEqual(len(api_compose_calls), 4)
+        self.assertGreaterEqual(len(ui_compose_calls), 2)
+        for command in (*api_compose_calls, *ui_compose_calls):
+            self.assertIn("--project-name fusion", command)
+
+        self.assertNotIn("兜底：清掉旧 compose project", self.ui_text)
+
 
 if __name__ == "__main__":
     unittest.main()
