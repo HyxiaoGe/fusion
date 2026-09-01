@@ -1,9 +1,10 @@
 workflow	step	script	body_sha256
 .github/workflows/_deploy-api.yml	Validate deployment request	ops/deploy/api-validate-deployment-request.sh	7e584e95b312c5565de261bf70b60e9fecdd238187534f40be92a7dfd36f0eb7
+.github/workflows/_deploy-api.yml	Validate application deployment contract	ops/deploy/validate-app-deployment-contract.sh	8b072384341feb8e50d7f051feb74125177918f2dd4a3e3d2a439c2673e74a03
 .github/workflows/_deploy-api.yml	Configure user systemd bus	ops/deploy/api-configure-user-systemd-bus.sh	896e3080bc961da9777a0854a2ca3c34924325d8ff67ca07cbe2af7899311d94
 .github/workflows/_deploy-api.yml	Configure Docker credential directory	ops/deploy/api-configure-docker-credential-directory.sh	ea4ea673dbe4dbca0dd0fcb8fef30b6f3546e7dcb87c02b5fcb1a9fdffc388ea
 .github/workflows/_deploy-api.yml	Prepare stable runtime paths	ops/deploy/api-prepare-stable-runtime-paths.sh	8d179689b8824c4fa138ae12a8ef527591413f7b2a972ff2cd394323121f48f0
-.github/workflows/_deploy-api.yml	Capture current deployment for rollback	ops/deploy/api-capture-current-deployment.sh	17f6e230c978469e7be48baac0336f9d2db36490b99053c1b770dc63e0d69816
+.github/workflows/_deploy-api.yml	Capture current deployment for rollback	ops/deploy/api-capture-current-deployment.sh	6ed7e4f651bba4188b17873a018a926879e3b48e5181c77c5800486a688eaa3e
 .github/workflows/_deploy-api.yml	Login to ACR	ops/deploy/api-login-to-acr.sh	a6326682a092199edcbcaea55779bb5772ece6f7cba8eb4bbcd937e744c0087f
 .github/workflows/_deploy-api.yml	Bootstrap current API release ledger	ops/deploy/api-bootstrap-current-release-ledger.sh	d320ba8f64c98d8c0141f9669c4a7959d541678cbc54bdb8a5661be65adced5f
 .github/workflows/_deploy-api.yml	Resolve API deployment digest	ops/deploy/api-resolve-deployment-digest.sh	b457203ca500d9248d0afbacc8e01ba7f6bf6d29b7e05a923809be4f0778b79c
@@ -25,9 +26,10 @@ workflow	step	script	body_sha256
 .github/workflows/_deploy-api.yml	Cleanup Docker credential directory	ops/deploy/api-cleanup-docker-credential-directory.sh	c8eeae01ac0f6bb6525e18487a06b15cf31611ed9192be57df330fbbad9d0c31
 .github/workflows/_deploy-api.yml	Finalize release result	ops/deploy/api-finalize-release-result.sh	26ab932e4e2432e32c57853f239d4093e70d95541228a3678f305104c989f678
 .github/workflows/_deploy-ui.yml	Validate deployment target	ops/deploy/ui-validate-deployment-target.sh	a2faef0979360efde1f70c0741775ebbedede3ce39f7e4ac86e4b3c3ec86a3fb
+.github/workflows/_deploy-ui.yml	Validate application deployment contract	ops/deploy/validate-app-deployment-contract.sh	8b072384341feb8e50d7f051feb74125177918f2dd4a3e3d2a439c2673e74a03
 .github/workflows/_deploy-ui.yml	Configure Docker credential directory	ops/deploy/ui-configure-docker-credential-directory.sh	09e0afd304f32163a0699a591041ac0b79670fc659e00ef707900822a4134deb
 .github/workflows/_deploy-ui.yml	Prepare stable UI runtime paths	ops/deploy/ui-prepare-stable-runtime-paths.sh	979e1ed87fa46d62648a8bd0812a4622c29b3e44b619e8a807082b59c0297734
-.github/workflows/_deploy-ui.yml	Capture current deployment	ops/deploy/ui-capture-current-deployment.sh	fc9f197b331f80560e68a49f2093e997e7b1b5d630a23e626112eae7bd67a56e
+.github/workflows/_deploy-ui.yml	Capture current deployment	ops/deploy/ui-capture-current-deployment.sh	ec39c243fdcbf6826444d589f695c516abbed2d27624d7b38ee603053355967d
 .github/workflows/_deploy-ui.yml	Bootstrap current UI release ledger	ops/deploy/ui-bootstrap-current-release-ledger.sh	9750d94e4bba51d770b16c97e74987bd90916ac644a0f5420d463e6ba1cc353b
 .github/workflows/_deploy-ui.yml	Resolve UI deployment digest	ops/deploy/ui-resolve-deployment-digest.sh	05be8864088d7d0fd7bfd10fcaa7695f2a04d9e3cdfc3c1b2ddda1a59773ef9c
 .github/workflows/_deploy-ui.yml	Deploy candidate image	ops/deploy/ui-deploy-candidate-image.sh	d894b502b6f487ec47948f4ffc182f4e40bc602922c8d39c7d5737f7a601769c

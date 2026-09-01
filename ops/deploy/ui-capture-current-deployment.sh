@@ -11,6 +11,18 @@ if [ "${OPS_DEPLOY_DRY_RUN:-false}" = "true" ]; then
 fi
 
 # OPS_DEPLOY_BODY_BEGIN
+if [ "${DEPLOY_REQUIRED_DEPENDENCY_HOOKS:-}" != "api" ]; then
+  echo "UI 依赖服务契约无效，拒绝选择错误的部署 hooks"
+  exit 1
+fi
+case "${DEPLOY_REQUIRED_ROLLBACK_ANCHORS:-}" in
+  fusion-ui) rollback_anchor="fusion-ui" ;;
+  *) echo "UI 回滚锚点策略未提供 fusion-ui 的运行镜像身份"; exit 1 ;;
+esac
+if ! docker container inspect "${rollback_anchor}" >/dev/null 2>&1; then
+  echo "无法捕获 ${rollback_anchor} 当前镜像身份，拒绝变更现有部署"
+  exit 1
+fi
 previousImageRef="$(docker inspect --format '{{.Config.Image}}' fusion-ui 2>/dev/null || true)"
 previousImageId="$(docker inspect --format '{{.Image}}' fusion-ui 2>/dev/null || true)"
 if [ -z "$previousImageRef" ] || [ -z "$previousImageId" ]; then

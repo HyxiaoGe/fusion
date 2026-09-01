@@ -198,10 +198,10 @@
    | knowledge-worker 的捕获、部署、身份/健康检查与回滚 | 真实约束 | API 的可选依赖服务；保留现有 fail-closed 分支。 |
    | LiteLLM governance、model-management worker 的暂停、安装、手动回滚与失败恢复 | 真实约束 | API timer/worker 状态必须可恢复；保留现有所有恢复分支。 |
    | API 环境、OSS、MCP、Prompthub、FlyAI、Milvus 与知识库 smoke | 真实约束 | 直接耦合 API 容器配置和外部依赖；保留在 API hook。 |
-   | API 专有 Docker 可用性探测与最终结果聚合 | 重复防御 | 保留原检查；仅通过公共调用契约合并入口，不创建更弱的替代路径。 |
-   | 发布请求校验、checkout、Docker 凭据、稳定运行目录、ACR 登录、运行态捕获、digest 解析、发布后 identity/health/smoke、回滚镜像保留、原子台账记录、指标、通知与清理 | 重复防御 | 两应用既有脚本均保留；`_deploy-app.yml` 统一校验 app/repository/health/依赖/回滚锚点参数再分派，未删除校验分支。 |
+   | API 专有 Docker 可用性探测与最终结果聚合 | 重复防御 | 保留原检查；公共 fail-closed 契约脚本只收敛参数/锚点验证，不创建更弱的替代路径。 |
+   | 发布请求校验、checkout、Docker 凭据、稳定运行目录、ACR 登录、运行态捕获、digest 解析、发布后 identity/health/smoke、回滚镜像保留、原子台账记录、指标、通知与清理 | 重复防御 | 两应用既有脚本均保留；`validate-app-deployment-contract.sh` 被 `_deploy-app.yml` 与 direct app workflow 共用，校验 app/repository/health/迁移/依赖/回滚锚点后再分派，未删除校验分支。 |
 
-   `_deploy-api.yml` / `_deploy-ui.yml` 保留为必要的 app-specific hooks，而不是无效转发：它们执行全部应用专属脚本，并实际消费 repository、health endpoint、migration 参数；依赖服务和回滚锚点策略在分派前 fail-closed 校验并透传给 hooks，避免出现未校验的应用发布路径。`Fusion required gate` display name 未变，故不迁移 required context；应用 job 仍不设为 required。
+   `_deploy-api.yml` / `_deploy-ui.yml` 保留为必要的 app-specific hooks，而不是无效转发：六个输入均为 required，direct `workflow_call` 也先运行同一 fail-closed 契约；它们执行全部应用专属脚本，并实际消费 repository、health endpoint、migration 参数。契约脚本将依赖列表与回滚策略解析成预期 anchors，capture 脚本在任何 Docker 变更前验证该选择，避免出现未校验或不完整的应用发布路径。`Fusion required gate` display name 未变，故不迁移 required context；应用 job 仍不设为 required。
 
 2. 抽出 `_deploy-app.yml`，参数：应用名、镜像仓库、健康检查端点、迁移开关、依赖服务列表、回滚锚点校验策略。
 3. **保留各应用现有 ACR repository 与 `<sha>` tag 作为审计别名**（`seanfield/fusion-api` 与 `seanfield/fusion-ui` 已天然区分应用，见 P1-6），但部署权威身份固定为 Task 2 已落地的 repository digest。本 Task 把既有 per-app 发布台账接入参数化 workflow，并保持下表语义（P1-20）：

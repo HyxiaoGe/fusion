@@ -51,36 +51,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Validate application parameters
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Validate application deployment contract
         env:
-          APP: ${{ inputs.app }}
-          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
-          HEALTH_CHECK_ENDPOINT: ${{ inputs.health_check_endpoint }}
-          MIGRATION_ENABLED: ${{ inputs.migration_enabled }}
-          DEPENDENCY_SERVICES: ${{ inputs.dependency_services }}
-          ROLLBACK_ANCHOR_POLICY: ${{ inputs.rollback_anchor_policy }}
-        run: |
-          set -euo pipefail
-          case "${APP}" in
-            api)
-              test "${IMAGE_REPOSITORY}" = "seanfield/fusion-api"
-              test "${HEALTH_CHECK_ENDPOINT}" = "http://127.0.0.1:8002/health"
-              test "${MIGRATION_ENABLED}" = "true"
-              test "${DEPENDENCY_SERVICES}" = "postgres,redis,litellm,flyai-adapter,knowledge-worker"
-              test "${ROLLBACK_ANCHOR_POLICY}" = "api-and-adapter-image-identities"
-              ;;
-            ui)
-              test "${IMAGE_REPOSITORY}" = "seanfield/fusion-ui"
-              test "${HEALTH_CHECK_ENDPOINT}" = "http://127.0.0.1:3000/"
-              test "${MIGRATION_ENABLED}" = "false"
-              test "${DEPENDENCY_SERVICES}" = "api"
-              test "${ROLLBACK_ANCHOR_POLICY}" = "ui-image-identity"
-              ;;
-            *)
-              echo "app 必须是 api 或 ui" >&2
-              exit 1
-              ;;
-          esac
+          DEPLOY_APP: ${{ inputs.app }}
+          DEPLOY_IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          DEPLOY_HEALTH_CHECK_ENDPOINT: ${{ inputs.health_check_endpoint }}
+          DEPLOY_MIGRATION_ENABLED: ${{ inputs.migration_enabled }}
+          DEPLOY_DEPENDENCY_SERVICES: ${{ inputs.dependency_services }}
+          DEPLOY_ROLLBACK_ANCHOR_POLICY: ${{ inputs.rollback_anchor_policy }}
+        run: ops/deploy/validate-app-deployment-contract.sh
 
   deploy-api:
     name: Deploy API implementation

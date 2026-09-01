@@ -29,6 +29,9 @@ const expandDeployScripts = (workflow: string): string =>
 const releaseWorkflow = workflowContractAvailable
   ? expandDeployScripts(readFileSync(releaseWorkflowPath, 'utf8'))
   : '';
+const releaseWorkflowSource = workflowContractAvailable
+  ? readFileSync(releaseWorkflowPath, 'utf8')
+  : '';
 const pullRequestWorkflow = workflowContractAvailable
   ? readFileSync(pullRequestWorkflowPath, 'utf8')
   : '';
@@ -80,7 +83,7 @@ const releaseSafetyDocument = parse(releaseSafetyManifest);
 const expectedPublishCondition =
   "github.ref == 'refs/heads/master' && inputs.rollback_sha == ''";
 const expectedDeployCondition =
-  "always() && github.ref == 'refs/heads/master' && (needs.publish.result == 'success' || (needs.publish.result == 'skipped' && inputs.rollback_sha != ''))";
+  "always() && github.ref == 'refs/heads/master' && needs.validate-parameters.result == 'success' && (needs.publish.result == 'success' || (needs.publish.result == 'skipped' && inputs.rollback_sha != ''))";
 const expectedRollbackCondition =
   "${{ failure() && steps.capture_previous.outcome == 'success' && steps.deploy_candidate.outcome != 'skipped' }}";
 
@@ -214,7 +217,21 @@ const actionDocuments = [
         manifest: 'frontend/release-safety.yml',
         pr_step: 'release_safety_contract',
       },
-      jobs: { prepare: null, publish: 'publish', deploy: 'deploy-dev', finalize: null },
+      parameter_contract: {
+        workflow: '.github/workflows/_deploy-app.yml',
+        app: 'ui',
+        validation_job: 'validate-parameters',
+        validation_step: 'app_contract',
+        inputs: {
+          app: 'ui',
+          image_repository: 'seanfield/fusion-ui',
+          health_check_endpoint: 'http://127.0.0.1:3000/',
+          migration_enabled: false,
+          dependency_services: 'api',
+          rollback_anchor_policy: 'ui-image-identity',
+        },
+      },
+      jobs: { prepare: 'validate-parameters', publish: 'publish', deploy: 'deploy-dev', finalize: null },
       steps: {
         target: 'validate_deploy_target',
         target_job: 'deploy',
@@ -228,7 +245,7 @@ const actionDocuments = [
         finalize: null,
         finalize_failure: null,
       },
-      needs: { publish: [], deploy: ['publish'], finalize: [] },
+      needs: { publish: [], deploy: ['validate-parameters', 'publish'], finalize: [] },
       conditions: {
         prepare: null,
         publish: expectedPublishCondition,
@@ -242,6 +259,33 @@ const actionDocuments = [
         finalize_failure: null,
       },
     });
+
+    const parameterContract = releaseSafetyDocument.parameter_contract as {
+      validation_job: string;
+      validation_step: string;
+      inputs: Record<string, unknown>;
+    };
+    const workflowInputs = releaseWorkflowDocument.on?.workflow_call?.inputs ?? {};
+    const environmentFields: Record<string, string> = {
+      app: 'DEPLOY_APP',
+      image_repository: 'DEPLOY_IMAGE_REPOSITORY',
+      health_check_endpoint: 'UI_HEALTH_CHECK_ENDPOINT',
+      migration_enabled: 'DEPLOY_MIGRATION_ENABLED',
+      dependency_services: 'DEPLOY_DEPENDENCY_SERVICES',
+      rollback_anchor_policy: 'DEPLOY_ROLLBACK_ANCHOR_POLICY',
+    };
+    for (const [name, value] of Object.entries(parameterContract.inputs)) {
+      expect(workflowInputs[name]?.required).toBe(true);
+      expect(workflowInputs[name]).not.toHaveProperty('default');
+      expect(releaseWorkflowDocument.env?.[environmentFields[name]]).toBe(
+        `\${{ inputs.${name} }}`,
+      );
+      expect(value).not.toBeUndefined();
+    }
+    const validationJob = releaseWorkflowDocument.jobs?.[parameterContract.validation_job];
+    const appContractStep = validationJob?.steps?.find((step) => step.id === parameterContract.validation_step);
+    expect(appContractStep?.run).toContain('expected_dependency_services="api"');
+    expect(releaseWorkflowSource).toContain('run: ops/deploy/validate-app-deployment-contract.sh');
 
     const prSteps = pullRequestWorkflowDocument.jobs?.ui?.steps ?? [];
     const contractSteps = prSteps.filter((step) => step.id === 'release_safety_contract');
@@ -361,11 +405,11 @@ const actionDocuments = [
     }
     expect(externalActionCount).toBeGreaterThan(0);
     expect(pullRequestWorkflow.split(`uses: ${checkoutAction}`)).toHaveLength(5);
-    expect(releaseWorkflow.split(`uses: ${checkoutAction}`)).toHaveLength(3);
+    expect(releaseWorkflow.split(`uses: ${checkoutAction}`)).toHaveLength(4);
   });
 
   it('dev 部署依赖发布构建并绑定 dev Environment', () => {
-    expect(deployDevBlock).toContain('needs: publish');
+    expect(deployDevBlock).toContain('needs: [validate-parameters, publish]');
     expect(deployDevBlock).toContain('environment: dev');
     expect(releaseWorkflowDocument.jobs?.['deploy-dev']?.if).toContain(
       "github.ref == 'refs/heads/master'",
@@ -505,6 +549,7 @@ const actionDocuments = [
     expect(publishJob?.if).toContain('inputs.rollback_sha');
     expect(publishJob?.if).toContain("inputs.rollback_sha == ''");
     expect(deployJob?.if).toContain('always()');
+    expect(deployJob?.if).toContain("needs.validate-parameters.result == 'success'");
     expect(deployJob?.if).toContain("needs.publish.result == 'success'");
     expect(deployJob?.if).toContain("needs.publish.result == 'skipped'");
     expect(deployJob?.if).toContain('inputs.rollback_sha');
@@ -534,6 +579,7 @@ const actionDocuments = [
 
     const fakeDocker = `
 docker() {
+  if [ "$1" = "container" ] && [ "$2" = "inspect" ] && [ "$3" = "fusion-ui" ]; then return 0; fi
   if [ "$1" = "inspect" ] && [ "$2" = "--format" ]; then
     case "$3" in
       '{{.Config.Image}}') printf '%s\\n' "$FAKE_PREVIOUS_IMAGE_REF" ;;
@@ -558,6 +604,8 @@ docker() {
           FAKE_PREVIOUS_IMAGE_REF: imageRef,
           FAKE_PREVIOUS_IMAGE_ID: imageId,
           GITHUB_OUTPUT: '/dev/null',
+          DEPLOY_REQUIRED_DEPENDENCY_HOOKS: 'api',
+          DEPLOY_REQUIRED_ROLLBACK_ANCHORS: 'fusion-ui',
         },
       });
 

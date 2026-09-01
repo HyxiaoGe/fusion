@@ -28,6 +28,9 @@ concurrency:
   group: fusion-dev
   cancel_in_progress: false
   wrappers_define_concurrency: false
-wrappers:
-  api: .github/workflows/_deploy-api.yml
-  ui: .github/workflows/_deploy-ui.yml
+parameterized_workflow:
+  path: .github/workflows/_deploy-app.yml
+  app_hooks:
+    api: .github/workflows/_deploy-api.yml
+    ui: .github/workflows/_deploy-ui.yml
+  direct_call_contract: required_and_fail_closed

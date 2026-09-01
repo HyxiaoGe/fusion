@@ -2,12 +2,12 @@ name: Fusion API Windows CI
 on:
   workflow_call:
     inputs:
-      app: { description: 参数化发布的应用标识, required: false, default: api, type: string }
-      image_repository: { description: ACR 应用 repository, required: false, default: seanfield/fusion-api, type: string }
-      health_check_endpoint: { description: API 健康检查端点, required: false, default: http://127.0.0.1:8002/health, type: string }
-      migration_enabled: { description: 是否执行 Alembic 迁移, required: false, default: true, type: boolean }
-      dependency_services: { description: 逗号分隔的运行时依赖服务, required: false, default: "postgres,redis,litellm,flyai-adapter,knowledge-worker", type: string }
-      rollback_anchor_policy: { description: 回滚运行镜像锚点策略, required: false, default: api-and-adapter-image-identities, type: string }
+      app: { description: 参数化发布的应用标识, required: true, type: string }
+      image_repository: { description: ACR 应用 repository, required: true, type: string }
+      health_check_endpoint: { description: API 健康检查端点, required: true, type: string }
+      migration_enabled: { description: 是否执行 Alembic 迁移, required: true, type: boolean }
+      dependency_services: { description: 逗号分隔的运行时依赖服务, required: true, type: string }
+      rollback_anchor_policy: { description: 回滚运行镜像锚点策略, required: true, type: string }
       deploy_sha: { description: orchestrator 固定的 master 提交 SHA, required: true, type: string }
       rollback_sha: { description: 要恢复的已发布镜像 SHA, required: false, type: string }
       rollback_reason: { description: 手动回滚原因, required: false, type: string }
@@ -18,6 +18,9 @@ env:
   IMAGE_NAME: ${{ format('crpi-77w10wlykpqilmmb.cn-shenzhen.personal.cr.aliyuncs.com/{0}', inputs.image_repository) }}
   FLYAI_ADAPTER_IMAGE_NAME: crpi-77w10wlykpqilmmb.cn-shenzhen.personal.cr.aliyuncs.com/seanfield/fusion-flyai-adapter
   API_HEALTH_CHECK_ENDPOINT: ${{ inputs.health_check_endpoint }}
+  DEPLOY_APP: ${{ inputs.app }}
+  DEPLOY_IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+  DEPLOY_MIGRATION_ENABLED: ${{ inputs.migration_enabled }}
   DEPLOY_DEPENDENCY_SERVICES: ${{ inputs.dependency_services }}
   DEPLOY_ROLLBACK_ANCHOR_POLICY: ${{ inputs.rollback_anchor_policy }}
 jobs:
@@ -29,10 +32,15 @@ jobs:
       started_at: ${{ steps.deployment_request.outputs.started_at }}
       target_sha: ${{ steps.deployment_request.outputs.target_sha }}
       rollback_requested: ${{ steps.deployment_request.outputs.rollback_requested }}
+      dependency_hooks: ${{ steps.app_contract.outputs.dependency_hooks }}
+      rollback_anchors: ${{ steps.app_contract.outputs.rollback_anchors }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: Validate application deployment contract
+        id: app_contract
+        run: ops/deploy/validate-app-deployment-contract.sh
       - name: Validate deployment request
         id: deployment_request
         env:
@@ -149,6 +157,8 @@ jobs:
     environment: dev
     env:
       DEPLOY_TARGET_SHA: ${{ needs.prepare.outputs.target_sha }}
+      DEPLOY_REQUIRED_DEPENDENCY_HOOKS: ${{ needs.prepare.outputs.dependency_hooks }}
+      DEPLOY_REQUIRED_ROLLBACK_ANCHORS: ${{ needs.prepare.outputs.rollback_anchors }}
     steps:
       - name: Record deploy start time
         run: echo "DEPLOY_START=$(date +%s)" >> "$GITHUB_ENV"

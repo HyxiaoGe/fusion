@@ -38,6 +38,8 @@ class WorkflowContractTests(unittest.TestCase):
         cls.orchestrator = load_workflow(ORCHESTRATOR_PATH) if ORCHESTRATOR_PATH.exists() else {}
         cls.api = load_workflow(API_WRAPPER_PATH)
         cls.ui = load_workflow(UI_WRAPPER_PATH)
+        cls.api_raw = yaml.safe_load(API_WRAPPER_PATH.read_text(encoding="utf-8"))
+        cls.ui_raw = yaml.safe_load(UI_WRAPPER_PATH.read_text(encoding="utf-8"))
         cls.app = load_workflow(APP_WORKFLOW_PATH) if APP_WORKFLOW_PATH.exists() else {}
         cls.dispatch = load_workflow(DISPATCH_CONTRACT_PATH)
         cls.actionlint = load_workflow(ACTIONLINT_CONFIG_PATH)
@@ -325,6 +327,49 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertEqual(ui_env["DEPLOY_ROLLBACK_ANCHOR_POLICY"], "${{ inputs.rollback_anchor_policy }}")
         self.assertIn('curl -fsS "${API_HEALTH_CHECK_ENDPOINT}"', self.api_text)
         self.assertIn('process.env.FUSION_UI_HEALTH_CHECK_ENDPOINT', self.ui_text)
+
+    def test_task4_direct_app_calls_require_the_same_fail_closed_contract(self) -> None:
+        parameter_names = {
+            "app",
+            "image_repository",
+            "health_check_endpoint",
+            "migration_enabled",
+            "dependency_services",
+            "rollback_anchor_policy",
+        }
+        for workflow in (self.api, self.ui):
+            direct_inputs = workflow[True]["workflow_call"]["inputs"]
+            for name in parameter_names:
+                with self.subTest(workflow=workflow.get("name"), parameter=name):
+                    self.assertTrue(direct_inputs[name]["required"])
+                    self.assertNotIn("default", direct_inputs[name])
+
+        api_prepare = self.api_raw["jobs"]["prepare"]
+        api_steps = {step["name"]: step for step in api_prepare["steps"] if "name" in step}
+        self.assertEqual(
+            api_steps["Validate application deployment contract"]["run"],
+            "ops/deploy/validate-app-deployment-contract.sh",
+        )
+
+        ui_validate = self.ui_raw["jobs"]["validate-parameters"]
+        self.assertEqual(ui_validate["runs-on"], "ubuntu-latest")
+        ui_step = ui_validate["steps"][-1]
+        self.assertEqual(ui_step["run"], "ops/deploy/validate-app-deployment-contract.sh")
+        self.assertEqual(self.ui_raw["jobs"]["publish"]["needs"], "validate-parameters")
+        self.assertEqual(
+            self.ui_raw["jobs"]["deploy-dev"]["needs"],
+            ["validate-parameters", "publish"],
+        )
+        self.assertIn(
+            "needs.validate-parameters.result == 'success'",
+            self.ui_raw["jobs"]["deploy-dev"]["if"],
+        )
+
+        contracts = self.dispatch["parameterized_workflow"]
+        self.assertEqual(contracts["path"], ".github/workflows/_deploy-app.yml")
+        self.assertEqual(contracts["app_hooks"]["api"], ".github/workflows/_deploy-api.yml")
+        self.assertEqual(contracts["app_hooks"]["ui"], ".github/workflows/_deploy-ui.yml")
+        self.assertEqual(contracts["direct_call_contract"], "required_and_fail_closed")
 
     def test_task2_uses_digest_ledger_and_checkout_independent_runtime_paths(self) -> None:
         combined = self.api_text + "\n" + self.ui_text

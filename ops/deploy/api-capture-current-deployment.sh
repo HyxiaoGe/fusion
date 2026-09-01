@@ -16,6 +16,20 @@ if [[ ! "${DEPLOY_TARGET_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
   echo "部署目标不是 40 位小写 Git SHA，拒绝变更部署"
   exit 1
 fi
+if [ "${DEPLOY_REQUIRED_DEPENDENCY_HOOKS:-}" != "postgres,redis,litellm,flyai-adapter,knowledge-worker" ]; then
+  echo "API 依赖服务契约无效，拒绝选择不完整的部署 hooks"
+  exit 1
+fi
+case "${DEPLOY_REQUIRED_ROLLBACK_ANCHORS:-}" in
+  fusion-api,fusion-flyai-adapter) rollback_anchors=(fusion-api fusion-flyai-adapter) ;;
+  *) echo "API 回滚锚点策略未提供 api 与 adapter 的运行镜像身份"; exit 1 ;;
+esac
+for rollback_anchor in "${rollback_anchors[@]}"; do
+  if ! docker container inspect "${rollback_anchor}" >/dev/null 2>&1; then
+    echo "${rollback_anchor} 不存在，拒绝在缺少回滚目标时变更部署"
+    exit 1
+  fi
+done
 if ! docker container inspect fusion-api >/dev/null 2>&1; then
   echo "fusion-api 不存在，拒绝在缺少回滚目标时变更部署"
   exit 1
@@ -86,7 +100,7 @@ case "${rollback_knowledge_config_file}" in
   *) echo "知识库回滚配置未落在 RUNNER_TEMP 的受管路径中"; exit 1 ;;
 esac
 export ROLLBACK_KNOWLEDGE_CONFIG_FILE="${rollback_knowledge_config_file}"
-rollback_containers=(fusion-api)
+rollback_containers=("${rollback_anchors[0]}")
 if [ "${knowledge_worker_existed}" = "true" ]; then
   rollback_containers+=(fusion-knowledge-worker)
 fi

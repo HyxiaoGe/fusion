@@ -297,6 +297,19 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
                     "manifest": "backend/release-safety.yml",
                     "pr_step": "release_safety_contract",
                 },
+                "parameter_contract": {
+                    "workflow": ".github/workflows/_deploy-app.yml",
+                    "app": "api",
+                    "validation_step": "app_contract",
+                    "inputs": {
+                        "app": "api",
+                        "image_repository": "seanfield/fusion-api",
+                        "health_check_endpoint": "http://127.0.0.1:8002/health",
+                        "migration_enabled": True,
+                        "dependency_services": "postgres,redis,litellm,flyai-adapter,knowledge-worker",
+                        "rollback_anchor_policy": "api-and-adapter-image-identities",
+                    },
+                },
                 "jobs": {
                     "prepare": "prepare",
                     "publish": "publish",
@@ -334,7 +347,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
                         "(needs.prepare.outputs.rollback_requested != 'true' && "
                         "needs.publish.result == 'success'))"
                     ),
-                    "migration": "needs.prepare.outputs.rollback_requested != 'true'",
+                    "migration": "inputs.migration_enabled && needs.prepare.outputs.rollback_requested != 'true'",
                     "rollback": (
                         "failure() && steps.capture_rollback_target.outcome == 'success' && "
                         "steps.deploy_candidate.outcome != 'skipped'"
@@ -349,6 +362,31 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
 
         manifest = self.release_safety_manifest
         jobs = self.release_document["jobs"]
+        parameter_contract = manifest["parameter_contract"]
+        workflow_inputs = self.release_document[True]["workflow_call"]["inputs"]
+        environment_fields = {
+            "app": "DEPLOY_APP",
+            "image_repository": "DEPLOY_IMAGE_REPOSITORY",
+            "health_check_endpoint": "API_HEALTH_CHECK_ENDPOINT",
+            "migration_enabled": "DEPLOY_MIGRATION_ENABLED",
+            "dependency_services": "DEPLOY_DEPENDENCY_SERVICES",
+            "rollback_anchor_policy": "DEPLOY_ROLLBACK_ANCHOR_POLICY",
+        }
+        for name, expected in parameter_contract["inputs"].items():
+            with self.subTest(parameter=name):
+                self.assertTrue(workflow_inputs[name]["required"])
+                self.assertNotIn("default", workflow_inputs[name])
+                self.assertEqual(
+                    self.release_document["env"][environment_fields[name]],
+                    f"${{{{ inputs.{name} }}}}",
+                )
+        app_contract_step = workflow_step(jobs[manifest["jobs"]["prepare"]], "Validate application deployment contract")
+        self.assertEqual(app_contract_step["id"], parameter_contract["validation_step"])
+        self.assertIn('expected_dependency_services="postgres,redis,litellm,flyai-adapter,knowledge-worker"', app_contract_step["run"])
+        self.assertIn(
+            "run: ops/deploy/validate-app-deployment-contract.sh",
+            RELEASE_WORKFLOW.read_text(encoding="utf-8"),
+        )
         for job_id in manifest["jobs"].values():
             if job_id is not None:
                 self.assertIn(job_id, jobs)
@@ -594,38 +632,32 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
             {
                 "app": {
                     "description": "参数化发布的应用标识",
-                    "required": False,
-                    "default": "api",
+                    "required": True,
                     "type": "string",
                 },
                 "image_repository": {
                     "description": "ACR 应用 repository",
-                    "required": False,
-                    "default": "seanfield/fusion-api",
+                    "required": True,
                     "type": "string",
                 },
                 "health_check_endpoint": {
                     "description": "API 健康检查端点",
-                    "required": False,
-                    "default": "http://127.0.0.1:8002/health",
+                    "required": True,
                     "type": "string",
                 },
                 "migration_enabled": {
                     "description": "是否执行 Alembic 迁移",
-                    "required": False,
-                    "default": True,
+                    "required": True,
                     "type": "boolean",
                 },
                 "dependency_services": {
                     "description": "逗号分隔的运行时依赖服务",
-                    "required": False,
-                    "default": "postgres,redis,litellm,flyai-adapter,knowledge-worker",
+                    "required": True,
                     "type": "string",
                 },
                 "rollback_anchor_policy": {
                     "description": "回滚运行镜像锚点策略",
-                    "required": False,
-                    "default": "api-and-adapter-image-identities",
+                    "required": True,
                     "type": "string",
                 },
                 "deploy_sha": {
