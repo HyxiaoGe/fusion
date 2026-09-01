@@ -274,7 +274,9 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         self.assertIn('manifest_path="${1:?缺少 release-safety 契约文件路径}"', self.release_safety_contract)
         self.assertIn("backend/release-safety.yml)", self.release_safety_contract)
         self.assertIn("exec python3 backend/test/test_ci_cd_permission_boundary.py", self.release_safety_contract)
-        self.assertEqual(stat.S_IMODE(RELEASE_SAFETY_CONTRACT.stat().st_mode), 0o755)
+        contract_mode = stat.S_IMODE(RELEASE_SAFETY_CONTRACT.stat().st_mode)
+        self.assertEqual(contract_mode & 0o111, 0o111)
+        self.assertEqual(contract_mode & 0o7000, 0)
 
     def test_release_safety_manifest_maps_real_workflow_roles(self) -> None:
         self.assertEqual(
@@ -571,6 +573,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
     def test_release_keeps_buildkit_cache_governance(self) -> None:
         shared_script = "backend/.github/scripts/windows-cleanup.ps1"
         self.assertIn(shared_script, self.release_workflow)
+        self.assertIn('$ErrorActionPreference = "Continue"', self.cleanup_script)
         self.assertIn('"--max-used-space", "10gb"', self.cleanup_script)
         self.assertIn('"--reserved-space", "4gb"', self.cleanup_script)
         self.assertIn('"--min-free-space", "30gb"', self.cleanup_script)

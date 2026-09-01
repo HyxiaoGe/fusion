@@ -9,6 +9,8 @@
     [string]$ImageTag
 )
 
+$ErrorActionPreference = "Continue"
+
 docker image rm "${ImageName}:${ImageTag}" 2>$null
 if ($LASTEXITCODE -ne 0) {
     Write-Warning "清理 API 镜像失败，继续执行后续清理"
