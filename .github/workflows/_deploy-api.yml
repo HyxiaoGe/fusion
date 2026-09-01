@@ -2483,8 +2483,12 @@ jobs:
             echo "fusion-api 回滚发布 SHA 不是 40 位小写 Git SHA: ${rollback_api_sha}"
             exit 1
           fi
-          if ! python3 "${GITHUB_WORKSPACE}/backend/scripts/deployment_smoke.py" \
-            --base-url http://127.0.0.1:8002; then
+          if ! git -C "${GITHUB_WORKSPACE}" cat-file -e "${rollback_api_sha}^{commit}"; then
+            echo "fusion-api 回滚提交不在当前仓库历史中: ${rollback_api_sha}"
+            exit 1
+          fi
+          if ! git -C "${GITHUB_WORKSPACE}" show "${rollback_api_sha}:backend/scripts/deployment_smoke.py" \
+            | python3 - --base-url http://127.0.0.1:8002; then
             echo "fusion-api rollback deployment smoke failed"
             docker logs --tail=120 fusion-api || true
             exit 1

@@ -42,13 +42,13 @@ class DeployAuthConfigTests(unittest.TestCase):
         self.assertIn("/api/models/", self.workflow)
 
     def test_deploy_mounts_persistent_file_storage(self):
-        self.assertIn("mkdir -p ./fusion-api/storage/files", self.workflow)
-        self.assertIn("./fusion-api/storage/files:/app/storage/files", self.workflow)
+        self.assertIn('install -d -m 0755 "${FUSION_STORAGE_DIR}"', self.workflow)
+        self.assertIn("${FUSION_STORAGE_DIR}:/app/storage/files", self.workflow)
         self.assertIn("FILE_STORAGE_PATH=/app/storage/files", self.workflow)
 
     def test_deploy_preserves_container_files_before_recreate(self):
         self.assertIn("tar -C /app/storage/files -cf - .", self.workflow)
-        self.assertIn("tar -C ./fusion-api/storage/files -xf -", self.workflow)
+        self.assertIn('tar -C "${FUSION_STORAGE_DIR}" -xf -', self.workflow)
         self.assertNotIn("docker cp fusion-api:/app/storage/files/.", self.workflow)
 
     def test_deploy_verifies_persistent_file_storage_after_restart(self):

@@ -197,9 +197,13 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         self.assertIn("docker exec fusion-flyai-adapter", commands)
         self.assertIn("http://127.0.0.1:8080/health", commands)
         self.assertIn('rollback_api_sha="${ROLLBACK_DEPLOYMENT_SHA}"', commands)
-        self.assertIn('python3 "${GITHUB_WORKSPACE}/backend/scripts/deployment_smoke.py"', commands)
+        self.assertIn(
+            'git -C "${GITHUB_WORKSPACE}" show '
+            '"${rollback_api_sha}:backend/scripts/deployment_smoke.py"',
+            commands,
+        )
         self.assertIn("--base-url http://127.0.0.1:8002", commands)
-        self.assertNotIn('git -C "${GITHUB_WORKSPACE}" show', commands)
+        self.assertIn("| python3 - --base-url http://127.0.0.1:8002", commands)
 
     def test_drift_audit_is_owned_by_central_baseline_repository(self) -> None:
         self.assertFalse(
