@@ -20,7 +20,14 @@ RUN set -u; \
 
 COPY requirements.txt ./
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -r requirements.txt
+    set -u; \
+    for attempt in 1 2 3 4 5; do \
+        if pip install --retries 5 --timeout 60 -r requirements.txt; then \
+            exit 0; \
+        fi; \
+        if [ "$attempt" -eq 5 ]; then exit 1; fi; \
+        sleep $((attempt * 2)); \
+    done
 
 FROM python:3.12-slim AS production
 

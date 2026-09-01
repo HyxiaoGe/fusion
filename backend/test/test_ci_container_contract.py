@@ -52,6 +52,14 @@ class CIContainerContractTest(unittest.TestCase):
         self.assertIn("for attempt in 1 2 3 4 5", dependency_stage)
         self.assertIn('if [ "$attempt" -eq 5 ]', dependency_stage)
 
+    def test_dockerfile_retries_transient_pypi_download_failures(self) -> None:
+        dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        pip_install = dockerfile[dockerfile.index("COPY requirements.txt") : dockerfile.index("AS production")]
+
+        self.assertIn("for attempt in 1 2 3 4 5", pip_install)
+        self.assertIn("pip install --retries 5 --timeout 60 -r requirements.txt", pip_install)
+        self.assertIn('if [ "$attempt" -eq 5 ]', pip_install)
+
     def test_pr_and_release_workflows_run_equivalent_container_tests(self) -> None:
         release_workflow = (MONOREPO_ROOT / ".github/workflows/_deploy-api.yml").read_text(encoding="utf-8")
         pr_workflow = (MONOREPO_ROOT / ".github/workflows/pr-ci.yml").read_text(encoding="utf-8")
