@@ -10,7 +10,7 @@
 
 **本轮范围：** 仓库结构、git 历史、CI/CD、宿主机部署状态、部署平台绑定、agent 与文档配置。不改任何业务代码，不改 Redis Stream 两段式流，不改 API 契约，不借机重构 `app/` 或 `src/` 下的任何模块。
 
-**总体架构：** 新仓库采用 `apps/api` + `apps/ui` 两个应用目录，根目录只保留跨应用的编排物。发布流水线拆成三层：顶层 orchestrator 负责变更检测与 `API → UI` 顺序编排，`_deploy-app.yml` 是参数化的 `workflow_call` 可复用 workflow，`ops/deploy/*.sh` 承载实际 shell 逻辑并可脱离 GitHub Actions 本地执行。
+**总体架构：** 新仓库采用根级 `backend/` + `frontend/` 两个应用目录，根目录其余位置只保留跨应用的编排物。Fusion 当前没有共享 package、workspace 依赖或第三个 deployable app，不额外引入 `apps/` 层；`ui` 保留给未来可能出现的共享组件包语义。发布流水线拆成三层：顶层 orchestrator 负责变更检测与 `API → UI` 顺序编排，`_deploy-app.yml` 是参数化的 `workflow_call` 可复用 workflow，`ops/deploy/*.sh` 承载实际 shell 逻辑并可脱离 GitHub Actions 本地执行。
 
 ## 依据
 
@@ -30,6 +30,7 @@
 - **旧仓库在最终历史与文档验收通过前保持未归档。** 不删除 refs、Actions 历史或 runner 配置；当前开发阶段不要求把旧仓发布链作为演练式回退通道。
 - **宿主机运行时配置与 systemd release/current 必须迁出仓库 checkout 树。** 目标路径不得位于任何仓库 checkout 根之下（含新仓的 `~/project/fusion`）。
 - **当前按开发阶段执行。** Task 2 只做“备份 → 切换 → 验证”，不引入面向在线服务的跨仓互斥、流量窗口或旧仓发布演练；这些条款留待将来真正上生产前重新评估并补入生产 runbook。
+- **目录语义固定。** 仓库内的 deployable 目录固定为 `backend/` 与 `frontend/`；现有外部标识 `fusion-api` / `fusion-ui`（runner label、ACR repository、容器名、workflow 应用标识）保持不变，禁止为了目录改名顺带迁移外部资源。
 - **secrets 不可从旧仓复制。** GitHub API 只能列出名称与元数据，不能读回值；一律从原始凭据源重新注入，找不到原始值的必须轮换，禁止从 workflow 日志或运行环境反向导出。
 - `paths:` **不得用作 event-level 过滤**（见 P0-4）。变更检测由 workflow 内首个 `changes` job 承担，且始终提供一个恒定存在的 required gate job。
 - 跨应用顺序由顶层 orchestrator 的 DAG 保证，concurrency 只负责防并发，不承担顺序语义。
@@ -56,7 +57,7 @@
 
 注意 `deploy.yml` L1428 对 `/app/storage/files` 挂载的断言是**无条件**的，因此即使后端为 `oss`，仍需保持兼容挂载路径可用。若将来环境切换为 `local`，必须在迁移前恢复本地原件的全量备份与四项一致性校验。
 
-宿主机当前布局为 `~/project/fusion/fusion-api/…`，目录名直接镜像仓库名。**该布局与新仓库的 `apps/api` 结构不一致，且不能自动跟随。**
+宿主机当前布局为 `~/project/fusion/fusion-api/…`，目录名直接镜像仓库名。**该布局与新仓库的 `backend/` 结构不一致，且不能自动跟随。**
 
 **仓库内已有正确范式可循：** 另外两个 unit（`fusion-litellm-governance.service`、`fusion-litellm-model-management.service`）的 `WorkingDirectory` 指向 `%h/.local/share/fusion/litellm-governance-current` 与 `%h/.local/share/fusion/litellm-model-management-current`，即已与仓库 checkout 解耦的暂存目录。Task 2 应把 `cost-sync` 收敛到同一范式，而不是简单替换其路径字面量。
 
@@ -78,7 +79,7 @@
 - `fusion-ui/.github/workflows/build-and-deploy.yml` L98：`uses: ./.github/actions/windows-docker-build`（本地 composite action，`defaults.run.working-directory` 对其无效）
 - 两边 `.github/release-safety.yml` 与 `.github/scripts/release-safety-contract.sh`（contract script 当前假定仓库根唯一一份）
 - 两边 `.github/scripts/*` 的调用路径
-- Dockerfile build context（`.` → `apps/api` / `apps/ui`）
+- Dockerfile build context（`.` → `backend` / `frontend`）
 - `actions/setup-node` 的 `cache-dependency-path`
 - 文档中的跨仓相对路径与绝对路径。**PR #84 合并后存量归零**：此前唯一含 `../fusion-ui/` 的 `2026-06-30-search-read-planner-ledger.md` 已随 superpowers 遗留文档清理删除。本项在新树上只需对 `docs/implementation-plans/` 与 `docs/superpowers/specs/` 复查一次即可
 
@@ -111,12 +112,12 @@
 
 **本 Task 不改变任何部署行为，只验证 PR CI 与镜像构建。**
 
-1. 两仓各自先在原仓库内 `git mv` 到 `apps/api` / `apps/ui`，再以 `merge --allow-unrelated-histories` 引入，避免根目录文件互相覆盖。
+1. 两仓各自先在原仓库内 `git mv` 到 `backend` / `frontend`，再以 `merge --allow-unrelated-histories` 引入，避免根目录文件互相覆盖。
 2. 12 个同名根文件按归属下沉：`CLAUDE.md`、`AGENTS.md`、`README.md`、`.gitignore`、`.dockerignore`、`.env.example`、`Dockerfile`、`docker-compose.yml`、`railway.json`、`.agents/`、`docs/`、`scripts/`。
 3. 逐项处理路径清单 B 类与 C 类：
    - 5 个 API 测试文件的 25 处引用改为应用根相对，并统一 `Path()` 与 `ROOT /` 两种写法；
    - `buildAndDeployWorkflow.test.ts` 的 `filesUnder()` 扫描范围限定到本应用 workflow；
-   - `release-safety.yml` 拆为 `apps/api/release-safety.yml` 与 `apps/ui/release-safety.yml`，`release-safety-contract.sh` 改为接受契约文件路径参数；
+   - `release-safety.yml` 拆为 `backend/release-safety.yml` 与 `frontend/release-safety.yml`，`release-safety-contract.sh` 改为接受契约文件路径参数；
    - 本地 composite action 路径、Dockerfile context、`cache-dependency-path` 逐一修正。
 4. PR CI 改造为：始终触发 → 首个 `changes` job 判定 `api` / `ui` / `shared` → 应用 job 用 `if` 跳过 → 末尾恒定 required gate job。明确 `.github/**`、`ops/**`、根配置、共享文档各触发哪一侧。
 5. **部署 workflow 改造为 `workflow_call` 外壳**（P0-16）。实测两边现有 workflow 均**不暴露 `workflow_call`**，普通 workflow 无法被 orchestrator 以 job-level `uses` + `needs` 调用，用 `workflow_dispatch` 触发子 workflow 也无法在同一 run 内形成可证明的依赖链 —— 若不在此处理，Task 2 的 orchestrator 无可调用对象。故生成两份**逻辑原样、尚未参数化合并**的 app-specific reusable workflow：
@@ -137,7 +138,7 @@
    - 手动回滚时 `changes` **不得**按路径判定后跳过目标应用；
    - 明确单应用与双应用回滚的执行顺序、失败中止行为与最终台账更新规则。
 
-**验收：** 新仓 PR CI 全绿；`apps/api` 与 `apps/ui` 的单测与 lint 在新仓通过（含上述被改动的 6 个测试文件）；两个应用的镜像可在新仓成功构建（不推送、不部署）；只改一侧的 PR 不触发另一侧的应用 job，但 required gate 仍产出成功结论；构造一次「API 未变、UI 变」的 PR，确认 UI job **未**被级联跳过且 gate 正确判定；构造一次「应运行的 app job 失败」，确认 gate **失败**而非放行；`_deploy-api.yml` / `_deploy-ui.yml` 通过 `workflow_call` 语法校验且未被任何已启用 workflow 调用。
+**验收：** 新仓 PR CI 全绿；`backend` 与 `frontend` 的单测与 lint 在新仓通过（含上述被改动的 6 个测试文件）；两个应用的镜像可在新仓成功构建（不推送、不部署）；只改一侧的 PR 不触发另一侧的应用 job，但 required gate 仍产出成功结论；构造一次「API 未变、UI 变」的 PR，确认 UI job **未**被级联跳过且 gate 正确判定；构造一次「应运行的 app job 失败」，确认 gate **失败**而非放行；`_deploy-api.yml` / `_deploy-ui.yml` 通过 `workflow_call` 语法校验且未被任何已启用 workflow 调用。
 
 ## Task 2：开发环境切换
 
@@ -214,7 +215,7 @@ Task 0 第 7 步判定为当前 dev 链路使用的 Vercel / Railway 绑定，�
 
    **落位与发现入口必须闭环。** 教训来自 PR #84 评审：若发现入口（`AGENTS.md` 第 11 条、执行台账开头与检查清单、`fusion-next-step` skill）扫描的目录与实施计划的实际落位不一致，新计划会落在无人扫描的位置。新仓的入口配置必须与实际目录一一对应，并在合并后的**最终树**上跑一次残留引用检查，而不是只查单个分支。
 
-3. 根 `CLAUDE.md` 改为导航，`apps/api/CLAUDE.md` 与 `apps/ui/CLAUDE.md` 承载应用级约定；`AGENTS.md` 同理。`.agents/skills/` 中 10 个 skill 合并去重（`fusion-next-step` 两边各有一份需统一）。
+3. 根 `CLAUDE.md` 改为导航，`backend/CLAUDE.md` 与 `frontend/CLAUDE.md` 承载应用级约定；`AGENTS.md` 同理。`.agents/skills/` 中 10 个 skill 合并去重（`fusion-next-step` 两边各有一份需统一）。
 4. **平台元数据边界**（见 P1-9）：git 历史合并不迁移 Issues、PR、Actions runs、releases、webhooks、deploy keys、Environment protection、branch rules。明确：
    - 复制：Environment protection、branch rules、secrets/variables、webhooks；
    - 仅旧仓保留：Issues、PR、Actions run 历史、releases；
@@ -226,7 +227,7 @@ Task 0 第 7 步判定为当前 dev 链路使用的 Vercel / Railway 绑定，�
 
 ## 不做什么
 
-- 不改任何业务代码。目录搬迁之外，`apps/api/app/` 与 `apps/ui/src/` 下的**业务模块**不产生 diff。**唯一例外**：`apps/ui/src/scripts/buildAndDeployWorkflow.test.ts` 属路径清单 B 类（CI 契约测试，需限定 `filesUnder()` 扫描范围），虽位于 `src/` 之下但必须修改。API 侧 5 个同类测试位于 `test/`，与 `app/` 平级，不涉及此例外。
+- 不改任何业务代码。目录搬迁之外，`backend/app/` 与 `frontend/src/` 下的**业务模块**不产生 diff。**唯一例外**：`frontend/src/scripts/buildAndDeployWorkflow.test.ts` 属路径清单 B 类（CI 契约测试，需限定 `filesUnder()` 扫描范围），虽位于 `src/` 之下但必须修改。API 侧 5 个同类测试位于 `test/`，与 `app/` 平级，不涉及此例外。
 - 不引入 npm/pnpm workspace、Nx、Turborepo。当前两应用零共享代码，工具链只增复杂度。
 - 不在本轮做 OpenAPI 契约同步。`scripts/export_openapi.py` 已存在但 UI 未消费，合并后具备条件，另开 plan。
 - 不合并 `docker-compose.yml`。两边网络拓扑不同（api 侧有 `middleware`、`litellm_net`、`flyai` 三个网络），需单独评估。
@@ -307,3 +308,9 @@ owner 已通过 GitHub API 独立复核第一轮标注为"未独立核实"的项
 - dev server `~/project/fusion/.env` 实测 `STORAGE_BACKEND=oss`，据此移除本地上传目录的全量迁移与四项一致性校验，只保留兼容挂载和真实 OSS 上传/下载验证。
 - Task 2 从六步在线切换方案收敛为“备份 → 切换 → 验证”，并同步更新 Global Constraints、Task 0、Task 3/4 验收和风险表。
 - 当前计划只覆盖开发阶段；未来真正上生产前，必须基于届时的流量、SLA、部署入口和存储后端重新制定生产 runbook。
+
+### 目录命名校准（2026-09-01）
+
+- Fusion 当前是 FastAPI + React 的两个独立 deployable，且没有共享 package 或 workspace 依赖；采用与 [FastAPI 官方全栈模板](https://github.com/fastapi/full-stack-fastapi-template)一致的根级 `backend/` + `frontend/`，不预先增加无实际分组收益的 `apps/` 层。
+- 不使用 `ui` 作为完整前端应用目录名；该名称保留给未来可能抽取的组件库语义，与 [Turborepo 官方结构](https://github.com/vercel/turborepo/blob/main/skills/turborepo/references/best-practices/RULE.md)中 `apps/web` / `apps/api` 与 `packages/ui` 的职责区分一致。
+- 目录命名只影响仓库内路径；`fusion-api` / `fusion-ui` 的 runner label、ACR repository、容器名和 workflow 应用标识全部保持不变。
