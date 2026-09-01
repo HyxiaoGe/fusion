@@ -26,8 +26,6 @@ def select_diff_range(
     head: str,
     before: str = "",
     base_ref: str = "",
-    dispatch_base: str = "",
-    dispatch_head: str = "",
 ) -> DiffRange:
     if event_name == "pull_request":
         if not base_ref:
@@ -38,8 +36,7 @@ def select_diff_range(
             return DiffRange("initial-push", None, head)
         return DiffRange("range", before, head)
     if event_name == "workflow_dispatch":
-        resolved_head = dispatch_head or head
-        return DiffRange("range", dispatch_base or f"{resolved_head}^", resolved_head)
+        return DiffRange("initial-push", None, head)
     raise ValueError(f"不支持的事件: {event_name}")
 
 
@@ -101,8 +98,6 @@ def main() -> None:
     parser.add_argument("--head", required=True)
     parser.add_argument("--before", default="")
     parser.add_argument("--base-ref", default="")
-    parser.add_argument("--dispatch-base", default="")
-    parser.add_argument("--dispatch-head", default="")
     args = parser.parse_args()
 
     diff_range = select_diff_range(
@@ -110,8 +105,6 @@ def main() -> None:
         head=args.head,
         before=args.before,
         base_ref=args.base_ref,
-        dispatch_base=args.dispatch_base,
-        dispatch_head=args.dispatch_head,
     )
     paths = changed_paths(diff_range)
     result = classify(paths)

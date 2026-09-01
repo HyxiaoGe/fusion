@@ -414,18 +414,17 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
                 )
                 raw_script.decode("utf-8-sig")
 
-    def test_release_runs_are_never_cancelled_mid_deployment(self) -> None:
-        self.assertRegex(
-            self.release_workflow,
-            r"(?ms)^concurrency:\n\s+group: fusion-api-windows-ci-.*\n\s+cancel-in-progress: false$",
-        )
+    def test_release_wrapper_defers_global_concurrency_to_orchestrator(self) -> None:
+        self.assertNotRegex(self.release_workflow, r"(?m)^concurrency:")
+        self.assertIn("顶层 orchestrator", self.release_workflow)
+        self.assertIn("fusion-dev concurrency", self.release_workflow)
         self.assertIn("cancel-in-progress: true", self.pr_workflow)
 
     def test_all_checkouts_disable_credential_persistence(self) -> None:
         checkout_without_credentials = f"uses: {CHECKOUT_ACTION}\n        with:\n          persist-credentials: false"
-        self.assertEqual(self.pr_workflow.count(checkout_without_credentials), 2)
+        self.assertEqual(self.pr_workflow.count(checkout_without_credentials), 3)
         self.assertEqual(self.release_workflow.count(checkout_without_credentials), 2)
-        self.assertEqual(self.pr_workflow.count(f"uses: {CHECKOUT_ACTION}"), 3)
+        self.assertEqual(self.pr_workflow.count(f"uses: {CHECKOUT_ACTION}"), 4)
         self.assertEqual(self.release_workflow.count(f"uses: {CHECKOUT_ACTION}"), 2)
 
     def test_active_workflows_pin_external_actions_to_full_commit_sha(self) -> None:
@@ -736,7 +735,9 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         self.assertNotIn("alembic upgrade", active_commands(rollback_step["run"]))
         self.assertIn("expand/contract", self.readme)
         self.assertIn("镜像回滚绝不执行 `alembic downgrade`", self.readme)
-        self.assertIn("ACR 中的 SHA 标签继续作为手动回滚来源", self.readme)
+        self.assertIn("SHA 标签仅作当前 Task 1 wrapper 的兼容输入", self.readme)
+        self.assertIn("不得作为部署权威身份", self.readme)
+        self.assertNotIn("ACR 中的 SHA 标签继续作为手动回滚来源", self.readme)
 
     def test_release_evidence_uses_actual_deploy_target_sha(self) -> None:
         deploy_job = self.release_document["jobs"]["deploy-dev"]

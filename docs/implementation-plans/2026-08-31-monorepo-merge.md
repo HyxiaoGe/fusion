@@ -33,7 +33,8 @@
 - **目录语义固定。** 仓库内的 deployable 目录固定为 `backend/` 与 `frontend/`；现有外部标识 `fusion-api` / `fusion-ui`（runner label、ACR repository、容器名、workflow 应用标识）保持不变，禁止为了目录改名顺带迁移外部资源。
 - **secrets 不可从旧仓复制。** GitHub API 只能列出名称与元数据，不能读回值；一律从原始凭据源重新注入，找不到原始值的必须轮换，禁止从 workflow 日志或运行环境反向导出。
 - `paths:` **不得用作 event-level 过滤**（见 P0-4）。变更检测由 workflow 内首个 `changes` job 承担，且始终提供一个恒定存在的 required gate job。
-- 跨应用顺序由顶层 orchestrator 的 DAG 保证，concurrency 只负责防并发，不承担顺序语义。
+- 镜像 `<sha>` tag 只作可读审计别名，**不得作为部署权威身份**。发布后必须解析 ACR 返回的 repository digest，部署、验证、回滚锚点与台账均使用 `<repository>@sha256:<digest>`；digest 无法解析时必须失败。
+- 跨应用顺序由顶层 orchestrator 的 DAG 保证；所有 dev 发布统一由 orchestrator 持有 `fusion-dev` concurrency（`cancel-in-progress: false`），应用 wrapper 不再各自定义 concurrency。concurrency 只负责防并发，不承担顺序语义。
 - 抽取 shell 到 `ops/deploy/` 时**逐字搬运**，不得顺手"优化"。行为差异必须为零，抽取与改写分属不同 Task。
 - 不删除任何现有校验分支。合并后无法确认必要性的检查一律保留并登记待评估，不得就地删除。
 - 每个 Task 有独立可执行验收条件；开发环境部署只在 Task 边界验证，不在每个脚本搬运后触发。
@@ -103,7 +104,7 @@
    - 新仓侧只验证存在性、权限边界与目标服务连通性，**禁止输出 secret 值**；
    - 逐项登记「来源、注入位置、验证结果、是否轮换」。
 5. **新增 runner 实例**（不迁移旧仓 runner），并为全部 runner 增加应用维度标签 `fusion-api` / `fusion-ui`；workflow 的 `runs-on` 同步改为带应用标签的组合。旧仓四个 runner（`dev-server-fusion-api`、`windows-build-api-01`、`dev-server-fusion-ui`、`windows-build-01`）保留至 Task 5，作为历史来源和迁移期间的独立执行资源。
-6. **宿主机状态清单**：记录 `~/project/fusion` 下的目录、bind mount 源、`.env`、当前容器 image ref + image ID，以及三个 systemd unit 的实际 `WorkingDirectory`、owner/mode。2026-08-31 已只读确认 dev server 的 `STORAGE_BACKEND=oss`：对象原件位于 OSS，本轮不备份或迁移本地 `storage/files` 内容，只记录兼容挂载路径是否存在及 owner/mode；Task 2 切换后用部署断言与一次真实 OSS 上传/下载验证。
+6. **宿主机状态清单**：记录 `~/project/fusion` 下的目录、bind mount 源、`.env`、当前容器的配置 image ref、可解析的 repository digest 与 image ID，以及三个 systemd unit 的实际 `WorkingDirectory`、owner/mode。2026-08-31 已只读确认 dev server 的 `STORAGE_BACKEND=oss`：对象原件位于 OSS，本轮不备份或迁移本地 `storage/files` 内容，只记录兼容挂载路径是否存在及 owner/mode；Task 2 切换后用部署断言与一次真实 OSS 上传/下载验证。
 7. **外部平台使用状态清单**：逐个 Vercel / Railway 服务记录 —— 是否活跃、跟踪哪个 repo 与 branch、是否属于当前 dev 链路、是否自动部署。当前 dev 链路使用的绑定在 Task 2 切换；不影响当前 dev 运行态的纯整理项留到 Task 4。
 
 **验收：** 新仓可跑通 hello-world workflow 并分别命中 `fusion-api` / `fusion-ui` 标签的 runner；bundle 与未提交资产归档均通过还原验证；secrets 清单逐项登记完毕且新仓连通性验证通过；平台清单产出且每个绑定已判定 Task 归属；`STORAGE_BACKEND=oss`、当前容器身份、兼容挂载和三个 systemd unit 状态均已记录。本 Task 不执行 dev 部署。
@@ -124,12 +125,12 @@
    - `.github/workflows/_deploy-api.yml`，仅暴露 `workflow_call`；
    - `.github/workflows/_deploy-ui.yml`，仅暴露 `workflow_call`。
 
-   这**只改变调用外壳，不合并也不优化部署逻辑**，仍满足"搬迁与重写分离"。两份在本 Task 保持不被任何已启用的 workflow 调用。Task 4 再合并为参数化 `_deploy-app.yml`。
+   这**只改变调用外壳与 concurrency 归属，不合并也不优化部署 shell 逻辑**：两份 inert wrapper 不再各自定义局部 concurrency，并在本 Task 保持不被任何已启用的 workflow 调用；Task 2 的顶层 orchestrator 才创建全局 `fusion-dev` concurrency。Task 4 再合并为参数化 `_deploy-app.yml`。
 6. **`changes` 与 required gate 行为契约**（P1-19）：
    - `changes` 使用 checkout 后的**完整 Git diff**，不依赖 GitHub 的 300-file event 过滤；
-   - 分别定义 PR、push、首次 push、merge commit、`workflow_dispatch` 五种情形的 base / head；
+   - 分别定义 PR、push、首次 push、merge commit、`workflow_dispatch` 五种情形的 base / head；手动触发固定校验当前提交完整树，不接受调用方覆盖 base/head；
    - required gate 使用 `if: always()`；
-   - gate 必须验证「按 `changes` 结果**应当运行**的 app job 成功」，**不得**因 app job 为 `skipped` 就无条件通过；
+   - gate 必须先严格验证 `changes` 的 app 判定仅为 `true | false`，缺失或非法输出直接失败；随后验证「按 `changes` 结果**应当运行**的 app job 成功」，**不得**因 app job 为 `skipped` 就无条件通过；
    - API 未变化而 UI 变化时，UI job **不得**因 `needs: deploy-api` 处于 `skipped` 而被级联跳过（用 `always()` + 显式结果判定，不用裸 `needs`）；
    - 恒定 gate 的 display name 在本 Task 确定并记入文档，供 Task 0/4 的 branch protection 引用。
 7. **`workflow_dispatch` 回滚契约**（P0-16）：
@@ -154,22 +155,22 @@
 | 运行时配置 | `~/.config/fusion/runtime.env` |
 | systemd release/current | `~/.local/share/fusion/*-current`（沿用既有范式） |
 
-- 备份 `.env`、systemd unit 文件和当前容器 image ref + image ID；记录兼容挂载路径及 owner/mode；
+- 备份 `.env`、systemd unit 文件和当前容器的配置 image ref、可解析的 repository digest 与 image ID；记录兼容挂载路径及 owner/mode；
 - bind mount 与 `.env` 读取方指向新路径；
 - 把 `cost-sync` unit 的 `WorkingDirectory` 与 `AssertPathExists` 收敛到 `%h/.local/share/fusion/*-current` 范式（与另两个 unit 一致），`daemon-reload` 后逐个验证启动；
 - 旧配置路径只在开发切换验证期间保留临时副本，验证通过后按 Task 5 的归档节奏清理。
 
 ### 2.2 开发环境切换步骤
 
-1. **备份：** 保存 Task 0 的 git bundle / 未提交资产归档；在 dev 主机备份 `.env`、systemd unit 文件和当前容器身份，并记录平台当前 repo/branch 绑定。
-2. **切换：** 启用新仓 orchestrator，由同一条 workflow 按 `detect changes → deploy API → deploy UI` 执行；同步把当前 dev 使用的平台绑定改到新仓与目标分支。
-3. **验证：** 核对 API/UI 实际运行 image ref + image ID、健康检查与 smoke；确认三个 systemd unit active、`cost-sync` 不再依赖旧 checkout；确认 `STORAGE_BACKEND=oss`、兼容挂载断言通过，并完成一次真实 OSS 上传/下载；最后核对平台绑定已指向新仓。
+1. **备份：** 保存 Task 0 的 git bundle / 未提交资产归档；在 dev 主机备份 `.env`、systemd unit 文件和当前容器的 repository digest + image ID，并记录平台当前 repo/branch 绑定。
+2. **切换：** 启用新仓 orchestrator，由同一条 workflow 按 `detect changes → deploy API → deploy UI` 执行；orchestrator 独占 `fusion-dev` concurrency 且不取消运行中的发布，两个应用 wrapper 保持不定义 concurrency；发布后解析并校验 registry digest，按 digest 部署并原子更新 per-app 发布台账；同步把当前 dev 使用的平台绑定改到新仓与目标分支。
+3. **验证：** 核对 API/UI 实际运行 repository digest + image ID、健康检查与 smoke；确认 `<sha>` tag 仅是审计别名且台账能把每个应用提交唯一解析到 digest；确认三个 systemd unit active、`cost-sync` 不再依赖旧 checkout；确认 `STORAGE_BACKEND=oss`、兼容挂载断言通过，并完成一次真实 OSS 上传/下载；最后核对平台绑定已指向新仓。
 
 ### 2.3 外部平台绑定
 
 Task 0 第 7 步判定为当前 dev 链路使用的 Vercel / Railway 绑定，在本 Task 的切换步骤中完成；纯历史或未启用绑定留到 Task 4 整理。
 
-**验收：** 新仓完成一次 dev API → UI 顺序部署；两应用 image ref + image ID 与目标提交一致，健康检查和 smoke 通过；三个 systemd unit 均 active 且 `cost-sync` 已脱离旧 checkout；兼容挂载存在且 owner/mode 可用；真实 OSS 上传/下载成功；当前 dev 平台绑定全部指向新仓。任一项失败即停止推进，按备份恢复受影响的主机配置后在新仓修复并重试。
+**验收：** 新仓完成一次 dev API → UI 顺序部署；两应用运行的 repository digest + image ID 与发布输出及台账一致，健康检查和 smoke 通过；任意时刻仅有一个 `fusion-dev` 发布运行；三个 systemd unit 均 active 且 `cost-sync` 已脱离旧 checkout；兼容挂载存在且 owner/mode 可用；真实 OSS 上传/下载成功；当前 dev 平台绑定全部指向新仓。任一项失败即停止推进，按备份恢复受影响的主机配置后在新仓修复并重试。
 
 ## Task 3：抽取 shell 到 ops/deploy
 
@@ -187,17 +188,17 @@ Task 0 第 7 步判定为当前 dev 链路使用的 Vercel / Railway 绑定，�
 
 1. 以 UI 侧精简实现为基线，逐条比对 API 侧多出的检查，分类为「真实约束」与「重复防御」。真实约束做成可选 hook，重复防御合并。**分类结果登记在本文件，本 Task 内不删除任何检查。**
 2. 抽出 `_deploy-app.yml`，参数：应用名、镜像仓库、健康检查端点、迁移开关、依赖服务列表、回滚锚点校验策略。
-3. **保留各应用现有 ACR repository 与 `<sha>` tag**（`seanfield/fusion-api` 与 `seanfield/fusion-ui` 已天然区分应用，见 P1-6）。新增 per-app 发布台账解决两应用 last deployed SHA 分叉导致的回滚目标定位问题，其语义按下表固定（P1-20）：
+3. **保留各应用现有 ACR repository 与 `<sha>` tag 作为审计别名**（`seanfield/fusion-api` 与 `seanfield/fusion-ui` 已天然区分应用，见 P1-6），但部署权威身份固定为 Task 2 已落地的 repository digest。本 Task 把既有 per-app 发布台账接入参数化 workflow，并保持下表语义（P1-20）：
 
    | 项 | 约定 |
    |---|---|
-   | 权威来源 | **运行容器的 immutable image ref + image ID**（`docker inspect` 可得），不是台账文件 |
+   | 权威来源 | **运行容器的 repository digest + image ID**（`docker inspect` 可得），不是 `<sha>` tag 或台账文件 |
    | 台账定位 | 权威来源的**可恢复投影**，用于快速查询与审计，丢失可从运行态重建 |
    | 存储位置 | 宿主机 checkout 树之外（`~/.local/share/fusion/<app>/release-ledger.json`） |
    | 更新时机 | 发布验证通过后，由同一部署 job 原子替换（写临时文件 + `rename`） |
    | 失败与自动回滚 | 回滚完成后按回滚后的实际运行镜像重写台账，不保留失败中间态 |
-   | 手动回滚 | 按 `workflow_dispatch` 的目标应用与 SHA 更新对应条目，另一应用条目不变 |
-   | 宿主机丢失 | 从运行容器 image ref + ID 重建；容器也不存在则从 ACR tag 与部署记录人工恢复 |
+   | 手动回滚 | 按 `workflow_dispatch` 的目标应用与 SHA 从台账解析 digest，解析失败即拒绝；成功后只更新对应条目 |
+   | 宿主机丢失 | 从运行容器 repository digest + ID 重建；容器也不存在则从 ACR digest 与 Actions 发布记录人工恢复，不信任可覆盖 tag |
    | 禁止项 | **不得把部署时变化的 manifest commit 回 master** —— 会递归触发发布流水线 |
 4. 处理 Task 0 判定为「不影响当前运行态」的平台项（例如非活跃服务的 root directory 归位）。**影响运行态的绑定已在 Task 2 切换完毕，本 Task 不得留有此类项。**
 5. **required context 迁移**（P1-18）：仅在 gate 的 job display name 确实变化时迁移 required context，迁移后**验证旧 context 已从保护规则中移除**，避免残留一个永不再产生的 required check。应用 job 始终不设为 required。
@@ -250,7 +251,9 @@ Task 0 第 7 步判定为当前 dev 链路使用的 Vercel / Railway 绑定，�
 | orchestrator 无可调用的部署单元 | Task 2 | Task 1 先产出 `_deploy-api.yml` / `_deploy-ui.yml` 两份 `workflow_call` 外壳 |
 | 新仓 required check 从未运行导致 PR 永久 Pending | Task 0 | branch protection 分两步 bootstrap，gate 成功运行一次后再设 required |
 | gate 因 app job skipped 而误放行 | Task 1 | gate 用 `if: always()` 并验证「应运行的 job 成功」，含专门的反例验收 |
-| 台账与运行态不一致 | Task 4 | 权威来源为运行容器 image ref + ID，台账仅为可恢复投影，由部署 job 原子替换 |
+| `<sha>` tag 被覆盖或解析不到 digest | Task 2 | tag 仅作审计别名；发布后必须解析 repository digest，按 digest 部署，解析失败即中止 |
+| API/UI 发布并发导致交错切换 | Task 2 | 顶层 orchestrator 独占 `fusion-dev` concurrency 且 `cancel-in-progress: false`，wrapper 不定义独立组 |
+| 台账与运行态不一致 | Task 2/4 | 权威来源为运行容器 repository digest + ID，台账仅为可恢复投影，由部署 job 原子替换 |
 | 整体方案失败 | 任意 | Task 0 的 git bundle + 未提交资产归档保护历史与未提交文件；在新仓修正后重新执行对应 Task |
 
 ## 关于本 PR 自身的合并边界
@@ -272,7 +275,7 @@ PR #83 第一轮评审共 9 条，全部受理。逐条处理如下：
 | P0-3 | concurrency 不保证 API → UI 顺序 | **成立。** concurrency 仅防并发，等待顺序不等于分发顺序 | 改为顶层 orchestrator DAG `detect changes → deploy API → deploy UI`，写入 Global Constraints |
 | P0-4 | `paths:` 与 required check 冲突 | **成立。** 被 path filter 跳过的 workflow 不产出结论，required check 会永久 Pending；且 changed-files 过滤有 300 文件上限，首次迁移提交远超此数 | 移除 event-level `paths:`；改为始终触发 + `changes` job + `if` 跳过 + 恒定 required gate |
 | P0-5 | 部署脚本含宿主机真实路径与持久化数据 | **成立。** 实测：两边 workflow 共 5 处 `cd ~/project/fusion`；4 处 `./fusion-api/storage/files` bind mount；1 处 `${HOME}/project/fusion/.env`。systemd 侧经逐个核实为 **1 个** unit（`cost-sync`）耦合仓库 checkout 路径，另两个已用 `%h/.local/share/fusion/*-current` 暂存目录解耦 | 新增「路径与状态清单」A 类；宿主机状态迁移独立为 Task 2，含备份、稳定 data 目录、软链接兼容、systemd 更新与上传文件读写校验；`cost-sync` 按仓库内既有的解耦范式收敛 |
-| P1-6 | 镜像 tag 歧义判断不成立 | **成立，原判断有误。** 实测 `seanfield/fusion-api` 与 `seanfield/fusion-ui` 已是不同 ACR repository，同 SHA 不产生歧义 | 撤销 `<app>-<sha>` 方案，保留各自 `<sha>` tag；改为新增 per-app 发布台账解决 last deployed SHA 分叉 |
+| P1-6 | 镜像 tag 歧义判断不成立 | **成立，原判断有误。** 实测 `seanfield/fusion-api` 与 `seanfield/fusion-ui` 已是不同 ACR repository，同 SHA 不产生跨应用歧义；但 ACR 个人版不提供 tag immutability，tag 仍不能作为部署权威身份 | 撤销 `<app>-<sha>` 方案；保留各自 `<sha>` tag 作为审计别名，Task 2 起按 repository digest 部署，并用 per-app 发布台账解决 last deployed SHA 分叉 |
 | P1-7 | "相对路径均不变"过于乐观 | **成立且可量化。** 实测 5 个 API 测试文件 25 处硬读根 `.github`（其中 `test_knowledge_deploy_config.py` 为 CWD 相对，失效方式不同）；UI `buildAndDeployWorkflow.test.ts` 12 处，且 L168 枚举整个 workflows 目录做断言，合并后会扫到 API 侧 workflow | 新增「路径与状态清单」B/C 类逐项列出，每项在 Task 1 有对应处理与验收 |
 | P1-8 | 每抽一个脚本就发布回滚成本过高 | **成立。** master 是发布通道，不适合作为单步搬运的测试环境 | 改为每脚本 fixture/dry-run/contract test，真实发布与回滚只在 Task 边界执行；Task 3 末尾保留一次完整 API → UI 验收 |
 | P1-9 | 缺少平台元数据迁移边界 | **成立。** 原计划未涉及 | Task 5 新增元数据边界章节，明确复制项、仅旧仓保留项、`#NN` 引用语义、旧仓退役时点 |
@@ -301,7 +304,7 @@ owner 已通过 GitHub API 独立复核第一轮标注为"未独立核实"的项
 | P0-17 | 在线切换缺少跨仓执行控制 | **当时按在线服务假设成立。** | 当前仅切换 dev，相关生产级控制不进入本轮执行正文；真正上线前重新评估并形成独立 runbook |
 | P1-18 | 新仓 branch protection 需要 bootstrap 顺序 | **成立。** 实测两个旧仓的 required check 同名 `PR container validation`；新仓此时未产生过该 check，而 GitHub 要求 required check 近 7 天内在目标仓成功运行过 | Task 0 第 3 步改为只复制非 check 类保护，required check 暂不设置；Task 1 确定恒定 gate 的精确 display name 并在成功运行一次后设为 required；Task 4 仅在 job 名确实变化时迁移 required context 并验证旧 context 已移除 |
 | P1-19 | `changes` 与 gate 的行为契约需具体化 | **成立。** 原计划只写了结构，未定义语义 | Task 1 新增第 6 步契约：`changes` 用 checkout 后完整 Git diff 不依赖 300-file 过滤；分别定义五种触发情形的 base/head；gate 用 `if: always()`；gate 须验证「应运行的 app job 成功」而非 skipped 即放行；UI job 不得因 `needs: deploy-api` 的 skipped 被级联跳过。验收增加两个反例用例 |
-| P1-20 | per-app 台账缺权威存储与原子更新语义 | **成立。** 原计划只写"新增台账"四字 | Task 4 固定运行容器 image ref + image ID 为权威，台账存于 checkout 外并由同一部署 job 原子替换；禁止把运行时台账提交回 master |
+| P1-20 | per-app 台账缺权威存储与原子更新语义 | **成立。** 原计划只写"新增台账"四字 | Task 2 固定运行容器 repository digest + image ID 为权威并落地台账；Task 4 将其接入参数化 workflow。台账存于 checkout 外并由同一部署 job 原子替换，禁止把运行时台账提交回 master |
 
 ### 开发阶段校准（2026-08-31）
 
@@ -312,5 +315,11 @@ owner 已通过 GitHub API 独立复核第一轮标注为"未独立核实"的项
 ### 目录命名校准（2026-09-01）
 
 - Fusion 当前是 FastAPI + React 的两个独立 deployable，且没有共享 package 或 workspace 依赖；采用与 [FastAPI 官方全栈模板](https://github.com/fastapi/full-stack-fastapi-template)一致的根级 `backend/` + `frontend/`，不预先增加无实际分组收益的 `apps/` 层。
+
+### CI/CD 安全校准（2026-09-01）
+
+- required CI 的手动触发不再接受调用方指定 base/head，而是校验当前提交完整树；required gate 对缺失或非法的 app 变更判定严格失败，避免构造同名假绿 check。
+- ACR 个人版不支持 tag immutability，因此 `<sha>` tag 降级为审计别名；Task 2 必须解析并部署 repository digest，回滚 SHA 通过 per-app 台账唯一映射到 digest。
+- API 与 UI wrapper 的独立 concurrency 不能互斥两条发布链；Task 1 的 inert wrapper 已移除局部组，Task 2 启用 orchestrator 时由顶层统一创建 `fusion-dev` concurrency，并保持 `cancel-in-progress: false`。
 - 不使用 `ui` 作为完整前端应用目录名；该名称保留给未来可能抽取的组件库语义，与 [Turborepo 官方结构](https://github.com/vercel/turborepo/blob/main/skills/turborepo/references/best-practices/RULE.md)中 `apps/web` / `apps/api` 与 `packages/ui` 的职责区分一致。
 - 目录命名只影响仓库内路径；`fusion-api` / `fusion-ui` 的 runner label、ACR repository、容器名和 workflow 应用标识全部保持不变。

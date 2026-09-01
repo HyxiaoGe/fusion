@@ -71,14 +71,12 @@ class DetectChangesTests(unittest.TestCase):
             ["git", "ls-tree", "--name-only", "-r", "-z", "b" * 40]
         )
 
-    def test_manual_run_honors_explicit_base_and_head(self) -> None:
+    def test_manual_run_validates_complete_current_tree(self) -> None:
         diff_range = MODULE.select_diff_range(
             event_name="workflow_dispatch",
-            head="ignored",
-            dispatch_base="a" * 40,
-            dispatch_head="b" * 40,
+            head="b" * 40,
         )
-        self.assertEqual(diff_range, MODULE.DiffRange("range", "a" * 40, "b" * 40))
+        self.assertEqual(diff_range, MODULE.DiffRange("initial-push", None, "b" * 40))
 
 
 if __name__ == "__main__":

@@ -6,15 +6,6 @@ on:
   push:
     branches: [master]
   workflow_dispatch:
-    inputs:
-      base_sha:
-        description: 可选的 diff 基准 SHA；留空时使用 head_sha 的父提交
-        required: false
-        type: string
-      head_sha:
-        description: 可选的 diff 目标 SHA；留空时使用当前提交
-        required: false
-        type: string
 
 permissions:
   contents: read
@@ -45,17 +36,51 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE_SHA: ${{ github.event.before }}
           BASE_REF: ${{ github.base_ref }}
-          DISPATCH_BASE: ${{ inputs.base_sha }}
-          DISPATCH_HEAD: ${{ inputs.head_sha }}
         run: |
           python3 .github/scripts/test_detect_changes.py
           python3 .github/scripts/detect_changes.py \
             --event-name "${EVENT_NAME}" \
             --head "${GITHUB_SHA}" \
             --before "${BEFORE_SHA}" \
-            --base-ref "${BASE_REF}" \
-            --dispatch-base "${DISPATCH_BASE}" \
-            --dispatch-head "${DISPATCH_HEAD}"
+            --base-ref "${BASE_REF}"
+
+  workflow-security:
+    name: Workflow security validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install actionlint
+        run: |
+          set -euo pipefail
+          ACTIONLINT_VERSION=1.7.12
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          url="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          mkdir -p .tools
+          curl --fail --location --silent --show-error --output ".tools/${archive}" "${url}"
+          printf '%s  %s\n' \
+            '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8' \
+            ".tools/${archive}" | sha256sum --check
+          tar -xzf ".tools/${archive}" -C .tools actionlint
+
+      - name: Run actionlint
+        run: ./.tools/actionlint -color
+
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
+        with:
+          advanced-security: false
+          annotations: true
+          min-confidence: high
+          min-severity: high
+          online-audits: false
+          version: "1.30.0"
 
   api:
     name: API validation
@@ -160,13 +185,14 @@ jobs:
 
   required:
     name: Fusion required gate
-    needs: [changes, api, ui]
+    needs: [changes, workflow-security, api, ui]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Verify required application jobs
         env:
+          WORKFLOW_SECURITY_RESULT: ${{ needs.workflow-security.result }}
           CHANGES_RESULT: ${{ needs.changes.result }}
           API_EXPECTED: ${{ needs.changes.outputs.api }}
           API_RESULT: ${{ needs.api.result }}
@@ -174,10 +200,28 @@ jobs:
           UI_RESULT: ${{ needs.ui.result }}
         run: |
           set -euo pipefail
+          if [ "${WORKFLOW_SECURITY_RESULT}" != "success" ]; then
+            echo "workflow security job 未成功: ${WORKFLOW_SECURITY_RESULT}"
+            exit 1
+          fi
           if [ "${CHANGES_RESULT}" != "success" ]; then
             echo "changes job 未成功: ${CHANGES_RESULT}"
             exit 1
           fi
+          case "${API_EXPECTED}" in
+            true|false) ;;
+            *)
+              echo "API 变更判定缺失或非法: ${API_EXPECTED:-<empty>}"
+              exit 1
+              ;;
+          esac
+          case "${UI_EXPECTED}" in
+            true|false) ;;
+            *)
+              echo "UI 变更判定缺失或非法: ${UI_EXPECTED:-<empty>}"
+              exit 1
+              ;;
+          esac
           if [ "${API_EXPECTED}" = "true" ] && [ "${API_RESULT}" != "success" ]; then
             echo "API 应运行但结果不是 success: ${API_RESULT}"
             exit 1

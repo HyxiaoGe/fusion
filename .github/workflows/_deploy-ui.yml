@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       rollback_sha:
-        description: 要部署的已知不可变镜像 SHA；操作方负责确认目标，留空则发布当前提交
+        description: 要回滚的已发布提交 SHA；Task 2 由发布台账解析 repository digest，留空则发布当前提交
         required: false
         type: string
       rollback_reason:
@@ -15,9 +15,8 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: fusion-ui-build-deploy-${{ github.ref }}
-  cancel-in-progress: false
+# Task 1 仅保留可调用外壳且没有启用调用方；Task 2 由顶层 orchestrator
+# 统一持有 fusion-dev concurrency，并在解析 repository digest 后才允许部署。
 
 # 镜像源:阿里云 ACR 个人版(深圳,境内端点);改仓名只动 IMAGE_NAME 一行
 env:
@@ -262,7 +261,7 @@ jobs:
           fi
           previousImageSha="${previousImageRef#"$previousImagePrefix"}"
           if ! [[ "$previousImageSha" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "fusion-ui 当前镜像引用不是 40 位小写不可变 SHA 标签，拒绝作为回滚目标：$previousImageRef"
+            echo "fusion-ui 当前镜像引用不是 40 位小写 Git SHA 标签，拒绝作为回滚目标：$previousImageRef"
             exit 1
           fi
           if ! [[ "$previousImageId" =~ ^sha256:[0-9a-f]{64}$ ]]; then
@@ -452,18 +451,26 @@ jobs:
 
       - name: Push CI/CD metrics
         if: always()
+        env:
+          METRICS_REF_NAME: ${{ github.ref_name }}
+          METRICS_JOB_STATUS: ${{ job.status }}
+          METRICS_STARTED_AT: ${{ needs.publish.outputs.started_at }}
+          METRICS_IMAGE_REF: ${{ env.IMAGE_NAME }}:${{ env.DEPLOY_TARGET_SHA }}
+          METRICS_TARGET_SHA: ${{ env.DEPLOY_TARGET_SHA }}
+          METRICS_RUNNER_NAME: ${{ needs.publish.outputs.runner_name }}
+          METRICS_DEPLOY_START: ${{ env.DEPLOY_START }}
         run: |
           if ! timeout 15s bash ~/scripts/push-cicd-metrics.sh \
             fusion-ui \
-            "${{ github.ref_name }}" \
+            "${METRICS_REF_NAME}" \
             dev \
-            "${{ job.status }}" \
-            "${{ needs.publish.outputs.started_at }}" \
-            "${{ env.IMAGE_NAME }}:${{ env.DEPLOY_TARGET_SHA }}" \
-            "${{ env.DEPLOY_TARGET_SHA }}" \
-            "${{ needs.publish.outputs.runner_name }}" \
+            "${METRICS_JOB_STATUS}" \
+            "${METRICS_STARTED_AT}" \
+            "${METRICS_IMAGE_REF}" \
+            "${METRICS_TARGET_SHA}" \
+            "${METRICS_RUNNER_NAME}" \
             fusion-ui \
-            "${{ env.DEPLOY_START }}"; then
+            "${METRICS_DEPLOY_START}"; then
             echo "CI/CD metrics push failed, ignored"
           fi
 

@@ -294,9 +294,10 @@ const actionDocuments = [
     );
   });
 
-  it('master 发布不会被后续 push 中途取消', () => {
-    expect(releaseWorkflow).toContain('group: fusion-ui-build-deploy-${{ github.ref }}');
-    expect(releaseWorkflow).toContain('cancel-in-progress: false');
+  it('部署 wrapper 把全局并发控制交给 orchestrator', () => {
+    expect(releaseWorkflow).not.toMatch(/^concurrency:/m);
+    expect(releaseWorkflow).toContain('顶层 orchestrator');
+    expect(releaseWorkflow).toContain('fusion-dev concurrency');
     expect(pullRequestWorkflow).toContain('cancel-in-progress: true');
   });
 
@@ -345,7 +346,7 @@ const actionDocuments = [
       }
     }
     expect(externalActionCount).toBeGreaterThan(0);
-    expect(pullRequestWorkflow.split(`uses: ${checkoutAction}`)).toHaveLength(4);
+    expect(pullRequestWorkflow.split(`uses: ${checkoutAction}`)).toHaveLength(5);
     expect(releaseWorkflow.split(`uses: ${checkoutAction}`)).toHaveLength(3);
   });
 
@@ -371,8 +372,9 @@ const actionDocuments = [
 
     const rollbackShaDescription =
       releaseWorkflowDocument.on?.workflow_call?.inputs?.rollback_sha?.description ?? '';
-    expect(rollbackShaDescription).toContain('已知不可变镜像 SHA');
-    expect(rollbackShaDescription).toContain('操作方负责确认目标');
+    expect(rollbackShaDescription).toContain('已发布提交 SHA');
+    expect(rollbackShaDescription).toContain('发布台账');
+    expect(rollbackShaDescription).toContain('repository digest');
     expect(rollbackShaDescription).not.toMatch(/历史\s*master|已成功发布/);
   });
 
@@ -613,8 +615,11 @@ docker() {
   it('部署指标与通知记录实际 DEPLOY_TARGET_SHA', () => {
     const metricsStep = getSingleDeployStep('Push CI/CD metrics');
     const notificationStep = getSingleDeployStep('通知飞书(部署结果)');
-    expect(metricsStep.run).toContain('${{ env.IMAGE_NAME }}:${{ env.DEPLOY_TARGET_SHA }}');
-    expect(metricsStep.run).toContain('${{ env.DEPLOY_TARGET_SHA }}');
+    expect(metricsStep.env?.METRICS_IMAGE_REF).toBe('${{ env.IMAGE_NAME }}:${{ env.DEPLOY_TARGET_SHA }}');
+    expect(metricsStep.env?.METRICS_TARGET_SHA).toBe('${{ env.DEPLOY_TARGET_SHA }}');
+    expect(metricsStep.run).toContain('${METRICS_IMAGE_REF}');
+    expect(metricsStep.run).toContain('${METRICS_TARGET_SHA}');
+    expect(metricsStep.run).not.toContain('${{');
     expect(metricsStep.run).not.toContain('${{ github.sha }}');
     expect(notificationStep.run).toContain('SHORT_SHA="${DEPLOY_TARGET_SHA:0:7}"');
     expect(notificationStep.run).not.toContain('SHORT_SHA="${GITHUB_SHA:0:7}"');

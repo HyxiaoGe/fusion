@@ -80,7 +80,9 @@ http://localhost:8000/docs
 候选部署开始后，镜像身份、健康检查或 deployment smoke 任一失败都会恢复两个旧镜像。恢复后
 必须精确核对旧镜像引用与内容 ID，并重新执行容器内 API/adapter health 和
 `scripts/deployment_smoke.py`。自动回滚成功不会掩盖原发布失败，回滚失败也不会被忽略。旧镜像
-只在整次发布成功后清理本地副本，ACR 中的 SHA 标签继续作为手动回滚来源。
+只在整次发布成功后清理本地副本。SHA 标签仅作当前 Task 1 wrapper 的兼容输入，不得作为部署权威身份；
+该 wrapper 在 Task 2 的 orchestrator、repository digest 解析和 per-app 发布台账
+落地前不启用。Task 2 起，手动回滚必须由发布台账把提交 SHA 唯一解析为 repository digest。
 
 手动回滚时，在 GitHub Actions 的 `Fusion API Windows CI` 中填写已经成功发布过的 40 位小写
 `rollback_sha` 和非空 `rollback_reason`。该路径跳过 Windows runner 上的构建、registry 登录、
