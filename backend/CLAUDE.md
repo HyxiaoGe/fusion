@@ -1,51 +1,17 @@
-# CLAUDE.md — fusion-api 导航文件
+# Backend CLAUDE.md
 
-## 语言
+适用于 `backend/` 的 FastAPI 应用。分层依赖保持 `API → Service → AI → Data`；具体编码约定见 [docs/CODING_CONVENTIONS.md](docs/CODING_CONVENTIONS.md)。
 
-所有回复、注释、提交信息使用中文。Git 格式：`<type>: <中文描述>`，必须包含 Co-Authored-By。
+<!-- guidance-contract:start -->
+## 受控协作约定
 
-## 快速命令
-
-```bash
-pip install -r requirements.txt          # 安装依赖
-uvicorn main:app --reload                # 开发服务器
-python -m pytest test/                   # 运行测试
-python -m ruff check . && python -m ruff format --check .  # 代码检查
-docker-compose up -d                     # Docker 启动
-```
-
-## 架构速览
-
-四层架构，依赖只能向下：API(`app/api/`) → Service(`app/services/`) → AI(`app/ai/`) → Data(`app/db/`)
-
-核心设计：Redis Stream 两段式流，LLM 生成与 HTTP 连接完全解耦。详见 → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-
-## 工作流程
-
-1. **变更前**：超过 3 个文件的改动，先输出影响分析，等人类确认
-2. **编码中**：遵守 [docs/ARCHITECTURE_RULES.md](docs/ARCHITECTURE_RULES.md)，参考 [docs/CODING_CONVENTIONS.md](docs/CODING_CONVENTIONS.md)
-3. **变更后**：运行测试 + ruff 检查，涉及数据流变更则更新对应文档
-4. **提交前**：确认改动已 push 且部署通过，不能只改本地就让用户测试
-
-## 常见开发任务
-
-- **添加新 LLM 提供商** → [docs/DEVELOPMENT_GUIDE.md](docs/DEVELOPMENT_GUIDE.md#添加新-llm-提供商)
-- **添加新 API 端点** → [docs/DEVELOPMENT_GUIDE.md](docs/DEVELOPMENT_GUIDE.md#添加新-api-端点)
-- **数据库变更** → [docs/DEVELOPMENT_GUIDE.md](docs/DEVELOPMENT_GUIDE.md#数据库变更)
-
-## 详细文档索引
-
-| 文档 | 内容 |
-|------|------|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层架构、核心组件、Redis Stream 数据流、数据库模型 |
-| [docs/ARCHITECTURE_RULES.md](docs/ARCHITECTURE_RULES.md) | 架构约束（依赖方向、禁止操作、模块边界） |
-| [docs/CODING_CONVENTIONS.md](docs/CODING_CONVENTIONS.md) | 编码风格、命名规范、日志、测试约定 |
-| [docs/API_REFERENCE.md](docs/API_REFERENCE.md) | API 端点一览、认证机制 |
-| [docs/DEVELOPMENT_GUIDE.md](docs/DEVELOPMENT_GUIDE.md) | 开发任务指南、部署配置、性能与安全 |
-
-## 扩展触发条件
-
-以下规则当前不实施，达到阈值时启用：
-
-- **Python 文件 >80 个**：引入 entropy 扫描机制（重复函数、超长函数、TODO 过期）
-- **LLM 提供商 >15 个**：拆分 `llm_manager.py` 为 provider 插件架构
+- 所有回复、代码注释和 Git 提交信息使用中文；提交格式为 `<type>: <中文描述>`，并保留项目要求的 `Co-Authored-By`。
+- 改动范围以 `backend/` 为应用根；跨到 `frontend/` 或根共享文件时，同时读取根导航和前端约定。
+- 遇到 bug、日志异常、CI 失败或行为回归时先定位根因；行为变更严格先写可失败的测试，再做最小实现。
+- AI 协作者不默认启动服务；不得自行启动 Uvicorn、本地 Docker 或其他 Fusion 服务，只有用户明确要求时才可启动。
+- 按改动运行测试/构建：优先运行目标 pytest 与 Ruff；涉及共享协议、数据流或容器契约时扩大到相应检查。
+- 用户可见或登录态链路只能复用既有 Chrome 标签；没有已打开且匹配的登录标签时，明确记录验收缺口，不新开浏览器目标。
+- 部署/回滚需明确确认；push、PR、合并、外部平台修改和发布是不同授权边界，任何一种授权都不得自动扩展到另一种。
+- 用户询问“下一步”时，从仓库根读取 `docs/EXECUTION_LEDGER.md`，执行 `git log --oneline -40`，搜索 `docs/implementation-plans`、`docs/specs`、存在时的 `backend/docs/MODEL_ACCEPTANCE_RUNBOOK.md`、受影响应用文档与源码；台账与当前树或历史冲突时以当前证据为准并指出待更新项。
+- 代码审查只提交当前改动引入且具有可达正确性、安全、权限、数据、兼容性或发布后果的 P0/P1；证据不足或仅属 P2/P3 加固时不阻塞。
+<!-- guidance-contract:end -->

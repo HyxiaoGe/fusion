@@ -17,7 +17,7 @@ description: Fusion API 项目架构、技术栈、核心组件总览。Use when
 - **数据库**: PostgreSQL + SQLAlchemy ORM
 - **缓存/流**: Redis Stream（流式输出解耦架构）
 - **认证**: JWT + JWKS（独立 auth-service）
-- **部署**: Docker Compose / Railway
+- **部署**: 以根 `.github/workflows/`、`ops/deploy/` 与 `docs/EXECUTION_LEDGER.md` 的当前合同为准；历史平台描述不能替代现行运行证据
 
 ## 分层架构
 
@@ -97,6 +97,8 @@ generate_to_redis() 后台任务
 - SSE 新增 `thinking_pending`、`search_start`、`search_complete` 事件类型
 
 ## 常用命令
+
+以下命令以 monorepo 的 `backend/` 为工作目录；AI 协作者默认不启动服务。
 
 ```bash
 pip install -r requirements.txt

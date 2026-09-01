@@ -1,44 +1,17 @@
-# CLAUDE.md — fusion-ui 导航文件
+# Frontend CLAUDE.md
 
-## 语言
+适用于 `frontend/` 的 Next.js / React / Electron 应用。聊天状态按 `SSE → Redux → 渲染 → Dexie/刷新恢复` 核对；架构与编码约定见 [docs/ARCHITECTURE_RULES.md](docs/ARCHITECTURE_RULES.md) 和 [docs/CODING_CONVENTIONS.md](docs/CODING_CONVENTIONS.md)。
 
-所有回复、注释、提交信息使用中文。Git 格式：`<type>: <中文描述>`，必须包含 Co-Authored-By。
+<!-- guidance-contract:start -->
+## 受控协作约定
 
-## 快速命令
-
-```bash
-npm install                  # 安装依赖
-npm run dev:next             # Web 开发服务器（:3000）
-npm run dev                  # Web + Electron 开发
-npm test                     # 运行 Vitest 测试
-npm run build                # 构建 Next.js
-npm run analyze              # 分析 bundle 体积
-```
-
-## 架构速览
-
-Next.js 15 (App Router) + React 19 + Electron 混合应用，Redux Toolkit 状态管理，Dexie.js 本地缓存。
-
-详见 → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-
-## 工作流程
-
-1. **变更前**：超过 3 个文件的改动，先输出影响分析，等人类确认
-2. **编码中**：遵守 [docs/ARCHITECTURE_RULES.md](docs/ARCHITECTURE_RULES.md)
-3. **变更后**：运行 `npm run build` 确认构建通过
-4. **提交前**：确认改动已 push 且部署通过，不能只改本地就让用户测试
-
-## 详细文档索引
-
-| 文档 | 内容 |
-|------|------|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 技术栈、目录结构、Redux 架构、数据流、Electron 集成 |
-| [docs/ARCHITECTURE_RULES.md](docs/ARCHITECTURE_RULES.md) | 架构约束（组件边界、数据流方向、禁止操作） |
-| [docs/CODING_CONVENTIONS.md](docs/CODING_CONVENTIONS.md) | 编码风格、命名规范、组件编写约定 |
-
-## 扩展触发条件
-
-以下规则当前不实施，达到阈值时启用：
-
-- **前端组件 >60 个**：引入 entropy 扫描（重复组件、超大组件、未使用 action）
-- **页面路由 >10 个**：引入页面级 bundle 分析自动化
+- 所有回复、代码注释和 Git 提交信息使用中文；提交格式为 `<type>: <中文描述>`，并保留项目要求的 `Co-Authored-By`。
+- 改动范围以 `frontend/` 为应用根；跨到 `backend/` 或根共享文件时，同时读取根导航和后端约定。
+- 遇到 bug、状态异常、CI 失败或用户可见回归时先定位根因；行为变更严格先写可失败的测试，再做最小实现。
+- AI 协作者不默认启动服务；不得自行启动 Next.js、Electron、本地 Docker 或其他 Fusion 服务，只有用户明确要求时才可启动。
+- 按改动运行测试/构建：优先运行目标 Vitest；涉及路由、跨组件协议或产物时运行生产构建及相应检查。
+- 用户可见或登录态链路只能复用既有 Chrome 标签；没有已打开且匹配的登录标签时，明确记录验收缺口，不新开浏览器目标。
+- 部署/回滚需明确确认；push、PR、合并、外部平台修改和发布是不同授权边界，任何一种授权都不得自动扩展到另一种。
+- 用户询问“下一步”时，从仓库根读取 `docs/EXECUTION_LEDGER.md`，执行 `git log --oneline -40`，搜索 `docs/implementation-plans`、`docs/specs`、存在时的 `backend/docs/MODEL_ACCEPTANCE_RUNBOOK.md`、受影响应用文档与源码；台账与当前树或历史冲突时以当前证据为准并指出待更新项。
+- 代码审查只提交当前改动引入且具有可达正确性、安全、权限、数据、兼容性或发布后果的 P0/P1；证据不足或仅属 P2/P3 加固时不阻塞。
+<!-- guidance-contract:end -->

@@ -1,14 +1,12 @@
 # Fusion Trajectory P3 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task by task with one implementer and one independent reviewer per task.
-
 **Goal:** 在 `fusion-ui` 用全高会话级 Trajectory Tab 替代消息内联“过程”，直接消费 P1 快照 API，并把现有聊天 SSE 安全、幂等地归并为可回放、可检查、可对账的执行轨迹。
 
 **Architecture:** 历史真相来自 P1 的有界 run list 与 per-run snapshot；实时增量经公共 SSE 解析器进入独立 `trajectorySlice`，以 `(runId, sequence)` 归一化去重，终态后用 durable snapshot 对账。页面只编排 Chat/Trajectory 两个 Tab 和唯一 Composer；纯 `TrajectoryCellProjection` 负责 messages、run summaries、snapshot 与 live tail 的确定性 join，虚拟账本、瀑布图和检查器只消费该投影。
 
 **Tech Stack:** Next.js 15、React 19、TypeScript、Redux Toolkit、Radix UI、Tailwind CSS、Vitest、Testing Library。
 
-**Spec:** `fusion-api/docs/TRAJECTORY_DESIGN.md` v0.19 §8（API 文档分支提交 `6985548`）。
+**Spec:** `backend/docs/TRAJECTORY_DESIGN.md` v0.19 §8（后端文档历史提交 `6985548`）。
 
 ## Global Constraints
 
@@ -207,7 +205,7 @@
 
 **Files:**
 
-- Modify if needed: `docs/superpowers/reports/trajectory-p3-verification.md`
+- Modify if needed: `docs/reports/frontend/trajectory-p3-verification.md`
 - Do not delete yet: `src/components/chat/agent/AgentRunTimeline.tsx`
 - Do not delete yet: `src/components/chat/agent/ExecutionProcess.tsx`
 - Do not delete yet: `src/components/chat/agent/executionProcessModel.ts`

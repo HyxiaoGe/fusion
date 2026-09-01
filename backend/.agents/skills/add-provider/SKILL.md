@@ -86,15 +86,7 @@ OpenRouter 路由的 provider 只需在凭证中存 OpenRouter API Key，无需 
 
 ## 验证
 
-```bash
-# 用 curl 测试新提供商
-TOKEN=$(curl -s -X POST http://localhost:8100/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"Codex-test@fusion.dev","password":"test123456","client_id":"app_xxx"}' \
-  | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
-
-curl -s -N -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -X POST http://localhost:8002/api/chat/send \
-  -d '{"model_id":"{provider}-model","message":"你好","stream":true}'
-```
+1. 先为 provider 映射、凭据参数组装、reasoning 能力与失败降级补 RED 测试，再运行对应 pytest 和 Ruff。
+2. 不在 skill 或命令历史中保存固定账号、密码、client id、API key 或 token。真实凭据只能来自用户已授权的安全来源，以环境变量或受控 secret 注入；命令不得回显其值。
+3. 创建模型/凭据、创建会话、发送消息或触发真实模型调用会写 dev 状态并消耗模型额度，只能在用户明确授权真实 dev 验收后执行。
+4. 获得授权后，复用已有 dev 服务与安全注入的短期访问令牌，验证一次成功流、一次无效凭据失败和一次能力降级；记录脱敏状态码、模型 id 与终态，不记录请求凭据或完整响应内容。
