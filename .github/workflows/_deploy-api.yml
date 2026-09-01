@@ -524,12 +524,16 @@ jobs:
           fi
           governance_timer_enabled="false"
           governance_timer_active="false"
+          cost_timer_enabled="false"
           cost_timer_active="false"
           if systemctl --user is-enabled --quiet fusion-litellm-governance.timer; then
             governance_timer_enabled="true"
           fi
           if systemctl --user is-active --quiet fusion-litellm-governance.timer; then
             governance_timer_active="true"
+          fi
+          if systemctl --user is-enabled --quiet fusion-litellm-cost-sync.timer; then
+            cost_timer_enabled="true"
           fi
           if systemctl --user is-active --quiet fusion-litellm-cost-sync.timer; then
             cost_timer_active="true"
@@ -556,6 +560,28 @@ jobs:
             fi
             governance_timer_unit_existed="true"
             governance_timer_unit_b64="$(base64 -w0 "${governance_timer_unit}")"
+          fi
+          cost_service_unit="${governance_unit_dir}/fusion-litellm-cost-sync.service"
+          cost_timer_unit="${governance_unit_dir}/fusion-litellm-cost-sync.timer"
+          cost_service_unit_existed="false"
+          cost_timer_unit_existed="false"
+          cost_service_unit_b64=""
+          cost_timer_unit_b64=""
+          if [ -e "${cost_service_unit}" ]; then
+            if [ ! -f "${cost_service_unit}" ] || [ -L "${cost_service_unit}" ]; then
+              echo "LiteLLM 成本同步 service unit 不是受管普通文件"
+              exit 1
+            fi
+            cost_service_unit_existed="true"
+            cost_service_unit_b64="$(base64 -w0 "${cost_service_unit}")"
+          fi
+          if [ -e "${cost_timer_unit}" ]; then
+            if [ ! -f "${cost_timer_unit}" ] || [ -L "${cost_timer_unit}" ]; then
+              echo "LiteLLM 成本同步 timer unit 不是受管普通文件"
+              exit 1
+            fi
+            cost_timer_unit_existed="true"
+            cost_timer_unit_b64="$(base64 -w0 "${cost_timer_unit}")"
           fi
           model_management_service_unit="${governance_unit_dir}/fusion-litellm-model-management.service"
           model_management_timer_unit="${governance_unit_dir}/fusion-litellm-model-management.timer"
@@ -597,11 +623,16 @@ jobs:
             printf '%s\n' "governance_current_target=${governance_current_target}"
             printf '%s\n' "governance_timer_enabled=${governance_timer_enabled}"
             printf '%s\n' "governance_timer_active=${governance_timer_active}"
+            printf '%s\n' "cost_timer_enabled=${cost_timer_enabled}"
             printf '%s\n' "cost_timer_active=${cost_timer_active}"
             printf '%s\n' "governance_service_unit_existed=${governance_service_unit_existed}"
             printf '%s\n' "governance_timer_unit_existed=${governance_timer_unit_existed}"
             printf '%s\n' "governance_service_unit_b64=${governance_service_unit_b64}"
             printf '%s\n' "governance_timer_unit_b64=${governance_timer_unit_b64}"
+            printf '%s\n' "cost_service_unit_existed=${cost_service_unit_existed}"
+            printf '%s\n' "cost_timer_unit_existed=${cost_timer_unit_existed}"
+            printf '%s\n' "cost_service_unit_b64=${cost_service_unit_b64}"
+            printf '%s\n' "cost_timer_unit_b64=${cost_timer_unit_b64}"
             printf '%s\n' "model_management_service_unit_existed=${model_management_service_unit_existed}"
             printf '%s\n' "model_management_timer_unit_existed=${model_management_timer_unit_existed}"
             printf '%s\n' "model_management_service_unit_b64=${model_management_service_unit_b64}"
@@ -2128,10 +2159,16 @@ jobs:
           ROLLBACK_GOVERNANCE_CURRENT_TARGET: ${{ steps.capture_rollback_target.outputs.governance_current_target }}
           ROLLBACK_GOVERNANCE_TIMER_ENABLED: ${{ steps.capture_rollback_target.outputs.governance_timer_enabled }}
           ROLLBACK_GOVERNANCE_TIMER_ACTIVE: ${{ steps.capture_rollback_target.outputs.governance_timer_active }}
+          ROLLBACK_COST_TIMER_ENABLED: ${{ steps.capture_rollback_target.outputs.cost_timer_enabled }}
+          ROLLBACK_COST_TIMER_ACTIVE: ${{ steps.capture_rollback_target.outputs.cost_timer_active }}
           ROLLBACK_GOVERNANCE_SERVICE_UNIT_EXISTED: ${{ steps.capture_rollback_target.outputs.governance_service_unit_existed }}
           ROLLBACK_GOVERNANCE_TIMER_UNIT_EXISTED: ${{ steps.capture_rollback_target.outputs.governance_timer_unit_existed }}
           ROLLBACK_GOVERNANCE_SERVICE_UNIT_B64: ${{ steps.capture_rollback_target.outputs.governance_service_unit_b64 }}
           ROLLBACK_GOVERNANCE_TIMER_UNIT_B64: ${{ steps.capture_rollback_target.outputs.governance_timer_unit_b64 }}
+          ROLLBACK_COST_SERVICE_UNIT_EXISTED: ${{ steps.capture_rollback_target.outputs.cost_service_unit_existed }}
+          ROLLBACK_COST_TIMER_UNIT_EXISTED: ${{ steps.capture_rollback_target.outputs.cost_timer_unit_existed }}
+          ROLLBACK_COST_SERVICE_UNIT_B64: ${{ steps.capture_rollback_target.outputs.cost_service_unit_b64 }}
+          ROLLBACK_COST_TIMER_UNIT_B64: ${{ steps.capture_rollback_target.outputs.cost_timer_unit_b64 }}
           ROLLBACK_MODEL_MANAGEMENT_SERVICE_UNIT_EXISTED: ${{ steps.capture_rollback_target.outputs.model_management_service_unit_existed }}
           ROLLBACK_MODEL_MANAGEMENT_TIMER_UNIT_EXISTED: ${{ steps.capture_rollback_target.outputs.model_management_timer_unit_existed }}
           ROLLBACK_MODEL_MANAGEMENT_SERVICE_UNIT_B64: ${{ steps.capture_rollback_target.outputs.model_management_service_unit_b64 }}
@@ -2162,22 +2199,27 @@ jobs:
         run: |
           systemctl --user stop fusion-litellm-model-management.timer >/dev/null 2>&1 || true
           systemctl --user stop fusion-litellm-governance.timer >/dev/null 2>&1 || true
+          systemctl --user stop fusion-litellm-cost-sync.timer >/dev/null 2>&1 || true
           wait_for_user_services() {
             for attempt in $(seq 1 24); do
               worker_active="false"
               governance_active="false"
+              cost_active="false"
               if systemctl --user is-active --quiet fusion-litellm-model-management.service; then
                 worker_active="true"
               fi
               if systemctl --user is-active --quiet fusion-litellm-governance.service; then
                 governance_active="true"
               fi
-              if [ "${worker_active}:${governance_active}" = "false:false" ]; then
+              if systemctl --user is-active --quiet fusion-litellm-cost-sync.service; then
+                cost_active="true"
+              fi
+              if [ "${worker_active}:${governance_active}:${cost_active}" = "false:false:false" ]; then
                 return 0
               fi
               sleep 5
             done
-            echo "模型准入 Worker 或 LiteLLM 治理周期在回滚等待窗口内仍未结束，拒绝并发恢复运行资产"
+            echo "模型准入 Worker、LiteLLM 治理或成本同步周期在回滚等待窗口内仍未结束，拒绝并发恢复运行资产"
             return 1
           }
           wait_for_user_services
@@ -2514,6 +2556,14 @@ jobs:
             "${ROLLBACK_GOVERNANCE_TIMER_UNIT_EXISTED}" \
             "${ROLLBACK_GOVERNANCE_TIMER_UNIT_B64}"
           restore_governance_unit \
+            fusion-litellm-cost-sync.service \
+            "${ROLLBACK_COST_SERVICE_UNIT_EXISTED}" \
+            "${ROLLBACK_COST_SERVICE_UNIT_B64}"
+          restore_governance_unit \
+            fusion-litellm-cost-sync.timer \
+            "${ROLLBACK_COST_TIMER_UNIT_EXISTED}" \
+            "${ROLLBACK_COST_TIMER_UNIT_B64}"
+          restore_governance_unit \
             fusion-litellm-model-management.service \
             "${ROLLBACK_MODEL_MANAGEMENT_SERVICE_UNIT_EXISTED}" \
             "${ROLLBACK_MODEL_MANAGEMENT_SERVICE_UNIT_B64}"
@@ -2532,6 +2582,17 @@ jobs:
             systemctl --user is-active --quiet fusion-litellm-governance.timer
           else
             systemctl --user stop fusion-litellm-governance.timer >/dev/null 2>&1 || true
+          fi
+          if [ "${ROLLBACK_COST_TIMER_ENABLED}" = "true" ]; then
+            systemctl --user enable fusion-litellm-cost-sync.timer
+          else
+            systemctl --user disable fusion-litellm-cost-sync.timer >/dev/null 2>&1 || true
+          fi
+          if [ "${ROLLBACK_COST_TIMER_ACTIVE}" = "true" ]; then
+            systemctl --user start fusion-litellm-cost-sync.timer
+            systemctl --user is-active --quiet fusion-litellm-cost-sync.timer
+          else
+            systemctl --user stop fusion-litellm-cost-sync.timer >/dev/null 2>&1 || true
           fi
 
           echo "Restore model management worker after automatic rollback"
