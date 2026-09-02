@@ -21,7 +21,8 @@ DRIFT_AUDIT_WORKFLOW = MONOREPO_ROOT / ".github" / "workflows" / "baseline-drift
 CLEANUP_SCRIPT = ROOT / ".github" / "scripts" / "windows-cleanup.ps1"
 BUILD_SCRIPT = ROOT / ".github" / "scripts" / "windows-build-and-test.ps1"
 LINUX_BUILD_SCRIPT = ROOT / ".github" / "scripts" / "linux-build-and-test.sh"
-README = ROOT / "README.md"
+COMPONENT_README = ROOT / "README.md"
+RELEASE_SAFETY_DOC = ROOT / "docs" / "RELEASE_SAFETY.md"
 CI_REQUIREMENTS = ROOT / "requirements-ci.txt"
 CHECKOUT_ACTION = "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6"
 LOGIN_ACTION = "docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0"
@@ -74,7 +75,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         self.cleanup_script = CLEANUP_SCRIPT.read_text(encoding="utf-8")
         self.build_script = BUILD_SCRIPT.read_text(encoding="utf-8")
         self.linux_build_script = LINUX_BUILD_SCRIPT.read_text(encoding="utf-8")
-        self.readme = README.read_text(encoding="utf-8")
+        self.release_safety_doc = RELEASE_SAFETY_DOC.read_text(encoding="utf-8")
         self.ci_requirements = CI_REQUIREMENTS.read_text(encoding="utf-8")
 
     def assert_context7_has_no_secret_or_runner_fallback(self, workflow: str) -> None:
@@ -163,6 +164,16 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         for output_name in ("api_image_ref", "api_image_id", "adapter_image_ref", "adapter_image_id"):
             self.assertEqual(script.count(f'"{output_name}=${{{output_name}}}"'), 1)
         self.assertEqual(script.count('"deployment_sha=${api_sha}"'), 1)
+
+    def test_component_readme_is_not_release_safety_contract(self) -> None:
+        self.assertTrue(RELEASE_SAFETY_DOC.is_file(), "发布安全契约应迁入 backend/docs/RELEASE_SAFETY.md")
+        component_readme = COMPONENT_README.read_text(encoding="utf-8")
+        for fragment in (
+            "expand/contract",
+            "镜像回滚绝不执行 `alembic downgrade`",
+            "不得作为部署权威身份",
+        ):
+            self.assertNotIn(fragment, component_readme, f"backend/README.md 不应承载发布机器契约: {fragment}")
 
     def assert_rollback_restore_contract(self, step: dict) -> None:
         self.assert_rollback_step_guard(step["if"])
@@ -832,11 +843,12 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         rollback_step = workflow_step(deploy_job, "Roll back failed deployment")
         self.assertNotIn("alembic downgrade", self.release_workflow)
         self.assertNotIn("alembic upgrade", active_commands(rollback_step["run"]))
-        self.assertIn("expand/contract", self.readme)
-        self.assertIn("镜像回滚绝不执行 `alembic downgrade`", self.readme)
-        self.assertIn("SHA 标签仅作当前 Task 1 wrapper 的兼容输入", self.readme)
-        self.assertIn("不得作为部署权威身份", self.readme)
-        self.assertNotIn("ACR 中的 SHA 标签继续作为手动回滚来源", self.readme)
+        self.assertIn("expand/contract", self.release_safety_doc)
+        self.assertIn("镜像回滚绝不执行 `alembic downgrade`", self.release_safety_doc)
+        self.assertIn("提交 SHA 标签只用于审计与兼容输入", self.release_safety_doc)
+        self.assertIn("不得作为部署权威身份", self.release_safety_doc)
+        self.assertNotIn("Task 1 wrapper", self.release_safety_doc)
+        self.assertNotIn("ACR 中的 SHA 标签继续作为手动回滚来源", self.release_safety_doc)
 
     def test_release_evidence_uses_actual_deploy_target_sha(self) -> None:
         deploy_job = self.release_document["jobs"]["deploy-dev"]
