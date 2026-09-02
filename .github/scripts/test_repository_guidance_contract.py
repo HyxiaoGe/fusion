@@ -23,7 +23,6 @@ DISCOVERY_ENTRIES = (
 GUIDANCE_FILES = (
     ROOT / "AGENTS.md",
     ROOT / "CLAUDE.md",
-    ROOT / "README.md",
     ROOT / "backend/AGENTS.md",
     ROOT / "backend/CLAUDE.md",
     ROOT / "frontend/AGENTS.md",
@@ -335,6 +334,27 @@ class RepositoryGuidanceContractTest(unittest.TestCase):
                 self.assertNotIn(keyword, content, f"{relative} 不应承载应用执行规则: {keyword}")
             for target in ("backend/AGENTS.md", "frontend/AGENTS.md", "docs/EXECUTION_LEDGER.md"):
                 self.assertIn(target, content)
+
+    def test_public_readme_is_product_facing_not_agent_guidance(self) -> None:
+        readme = ROOT / "README.md"
+        self.assertNotIn(readme, GUIDANCE_FILES)
+        content = read(readme)
+        for entry in DISCOVERY_ENTRIES:
+            self.assertNotIn(entry, content, f"README.md 不应承载 Agent 发现入口: {entry}")
+
+    def test_public_readme_has_three_local_product_visuals(self) -> None:
+        readme = ROOT / "README.md"
+        targets = re.findall(r"!\[[^\]]*\]\(([^)]+)\)", read(readme))
+        local_targets = []
+        for target in targets:
+            normalized = target.strip().strip("<>").split(maxsplit=1)[0]
+            parsed = urlsplit(normalized)
+            if parsed.scheme in {"http", "https"} or not parsed.path:
+                continue
+            local_targets.append(normalized)
+        self.assertGreaterEqual(len(local_targets), 3, "README.md 至少应包含三张本地产品图")
+        missing = [target for target in local_targets if not (readme.parent / unquote(target)).is_file()]
+        self.assertEqual(missing, [], f"README.md 产品图不存在: {missing}")
 
     def test_fusion_next_step_is_unique_and_uses_single_repo_discovery(self) -> None:
         copies = sorted(ROOT.glob("**/.agents/skills/fusion-next-step/SKILL.md"))
