@@ -6,7 +6,7 @@ argument-hint: <endpoint-name>
 
 # 添加新 API 端点
 
-按以下步骤添加新的 FastAPI 端点，以 `{endpoint_name}` 为例。
+先用 `git rev-parse --show-toplevel` 定位 monorepo 根，并以其中的 `backend/` 为应用根。按以下步骤添加新的 FastAPI 端点，以 `{endpoint_name}` 为例。
 
 ## 1. 定义 Pydantic Schema
 

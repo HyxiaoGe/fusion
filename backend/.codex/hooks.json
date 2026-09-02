@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "'/Users/sean/code/fusion/fusion-api/.codex/hooks/guard-dangerous.sh'",
+            "command": "\"$(git rev-parse --show-toplevel)/backend/.codex/hooks/guard-dangerous.sh\"",
             "timeout": 5
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "'/Users/sean/code/fusion/fusion-api/.codex/hooks/check-python-syntax.sh'",
+            "command": "\"$(git rev-parse --show-toplevel)/backend/.codex/hooks/check-python-syntax.sh\"",
             "timeout": 10
           }
         ]
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "'/Users/sean/code/fusion/fusion-api/.codex/hooks/pre-develop-checklist.sh'",
+            "command": "\"$(git rev-parse --show-toplevel)/backend/.codex/hooks/pre-develop-checklist.sh\"",
             "timeout": 3
           }
         ]
@@ -40,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "'/Users/sean/code/fusion/fusion-api/.codex/hooks/remind-update-skills.sh'",
+            "command": "\"$(git rev-parse --show-toplevel)/backend/.codex/hooks/remind-update-skills.sh\"",
             "timeout": 5
           }
         ]

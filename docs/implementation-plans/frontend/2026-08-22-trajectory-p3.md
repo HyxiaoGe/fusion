@@ -1,17 +1,16 @@
 # Fusion Trajectory P3 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task by task with one implementer and one independent reviewer per task.
-
-**Goal:** 在 `fusion-ui` 用全高会话级 Trajectory Tab 替代消息内联“过程”，直接消费 P1 快照 API，并把现有聊天 SSE 安全、幂等地归并为可回放、可检查、可对账的执行轨迹。
+**Goal:** 在 `HyxiaoGe/fusion` monorepo 的 `frontend/` 应用中，用全高会话级 Trajectory Tab 替代消息内联“过程”，直接消费 P1 快照 API，并把现有聊天 SSE 安全、幂等地归并为可回放、可检查、可对账的执行轨迹。
 
 **Architecture:** 历史真相来自 P1 的有界 run list 与 per-run snapshot；实时增量经公共 SSE 解析器进入独立 `trajectorySlice`，以 `(runId, sequence)` 归一化去重，终态后用 durable snapshot 对账。页面只编排 Chat/Trajectory 两个 Tab 和唯一 Composer；纯 `TrajectoryCellProjection` 负责 messages、run summaries、snapshot 与 live tail 的确定性 join，虚拟账本、瀑布图和检查器只消费该投影。
 
 **Tech Stack:** Next.js 15、React 19、TypeScript、Redux Toolkit、Radix UI、Tailwind CSS、Vitest、Testing Library。
 
-**Spec:** `fusion-api/docs/TRAJECTORY_DESIGN.md` v0.19 §8（API 文档分支提交 `6985548`）。
+**Spec:** `backend/docs/TRAJECTORY_DESIGN.md` v0.19 §8（后端文档历史提交 `6985548`）。
 
 ## Global Constraints
 
+- 本计划所有未加前缀的 `src/...`、`package.json` 与 `npm ...` 命令都以 `frontend/` 为工作目录；从 monorepo 根执行时，文件路径写为 `frontend/src/...`，npm 命令写为 `npm --prefix frontend ...`。所有 Git 命令、分支与 PR 操作均在 `HyxiaoGe/fusion` monorepo 根执行。
 - P1 已完成，P3 只消费现有 `/api/conversations/{id}/runs` 与 `/api/conversations/{id}/runs/{runId}/trajectory`，不重新实现后端投影器或第二条 SSE。
 - 轨迹是会话级、有界、全高 Tab，不实现窄侧栏，不宣称完整历史；`truncated/degraded/legacy/reconciling/conflict` 必须显式可见。
 - Composer 只有一个实例并始终挂载；从 Trajectory 发送后停留在 Trajectory。普通发送与历史 `selectedRunId` 无关；stop/steering 只针对 active stream。
@@ -207,7 +206,7 @@
 
 **Files:**
 
-- Modify if needed: `docs/superpowers/reports/trajectory-p3-verification.md`
+- Modify if needed: `docs/reports/frontend/trajectory-p3-verification.md`
 - Do not delete yet: `src/components/chat/agent/AgentRunTimeline.tsx`
 - Do not delete yet: `src/components/chat/agent/ExecutionProcess.tsx`
 - Do not delete yet: `src/components/chat/agent/executionProcessModel.ts`
@@ -217,6 +216,6 @@
 - [ ] 运行 `npm run build`，记录类型检查和生产构建结果。
 - [ ] 运行 `git diff --check`、`git status --short`、`git diff --stat origin/master...HEAD`，确认无非预期文件。
 - [ ] 用独立 reviewer 按 v0.19 §8 和本计划审查：协议安全、合并竞态、缓存边界、性能、可访问性、旧流程替换、actions 归属；修复所有阻塞项并重跑相关验证。
-- [ ] 推送 `feat/trajectory-p3-ui` 并创建中文 PR；监督 CI 到完成。未获得合并/部署授权前停在可审查 PR。
-- [ ] 真实 dev 回归不在本地启动服务、不新开 Chrome；部署获授权后复用已打开登录 Tab，覆盖工具、知识库、失败/触顶或 continuation、刷新恢复、console 0 error。
+- [ ] 在当前 monorepo 从最新 `master` 新建 `feat/trajectory-p3`，推送后向 `HyxiaoGe/fusion:master` 创建中文 PR，并由根 CI orchestrator 按变更范围验证。推送、创建 PR、合并与部署分别遵守当时的授权边界；未获得合并/部署授权前停在可审查 PR。
+- [ ] 真实 dev 回归不在本地启动服务、不新开 Chrome；部署与 Chrome 验收分别获得当时的明确授权后，复用已打开登录 Tab，覆盖工具、知识库、失败/触顶或 continuation、刷新恢复、console 0 error。
 - [ ] 真实 dev 回归通过后再建 cleanup PR，物理删除确认零引用的旧过程文件；此清理不得混入首次产品 PR。

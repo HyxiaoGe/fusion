@@ -9,6 +9,8 @@ allowed-tools: Bash
 
 通过 `ssh dev` 连接开发服务器查看 fusion-api 容器日志。
 
+本 skill 仅用于已授权范围内的只读诊断，不重启容器、不改 dev 配置、不创建会话。所有时间窗口按 `Asia/Shanghai` 解释；容器日志不是东八区时，先明确原时区再换算。
+
 ## 常用命令
 
 ### 最近日志（过滤 LiteLLM 噪音）
@@ -28,6 +30,7 @@ ssh dev "docker logs fusion-api 2>&1" | grep '{conversation_id}' | grep -v OPTIO
 
 ### 按时间范围
 ```bash
+# 先把用户给出的 Asia/Shanghai 窗口换算为容器日志时区，再替换占位范围
 ssh dev "docker logs fusion-api 2>&1" | grep -E '08:1[0-9]' | grep -v 'GET /docs'
 ```
 

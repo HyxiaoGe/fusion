@@ -68,8 +68,8 @@ src/
 
 ## 数据流文档
 
-- 前端聊天主数据流说明见 [`CHAT_UI_DATA_FLOW.md`](/Users/sean/code/fusion/fusion-ui/CHAT_UI_DATA_FLOW.md)
+- 前端聊天主数据流说明见 [`CHAT_UI_DATA_FLOW.md`](CHAT_UI_DATA_FLOW.md)
 
 ## 许可证
 
-[MIT](LICENSE)
+MIT

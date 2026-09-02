@@ -1,73 +1,17 @@
-# AGENTS.md — fusion-ui 导航文件
+# Frontend AGENTS.md
 
-## 语言
+适用于 `frontend/` 的 Next.js / React / Electron 应用。聊天状态按 `SSE → Redux → 渲染 → Dexie/刷新恢复` 核对；架构与编码约定见 [docs/ARCHITECTURE_RULES.md](docs/ARCHITECTURE_RULES.md) 和 [docs/CODING_CONVENTIONS.md](docs/CODING_CONVENTIONS.md)。
 
-所有回复、注释、提交信息使用中文。Git 提交格式：`<type>: <中文描述>`，必须包含 `Co-Authored-By: Codex <noreply@anthropic.com>`。
+<!-- guidance-contract:start -->
+## 受控协作约定
 
-## 快速命令
-
-以下启动命令仅供人工本地开发参考。AI 协作者默认不得启动本地 Fusion 服务；调查、验收优先使用测试、构建、CI、远端 dev 状态、已有运行服务和用户已登录的 Chrome。
-
-```bash
-npm install                         # 安装依赖
-npm run dev:next                    # Web 开发服务器（AI 默认不得启动）
-npm test                            # 运行 Vitest
-npm run build                       # Next.js 生产构建
-```
-
-## 架构速览
-
-前端基于 Next.js 15、React 19 和 Electron。核心边界：
-
-- `src/app/`：路由入口与页面装配
-- `src/components/chat/`：对话主界面、消息、联网依据、工具过程与输入框
-- `src/lib/`：API 客户端、数据转换、agent/tool 派生逻辑
-- `src/redux/`：会话、消息、stream 状态管理
-- `src/types/`：跨层协议类型
-
-详细约束参考：
-
-| 文档 | 内容 |
-|------|------|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 前端架构与关键模块 |
-| [docs/ARCHITECTURE_RULES.md](docs/ARCHITECTURE_RULES.md) | 模块边界、状态与数据流约束 |
-| [docs/CODING_CONVENTIONS.md](docs/CODING_CONVENTIONS.md) | 编码风格、组件与测试约定 |
-| [CHAT_UI_DATA_FLOW.md](CHAT_UI_DATA_FLOW.md) | 聊天 UI 数据流 |
-
-## 工作流程
-
-1. **默认执行闭环**：用户说“开始”“继续”“修下”“按你说的来”“提交/部署”等，视为授权继续完成实现、验证、提交、push 和 CI/CD 跟踪；不要为常规下一步反复等待确认。
-2. **先定位根因**：UI 卡顿、状态错乱、联网依据展示异常、CI 失败等问题，先读组件数据流、Redux 状态、测试、远端现象或用户提供的 Chrome 状态，确认根因后再改。
-3. **复杂变更先计划**：多组件、多状态层、交互/视觉层级、前后端协议变化先写简短 implementation plan；必要时更新既有 spec。
-4. **默认 Subagent-Driven**：适合拆分的开发任务默认用 Subagent-Driven；主 Agent 负责拆分、协调、复核，子 Agent 负责独立实现/审查。若工具额度或任务规模不适合启用，需说明原因并按同等 checklist 自审。
-5. **TDD 优先**：bugfix 和行为变更先补能失败的回归测试，再实现。UI 改动优先覆盖派生模型、组件渲染和关键交互。
-6. **编码中**：遵守前端架构和编码约定，优先复用现有组件、hooks、派生模型和样式 token；保持改动范围最小，不回滚无关用户改动。
-7. **禁止默认本地启动**：不得为调查或验收启动 `npm run dev*`、`next dev`、Electron 或本地 Docker；优先使用 `npm test`、`npm run build`、CI、远端 dev 和用户已登录 Chrome。只有用户明确要求本地启动时才可执行。
-8. **真实 Chrome 回归**：用户已登录 Chrome 可用时，只能复用用户已经打开的、与任务匹配的 Chrome 标签补充验证登录态、关键交互、真实网络请求、控制台错误和可见异常。**严禁打开新的 Chrome、新标签、新窗口、`about:blank`、isolated context，严禁使用会创建或切到独立浏览器目标的 DevTools/CDP 通道。**若没有可复用的匹配标签，必须停止并说明阻塞，不能自行新开页面；Chrome 回归不替代 Vitest/build/CI，也不使用本地 Fusion 服务或假数据得结论。
-9. **变更后验证**：运行与改动匹配的 Vitest；涉及路由、构建、样式或跨组件协议时运行 `npm run build`。不能只凭代码阅读声称完成。
-10. **CI/CD 收尾**：按正常 Git 流程中文提交并包含 `Co-Authored-By`，push 后持续监控 GitHub Actions 和 dev 部署；失败时拉日志定位并修复。
-11. **下一步建议必须查执行记录**：用户问“下一步”“接下来做什么”“还有什么优化”“还能怎么加强”时，必须先读 [docs/EXECUTION_LEDGER.md](docs/EXECUTION_LEDGER.md)，再查 `fusion-api` / `fusion-ui` 最近 `git log` 和相关 `docs/superpowers`。禁止凭 memory 或印象回答，禁止重复建议台账里已经完成的方向。可使用 repo skill `fusion-next-step`。
-
-## Code Review Rules
-
-### 阻塞边界
-
-- 只提交 P0/P1 finding：问题必须由当前 PR 引入、存在当前可达的触发路径，并会造成明确的正确性、安全、权限、数据、兼容性或发布后果；评论必须说明触发条件、实际影响和最小安全路径，证据不足则不报告。
-- P2/P3、纯防御性加固、需要未来维护者同时修改规则与测试才成立的假设、测试还可增加更多 fixture、lint/格式/措辞/命名或无当前影响的重构默认不报告，也不得仅因建议有价值就阻塞合并。
-
-### 项目重点
-
-- 重点沿 `SSE → Redux → 渲染 → Dexie/刷新恢复` 检查聊天状态，并保护 `fetchWithAuth` 与组件边界；只有会切断 token refresh、丢失用户状态或破坏当前支持路径的问题才报告，机械一致性继续交给确定性 CI。
-
-### Few-shot
-
-正例：完成事件只更新 Redux 而未写入 Dexie，页面刷新后刚生成的回答消失；这是当前可达的数据丢失后果，应提交 P1。
-
-反例：还可以为工具面板增加另一种嵌套展示 fixture 或重命名派生 helper，但当前渲染、缓存和刷新路径均正确；这属于 P2/P3 加固，不提交 finding。
-
-## UI/UX 约束
-
-- 优先减少空白时间、提升真实内容出现速度，不用骨架屏掩盖慢路径。
-- 桌面 Web 优先；除非用户要求，不默认扩展移动端。
-- 聊天正文永远是主角；思考、工具、来源、推荐问题等辅助层必须低干扰。
-- 联网来源、诊断和工具过程面向普通用户时只展示用户可理解的信息；内部原因、预算、服务名、底层错误码只保留在日志或管理员/调试路径。
+- 所有回复、代码注释和 Git 提交信息使用中文；提交格式为 `<type>: <中文描述>`，并保留项目要求的 `Co-Authored-By`。
+- 改动范围以 `frontend/` 为应用根；跨到 `backend/` 或根共享文件时，同时读取根导航和后端约定。
+- 遇到 bug、状态异常、CI 失败或用户可见回归时先定位根因；行为变更严格先写可失败的测试，再做最小实现。
+- AI 协作者不默认启动服务；不得自行启动 Next.js、Electron、本地 Docker 或其他 Fusion 服务，只有用户明确要求时才可启动。
+- 按改动运行测试/构建：优先运行目标 Vitest；涉及路由、跨组件协议或产物时运行生产构建及相应检查。
+- 用户可见或登录态链路只能复用既有 Chrome 标签；没有已打开且匹配的登录标签时，明确记录验收缺口，不新开浏览器目标。
+- 部署/回滚需明确确认；push、PR、合并、外部平台修改和发布是不同授权边界，任何一种授权都不得自动扩展到另一种。
+- 用户询问“下一步”时，从仓库根读取 `docs/EXECUTION_LEDGER.md`，执行 `git log --oneline -40`，搜索 `docs/implementation-plans`、`docs/specs`、存在时的 `backend/docs/MODEL_ACCEPTANCE_RUNBOOK.md`、受影响应用文档与源码；台账与当前树或历史冲突时以当前证据为准并指出待更新项。
+- 代码审查只提交当前改动引入且具有可达正确性、安全、权限、数据、兼容性或发布后果的 P0/P1；证据不足或仅属 P2/P3 加固时不阻塞。
+<!-- guidance-contract:end -->

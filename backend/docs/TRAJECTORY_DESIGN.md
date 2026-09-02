@@ -128,7 +128,7 @@ schema_version: int   # 协议版本，本次定 1
 | Annotation | `context_required / context_result` | 上下文握手 |
 | Annotation | `suggested_questions_pending` | run 后异步辅助事件；计入账本 sequence 完整性范围（见 §5.2） |
 
-系统提示词组装事件复用既有 SSE 与 `agent_events`，字段、失败与历史兼容边界见 [一期契约](superpowers/specs/2026-08-26-system-prompt-assembly.md)。组装指纹描述初始规则，模型请求指纹在最终语言规则与上下文准备后计算，二者可能不同；两者都不包含用户消息、工具结果或工具 schema。
+系统提示词组装事件复用既有 SSE 与 `agent_events`，字段、失败与历史兼容边界见 [一期契约](../../docs/specs/backend/2026-08-26-system-prompt-assembly.md)。组装指纹描述初始规则，模型请求指纹在最终语言规则与上下文准备后计算，二者可能不同；两者都不包含用户消息、工具结果或工具 schema。
 
 ### 3.3 新增生命周期事件的完整 Schema（P0 可实施定义）
 

@@ -6,7 +6,7 @@
 - 环境：线上 `https://fusion.seanfield.org`，已登录 Chrome 会话
 - 页面：Fusion Web 桌面端
 - 约束：未启动本地 Fusion dev server，未改代码
-- 对应 spec：`docs/superpowers/specs/2026-06-24-ui-ux-performance-polish.md`
+- 对应 spec：`docs/specs/frontend/2026-06-24-ui-ux-performance-polish.md`
 
 本轮录制覆盖：
 

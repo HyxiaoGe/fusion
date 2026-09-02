@@ -13,19 +13,19 @@
 
 当前入口层主要是：
 
-- [`src/app/layout.tsx`](/Users/sean/code/fusion/fusion-ui/src/app/layout.tsx)
-- [`src/app/ClientLayout.tsx`](/Users/sean/code/fusion/fusion-ui/src/app/ClientLayout.tsx)
-- [`src/redux/providers.tsx`](/Users/sean/code/fusion/fusion-ui/src/redux/providers.tsx)
+- [`src/app/layout.tsx`](src/app/layout.tsx)
+- [`src/app/ClientLayout.tsx`](src/app/ClientLayout.tsx)
+- [`src/redux/providers.tsx`](src/redux/providers.tsx)
 
 ## App Initialization
 
 启动阶段有两条初始化主线：
 
 1. Redux store 初始化  
-   入口在 [`src/redux/providers.tsx`](/Users/sean/code/fusion/fusion-ui/src/redux/providers.tsx)
+   入口在 [`src/redux/providers.tsx`](src/redux/providers.tsx)
 
 2. 模型和认证初始化  
-   入口在 [`src/app/ClientLayout.tsx`](/Users/sean/code/fusion/fusion-ui/src/app/ClientLayout.tsx)
+   入口在 [`src/app/ClientLayout.tsx`](src/app/ClientLayout.tsx)
 
 当前启动顺序可以概括成：
 
@@ -37,7 +37,7 @@
 
 IndexedDB 初始化逻辑在：
 
-- [`src/lib/db/initializeStore.ts`](/Users/sean/code/fusion/fusion-ui/src/lib/db/initializeStore.ts)
+- [`src/lib/db/initializeStore.ts`](src/lib/db/initializeStore.ts)
 
 当前结论：
 
@@ -48,7 +48,7 @@ IndexedDB 初始化逻辑在：
 
 登录回调页在：
 
-- [`src/app/auth/callback/page.tsx`](/Users/sean/code/fusion/fusion-ui/src/app/auth/callback/page.tsx)
+- [`src/app/auth/callback/page.tsx`](src/app/auth/callback/page.tsx)
 
 认证主线是：
 
@@ -68,17 +68,18 @@ IndexedDB 初始化逻辑在：
 
 聊天相关页面主要是：
 
-- [`src/app/page.tsx`](/Users/sean/code/fusion/fusion-ui/src/app/page.tsx)
-- [`src/app/chat/[chatId]/page.tsx`](/Users/sean/code/fusion/fusion-ui/src/app/chat/[chatId]/page.tsx)
+- [`src/app/(app)/page.tsx`](src/app/%28app%29/page.tsx)
+- [`src/app/(app)/chat/[chatId]/page.tsx`](src/app/%28app%29/chat/[chatId]/page.tsx)
 
-主编排 hook 在：
+会话页组合当前职责明确的 hooks：
 
-- [`src/hooks/useChatActions.ts`](/Users/sean/code/fusion/fusion-ui/src/hooks/useChatActions.ts)
+- [`src/hooks/useConversation.ts`](src/hooks/useConversation.ts)：水合当前服务端会话
+- [`src/hooks/useSendMessage.ts`](src/hooks/useSendMessage.ts)：发送、停止与消息级重试
 
 聊天主线可以概括成：
 
 1. 用户输入消息
-2. `useChatActions.sendMessage(...)` 决定复用空会话还是创建新会话
+2. `useSendMessage.sendMessage(...)` 决定复用空会话还是创建新会话
 3. 用户消息先写进 Redux
 4. 前端调用 `/api/chat/send` 的 SSE 流
 5. 流式事件被解析成：
@@ -94,22 +95,21 @@ IndexedDB 初始化逻辑在：
 
 SSE 客户端在：
 
-- [`src/lib/api/chat.ts`](/Users/sean/code/fusion/fusion-ui/src/lib/api/chat.ts)
+- [`src/lib/api/chat.ts`](src/lib/api/chat.ts)
 
 ## Chat State Flow
 
-聊天全局状态仍然集中在：
+聊天状态已经按职责拆分：
 
-- [`src/redux/slices/chatSlice.ts`](/Users/sean/code/fusion/fusion-ui/src/redux/slices/chatSlice.ts)
+- [`src/redux/slices/conversationSlice.ts`](src/redux/slices/conversationSlice.ts)：会话列表、消息、水合与会话错误
+- [`src/redux/slices/streamSlice.ts`](src/redux/slices/streamSlice.ts)：当前流、增量内容和推理阶段
 
-当前它主要承载：
+两者共同承载：
 
-- 当前会话 ID
-- 会话列表
-- 消息列表
-- 流式消息状态
-- 推理阶段显示状态
-- 错误状态
+- 服务端会话列表、消息与水合状态
+- 当前流的会话/消息身份
+- 流式内容块与推理阶段显示状态
+- 会话错误与流错误
 
 和重构前相比，已经去掉了：
 
@@ -130,16 +130,17 @@ SSE 客户端在：
 
 相关位置：
 
-- [`src/hooks/useChatListManager.ts`](/Users/sean/code/fusion/fusion-ui/src/hooks/useChatListManager.ts)
-- [`src/hooks/useSidebarChatActions.ts`](/Users/sean/code/fusion/fusion-ui/src/hooks/useSidebarChatActions.ts)
-- [`src/lib/db/chatStore.ts`](/Users/sean/code/fusion/fusion-ui/src/lib/db/chatStore.ts)
+- [`src/hooks/useConversation.ts`](src/hooks/useConversation.ts)
+- [`src/hooks/useConversationList.ts`](src/hooks/useConversationList.ts)
+- [`src/hooks/useSidebarActions.ts`](src/hooks/useSidebarActions.ts)
+- [`src/lib/db/chatStore.ts`](src/lib/db/chatStore.ts)
 
 ## File Flow
 
 文件前端链路主要在：
 
-- [`src/lib/api/files.ts`](/Users/sean/code/fusion/fusion-ui/src/lib/api/files.ts)
-- [`src/components/chat/ChatInput.tsx`](/Users/sean/code/fusion/fusion-ui/src/components/chat/ChatInput.tsx)
+- [`src/lib/api/files.ts`](src/lib/api/files.ts)
+- [`src/components/chat/ChatInput.tsx`](src/components/chat/ChatInput.tsx)
 
 当前主线是：
 
@@ -151,15 +152,15 @@ SSE 客户端在：
 
 当前文件 API 已统一走：
 
-- [`src/lib/api/fetchWithAuth.ts`](/Users/sean/code/fusion/fusion-ui/src/lib/api/fetchWithAuth.ts)
+- [`src/lib/api/fetchWithAuth.ts`](src/lib/api/fetchWithAuth.ts)
 
 ## Model Flow
 
 模型设置和模型列表已经回到后端真源：
 
-- [`src/components/models/ModelSettings.tsx`](/Users/sean/code/fusion/fusion-ui/src/components/models/ModelSettings.tsx)
-- [`src/redux/slices/modelsSlice.ts`](/Users/sean/code/fusion/fusion-ui/src/redux/slices/modelsSlice.ts)
-- [`src/lib/config/modelConfig.ts`](/Users/sean/code/fusion/fusion-ui/src/lib/config/modelConfig.ts)
+- [`src/app/settings/ModelManagementPanel.tsx`](src/app/settings/ModelManagementPanel.tsx)
+- [`src/redux/slices/modelsSlice.ts`](src/redux/slices/modelsSlice.ts)
+- [`src/lib/config/modelConfig.ts`](src/lib/config/modelConfig.ts)
 
 当前主线是：
 
@@ -186,13 +187,14 @@ SSE 客户端在：
 
 如果只给 10 分钟，按这个顺序读：
 
-1. [`src/redux/providers.tsx`](/Users/sean/code/fusion/fusion-ui/src/redux/providers.tsx)
-2. [`src/app/ClientLayout.tsx`](/Users/sean/code/fusion/fusion-ui/src/app/ClientLayout.tsx)
-3. [`src/app/page.tsx`](/Users/sean/code/fusion/fusion-ui/src/app/page.tsx)
-4. [`src/app/chat/[chatId]/page.tsx`](/Users/sean/code/fusion/fusion-ui/src/app/chat/[chatId]/page.tsx)
-5. [`src/hooks/useChatActions.ts`](/Users/sean/code/fusion/fusion-ui/src/hooks/useChatActions.ts)
-6. [`src/lib/api/chat.ts`](/Users/sean/code/fusion/fusion-ui/src/lib/api/chat.ts)
-7. [`src/components/models/ModelSettings.tsx`](/Users/sean/code/fusion/fusion-ui/src/components/models/ModelSettings.tsx)
-8. [`src/app/auth/callback/page.tsx`](/Users/sean/code/fusion/fusion-ui/src/app/auth/callback/page.tsx)
+1. [`src/redux/providers.tsx`](src/redux/providers.tsx)
+2. [`src/app/ClientLayout.tsx`](src/app/ClientLayout.tsx)
+3. [`src/app/(app)/page.tsx`](src/app/%28app%29/page.tsx)
+4. [`src/app/(app)/chat/[chatId]/page.tsx`](src/app/%28app%29/chat/[chatId]/page.tsx)
+5. [`src/hooks/useConversation.ts`](src/hooks/useConversation.ts)
+6. [`src/hooks/useSendMessage.ts`](src/hooks/useSendMessage.ts)
+7. [`src/lib/api/chat.ts`](src/lib/api/chat.ts)
+8. [`src/app/settings/ModelManagementPanel.tsx`](src/app/settings/ModelManagementPanel.tsx)
+9. [`src/app/auth/callback/page.tsx`](src/app/auth/callback/page.tsx)
 
 读完这几处，应该能讲清当前前端聊天主产品的数据流。

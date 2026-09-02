@@ -4,7 +4,9 @@
 
 **依据：** 用户本轮请求，以及 dev 会话 `71ce13d1-9ab0-407a-85d4-ab0e4ff369ca` 的真实页面/API 核验。
 
-**边界：** 只修改 fusion-ui；不改后端、数据和普通聊天思考策略，不重启本地服务，不新开 Chrome。继续现有 dev 发布授权，遵守 PR/CI 门禁。
+**边界：** 只修改 `HyxiaoGe/fusion` monorepo 的 `frontend/`；不改后端、数据和普通聊天思考策略，不重启本地服务，不新开 Chrome。历史旧仓或旧任务的发布授权不可继承；创建/更新 PR、合并、dev 部署与真实 Chrome 验收均须分别取得执行当时的明确授权，并遵守根 CI 门禁。
+
+**路径与分支语义：** 下文 `src/...` 与 npm 命令均以 `frontend/` 为工作目录；从 monorepo 根引用文件时使用 `frontend/src/...`，运行 npm 时使用 `npm --prefix frontend ...`。历史分支仅作为证据快照，后续继续工作须从当前 monorepo 最新 `master` 新建分支并向 `HyxiaoGe/fusion:master` 提交 PR，不得恢复旧 `fusion-ui` 仓的分支/PR 流程。
 
 ## 修复与验收
 
@@ -13,8 +15,8 @@
 - [x] 上下文：ChatInput 增加默认开启的 showContextStatus，聊天页传 activeSurface === 'chat'；隐藏时入口和 Portal 弹层都不存在，不重建输入框、不清空草稿，回聊天可继续使用。
 - [x] 每项先补失败测试再最小实现；运行关联 Vitest、lint、独立输出目录生产构建和 diff 检查。
 - [x] 独立审查修复范围及回归风险，无可达 P0/P1 问题。
-- [ ] 中文提交、PR/CI、合并 master、dev 部署。
-- [ ] 复用已有 Chrome 会话检查首次编号、已知耗时、上下文开关 Tab 边界及刷新恢复，检查 network/console。
+- [ ] 中文提交后，在取得当时授权时创建/更新 monorepo PR 并监督 CI；合并 `master` 另需明确授权。
+- [ ] dev 部署另需执行当时的明确授权；部署完成后，真实 Chrome 验收再单独获得授权，复用已有会话检查首次编号、已知耗时、上下文开关 Tab 边界及刷新恢复，检查 network/console。
 
 ## 根因记录
 
@@ -24,7 +26,7 @@
 
 ## 发布前证据（2026-08-26，Asia/Shanghai）
 
-- 基线：`origin/master` 的 `7de7f55`，修复分支 `fix/trajectory-display-regressions`。
+- 历史旧仓基线：`origin/master` 的 `7de7f55`，历史修复分支 `fix/trajectory-display-regressions`；仅作证据，不是当前 monorepo 可继续使用的分支。
 - TDD：编号投影与组件断言先失败；耗时、上下文和页面路由共 7 项先失败，真实消息展示链路另有 1 项先失败，最小修复后转绿。
 - 全量 `TZ=Asia/Shanghai npm test`：207 个文件、2,336 项测试全部通过，包括串行性能专项及原有聊天思考策略测试。
 - 目标文件 ESLint 与 `git diff --check` 通过；独立临时目录 `npm run build` 通过，未改写本地开发服务 `.next`。

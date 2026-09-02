@@ -82,7 +82,7 @@
 - 两边 `.github/scripts/*` 的调用路径
 - Dockerfile build context（`.` → `backend` / `frontend`）
 - `actions/setup-node` 的 `cache-dependency-path`
-- 文档中的跨仓相对路径与绝对路径。**PR #84 合并后存量归零**：此前唯一含 `../fusion-ui/` 的 `2026-06-30-search-read-planner-ledger.md` 已随 superpowers 遗留文档清理删除。本项在新树上只需对 `docs/implementation-plans/` 与 `docs/superpowers/specs/` 复查一次即可
+- 文档中的跨仓相对路径与绝对路径。**PR #84 合并后存量归零**：此前唯一含旧兄弟仓 UI 相对路径的 `2026-06-30-search-read-planner-ledger.md` 已随 superpowers 遗留文档清理删除。本项在新树上只需对 `docs/implementation-plans/` 与 `docs/specs/` 复查一次即可
 
 ## Task 0：新仓基建、恢复点与外部绑定清点
 
@@ -233,14 +233,14 @@
    **落位与发现入口必须闭环。** 教训来自 PR #84 评审：若发现入口（`AGENTS.md` 第 11 条、执行台账开头与检查清单、`fusion-next-step` skill）扫描的目录与实施计划的实际落位不一致，新计划会落在无人扫描的位置。新仓的入口配置必须与实际目录一一对应，并在合并后的**最终树**上跑一次残留引用检查，而不是只查单个分支。
 
 3. 根 `CLAUDE.md` 改为导航，`backend/CLAUDE.md` 与 `frontend/CLAUDE.md` 承载应用级约定；`AGENTS.md` 同理。`.agents/skills/` 中 10 个 skill 合并去重（`fusion-next-step` 两边各有一份需统一）。
-4. **平台元数据边界**（见 P1-9）：git 历史合并不迁移 Issues、PR、Actions runs、releases、webhooks、deploy keys、Environment protection、branch rules。明确：
+4. **平台元数据边界**（见 P1-9）：git 历史合并不迁移 Issues、PR、Actions runs、releases、webhooks、deploy keys、Environment protection、branch rules。当前 Task 5 PR 只处理版本库内文档、导航与 skills；下列平台动作属于后续外部步骤，必须重新核对状态并获得明确授权后执行：
    - 复制：Environment protection、branch rules、secrets/variables、webhooks；
    - 仅旧仓保留：Issues、PR、Actions run 历史、releases；
    - commit message 中的 `#NN` 在新仓不再解析为原 PR，归档说明中标注旧仓地址供追溯；
-   - 旧仓 runner 与旧仓 workflow 在本 Task 退役，此前一直保留。
-5. 两个原仓库置为 archived，README 指向新仓库。
+   - 旧仓 runner 与旧仓 workflow 在后续授权步骤退役；本 PR 不修改其状态。
+5. 两个原仓库的 README 指向新仓库并置为 archived，均是本 PR 之后的独立外部步骤；归档属于高风险边界，必须单独明确授权。
 
-**验收：** `fusion-next-step` skill 能正确读取合并后台账；跨仓 plan 中不再存在 `../fusion-ui/` 路径；旧仓 runner 已注销、仓库已归档。
+**本 PR 验收：** `fusion-next-step` skill 能正确读取合并后台账；实施计划中不再存在旧兄弟仓相对路径；根导航、唯一台账、最终文档目录与九个独立 skill 通过结构合同。旧仓 README、runner/workflow 退役与仓库归档仍未完成，分别等待后续授权和外部证据。
 
 ## 不做什么
 
@@ -274,9 +274,9 @@
 
 ## 关于本 PR 自身的合并边界
 
-`.github/workflows/deploy.yml` 的触发条件为 `on.push.branches: [master]`，**无 `paths` 过滤**。因此即便本 PR 只新增文档，合并到 master 仍会触发完整的 API 发布流水线：`publish`（Windows runner 构建并推 ACR）+ `deploy-dev`（alembic 迁移 + 容器重启）。
+当前 `.github/workflows/deploy-dev.yml` 在 push 到 `master` 时始终启动，不使用 event-level `paths` 过滤；`detect_changes.py` 把根文档、根导航、根 skill 与 `.github/**` 归为 shared 变更，因此本 Task 5 的根共享改动会把 API 与 UI 都判为需验证目标。orchestrator 随后按 `API → UI` 顺序调用参数化 `_deploy-app.yml`，任何前置失败都会阻止后续应用继续。
 
-本次文档修订合入 `master` 仍会触发完整 dev 发布流水线，因此合并后需记录 CI、dev 部署和健康/smoke 结果；当前是开发阶段，不要求生产流量窗口或在线变更程序。
+本 PR 的实现、提交、push、PR 检查、合并和 dev 发布是不同状态。本计划只说明合并后会触发的现行链路；合并与发布仍需单独明确授权，当前 Task 5 版本库改动不得写成已经合并、发布或完成 dev 验收。
 
 ## 评审修订记录
 
@@ -310,7 +310,7 @@ owner 已通过 GitHub API 独立复核第一轮标注为"未独立核实"的项
 | P0-13 | 平台 cutover 边界需前移判定 | **成立。** Task 2 切换 Actions 发布权但平台绑定留到 Task 4，会导致发布链未真正切换 | Task 0 新增第 7 步平台使用状态清单（活跃性、跟踪 repo/branch、dev 或 production、是否自动部署）并据此判定 Task 归属；活跃且影响运行态的并入 Task 2；Task 4 收窄为不影响运行态的项 |
 | P0-14 | git bundle 不保护未提交资产 | **原理成立，计数不适用于本仓库当前状态。** `git bundle` 只含 refs 与可达 object，确实不含未跟踪文件。但评审所述"9 个未跟踪 plan/spec 文件"在本会话 checkout（`a5ad5b5`）中不成立 —— `git status --porcelain --untracked-files=all` 返回 0 项，工作区干净。该状态应属 owner 本机工作区；由于迁移将从该工作区执行，防护仍然必要 | Task 0 第 2 步增加 dirty/untracked 精确清单、未提交文件独立归档与哈希、`--all` 创建 bundle 并 `git bundle verify`、两者各做还原验证、迁移分支只从精确 HEAD 创建 |
 | P1-15 | Task 0 不必重复真实发布与回滚 | **成立。** Task 0 不修改运行态 | Task 0 只做恢复点、基建和状态记录；Task 2 仅执行一次新仓 dev 部署验证 |
-| — | 本 PR 合并会触发 master 发布 | **成立。** 实测 `deploy.yml` 为 `on.push.branches: [master]` 且无 `paths` 过滤，合并将触发 `publish` + `deploy-dev`（含 alembic 迁移与容器重启） | 新增「关于本 PR 自身的合并边界」章节，明确按一次正式发布处理 |
+| — | 本 PR 合并会触发 master 发布 | **成立，后续实现已演进。** 当前 `deploy-dev.yml` 在 master push 上运行，根共享变更由 `detect_changes.py` 判为 API/UI 双应用目标，再由 orchestrator 按 API → UI 调用参数化 workflow | 校准「关于本 PR 自身的合并边界」；只记录触发契约，合并与发布仍需单独授权，不预写完成状态 |
 
 ### 第三轮（PR #83，5 条）
 

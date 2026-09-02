@@ -41,7 +41,7 @@ LiteLLM 全模型健康探测（`/health` 会产生真实 completion 费用）�
 1. 克隆项目
 ```bash
 git clone <repository-url>
-cd fusion-api
+cd fusion/backend
 ```
 
 2. 配置环境变量
@@ -152,7 +152,7 @@ POST /api/chat/generate-title
 
 ## 数据流文档
 
-- 聊天核心数据流说明见 [`CHAT_CORE_DATA_FLOW.md`](/Users/sean/code/fusion/fusion-api/CHAT_CORE_DATA_FLOW.md)
+- 聊天核心数据流说明见 [`CHAT_CORE_DATA_FLOW.md`](CHAT_CORE_DATA_FLOW.md)
 
 ## 🤝 贡献
 

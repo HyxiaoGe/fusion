@@ -6,14 +6,11 @@ allowed-tools: Bash, Read, Grep
 
 # 调试流式输出问题
 
-## 前置：获取 Token
+## 安全与授权前置
 
-```bash
-TOKEN=$(ssh dev "curl -s -X POST http://localhost:8100/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{\"email\":\"Codex-test@fusion.dev\",\"password\":\"test123456\",\"client_id\":\"app_a93ea0569cafafe6299c7f660669a5b7\"}' \
-  | python3 -c 'import sys,json;print(json.load(sys.stdin)[\"access_token\"])'")
-```
+- 日志、Redis meta/lock 与既有会话状态查询属于只读诊断，可在当前调查授权内执行；不得输出 token、cookie、完整消息内容或其他敏感字段。
+- 访问令牌必须来自用户已授权的安全来源，注入为 `FUSION_DEV_ACCESS_TOKEN`，不得把账号、密码、client id 或 token 写入 skill、脚本、命令历史或报告，也不得回显。
+- 下方端到端步骤会创建会话、发送消息、消耗模型额度并写 dev 状态；只有用户明确授权真实 dev 验收后才能执行。未获授权时停在只读日志和既有状态证据。
 
 ## 1. 检查后端日志
 
@@ -37,8 +34,8 @@ ssh dev "docker exec middleware-redis redis-cli hgetall 'stream:meta:{conv_id}'"
 # 查看 lock
 ssh dev "docker exec middleware-redis redis-cli get 'stream:lock:{conv_id}'"
 
-# 查看 Stream 内容（最近 5 条）
-ssh dev "docker exec middleware-redis redis-cli xrevrange 'stream:chunks:{conv_id}' + - COUNT 5"
+# 只查看 Stream 条目数元数据，不输出 entry body
+ssh dev "docker exec middleware-redis redis-cli XLEN 'stream:chunks:{conv_id}'"
 ```
 
 ## 3. 端到端测试流程
@@ -46,7 +43,7 @@ ssh dev "docker exec middleware-redis redis-cli xrevrange 'stream:chunks:{conv_i
 ```bash
 # 发消息
 RESPONSE=$(ssh dev "timeout 3 curl -s -N \
-  -H 'Authorization: Bearer $TOKEN' \
+  -H 'Authorization: Bearer ${FUSION_DEV_ACCESS_TOKEN}' \
   -H 'Content-Type: application/json' \
   -X POST http://localhost:8002/api/chat/send \
   -d '{\"model_id\":\"qwen3-235b-a22b\",\"message\":\"说一个字\",\"stream\":true}' 2>&1 || true")
@@ -63,16 +60,16 @@ for l in sys.stdin:
 echo "conv=$CONV_ID msg=$MSG_ID"
 
 # 检查 stream-status
-ssh dev "curl -s -H 'Authorization: Bearer $TOKEN' \
+ssh dev "curl -s -H 'Authorization: Bearer ${FUSION_DEV_ACCESS_TOKEN}' \
   'http://localhost:8002/api/chat/stream-status/$CONV_ID'"
 
 # 发 stop（带 message_id 防误杀）
-ssh dev "curl -s -H 'Authorization: Bearer $TOKEN' \
+ssh dev "curl -s -H 'Authorization: Bearer ${FUSION_DEV_ACCESS_TOKEN}' \
   -X POST 'http://localhost:8002/api/chat/stop/$CONV_ID?message_id=$MSG_ID'"
 
 # 验证 stop 后状态
 sleep 1
-ssh dev "curl -s -H 'Authorization: Bearer $TOKEN' \
+ssh dev "curl -s -H 'Authorization: Bearer ${FUSION_DEV_ACCESS_TOKEN}' \
   'http://localhost:8002/api/chat/stream-status/$CONV_ID'"
 ```
 
