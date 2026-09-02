@@ -11,17 +11,7 @@ logs
 
 __pycache__
 
-docs
-!docs/
-docs/*
-!docs/KNOWLEDGE_BASE.md
-!docs/LITELLM_HEALTH.md
-!docs/RELEASE_SAFETY.md
-!docs/TRAJECTORY_DESIGN.md
-
 .cursor
-
-CLAUDE.md
 
 .mcp.json
 .claude/

@@ -319,6 +319,21 @@ class RepositoryGuidanceContractTest(unittest.TestCase):
         tracked = set(git_output("ls-files").splitlines())
         self.assertEqual(generated & tracked, set(), "生成文件不得继续留在版本库索引中")
 
+    def test_backend_guidance_and_documentation_are_not_ignored(self) -> None:
+        retained = (
+            "backend/CLAUDE.md",
+            "backend/docs/CODING_CONVENTIONS.md",
+            "backend/docs/FUTURE_DOCUMENT.md",
+        )
+        for relative in retained:
+            with self.subTest(relative=relative):
+                result = subprocess.run(
+                    ["git", "check-ignore", "--no-index", "--quiet", relative],
+                    cwd=ROOT,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 1, f"仓库文档不得被忽略: {relative}")
+
     def test_root_navigation_and_canonical_document_paths_exist(self) -> None:
         required = (
             ROOT / "AGENTS.md",
