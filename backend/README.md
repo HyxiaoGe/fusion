@@ -1,163 +1,101 @@
-# Fusion API - Chat Core
+# Fusion Backend
 
-## 📖 项目介绍
+Fusion Backend 是 monorepo 中的 FastAPI 应用，负责认证接入、会话与消息持久化、模型目录和治理、流式 Agent 执行、工具调用、文件处理以及知识库检索。
 
-Fusion API 是 Fusion 的聊天核心后端，提供认证、模型管理、会话管理、流式回复和文件辅助聊天能力。
+[返回项目首页](../README.md) · [聊天核心数据流](CHAT_CORE_DATA_FLOW.md) · [知识库运行手册](docs/KNOWLEDGE_BASE.md) · [模型验收手册](docs/MODEL_ACCEPTANCE_RUNBOOK.md)
 
-## ✨ 主要功能
+## 主要能力
 
-### 核心功能
-- **多模型支持**：集成 DeepSeek、OpenAI、Google、Anthropic、通义千问、文心一言、火山引擎、讯飞星火等模型
-- **流式响应**：支持实时流式输出，提供更好的用户体验
-- **会话管理**：保存完整的对话历史，支持多轮对话
-- **文件处理**：支持上传和处理 PDF、Word、文本等格式文件
-- **知识库**：独立管理文档，使用持久 Worker 预索引并通过 Milvus 检索（默认关闭）
-- **用户认证**：支持 GitHub / Google OAuth 和 JWT
-- **模型管理**：动态配置和管理不同的 AI 模型
+- **聊天与 Agent runtime**：多轮会话、SSE 流式输出、计划控制、工具调用、续跑和最终结果收敛。
+- **模型目录与治理**：通过 LiteLLM 统一模型配置、健康状态、动态准入和运行时策略。
+- **检索与证据**：网页搜索、页面读取、来源候选排序、证据账本和回答引用。
+- **远程工具**：受主机、凭据引用、超时和调用预算约束的 MCP 工具，以及隔离的产品工具适配器。
+- **文件与知识库**：本地、MinIO 或 OSS 存储；独立 Knowledge Worker 解析、切块、嵌入并写入 Milvus。
+- **安全与运维**：OAuth/JWT 接入、撤销状态、管理审计、健康检查、迁移和发布回滚契约。
 
-知识库 v1 的配置、状态机、非 root Milvus 初始化、独立 Worker、真实验收和故障恢复见
-[知识库运行手册](docs/KNOWLEDGE_BASE.md)。
+## 技术栈
 
-LiteLLM 全模型健康探测（`/health` 会产生真实 completion 费用）的开关、多实例协调
-与迁移/回滚见 [LiteLLM 健康探测成本治理](docs/LITELLM_HEALTH.md)。
+- Python 3.12、FastAPI、Uvicorn
+- SQLAlchemy、Alembic、PostgreSQL
+- Redis、httpx、asyncio
+- LiteLLM 与多模型供应商
+- Milvus、MinIO / OSS
+- pytest、Ruff、Docker
 
-### 实用功能
-- **自动生成标题**：基于对话内容智能生成对话标题
-- **推荐问题**：根据当前对话生成相关的推荐问题
+## 本地开发
 
-## 🔧 技术栈
+### 1. 安装依赖
 
-- **后端框架**：FastAPI
-- **数据库**：PostgreSQL + SQLAlchemy ORM
-- **异步支持**：asyncio + httpx
-- **AI框架**：LangChain
-- **容器化**：Docker & Docker Compose
-- **认证**：JWT + OAuth 2.0
-
-## 🚀 快速开始
-
-### 使用 Docker 部署（推荐）
-
-1. 克隆项目
-```bash
-git clone <repository-url>
-cd fusion/backend
-```
-
-2. 配置环境变量
-创建 `.env` 文件，配置数据库、OAuth 和至少一个模型凭证：
-```env
-# 数据库配置
-DATABASE_URL=postgresql://fusion:fusion123!!@fusion_postgres:5432/fusion
-
-# OAuth
-GITHUB_CLIENT_ID=your_github_client_id
-GITHUB_CLIENT_SECRET=your_github_client_secret
-
-# AI 模型 API 密钥（根据需要配置）
-DEEPSEEK_API_KEY=your_deepseek_key
-OPENAI_API_KEY=your_openai_key
-ANTHROPIC_API_KEY=your_anthropic_key
-# ... 其他模型密钥
-```
-
-3. 启动服务
-```bash
-docker-compose up -d
-```
-
-4. 访问 API 文档
-```
-http://localhost:8000/docs
-```
-
-### 发布安全与回滚
-
-`master` push 和未填写回滚参数的手动运行都属于正常发布。dev 部署在任何 migration 或候选
-容器变更前，会同时保存 `fusion-api`、`fusion-flyai-adapter` 两个运行中容器的完整镜像引用
-（`.Config.Image`）和实际内容 ID（`.Image`）；任一回滚目标缺失时 fail-closed。
-
-候选部署开始后，镜像身份、健康检查或 deployment smoke 任一失败都会恢复两个旧镜像。恢复后
-必须精确核对旧镜像引用与内容 ID，并重新执行容器内 API/adapter health 和
-`scripts/deployment_smoke.py`。自动回滚成功不会掩盖原发布失败，回滚失败也不会被忽略。旧镜像
-只在整次发布成功后清理本地副本。SHA 标签仅作当前 Task 1 wrapper 的兼容输入，不得作为部署权威身份；
-该 wrapper 在 Task 2 的 orchestrator、repository digest 解析和 per-app 发布台账
-落地前不启用。Task 2 起，手动回滚必须由发布台账把提交 SHA 唯一解析为 repository digest。
-
-手动回滚时，在 GitHub Actions 的 `Fusion API Windows CI` 中填写已经成功发布过的 40 位小写
-`rollback_sha` 和非空 `rollback_reason`。该路径跳过 Windows runner 上的构建、registry 登录、
-镜像推送及 Alembic migration；整个 Windows publish job 不会排队，因此 Windows runner 离线不
-阻断手动回滚。GitHub-hosted prepare job 负责校验输入，finalize job 只把“回滚模式、publish
-skipped、deploy success”判为成功；普通发布仍必须同时满足 publish 与 deploy success。部署、
-指标和通知统一记录实际回滚 SHA。
+从仓库根目录开始：
 
 ```bash
-gh workflow run deploy.yml --ref master \
-  -f rollback_sha=0123456789abcdef0123456789abcdef01234567 \
-  -f rollback_reason='候选版本健康检查失败'
-```
-
-数据库只允许 expand/contract 演进：先发布兼容 schema 扩展，确认所有可回滚版本不再依赖旧
-结构后再独立删除。镜像回滚绝不执行 `alembic downgrade`，手动回滚前必须确认目标 SHA 与当前
-schema 兼容。
-
-### 手动安装
-
-1. 安装依赖
-```bash
+cd backend
+python3.12 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-2. 配置数据库
-确保 PostgreSQL 已安装并创建数据库
+### 2. 配置环境
 
-3. 启动应用
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+cp .env.example .env
 ```
 
-## 📚 API 使用示例
+至少需要配置 PostgreSQL、Redis、Auth Service 和一个可用模型。知识库、远程 MCP、FlyAI、对象存储和模型治理默认关闭或需要额外基础设施，请按 `.env.example` 中的注释逐项启用。
 
-### 发送消息
+### 3. 启动 API
+
 ```bash
-POST /api/chat/send
-{
-  "provider": "deepseek",
-  "model": "deepseek-chat",
-  "message": "你好",
-  "stream": true,
-  "options": {
-    "use_reasoning": true
-  }
-}
+uvicorn main:app --reload --port 8000
 ```
 
-### 获取会话历史
+服务默认监听 `http://localhost:8000`。生产镜像使用多 worker Uvicorn；是否暴露 OpenAPI 文档由运行环境配置决定。
+
+## 测试与静态检查
+
 ```bash
-GET /api/chat/conversations/{conversation_id}
+pip install -r requirements-ci.txt
+ruff check .
+pytest -q
 ```
 
-### 生成对话标题
+需要复现 CI 的容器路径时，运行：
+
 ```bash
-POST /api/chat/generate-title
-{
-  "conversation_id": "xxx"
-}
+bash .github/scripts/linux-build-and-test.sh fusion-api-ci fusion-flyai-adapter-ci local
 ```
 
-## 当前范围
+## 代码结构
 
-- 运行面暴露 `chat / auth / files / models` 四个 API 路由
-- RSS、热点、摘要、调度、web search、function call 等扩展能力已清理，代码中不再保留
+```text
+app/
+├── api/          # FastAPI 路由与依赖
+├── services/     # 聊天、Agent、工具、知识库和治理服务
+├── ai/           # 模型目录、提示词、嵌入和适配器
+├── db/           # ORM、Repository 与数据库连接
+├── schemas/      # 请求、响应与内部协议
+├── processor/    # 文件和图片处理
+└── core/         # 配置、安全、Redis 与运行时基础设施
 
-## 数据流文档
+alembic/          # 数据库迁移
+flyai-adapter/    # 隔离的第三方产品工具适配器
+ops/              # LiteLLM 等运行配置
+scripts/          # smoke、Worker 与维护脚本
+test/             # pytest 测试
+```
 
-- 聊天核心数据流说明见 [`CHAT_CORE_DATA_FLOW.md`](CHAT_CORE_DATA_FLOW.md)
+后端分层依赖保持 `API → Service → AI → Data`，详细约定见 [`docs/CODING_CONVENTIONS.md`](docs/CODING_CONVENTIONS.md)。
 
-## 🤝 贡献
+## 重要运行文档
 
-欢迎提交 Issue 和 Pull Request！
+- [聊天核心数据流](CHAT_CORE_DATA_FLOW.md)
+- [知识库运行手册](docs/KNOWLEDGE_BASE.md)
+- [LiteLLM 健康探测成本治理](docs/LITELLM_HEALTH.md)
+- [模型验收手册](docs/MODEL_ACCEPTANCE_RUNBOOK.md)
+- [Agent 轨迹设计](docs/TRAJECTORY_DESIGN.md)
 
-## 📄 许可证
+## 发布与回滚
 
-MIT License
+后端不再由独立旧仓发布。根工作流 [`deploy-dev.yml`](../.github/workflows/deploy-dev.yml) 负责在 `master` 上构建镜像、解析 repository digest、执行 Alembic migration、验证镜像身份与健康状态，并在 API 发布成功后继续 UI 发布。
+
+每次接受的 API 发布都会记录提交 SHA、镜像引用、digest 和 image ID。手动回滚只能选择发布账本中唯一可解析的历史提交；数据库迁移遵循 expand / contract，镜像回滚不会执行 `alembic downgrade`。

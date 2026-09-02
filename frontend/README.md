@@ -1,75 +1,100 @@
-# Fusion UI
+# Fusion Frontend
 
-一个基于 Next.js 和 Electron 的聊天产品前端，提供桌面客户端体验。
+Fusion Frontend 是基于 Next.js 和 Electron 的聊天客户端，负责登录后的会话体验、流式消息渲染、Agent 轨迹、模型选择、文件与知识库入口，以及管理界面。
 
-## 功能特点
+[返回项目首页](../README.md) · [聊天数据流](CHAT_UI_DATA_FLOW.md) · [前端架构](docs/ARCHITECTURE.md) · [架构约束](docs/ARCHITECTURE_RULES.md)
 
-- 💬 多模型AI对话支持
-- 📝 Markdown渲染与代码高亮
-- 📂 文件上传与处理功能
-- 🗂️ 历史会话与服务端同步
-- 🌐 桌面应用体验（Electron）
-- 🌙 支持多语言（i18n）
+## 主要能力
+
+- 多模型聊天、深度思考与自动执行模式
+- Markdown、代码块、工具过程和来源证据渲染
+- Agent 状态、步骤、轨迹和上下文用量展示
+- 服务端会话历史与刷新恢复
+- 文件上传、会话文件和知识库选择
+- 模型、提示词、MCP、审计等管理入口
+- 中文 / 英文、亮色 / 暗色主题
+- Web 与 Electron 桌面客户端
 
 ## 技术栈
 
-- **前端框架**: Next.js 15.x
-- **桌面集成**: Electron
-- **UI组件**: Radix UI, Shadcn/UI
-- **样式**: Tailwind CSS
-- **状态管理**: Redux Toolkit
-- **本地缓存**: Dexie.js (IndexedDB, cache only)
-- **编辑器**: TipTap
-- **表单处理**: React Hook Form, Zod
-- **文件处理**: FilePond, React Dropzone
+- Next.js 15、React 19、TypeScript
+- Electron 34
+- Redux Toolkit、Dexie
+- Tailwind CSS、Radix UI、shadcn/ui
+- TipTap、FilePond、React Dropzone
+- Vitest、ESLint、Docker
 
-## 快速开始
+## 本地开发
 
-### 开发环境
+### 1. 安装依赖
+
+从仓库根目录开始：
 
 ```bash
-# 安装依赖
-npm install
+cd frontend
+npm ci
+```
 
-# 启动开发服务器（Next.js + Electron）
+### 2. 配置环境
+
+```bash
+cp .env.example .env.local
+```
+
+`API_BACKEND_URL` 只在 Next.js 服务端用于 `/api/*` 代理；`NEXT_PUBLIC_AUTH_*` 会进入浏览器 bundle，只能填写可公开的认证端点和客户端标识，不得放入密钥。
+
+### 3. 启动客户端
+
+```bash
+# 仅启动 Web
+npm run dev:next
+
+# 同时启动 Next.js 与 Electron
 npm run dev
 ```
 
-### 构建应用
+Web 默认地址为 `http://localhost:3000`。
+
+## 常用命令
+
+| 命令 | 作用 |
+| --- | --- |
+| `npm run dev:next` | 启动 Next.js 开发服务器 |
+| `npm run dev` | 启动 Next.js 与 Electron |
+| `npm run lint` | 运行 ESLint，禁止 warning |
+| `npm test` | 运行 Vitest 测试 |
+| `npm run build` | 构建 Next.js 生产产物 |
+| `npm run build:electron` | 构建 Next.js 与 Electron 安装包 |
+| `npm run analyze` | 分析已有 bundle |
+
+## 代码结构
+
+```text
+src/
+├── app/           # Next.js 页面、布局和路由
+├── components/    # 聊天、设置、管理与通用组件
+├── electron/      # Electron 主进程
+├── lib/           # API、流式协议和工具函数
+├── redux/         # 全局状态与聊天状态机
+└── scripts/       # 前端维护和分析脚本
+
+public/            # 静态资源
+docs/              # 架构与编码约定
+scripts/           # 仓库级前端脚本
+```
+
+聊天状态必须按 `SSE → Redux → 渲染 → Dexie / 刷新恢复` 完整核对。IndexedDB 只作为本地缓存，服务端会话和消息才是产品真源。详细约束见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 与 [`docs/ARCHITECTURE_RULES.md`](docs/ARCHITECTURE_RULES.md)。
+
+## 测试与构建
 
 ```bash
-# 构建桌面应用
+npm run lint
+npm test
 npm run build
 ```
 
-### 启动应用
+CI 还会分别构建 Docker `test` 与 `production` target，验证生产镜像使用的环境变量、Next.js rewrites 和运行产物。
 
-```bash
-# 启动已构建的应用
-npm start
-```
+## 发布
 
-## 项目结构
-
-```
-src/
-  ├── app/           # Next.js 应用页面
-  ├── components/    # UI组件
-  ├── electron/      # Electron主进程代码
-  ├── lib/           # 工具函数和API封装
-  └── redux/         # Redux状态管理
-```
-
-## 当前范围
-
-- 当前产品范围聚焦在 `chat / auth / files / models`
-- 搜索增强、热点话题、RSS、摘要等非核心能力已从主产品面移除
-- IndexedDB 仅作为本地缓存，不是产品真源
-
-## 数据流文档
-
-- 前端聊天主数据流说明见 [`CHAT_UI_DATA_FLOW.md`](CHAT_UI_DATA_FLOW.md)
-
-## 许可证
-
-MIT
+前端不再由独立旧仓发布。根工作流 [`deploy-dev.yml`](../.github/workflows/deploy-dev.yml) 会在 API 发布成功后构建并部署 UI，通过容器内 HTTP smoke、浏览器 smoke、镜像 identity 和 UI 发布账本确认结果。
