@@ -94,12 +94,21 @@
 - 根 `README.md`、`AGENTS.md`、`CLAUDE.md` 已建立导航；`docs/EXECUTION_LEDGER.md` 成为唯一执行事实源。
 - 23 份后端规格和 14 份前端规格迁入 `docs/specs/{backend,frontend}`；仅保留两份未闭环前端计划到 `docs/implementation-plans/frontend`，两份前端报告迁入 `docs/reports/frontend`，其余 26 份旧插件计划与重复台账/计划已从当前树删除。
 - `fusion-next-step` 收敛为根目录唯一 skill；八个后端专属 skill 保留并修正凭据、真实 dev 写入与单仓发布核验边界。结构合同已完成 RED→GREEN，`git diff --check` 与旧兄弟仓路径/固定测试凭据残留检查通过，业务目录无 diff。
-- 本条只声明版本库内文档、导航和 skill 迁移的本地实现/静态验证；未注销旧 runner，未退役旧 workflow，未修改旧仓 README，未归档旧仓，也未 push、创建 PR、合并或发布。
+- 本条是 Task 5 交付前的历史快照，只声明版本库内文档、导航和 skill 迁移的本地实现/静态验证；当时尚未注销旧 runner、退役旧 workflow、修改旧仓 README、归档旧仓，也尚未 push、创建 PR、合并或发布。当前终态以紧随其后的迁移收尾记录为准。
+
+## 2026-09-02 Monorepo 迁移收尾（已合并并完成 dev 发布）
+
+- PR [#18](https://github.com/HyxiaoGe/fusion/pull/18) 于北京时间 2026-09-02 08:11 合入 `master`，merge commit `a423b7f3`；Task 5 文档、导航与 skill 整合进入新仓。PR [#19](https://github.com/HyxiaoGe/fusion/pull/19) 于北京时间 2026-09-02 17:25 合入，当前收尾基线为 `fb4478d2`。
+- 两次 `master` 发布均完成 API → UI dev 链路：Actions [33574259777](https://github.com/HyxiaoGe/fusion/actions/runs/33574259777) 与 [33614071343](https://github.com/HyxiaoGe/fusion/actions/runs/33614071343) 均为 `success`。新仓 repo-scoped Runner 当前为 `dev-server-fusion-monorepo` 与 `windows-build-fusion-monorepo-01`，两者均在线并同时带有 `fusion-api` / `fusion-ui` 应用标签。
+- `HyxiaoGe/fusion-api` 与 `HyxiaoGe/fusion-ui` 当前均已归档；新仓 `HyxiaoGe/fusion` 已承接版本库、PR CI、镜像构建和 dev 发布入口。旧仓历史、PR、Actions run 与 release 继续留在归档仓供追溯。
+- **已知外部遗留：** 两个旧仓的 Actions 权限仍为 enabled，`dev-server-fusion-api` 与 `dev-server-fusion-ui` 两个旧 Linux repo-scoped Runner 仍显示 `online`。因此不得把旧 runner/workflow 写成已退役；注销 Runner、禁用旧仓 Actions 需作为独立外部资源清理，在重新核对影响并获得授权后执行，不阻塞新仓当前 dev 发布链。
 
 ## 最近发布记录
 
 | 日期 | 仓库 | commit | 内容 | 验证 |
 |---|---|---|---|---|
+| 2026-09-02 | `fusion` | `fb4478d2` | 重构 monorepo 对外 README 与项目说明，形成迁移后的公开入口 | PR [#19](https://github.com/HyxiaoGe/fusion/pull/19) 已合并；dev API → UI Actions [33614071343](https://github.com/HyxiaoGe/fusion/actions/runs/33614071343) `success` |
+| 2026-09-02 | `fusion` | `a423b7f3` | Task 5 文档、唯一台账、协作导航与 skill 整合，旧仓归档后由新仓承接协作和发布入口 | PR [#18](https://github.com/HyxiaoGe/fusion/pull/18) 已合并；dev API → UI Actions [33574259777](https://github.com/HyxiaoGe/fusion/actions/runs/33574259777) `success` |
 | 2026-07-13 | `fusion-api` / `fusion-ui` | 本次提交 | 对话上下文状态 v1：单轮上下文安全事件、失败/停止快照与 JSONB 刷新恢复；输入区紧凑剩余比例入口、实际/预计 Token、裁剪说明、暗色/窄屏/键盘与中英文支持 | 对抗式复审关闭累计 Token 误用、历史回退、按钮闪烁和错误态误导；后端 Ruff、架构检查、全量 `996 tests`；前端全量 `1118 tests`、目标 ESLint、production build |
 | 2026-07-13 | `fusion-api` | `f5152be+b721edd+fc6ad22` | 长对话上下文治理第一阶段：单轮上下文遥测、生成约束、Token 预算感知 Context Manager、完整 turn/工具事务原子裁剪、结构化错误、SSE heartbeat 与安全生产阶梯 runner | 对抗式复审无剩余 P0/P1；Ruff、架构检查、全量 `983 tests`；Actions `29218910325` / `29224101606` / `29225925681`；生产运行 `perf-20260713-051915-9512b94b` 四档全通过，90% 档从 232,305 裁到 192,280、移除 1 turn/2 messages，费用 `$0.564035`、资源 0 restart/OOM、会话/Token 清理成功且如实记录 1 个账号行残留；真实登录态 Chrome 新会话 `868bee65-2e50-4a3f-b3e5-eb538394c859` 即时渲染/流式完成/标题/刷新恢复通过，刷新记录 1 条非阻断 React `#418` hydration error |
 | 2026-07-12 | `fusion-api` / `fusion-ui` | `api:5624241+1a2b456 / ui:3097c6b` | 管理员模型运营中心 v1：只读 current/history/unknown 模型视图、健康与能力、持久化用量、Agent/压测摘要、详情 URL、模型到对话联动；目录失败退避、脏 ID 降级和安全投影 | 独立对抗式复审无阻断；后端 `977 passed + 98 subtests`、Ruff、架构检查，前端 `1085 tests`、ESLint、build；Actions `29190231438` / `29190141564`；生产真实登录态 Chrome 验证 19 个模型、历史/当前详情、模型筛选 18 条对话、浏览器返回与刷新恢复，console 0；`%2F` 生产探测受 Browser Control 限制并已如实记录 |

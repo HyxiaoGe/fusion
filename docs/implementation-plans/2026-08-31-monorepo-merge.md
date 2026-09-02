@@ -2,11 +2,12 @@
 
 > Spec: 本文件自带依据章节，无独立 spec
 > Base: `fusion-api@658a077` / `fusion-ui@77b7fc2`（2026-08-31 开发阶段复核基线）
-> Branch: `feat/monorepo-merge`
-> Target: 新建仓库 `HyxiaoGe/fusion`
+> Status: 已完成（2026-09-02，收尾基线 `master@fb4478d2`；旧仓 Runner/Actions 注销作为非阻塞外部清理登记在执行台账）
+> Branch: 历史实施分支 `feat/monorepo-merge`，相关变更已合入 `master`
+> Target: `HyxiaoGe/fusion`，已创建并承接 PR CI、镜像构建与 dev 发布
 > Review: PR #83 三轮评审均已受理；开发阶段校准记录见文末
 
-**目标：** 把 `fusion-api` 与 `fusion-ui` 合并为单一仓库 `fusion`，保留两边完整 git 历史，并把当前分散在两处、共约 3600 行的发布流水线收敛为一份参数化的可复用 workflow + 一组可本地执行的部署脚本。
+**执行结果：** `fusion-api` 与 `fusion-ui` 已合并为单一仓库 `fusion`，两边完整 git 历史已保留；原先分散在两处、共约 3600 行的发布流水线已收敛为一份参数化的可复用 workflow + 一组可本地执行的部署脚本。
 
 **本轮范围：** 仓库结构、git 历史、CI/CD、宿主机部署状态、部署平台绑定、agent 与文档配置。不改任何业务代码，不改 Redis Stream 两段式流，不改 API 契约，不借机重构 `app/` 或 `src/` 下的任何模块。
 

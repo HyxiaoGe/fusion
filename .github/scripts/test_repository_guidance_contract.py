@@ -283,6 +283,42 @@ class Task5RangeHelperTest(unittest.TestCase):
 
 
 class RepositoryGuidanceContractTest(unittest.TestCase):
+    def test_root_ignore_policy_covers_generated_artifacts_without_hiding_all_databases(self) -> None:
+        ignored = (
+            ".DS_Store",
+            "backend/.DS_Store",
+            "backend/app.log",
+            "frontend/error.log",
+            "backend/fusion-test.db",
+            "ops/__pycache__/module.pyc",
+            ".env.local",
+        )
+        for relative in ignored:
+            result = subprocess.run(
+                ["git", "check-ignore", "--no-index", "--quiet", relative],
+                cwd=ROOT,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, f"根忽略规则未覆盖生成文件: {relative}")
+
+        retained_database_fixture = "backend/test/fixtures/contract.db"
+        result = subprocess.run(
+            ["git", "check-ignore", "--no-index", "--quiet", retained_database_fixture],
+            cwd=ROOT,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 1, "根忽略规则不得用 *.db 隐藏测试夹具")
+
+    def test_generated_runtime_artifacts_are_not_tracked(self) -> None:
+        generated = {
+            "backend/.DS_Store",
+            "backend/app.log",
+            "backend/fusion-test.db",
+            "frontend/error.log",
+        }
+        tracked = set(git_output("ls-files").splitlines())
+        self.assertEqual(generated & tracked, set(), "生成文件不得继续留在版本库索引中")
+
     def test_root_navigation_and_canonical_document_paths_exist(self) -> None:
         required = (
             ROOT / "AGENTS.md",
