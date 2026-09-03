@@ -5,6 +5,7 @@ from app.services.stream.agent_plan_tool_policy import (
     resolve_agent_plan_tool_policy,
     resolve_product_capability_signals,
 )
+from app.utils.location_names import are_distinct_known_cities
 
 
 class AgentPlanToolPolicyTests(unittest.TestCase):
@@ -432,3 +433,84 @@ class AgentPlanToolPolicyTests(unittest.TestCase):
 
         self.assertEqual(policy.required_initial_tool_counts, {})
         self.assertIsNone(policy.allowed_tool_names)
+
+
+class SharedLocationGazetteerTests(unittest.TestCase):
+    """端点地名不再依赖手挑白名单（issue #23）。"""
+
+    def test_prefecture_cities_outside_the_old_whitelist_are_route_endpoints(self):
+        for message in (
+            "从哈尔滨到三亚怎么走？",
+            "从佛山到东莞怎么走？",
+            "从金华到衢州怎么走？",
+            "从乌鲁木齐到喀什怎么走？",
+        ):
+            with self.subTest(message=message):
+                signals = resolve_product_capability_signals(
+                    original_message=message,
+                    task_context_messages=None,
+                )
+
+                self.assertTrue(signals.explicit_route)
+                self.assertTrue(signals.intercity_mobility)
+                self.assertTrue(signals.intercity_endpoints)
+
+    def test_overseas_cities_are_route_endpoints(self):
+        for message in ("从曼谷到清迈怎么走？", "从东京到大阪怎么走？"):
+            with self.subTest(message=message):
+                signals = resolve_product_capability_signals(
+                    original_message=message,
+                    task_context_messages=None,
+                )
+
+                self.assertTrue(signals.explicit_route)
+                self.assertTrue(signals.intercity_endpoints)
+
+    def test_chinese_and_english_endpoints_agree_on_the_same_city_pair(self):
+        chinese = resolve_product_capability_signals(
+            original_message="从哈尔滨到三亚怎么走？",
+            task_context_messages=None,
+        )
+
+        self.assertTrue(chinese.intercity_endpoints)
+        self.assertTrue(are_distinct_known_cities("harbin", "sanya"))
+        self.assertTrue(are_distinct_known_cities("哈尔滨", "三亚"))
+
+    def test_natural_intercity_request_without_route_verb_keeps_travel_capability(self):
+        signals = resolve_product_capability_signals(
+            original_message="我现在在温州，我想去金华，你可以帮我吗",
+            task_context_messages=None,
+        )
+
+        self.assertFalse(signals.explicit_route)
+        self.assertTrue(signals.intercity_mobility)
+        self.assertTrue(signals.intercity_endpoints)
+
+    def test_transport_hubs_resolve_to_their_city_but_institutions_do_not(self):
+        intercity = resolve_product_capability_signals(
+            original_message="从广州南站到深圳北站",
+            task_context_messages=None,
+        )
+        same_city = resolve_product_capability_signals(
+            original_message="从上海虹桥站到外滩怎么坐公共交通？",
+            task_context_messages=None,
+        )
+        institutions = resolve_product_capability_signals(
+            original_message="从北京大学到上海交通大学申请哪个更适合我？",
+            task_context_messages=None,
+        )
+
+        self.assertTrue(intercity.intercity_endpoints)
+        self.assertTrue(same_city.explicit_route)
+        self.assertFalse(same_city.intercity_endpoints)
+        self.assertFalse(institutions.intercity_endpoints)
+
+    def test_administrative_suffixes_are_equivalent_to_bare_city_names(self):
+        for message in ("从北京市到上海市怎么走？", "从广东省佛山市到东莞市怎么走？"):
+            with self.subTest(message=message):
+                signals = resolve_product_capability_signals(
+                    original_message=message,
+                    task_context_messages=None,
+                )
+
+                self.assertTrue(signals.intercity_endpoints)

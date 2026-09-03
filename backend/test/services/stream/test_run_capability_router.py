@@ -3403,3 +3403,36 @@ def test_resolution_is_immutable():
         route.package_id = "weather"
 
     assert replace(route, package_id="weather").package_id == "weather"
+
+
+@pytest.mark.parametrize(
+    ("message", "package_id"),
+    [
+        ("从哈尔滨到三亚怎么走？", "mobility_intercity"),
+        ("从佛山到东莞怎么走？", "mobility_intercity"),
+        ("从曼谷到清迈怎么走？", "mobility_intercity"),
+        ("我现在在温州，我想去金华，你可以帮我吗", "mobility_intercity"),
+        ("从北京市到上海市怎么走？", "mobility_intercity"),
+    ],
+)
+def test_cities_outside_the_old_whitelist_no_longer_fall_into_clarification(message, package_id):
+    """issue #23：手挑白名单未收录的城市曾整体落入 clarification_only。"""
+
+    route = _resolve(message)
+
+    assert route.package_id == package_id
+    assert route.external_tool_names == ("route_compare", "search_flights", "search_trains")
+
+
+def test_same_city_hub_to_landmark_stays_a_local_route():
+    route = _resolve("从上海虹桥站到外滩怎么坐公共交通？")
+
+    assert route.package_id == "mobility_route"
+    assert route.external_tool_names == ("route_compare",)
+
+
+def test_english_and_chinese_city_pairs_resolve_to_the_same_package():
+    chinese = _resolve("从哈尔滨到三亚怎么走？")
+    english = _resolve("How do I get from Harbin to Sanya?")
+
+    assert chinese.package_id == english.package_id == "mobility_intercity"

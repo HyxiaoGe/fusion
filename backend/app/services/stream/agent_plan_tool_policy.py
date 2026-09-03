@@ -16,6 +16,11 @@ from app.services.mcp.flyai_travel_tools import (
     FLYAI_SEARCH_TRAINS,
 )
 from app.services.search_budget import infer_search_intent
+from app.utils.location_names import (
+    are_distinct_known_cities,
+    has_known_location_prefix,
+    is_known_location_name,
+)
 
 _EXPLICIT_MOBILITY_ACTION_RE = re.compile(
     r"怎么走|怎么去|如何去|怎么到|如何到|导航|"
@@ -40,45 +45,6 @@ _CAREER_ENDPOINT_RE = re.compile(
     r"开发者|程序员|岗位|职位|职级)$"
 )
 _PROCESS_STAGE_ENDPOINT_RE = re.compile(r"(?:需求|评审|立项|开发|联调|测试|验收|发布|上线|部署|交付)$")
-INTERCITY_LOCATION_NAMES = (
-    "北京",
-    "上海",
-    "天津",
-    "重庆",
-    "广州",
-    "深圳",
-    "杭州",
-    "南京",
-    "苏州",
-    "成都",
-    "武汉",
-    "西安",
-    "长沙",
-    "郑州",
-    "青岛",
-    "厦门",
-    "福州",
-    "昆明",
-    "沈阳",
-    "大连",
-    "济南",
-    "合肥",
-    "宁波",
-    "无锡",
-    "香港",
-    "澳门",
-)
-_KNOWN_PHYSICAL_LOCATION_NAMES = frozenset(
-    {
-        "故宫",
-        "颐和园",
-        "迪士尼",
-        "东方明珠",
-        "奥体中心",
-        "市民中心",
-        "外滩",
-    }
-)
 _STRUCTURED_ROUTE_ENDPOINT_RES = (
     re.compile(
         r"从(?P<origin>[^，,。；;？?]{1,40}?)(?:到|去|前往)"
@@ -177,9 +143,9 @@ class _MobilityIntentStrength(IntEnum):
 
 class _EndpointSlotTier(IntEnum):
     INVALID = 0
-    BOUNDED = 1
-    CONFIRMED_LOCATION = 2
-    DEFAULT_ROUTE_LOCATION = 3
+    AMBIGUOUS = 1
+    PLAUSIBLE_LOCATION = 2
+    KNOWN_LOCATION = 3
 
 
 @dataclass(frozen=True)
@@ -199,6 +165,8 @@ class ProductCapabilitySignals:
     adjacent_route_followup: bool
     endpoint_relation: bool
     intercity_mobility: bool
+    intercity_endpoints: bool
+    endpoints_are_known_locations: bool
     weather: bool
     flight: bool
     train: bool
@@ -234,32 +202,36 @@ def resolve_product_capability_signals(
         if endpoint
         else (_EndpointSlotTier.INVALID, _EndpointSlotTier.INVALID)
     )
-    endpoints_are_confirmed_locations = all(tier >= _EndpointSlotTier.CONFIRMED_LOCATION for tier in endpoint_tiers)
-    endpoints_are_default_route_locations = all(
-        tier >= _EndpointSlotTier.DEFAULT_ROUTE_LOCATION for tier in endpoint_tiers
-    )
+    endpoints_are_plausible_locations = all(tier >= _EndpointSlotTier.PLAUSIBLE_LOCATION for tier in endpoint_tiers)
+    endpoints_are_known_locations = all(tier >= _EndpointSlotTier.KNOWN_LOCATION for tier in endpoint_tiers)
+    # explicit_route 会让计划策略强制调用路线工具，因此继续要求端点看得出是地点。
     explicit_route = bool(
         endpoint
         and endpoint.structured
-        and endpoints_are_confirmed_locations
+        and endpoints_are_plausible_locations
         and not abstract_relation
         and mobility_intent == _MobilityIntentStrength.EXPLICIT
+    )
+    intercity_mobility = bool(
+        endpoint
+        and not abstract_relation
+        and (
+            explicit_route
+            or (
+                endpoints_are_known_locations
+                and (endpoint.structured or mobility_intent >= _MobilityIntentStrength.RELATED)
+            )
+        )
     )
     return ProductCapabilitySignals(
         explicit_route=explicit_route,
         adjacent_route_followup=adjacent_route_followup,
         endpoint_relation=endpoint_relation,
-        intercity_mobility=(
-            bool(endpoint)
-            and not abstract_relation
-            and (
-                explicit_route
-                or (
-                    endpoints_are_default_route_locations
-                    and (endpoint.structured or mobility_intent >= _MobilityIntentStrength.RELATED)
-                )
-            )
+        intercity_mobility=intercity_mobility,
+        intercity_endpoints=bool(
+            endpoint and intercity_mobility and are_distinct_known_cities(endpoint.origin, endpoint.destination)
         ),
+        endpoints_are_known_locations=bool(endpoint) and endpoints_are_known_locations,
         weather=bool(_WEATHER_RE.search(message)),
         flight=bool(_FLIGHT_RE.search(message)),
         train=bool(_TRAIN_RE.search(message)),
@@ -418,39 +390,24 @@ def _normalize_endpoint_slot(value: str) -> str:
 
 
 def _endpoint_slot_tier(value: str) -> _EndpointSlotTier:
+    """端点槽位的地点确定性分层。
+
+    `KNOWN_LOCATION` 只表示"确定是地点"，不是出行请求的准入条件：未命中词表的
+    地名走 `AMBIGUOUS`，由出行意图强度决定是否仍然公开出行工具（见
+    `resolve_product_capability_signals`）。
+    """
+
     if not value or len(value) > 60:
         return _EndpointSlotTier.INVALID
     if (
-        _is_intercity_location_slot(value)
-        or _is_known_physical_location_slot(value)
+        is_known_location_name(value)
+        or has_known_location_prefix(value)
         or value.endswith(_SAFE_LOCATION_SLOT_SUFFIXES)
     ):
-        return _EndpointSlotTier.DEFAULT_ROUTE_LOCATION
+        return _EndpointSlotTier.KNOWN_LOCATION
     if value.endswith(_INSTITUTION_LOCATION_SLOT_SUFFIXES) or _TRANSPORT_INSTITUTION_SLOT_RE.search(value):
-        return _EndpointSlotTier.CONFIRMED_LOCATION
-    return _EndpointSlotTier.BOUNDED
-
-
-def _is_intercity_location_slot(value: str) -> bool:
-    """接受常见城市名及其“市”行政区写法。"""
-
-    return value in INTERCITY_LOCATION_NAMES or (
-        value.endswith("市") and value.removesuffix("市") in INTERCITY_LOCATION_NAMES
-    )
-
-
-def _is_known_physical_location_slot(value: str) -> bool:
-    """允许可信地标携带城市或行政区前缀，避免等价地名表达漏召回。"""
-
-    for landmark in _KNOWN_PHYSICAL_LOCATION_NAMES:
-        if value == landmark:
-            return True
-        if not value.endswith(landmark):
-            continue
-        prefix = value[: -len(landmark)]
-        if prefix in INTERCITY_LOCATION_NAMES or prefix.endswith(("省", "市", "区", "县", "镇", "乡")):
-            return True
-    return False
+        return _EndpointSlotTier.PLAUSIBLE_LOCATION
+    return _EndpointSlotTier.AMBIGUOUS
 
 
 def _resolve_mobility_intent_strength(

@@ -10655,5 +10655,157 @@
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_110"
+  },
+  {
+    "id": "run-route-gazetteer-harbin-sanya",
+    "category": "run_capability_router",
+    "question": "从哈尔滨到三亚怎么走？",
+    "expected_tool_policy": "no_search",
+    "expected_surface": "direct_answer",
+    "capability_eval_group": "adversarial",
+    "expected_package_id": "mobility_intercity",
+    "expected_announced_tools": [
+      "route_compare",
+      "search_flights",
+      "search_trains"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "agent_plan_control",
+      "current_date"
+    ],
+    "expected_resolution_mode": "routed",
+    "required_capability_reason_codes": [
+      "origin_destination_relation",
+      "intercity_locations"
+    ],
+    "expected_effective_plan_mode": "auto",
+    "expected_network_boundary_required": false
+  },
+  {
+    "id": "run-route-gazetteer-foshan-dongguan",
+    "category": "run_capability_router",
+    "question": "从佛山到东莞怎么走？",
+    "expected_tool_policy": "no_search",
+    "expected_surface": "direct_answer",
+    "capability_eval_group": "adversarial",
+    "expected_package_id": "mobility_intercity",
+    "expected_announced_tools": [
+      "route_compare",
+      "search_flights",
+      "search_trains"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "agent_plan_control",
+      "current_date"
+    ],
+    "expected_resolution_mode": "routed",
+    "required_capability_reason_codes": [
+      "origin_destination_relation",
+      "intercity_locations"
+    ],
+    "expected_effective_plan_mode": "auto",
+    "expected_network_boundary_required": false
+  },
+  {
+    "id": "run-route-gazetteer-overseas-bangkok-chiangmai",
+    "category": "run_capability_router",
+    "question": "从曼谷到清迈怎么走？",
+    "expected_tool_policy": "no_search",
+    "expected_surface": "direct_answer",
+    "capability_eval_group": "adversarial",
+    "expected_package_id": "mobility_intercity",
+    "expected_announced_tools": [
+      "route_compare",
+      "search_flights",
+      "search_trains"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "agent_plan_control",
+      "current_date"
+    ],
+    "expected_resolution_mode": "routed",
+    "required_capability_reason_codes": [
+      "origin_destination_relation",
+      "intercity_locations"
+    ],
+    "expected_effective_plan_mode": "auto",
+    "expected_network_boundary_required": false
+  },
+  {
+    "id": "run-route-gazetteer-wenzhou-jinhua",
+    "category": "run_capability_router",
+    "question": "我现在在温州，我想去金华，你可以帮我吗",
+    "expected_tool_policy": "no_search",
+    "expected_surface": "direct_answer",
+    "capability_eval_group": "adversarial",
+    "expected_package_id": "mobility_intercity",
+    "expected_announced_tools": [
+      "route_compare",
+      "search_flights",
+      "search_trains"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "agent_plan_control",
+      "current_date"
+    ],
+    "expected_resolution_mode": "routed",
+    "required_capability_reason_codes": [
+      "origin_destination_relation",
+      "intercity_locations"
+    ],
+    "expected_effective_plan_mode": "auto",
+    "expected_network_boundary_required": false
+  },
+  {
+    "id": "run-route-gazetteer-admin-suffix",
+    "category": "run_capability_router",
+    "question": "从广东省佛山市到东莞市怎么走？",
+    "expected_tool_policy": "no_search",
+    "expected_surface": "direct_answer",
+    "capability_eval_group": "adversarial",
+    "expected_package_id": "mobility_intercity",
+    "expected_announced_tools": [
+      "route_compare",
+      "search_flights",
+      "search_trains"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "agent_plan_control",
+      "current_date"
+    ],
+    "expected_resolution_mode": "routed",
+    "required_capability_reason_codes": [
+      "origin_destination_relation",
+      "intercity_locations"
+    ],
+    "expected_effective_plan_mode": "auto",
+    "expected_network_boundary_required": false
+  },
+  {
+    "id": "run-route-gazetteer-same-city-hub",
+    "category": "run_capability_router",
+    "question": "从上海虹桥站到外滩怎么坐公共交通？",
+    "expected_tool_policy": "no_search",
+    "expected_surface": "direct_answer",
+    "capability_eval_group": "adversarial",
+    "expected_package_id": "mobility_route",
+    "expected_announced_tools": [
+      "route_compare"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "agent_plan_control"
+    ],
+    "expected_resolution_mode": "routed",
+    "required_capability_reason_codes": [
+      "explicit_route_task"
+    ],
+    "expected_effective_plan_mode": "auto",
+    "expected_network_boundary_required": false
   }
 ]

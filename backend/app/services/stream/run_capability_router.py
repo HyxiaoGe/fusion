@@ -14,10 +14,14 @@ from app.ai.skills.registry import (
 )
 from app.services.agent.plan_coordinator import PlanMode
 from app.services.stream.agent_plan_tool_policy import (
-    INTERCITY_LOCATION_NAMES,
     resolve_product_capability_signals,
 )
 from app.services.stream.agent_task_policy import AgentTaskPolicy
+from app.utils.location_names import (
+    EN_KNOWN_LANDMARK_NAMES,
+    are_distinct_known_cities,
+    is_known_location_name,
+)
 from app.utils.run_capability_contract import (
     CAPABILITY_AUTO_PLAN_PACKAGES,
     CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER,
@@ -420,70 +424,6 @@ _EN_NATURAL_INTERCITY_RE = re.compile(
     r"(?P<destination>[a-z][a-z .'-]{1,40}?)(?:[.?!]|$)",
     re.IGNORECASE,
 )
-_EN_INTERCITY_LOCATION_NAMES = (
-    "beijing",
-    "shanghai",
-    "tianjin",
-    "chongqing",
-    "guangzhou",
-    "shenzhen",
-    "hangzhou",
-    "nanjing",
-    "suzhou",
-    "chengdu",
-    "wuhan",
-    "xi'an",
-    "changsha",
-    "zhengzhou",
-    "qingdao",
-    "xiamen",
-    "fuzhou",
-    "kunming",
-    "shenyang",
-    "dalian",
-    "jinan",
-    "hefei",
-    "ningbo",
-    "wuxi",
-    "hong kong",
-    "macau",
-    "harbin",
-    "shijiazhuang",
-    "taiyuan",
-    "hohhot",
-    "changchun",
-    "nanchang",
-    "nanning",
-    "haikou",
-    "sanya",
-    "guiyang",
-    "lhasa",
-    "lanzhou",
-    "xining",
-    "yinchuan",
-    "urumqi",
-)
-_EN_PHYSICAL_LOCATION_NAMES = frozenset(
-    {
-        *_EN_INTERCITY_LOCATION_NAMES,
-        "the bund",
-        "people's square",
-        "hongqiao station",
-        "shanghai hongqiao station",
-        "hongqiao airport",
-        "pudong airport",
-        "disneyland",
-        "tiananmen",
-        "the forbidden city",
-        "forbidden city",
-        "the summer palace",
-        "summer palace",
-        "grand central station",
-        "city hall",
-        "downtown",
-        "city center",
-    }
-)
 _EN_PHYSICAL_LOCATION_SUFFIX_RE = re.compile(
     r"\b(?:station|airport|terminal|square|park|museum|hospital|hotel|mall|"
     r"road|street|bridge|tower)\b$",
@@ -844,9 +784,7 @@ def _classify_standard_request(
         )
     )
     english_known_pair = bool(
-        english_relation
-        and english_relation[0] in _EN_PHYSICAL_LOCATION_NAMES
-        and english_relation[1] in _EN_PHYSICAL_LOCATION_NAMES
+        english_relation and is_known_location_name(english_relation[0]) and is_known_location_name(english_relation[1])
     )
     english_strong_physical_pair = bool(
         english_relation
@@ -860,8 +798,7 @@ def _classify_standard_request(
     english_intercity = bool(
         english_relation
         and not english_abstract_route
-        and english_relation[0] in _EN_INTERCITY_LOCATION_NAMES
-        and english_relation[1] in _EN_INTERCITY_LOCATION_NAMES
+        and are_distinct_known_cities(english_relation[0], english_relation[1])
     )
     requested_english_route_modes = _extract_english_route_modes(routing_message) if english_relation else frozenset()
     english_route_mode_directive_present = bool(english_relation and _EN_ROUTE_MODE_SEGMENT_RE.search(routing_message))
@@ -871,7 +808,7 @@ def _classify_standard_request(
     english_route_mode_train = "train" in authorized_english_route_modes
     english_route_mode_route = "route" in authorized_english_route_modes
     intercity_relation = (
-        signals.endpoint_relation and signals.intercity_mobility and _has_two_intercity_locations(routing_message)
+        signals.endpoint_relation and signals.intercity_mobility and signals.intercity_endpoints
     ) or english_intercity
     english_local_route = bool(
         english_route
@@ -1830,20 +1767,6 @@ def _needs_current_date(message: str) -> bool:
     return bool(_RELATIVE_DATE_RE.search(message))
 
 
-def _has_two_intercity_locations(message: str) -> bool:
-    institution_suffix = r"(?:大学|学院|公交|地铁|交通|公司|集团|医院|博物馆|体育馆)"
-    return (
-        len(
-            {
-                location
-                for location in INTERCITY_LOCATION_NAMES
-                if re.search(rf"{re.escape(location)}(?!{institution_suffix})", message)
-            }
-        )
-        >= 2
-    )
-
-
 def _extract_english_route_relation(message: str) -> tuple[str, str] | None:
     match = _EN_NATURAL_INTERCITY_RE.search(message) or _EN_ROUTE_RELATION_RE.search(message)
     if match is None:
@@ -1986,7 +1909,11 @@ def _is_english_route_mode_denied(prefix: str, mode_pattern: re.Pattern[str]) ->
 
 
 def _is_english_physical_location(value: str) -> bool:
-    return value in _EN_PHYSICAL_LOCATION_NAMES or bool(_EN_PHYSICAL_LOCATION_SUFFIX_RE.search(value))
+    return (
+        is_known_location_name(value)
+        or value in EN_KNOWN_LANDMARK_NAMES
+        or bool(_EN_PHYSICAL_LOCATION_SUFFIX_RE.search(value))
+    )
 
 
 def _is_english_abstract_route_relation(message: str, origin: str, destination: str) -> bool:
