@@ -11,6 +11,7 @@ from app.utils.location_names import (
 from app.utils.location_names import (
     are_distinct_known_cities,
     is_known_location_name,
+    normalize_en_name,
     resolve_city_key,
 )
 
@@ -526,11 +527,13 @@ class SharedLocationGazetteerTests(unittest.TestCase):
 class GazetteerIsNotAnAdmissionGateTests(unittest.TestCase):
     """词表只提升置信度，不决定是否公开出行工具（PR #27 评审 P1-1）。"""
 
-    def test_cities_outside_the_gazetteer_still_get_travel_capability(self):
+    def test_county_level_cities_get_travel_capability(self):
+        """覆盖率靠补齐行政区划数据解决，不靠放宽准入（PR #27 复审 P1-A）。"""
+
         for message in (
             "从义乌到昆山怎么走？",
             "从诸暨到海宁怎么走？",
-            "从科纳克里到弗里敦怎么走？",
+            "从张家港到太仓怎么走？",
         ):
             with self.subTest(message=message):
                 signals = resolve_product_capability_signals(
@@ -540,8 +543,25 @@ class GazetteerIsNotAnAdmissionGateTests(unittest.TestCase):
 
                 self.assertTrue(signals.explicit_route)
                 self.assertTrue(signals.intercity_mobility)
-                # 端点未收录，无法判定跨城，因此只走同城路线能力。
-                self.assertFalse(signals.intercity_endpoints)
+
+    def test_unenumerated_non_place_endpoints_never_reach_map_tools(self):
+        """未枚举的产品/增长表达不得被当成真实路线（PR #27 复审 P1-A）。"""
+
+        for message in (
+            "产品从概念到上线怎么走？",
+            "从零到一怎么走？",
+            "从100万用户到1000万用户怎么走？",
+            "从MVP到PMF怎么走？",
+            "从需求池到灰度怎么走？",
+        ):
+            with self.subTest(message=message):
+                signals = resolve_product_capability_signals(
+                    original_message=message,
+                    task_context_messages=None,
+                )
+
+                self.assertFalse(signals.explicit_route)
+                self.assertFalse(signals.intercity_mobility)
 
     def test_abstract_relations_are_blocked_by_endpoint_semantics_not_by_the_gazetteer(self):
         for message in (
@@ -565,21 +585,70 @@ class LocationGazetteerRecordTests(unittest.TestCase):
     """中英索引必须派生自同一条记录（PR #27 评审 P1-2/P1-3）。"""
 
     def test_every_city_record_carries_both_names(self):
-        for province, zh, en in CITY_RECORDS:
+        for province, zh, en_names in CITY_RECORDS:
             with self.subTest(city=zh):
                 self.assertTrue(province)
                 self.assertTrue(zh)
-                self.assertTrue(en)
+                self.assertTrue(en_names)
+                self.assertTrue(all(en_names))
 
     def test_chinese_and_english_names_resolve_to_the_same_city(self):
-        for _province, zh, en in CITY_RECORDS:
+        for _province, zh, en_names in CITY_RECORDS:
+            for en in en_names:
+                with self.subTest(city=zh, alias=en):
+                    self.assertEqual(resolve_city_key(zh), resolve_city_key(en))
+
+    def test_no_english_key_maps_to_two_cities(self):
+        """拼音撞车（玉树/榆树）必须由别名显式消歧，不能静默覆盖。"""
+
+        seen: dict[str, str] = {}
+        collisions: list[tuple[str, str, str]] = []
+        for province, zh, en_names in CITY_RECORDS:
+            city_id = f"{province}/{zh}"
+            for en in en_names:
+                key = normalize_en_name(en)
+                if seen.setdefault(key, city_id) != city_id:
+                    collisions.append((key, seen[key], city_id))
+
+        self.assertEqual(collisions, [])
+
+    def test_every_alias_tuple_is_a_tuple_of_full_names(self):
+        """单别名必须写成元组；`("taipei")` 会退化成逐字符别名。"""
+
+        for _province, zh, en_names in CITY_RECORDS:
             with self.subTest(city=zh):
-                self.assertEqual(resolve_city_key(zh), resolve_city_key(en))
+                self.assertIsInstance(en_names, tuple)
+                self.assertTrue(all(len(en) > 1 for en in en_names))
 
     def test_english_index_covers_every_chinese_city(self):
-        missing = [zh for _p, zh, en in CITY_RECORDS if not is_known_location_name(en)]
+        missing = [zh for _p, zh, en_names in CITY_RECORDS if not is_known_location_name(en_names[0])]
 
         self.assertEqual(missing, [])
+
+    def test_existing_english_aliases_stay_compatible(self):
+        """重构索引不得丢掉既有英文别名（PR #27 复审 P1-B）。"""
+
+        for alias, canonical in (
+            ("xi'an", "西安"),
+            ("Xi'an", "西安"),
+            ("xian", "西安"),
+            ("hongkong", "香港"),
+            ("hong kong", "香港"),
+            ("macao", "澳门"),
+            ("macau", "澳门"),
+            ("chiangmai", "清迈"),
+            ("danang", "岘港"),
+            ("delhi", "新德里"),
+        ):
+            with self.subTest(alias=alias):
+                self.assertTrue(is_known_location_name(alias))
+                self.assertEqual(resolve_city_key(alias), resolve_city_key(canonical))
+
+    def test_english_lookup_is_normalized_rather_than_enumerated(self):
+        """撇号、空格与大小写由规范化覆盖，不需要逐种写法登记。"""
+
+        self.assertEqual(normalize_en_name("Xi'an"), normalize_en_name("xi an"))
+        self.assertEqual(normalize_en_name("Hong Kong"), "hongkong")
 
     def test_same_named_divisions_in_different_provinces_are_distinct(self):
         self.assertEqual(resolve_city_key("北京市朝阳区"), resolve_city_key("北京"))

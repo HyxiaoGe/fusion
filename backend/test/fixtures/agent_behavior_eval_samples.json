@@ -10809,47 +10809,48 @@
     "expected_network_boundary_required": false
   },
   {
-    "id": "run-route-p1-offgazetteer-yiwu-kunshan",
+    "id": "run-route-p1-county-level-yiwu-kunshan",
     "category": "run_capability_router",
     "question": "从义乌到昆山怎么走？",
     "expected_tool_policy": "no_search",
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
-    "expected_package_id": "mobility_route",
+    "expected_package_id": "mobility_intercity",
     "expected_announced_tools": [
-      "route_compare"
+      "route_compare",
+      "search_flights",
+      "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
-      "explicit_route_task"
+      "origin_destination_relation",
+      "intercity_locations"
     ],
     "expected_effective_plan_mode": "auto",
     "expected_network_boundary_required": false
   },
   {
-    "id": "run-route-p1-offgazetteer-overseas",
+    "id": "run-route-p1-unlisted-overseas-gap",
     "category": "run_capability_router",
     "question": "从科纳克里到弗里敦怎么走？",
     "expected_tool_policy": "no_search",
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
-    "expected_package_id": "mobility_route",
-    "expected_announced_tools": [
-      "route_compare"
-    ],
+    "expected_package_id": "clarification_only",
+    "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity",
-      "agent_plan_control"
+      "app_identity"
     ],
-    "expected_resolution_mode": "routed",
+    "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
-      "explicit_route_task"
+      "insufficient_capability_signal"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false
   },
   {

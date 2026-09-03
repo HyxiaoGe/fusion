@@ -222,21 +222,22 @@ def resolve_product_capability_signals(
         else (_EndpointSlotTier.INVALID, _EndpointSlotTier.INVALID)
     )
     endpoints_are_known_locations = all(tier >= _EndpointSlotTier.KNOWN_LOCATION for tier in endpoint_tiers)
-    endpoints_are_addressable = all(tier >= _EndpointSlotTier.AMBIGUOUS for tier in endpoint_tiers)
-    # 词表只提升置信度，不作为准入条件：结构化起终点加明确出行动词就足以判定这是出行
-    # 请求。词表不可能收全县级市与境外地名，靠它准入会让 `从义乌到昆山怎么走` 拒答；
-    # 抽象关系由 `_is_abstract_endpoint_relation` 负责挡住，不是靠端点没被收录。
+    # 端点必须带正向地点证据（词表命中、地标、地点后缀或机构后缀），而不是"只要不在
+    # 抽象词表里就放行"。反向判定挡不住没枚举过的表达：`从零到一`、`从MVP到PMF`、
+    # `从100万用户到1000万用户`、`产品从概念到上线` 都会被当成真实路线送进地图工具。
+    # 覆盖率靠补齐行政区划数据解决（词表已含地级市与县级市），不是靠放宽准入。
+    endpoints_are_plausible_locations = all(tier >= _EndpointSlotTier.PLAUSIBLE_LOCATION for tier in endpoint_tiers)
     explicit_route = bool(
         endpoint
         and endpoint.structured
-        and endpoints_are_addressable
+        and endpoints_are_plausible_locations
         and not abstract_relation
         and mobility_intent == _MobilityIntentStrength.EXPLICIT
     )
     intercity_mobility = bool(
         endpoint
         and not abstract_relation
-        and endpoints_are_addressable
+        and endpoints_are_plausible_locations
         and (
             explicit_route
             or (endpoint.structured and mobility_intent >= _MobilityIntentStrength.RELATED)
