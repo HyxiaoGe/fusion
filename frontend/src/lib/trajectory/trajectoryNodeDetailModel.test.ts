@@ -96,6 +96,48 @@ describe('buildTrajectoryNodeDetailModel', () => {
     ]);
   });
 
+  it('后端新增能力包时无需改前端：未知 package 退回展示原始 id', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const run: Extract<TrajectoryCell, { type: 'run' }> = {
+      ...baseCell(),
+      key: 'run:run-future',
+      type: 'run',
+      summarySource: 'run-summary',
+      attemptIndex: 1,
+      runStatus: 'completed',
+      totalSteps: 1,
+      totalToolCalls: 1,
+      startedAt: '2026-08-26T00:00:00.000Z',
+      endedAt: '2026-08-26T00:00:01.000Z',
+      isSelected: true,
+      isHydrated: true,
+      association: 'explicit',
+      trajectoryBadge: { status: 'complete', source: 'run-summary', reason: null },
+      capabilityResolution: {
+        schema_version: 1,
+        router_version: '2026-08-27.1',
+        package_id: 'future_package',
+        confidence: 'high',
+        resolution_mode: 'routed',
+        reason_codes: ['future_reason_code'],
+        external_tool_names: ['weather_forecast'],
+        effective_plan_mode: 'off',
+        include_current_date: true,
+        network_boundary_required: false,
+        bundle_fingerprint: `sha256:${'a'.repeat(64)}`,
+      },
+      records: [],
+      spans: [],
+      liveTail: [],
+    };
+
+    const fields = buildTrajectoryNodeDetailModel(run, null).summaryFields;
+
+    // 既不丢弃整条 resolution，也不把 i18n key 直接显示给用户。
+    expect(fields).toContainEqual({ label: '能力包', value: 'future_package' });
+    expect(fields).toContainEqual({ label: 'Run 初始外部工具', value: '查询天气 (weather_forecast)' });
+  });
+
   it('老 Run 精确显示能力路由未记录且不展示推断字段', async () => {
     await i18n.changeLanguage('zh-CN');
     const run: Extract<TrajectoryCell, { type: 'run' }> = {
