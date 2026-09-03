@@ -1,0 +1,45 @@
+{
+  "description": "能力路由盲测集：按真实用户口吻书写，刻意不照抄实现里的正则与既有 fixture 措辞。与 agent_behavior_eval_samples.json 分工不同——那份验证契约一致性（照实现行为写，应当 100% 通过），这份验证真实覆盖率（独立于实现，当前通过率远低于 100%）。不是 CI 门禁，只作为诊断基准；换分类器实现后用同一套对比才有意义。见 issue #24。",
+  "acceptable_packages_note": "acceptable_packages 是人工判断的可接受能力包集合，不是 ground truth；部分条目本身可争议，已在 note 中标出。",
+  "cases": [
+    {"id": "travel-01", "question": "周末想去趟苏州，从上海出发怎么最方便？", "acceptable_packages": ["mobility_route", "mobility_intercity", "travel_air_rail", "mixed_itinerary"], "group": "travel"},
+    {"id": "travel-02", "question": "我在望京，晚上要去国贸吃饭，打车还是地铁快", "acceptable_packages": ["mobility_route"], "group": "travel"},
+    {"id": "travel-03", "question": "下周三去成都出差，帮我看看机票", "acceptable_packages": ["flight", "mobility_intercity", "travel_air_rail"], "group": "travel"},
+    {"id": "travel-04", "question": "元旦想带孩子去哈尔滨看冰灯，从广州过去怎么走比较好", "acceptable_packages": ["mobility_intercity", "travel_air_rail", "mixed_itinerary"], "group": "travel"},
+    {"id": "travel-05", "question": "明天早上八点前得到浦东机场，我住在莘庄", "acceptable_packages": ["mobility_route"], "group": "travel"},
+    {"id": "travel-06", "question": "杭州东站到西湖打车大概多久", "acceptable_packages": ["mobility_route"], "group": "travel"},
+    {"id": "travel-07", "question": "从公司到家开车要多久", "acceptable_packages": ["clarification_only"], "group": "travel", "note": "端点是相对指代，无法定位，要求澄清正确"},
+    {"id": "travel-08", "question": "去趟三亚", "acceptable_packages": ["clarification_only"], "group": "travel", "note": "只有目的地没有起点，要求澄清正确"},
+    {"id": "travel-09", "question": "北京到天津城际多少钱", "acceptable_packages": ["train", "mobility_intercity", "travel_air_rail"], "group": "travel"},
+    {"id": "travel-10", "question": "我想知道从深圳北到香港西九龙的高铁班次", "acceptable_packages": ["train", "mobility_intercity", "travel_air_rail"], "group": "travel"},
+
+    {"id": "weather-01", "question": "明天要不要带伞", "acceptable_packages": ["weather"], "group": "weather"},
+    {"id": "weather-02", "question": "这周末杭州冷不冷，要穿羽绒服吗", "acceptable_packages": ["weather"], "group": "weather"},
+    {"id": "weather-03", "question": "上海今天空气质量怎么样", "acceptable_packages": ["weather", "fresh_web"], "group": "weather", "note": "空气质量是否属天气能力可争议"},
+
+    {"id": "place-01", "question": "附近有什么好吃的川菜馆", "acceptable_packages": ["place_discovery"], "group": "place"},
+    {"id": "place-02", "question": "帮我找个安静点能办公的咖啡店", "acceptable_packages": ["place_discovery"], "group": "place"},
+
+    {"id": "direct-01", "question": "你好呀", "acceptable_packages": ["direct"], "group": "direct"},
+    {"id": "direct-02", "question": "你是什么模型", "acceptable_packages": ["direct"], "group": "direct"},
+    {"id": "direct-03", "question": "为什么天是蓝的", "acceptable_packages": ["direct"], "group": "direct"},
+    {"id": "direct-04", "question": "1 加到 100 等于多少", "acceptable_packages": ["direct"], "group": "direct"},
+    {"id": "transform-01", "question": "帮我把这句话翻译成英文：今天心情不错", "acceptable_packages": ["transform"], "group": "transform"},
+    {"id": "transform-02", "question": "把下面这段改得正式一点：兄弟这活儿我干不了", "acceptable_packages": ["transform"], "group": "transform"},
+
+    {"id": "web-01", "question": "最近 OpenAI 有什么新动静", "acceptable_packages": ["fresh_web", "verified_web"], "group": "web"},
+    {"id": "web-02", "question": "帮我看看 https://example.com/post 这篇讲了啥", "acceptable_packages": ["url_read", "verified_web"], "group": "web"},
+    {"id": "web-03", "question": "今天股市怎么样", "acceptable_packages": ["fresh_web"], "group": "web"},
+    {"id": "web-04", "question": "2026 年了，现在最好的开源大模型是哪个", "acceptable_packages": ["fresh_web", "verified_web"], "group": "web"},
+
+    {"id": "abstract-01", "question": "我们产品从内测到公测怎么推进比较稳", "acceptable_packages": ["direct", "clarification_only"], "group": "abstract", "note": "负例：不得公开出行工具"},
+    {"id": "abstract-02", "question": "从校招生到独当一面一般要多久", "acceptable_packages": ["direct", "clarification_only"], "group": "abstract", "note": "负例：不得公开出行工具"},
+    {"id": "abstract-03", "question": "怎么从月活十万做到一百万", "acceptable_packages": ["direct", "clarification_only"], "group": "abstract", "note": "负例：不得公开出行工具"},
+    {"id": "abstract-04", "question": "从想法到上线中间有哪些坑", "acceptable_packages": ["direct", "clarification_only"], "group": "abstract", "note": "负例：不得公开出行工具"},
+    {"id": "abstract-05", "question": "公司从 A 轮到 B 轮一般要准备什么", "acceptable_packages": ["direct", "clarification_only"], "group": "abstract", "note": "负例：不得公开出行工具"},
+
+    {"id": "boundary-01", "question": "北京和上海哪个更适合年轻人发展", "acceptable_packages": ["direct", "fresh_web"], "group": "boundary", "note": "出现两个地名但不是出行请求"},
+    {"id": "boundary-02", "question": "帮我把「从北京到上海」翻译成日语", "acceptable_packages": ["transform"], "group": "boundary", "note": "出行表达出现在被引用文本里"},
+    {"id": "boundary-03", "question": "介绍一下杭州这座城市", "acceptable_packages": ["direct", "fresh_web"], "group": "boundary", "note": "地名出现但不是出行请求"}
+  ]
+}

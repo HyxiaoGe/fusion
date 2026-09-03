@@ -255,6 +255,8 @@ Deep Research 继续要求 function calling 与 search capability，并固定只
 - 纯路由测试直接断言 package、confidence、reason codes、effective plan、日期/边界标记和精确工具集合。
 - Agent Loop 集成测试断言实际 `call_kwargs.tools`、handlers、bindings、`final_tool_names`、Prompt sections、run config 和 events。
 - UI 测试断言实时、刷新、历史 Run 和旧 Run 的 resolution 展示。
+- `backend/test/fixtures/agent_behavior_eval_samples.json` 照实现行为书写，验证契约一致性，应当 100% 通过；它**不能**用来判断真实覆盖率。
+- `backend/test/fixtures/blind_routing_probe.json` 独立于实现书写，验证自然口语下的覆盖率，用 `scripts/blind_routing_probe.py` 跑分。当前规则分类器在其上为 42%（travel 20%、weather 0%、web 25%），失败全部落进 `clarification_only`。该脚本不是 CI 门禁，只作诊断基准；换分类器实现（issue #24）后用同一套对比。
 - 本地测试、Ruff、Vitest、ESLint、build 只能证明代码与静态协议。
 - 发布后必须复用现有已登录 Fusion Chrome 标签，覆盖上述多类对话并检查真实 Trajectory、Prompt 正文、工具调用、刷新一致性、console/network；未完成真实页面验证不得称为用户验收通过。
 
