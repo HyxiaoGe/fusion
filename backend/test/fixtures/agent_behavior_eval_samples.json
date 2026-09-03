@@ -10807,5 +10807,167 @@
     ],
     "expected_effective_plan_mode": "auto",
     "expected_network_boundary_required": false
+  },
+  {
+    "id": "run-route-p1-offgazetteer-yiwu-kunshan",
+    "category": "run_capability_router",
+    "question": "从义乌到昆山怎么走？",
+    "expected_tool_policy": "no_search",
+    "expected_surface": "direct_answer",
+    "capability_eval_group": "adversarial",
+    "expected_package_id": "mobility_route",
+    "expected_announced_tools": [
+      "route_compare"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "agent_plan_control"
+    ],
+    "expected_resolution_mode": "routed",
+    "required_capability_reason_codes": [
+      "explicit_route_task"
+    ],
+    "expected_effective_plan_mode": "auto",
+    "expected_network_boundary_required": false
+  },
+  {
+    "id": "run-route-p1-offgazetteer-overseas",
+    "category": "run_capability_router",
+    "question": "从科纳克里到弗里敦怎么走？",
+    "expected_tool_policy": "no_search",
+    "expected_surface": "direct_answer",
+    "capability_eval_group": "adversarial",
+    "expected_package_id": "mobility_route",
+    "expected_announced_tools": [
+      "route_compare"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "agent_plan_control"
+    ],
+    "expected_resolution_mode": "routed",
+    "required_capability_reason_codes": [
+      "explicit_route_task"
+    ],
+    "expected_effective_plan_mode": "auto",
+    "expected_network_boundary_required": false
+  },
+  {
+    "id": "run-route-p1-abstract-business-state",
+    "category": "run_capability_router",
+    "question": "从亏损到盈利怎么走？",
+    "expected_tool_policy": "no_search",
+    "expected_surface": "direct_answer",
+    "capability_eval_group": "adversarial",
+    "expected_package_id": "clarification_only",
+    "expected_announced_tools": [
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
+    "expected_resolution_mode": "clarification",
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
+    "expected_effective_plan_mode": "off",
+    "expected_network_boundary_required": false
+  },
+  {
+    "id": "run-route-p1-abstract-org-unit",
+    "category": "run_capability_router",
+    "question": "产品从研发中心到数据中心怎么走",
+    "expected_tool_policy": "no_search",
+    "expected_surface": "direct_answer",
+    "capability_eval_group": "adversarial",
+    "expected_package_id": "clarification_only",
+    "expected_announced_tools": [
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
+    "expected_resolution_mode": "clarification",
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
+    "expected_effective_plan_mode": "off",
+    "expected_network_boundary_required": false
+  },
+  {
+    "id": "run-route-p1-zh-xingtai-chengde",
+    "category": "run_capability_router",
+    "question": "从邢台到承德怎么走？",
+    "expected_tool_policy": "no_search",
+    "expected_surface": "direct_answer",
+    "capability_eval_group": "adversarial",
+    "expected_package_id": "mobility_intercity",
+    "expected_announced_tools": [
+      "route_compare",
+      "search_flights",
+      "search_trains"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "agent_plan_control",
+      "current_date"
+    ],
+    "expected_resolution_mode": "routed",
+    "required_capability_reason_codes": [
+      "origin_destination_relation",
+      "intercity_locations"
+    ],
+    "expected_effective_plan_mode": "auto",
+    "expected_network_boundary_required": false
+  },
+  {
+    "id": "run-route-p1-en-xingtai-chengde",
+    "category": "run_capability_router",
+    "question": "How do I get from Xingtai to Chengde?",
+    "expected_tool_policy": "no_search",
+    "expected_surface": "direct_answer",
+    "capability_eval_group": "adversarial",
+    "expected_package_id": "mobility_intercity",
+    "expected_announced_tools": [
+      "route_compare",
+      "search_flights",
+      "search_trains"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "agent_plan_control",
+      "current_date"
+    ],
+    "expected_resolution_mode": "routed",
+    "required_capability_reason_codes": [
+      "origin_destination_relation",
+      "intercity_locations"
+    ],
+    "expected_effective_plan_mode": "auto",
+    "expected_network_boundary_required": false
+  },
+  {
+    "id": "run-route-p1-homonym-divisions",
+    "category": "run_capability_router",
+    "question": "从北京市朝阳区到辽宁省朝阳市怎么走？",
+    "expected_tool_policy": "no_search",
+    "expected_surface": "direct_answer",
+    "capability_eval_group": "adversarial",
+    "expected_package_id": "mobility_intercity",
+    "expected_announced_tools": [
+      "route_compare",
+      "search_flights",
+      "search_trains"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "agent_plan_control",
+      "current_date"
+    ],
+    "expected_resolution_mode": "routed",
+    "required_capability_reason_codes": [
+      "origin_destination_relation",
+      "intercity_locations"
+    ],
+    "expected_effective_plan_mode": "auto",
+    "expected_network_boundary_required": false
   }
 ]

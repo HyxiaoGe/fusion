@@ -5,7 +5,14 @@ from app.services.stream.agent_plan_tool_policy import (
     resolve_agent_plan_tool_policy,
     resolve_product_capability_signals,
 )
-from app.utils.location_names import are_distinct_known_cities
+from app.utils.location_names import (
+    _CITY_RECORDS as CITY_RECORDS,
+)
+from app.utils.location_names import (
+    are_distinct_known_cities,
+    is_known_location_name,
+    resolve_city_key,
+)
 
 
 class AgentPlanToolPolicyTests(unittest.TestCase):
@@ -514,3 +521,75 @@ class SharedLocationGazetteerTests(unittest.TestCase):
                 )
 
                 self.assertTrue(signals.intercity_endpoints)
+
+
+class GazetteerIsNotAnAdmissionGateTests(unittest.TestCase):
+    """词表只提升置信度，不决定是否公开出行工具（PR #27 评审 P1-1）。"""
+
+    def test_cities_outside_the_gazetteer_still_get_travel_capability(self):
+        for message in (
+            "从义乌到昆山怎么走？",
+            "从诸暨到海宁怎么走？",
+            "从科纳克里到弗里敦怎么走？",
+        ):
+            with self.subTest(message=message):
+                signals = resolve_product_capability_signals(
+                    original_message=message,
+                    task_context_messages=None,
+                )
+
+                self.assertTrue(signals.explicit_route)
+                self.assertTrue(signals.intercity_mobility)
+                # 端点未收录，无法判定跨城，因此只走同城路线能力。
+                self.assertFalse(signals.intercity_endpoints)
+
+    def test_abstract_relations_are_blocked_by_endpoint_semantics_not_by_the_gazetteer(self):
+        for message in (
+            "从亏损到盈利怎么走？",
+            "请规划从冷启动到规模化的路线",
+            "从需求评审到正式上线怎么走流程？",
+            "从初级工程师到架构师怎么走？",
+            "从困境到突破怎么走？",
+        ):
+            with self.subTest(message=message):
+                signals = resolve_product_capability_signals(
+                    original_message=message,
+                    task_context_messages=None,
+                )
+
+                self.assertFalse(signals.explicit_route)
+                self.assertFalse(signals.intercity_mobility)
+
+
+class LocationGazetteerRecordTests(unittest.TestCase):
+    """中英索引必须派生自同一条记录（PR #27 评审 P1-2/P1-3）。"""
+
+    def test_every_city_record_carries_both_names(self):
+        for province, zh, en in CITY_RECORDS:
+            with self.subTest(city=zh):
+                self.assertTrue(province)
+                self.assertTrue(zh)
+                self.assertTrue(en)
+
+    def test_chinese_and_english_names_resolve_to_the_same_city(self):
+        for _province, zh, en in CITY_RECORDS:
+            with self.subTest(city=zh):
+                self.assertEqual(resolve_city_key(zh), resolve_city_key(en))
+
+    def test_english_index_covers_every_chinese_city(self):
+        missing = [zh for _p, zh, en in CITY_RECORDS if not is_known_location_name(en)]
+
+        self.assertEqual(missing, [])
+
+    def test_same_named_divisions_in_different_provinces_are_distinct(self):
+        self.assertEqual(resolve_city_key("北京市朝阳区"), resolve_city_key("北京"))
+        self.assertNotEqual(resolve_city_key("北京市朝阳区"), resolve_city_key("辽宁省朝阳市"))
+        self.assertTrue(are_distinct_known_cities("北京市朝阳区", "辽宁省朝阳市"))
+
+    def test_administrative_and_hub_forms_resolve_to_their_city(self):
+        self.assertEqual(resolve_city_key("北京市"), resolve_city_key("北京"))
+        self.assertEqual(resolve_city_key("广东省佛山市"), resolve_city_key("佛山"))
+        self.assertEqual(resolve_city_key("吉林省吉林市"), resolve_city_key("吉林"))
+        self.assertEqual(resolve_city_key("广州南站"), resolve_city_key("广州"))
+        self.assertEqual(resolve_city_key("上海虹桥站"), resolve_city_key("上海"))
+        self.assertIsNone(resolve_city_key("北京大学"))

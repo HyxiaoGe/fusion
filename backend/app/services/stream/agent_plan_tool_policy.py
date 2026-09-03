@@ -45,6 +45,25 @@ _CAREER_ENDPOINT_RE = re.compile(
     r"开发者|程序员|岗位|职位|职级)$"
 )
 _PROCESS_STAGE_ENDPOINT_RE = re.compile(r"(?:需求|评审|立项|开发|联调|测试|验收|发布|上线|部署|交付)$")
+# 业务状态端点：`从亏损到盈利怎么走` 这类抽象关系带有明确出行动词，端点又不可能收进
+# 地名词表，只能靠端点本身的语义把它们挡在出行能力之外。
+_BUSINESS_STATE_ENDPOINT_RE = re.compile(
+    r"(?:亏损|盈利|保本|收支平衡|冷启动|规模化|增长|存量|增量|流量|留存|转化|复购|"
+    r"线索|签约|成交|获客|拉新|上市|融资|天使轮|负债|营收|利润|成本|现金流|"
+    r"市占率|渗透率|活跃|沉默|新手|熟手|入门|精通|初创|成熟|混乱|有序|困境|突破)$"
+)
+# 机构职能单元：`产品从研发中心到数据中心怎么走` 问的是流程流转，不是出行。
+# 只匹配带职能前缀的"中心"，`奥体中心`、`市民中心` 这类真实地点不受影响。
+_ORGANIZATION_UNIT_ENDPOINT_RE = re.compile(
+    r"(?:研发|数据|产品|运营|测试|结算|指挥|客服|物流|仓储|财务|人力|培训|呼叫)中心$|"
+    r"(?:团队|部门|事业部|分公司|子公司|总部|项目组|小组)$"
+)
+_ABSTRACT_ENDPOINT_RES = (
+    _CAREER_ENDPOINT_RE,
+    _PROCESS_STAGE_ENDPOINT_RE,
+    _BUSINESS_STATE_ENDPOINT_RE,
+    _ORGANIZATION_UNIT_ENDPOINT_RE,
+)
 _STRUCTURED_ROUTE_ENDPOINT_RES = (
     re.compile(
         r"从(?P<origin>[^，,。；;？?]{1,40}?)(?:到|去|前往)"
@@ -202,21 +221,25 @@ def resolve_product_capability_signals(
         if endpoint
         else (_EndpointSlotTier.INVALID, _EndpointSlotTier.INVALID)
     )
-    endpoints_are_plausible_locations = all(tier >= _EndpointSlotTier.PLAUSIBLE_LOCATION for tier in endpoint_tiers)
     endpoints_are_known_locations = all(tier >= _EndpointSlotTier.KNOWN_LOCATION for tier in endpoint_tiers)
-    # explicit_route 会让计划策略强制调用路线工具，因此继续要求端点看得出是地点。
+    endpoints_are_addressable = all(tier >= _EndpointSlotTier.AMBIGUOUS for tier in endpoint_tiers)
+    # 词表只提升置信度，不作为准入条件：结构化起终点加明确出行动词就足以判定这是出行
+    # 请求。词表不可能收全县级市与境外地名，靠它准入会让 `从义乌到昆山怎么走` 拒答；
+    # 抽象关系由 `_is_abstract_endpoint_relation` 负责挡住，不是靠端点没被收录。
     explicit_route = bool(
         endpoint
         and endpoint.structured
-        and endpoints_are_plausible_locations
+        and endpoints_are_addressable
         and not abstract_relation
         and mobility_intent == _MobilityIntentStrength.EXPLICIT
     )
     intercity_mobility = bool(
         endpoint
         and not abstract_relation
+        and endpoints_are_addressable
         and (
             explicit_route
+            or (endpoint.structured and mobility_intent >= _MobilityIntentStrength.RELATED)
             or (
                 endpoints_are_known_locations
                 and (endpoint.structured or mobility_intent >= _MobilityIntentStrength.RELATED)
@@ -433,9 +456,9 @@ def _is_abstract_endpoint_relation(
     if _ABSTRACT_ROUTE_CONTEXT_RE.search(message):
         return True
     slots = (endpoint.origin, endpoint.destination)
-    return all(_CAREER_ENDPOINT_RE.search(slot) for slot in slots) or all(
-        _PROCESS_STAGE_ENDPOINT_RE.search(slot) for slot in slots
-    )
+    # 两端都落在任一抽象族即视为抽象关系；不要求落在同一族，`从冷启动到规模化` 与
+    # `从初级工程师到架构师` 都必须被挡住。
+    return all(any(pattern.search(slot) for pattern in _ABSTRACT_ENDPOINT_RES) for slot in slots)
 
 
 def _without_endpoint_slots(

@@ -95,6 +95,7 @@
 - issue #25：`repair_unsupported_product_answer()` 的实际改写由 `PRODUCT_ANSWER_REPAIR_ENABLED` 控制，默认关闭；校验判定与 reason code 保留，并新增 `product_answer_observability` 记录"本应被改写"的反事实。观测字段只有固定分类与布尔值，不含模型或用户正文。
 - issue #26：删除 `normalizeTrajectoryEvent.ts` 中 package→工具/计划/日期/reason code 的四张契约表与两个语义校验函数（831 → 594 行），只保留结构性校验；未知 `package_id` 与 reason code 原样展示而不是丢弃整条 resolution，展示侧缺少 i18n 文案时退回原始 id。
 - issue #24：`_classify_standard_request` 的 400 行 / 39 分支拆为信号层加三个决策层，最大函数降到 116 行；新增 `CapabilityClassifier` 协议与 `resolve_run_capability_route(classify_fn=...)` 接缝，规则分类器成为可替换的默认实现，骨架与契约校验不随分类实现变化。行为不变，规格验收矩阵全过。
+- PR #27 评审整改（3 项 P1）：词表不再作为出行能力准入条件，结构化端点加明确出行动词即公开路线工具，抽象关系改由职业/流程/业务状态/机构职能四族端点语义挡住；地名数据改为 `(省, 中文, 英文)` 三元组，中英索引与城市 ID 全部派生自同一条记录，消除中英漂移；城市 ID 保留省级身份，`北京市朝阳区` 与 `辽宁省朝阳市` 不再撞键。
 - 本地证据：API 全量 `3586 passed, 1 skipped, 1943 subtests`，Ruff check 与改动文件 format check 通过；UI 全量 `2462 passed`，目标 ESLint 与 production build 通过。
 - 本条没有 CI、部署、真实模型或登录态浏览器验收。
 
