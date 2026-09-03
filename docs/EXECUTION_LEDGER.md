@@ -89,6 +89,13 @@
 - 本地证据：最新目标集（含生产 wiring 与 lifecycle 指纹契约）`654 passed + 1065 subtests`，其中路由单测 `506 passed`、真实组装 fixture `491 subtests`；API 权威全量 `3489 passed, 2 skipped, 1895 subtests`，Ruff、任务改动文件 format check 与 diff check 已通过。能力包指纹现覆盖完整 resolution、announced tools、安全 MCP bindings、task/network/evidence policy 与 Prompt 模板版本；实际 Prompt snapshot/fingerprint 继续单独证明 section/body。UI 全量 `2430 passed`、production build、目标 ESLint 与 diff check 已通过；最终替换式对抗审查结论为 CLEAN。全量首次发现 Trajectory 列表读取整个 `AgentSession.config`，共享路径以 `7e49f5f` 收窄为 capability resolution 轻量投影后，原失败单项与全量均通过。
 - 当前状态仅为 API/UI 分支本地实现和静态/单元回归；没有推送、PR、CI、部署、真实模型或登录态浏览器验收。协议见 [Run 级能力路由规格](specs/backend/2026-08-27-run-capability-router.md)。
 
+## 2026-09-03 Aug 27-28 重构评审整改（本地实现与自动化回归）
+
+- issue #23：中英文城市白名单合并为 `backend/app/utils/location_names.py` 单一事实源，按行政区划整体收录，取代此前两处手挑的 26/41 条名单。端点未命中词表不再整体落入 `clarification_only`；强制调用路线工具的 `explicit_route` 判定维持原严格度。残留缺口（未收录专名与抽象名词在规则层不可分）已记入规格文档。
+- issue #25：`repair_unsupported_product_answer()` 的实际改写由 `PRODUCT_ANSWER_REPAIR_ENABLED` 控制，默认关闭；校验判定与 reason code 保留，并新增 `product_answer_observability` 记录"本应被改写"的反事实。观测字段只有固定分类与布尔值，不含模型或用户正文。
+- 本地证据：API 全量 `3583 passed, 1 skipped, 1943 subtests`，Ruff check 与改动文件 format check 通过。
+- 本条没有 CI、部署、真实模型或登录态浏览器验收。
+
 ## 2026-09-02 Task 5 文档、台账与导航迁移（本地版本库）
 
 - 根 `README.md`、`AGENTS.md`、`CLAUDE.md` 已建立导航；`docs/EXECUTION_LEDGER.md` 成为唯一执行事实源。

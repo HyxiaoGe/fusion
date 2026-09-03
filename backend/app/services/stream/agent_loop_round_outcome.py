@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.core.config import settings
 from app.core.logger import app_logger as logger
 from app.schemas.chat import KnowledgeEvidenceBlock, ThinkingBlock
 from app.services.final_answer_evidence import build_used_final_answer_evidence
@@ -18,6 +19,10 @@ from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_loop_step_requests import build_tool_round_request
 from app.services.stream.agent_round import AgentRoundResult
+from app.services.stream.product_answer_observability import (
+    build_product_answer_observation,
+    emit_product_answer_observation,
+)
 from app.services.stream.product_answer_validator import (
     repair_unsupported_product_answer,
     validate_product_answer,
@@ -538,14 +543,29 @@ async def _commit_deferred_product_answer(
         messages=request.messages,
     )
     if validation.is_valid:
+        _emit_product_answer_observation(
+            request,
+            reason_code=validation.reason_code,
+            repaired_answer=None,
+            repair_reason_code=None,
+        )
         answer = candidate
         model_output_visible = True
     else:
+        # 改写默认关闭时仍计算反事实：repair 是纯函数，只用来记录"本应被改写"的比例。
         repaired_answer, repair_reason_code = repair_unsupported_product_answer(
             candidate,
             request.state.content_blocks,
             messages=request.messages,
         )
+        _emit_product_answer_observation(
+            request,
+            reason_code=validation.reason_code,
+            repaired_answer=repaired_answer,
+            repair_reason_code=repair_reason_code,
+        )
+        if not settings.PRODUCT_ANSWER_REPAIR_ENABLED:
+            repaired_answer = None
         if repaired_answer is not None:
             request.runtime.warning_fn(
                 "产品结果模型回答含越界分句，已安全修整: "
@@ -565,7 +585,7 @@ async def _commit_deferred_product_answer(
                 request.state.content_blocks,
                 messages=request.messages,
             )
-            if answer:
+            if answer and settings.PRODUCT_ANSWER_REPAIR_ENABLED:
                 completed_answer, _ = repair_unsupported_product_answer(
                     answer,
                     request.state.content_blocks,
@@ -586,6 +606,28 @@ async def _commit_deferred_product_answer(
             model_output_visible=model_output_visible,
         )
     return _with_replaced_answer(request, answer)
+
+
+def _emit_product_answer_observation(
+    request: AgentRoundOutcomeRequest,
+    *,
+    reason_code: str,
+    repaired_answer: str | None,
+    repair_reason_code: str | None,
+) -> None:
+    emit_product_answer_observation(
+        build_product_answer_observation(
+            reason_code=reason_code,
+            repair_enabled=settings.PRODUCT_ANSWER_REPAIR_ENABLED,
+            repair_available=repaired_answer is not None,
+            repair_reason_code=repair_reason_code,
+            product_result_types=[
+                block_type
+                for block in request.state.content_blocks or []
+                if (block_type := (block.get("type") if isinstance(block, dict) else getattr(block, "type", None)))
+            ],
+        )
+    )
 
 
 def _has_product_answer_context(state: AgentLoopState) -> bool:

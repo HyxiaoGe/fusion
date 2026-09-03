@@ -1,4 +1,5 @@
 import asyncio
+import json
 import unittest
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
@@ -1849,7 +1850,8 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("排队", warnings[0])
         complete_step_fn.assert_awaited_once()
 
-    async def test_grounded_fallback_also_completes_missing_place_relation_caveat(self):
+    @patch("app.services.stream.agent_loop_round_outcome.settings.PRODUCT_ANSWER_REPAIR_ENABLED", True)
+    async def test_grounded_fallback_completes_place_relation_caveat_when_repair_is_enabled(self):
         state = AgentLoopState()
         state.mark_current_step("step-product-fallback-caveat")
         state.content_blocks.extend(
@@ -1911,7 +1913,8 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("地点之间的距离和步行时间", emitted_answer)
         self.assertIn("另行查询路线", emitted_answer)
 
-    async def test_deferred_product_answer_repairs_unsafe_clause_and_keeps_safe_prose(self):
+    @patch("app.services.stream.agent_loop_round_outcome.settings.PRODUCT_ANSWER_REPAIR_ENABLED", True)
+    async def test_deferred_product_answer_repairs_unsafe_clause_when_repair_is_enabled(self):
         state = AgentLoopState()
         state.mark_current_step("step-product-repair")
         state.content_blocks.append(
@@ -1962,6 +1965,116 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.content_blocks[-1].text, emitted_answer)
         self.assertEqual(len(warnings), 1)
         self.assertIn("已安全修整", warnings[0])
+
+    async def test_unsupported_product_answer_is_not_rewritten_by_default(self):
+        """默认配置下 repair 不改写模型输出，改用确定性兜底（issue #25）。"""
+
+        state = AgentLoopState()
+        state.mark_current_step("step-product-repair-off")
+        state.content_blocks.append(
+            RouteResultsBlock(
+                type="route_results",
+                schema_version=1,
+                provider="amap",
+                status="success",
+                origin=RouteEndpoint(label="民治站"),
+                destination=RouteEndpoint(label="雅宝站"),
+                routes=[
+                    RouteOption(mode="driving", duration_s=840, distance_m=6200),
+                    RouteOption(mode="transit", duration_s=1920, walking_distance_m=420),
+                ],
+            )
+        )
+        model_answer = "结论：驾车约14分钟，是本次用时最短的方案。高峰期可能拥堵。地铁约32分钟，适合能接受换乘的情况。"
+        append_chunk = AsyncMock()
+        warnings: list[str] = []
+
+        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", append_chunk):
+            outcome = await handle_agent_round_outcome(
+                request=AgentRoundOutcomeRequest(
+                    db="db",
+                    messages=[{"role": "user", "content": "比较通勤路线"}],
+                    state=state,
+                    runtime=_runtime(complete_step_fn=AsyncMock(), warning_fn=warnings.append),
+                    step_number=2,
+                    step_context=_step_context("step-product-repair-off"),
+                    round_result=AgentRoundResult(
+                        reasoning_buf="",
+                        content_buf=model_answer,
+                        tool_calls=[],
+                        finish_reason="stop",
+                        accumulated_usage=Usage(input_tokens=2, output_tokens=20),
+                        output_deferred=True,
+                    ),
+                )
+            )
+
+        self.assertEqual(outcome.exit, AgentLoopExit.COMPLETED)
+        emitted_answer = append_chunk.await_args.args[2]
+        # 关键：模型原句既没有被展示，也没有被切成半句展示。
+        self.assertNotIn("高峰期可能拥堵", emitted_answer)
+        self.assertNotIn("适合能接受换乘的情况", emitted_answer)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("使用确定性兜底", warnings[0])
+
+    async def test_product_answer_validation_is_observed_with_repair_counterfactual(self):
+        """改写关闭时仍记录"本应被改写"，供观测期评估误判率（issue #25）。"""
+
+        state = AgentLoopState()
+        state.mark_current_step("step-product-observe")
+        state.content_blocks.append(
+            RouteResultsBlock(
+                type="route_results",
+                schema_version=1,
+                provider="amap",
+                status="success",
+                origin=RouteEndpoint(label="民治站"),
+                destination=RouteEndpoint(label="雅宝站"),
+                routes=[
+                    RouteOption(mode="driving", duration_s=840, distance_m=6200),
+                    RouteOption(mode="transit", duration_s=1920, walking_distance_m=420),
+                ],
+            )
+        )
+        observations: list[dict] = []
+
+        with (
+            patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()),
+            patch(
+                "app.services.stream.agent_loop_round_outcome.emit_product_answer_observation",
+                observations.append,
+            ),
+        ):
+            await handle_agent_round_outcome(
+                request=AgentRoundOutcomeRequest(
+                    db="db",
+                    messages=[{"role": "user", "content": "比较通勤路线"}],
+                    state=state,
+                    runtime=_runtime(complete_step_fn=AsyncMock(), warning_fn=lambda _message: None),
+                    step_number=2,
+                    step_context=_step_context("step-product-observe"),
+                    round_result=AgentRoundResult(
+                        reasoning_buf="",
+                        content_buf=(
+                            "结论：驾车约14分钟，是本次用时最短的方案。高峰期可能拥堵。"
+                            "地铁约32分钟，适合能接受换乘的情况。"
+                        ),
+                        tool_calls=[],
+                        finish_reason="stop",
+                        accumulated_usage=Usage(input_tokens=2, output_tokens=20),
+                        output_deferred=True,
+                    ),
+                )
+            )
+
+        self.assertEqual(len(observations), 1)
+        observation = observations[0]
+        self.assertFalse(observation["is_valid"])
+        self.assertFalse(observation["repair_enabled"])
+        self.assertTrue(observation["repair_available"])
+        self.assertFalse(observation["repair_applied"])
+        self.assertEqual(observation["product_result_types"], ["route_results"])
+        self.assertNotIn("高峰期可能拥堵", json.dumps(observation, ensure_ascii=False))
 
     async def test_deferred_weather_activity_answer_is_always_deterministic(self):
         state = AgentLoopState()
