@@ -410,6 +410,10 @@ class Settings(BaseSettings):
     MCP_SERVER_CIRCUIT_FAILURE_THRESHOLD: int = int(os.getenv("MCP_SERVER_CIRCUIT_FAILURE_THRESHOLD", "3"))
     MCP_SERVER_CIRCUIT_COOLDOWN_SECONDS: float = float(os.getenv("MCP_SERVER_CIRCUIT_COOLDOWN_SECONDS", "30"))
 
+    # 产品结果回答的正则改写默认关闭：改写会直接切分句、删表格、重写标签，误伤在线上
+    # 不可观测。观测期内只记录判定与"本应改写"的反事实，依据真实误判率再决定是否恢复。
+    PRODUCT_ANSWER_REPAIR_ENABLED: bool = os.getenv("PRODUCT_ANSWER_REPAIR_ENABLED", "false").lower() == "true"
+
     # FlyAI 出行产品工具通过私有 HTTP 适配器访问，不在 API 容器执行第三方 CLI。
     ENABLE_FLYAI_TRAVEL_TOOLS: bool = os.getenv("ENABLE_FLYAI_TRAVEL_TOOLS", "false").lower() == "true"
     FLYAI_ADAPTER_BASE_URL: str = os.getenv("FLYAI_ADAPTER_BASE_URL", "")

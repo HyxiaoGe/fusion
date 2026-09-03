@@ -9,6 +9,9 @@ from app.ai.skills.registry import RunSkillResolution, SkillLoadResult
 from app.services.stream.agent_task_policy import AgentTaskPolicy
 from app.services.stream.run_capability_router import (
     RunCapabilityResolution,
+    _CandidateRoute,
+    _classify_literal_layer,
+    _extract_request_signals,
     resolve_run_capability_route,
     serialize_capability_resolution,
 )
@@ -3403,3 +3406,148 @@ def test_resolution_is_immutable():
         route.package_id = "weather"
 
     assert replace(route, package_id="weather").package_id == "weather"
+
+
+@pytest.mark.parametrize(
+    ("message", "package_id"),
+    [
+        ("从哈尔滨到三亚怎么走？", "mobility_intercity"),
+        ("从佛山到东莞怎么走？", "mobility_intercity"),
+        ("从曼谷到清迈怎么走？", "mobility_intercity"),
+        ("我现在在温州，我想去金华，你可以帮我吗", "mobility_intercity"),
+        ("从北京市到上海市怎么走？", "mobility_intercity"),
+    ],
+)
+def test_cities_outside_the_old_whitelist_no_longer_fall_into_clarification(message, package_id):
+    """issue #23：手挑白名单未收录的城市曾整体落入 clarification_only。"""
+
+    route = _resolve(message)
+
+    assert route.package_id == package_id
+    assert route.external_tool_names == ("route_compare", "search_flights", "search_trains")
+
+
+def test_same_city_hub_to_landmark_stays_a_local_route():
+    route = _resolve("从上海虹桥站到外滩怎么坐公共交通？")
+
+    assert route.package_id == "mobility_route"
+    assert route.external_tool_names == ("route_compare",)
+
+
+def test_english_and_chinese_city_pairs_resolve_to_the_same_package():
+    chinese = _resolve("从哈尔滨到三亚怎么走？")
+    english = _resolve("How do I get from Harbin to Sanya?")
+
+    assert chinese.package_id == english.package_id == "mobility_intercity"
+
+
+def test_capability_classifier_is_replaceable_without_touching_the_skeleton():
+    """issue #24：换掉"消息 → 能力包"这一步，resolution 骨架完全不变。"""
+
+    calls: list[dict] = []
+
+    def stub_classifier(*, message, task_context_messages, available_tool_names):
+        calls.append(
+            {
+                "message": message,
+                "task_context_messages": task_context_messages,
+                "available_tool_names": available_tool_names,
+            }
+        )
+        return _CandidateRoute(
+            "weather",
+            "high",
+            ("explicit_weather_request",),
+            True,
+        )
+
+    resolution = resolve_run_capability_route(
+        original_message="随便说点什么",
+        task_context_messages=None,
+        available_tool_names=ALL_TOOLS,
+        requested_plan_mode="auto",
+        task_policy=_task_policy(task_mode="standard", plan_mode="auto"),
+        capabilities={"functionCalling": True, "searchCapable": True},
+        tools_disabled=False,
+        knowledge_grounded=False,
+        classify_fn=stub_classifier,
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["message"] == "随便说点什么"
+    # 契约校验、工具派生、指纹与 Skill 终态仍由骨架完成。
+    assert resolution.package_id == "weather"
+    assert resolution.external_tool_names == ("weather_forecast",)
+    assert resolution.resolution_mode == "routed"
+    assert resolution.include_current_date is True
+    assert resolution.skill_resolution is not None
+
+
+def test_replaced_classifier_still_goes_through_contract_validation():
+    """替换分类器不等于绕过契约：非法包与工具组合仍必须被拒。"""
+
+    def invalid_classifier(*, message, task_context_messages, available_tool_names):
+        return _CandidateRoute(
+            "direct",
+            "high",
+            ("direct_greeting",),
+            False,
+            explicit_tool_names=("web_search",),
+        )
+
+    with pytest.raises(ValueError):
+        resolve_run_capability_route(
+            original_message="你好",
+            task_context_messages=None,
+            available_tool_names=ALL_TOOLS,
+            requested_plan_mode="auto",
+            task_policy=_task_policy(task_mode="standard", plan_mode="auto"),
+            capabilities={"functionCalling": True, "searchCapable": True},
+            tools_disabled=False,
+            knowledge_grounded=False,
+            classify_fn=invalid_classifier,
+        )
+
+
+def test_literal_layer_decides_alone_and_defers_everything_else():
+    """字面层只认靠字面就能判的请求，其余交给下一层（issue #24）。"""
+
+    decided = _classify_literal_layer(_extract_request_signals("今天是几月几日、星期几？"))
+    deferred = _classify_literal_layer(_extract_request_signals("明天上海天气怎样？"))
+
+    assert decided is not None
+    assert decided.package_id == "date"
+    assert deferred is None
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "从科纳克里到弗里敦怎么走？",
+        "从北京到朝阳区怎么走？",
+    ],
+)
+def test_unknown_endpoints_take_the_non_forcing_route_package(message):
+    """issue #23：结构化起终点加明确出行动词，即使端点未收录也要拿到出行能力。"""
+
+    route = _resolve(message)
+
+    assert route.package_id == "mobility_route"
+    assert route.external_tool_names == ("route_compare",)
+    assert route.confidence == "medium"
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "产品从概念到上线怎么走？",
+        "从零到一怎么走？",
+        "从100万用户到1000万用户怎么走？",
+        "从MVP到PMF怎么走？",
+    ],
+)
+def test_non_place_endpoints_never_expose_map_tools(message):
+    route = _resolve(message)
+
+    assert route.package_id == "clarification_only"
+    assert route.external_tool_names == ()

@@ -89,6 +89,18 @@
 - 本地证据：最新目标集（含生产 wiring 与 lifecycle 指纹契约）`654 passed + 1065 subtests`，其中路由单测 `506 passed`、真实组装 fixture `491 subtests`；API 权威全量 `3489 passed, 2 skipped, 1895 subtests`，Ruff、任务改动文件 format check 与 diff check 已通过。能力包指纹现覆盖完整 resolution、announced tools、安全 MCP bindings、task/network/evidence policy 与 Prompt 模板版本；实际 Prompt snapshot/fingerprint 继续单独证明 section/body。UI 全量 `2430 passed`、production build、目标 ESLint 与 diff check 已通过；最终替换式对抗审查结论为 CLEAN。全量首次发现 Trajectory 列表读取整个 `AgentSession.config`，共享路径以 `7e49f5f` 收窄为 capability resolution 轻量投影后，原失败单项与全量均通过。
 - 当前状态仅为 API/UI 分支本地实现和静态/单元回归；没有推送、PR、CI、部署、真实模型或登录态浏览器验收。协议见 [Run 级能力路由规格](specs/backend/2026-08-27-run-capability-router.md)。
 
+## 2026-09-03 Aug 27-28 重构评审整改（本地实现与自动化回归）
+
+- issue #23：中英文城市白名单合并为 `backend/app/utils/location_names.py` 单一事实源，按行政区划整体收录，取代此前两处手挑的 26/41 条名单。端点未命中词表不再整体落入 `clarification_only`；强制调用路线工具的 `explicit_route` 判定维持原严格度。残留缺口（未收录专名与抽象名词在规则层不可分）已记入规格文档。
+- issue #25：`repair_unsupported_product_answer()` 的实际改写由 `PRODUCT_ANSWER_REPAIR_ENABLED` 控制，默认关闭；校验判定与 reason code 保留，并新增 `product_answer_observability` 记录"本应被改写"的反事实。观测字段只有固定分类与布尔值，不含模型或用户正文。
+- issue #26：删除 `normalizeTrajectoryEvent.ts` 中 package→工具/计划/日期/reason code 的四张契约表与两个语义校验函数（831 → 594 行），只保留结构性校验；未知 `package_id` 与 reason code 原样展示而不是丢弃整条 resolution，展示侧缺少 i18n 文案时退回原始 id。
+- issue #24：`_classify_standard_request` 的 400 行 / 39 分支拆为信号层加三个决策层，最大函数降到 116 行；新增 `CapabilityClassifier` 协议与 `resolve_run_capability_route(classify_fn=...)` 接缝，规则分类器成为可替换的默认实现，骨架与契约校验不随分类实现变化。行为不变，规格验收矩阵全过。
+- PR #27 评审整改（3 项 P1）：词表不再作为出行能力准入条件，结构化端点加明确出行动词即公开路线工具，抽象关系改由职业/流程/业务状态/机构职能四族端点语义挡住；地名数据改为 `(省, 中文, 英文)` 三元组，中英索引与城市 ID 全部派生自同一条记录，消除中英漂移；城市 ID 保留省级身份，`北京市朝阳区` 与 `辽宁省朝阳市` 不再撞键。
+- PR #27 复审整改（2 项 P1）：出行准入改为要求端点带正向地点证据，不再依赖抽象词表反向判定（`从零到一`、`从MVP到PMF`、`从100万用户到1000万用户`、`产品从概念到上线` 均不再误路由到地图工具）；覆盖率改由补齐县级市数据解决，词表增至 782 条。英文别名改为元组加查询规范化，恢复 `xi'an`、`hongkong`、`macao`、`chiangmai`、`danang` 等既有别名；新增拼音撞车与别名元组形状的防退化测试。
+- PR #27 三轮复审整改（2 项 P1）：新增不强制调用的安全能力路径——端点无地点证据但形状像专名时公开 `route_compare` 且不进入 `explicit_route`，恢复 issue #23「结构化起终点加明确出行动词即获能力」的原始验收（此前被改成词表准入并把失败写进了规格与 fixture，已改回）；形状判定只用字符类与长度，对新词泛化。修复裸市辖区被误认成同名地级市（`朝阳区` → 辽宁朝阳），下级行政区必须自带名称才归属上级城市。
+- 本地证据：API 全量 `3586 passed, 1 skipped, 1943 subtests`，Ruff check 与改动文件 format check 通过；UI 全量 `2462 passed`，目标 ESLint 与 production build 通过。
+- 本条没有 CI、部署、真实模型或登录态浏览器验收。
+
 ## 2026-09-02 Task 5 文档、台账与导航迁移（本地版本库）
 
 - 根 `README.md`、`AGENTS.md`、`CLAUDE.md` 已建立导航；`docs/EXECUTION_LEDGER.md` 成为唯一执行事实源。

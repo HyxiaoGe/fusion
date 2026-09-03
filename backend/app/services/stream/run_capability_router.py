@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from app.ai.skills.registry import (
     LoadedSkillSnapshot,
@@ -14,10 +14,15 @@ from app.ai.skills.registry import (
 )
 from app.services.agent.plan_coordinator import PlanMode
 from app.services.stream.agent_plan_tool_policy import (
-    INTERCITY_LOCATION_NAMES,
+    ProductCapabilitySignals,
     resolve_product_capability_signals,
 )
 from app.services.stream.agent_task_policy import AgentTaskPolicy
+from app.utils.location_names import (
+    EN_KNOWN_LANDMARK_NAMES,
+    are_distinct_known_cities,
+    is_known_location_name,
+)
 from app.utils.run_capability_contract import (
     CAPABILITY_AUTO_PLAN_PACKAGES,
     CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER,
@@ -420,70 +425,6 @@ _EN_NATURAL_INTERCITY_RE = re.compile(
     r"(?P<destination>[a-z][a-z .'-]{1,40}?)(?:[.?!]|$)",
     re.IGNORECASE,
 )
-_EN_INTERCITY_LOCATION_NAMES = (
-    "beijing",
-    "shanghai",
-    "tianjin",
-    "chongqing",
-    "guangzhou",
-    "shenzhen",
-    "hangzhou",
-    "nanjing",
-    "suzhou",
-    "chengdu",
-    "wuhan",
-    "xi'an",
-    "changsha",
-    "zhengzhou",
-    "qingdao",
-    "xiamen",
-    "fuzhou",
-    "kunming",
-    "shenyang",
-    "dalian",
-    "jinan",
-    "hefei",
-    "ningbo",
-    "wuxi",
-    "hong kong",
-    "macau",
-    "harbin",
-    "shijiazhuang",
-    "taiyuan",
-    "hohhot",
-    "changchun",
-    "nanchang",
-    "nanning",
-    "haikou",
-    "sanya",
-    "guiyang",
-    "lhasa",
-    "lanzhou",
-    "xining",
-    "yinchuan",
-    "urumqi",
-)
-_EN_PHYSICAL_LOCATION_NAMES = frozenset(
-    {
-        *_EN_INTERCITY_LOCATION_NAMES,
-        "the bund",
-        "people's square",
-        "hongqiao station",
-        "shanghai hongqiao station",
-        "hongqiao airport",
-        "pudong airport",
-        "disneyland",
-        "tiananmen",
-        "the forbidden city",
-        "forbidden city",
-        "the summer palace",
-        "summer palace",
-        "grand central station",
-        "city hall",
-        "downtown",
-        "city center",
-    }
-)
 _EN_PHYSICAL_LOCATION_SUFFIX_RE = re.compile(
     r"\b(?:station|airport|terminal|square|park|museum|hospital|hotel|mall|"
     r"road|street|bridge|tower)\b$",
@@ -521,6 +462,23 @@ class RunCapabilityResolution:
     loaded_skills: tuple[LoadedSkillSnapshot, ...] = field(default=(), repr=False, compare=False)
 
 
+class CapabilityClassifier(Protocol):
+    """把"用户消息 → 能力包"这一步从路由骨架里解耦出来。
+
+    骨架（resolution 冻结、契约校验、工具/handler/binding/Prompt 的原子派生、
+    Trajectory 投影）与分类实现无关。默认实现是本模块的规则分类器；换成模型分类
+    只需替换这个可调用对象，`_CandidateRoute` 之后的流程完全不变（issue #24）。
+    """
+
+    def __call__(
+        self,
+        *,
+        message: str,
+        task_context_messages: list[object] | None,
+        available_tool_names: list[str],
+    ) -> "_CandidateRoute": ...
+
+
 @dataclass(frozen=True)
 class _CandidateRoute:
     package_id: str
@@ -543,11 +501,13 @@ def resolve_run_capability_route(
     knowledge_grounded: bool,
     unavailable_tool_names: list[str] | None = None,
     load_skills_fn: Callable[..., Any] | None = None,
+    classify_fn: CapabilityClassifier | None = None,
 ) -> RunCapabilityResolution:
     """根据受信运行态与当前用户消息解析最小能力包。"""
 
     message = _normalize_message(original_message)
     skill_loader = load_skills_fn or load_skills_for_package
+    classify = classify_fn or classify_capability_request
     function_calling = capabilities.get("functionCalling") is True
     search_capable = capabilities.get("searchCapable") is True
 
@@ -560,7 +520,7 @@ def resolve_run_capability_route(
                 include_current_date=True,
             )
             if task_policy.task_mode == "deep_research"
-            else _classify_standard_request(
+            else classify(
                 message=message,
                 task_context_messages=task_context_messages,
                 available_tool_names=available_tool_names,
@@ -595,7 +555,7 @@ def resolve_run_capability_route(
             include_current_date=True,
         )
     else:
-        candidate = _classify_standard_request(
+        candidate = classify(
             message=message,
             task_context_messages=task_context_messages,
             available_tool_names=available_tool_names,
@@ -723,12 +683,43 @@ def serialize_capability_resolution(resolution: RunCapabilityResolution) -> dict
     }
 
 
-def _classify_standard_request(
-    *,
-    message: str,
-    task_context_messages: list[object] | None,
-    available_tool_names: list[str],
-) -> _CandidateRoute:
+@dataclass(frozen=True)
+class _RequestSignals:
+    """一次请求的字面信号；只从用户消息推导，不含上下文与工具授权。"""
+
+    message: str
+    control_message: str
+    routing_message: str
+    web_search_denied: bool
+    url_read_denied: bool
+    all_network_denied: bool
+    include_current_date: bool
+    original_transform_request: bool
+    explicit_web_search_request: bool
+    url_read_request: bool
+    verified_web_request: bool
+    independent_verified_web_request: bool
+    fresh_web_request: bool
+
+
+@dataclass(frozen=True)
+class _EnglishRouteSignals:
+    """英文出行表达的解析结果；中文路径不依赖这些字段。"""
+
+    relation: tuple[str, str] | None
+    abstract_route: bool
+    route: bool
+    intercity: bool
+    requested_modes: frozenset[str]
+    mode_directive_present: bool
+    mode_flight: bool
+    mode_train: bool
+    mode_route: bool
+    local_route: bool
+    intercity_route: bool
+
+
+def _extract_request_signals(message: str) -> _RequestSignals:
     original_transform_request = bool(_TRANSFORM_RE.search(message))
     control_message = _mask_quoted_literals(message)
     routing_message, web_search_denied, url_read_denied, all_network_denied = _resolve_network_scope(control_message)
@@ -748,6 +739,36 @@ def _classify_standard_request(
         _FRESH_EXTERNAL_RE.search(external_signal_message)
         or _has_current_release_update_request(external_signal_message)
     )
+    return _RequestSignals(
+        message=message,
+        control_message=control_message,
+        routing_message=routing_message,
+        web_search_denied=web_search_denied,
+        url_read_denied=url_read_denied,
+        all_network_denied=all_network_denied,
+        include_current_date=include_current_date,
+        original_transform_request=original_transform_request,
+        explicit_web_search_request=explicit_web_search_request,
+        url_read_request=url_read_request,
+        verified_web_request=verified_web_request,
+        independent_verified_web_request=independent_verified_web_request,
+        fresh_web_request=fresh_web_request,
+    )
+
+
+def _classify_literal_layer(request: _RequestSignals) -> _CandidateRoute | None:
+    """只处理靠字面就能判定的能力包；判不出来返回 None 交给下一层。"""
+
+    message = request.message
+    routing_message = request.routing_message
+    web_search_denied = request.web_search_denied
+    url_read_denied = request.url_read_denied
+    original_transform_request = request.original_transform_request
+    explicit_web_search_request = request.explicit_web_search_request
+    url_read_request = request.url_read_request
+    verified_web_request = request.verified_web_request
+    independent_verified_web_request = request.independent_verified_web_request
+    fresh_web_request = request.fresh_web_request
 
     if _is_definitional_knowledge_request(routing_message):
         return _CandidateRoute(
@@ -821,18 +842,11 @@ def _classify_standard_request(
             False,
             resolution_mode="clarification",
         )
+    return None
 
-    signals = resolve_product_capability_signals(
-        original_message=routing_message,
-        task_context_messages=task_context_messages,
-    )
-    if signals.adjacent_route_followup and not all_network_denied:
-        return _CandidateRoute(
-            "mobility_route",
-            "high",
-            ("adjacent_route_followup",),
-            include_current_date,
-        )
+
+def _extract_english_route_signals(request: _RequestSignals) -> _EnglishRouteSignals:
+    routing_message = request.routing_message
 
     english_relation = _extract_english_route_relation(routing_message)
     english_abstract_route = bool(
@@ -844,9 +858,7 @@ def _classify_standard_request(
         )
     )
     english_known_pair = bool(
-        english_relation
-        and english_relation[0] in _EN_PHYSICAL_LOCATION_NAMES
-        and english_relation[1] in _EN_PHYSICAL_LOCATION_NAMES
+        english_relation and is_known_location_name(english_relation[0]) and is_known_location_name(english_relation[1])
     )
     english_strong_physical_pair = bool(
         english_relation
@@ -860,8 +872,7 @@ def _classify_standard_request(
     english_intercity = bool(
         english_relation
         and not english_abstract_route
-        and english_relation[0] in _EN_INTERCITY_LOCATION_NAMES
-        and english_relation[1] in _EN_INTERCITY_LOCATION_NAMES
+        and are_distinct_known_cities(english_relation[0], english_relation[1])
     )
     requested_english_route_modes = _extract_english_route_modes(routing_message) if english_relation else frozenset()
     english_route_mode_directive_present = bool(english_relation and _EN_ROUTE_MODE_SEGMENT_RE.search(routing_message))
@@ -870,15 +881,60 @@ def _classify_standard_request(
     english_route_mode_flight = "flight" in authorized_english_route_modes
     english_route_mode_train = "train" in authorized_english_route_modes
     english_route_mode_route = "route" in authorized_english_route_modes
-    intercity_relation = (
-        signals.endpoint_relation and signals.intercity_mobility and _has_two_intercity_locations(routing_message)
-    ) or english_intercity
     english_local_route = bool(
         english_route
         and not english_intercity
         and (not requested_english_route_modes or english_route_mode_route or english_route_mode_train)
     )
     english_intercity_route = bool(english_intercity and english_route_mode_route)
+    return _EnglishRouteSignals(
+        relation=english_relation,
+        abstract_route=english_abstract_route,
+        route=english_route,
+        intercity=english_intercity,
+        requested_modes=requested_english_route_modes,
+        mode_directive_present=english_route_mode_directive_present,
+        mode_flight=english_route_mode_flight,
+        mode_train=english_route_mode_train,
+        mode_route=english_route_mode_route,
+        local_route=english_local_route,
+        intercity_route=english_intercity_route,
+    )
+
+
+@dataclass(frozen=True)
+class _ProductToolRequests:
+    """经过否定、再授权与全局断网裁剪后，本次请求实际成立的产品工具。"""
+
+    explicit_route: bool
+    flight: bool
+    train: bool
+    weather: bool
+    place: bool
+    intercity_relation: bool
+    denied_requests: frozenset[str]
+
+
+def _resolve_product_tool_requests(
+    request: _RequestSignals,
+    signals: ProductCapabilitySignals,
+    english: _EnglishRouteSignals,
+) -> _ProductToolRequests:
+    """解析用户对每个产品工具的正向与否定表达，得到最终成立的集合。"""
+
+    routing_message = request.routing_message
+    control_message = request.control_message
+    all_network_denied = request.all_network_denied
+    english_intercity = english.intercity
+    english_local_route = english.local_route
+    english_intercity_route = english.intercity_route
+    english_route_mode_flight = english.mode_flight
+    english_route_mode_train = english.mode_train
+    english_route_mode_route = english.mode_route
+    english_route_mode_directive_present = english.mode_directive_present
+    intercity_relation = (
+        signals.endpoint_relation and signals.intercity_mobility and signals.intercity_endpoints
+    ) or english_intercity
     reauthorized_route_clause = _final_reauthorized_natural_product_clause(control_message, "route_compare")
     reauthorized_route = bool(
         reauthorized_route_clause
@@ -887,6 +943,7 @@ def _classify_standard_request(
             task_context_messages=None,
         ).explicit_route
     )
+
     explicit_route_requested = bool(
         not all_network_denied
         and (
@@ -956,6 +1013,34 @@ def _classify_standard_request(
     place = place_requested and "local_place_search" not in denied_product_requests
     if all_network_denied:
         intercity_relation = False
+    return _ProductToolRequests(
+        explicit_route=explicit_route,
+        flight=flight,
+        train=train,
+        weather=weather,
+        place=place,
+        intercity_relation=intercity_relation,
+        denied_requests=frozenset(denied_product_requests),
+    )
+
+
+def _classify_product_layer(
+    request: _RequestSignals,
+    signals: ProductCapabilitySignals,
+    english: _EnglishRouteSignals,
+) -> _CandidateRoute | None:
+    """按已成立的产品工具集合选包；没有任何产品信号时返回 None。"""
+
+    include_current_date = request.include_current_date
+    english_route_mode_directive_present = english.mode_directive_present
+    requests = _resolve_product_tool_requests(request, signals, english)
+    explicit_route = requests.explicit_route
+    flight = requests.flight
+    train = requests.train
+    weather = requests.weather
+    place = requests.place
+    intercity_relation = requests.intercity_relation
+    denied_product_requests = requests.denied_requests
 
     if (
         intercity_relation
@@ -1056,6 +1141,33 @@ def _classify_standard_request(
             True,
         )
 
+    # 端点没有地点证据但形状像专名：公开 route_compare 而不是要求澄清。
+    # 只公开 schema，不进入 explicit_route，因此计划策略不会强制调用（issue #23）。
+    if not request.all_network_denied and signals.route_capability and "route_compare" not in denied_product_requests:
+        return _CandidateRoute(
+            "mobility_route",
+            "medium",
+            ("explicit_route_task",),
+            include_current_date,
+        )
+    return None
+
+
+def _classify_residual_layer(
+    request: _RequestSignals,
+    english: _EnglishRouteSignals,
+    available_tool_names: list[str],
+) -> _CandidateRoute:
+    """所有正向信号都不成立时的兜底；判不出能力族一律要求澄清。"""
+
+    routing_message = request.routing_message
+    web_search_denied = request.web_search_denied
+    all_network_denied = request.all_network_denied
+    include_current_date = request.include_current_date
+    explicit_web_search_request = request.explicit_web_search_request
+    english_relation = english.relation
+    english_abstract_route = english.abstract_route
+
     if english_relation is not None:
         if english_abstract_route:
             return _CandidateRoute(
@@ -1125,6 +1237,38 @@ def _classify_standard_request(
         False,
         resolution_mode="clarification",
     )
+
+
+def classify_capability_request(
+    *,
+    message: str,
+    task_context_messages: list[object] | None,
+    available_tool_names: list[str],
+) -> _CandidateRoute:
+    """默认的规则式分类器：字面层 → 产品层 → 兜底层，三层各自可单独测试。"""
+
+    request = _extract_request_signals(message)
+    literal_route = _classify_literal_layer(request)
+    if literal_route is not None:
+        return literal_route
+
+    signals = resolve_product_capability_signals(
+        original_message=request.routing_message,
+        task_context_messages=task_context_messages,
+    )
+    if signals.adjacent_route_followup and not request.all_network_denied:
+        return _CandidateRoute(
+            "mobility_route",
+            "high",
+            ("adjacent_route_followup",),
+            request.include_current_date,
+        )
+
+    english = _extract_english_route_signals(request)
+    product_route = _classify_product_layer(request, signals, english)
+    if product_route is not None:
+        return product_route
+    return _classify_residual_layer(request, english, available_tool_names)
 
 
 def _resolution(
@@ -1830,20 +1974,6 @@ def _needs_current_date(message: str) -> bool:
     return bool(_RELATIVE_DATE_RE.search(message))
 
 
-def _has_two_intercity_locations(message: str) -> bool:
-    institution_suffix = r"(?:大学|学院|公交|地铁|交通|公司|集团|医院|博物馆|体育馆)"
-    return (
-        len(
-            {
-                location
-                for location in INTERCITY_LOCATION_NAMES
-                if re.search(rf"{re.escape(location)}(?!{institution_suffix})", message)
-            }
-        )
-        >= 2
-    )
-
-
 def _extract_english_route_relation(message: str) -> tuple[str, str] | None:
     match = _EN_NATURAL_INTERCITY_RE.search(message) or _EN_ROUTE_RELATION_RE.search(message)
     if match is None:
@@ -1986,7 +2116,11 @@ def _is_english_route_mode_denied(prefix: str, mode_pattern: re.Pattern[str]) ->
 
 
 def _is_english_physical_location(value: str) -> bool:
-    return value in _EN_PHYSICAL_LOCATION_NAMES or bool(_EN_PHYSICAL_LOCATION_SUFFIX_RE.search(value))
+    return (
+        is_known_location_name(value)
+        or value in EN_KNOWN_LANDMARK_NAMES
+        or bool(_EN_PHYSICAL_LOCATION_SUFFIX_RE.search(value))
+    )
 
 
 def _is_english_abstract_route_relation(message: str, origin: str, destination: str) -> bool:

@@ -693,9 +693,7 @@ def _adapter_arguments(normalized: dict[str, Any], *, raw_args: Any) -> dict[str
     """剥离仅由 Fusion 处理的筛选条件，保持私有 adapter 契约稳定。"""
 
     arguments = {
-        key: value
-        for key, value in normalized.items()
-        if key not in {"arrival_before_hour", "train_category"}
+        key: value for key, value in normalized.items() if key not in {"arrival_before_hour", "train_category"}
     }
     if normalized.get("arrival_before_hour") is not None and (
         not isinstance(raw_args, dict) or "sort_by" not in raw_args

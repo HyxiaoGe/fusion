@@ -19,6 +19,12 @@ export type TrajectoryCapabilityPackageId =
   | 'clarification_only'
   | 'mcp_explicit';
 
+/**
+ * 后端新增能力包时 UI 无需同步改动：未知 id 原样展示，不丢弃整条 resolution。
+ * 能力包与工具、计划模式、日期、reason code 的语义一致性由后端契约保证（issue #26）。
+ */
+export type TrajectoryCapabilityPackageIdOrUnknown = TrajectoryCapabilityPackageId | (string & {});
+
 export type TrajectoryCapabilityReasonCode =
   | 'direct_greeting'
   | 'assistant_identity_question'
@@ -49,12 +55,15 @@ export type TrajectoryCapabilityReasonCode =
   | 'explicit_authorized_tool_alias'
   | 'insufficient_capability_signal';
 
+/** 与 package id 同理：后端新增 reason code 时 UI 原样展示，不丢弃整条 resolution。 */
+export type TrajectoryCapabilityReasonCodeOrUnknown = TrajectoryCapabilityReasonCode | (string & {});
+
 interface TrajectoryCapabilityResolutionBase {
   router_version: string;
-  package_id: TrajectoryCapabilityPackageId;
+  package_id: TrajectoryCapabilityPackageIdOrUnknown;
   confidence: 'high' | 'medium' | 'low';
   resolution_mode: 'routed' | 'degraded' | 'clarification';
-  reason_codes: TrajectoryCapabilityReasonCode[];
+  reason_codes: TrajectoryCapabilityReasonCodeOrUnknown[];
   external_tool_names: string[];
   effective_plan_mode: 'auto' | 'on' | 'off';
   include_current_date: boolean;

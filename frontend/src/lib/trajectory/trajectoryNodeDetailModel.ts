@@ -196,6 +196,16 @@ function localTtft(
   return latestNumber(events, 'ttft_ms');
 }
 
+/**
+ * 后端新增能力包时前端可能还没有对应文案：退回只展示原始 id，不显示 i18n key，
+ * 也不因此丢弃整条 resolution（issue #26）。
+ */
+function capabilityPackageLabel(packageId: string, translate: TFunction): string {
+  const key = `trajectory.capabilityResolution.packages.${packageId}`;
+  const label = translate(key);
+  return label === key ? packageId : `${label} · ${packageId}`;
+}
+
 function cellSummaryFields(
   cell: TrajectoryCell,
   translate: TFunction,
@@ -257,7 +267,7 @@ function cellSummaryFields(
     return [
       {
         label: translate('trajectory.capabilityResolution.package'),
-        value: `${translate(`trajectory.capabilityResolution.packages.${resolution.package_id}`)} · ${resolution.package_id}`,
+        value: capabilityPackageLabel(resolution.package_id, translate),
       },
       {
         label: translate('trajectory.capabilityResolution.confidence'),

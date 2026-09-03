@@ -226,12 +226,8 @@ def build_grounded_mixed_travel_answer(
     """同组航班和火车结果使用确定性比较，避免自由文本产生跨类型推断。"""
 
     product_blocks = [block for block in content_blocks if _value(block, "type") in _PRODUCT_RESULT_TYPES]
-    flight_groups = {
-        _travel_group(block) for block in product_blocks if _value(block, "type") == "flight_results"
-    }
-    train_groups = {
-        _travel_group(block) for block in product_blocks if _value(block, "type") == "train_results"
-    }
+    flight_groups = {_travel_group(block) for block in product_blocks if _value(block, "type") == "flight_results"}
+    train_groups = {_travel_group(block) for block in product_blocks if _value(block, "type") == "train_results"}
     if not flight_groups.intersection(train_groups):
         return ""
     return build_grounded_product_answer(content_blocks, messages=messages)
@@ -250,9 +246,7 @@ def build_grounded_single_travel_comparison_answer(
         for block in product_blocks
     ):
         return ""
-    travel_blocks = [
-        block for block in product_blocks if _value(block, "type") in {"flight_results", "train_results"}
-    ]
+    travel_blocks = [block for block in product_blocks if _value(block, "type") in {"flight_results", "train_results"}]
     travel_types = {_value(block, "type") for block in travel_blocks}
     travel_groups = {_travel_group(block) for block in travel_blocks}
     if len(travel_types) != 1 or len(travel_groups) != 1:
@@ -283,16 +277,12 @@ def build_grounded_single_travel_comparison_answer(
         cheapest = _minimum_travel_option(options, "price")
         if cheapest is None:
             return ""
-        comparison_sentences.append(
-            f"本次返回中参考价最低的是{_compact_travel_option(cheapest, number_key)}。"
-        )
+        comparison_sentences.append(f"本次返回中参考价最低的是{_compact_travel_option(cheapest, number_key)}。")
     if fastest_requested:
         fastest = _minimum_travel_option(options, "duration")
         if fastest is None:
             return ""
-        comparison_sentences.append(
-            f"本次返回中计划行程时长最短的是{_compact_travel_option(fastest, number_key)}。"
-        )
+        comparison_sentences.append(f"本次返回中计划行程时长最短的是{_compact_travel_option(fastest, number_key)}。")
 
     origin, destination, departure_date = next(iter(travel_groups))
     paragraphs = [

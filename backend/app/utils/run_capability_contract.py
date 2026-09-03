@@ -127,6 +127,8 @@ _PACKAGE_CONFIDENCE_OPTIONS = MappingProxyType(
     {
         **{package_id: frozenset({"high"}) for package_id in _PACKAGE_REASON_CODE_OPTIONS},
         "mobility_intercity": frozenset({"medium"}),
+        # 端点未收录、仅凭专名形状放行时以 medium 公开路线工具，不进入强制调用契约。
+        "mobility_route": frozenset({"high", "medium"}),
         "tools_unavailable": frozenset({"high", "medium"}),
         "clarification_only": frozenset({"low"}),
     }

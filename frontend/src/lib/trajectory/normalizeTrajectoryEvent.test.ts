@@ -222,42 +222,43 @@ describe('normalizeTrajectoryEvent', () => {
     ['不可用工具包仍公告工具', {
       ...capabilityResolution,
       package_id: 'tools_unavailable',
-      confidence: 'high',
       resolution_mode: 'degraded',
       reason_codes: ['tools_disabled'],
       external_tool_names: ['web_search'],
       effective_plan_mode: 'off',
-      include_current_date: false,
-      network_boundary_required: true,
-    }],
-    ['显式 MCP 包使用普通工具', {
-      ...capabilityResolution,
-      package_id: 'mcp_explicit',
-      reason_codes: ['explicit_authorized_tool_alias'],
-      external_tool_names: ['web_search'],
-      include_current_date: false,
-    }],
-    ['Deep Research 缺少读取工具', {
-      ...capabilityResolution,
-      package_id: 'deep_research',
-      reason_codes: ['deep_research_mode'],
-      external_tool_names: ['web_search'],
-      effective_plan_mode: 'on',
     }],
     ['天气包使用 auto 计划', { ...capabilityResolution, effective_plan_mode: 'auto' }],
-    ['实时搜索缺少日期', {
-      ...capabilityResolution,
-      package_id: 'fresh_web',
-      reason_codes: ['fresh_external_fact'],
-      external_tool_names: ['web_search'],
-      include_current_date: false,
-    }],
-    ['天气包要求网络降级边界', { ...capabilityResolution, network_boundary_required: true }],
     ['天气包使用其他原因码', { ...capabilityResolution, reason_codes: ['stable_knowledge_question'] }],
     ['天气包使用低置信度', { ...capabilityResolution, confidence: 'low' }],
-    ['天气包标记为降级', { ...capabilityResolution, resolution_mode: 'degraded' }],
-  ])('拒绝跨字段语义矛盾：%s', (_label, value) => {
-    expect(normalizeTrajectoryCapabilityResolution(value)).toBeNull();
+  ])('不再由 UI 判定后端字段的跨字段语义：%s', (_label, value) => {
+    // 能力包与工具、计划模式、日期、reason code 的一致性由后端 run_capability_contract
+    // 保证；UI 复制一份判定只会在后端新增能力包时静默丢字段（issue #26）。
+    expect(normalizeTrajectoryCapabilityResolution(value)).not.toBeNull();
+  });
+
+  it('未知 package_id 降级展示而不是丢弃整条 resolution', () => {
+    const resolution = {
+      ...capabilityResolution,
+      package_id: 'future_package',
+      reason_codes: ['future_reason_code'],
+    };
+
+    expect(normalizeTrajectoryCapabilityResolution(resolution)).toEqual(resolution);
+  });
+
+  it('未知标识符仍受形状约束', () => {
+    expect(normalizeTrajectoryCapabilityResolution({
+      ...capabilityResolution,
+      package_id: 'Not A Package Id',
+    })).toBeNull();
+    expect(normalizeTrajectoryCapabilityResolution({
+      ...capabilityResolution,
+      reason_codes: ['不是标识符'],
+    })).toBeNull();
+    expect(normalizeTrajectoryCapabilityResolution({
+      ...capabilityResolution,
+      package_id: 'x'.repeat(64),
+    })).toBeNull();
   });
 
   it('接受 API 可生成的零工具降级包与单一 MCP alias 包', () => {
@@ -327,7 +328,7 @@ describe('normalizeTrajectoryEvent', () => {
       external_tool_names: ['web_search'],
       include_current_date: false,
     }],
-  ])('SSE 丢弃 %s 的非法跨字段组合', (_label, resolution) => {
+  ])('SSE 不再因 %s 的跨字段组合丢弃能力对象', (_label, resolution) => {
     const event = normalizeSseTrajectoryEvent({
       type: 'run_started',
       schema_version: 1,
@@ -343,8 +344,9 @@ describe('normalizeTrajectoryEvent', () => {
       capability_resolution: resolution,
     });
 
+    // 跨字段一致性由后端 run_capability_contract 保证（issue #26）。
     expect(event).not.toBeNull();
-    expect(event?.payload).not.toHaveProperty('capability_resolution');
+    expect(event?.payload).toHaveProperty('capability_resolution');
   });
 
   it.each([
@@ -384,8 +386,9 @@ describe('normalizeTrajectoryEvent', () => {
       external_tool_names: ['search_trains', 'route_compare'],
       effective_plan_mode: 'auto',
     }],
-  ])('normalizer 与 SSE 都拒绝倒序 %s 工具', (_label, resolution) => {
-    expect(normalizeTrajectoryCapabilityResolution(resolution)).toBeNull();
+  ])('工具 canonical 顺序不再由 UI 判定：%s', (_label, resolution) => {
+    // 顺序由后端 CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER 保证，UI 原样展示（issue #26）。
+    expect(normalizeTrajectoryCapabilityResolution(resolution)).not.toBeNull();
     const event = normalizeSseTrajectoryEvent({
       type: 'run_started', schema_version: 1, run_id: 'run-reversed',
       parent_run_id: null, step_id: null, parent_step_id: null, tool_call_id: null,
@@ -393,7 +396,7 @@ describe('normalizeTrajectoryEvent', () => {
       tools: resolution.external_tool_names,
       capability_resolution: resolution,
     });
-    expect(event?.payload).not.toHaveProperty('capability_resolution');
+    expect(event?.payload).toHaveProperty('capability_resolution');
   });
 
   it.each([

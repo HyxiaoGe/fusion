@@ -158,11 +158,7 @@ def persist_message(
         acquire_message_persistence_lock(db, assistant_message_id)
         conversation = None
         existing = (
-            db.query(MessageModel)
-            .populate_existing()
-            .filter_by(id=assistant_message_id)
-            .with_for_update()
-            .first()
+            db.query(MessageModel).populate_existing().filter_by(id=assistant_message_id).with_for_update().first()
         )
 
         if existing is None and create_after_retry_user_id is not None:

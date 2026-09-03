@@ -5,6 +5,15 @@ from app.services.stream.agent_plan_tool_policy import (
     resolve_agent_plan_tool_policy,
     resolve_product_capability_signals,
 )
+from app.utils.location_names import (
+    _CITY_RECORDS as CITY_RECORDS,
+)
+from app.utils.location_names import (
+    are_distinct_known_cities,
+    is_known_location_name,
+    normalize_en_name,
+    resolve_city_key,
+)
 
 
 class AgentPlanToolPolicyTests(unittest.TestCase):
@@ -432,3 +441,262 @@ class AgentPlanToolPolicyTests(unittest.TestCase):
 
         self.assertEqual(policy.required_initial_tool_counts, {})
         self.assertIsNone(policy.allowed_tool_names)
+
+
+class SharedLocationGazetteerTests(unittest.TestCase):
+    """端点地名不再依赖手挑白名单（issue #23）。"""
+
+    def test_prefecture_cities_outside_the_old_whitelist_are_route_endpoints(self):
+        for message in (
+            "从哈尔滨到三亚怎么走？",
+            "从佛山到东莞怎么走？",
+            "从金华到衢州怎么走？",
+            "从乌鲁木齐到喀什怎么走？",
+        ):
+            with self.subTest(message=message):
+                signals = resolve_product_capability_signals(
+                    original_message=message,
+                    task_context_messages=None,
+                )
+
+                self.assertTrue(signals.explicit_route)
+                self.assertTrue(signals.intercity_mobility)
+                self.assertTrue(signals.intercity_endpoints)
+
+    def test_overseas_cities_are_route_endpoints(self):
+        for message in ("从曼谷到清迈怎么走？", "从东京到大阪怎么走？"):
+            with self.subTest(message=message):
+                signals = resolve_product_capability_signals(
+                    original_message=message,
+                    task_context_messages=None,
+                )
+
+                self.assertTrue(signals.explicit_route)
+                self.assertTrue(signals.intercity_endpoints)
+
+    def test_chinese_and_english_endpoints_agree_on_the_same_city_pair(self):
+        chinese = resolve_product_capability_signals(
+            original_message="从哈尔滨到三亚怎么走？",
+            task_context_messages=None,
+        )
+
+        self.assertTrue(chinese.intercity_endpoints)
+        self.assertTrue(are_distinct_known_cities("harbin", "sanya"))
+        self.assertTrue(are_distinct_known_cities("哈尔滨", "三亚"))
+
+    def test_natural_intercity_request_without_route_verb_keeps_travel_capability(self):
+        signals = resolve_product_capability_signals(
+            original_message="我现在在温州，我想去金华，你可以帮我吗",
+            task_context_messages=None,
+        )
+
+        self.assertFalse(signals.explicit_route)
+        self.assertTrue(signals.intercity_mobility)
+        self.assertTrue(signals.intercity_endpoints)
+
+    def test_transport_hubs_resolve_to_their_city_but_institutions_do_not(self):
+        intercity = resolve_product_capability_signals(
+            original_message="从广州南站到深圳北站",
+            task_context_messages=None,
+        )
+        same_city = resolve_product_capability_signals(
+            original_message="从上海虹桥站到外滩怎么坐公共交通？",
+            task_context_messages=None,
+        )
+        institutions = resolve_product_capability_signals(
+            original_message="从北京大学到上海交通大学申请哪个更适合我？",
+            task_context_messages=None,
+        )
+
+        self.assertTrue(intercity.intercity_endpoints)
+        self.assertTrue(same_city.explicit_route)
+        self.assertFalse(same_city.intercity_endpoints)
+        self.assertFalse(institutions.intercity_endpoints)
+
+    def test_administrative_suffixes_are_equivalent_to_bare_city_names(self):
+        for message in ("从北京市到上海市怎么走？", "从广东省佛山市到东莞市怎么走？"):
+            with self.subTest(message=message):
+                signals = resolve_product_capability_signals(
+                    original_message=message,
+                    task_context_messages=None,
+                )
+
+                self.assertTrue(signals.intercity_endpoints)
+
+
+class GazetteerIsNotAnAdmissionGateTests(unittest.TestCase):
+    """词表只提升置信度，不决定是否公开出行工具（PR #27 评审 P1-1）。"""
+
+    def test_county_level_cities_get_travel_capability(self):
+        """覆盖率靠补齐行政区划数据解决，不靠放宽准入（PR #27 复审 P1-A）。"""
+
+        for message in (
+            "从义乌到昆山怎么走？",
+            "从诸暨到海宁怎么走？",
+            "从张家港到太仓怎么走？",
+        ):
+            with self.subTest(message=message):
+                signals = resolve_product_capability_signals(
+                    original_message=message,
+                    task_context_messages=None,
+                )
+
+                self.assertTrue(signals.explicit_route)
+                self.assertTrue(signals.intercity_mobility)
+
+    def test_unknown_but_structured_requests_get_a_non_forcing_capability(self):
+        """未收录端点仍获出行能力，但不强制调用（PR #27 三轮 P1-C / issue #23）。"""
+
+        for message in (
+            "从科纳克里到弗里敦怎么走？",
+            "从北京到朝阳区怎么走？",
+        ):
+            with self.subTest(message=message):
+                signals = resolve_product_capability_signals(
+                    original_message=message,
+                    task_context_messages=None,
+                )
+
+                self.assertTrue(signals.route_capability)
+                # 不进入 explicit_route，计划策略因此不会强制调用路线工具。
+                self.assertFalse(signals.explicit_route)
+                self.assertFalse(signals.intercity_endpoints)
+
+    def test_bare_districts_do_not_become_same_named_prefecture_cities(self):
+        """裸市辖区不得被误认成同名地级市（PR #27 三轮 P1-D）。"""
+
+        self.assertIsNone(resolve_city_key("朝阳区"))
+        self.assertIsNone(resolve_city_key("大同区"))
+        self.assertEqual(resolve_city_key("北京市朝阳区"), resolve_city_key("北京"))
+        self.assertEqual(resolve_city_key("上海浦东新区"), resolve_city_key("上海"))
+
+        for message in ("从北京到朝阳区怎么走？", "从大庆到大同区怎么走？"):
+            with self.subTest(message=message):
+                signals = resolve_product_capability_signals(
+                    original_message=message,
+                    task_context_messages=None,
+                )
+
+                self.assertFalse(signals.intercity_endpoints)
+                self.assertFalse(signals.intercity_mobility)
+
+    def test_unenumerated_non_place_endpoints_never_reach_map_tools(self):
+        """未枚举的产品/增长表达不得被当成真实路线（PR #27 复审 P1-A）。"""
+
+        for message in (
+            "产品从概念到上线怎么走？",
+            "从零到一怎么走？",
+            "从100万用户到1000万用户怎么走？",
+            "从MVP到PMF怎么走？",
+            "从需求池到灰度怎么走？",
+        ):
+            with self.subTest(message=message):
+                signals = resolve_product_capability_signals(
+                    original_message=message,
+                    task_context_messages=None,
+                )
+
+                self.assertFalse(signals.explicit_route)
+                self.assertFalse(signals.intercity_mobility)
+                # 安全能力路径同样不放行，否则仍会公开地图工具。
+                self.assertFalse(signals.route_capability)
+
+    def test_abstract_relations_are_blocked_by_endpoint_semantics_not_by_the_gazetteer(self):
+        for message in (
+            "从亏损到盈利怎么走？",
+            "请规划从冷启动到规模化的路线",
+            "从需求评审到正式上线怎么走流程？",
+            "从初级工程师到架构师怎么走？",
+            "从困境到突破怎么走？",
+        ):
+            with self.subTest(message=message):
+                signals = resolve_product_capability_signals(
+                    original_message=message,
+                    task_context_messages=None,
+                )
+
+                self.assertFalse(signals.explicit_route)
+                self.assertFalse(signals.intercity_mobility)
+
+
+class LocationGazetteerRecordTests(unittest.TestCase):
+    """中英索引必须派生自同一条记录（PR #27 评审 P1-2/P1-3）。"""
+
+    def test_every_city_record_carries_both_names(self):
+        for province, zh, en_names in CITY_RECORDS:
+            with self.subTest(city=zh):
+                self.assertTrue(province)
+                self.assertTrue(zh)
+                self.assertTrue(en_names)
+                self.assertTrue(all(en_names))
+
+    def test_chinese_and_english_names_resolve_to_the_same_city(self):
+        for _province, zh, en_names in CITY_RECORDS:
+            for en in en_names:
+                with self.subTest(city=zh, alias=en):
+                    self.assertEqual(resolve_city_key(zh), resolve_city_key(en))
+
+    def test_no_english_key_maps_to_two_cities(self):
+        """拼音撞车（玉树/榆树）必须由别名显式消歧，不能静默覆盖。"""
+
+        seen: dict[str, str] = {}
+        collisions: list[tuple[str, str, str]] = []
+        for province, zh, en_names in CITY_RECORDS:
+            city_id = f"{province}/{zh}"
+            for en in en_names:
+                key = normalize_en_name(en)
+                if seen.setdefault(key, city_id) != city_id:
+                    collisions.append((key, seen[key], city_id))
+
+        self.assertEqual(collisions, [])
+
+    def test_every_alias_tuple_is_a_tuple_of_full_names(self):
+        """单别名必须写成元组；`("taipei")` 会退化成逐字符别名。"""
+
+        for _province, zh, en_names in CITY_RECORDS:
+            with self.subTest(city=zh):
+                self.assertIsInstance(en_names, tuple)
+                self.assertTrue(all(len(en) > 1 for en in en_names))
+
+    def test_english_index_covers_every_chinese_city(self):
+        missing = [zh for _p, zh, en_names in CITY_RECORDS if not is_known_location_name(en_names[0])]
+
+        self.assertEqual(missing, [])
+
+    def test_existing_english_aliases_stay_compatible(self):
+        """重构索引不得丢掉既有英文别名（PR #27 复审 P1-B）。"""
+
+        for alias, canonical in (
+            ("xi'an", "西安"),
+            ("Xi'an", "西安"),
+            ("xian", "西安"),
+            ("hongkong", "香港"),
+            ("hong kong", "香港"),
+            ("macao", "澳门"),
+            ("macau", "澳门"),
+            ("chiangmai", "清迈"),
+            ("danang", "岘港"),
+            ("delhi", "新德里"),
+        ):
+            with self.subTest(alias=alias):
+                self.assertTrue(is_known_location_name(alias))
+                self.assertEqual(resolve_city_key(alias), resolve_city_key(canonical))
+
+    def test_english_lookup_is_normalized_rather_than_enumerated(self):
+        """撇号、空格与大小写由规范化覆盖，不需要逐种写法登记。"""
+
+        self.assertEqual(normalize_en_name("Xi'an"), normalize_en_name("xi an"))
+        self.assertEqual(normalize_en_name("Hong Kong"), "hongkong")
+
+    def test_same_named_divisions_in_different_provinces_are_distinct(self):
+        self.assertEqual(resolve_city_key("北京市朝阳区"), resolve_city_key("北京"))
+        self.assertNotEqual(resolve_city_key("北京市朝阳区"), resolve_city_key("辽宁省朝阳市"))
+        self.assertTrue(are_distinct_known_cities("北京市朝阳区", "辽宁省朝阳市"))
+
+    def test_administrative_and_hub_forms_resolve_to_their_city(self):
+        self.assertEqual(resolve_city_key("北京市"), resolve_city_key("北京"))
+        self.assertEqual(resolve_city_key("广东省佛山市"), resolve_city_key("佛山"))
+        self.assertEqual(resolve_city_key("吉林省吉林市"), resolve_city_key("吉林"))
+        self.assertEqual(resolve_city_key("广州南站"), resolve_city_key("广州"))
+        self.assertEqual(resolve_city_key("上海虹桥站"), resolve_city_key("上海"))
+        self.assertIsNone(resolve_city_key("北京大学"))

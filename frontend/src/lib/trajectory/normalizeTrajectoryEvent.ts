@@ -1,6 +1,4 @@
 import type {
-  TrajectoryCapabilityPackageId,
-  TrajectoryCapabilityReasonCode,
   TrajectoryCapabilityResolution,
   TrajectoryCapabilitySkillResolution,
   TrajectorySkillMetadata,
@@ -94,6 +92,8 @@ const EVIDENCE_FIELDS = new Set([
   'used_by_final_answer', 'citation_index',
 ]);
 const LIST_FIELDS = new Set(['tools', 'key_findings', 'source_refs', 'section_ids']);
+// 后端契约里的 package_id 与 reason code 都是服务端生成的短标识符；UI 只校验形状。
+const CAPABILITY_IDENTIFIER_PATTERN = /^[a-z][a-z0-9_]{0,47}$/;
 const CAPABILITY_RESOLUTION_COMMON_FIELDS = [
   'schema_version',
   'router_version',
@@ -115,64 +115,12 @@ const CAPABILITY_RESOLUTION_V2_FIELDS = new Set([
   'bundle_fingerprint',
   'skill_resolution',
 ]);
-const CAPABILITY_PACKAGE_IDS = new Set<TrajectoryCapabilityPackageId>([
-  'direct',
-  'transform',
-  'date',
-  'fresh_web',
-  'verified_web',
-  'url_read',
-  'weather',
-  'place_discovery',
-  'mobility_route',
-  'flight',
-  'train',
-  'travel_air_rail',
-  'mobility_intercity',
-  'mixed_itinerary',
-  'deep_research',
-  'knowledge_grounded',
-  'tools_unavailable',
-  'clarification_only',
-  'mcp_explicit',
-]);
-const CAPABILITY_REASON_CODES = new Set<TrajectoryCapabilityReasonCode>([
-  'direct_greeting',
-  'assistant_identity_question',
-  'stable_knowledge_question',
-  'simple_calculation',
-  'text_transform_request',
-  'current_date_question',
-  'fresh_external_fact',
-  'verified_source_request',
-  'explicit_url_read',
-  'explicit_weather_request',
-  'explicit_place_discovery',
-  'explicit_route_task',
-  'explicit_flight_request',
-  'explicit_train_request',
-  'air_rail_comparison',
-  'mixed_itinerary_request',
-  'origin_destination_relation',
-  'intercity_locations',
-  'adjacent_route_followup',
-  'deep_research_mode',
-  'knowledge_grounded_mode',
-  'tools_disabled',
-  'function_calling_unavailable',
-  'search_capability_unavailable',
-  'required_tools_unavailable',
-  'required_skill_unavailable',
-  'explicit_authorized_tool_alias',
-  'insufficient_capability_signal',
-]);
 const CAPABILITY_CONFIDENCE = new Set(['high', 'medium', 'low']);
 const CAPABILITY_RESOLUTION_MODES = new Set(['routed', 'degraded', 'clarification']);
 const CAPABILITY_PLAN_MODES = new Set(['auto', 'on', 'off']);
 const ROUTER_VERSION_PATTERN = /^\d{4}-\d{2}-\d{2}\.\d+$/;
 const BUNDLE_FINGERPRINT_PATTERN = /^sha256:[0-9a-f]{64}$/;
 const TOOL_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_-]{0,127}$/;
-const MCP_TOOL_ALIAS_PATTERN = /^mcp_[A-Za-z0-9_-]+$/;
 const SKILL_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SKILL_VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
 const SKILL_ALLOWED_TOOL_ORDER = [
@@ -187,109 +135,20 @@ const SKILL_ALLOWED_TOOL_ORDER = [
 const SKILL_METADATA_FIELDS = new Set([
   'skill_id', 'version', 'content_sha256', 'allowed_tool_names', 'section_id', 'char_count',
 ]);
-const CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES: Record<
-  Exclude<TrajectoryCapabilityPackageId, 'mcp_explicit'>,
-  readonly string[]
-> = {
-  direct: [],
-  transform: [],
-  date: [],
-  fresh_web: ['web_search'],
-  verified_web: ['web_search', 'url_read'],
-  url_read: ['url_read'],
-  weather: ['weather_forecast'],
-  place_discovery: ['local_place_search'],
-  mobility_route: ['route_compare'],
-  flight: ['search_flights'],
-  train: ['search_trains'],
-  travel_air_rail: ['search_flights', 'search_trains'],
-  mobility_intercity: ['route_compare', 'search_flights', 'search_trains'],
-  mixed_itinerary: [
-    'weather_forecast',
-    'local_place_search',
-    'route_compare',
-    'search_flights',
-    'search_trains',
-  ],
-  deep_research: ['web_search', 'url_read'],
-  knowledge_grounded: [],
-  tools_unavailable: [],
-  clarification_only: [],
-};
-const CAPABILITY_AUTO_PLAN_PACKAGES = new Set<TrajectoryCapabilityPackageId>([
-  'verified_web',
-  'mobility_route',
-  'travel_air_rail',
-  'mobility_intercity',
-  'mixed_itinerary',
-]);
-const FIXED_INCLUDE_CURRENT_DATE: Partial<Record<TrajectoryCapabilityPackageId, boolean>> = {
-  direct: false,
-  transform: false,
-  date: true,
-  fresh_web: true,
-  verified_web: true,
-  url_read: false,
-  weather: true,
-  place_discovery: false,
-  flight: true,
-  train: true,
-  travel_air_rail: true,
-  mobility_intercity: true,
-  mixed_itinerary: true,
-  deep_research: true,
-  clarification_only: false,
-};
-const CAPABILITY_PACKAGE_REASON_CODE_OPTIONS: Record<
-  TrajectoryCapabilityPackageId,
-  readonly (readonly TrajectoryCapabilityReasonCode[])[]
-> = {
-  direct: [
-    ['direct_greeting'],
-    ['assistant_identity_question'],
-    ['stable_knowledge_question'],
-    ['simple_calculation'],
-  ],
-  transform: [['text_transform_request']],
-  date: [['current_date_question']],
-  fresh_web: [['fresh_external_fact']],
-  verified_web: [['verified_source_request']],
-  url_read: [['explicit_url_read']],
-  weather: [['explicit_weather_request']],
-  place_discovery: [['explicit_place_discovery']],
-  mobility_route: [['explicit_route_task'], ['adjacent_route_followup']],
-  flight: [['explicit_flight_request']],
-  train: [['explicit_train_request']],
-  travel_air_rail: [['air_rail_comparison']],
-  mobility_intercity: [['origin_destination_relation', 'intercity_locations']],
-  mixed_itinerary: [['mixed_itinerary_request']],
-  deep_research: [['deep_research_mode']],
-  knowledge_grounded: [['knowledge_grounded_mode']],
-  tools_unavailable: [
-    ['tools_disabled'],
-    ['function_calling_unavailable'],
-    ['search_capability_unavailable'],
-    ['required_tools_unavailable'],
-    ['required_skill_unavailable'],
-  ],
-  clarification_only: [['insufficient_capability_signal']],
-  mcp_explicit: [['explicit_authorized_tool_alias']],
-};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isUniqueEnumList<T extends string>(
+function isUniqueIdentifierList(
   value: unknown,
-  allowed: ReadonlySet<T>,
   minLength: number,
   maxLength: number,
-): value is T[] {
+): value is string[] {
   return Array.isArray(value)
     && value.length >= minLength
     && value.length <= maxLength
-    && value.every(item => typeof item === 'string' && allowed.has(item as T))
+    && value.every(item => typeof item === 'string' && CAPABILITY_IDENTIFIER_PATTERN.test(item))
     && new Set(value).size === value.length;
 }
 
@@ -321,12 +180,12 @@ export function normalizeTrajectoryCapabilityResolution(
     || value.router_version.length > 32
     || !ROUTER_VERSION_PATTERN.test(value.router_version)
     || typeof value.package_id !== 'string'
-    || !CAPABILITY_PACKAGE_IDS.has(value.package_id as TrajectoryCapabilityPackageId)
+    || !CAPABILITY_IDENTIFIER_PATTERN.test(value.package_id)
     || typeof value.confidence !== 'string'
     || !CAPABILITY_CONFIDENCE.has(value.confidence)
     || typeof value.resolution_mode !== 'string'
     || !CAPABILITY_RESOLUTION_MODES.has(value.resolution_mode)
-    || !isUniqueEnumList(value.reason_codes, CAPABILITY_REASON_CODES, 1, 4)
+    || !isUniqueIdentifierList(value.reason_codes, 1, 4)
     || !Array.isArray(value.external_tool_names)
     || value.external_tool_names.length > 3
     || value.external_tool_names.some(tool => (
@@ -342,7 +201,7 @@ export function normalizeTrajectoryCapabilityResolution(
 
   const common = {
     router_version: value.router_version,
-    package_id: value.package_id as TrajectoryCapabilityPackageId,
+    package_id: value.package_id,
     confidence: value.confidence as TrajectoryCapabilityResolution['confidence'],
     resolution_mode: value.resolution_mode as TrajectoryCapabilityResolution['resolution_mode'],
     reason_codes: [...value.reason_codes],
@@ -360,11 +219,9 @@ export function normalizeTrajectoryCapabilityResolution(
           ? { schema_version: 2, ...common, skill_resolution: skillResolution }
           : null;
       })();
-  return resolution
-    && hasValidCapabilityResolutionSemantics(resolution)
-    && hasValidCapabilitySkillSemantics(resolution)
-    ? resolution
-    : null;
+  // UI 只做结构性校验与降级展示：能力包与工具、计划模式、日期、reason code 的语义
+  // 一致性由后端 run_capability_contract 保证，前端不再维护第二份判定（issue #26）。
+  return resolution;
 }
 
 function normalizeTrajectorySkillMetadata(value: unknown): TrajectorySkillMetadata | null {
@@ -519,86 +376,6 @@ function normalizeSkillsResolvedPayload(
     detail_status: value.detail_status,
     error_code: value.error_code,
   };
-}
-
-function hasValidCapabilityResolutionSemantics(
-  resolution: TrajectoryCapabilityResolution,
-): boolean {
-  const tools = resolution.external_tool_names;
-  if (resolution.package_id === 'mcp_explicit') {
-    if (tools.length !== 1 || !MCP_TOOL_ALIAS_PATTERN.test(tools[0])) return false;
-  } else {
-    const allowedTools = CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES[resolution.package_id];
-    if (allowedTools.length === 0 && tools.length > 0) return false;
-    if (allowedTools.length > 0 && tools.length === 0) return false;
-    if (tools.some(tool => !allowedTools.includes(tool))) return false;
-    const canonicalTools = allowedTools.filter(tool => tools.includes(tool));
-    if (tools.length !== canonicalTools.length
-      || tools.some((tool, index) => tool !== canonicalTools[index])) return false;
-    if (resolution.package_id === 'deep_research'
-      && (tools.length !== allowedTools.length
-        || allowedTools.some(tool => !tools.includes(tool)))) return false;
-  }
-
-  if (resolution.package_id === 'deep_research') {
-    if (resolution.effective_plan_mode !== 'on') return false;
-  } else if (resolution.package_id === 'knowledge_grounded'
-    || resolution.package_id === 'tools_unavailable') {
-    if (resolution.effective_plan_mode !== 'off') return false;
-  } else if (!CAPABILITY_AUTO_PLAN_PACKAGES.has(resolution.package_id)
-    && resolution.effective_plan_mode === 'auto') return false;
-
-  const fixedDate = FIXED_INCLUDE_CURRENT_DATE[resolution.package_id];
-  if (fixedDate !== undefined && resolution.include_current_date !== fixedDate) return false;
-
-  if (resolution.package_id !== 'knowledge_grounded') {
-    const expectedBoundary = resolution.package_id === 'tools_unavailable';
-    if (resolution.network_boundary_required !== expectedBoundary) return false;
-  }
-
-  const allowedReasons = CAPABILITY_PACKAGE_REASON_CODE_OPTIONS[resolution.package_id];
-  if (!allowedReasons.some(reasonCodes => (
-    reasonCodes.length === resolution.reason_codes.length
-    && reasonCodes.every((reasonCode, index) => resolution.reason_codes[index] === reasonCode)
-  ))) return false;
-
-  const allowedConfidence = resolution.package_id === 'mobility_intercity'
-    ? resolution.confidence === 'medium'
-    : resolution.package_id === 'tools_unavailable'
-      ? resolution.confidence === 'high' || resolution.confidence === 'medium'
-      : resolution.package_id === 'clarification_only'
-        ? resolution.confidence === 'low'
-        : resolution.confidence === 'high';
-  if (!allowedConfidence) return false;
-
-  const expectedResolutionMode = resolution.package_id === 'tools_unavailable'
-    ? 'degraded'
-    : resolution.package_id === 'clarification_only'
-      ? 'clarification'
-      : 'routed';
-  return resolution.resolution_mode === expectedResolutionMode;
-}
-
-function hasValidCapabilitySkillSemantics(
-  resolution: TrajectoryCapabilityResolution,
-): boolean {
-  if (resolution.schema_version === 1) return true;
-  const skillResolution = resolution.skill_resolution;
-  if (skillResolution.status === 'not_selected') {
-    return resolution.package_id !== 'verified_web';
-  }
-  if (skillResolution.status === 'loaded') {
-    const skill = skillResolution.skills[0];
-    return resolution.package_id === 'verified_web'
-      && skillResolution.requested_skill_ids[0] === 'verified-research'
-      && skill.skill_id === 'verified-research'
-      && skill.allowed_tool_names.length === resolution.external_tool_names.length
-      && skill.allowed_tool_names.every((tool, index) => tool === resolution.external_tool_names[index]);
-  }
-  return resolution.package_id === 'tools_unavailable'
-    && resolution.reason_codes.length === 1
-    && resolution.reason_codes[0] === 'required_skill_unavailable'
-    && skillResolution.requested_skill_ids[0] === 'verified-research';
 }
 
 function nullableString(value: unknown): string | null | undefined {

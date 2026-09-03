@@ -77,10 +77,7 @@ def _sync_distributed_generation(now: float) -> None:
     """后台检查跨进程目录代次，避免同步 Redis I/O 阻塞请求事件循环。"""
     global _generation_check_in_flight, _generation_check_thread, _last_generation_check_at
     with _cache_lock:
-        if (
-            _generation_check_in_flight
-            or now - _last_generation_check_at < _GENERATION_CHECK_INTERVAL_SECONDS
-        ):
+        if _generation_check_in_flight or now - _last_generation_check_at < _GENERATION_CHECK_INTERVAL_SECONDS:
             return
         _last_generation_check_at = now
         _generation_check_in_flight = True
