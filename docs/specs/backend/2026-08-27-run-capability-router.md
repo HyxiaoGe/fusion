@@ -120,6 +120,23 @@ Deep Research 继续要求 function calling 与 search capability，并固定只
   （如县级市 `义乌`）与抽象名词（如 `亏损`）区分开，这类请求仍进入 `clarification_only`。
   该残留缺口属于规则式意图分类的固有限制，根治见 issue #24。
 
+## 分类器与骨架的边界（2026-09-03 修订）
+
+"用户消息 → `package_id`"这一步与其余流程解耦：
+
+- `classify_capability_request()` 是默认的规则式分类器，内部分三层，各层可单独测试：
+  `_classify_literal_layer`（靠字面即可判定的 direct/transform/date/url/web）→
+  `_classify_product_layer`（产品能力信号选包）→ `_classify_residual_layer`（兜底）。
+- `resolve_run_capability_route(classify_fn=...)` 可替换分类器。替换后 resolution 冻结、
+  契约校验、definitions/handlers/bindings 的原子派生、Skill 终态与 Trajectory 投影全部不变，
+  非法包与工具组合仍被 `validate_capability_resolution_semantics()` 拒绝。
+- 换成模型分类器时，只需实现同一个可调用签名并返回 `_CandidateRoute`；分类失败或产出
+  非法 package 必须 fail-closed 到 `clarification_only`。
+
+规格"不做"一节中"不增加独立 LLM Router、不增加额外模型调用"仍是当前默认实现的选择，
+不再是架构约束：规则分类器在中英文出行、否定作用域与稳定知识边界上的维护成本已经由
+连续的单场景修补证明（见 issue #24），是否切换到模型分类由该 issue 决定。
+
 ## Route resolution 协议
 
 后端在 Run 启动前冻结以下安全对象：

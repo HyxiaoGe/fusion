@@ -93,7 +93,9 @@
 
 - issue #23：中英文城市白名单合并为 `backend/app/utils/location_names.py` 单一事实源，按行政区划整体收录，取代此前两处手挑的 26/41 条名单。端点未命中词表不再整体落入 `clarification_only`；强制调用路线工具的 `explicit_route` 判定维持原严格度。残留缺口（未收录专名与抽象名词在规则层不可分）已记入规格文档。
 - issue #25：`repair_unsupported_product_answer()` 的实际改写由 `PRODUCT_ANSWER_REPAIR_ENABLED` 控制，默认关闭；校验判定与 reason code 保留，并新增 `product_answer_observability` 记录"本应被改写"的反事实。观测字段只有固定分类与布尔值，不含模型或用户正文。
-- 本地证据：API 全量 `3583 passed, 1 skipped, 1943 subtests`，Ruff check 与改动文件 format check 通过。
+- issue #26：删除 `normalizeTrajectoryEvent.ts` 中 package→工具/计划/日期/reason code 的四张契约表与两个语义校验函数（831 → 594 行），只保留结构性校验；未知 `package_id` 与 reason code 原样展示而不是丢弃整条 resolution，展示侧缺少 i18n 文案时退回原始 id。
+- issue #24：`_classify_standard_request` 的 400 行 / 39 分支拆为信号层加三个决策层，最大函数降到 116 行；新增 `CapabilityClassifier` 协议与 `resolve_run_capability_route(classify_fn=...)` 接缝，规则分类器成为可替换的默认实现，骨架与契约校验不随分类实现变化。行为不变，规格验收矩阵全过。
+- 本地证据：API 全量 `3586 passed, 1 skipped, 1943 subtests`，Ruff check 与改动文件 format check 通过；UI 全量 `2462 passed`，目标 ESLint 与 production build 通过。
 - 本条没有 CI、部署、真实模型或登录态浏览器验收。
 
 ## 2026-09-02 Task 5 文档、台账与导航迁移（本地版本库）

@@ -9,6 +9,9 @@ from app.ai.skills.registry import RunSkillResolution, SkillLoadResult
 from app.services.stream.agent_task_policy import AgentTaskPolicy
 from app.services.stream.run_capability_router import (
     RunCapabilityResolution,
+    _CandidateRoute,
+    _classify_literal_layer,
+    _extract_request_signals,
     resolve_run_capability_route,
     serialize_capability_resolution,
 )
@@ -3436,3 +3439,82 @@ def test_english_and_chinese_city_pairs_resolve_to_the_same_package():
     english = _resolve("How do I get from Harbin to Sanya?")
 
     assert chinese.package_id == english.package_id == "mobility_intercity"
+
+
+def test_capability_classifier_is_replaceable_without_touching_the_skeleton():
+    """issue #24：换掉"消息 → 能力包"这一步，resolution 骨架完全不变。"""
+
+    calls: list[dict] = []
+
+    def stub_classifier(*, message, task_context_messages, available_tool_names):
+        calls.append(
+            {
+                "message": message,
+                "task_context_messages": task_context_messages,
+                "available_tool_names": available_tool_names,
+            }
+        )
+        return _CandidateRoute(
+            "weather",
+            "high",
+            ("explicit_weather_request",),
+            True,
+        )
+
+    resolution = resolve_run_capability_route(
+        original_message="随便说点什么",
+        task_context_messages=None,
+        available_tool_names=ALL_TOOLS,
+        requested_plan_mode="auto",
+        task_policy=_task_policy(task_mode="standard", plan_mode="auto"),
+        capabilities={"functionCalling": True, "searchCapable": True},
+        tools_disabled=False,
+        knowledge_grounded=False,
+        classify_fn=stub_classifier,
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["message"] == "随便说点什么"
+    # 契约校验、工具派生、指纹与 Skill 终态仍由骨架完成。
+    assert resolution.package_id == "weather"
+    assert resolution.external_tool_names == ("weather_forecast",)
+    assert resolution.resolution_mode == "routed"
+    assert resolution.include_current_date is True
+    assert resolution.skill_resolution is not None
+
+
+def test_replaced_classifier_still_goes_through_contract_validation():
+    """替换分类器不等于绕过契约：非法包与工具组合仍必须被拒。"""
+
+    def invalid_classifier(*, message, task_context_messages, available_tool_names):
+        return _CandidateRoute(
+            "direct",
+            "high",
+            ("direct_greeting",),
+            False,
+            explicit_tool_names=("web_search",),
+        )
+
+    with pytest.raises(ValueError):
+        resolve_run_capability_route(
+            original_message="你好",
+            task_context_messages=None,
+            available_tool_names=ALL_TOOLS,
+            requested_plan_mode="auto",
+            task_policy=_task_policy(task_mode="standard", plan_mode="auto"),
+            capabilities={"functionCalling": True, "searchCapable": True},
+            tools_disabled=False,
+            knowledge_grounded=False,
+            classify_fn=invalid_classifier,
+        )
+
+
+def test_literal_layer_decides_alone_and_defers_everything_else():
+    """字面层只认靠字面就能判的请求，其余交给下一层（issue #24）。"""
+
+    decided = _classify_literal_layer(_extract_request_signals("今天是几月几日、星期几？"))
+    deferred = _classify_literal_layer(_extract_request_signals("明天上海天气怎样？"))
+
+    assert decided is not None
+    assert decided.package_id == "date"
+    assert deferred is None
