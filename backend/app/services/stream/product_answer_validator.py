@@ -205,9 +205,7 @@ _WEATHER_UNSUPPORTED_IMPACT_RE = re.compile(
     r"(?:天气|雨天|有雨|下雨|会下雨|有雪|下雪|会下雪).{0,20}(?:建议|推荐|优先).{0,12}"
     r"(?:驾车|开车|自驾|公交|地铁|公共交通|步行|骑行)"
 )
-_WEATHER_ACTIVITY_PATTERN = (
-    r"(?:户外(?:活动|运动)?|活动|骑行|骑车|自行车|跑步|慢跑|徒步|登山|爬山|露营|运动|出游|游玩)"
-)
+_WEATHER_ACTIVITY_PATTERN = r"(?:户外(?:活动|运动)?|活动|骑行|骑车|自行车|跑步|慢跑|徒步|登山|爬山|露营|运动|出游|游玩)"
 _WEATHER_ACTIVITY_INFERENCE_RE = re.compile(
     rf"{_WEATHER_ACTIVITY_PATTERN}.{{0,16}}"
     r"(?:适合|不适合|推荐|不推荐|建议|不建议|大概率|容易|可能).{0,8}"

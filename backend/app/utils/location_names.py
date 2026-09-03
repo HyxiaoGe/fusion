@@ -1070,18 +1070,29 @@ def _city_with_subordinate_part(body: str, *, province: str | None) -> tuple[str
 
     for city_name in _longest_known_prefixes(body):
         rest = body[len(city_name) :]
-        if (
-            rest not in ("", "市")
-            and not rest.removeprefix("市").endswith(_SUB_CITY_SUFFIXES)
-            and not rest.endswith(_TRANSPORT_HUB_SUFFIXES)
-        ):
+        if rest in ("", "市"):
+            city_id = _unique_city_id(city_name, province)
+            if city_id is not None:
+                return city_id, city_name
             continue
-        if rest.removeprefix("市") == "" and rest != "" and rest != "市":
-            continue
-        city_id = _unique_city_id(city_name, province)
-        if city_id is not None:
-            return city_id, city_name
+        if rest.endswith(_TRANSPORT_HUB_SUFFIXES) or _is_named_subordinate_division(rest):
+            city_id = _unique_city_id(city_name, province)
+            if city_id is not None:
+                return city_id, city_name
     return None
+
+
+def _is_named_subordinate_division(rest: str) -> bool:
+    """判断剩余部分是不是一个**自带名称**的下级行政区。
+
+    `北京市朝阳区`、`上海浦东新区` 里的下级区有自己的名字，城市是前缀那一段；
+    但 `朝阳区`、`大同区` 的"朝阳""大同"本身就是区名，不能当成同名地级市——否则
+    `从北京到朝阳区怎么走？` 会被误判为跨城并公开航班与火车工具。
+    """
+
+    if rest.startswith("市"):
+        return rest.removeprefix("市").endswith(_SUB_CITY_SUFFIXES)
+    return rest.endswith(_SUB_CITY_SUFFIXES) and rest not in _SUB_CITY_SUFFIXES
 
 
 def _longest_known_prefixes(value: str):

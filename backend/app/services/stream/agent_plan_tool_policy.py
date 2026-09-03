@@ -58,6 +58,15 @@ _ORGANIZATION_UNIT_ENDPOINT_RE = re.compile(
     r"(?:研发|数据|产品|运营|测试|结算|指挥|客服|物流|仓储|财务|人力|培训|呼叫)中心$|"
     r"(?:团队|部门|事业部|分公司|子公司|总部|项目组|小组)$"
 )
+# 未收录端点的"可能是专名"形状判定：只用字符类与长度，不依赖任何词表。
+# 数字、拉丁字母、数量词与抽象名词词尾都不可能出现在地名里，这类判定对新词天然泛化。
+_NON_PLACE_SHAPE_RE = re.compile(
+    r"[0-9０-９a-zA-Z]"  # 100万用户、MVP、PMF
+    r"|^[零一二两三四五六七八九十百千万亿]+$"  # 从零到一
+)
+_ABSTRACT_MORPHEME_TAIL_RE = re.compile(
+    r"(?:性|度|率|化|感|力|额|量|值|期|观|念|论|策|态|阶段|状态|水平|规模|目标|结果|方案|想法|思路)$"
+)
 _ABSTRACT_ENDPOINT_RES = (
     _CAREER_ENDPOINT_RE,
     _PROCESS_STAGE_ENDPOINT_RE,
@@ -184,6 +193,7 @@ class ProductCapabilitySignals:
     adjacent_route_followup: bool
     endpoint_relation: bool
     intercity_mobility: bool
+    route_capability: bool
     intercity_endpoints: bool
     endpoints_are_known_locations: bool
     weather: bool
@@ -234,6 +244,17 @@ def resolve_product_capability_signals(
         and not abstract_relation
         and mobility_intent == _MobilityIntentStrength.EXPLICIT
     )
+    # 词表不可能收全境外地名与新专名。端点没有地点证据、但形状上像专名且任一端都不是
+    # 抽象概念时，仍然公开 route_compare——但**不进入 explicit_route**，因此计划策略不会
+    # 强制调用。这条安全路径让 `从科纳克里到弗里敦怎么走？` 拿到能力，同时把
+    # `从零到一`、`从MVP到PMF`、`从100万用户到1000万用户`、`产品从概念到上线` 挡在外面。
+    route_capability = bool(
+        endpoint
+        and endpoint.structured
+        and not abstract_relation
+        and mobility_intent == _MobilityIntentStrength.EXPLICIT
+        and all(_looks_like_proper_place_name(slot) for slot in (endpoint.origin, endpoint.destination))
+    )
     intercity_mobility = bool(
         endpoint
         and not abstract_relation
@@ -252,6 +273,7 @@ def resolve_product_capability_signals(
         adjacent_route_followup=adjacent_route_followup,
         endpoint_relation=endpoint_relation,
         intercity_mobility=intercity_mobility,
+        route_capability=route_capability or explicit_route,
         intercity_endpoints=bool(
             endpoint and intercity_mobility and are_distinct_known_cities(endpoint.origin, endpoint.destination)
         ),
@@ -446,6 +468,21 @@ def _resolve_mobility_intent_strength(
     if _RELATED_MOBILITY_RE.search(intent_message):
         return _MobilityIntentStrength.RELATED
     return _MobilityIntentStrength.NONE
+
+
+def _looks_like_proper_place_name(slot: str) -> bool:
+    """未收录端点是否具备专名形状。
+
+    只做字符类与长度判定，不查词表：地名不含数字与拉丁字母，不是数量词，也不会以
+    抽象名词词尾结束。任一端命中抽象族即整体否决——`产品从概念到上线` 里的 `上线`
+    属于流程阶段族，足以判定这不是出行请求。
+    """
+
+    if not slot or not (2 <= len(slot) <= 8):
+        return False
+    if _NON_PLACE_SHAPE_RE.search(slot) or _ABSTRACT_MORPHEME_TAIL_RE.search(slot):
+        return False
+    return not any(pattern.search(slot) for pattern in _ABSTRACT_ENDPOINT_RES)
 
 
 def _is_abstract_endpoint_relation(

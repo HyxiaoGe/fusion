@@ -1140,6 +1140,16 @@ def _classify_product_layer(
             ("origin_destination_relation", "intercity_locations"),
             True,
         )
+
+    # 端点没有地点证据但形状像专名：公开 route_compare 而不是要求澄清。
+    # 只公开 schema，不进入 explicit_route，因此计划策略不会强制调用（issue #23）。
+    if not request.all_network_denied and signals.route_capability and "route_compare" not in denied_product_requests:
+        return _CandidateRoute(
+            "mobility_route",
+            "medium",
+            ("explicit_route_task",),
+            include_current_date,
+        )
     return None
 
 

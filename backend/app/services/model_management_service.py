@@ -446,11 +446,9 @@ class ModelManagementService:
                 "catalog_invalidated": bool(compensation.get("catalog_invalidated")),
                 "model_ownership_unverified": bool(compensation.get("model_ownership_unverified")),
                 "manual_cleanup_required": bool(compensation.get("manual_cleanup_required")),
-                "errors": [
-                    str(item)[:100]
-                    for item in (compensation_errors or [])[:20]
-                    if isinstance(item, str)
-                ] if isinstance(compensation_errors, list) else [],
+                "errors": [str(item)[:100] for item in (compensation_errors or [])[:20] if isinstance(item, str)]
+                if isinstance(compensation_errors, list)
+                else [],
             },
             "created_at": row.created_at,
             "updated_at": row.updated_at,
@@ -636,11 +634,7 @@ class ModelManagementService:
         if bool(compensation.get("manual_cleanup_required")):
             return "准入操作需要人工清理，禁止直接重试"
         errors = compensation.get("errors")
-        completed_phases = {
-            str(item)
-            for item in (safe_result.get("completed_phases") or [])
-            if isinstance(item, str)
-        }
+        completed_phases = {str(item) for item in (safe_result.get("completed_phases") or []) if isinstance(item, str)}
         model_was_created = "model_new" in completed_phases
         key_was_updated = "key_update" in completed_phases
         compensation_complete = (

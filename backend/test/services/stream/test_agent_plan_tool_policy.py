@@ -544,6 +544,42 @@ class GazetteerIsNotAnAdmissionGateTests(unittest.TestCase):
                 self.assertTrue(signals.explicit_route)
                 self.assertTrue(signals.intercity_mobility)
 
+    def test_unknown_but_structured_requests_get_a_non_forcing_capability(self):
+        """未收录端点仍获出行能力，但不强制调用（PR #27 三轮 P1-C / issue #23）。"""
+
+        for message in (
+            "从科纳克里到弗里敦怎么走？",
+            "从北京到朝阳区怎么走？",
+        ):
+            with self.subTest(message=message):
+                signals = resolve_product_capability_signals(
+                    original_message=message,
+                    task_context_messages=None,
+                )
+
+                self.assertTrue(signals.route_capability)
+                # 不进入 explicit_route，计划策略因此不会强制调用路线工具。
+                self.assertFalse(signals.explicit_route)
+                self.assertFalse(signals.intercity_endpoints)
+
+    def test_bare_districts_do_not_become_same_named_prefecture_cities(self):
+        """裸市辖区不得被误认成同名地级市（PR #27 三轮 P1-D）。"""
+
+        self.assertIsNone(resolve_city_key("朝阳区"))
+        self.assertIsNone(resolve_city_key("大同区"))
+        self.assertEqual(resolve_city_key("北京市朝阳区"), resolve_city_key("北京"))
+        self.assertEqual(resolve_city_key("上海浦东新区"), resolve_city_key("上海"))
+
+        for message in ("从北京到朝阳区怎么走？", "从大庆到大同区怎么走？"):
+            with self.subTest(message=message):
+                signals = resolve_product_capability_signals(
+                    original_message=message,
+                    task_context_messages=None,
+                )
+
+                self.assertFalse(signals.intercity_endpoints)
+                self.assertFalse(signals.intercity_mobility)
+
     def test_unenumerated_non_place_endpoints_never_reach_map_tools(self):
         """未枚举的产品/增长表达不得被当成真实路线（PR #27 复审 P1-A）。"""
 
@@ -562,6 +598,8 @@ class GazetteerIsNotAnAdmissionGateTests(unittest.TestCase):
 
                 self.assertFalse(signals.explicit_route)
                 self.assertFalse(signals.intercity_mobility)
+                # 安全能力路径同样不放行，否则仍会公开地图工具。
+                self.assertFalse(signals.route_capability)
 
     def test_abstract_relations_are_blocked_by_endpoint_semantics_not_by_the_gazetteer(self):
         for message in (

@@ -10835,22 +10835,25 @@
     "expected_network_boundary_required": false
   },
   {
-    "id": "run-route-p1-unlisted-overseas-gap",
+    "id": "run-route-p1-unlisted-overseas-safe-path",
     "category": "run_capability_router",
     "question": "从科纳克里到弗里敦怎么走？",
     "expected_tool_policy": "no_search",
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
-    "expected_package_id": "clarification_only",
-    "expected_announced_tools": [],
+    "expected_package_id": "mobility_route",
+    "expected_announced_tools": [
+      "route_compare"
+    ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "agent_plan_control"
     ],
-    "expected_resolution_mode": "clarification",
+    "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
-      "insufficient_capability_signal"
+      "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "off",
+    "expected_effective_plan_mode": "auto",
     "expected_network_boundary_required": false
   },
   {

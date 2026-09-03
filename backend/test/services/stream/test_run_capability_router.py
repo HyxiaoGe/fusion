@@ -3518,3 +3518,36 @@ def test_literal_layer_decides_alone_and_defers_everything_else():
     assert decided is not None
     assert decided.package_id == "date"
     assert deferred is None
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "从科纳克里到弗里敦怎么走？",
+        "从北京到朝阳区怎么走？",
+    ],
+)
+def test_unknown_endpoints_take_the_non_forcing_route_package(message):
+    """issue #23：结构化起终点加明确出行动词，即使端点未收录也要拿到出行能力。"""
+
+    route = _resolve(message)
+
+    assert route.package_id == "mobility_route"
+    assert route.external_tool_names == ("route_compare",)
+    assert route.confidence == "medium"
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "产品从概念到上线怎么走？",
+        "从零到一怎么走？",
+        "从100万用户到1000万用户怎么走？",
+        "从MVP到PMF怎么走？",
+    ],
+)
+def test_non_place_endpoints_never_expose_map_tools(message):
+    route = _resolve(message)
+
+    assert route.package_id == "clarification_only"
+    assert route.external_tool_names == ()
