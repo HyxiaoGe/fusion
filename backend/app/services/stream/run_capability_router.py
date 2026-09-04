@@ -877,7 +877,7 @@ def _classify_literal_layer(
         if request.all_network_denied or available_tool_names is None
         else _resolve_explicit_authorized_alias(routing_message, available_tool_names)
     )
-    if explicit_alias is not None:
+    if explicit_alias is not None and not _has_competing_product_request(request):
         return _CandidateRoute(
             "mcp_explicit",
             "high",
@@ -897,6 +897,17 @@ def _classify_literal_layer(
     if _SIMPLE_CALC_RE.search(routing_message):
         return _CandidateRoute("direct", "high", ("simple_calculation",), False)
     return None
+
+
+def _has_competing_product_request(request: _RequestSignals) -> bool:
+    """alias 同句出现已成立产品任务时，字面层不能吞掉后续语义。"""
+
+    product_signals = resolve_product_capability_signals(
+        original_message=request.routing_message,
+        task_context_messages=None,
+    )
+    english = _extract_english_route_signals(request)
+    return _classify_product_layer(request, product_signals, english) is not None
 
 
 def _extract_english_route_signals(request: _RequestSignals) -> _EnglishRouteSignals:

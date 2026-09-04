@@ -214,3 +214,47 @@
 - [ ] **Step 4: 独立代码复审**
 
   独立检查模型输出边界、fail-closed 行为、事件循环阻塞上限、日志脱敏、生产接线和骨架不变性。发现问题先修复并重新运行本任务全部验证，再形成最终交付说明。
+
+## Task 5: 最终审查 P1 回归修复
+
+**Files:**
+
+- Modify: `backend/app/services/stream/agent_loop_wiring.py`
+- Modify: `backend/app/services/stream/runner.py`
+- Modify: `backend/app/services/stream/run_capability_router.py`
+- Modify: `backend/test/services/stream/test_agent_loop_contract.py`
+- Modify: `backend/test/services/stream/test_agent_loop_wiring.py`
+- Modify: `backend/test/services/stream/test_run_capability_router.py`
+- Modify: `backend/test/test_stream_handler.py`
+
+- [x] **Step 1: 写入 P1 红灯回归测试**
+
+  为 contract helper 通过 `build_call_config_fn=partial(build_agent_loop_call_config, classify_fn=classify_capability_request)` 注入确定性规则分类器；为 Runner 断言阻塞 builder 在线程中运行、1.5 秒 deadline 超时且关闭 session；为 alias 增加中文、英文和无分隔符的 alias 加天气/航班/地点负例，并保持纯 alias 命中。
+
+- [x] **Step 2: 运行新增测试确认失败**
+
+  Run:
+
+  ```bash
+  DATABASE_URL="sqlite:///:memory:" /Users/sean/code/fusion/fusion-api/.venv/bin/python -m pytest backend/test/test_stream_handler.py backend/test/services/stream/test_agent_loop_contract.py backend/test/services/stream/test_agent_loop_wiring.py backend/test/services/stream/test_run_capability_router.py -q
+  ```
+
+  Expected: 新线程组装 API、timeout 路径和 alias 组合边界均尚未满足。
+
+- [x] **Step 3: 最小实现同步准备、线程配置和同步组装**
+
+  在 `agent_loop_wiring.py` 拆出只在调用线程访问 `db` 的 prepared-input helper、无 `db` 参数的纯 call-config helper、以及复用 session 的同步 assembly helper；保留 `build_agent_loop_lifecycle_call()` 作为既有同步调用方的组合入口。Runner 在数据库准备完成后以 `asyncio.to_thread()` 加 `asyncio.wait_for(..., timeout=1.5)` 构建配置，再在原线程组装 execution/lifecycle，finally 始终关闭 session。字面 alias 仅在产品层对同一句无已成立产品工具时返回，其他请求交由既有产品/语义层。
+
+- [x] **Step 4: 运行完整 P1 验证**
+
+  Run:
+
+  ```bash
+  cd backend && DATABASE_URL="sqlite:///:memory:" /Users/sean/code/fusion/fusion-api/.venv/bin/python -m unittest discover -s test -t . -v
+  DATABASE_URL="sqlite:///:memory:" /Users/sean/code/fusion/fusion-api/.venv/bin/python -m pytest backend/test/services/stream/test_run_capability_model_classifier.py backend/test/services/stream/test_run_capability_router.py backend/test/services/stream/test_agent_loop_request_prep.py backend/test/services/stream/test_agent_loop_wiring.py backend/test/services/stream/test_agent_loop_contract.py backend/test/test_stream_handler.py backend/test/test_agent_behavior_eval.py -q
+  /Users/sean/code/fusion/fusion-api/.venv/bin/python -m ruff check backend
+  ```
+
+- [ ] **Step 5: 审计并提交**
+
+  检查 `git diff --check`、受保护 contract/Skill/Trajectory/fixture 路径与 `git status`；仅暂存本任务实现、测试、计划与 SDD 报告，使用中文提交信息和 `Co-Authored-By: Codex <noreply@openai.com>`。

@@ -8,6 +8,8 @@ stream_handler 单元测试（Redis Stream 架构）
 
 import asyncio
 import json
+import threading
+import time
 import unittest
 from contextlib import ExitStack
 from functools import partial
@@ -698,6 +700,116 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
                 trace_id="trace-1",
             )
 
+        self.mock_db.close.assert_called_once()
+
+    async def test_generate_to_redis_builds_blocking_call_config_off_event_loop(self):
+        """同步分类配置必须在线程中构建，不能暂停同 worker 的 ticker。"""
+
+        main_thread_id = threading.get_ident()
+        observed = {}
+        prepared_inputs = object()
+        lifecycle_call = SimpleNamespace(request=object(), execution=object(), dependencies=object())
+
+        def _blocking_builder(**_kwargs):
+            observed["builder_thread_id"] = threading.get_ident()
+            time.sleep(0.08)
+            return object()
+
+        def _prepare_inputs(**_kwargs):
+            observed["prepare_thread_id"] = threading.get_ident()
+            return prepared_inputs
+
+        async def _capture_lifecycle(**_kwargs):
+            observed["lifecycle_called"] = True
+
+        with (
+            patch(
+                "app.services.stream.runner.prepare_agent_loop_call_config_inputs",
+                side_effect=_prepare_inputs,
+            ),
+            patch(
+                "app.services.stream.runner.build_agent_loop_call_config_from_inputs",
+                side_effect=_blocking_builder,
+            ),
+            patch(
+                "app.services.stream.runner.assemble_agent_loop_lifecycle_call",
+                return_value=lifecycle_call,
+            ),
+            patch(
+                "app.services.stream.runner.run_agent_loop_lifecycle",
+                AsyncMock(side_effect=_capture_lifecycle),
+            ),
+        ):
+            task = asyncio.create_task(
+                self.handler.generate_to_redis(
+                    conversation_id="conv-thread",
+                    user_id="user-thread",
+                    model_id="gpt-4",
+                    litellm_model="openai/gpt-4",
+                    litellm_kwargs={},
+                    provider="openai",
+                    raw_messages=[{"role": "user", "content": "查天气"}],
+                    has_vision=False,
+                    file_ids=None,
+                    original_message="查天气",
+                    assistant_message_id="msg-thread",
+                    task_id="task-thread",
+                    options={"use_reasoning": False},
+                    capabilities=None,
+                    trace_id="trace-thread",
+                )
+            )
+            ticker_started_at = time.perf_counter()
+            await asyncio.sleep(0.01)
+            ticker_elapsed = time.perf_counter() - ticker_started_at
+            await task
+
+        self.assertLess(ticker_elapsed, 0.05)
+        self.assertEqual(observed["prepare_thread_id"], main_thread_id)
+        self.assertNotEqual(observed["builder_thread_id"], main_thread_id)
+        self.assertTrue(observed["lifecycle_called"])
+
+    async def test_generate_to_redis_call_config_deadline_closes_db(self):
+        """线程中的分类构建超过固定 deadline 时不组装 lifecycle，且 session 必须关闭。"""
+
+        def _blocking_builder(**_kwargs):
+            time.sleep(0.05)
+            return object()
+
+        with (
+            patch(
+                "app.services.stream.runner.prepare_agent_loop_call_config_inputs",
+                return_value=object(),
+            ),
+            patch(
+                "app.services.stream.runner.build_agent_loop_call_config_from_inputs",
+                side_effect=_blocking_builder,
+            ),
+            patch(
+                "app.services.stream.runner.assemble_agent_loop_lifecycle_call",
+            ) as assemble_lifecycle,
+            patch("app.services.stream.runner._CALL_CONFIG_BUILD_DEADLINE_SECONDS", 0.01),
+            self.assertRaises(asyncio.TimeoutError),
+        ):
+            await self.handler.generate_to_redis(
+                conversation_id="conv-timeout",
+                user_id="user-timeout",
+                model_id="gpt-4",
+                litellm_model="openai/gpt-4",
+                litellm_kwargs={},
+                provider="openai",
+                raw_messages=[{"role": "user", "content": "查天气"}],
+                has_vision=False,
+                file_ids=None,
+                original_message="查天气",
+                assistant_message_id="msg-timeout",
+                task_id="task-timeout",
+                options={"use_reasoning": False},
+                capabilities=None,
+                trace_id="trace-timeout",
+            )
+
+        assemble_lifecycle.assert_not_called()
         self.mock_db.close.assert_called_once()
 
     async def test_generate_to_redis_uses_runner_patched_agent_loop_dependencies(self):

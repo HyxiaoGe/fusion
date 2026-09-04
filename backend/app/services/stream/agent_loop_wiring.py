@@ -187,13 +187,28 @@ class AgentLoopLifecycleCall:
     dependencies: AgentLoopLifecycleDependencies
 
 
-def build_agent_loop_lifecycle_call(
+@dataclass(frozen=True)
+class AgentLoopCallConfigInputs:
+    """已在调用线程完成动态工具查询的纯配置输入，不携带 database session。"""
+
+    options: dict
+    capabilities: dict
+    additional_tools: list[Any]
+    dynamic_tool_handlers: dict[str, Any]
+    tool_bindings: list[Any]
+    authorized_tool_names: list[str]
+    should_load_dynamic_tool_metadata: bool
+    skill_release_pins: Any | None
+
+
+def prepare_agent_loop_call_config_inputs(
     *,
     run_input: AgentLoopRunInput,
     db: Any,
-    limits: AgentLoopLimits,
     dependencies: AgentLoopWiringDependencies,
-) -> AgentLoopLifecycleCall:
+) -> AgentLoopCallConfigInputs:
+    """只在当前线程读取 session，准备随后可在线程中消费的纯数据。"""
+
     options = {} if run_input.options is None else run_input.options
     capabilities = {} if run_input.capabilities is None else run_input.capabilities
     should_load_dynamic_tools = (
@@ -233,36 +248,68 @@ def build_agent_loop_lifecycle_call(
             user_id=run_input.user_id,
             previous_run_id=run_input.previous_run_id,
         )
-    call_config = dependencies.build_call_config_fn(
-        provider=run_input.provider,
+    return AgentLoopCallConfigInputs(
         options=options,
         capabilities=capabilities,
         additional_tools=list(getattr(dynamic_tool_set, "definitions", []) or []),
         dynamic_tool_handlers=dict(getattr(dynamic_tool_set, "handlers", {}) or {}),
         tool_bindings=list(getattr(dynamic_tool_set, "audit_bindings", []) or []),
+        authorized_tool_names=authorized_tool_names,
+        should_load_dynamic_tool_metadata=should_load_dynamic_tool_metadata,
+        skill_release_pins=skill_release_pins,
+    )
+
+
+def build_agent_loop_call_config_from_inputs(
+    *,
+    run_input: AgentLoopRunInput,
+    inputs: AgentLoopCallConfigInputs,
+    build_call_config_fn: Callable[..., AgentLoopCallConfig],
+) -> AgentLoopCallConfig:
+    """仅由普通值构建 call config，可安全放到 worker thread。"""
+
+    return build_call_config_fn(
+        provider=run_input.provider,
+        options=inputs.options,
+        capabilities=inputs.capabilities,
+        additional_tools=inputs.additional_tools,
+        dynamic_tool_handlers=inputs.dynamic_tool_handlers,
+        tool_bindings=inputs.tool_bindings,
         **(
-            {"authorized_tool_names": authorized_tool_names}
-            if should_load_dynamic_tool_metadata
-            and _accepts_keyword(dependencies.build_call_config_fn, "authorized_tool_names")
+            {"authorized_tool_names": inputs.authorized_tool_names}
+            if inputs.should_load_dynamic_tool_metadata
+            and _accepts_keyword(build_call_config_fn, "authorized_tool_names")
             else {}
         ),
         **(
             {"original_message": run_input.original_message}
-            if _accepts_keyword(dependencies.build_call_config_fn, "original_message")
+            if _accepts_keyword(build_call_config_fn, "original_message")
             else {}
         ),
         **(
             {"task_context_messages": run_input.raw_messages}
-            if _accepts_keyword(dependencies.build_call_config_fn, "task_context_messages")
+            if _accepts_keyword(build_call_config_fn, "task_context_messages")
             else {}
         ),
         **(
-            {"skill_release_pins": skill_release_pins}
-            if skill_release_pins is not None
-            and _accepts_keyword(dependencies.build_call_config_fn, "skill_release_pins")
+            {"skill_release_pins": inputs.skill_release_pins}
+            if inputs.skill_release_pins is not None
+            and _accepts_keyword(build_call_config_fn, "skill_release_pins")
             else {}
         ),
     )
+
+
+def assemble_agent_loop_lifecycle_call(
+    *,
+    run_input: AgentLoopRunInput,
+    db: Any,
+    limits: AgentLoopLimits,
+    dependencies: AgentLoopWiringDependencies,
+    call_config: AgentLoopCallConfig,
+) -> AgentLoopLifecycleCall:
+    """保持 session 在调用线程，组装 execution 与 lifecycle 依赖。"""
+
     execution = dependencies.build_execution_fn(
         request=run_input.to_execution_request(db=db, call_config=call_config),
         limits=limits,
@@ -272,6 +319,34 @@ def build_agent_loop_lifecycle_call(
         request=run_input.to_lifecycle_request(call_config=call_config, limits=limits),
         execution=execution,
         dependencies=dependencies.to_lifecycle_dependencies(),
+    )
+
+
+def build_agent_loop_lifecycle_call(
+    *,
+    run_input: AgentLoopRunInput,
+    db: Any,
+    limits: AgentLoopLimits,
+    dependencies: AgentLoopWiringDependencies,
+) -> AgentLoopLifecycleCall:
+    """兼容既有同步调用方：准备、配置、组装都在同一调用线程完成。"""
+
+    inputs = prepare_agent_loop_call_config_inputs(
+        run_input=run_input,
+        db=db,
+        dependencies=dependencies,
+    )
+    call_config = build_agent_loop_call_config_from_inputs(
+        run_input=run_input,
+        inputs=inputs,
+        build_call_config_fn=dependencies.build_call_config_fn,
+    )
+    return assemble_agent_loop_lifecycle_call(
+        run_input=run_input,
+        db=db,
+        limits=limits,
+        dependencies=dependencies,
+        call_config=call_config,
     )
 
 

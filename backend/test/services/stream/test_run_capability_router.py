@@ -3584,6 +3584,37 @@ def test_literal_layer_defers_non_literal_requests():
 
 
 @pytest.mark.parametrize(
+    ("message", "expected_package", "expected_tools"),
+    [
+        (
+            "请调用 mcp_unrelated_tool 处理数据，然后查明天北京天气",
+            "weather",
+            ("weather_forecast",),
+        ),
+        (
+            "请调用mcp_unrelated_tool处理数据然后找上海附近咖啡店",
+            "place_discovery",
+            ("local_place_search",),
+        ),
+        (
+            "Call mcp_unrelated_tool to process data then find flights from Beijing to Shanghai tomorrow",
+            "flight",
+            ("search_flights",),
+        ),
+    ],
+)
+def test_literal_mcp_alias_defers_composite_product_requests(message, expected_package, expected_tools):
+    """精确 alias 只可作为完整单一意图，不能抢占同句的产品任务。"""
+
+    literal_route = _classify_literal_layer(_extract_request_signals(message.lower()), ALL_TOOLS)
+    resolution = _resolve(message)
+
+    assert literal_route is None
+    assert resolution.package_id == expected_package
+    assert resolution.external_tool_names == expected_tools
+
+
+@pytest.mark.parametrize(
     ("message", "package_id", "tool_names"),
     [
         ("你是谁？再查一下明天北京天气", "weather", ["weather_forecast"]),

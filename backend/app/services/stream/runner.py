@@ -4,6 +4,7 @@ spec §4.1。本模块只负责 agent loop 的控制流编排，所有"做事"�
 （LLM 流消费 / 工具执行 / 落库 / SSE 编码）都委派给同子包内的兄弟模块。
 """
 
+import asyncio
 import time
 from dataclasses import replace
 from functools import partial
@@ -35,7 +36,9 @@ from app.services.stream.agent_loop_wiring import (
     AgentLoopLifecycleCall,
     AgentLoopRunInput,
     AgentLoopWiringDependencies,
-    build_agent_loop_lifecycle_call,
+    assemble_agent_loop_lifecycle_call,
+    build_agent_loop_call_config_from_inputs,
+    prepare_agent_loop_call_config_inputs,
 )
 from app.services.stream.agent_round import run_agent_round
 from app.services.stream.limit_summary import run_limit_summary_step
@@ -67,6 +70,7 @@ from app.services.suggested_question_worker import (
 AGENT_MAX_STEPS = 8  # LLM 调用轮次上限
 AGENT_MAX_TOOL_CALLS = 20  # 工具执行总次数上限
 AGENT_TOTAL_TIMEOUT = 300  # 5 分钟硬超时
+_CALL_CONFIG_BUILD_DEADLINE_SECONDS = 1.5
 
 
 def _log_agent_round_summary(
@@ -223,11 +227,27 @@ class StreamHandler:
                 replace_on_success=replace_on_success,
                 create_after_retry_user_id=create_after_retry_user_id,
             )
-            lifecycle_call = build_agent_loop_lifecycle_call(
+            dependencies = replace(dependencies, persist_message_fn=run_persist_message)
+            call_config_inputs = prepare_agent_loop_call_config_inputs(
+                run_input=run_input,
+                db=db,
+                dependencies=dependencies,
+            )
+            call_config = await asyncio.wait_for(
+                asyncio.to_thread(
+                    build_agent_loop_call_config_from_inputs,
+                    run_input=run_input,
+                    inputs=call_config_inputs,
+                    build_call_config_fn=dependencies.build_call_config_fn,
+                ),
+                timeout=_CALL_CONFIG_BUILD_DEADLINE_SECONDS,
+            )
+            lifecycle_call = assemble_agent_loop_lifecycle_call(
                 run_input=run_input,
                 db=db,
                 limits=limits or _agent_loop_limits(),
-                dependencies=replace(dependencies, persist_message_fn=run_persist_message),
+                dependencies=dependencies,
+                call_config=call_config,
             )
             await _run_agent_loop_lifecycle_call(lifecycle_call)
         finally:
