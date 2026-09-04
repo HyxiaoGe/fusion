@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
-from math import ceil
+from collections.abc import Callable, Mapping, Sequence
 from time import perf_counter
 
 import litellm
@@ -56,7 +55,7 @@ _ROUTE_DETAILS = {
     "url_read": ("high", ("explicit_url_read",), False, "routed"),
     "weather": ("high", ("explicit_weather_request",), True, "routed"),
     "place_discovery": ("high", ("explicit_place_discovery",), False, "routed"),
-    "mobility_route": ("high", ("explicit_route_task",), True, "routed"),
+    "mobility_route": ("high", ("explicit_route_task",), False, "routed"),
     "flight": ("high", ("explicit_flight_request",), True, "routed"),
     "train": ("high", ("explicit_train_request",), True, "routed"),
     "travel_air_rail": ("high", ("air_rail_comparison",), True, "routed"),
@@ -70,7 +69,7 @@ class _ModelRouteResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     package_id: str
-    explicit_tool_names: list[str] = Field(default_factory=list)
+    explicit_tool_names: list[str] = Field()
 
 
 def classify_capability_request_with_model(
@@ -80,6 +79,7 @@ def classify_capability_request_with_model(
     *,
     available_tool_names: list[str] | None = None,
     task_context_messages: list[object] | None = None,
+    token_counter_fn: Callable[..., int] | None = None,
 ) -> _CandidateRoute:
     """先处理可确定的字面请求，再以一次结构化模型调用分类其余请求。"""
 
@@ -97,7 +97,7 @@ def classify_capability_request_with_model(
     if not _has_classifier_credentials():
         return _fail_closed("credentials_missing", started_at)
 
-    model_messages = _build_messages(message, tools, context_messages)
+    model_messages = _build_messages(message, tools, context_messages, token_counter_fn=token_counter_fn)
     if model_messages is None:
         return _fail_closed("input_budget_exceeded", started_at)
 
@@ -118,7 +118,12 @@ def classify_capability_request_with_model(
                 },
             ),
         )
-        route = _parse_model_route(response, request.all_network_denied, tools)
+        route = _parse_model_route(
+            response,
+            request.all_network_denied,
+            tools,
+            include_current_date=request.include_current_date,
+        )
     except (Exception, ValidationError, ValueError, TypeError) as exc:
         return _fail_closed(_error_type(exc), started_at)
     if route is None:
@@ -131,26 +136,48 @@ def _build_messages(
     message: str,
     available_tools: list[str],
     conversation_messages: list[object] | None,
+    *,
+    token_counter_fn: Callable[..., int] | None = None,
 ) -> list[dict[str, str]] | None:
     current_message = str(message)
     history = _most_recent_complete_turn(conversation_messages)
     system_message = {
         "role": "system",
-        "content": (
-            "将请求分类为一个 package_id，并只返回 JSON："
-            "package_id 与 explicit_tool_names。允许包："
-            + ",".join(sorted(_MODEL_PACKAGE_IDS))
-            + "。仅可选择工具："
-            + ",".join(name for name in _CANONICAL_TOOL_ORDER if name in set(available_tools))
-        ),
+        "content": _system_prompt(available_tools),
     }
     messages = [system_message, *history, {"role": "user", "content": current_message}]
-    if _estimated_tokens(messages) <= settings.RUN_CAPABILITY_CLASSIFIER_MAX_INPUT_TOKENS:
+    if _within_input_budget(messages, token_counter_fn):
         return messages
+    if not history:
+        return None
     messages = [system_message, {"role": "user", "content": current_message}]
-    if _estimated_tokens(messages) <= settings.RUN_CAPABILITY_CLASSIFIER_MAX_INPUT_TOKENS:
+    if _within_input_budget(messages, token_counter_fn):
         return messages
     return None
+
+
+def _system_prompt(available_tools: list[str]) -> str:
+    available = ",".join(name for name in _CANONICAL_TOOL_ORDER if name in set(available_tools))
+    return """将当前请求分类为一个 package_id。只输出 JSON 对象，且必须同时包含 package_id 和 explicit_tool_names 两个字段；不得有额外字段。
+固定 taxonomy 与工具映射（explicit_tool_names 必须完全匹配，按 canonical order）：
+- direct：问候、身份、稳定常识或简单计算；[]。
+- transform：翻译、改写、润色或已给文本摘要；[]。
+- date：只问当前日期或星期；[]。
+- fresh_web：最新或当前外部事实、新闻、公开发布；[web_search]。
+- verified_web：要求官方或可靠来源、查证；[web_search,url_read]。
+- url_read：给定 URL 的读取或总结；[url_read]。
+- weather：明确天气、气温、降水或风力；[weather_forecast]。
+- place_discovery：附近地点、餐厅、酒店、景点发现；[local_place_search]。
+- mobility_route：明确同城路线、公交、驾车、步行或通勤；[route_compare]。
+- flight：明确航班、飞机或机票；[search_flights]。
+- train：明确高铁、动车、火车或车次；[search_trains]。
+- travel_air_rail：仅比较航班与火车；[search_flights,search_trains]。
+- mobility_intercity：跨城起终点但方式不明确；[route_compare,search_flights,search_trains]。
+- mixed_itinerary：2–3 个不同产品族；只可为天气、地点、路线、航班、火车的组合，且不能仅为航班加火车。
+- clarification_only：能力不明、关键实体不足、冲突或不符合以上规则；[]。
+canonical order 固定为 web_search,url_read,weather_forecast,local_place_search,route_compare,search_flights,search_trains。
+禁止选择 deep_research、knowledge_grounded、tools_unavailable 或 mcp_explicit。全局禁网时不得选择任何外部工具；工具不可用、包与工具不匹配或不确定时选择 clarification_only。
+本次可用工具：""" + available
 
 
 def _most_recent_complete_turn(messages: Sequence[object] | None) -> list[dict[str, str]]:
@@ -167,23 +194,59 @@ def _most_recent_complete_turn(messages: Sequence[object] | None) -> list[dict[s
 
 
 def _normalize_conversation_message(value: object) -> dict[str, str] | None:
-    if not isinstance(value, Mapping):
+    role = _message_field(value, "role")
+    content = _message_field(value, "content")
+    text_content = _project_text_content(content)
+    if role not in {"user", "assistant"} or text_content is None:
         return None
-    role = value.get("role")
-    content = value.get("content")
-    if role not in {"user", "assistant"} or not isinstance(content, str):
-        return None
-    return {"role": role, "content": content}
+    return {"role": role, "content": text_content}
 
 
-def _estimated_tokens(messages: Sequence[Mapping[str, str]]) -> int:
-    return sum(ceil(len(message["content"]) / 4) for message in messages)
+def _message_field(value: object, field_name: str) -> object:
+    if isinstance(value, Mapping):
+        return value.get(field_name)
+    return getattr(value, field_name, None)
+
+
+def _project_text_content(content: object) -> str | None:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, Sequence):
+        return None
+    text_blocks = []
+    for block in content:
+        if not isinstance(block, Mapping) or block.get("type") != "text":
+            continue
+        text = block.get("text")
+        if isinstance(text, str):
+            text_blocks.append(text)
+    return "\n".join(text_blocks) if text_blocks else None
+
+
+def _within_input_budget(
+    messages: Sequence[Mapping[str, str]], token_counter_fn: Callable[..., int] | None
+) -> bool:
+    try:
+        token_count = (token_counter_fn or litellm.token_counter)(
+            model=_token_counter_model(),
+            messages=list(messages),
+        )
+    except Exception:
+        return False
+    return isinstance(token_count, int) and not isinstance(token_count, bool) and token_count <= settings.RUN_CAPABILITY_CLASSIFIER_MAX_INPUT_TOKENS
+
+
+def _token_counter_model() -> str:
+    model = settings.RUN_CAPABILITY_CLASSIFIER_MODEL.strip()
+    return model if "/" in model else f"deepseek/{model}"
 
 
 def _parse_model_route(
     response: object,
     all_network_denied: bool,
     available_tools: list[str],
+    *,
+    include_current_date: bool,
 ) -> _CandidateRoute | None:
     parsed = _ModelRouteResponse.model_validate_json(_response_content(response))
     package_id = parsed.package_id
@@ -196,6 +259,7 @@ def _parse_model_route(
             not 2 <= len(explicit_tools) <= 3
             or len(set(explicit_tools)) != len(explicit_tools)
             or not set(explicit_tools).issubset(_MIXED_ITINERARY_TOOLS)
+            or set(explicit_tools) == {"search_flights", "search_trains"}
         ):
             return None
     elif explicit_tools != allowed_tools:
@@ -204,13 +268,16 @@ def _parse_model_route(
         return None
     if all_network_denied and explicit_tools:
         return None
-    confidence, reason_codes, include_current_date, resolution_mode = _ROUTE_DETAILS[package_id]
+    confidence, reason_codes, fixed_include_current_date, resolution_mode = _ROUTE_DETAILS[package_id]
+    resolved_include_current_date = fixed_include_current_date
+    if package_id == "mobility_route":
+        resolved_include_current_date = include_current_date
     canonical_tools = tuple(name for name in _CANONICAL_TOOL_ORDER if name in explicit_tools)
     return _CandidateRoute(
         package_id=package_id,
         confidence=confidence,
         reason_codes=reason_codes,
-        include_current_date=include_current_date,
+        include_current_date=resolved_include_current_date,
         resolution_mode=resolution_mode,
         explicit_tool_names=canonical_tools or None,
     )
