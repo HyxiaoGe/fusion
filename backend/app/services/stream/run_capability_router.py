@@ -914,15 +914,35 @@ def _has_alias_followup_clause(suffix: str) -> bool:
 
     for boundary in re.finditer(
         r"(?P<connector>然后|再|并且|随后|\b(?:and\s+then|then|also)\b)|"
+        r"(?P<natural_connector>\b(?:and)\b|并)|"
         r"(?P<sentence_boundary>[，,；;。！？!?])",
         suffix,
         re.IGNORECASE,
     ):
         task_parameter = suffix[: boundary.start()].strip(" \t，,；;。！？!?")
         followup = suffix[boundary.end() :].strip(" \t，,；;。！？!?")
+        if boundary.group("natural_connector") is not None:
+            if _starts_alias_followup_task(followup):
+                return True
+            continue
         if followup and (boundary.group("connector") is not None or task_parameter):
             return True
     return False
+
+
+def _starts_alias_followup_task(followup: str) -> bool:
+    """裸 and/并 后必须有独立任务启动词，避免误拆单一 alias 参数。"""
+
+    return bool(
+        re.match(
+            r"(?:"
+            r"(?:请|帮我|麻烦)?(?:查|查询|找|搜索|告诉|帮|规划|比较|预订|安排|导航)"
+            r"|(?:please\s+)?(?:find|search|check|tell|show|plan|compare|book|navigate|look\s+up)\b"
+            r")",
+            followup,
+            re.IGNORECASE,
+        )
+    )
 
 
 def _extract_english_route_signals(request: _RequestSignals) -> _EnglishRouteSignals:

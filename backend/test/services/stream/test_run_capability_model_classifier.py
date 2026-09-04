@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from itertools import combinations
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -234,6 +235,33 @@ def test_result_callback_observes_literal_model_and_fail_closed_results() -> Non
     assert model.package_id == "direct"
     _assert_clarification(failed)
     assert events == [("literal", None), ("model", None), ("failed", "timeout")]
+
+
+def test_deadline_signal_turns_late_model_result_into_failed_observation() -> None:
+    """外层 deadline 已结束时，迟到 response 不得再记录 model 成功。"""
+
+    deadline_event = threading.Event()
+    observations = []
+
+    def _late_completion(**_kwargs):
+        deadline_event.set()
+        return _completion_response("weather", ["weather_forecast"])
+
+    with patch(
+        "app.services.stream.run_capability_model_classifier.litellm.completion",
+        side_effect=_late_completion,
+    ) as completion, patch("app.services.stream.run_capability_model_classifier.logger.info") as log_info:
+        candidate = classify_capability_request_with_model(
+            "需要语义判断的请求",
+            ALL_TOOLS,
+            deadline_event=deadline_event,
+            result_callback=lambda result, error_type: observations.append((result, error_type)),
+        )
+
+    _assert_clarification(candidate)
+    completion.assert_called_once()
+    assert observations == [("failed", "deadline_exceeded")]
+    assert [call.args[1] for call in log_info.call_args_list] == ["failed"]
 
 
 def test_global_network_denial_cannot_be_promoted_by_model() -> None:

@@ -769,10 +769,16 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(observed["builder_thread_id"], main_thread_id)
         self.assertTrue(observed["lifecycle_called"])
 
-    async def test_generate_to_redis_call_config_deadline_closes_db(self):
-        """线程中的分类构建超过固定 deadline 时不组装 lifecycle，且 session 必须关闭。"""
+    async def test_generate_to_redis_call_config_deadline_runs_clarification_lifecycle(self):
+        """超出线程 deadline 时仍以 clarification 配置进入正常 lifecycle。"""
 
-        def _blocking_builder(**_kwargs):
+        fallback_call_config = object()
+        lifecycle_call = SimpleNamespace(request=object(), execution=object(), dependencies=object())
+
+        def _blocking_builder(**kwargs):
+            classifier = kwargs["build_call_config_fn"].keywords.get("classify_fn")
+            if isinstance(classifier, partial) and classifier.keywords["deadline_event"].is_set():
+                return fallback_call_config
             time.sleep(0.05)
             return object()
 
@@ -787,9 +793,13 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch(
                 "app.services.stream.runner.assemble_agent_loop_lifecycle_call",
+                return_value=lifecycle_call,
             ) as assemble_lifecycle,
+            patch(
+                "app.services.stream.runner.run_agent_loop_lifecycle",
+                AsyncMock(),
+            ) as run_lifecycle,
             patch("app.services.stream.runner._CALL_CONFIG_BUILD_DEADLINE_SECONDS", 0.01),
-            self.assertRaises(asyncio.TimeoutError),
         ):
             await self.handler.generate_to_redis(
                 conversation_id="conv-timeout",
@@ -809,7 +819,9 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
                 trace_id="trace-timeout",
             )
 
-        assemble_lifecycle.assert_not_called()
+        assemble_lifecycle.assert_called_once()
+        self.assertIs(assemble_lifecycle.call_args.kwargs["call_config"], fallback_call_config)
+        run_lifecycle.assert_awaited_once()
         self.mock_db.close.assert_called_once()
 
     async def test_generate_to_redis_uses_runner_patched_agent_loop_dependencies(self):

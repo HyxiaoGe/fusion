@@ -3602,6 +3602,16 @@ def test_literal_layer_defers_non_literal_requests():
             "flight",
             ("search_flights",),
         ),
+        (
+            "Call mcp_unrelated_tool and find flights from Beijing to Shanghai tomorrow",
+            "flight",
+            ("search_flights",),
+        ),
+        (
+            "请调用 mcp_unrelated_tool 处理数据并查明天北京天气",
+            "weather",
+            ("weather_forecast",),
+        ),
     ],
 )
 def test_literal_mcp_alias_defers_composite_product_requests(message, expected_package, expected_tools):
@@ -3634,6 +3644,16 @@ def test_literal_mcp_alias_defers_composite_product_requests(message, expected_p
             "请调用 mcp_unrelated_tool 处理数据，周末想去趟苏州，从上海出发怎么最方便？",
             "mobility_intercity",
             ["route_compare", "search_flights", "search_trains"],
+        ),
+        (
+            "Call mcp_unrelated_tool and find flights from Beijing to Shanghai tomorrow",
+            "flight",
+            ["search_flights"],
+        ),
+        (
+            "请调用 mcp_unrelated_tool 处理数据并查明天北京天气",
+            "weather",
+            ["weather_forecast"],
         ),
     ],
 )
@@ -3706,6 +3726,22 @@ def test_literal_mcp_alias_keeps_single_parameter_with_product_words(message):
     assert resolution.external_tool_names == ("mcp_unrelated_tool",)
     assert model_route.package_id == "mcp_explicit"
     completion.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Call mcp_unrelated_tool to process alpha and beta data",
+        "请调用 mcp_unrelated_tool 处理数据并归档",
+    ],
+)
+def test_literal_mcp_alias_keeps_single_parameter_with_ordinary_conjunction(message):
+    """参数内普通 and/并 不等同于开始另一项产品任务。"""
+
+    literal_route = _classify_literal_layer(_extract_request_signals(message), ALL_TOOLS)
+
+    assert literal_route is not None
+    assert literal_route.package_id == "mcp_explicit"
 
 
 @pytest.mark.parametrize(

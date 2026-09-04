@@ -5,6 +5,7 @@ spec §4.1。本模块只负责 agent loop 的控制流编排，所有"做事"�
 """
 
 import asyncio
+import threading
 import time
 from dataclasses import replace
 from functools import partial
@@ -149,6 +150,42 @@ def _agent_loop_wiring_dependencies() -> AgentLoopWiringDependencies:
     )
 
 
+def _build_call_config_with_deadline_signal(
+    build_call_config_fn,
+    deadline_event: threading.Event,
+):
+    """仅给生产混合分类器注入 deadline 信号，保留测试/扩展的显式分类器。"""
+
+    if not (
+        isinstance(build_call_config_fn, partial)
+        and build_call_config_fn.keywords.get("classify_fn") is classify_capability_request_with_model
+    ):
+        return build_call_config_fn
+    return partial(
+        build_call_config_fn.func,
+        *build_call_config_fn.args,
+        **{
+            **build_call_config_fn.keywords,
+            "classify_fn": partial(
+                classify_capability_request_with_model,
+                deadline_event=deadline_event,
+            ),
+        },
+    )
+
+
+def _build_deadline_fallback_call_config_fn(deadline_event: threading.Event):
+    """硬 deadline 后只允许无模型的 clarification 配置继续生命周期。"""
+
+    return partial(
+        build_agent_loop_call_config,
+        classify_fn=partial(
+            classify_capability_request_with_model,
+            deadline_event=deadline_event,
+        ),
+    )
+
+
 async def _run_agent_loop_lifecycle_call(lifecycle_call: AgentLoopLifecycleCall) -> None:
     await run_agent_loop_lifecycle(
         request=lifecycle_call.request,
@@ -233,15 +270,27 @@ class StreamHandler:
                 db=db,
                 dependencies=dependencies,
             )
-            call_config = await asyncio.wait_for(
-                asyncio.to_thread(
-                    build_agent_loop_call_config_from_inputs,
+            deadline_event = threading.Event()
+            try:
+                call_config = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        build_agent_loop_call_config_from_inputs,
+                        run_input=run_input,
+                        inputs=call_config_inputs,
+                        build_call_config_fn=_build_call_config_with_deadline_signal(
+                            dependencies.build_call_config_fn,
+                            deadline_event,
+                        ),
+                    ),
+                    timeout=_CALL_CONFIG_BUILD_DEADLINE_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                deadline_event.set()
+                call_config = build_agent_loop_call_config_from_inputs(
                     run_input=run_input,
                     inputs=call_config_inputs,
-                    build_call_config_fn=dependencies.build_call_config_fn,
-                ),
-                timeout=_CALL_CONFIG_BUILD_DEADLINE_SECONDS,
-            )
+                    build_call_config_fn=_build_deadline_fallback_call_config_fn(deadline_event),
+                )
             lifecycle_call = assemble_agent_loop_lifecycle_call(
                 run_input=run_input,
                 db=db,

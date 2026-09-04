@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from math import isfinite
@@ -97,10 +98,13 @@ def classify_capability_request_with_model(
     task_context_messages: list[object] | None = None,
     token_counter_fn: Callable[..., int] | None = None,
     result_callback: ClassifierResultCallback | None = None,
+    deadline_event: threading.Event | None = None,
 ) -> _CandidateRoute:
     """先处理可确定的字面请求，再以一次结构化模型调用分类其余请求。"""
 
     started_at = perf_counter()
+    if deadline_event is not None and deadline_event.is_set():
+        return _fail_closed("deadline_exceeded", started_at, result_callback=result_callback)
     tools = available_tools if available_tools is not None else available_tool_names
     if tools is None:
         return _fail_closed("tools_missing", started_at, result_callback=result_callback)
@@ -155,6 +159,8 @@ def classify_capability_request_with_model(
         return _fail_closed(_error_type(exc), started_at, result_callback=result_callback)
     if route is None:
         return _fail_closed("invalid_response", started_at, result_callback=result_callback)
+    if deadline_event is not None and deadline_event.is_set():
+        return _fail_closed("deadline_exceeded", started_at, result_callback=result_callback)
     _emit_result(result_callback, "model")
     _log_result("model", route.package_id, started_at)
     return route
