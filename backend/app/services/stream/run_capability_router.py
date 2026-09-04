@@ -913,13 +913,14 @@ def _has_alias_followup_clause(suffix: str) -> bool:
     """识别 alias 参数之后明确开始的第二子句，不推断其中的产品语义。"""
 
     for boundary in re.finditer(
-        r"(?:然后|再|并且|随后|\b(?:and\s+then|then|also)\b|[，,；;。！？!?])",
+        r"(?P<connector>然后|再|并且|随后|\b(?:and\s+then|then|also)\b)|"
+        r"(?P<sentence_boundary>[，,；;。！？!?])",
         suffix,
         re.IGNORECASE,
     ):
         task_parameter = suffix[: boundary.start()].strip(" \t，,；;。！？!?")
         followup = suffix[boundary.end() :].strip(" \t，,；;。！？!?")
-        if task_parameter and followup:
+        if followup and (boundary.group("connector") is not None or task_parameter):
             return True
     return False
 
@@ -1447,7 +1448,7 @@ def _resolve_explicit_authorized_alias(
 def _explicit_alias_directives(message: str, alias: str) -> list[tuple[int, int, bool]]:
     """返回 alias 出现位置和最后一次显式调用/否定语义，供字面边界共用。"""
 
-    alias_pattern = rf"(?<![\w]){re.escape(alias.lower())}(?![\w])"
+    alias_pattern = rf"(?<![A-Za-z0-9_]){re.escape(alias.lower())}(?![A-Za-z0-9_])"
     directives: list[tuple[int, int, bool]] = []
     for alias_match in re.finditer(alias_pattern, message):
         prefix = message[max(0, alias_match.start() - 48) : alias_match.start()]
@@ -1469,6 +1470,7 @@ def _explicit_alias_directives(message: str, alias: str) -> list[tuple[int, int,
             r"(?:调用|使用|运行|执行)(?:工具)?\s*$|"
             r"\b(?:call|use|run|invoke|execute)\s+(?:the\s+)?(?:mcp\s+)?(?:tool\s+)?$",
             prefix,
+            re.IGNORECASE,
         ):
             directives.append((alias_match.start(), alias_match.end(), True))
     return directives

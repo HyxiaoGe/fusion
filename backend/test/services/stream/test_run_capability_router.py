@@ -15,6 +15,7 @@ from app.services.stream.run_capability_router import (
     _CandidateRoute,
     _classify_literal_layer,
     _extract_request_signals,
+    _resolve_explicit_authorized_alias,
     classify_capability_request,
     resolve_run_capability_route,
     serialize_capability_resolution,
@@ -3606,9 +3607,11 @@ def test_literal_layer_defers_non_literal_requests():
 def test_literal_mcp_alias_defers_composite_product_requests(message, expected_package, expected_tools):
     """精确 alias 只可作为完整单一意图，不能抢占同句的产品任务。"""
 
-    literal_route = _classify_literal_layer(_extract_request_signals(message.lower()), ALL_TOOLS)
+    alias = _resolve_explicit_authorized_alias(message, ALL_TOOLS)
+    literal_route = _classify_literal_layer(_extract_request_signals(message), ALL_TOOLS)
     resolution = _resolve(message)
 
+    assert alias == "mcp_unrelated_tool"
     assert literal_route is None
     assert resolution.package_id == expected_package
     assert resolution.external_tool_names == expected_tools
@@ -3703,6 +3706,80 @@ def test_literal_mcp_alias_keeps_single_parameter_with_product_words(message):
     assert resolution.external_tool_names == ("mcp_unrelated_tool",)
     assert model_route.package_id == "mcp_explicit"
     completion.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "请调用mcp_unrelated_tool处理天气数据",
+        "Call mcp_unrelated_tool to process data",
+        "Use mcp_unrelated_tool to process data",
+    ],
+)
+def test_literal_mcp_alias_accepts_ascii_boundary_and_case_insensitive_directive(message):
+    """中文紧邻 alias 与句首大写 Call/Use 都应零模型命中字面 alias。"""
+
+    from app.services.stream.run_capability_model_classifier import classify_capability_request_with_model
+
+    with patch("app.services.stream.run_capability_model_classifier.litellm.completion") as completion:
+        alias = _resolve_explicit_authorized_alias(message, ALL_TOOLS)
+        literal_route = _classify_literal_layer(_extract_request_signals(message), ALL_TOOLS)
+        model_route = classify_capability_request_with_model(
+            message=message,
+            available_tool_names=ALL_TOOLS,
+            task_context_messages=None,
+        )
+
+    assert alias == "mcp_unrelated_tool"
+    assert literal_route is not None
+    assert literal_route.package_id == "mcp_explicit"
+    assert model_route.package_id == "mcp_explicit"
+    completion.assert_not_called()
+
+
+def test_literal_mcp_alias_defers_followup_without_an_alias_parameter():
+    """alias 后立即连接第二子句时也必须让模型处理后续产品任务。"""
+
+    message = "请调用 mcp_unrelated_tool，然后告诉我明天要不要带伞"
+    response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content=json.dumps(
+                        {
+                            "package_id": "weather",
+                            "explicit_tool_names": ["weather_forecast"],
+                        }
+                    )
+                )
+            )
+        ]
+    )
+
+    from app.services.stream.run_capability_model_classifier import classify_capability_request_with_model
+
+    with (
+        patch(
+            "app.services.stream.run_capability_model_classifier.settings.LITELLM_API_KEY",
+            "test-key",
+        ),
+        patch(
+            "app.services.stream.run_capability_model_classifier.litellm.completion",
+            return_value=response,
+        ) as completion,
+    ):
+        alias = _resolve_explicit_authorized_alias(message, ALL_TOOLS)
+        literal_route = _classify_literal_layer(_extract_request_signals(message), ALL_TOOLS)
+        model_route = classify_capability_request_with_model(
+            message=message,
+            available_tool_names=ALL_TOOLS,
+            task_context_messages=None,
+        )
+
+    assert alias == "mcp_unrelated_tool"
+    assert literal_route is None
+    assert model_route.package_id == "weather"
+    completion.assert_called_once()
 
 
 @pytest.mark.parametrize(
