@@ -7,8 +7,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import yaml
-
 from deploy_workflow_test_support import BODY_MARKER, deploy_script_body
 
 
@@ -85,9 +83,52 @@ def scripts_before_checkout(workflow: Path) -> list[str]:
 
 
 def named_workflow_step(workflow: Path, job_name: str, step_name: str) -> dict:
-    document = yaml.safe_load(workflow.read_text(encoding="utf-8"))
-    steps = document["jobs"][job_name]["steps"]
-    matches = [step for step in steps if step.get("name") == step_name]
+    matches: list[dict] = []
+    in_job = False
+    step: dict | None = None
+    in_env = False
+
+    def finish_step() -> None:
+        if step is not None and step.get("name") == step_name:
+            matches.append(step)
+
+    for line in workflow.read_text(encoding="utf-8").splitlines():
+        job_match = re.match(r"^  ([A-Za-z0-9_-]+):$", line)
+        if job_match is not None:
+            finish_step()
+            in_job = job_match.group(1) == job_name
+            step = None
+            in_env = False
+            continue
+        if not in_job:
+            continue
+
+        current_step = re.match(r"^      - name: (.+)$", line)
+        if current_step is not None:
+            finish_step()
+            step = {"name": current_step.group(1), "env": {}}
+            in_env = False
+            continue
+        if step is None:
+            continue
+
+        if line == "        env:":
+            in_env = True
+            continue
+        run_match = re.match(r"^        run: (.+)$", line)
+        if run_match is not None:
+            step["run"] = run_match.group(1)
+            in_env = False
+            continue
+        if re.match(r"^        [A-Za-z][A-Za-z0-9_-]*:", line):
+            in_env = False
+            continue
+        if in_env:
+            env_match = re.match(r"^          ([A-Z][A-Z0-9_]*): (.+)$", line)
+            if env_match is not None:
+                step["env"][env_match.group(1)] = env_match.group(2)
+
+    finish_step()
     if len(matches) != 1:
         raise AssertionError(f"{job_name} 中必须恰有一个步骤: {step_name}")
     return matches[0]
@@ -104,6 +145,13 @@ def compose_service_body(deploy_body: str, service_name: str) -> str:
     next_service = re.search(r"(?m)^  [A-Za-z][A-Za-z0-9_-]*:\n", compose[service.end() :])
     end = service.end() + next_service.start() if next_service is not None else len(compose)
     return compose[service.start() : end]
+
+
+def active_line_index(text: str, expected: str) -> int:
+    match = re.search(rf"(?m)^[ \t]*{re.escape(expected)}[ \t]*$", text)
+    if match is None:
+        raise AssertionError(f"缺少未注释的活动行: {expected}")
+    return match.start()
 
 
 class DeployScriptContractTests(unittest.TestCase):
@@ -161,12 +209,16 @@ class DeployScriptContractTests(unittest.TestCase):
             export = f'export {name}="${{DEPLOY_{name}:-${{{name}:-{default}}}}}"'
             injection = f"- {name}=${{{name}:-{default}}}"
             self.assertEqual(step["env"].get(f"DEPLOY_{name}"), source, name)
-            self.assertIn(export, deploy_body, name)
-            self.assertIn(injection, api_service, name)
-            self.assertLess(deploy_body.index(export), deploy_body.index(compose_marker), name)
+            export_index = active_line_index(deploy_body, export)
+            injection_index = active_line_index(api_service, injection)
             self.assertLess(
-                api_service.index("    environment:\n"),
-                api_service.index(injection),
+                export_index,
+                active_line_index(deploy_body, compose_marker),
+                name,
+            )
+            self.assertLess(
+                active_line_index(api_service, "environment:"),
+                injection_index,
                 name,
             )
 
@@ -207,6 +259,46 @@ class DeployScriptContractTests(unittest.TestCase):
                 deploy_body,
                 compose_service_body(deploy_body, "knowledge-worker"),
             )
+
+    def test_classifier_model_publish_contract_rejects_commented_consumption(self) -> None:
+        step = named_workflow_step(
+            API_WRAPPER,
+            "deploy-dev",
+            "Pull and restart fusion-api",
+        )
+        deploy_body = deploy_script_body(
+            ROOT,
+            "ops/deploy/api-pull-and-restart.sh",
+        )
+        api_service = compose_service_body(deploy_body, "fusion-api")
+        export = (
+            'export RUN_CAPABILITY_CLASSIFIER_MODEL="'
+            "${DEPLOY_RUN_CAPABILITY_CLASSIFIER_MODEL:-"
+            "${RUN_CAPABILITY_CLASSIFIER_MODEL:-deepseek-chat}}"
+            '"'
+        )
+        injection = (
+            "- RUN_CAPABILITY_CLASSIFIER_MODEL="
+            "${RUN_CAPABILITY_CLASSIFIER_MODEL:-deepseek-chat}"
+        )
+
+        with self.assertRaises(AssertionError):
+            self._assert_classifier_model_publish_chain(
+                step,
+                deploy_body.replace(export, f"# {export}", 1),
+                api_service,
+            )
+
+        with self.assertRaises(AssertionError):
+            self._assert_classifier_model_publish_chain(
+                step,
+                deploy_body,
+                api_service.replace(injection, f"# {injection}", 1),
+            )
+
+    def test_deploy_contract_does_not_require_pyyaml(self) -> None:
+        source = Path(__file__).read_text(encoding="utf-8")
+        self.assertNotIn("\nimport yaml\n", source)
 
     def test_script_bodies_match_the_reviewed_fixtures(self) -> None:
         for row in self.rows:
