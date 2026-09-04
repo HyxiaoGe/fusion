@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import FrozenInstanceError, replace
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -3565,6 +3567,66 @@ def test_literal_layer_defers_non_literal_requests():
     deferred = _classify_literal_layer(_extract_request_signals("明天上海天气怎样？"))
 
     assert deferred is None
+
+
+@pytest.mark.parametrize(
+    ("message", "package_id", "tool_names"),
+    [
+        ("你是谁？再查一下明天北京天气", "weather", ["weather_forecast"]),
+        ("你能做什么？帮我查上海到北京的航班", "flight", ["search_flights"]),
+        ("介绍一下你自己，并找附近的川菜馆", "place_discovery", ["local_place_search"]),
+    ],
+)
+def test_identity_with_explicit_product_request_defers_to_product_or_model_classification(
+    message,
+    package_id,
+    tool_names,
+):
+    """身份短语不能在字面层截断同句中明确的外部产品任务（issue #24）。"""
+
+    literal_route = _classify_literal_layer(_extract_request_signals(message), ALL_TOOLS)
+    rule_route = classify_capability_request(
+        message=message,
+        task_context_messages=None,
+        available_tool_names=ALL_TOOLS,
+    )
+    response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content=json.dumps(
+                        {
+                            "package_id": package_id,
+                            "explicit_tool_names": tool_names,
+                        }
+                    )
+                )
+            )
+        ]
+    )
+
+    from app.services.stream.run_capability_model_classifier import classify_capability_request_with_model
+
+    with (
+        patch(
+            "app.services.stream.run_capability_model_classifier.settings.LITELLM_API_KEY",
+            "test-key",
+        ),
+        patch(
+            "app.services.stream.run_capability_model_classifier.litellm.completion",
+            return_value=response,
+        ) as completion,
+    ):
+        model_route = classify_capability_request_with_model(
+            message=message,
+            available_tool_names=ALL_TOOLS,
+            task_context_messages=None,
+        )
+
+    assert literal_route is None
+    assert rule_route.package_id == package_id
+    assert model_route.package_id == package_id
+    completion.assert_called_once()
 
 
 @pytest.mark.parametrize(

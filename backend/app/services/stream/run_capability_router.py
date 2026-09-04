@@ -265,7 +265,12 @@ _GREETING_RE = re.compile(
     r"[呀啊！!。\s]*$",
     re.IGNORECASE,
 )
-_IDENTITY_RE = re.compile(r"你是谁|你叫什么|介绍一下你自己|你能做什么")
+_IDENTITY_RE = re.compile(
+    r"^(?:(?:请问|请告诉我|能否告诉我)[，,\s]*)?"
+    r"(?:(?:你?好|嗨|hi|hello|早上好|下午好|晚上好)[呀啊！!。。，,\s]*)?"
+    r"(?:你是谁|你叫什么|介绍一下你自己|你能做什么)[？?。！!\s]*$",
+    re.IGNORECASE,
+)
 _STABLE_KNOWLEDGE_RE = re.compile(
     r"^(?:为什么|为何|什么是|解释(?:一下)?|介绍一下|讲讲|"
     r"why\b|what (?:is|are|does)\b|how (?:does|do|is|are|can)\b|explain\b)|"
