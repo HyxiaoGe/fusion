@@ -10,12 +10,17 @@ import pytest
 from pydantic import ValidationError
 
 from app.db.models import Message
+from app.services.stream.agent_task_policy import AgentTaskPolicy
 from app.services.stream.run_capability_model_classifier import (
     _build_messages,
+    _effective_classifier_limits,
+    _error_type,
     _most_recent_complete_turn,
     _parse_model_route,
+    _token_counter_model,
     classify_capability_request_with_model,
 )
+from app.services.stream.run_capability_router import resolve_run_capability_route
 
 ALL_TOOLS = [
     "web_search",
@@ -357,6 +362,8 @@ def test_system_prompt_defines_taxonomy_tool_mapping_order_and_negative_boundari
     assert "canonical order" in prompt
     assert "禁止选择 deep_research" in prompt
     assert "全局禁网时不得选择任何外部工具" in prompt
+    assert "标准 package 要表达请求实际需要的能力" in prompt
+    assert "available_tool_names 只用于本调用前的精确 MCP literal 授权" in prompt
 
 
 def test_missing_explicit_tool_names_is_rejected() -> None:
@@ -453,3 +460,158 @@ def test_model_package_mapping_preserves_reason_codes_and_date_semantics(
     assert result is not None
     assert result.reason_codes == expected_reason_codes
     assert result.include_current_date is expected_include_date
+
+
+def test_high_classifier_configuration_is_clamped_at_final_call_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.services.stream.run_capability_model_classifier.settings.RUN_CAPABILITY_CLASSIFIER_TIMEOUT_SECONDS",
+        9,
+    )
+    monkeypatch.setattr(
+        "app.services.stream.run_capability_model_classifier.settings.RUN_CAPABILITY_CLASSIFIER_MAX_OUTPUT_TOKENS",
+        999,
+    )
+    with patch(
+        "app.services.stream.run_capability_model_classifier.litellm.completion",
+        return_value=_completion_response("direct"),
+    ) as completion:
+        candidate = classify_capability_request_with_model(
+            "需要语义判断的请求",
+            ALL_TOOLS,
+            token_counter_fn=lambda **_kwargs: 1,
+        )
+
+    assert candidate.package_id == "direct"
+    assert completion.call_args.kwargs["timeout"] == 1.5
+    assert completion.call_args.kwargs["max_tokens"] == 128
+
+
+def test_high_input_and_context_configuration_is_clamped_to_hard_limits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.services.stream.run_capability_model_classifier.settings.RUN_CAPABILITY_CLASSIFIER_MAX_INPUT_TOKENS",
+        9000,
+    )
+    monkeypatch.setattr(
+        "app.services.stream.run_capability_model_classifier.settings.RUN_CAPABILITY_CLASSIFIER_CONTEXT_TURNS",
+        7,
+    )
+
+    limits = _effective_classifier_limits()
+    with patch("app.services.stream.run_capability_model_classifier.litellm.completion") as completion:
+        candidate = classify_capability_request_with_model(
+            "需要语义判断的请求",
+            ALL_TOOLS,
+            token_counter_fn=lambda **_kwargs: 5000,
+        )
+
+    assert limits is not None
+    assert limits.max_input_tokens == 2000
+    assert limits.context_turns == 1
+    _assert_clarification(candidate)
+    completion.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "setting_name",
+    [
+        "RUN_CAPABILITY_CLASSIFIER_TIMEOUT_SECONDS",
+        "RUN_CAPABILITY_CLASSIFIER_MAX_INPUT_TOKENS",
+        "RUN_CAPABILITY_CLASSIFIER_MAX_OUTPUT_TOKENS",
+        "RUN_CAPABILITY_CLASSIFIER_CONTEXT_TURNS",
+    ],
+)
+def test_non_positive_classifier_configuration_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    setting_name: str,
+) -> None:
+    monkeypatch.setattr(f"app.services.stream.run_capability_model_classifier.settings.{setting_name}", 0)
+
+    with patch("app.services.stream.run_capability_model_classifier.litellm.completion") as completion:
+        candidate = classify_capability_request_with_model(
+            "需要语义判断的请求",
+            ALL_TOOLS,
+            token_counter_fn=lambda **_kwargs: 1,
+        )
+
+    _assert_clarification(candidate)
+    completion.assert_not_called()
+
+
+def test_token_counter_uses_explicit_tokenizer_model_for_non_deepseek_alias(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.services.stream.run_capability_model_classifier.settings.RUN_CAPABILITY_CLASSIFIER_MODEL",
+        "qwen-plus",
+    )
+    monkeypatch.setattr(
+        "app.services.stream.run_capability_model_classifier.settings.RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL",
+        "dashscope/qwen-plus",
+        raising=False,
+    )
+
+    assert _token_counter_model() == "dashscope/qwen-plus"
+
+
+def test_litellm_timeout_is_reported_as_timeout() -> None:
+    timeout = litellm.Timeout("deadline", "deepseek-chat", "deepseek")
+
+    assert _error_type(timeout) == "timeout"
+
+
+def test_standard_package_is_not_rejected_when_runtime_tool_definitions_are_empty() -> None:
+    response = _completion_response("weather", ["weather_forecast"])
+
+    route = _parse_model_route(response, False, [], include_current_date=True)
+
+    assert route is not None
+    assert route.package_id == "weather"
+    assert route.explicit_tool_names == ("weather_forecast",)
+
+
+@pytest.mark.parametrize(
+    ("tools_disabled", "knowledge_grounded", "capabilities", "expected_package", "expected_reason"),
+    [
+        (True, False, {"functionCalling": True, "searchCapable": True}, "tools_unavailable", "tools_disabled"),
+        (False, False, {"functionCalling": False, "searchCapable": True}, "tools_unavailable", "function_calling_unavailable"),
+        (True, True, {"functionCalling": True, "searchCapable": True}, "knowledge_grounded", "knowledge_grounded_mode"),
+    ],
+    ids=["disable-tools", "no-function-calling", "knowledge-grounded"],
+)
+def test_model_product_capability_is_degraded_by_existing_resolver_when_tools_are_unavailable(
+    tools_disabled: bool,
+    knowledge_grounded: bool,
+    capabilities: dict[str, bool],
+    expected_package: str,
+    expected_reason: str,
+) -> None:
+    policy = AgentTaskPolicy(
+        task_mode="standard",
+        plan_mode="auto",
+        network_profile="standard",
+        evidence_policy="standard",
+    )
+    with patch(
+        "app.services.stream.run_capability_model_classifier.litellm.completion",
+        return_value=_completion_response("weather", ["weather_forecast"]),
+    ):
+        resolution = resolve_run_capability_route(
+            original_message="明天上海天气怎样？",
+            task_context_messages=None,
+            available_tool_names=[],
+            requested_plan_mode="auto",
+            task_policy=policy,
+            capabilities=capabilities,
+            tools_disabled=tools_disabled,
+            knowledge_grounded=knowledge_grounded,
+            classify_fn=classify_capability_request_with_model,
+        )
+
+    assert resolution.package_id == expected_package
+    assert resolution.reason_codes == (expected_reason,)
+    assert resolution.include_current_date is True
+    assert resolution.network_boundary_required is True

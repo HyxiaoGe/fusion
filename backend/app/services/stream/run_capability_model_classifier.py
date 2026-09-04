@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
+from math import isfinite
 from time import perf_counter
 
 import litellm
@@ -48,6 +50,10 @@ _CANONICAL_TOOL_ORDER = (
     "search_flights",
     "search_trains",
 )
+_HARD_TIMEOUT_SECONDS = 1.5
+_HARD_MAX_INPUT_TOKENS = 2000
+_HARD_MAX_OUTPUT_TOKENS = 128
+_HARD_CONTEXT_TURNS = 1
 _ROUTE_DETAILS = {
     "direct": ("high", ("stable_knowledge_question",), False, "routed"),
     "transform": ("high", ("text_transform_request",), False, "routed"),
@@ -74,6 +80,14 @@ class _ModelRouteResponse(BaseModel):
     explicit_tool_names: list[str] = Field()
 
 
+@dataclass(frozen=True)
+class _ClassifierLimits:
+    timeout_seconds: float
+    max_input_tokens: int
+    max_output_tokens: int
+    context_turns: int
+
+
 def classify_capability_request_with_model(
     message: str,
     available_tools: list[str] | None = None,
@@ -98,10 +112,19 @@ def classify_capability_request_with_model(
         _log_result("literal", literal_route.package_id, started_at)
         return literal_route
 
+    limits = _effective_classifier_limits()
+    if limits is None:
+        return _fail_closed("invalid_configuration", started_at, result_callback=result_callback)
     if not _has_classifier_credentials():
         return _fail_closed("credentials_missing", started_at, result_callback=result_callback)
 
-    model_messages = _build_messages(message, tools, context_messages, token_counter_fn=token_counter_fn)
+    model_messages = _build_messages(
+        message,
+        tools,
+        context_messages,
+        token_counter_fn=token_counter_fn,
+        limits=limits,
+    )
     if model_messages is None:
         return _fail_closed("input_budget_exceeded", started_at, result_callback=result_callback)
 
@@ -109,9 +132,9 @@ def classify_capability_request_with_model(
         response = litellm.completion(
             model=f"litellm_proxy/{settings.RUN_CAPABILITY_CLASSIFIER_MODEL}",
             messages=model_messages,
-            timeout=settings.RUN_CAPABILITY_CLASSIFIER_TIMEOUT_SECONDS,
+            timeout=limits.timeout_seconds,
             num_retries=0,
-            max_tokens=settings.RUN_CAPABILITY_CLASSIFIER_MAX_OUTPUT_TOKENS,
+            max_tokens=limits.max_output_tokens,
             temperature=0,
             response_format={"type": "json_object"},
             **merge_litellm_kwargs(
@@ -143,26 +166,29 @@ def _build_messages(
     conversation_messages: list[object] | None,
     *,
     token_counter_fn: Callable[..., int] | None = None,
+    limits: _ClassifierLimits | None = None,
 ) -> list[dict[str, str]] | None:
+    effective_limits = limits or _effective_classifier_limits()
+    if effective_limits is None:
+        return None
     current_message = str(message)
-    history = _most_recent_complete_turn(conversation_messages)
+    history = _most_recent_complete_turn(conversation_messages, context_turns=effective_limits.context_turns)
     system_message = {
         "role": "system",
-        "content": _system_prompt(available_tools),
+        "content": _system_prompt(),
     }
     messages = [system_message, *history, {"role": "user", "content": current_message}]
-    if _within_input_budget(messages, token_counter_fn):
+    if _within_input_budget(messages, token_counter_fn, effective_limits.max_input_tokens):
         return messages
     if not history:
         return None
     messages = [system_message, {"role": "user", "content": current_message}]
-    if _within_input_budget(messages, token_counter_fn):
+    if _within_input_budget(messages, token_counter_fn, effective_limits.max_input_tokens):
         return messages
     return None
 
 
-def _system_prompt(available_tools: list[str]) -> str:
-    available = ",".join(name for name in _CANONICAL_TOOL_ORDER if name in set(available_tools))
+def _system_prompt() -> str:
     return """将当前请求分类为一个 package_id。只输出 JSON 对象，且必须同时包含 package_id 和 explicit_tool_names 两个字段；不得有额外字段。
 固定 taxonomy 与工具映射（explicit_tool_names 必须完全匹配，按 canonical order）：
 - direct：问候、身份、稳定常识或简单计算；[]。
@@ -181,12 +207,20 @@ def _system_prompt(available_tools: list[str]) -> str:
 - mixed_itinerary：2–3 个不同产品族；只可为天气、地点、路线、航班、火车的组合，且不能仅为航班加火车。
 - clarification_only：能力不明、关键实体不足、冲突或不符合以上规则；[]。
 canonical order 固定为 web_search,url_read,weather_forecast,local_place_search,route_compare,search_flights,search_trains。
-禁止选择 deep_research、knowledge_grounded、tools_unavailable 或 mcp_explicit。全局禁网时不得选择任何外部工具；工具不可用、包与工具不匹配或不确定时选择 clarification_only。
-本次可用工具：""" + available
+标准 package 要表达请求实际需要的能力，不得因当前 definitions 或 available_tool_names 缺少标准产品工具而改选 clarification_only；实际可用性、禁工具、无 function calling 与 knowledge-grounded 降级由后续 resolver 决定。
+available_tool_names 只用于本调用前的精确 MCP literal 授权，不能作为标准 package 工具可用性的依据。禁止选择 deep_research、knowledge_grounded、tools_unavailable 或 mcp_explicit。全局禁网时不得选择任何外部工具；包与工具不匹配或不确定时选择 clarification_only。"""
 
 
-def _most_recent_complete_turn(messages: Sequence[object] | None) -> list[dict[str, str]]:
-    if not messages or settings.RUN_CAPABILITY_CLASSIFIER_CONTEXT_TURNS < 1:
+def _most_recent_complete_turn(
+    messages: Sequence[object] | None,
+    *,
+    context_turns: int | None = None,
+) -> list[dict[str, str]]:
+    effective_context_turns = context_turns
+    if effective_context_turns is None:
+        limits = _effective_classifier_limits()
+        effective_context_turns = limits.context_turns if limits is not None else 0
+    if not messages or effective_context_turns < 1:
         return []
     normalized = [_normalize_conversation_message(message) for message in messages]
     for index in range(len(normalized) - 2, -1, -1):
@@ -229,27 +263,76 @@ def _project_text_content(content: object) -> str | None:
 
 
 def _within_input_budget(
-    messages: Sequence[Mapping[str, str]], token_counter_fn: Callable[..., int] | None
+    messages: Sequence[Mapping[str, str]],
+    token_counter_fn: Callable[..., int] | None,
+    max_input_tokens: int,
 ) -> bool:
     try:
+        tokenizer_model = _token_counter_model()
+        if tokenizer_model is None:
+            return False
         token_count = (token_counter_fn or litellm.token_counter)(
-            model=_token_counter_model(),
+            model=tokenizer_model,
             messages=list(messages),
         )
     except Exception:
         return False
-    return isinstance(token_count, int) and not isinstance(token_count, bool) and token_count <= settings.RUN_CAPABILITY_CLASSIFIER_MAX_INPUT_TOKENS
+    return isinstance(token_count, int) and not isinstance(token_count, bool) and token_count <= max_input_tokens
 
 
-def _token_counter_model() -> str:
-    model = settings.RUN_CAPABILITY_CLASSIFIER_MODEL.strip()
-    return model if "/" in model else f"deepseek/{model}"
+def _token_counter_model() -> str | None:
+    model = settings.RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL
+    if not isinstance(model, str) or not model.strip():
+        return None
+    return model.strip()
+
+
+def _effective_classifier_limits() -> _ClassifierLimits | None:
+    timeout_seconds = _positive_capped_float(
+        settings.RUN_CAPABILITY_CLASSIFIER_TIMEOUT_SECONDS,
+        _HARD_TIMEOUT_SECONDS,
+    )
+    max_input_tokens = _positive_capped_int(
+        settings.RUN_CAPABILITY_CLASSIFIER_MAX_INPUT_TOKENS,
+        _HARD_MAX_INPUT_TOKENS,
+    )
+    max_output_tokens = _positive_capped_int(
+        settings.RUN_CAPABILITY_CLASSIFIER_MAX_OUTPUT_TOKENS,
+        _HARD_MAX_OUTPUT_TOKENS,
+    )
+    context_turns = _positive_capped_int(
+        settings.RUN_CAPABILITY_CLASSIFIER_CONTEXT_TURNS,
+        _HARD_CONTEXT_TURNS,
+    )
+    if None in (timeout_seconds, max_input_tokens, max_output_tokens, context_turns):
+        return None
+    return _ClassifierLimits(
+        timeout_seconds=timeout_seconds,
+        max_input_tokens=max_input_tokens,
+        max_output_tokens=max_output_tokens,
+        context_turns=context_turns,
+    )
+
+
+def _positive_capped_float(value: object, upper_bound: float) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    normalized = float(value)
+    if not isfinite(normalized) or normalized <= 0:
+        return None
+    return min(normalized, upper_bound)
+
+
+def _positive_capped_int(value: object, upper_bound: int) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return None
+    return min(value, upper_bound)
 
 
 def _parse_model_route(
     response: object,
     all_network_denied: bool,
-    available_tools: list[str],
+    _available_tools: list[str],
     *,
     include_current_date: bool,
 ) -> _CandidateRoute | None:
@@ -268,8 +351,6 @@ def _parse_model_route(
         ):
             return None
     elif explicit_tools != allowed_tools:
-        return None
-    if not set(explicit_tools).issubset(set(available_tools)):
         return None
     if all_network_denied and explicit_tools:
         return None
@@ -339,7 +420,7 @@ def _emit_result(
 
 
 def _error_type(error: BaseException) -> str:
-    if isinstance(error, TimeoutError):
+    if isinstance(error, (TimeoutError, litellm.Timeout)):
         return "timeout"
     if isinstance(error, ValidationError):
         return "validation_error"

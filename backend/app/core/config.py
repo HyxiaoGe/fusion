@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     LITELLM_PROXY_URL: str = os.getenv("LITELLM_PROXY_URL", "http://litellm-proxy:4000")
     LITELLM_API_KEY: str = os.getenv("LITELLM_API_KEY", "")
     RUN_CAPABILITY_CLASSIFIER_MODEL: str = os.getenv("RUN_CAPABILITY_CLASSIFIER_MODEL", "deepseek-chat")
+    RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL: str = os.getenv(
+        "RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL", "deepseek/deepseek-chat"
+    )
     RUN_CAPABILITY_CLASSIFIER_TIMEOUT_SECONDS: float = float(
         os.getenv("RUN_CAPABILITY_CLASSIFIER_TIMEOUT_SECONDS", "1.5")
     )
