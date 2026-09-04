@@ -103,10 +103,15 @@ def named_workflow_step(workflow: Path, job_name: str, step_name: str) -> dict:
         if not in_job:
             continue
 
-        current_step = re.match(r"^      - name: (.+)$", line)
-        if current_step is not None:
+        if line.startswith("      - "):
             finish_step()
-            step = {"name": current_step.group(1), "env": {}}
+            step = {"env": {}}
+            name_match = re.match(r"^      - name: (.+)$", line)
+            if name_match is not None:
+                step["name"] = name_match.group(1)
+            inline_run = re.match(r"^      - run: (.+)$", line)
+            if inline_run is not None:
+                step["run"] = inline_run.group(1)
             in_env = False
             continue
         if step is None:
@@ -145,6 +150,18 @@ def compose_service_body(deploy_body: str, service_name: str) -> str:
     next_service = re.search(r"(?m)^  [A-Za-z][A-Za-z0-9_-]*:\n", compose[service.end() :])
     end = service.end() + next_service.start() if next_service is not None else len(compose)
     return compose[service.start() : end]
+
+
+def compose_service_environment(service_body: str) -> str:
+    environment = re.search(r"(?m)^    environment:\n", service_body)
+    if environment is None:
+        raise AssertionError("Compose 服务缺少 environment 列表")
+    next_section = re.search(
+        r"(?m)^    [A-Za-z][A-Za-z0-9_-]*:",
+        service_body[environment.end() :],
+    )
+    end = environment.end() + next_section.start() if next_section is not None else len(service_body)
+    return service_body[environment.end() : end]
 
 
 def active_line_index(text: str, expected: str) -> int:
@@ -196,6 +213,8 @@ class DeployScriptContractTests(unittest.TestCase):
     ) -> None:
         self.assertEqual(step.get("run"), "ops/deploy/api-pull-and-restart.sh")
         compose_marker = "cat > docker-compose.fusion-api-ghcr.yml <<'EOF'"
+        source_marker = 'source "${FUSION_RUNTIME_ENV}"'
+        environment = compose_service_environment(api_service)
         expected_models = (
             ("RUN_CAPABILITY_CLASSIFIER_MODEL", "deepseek-chat"),
             (
@@ -210,15 +229,15 @@ class DeployScriptContractTests(unittest.TestCase):
             injection = f"- {name}=${{{name}:-{default}}}"
             self.assertEqual(step["env"].get(f"DEPLOY_{name}"), source, name)
             export_index = active_line_index(deploy_body, export)
-            injection_index = active_line_index(api_service, injection)
+            active_line_index(environment, injection)
             self.assertLess(
+                active_line_index(deploy_body, source_marker),
                 export_index,
-                active_line_index(deploy_body, compose_marker),
                 name,
             )
             self.assertLess(
-                active_line_index(api_service, "environment:"),
-                injection_index,
+                export_index,
+                active_line_index(deploy_body, compose_marker),
                 name,
             )
 
@@ -295,6 +314,91 @@ class DeployScriptContractTests(unittest.TestCase):
                 deploy_body,
                 api_service.replace(injection, f"# {injection}", 1),
             )
+
+    def test_classifier_model_publish_contract_rejects_env_on_unnamed_step(self) -> None:
+        model_env = (
+            "          DEPLOY_RUN_CAPABILITY_CLASSIFIER_MODEL: "
+            "${{ vars.RUN_CAPABILITY_CLASSIFIER_MODEL || 'deepseek-chat' }}\n"
+            "          DEPLOY_RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL: "
+            "${{ vars.RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL || "
+            "'deepseek/deepseek-chat' }}\n"
+        )
+        workflow = API_WRAPPER.read_text(encoding="utf-8")
+        moved = workflow.replace(model_env, "", 1).replace(
+            "        run: ops/deploy/api-pull-and-restart.sh\n",
+            "        run: ops/deploy/api-pull-and-restart.sh\n"
+            "      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\n"
+            "        env:\n"
+            f"{model_env}",
+            1,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            mutated_workflow = Path(directory) / "deploy-api.yml"
+            mutated_workflow.write_text(moved, encoding="utf-8")
+            step = named_workflow_step(
+                mutated_workflow,
+                "deploy-dev",
+                "Pull and restart fusion-api",
+            )
+
+        deploy_body = deploy_script_body(ROOT, "ops/deploy/api-pull-and-restart.sh")
+        with self.assertRaises(AssertionError):
+            self._assert_classifier_model_publish_chain(
+                step,
+                deploy_body,
+                compose_service_body(deploy_body, "fusion-api"),
+            )
+
+    def test_classifier_model_publish_contract_rejects_export_before_runtime_env(self) -> None:
+        deploy_body = deploy_script_body(ROOT, "ops/deploy/api-pull-and-restart.sh")
+        exports = (
+            'export RUN_CAPABILITY_CLASSIFIER_MODEL="'
+            "${DEPLOY_RUN_CAPABILITY_CLASSIFIER_MODEL:-"
+            '${RUN_CAPABILITY_CLASSIFIER_MODEL:-deepseek-chat}}"\n'
+            'export RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL="'
+            "${DEPLOY_RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL:-"
+            '${RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL:-deepseek/deepseek-chat}}"\n'
+        )
+        moved = deploy_body.replace(exports, "", 1).replace(
+            'source "${FUSION_RUNTIME_ENV}"\n',
+            f"{exports}source \"${{FUSION_RUNTIME_ENV}}\"\n",
+            1,
+        )
+        step = named_workflow_step(
+            API_WRAPPER,
+            "deploy-dev",
+            "Pull and restart fusion-api",
+        )
+        with self.assertRaises(AssertionError):
+            self._assert_classifier_model_publish_chain(
+                step,
+                moved,
+                compose_service_body(deploy_body, "fusion-api"),
+            )
+
+    def test_classifier_model_publish_contract_rejects_injection_outside_environment(self) -> None:
+        deploy_body = deploy_script_body(ROOT, "ops/deploy/api-pull-and-restart.sh")
+        api_service = compose_service_body(deploy_body, "fusion-api")
+        injections = (
+            "      - RUN_CAPABILITY_CLASSIFIER_MODEL="
+            "${RUN_CAPABILITY_CLASSIFIER_MODEL:-deepseek-chat}\n"
+            "      - RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL="
+            "${RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL:-deepseek/deepseek-chat}\n"
+        )
+        moved = api_service.replace(injections, "", 1) + (
+            "    labels:\n"
+            "      - RUN_CAPABILITY_CLASSIFIER_MODEL="
+            "${RUN_CAPABILITY_CLASSIFIER_MODEL:-deepseek-chat}\n"
+            "      - RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL="
+            "${RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL:-deepseek/deepseek-chat}\n"
+        )
+        step = named_workflow_step(
+            API_WRAPPER,
+            "deploy-dev",
+            "Pull and restart fusion-api",
+        )
+        with self.assertRaises(AssertionError):
+            self._assert_classifier_model_publish_chain(step, deploy_body, moved)
 
     def test_deploy_contract_does_not_require_pyyaml(self) -> None:
         source = Path(__file__).read_text(encoding="utf-8")
