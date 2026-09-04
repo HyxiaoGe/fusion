@@ -3527,6 +3527,12 @@ def test_replaced_classifier_still_goes_through_contract_validation():
         ("请问一下，你是谁？", ALL_TOOLS, "direct", "assistant_identity_question"),
         ("可以介绍一下你自己吗？", ALL_TOOLS, "direct", "assistant_identity_question"),
         ("麻烦你介绍一下你自己", ALL_TOOLS, "direct", "assistant_identity_question"),
+        ("能介绍一下你自己吗？", ALL_TOOLS, "direct", "assistant_identity_question"),
+        ("能否介绍一下你自己？", ALL_TOOLS, "direct", "assistant_identity_question"),
+        ("可以请你介绍一下你自己吗？", ALL_TOOLS, "direct", "assistant_identity_question"),
+        ("可否告诉我你叫什么名字？", ALL_TOOLS, "direct", "assistant_identity_question"),
+        ("是否可以请介绍一下你自己？", ALL_TOOLS, "direct", "assistant_identity_question"),
+        ("能不能请问一下你是谁呀？", ALL_TOOLS, "direct", "assistant_identity_question"),
         ("计算 1 + 1", ALL_TOOLS, "direct", "simple_calculation"),
         (
             "请调用 mcp_unrelated_tool 处理这份数据",
@@ -3584,6 +3590,11 @@ def test_literal_layer_defers_non_literal_requests():
         ("你能做什么？帮我查上海到北京的航班", "flight", ["search_flights"]),
         ("介绍一下你自己，并找附近的川菜馆", "place_discovery", ["local_place_search"]),
         ("你好，请问你是谁？然后查北京天气", "weather", ["weather_forecast"]),
+        ("能介绍一下你自己吗？然后查北京天气", "weather", ["weather_forecast"]),
+        ("能否介绍一下你自己？帮我查上海到北京的航班", "flight", ["search_flights"]),
+        ("可以请你介绍一下你自己吗？并找附近的川菜馆", "place_discovery", ["local_place_search"]),
+        ("可否告诉我你叫什么名字？然后查北京天气", "weather", ["weather_forecast"]),
+        ("是否可以请介绍一下你自己？然后查北京天气", "weather", ["weather_forecast"]),
     ],
 )
 def test_identity_with_explicit_product_request_defers_to_product_or_model_classification(

@@ -265,9 +265,12 @@ _GREETING_RE = re.compile(
     r"[呀啊！!。\s]*$",
     re.IGNORECASE,
 )
+_IDENTITY_MODAL_PREFIXES = ("是否可以", "能不能", "能否", "可以", "可否", "能")
+_IDENTITY_MODAL_PREFIX_PATTERN = "|".join(re.escape(prefix) for prefix in _IDENTITY_MODAL_PREFIXES)
 _IDENTITY_PREFIX_RE = re.compile(
     r"(?:你?好|您好|嗨|hi|hello|早上好|下午好|晚上好)[呀啊！!。。，,、\s]*|"
-    r"(?:请问(?:一下)?|请告诉我|能否告诉我|请|麻烦|可以)[，,、\s]*|"
+    rf"(?:{_IDENTITY_MODAL_PREFIX_PATTERN})[，,、\s]*|"
+    r"(?:请问(?:一下)?|请告诉我|告诉我|请|麻烦)[，,、\s]*|"
     r"你[，,、\s]*",
     re.IGNORECASE,
 )
