@@ -195,6 +195,9 @@ Deep Research 继续要求 function calling 与 search capability，并固定只
 - `--classifier rules` 是显式规则回滚/诊断模式，不是请求内兜底；它在固定独立夹具上的基线
   为 14/33（42%），其中 `abstract` 必须为 5/5。报告始终按类别输出通过数、总数、覆盖率及
   合计；该夹具不是 CI 门禁，也不得为提高分数改写它的期望值。
+- 该 33 条夹具在首次独立测量后已用于定位并修正 taxonomy 边界，自本次实现起只作为固定
+  回归集，不再用于证明未见分布的泛化率。后续泛化评估必须另建未参与分类器或 prompt 调优的
+  held-out 样本，并在首次运行前冻结输入与人工可接受 package；不得用评测结果反向改写期望值。
 
 ## Route resolution 协议
 
