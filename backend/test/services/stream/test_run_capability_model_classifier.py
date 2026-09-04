@@ -92,6 +92,7 @@ def test_model_call_is_single_bounded_and_maps_weather() -> None:
     assert kwargs["num_retries"] == 0
     assert kwargs["max_tokens"] == 128
     assert kwargs["temperature"] == 0
+    assert kwargs["reasoning_effort"] == "none"
     assert kwargs["response_format"] == {"type": "json_object"}
     assert kwargs["api_base"]
     assert kwargs["extra_body"]["metadata"]["tags"] == ["app:fusion", "phase:run_capability_classifier"]

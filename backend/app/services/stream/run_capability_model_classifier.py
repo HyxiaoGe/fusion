@@ -279,6 +279,7 @@ def classify_capability_request_with_model(
             "num_retries": 0,
             "max_tokens": limits.max_output_tokens,
             "temperature": 0,
+            "reasoning_effort": "none",
             "response_format": {"type": "json_object"},
             **merge_litellm_kwargs(
                 "run_capability_classifier",

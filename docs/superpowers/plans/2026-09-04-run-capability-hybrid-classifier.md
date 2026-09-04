@@ -36,7 +36,7 @@
 
 - [ ] **Step 1: 先写失败测试**
 
-  覆盖以下行为：字面命中不调用模型；模型恰好调用一次且带 `timeout=1.5`、`num_retries=0`、`max_tokens=128`、`temperature=0`、JSON response format；天气与混合行程输出可确定性映射；只传最近完整轮次；超预算先丢上下文、当前消息仍超预算则不调用并 fail-closed；凭据缺失、超时、异常、畸形 JSON、未知 package、非法工具组合均 fail-closed 且不重试；全局禁网请求不能被模型提升为外部能力；日志不泄露原始消息。
+  覆盖以下行为：字面命中不调用模型；模型恰好调用一次且带 `timeout=1.5`、`num_retries=0`、`max_tokens=128`、`temperature=0`、`reasoning_effort=none`、JSON response format；天气与混合行程输出可确定性映射；只传最近完整轮次；超预算先丢上下文、当前消息仍超预算则不调用并 fail-closed；凭据缺失、超时、异常、畸形 JSON、未知 package、非法工具组合均 fail-closed 且不重试；全局禁网请求不能被模型提升为外部能力；日志不泄露原始消息。
 
 - [ ] **Step 2: 运行测试并确认红灯来自缺失实现**
 

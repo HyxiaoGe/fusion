@@ -162,8 +162,8 @@ Deep Research 继续要求 function calling 与 search capability，并固定只
 
 - 分类调用固定经 `litellm_proxy/<RUN_CAPABILITY_CLASSIFIER_MODEL>` 到 `LITELLM_PROXY_URL`，
   使用 `LITELLM_API_KEY`；默认模型为 `deepseek-chat`。调用参数固定为 `timeout=1.5` 秒、
-  `num_retries=0`、`max_tokens=128`、`temperature=0` 和 JSON object response format，避免
-  重试扩大首轮延迟或费用。
+  `num_retries=0`、`max_tokens=128`、`temperature=0`、`reasoning_effort=none` 和 JSON object
+  response format，避免 reasoning token 挤占结构化 JSON 的输出预算，也避免重试扩大首轮延迟或费用。
 - 官方 dev 发布链只消费 `RUN_CAPABILITY_CLASSIFIER_MODEL` 与
   `RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL`：仓库变量经部署脚本写入 `fusion-api` 容器。
   超时、输入、输出和上下文预算不开放发布变量；代码仅接受默认值或向下收紧，并硬性钳制在
