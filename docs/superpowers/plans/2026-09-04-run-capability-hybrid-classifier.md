@@ -90,7 +90,7 @@
 - Modify: `backend/app/services/stream/runner.py`
 - Modify: `backend/test/services/stream/test_run_capability_router.py`
 - Modify: `backend/test/services/stream/test_agent_loop_request_prep.py`
-- Modify: `backend/test/services/stream/test_runner.py`
+- Modify: `backend/test/test_stream_handler.py`
 
 - [ ] **Step 1: 先写失败测试**
 
@@ -101,7 +101,7 @@
   Run:
 
   ```bash
-  DATABASE_URL="sqlite:///:memory:" /Users/sean/code/fusion/fusion-api/.venv/bin/python -m pytest backend/test/services/stream/test_run_capability_router.py backend/test/services/stream/test_agent_loop_request_prep.py backend/test/services/stream/test_runner.py -q
+  DATABASE_URL="sqlite:///:memory:" /Users/sean/code/fusion/fusion-api/.venv/bin/python -m pytest backend/test/services/stream/test_run_capability_router.py backend/test/services/stream/test_agent_loop_request_prep.py backend/test/test_stream_handler.py -q
   ```
 
   Expected: 新增的字面层或注入接线断言失败。
@@ -115,7 +115,7 @@
   Run:
 
   ```bash
-  DATABASE_URL="sqlite:///:memory:" /Users/sean/code/fusion/fusion-api/.venv/bin/python -m pytest backend/test/services/stream/test_run_capability_router.py backend/test/services/stream/test_agent_loop_request_prep.py backend/test/services/stream/test_runner.py backend/test/test_agent_behavior_eval.py -q
+  DATABASE_URL="sqlite:///:memory:" /Users/sean/code/fusion/fusion-api/.venv/bin/python -m pytest backend/test/services/stream/test_run_capability_router.py backend/test/services/stream/test_agent_loop_request_prep.py backend/test/test_stream_handler.py backend/test/test_agent_behavior_eval.py -q
   ```
 
   Expected: PASS，`agent_behavior_eval_samples.json` 全量通过。
@@ -123,7 +123,7 @@
 - [ ] **Step 5: 提交**
 
   ```bash
-  git add backend/app/services/stream/run_capability_router.py backend/app/services/stream/agent_loop_request_prep.py backend/app/services/stream/runner.py backend/test/services/stream/test_run_capability_router.py backend/test/services/stream/test_agent_loop_request_prep.py backend/test/services/stream/test_runner.py
+  git add backend/app/services/stream/run_capability_router.py backend/app/services/stream/agent_loop_request_prep.py backend/app/services/stream/runner.py backend/test/services/stream/test_run_capability_router.py backend/test/services/stream/test_agent_loop_request_prep.py backend/test/test_stream_handler.py
   git commit -m "feat: 接入混合能力路由分类" -m "Co-Authored-By: Codex <noreply@openai.com>"
   ```
 
@@ -182,8 +182,8 @@
   Run:
 
   ```bash
-  /Users/sean/code/fusion/fusion-api/.venv/bin/python -m ruff check backend/app/services/stream/run_capability_model_classifier.py backend/app/services/stream/run_capability_router.py backend/app/services/stream/agent_loop_request_prep.py backend/app/services/stream/runner.py backend/scripts/blind_routing_probe.py backend/test/services/stream/test_run_capability_model_classifier.py backend/test/services/stream/test_run_capability_router.py backend/test/services/stream/test_agent_loop_request_prep.py backend/test/services/stream/test_runner.py backend/test/scripts/test_blind_routing_probe.py
-  DATABASE_URL="sqlite:///:memory:" /Users/sean/code/fusion/fusion-api/.venv/bin/python -m pytest backend/test/services/stream/test_run_capability_model_classifier.py backend/test/services/stream/test_run_capability_router.py backend/test/services/stream/test_agent_loop_request_prep.py backend/test/services/stream/test_runner.py backend/test/ai/test_llm_observability.py backend/test/scripts/test_blind_routing_probe.py backend/test/test_agent_behavior_eval.py -q
+  /Users/sean/code/fusion/fusion-api/.venv/bin/python -m ruff check backend/app/services/stream/run_capability_model_classifier.py backend/app/services/stream/run_capability_router.py backend/app/services/stream/agent_loop_request_prep.py backend/app/services/stream/runner.py backend/scripts/blind_routing_probe.py backend/test/services/stream/test_run_capability_model_classifier.py backend/test/services/stream/test_run_capability_router.py backend/test/services/stream/test_agent_loop_request_prep.py backend/test/test_stream_handler.py backend/test/scripts/test_blind_routing_probe.py
+  DATABASE_URL="sqlite:///:memory:" /Users/sean/code/fusion/fusion-api/.venv/bin/python -m pytest backend/test/services/stream/test_run_capability_model_classifier.py backend/test/services/stream/test_run_capability_router.py backend/test/services/stream/test_agent_loop_request_prep.py backend/test/test_stream_handler.py backend/test/test_llm_observability.py backend/test/scripts/test_blind_routing_probe.py backend/test/test_agent_behavior_eval.py -q
   ```
 
   Expected: PASS。
