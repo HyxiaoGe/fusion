@@ -3,12 +3,15 @@
 import json
 import unittest
 from contextlib import ExitStack
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from functools import partial
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.schemas.chat import PlaceResult, PlaceResultsBlock, SearchBlock
 from app.services.stream import StreamHandler
+from app.services.stream.agent_loop_request_prep import build_agent_loop_call_config
+from app.services.stream.run_capability_router import classify_capability_request
 from app.services.stream.tool_execution_result import ToolExecutionRecord
 from app.services.tool_handlers.base import ToolResult
 from app.utils.prompt_fingerprint import fingerprint_system_messages
@@ -150,7 +153,26 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
         fake_redis = None
         caught_exc = None
 
+        from app.services.stream import runner
+
+        production_wiring = runner._agent_loop_wiring_dependencies
+
+        def _rule_classifier_wiring():
+            return replace(
+                production_wiring(),
+                build_call_config_fn=partial(
+                    build_agent_loop_call_config,
+                    classify_fn=classify_capability_request,
+                ),
+            )
+
         with ExitStack() as stack:
+            stack.enter_context(
+                patch(
+                    "app.services.stream.runner._agent_loop_wiring_dependencies",
+                    side_effect=_rule_classifier_wiring,
+                )
+            )
             if use_real_redis_stream:
                 import fakeredis.aioredis
 

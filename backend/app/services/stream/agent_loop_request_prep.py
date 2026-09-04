@@ -31,6 +31,7 @@ from app.services.stream.agent_task_policy import resolve_agent_task_policy
 from app.services.stream.persistence import preprocess_url_in_message
 from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
 from app.services.stream.run_capability_router import (
+    CapabilityClassifier,
     RunCapabilityResolution,
     resolve_run_capability_route,
 )
@@ -221,6 +222,7 @@ def build_agent_loop_call_config(
     original_message: str | None = None,
     task_context_messages: list[object] | None = None,
     skill_release_pins: tuple[SkillReleasePin, ...] | None = None,
+    classify_fn: CapabilityClassifier | None = None,
 ) -> AgentLoopCallConfig:
     options = options or {}
     capabilities = capabilities or {}
@@ -280,6 +282,7 @@ def build_agent_loop_call_config(
         knowledge_grounded=knowledge_grounded,
         unavailable_tool_names=unavailable_tool_names,
         load_skills_fn=skill_loader,
+        classify_fn=classify_fn,
     )
     if (
         skill_release_pins

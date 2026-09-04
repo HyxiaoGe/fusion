@@ -13,6 +13,7 @@ from app.services.stream.agent_loop_request_prep import (
     inject_plan_control_contract,
     prepare_agent_loop_messages,
 )
+from app.services.stream.run_capability_router import _CandidateRoute, resolve_run_capability_route
 
 
 class FakeFileRepository:
@@ -25,6 +26,57 @@ class FakeFileRepository:
 
 
 class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
+    def test_build_call_config_defaults_to_rule_classifier(self):
+        with patch(
+            "app.services.stream.agent_loop_request_prep.resolve_run_capability_route",
+            wraps=resolve_run_capability_route,
+        ) as resolver:
+            build_agent_loop_call_config(
+                provider="openai",
+                options={},
+                capabilities={"functionCalling": True, "searchCapable": True},
+                original_message="你好",
+            )
+
+        assert resolver.call_args.kwargs["classify_fn"] is None
+
+    def test_build_call_config_forwards_injected_classifier_and_raw_context(self):
+        raw_context = [{"role": "user", "content": "上一轮的原始内容"}]
+        classifier_calls = []
+
+        def classifier(*, message, task_context_messages, available_tool_names):
+            classifier_calls.append(
+                {
+                    "message": message,
+                    "task_context_messages": task_context_messages,
+                    "available_tool_names": available_tool_names,
+                }
+            )
+            return _CandidateRoute("direct", "high", ("direct_greeting",), False)
+
+        with patch(
+            "app.services.stream.agent_loop_request_prep.resolve_run_capability_route",
+            wraps=resolve_run_capability_route,
+        ) as resolver:
+            config = build_agent_loop_call_config(
+                provider="openai",
+                options={},
+                capabilities={"functionCalling": True, "searchCapable": True},
+                original_message="你好",
+                task_context_messages=raw_context,
+                classify_fn=classifier,
+            )
+
+        assert resolver.call_args.kwargs["classify_fn"] is classifier
+        assert classifier_calls == [
+            {
+                "message": "你好",
+                "task_context_messages": raw_context,
+                "available_tool_names": ["web_search", "url_read"],
+            }
+        ]
+        assert config.capability_resolution.package_id == "direct"
+
     def test_continuation_with_frozen_skill_fails_closed_when_current_route_drops_skill(self):
         current = build_agent_loop_call_config(
             provider="openai",

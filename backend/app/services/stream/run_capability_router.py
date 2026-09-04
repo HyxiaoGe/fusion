@@ -37,7 +37,7 @@ Confidence = Literal["high", "medium", "low"]
 ResolutionMode = Literal["routed", "degraded", "clarification"]
 
 SCHEMA_VERSION = 2
-ROUTER_VERSION = "2026-08-31.2"
+ROUTER_VERSION = "2026-09-04.1"
 
 _CANONICAL_EXTERNAL_TOOL_ORDER = CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER
 _CONTROL_TOOL_NAMES = CAPABILITY_CONTROL_TOOL_NAMES
@@ -265,7 +265,20 @@ _GREETING_RE = re.compile(
     r"[呀啊！!。\s]*$",
     re.IGNORECASE,
 )
-_IDENTITY_RE = re.compile(r"你是谁|你叫什么|介绍一下你自己|你能做什么")
+_IDENTITY_MODAL_PREFIXES = ("是否可以", "能不能", "能否", "可以", "可否", "能")
+_IDENTITY_MODAL_PREFIX_PATTERN = "|".join(re.escape(prefix) for prefix in _IDENTITY_MODAL_PREFIXES)
+_IDENTITY_PREFIX_RE = re.compile(
+    r"(?:你?好|您好|嗨|hi|hello|早上好|下午好|晚上好)[呀啊！!。。，,、\s]*|"
+    rf"(?:{_IDENTITY_MODAL_PREFIX_PATTERN})[，,、\s]*|"
+    r"(?:请问(?:一下)?|请告诉我|告诉我|请|麻烦)[，,、\s]*|"
+    r"你[，,、\s]*",
+    re.IGNORECASE,
+)
+_IDENTITY_CORE_RE = re.compile(
+    r"(?:你是谁|你叫什么(?:名字)?|介绍一下你自己|你能做什么)"
+    r"(?:呀|呢|啊|嘛|吧)?(?:吗)?[？?。！!\s]*",
+    re.IGNORECASE,
+)
 _STABLE_KNOWLEDGE_RE = re.compile(
     r"^(?:为什么|为何|什么是|解释(?:一下)?|介绍一下|讲讲|"
     r"why\b|what (?:is|are|does)\b|how (?:does|do|is|are|can)\b|explain\b)|"
@@ -756,7 +769,24 @@ def _extract_request_signals(message: str) -> _RequestSignals:
     )
 
 
-def _classify_literal_layer(request: _RequestSignals) -> _CandidateRoute | None:
+def _is_identity_request(message: str) -> bool:
+    """仅接受可剥离礼貌包装后仍是完整身份问句的请求。"""
+
+    remaining = message.strip()
+    while remaining:
+        if _IDENTITY_CORE_RE.fullmatch(remaining):
+            return True
+        prefix = _IDENTITY_PREFIX_RE.match(remaining)
+        if prefix is None:
+            return False
+        remaining = remaining[prefix.end() :].lstrip()
+    return False
+
+
+def _classify_literal_layer(
+    request: _RequestSignals,
+    available_tool_names: list[str] | None = None,
+) -> _CandidateRoute | None:
     """只处理靠字面就能判定的能力包；判不出来返回 None 交给下一层。"""
 
     message = request.message
@@ -842,7 +872,77 @@ def _classify_literal_layer(request: _RequestSignals) -> _CandidateRoute | None:
             False,
             resolution_mode="clarification",
         )
+    explicit_alias = (
+        None
+        if request.all_network_denied or available_tool_names is None
+        else _resolve_explicit_authorized_alias(routing_message, available_tool_names)
+    )
+    if explicit_alias is not None and _is_complete_explicit_alias_intent(routing_message, explicit_alias):
+        return _CandidateRoute(
+            "mcp_explicit",
+            "high",
+            ("explicit_authorized_tool_alias",),
+            request.include_current_date,
+            explicit_tool_names=(explicit_alias,),
+        )
+    if _GREETING_RE.search(routing_message):
+        return _CandidateRoute("direct", "high", ("direct_greeting",), False)
+    if _is_identity_request(routing_message):
+        return _CandidateRoute(
+            "direct",
+            "high",
+            ("assistant_identity_question",),
+            False,
+        )
+    if _SIMPLE_CALC_RE.search(routing_message):
+        return _CandidateRoute("direct", "high", ("simple_calculation",), False)
     return None
+
+
+def _is_complete_explicit_alias_intent(message: str, alias: str) -> bool:
+    """只把带单一任务参数的精确 alias 指令留在字面层。"""
+
+    directives = _explicit_alias_directives(message, alias)
+    if not directives or not directives[-1][2]:
+        return False
+    suffix = message[directives[-1][1] :]
+    return not _has_alias_followup_clause(suffix)
+
+
+def _has_alias_followup_clause(suffix: str) -> bool:
+    """识别 alias 参数之后明确开始的第二子句，不推断其中的产品语义。"""
+
+    for boundary in re.finditer(
+        r"(?P<connector>然后|再|并且|随后|\b(?:and\s+then|then|also)\b)|"
+        r"(?P<natural_connector>\b(?:and)\b|并)|"
+        r"(?P<sentence_boundary>[，,；;。！？!?])",
+        suffix,
+        re.IGNORECASE,
+    ):
+        task_parameter = suffix[: boundary.start()].strip(" \t，,；;。！？!?")
+        followup = suffix[boundary.end() :].strip(" \t，,；;。！？!?")
+        if boundary.group("natural_connector") is not None:
+            if _starts_alias_followup_task(followup):
+                return True
+            continue
+        if followup and (boundary.group("connector") is not None or task_parameter):
+            return True
+    return False
+
+
+def _starts_alias_followup_task(followup: str) -> bool:
+    """裸 and/并 后必须有独立任务启动词，避免误拆单一 alias 参数。"""
+
+    return bool(
+        re.match(
+            r"(?:"
+            r"(?:请|帮我|麻烦)?(?:查|查询|找|搜索|告诉|帮|规划|比较|预订|安排|导航)"
+            r"|(?:please\s+)?(?:find|search|check|tell|show|plan|compare|book|navigate|look\s+up|get|recommend|give|provide)\b"
+            r")",
+            followup,
+            re.IGNORECASE,
+        )
+    )
 
 
 def _extract_english_route_signals(request: _RequestSignals) -> _EnglishRouteSignals:
@@ -1156,14 +1256,11 @@ def _classify_product_layer(
 def _classify_residual_layer(
     request: _RequestSignals,
     english: _EnglishRouteSignals,
-    available_tool_names: list[str],
 ) -> _CandidateRoute:
     """所有正向信号都不成立时的兜底；判不出能力族一律要求澄清。"""
 
     routing_message = request.routing_message
     web_search_denied = request.web_search_denied
-    all_network_denied = request.all_network_denied
-    include_current_date = request.include_current_date
     explicit_web_search_request = request.explicit_web_search_request
     english_relation = english.relation
     english_abstract_route = english.abstract_route
@@ -1200,29 +1297,6 @@ def _classify_residual_layer(
             True,
         )
 
-    explicit_alias = (
-        None if all_network_denied else _resolve_explicit_authorized_alias(routing_message, available_tool_names)
-    )
-    if explicit_alias is not None:
-        return _CandidateRoute(
-            "mcp_explicit",
-            "high",
-            ("explicit_authorized_tool_alias",),
-            include_current_date,
-            explicit_tool_names=(explicit_alias,),
-        )
-
-    if _GREETING_RE.search(routing_message):
-        return _CandidateRoute("direct", "high", ("direct_greeting",), False)
-    if _IDENTITY_RE.search(routing_message):
-        return _CandidateRoute(
-            "direct",
-            "high",
-            ("assistant_identity_question",),
-            False,
-        )
-    if _SIMPLE_CALC_RE.search(routing_message):
-        return _CandidateRoute("direct", "high", ("simple_calculation",), False)
     if _STABLE_KNOWLEDGE_RE.search(routing_message):
         return _CandidateRoute(
             "direct",
@@ -1248,7 +1322,7 @@ def classify_capability_request(
     """默认的规则式分类器：字面层 → 产品层 → 兜底层，三层各自可单独测试。"""
 
     request = _extract_request_signals(message)
-    literal_route = _classify_literal_layer(request)
+    literal_route = _classify_literal_layer(request, available_tool_names)
     if literal_route is not None:
         return literal_route
 
@@ -1268,7 +1342,7 @@ def classify_capability_request(
     product_route = _classify_product_layer(request, signals, english)
     if product_route is not None:
         return product_route
-    return _classify_residual_layer(request, english, available_tool_names)
+    return _classify_residual_layer(request, english)
 
 
 def _resolution(
@@ -1385,33 +1459,41 @@ def _resolve_explicit_authorized_alias(
     )
     matched: list[str] = []
     for alias in aliases:
-        alias_pattern = rf"(?<![\w]){re.escape(alias.lower())}(?![\w])"
-        directives: list[tuple[int, bool]] = []
-        for alias_match in re.finditer(alias_pattern, message):
-            prefix = message[max(0, alias_match.start() - 48) : alias_match.start()]
-            if re.search(
-                r"(?:不要|不用|别|请勿|禁止|严禁|不得|不可)\s*"
-                r"(?:再|随后)?(?:调用|使用|运行|执行)?\s*$",
-                prefix,
-            ) or re.search(
-                r"\b(?:(?:do not|don['’]t|dont|never)\s+(?:call|use|run|invoke)|"
-                r"(?:do not|don['’]t|dont|never)\s+execute|"
-                r"(?:without|avoid(?:ing)?|refrain\s+from|skip(?:ping)?)\s+"
-                r"(?:call(?:ing)?|us(?:e|ing)|run(?:ning)?|invok(?:e|ing)|execut(?:e|ing)))\s+"
-                r"(?:the\s+)?(?:mcp\s+)?(?:tool\s+)?$",
-                prefix,
-                re.IGNORECASE,
-            ):
-                directives.append((alias_match.start(), False))
-            elif re.search(
-                r"(?:调用|使用|运行|执行)(?:工具)?\s*$|"
-                r"\b(?:call|use|run|invoke|execute)\s+(?:the\s+)?(?:mcp\s+)?(?:tool\s+)?$",
-                prefix,
-            ):
-                directives.append((alias_match.start(), True))
-        if directives and directives[-1][1]:
+        directives = _explicit_alias_directives(message, alias)
+        if directives and directives[-1][2]:
             matched.append(alias)
     return matched[0] if len(matched) == 1 else None
+
+
+def _explicit_alias_directives(message: str, alias: str) -> list[tuple[int, int, bool]]:
+    """返回 alias 出现位置和最后一次显式调用/否定语义，供字面边界共用。"""
+
+    alias_pattern = rf"(?<![A-Za-z0-9_]){re.escape(alias.lower())}(?![A-Za-z0-9_])"
+    directives: list[tuple[int, int, bool]] = []
+    for alias_match in re.finditer(alias_pattern, message):
+        prefix = message[max(0, alias_match.start() - 48) : alias_match.start()]
+        if re.search(
+            r"(?:不要|不用|别|请勿|禁止|严禁|不得|不可)\s*"
+            r"(?:再|随后)?(?:调用|使用|运行|执行)?\s*$",
+            prefix,
+        ) or re.search(
+            r"\b(?:(?:do not|don['’]t|dont|never)\s+(?:call|use|run|invoke)|"
+            r"(?:do not|don['’]t|dont|never)\s+execute|"
+            r"(?:without|avoid(?:ing)?|refrain\s+from|skip(?:ping)?)\s+"
+            r"(?:call(?:ing)?|us(?:e|ing)|run(?:ning)?|invok(?:e|ing)|execut(?:e|ing)))\s+"
+            r"(?:the\s+)?(?:mcp\s+)?(?:tool\s+)?$",
+            prefix,
+            re.IGNORECASE,
+        ):
+            directives.append((alias_match.start(), alias_match.end(), False))
+        elif re.search(
+            r"(?:调用|使用|运行|执行)(?:工具)?\s*$|"
+            r"\b(?:call|use|run|invoke|execute)\s+(?:the\s+)?(?:mcp\s+)?(?:tool\s+)?$",
+            prefix,
+            re.IGNORECASE,
+        ):
+            directives.append((alias_match.start(), alias_match.end(), True))
+    return directives
 
 
 def _normalize_message(value: str | None) -> str:

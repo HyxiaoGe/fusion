@@ -4,6 +4,7 @@ spec §4.1。本模块只负责 agent loop 的控制流编排，所有"做事"�
 （LLM 流消费 / 工具执行 / 落库 / SSE 编码）都委派给同子包内的兄弟模块。
 """
 
+import asyncio
 import time
 from dataclasses import replace
 from functools import partial
@@ -35,13 +36,20 @@ from app.services.stream.agent_loop_wiring import (
     AgentLoopLifecycleCall,
     AgentLoopRunInput,
     AgentLoopWiringDependencies,
-    build_agent_loop_lifecycle_call,
+    assemble_agent_loop_lifecycle_call,
+    build_agent_loop_call_config_from_inputs,
+    prepare_agent_loop_call_config_inputs,
 )
 from app.services.stream.agent_round import run_agent_round
 from app.services.stream.limit_summary import run_limit_summary_step
 from app.services.stream.llm_stream import llm_call_with_retry, stream_round
 from app.services.stream.persistence import persist_message
 from app.services.stream.previous_run_skill_release import load_previous_run_skill_release_pins
+from app.services.stream.run_capability_model_classifier import (
+    ClassifierDeadlineGate,
+    classify_capability_request_with_model,
+)
+from app.services.stream.run_capability_router import _CandidateRoute
 from app.services.stream.run_finalizer import (
     complete_agent_run,
     fail_agent_run,
@@ -66,6 +74,7 @@ from app.services.suggested_question_worker import (
 AGENT_MAX_STEPS = 8  # LLM 调用轮次上限
 AGENT_MAX_TOOL_CALLS = 20  # 工具执行总次数上限
 AGENT_TOTAL_TIMEOUT = 300  # 5 分钟硬超时
+_CALL_CONFIG_BUILD_DEADLINE_SECONDS = 1.5
 
 
 def _log_agent_round_summary(
@@ -99,7 +108,10 @@ def _agent_loop_limits() -> AgentLoopLimits:
 
 def _agent_loop_wiring_dependencies() -> AgentLoopWiringDependencies:
     return AgentLoopWiringDependencies(
-        build_call_config_fn=build_agent_loop_call_config,
+        build_call_config_fn=partial(
+            build_agent_loop_call_config,
+            classify_fn=classify_capability_request_with_model,
+        ),
         build_execution_fn=build_agent_loop_execution,
         session_cache=session_cache,
         redis_writer_factory=AgentEventRedisWriter,
@@ -138,6 +150,49 @@ def _agent_loop_wiring_dependencies() -> AgentLoopWiringDependencies:
         load_authorized_tool_names_fn=load_mcp_authorized_tool_aliases,
         load_previous_skill_release_pins_fn=load_previous_run_skill_release_pins,
         llm_round_detail_scheduler=schedule_llm_round_detail,
+    )
+
+
+def _build_call_config_with_deadline_signal(
+    build_call_config_fn,
+    deadline_gate: ClassifierDeadlineGate,
+):
+    """仅给生产混合分类器注入 deadline 信号，保留测试/扩展的显式分类器。"""
+
+    if not (
+        isinstance(build_call_config_fn, partial)
+        and build_call_config_fn.keywords.get("classify_fn") is classify_capability_request_with_model
+    ):
+        return build_call_config_fn
+    return partial(
+        build_call_config_fn.func,
+        *build_call_config_fn.args,
+        **{
+            **build_call_config_fn.keywords,
+            "classify_fn": partial(
+                classify_capability_request_with_model,
+                deadline_gate=deadline_gate,
+            ),
+        },
+    )
+
+
+def _classify_deadline_fallback(**_kwargs) -> _CandidateRoute:
+    return _CandidateRoute(
+        package_id="clarification_only",
+        confidence="low",
+        reason_codes=("insufficient_capability_signal",),
+        include_current_date=False,
+        resolution_mode="clarification",
+    )
+
+
+def _build_deadline_fallback_call_config_fn():
+    """硬 deadline 后只允许无模型的 clarification 配置继续生命周期。"""
+
+    return partial(
+        build_agent_loop_call_config,
+        classify_fn=_classify_deadline_fallback,
     )
 
 
@@ -219,11 +274,40 @@ class StreamHandler:
                 replace_on_success=replace_on_success,
                 create_after_retry_user_id=create_after_retry_user_id,
             )
-            lifecycle_call = build_agent_loop_lifecycle_call(
+            dependencies = replace(dependencies, persist_message_fn=run_persist_message)
+            call_config_inputs = prepare_agent_loop_call_config_inputs(
+                run_input=run_input,
+                db=db,
+                dependencies=dependencies,
+            )
+            deadline_gate = ClassifierDeadlineGate()
+            try:
+                call_config = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        build_agent_loop_call_config_from_inputs,
+                        run_input=run_input,
+                        inputs=call_config_inputs,
+                        build_call_config_fn=_build_call_config_with_deadline_signal(
+                            dependencies.build_call_config_fn,
+                            deadline_gate,
+                        ),
+                    ),
+                    timeout=_CALL_CONFIG_BUILD_DEADLINE_SECONDS,
+                )
+                deadline_gate.commit_observation()
+            except asyncio.TimeoutError:
+                deadline_gate.expire_and_publish_deadline()
+                call_config = build_agent_loop_call_config_from_inputs(
+                    run_input=run_input,
+                    inputs=call_config_inputs,
+                    build_call_config_fn=_build_deadline_fallback_call_config_fn(),
+                )
+            lifecycle_call = assemble_agent_loop_lifecycle_call(
                 run_input=run_input,
                 db=db,
                 limits=limits or _agent_loop_limits(),
-                dependencies=replace(dependencies, persist_message_fn=run_persist_message),
+                dependencies=dependencies,
+                call_config=call_config,
             )
             await _run_agent_loop_lifecycle_call(lifecycle_call)
         finally:
