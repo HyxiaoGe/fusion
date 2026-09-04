@@ -9,6 +9,11 @@ class LLMObservabilityTests(unittest.TestCase):
 
         self.assertEqual(metadata, {"tags": ["app:fusion", "phase:chat_stream"]})
 
+    def test_classifier_phase_uses_low_cardinality_tag(self):
+        metadata = build_litellm_metadata("run_capability_classifier")
+
+        self.assertEqual(metadata, {"tags": ["app:fusion", "phase:run_capability_classifier"]})
+
     def test_merge_openai_extra_body_preserves_existing_fields(self):
         extra_body = {"thinking": {"type": "disabled"}}
 

@@ -9,6 +9,7 @@ ALLOWED_LLM_PHASES = frozenset(
         "generate_title",
         "suggest_questions",
         "file_processing",
+        "run_capability_classifier",
     }
 )
 
