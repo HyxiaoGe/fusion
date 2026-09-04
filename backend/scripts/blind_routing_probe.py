@@ -2,7 +2,8 @@
 """能力路由盲测跑分。
 
 用 `test/fixtures/blind_routing_probe.json` 里独立于实现书写的消息，跑真实的
-`resolve_run_capability_route()`，报告按类别的覆盖率。纯本地，不联网、不调模型。
+`resolve_run_capability_route()`，报告按类别的覆盖率。默认调用真实 LiteLLM 混合
+分类器；只有显式传入 `--classifier rules` 才使用规则基线。
 
 **这不是 CI 门禁**：当前规则分类器在这份集合上远达不到 100%，把它接进 pytest 只会
 让 CI 长期红着。它是诊断基准——换分类器实现（见 issue #24）后用同一套对比，才知道
@@ -11,7 +12,7 @@
 用法：
 
     DATABASE_URL="sqlite:///:memory:" python scripts/blind_routing_probe.py
-    DATABASE_URL="sqlite:///:memory:" python scripts/blind_routing_probe.py --verbose
+    DATABASE_URL="sqlite:///:memory:" python scripts/blind_routing_probe.py --classifier rules --verbose
 """
 
 from __future__ import annotations
@@ -20,12 +21,21 @@ import argparse
 import json
 import pathlib
 import sys
+from collections.abc import Sequence
 
 _BACKEND_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_BACKEND_ROOT))
 
+from app.core.config import settings  # noqa: E402
 from app.services.stream.agent_task_policy import AgentTaskPolicy  # noqa: E402
-from app.services.stream.run_capability_router import resolve_run_capability_route  # noqa: E402
+from app.services.stream.run_capability_model_classifier import (  # noqa: E402
+    classify_capability_request_with_model,
+)
+from app.services.stream.run_capability_router import (  # noqa: E402
+    CapabilityClassifier,
+    classify_capability_request,
+    resolve_run_capability_route,
+)
 
 FIXTURE = _BACKEND_ROOT / "test" / "fixtures" / "blind_routing_probe.json"
 
@@ -46,7 +56,18 @@ TASK_POLICY = AgentTaskPolicy(
 )
 
 
-def route(message: str):
+def has_hybrid_classifier_credentials() -> bool:
+    """盲测默认模式只在真实模型调用所需配置完整时运行。"""
+
+    return bool(
+        settings.LITELLM_API_KEY
+        and settings.LITELLM_PROXY_URL
+        and settings.RUN_CAPABILITY_CLASSIFIER_MODEL
+        and not settings.RUN_CAPABILITY_CLASSIFIER_MODEL.startswith("litellm_proxy/")
+    )
+
+
+def route(message: str, *, classifier: CapabilityClassifier):
     return resolve_run_capability_route(
         original_message=message,
         task_context_messages=None,
@@ -56,13 +77,45 @@ def route(message: str):
         capabilities={"functionCalling": True, "searchCapable": True},
         tools_disabled=False,
         knowledge_grounded=False,
+        classify_fn=classifier,
     )
 
 
-def main() -> int:
+def _print_report(by_group: dict[str, list[bool]]) -> None:
+    total_ok = sum(sum(results) for results in by_group.values())
+    total_cases = sum(len(results) for results in by_group.values())
+    print(f"{'类别':12} {'通过':>6} {'总数':>6} {'覆盖率':>8}")
+    print("-" * 36)
+    for group, results in sorted(by_group.items()):
+        rate = sum(results) / len(results) * 100
+        print(f"{group:12} {sum(results):>6} {len(results):>6} {rate:>7.0f}%")
+    print("-" * 36)
+    print(f"{'合计':12} {total_ok:>6} {total_cases:>6} {total_ok / total_cases * 100:>7.0f}%")
+
+
+def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--classifier",
+        choices=("hybrid", "rules"),
+        default="hybrid",
+        help="分类器：默认 hybrid 调用真实 LiteLLM；rules 仅用于显式回滚诊断",
+    )
     parser.add_argument("--verbose", action="store_true", help="逐条打印明细")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+
+    if args.classifier == "hybrid" and not has_hybrid_classifier_credentials():
+        print(
+            "无法运行混合分类器盲测：缺少 LiteLLM 凭据。请配置 "
+            "LITELLM_PROXY_URL、LITELLM_API_KEY 和 RUN_CAPABILITY_CLASSIFIER_MODEL；"
+            "未调用模型，不能报告准确率。",
+            file=sys.stderr,
+        )
+        return 2
+
+    classifier: CapabilityClassifier = (
+        classify_capability_request_with_model if args.classifier == "hybrid" else classify_capability_request
+    )
 
     payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
     cases = payload["cases"]
@@ -71,7 +124,7 @@ def main() -> int:
     failures: list[tuple[str, str, str, list[str]]] = []
 
     for case in cases:
-        resolution = route(case["question"])
+        resolution = route(case["question"], classifier=classifier)
         acceptable = case["acceptable_packages"]
         ok = resolution.package_id in acceptable
         by_group.setdefault(case["group"], []).append(ok)
@@ -85,14 +138,7 @@ def main() -> int:
     if args.verbose:
         print()
 
-    total_ok = sum(sum(results) for results in by_group.values())
-    print(f"{'类别':12} {'通过':>6} {'总数':>6} {'覆盖率':>8}")
-    print("-" * 36)
-    for group, results in sorted(by_group.items()):
-        rate = sum(results) / len(results) * 100
-        print(f"{group:12} {sum(results):>6} {len(results):>6} {rate:>7.0f}%")
-    print("-" * 36)
-    print(f"{'合计':12} {total_ok:>6} {len(cases):>6} {total_ok / len(cases) * 100:>7.0f}%")
+    _print_report(by_group)
 
     if failures and not args.verbose:
         print("\n未覆盖条目：")

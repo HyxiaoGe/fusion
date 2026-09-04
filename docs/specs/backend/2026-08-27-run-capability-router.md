@@ -138,18 +138,47 @@ Deep Research 继续要求 function calling 与 search capability，并固定只
 - 城市 ID 带省级前缀，同名行政区不撞键：`北京市朝阳区` 属于北京，`辽宁省朝阳市`
   是朝阳，两者之间是跨城。
 
-## 分类器与骨架的边界（2026-09-03 修订）
+## 分类器与骨架的边界（2026-09-04 修订）
 
 "用户消息 → `package_id`"这一步与其余流程解耦：
 
-- `classify_capability_request()` 是默认的规则式分类器，内部分三层，各层可单独测试：
+- `classify_capability_request()` 是显式的规则基线/回滚分类器，内部分三层，各层可单独测试：
   `_classify_literal_layer`（靠字面即可判定的 direct/transform/date/url/web）→
   `_classify_product_layer`（产品能力信号选包）→ `_classify_residual_layer`（兜底）。
 - `resolve_run_capability_route(classify_fn=...)` 可替换分类器。替换后 resolution 冻结、
   契约校验、definitions/handlers/bindings 的原子派生、Skill 终态与 Trajectory 投影全部不变，
   非法包与工具组合仍被 `validate_capability_resolution_semantics()` 拒绝。
-- 换成模型分类器时，只需实现同一个可调用签名并返回 `_CandidateRoute`；分类失败或产出
-  非法 package 必须 fail-closed 到 `clarification_only`。
+- 生产 `runner` 显式注入 `classify_capability_request_with_model()`：其字面层命中时不调模型，
+  其余请求只进行一次模型分类；通用 builder 保留 rules 是为了确定性契约测试，不代表生产
+  请求的回退路径。
+- 模型分类失败、超时、凭据缺失、输入超预算、畸形 JSON、未知 package 或非法工具组合都必须
+  fail-closed 到 `clarification_only`。不得在单个请求内悄悄回退 rules；规则分类器是由调用方
+  明确选择的回滚能力。
+
+### 混合分类器已确认运行契约
+
+- 分类调用固定经 `litellm_proxy/<RUN_CAPABILITY_CLASSIFIER_MODEL>` 到 `LITELLM_PROXY_URL`，
+  使用 `LITELLM_API_KEY`；默认模型为 `deepseek-chat`。调用参数固定为 `timeout=1.5` 秒、
+  `num_retries=0`、`max_tokens=128`、`temperature=0` 和 JSON object response format，避免
+  重试扩大首轮延迟或费用。
+- 输入上限为 2,000 token，最多只投影最近一组完整 `user → assistant` 上下文；超预算先移除
+  上下文，当前消息加 system prompt 仍超限则不调模型并 fail-closed。上下文只保留文本块，
+  不投影 thinking、文件或未完成 user 消息。
+- 分类器只可输出既有受控 package 与其精确 canonical 工具组合；禁止输出
+  `deep_research`、`knowledge_grounded`、`tools_unavailable` 或 `mcp_explicit`。全局禁网、
+  工具不可用或不确定的输出不能提升为外部能力。
+- 观测仅记录耗时、结果、package 和低基数错误类型（`run_capability_classifier` phase），
+  不记录用户原文、上下文、凭据或 endpoint。真实模型 P95 延迟、费用和盲测准确率需要在
+  配置真实 LiteLLM 凭据后单独验收；当前无凭据环境不能据本地脚本宣称这些结果完成。
+
+### 盲测入口
+
+- `backend/scripts/blind_routing_probe.py` 默认运行真实混合分类器；缺少
+  `LITELLM_PROXY_URL`、`LITELLM_API_KEY` 或分类模型配置时必须以清晰错误和非零状态停止，
+  在停止前不得输出任何混合准确率。
+- `--classifier rules` 是显式规则回滚/诊断模式，不是请求内兜底；它在固定独立夹具上的基线
+  为 14/33（42%），其中 `abstract` 必须为 5/5。报告始终按类别输出通过数、总数、覆盖率及
+  合计；该夹具不是 CI 门禁，也不得为提高分数改写它的期望值。
 
 规格"不做"一节中"不增加独立 LLM Router、不增加额外模型调用"仍是当前默认实现的选择，
 不再是架构约束：规则分类器在中英文出行、否定作用域与稳定知识边界上的维护成本已经由
