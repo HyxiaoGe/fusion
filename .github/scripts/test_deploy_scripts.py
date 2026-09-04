@@ -7,6 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 from deploy_workflow_test_support import BODY_MARKER, deploy_script_body
 
 
@@ -15,10 +17,15 @@ FIXTURE_PATH = ROOT / "ops/deploy/tests/fixtures/deploy-script-contracts.tsv"
 FIXTURE_BIN = ROOT / "ops/deploy/tests/fixtures/bin"
 PR_WORKFLOW = ROOT / ".github/workflows/pr-ci.yml"
 APP_CONTRACT_SCRIPT = ROOT / "ops/deploy/validate-app-deployment-contract.sh"
+API_WRAPPER = ROOT / ".github/workflows/_deploy-api.yml"
 WRAPPERS = (
-    ROOT / ".github/workflows/_deploy-api.yml",
+    API_WRAPPER,
     ROOT / ".github/workflows/_deploy-ui.yml",
 )
+WRAPPER_LINE_BUDGETS = {
+    API_WRAPPER.name: 402,
+    "_deploy-ui.yml": 400,
+}
 
 
 def contract_rows() -> list[dict[str, str]]:
@@ -77,6 +84,28 @@ def scripts_before_checkout(workflow: Path) -> list[str]:
     return offenders
 
 
+def named_workflow_step(workflow: Path, job_name: str, step_name: str) -> dict:
+    document = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+    steps = document["jobs"][job_name]["steps"]
+    matches = [step for step in steps if step.get("name") == step_name]
+    if len(matches) != 1:
+        raise AssertionError(f"{job_name} 中必须恰有一个步骤: {step_name}")
+    return matches[0]
+
+
+def compose_service_body(deploy_body: str, service_name: str) -> str:
+    compose_marker = "cat > docker-compose.fusion-api-ghcr.yml <<'EOF'\n"
+    if compose_marker not in deploy_body:
+        raise AssertionError("API 部署脚本缺少 Compose 生成块")
+    compose = deploy_body.split(compose_marker, 1)[1].split("\nEOF\n", 1)[0]
+    service = re.search(rf"(?m)^  {re.escape(service_name)}:\n", compose)
+    if service is None:
+        raise AssertionError(f"Compose 缺少服务: {service_name}")
+    next_service = re.search(r"(?m)^  [A-Za-z][A-Za-z0-9_-]*:\n", compose[service.end() :])
+    end = service.end() + next_service.start() if next_service is not None else len(compose)
+    return compose[service.start() : end]
+
+
 class DeployScriptContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -105,20 +134,22 @@ class DeployScriptContractTests(unittest.TestCase):
     def test_wrappers_stay_within_task4_line_budget(self) -> None:
         for wrapper in WRAPPERS:
             with self.subTest(wrapper=wrapper.name):
-                # 保持 Task 3 的 400 行上限，避免 workflow 重新膨胀为内联脚本。
-                self.assertLessEqual(len(wrapper.read_text(encoding="utf-8").splitlines()), 400)
+                # API 为分类器发布变量新增两行；其余 wrapper 保持原有 400 行上限。
+                self.assertLessEqual(
+                    len(wrapper.read_text(encoding="utf-8").splitlines()),
+                    WRAPPER_LINE_BUDGETS[wrapper.name],
+                )
 
-    def test_classifier_models_are_consumed_by_the_api_container(self) -> None:
-        workflow = WRAPPERS[0].read_text(encoding="utf-8")
-        deploy_body = deploy_script_body(
-            ROOT,
-            "ops/deploy/api-pull-and-restart.sh",
-        )
+    def _assert_classifier_model_publish_chain(
+        self,
+        step: dict,
+        deploy_body: str,
+        api_service: str,
+    ) -> None:
+        self.assertEqual(step.get("run"), "ops/deploy/api-pull-and-restart.sh")
+        compose_marker = "cat > docker-compose.fusion-api-ghcr.yml <<'EOF'"
         expected_models = (
-            (
-                "RUN_CAPABILITY_CLASSIFIER_MODEL",
-                "deepseek-chat",
-            ),
+            ("RUN_CAPABILITY_CLASSIFIER_MODEL", "deepseek-chat"),
             (
                 "RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL",
                 "deepseek/deepseek-chat",
@@ -126,19 +157,56 @@ class DeployScriptContractTests(unittest.TestCase):
         )
 
         for name, default in expected_models:
-            with self.subTest(name=name):
-                self.assertIn(
-                    f"DEPLOY_{name}: ${{{{ vars.{name} || '{default}' }}}}",
-                    workflow,
-                )
-                self.assertIn(
-                    f'export {name}="${{DEPLOY_{name}:-${{{name}:-{default}}}}}"',
-                    deploy_body,
-                )
-                self.assertIn(
-                    f"- {name}=${{{name}:-{default}}}",
-                    deploy_body,
-                )
+            source = f"${{{{ vars.{name} || '{default}' }}}}"
+            export = f'export {name}="${{DEPLOY_{name}:-${{{name}:-{default}}}}}"'
+            injection = f"- {name}=${{{name}:-{default}}}"
+            self.assertEqual(step["env"].get(f"DEPLOY_{name}"), source, name)
+            self.assertIn(export, deploy_body, name)
+            self.assertIn(injection, api_service, name)
+            self.assertLess(deploy_body.index(export), deploy_body.index(compose_marker), name)
+            self.assertLess(
+                api_service.index("    environment:\n"),
+                api_service.index(injection),
+                name,
+            )
+
+    def test_classifier_models_are_consumed_by_the_api_container(self) -> None:
+        step = named_workflow_step(
+            API_WRAPPER,
+            "deploy-dev",
+            "Pull and restart fusion-api",
+        )
+        deploy_body = deploy_script_body(
+            ROOT,
+            "ops/deploy/api-pull-and-restart.sh",
+        )
+        api_service = compose_service_body(deploy_body, "fusion-api")
+        self._assert_classifier_model_publish_chain(step, deploy_body, api_service)
+
+    def test_classifier_model_publish_contract_rejects_wrong_targets(self) -> None:
+        step = named_workflow_step(
+            API_WRAPPER,
+            "deploy-dev",
+            "Pull and restart fusion-api",
+        )
+        deploy_body = deploy_script_body(
+            ROOT,
+            "ops/deploy/api-pull-and-restart.sh",
+        )
+        wrong_step = {**step, "run": "ops/deploy/api-rollback-failed-deployment.sh"}
+        with self.assertRaises(AssertionError):
+            self._assert_classifier_model_publish_chain(
+                wrong_step,
+                deploy_body,
+                compose_service_body(deploy_body, "fusion-api"),
+            )
+
+        with self.assertRaises(AssertionError):
+            self._assert_classifier_model_publish_chain(
+                step,
+                deploy_body,
+                compose_service_body(deploy_body, "knowledge-worker"),
+            )
 
     def test_script_bodies_match_the_reviewed_fixtures(self) -> None:
         for row in self.rows:

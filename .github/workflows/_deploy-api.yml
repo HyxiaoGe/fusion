@@ -394,5 +394,9 @@ jobs:
         with: { persist-credentials: false }
       - name: Finalize release result
         id: finalize_release_result
-        env: { PREPARE_RESULT: "${{ needs.prepare.result }}", PUBLISH_RESULT: "${{ needs.publish.result }}", DEPLOY_RESULT: "${{ needs.deploy-dev.result }}", ROLLBACK_REQUESTED: "${{ needs.prepare.outputs.rollback_requested }}" }
+        env:
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+          DEPLOY_RESULT: ${{ needs.deploy-dev.result }}
+          ROLLBACK_REQUESTED: ${{ needs.prepare.outputs.rollback_requested }}
         run: ops/deploy/api-finalize-release-result.sh
