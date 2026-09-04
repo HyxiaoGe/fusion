@@ -536,6 +536,10 @@ def test_system_prompt_defines_taxonomy_tool_mapping_order_and_negative_boundari
     assert "全局禁网时不得选择任何外部工具" in prompt
     assert "标准 package 要表达请求实际需要的能力" in prompt
     assert "available_tool_names 只用于本调用前的精确 MCP literal 授权" in prompt
+    assert "组织、职业、产品或融资阶段" in prompt
+    assert "不得仅因阶段名称选择 fresh_web" in prompt
+    assert "路线能力必须同时有可定位的起点和终点" in prompt
+    assert "只有目的地或使用公司、家等相对指代" in prompt
 
 
 def test_missing_explicit_tool_names_is_rejected() -> None:

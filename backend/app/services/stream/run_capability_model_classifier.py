@@ -400,6 +400,10 @@ def _system_prompt() -> str:
 - mobility_intercity：跨城起终点但方式不明确；[route_compare,search_flights,search_trains]。
 - mixed_itinerary：2–3 个不同产品族；只可为天气、地点、路线、航班、火车的组合，且不能仅为航班加火车。
 - clarification_only：能力不明、关键实体不足、冲突或不符合以上规则；[]。
+关键边界：
+- 组织、职业、产品或融资阶段的演进、准备与建议属于稳定咨询 direct；信息不足时才选 clarification_only。不得仅因阶段名称选择 fresh_web，只有明确询问最新或当前外部事实才联网。
+- 路线能力必须同时有可定位的起点和终点；只有目的地或使用公司、家等相对指代时选择 clarification_only。
+- 比较两座城市是否适合工作、生活或发展不是出行意图；未要求当前外部事实时选择 direct。
 canonical order 固定为 web_search,url_read,weather_forecast,local_place_search,route_compare,search_flights,search_trains。
 标准 package 要表达请求实际需要的能力，不得因当前 definitions 或 available_tool_names 缺少标准产品工具而改选 clarification_only；实际可用性、禁工具、无 function calling 与 knowledge-grounded 降级由后续 resolver 决定。
 available_tool_names 只用于本调用前的精确 MCP literal 授权，不能作为标准 package 工具可用性的依据。禁止选择 deep_research、knowledge_grounded、tools_unavailable 或 mcp_explicit。全局禁网时不得选择任何外部工具；包与工具不匹配或不确定时选择 clarification_only。"""
