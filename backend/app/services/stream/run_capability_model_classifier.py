@@ -92,11 +92,12 @@ class _ClassifierLimits:
 class ClassifierDeadlineGate:
     """协调 worker 与 Runner 的 deadline 胜负和延迟分类观测。"""
 
-    def __init__(self) -> None:
+    def __init__(self, *, clock: Callable[[], float] = perf_counter) -> None:
         self._lock = threading.Lock()
+        self._clock = clock
+        self._started_at = clock()
         self._expired = False
         self._published = False
-        self._model_call_started = False
         self._pending: tuple[str, str, float, str | None, ClassifierResultCallback | None] | None = None
         self._result_callback: ClassifierResultCallback | None = None
 
@@ -117,7 +118,6 @@ class ClassifierDeadlineGate:
         with self._lock:
             if self._expired or self._published:
                 return False
-            self._model_call_started = True
             return True
 
     def buffer_observation(
@@ -160,7 +160,13 @@ class ClassifierDeadlineGate:
             self._published = True
             result_callback = self._result_callback
         _emit_result(result_callback, "failed", "deadline_exceeded")
-        _log_result("failed", "clarification_only", perf_counter(), error_type="deadline_exceeded")
+        _log_result(
+            "failed",
+            "clarification_only",
+            self._started_at,
+            error_type="deadline_exceeded",
+            ended_at=self._clock(),
+        )
         return True
 
     def expire(self) -> None:
@@ -661,11 +667,18 @@ def _error_type(error: BaseException) -> str:
     return "call_error"
 
 
-def _log_result(result: str, package_id: str, started_at: float, *, error_type: str | None = None) -> None:
+def _log_result(
+    result: str,
+    package_id: str,
+    started_at: float,
+    *,
+    error_type: str | None = None,
+    ended_at: float | None = None,
+) -> None:
     logger.info(
         "run_capability_classifier result=%s package_id=%s duration_ms=%s error_type=%s",
         result,
         package_id,
-        max(0, int((perf_counter() - started_at) * 1000)),
+        max(0, int(((perf_counter() if ended_at is None else ended_at) - started_at) * 1000)),
         error_type,
     )

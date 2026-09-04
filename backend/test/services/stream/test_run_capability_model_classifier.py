@@ -358,6 +358,20 @@ def test_deadline_gate_prevents_completion_when_merge_kwargs_expires() -> None:
     completion.assert_not_called()
 
 
+def test_deadline_gate_logs_elapsed_duration_from_gate_creation() -> None:
+    """outer deadline 的日志耗时必须覆盖 gate 已等待的单调时间。"""
+
+    from app.services.stream.run_capability_model_classifier import ClassifierDeadlineGate
+
+    clock_values = iter([10.0, 10.025])
+    gate = ClassifierDeadlineGate(clock=lambda: next(clock_values))
+
+    with patch("app.services.stream.run_capability_model_classifier.logger.info") as log_info:
+        gate.expire_and_publish_deadline()
+
+    assert log_info.call_args.args[3] == 25
+
+
 def test_global_network_denial_cannot_be_promoted_by_model() -> None:
     with patch(
         "app.services.stream.run_capability_model_classifier.litellm.completion",
