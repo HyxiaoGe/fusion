@@ -824,6 +824,68 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
         run_lifecycle.assert_awaited_once()
         self.mock_db.close.assert_called_once()
 
+    async def test_generate_to_redis_deadline_stops_worker_before_late_model_call(self):
+        """主协程 fallback 后，仍在构建消息的 worker 不得再启动模型调用。"""
+
+        from app.services.stream.agent_loop_wiring import AgentLoopCallConfigInputs
+
+        prepared_inputs = AgentLoopCallConfigInputs(
+            options={"use_reasoning": False},
+            capabilities={"functionCalling": True, "searchCapable": True},
+            additional_tools=[],
+            dynamic_tool_handlers={},
+            tool_bindings=[],
+            authorized_tool_names=[],
+            should_load_dynamic_tool_metadata=False,
+            skill_release_pins=None,
+        )
+        lifecycle_call = SimpleNamespace(request=object(), execution=object(), dependencies=object())
+
+        def _slow_token_counter(**_kwargs):
+            time.sleep(0.05)
+            return 1
+
+        with (
+            patch(
+                "app.services.stream.runner.prepare_agent_loop_call_config_inputs",
+                return_value=prepared_inputs,
+            ),
+            patch(
+                "app.services.stream.runner.assemble_agent_loop_lifecycle_call",
+                return_value=lifecycle_call,
+            ) as assemble_lifecycle,
+            patch("app.services.stream.runner.run_agent_loop_lifecycle", AsyncMock()) as run_lifecycle,
+            patch("app.services.stream.runner._CALL_CONFIG_BUILD_DEADLINE_SECONDS", 0.01),
+            patch("app.services.stream.run_capability_model_classifier.settings.LITELLM_API_KEY", "test-key"),
+            patch("app.services.stream.run_capability_model_classifier.settings.LITELLM_PROXY_URL", "https://proxy.test"),
+            patch("app.services.stream.run_capability_model_classifier.litellm.token_counter", _slow_token_counter),
+            patch("app.services.stream.run_capability_model_classifier.litellm.completion") as completion,
+            patch("app.services.stream.run_capability_model_classifier.logger.info") as log_info,
+        ):
+            await self.handler.generate_to_redis(
+                conversation_id="conv-deadline-worker",
+                user_id="user-deadline-worker",
+                model_id="gpt-4",
+                litellm_model="openai/gpt-4",
+                litellm_kwargs={},
+                provider="openai",
+                raw_messages=[{"role": "user", "content": "需要语义判断的请求"}],
+                has_vision=False,
+                file_ids=None,
+                original_message="需要语义判断的请求",
+                assistant_message_id="msg-deadline-worker",
+                task_id="task-deadline-worker",
+                options={"use_reasoning": False},
+                capabilities={"functionCalling": True, "searchCapable": True},
+                trace_id="trace-deadline-worker",
+            )
+            await asyncio.sleep(0.07)
+
+        completion.assert_not_called()
+        self.assertEqual(assemble_lifecycle.call_args.kwargs["call_config"].capability_resolution.package_id, "clarification_only")
+        run_lifecycle.assert_awaited_once()
+        self.assertEqual([call.args[1] for call in log_info.call_args_list], ["failed"])
+
     async def test_generate_to_redis_uses_runner_patched_agent_loop_dependencies(self):
         """runner patch 路径必须继续流入 runtime/lifecycle 依赖。"""
         captured = {}

@@ -99,12 +99,17 @@ def classify_capability_request_with_model(
     token_counter_fn: Callable[..., int] | None = None,
     result_callback: ClassifierResultCallback | None = None,
     deadline_event: threading.Event | None = None,
+    suppress_deadline_observation: bool = False,
 ) -> _CandidateRoute:
     """先处理可确定的字面请求，再以一次结构化模型调用分类其余请求。"""
 
     started_at = perf_counter()
     if deadline_event is not None and deadline_event.is_set():
-        return _fail_closed("deadline_exceeded", started_at, result_callback=result_callback)
+        return _deadline_fail_closed(
+            started_at,
+            result_callback=result_callback,
+            suppress_observation=suppress_deadline_observation,
+        )
     tools = available_tools if available_tools is not None else available_tool_names
     if tools is None:
         return _fail_closed("tools_missing", started_at, result_callback=result_callback)
@@ -129,6 +134,12 @@ def classify_capability_request_with_model(
         token_counter_fn=token_counter_fn,
         limits=limits,
     )
+    if deadline_event is not None and deadline_event.is_set():
+        return _deadline_fail_closed(
+            started_at,
+            result_callback=result_callback,
+            suppress_observation=suppress_deadline_observation,
+        )
     if model_messages is None:
         return _fail_closed("input_budget_exceeded", started_at, result_callback=result_callback)
 
@@ -156,11 +167,21 @@ def classify_capability_request_with_model(
             include_current_date=request.include_current_date,
         )
     except (Exception, ValidationError, ValueError, TypeError) as exc:
+        if deadline_event is not None and deadline_event.is_set():
+            return _deadline_fail_closed(
+                started_at,
+                result_callback=result_callback,
+                suppress_observation=suppress_deadline_observation,
+            )
         return _fail_closed(_error_type(exc), started_at, result_callback=result_callback)
+    if deadline_event is not None and deadline_event.is_set():
+        return _deadline_fail_closed(
+            started_at,
+            result_callback=result_callback,
+            suppress_observation=suppress_deadline_observation,
+        )
     if route is None:
         return _fail_closed("invalid_response", started_at, result_callback=result_callback)
-    if deadline_event is not None and deadline_event.is_set():
-        return _fail_closed("deadline_exceeded", started_at, result_callback=result_callback)
     _emit_result(result_callback, "model")
     _log_result("model", route.package_id, started_at)
     return route
@@ -403,6 +424,23 @@ def _fail_closed(
 ) -> _CandidateRoute:
     _emit_result(result_callback, "failed", error_type)
     _log_result("failed", "clarification_only", started_at, error_type=error_type)
+    return _CandidateRoute(
+        package_id="clarification_only",
+        confidence="low",
+        reason_codes=("insufficient_capability_signal",),
+        include_current_date=False,
+        resolution_mode="clarification",
+    )
+
+
+def _deadline_fail_closed(
+    started_at: float,
+    *,
+    result_callback: ClassifierResultCallback | None,
+    suppress_observation: bool,
+) -> _CandidateRoute:
+    if not suppress_observation:
+        return _fail_closed("deadline_exceeded", started_at, result_callback=result_callback)
     return _CandidateRoute(
         package_id="clarification_only",
         confidence="low",

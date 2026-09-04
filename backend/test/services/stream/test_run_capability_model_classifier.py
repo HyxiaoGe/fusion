@@ -264,6 +264,75 @@ def test_deadline_signal_turns_late_model_result_into_failed_observation() -> No
     assert [call.args[1] for call in log_info.call_args_list] == ["failed"]
 
 
+def test_deadline_signal_set_by_token_counter_skips_completion_once() -> None:
+    """构建消息期间到期后不得新发模型调用，且只观测一次 deadline 失败。"""
+
+    deadline_event = threading.Event()
+    observations = []
+
+    def _token_counter(**_kwargs) -> int:
+        deadline_event.set()
+        return 1
+
+    with (
+        patch("app.services.stream.run_capability_model_classifier.litellm.completion") as completion,
+        patch("app.services.stream.run_capability_model_classifier.logger.info") as log_info,
+    ):
+        candidate = classify_capability_request_with_model(
+            "需要语义判断的请求",
+            ALL_TOOLS,
+            deadline_event=deadline_event,
+            token_counter_fn=_token_counter,
+            result_callback=lambda result, error_type: observations.append((result, error_type)),
+        )
+
+    _assert_clarification(candidate)
+    completion.assert_not_called()
+    assert observations == [("failed", "deadline_exceeded")]
+    assert [call.args[1] for call in log_info.call_args_list] == ["failed"]
+
+
+@pytest.mark.parametrize(
+    "response_or_error",
+    [
+        _completion_response("weather", ["weather_forecast"]),
+        RuntimeError("late proxy error"),
+    ],
+    ids=["late-response", "late-error"],
+)
+def test_deadline_worker_discards_late_completion_observation(response_or_error) -> None:
+    """Runner worker 已被 deadline 放弃后，正常或异常 completion 都不重复观测。"""
+
+    deadline_event = threading.Event()
+    observations = []
+
+    def _late_completion(**_kwargs):
+        deadline_event.set()
+        if isinstance(response_or_error, BaseException):
+            raise response_or_error
+        return response_or_error
+
+    with (
+        patch(
+            "app.services.stream.run_capability_model_classifier.litellm.completion",
+            side_effect=_late_completion,
+        ) as completion,
+        patch("app.services.stream.run_capability_model_classifier.logger.info") as log_info,
+    ):
+        candidate = classify_capability_request_with_model(
+            "需要语义判断的请求",
+            ALL_TOOLS,
+            deadline_event=deadline_event,
+            suppress_deadline_observation=True,
+            result_callback=lambda result, error_type: observations.append((result, error_type)),
+        )
+
+    _assert_clarification(candidate)
+    completion.assert_called_once()
+    assert observations == []
+    log_info.assert_not_called()
+
+
 def test_global_network_denial_cannot_be_promoted_by_model() -> None:
     with patch(
         "app.services.stream.run_capability_model_classifier.litellm.completion",

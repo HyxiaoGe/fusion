@@ -169,6 +169,7 @@ def _build_call_config_with_deadline_signal(
             "classify_fn": partial(
                 classify_capability_request_with_model,
                 deadline_event=deadline_event,
+                suppress_deadline_observation=True,
             ),
         },
     )
