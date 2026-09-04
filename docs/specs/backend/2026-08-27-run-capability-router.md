@@ -8,7 +8,9 @@
 
 ## 目标
 
-在首个 LLM Round 前用纯函数确定一个 Run 级能力包，并在整个 Run 内冻结。能力包同时决定：
+在首个 LLM Round 前确定一个 Run 级能力包，并在整个 Run 内冻结。生产默认使用混合分类：
+字面规则先处理可确定请求，其余请求至多进行一次受控的语义模型分类；分类结果随后由确定性
+resolution 骨架校验、派生并冻结。能力包同时决定：
 
 - 初始系统提示词段落；
 - 对模型公开的外部工具 schema；
@@ -16,7 +18,8 @@
 - 是否公开 `update_plan` 及计划模式；
 - Run 级安全路由元数据和整包指纹。
 
-每个新用户回合建立新 Run 并重新路由。路由不增加 LLM 调用，不在 Run 中途晋升工具，不实现 Skills runtime。
+每个新用户回合建立新 Run 并重新路由。非字面请求最多增加一次分类 LLM 调用；不在 Run 中途
+重新分类或晋升工具，不实现 Skills runtime。
 
 ## 核心裁决
 
@@ -161,6 +164,11 @@ Deep Research 继续要求 function calling 与 search capability，并固定只
   使用 `LITELLM_API_KEY`；默认模型为 `deepseek-chat`。调用参数固定为 `timeout=1.5` 秒、
   `num_retries=0`、`max_tokens=128`、`temperature=0` 和 JSON object response format，避免
   重试扩大首轮延迟或费用。
+- 官方 dev 发布链只消费 `RUN_CAPABILITY_CLASSIFIER_MODEL` 与
+  `RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL`：仓库变量经部署脚本写入 `fusion-api` 容器。
+  超时、输入、输出和上下文预算不开放发布变量；代码仅接受默认值或向下收紧，并硬性钳制在
+  1.5 秒、2,000 input token、128 output token、1 个完整上下文 turn，部署配置不得放大这些
+  上限。
 - 每个非字面请求增加一次已接受的分类调用；目标 P95 为不高于 1 秒，硬超时为 1.5 秒。其
   额外费用与真实 P95、盲测准确率均须在真实 LiteLLM 凭据环境单独验收，不能由本地 mock 或
   规则基线替代。

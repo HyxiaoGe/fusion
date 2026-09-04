@@ -108,6 +108,38 @@ class DeployScriptContractTests(unittest.TestCase):
                 # 保持 Task 3 的 400 行上限，避免 workflow 重新膨胀为内联脚本。
                 self.assertLessEqual(len(wrapper.read_text(encoding="utf-8").splitlines()), 400)
 
+    def test_classifier_models_are_consumed_by_the_api_container(self) -> None:
+        workflow = WRAPPERS[0].read_text(encoding="utf-8")
+        deploy_body = deploy_script_body(
+            ROOT,
+            "ops/deploy/api-pull-and-restart.sh",
+        )
+        expected_models = (
+            (
+                "RUN_CAPABILITY_CLASSIFIER_MODEL",
+                "deepseek-chat",
+            ),
+            (
+                "RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL",
+                "deepseek/deepseek-chat",
+            ),
+        )
+
+        for name, default in expected_models:
+            with self.subTest(name=name):
+                self.assertIn(
+                    f"DEPLOY_{name}: ${{{{ vars.{name} || '{default}' }}}}",
+                    workflow,
+                )
+                self.assertIn(
+                    f'export {name}="${{DEPLOY_{name}:-${{{name}:-{default}}}}}"',
+                    deploy_body,
+                )
+                self.assertIn(
+                    f"- {name}=${{{name}:-{default}}}",
+                    deploy_body,
+                )
+
     def test_script_bodies_match_the_reviewed_fixtures(self) -> None:
         for row in self.rows:
             script = ROOT / row["script"]

@@ -218,6 +218,8 @@ jobs:
           DEPLOY_DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
           DEPLOY_AMAP_MCP_API_KEY: ${{ secrets.AMAP_MCP_API_KEY }}
           DEPLOY_FLYAI_API_KEY: ${{ secrets.FLYAI_API_KEY }}
+          DEPLOY_RUN_CAPABILITY_CLASSIFIER_MODEL: ${{ vars.RUN_CAPABILITY_CLASSIFIER_MODEL || 'deepseek-chat' }}
+          DEPLOY_RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL: ${{ vars.RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL || 'deepseek/deepseek-chat' }}
           DEPLOY_LITELLM_MODEL_MANAGEMENT_ENABLED: ${{ vars.LITELLM_MODEL_MANAGEMENT_ENABLED || 'false' }}
           DEPLOY_LITELLM_MODEL_ADMISSION_WORKER_ENABLED: ${{ vars.LITELLM_MODEL_ADMISSION_WORKER_ENABLED || 'false' }}
           DEPLOY_LITELLM_GOVERNANCE_MAX_AGE_SECONDS: ${{ vars.LITELLM_GOVERNANCE_MAX_AGE_SECONDS || '86400' }}
@@ -392,9 +394,5 @@ jobs:
         with: { persist-credentials: false }
       - name: Finalize release result
         id: finalize_release_result
-        env:
-          PREPARE_RESULT: ${{ needs.prepare.result }}
-          PUBLISH_RESULT: ${{ needs.publish.result }}
-          DEPLOY_RESULT: ${{ needs.deploy-dev.result }}
-          ROLLBACK_REQUESTED: ${{ needs.prepare.outputs.rollback_requested }}
+        env: { PREPARE_RESULT: "${{ needs.prepare.result }}", PUBLISH_RESULT: "${{ needs.publish.result }}", DEPLOY_RESULT: "${{ needs.deploy-dev.result }}", ROLLBACK_REQUESTED: "${{ needs.prepare.outputs.rollback_requested }}" }
         run: ops/deploy/api-finalize-release-result.sh
