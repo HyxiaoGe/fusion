@@ -2550,3 +2550,111 @@ class LimitSummaryNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase):
 
         summary_prompt = request.messages[-1]["content"]
         self.assertNotIn("没有取得任何工具结果", summary_prompt)
+
+
+class PlanSynthesisNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase):
+    """plan_synthesis 与触顶总结同属"零工具证据"终态。
+
+    `ready_for_plan_synthesis()` 的准入条件本身就包含"没有产品结果、没有尝试过产品
+    工具"，叠加 `tool_call_count == 0` 的未公告工具路径，就是 issue #30 P1-B 的同形场景。
+
+    但这条分支的正文是流式直发的：门禁只能保证落库记录诚实、终态标记未完成、事件可观测，
+    **拦不住已经送达用户的流式内容**。彻底修复需要让零证据的 plan_synthesis 改走缓存
+    输出，那会连带改变推理块持久化与部分输出语义，另案处理。
+    """
+
+    _FABRICATED = "高铁直达大约 5 小时，二等座 280 元；也可以坐 G1234 次列车。"
+
+    def _request(self, *, answer: str, content_blocks: list):
+        async def start_step_fn(**_kwargs):
+            return AgentStepContext(
+                step_id="step-plan-synthesis",
+                step_number=3,
+                started_at=100.0,
+                thinking_block_id="blk-plan-thinking",
+                text_block_id="blk-plan-text",
+            )
+
+        async def prepare_context_fn(**kwargs):
+            return ContextPlan(
+                messages=list(kwargs["messages"]),
+                status="no_op",
+                context_window_tokens=1000,
+                context_window_source="test",
+                context_window_status="known",
+                estimated_tokens_before=100,
+                estimated_tokens_after=100,
+            )
+
+        async def stream_round_fn(*_args, **_kwargs):
+            return "", answer, [], "stop", Usage(input_tokens=2, output_tokens=3)
+
+        request = LimitSummaryStepRequest(
+            conversation_id="conv-plan-synthesis",
+            task_id="task-plan-synthesis",
+            run_id="run-plan-synthesis",
+            step_number=3,
+            model_id="gpt-4",
+            provider="openai",
+            litellm_model="openai/gpt-4",
+            litellm_kwargs={},
+            messages=[{"role": "user", "content": "国庆想带父母从武汉去桂林玩，怎么过去省心一些？"}],
+            should_use_reasoning=False,
+            content_blocks=content_blocks,
+            call_kwargs={"tools": [{"function": {"name": "web_search"}}], "tool_choice": "auto"},
+            accumulated_usage=Usage(input_tokens=1, output_tokens=1),
+            emitter=AsyncMock(),
+            session_cache=object(),
+            total_timeout_s=300,
+            run_start=100.0,
+            start_step_fn=start_step_fn,
+            complete_step_fn=AsyncMock(),
+            llm_call_fn=AsyncMock(return_value="response"),
+            stream_round_fn=stream_round_fn,
+            log_round_summary_fn=lambda **_kwargs: None,
+            clock=lambda: 120.0,
+            summary_finish_reason="plan_synthesis",
+            defer_output=True,
+        )
+        return request, prepare_context_fn
+
+    async def _run(self, *, answer: str, content_blocks: list):
+        request, prepare_context_fn = self._request(answer=answer, content_blocks=content_blocks)
+        with (
+            patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
+            patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append_chunk,
+        ):
+            outcome = await run_limit_summary_step(request=request)
+        return request, append_chunk, outcome
+
+    async def test_零证据的计划综合落库记录被改成诚实答复并标记未完成(self):
+        request, append_chunk, outcome = await self._run(answer=self._FABRICATED, content_blocks=[])
+
+        self.assertEqual(request.content_blocks[-1].text, NO_EVIDENCE_ANSWER_TEXT)
+        self.assertTrue(outcome.incomplete)
+        # 流式正文已发出，只能补发一次更正内容；这是本分支已知的残留缺口。
+        self.assertEqual(append_chunk.await_args.args[2], NO_EVIDENCE_ANSWER_TEXT)
+
+    async def test_零证据但诚实的计划综合完全不被改写(self):
+        honest = "这次没能取到实时班次，高铁和飞机都是常见选择，建议到购票平台确认。"
+
+        request, append_chunk, outcome = await self._run(answer=honest, content_blocks=[])
+
+        self.assertEqual(request.content_blocks[-1].text, honest)
+        self.assertFalse(outcome.incomplete)
+        append_chunk.assert_not_awaited()
+
+    async def test_有工具证据的计划综合保持流式直发且不被改写(self):
+        blocks = [
+            SearchBlock(
+                type="search",
+                query="武汉到桂林",
+                sources=[SearchSourceSummary(title="来源", url="https://example.com/a")],
+            )
+        ]
+
+        request, append_chunk, outcome = await self._run(answer=self._FABRICATED, content_blocks=blocks)
+
+        self.assertEqual(request.content_blocks[-1].text, self._FABRICATED)
+        self.assertFalse(outcome.incomplete)
+        append_chunk.assert_not_awaited()

@@ -962,6 +962,33 @@ async def run_limit_summary_step(
     )
 
 
+def _guard_no_evidence_answer(
+    request: LimitSummaryStepRequest,
+    answer: str,
+) -> tuple[str, str | None]:
+    """零工具证据时拦下未被对话输入支撑的动态数据，并留下可聚合的观测。"""
+
+    guarded, fact_kind = resolve_no_evidence_answer(
+        answer,
+        content_blocks=request.content_blocks,
+        messages=request.messages,
+    )
+    if fact_kind is None:
+        return guarded, None
+    emit_fact_guard_observation(
+        fact_kind=fact_kind,
+        summary_finish_reason=request.summary_finish_reason,
+        task_mode=request.task_mode,
+    )
+    if request.warning_fn is not None:
+        request.warning_fn(
+            "收尾总结无工具证据且含具体动态数据，已替换为诚实答复: "
+            f"conv_id={request.conversation_id} run_id={request.run_id} "
+            f"finish_reason={request.summary_finish_reason} fact_kind={fact_kind}"
+        )
+    return guarded, fact_kind
+
+
 async def _commit_limit_summary_result(
     *,
     request: LimitSummaryStepRequest,
@@ -1011,7 +1038,7 @@ async def _commit_limit_summary_result(
         return not valid
     elif request.summary_finish_reason == "plan_synthesis":
         has_answer = bool(round_result.content_buf.strip())
-        has_streamed_content = _streams_standard_plan_synthesis(request) and bool(round_result.content_buf.strip())
+        has_streamed_content = _streams_standard_plan_synthesis(request) and has_answer
         incomplete = (
             round_result.finish_reason
             in {
@@ -1023,7 +1050,13 @@ async def _commit_limit_summary_result(
             or not has_answer
         )
         answer = round_result.content_buf if has_streamed_content else SUMMARY_PROTOCOL_FALLBACK_TEXT
-        if not has_streamed_content:
+        # plan_synthesis 的正文是流式直发的，事后拦不住已经送达用户的内容；这里只能保证
+        # 落库记录诚实、终态标记为未完成，并留下可聚合观测。彻底修复需要让零证据的
+        # plan_synthesis 改走缓存输出，那会连带改变推理块持久化与部分输出语义，另案处理。
+        answer, unsupported_fact_kind = _guard_no_evidence_answer(request, answer)
+        if unsupported_fact_kind is not None:
+            incomplete = True
+        if not has_streamed_content or unsupported_fact_kind is not None:
             await append_chunk(
                 request.conversation_id,
                 "answering",
@@ -1042,24 +1075,9 @@ async def _commit_limit_summary_result(
         if not answer:
             answer = SUMMARY_PROTOCOL_FALLBACK_TEXT
         # 本次 run 没有任何工具证据时，具体班次/票价/时长无从支撑，直接换成诚实答复。
-        answer, unsupported_fact_kind = resolve_no_evidence_answer(
-            answer,
-            content_blocks=request.content_blocks,
-            messages=request.messages,
-        )
+        answer, unsupported_fact_kind = _guard_no_evidence_answer(request, answer)
         if unsupported_fact_kind is not None:
             incomplete = True
-            emit_fact_guard_observation(
-                fact_kind=unsupported_fact_kind,
-                summary_finish_reason=request.summary_finish_reason,
-                task_mode=request.task_mode,
-            )
-            if request.warning_fn is not None:
-                request.warning_fn(
-                    "触顶总结无工具证据且含具体动态数据，已替换为诚实答复: "
-                    f"conv_id={request.conversation_id} run_id={request.run_id} "
-                    f"fact_kind={unsupported_fact_kind}"
-                )
         if request.defer_output:
             await append_chunk(
                 request.conversation_id,
