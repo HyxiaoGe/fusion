@@ -3651,6 +3651,16 @@ def test_literal_mcp_alias_defers_composite_product_requests(message, expected_p
             ["search_flights"],
         ),
         (
+            "Call mcp_unrelated_tool to process data and get tomorrow Beijing weather",
+            "weather",
+            ["weather_forecast"],
+        ),
+        (
+            "Call mcp_unrelated_tool to process data and recommend flights from Beijing to Shanghai tomorrow",
+            "flight",
+            ["search_flights"],
+        ),
+        (
             "请调用 mcp_unrelated_tool 处理数据并查明天北京天气",
             "weather",
             ["weather_forecast"],

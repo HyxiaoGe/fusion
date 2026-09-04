@@ -937,7 +937,7 @@ def _starts_alias_followup_task(followup: str) -> bool:
         re.match(
             r"(?:"
             r"(?:请|帮我|麻烦)?(?:查|查询|找|搜索|告诉|帮|规划|比较|预订|安排|导航)"
-            r"|(?:please\s+)?(?:find|search|check|tell|show|plan|compare|book|navigate|look\s+up)\b"
+            r"|(?:please\s+)?(?:find|search|check|tell|show|plan|compare|book|navigate|look\s+up|get|recommend|give|provide)\b"
             r")",
             followup,
             re.IGNORECASE,

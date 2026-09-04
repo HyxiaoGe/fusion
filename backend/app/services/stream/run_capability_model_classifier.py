@@ -120,6 +120,14 @@ class ClassifierDeadlineGate:
                 return False
             return True
 
+    def try_begin_blocking_work(self) -> bool:
+        """潜在阻塞的预处理也必须在线性化点后才可启动。"""
+
+        with self._lock:
+            if self._expired or self._published:
+                return False
+            return True
+
     def buffer_observation(
         self,
         result: str,
@@ -245,6 +253,8 @@ def classify_capability_request_with_model(
         context_messages,
         token_counter_fn=token_counter_fn,
         limits=limits,
+        deadline_event=deadline_event,
+        deadline_gate=deadline_gate,
     )
     if _deadline_expired(deadline_event, deadline_gate):
         return _deadline_fail_closed(
@@ -344,6 +354,8 @@ def _build_messages(
     *,
     token_counter_fn: Callable[..., int] | None = None,
     limits: _ClassifierLimits | None = None,
+    deadline_event: threading.Event | None = None,
+    deadline_gate: ClassifierDeadlineGate | None = None,
 ) -> list[dict[str, str]] | None:
     effective_limits = limits or _effective_classifier_limits()
     if effective_limits is None:
@@ -355,11 +367,15 @@ def _build_messages(
         "content": _system_prompt(),
     }
     messages = [system_message, *history, {"role": "user", "content": current_message}]
+    if not _can_begin_blocking_work(deadline_event, deadline_gate):
+        return None
     if _within_input_budget(messages, token_counter_fn, effective_limits.max_input_tokens):
         return messages
     if not history:
         return None
     messages = [system_message, {"role": "user", "content": current_message}]
+    if not _can_begin_blocking_work(deadline_event, deadline_gate):
+        return None
     if _within_input_budget(messages, token_counter_fn, effective_limits.max_input_tokens):
         return messages
     return None
@@ -620,6 +636,17 @@ def _deadline_expired(
     return (deadline_event is not None and deadline_event.is_set()) or (
         deadline_gate is not None and deadline_gate.is_expired()
     )
+
+
+def _can_begin_blocking_work(
+    deadline_event: threading.Event | None,
+    deadline_gate: ClassifierDeadlineGate | None,
+) -> bool:
+    """deadline 已赢时，不再开始 token 计数等可能阻塞的预处理。"""
+
+    if deadline_event is not None and deadline_event.is_set():
+        return False
+    return deadline_gate is None or deadline_gate.try_begin_blocking_work()
 
 
 def _record_result(

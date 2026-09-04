@@ -358,6 +358,41 @@ def test_deadline_gate_prevents_completion_when_merge_kwargs_expires() -> None:
     completion.assert_not_called()
 
 
+def test_deadline_gate_prevents_second_history_token_counter_after_first_counter_expires() -> None:
+    """首轮计数跨 deadline 后，不得启动裁剪历史的第二次计数。"""
+
+    from app.services.stream.run_capability_model_classifier import ClassifierDeadlineGate
+
+    gate = ClassifierDeadlineGate()
+    counter_gate_states = []
+    observations = []
+
+    def _token_counter(**_kwargs) -> int:
+        counter_gate_states.append(gate.is_expired())
+        if len(counter_gate_states) == 1:
+            gate.expire_and_publish_deadline()
+            return 2001
+        return 1
+
+    with patch("app.services.stream.run_capability_model_classifier.litellm.completion") as completion:
+        candidate = classify_capability_request_with_model(
+            "需要语义判断的请求",
+            ALL_TOOLS,
+            conversation_messages=[
+                {"role": "user", "content": "历史用户消息"},
+                {"role": "assistant", "content": "历史助手回复"},
+            ],
+            token_counter_fn=_token_counter,
+            deadline_gate=gate,
+            result_callback=lambda result, error_type: observations.append((result, error_type)),
+        )
+
+    _assert_clarification(candidate)
+    assert counter_gate_states == [False]
+    assert observations == [("failed", "deadline_exceeded")]
+    completion.assert_not_called()
+
+
 def test_deadline_gate_logs_elapsed_duration_from_gate_creation() -> None:
     """outer deadline 的日志耗时必须覆盖 gate 已等待的单调时间。"""
 
