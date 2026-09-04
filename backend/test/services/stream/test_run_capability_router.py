@@ -3519,6 +3519,10 @@ def test_replaced_classifier_still_goes_through_contract_validation():
         ("今天是几月几日、星期几？", ALL_TOOLS, "date", "current_date_question"),
         ("你好", ALL_TOOLS, "direct", "direct_greeting"),
         ("你是谁？", ALL_TOOLS, "direct", "assistant_identity_question"),
+        ("请介绍一下你自己", ALL_TOOLS, "direct", "assistant_identity_question"),
+        ("你是谁呀？", ALL_TOOLS, "direct", "assistant_identity_question"),
+        ("你叫什么名字？", ALL_TOOLS, "direct", "assistant_identity_question"),
+        ("你能做什么呢？", ALL_TOOLS, "direct", "assistant_identity_question"),
         ("计算 1 + 1", ALL_TOOLS, "direct", "simple_calculation"),
         (
             "请调用 mcp_unrelated_tool 处理这份数据",
