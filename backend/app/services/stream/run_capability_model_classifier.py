@@ -15,6 +15,8 @@ from app.core.logger import app_logger as logger
 from app.services.stream.run_capability_router import _CandidateRoute, _classify_literal_layer, _extract_request_signals
 from app.utils.run_capability_contract import CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES
 
+ClassifierResultCallback = Callable[[str, str | None], None]
+
 _MODEL_PACKAGE_IDS = frozenset(
     {
         "direct",
@@ -80,26 +82,28 @@ def classify_capability_request_with_model(
     available_tool_names: list[str] | None = None,
     task_context_messages: list[object] | None = None,
     token_counter_fn: Callable[..., int] | None = None,
+    result_callback: ClassifierResultCallback | None = None,
 ) -> _CandidateRoute:
     """先处理可确定的字面请求，再以一次结构化模型调用分类其余请求。"""
 
     started_at = perf_counter()
     tools = available_tools if available_tools is not None else available_tool_names
     if tools is None:
-        return _fail_closed("tools_missing", started_at)
+        return _fail_closed("tools_missing", started_at, result_callback=result_callback)
     context_messages = conversation_messages if conversation_messages is not None else task_context_messages
     request = _extract_request_signals(message)
     literal_route = _classify_literal_layer(request, tools)
     if literal_route is not None:
+        _emit_result(result_callback, "literal")
         _log_result("literal", literal_route.package_id, started_at)
         return literal_route
 
     if not _has_classifier_credentials():
-        return _fail_closed("credentials_missing", started_at)
+        return _fail_closed("credentials_missing", started_at, result_callback=result_callback)
 
     model_messages = _build_messages(message, tools, context_messages, token_counter_fn=token_counter_fn)
     if model_messages is None:
-        return _fail_closed("input_budget_exceeded", started_at)
+        return _fail_closed("input_budget_exceeded", started_at, result_callback=result_callback)
 
     try:
         response = litellm.completion(
@@ -125,9 +129,10 @@ def classify_capability_request_with_model(
             include_current_date=request.include_current_date,
         )
     except (Exception, ValidationError, ValueError, TypeError) as exc:
-        return _fail_closed(_error_type(exc), started_at)
+        return _fail_closed(_error_type(exc), started_at, result_callback=result_callback)
     if route is None:
-        return _fail_closed("invalid_response", started_at)
+        return _fail_closed("invalid_response", started_at, result_callback=result_callback)
+    _emit_result(result_callback, "model")
     _log_result("model", route.package_id, started_at)
     return route
 
@@ -303,7 +308,13 @@ def _has_classifier_credentials() -> bool:
     )
 
 
-def _fail_closed(error_type: str, started_at: float) -> _CandidateRoute:
+def _fail_closed(
+    error_type: str,
+    started_at: float,
+    *,
+    result_callback: ClassifierResultCallback | None = None,
+) -> _CandidateRoute:
+    _emit_result(result_callback, "failed", error_type)
     _log_result("failed", "clarification_only", started_at, error_type=error_type)
     return _CandidateRoute(
         package_id="clarification_only",
@@ -312,6 +323,19 @@ def _fail_closed(error_type: str, started_at: float) -> _CandidateRoute:
         include_current_date=False,
         resolution_mode="clarification",
     )
+
+
+def _emit_result(
+    result_callback: ClassifierResultCallback | None,
+    result: str,
+    error_type: str | None = None,
+) -> None:
+    if result_callback is None:
+        return
+    try:
+        result_callback(result, error_type)
+    except Exception:
+        return
 
 
 def _error_type(error: BaseException) -> str:

@@ -198,6 +198,39 @@ def test_model_failures_and_invalid_output_fail_closed_without_retry(response_or
     completion.assert_called_once()
 
 
+def test_result_callback_observes_literal_model_and_fail_closed_results() -> None:
+    events = []
+
+    literal = classify_capability_request_with_model(
+        "把 See you tomorrow 翻译成中文",
+        ALL_TOOLS,
+        result_callback=lambda result, error_type: events.append((result, error_type)),
+    )
+    with patch(
+        "app.services.stream.run_capability_model_classifier.litellm.completion",
+        return_value=_completion_response("direct"),
+    ):
+        model = classify_capability_request_with_model(
+            "需要语义判断的请求",
+            ALL_TOOLS,
+            result_callback=lambda result, error_type: events.append((result, error_type)),
+        )
+    with patch(
+        "app.services.stream.run_capability_model_classifier.litellm.completion",
+        side_effect=TimeoutError("deadline"),
+    ):
+        failed = classify_capability_request_with_model(
+            "另一个需要语义判断的请求",
+            ALL_TOOLS,
+            result_callback=lambda result, error_type: events.append((result, error_type)),
+        )
+
+    assert literal.package_id == "transform"
+    assert model.package_id == "direct"
+    _assert_clarification(failed)
+    assert events == [("literal", None), ("model", None), ("failed", "timeout")]
+
+
 def test_global_network_denial_cannot_be_promoted_by_model() -> None:
     with patch(
         "app.services.stream.run_capability_model_classifier.litellm.completion",

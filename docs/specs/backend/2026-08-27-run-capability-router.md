@@ -161,6 +161,9 @@ Deep Research 继续要求 function calling 与 search capability，并固定只
   使用 `LITELLM_API_KEY`；默认模型为 `deepseek-chat`。调用参数固定为 `timeout=1.5` 秒、
   `num_retries=0`、`max_tokens=128`、`temperature=0` 和 JSON object response format，避免
   重试扩大首轮延迟或费用。
+- 每个非字面请求增加一次已接受的分类调用；目标 P95 为不高于 1 秒，硬超时为 1.5 秒。其
+  额外费用与真实 P95、盲测准确率均须在真实 LiteLLM 凭据环境单独验收，不能由本地 mock 或
+  规则基线替代。
 - 输入上限为 2,000 token，最多只投影最近一组完整 `user → assistant` 上下文；超预算先移除
   上下文，当前消息加 system prompt 仍超限则不调模型并 fail-closed。上下文只保留文本块，
   不投影 thinking、文件或未完成 user 消息。
@@ -170,19 +173,20 @@ Deep Research 继续要求 function calling 与 search capability，并固定只
 - 观测仅记录耗时、结果、package 和低基数错误类型（`run_capability_classifier` phase），
   不记录用户原文、上下文、凭据或 endpoint。真实模型 P95 延迟、费用和盲测准确率需要在
   配置真实 LiteLLM 凭据后单独验收；当前无凭据环境不能据本地脚本宣称这些结果完成。
+- Issue #24 早期“空配置退回纯规则、部署侧掌握开关”的讨论已被本规格的后续实施决策取代：
+  生产默认混合分类，配置或运行期失败均 fail-closed，规则模式只能由调用方显式选择。
 
 ### 盲测入口
 
 - `backend/scripts/blind_routing_probe.py` 默认运行真实混合分类器；缺少
   `LITELLM_PROXY_URL`、`LITELLM_API_KEY` 或分类模型配置时必须以清晰错误和非零状态停止，
   在停止前不得输出任何混合准确率。
+- 模型调用、鉴权、连接、超时、输入预算或输出校验失败时，分类器的产品级
+  `clarification_only` 仍保持 fail-closed，但 probe 必须把它识别为验收失败并在首个失败处
+  非零停止；逐条结果和分类别/合计覆盖率均不得输出。
 - `--classifier rules` 是显式规则回滚/诊断模式，不是请求内兜底；它在固定独立夹具上的基线
   为 14/33（42%），其中 `abstract` 必须为 5/5。报告始终按类别输出通过数、总数、覆盖率及
   合计；该夹具不是 CI 门禁，也不得为提高分数改写它的期望值。
-
-规格"不做"一节中"不增加独立 LLM Router、不增加额外模型调用"仍是当前默认实现的选择，
-不再是架构约束：规则分类器在中英文出行、否定作用域与稳定知识边界上的维护成本已经由
-连续的单场景修补证明（见 issue #24），是否切换到模型分类由该 issue 决定。
 
 ## Route resolution 协议
 
@@ -230,7 +234,7 @@ Deep Research 继续要求 function calling 与 search capability，并固定只
 
 - 不实现 PromptHub、数据库提示词版本服务或在线 A/B 平台。
 - 不实现 Skills 目录、`describe_skill`、`load_skill`、Skill 正文注入或 continuation Skill 恢复。
-- 不增加独立 LLM Router、Embedding Router 或额外模型调用。
+- 不实现独立 Embedding Router。
 - 不在同一 Run 中动态晋升工具 schema。
 - 不按第三方 MCP description 做模糊语义授权。
 - 不新增数据库迁移；使用现有 `AgentSession.run_config`。

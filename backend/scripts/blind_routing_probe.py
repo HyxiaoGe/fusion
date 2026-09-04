@@ -22,15 +22,13 @@ import json
 import pathlib
 import sys
 from collections.abc import Sequence
+from urllib.parse import urlparse
 
 _BACKEND_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_BACKEND_ROOT))
 
 from app.core.config import settings  # noqa: E402
 from app.services.stream.agent_task_policy import AgentTaskPolicy  # noqa: E402
-from app.services.stream.run_capability_model_classifier import (  # noqa: E402
-    classify_capability_request_with_model,
-)
 from app.services.stream.run_capability_router import (  # noqa: E402
     CapabilityClassifier,
     classify_capability_request,
@@ -59,12 +57,45 @@ TASK_POLICY = AgentTaskPolicy(
 def has_hybrid_classifier_credentials() -> bool:
     """盲测默认模式只在真实模型调用所需配置完整时运行。"""
 
+    api_key = settings.LITELLM_API_KEY.strip()
+    proxy_url = settings.LITELLM_PROXY_URL.strip()
+    raw_model_alias = settings.RUN_CAPABILITY_CLASSIFIER_MODEL
+    model_alias = raw_model_alias.strip()
+    parsed_proxy_url = urlparse(proxy_url)
     return bool(
-        settings.LITELLM_API_KEY
-        and settings.LITELLM_PROXY_URL
-        and settings.RUN_CAPABILITY_CLASSIFIER_MODEL
-        and not settings.RUN_CAPABILITY_CLASSIFIER_MODEL.startswith("litellm_proxy/")
+        api_key
+        and parsed_proxy_url.scheme in {"http", "https"}
+        and parsed_proxy_url.netloc
+        and model_alias
+        and raw_model_alias == model_alias
+        and not model_alias.startswith("litellm_proxy/")
     )
+
+
+class HybridClassifierMonitor:
+    """为盲测记录低基数分类结果，不改变 Router 的候选包协议。"""
+
+    def __init__(self, classifier):
+        self._classifier = classifier
+        self.failure_error_type: str | None = None
+
+    def __call__(self, *, message, task_context_messages, available_tool_names):
+        return self._classifier(
+            message=message,
+            task_context_messages=task_context_messages,
+            available_tool_names=available_tool_names,
+            result_callback=self._record_result,
+        )
+
+    def _record_result(self, result: str, error_type: str | None) -> None:
+        if result == "failed" and self.failure_error_type is None:
+            self.failure_error_type = error_type or "unknown"
+
+
+def _new_hybrid_classifier_monitor() -> HybridClassifierMonitor:
+    from app.services.stream.run_capability_model_classifier import classify_capability_request_with_model
+
+    return HybridClassifierMonitor(classify_capability_request_with_model)
 
 
 def route(message: str, *, classifier: CapabilityClassifier):
@@ -113,18 +144,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
 
-    classifier: CapabilityClassifier = (
-        classify_capability_request_with_model if args.classifier == "hybrid" else classify_capability_request
-    )
+    monitor = _new_hybrid_classifier_monitor() if args.classifier == "hybrid" else None
+    classifier: CapabilityClassifier = monitor or classify_capability_request
 
     payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
     cases = payload["cases"]
 
     by_group: dict[str, list[bool]] = {}
     failures: list[tuple[str, str, str, list[str]]] = []
+    verbose_lines: list[str] = []
 
     for case in cases:
         resolution = route(case["question"], classifier=classifier)
+        if monitor is not None and monitor.failure_error_type is not None:
+            print(
+                f"无法完成混合分类器盲测：模型分类失败（{monitor.failure_error_type}）；"
+                "未输出准确率。",
+                file=sys.stderr,
+            )
+            return 3
         acceptable = case["acceptable_packages"]
         ok = resolution.package_id in acceptable
         by_group.setdefault(case["group"], []).append(ok)
@@ -133,9 +171,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.verbose:
             mark = "OK " if ok else "MISS"
             tools = ",".join(resolution.external_tool_names) or "-"
-            print(f"{mark} {case['id']:14} {resolution.package_id:20} [{tools}]  {case['question']}")
+            verbose_lines.append(f"{mark} {case['id']:14} {resolution.package_id:20} [{tools}]  {case['question']}")
 
     if args.verbose:
+        print("\n".join(verbose_lines))
         print()
 
     _print_report(by_group)
