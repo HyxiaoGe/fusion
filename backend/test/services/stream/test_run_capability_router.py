@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import FrozenInstanceError, replace
+from unittest.mock import patch
 
 import pytest
 
@@ -12,6 +13,7 @@ from app.services.stream.run_capability_router import (
     _CandidateRoute,
     _classify_literal_layer,
     _extract_request_signals,
+    classify_capability_request,
     resolve_run_capability_route,
     serialize_capability_resolution,
 )
@@ -3311,7 +3313,7 @@ def test_serialization_only_contains_safe_protocol_fields():
 
     assert payload == {
         "schema_version": 2,
-        "router_version": "2026-08-31.2",
+        "router_version": "2026-09-04.1",
         "package_id": "mobility_intercity",
         "confidence": "medium",
         "resolution_mode": "routed",
@@ -3509,14 +3511,59 @@ def test_replaced_classifier_still_goes_through_contract_validation():
         )
 
 
-def test_literal_layer_decides_alone_and_defers_everything_else():
-    """字面层只认靠字面就能判的请求，其余交给下一层（issue #24）。"""
+@pytest.mark.parametrize(
+    ("message", "available_tool_names", "package_id", "reason_code"),
+    [
+        ("今天是几月几日、星期几？", ALL_TOOLS, "date", "current_date_question"),
+        ("你好", ALL_TOOLS, "direct", "direct_greeting"),
+        ("你是谁？", ALL_TOOLS, "direct", "assistant_identity_question"),
+        ("计算 1 + 1", ALL_TOOLS, "direct", "simple_calculation"),
+        (
+            "请调用 mcp_unrelated_tool 处理这份数据",
+            ["mcp_unrelated_tool", "web_search", "url_read"],
+            "mcp_explicit",
+            "explicit_authorized_tool_alias",
+        ),
+    ],
+)
+def test_literal_layer_routes_deterministic_requests_without_product_or_model_classification(
+    message,
+    available_tool_names,
+    package_id,
+    reason_code,
+):
+    """问候、身份、计算与已授权 MCP alias 都必须在模型前结束（issue #24）。"""
 
-    decided = _classify_literal_layer(_extract_request_signals("今天是几月几日、星期几？"))
-    deferred = _classify_literal_layer(_extract_request_signals("明天上海天气怎样？"))
+    decided = _classify_literal_layer(_extract_request_signals(message), available_tool_names)
+    rule_route = classify_capability_request(
+        message=message,
+        task_context_messages=[{"role": "user", "content": "原始上下文"}],
+        available_tool_names=available_tool_names,
+    )
 
     assert decided is not None
-    assert decided.package_id == "date"
+    assert decided.package_id == package_id
+    assert decided.reason_codes == (reason_code,)
+    assert rule_route == decided
+
+    from app.services.stream.run_capability_model_classifier import classify_capability_request_with_model
+
+    with patch("app.services.stream.run_capability_model_classifier.litellm.completion") as completion:
+        model_route = classify_capability_request_with_model(
+            message=message,
+            available_tool_names=available_tool_names,
+            task_context_messages=[{"role": "user", "content": "原始上下文"}],
+        )
+
+    assert model_route == decided
+    completion.assert_not_called()
+
+
+def test_literal_layer_defers_non_literal_requests():
+    """字面层无法确定的请求继续交给后续分类器（issue #24）。"""
+
+    deferred = _classify_literal_layer(_extract_request_signals("明天上海天气怎样？"))
+
     assert deferred is None
 
 

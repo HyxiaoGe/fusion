@@ -37,7 +37,7 @@ Confidence = Literal["high", "medium", "low"]
 ResolutionMode = Literal["routed", "degraded", "clarification"]
 
 SCHEMA_VERSION = 2
-ROUTER_VERSION = "2026-08-31.2"
+ROUTER_VERSION = "2026-09-04.1"
 
 _CANONICAL_EXTERNAL_TOOL_ORDER = CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER
 _CONTROL_TOOL_NAMES = CAPABILITY_CONTROL_TOOL_NAMES
@@ -756,7 +756,10 @@ def _extract_request_signals(message: str) -> _RequestSignals:
     )
 
 
-def _classify_literal_layer(request: _RequestSignals) -> _CandidateRoute | None:
+def _classify_literal_layer(
+    request: _RequestSignals,
+    available_tool_names: list[str] | None = None,
+) -> _CandidateRoute | None:
     """只处理靠字面就能判定的能力包；判不出来返回 None 交给下一层。"""
 
     message = request.message
@@ -842,6 +845,30 @@ def _classify_literal_layer(request: _RequestSignals) -> _CandidateRoute | None:
             False,
             resolution_mode="clarification",
         )
+    explicit_alias = (
+        None
+        if request.all_network_denied or available_tool_names is None
+        else _resolve_explicit_authorized_alias(routing_message, available_tool_names)
+    )
+    if explicit_alias is not None:
+        return _CandidateRoute(
+            "mcp_explicit",
+            "high",
+            ("explicit_authorized_tool_alias",),
+            request.include_current_date,
+            explicit_tool_names=(explicit_alias,),
+        )
+    if _GREETING_RE.search(routing_message):
+        return _CandidateRoute("direct", "high", ("direct_greeting",), False)
+    if _IDENTITY_RE.search(routing_message):
+        return _CandidateRoute(
+            "direct",
+            "high",
+            ("assistant_identity_question",),
+            False,
+        )
+    if _SIMPLE_CALC_RE.search(routing_message):
+        return _CandidateRoute("direct", "high", ("simple_calculation",), False)
     return None
 
 
@@ -1156,14 +1183,11 @@ def _classify_product_layer(
 def _classify_residual_layer(
     request: _RequestSignals,
     english: _EnglishRouteSignals,
-    available_tool_names: list[str],
 ) -> _CandidateRoute:
     """所有正向信号都不成立时的兜底；判不出能力族一律要求澄清。"""
 
     routing_message = request.routing_message
     web_search_denied = request.web_search_denied
-    all_network_denied = request.all_network_denied
-    include_current_date = request.include_current_date
     explicit_web_search_request = request.explicit_web_search_request
     english_relation = english.relation
     english_abstract_route = english.abstract_route
@@ -1200,29 +1224,6 @@ def _classify_residual_layer(
             True,
         )
 
-    explicit_alias = (
-        None if all_network_denied else _resolve_explicit_authorized_alias(routing_message, available_tool_names)
-    )
-    if explicit_alias is not None:
-        return _CandidateRoute(
-            "mcp_explicit",
-            "high",
-            ("explicit_authorized_tool_alias",),
-            include_current_date,
-            explicit_tool_names=(explicit_alias,),
-        )
-
-    if _GREETING_RE.search(routing_message):
-        return _CandidateRoute("direct", "high", ("direct_greeting",), False)
-    if _IDENTITY_RE.search(routing_message):
-        return _CandidateRoute(
-            "direct",
-            "high",
-            ("assistant_identity_question",),
-            False,
-        )
-    if _SIMPLE_CALC_RE.search(routing_message):
-        return _CandidateRoute("direct", "high", ("simple_calculation",), False)
     if _STABLE_KNOWLEDGE_RE.search(routing_message):
         return _CandidateRoute(
             "direct",
@@ -1248,7 +1249,7 @@ def classify_capability_request(
     """默认的规则式分类器：字面层 → 产品层 → 兜底层，三层各自可单独测试。"""
 
     request = _extract_request_signals(message)
-    literal_route = _classify_literal_layer(request)
+    literal_route = _classify_literal_layer(request, available_tool_names)
     if literal_route is not None:
         return literal_route
 
@@ -1268,7 +1269,7 @@ def classify_capability_request(
     product_route = _classify_product_layer(request, signals, english)
     if product_route is not None:
         return product_route
-    return _classify_residual_layer(request, english, available_tool_names)
+    return _classify_residual_layer(request, english)
 
 
 def _resolution(

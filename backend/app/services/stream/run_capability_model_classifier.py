@@ -89,7 +89,7 @@ def classify_capability_request_with_model(
         return _fail_closed("tools_missing", started_at)
     context_messages = conversation_messages if conversation_messages is not None else task_context_messages
     request = _extract_request_signals(message)
-    literal_route = _classify_literal_layer(request)
+    literal_route = _classify_literal_layer(request, tools)
     if literal_route is not None:
         _log_result("literal", literal_route.package_id, started_at)
         return literal_route

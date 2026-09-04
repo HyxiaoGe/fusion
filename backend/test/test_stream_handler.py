@@ -10,11 +10,26 @@ import asyncio
 import json
 import unittest
 from contextlib import ExitStack
+from functools import partial
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services.stream import StreamHandler
 from app.services.stream.tool_execution_result import ToolExecutionRecord
+
+
+class RunnerCapabilityRoutingTests(unittest.TestCase):
+    def test_production_wiring_binds_hybrid_classifier_to_call_config_builder(self):
+        from app.services.stream.run_capability_model_classifier import classify_capability_request_with_model
+        from app.services.stream.runner import _agent_loop_wiring_dependencies
+
+        build_call_config_fn = _agent_loop_wiring_dependencies().build_call_config_fn
+
+        self.assertIsInstance(build_call_config_fn, partial)
+        self.assertIs(
+            build_call_config_fn.keywords["classify_fn"],
+            classify_capability_request_with_model,
+        )
 
 
 class SseEnvelopeFormatterTests(unittest.TestCase):

@@ -42,6 +42,7 @@ from app.services.stream.limit_summary import run_limit_summary_step
 from app.services.stream.llm_stream import llm_call_with_retry, stream_round
 from app.services.stream.persistence import persist_message
 from app.services.stream.previous_run_skill_release import load_previous_run_skill_release_pins
+from app.services.stream.run_capability_model_classifier import classify_capability_request_with_model
 from app.services.stream.run_finalizer import (
     complete_agent_run,
     fail_agent_run,
@@ -99,7 +100,10 @@ def _agent_loop_limits() -> AgentLoopLimits:
 
 def _agent_loop_wiring_dependencies() -> AgentLoopWiringDependencies:
     return AgentLoopWiringDependencies(
-        build_call_config_fn=build_agent_loop_call_config,
+        build_call_config_fn=partial(
+            build_agent_loop_call_config,
+            classify_fn=classify_capability_request_with_model,
+        ),
         build_execution_fn=build_agent_loop_execution,
         session_cache=session_cache,
         redis_writer_factory=AgentEventRedisWriter,
