@@ -265,11 +265,15 @@ _GREETING_RE = re.compile(
     r"[呀啊！!。\s]*$",
     re.IGNORECASE,
 )
-_IDENTITY_RE = re.compile(
-    r"^(?:(?:请问|请告诉我|能否告诉我|请|麻烦)[，,\s]*)?"
-    r"(?:(?:你?好|嗨|hi|hello|早上好|下午好|晚上好)[呀啊！!。。，,\s]*)?"
+_IDENTITY_PREFIX_RE = re.compile(
+    r"(?:你?好|您好|嗨|hi|hello|早上好|下午好|晚上好)[呀啊！!。。，,、\s]*|"
+    r"(?:请问(?:一下)?|请告诉我|能否告诉我|请|麻烦|可以)[，,、\s]*|"
+    r"你[，,、\s]*",
+    re.IGNORECASE,
+)
+_IDENTITY_CORE_RE = re.compile(
     r"(?:你是谁|你叫什么(?:名字)?|介绍一下你自己|你能做什么)"
-    r"(?:呀|呢|啊|嘛|吧)?[？?。！!\s]*$",
+    r"(?:呀|呢|啊|嘛|吧)?(?:吗)?[？?。！!\s]*",
     re.IGNORECASE,
 )
 _STABLE_KNOWLEDGE_RE = re.compile(
@@ -762,6 +766,20 @@ def _extract_request_signals(message: str) -> _RequestSignals:
     )
 
 
+def _is_identity_request(message: str) -> bool:
+    """仅接受可剥离礼貌包装后仍是完整身份问句的请求。"""
+
+    remaining = message.strip()
+    while remaining:
+        if _IDENTITY_CORE_RE.fullmatch(remaining):
+            return True
+        prefix = _IDENTITY_PREFIX_RE.match(remaining)
+        if prefix is None:
+            return False
+        remaining = remaining[prefix.end() :].lstrip()
+    return False
+
+
 def _classify_literal_layer(
     request: _RequestSignals,
     available_tool_names: list[str] | None = None,
@@ -866,7 +884,7 @@ def _classify_literal_layer(
         )
     if _GREETING_RE.search(routing_message):
         return _CandidateRoute("direct", "high", ("direct_greeting",), False)
-    if _IDENTITY_RE.search(routing_message):
+    if _is_identity_request(routing_message):
         return _CandidateRoute(
             "direct",
             "high",

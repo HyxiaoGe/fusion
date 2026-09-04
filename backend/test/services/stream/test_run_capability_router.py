@@ -3523,6 +3523,10 @@ def test_replaced_classifier_still_goes_through_contract_validation():
         ("你是谁呀？", ALL_TOOLS, "direct", "assistant_identity_question"),
         ("你叫什么名字？", ALL_TOOLS, "direct", "assistant_identity_question"),
         ("你能做什么呢？", ALL_TOOLS, "direct", "assistant_identity_question"),
+        ("你好，请问你是谁？", ALL_TOOLS, "direct", "assistant_identity_question"),
+        ("请问一下，你是谁？", ALL_TOOLS, "direct", "assistant_identity_question"),
+        ("可以介绍一下你自己吗？", ALL_TOOLS, "direct", "assistant_identity_question"),
+        ("麻烦你介绍一下你自己", ALL_TOOLS, "direct", "assistant_identity_question"),
         ("计算 1 + 1", ALL_TOOLS, "direct", "simple_calculation"),
         (
             "请调用 mcp_unrelated_tool 处理这份数据",
@@ -3579,6 +3583,7 @@ def test_literal_layer_defers_non_literal_requests():
         ("你是谁？再查一下明天北京天气", "weather", ["weather_forecast"]),
         ("你能做什么？帮我查上海到北京的航班", "flight", ["search_flights"]),
         ("介绍一下你自己，并找附近的川菜馆", "place_discovery", ["local_place_search"]),
+        ("你好，请问你是谁？然后查北京天气", "weather", ["weather_forecast"]),
     ],
 )
 def test_identity_with_explicit_product_request_defers_to_product_or_model_classification(
