@@ -243,7 +243,7 @@
 
 - [x] **Step 3: 最小实现同步准备、线程配置和同步组装**
 
-  在 `agent_loop_wiring.py` 拆出只在调用线程访问 `db` 的 prepared-input helper、无 `db` 参数的纯 call-config helper、以及复用 session 的同步 assembly helper；保留 `build_agent_loop_lifecycle_call()` 作为既有同步调用方的组合入口。Runner 在数据库准备完成后以 `asyncio.to_thread()` 加不可放大的 `asyncio.wait_for(..., timeout=1.5)` 构建配置；超时以 deadline 信号抑制迟到的模型成功观测，并在原线程用确定性 `clarification_only` 配置继续组装 execution/lifecycle，finally 始终关闭 session。字面 alias 仅在精确显式指令包含单一任务时返回；alias 后只有出现独立第二子句结构（句界或连接词后任务启动）才 defer，普通参数词和产品规则不参与该边界判定。
+  在 `agent_loop_wiring.py` 拆出只在调用线程访问 `db` 的 prepared-input helper、无 `db` 参数的纯 call-config helper、以及复用 session 的同步 assembly helper；保留 `build_agent_loop_lifecycle_call()` 作为既有同步调用方的组合入口。Runner 在数据库准备完成后以 `asyncio.to_thread()` 加不可放大的 `asyncio.wait_for(..., timeout=1.5)` 构建配置；共享线程安全 deadline gate 为模型调用提供原子准入，并暂存 literal/model/failed 观测，只有 Runner 接受整份 call-config 后才提交；超时由 gate 丢弃 pending 并唯一发布 `failed/deadline_exceeded`，随后在原线程用确定性 `clarification_only` 配置继续组装 execution/lifecycle，finally 始终关闭 session。字面 alias 仅在精确显式指令包含单一任务时返回；alias 后只有出现独立第二子句结构（句界或连接词后任务启动）才 defer，普通参数词和产品规则不参与该边界判定。
 
 - [x] **Step 4: 运行完整 P1 验证**
 

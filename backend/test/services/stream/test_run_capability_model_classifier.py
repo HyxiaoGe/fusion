@@ -333,6 +333,31 @@ def test_deadline_worker_discards_late_completion_observation(response_or_error)
     log_info.assert_not_called()
 
 
+def test_deadline_gate_prevents_completion_when_merge_kwargs_expires() -> None:
+    """调用参数求值期间 deadline 赢得原子 gate 时，不得再开始 completion。"""
+
+    from app.services.stream.run_capability_model_classifier import ClassifierDeadlineGate
+
+    gate = ClassifierDeadlineGate()
+
+    def _merge_kwargs(*_args, **_kwargs):
+        gate.expire()
+        return {}
+
+    with (
+        patch("app.services.stream.run_capability_model_classifier.merge_litellm_kwargs", _merge_kwargs),
+        patch("app.services.stream.run_capability_model_classifier.litellm.completion") as completion,
+    ):
+        candidate = classify_capability_request_with_model(
+            "需要语义判断的请求",
+            ALL_TOOLS,
+            deadline_gate=gate,
+        )
+
+    _assert_clarification(candidate)
+    completion.assert_not_called()
+
+
 def test_global_network_denial_cannot_be_promoted_by_model() -> None:
     with patch(
         "app.services.stream.run_capability_model_classifier.litellm.completion",

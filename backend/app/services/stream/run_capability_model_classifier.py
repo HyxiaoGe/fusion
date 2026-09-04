@@ -89,6 +89,88 @@ class _ClassifierLimits:
     context_turns: int
 
 
+class ClassifierDeadlineGate:
+    """协调 worker 与 Runner 的 deadline 胜负和延迟分类观测。"""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._expired = False
+        self._published = False
+        self._model_call_started = False
+        self._pending: tuple[str, str, float, str | None, ClassifierResultCallback | None] | None = None
+        self._result_callback: ClassifierResultCallback | None = None
+
+    def register_callback(self, result_callback: ClassifierResultCallback | None) -> None:
+        if result_callback is None:
+            return
+        with self._lock:
+            if self._result_callback is None:
+                self._result_callback = result_callback
+
+    def is_expired(self) -> bool:
+        with self._lock:
+            return self._expired
+
+    def try_begin_model_call(self) -> bool:
+        """模型调用的线性化点：deadline 先赢时禁止产生新调用。"""
+
+        with self._lock:
+            if self._expired or self._published:
+                return False
+            self._model_call_started = True
+            return True
+
+    def buffer_observation(
+        self,
+        result: str,
+        package_id: str,
+        started_at: float,
+        *,
+        error_type: str | None,
+        result_callback: ClassifierResultCallback | None,
+    ) -> None:
+        self.register_callback(result_callback)
+        with self._lock:
+            if self._expired or self._published:
+                return
+            self._pending = (result, package_id, started_at, error_type, result_callback)
+
+    def commit_observation(self) -> bool:
+        """仅当 Runner 接受完整 call-config 后公布 worker 分类结果。"""
+
+        with self._lock:
+            if self._expired or self._published or self._pending is None:
+                return False
+            pending = self._pending
+            self._pending = None
+            self._published = True
+        result, package_id, started_at, error_type, result_callback = pending
+        _emit_result(result_callback, result, error_type)
+        _log_result(result, package_id, started_at, error_type=error_type)
+        return True
+
+    def expire_and_publish_deadline(self) -> bool:
+        """outer deadline 获胜时丢弃 worker 暂存结果并公布唯一失败观测。"""
+
+        with self._lock:
+            if self._published:
+                return False
+            self._expired = True
+            self._pending = None
+            self._published = True
+            result_callback = self._result_callback
+        _emit_result(result_callback, "failed", "deadline_exceeded")
+        _log_result("failed", "clarification_only", perf_counter(), error_type="deadline_exceeded")
+        return True
+
+    def expire(self) -> None:
+        """测试或外层调度可先让 deadline 赢得模型调用准入。"""
+
+        with self._lock:
+            self._expired = True
+            self._pending = None
+
+
 def classify_capability_request_with_model(
     message: str,
     available_tools: list[str] | None = None,
@@ -99,33 +181,57 @@ def classify_capability_request_with_model(
     token_counter_fn: Callable[..., int] | None = None,
     result_callback: ClassifierResultCallback | None = None,
     deadline_event: threading.Event | None = None,
+    deadline_gate: ClassifierDeadlineGate | None = None,
     suppress_deadline_observation: bool = False,
 ) -> _CandidateRoute:
     """先处理可确定的字面请求，再以一次结构化模型调用分类其余请求。"""
 
     started_at = perf_counter()
-    if deadline_event is not None and deadline_event.is_set():
+    if deadline_gate is not None:
+        deadline_gate.register_callback(result_callback)
+    if _deadline_expired(deadline_event, deadline_gate):
         return _deadline_fail_closed(
             started_at,
             result_callback=result_callback,
+            observation_gate=deadline_gate,
             suppress_observation=suppress_deadline_observation,
         )
     tools = available_tools if available_tools is not None else available_tool_names
     if tools is None:
-        return _fail_closed("tools_missing", started_at, result_callback=result_callback)
+        return _fail_closed(
+            "tools_missing",
+            started_at,
+            result_callback=result_callback,
+            observation_gate=deadline_gate,
+        )
     context_messages = conversation_messages if conversation_messages is not None else task_context_messages
     request = _extract_request_signals(message)
     literal_route = _classify_literal_layer(request, tools)
     if literal_route is not None:
-        _emit_result(result_callback, "literal")
-        _log_result("literal", literal_route.package_id, started_at)
+        _record_result(
+            "literal",
+            literal_route.package_id,
+            started_at,
+            result_callback=result_callback,
+            observation_gate=deadline_gate,
+        )
         return literal_route
 
     limits = _effective_classifier_limits()
     if limits is None:
-        return _fail_closed("invalid_configuration", started_at, result_callback=result_callback)
+        return _fail_closed(
+            "invalid_configuration",
+            started_at,
+            result_callback=result_callback,
+            observation_gate=deadline_gate,
+        )
     if not _has_classifier_credentials():
-        return _fail_closed("credentials_missing", started_at, result_callback=result_callback)
+        return _fail_closed(
+            "credentials_missing",
+            started_at,
+            result_callback=result_callback,
+            observation_gate=deadline_gate,
+        )
 
     model_messages = _build_messages(
         message,
@@ -134,24 +240,30 @@ def classify_capability_request_with_model(
         token_counter_fn=token_counter_fn,
         limits=limits,
     )
-    if deadline_event is not None and deadline_event.is_set():
+    if _deadline_expired(deadline_event, deadline_gate):
         return _deadline_fail_closed(
             started_at,
             result_callback=result_callback,
+            observation_gate=deadline_gate,
             suppress_observation=suppress_deadline_observation,
         )
     if model_messages is None:
-        return _fail_closed("input_budget_exceeded", started_at, result_callback=result_callback)
+        return _fail_closed(
+            "input_budget_exceeded",
+            started_at,
+            result_callback=result_callback,
+            observation_gate=deadline_gate,
+        )
 
     try:
-        response = litellm.completion(
-            model=f"litellm_proxy/{settings.RUN_CAPABILITY_CLASSIFIER_MODEL}",
-            messages=model_messages,
-            timeout=limits.timeout_seconds,
-            num_retries=0,
-            max_tokens=limits.max_output_tokens,
-            temperature=0,
-            response_format={"type": "json_object"},
+        completion_kwargs = {
+            "model": f"litellm_proxy/{settings.RUN_CAPABILITY_CLASSIFIER_MODEL}",
+            "messages": model_messages,
+            "timeout": limits.timeout_seconds,
+            "num_retries": 0,
+            "max_tokens": limits.max_output_tokens,
+            "temperature": 0,
+            "response_format": {"type": "json_object"},
             **merge_litellm_kwargs(
                 "run_capability_classifier",
                 {
@@ -159,7 +271,22 @@ def classify_capability_request_with_model(
                     "api_base": settings.LITELLM_PROXY_URL,
                 },
             ),
-        )
+        }
+        if deadline_gate is not None and not deadline_gate.try_begin_model_call():
+            return _deadline_fail_closed(
+                started_at,
+                result_callback=result_callback,
+                observation_gate=deadline_gate,
+                suppress_observation=suppress_deadline_observation,
+            )
+        if _deadline_expired(deadline_event, deadline_gate):
+            return _deadline_fail_closed(
+                started_at,
+                result_callback=result_callback,
+                observation_gate=deadline_gate,
+                suppress_observation=suppress_deadline_observation,
+            )
+        response = litellm.completion(**completion_kwargs)
         route = _parse_model_route(
             response,
             request.all_network_denied,
@@ -167,23 +294,40 @@ def classify_capability_request_with_model(
             include_current_date=request.include_current_date,
         )
     except (Exception, ValidationError, ValueError, TypeError) as exc:
-        if deadline_event is not None and deadline_event.is_set():
+        if _deadline_expired(deadline_event, deadline_gate):
             return _deadline_fail_closed(
                 started_at,
                 result_callback=result_callback,
+                observation_gate=deadline_gate,
                 suppress_observation=suppress_deadline_observation,
             )
-        return _fail_closed(_error_type(exc), started_at, result_callback=result_callback)
-    if deadline_event is not None and deadline_event.is_set():
+        return _fail_closed(
+            _error_type(exc),
+            started_at,
+            result_callback=result_callback,
+            observation_gate=deadline_gate,
+        )
+    if _deadline_expired(deadline_event, deadline_gate):
         return _deadline_fail_closed(
             started_at,
             result_callback=result_callback,
+            observation_gate=deadline_gate,
             suppress_observation=suppress_deadline_observation,
         )
     if route is None:
-        return _fail_closed("invalid_response", started_at, result_callback=result_callback)
-    _emit_result(result_callback, "model")
-    _log_result("model", route.package_id, started_at)
+        return _fail_closed(
+            "invalid_response",
+            started_at,
+            result_callback=result_callback,
+            observation_gate=deadline_gate,
+        )
+    _record_result(
+        "model",
+        route.package_id,
+        started_at,
+        result_callback=result_callback,
+        observation_gate=deadline_gate,
+    )
     return route
 
 
@@ -421,9 +565,16 @@ def _fail_closed(
     started_at: float,
     *,
     result_callback: ClassifierResultCallback | None = None,
+    observation_gate: ClassifierDeadlineGate | None = None,
 ) -> _CandidateRoute:
-    _emit_result(result_callback, "failed", error_type)
-    _log_result("failed", "clarification_only", started_at, error_type=error_type)
+    _record_result(
+        "failed",
+        "clarification_only",
+        started_at,
+        error_type=error_type,
+        result_callback=result_callback,
+        observation_gate=observation_gate,
+    )
     return _CandidateRoute(
         package_id="clarification_only",
         confidence="low",
@@ -437,10 +588,16 @@ def _deadline_fail_closed(
     started_at: float,
     *,
     result_callback: ClassifierResultCallback | None,
+    observation_gate: ClassifierDeadlineGate | None,
     suppress_observation: bool,
 ) -> _CandidateRoute:
     if not suppress_observation:
-        return _fail_closed("deadline_exceeded", started_at, result_callback=result_callback)
+        return _fail_closed(
+            "deadline_exceeded",
+            started_at,
+            result_callback=result_callback,
+            observation_gate=observation_gate,
+        )
     return _CandidateRoute(
         package_id="clarification_only",
         confidence="low",
@@ -448,6 +605,37 @@ def _deadline_fail_closed(
         include_current_date=False,
         resolution_mode="clarification",
     )
+
+
+def _deadline_expired(
+    deadline_event: threading.Event | None,
+    deadline_gate: ClassifierDeadlineGate | None,
+) -> bool:
+    return (deadline_event is not None and deadline_event.is_set()) or (
+        deadline_gate is not None and deadline_gate.is_expired()
+    )
+
+
+def _record_result(
+    result: str,
+    package_id: str,
+    started_at: float,
+    *,
+    result_callback: ClassifierResultCallback | None,
+    observation_gate: ClassifierDeadlineGate | None,
+    error_type: str | None = None,
+) -> None:
+    if observation_gate is not None:
+        observation_gate.buffer_observation(
+            result,
+            package_id,
+            started_at,
+            error_type=error_type,
+            result_callback=result_callback,
+        )
+        return
+    _emit_result(result_callback, result, error_type)
+    _log_result(result, package_id, started_at, error_type=error_type)
 
 
 def _emit_result(

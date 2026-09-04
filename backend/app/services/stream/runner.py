@@ -5,7 +5,6 @@ spec §4.1。本模块只负责 agent loop 的控制流编排，所有"做事"�
 """
 
 import asyncio
-import threading
 import time
 from dataclasses import replace
 from functools import partial
@@ -46,7 +45,11 @@ from app.services.stream.limit_summary import run_limit_summary_step
 from app.services.stream.llm_stream import llm_call_with_retry, stream_round
 from app.services.stream.persistence import persist_message
 from app.services.stream.previous_run_skill_release import load_previous_run_skill_release_pins
-from app.services.stream.run_capability_model_classifier import classify_capability_request_with_model
+from app.services.stream.run_capability_model_classifier import (
+    ClassifierDeadlineGate,
+    classify_capability_request_with_model,
+)
+from app.services.stream.run_capability_router import _CandidateRoute
 from app.services.stream.run_finalizer import (
     complete_agent_run,
     fail_agent_run,
@@ -152,7 +155,7 @@ def _agent_loop_wiring_dependencies() -> AgentLoopWiringDependencies:
 
 def _build_call_config_with_deadline_signal(
     build_call_config_fn,
-    deadline_event: threading.Event,
+    deadline_gate: ClassifierDeadlineGate,
 ):
     """仅给生产混合分类器注入 deadline 信号，保留测试/扩展的显式分类器。"""
 
@@ -168,22 +171,28 @@ def _build_call_config_with_deadline_signal(
             **build_call_config_fn.keywords,
             "classify_fn": partial(
                 classify_capability_request_with_model,
-                deadline_event=deadline_event,
-                suppress_deadline_observation=True,
+                deadline_gate=deadline_gate,
             ),
         },
     )
 
 
-def _build_deadline_fallback_call_config_fn(deadline_event: threading.Event):
+def _classify_deadline_fallback(**_kwargs) -> _CandidateRoute:
+    return _CandidateRoute(
+        package_id="clarification_only",
+        confidence="low",
+        reason_codes=("insufficient_capability_signal",),
+        include_current_date=False,
+        resolution_mode="clarification",
+    )
+
+
+def _build_deadline_fallback_call_config_fn():
     """硬 deadline 后只允许无模型的 clarification 配置继续生命周期。"""
 
     return partial(
         build_agent_loop_call_config,
-        classify_fn=partial(
-            classify_capability_request_with_model,
-            deadline_event=deadline_event,
-        ),
+        classify_fn=_classify_deadline_fallback,
     )
 
 
@@ -271,7 +280,7 @@ class StreamHandler:
                 db=db,
                 dependencies=dependencies,
             )
-            deadline_event = threading.Event()
+            deadline_gate = ClassifierDeadlineGate()
             try:
                 call_config = await asyncio.wait_for(
                     asyncio.to_thread(
@@ -280,17 +289,18 @@ class StreamHandler:
                         inputs=call_config_inputs,
                         build_call_config_fn=_build_call_config_with_deadline_signal(
                             dependencies.build_call_config_fn,
-                            deadline_event,
+                            deadline_gate,
                         ),
                     ),
                     timeout=_CALL_CONFIG_BUILD_DEADLINE_SECONDS,
                 )
+                deadline_gate.commit_observation()
             except asyncio.TimeoutError:
-                deadline_event.set()
+                deadline_gate.expire_and_publish_deadline()
                 call_config = build_agent_loop_call_config_from_inputs(
                     run_input=run_input,
                     inputs=call_config_inputs,
-                    build_call_config_fn=_build_deadline_fallback_call_config_fn(deadline_event),
+                    build_call_config_fn=_build_deadline_fallback_call_config_fn(),
                 )
             lifecycle_call = assemble_agent_loop_lifecycle_call(
                 run_input=run_input,

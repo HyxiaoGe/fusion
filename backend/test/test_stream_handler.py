@@ -775,9 +775,11 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
         fallback_call_config = object()
         lifecycle_call = SimpleNamespace(request=object(), execution=object(), dependencies=object())
 
+        from app.services.stream.runner import _classify_deadline_fallback
+
         def _blocking_builder(**kwargs):
             classifier = kwargs["build_call_config_fn"].keywords.get("classify_fn")
-            if isinstance(classifier, partial) and classifier.keywords["deadline_event"].is_set():
+            if classifier is _classify_deadline_fallback:
                 return fallback_call_config
             time.sleep(0.05)
             return object()
@@ -885,6 +887,100 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(assemble_lifecycle.call_args.kwargs["call_config"].capability_resolution.package_id, "clarification_only")
         run_lifecycle.assert_awaited_once()
         self.assertEqual([call.args[1] for call in log_info.call_args_list], ["failed"])
+
+    async def test_generate_to_redis_deadline_discards_model_observation_after_post_classification_stall(self):
+        """模型已返回但配置后处理超时，只能公布 fallback 的 deadline 终态。"""
+
+        await self._assert_post_classification_deadline_observation(
+            completion_side_effect=SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content=json.dumps({"package_id": "direct", "explicit_tool_names": []})
+                        )
+                    )
+                ]
+            )
+        )
+
+    async def test_generate_to_redis_deadline_discards_inner_timeout_after_post_classification_stall(self):
+        """内部 timeout 后配置后处理超时，也只能公布 fallback 的 deadline 终态。"""
+
+        await self._assert_post_classification_deadline_observation(
+            completion_side_effect=TimeoutError("inner deadline"),
+        )
+
+    async def _assert_post_classification_deadline_observation(self, *, completion_side_effect):
+        from app.services.stream import agent_loop_request_prep
+        from app.services.stream.agent_loop_wiring import AgentLoopCallConfigInputs
+
+        prepared_inputs = AgentLoopCallConfigInputs(
+            options={"use_reasoning": False},
+            capabilities={"functionCalling": True, "searchCapable": True},
+            additional_tools=[],
+            dynamic_tool_handlers={},
+            tool_bindings=[],
+            authorized_tool_names=[],
+            should_load_dynamic_tool_metadata=False,
+            skill_release_pins=None,
+        )
+        lifecycle_call = SimpleNamespace(request=object(), execution=object(), dependencies=object())
+        main_thread_id = threading.get_ident()
+        original_plan_policy = agent_loop_request_prep.resolve_agent_plan_tool_policy
+
+        def _stall_worker_plan_policy(**kwargs):
+            if threading.get_ident() != main_thread_id:
+                time.sleep(0.05)
+            return original_plan_policy(**kwargs)
+
+        with (
+            patch(
+                "app.services.stream.runner.prepare_agent_loop_call_config_inputs",
+                return_value=prepared_inputs,
+            ),
+            patch(
+                "app.services.stream.runner.assemble_agent_loop_lifecycle_call",
+                return_value=lifecycle_call,
+            ) as assemble_lifecycle,
+            patch("app.services.stream.runner.run_agent_loop_lifecycle", AsyncMock()) as run_lifecycle,
+            patch("app.services.stream.runner._CALL_CONFIG_BUILD_DEADLINE_SECONDS", 0.01),
+            patch("app.services.stream.run_capability_model_classifier.settings.LITELLM_API_KEY", "test-key"),
+            patch("app.services.stream.run_capability_model_classifier.settings.LITELLM_PROXY_URL", "https://proxy.test"),
+            patch("app.services.stream.run_capability_model_classifier.litellm.token_counter", lambda **_kwargs: 1),
+            patch(
+                "app.services.stream.run_capability_model_classifier.litellm.completion",
+                side_effect=completion_side_effect,
+            ) as completion,
+            patch(
+                "app.services.stream.agent_loop_request_prep.resolve_agent_plan_tool_policy",
+                side_effect=_stall_worker_plan_policy,
+            ),
+            patch("app.services.stream.run_capability_model_classifier.logger.info") as log_info,
+        ):
+            await self.handler.generate_to_redis(
+                conversation_id="conv-post-classifier-deadline",
+                user_id="user-post-classifier-deadline",
+                model_id="gpt-4",
+                litellm_model="openai/gpt-4",
+                litellm_kwargs={},
+                provider="openai",
+                raw_messages=[{"role": "user", "content": "需要语义判断的请求"}],
+                has_vision=False,
+                file_ids=None,
+                original_message="需要语义判断的请求",
+                assistant_message_id="msg-post-classifier-deadline",
+                task_id="task-post-classifier-deadline",
+                options={"use_reasoning": False},
+                capabilities={"functionCalling": True, "searchCapable": True},
+                trace_id="trace-post-classifier-deadline",
+            )
+            await asyncio.sleep(0.07)
+
+        completion.assert_called_once()
+        self.assertEqual(assemble_lifecycle.call_args.kwargs["call_config"].capability_resolution.package_id, "clarification_only")
+        run_lifecycle.assert_awaited_once()
+        self.assertEqual([call.args[1] for call in log_info.call_args_list], ["failed"])
+        self.assertEqual([call.args[4] for call in log_info.call_args_list], ["deadline_exceeded"])
 
     async def test_generate_to_redis_uses_runner_patched_agent_loop_dependencies(self):
         """runner patch 路径必须继续流入 runtime/lifecycle 依赖。"""
