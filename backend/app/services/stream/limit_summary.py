@@ -13,6 +13,7 @@ from app.ai.llm_round_observability import create_llm_round_observation
 from app.ai.prompts.agent_loop import LIMIT_SUMMARY_PROMPT as _LIMIT_SUMMARY_PROMPT
 from app.ai.prompts.agent_loop import (
     NO_PROGRESS_SUMMARY_PROMPT,
+    NO_TOOL_EVIDENCE_SUMMARY_PROMPT,
     PLAN_REPAIR_SUMMARY_PROMPT,
     PLAN_SYNTHESIS_PROMPT,
     RESEARCH_EVIDENCE_SUMMARY_PROMPT,
@@ -29,6 +30,11 @@ from app.services.knowledge.chat_grounding import (
     validate_grounded_answer,
 )
 from app.services.stream.context_status import build_context_usage, emit_context_status
+from app.services.stream.limit_summary_fact_guard import (
+    emit_fact_guard_observation,
+    has_tool_evidence,
+    resolve_no_evidence_answer,
+)
 from app.services.stream.llm_round_lifecycle import LLMRoundLifecycle, accumulate_token_usage
 from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
 from app.services.stream.research_evidence import (
@@ -130,6 +136,7 @@ def append_limit_summary_prompt(
     *,
     summary_finish_reason: str = "limit_summary",
     task_mode: str = "standard",
+    content_blocks: list | None = None,
 ) -> None:
     if summary_finish_reason == "plan_synthesis":
         prompt = PLAN_SYNTHESIS_PROMPT
@@ -145,6 +152,9 @@ def append_limit_summary_prompt(
             prompt = f"{prompt}\n\n{SUMMARY_NON_DISCLOSURE_PROMPT}"
     if task_mode == "deep_research" and RESEARCH_EVIDENCE_SUMMARY_PROMPT not in prompt:
         prompt = f"{prompt}\n\n{RESEARCH_EVIDENCE_SUMMARY_PROMPT}"
+    # 一次工具证据都没有时，"基于已收集的信息"指向空集；补上诚实下限，避免用参数记忆补齐。
+    if content_blocks is not None and not has_tool_evidence(content_blocks):
+        prompt = f"{prompt}\n\n{NO_TOOL_EVIDENCE_SUMMARY_PROMPT}"
     messages.append({"role": "system", "content": prompt})
 
 
@@ -894,6 +904,7 @@ async def run_limit_summary_step(
         request.messages,
         summary_finish_reason=request.summary_finish_reason,
         task_mode=request.task_mode,
+        content_blocks=request.content_blocks,
     )
     thinking_block_id = summary_context.thinking_block_id
     text_block_id = summary_context.text_block_id
@@ -1030,6 +1041,25 @@ async def _commit_limit_summary_result(
         incomplete = round_result.finish_reason == "protocol_fallback" or not answer
         if not answer:
             answer = SUMMARY_PROTOCOL_FALLBACK_TEXT
+        # 本次 run 没有任何工具证据时，具体班次/票价/时长无从支撑，直接换成诚实答复。
+        answer, unsupported_fact_kind = resolve_no_evidence_answer(
+            answer,
+            content_blocks=request.content_blocks,
+            messages=request.messages,
+        )
+        if unsupported_fact_kind is not None:
+            incomplete = True
+            emit_fact_guard_observation(
+                fact_kind=unsupported_fact_kind,
+                summary_finish_reason=request.summary_finish_reason,
+                task_mode=request.task_mode,
+            )
+            if request.warning_fn is not None:
+                request.warning_fn(
+                    "触顶总结无工具证据且含具体动态数据，已替换为诚实答复: "
+                    f"conv_id={request.conversation_id} run_id={request.run_id} "
+                    f"fact_kind={unsupported_fact_kind}"
+                )
         if request.defer_output:
             await append_chunk(
                 request.conversation_id,
@@ -1040,9 +1070,9 @@ async def _commit_limit_summary_result(
                 run_id=request.run_id,
                 step_id=summary_context.step_id,
             )
-            if round_result.content_buf.strip():
+            if round_result.content_buf.strip() and unsupported_fact_kind is None:
                 await _finish_summary_round_lifecycle(round_result, model_output_visible=True)
-        if round_result.content_buf.strip():
+        if round_result.content_buf.strip() and unsupported_fact_kind is None:
             append_summary_content_blocks(
                 content_blocks=request.content_blocks,
                 content_buf=round_result.content_buf,

@@ -7,7 +7,7 @@ from functools import partial
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.ai.prompts.agent_loop import VISIBLE_RESPONSE_LANGUAGE_PROMPT
+from app.ai.prompts.agent_loop import NO_TOOL_EVIDENCE_SUMMARY_PROMPT, VISIBLE_RESPONSE_LANGUAGE_PROMPT
 from app.schemas.chat import ContextUsage, SearchBlock, SearchSourceSummary, SourceReference, UrlBlock, Usage
 from app.services.chat.context_manager import ContextPlan
 from app.services.chat.context_manager import prepare_context as prepare_context_real
@@ -26,6 +26,7 @@ from app.services.stream.limit_summary import (
     remove_conflicting_tool_usage_contract,
     run_limit_summary_step,
 )
+from app.services.stream.limit_summary_fact_guard import NO_EVIDENCE_ANSWER_TEXT
 from app.services.stream.research_evidence import ResearchEvidenceWorkset
 from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream_state_service import StreamOwnershipLostError
@@ -1992,7 +1993,8 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             1,
         )
         self.assertEqual(len(messages), 4)
-        self.assertEqual(messages[-1]["content"], LIMIT_SUMMARY_PROMPT)
+        self.assertTrue(messages[-1]["content"].startswith(LIMIT_SUMMARY_PROMPT))
+        self.assertIn(NO_TOOL_EVIDENCE_SUMMARY_PROMPT, messages[-1]["content"])
 
         system_messages = [message for message in sent_messages if message["role"] == "system"]
         expected_fingerprint = hashlib.sha256(
@@ -2205,7 +2207,9 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
         append_chunk.assert_awaited_once()
         self.assertEqual(append_chunk.await_args.args[2], "总结正文")
         self.assertFalse(outcome.incomplete)
-        self.assertEqual(messages[-1], {"role": "system", "content": LIMIT_SUMMARY_PROMPT})
+        self.assertEqual(messages[-1]["role"], "system")
+        self.assertTrue(messages[-1]["content"].startswith(LIMIT_SUMMARY_PROMPT))
+        self.assertIn(NO_TOOL_EVIDENCE_SUMMARY_PROMPT, messages[-1]["content"])
         self.assertEqual(outcome.accumulated_usage, Usage(input_tokens=7, output_tokens=10))
         self.assertEqual(len(content_blocks), 2)
         self.assertEqual(content_blocks[0].type, "thinking")
@@ -2325,7 +2329,9 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
         append_chunk.assert_awaited_once()
         self.assertEqual(append_chunk.await_args.args[2], SUMMARY_PROTOCOL_FALLBACK_TEXT)
         self.assertTrue(outcome.incomplete)
-        self.assertEqual(messages[-1], {"role": "system", "content": LIMIT_SUMMARY_PROMPT})
+        self.assertEqual(messages[-1]["role"], "system")
+        self.assertTrue(messages[-1]["content"].startswith(LIMIT_SUMMARY_PROMPT))
+        self.assertIn(NO_TOOL_EVIDENCE_SUMMARY_PROMPT, messages[-1]["content"])
         self.assertEqual(outcome.accumulated_usage, accumulated_usage)
         self.assertEqual([block.text for block in content_blocks], [SUMMARY_PROTOCOL_FALLBACK_TEXT])
         self.assertEqual([event[0] for event in events], ["start", "llm", "complete"])
@@ -2398,3 +2404,149 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("upstream LLM 5xx", str(cm.exception))
         self.assertEqual([event[0] for event in events], ["start", "llm"])
         self.assertEqual(content_blocks, [])
+
+
+class LimitSummaryNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase):
+    """issue #30 P1-B：0 次工具调用触顶时不得输出具体班次/价格/时长。"""
+
+    def _standard_request(self, *, answer: str, content_blocks: list, user_message: str):
+        async def start_step_fn(**_kwargs):
+            return AgentStepContext(
+                step_id="step-limit-summary",
+                step_number=9,
+                started_at=100.0,
+                thinking_block_id="blk-thinking",
+                text_block_id="blk-text",
+            )
+
+        async def prepare_context_fn(**kwargs):
+            return ContextPlan(
+                messages=list(kwargs["messages"]),
+                status="no_op",
+                context_window_tokens=1000,
+                context_window_source="test",
+                context_window_status="known",
+                estimated_tokens_before=100,
+                estimated_tokens_after=100,
+            )
+
+        async def stream_round_fn(*_args, **_kwargs):
+            return "", answer, [], "stop", Usage(input_tokens=2, output_tokens=3)
+
+        request = LimitSummaryStepRequest(
+            conversation_id="conv-limit",
+            task_id="task-limit",
+            run_id="run-limit",
+            step_number=9,
+            model_id="gpt-4",
+            provider="openai",
+            litellm_model="openai/gpt-4",
+            litellm_kwargs={},
+            messages=[{"role": "user", "content": user_message}],
+            should_use_reasoning=False,
+            content_blocks=content_blocks,
+            call_kwargs={},
+            accumulated_usage=Usage(input_tokens=1, output_tokens=1),
+            emitter=AsyncMock(),
+            session_cache=object(),
+            total_timeout_s=300,
+            run_start=100.0,
+            start_step_fn=start_step_fn,
+            complete_step_fn=AsyncMock(),
+            llm_call_fn=AsyncMock(return_value="response"),
+            stream_round_fn=stream_round_fn,
+            log_round_summary_fn=lambda **_kwargs: None,
+            clock=lambda: 120.0,
+        )
+        return request, prepare_context_fn
+
+    async def _run(
+        self, *, answer: str, content_blocks: list, user_message: str = "国庆想带父母从武汉去桂林玩，怎么过去省心一些？"
+    ):
+        request, prepare_context_fn = self._standard_request(
+            answer=answer,
+            content_blocks=content_blocks,
+            user_message=user_message,
+        )
+        with (
+            patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
+            patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append_chunk,
+        ):
+            await run_limit_summary_step(request=request)
+        return request, append_chunk
+
+    async def test_零工具证据时具体班次价格时长被替换为诚实答复(self):
+        fabricated = (
+            "从武汉到桂林，高铁直达大约 5 小时，二等座 280 元左右；"
+            "飞机 CZ3456 全程 1.5 小时，价格区间 600-900 元；自驾约 8 小时。"
+        )
+
+        request, append_chunk = await self._run(answer=fabricated, content_blocks=[])
+
+        emitted = append_chunk.await_args.args[2]
+        self.assertNotIn("280", emitted)
+        self.assertNotIn("CZ3456", emitted)
+        self.assertNotIn("5 小时", emitted)
+        self.assertEqual(emitted, NO_EVIDENCE_ANSWER_TEXT)
+        self.assertEqual(request.content_blocks[-1].text, NO_EVIDENCE_ANSWER_TEXT)
+
+    async def test_有工具证据时原答复原样保留(self):
+        answer = "高铁直达大约 5 小时，二等座 280 元左右。"
+        blocks = [
+            SearchBlock(
+                type="search",
+                query="武汉到桂林",
+                sources=[SearchSourceSummary(title="来源", url="https://example.com/a")],
+            )
+        ]
+
+        request, append_chunk = await self._run(answer=answer, content_blocks=blocks)
+
+        self.assertEqual(append_chunk.await_args.args[2], answer)
+        self.assertEqual(request.content_blocks[-1].text, answer)
+
+    async def test_零工具证据但诚实答复不被改写(self):
+        honest = "本次没能查到具体的班次和票价，建议稍后重试。"
+
+        request, append_chunk = await self._run(answer=honest, content_blocks=[])
+
+        self.assertEqual(append_chunk.await_args.args[2], honest)
+        self.assertEqual(request.content_blocks[-1].text, honest)
+
+    async def test_零工具证据时提示词要求证据不足就直说(self):
+        request, prepare_context_fn = self._standard_request(
+            answer="本次没能查到。",
+            content_blocks=[],
+            user_message="国庆想带父母从武汉去桂林玩，怎么过去省心一些？",
+        )
+        with (
+            patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
+            patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()),
+        ):
+            await run_limit_summary_step(request=request)
+
+        summary_prompt = request.messages[-1]["content"]
+        self.assertIn("没有取得任何工具结果", summary_prompt)
+        self.assertIn("不得给出具体", summary_prompt)
+
+    async def test_有工具证据时不追加无证据提示词(self):
+        blocks = [
+            SearchBlock(
+                type="search",
+                query="武汉到桂林",
+                sources=[SearchSourceSummary(title="来源", url="https://example.com/a")],
+            )
+        ]
+        request, prepare_context_fn = self._standard_request(
+            answer="根据搜索结果，建议高铁。",
+            content_blocks=blocks,
+            user_message="国庆想带父母从武汉去桂林玩，怎么过去省心一些？",
+        )
+        with (
+            patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
+            patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()),
+        ):
+            await run_limit_summary_step(request=request)
+
+        summary_prompt = request.messages[-1]["content"]
+        self.assertNotIn("没有取得任何工具结果", summary_prompt)
