@@ -255,6 +255,6 @@
   /Users/sean/code/fusion/fusion-api/.venv/bin/python -m ruff check backend
   ```
 
-- [ ] **Step 5: 审计并提交**
+- [x] **Step 5: 审计并提交**
 
   检查 `git diff --check`、受保护 contract/Skill/Trajectory/fixture 路径与 `git status`；仅暂存本任务实现、测试、计划与 SDD 报告，使用中文提交信息和 `Co-Authored-By: Codex <noreply@openai.com>`。

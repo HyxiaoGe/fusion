@@ -3617,6 +3617,97 @@ def test_literal_mcp_alias_defers_composite_product_requests(message, expected_p
 @pytest.mark.parametrize(
     ("message", "package_id", "tool_names"),
     [
+        (
+            "请调用 mcp_unrelated_tool 处理数据，然后告诉我明天要不要带伞",
+            "weather",
+            ["weather_forecast"],
+        ),
+        (
+            "请调用 mcp_unrelated_tool 处理数据，然后帮我找个安静点能办公的咖啡店",
+            "place_discovery",
+            ["local_place_search"],
+        ),
+        (
+            "请调用 mcp_unrelated_tool 处理数据，周末想去趟苏州，从上海出发怎么最方便？",
+            "mobility_intercity",
+            ["route_compare", "search_flights", "search_trains"],
+        ),
+    ],
+)
+def test_literal_mcp_alias_defers_blind_semantic_followup_to_hybrid_model(message, package_id, tool_names):
+    """alias 后独立第二子句必须让模型覆盖规则盲区，而不是提前截断。"""
+
+    response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content=json.dumps(
+                        {
+                            "package_id": package_id,
+                            "explicit_tool_names": tool_names,
+                        }
+                    )
+                )
+            )
+        ]
+    )
+
+    from app.services.stream.run_capability_model_classifier import classify_capability_request_with_model
+
+    with (
+        patch(
+            "app.services.stream.run_capability_model_classifier.settings.LITELLM_API_KEY",
+            "test-key",
+        ),
+        patch(
+            "app.services.stream.run_capability_model_classifier.litellm.completion",
+            return_value=response,
+        ) as completion,
+    ):
+        literal_route = _classify_literal_layer(_extract_request_signals(message), ALL_TOOLS)
+        model_route = classify_capability_request_with_model(
+            message=message,
+            available_tool_names=ALL_TOOLS,
+            task_context_messages=None,
+        )
+
+    assert literal_route is None
+    assert model_route.package_id == package_id
+    completion.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "请调用 mcp_unrelated_tool 处理天气数据",
+        "请调用 mcp_unrelated_tool 处理附近咖啡店数据",
+    ],
+)
+def test_literal_mcp_alias_keeps_single_parameter_with_product_words(message):
+    """产品词作为 alias 的单一参数时，不能被结构边界误当成第二个任务。"""
+
+    from app.services.stream.run_capability_model_classifier import classify_capability_request_with_model
+
+    with patch("app.services.stream.run_capability_model_classifier.litellm.completion") as completion:
+        literal_route = _classify_literal_layer(_extract_request_signals(message), ALL_TOOLS)
+        resolution = _resolve(message)
+        model_route = classify_capability_request_with_model(
+            message=message,
+            available_tool_names=ALL_TOOLS,
+            task_context_messages=None,
+        )
+
+    assert literal_route is not None
+    assert literal_route.package_id == "mcp_explicit"
+    assert resolution.package_id == "mcp_explicit"
+    assert resolution.external_tool_names == ("mcp_unrelated_tool",)
+    assert model_route.package_id == "mcp_explicit"
+    completion.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("message", "package_id", "tool_names"),
+    [
         ("你是谁？再查一下明天北京天气", "weather", ["weather_forecast"]),
         ("你能做什么？帮我查上海到北京的航班", "flight", ["search_flights"]),
         ("介绍一下你自己，并找附近的川菜馆", "place_discovery", ["local_place_search"]),

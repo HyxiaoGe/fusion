@@ -877,7 +877,7 @@ def _classify_literal_layer(
         if request.all_network_denied or available_tool_names is None
         else _resolve_explicit_authorized_alias(routing_message, available_tool_names)
     )
-    if explicit_alias is not None and not _has_competing_product_request(request):
+    if explicit_alias is not None and _is_complete_explicit_alias_intent(routing_message, explicit_alias):
         return _CandidateRoute(
             "mcp_explicit",
             "high",
@@ -899,15 +899,29 @@ def _classify_literal_layer(
     return None
 
 
-def _has_competing_product_request(request: _RequestSignals) -> bool:
-    """alias 同句出现已成立产品任务时，字面层不能吞掉后续语义。"""
+def _is_complete_explicit_alias_intent(message: str, alias: str) -> bool:
+    """只把带单一任务参数的精确 alias 指令留在字面层。"""
 
-    product_signals = resolve_product_capability_signals(
-        original_message=request.routing_message,
-        task_context_messages=None,
-    )
-    english = _extract_english_route_signals(request)
-    return _classify_product_layer(request, product_signals, english) is not None
+    directives = _explicit_alias_directives(message, alias)
+    if not directives or not directives[-1][2]:
+        return False
+    suffix = message[directives[-1][1] :]
+    return not _has_alias_followup_clause(suffix)
+
+
+def _has_alias_followup_clause(suffix: str) -> bool:
+    """识别 alias 参数之后明确开始的第二子句，不推断其中的产品语义。"""
+
+    for boundary in re.finditer(
+        r"(?:然后|再|并且|随后|\b(?:and\s+then|then|also)\b|[，,；;。！？!?])",
+        suffix,
+        re.IGNORECASE,
+    ):
+        task_parameter = suffix[: boundary.start()].strip(" \t，,；;。！？!?")
+        followup = suffix[boundary.end() :].strip(" \t，,；;。！？!?")
+        if task_parameter and followup:
+            return True
+    return False
 
 
 def _extract_english_route_signals(request: _RequestSignals) -> _EnglishRouteSignals:
@@ -1424,33 +1438,40 @@ def _resolve_explicit_authorized_alias(
     )
     matched: list[str] = []
     for alias in aliases:
-        alias_pattern = rf"(?<![\w]){re.escape(alias.lower())}(?![\w])"
-        directives: list[tuple[int, bool]] = []
-        for alias_match in re.finditer(alias_pattern, message):
-            prefix = message[max(0, alias_match.start() - 48) : alias_match.start()]
-            if re.search(
-                r"(?:不要|不用|别|请勿|禁止|严禁|不得|不可)\s*"
-                r"(?:再|随后)?(?:调用|使用|运行|执行)?\s*$",
-                prefix,
-            ) or re.search(
-                r"\b(?:(?:do not|don['’]t|dont|never)\s+(?:call|use|run|invoke)|"
-                r"(?:do not|don['’]t|dont|never)\s+execute|"
-                r"(?:without|avoid(?:ing)?|refrain\s+from|skip(?:ping)?)\s+"
-                r"(?:call(?:ing)?|us(?:e|ing)|run(?:ning)?|invok(?:e|ing)|execut(?:e|ing)))\s+"
-                r"(?:the\s+)?(?:mcp\s+)?(?:tool\s+)?$",
-                prefix,
-                re.IGNORECASE,
-            ):
-                directives.append((alias_match.start(), False))
-            elif re.search(
-                r"(?:调用|使用|运行|执行)(?:工具)?\s*$|"
-                r"\b(?:call|use|run|invoke|execute)\s+(?:the\s+)?(?:mcp\s+)?(?:tool\s+)?$",
-                prefix,
-            ):
-                directives.append((alias_match.start(), True))
-        if directives and directives[-1][1]:
+        directives = _explicit_alias_directives(message, alias)
+        if directives and directives[-1][2]:
             matched.append(alias)
     return matched[0] if len(matched) == 1 else None
+
+
+def _explicit_alias_directives(message: str, alias: str) -> list[tuple[int, int, bool]]:
+    """返回 alias 出现位置和最后一次显式调用/否定语义，供字面边界共用。"""
+
+    alias_pattern = rf"(?<![\w]){re.escape(alias.lower())}(?![\w])"
+    directives: list[tuple[int, int, bool]] = []
+    for alias_match in re.finditer(alias_pattern, message):
+        prefix = message[max(0, alias_match.start() - 48) : alias_match.start()]
+        if re.search(
+            r"(?:不要|不用|别|请勿|禁止|严禁|不得|不可)\s*"
+            r"(?:再|随后)?(?:调用|使用|运行|执行)?\s*$",
+            prefix,
+        ) or re.search(
+            r"\b(?:(?:do not|don['’]t|dont|never)\s+(?:call|use|run|invoke)|"
+            r"(?:do not|don['’]t|dont|never)\s+execute|"
+            r"(?:without|avoid(?:ing)?|refrain\s+from|skip(?:ping)?)\s+"
+            r"(?:call(?:ing)?|us(?:e|ing)|run(?:ning)?|invok(?:e|ing)|execut(?:e|ing)))\s+"
+            r"(?:the\s+)?(?:mcp\s+)?(?:tool\s+)?$",
+            prefix,
+            re.IGNORECASE,
+        ):
+            directives.append((alias_match.start(), alias_match.end(), False))
+        elif re.search(
+            r"(?:调用|使用|运行|执行)(?:工具)?\s*$|"
+            r"\b(?:call|use|run|invoke|execute)\s+(?:the\s+)?(?:mcp\s+)?(?:tool\s+)?$",
+            prefix,
+        ):
+            directives.append((alias_match.start(), alias_match.end(), True))
+    return directives
 
 
 def _normalize_message(value: str | None) -> str:
