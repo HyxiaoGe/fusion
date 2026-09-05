@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import pathlib
 import re
 from dataclasses import FrozenInstanceError, replace
 from types import SimpleNamespace
@@ -3980,3 +3981,45 @@ class TestVerifiedWebVerbNeedsClaimObject:
     def test_判不出来时交给语义层而不是直接给结论(self):
         # 字面层返回 None 意味着进入模型语义层；这是本修复的核心：不确定就不抢答。
         assert self._literal("定价前应该验证什么") is None
+
+
+class TestVerifyVerbHeldOutSet:
+    """持出集回归：防止字面层的裸动词短路被重新放宽（issue #30 P1-A）。
+
+    只把两组负例接成门禁——它们是本次修复的实际主张。external_claim 组当前有三条
+    不命中（见 fixture 的 known_gaps_note），不作断言，避免把已知缺口固化成期望。
+    """
+
+    _FIXTURE = pathlib.Path(__file__).resolve().parents[3] / "test" / "fixtures" / "verify_verb_heldout.json"
+
+    @classmethod
+    def _groups(cls) -> dict:
+        return json.loads(cls._FIXTURE.read_text(encoding="utf-8"))["groups"]
+
+    @staticmethod
+    def _literal_package(message: str) -> str | None:
+        route = _classify_literal_layer(_extract_request_signals(message), ALL_TOOLS)
+        return route.package_id if route is not None else None
+
+    def test_内部语境动词不被字面层抢答(self):
+        missed = [
+            case
+            for case in self._groups()["internal_context"]["cases"]
+            if self._literal_package(case) == "verified_web"
+        ]
+        assert missed == []
+
+    def test_抽象产品问题不被字面层抢答(self):
+        missed = [
+            case
+            for case in self._groups()["abstract_other"]["cases"]
+            if self._literal_package(case) in {"verified_web", "fresh_web"}
+        ]
+        assert missed == []
+
+    def test_持出集记录的命中情况与实现一致(self):
+        # fixture 里的 literal_hit 是实测记录，不是期望值；这条用例保证它不与实现悄悄脱节。
+        for case in self._groups()["external_claim"]["cases"]:
+            recorded = case["literal_hit"]
+            actual = self._literal_package(case["question"]) == "verified_web"
+            assert actual == recorded, f"持出集记录已过期：{case['question']} 实测={actual} 记录={recorded}"
