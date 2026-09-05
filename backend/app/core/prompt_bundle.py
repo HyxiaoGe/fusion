@@ -15,11 +15,8 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.logger import app_logger as logger
 from app.core.prompt_catalog import PROMPT_SPEC_BY_KEY, PROMPT_SPEC_BY_SLUG, PROMPT_SPECS
-from app.core.runtime_config import get_runtime_config_payload
 from app.db.database import SessionLocal
 from app.db.models import RuntimeConfigEntry
-
-LegacyLoader = Callable[..., tuple[dict[str, Any], dict[str, Any]]]
 
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _BUNDLE_CACHE_TTL_SECONDS = 60.0
@@ -52,7 +49,7 @@ def validate_published_bundle(bundle: Any) -> dict[str, Any]:
     expected_slugs = set(PROMPT_SPEC_BY_SLUG)
     actual_slugs = {slug for slug in slugs if isinstance(slug, str)}
     if actual_slugs != expected_slugs or len(raw_prompts) != len(PROMPT_SPECS):
-        issues.append("bundle 必须恰好包含 11 个约定 Prompt")
+        issues.append(f"bundle 必须恰好包含 {len(PROMPT_SPECS)} 个约定 Prompt")
 
     validated_prompts: dict[str, dict[str, Any]] = {}
     for prompt in raw_prompts:
@@ -89,29 +86,21 @@ def validate_stored_bundle_payload(payload: Any) -> bool:
     return all(_stored_prompt_is_valid(key, prompts.get(key)) for key in PROMPT_SPEC_BY_KEY)
 
 
-def resolve_prompt_template(
-    name: str,
-    fallback: str,
-    *,
-    legacy_loader: LegacyLoader = get_runtime_config_payload,
-) -> str:
-    """按 active bundle -> per-key Runtime Config -> 代码默认值解析 Prompt。"""
+def resolve_prompt_template(name: str, fallback: str) -> str:
+    """按 active bundle(LKG) -> 代码默认值解析 Prompt。"""
 
-    template, _metadata = resolve_prompt_template_with_metadata(
-        name,
-        fallback,
-        legacy_loader=legacy_loader,
-    )
+    template, _metadata = resolve_prompt_template_with_metadata(name, fallback)
     return template
 
 
-def resolve_prompt_template_with_metadata(
-    name: str,
-    fallback: str,
-    *,
-    legacy_loader: LegacyLoader = get_runtime_config_payload,
-) -> tuple[str, dict[str, str | None]]:
-    """解析 Prompt，并返回可安全写入 LLM 观测字段的版本信息。"""
+def resolve_prompt_template_with_metadata(name: str, fallback: str) -> tuple[str, dict[str, str | None]]:
+    """解析 Prompt，并返回可安全写入 LLM 观测字段的版本信息。
+
+    消费链严格为 active bundle(LKG) -> 代码默认值两级。catalog key 不再回退到
+    legacy ``prompt_template`` 命名空间：那条路径允许单个 key 独立回落到独立的
+    Runtime Config 行，会让同一个 Run 由 bundle 与多行 legacy 拼出，破坏
+    「完整 bundle 原子切换」与单 Run 冻结。
+    """
 
     if settings.PROMPTHUB_SYNC_MODE == "apply":
         bundle = _load_active_bundle_payload()
@@ -119,18 +108,11 @@ def resolve_prompt_template_with_metadata(
         if resolved is not None:
             return resolved
 
-    payload, meta = legacy_loader(
-        "prompt_template",
-        name,
-        {"template": fallback},
-    )
-    template = payload.get("template")
-    effective = template if isinstance(template, str) and template else fallback
     spec = PROMPT_SPEC_BY_KEY.get(name)
-    return effective, {
-        "source": str(meta.get("source", "code-default")),
+    return fallback, {
+        "source": "code-default",
         "prompt_slug": spec.slug if spec is not None else name,
-        "prompt_version": str(meta.get("version", "code-default")),
+        "prompt_version": "code-default",
         "prompt_revision": None,
     }
 

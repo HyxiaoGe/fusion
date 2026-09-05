@@ -10,7 +10,7 @@ from app.ai.prompts.templates import (
     GENERATE_TITLE_PROMPT,
 )
 from app.core.prompt_bundle import resolve_prompt_template, resolve_prompt_template_with_metadata
-from app.core.runtime_config import get_runtime_config_payload
+from app.core.prompt_catalog import register_prompt_consumer
 
 
 class PromptManager:
@@ -30,11 +30,7 @@ class PromptManager:
         if template_name not in self._templates:
             raise ValueError(f"未找到提示词模板: {template_name}")
         fallback = self._templates[template_name]
-        return resolve_prompt_template(
-            template_name,
-            fallback,
-            legacy_loader=get_runtime_config_payload,
-        )
+        return resolve_prompt_template(template_name, fallback)
 
     def format_prompt(self, template_name: str, **kwargs) -> str:
         """使用提供的参数格式化提示词模板"""
@@ -52,7 +48,6 @@ class PromptManager:
         template, metadata = resolve_prompt_template_with_metadata(
             template_name,
             self._templates[template_name],
-            legacy_loader=get_runtime_config_payload,
         )
         try:
             return template.format(**kwargs), metadata
@@ -66,3 +61,23 @@ class PromptManager:
 
 # 创建全局提示词管理器实例
 prompt_manager = PromptManager()
+
+
+@register_prompt_consumer("generate_title")
+def get_generate_title_prompt() -> str:
+    return prompt_manager.get_template("generate_title")
+
+
+@register_prompt_consumer("generate_suggested_questions")
+def get_generate_suggested_questions_prompt() -> str:
+    return prompt_manager.get_template("generate_suggested_questions")
+
+
+@register_prompt_consumer("file_analysis")
+def get_file_analysis_prompt() -> str:
+    return prompt_manager.get_template("file_analysis")
+
+
+@register_prompt_consumer("file_content_enhancement")
+def get_file_content_enhancement_prompt() -> str:
+    return prompt_manager.get_template("file_content_enhancement")

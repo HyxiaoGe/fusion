@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from app.core.prompt_bundle import resolve_prompt_template
-from app.core.runtime_config import get_runtime_config_payload
+from app.core.prompt_catalog import register_prompt_consumer
 
 CHINA_TZ = timezone(timedelta(hours=8))
 
@@ -259,42 +259,47 @@ URL_READ_TOOL_DESCRIPTION = (
 
 
 def get_runtime_prompt_template(name: str, fallback: str) -> str:
-    return resolve_prompt_template(
-        name,
-        fallback,
-        legacy_loader=get_runtime_config_payload,
-    )
+    return resolve_prompt_template(name, fallback)
 
 
+@register_prompt_consumer("app_identity")
 def get_app_identity_prompt() -> str:
-    return APP_IDENTITY_PROMPT
+    return get_runtime_prompt_template("app_identity", APP_IDENTITY_PROMPT)
 
 
+@register_prompt_consumer("tool_usage_contract")
 def get_tool_usage_contract_prompt() -> str:
-    return TOOL_USAGE_CONTRACT_PROMPT
+    return get_runtime_prompt_template("tool_usage_contract", TOOL_USAGE_CONTRACT_PROMPT)
 
 
+@register_prompt_consumer("no_tool_network_boundary")
 def get_no_tool_network_boundary_prompt() -> str:
-    return NO_TOOL_NETWORK_BOUNDARY_PROMPT
+    return get_runtime_prompt_template("no_tool_network_boundary", NO_TOOL_NETWORK_BOUNDARY_PROMPT)
 
 
 def get_agent_plan_control_prompt(plan_mode: str) -> str:
+    """计划控制正文不在 catalog 内，本期继续由代码维护。"""
+
     if plan_mode == "on":
         return AGENT_PLAN_CONTROL_ON_PROMPT
     return AGENT_PLAN_CONTROL_AUTO_PROMPT
 
 
+@register_prompt_consumer("no_vision_file_boundary")
 def get_no_vision_file_boundary_prompt() -> str:
-    return NO_VISION_FILE_BOUNDARY_PROMPT
+    return get_runtime_prompt_template("no_vision_file_boundary", NO_VISION_FILE_BOUNDARY_PROMPT)
 
 
+@register_prompt_consumer("url_read_tool_description")
 def get_url_read_tool_description() -> str:
     return get_runtime_prompt_template("url_read_tool_description", URL_READ_TOOL_DESCRIPTION)
 
 
+@register_prompt_consumer("limit_summary")
 def get_limit_summary_prompt() -> str:
     return get_runtime_prompt_template("limit_summary", LIMIT_SUMMARY_PROMPT)
 
 
+@register_prompt_consumer("continuation_system")
 def get_continuation_system_prompt() -> str:
-    return CONTINUATION_SYSTEM_PROMPT
+    return get_runtime_prompt_template("continuation_system", CONTINUATION_SYSTEM_PROMPT)

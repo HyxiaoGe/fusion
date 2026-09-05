@@ -40,6 +40,7 @@ from app.schemas.response import ApiException, generate_request_id
 from app.services.agent.llm_round_detail_recorder import stop_llm_round_detail_workers
 from app.services.knowledge.storage_upload_guard import shutdown_storage_upload_lifecycles
 from app.services.mcp.runtime import get_mcp_client_manager
+from app.services.prompt_catalog_integrity import verify_prompt_catalog_consumers
 from app.services.scheduler_service import start_scheduler, stop_scheduler
 from app.services.storage import init_storage
 from app.services.suggested_question_worker import (
@@ -201,6 +202,7 @@ class TimeoutMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app_logger.info("应用启动中...")
+    verify_prompt_catalog_consumers()
     await init_redis()
     await init_storage()
     app_logger.info(f"存储后端初始化完成: {settings.STORAGE_BACKEND}")

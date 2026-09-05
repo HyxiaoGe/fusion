@@ -32,10 +32,9 @@ def _published_bundle(*, revision: str = "b" * 64):
 
 
 class PromptBundleValidationTests(unittest.TestCase):
-    def test_catalog_has_exactly_the_eleven_runtime_prompts(self):
+    def test_catalog_keys_match_the_declared_runtime_prompt_set(self):
         from app.core.prompt_catalog import PROMPT_SPECS
 
-        self.assertEqual(len(PROMPT_SPECS), 11)
         self.assertEqual(
             {spec.key for spec in PROMPT_SPECS},
             {
@@ -186,7 +185,6 @@ class PromptBundleResolverTests(unittest.TestCase):
             template, metadata = resolve_prompt_template_with_metadata(
                 "generate_title",
                 "代码默认值",
-                legacy_loader=unittest.mock.Mock(),
             )
 
         self.assertEqual(template, "标题模板 {content}")
@@ -218,31 +216,36 @@ class PromptBundleResolverTests(unittest.TestCase):
                 }
             },
         }
-        legacy_loader = unittest.mock.Mock(return_value=({"template": "旧模板"}, {"source": "db"}))
-
         with (
             patch("app.core.prompt_bundle.settings.PROMPTHUB_SYNC_MODE", "apply"),
             patch("app.core.prompt_bundle._load_active_bundle_payload", return_value=payload),
         ):
-            template = resolve_prompt_template("generate_title", "代码默认值", legacy_loader=legacy_loader)
+            template = resolve_prompt_template("generate_title", "代码默认值")
 
         self.assertEqual(template, "Bundle 标题：{content}")
-        legacy_loader.assert_not_called()
 
-    def test_shadow_disabled_and_invalid_bundle_fall_back_to_legacy(self):
-        from app.core.prompt_bundle import resolve_prompt_template
+    def test_bundle_miss_falls_back_to_code_default_without_legacy_namespace(self):
+        """P0 起消费链严格为 active bundle(LKG) -> 代码默认值，不再读 legacy prompt_template。"""
 
+        from app.core import prompt_bundle
+
+        legacy_loader = unittest.mock.Mock(return_value=({"template": "旧模板"}, {"source": "db"}))
         for mode, active in (("disabled", None), ("shadow", None), ("apply", {"prompts": {}})):
             with self.subTest(mode=mode):
-                legacy_loader = unittest.mock.Mock(return_value=({"template": "旧模板"}, {"source": "db"}))
                 with (
                     patch("app.core.prompt_bundle.settings.PROMPTHUB_SYNC_MODE", mode),
                     patch("app.core.prompt_bundle._load_active_bundle_payload", return_value=active),
+                    patch.object(prompt_bundle, "get_runtime_config_payload", legacy_loader, create=True),
                 ):
-                    template = resolve_prompt_template("generate_title", "代码默认值", legacy_loader=legacy_loader)
+                    template, metadata = prompt_bundle.resolve_prompt_template_with_metadata(
+                        "generate_title", "代码默认值"
+                    )
 
-                self.assertEqual(template, "旧模板")
-                legacy_loader.assert_called_once()
+                self.assertEqual(template, "代码默认值")
+                self.assertEqual(metadata["source"], "code-default")
+                self.assertEqual(metadata["prompt_version"], "code-default")
+                self.assertIsNone(metadata["prompt_revision"])
+        legacy_loader.assert_not_called()
 
 
 if __name__ == "__main__":
