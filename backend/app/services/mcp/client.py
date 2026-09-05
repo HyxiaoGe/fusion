@@ -137,17 +137,34 @@ class McpConnector(Protocol):
     async def close(self) -> None: ...
 
 
+# 供应商用 HTTP 200 返回的鉴权错误签名 → 统一错误码。
+#
+# 高德在密钥无效时返回 200 且正文为 {"status":"0","info":"INVALID_USER_KEY",
+# "infocode":"10001"}，既不是 HTTP 错误状态，也不是合法的 MCP 握手响应，SDK 只能
+# 一直等到超时。不从正文认出它，就只能报成超时，把排查带向出网方向（issue #32）。
+_PROVIDER_BODY_ERROR_SIGNATURES: tuple[tuple[bytes, str], ...] = (
+    (b"INVALID_USER_KEY", "auth_failed"),
+    (b"USERKEY_PLAT_NOMATCH", "auth_failed"),
+    (b"INVALID_USER_SCODE", "auth_failed"),
+)
+# 只扫描响应开头这一段：错误体都很短，而正常的 MCP 流可以任意长。
+_PROVIDER_BODY_SCAN_BYTES = 2048
+
+
 @dataclass
 class HttpExchangeRecord:
     """一次 MCP 操作里 HTTP 层实际发生了什么。
 
-    只记录状态码与 content-type 这类固定事实，不持有任何响应正文——正文可能包含
-    供应商返回的凭证相关内容，也不需要它就能把"服务端答复了"与"根本没连上"分开。
+    只保留状态码、content-type 主类型，以及从响应开头识别出的供应商错误码这类固定
+    分类，**不持有响应正文**——正文可能包含供应商返回的凭证相关内容。
     """
 
     responded: bool = False
     status_code: int | None = None
     content_type: str | None = None
+    provider_error_code: str | None = None
+    _scanned_bytes: int = 0
+    _scan_buffer: bytes = b""
 
     def record(self, response: httpx.Response) -> None:
         self.responded = True
@@ -155,13 +172,52 @@ class HttpExchangeRecord:
         content_type = response.headers.get("content-type")
         self.content_type = content_type.split(";", 1)[0].strip().lower() if content_type else None
 
+    def observe_body_chunk(self, chunk: bytes) -> None:
+        """在有限前缀内识别供应商错误签名；识别完立即丢弃缓冲。"""
+
+        if self.provider_error_code is not None or self._scanned_bytes >= _PROVIDER_BODY_SCAN_BYTES:
+            return
+        remaining = _PROVIDER_BODY_SCAN_BYTES - self._scanned_bytes
+        self._scanned_bytes += len(chunk)
+        # 保留上一块的尾部，避免签名恰好被切在分块边界上。
+        window = self._scan_buffer + chunk[:remaining]
+        for signature, error_code in _PROVIDER_BODY_ERROR_SIGNATURES:
+            if signature in window:
+                self.provider_error_code = error_code
+                self._scan_buffer = b""
+                return
+        max_signature_length = max(len(signature) for signature, _ in _PROVIDER_BODY_ERROR_SIGNATURES)
+        self._scan_buffer = window[-(max_signature_length - 1) :] if max_signature_length > 1 else b""
+        if self._scanned_bytes >= _PROVIDER_BODY_SCAN_BYTES:
+            self._scan_buffer = b""
+
     def as_safe_details(self) -> dict[str, Any]:
         details: dict[str, Any] = {"http_responded": self.responded}
         if self.status_code is not None:
             details["http_status"] = self.status_code
         if self.content_type is not None:
             details["content_type"] = self.content_type
+        if self.provider_error_code is not None:
+            details["provider_error"] = self.provider_error_code
         return details
+
+
+class _BodyScanningStream(httpx.AsyncByteStream):
+    """把响应正文原样透传给 SDK，同时只在开头一段里找供应商错误签名。"""
+
+    def __init__(self, inner: Any, record: HttpExchangeRecord):
+        self._inner = inner
+        self._record = record
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        async for chunk in self._inner:
+            self._record.observe_body_chunk(chunk)
+            yield chunk
+
+    async def aclose(self) -> None:
+        aclose = getattr(self._inner, "aclose", None)
+        if aclose is not None:
+            await aclose()
 
 
 _http_exchange_record: contextvars.ContextVar[HttpExchangeRecord | None] = contextvars.ContextVar(
@@ -194,6 +250,7 @@ class _RecordingTransport(httpx.AsyncBaseTransport):
         record = _http_exchange_record.get()
         if record is not None:
             record.record(response)
+            response.stream = _BodyScanningStream(response.stream, record)
         return response
 
     async def aclose(self) -> None:
@@ -587,6 +644,12 @@ def _classify_exception(exc: Exception, operation_name: str) -> McpClientError:
             # 服务端答复过却没能完成 MCP 握手，说明连接与出网都是通的，问题在供应商侧
             # ——常见于鉴权失败但错误藏在 MCP 流内、不体现为 HTTP 状态码的实现。
             # 报成 connect_timeout 会把排查带向网络方向（issue #32）。
+            if record is not None and record.provider_error_code is not None:
+                return McpClientError(
+                    record.provider_error_code,
+                    "MCP 服务鉴权失败",
+                    safe_details=record.as_safe_details(),
+                )
             if record is not None and record.responded:
                 return McpClientError(
                     "handshake_rejected",

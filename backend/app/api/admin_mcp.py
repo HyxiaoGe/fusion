@@ -1,6 +1,9 @@
+from datetime import UTC, datetime, timedelta
+
 from fastapi import APIRouter, Depends
 
 from app.api.deps import get_current_admin_user, get_mcp_server_service
+from app.core.config import settings
 from app.db.models import User as UserModel
 from app.schemas.mcp import (
     McpServerCreate,
@@ -9,6 +12,7 @@ from app.schemas.mcp import (
     McpServerUpdate,
 )
 from app.schemas.response import success
+from app.services.mcp.agent_tools import default_circuit_breaker
 from app.services.mcp.server_service import McpServerService
 
 router = APIRouter()
@@ -69,5 +73,28 @@ async def refresh_mcp_server_tools(
     return success(_serialize(await service.refresh_tools(server_id)))
 
 
+PROBE_FRESHNESS_TTL = timedelta(seconds=settings.MCP_PROBE_FRESHNESS_TTL_SECONDS)
+# 熔断状态存在本进程内存里，多 worker 下各进程独立；显式标注作用域，避免管理视图
+# 把它当成全局实时健康（issue #32）。
+RUNTIME_CIRCUIT_SCOPE = "process"
+
+
+def resolve_probe_freshness(last_checked_at: datetime | None, *, now: datetime | None = None) -> str:
+    """探测结果的新鲜度；health_status 本身只说明上次探测的结论。"""
+
+    if last_checked_at is None:
+        return "never"
+    reference = now or datetime.now(UTC)
+    checked_at = last_checked_at if last_checked_at.tzinfo is not None else last_checked_at.replace(tzinfo=UTC)
+    return "fresh" if reference - checked_at <= PROBE_FRESHNESS_TTL else "stale"
+
+
 def _serialize(row) -> McpServerResponse:
-    return McpServerResponse.model_validate(row)
+    response = McpServerResponse.model_validate(row)
+    return response.model_copy(
+        update={
+            "probe_freshness": resolve_probe_freshness(response.last_checked_at),
+            "runtime_circuit_state": default_circuit_breaker().snapshot(response.id),
+            "runtime_circuit_scope": RUNTIME_CIRCUIT_SCOPE,
+        }
+    )

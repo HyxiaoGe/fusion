@@ -267,6 +267,18 @@ class McpAgentServerCircuitBreaker:
         self._states: dict[str, _McpCircuitState] = {}
         self._lock = asyncio.Lock()
 
+    def snapshot(self, server_id: str) -> str:
+        """只读快照，供管理视图展示；不加锁，允许与并发写有微小时序差。
+
+        注意作用域：状态存在本进程内存里，多 worker 部署时各进程独立，因此它是
+        "本进程最近的调用结果"，不是全局实时健康（issue #32）。
+        """
+
+        state = self._states.get(server_id)
+        if state is None or state.opened_at is None:
+            return "closed"
+        return "open" if self.clock() - state.opened_at < self.cooldown_seconds else "half_open"
+
     async def try_acquire(self, server_id: str) -> _McpCircuitPermit | None:
         async with self._lock:
             state = self._states.get(server_id)
@@ -333,6 +345,12 @@ _DEFAULT_CIRCUIT_BREAKER = McpAgentServerCircuitBreaker(
     failure_threshold=max(1, settings.MCP_SERVER_CIRCUIT_FAILURE_THRESHOLD),
     cooldown_seconds=max(0.1, settings.MCP_SERVER_CIRCUIT_COOLDOWN_SECONDS),
 )
+
+
+def default_circuit_breaker() -> McpAgentServerCircuitBreaker:
+    """暴露进程级熔断器，供管理视图读取只读快照。"""
+
+    return _DEFAULT_CIRCUIT_BREAKER
 
 
 class McpAgentToolRunBudget:
