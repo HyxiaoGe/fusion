@@ -63,6 +63,18 @@ PROMPT_SPEC_BY_SLUG = {spec.slug: spec for spec in PROMPT_SPECS}
 PromptAccessor = Callable[[], str]
 _CONSUMERS: dict[str, PromptAccessor] = {}
 
+# 已知没有生产消费方的 catalog 条目。这里**不是**豁免口子，而是把「声明与消费不一致」
+# 显式记录下来，避免用一个只在注册处出现的空壳函数把它伪装成已消费。
+#
+# file_content_enhancement：`inject_file_content`（app/services/chat/message_builder.py:154）
+# 自己硬编码了文件内容包装语，从不读取该模板；仓库内没有任何其它调用方。
+# P0 不做以下两种处理，因为都会破坏本阶段的硬约束：
+#   - 让 inject_file_content 改用该模板 -> 改变模型可见正文，违反「行为零变化」；
+#   - 从 catalog 移除该条目 -> 线上已发布的 11 项 bundle 会因条目数不符被整包拒绝，
+#     导致全部 key 回落代码默认值，需与 PromptHub 协同重发才能做。
+# 因此 P1 必须二选一收敛，不得长期停留在此状态。该集合由测试固定，新增条目需显式改码。
+KNOWN_UNCONSUMED_KEYS = frozenset({"file_content_enhancement"})
+
 
 def register_prompt_consumer(key: str) -> Callable[[PromptAccessor], PromptAccessor]:
     """把真实注入路径的 accessor 注册到 catalog，供启动期完整性校验。"""
@@ -86,9 +98,20 @@ def registered_prompt_consumers() -> dict[str, PromptAccessor]:
     return dict(_CONSUMERS)
 
 
-def assert_catalog_fully_consumed() -> None:
-    """启动期校验：catalog 每一项都必须有真实消费路径，否则 fail-fast。"""
+def assert_catalog_fully_consumed() -> list[str]:
+    """启动期校验：catalog 每一项都必须有真实消费路径，否则 fail-fast。
 
-    missing = sorted(set(PROMPT_SPEC_BY_KEY) - set(_CONSUMERS))
+    返回已声明的 `KNOWN_UNCONSUMED_KEYS`，由调用方告警——它们同样会静默空转，
+    只是已被显式记录并有收敛计划，不能因为「记录过」就当成正常状态。
+    """
+
+    unregistered = set(PROMPT_SPEC_BY_KEY) - set(_CONSUMERS)
+    missing = sorted(unregistered - KNOWN_UNCONSUMED_KEYS)
     if missing:
         raise PromptCatalogIntegrityError("以下 catalog Prompt 没有注册消费方，热更新会静默空转: " + ", ".join(missing))
+    unexpected = sorted(KNOWN_UNCONSUMED_KEYS & set(_CONSUMERS))
+    if unexpected:
+        raise PromptCatalogIntegrityError(
+            "以下 key 已声明为无消费方却注册了消费方，请更新 KNOWN_UNCONSUMED_KEYS: " + ", ".join(unexpected)
+        )
+    return sorted(unregistered)

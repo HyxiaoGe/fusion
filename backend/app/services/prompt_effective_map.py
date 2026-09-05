@@ -136,6 +136,42 @@ def assert_bundle_matches_effective_map(
         raise EffectiveBaselineMismatch("; ".join(mismatches))
 
 
+def assert_p0_transition_gate(bundle_prompts: dict[str, str]) -> None:
+    """P0 切换门禁：不可绕过，在任何 bundle 激活前与 apply 模式启动时强制执行。
+
+    P0 让 `PRE_P0_CODE_ONLY_KEYS` 五项首次开始消费 bundle。若此时 bundle 里这五项的
+    正文与代码常量不同，模型可见正文会在切换瞬间改变——这正是 P0 必须排除的情形。
+    因此在 P0 过渡完成前，激活任何 bundle 都要求这五项与代码默认值**逐字节相等**。
+
+    `PROMPT_P0_BASELINE_ATTESTED=true` 表示过渡已完成并经复审，此后这五项与其余六项
+    一样可以正常热更新。该开关只应在 effective baseline 校验通过后由发布流程置位。
+    """
+
+    if settings.PROMPT_P0_BASELINE_ATTESTED:
+        return
+    mismatches = []
+    for key in sorted(PRE_P0_CODE_ONLY_KEYS):
+        expected = DEFAULT_PROMPT_TEMPLATES[key].encode("utf-8")
+        actual = bundle_prompts.get(key, "").encode("utf-8")
+        if expected != actual:
+            mismatches.append(
+                f"{key}: 与代码默认值字节不一致"
+                f"（expected_sha256={_sha256_bytes(expected)} actual_sha256={_sha256_bytes(actual)}）"
+            )
+    if mismatches:
+        raise EffectiveBaselineMismatch(
+            "P0 过渡门禁未通过，禁止激活该 bundle；请先跑 effective baseline 校验并置位 "
+            "PROMPT_P0_BASELINE_ATTESTED: " + "; ".join(mismatches)
+        )
+
+
+def bundle_payload_contents(payload: dict[str, Any] | None) -> dict[str, str]:
+    """从已校验的 stored bundle payload 提取 {key: 正文}。"""
+
+    prompts = (payload or {}).get("prompts") or {}
+    return {key: item.get("content", "") for key, item in prompts.items() if isinstance(item, dict)}
+
+
 def code_default_effective_revision() -> str:
     """代码默认值路径的确定性摘要，供降级路径记录可审计身份。
 

@@ -446,6 +446,9 @@ class Settings(BaseSettings):
     PROMPTHUB_REQUEST_TIMEOUT_SECONDS: float = float(os.getenv("PROMPTHUB_REQUEST_TIMEOUT_SECONDS", "3"))
     PROMPTHUB_SYNC_INTERVAL_SECONDS: int = int(os.getenv("PROMPTHUB_SYNC_INTERVAL_SECONDS", "300"))
     PROMPTHUB_SYNC_ON_STARTUP: bool = os.getenv("PROMPTHUB_SYNC_ON_STARTUP", "true").lower() == "true"
+    # P0 过渡门禁：未置位时，激活 bundle 与 apply 模式启动都要求原 code-only 五项
+    # 与代码默认值逐字节一致。只应在 effective baseline 校验通过后由发布流程置位。
+    PROMPT_P0_BASELINE_ATTESTED: bool = os.getenv("PROMPT_P0_BASELINE_ATTESTED", "false").lower() == "true"
 
     # 文档站点开关（生产关掉减少攻击面）
     ENABLE_DOCS: bool = True

@@ -2,6 +2,7 @@
 
 import hashlib
 import unittest
+import unittest.mock
 from unittest.mock import patch
 
 
@@ -170,3 +171,84 @@ class CodeDefaultRevisionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class P0TransitionGateTests(unittest.TestCase):
+    """门禁必须不可绕过：激活与 apply 启动两条路径都拦得住。"""
+
+    def _bundle_prompts(self, overrides=None):
+        from app.services.runtime_config_defaults import DEFAULT_PROMPT_TEMPLATES
+
+        prompts = dict(DEFAULT_PROMPT_TEMPLATES)
+        prompts.update(overrides or {})
+        return prompts
+
+    def test_passes_when_code_only_keys_match_code_defaults(self):
+        from app.services.prompt_effective_map import assert_p0_transition_gate
+
+        with patch("app.services.prompt_effective_map.settings.PROMPT_P0_BASELINE_ATTESTED", False):
+            assert_p0_transition_gate(self._bundle_prompts())
+
+    def test_blocks_when_a_code_only_key_differs(self):
+        from app.services.prompt_effective_map import EffectiveBaselineMismatch, assert_p0_transition_gate
+
+        with patch("app.services.prompt_effective_map.settings.PROMPT_P0_BASELINE_ATTESTED", False):
+            with self.assertRaises(EffectiveBaselineMismatch) as ctx:
+                assert_p0_transition_gate(self._bundle_prompts({"app_identity": "改过的身份规则"}))
+        self.assertIn("app_identity", str(ctx.exception))
+
+    def test_attested_flag_allows_normal_hot_update(self):
+        from app.services.prompt_effective_map import assert_p0_transition_gate
+
+        with patch("app.services.prompt_effective_map.settings.PROMPT_P0_BASELINE_ATTESTED", True):
+            assert_p0_transition_gate(self._bundle_prompts({"app_identity": "过渡后正常热更新"}))
+
+    def test_activation_is_blocked_before_any_row_is_written(self):
+        """门禁失败必须真正阻止激活：不写行、不改 LKG。"""
+
+        from app.services import prompthub_sync_service
+        from app.services.prompt_effective_map import EffectiveBaselineMismatch
+
+        payload = {
+            "schema_version": 1,
+            "project_slug": "fusion",
+            "revision": "d" * 64,
+            "prompts": {
+                key: {"slug": key.replace("_", "-"), "version": "1.0.0", "content": content}
+                for key, content in self._bundle_prompts({"app_identity": "被篡改"}).items()
+            },
+        }
+        session_factory = unittest.mock.Mock()
+
+        with patch("app.services.prompt_effective_map.settings.PROMPT_P0_BASELINE_ATTESTED", False):
+            with self.assertRaises(EffectiveBaselineMismatch):
+                prompthub_sync_service._persist_bundle(payload, mode="apply", session_factory=session_factory)
+
+        session_factory.return_value.add.assert_not_called()
+        session_factory.return_value.commit.assert_not_called()
+
+    def test_apply_startup_fails_fast_on_ungated_active_bundle(self):
+        """首次部署时库里可能已有从未过门禁的 active bundle，启动必须拦住。"""
+
+        from app.services import prompt_catalog_integrity
+        from app.services.prompt_effective_map import EffectiveBaselineMismatch
+
+        payload = {
+            "prompts": {
+                key: {"content": content}
+                for key, content in self._bundle_prompts({"tool_usage_contract": "被篡改"}).items()
+            }
+        }
+        with (
+            patch("app.services.prompt_catalog_integrity.settings.PROMPTHUB_SYNC_MODE", "apply"),
+            patch("app.services.prompt_effective_map.settings.PROMPT_P0_BASELINE_ATTESTED", False),
+            patch.object(prompt_catalog_integrity, "get_active_prompt_bundle_payload", return_value=payload),
+        ):
+            with self.assertRaises(EffectiveBaselineMismatch):
+                prompt_catalog_integrity.verify_p0_baseline_gate()
+
+    def test_non_apply_startup_skips_gate(self):
+        from app.services import prompt_catalog_integrity
+
+        with patch("app.services.prompt_catalog_integrity.settings.PROMPTHUB_SYNC_MODE", "disabled"):
+            prompt_catalog_integrity.verify_p0_baseline_gate()
