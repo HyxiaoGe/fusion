@@ -1435,3 +1435,160 @@ class GzippedProviderErrorTests(unittest.IsolatedAsyncioTestCase):
         # 客户端按 Content-Encoding 自行解码，拿到的必须是正确正文，不能是二次解码或压缩字节
         self.assertEqual(response.content, self.PLAIN_BODY)
         self.assertEqual(record.provider_error_code, "auth_failed")
+
+
+class SuccessPathThroughRealTransportTests(unittest.IsolatedAsyncioTestCase):
+    """成功路径必须真的走过缓冲重建：所有既有成功用例都用 FakeConnector 绕开了传输层。
+
+    _scanned_response 会读完并重建每一个非 SSE 响应。若它损坏了正常响应，受影响的
+    不只是高德，而是所有 MCP 工具——这是合并前必须钉住的路径。
+    """
+
+    async def test_SSE_响应完全不被触碰(self):
+        import httpx
+
+        from app.services.mcp.client import HttpExchangeRecord, _http_exchange_record
+        from app.services.mcp.client import _RecordingTransport as RealRecordingTransport
+
+        sse_body = b'event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{}}\n\n'
+
+        def handler(request):
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=httpx.ByteStream(sse_body),
+            )
+
+        transport = RealRecordingTransport()
+        transport._transport = httpx.MockTransport(handler)
+        record = HttpExchangeRecord()
+        token = _http_exchange_record.set(record)
+        try:
+            response = await transport.handle_async_request(httpx.Request("POST", "https://example.com/mcp"))
+            body = b"".join([chunk async for chunk in response.stream])
+        finally:
+            _http_exchange_record.reset(token)
+
+        # SSE 走早返回：正文原样、未被读取，否则长连接会被读到阻塞
+        self.assertEqual(body, sse_body)
+        self.assertIsNone(record.provider_error_code)
+
+    async def test_正常_JSON_响应经缓冲重建后逐字节一致(self):
+        import httpx
+
+        from app.services.mcp.client import HttpExchangeRecord, _http_exchange_record
+        from app.services.mcp.client import _RecordingTransport as RealRecordingTransport
+
+        payload = b'{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"maps_weather"}]}}'
+
+        def handler(request):
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                stream=httpx.ByteStream(payload),
+            )
+
+        transport = RealRecordingTransport()
+        transport._transport = httpx.MockTransport(handler)
+        record = HttpExchangeRecord()
+        token = _http_exchange_record.set(record)
+        try:
+            async with httpx.AsyncClient(transport=transport) as client:
+                response = await client.post("https://example.com/mcp")
+        finally:
+            _http_exchange_record.reset(token)
+
+        self.assertEqual(response.content, payload)
+        self.assertIsNone(record.provider_error_code)
+
+    async def test_gzip_的正常响应同样逐字节一致(self):
+        import gzip
+
+        import httpx
+
+        from app.services.mcp.client import HttpExchangeRecord, _http_exchange_record
+        from app.services.mcp.client import _RecordingTransport as RealRecordingTransport
+
+        payload = b'{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}'
+
+        def handler(request):
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/json", "content-encoding": "gzip"},
+                stream=httpx.ByteStream(gzip.compress(payload)),
+            )
+
+        transport = RealRecordingTransport()
+        transport._transport = httpx.MockTransport(handler)
+        record = HttpExchangeRecord()
+        token = _http_exchange_record.set(record)
+        try:
+            async with httpx.AsyncClient(transport=transport) as client:
+                response = await client.post("https://example.com/mcp")
+        finally:
+            _http_exchange_record.reset(token)
+
+        self.assertEqual(response.content, payload)
+        self.assertIsNone(record.provider_error_code)
+
+    async def test_分块响应重建后不丢不重(self):
+        import httpx
+
+        from app.services.mcp.client import HttpExchangeRecord, _http_exchange_record
+        from app.services.mcp.client import _RecordingTransport as RealRecordingTransport
+
+        chunks = [b'{"jsonrpc":"2.0",', b'"id":1,', b'"result":{"ok":true}}']
+        expected = b"".join(chunks)
+
+        class ChunkedStream(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                for chunk in chunks:
+                    yield chunk
+
+        def handler(request):
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                stream=ChunkedStream(),
+            )
+
+        transport = RealRecordingTransport()
+        transport._transport = httpx.MockTransport(handler)
+        record = HttpExchangeRecord()
+        token = _http_exchange_record.set(record)
+        try:
+            async with httpx.AsyncClient(transport=transport) as client:
+                response = await client.post("https://example.com/mcp")
+        finally:
+            _http_exchange_record.reset(token)
+
+        self.assertEqual(response.content, expected)
+
+    async def test_超出缓冲上限的响应仍然完整交回(self):
+        import httpx
+
+        from app.services.mcp.client import _FINITE_BODY_BUFFER_LIMIT, HttpExchangeRecord, _http_exchange_record
+        from app.services.mcp.client import _RecordingTransport as RealRecordingTransport
+
+        payload = b"x" * (_FINITE_BODY_BUFFER_LIMIT + 1024)
+
+        def handler(request):
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                stream=httpx.ByteStream(payload),
+            )
+
+        transport = RealRecordingTransport()
+        transport._transport = httpx.MockTransport(handler)
+        record = HttpExchangeRecord()
+        token = _http_exchange_record.set(record)
+        try:
+            async with httpx.AsyncClient(transport=transport) as client:
+                response = await client.post("https://example.com/mcp")
+        finally:
+            _http_exchange_record.reset(token)
+
+        # 走 _ReplayStream 兜底路径，长度必须精确，不能截断也不能重复
+        self.assertEqual(len(response.content), len(payload))
+        self.assertEqual(response.content, payload)

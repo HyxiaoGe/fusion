@@ -230,7 +230,9 @@ async def _scanned_response(response: httpx.Response, record: HttpExchangeRecord
         return response
     buffered: list[bytes] = []
     total = 0
-    async for chunk in response.stream:
+    # 必须复用同一个迭代器：对流对象再迭代一次会从头重放，正文被复制一份。
+    stream_iterator = response.stream.__aiter__()
+    async for chunk in stream_iterator:
         buffered.append(chunk)
         total += len(chunk)
         if total > _FINITE_BODY_BUFFER_LIMIT:
@@ -238,7 +240,7 @@ async def _scanned_response(response: httpx.Response, record: HttpExchangeRecord
             return httpx.Response(
                 status_code=response.status_code,
                 headers=response.headers,
-                stream=_ReplayStream(buffered, response.stream),
+                stream=_ReplayStream(buffered, stream_iterator, response.stream),
                 extensions=response.extensions,
             )
     raw_body = b"".join(buffered)
@@ -269,20 +271,24 @@ def _decoded_body(raw_body: bytes, headers: httpx.Headers) -> bytes:
 
 
 class _ReplayStream(httpx.AsyncByteStream):
-    """回放已读分块后继续透传剩余流；只用于超过缓冲上限的兜底路径。"""
+    """回放已读分块后从同一个迭代器继续；只用于超过缓冲上限的兜底路径。
 
-    def __init__(self, buffered: list[bytes], inner: Any):
+    这里接的是**迭代器**而不是流对象：对流对象再迭代一次会从头重放，正文被复制一份。
+    """
+
+    def __init__(self, buffered: list[bytes], iterator: Any, source: Any):
         self._buffered = buffered
-        self._inner = inner
+        self._iterator = iterator
+        self._source = source
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
         for chunk in self._buffered:
             yield chunk
-        async for chunk in self._inner:
+        async for chunk in self._iterator:
             yield chunk
 
     async def aclose(self) -> None:
-        aclose = getattr(self._inner, "aclose", None)
+        aclose = getattr(self._source, "aclose", None)
         if aclose is not None:
             await aclose()
 
