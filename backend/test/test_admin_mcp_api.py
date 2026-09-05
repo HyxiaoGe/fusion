@@ -2,7 +2,7 @@ import importlib
 import os
 import sys
 import unittest
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -162,3 +162,58 @@ class AdminMcpApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class McpProbeFreshnessAndCircuitScopeTests(unittest.TestCase):
+    """issue #32 缺陷 2：health_status 只反映主动探测，不能被当成实时健康。
+
+    保留 health_status 的原语义（上次探测结果），另外把探测新鲜度与进程级熔断状态
+    并列暴露出来，让管理视图不会再把过期的 healthy 当作"现在是好的"。
+    """
+
+    def test_从未探测过标记为_never(self):
+        from app.api.admin_mcp import resolve_probe_freshness
+
+        assert resolve_probe_freshness(None, now=datetime(2026, 9, 5, tzinfo=UTC)) == "never"
+
+    def test_有效期内为_fresh(self):
+        from app.api.admin_mcp import resolve_probe_freshness
+
+        now = datetime(2026, 9, 5, 12, 0, tzinfo=UTC)
+        assert resolve_probe_freshness(now - timedelta(minutes=5), now=now) == "fresh"
+
+    def test_超过有效期为_stale(self):
+        from app.api.admin_mcp import resolve_probe_freshness
+
+        now = datetime(2026, 9, 5, 12, 0, tzinfo=UTC)
+        assert resolve_probe_freshness(now - timedelta(days=3), now=now) == "stale"
+
+    def test_无时区的时间戳按_UTC_解释而不是崩掉(self):
+        from app.api.admin_mcp import resolve_probe_freshness
+
+        now = datetime(2026, 9, 5, 12, 0, tzinfo=UTC)
+        assert resolve_probe_freshness(datetime(2026, 9, 5, 11, 55), now=now) == "fresh"
+
+    def test_熔断状态快照按服务隔离(self):
+        from app.services.mcp.agent_tools import McpAgentServerCircuitBreaker, _McpCircuitState
+
+        breaker = McpAgentServerCircuitBreaker(failure_threshold=2, cooldown_seconds=30, clock=lambda: 1000.0)
+        assert breaker.snapshot("server-a") == "closed"
+
+        breaker._states["server-a"] = _McpCircuitState(consecutive_failures=2, opened_at=990.0)
+        assert breaker.snapshot("server-a") == "open"
+        assert breaker.snapshot("server-b") == "closed"
+
+    def test_冷却期过后快照为_half_open(self):
+        from app.services.mcp.agent_tools import McpAgentServerCircuitBreaker, _McpCircuitState
+
+        breaker = McpAgentServerCircuitBreaker(failure_threshold=2, cooldown_seconds=30, clock=lambda: 1000.0)
+        breaker._states["server-a"] = _McpCircuitState(consecutive_failures=2, opened_at=900.0)
+
+        assert breaker.snapshot("server-a") == "half_open"
+
+    def test_熔断作用域被显式标注为进程级(self):
+        from app.api.admin_mcp import RUNTIME_CIRCUIT_SCOPE
+
+        # 熔断器是进程内内存态，多 worker 下各自独立；管理视图不得把它当全局实时健康。
+        assert RUNTIME_CIRCUIT_SCOPE == "process"

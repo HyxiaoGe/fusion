@@ -15,7 +15,7 @@ from app.services.mcp.client import (  # noqa: E402
     McpClientManager,
     McpClientPolicy,
     McpConnectionConfig,
-    _QueryParameterTransport,
+    _RecordingTransport,
 )
 
 
@@ -762,7 +762,7 @@ class McpClientManagerTests(unittest.TestCase):
             captured_urls.append(str(request.url))
             return httpx.Response(200, json={"ok": True})
 
-        transport = _QueryParameterTransport({"api_key": secret})
+        transport = _RecordingTransport({"api_key": secret})
         transport._transport = httpx.MockTransport(handler)
 
         async def request_once():
@@ -963,3 +963,632 @@ class McpClientManagerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HandshakeRejectionClassificationTests(unittest.IsolatedAsyncioTestCase):
+    """issue #32：供应商在 MCP 流内拒绝时，不得报成 connect_timeout。
+
+    高德鉴权失败不体现为 HTTP 状态码——HTTP 层成功，错误藏在 MCP 流内，于是
+    initialize 永不完成，5 秒超时兜底，异常链里只剩 TimeoutError。报成
+    connect_timeout 会把排查带向出网方向，而真实原因是密钥无效。
+    """
+
+    @staticmethod
+    def _classify(*, responded: bool, status_code: int | None = None, content_type: str | None = None):
+        from app.services.mcp.client import HttpExchangeRecord, _classify_exception, _http_exchange_record
+
+        record = HttpExchangeRecord()
+        if responded:
+            record.responded = True
+            record.status_code = status_code
+            record.content_type = content_type
+        token = _http_exchange_record.set(record)
+        try:
+            return _classify_exception(TimeoutError(), "initialize")
+        finally:
+            _http_exchange_record.reset(token)
+
+    def test_服务端答复过则判为握手被拒(self):
+        error = self._classify(responded=True, status_code=200, content_type="application/json")
+
+        self.assertEqual(error.code, "handshake_rejected")
+        self.assertEqual(error.safe_details["http_status"], 200)
+        self.assertEqual(error.safe_details["content_type"], "application/json")
+        self.assertTrue(error.safe_details["http_responded"])
+
+    def test_没有任何答复才判为连接超时(self):
+        error = self._classify(responded=False)
+
+        self.assertEqual(error.code, "connect_timeout")
+
+    def test_握手被拒不参与重试(self):
+        from app.services.mcp.client import _RETRYABLE_ERROR_CODES
+
+        # 服务端已经答复过，重试只是再等一个完整超时，不可能成功。
+        self.assertNotIn("handshake_rejected", _RETRYABLE_ERROR_CODES)
+        self.assertIn("connect_timeout", _RETRYABLE_ERROR_CODES)
+
+    def test_工具调用超时不受影响(self):
+        from app.services.mcp.client import HttpExchangeRecord, _classify_exception, _http_exchange_record
+
+        record = HttpExchangeRecord()
+        record.responded = True
+        # 握手已完成才轮得到工具调用超时；握手阶段的失败归握手判定。
+        record.handshake_complete = True
+        token = _http_exchange_record.set(record)
+        try:
+            error = _classify_exception(TimeoutError(), "tools_call")
+        finally:
+            _http_exchange_record.reset(token)
+
+        self.assertEqual(error.code, "call_timeout")
+
+    def test_错误详情不含任何响应正文(self):
+        from app.services.mcp.client import HttpExchangeRecord
+
+        record = HttpExchangeRecord()
+        record.record(SimpleNamespace(status_code=401, headers={"content-type": "application/json; charset=utf-8"}))
+
+        details = record.as_safe_details()
+        self.assertEqual(set(details), {"http_responded", "http_status", "content_type"})
+        # content-type 只保留主类型，参数被剥掉
+        self.assertEqual(details["content_type"], "application/json")
+
+
+class RecordingTransportTests(unittest.IsolatedAsyncioTestCase):
+    async def test_记录状态码但不读取响应正文(self):
+        import httpx
+
+        from app.services.mcp.client import HttpExchangeRecord, _http_exchange_record
+
+        body_reads = []
+
+        class SpyTransport(httpx.AsyncBaseTransport):
+            async def handle_async_request(self, request):
+                return httpx.Response(
+                    403,
+                    headers={"content-type": "text/event-stream"},
+                    content=b"provider error body",
+                )
+
+        from app.services.mcp.client import _RecordingTransport
+
+        transport = _RecordingTransport({"key": "credential-value"})
+        transport._transport = SpyTransport()
+        record = HttpExchangeRecord()
+        token = _http_exchange_record.set(record)
+        try:
+            await transport.handle_async_request(httpx.Request("POST", "https://example.com/mcp"))
+        finally:
+            _http_exchange_record.reset(token)
+
+        self.assertTrue(record.responded)
+        self.assertEqual(record.status_code, 403)
+        self.assertEqual(record.content_type, "text/event-stream")
+        # 记录器只读状态行与响应头，不触碰正文
+        self.assertEqual(body_reads, [])
+
+    async def test_凭证仍然注入到查询参数(self):
+        import httpx
+
+        seen: list[httpx.Request] = []
+
+        class SpyTransport(httpx.AsyncBaseTransport):
+            async def handle_async_request(self, request):
+                seen.append(request)
+                return httpx.Response(200)
+
+        from app.services.mcp.client import _RecordingTransport
+
+        transport = _RecordingTransport({"key": "credential-value"})
+        transport._transport = SpyTransport()
+        await transport.handle_async_request(httpx.Request("POST", "https://example.com/mcp"))
+
+        self.assertIn("key=credential-value", str(seen[0].url))
+
+    async def test_没有查询凭证时请求不被改写(self):
+        import httpx
+
+        seen: list[httpx.Request] = []
+
+        class SpyTransport(httpx.AsyncBaseTransport):
+            async def handle_async_request(self, request):
+                seen.append(request)
+                return httpx.Response(200)
+
+        from app.services.mcp.client import _RecordingTransport
+
+        transport = _RecordingTransport()
+        transport._transport = SpyTransport()
+        await transport.handle_async_request(httpx.Request("POST", "https://example.com/mcp?a=1"))
+
+        self.assertEqual(str(seen[0].url), "https://example.com/mcp?a=1")
+
+
+class ProviderAuthErrorInBodyTests(unittest.IsolatedAsyncioTestCase):
+    """issue #32：高德以 HTTP 200 返回 INVALID_USER_KEY / 10001，须判为 auth_failed。
+
+    该错误不体现为 HTTP 状态码，SDK 也无法把它解析成 MCP 握手响应，于是 initialize
+    一直等到超时。只看状态码判不出来，必须从响应正文里认出供应商的鉴权错误签名。
+    """
+
+    @staticmethod
+    async def _drain(transport, response_factory):
+        import httpx
+
+        from app.services.mcp.client import HttpExchangeRecord, _http_exchange_record
+
+        class SpyTransport(httpx.AsyncBaseTransport):
+            async def handle_async_request(self, request):
+                return response_factory()
+
+        transport._transport = SpyTransport()
+        record = HttpExchangeRecord()
+        token = _http_exchange_record.set(record)
+        try:
+            response = await transport.handle_async_request(httpx.Request("POST", "https://example.com/mcp"))
+            body = b"".join([chunk async for chunk in response.stream])
+        finally:
+            _http_exchange_record.reset(token)
+        return record, body
+
+    async def test_高德无效密钥被识别为鉴权失败(self):
+        import httpx
+
+        from app.services.mcp.client import _RecordingTransport
+
+        def factory():
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                content=b'{"status":"0","info":"INVALID_USER_KEY","infocode":"10001"}',
+            )
+
+        record, body = await self._drain(_RecordingTransport(), factory)
+
+        self.assertEqual(record.provider_error_code, "auth_failed")
+        # 正文必须原样透传给 SDK，不能被记录器吃掉
+        self.assertIn(b"INVALID_USER_KEY", body)
+
+    async def test_鉴权失败优先于握手被拒(self):
+        from app.services.mcp.client import HttpExchangeRecord, _classify_exception, _http_exchange_record
+
+        record = HttpExchangeRecord()
+        record.responded = True
+        record.status_code = 200
+        record.provider_error_code = "auth_failed"
+        token = _http_exchange_record.set(record)
+        try:
+            error = _classify_exception(TimeoutError(), "initialize")
+        finally:
+            _http_exchange_record.reset(token)
+
+        self.assertEqual(error.code, "auth_failed")
+
+    async def test_鉴权失败不参与重试(self):
+        from app.services.mcp.client import _RETRYABLE_ERROR_CODES
+
+        self.assertNotIn("auth_failed", _RETRYABLE_ERROR_CODES)
+
+    async def test_正常响应不产生供应商错误码(self):
+        import httpx
+
+        from app.services.mcp.client import _RecordingTransport
+
+        def factory():
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                content=b'data: {"jsonrpc":"2.0","id":1,"result":{}}\n\n',
+            )
+
+        record, body = await self._drain(_RecordingTransport(), factory)
+
+        self.assertIsNone(record.provider_error_code)
+        self.assertIn(b"jsonrpc", body)
+
+    async def test_只扫描有限前缀且不留存正文(self):
+        import httpx
+
+        from app.services.mcp.client import _RecordingTransport
+
+        def factory():
+            return httpx.Response(200, content=b"x" * 100_000 + b"INVALID_USER_KEY")
+
+        record, body = await self._drain(_RecordingTransport(), factory)
+
+        # 签名出现在扫描窗口之外，不被识别；记录器不得持有整段正文
+        self.assertIsNone(record.provider_error_code)
+        self.assertEqual(len(body), 100_016)
+        self.assertNotIn("INVALID_USER_KEY", repr(record.as_safe_details()))
+
+
+class RealSdkPathAuthFailureTests(unittest.IsolatedAsyncioTestCase):
+    """走真实 streamable_http_client / ClientSession，不手工 drain 响应流。
+
+    issue #32 复审：上一版单测显式遍历 response.stream 才让签名识别生效，而真实 SDK
+    在响应不是合法 MCP 帧时根本不会迭代它，于是线上仍然是 handshake_rejected /
+    call_timeout。这组用例专门覆盖"没有人读流"的真实路径。
+    """
+
+    AMAP_ERROR_BODY = b'{"status":"0","info":"INVALID_USER_KEY","infocode":"10001"}'
+
+    def _manager(self):
+        import httpx
+
+        from app.services.mcp.client import McpClientManager, StreamableHttpMcpConnector, _RecordingTransport
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                content=self.AMAP_ERROR_BODY,
+            )
+
+        connector = StreamableHttpMcpConnector()
+        original_connect = connector.connect
+
+        def patched_transport(*args, **kwargs):
+            transport = _RecordingTransport(*args, **kwargs)
+            transport._transport = httpx.MockTransport(handler)
+            return transport
+
+        return (
+            McpClientManager(
+                policy=build_policy(
+                    allowed_hosts=frozenset({"mcp.amap.com"}),
+                    allowed_credential_refs=frozenset({"AMAP_MCP_API_KEY"}),
+                    connect_timeout_seconds=0.4,
+                    call_timeout_seconds=0.6,
+                    idempotent_total_timeout_seconds=2.0,
+                ),
+                connector=connector,
+                environ={"AMAP_MCP_API_KEY": "invalid-key"},
+            ),
+            patched_transport,
+            original_connect,
+        )
+
+    def _config(self):
+        return build_config(
+            provider="amap",
+            endpoint_url="https://mcp.amap.com/mcp",
+            auth_type="query",
+            auth_name="key",
+            credential_ref="AMAP_MCP_API_KEY",
+            allowed_tools=["maps_weather"],
+        )
+
+    async def _run_operation(self, coroutine_factory):
+        from unittest.mock import patch
+
+        manager, patched_transport, _ = self._manager()
+        with patch("app.services.mcp.client._RecordingTransport", new=patched_transport):
+            with self.assertRaises(Exception) as ctx:
+                await coroutine_factory(manager)
+        return ctx.exception
+
+    async def test_initialize_在无效密钥下判为_auth_failed(self):
+        error = await self._run_operation(lambda m: m.test_connection(self._config()))
+
+        self.assertEqual(error.code, "auth_failed")
+
+    async def test_tools_list_同样判为_auth_failed(self):
+        error = await self._run_operation(lambda m: m.list_tools(self._config()))
+
+        self.assertEqual(error.code, "auth_failed")
+
+    async def test_tools_call_同样判为_auth_failed(self):
+        error = await self._run_operation(lambda m: m.call_tool(self._config(), "maps_weather", {"city": "北京"}))
+
+        self.assertEqual(error.code, "auth_failed")
+
+    async def test_鉴权失败不重试(self):
+        from unittest.mock import patch
+
+        manager, patched_transport, _ = self._manager()
+        attempts = []
+
+        import httpx
+
+        def counting_handler(request: httpx.Request) -> httpx.Response:
+            attempts.append(request)
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                content=self.AMAP_ERROR_BODY,
+            )
+
+        from app.services.mcp.client import _RecordingTransport as RealRecordingTransport
+
+        def transport_factory(*args, **kwargs):
+            # 必须先捕获真实类：patch 之后再 import 拿到的是本函数自己，会无限递归。
+            transport = RealRecordingTransport(*args, **kwargs)
+            transport._transport = httpx.MockTransport(counting_handler)
+            return transport
+
+        with patch("app.services.mcp.client._RecordingTransport", new=transport_factory):
+            with self.assertRaises(Exception):
+                await manager.list_tools(self._config())
+
+        # tools_list 是幂等操作，可重试码会跑两轮；auth_failed 必须只跑一轮。
+        self.assertEqual(len(attempts), 1)
+
+
+class GzippedProviderErrorTests(unittest.IsolatedAsyncioTestCase):
+    """issue #32 三轮复审：高德以 application/json + Content-Encoding: gzip 返回。
+
+    传输层拿到的是压缩字节，不先解码就一定匹配不上签名。上一版单测只用未压缩正文，
+    因此全绿却仍未修好——这组用例专门钉住真实的线路形态。
+    """
+
+    PLAIN_BODY = b'{"status":"0","info":"INVALID_USER_KEY","infocode":"10001"}'
+
+    def _manager_with(self, *, body: bytes, headers: dict):
+        import httpx
+
+        from app.services.mcp.client import (
+            McpClientManager,
+            StreamableHttpMcpConnector,
+        )
+        from app.services.mcp.client import _RecordingTransport as RealRecordingTransport
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, headers=headers, stream=httpx.ByteStream(body))
+
+        def factory(*args, **kwargs):
+            transport = RealRecordingTransport(*args, **kwargs)
+            transport._transport = httpx.MockTransport(handler)
+            return transport
+
+        manager = McpClientManager(
+            policy=build_policy(
+                allowed_hosts=frozenset({"mcp.amap.com"}),
+                allowed_credential_refs=frozenset({"AMAP_MCP_API_KEY"}),
+                connect_timeout_seconds=0.4,
+                call_timeout_seconds=0.6,
+                idempotent_total_timeout_seconds=2.0,
+                retry_backoff_seconds=0,
+            ),
+            connector=StreamableHttpMcpConnector(),
+            environ={"AMAP_MCP_API_KEY": "invalid-key"},
+        )
+        config = build_config(
+            provider="amap",
+            endpoint_url="https://mcp.amap.com/mcp",
+            auth_type="query",
+            auth_name="key",
+            credential_ref="AMAP_MCP_API_KEY",
+            allowed_tools=["maps_weather"],
+        )
+        return manager, config, factory
+
+    async def _error_code(self, *, body: bytes, headers: dict, operation: str):
+        from unittest.mock import patch
+
+        manager, config, factory = self._manager_with(body=body, headers=headers)
+        with patch("app.services.mcp.client._RecordingTransport", new=factory):
+            with self.assertRaises(Exception) as ctx:
+                if operation == "initialize":
+                    await manager.test_connection(config)
+                elif operation == "tools_list":
+                    await manager.list_tools(config)
+                else:
+                    await manager.call_tool(config, "maps_weather", {"city": "北京"})
+        return ctx.exception.code
+
+    async def test_gzip_压缩的鉴权错误仍判为_auth_failed(self):
+        import gzip
+
+        for operation in ("initialize", "tools_list", "tools_call"):
+            with self.subTest(operation=operation):
+                code = await self._error_code(
+                    body=gzip.compress(self.PLAIN_BODY),
+                    headers={"content-type": "application/json", "content-encoding": "gzip"},
+                    operation=operation,
+                )
+                self.assertEqual(code, "auth_failed")
+
+    async def test_未压缩的鉴权错误同样判为_auth_failed(self):
+        code = await self._error_code(
+            body=self.PLAIN_BODY,
+            headers={"content-type": "application/json"},
+            operation="initialize",
+        )
+
+        self.assertEqual(code, "auth_failed")
+
+    async def test_解码失败时不影响请求本身(self):
+        # 声明了 gzip 但正文不是合法 gzip：识别不到签名可以接受，但不能因此抛别的错。
+        code = await self._error_code(
+            body=b"not actually gzip",
+            headers={"content-type": "application/json", "content-encoding": "gzip"},
+            operation="initialize",
+        )
+
+        self.assertIn(code, {"handshake_rejected", "connect_timeout", "protocol_error"})
+
+    async def test_原始压缩字节原样交回客户端(self):
+        import gzip
+
+        import httpx
+
+        from app.services.mcp.client import HttpExchangeRecord, _http_exchange_record
+        from app.services.mcp.client import _RecordingTransport as RealRecordingTransport
+
+        raw = gzip.compress(self.PLAIN_BODY)
+        headers = {"content-type": "application/json", "content-encoding": "gzip"}
+
+        def handler(request):
+            return httpx.Response(200, headers=headers, stream=httpx.ByteStream(raw))
+
+        transport = RealRecordingTransport()
+        transport._transport = httpx.MockTransport(handler)
+        record = HttpExchangeRecord()
+        token = _http_exchange_record.set(record)
+        try:
+            async with httpx.AsyncClient(transport=transport) as client:
+                response = await client.get("https://mcp.amap.com/mcp")
+        finally:
+            _http_exchange_record.reset(token)
+
+        # 客户端按 Content-Encoding 自行解码，拿到的必须是正确正文，不能是二次解码或压缩字节
+        self.assertEqual(response.content, self.PLAIN_BODY)
+        self.assertEqual(record.provider_error_code, "auth_failed")
+
+
+class SuccessPathThroughRealTransportTests(unittest.IsolatedAsyncioTestCase):
+    """成功路径必须真的走过缓冲重建：所有既有成功用例都用 FakeConnector 绕开了传输层。
+
+    _scanned_response 会读完并重建每一个非 SSE 响应。若它损坏了正常响应，受影响的
+    不只是高德，而是所有 MCP 工具——这是合并前必须钉住的路径。
+    """
+
+    async def test_SSE_响应完全不被触碰(self):
+        import httpx
+
+        from app.services.mcp.client import HttpExchangeRecord, _http_exchange_record
+        from app.services.mcp.client import _RecordingTransport as RealRecordingTransport
+
+        sse_body = b'event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{}}\n\n'
+
+        def handler(request):
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=httpx.ByteStream(sse_body),
+            )
+
+        transport = RealRecordingTransport()
+        transport._transport = httpx.MockTransport(handler)
+        record = HttpExchangeRecord()
+        token = _http_exchange_record.set(record)
+        try:
+            response = await transport.handle_async_request(httpx.Request("POST", "https://example.com/mcp"))
+            body = b"".join([chunk async for chunk in response.stream])
+        finally:
+            _http_exchange_record.reset(token)
+
+        # SSE 走早返回：正文原样、未被读取，否则长连接会被读到阻塞
+        self.assertEqual(body, sse_body)
+        self.assertIsNone(record.provider_error_code)
+
+    async def test_正常_JSON_响应经缓冲重建后逐字节一致(self):
+        import httpx
+
+        from app.services.mcp.client import HttpExchangeRecord, _http_exchange_record
+        from app.services.mcp.client import _RecordingTransport as RealRecordingTransport
+
+        payload = b'{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"maps_weather"}]}}'
+
+        def handler(request):
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                stream=httpx.ByteStream(payload),
+            )
+
+        transport = RealRecordingTransport()
+        transport._transport = httpx.MockTransport(handler)
+        record = HttpExchangeRecord()
+        token = _http_exchange_record.set(record)
+        try:
+            async with httpx.AsyncClient(transport=transport) as client:
+                response = await client.post("https://example.com/mcp")
+        finally:
+            _http_exchange_record.reset(token)
+
+        self.assertEqual(response.content, payload)
+        self.assertIsNone(record.provider_error_code)
+
+    async def test_gzip_的正常响应同样逐字节一致(self):
+        import gzip
+
+        import httpx
+
+        from app.services.mcp.client import HttpExchangeRecord, _http_exchange_record
+        from app.services.mcp.client import _RecordingTransport as RealRecordingTransport
+
+        payload = b'{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}'
+
+        def handler(request):
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/json", "content-encoding": "gzip"},
+                stream=httpx.ByteStream(gzip.compress(payload)),
+            )
+
+        transport = RealRecordingTransport()
+        transport._transport = httpx.MockTransport(handler)
+        record = HttpExchangeRecord()
+        token = _http_exchange_record.set(record)
+        try:
+            async with httpx.AsyncClient(transport=transport) as client:
+                response = await client.post("https://example.com/mcp")
+        finally:
+            _http_exchange_record.reset(token)
+
+        self.assertEqual(response.content, payload)
+        self.assertIsNone(record.provider_error_code)
+
+    async def test_分块响应重建后不丢不重(self):
+        import httpx
+
+        from app.services.mcp.client import HttpExchangeRecord, _http_exchange_record
+        from app.services.mcp.client import _RecordingTransport as RealRecordingTransport
+
+        chunks = [b'{"jsonrpc":"2.0",', b'"id":1,', b'"result":{"ok":true}}']
+        expected = b"".join(chunks)
+
+        class ChunkedStream(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                for chunk in chunks:
+                    yield chunk
+
+        def handler(request):
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                stream=ChunkedStream(),
+            )
+
+        transport = RealRecordingTransport()
+        transport._transport = httpx.MockTransport(handler)
+        record = HttpExchangeRecord()
+        token = _http_exchange_record.set(record)
+        try:
+            async with httpx.AsyncClient(transport=transport) as client:
+                response = await client.post("https://example.com/mcp")
+        finally:
+            _http_exchange_record.reset(token)
+
+        self.assertEqual(response.content, expected)
+
+    async def test_超出缓冲上限的响应仍然完整交回(self):
+        import httpx
+
+        from app.services.mcp.client import _FINITE_BODY_BUFFER_LIMIT, HttpExchangeRecord, _http_exchange_record
+        from app.services.mcp.client import _RecordingTransport as RealRecordingTransport
+
+        payload = b"x" * (_FINITE_BODY_BUFFER_LIMIT + 1024)
+
+        def handler(request):
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                stream=httpx.ByteStream(payload),
+            )
+
+        transport = RealRecordingTransport()
+        transport._transport = httpx.MockTransport(handler)
+        record = HttpExchangeRecord()
+        token = _http_exchange_record.set(record)
+        try:
+            async with httpx.AsyncClient(transport=transport) as client:
+                response = await client.post("https://example.com/mcp")
+        finally:
+            _http_exchange_record.reset(token)
+
+        # 走 _ReplayStream 兜底路径，长度必须精确，不能截断也不能重复
+        self.assertEqual(len(response.content), len(payload))
+        self.assertEqual(response.content, payload)

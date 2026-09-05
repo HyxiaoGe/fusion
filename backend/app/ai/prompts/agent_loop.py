@@ -198,6 +198,12 @@ NO_PROGRESS_SUMMARY_PROMPT = (
     f"{SUMMARY_NON_DISCLOSURE_PROMPT}"
 )
 
+NO_TOOL_EVIDENCE_SUMMARY_PROMPT = (
+    "本次没有取得任何工具结果。请如实说明未能完成所需查询并建议重试；"
+    "不得给出具体的班次号、航班号、票价、时长等只能由查询结果支撑的动态数据。"
+    "可以给出不依赖实时数据的一般性说明。"
+)
+
 PLAN_REPAIR_SUMMARY_PROMPT = (
     "本轮无法继续调用工具。请只基于已经实际取得的结果给出诚实回答；"
     "如果现有结果不足以完成用户任务，简短说明本次未能完成所需查询并建议重试。"

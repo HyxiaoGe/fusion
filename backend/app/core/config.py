@@ -44,9 +44,7 @@ class Settings(BaseSettings):
     RUN_CAPABILITY_CLASSIFIER_MAX_OUTPUT_TOKENS: int = int(
         os.getenv("RUN_CAPABILITY_CLASSIFIER_MAX_OUTPUT_TOKENS", "128")
     )
-    RUN_CAPABILITY_CLASSIFIER_CONTEXT_TURNS: int = int(
-        os.getenv("RUN_CAPABILITY_CLASSIFIER_CONTEXT_TURNS", "1")
-    )
+    RUN_CAPABILITY_CLASSIFIER_CONTEXT_TURNS: int = int(os.getenv("RUN_CAPABILITY_CLASSIFIER_CONTEXT_TURNS", "1"))
 
     # 数据库配置
     DATABASE_URL: str = os.getenv("DATABASE_URL")
@@ -425,6 +423,9 @@ class Settings(BaseSettings):
     MCP_MAX_TOOL_CALLS_PER_SERVER_PER_RUN: int = int(os.getenv("MCP_MAX_TOOL_CALLS_PER_SERVER_PER_RUN", "8"))
     MCP_SERVER_CIRCUIT_FAILURE_THRESHOLD: int = int(os.getenv("MCP_SERVER_CIRCUIT_FAILURE_THRESHOLD", "3"))
     MCP_SERVER_CIRCUIT_COOLDOWN_SECONDS: float = float(os.getenv("MCP_SERVER_CIRCUIT_COOLDOWN_SECONDS", "30"))
+    # 超过这个时长的探测结果在管理视图里标记为 stale：health_status 记录的是上次
+    # 主动探测的结论，放久了不能再当作当前状态（issue #32）。
+    MCP_PROBE_FRESHNESS_TTL_SECONDS: int = int(os.getenv("MCP_PROBE_FRESHNESS_TTL_SECONDS", "3600"))
 
     # 产品结果回答的正则改写默认关闭：改写会直接切分句、删表格、重写标签，误伤在线上
     # 不可观测。观测期内只记录判定与"本应改写"的反事实，依据真实误判率再决定是否恢复。

@@ -1,0 +1,47 @@
+{
+  "description": "查证类动词宾语约束的持出集（issue #30 P1-A）。与 blind_routing_probe.json 分工不同——那份是能力路由的回归集，这份只针对字面层的『裸动词是否抢先短路』。",
+  "provenance": "句子写于修复实现之后、首次运行之前，与修复过程中使用的样本无重叠；运行后未据结果回调正则。独立性弱于真正的第三方持出集，因此只作诊断基准，不作准确率依据。",
+  "literal_layer_contract": "字面层是模型无法纠错的抢先短路，命中即返回、语义层再也看不到。因此它只应在确定时命中；判不出来返回 None 落到语义层，是设计上安全的失败方向。",
+  "groups": {
+    "internal_context": {
+      "expectation": "含查证类动词但属内部语境，字面层不得判为 verified_web",
+      "cases": [
+        "灰度放量前要核验哪几个指标",
+        "这份需求文档我想请人交叉验证一下逻辑有没有漏洞",
+        "怎么验证用户是真的需要这个功能",
+        "做 A/B 实验时如何验证结果不是随机波动",
+        "面试时怎么查证候选人简历里的项目经历",
+        "模型上线前要不要做交叉验证",
+        "我们该验证哪些前提假设才敢投入",
+        "财务对账时怎么核验这批凭证",
+        "新同事的权限申请谁来核验",
+        "产品经理怎么验证自己的判断是对的"
+      ]
+    },
+    "abstract_other": {
+      "expectation": "不含查证类动词的抽象产品问题，字面层不得判为 verified_web 或 fresh_web",
+      "cases": [
+        "团队规模翻倍后怎么保持决策效率",
+        "怎么判断一个方向该不该继续投入",
+        "老板要我做一份季度复盘，重点该放哪",
+        "小团队要不要专门设一个 QA 岗位",
+        "技术债什么时候该还，什么时候可以先放着",
+        "怎么让跨部门协作不靠人情推动"
+      ]
+    },
+    "external_claim": {
+      "expectation": "真实的外部信息查证请求，字面层应当命中 verified_web",
+      "known_gaps_note": "以下三条当前不命中，均落到语义层。「确认来源」「核实来源」用的动词从来不在字面层动词表里，与本次改动无关；「网上说…帮我查证一下」是本次宾语约束带来的收窄，宾语『政策』不在外部主张词表内。按 issue #30 的口径，不为单条样本扩词表；若线上出现稳定误判再基于证据调整。",
+      "cases": [
+        {"question": "网上说这个政策要取消了，帮我查证一下", "literal_hit": false, "gap": "本次收窄"},
+        {"question": "帮我核验这条报道里的数据对不对", "literal_hit": true},
+        {"question": "这个传闻是真的吗，能帮我确认来源吗", "literal_hit": false, "gap": "动词未覆盖，改动前同样不命中"},
+        {"question": "有人说他们融资了，帮我验证这条消息", "literal_hit": true},
+        {"question": "帮我查证一下这个说法的出处", "literal_hit": true},
+        {"question": "这条新闻的真实性帮我核实一下来源", "literal_hit": false, "gap": "动词未覆盖，改动前同样不命中"},
+        {"question": "please verify this claim against the official statement", "literal_hit": true},
+        {"question": "fact-check the rumor about their layoffs", "literal_hit": true}
+      ]
+    }
+  }
+}

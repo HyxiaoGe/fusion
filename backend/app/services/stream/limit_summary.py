@@ -13,6 +13,7 @@ from app.ai.llm_round_observability import create_llm_round_observation
 from app.ai.prompts.agent_loop import LIMIT_SUMMARY_PROMPT as _LIMIT_SUMMARY_PROMPT
 from app.ai.prompts.agent_loop import (
     NO_PROGRESS_SUMMARY_PROMPT,
+    NO_TOOL_EVIDENCE_SUMMARY_PROMPT,
     PLAN_REPAIR_SUMMARY_PROMPT,
     PLAN_SYNTHESIS_PROMPT,
     RESEARCH_EVIDENCE_SUMMARY_PROMPT,
@@ -29,6 +30,11 @@ from app.services.knowledge.chat_grounding import (
     validate_grounded_answer,
 )
 from app.services.stream.context_status import build_context_usage, emit_context_status
+from app.services.stream.limit_summary_fact_guard import (
+    emit_fact_guard_observation,
+    has_tool_evidence,
+    resolve_no_evidence_answer,
+)
 from app.services.stream.llm_round_lifecycle import LLMRoundLifecycle, accumulate_token_usage
 from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
 from app.services.stream.research_evidence import (
@@ -105,10 +111,25 @@ class LimitSummaryStepRequest:
     llm_round_detail_scheduler: Callable[[Any], Any] | None = None
 
 
-def _streams_standard_plan_synthesis(request: LimitSummaryStepRequest) -> bool:
-    """普通计划最终综合直接透传正文；深度研究仍需缓存全文完成校验。"""
+def _is_standard_plan_synthesis(request: LimitSummaryStepRequest) -> bool:
+    """是否属于普通计划最终综合这一形态；只看终结原因，不看输出模式。
+
+    超时/异常的部分输出打捞与工具协议兜底都按形态判断：无论正文走流式还是缓存，
+    已经产生的推理与正文都应当保留。
+    """
 
     return request.summary_finish_reason == "plan_synthesis" and request.task_mode != "deep_research"
+
+
+def _streams_standard_plan_synthesis(request: LimitSummaryStepRequest) -> bool:
+    """普通计划最终综合直接透传正文；深度研究仍需缓存全文完成校验。
+
+    `ready_for_plan_synthesis()` 的准入条件本身就包含"没有产品结果"，因此本分支可以在
+    零工具证据下终结整个 run。此时改走缓存输出，让事实边界能在正文送达用户之前生效；
+    否则未经查证的班次与票价已经发出，事后再拦也收不回来（issue #31）。
+    """
+
+    return _is_standard_plan_synthesis(request) and has_tool_evidence(request.content_blocks)
 
 
 def _should_defer_summary_output(request: LimitSummaryStepRequest) -> bool:
@@ -130,6 +151,7 @@ def append_limit_summary_prompt(
     *,
     summary_finish_reason: str = "limit_summary",
     task_mode: str = "standard",
+    content_blocks: list | None = None,
 ) -> None:
     if summary_finish_reason == "plan_synthesis":
         prompt = PLAN_SYNTHESIS_PROMPT
@@ -145,6 +167,9 @@ def append_limit_summary_prompt(
             prompt = f"{prompt}\n\n{SUMMARY_NON_DISCLOSURE_PROMPT}"
     if task_mode == "deep_research" and RESEARCH_EVIDENCE_SUMMARY_PROMPT not in prompt:
         prompt = f"{prompt}\n\n{RESEARCH_EVIDENCE_SUMMARY_PROMPT}"
+    # 一次工具证据都没有时，"基于已收集的信息"指向空集；补上诚实下限，避免用参数记忆补齐。
+    if content_blocks is not None and not has_tool_evidence(content_blocks):
+        prompt = f"{prompt}\n\n{NO_TOOL_EVIDENCE_SUMMARY_PROMPT}"
     messages.append({"role": "system", "content": prompt})
 
 
@@ -545,7 +570,7 @@ async def run_summary_round_with_timeout(
                 thinking_block_id=thinking_block_id,
                 text_block_id=text_block_id,
                 step_id=summary_context.step_id,
-                partial_output=first_partial if _streams_standard_plan_synthesis(request) else None,
+                partial_output=first_partial if _is_standard_plan_synthesis(request) else None,
                 round_index=next_round_index,
             ),
             timeout=remaining,
@@ -571,7 +596,7 @@ async def run_summary_round_with_timeout(
 
     if not _is_summary_tool_protocol_violation(first_result):
         result = first_result
-    elif _streams_standard_plan_synthesis(request) and first_result.content_buf:
+    elif _is_standard_plan_synthesis(request) and first_result.content_buf:
         warning = request.warning_fn if request.warning_fn is not None else logger.warning
         warning(
             "流式计划综合返回了工具协议，保留已发送的安全正文并终止综合: "
@@ -894,6 +919,7 @@ async def run_limit_summary_step(
         request.messages,
         summary_finish_reason=request.summary_finish_reason,
         task_mode=request.task_mode,
+        content_blocks=request.content_blocks,
     )
     thinking_block_id = summary_context.thinking_block_id
     text_block_id = summary_context.text_block_id
@@ -951,6 +977,33 @@ async def run_limit_summary_step(
     )
 
 
+def _guard_no_evidence_answer(
+    request: LimitSummaryStepRequest,
+    answer: str,
+) -> tuple[str, str | None]:
+    """零工具证据时拦下未被对话输入支撑的动态数据，并留下可聚合的观测。"""
+
+    guarded, fact_kind = resolve_no_evidence_answer(
+        answer,
+        content_blocks=request.content_blocks,
+        messages=request.messages,
+    )
+    if fact_kind is None:
+        return guarded, None
+    emit_fact_guard_observation(
+        fact_kind=fact_kind,
+        summary_finish_reason=request.summary_finish_reason,
+        task_mode=request.task_mode,
+    )
+    if request.warning_fn is not None:
+        request.warning_fn(
+            "收尾总结无工具证据且含具体动态数据，已替换为诚实答复: "
+            f"conv_id={request.conversation_id} run_id={request.run_id} "
+            f"finish_reason={request.summary_finish_reason} fact_kind={fact_kind}"
+        )
+    return guarded, fact_kind
+
+
 async def _commit_limit_summary_result(
     *,
     request: LimitSummaryStepRequest,
@@ -1000,7 +1053,7 @@ async def _commit_limit_summary_result(
         return not valid
     elif request.summary_finish_reason == "plan_synthesis":
         has_answer = bool(round_result.content_buf.strip())
-        has_streamed_content = _streams_standard_plan_synthesis(request) and bool(round_result.content_buf.strip())
+        has_streamed_content = _streams_standard_plan_synthesis(request) and has_answer
         incomplete = (
             round_result.finish_reason
             in {
@@ -1011,8 +1064,15 @@ async def _commit_limit_summary_result(
             }
             or not has_answer
         )
-        answer = round_result.content_buf if has_streamed_content else SUMMARY_PROTOCOL_FALLBACK_TEXT
-        if not has_streamed_content:
+        if has_streamed_content:
+            # 正文已流式发出，只补落库；只有留下工具证据的综合才会走到这里。
+            answer = round_result.content_buf
+        else:
+            # 零证据的综合改走缓存输出，事实边界在正文送达用户之前生效（issue #31）。
+            answer = round_result.content_buf.strip() or SUMMARY_PROTOCOL_FALLBACK_TEXT
+            answer, unsupported_fact_kind = _guard_no_evidence_answer(request, answer)
+            if unsupported_fact_kind is not None:
+                incomplete = True
             await append_chunk(
                 request.conversation_id,
                 "answering",
@@ -1022,6 +1082,8 @@ async def _commit_limit_summary_result(
                 run_id=request.run_id,
                 step_id=summary_context.step_id,
             )
+            if has_answer and unsupported_fact_kind is None:
+                await _finish_summary_round_lifecycle(round_result, model_output_visible=True)
         if answer:
             request.content_blocks.append(TextBlock(type="text", id=text_block_id, text=answer))
         return incomplete
@@ -1030,6 +1092,10 @@ async def _commit_limit_summary_result(
         incomplete = round_result.finish_reason == "protocol_fallback" or not answer
         if not answer:
             answer = SUMMARY_PROTOCOL_FALLBACK_TEXT
+        # 本次 run 没有任何工具证据时，具体班次/票价/时长无从支撑，直接换成诚实答复。
+        answer, unsupported_fact_kind = _guard_no_evidence_answer(request, answer)
+        if unsupported_fact_kind is not None:
+            incomplete = True
         if request.defer_output:
             await append_chunk(
                 request.conversation_id,
@@ -1040,9 +1106,9 @@ async def _commit_limit_summary_result(
                 run_id=request.run_id,
                 step_id=summary_context.step_id,
             )
-            if round_result.content_buf.strip():
+            if round_result.content_buf.strip() and unsupported_fact_kind is None:
                 await _finish_summary_round_lifecycle(round_result, model_output_visible=True)
-        if round_result.content_buf.strip():
+        if round_result.content_buf.strip() and unsupported_fact_kind is None:
             append_summary_content_blocks(
                 content_blocks=request.content_blocks,
                 content_buf=round_result.content_buf,

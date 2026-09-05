@@ -6,6 +6,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 McpTransport = Literal["streamable_http"]
 McpAuthType = Literal["none", "bearer", "header", "query"]
 McpHealthStatus = Literal["unknown", "healthy", "unhealthy", "disabled"]
+# health_status 记录的是上一次主动探测的结果，不是实时健康；下面两个派生字段
+# 让管理视图能同时看到"探测有多旧"和"本进程最近的真实调用结果"（issue #32）。
+McpProbeFreshness = Literal["fresh", "stale", "never"]
+McpRuntimeCircuitState = Literal["closed", "open", "half_open"]
 
 
 class McpServerPayload(BaseModel):
@@ -95,6 +99,9 @@ class McpServerResponse(BaseModel):
     discovered_tools: list[McpToolSnapshot]
     health_status: McpHealthStatus
     last_checked_at: datetime | None
+    probe_freshness: McpProbeFreshness = "never"
+    runtime_circuit_state: McpRuntimeCircuitState = "closed"
+    runtime_circuit_scope: str = "process"
     last_error_code: str | None
     last_error_message: str | None
     created_at: datetime

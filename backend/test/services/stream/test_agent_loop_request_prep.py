@@ -565,7 +565,8 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(config.announced_tools, ["route_compare"])
         self.assertEqual(config.required_initial_tool_counts, {"route_compare": 1})
-        self.assertEqual(config.plan_tool_policy_reason, "explicit_route_task")
+        # 门禁改为派生自已冻结的能力包，reason 随之标注来源；required/allowed 行为不变。
+        self.assertEqual(config.plan_tool_policy_reason, "capability_package:mobility_route")
         update_plan = next(tool for tool in config.call_kwargs["tools"] if tool["function"]["name"] == "update_plan")
         planned_tool_schema = update_plan["function"]["parameters"]["properties"]["plan"]["items"]["properties"][
             "planned_tools"
