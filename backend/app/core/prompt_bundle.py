@@ -14,12 +14,14 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.logger import app_logger as logger
-from app.core.prompt_catalog import PROMPT_SPEC_BY_KEY, PROMPT_SPEC_BY_SLUG, PROMPT_SPECS
-from app.core.runtime_config import get_runtime_config_payload
+from app.core.prompt_catalog import (
+    PRE_P0_CODE_ONLY_KEYS,
+    PROMPT_SPEC_BY_KEY,
+    PROMPT_SPEC_BY_SLUG,
+    PROMPT_SPECS,
+)
 from app.db.database import SessionLocal
 from app.db.models import RuntimeConfigEntry
-
-LegacyLoader = Callable[..., tuple[dict[str, Any], dict[str, Any]]]
 
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _BUNDLE_CACHE_TTL_SECONDS = 60.0
@@ -52,7 +54,7 @@ def validate_published_bundle(bundle: Any) -> dict[str, Any]:
     expected_slugs = set(PROMPT_SPEC_BY_SLUG)
     actual_slugs = {slug for slug in slugs if isinstance(slug, str)}
     if actual_slugs != expected_slugs or len(raw_prompts) != len(PROMPT_SPECS):
-        issues.append("bundle 必须恰好包含 11 个约定 Prompt")
+        issues.append(f"bundle 必须恰好包含 {len(PROMPT_SPECS)} 个约定 Prompt")
 
     validated_prompts: dict[str, dict[str, Any]] = {}
     for prompt in raw_prompts:
@@ -89,29 +91,32 @@ def validate_stored_bundle_payload(payload: Any) -> bool:
     return all(_stored_prompt_is_valid(key, prompts.get(key)) for key in PROMPT_SPEC_BY_KEY)
 
 
-def resolve_prompt_template(
-    name: str,
-    fallback: str,
-    *,
-    legacy_loader: LegacyLoader = get_runtime_config_payload,
-) -> str:
-    """按 active bundle -> per-key Runtime Config -> 代码默认值解析 Prompt。"""
+def resolve_prompt_template(name: str, fallback: str) -> str:
+    """按 active bundle(LKG) -> 代码默认值解析 Prompt。"""
 
-    template, _metadata = resolve_prompt_template_with_metadata(
-        name,
-        fallback,
-        legacy_loader=legacy_loader,
-    )
+    template, _metadata = resolve_prompt_template_with_metadata(name, fallback)
     return template
 
 
-def resolve_prompt_template_with_metadata(
-    name: str,
-    fallback: str,
-    *,
-    legacy_loader: LegacyLoader = get_runtime_config_payload,
-) -> tuple[str, dict[str, str | None]]:
-    """解析 Prompt，并返回可安全写入 LLM 观测字段的版本信息。"""
+def resolve_prompt_template_with_metadata(name: str, fallback: str) -> tuple[str, dict[str, str | None]]:
+    """解析 Prompt，并返回可安全写入 LLM 观测字段的版本信息。
+
+    消费链严格为 active bundle(LKG) -> 代码默认值两级。catalog key 不再回退到
+    legacy ``prompt_template`` 命名空间：那条路径允许单个 key 独立回落到独立的
+    Runtime Config 行，会让同一个 Run 由 bundle 与多行 legacy 拼出，破坏
+    「完整 bundle 原子切换」与单 Run 冻结。
+    """
+
+    if _is_pinned_during_p0_transition(name):
+        # 过渡期：这些 key 钉在代码默认值上，与 P0 之前逐字节一致。
+        # 因此候选代码可直接在 apply 模式部署，无需经过会改变其余 key 的 disabled 窗口。
+        spec = PROMPT_SPEC_BY_KEY.get(name)
+        return fallback, {
+            "source": "code-default-p0-transition",
+            "prompt_slug": spec.slug if spec is not None else name,
+            "prompt_version": "code-default",
+            "prompt_revision": None,
+        }
 
     if settings.PROMPTHUB_SYNC_MODE == "apply":
         bundle = _load_active_bundle_payload()
@@ -119,18 +124,11 @@ def resolve_prompt_template_with_metadata(
         if resolved is not None:
             return resolved
 
-    payload, meta = legacy_loader(
-        "prompt_template",
-        name,
-        {"template": fallback},
-    )
-    template = payload.get("template")
-    effective = template if isinstance(template, str) and template else fallback
     spec = PROMPT_SPEC_BY_KEY.get(name)
-    return effective, {
-        "source": str(meta.get("source", "code-default")),
+    return fallback, {
+        "source": "code-default",
         "prompt_slug": spec.slug if spec is not None else name,
-        "prompt_version": str(meta.get("version", "code-default")),
+        "prompt_version": "code-default",
         "prompt_revision": None,
     }
 
@@ -145,6 +143,21 @@ def get_active_prompt_bundle_revision() -> str | None:
         return None
     revision = bundle.get("revision")
     return revision if isinstance(revision, str) else None
+
+
+def load_stored_active_bundle_payload() -> dict[str, Any] | None:
+    """只读当前已激活并校验通过的 stored LKG，**不受 PROMPTHUB_SYNC_MODE 影响**。
+
+    `get_active_prompt_bundle_payload()` 在非 apply 模式必然返回 None，因为它表达的是
+    「热路径此刻是否在用 bundle」。而抓取部署前 effective map 要回答的是另一个问题：
+    「库里实际存着哪一版 LKG」——迁移工具必须用本函数，否则在 disabled/shadow 下
+    抓取会把已消费项误记成 legacy / 代码默认值。
+    """
+
+    bundle = _load_active_bundle_payload(use_cache=False)
+    if not isinstance(bundle, dict) or not validate_stored_bundle_payload(bundle):
+        return None
+    return copy.deepcopy(bundle)
 
 
 def get_active_prompt_bundle_payload() -> dict[str, Any] | None:
@@ -171,7 +184,7 @@ def _validate_prompt_item(prompt: Any, spec: Any) -> tuple[list[str], dict[str, 
         issues.append(f"{prefix}: template_engine 必须为 none")
     if not isinstance(content, str) or not content.strip():
         issues.append(f"{prefix}: content 必须是非空字符串")
-    elif spec.marker not in content:
+    elif not _marker_is_acceptable(content, spec):
         issues.append(f"{prefix}: 缺少固定 marker")
     elif spec.variables and not _format_contract_is_valid(content, spec.variables):
         issues.append(f"{prefix}: content 占位符与 variables 不匹配")
@@ -209,7 +222,7 @@ def _stored_prompt_is_valid(key: str, prompt: Any) -> bool:
         and bool(prompt.get("version"))
         and isinstance(content, str)
         and bool(content.strip())
-        and spec.marker in content
+        and _marker_is_acceptable(content, spec)
         and (not spec.variables or _format_contract_is_valid(content, spec.variables))
         and isinstance(variables, list)
         and set(variables) == set(spec.variables)
@@ -286,6 +299,22 @@ def _load_active_bundle_payload(
     if use_cache:
         _BUNDLE_CACHE = (now, payload)
     return payload
+
+
+def _is_pinned_during_p0_transition(name: str) -> bool:
+    """P0 过渡未完成时，原本由代码提供有效值的 key 继续钉在代码默认值上。"""
+
+    return not settings.PROMPT_P0_BASELINE_ATTESTED and name in PRE_P0_CODE_ONLY_KEYS
+
+
+def _marker_is_acceptable(content: str, spec: Any) -> bool:
+    """校验 marker；过渡期额外接受历史 marker，使过渡前发布的 bundle 仍然有效。"""
+
+    if spec.marker in content:
+        return True
+    if settings.PROMPT_P0_BASELINE_ATTESTED:
+        return False
+    return any(marker in content for marker in getattr(spec, "legacy_markers", ()))
 
 
 def _sha256(content: str) -> str:

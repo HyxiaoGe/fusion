@@ -29,6 +29,7 @@ from app.services.external.prompthub_client import (
     PromptHubClientError,
     PromptHubPublishedBundleClient,
 )
+from app.services.prompt_effective_map import EffectiveBaselineMismatch, assert_p0_transition_gate
 from app.services.runtime_config_defaults import DEFAULT_PROMPT_TEMPLATES
 
 SyncMode = Literal["disabled", "shadow", "apply"]
@@ -77,7 +78,7 @@ async def sync_prompthub_bundle(
             mode=effective_mode,
             session_factory=session_factory,
         )
-    except (PromptHubClientError, PromptBundleValidationError, ValueError) as exc:
+    except (PromptHubClientError, PromptBundleValidationError, EffectiveBaselineMismatch, ValueError) as exc:
         return _record_error(effective_mode, attempted_at, str(exc))
     except Exception:
         logger.exception("PromptHub bundle 同步发生未预期错误")
@@ -161,6 +162,9 @@ def _persist_bundle(
     session: Session | None = None
     try:
         session = session_factory()
+        if mode == "apply":
+            # 不可绕过的 P0 过渡门禁：新建行与复用旧行两条激活路径都在此之前。
+            assert_p0_transition_gate({key: item["content"] for key, item in payload["prompts"].items()})
         _acquire_advisory_lock(session)
         rows = _load_bundle_rows(session)
         existing = next((row for row in rows if row.version == payload["revision"]), None)

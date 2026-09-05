@@ -38,8 +38,10 @@ FILE_ANALYSIS_PROMPT = """请分析以下文件并回答问题。
 
 {file_content}"""
 
-# 文件内容增强提示词
-FILE_CONTENT_ENHANCEMENT_PROMPT = """用户问题: {query}
+# 文件内容增强提示词。
+# 正文与 inject_file_content 此前硬编码的包装语逐字节一致，确保接入模板后
+# 模型可见正文不变；变更此处会直接改变带附件对话的用户消息。
+FILE_CONTENT_ENHANCEMENT_PROMPT = """{query}
 
-参考以下文件内容:
+以下是相关文件内容，请结合这些内容回答：
 {file_content}"""

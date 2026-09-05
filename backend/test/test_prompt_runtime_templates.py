@@ -3,33 +3,55 @@ from unittest.mock import patch
 
 
 class PromptRuntimeTemplatesTests(unittest.TestCase):
-    def test_prompt_manager_uses_runtime_template_override(self):
+    def test_prompt_manager_uses_active_bundle_template(self):
+        """P0：prompt_manager 只认 active bundle，不再读 legacy prompt_template。"""
+
         from app.ai.prompts.prompt_manager import prompt_manager
 
         with patch(
-            "app.ai.prompts.prompt_manager.get_runtime_config_payload",
-            return_value=({"template": "标题：{content}"}, {"source": "test"}),
-            create=True,
-        ):
+            "app.ai.prompts.prompt_manager.resolve_prompt_template_with_metadata",
+            return_value=("标题：{content}", {}),
+        ) as resolver:
             prompt = prompt_manager.format_prompt("generate_title", content="Redis")
 
         self.assertEqual(prompt, "标题：Redis")
+        resolver.assert_called_once()
+        self.assertEqual(resolver.call_args.args[0], "generate_title")
 
-    def test_agent_loop_prompt_getter_uses_code_template(self):
+    def test_all_catalog_prompts_resolve_through_runtime_template(self):
+        """P0：catalog 每一项都必须走真实解析路径，不得直接 return 代码常量。"""
+
+        import app.ai.prompts.prompt_manager  # noqa: F401  导入即注册消费方
+        from app.ai.prompts import agent_loop
+        from app.core.prompt_catalog import PROMPT_SPEC_BY_KEY, registered_prompt_consumers
+
+        consumers = registered_prompt_consumers()
+        self.assertEqual(set(consumers), set(PROMPT_SPEC_BY_KEY))
+
+        with patch.object(agent_loop, "get_runtime_prompt_template", return_value="运行时正文") as resolver:
+            for key in (
+                "app_identity",
+                "tool_usage_contract",
+                "no_tool_network_boundary",
+                "no_vision_file_boundary",
+                "url_read_tool_description",
+                "limit_summary",
+                "continuation_system",
+            ):
+                with self.subTest(key=key):
+                    self.assertEqual(consumers[key](), "运行时正文")
+        self.assertEqual(resolver.call_count, 7)
+
+    def test_plan_control_prompt_stays_code_owned(self):
+        """计划控制不在 catalog 内，本期继续由代码维护。"""
+
         from app.ai.prompts import agent_loop
 
         with patch.object(agent_loop, "get_runtime_prompt_template", side_effect=AssertionError("不应读取运行时模板")):
-            self.assertEqual(agent_loop.get_app_identity_prompt(), agent_loop.APP_IDENTITY_PROMPT)
-            self.assertEqual(agent_loop.get_tool_usage_contract_prompt(), agent_loop.TOOL_USAGE_CONTRACT_PROMPT)
-            self.assertEqual(
-                agent_loop.get_no_tool_network_boundary_prompt(), agent_loop.NO_TOOL_NETWORK_BOUNDARY_PROMPT
-            )
-            self.assertEqual(agent_loop.get_no_vision_file_boundary_prompt(), agent_loop.NO_VISION_FILE_BOUNDARY_PROMPT)
             self.assertEqual(agent_loop.get_agent_plan_control_prompt("on"), agent_loop.AGENT_PLAN_CONTROL_ON_PROMPT)
             self.assertEqual(
                 agent_loop.get_agent_plan_control_prompt("auto"), agent_loop.AGENT_PLAN_CONTROL_AUTO_PROMPT
             )
-            self.assertEqual(agent_loop.get_continuation_system_prompt(), agent_loop.CONTINUATION_SYSTEM_PROMPT)
 
     def test_summary_and_url_description_keep_runtime_resolution(self):
         from app.ai.prompts import agent_loop

@@ -21,7 +21,9 @@ WRAPPERS = (
     ROOT / ".github/workflows/_deploy-ui.yml",
 )
 WRAPPER_LINE_BUDGETS = {
-    API_WRAPPER.name: 402,
+    # P0 过渡门禁开关 PROMPT_P0_BASELINE_ATTESTED 需在 deploy-dev 与回滚两处 job
+    # 各下发一行，故预算自 402 提升到 404。
+    API_WRAPPER.name: 404,
     "_deploy-ui.yml": 400,
 }
 
