@@ -241,14 +241,31 @@ async def _scanned_response(response: httpx.Response, record: HttpExchangeRecord
                 stream=_ReplayStream(buffered, response.stream),
                 extensions=response.extensions,
             )
-    body = b"".join(buffered)
-    record.observe_body_chunk(body)
+    raw_body = b"".join(buffered)
+    record.observe_body_chunk(_decoded_body(raw_body, response.headers))
     return httpx.Response(
         status_code=response.status_code,
         headers=response.headers,
-        content=body,
+        stream=httpx.ByteStream(raw_body),
         extensions=response.extensions,
     )
+
+
+def _decoded_body(raw_body: bytes, headers: httpx.Headers) -> bytes:
+    """按 Content-Encoding 解码后再扫描签名。
+
+    高德以 application/json + Content-Encoding: gzip 返回错误体，传输层拿到的是压缩
+    字节，直接扫描一定匹配不上（issue #32 三轮复审）。解码交给 httpx 自己的解码链，
+    覆盖 gzip/deflate/br/zstd；解码失败则退回原始字节——少一次分类可以接受，绝不能
+    影响请求本身。原始字节仍按原样交回客户端，由它按响应头自行解码。
+    """
+
+    if not raw_body or "content-encoding" not in headers:
+        return raw_body
+    try:
+        return httpx.Response(status_code=200, headers=headers, content=raw_body).content
+    except Exception:
+        return raw_body
 
 
 class _ReplayStream(httpx.AsyncByteStream):
@@ -679,6 +696,15 @@ def _classify_exception(exc: Exception, operation_name: str) -> McpClientError:
     for error in errors:
         if isinstance(error, McpClientError):
             return error
+    # 握手阶段一旦认出供应商鉴权签名就以它为准：真实故障里它可能表现为超时、协议错误
+    # 或别的形状，按异常形状分类会分岔到不同错误码（issue #32 三轮复审）。
+    record = _http_exchange_record.get()
+    if record is not None and not record.handshake_complete and record.provider_error_code is not None:
+        return McpClientError(
+            record.provider_error_code,
+            "MCP 服务鉴权失败",
+            safe_details=record.as_safe_details(),
+        )
     for error in errors:
         if isinstance(error, httpx.HTTPStatusError):
             status_code = error.response.status_code
@@ -692,20 +718,12 @@ def _classify_exception(exc: Exception, operation_name: str) -> McpClientError:
                 return McpClientError("endpoint_not_found", "MCP 服务端点不存在")
             return McpClientError("upstream_error", "MCP 服务调用失败")
     if any(isinstance(error, (TimeoutError, httpx.TimeoutException)) for error in errors):
-        record = _http_exchange_record.get()
+        # 供应商鉴权签名已在函数开头统一判定，这里只处理认不出具体原因的握手失败。
         # list_tools / call_tool 也要先完成 session.initialize()，握手阶段失败时它们的
         # operation_name 却是 tools_list / tools_call，用它判断会漏掉（issue #32 复审）。
-        in_handshake = record is None or not record.handshake_complete
-        if in_handshake:
-            # 服务端答复过却没能完成 MCP 握手，说明连接与出网都是通的，问题在供应商侧
-            # ——常见于鉴权失败但错误藏在 MCP 流内、不体现为 HTTP 状态码的实现。
-            # 报成 connect_timeout 会把排查带向网络方向（issue #32）。
-            if record is not None and record.provider_error_code is not None:
-                return McpClientError(
-                    record.provider_error_code,
-                    "MCP 服务鉴权失败",
-                    safe_details=record.as_safe_details(),
-                )
+        if record is None or not record.handshake_complete:
+            # 服务端答复过却没能完成 MCP 握手，说明连接与出网都是通的，问题在供应商侧。
+            # 报成 connect_timeout 会把排查带向网络方向。
             if record is not None and record.responded:
                 return McpClientError(
                     "handshake_rejected",

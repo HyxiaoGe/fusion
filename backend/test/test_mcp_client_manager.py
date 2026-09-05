@@ -1313,3 +1313,125 @@ class RealSdkPathAuthFailureTests(unittest.IsolatedAsyncioTestCase):
 
         # tools_list 是幂等操作，可重试码会跑两轮；auth_failed 必须只跑一轮。
         self.assertEqual(len(attempts), 1)
+
+
+class GzippedProviderErrorTests(unittest.IsolatedAsyncioTestCase):
+    """issue #32 三轮复审：高德以 application/json + Content-Encoding: gzip 返回。
+
+    传输层拿到的是压缩字节，不先解码就一定匹配不上签名。上一版单测只用未压缩正文，
+    因此全绿却仍未修好——这组用例专门钉住真实的线路形态。
+    """
+
+    PLAIN_BODY = b'{"status":"0","info":"INVALID_USER_KEY","infocode":"10001"}'
+
+    def _manager_with(self, *, body: bytes, headers: dict):
+        import httpx
+
+        from app.services.mcp.client import (
+            McpClientManager,
+            StreamableHttpMcpConnector,
+        )
+        from app.services.mcp.client import _RecordingTransport as RealRecordingTransport
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, headers=headers, stream=httpx.ByteStream(body))
+
+        def factory(*args, **kwargs):
+            transport = RealRecordingTransport(*args, **kwargs)
+            transport._transport = httpx.MockTransport(handler)
+            return transport
+
+        manager = McpClientManager(
+            policy=build_policy(
+                allowed_hosts=frozenset({"mcp.amap.com"}),
+                allowed_credential_refs=frozenset({"AMAP_MCP_API_KEY"}),
+                connect_timeout_seconds=0.4,
+                call_timeout_seconds=0.6,
+                idempotent_total_timeout_seconds=2.0,
+                retry_backoff_seconds=0,
+            ),
+            connector=StreamableHttpMcpConnector(),
+            environ={"AMAP_MCP_API_KEY": "invalid-key"},
+        )
+        config = build_config(
+            provider="amap",
+            endpoint_url="https://mcp.amap.com/mcp",
+            auth_type="query",
+            auth_name="key",
+            credential_ref="AMAP_MCP_API_KEY",
+            allowed_tools=["maps_weather"],
+        )
+        return manager, config, factory
+
+    async def _error_code(self, *, body: bytes, headers: dict, operation: str):
+        from unittest.mock import patch
+
+        manager, config, factory = self._manager_with(body=body, headers=headers)
+        with patch("app.services.mcp.client._RecordingTransport", new=factory):
+            with self.assertRaises(Exception) as ctx:
+                if operation == "initialize":
+                    await manager.test_connection(config)
+                elif operation == "tools_list":
+                    await manager.list_tools(config)
+                else:
+                    await manager.call_tool(config, "maps_weather", {"city": "北京"})
+        return ctx.exception.code
+
+    async def test_gzip_压缩的鉴权错误仍判为_auth_failed(self):
+        import gzip
+
+        for operation in ("initialize", "tools_list", "tools_call"):
+            with self.subTest(operation=operation):
+                code = await self._error_code(
+                    body=gzip.compress(self.PLAIN_BODY),
+                    headers={"content-type": "application/json", "content-encoding": "gzip"},
+                    operation=operation,
+                )
+                self.assertEqual(code, "auth_failed")
+
+    async def test_未压缩的鉴权错误同样判为_auth_failed(self):
+        code = await self._error_code(
+            body=self.PLAIN_BODY,
+            headers={"content-type": "application/json"},
+            operation="initialize",
+        )
+
+        self.assertEqual(code, "auth_failed")
+
+    async def test_解码失败时不影响请求本身(self):
+        # 声明了 gzip 但正文不是合法 gzip：识别不到签名可以接受，但不能因此抛别的错。
+        code = await self._error_code(
+            body=b"not actually gzip",
+            headers={"content-type": "application/json", "content-encoding": "gzip"},
+            operation="initialize",
+        )
+
+        self.assertIn(code, {"handshake_rejected", "connect_timeout", "protocol_error"})
+
+    async def test_原始压缩字节原样交回客户端(self):
+        import gzip
+
+        import httpx
+
+        from app.services.mcp.client import HttpExchangeRecord, _http_exchange_record
+        from app.services.mcp.client import _RecordingTransport as RealRecordingTransport
+
+        raw = gzip.compress(self.PLAIN_BODY)
+        headers = {"content-type": "application/json", "content-encoding": "gzip"}
+
+        def handler(request):
+            return httpx.Response(200, headers=headers, stream=httpx.ByteStream(raw))
+
+        transport = RealRecordingTransport()
+        transport._transport = httpx.MockTransport(handler)
+        record = HttpExchangeRecord()
+        token = _http_exchange_record.set(record)
+        try:
+            async with httpx.AsyncClient(transport=transport) as client:
+                response = await client.get("https://mcp.amap.com/mcp")
+        finally:
+            _http_exchange_record.reset(token)
+
+        # 客户端按 Content-Encoding 自行解码，拿到的必须是正确正文，不能是二次解码或压缩字节
+        self.assertEqual(response.content, self.PLAIN_BODY)
+        self.assertEqual(record.provider_error_code, "auth_failed")
