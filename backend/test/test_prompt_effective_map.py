@@ -252,3 +252,35 @@ class P0TransitionGateTests(unittest.TestCase):
 
         with patch("app.services.prompt_catalog_integrity.settings.PROMPTHUB_SYNC_MODE", "disabled"):
             prompt_catalog_integrity.verify_p0_baseline_gate()
+
+    def test_apply_unattested_without_active_bundle_fails_closed(self):
+        """无有效 LKG 是正常可达状态，不是跳过门禁的理由。
+
+        P0 之前 bundle 未命中会回落 legacy prompt_template；本 PR 删除该回落后
+        同样情形直接落到代码默认值，因此未经基线校验就启动会改变模型可见正文。
+        """
+
+        from app.services import prompt_catalog_integrity
+        from app.services.prompt_effective_map import EffectiveBaselineMismatch
+
+        with (
+            patch("app.services.prompt_catalog_integrity.settings.PROMPTHUB_SYNC_MODE", "apply"),
+            patch("app.services.prompt_catalog_integrity.settings.PROMPT_P0_BASELINE_ATTESTED", False),
+            patch.object(prompt_catalog_integrity, "get_active_prompt_bundle_payload", return_value=None),
+        ):
+            with self.assertRaises(EffectiveBaselineMismatch) as ctx:
+                prompt_catalog_integrity.verify_p0_baseline_gate()
+
+        self.assertIn("没有可校验的有效 LKG", str(ctx.exception))
+
+    def test_apply_attested_without_active_bundle_starts(self):
+        """过渡已 attested 后，无 LKG 走代码默认值是既定设计，不再拦截。"""
+
+        from app.services import prompt_catalog_integrity
+
+        with (
+            patch("app.services.prompt_catalog_integrity.settings.PROMPTHUB_SYNC_MODE", "apply"),
+            patch("app.services.prompt_catalog_integrity.settings.PROMPT_P0_BASELINE_ATTESTED", True),
+            patch.object(prompt_catalog_integrity, "get_active_prompt_bundle_payload", return_value=None),
+        ):
+            prompt_catalog_integrity.verify_p0_baseline_gate()

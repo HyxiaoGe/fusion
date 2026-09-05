@@ -24,9 +24,11 @@ from app.core.runtime_config import SessionFactory, get_runtime_config_payload
 from app.db.database import SessionLocal
 from app.services.runtime_config_defaults import DEFAULT_PROMPT_TEMPLATES
 
-# P0 之前这些 key 的 getter 直接 return 代码常量，从不解析 bundle 或 legacy 配置。
+# P0 之前这些 key 的模型可见值来自代码，不来自 bundle 或 legacy 配置：
+# 前五项的 getter 直接 return 代码常量；file_content_enhancement 此前根本没有
+# 消费方，其包装语硬编码在 inject_file_content 里（本次改为读取模板）。
 # 抓取部署前 effective map 时必须复现该语义，否则会把「本应是代码常量」的条目
-# 误记成 bundle / legacy 值。
+# 误记成 bundle / legacy 值；过渡门禁也以该集合为准。
 PRE_P0_CODE_ONLY_KEYS = frozenset(
     {
         "app_identity",
@@ -34,6 +36,7 @@ PRE_P0_CODE_ONLY_KEYS = frozenset(
         "no_tool_network_boundary",
         "no_vision_file_boundary",
         "continuation_system",
+        "file_content_enhancement",
     }
 )
 

@@ -6,40 +6,16 @@ from unittest.mock import patch
 
 class PromptCatalogConsumerRegistryTests(unittest.TestCase):
     def test_every_catalog_spec_has_a_registered_consumer(self):
-        """除显式声明的无消费方条目外，catalog 每一项都必须注册消费方。"""
+        """catalog 每一项都必须注册消费方，没有例外集合。"""
 
-        from app.core.prompt_catalog import KNOWN_UNCONSUMED_KEYS, PROMPT_SPEC_BY_KEY
+        from app.core.prompt_catalog import PROMPT_SPEC_BY_KEY
         from app.services.prompt_catalog_integrity import verify_prompt_catalog_consumers
 
         verify_prompt_catalog_consumers()
 
         from app.core.prompt_catalog import registered_prompt_consumers
 
-        self.assertEqual(set(registered_prompt_consumers()), set(PROMPT_SPEC_BY_KEY) - KNOWN_UNCONSUMED_KEYS)
-
-    def test_declared_unconsumed_key_does_not_silently_pass_as_consumed(self):
-        """声明为无消费方的 key 若被注册，说明声明已过期，必须报错而不是放行。"""
-
-        from app.core import prompt_catalog
-
-        consumers = prompt_catalog.registered_prompt_consumers()
-        consumers["file_content_enhancement"] = lambda: "x"
-        with patch.object(prompt_catalog, "_CONSUMERS", consumers):
-            with self.assertRaises(prompt_catalog.PromptCatalogIntegrityError) as ctx:
-                prompt_catalog.assert_catalog_fully_consumed()
-
-        self.assertIn("KNOWN_UNCONSUMED_KEYS", str(ctx.exception))
-
-    def test_missing_consumer_fails_fast(self):
-        from app.core import prompt_catalog
-
-        consumers = prompt_catalog.registered_prompt_consumers()
-        consumers.pop("app_identity")
-        with patch.object(prompt_catalog, "_CONSUMERS", consumers):
-            with self.assertRaises(prompt_catalog.PromptCatalogIntegrityError) as ctx:
-                prompt_catalog.assert_catalog_fully_consumed()
-
-        self.assertIn("app_identity", str(ctx.exception))
+        self.assertEqual(set(registered_prompt_consumers()), set(PROMPT_SPEC_BY_KEY))
 
     def test_unknown_key_cannot_register(self):
         from app.core import prompt_catalog

@@ -10,6 +10,7 @@ LLM 消息构建模块
 import base64
 from typing import Dict, List, Optional
 
+from app.ai.prompts.prompt_manager import prompt_manager
 from app.ai.prompts.system_prompt import build_base_sections
 from app.core.logger import app_logger as logger
 from app.db.repositories import FileRepository
@@ -156,9 +157,17 @@ def inject_file_content(
     original_message: str,
     file_contents: Dict[str, str],
 ) -> List[dict]:
-    """将非图片文件的解析内容注入到最后一条用户消息的文本中"""
+    """将非图片文件的解析内容注入到最后一条用户消息的文本中。
+
+    包装语来自 catalog 的 `file_content_enhancement`，是该条目的真实消费路径；
+    代码默认值与此前硬编码文本逐字节一致，接入模板不改变模型可见正文。
+    """
     combined = "\n\n".join(f"文件内容 ({i + 1}):\n{content}" for i, content in enumerate(file_contents.values()))
-    enhanced = f"{original_message}\n\n以下是相关文件内容，请结合这些内容回答：\n{combined}"
+    enhanced = prompt_manager.format_prompt(
+        "file_content_enhancement",
+        query=original_message,
+        file_content=combined,
+    )
 
     # 仅附件的新会话没有文字消息，仍须将解析正文作为用户输入。
     if not messages:

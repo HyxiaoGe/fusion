@@ -23,10 +23,10 @@ class PromptRuntimeTemplatesTests(unittest.TestCase):
 
         import app.ai.prompts.prompt_manager  # noqa: F401  导入即注册消费方
         from app.ai.prompts import agent_loop
-        from app.core.prompt_catalog import KNOWN_UNCONSUMED_KEYS, PROMPT_SPEC_BY_KEY, registered_prompt_consumers
+        from app.core.prompt_catalog import PROMPT_SPEC_BY_KEY, registered_prompt_consumers
 
         consumers = registered_prompt_consumers()
-        self.assertEqual(set(consumers), set(PROMPT_SPEC_BY_KEY) - KNOWN_UNCONSUMED_KEYS)
+        self.assertEqual(set(consumers), set(PROMPT_SPEC_BY_KEY))
 
         with patch.object(agent_loop, "get_runtime_prompt_template", return_value="运行时正文") as resolver:
             for key in (

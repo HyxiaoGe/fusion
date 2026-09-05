@@ -138,22 +138,38 @@ class AgentLoopCallSiteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(messages[0], {"role": "system", "content": "标记J-无图片边界"})
 
 
-class UnconsumedKeyIsDeclaredTests(unittest.TestCase):
-    def test_known_unconsumed_set_is_pinned(self):
-        """该集合是显式记录而非豁免口子；扩大必须改码并复审。"""
+class FileContentEnhancementConsumptionTests(unittest.TestCase):
+    """该条目此前无任何消费方；接入模板后必须真实可达且正文逐字节不变。"""
 
-        from app.core.prompt_catalog import KNOWN_UNCONSUMED_KEYS
+    def test_wrapper_text_is_byte_identical_to_previous_hardcoded_output(self):
+        from app.services.chat.message_builder import inject_file_content
 
-        self.assertEqual(KNOWN_UNCONSUMED_KEYS, frozenset({"file_content_enhancement"}))
+        file_contents = {"a": "AAA", "b": "BBB"}
+        combined = "\n\n".join(f"文件内容 ({i + 1}):\n{c}" for i, c in enumerate(file_contents.values()))
+        expected = f"我的问题\n\n以下是相关文件内容，请结合这些内容回答：\n{combined}"
 
-    def test_no_dead_wrapper_pretends_to_consume_it(self):
-        from app.core.prompt_catalog import KNOWN_UNCONSUMED_KEYS, registered_prompt_consumers
+        result = inject_file_content([{"role": "user", "content": "我的问题"}], "我的问题", file_contents)
 
-        self.assertFalse(set(registered_prompt_consumers()) & KNOWN_UNCONSUMED_KEYS)
+        self.assertEqual(result[-1]["content"].encode("utf-8"), expected.encode("utf-8"))
 
+    def test_template_body_reaches_user_message(self):
+        from app.ai.prompts.prompt_manager import prompt_manager
+        from app.services.chat.message_builder import inject_file_content
 
-if __name__ == "__main__":
-    unittest.main()
+        with patch.object(
+            prompt_manager, "resolve_template_with_metadata", return_value=("标记K-{query}-{file_content}", {})
+        ):
+            result = inject_file_content([{"role": "user", "content": "问"}], "问", {"a": "内容"})
+
+        self.assertIn("标记K-问-", result[-1]["content"])
+
+    def test_empty_message_list_still_renders_from_template(self):
+        from app.services.chat.message_builder import inject_file_content
+
+        result = inject_file_content([], "只有附件", {"a": "AAA"})
+
+        self.assertEqual(result[0]["role"], "user")
+        self.assertIn("以下是相关文件内容，请结合这些内容回答：", result[0]["content"])
 
 
 class RegistrationBindsToProductionPathTests(unittest.TestCase):
