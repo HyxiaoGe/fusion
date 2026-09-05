@@ -34,7 +34,16 @@
 - `app/core/prompt_bundle.py:55` 错误文案中的 `11` 与 `test/test_prompt_bundle.py:38` 的 `assertEqual(len(PROMPT_SPECS), 11)` 改为由 catalog 派生。
 - 重写 `test_prompt_runtime_templates.py:18` 的反向断言。
 
-此项完成时 catalog 仍为 11 项、仍为中文，线上行为零变化。
+### P0 的「行为零变化」前置条件
+
+P0 会让此前直接返回代码常量的 5 个 getter（`app_identity`、`tool_usage_contract`、`no_tool_network_boundary`、`no_vision_file_boundary`、`continuation_system`）首次开始消费当前 active bundle。若管理员此前已在 PromptHub 编辑过这些条目，那些静默无效的正文会在 P0 上线瞬间生效。「仍为 11 项、仍为中文」不足以保证行为不变。
+
+因此 P0 apply 前必须满足下列前置条件之一，否则 fail closed，不得进入 apply：
+
+- **基线优先（推荐）**：先从代码默认值生成一份基线 bundle 发布到 PromptHub 并固定为当前 published revision，使 bundle 与代码常量按构造即一致；或
+- **逐 key 字节校验**：逐条校验待激活 bundle 的每个 key 与对应代码常量**字节一致**（UTF-8 原始字节，不做 strip / 换行归一化），任一不一致即拒绝进入 apply 并告警。
+
+该校验写入 P0 验收，不作为实施者的可选项。
 
 ## Section identity 与 marker 契约
 
@@ -48,14 +57,22 @@
 
 另有 `limit_summary.py:168` / `:171` 用 `X not in prompt` 判断是否追加，同样是正文耦合。
 
-规格要求：
+这三处**不是同一类问题**，必须拆成输入侧与输出侧两条独立契约。前两处（`limit_summary`、`model_call_language_policy`）操作的是 Fusion 自己组装的 system message，有可关联的结构化身份；`user_visible_content` 操作的是**模型已经生成的 reasoning 文本 / SSE chunk**，来源 system message 的 metadata 早已丢失，模型复述或改写后不存在任何可关联的 `section_id`。把两者写成同一条「按 section_id 工作」是错的。
 
-- marker 从人类可读中文标题升级为语言无关的结构化 section identity。
-- 上述三处一律按 `section_id` 工作，不再比对正文子串。
-- `agent_loop_request_prep.py:581` / `:622` / `:648` / `:662` 的去重从 `msg["content"] == get_xxx_prompt()` 改为按 `section_id` 判定。
-- 验收方式：现有 `test_limit_summary` / `test_user_visible_content` / `test_agent_loop_request_prep` 在「正文任意替换、section_id 不变」的参数化下必须仍然通过。
+### 输入侧：结构化 section identity（确定性契约）
 
-`user_visible_content.py` 中 `"according to the rules"` 一类过泛英文短语在英文化后误删正常 reasoning 段落的概率会上升（该函数删除 marker 到下一空行的整段，`:153-158`）。这是既有问题，纳入回归观察，不阻塞本期。
+- **载体**：内部 typed message 或 sidecar metadata。必须贯穿所有 `inject_*` 变换，并在发送给 provider **之前剥离**。
+- **禁止**把 section id 以任何形式写回 prompt 正文——那只是把中文 marker 换成新 marker，正文耦合原样保留。
+- 组装、去重、收尾删除一律按 section identity 判定：`limit_summary.py:185-198` 的终局契约清理、`model_call_language_policy.py:15` 的语言契约幂等删除与追加、`agent_loop_request_prep.py:581` / `:622` / `:648` / `:662` 的去重，全部改为按身份而非正文子串。
+- 同时消除 `limit_summary.py:168` / `:171` 的 `X not in prompt` 子串判断。
+- 验收：`test_limit_summary` / `test_agent_loop_request_prep` 在「正文任意替换、section identity 不变」的参数化下必须全绿。这是确定性验收。
+
+### 输出侧：用户可见 reasoning 净化（独立 best-effort 防线）
+
+- 这是独立防线，**不承诺**正文任意替换后仍能靠 section identity 清除模型复述。
+- 可选实现方向（本期择一定稿）：稳定协议标签 / 签名，使模型复述可被结构化识别；或产品层不暴露 raw reasoning。
+- 必须单独定义失败语义（漏删、误删各自的影响面与降级行为）与单独验收，不得并入输入侧的确定性验收。
+- 已知既有风险：`user_visible_content.py:42-57` 中 `"according to the rules"` 一类过泛英文短语，在英文化后误删正常 reasoning 段落的概率会上升（该函数删除 marker 到下一空行的**整段**，`:153-158`）。此项纳入输出侧防线的回归观察。
 
 ## Run attempt 冻结语义
 
@@ -82,14 +99,41 @@
 
 `revision` 当前由 PromptHub 下发（`app/services/external/prompthub_client.py:96`），Fusion 只校验它是 64 位 hex（`app/core/prompt_bundle.py:47-48`），从不校验它与内容的对应关系。
 
+PromptHub 侧已有唯一确定的算法，不存在「摘要或标签」的二义性。已在 `HyxiaoGe/prompthub@5c9456e` 的 `backend/app/services/project_service.py:126-144` 独立核对：
+
+```python
+canonical = json.dumps(
+    {
+        "project_slug": project_slug,
+        "prompts": [
+            {
+                "slug": prompt.slug,
+                "version": prompt.version,
+                "content_sha256": hashlib.sha256(prompt.content.encode("utf-8")).hexdigest(),
+                "variables": prompt.variables,
+            }
+            for prompt in sorted(prompts, key=lambda item: item.slug)
+        ],
+    },
+    ensure_ascii=False, separators=(",", ":"), sort_keys=True,
+)
+revision = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+```
+
+摘要**只包含** `project_slug` 与按 `slug` 排序的 `{slug, version, content_sha256, variables}`；`name`、`status`、`format`、`template_engine`、`published_at` 均不参与。
+
 规格要求：
 
-- Fusion 对规范化后的完整 bundle 自算 `bundle_content_sha256`。
-- PromptHub `revision` 若定义为内容摘要，必须与该值一致，否则整包拒绝、告警并保持 LKG。
-- 若 `revision` 只是发布标签，则同时持久化不可变的 `source_revision + bundle_content_sha256`；同一 `source_revision` 对应不同 checksum 时仍然拒绝。
+- `source_revision` 即上述内容身份。Fusion 按同一 canonical contract 重算并要求**严格相等**，否则整包拒绝、告警并保持 LKG。
+- 若 Fusion 另需覆盖 `schema_version` / `catalog_version` 的本地 payload 校验值，**另行命名**（如 `local_payload_checksum`）并明确参与字段，不得与 `source_revision` 混用。
 - 正文的合法变化必须发布新 revision，不得静默修改已发布 revision。
 - **不得**在普通同步中用远端覆盖同一身份的本地行。损坏行走隔离 + 受审计修复流程恢复。
 - 此类拒绝必须是独立诊断状态（如 `revision_conflict`），不能与 timeout / 5xx / 校验失败一起打平进 `status: "error"` + `last_error`（当前 `_record_error` 即如此，`app/services/prompthub_sync_service.py:249`）。否则需人工介入的身份冲突与可自愈的网络抖动在监控上无法区分。
+
+**重算的两个实现前提**（当前代码不满足，必须一并修改）：
+
+1. **必须保留原始 `variables`。** `prompthub_client.py:106-109` 现在把 `variables` 归一化成名字元组并**丢弃原始值**；而 PromptHub 的 `PublishedPromptResponse.variables` 类型是 `Any`（`backend/app/schemas/prompt.py:121`），摘要序列化的是原始结构。按现状 Fusion 无法重算出相等的 revision。客户端必须同时保留原始 `variables` 供摘要重算，归一化后的名字集合仅用于业务校验。
+2. **重算对 `variables` 顺序敏感。** 摘要把它作为 JSON 列表序列化，顺序参与哈希；而 Fusion 现有校验用 `set(variables) == set(spec.variables)`（`prompt_bundle.py:_validate_prompt_item`）是顺序无关的。因此存在「业务校验通过但 revision 不等」的情形，重算必须基于原始有序值，不能基于归一化集合。
 
 ### 回滚 hold
 
@@ -97,12 +141,18 @@
 
 仅增加「激活历史 revision」的接口不完整：apply 模式下，若 PromptHub 当前 published revision 的行已存在但非 active，下一轮同步会走 `_activate_row(rows, existing)` 重新激活（`prompthub_sync_service.py:178-182`）；若是新 revision 则 `for peer in rows: peer.is_active = False`（`:191-192`）。两条路径都会在一个同步周期内冲掉手工回滚。
 
-规格要求本地回滚是受审计的 `pin/hold` 状态机：
+规格要求本地回滚是受审计的持久 `pin/hold` 状态机。仅描述效果不足以实施——实施时会在「新增专用表 / 复用 runtime config / 只做接口内变量」之间分叉，因此下列各项在规格阶段定稿：
 
-- 激活指定历史 revision；
-- 暂停自动 apply，但仍允许 shadow 拉取与告警；
-- 记录操作者、原因、目标 revision、时间；
-- 管理员显式解除 hold 后才重新跟随 PromptHub published revision。
+- **持久实体与作用域**：hold 是独立的持久化实体，唯一作用域为 `(project_slug, catalog)`，同一作用域至多一条生效记录。不得实现为进程内变量或接口局部状态。
+- **状态与原子转换**：`following -> held -> following`。转换必须在单事务内完成，并与 bundle 激活复用同一把 `pg_advisory_xact_lock`，避免与并发同步交错。
+- **进入 held**：原子地完成「激活指定历史 revision」+「置 held」，不允许出现「已激活但未 held」或「已 held 但未激活」的中间态。
+- **held 期间的 scheduler 行为**：继续 shadow-fetch、继续校验、继续更新诊断与告警，但**绝不 activate**、绝不改写 active 行。
+- **专用 admin 操作与权限**：hold 的进入与解除是专用操作，不复用通用 runtime config 写接口（后者对 `prompt_bundle` 保持只读）。权限等级与既有 admin 治理接口一致。
+- **审计字段**：操作者、原因、目标 revision、进入时间、解除时间，均持久化且不可事后修改。
+- **worker 读取方式**：所有 worker 从同一持久实体读取 hold 状态，读取路径与 bundle 缓存共用失效语义；不得依赖任一进程的本地状态。
+- **解除 hold**：恢复跟随 PromptHub published revision；若期间 published revision 已变化，按正常同步路径激活最新版本。
+
+管理 UI 是非目标。但**跨重启、跨 worker、解除 hold 后的行为必须进入自动化验收**，不得只做人工验证。
 
 **hold 必须是数据库状态**，不得用 `PROMPTHUB_SYNC_MODE` 实现。该配置在 `app/core/config.py:442` 于 import 期读入 Settings，修改需重启或重新部署；而 hold 要在故障中即时生效并同时作用于所有 worker。用环境变量实现 hold 会把「不发代码即可止血」的核心诉求交还给发布流程。
 
@@ -175,7 +225,13 @@ Skill 正文单独说明：`app/ai/skills/registry.py:23-31` 的 `_PACKAGE_SKILL
 
 分类器 prompt 正文内联了 15 个 `package_id`、canonical tool order 与每包工具映射，真值在 `_MODEL_PACKAGE_IDS`（`run_capability_model_classifier.py:23`）、`_CANONICAL_TOOL_ORDER`（`:44`）与 `CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES`。正文可热更后，写错一个包名会使 `_parse_model_route` 返回 `None` → `_fail_closed("invalid_response")` → 全量降级为 `clarification_only`，而 bundle 校验完全通过。
 
-规格要求二选一并在实现前定稿：taxonomy 与工具映射由代码渲染为受控变量注入、PromptHub 只管边界原则段落；或在 bundle 校验中断言正文出现的 `package_id` 集合等于代码枚举。
+**定稿结论：taxonomy 由代码真值渲染为受控变量注入。**
+
+- `package_id` 枚举、canonical tool order、包到工具映射一律由代码真值渲染成受控变量，注入分类器 prompt。
+- PromptHub 只管理通用语义边界那部分正文。
+- 发布校验只验证「必需变量齐备」与「渲染结果合法」，**不从可编辑自然语言正文反向解析枚举**。
+
+不采用「在 bundle 校验中反向解析正文枚举」的方案：它会把标点、示例措辞和英文化表达变成协议解析器的输入，既脆弱，又重新制造了本规格 P1 要消除的正文耦合。
 
 ### 变量与转义约定
 
@@ -183,25 +239,46 @@ Skill 正文单独说明：`app/ai/skills/registry.py:23-31` 的 `_PACKAGE_SKILL
 
 规格要求：定死转义约定（统一 `{{` / `}}`），并为每个新增 spec 补一条「代码默认值自身能通过 bundle 校验」的往返测试。
 
-### 分类器的特殊约束
+### 快照必须先于能力分类解析
 
-分类器运行在 1.5 秒硬超时的工作线程内（`_HARD_TIMEOUT_SECONDS`），且存在 `_can_begin_blocking_work` 门控，说明该路径对阻塞敏感。`resolve_prompt_template` 在缓存未命中时会做一次同步数据库读（`prompt_bundle.py:266` `SessionLocal`），直接计入该预算。
+当前调用顺序使「分类器读取 Run 启动时已冻结的正文」在字面上无法成立。已核对的实际时序：
 
-规格要求：分类器只读 Run 启动时已冻结的正文，或明确它不做数据库解析。二者必须在实现前择一定稿。
+1. `build_agent_loop_lifecycle_call()`（`agent_loop_wiring.py:325`）先调用 `build_agent_loop_call_config_from_inputs()`；
+2. 其中 `build_agent_loop_call_config()` 在 `agent_loop_request_prep.py:278` 执行 `resolve_run_capability_route()`，**能力分类在此完成**；
+3. 之后才 `assemble_agent_loop_lifecycle_call()` → lifecycle `_start_run()`（`agent_loop_lifecycle.py:191`）；
+4. 最后 `prepare_messages_fn()`（`:340`）组装消息并生成 `prompt_snapshot`。
 
-## 待确认项
+即分类发生在 Run 启动**之前**，此时并不存在「已冻结的正文」。若分类器与后续组装各自解析，同一个 Run 的分类依据与执行正文可能来自不同 revision。
 
-以下条目复审中未形成结论，规格复审时需明确归类，不得由实现阶段自行裁量：
+**定稿结论：**
 
-- `app/services/mcp/amap_product_tools.py:137` / `:168` / `:245` 与 `app/services/mcp/flyai_travel_tools.py:225` / `:257` 的工具 description：属跨 MCP 契约面，建议本期不动、单独排期。
-- `app/services/external/kimi_search_service.py:16` 与 `app/processor/file_processor.py` 的 system 消息：站外辅助链路，建议本期不动。
-- `app/services/mcp/flyai_travel_tools.py:47` 的事实边界 system prompt：语义上属产品结果边界，但载体在 MCP 模块，归类待定。
+- 在**能力分类之前**一次性解析出完整的不可变 `PromptBundleSnapshot`。
+- 同一个快照对象同时传给分类器与后续消息组装，全程按引用传递，不重新解析。
+- Run 启动时持久化该快照的 revision 与 fingerprint。
+- 分类器**只读内存快照**，在 1.5 秒预算（`_HARD_TIMEOUT_SECONDS`）内不访问数据库——`resolve_prompt_template` 缓存未命中时会做同步 DB 读（`prompt_bundle.py:266` `SessionLocal`），该路径已有 `_can_begin_blocking_work` 门控，说明它对阻塞高度敏感。
+
+这样分类结果与执行正文才真正来自同一 revision。快照的解析点因此上移到 `build_agent_loop_call_config_from_inputs()` 之前，成为 Run attempt 冻结的实际起点。
+
+## 剩余范围归类（已定稿）
+
+以下三组此前标为待定，现按复审结论确定唯一归类，实施阶段不得再行裁量：
+
+| 条目 | 位置 | 归类 | 处理 |
+|---|---|---|---|
+| AMap / FlyAI 工具 description | `amap_product_tools.py:137` / `:168` / `:245`；`flyai_travel_tools.py:225` / `:257` | **结构化工具契约，继续代码控制** | 因「全局指令统一英文」覆盖所有模型可见指令，故在 P5 一并英文化，但**不进入 PromptHub** |
+| Kimi 话题策划 system prompt | `kimi_search_service.py:16` | **独立辅助调用，代码控制** | P5 英文化；记录自己的 prompt revision，**不并入主 Run bundle** |
+| 文件处理 system 消息 | `file_processor.py:287` | **独立辅助调用，代码控制** | 同上 |
+| FlyAI 事实边界 system prompt | `flyai_travel_tools.py:47` | **可变的模型行为正文** | 从 MCP 模块拆出，归入产品结果事实边界 catalog，进入 PromptHub |
+
+判据是**语义角色而非代码载体**：工具 description 与入参 schema 语义耦合，属契约面；事实边界约束的是模型输出行为，属可热更新正文，其载体恰好在 MCP 模块不改变归类。
+
+独立辅助调用记录自己的 prompt revision，不伪装成沿用主 Run 快照——与 Run attempt 冻结语义一节中对标题、推荐问题的要求一致。
 
 ## 迁移与发布顺序
 
-1. **P0 声明即消费。** catalog 单一事实源 + 启动期 fail-fast + 契约测试；`11` 改为派生。行为零变化。
-2. **P1 稳定 section identity。** marker 不再承担程序控制；去重、清理与语言策略按 section_id 工作。行为零变化。
-3. **P2 单 Run attempt 冻结。** 启动解析一次，Run 内各阶段从冻结上下文读取；新 Run 独立解析并记录 revision；`extra_system_prompts` 改传 section_id。
+1. **P0 声明即消费。** catalog 单一事实源 + 启动期 fail-fast + 契约测试；`11` 改为派生。**apply 前必须通过字节一致前置校验或已发布代码默认值基线 bundle**，满足后行为零变化。
+2. **P1 稳定 section identity。** 输入侧身份改为 sidecar metadata 并在送 provider 前剥离，去重/清理/语言策略按身份工作；输出侧 reasoning 净化作为独立 best-effort 防线单独立项与验收。输入侧行为零变化。
+3. **P2 单 Run attempt 冻结。** 快照解析点上移到能力分类之前，同一不可变快照贯穿分类与组装；Run 启动持久化 revision 与 fingerprint；新 Run 独立解析；`extra_system_prompts` 改传 section id。
 4. **P3 完整性与可回滚。** canonical checksum、`source_revision` 分离、`catalog_version`、受审计 rollback hold、独立冲突诊断状态、修正 active-LKG diff 基线。
 5. **P4 多 worker 最终一致。** interval 60 秒、TTL 30 秒、保留各 worker 轮询与数据库互斥、120 秒收敛、150 秒告警。
 6. **P5 扩 catalog、英文改写、联网边界修正。** 按分批顺序：辅助生成任务 → 搜索上下文与工具 description → 收尾与续写 → 计划与深度研究 → 分类器最后。英文化与 marker 切换必须与 P1 同批或在其之后。SKILL.md 升版本并更新 pin。
@@ -212,13 +289,17 @@ P5 内部先在 `shadow` 模式校验字节、变量、完整性与差异，再�
 
 ### 自动化契约
 
-- bundle 缺项、重复 slug、未知 slug、非法变量、marker 缺失、checksum 不一致时整包拒绝，原 LKG 不变。
-- 同一 `source_revision` 对应不同 `bundle_content_sha256` 时拒绝并产生独立 `revision_conflict` 诊断，LKG 不变，且不覆盖本地行。
+- bundle 缺项、重复 slug、未知 slug、非法变量、必需变量缺失、正文为空、`source_revision` 重算不相等时整包拒绝，原 LKG 不变。
+- **发布门禁不包含任何对本地化正文子串的校验。** 身份由 bundle key / slug 与内部 sidecar section identity 承担，正文中不存在必须出现的 marker；「缺少 catalog 项」已由「bundle 缺项」覆盖。保留 marker 校验会在英文化后重新把发布流程绑死在中文措辞上。
+- 同一 `source_revision` 对应不同重算结果时拒绝并产生独立 `revision_conflict` 诊断，LKG 不变，且不覆盖本地行。
+- P0 apply 前置校验：待激活 bundle 与代码常量字节一致（或已发布代码默认值基线 bundle），不满足则 fail closed 且不进入 apply。
+- hold 状态跨进程重启、跨 worker 保持一致；held 期间 scheduler 只 shadow-fetch 与告警，绝不 activate。
 - PromptHub timeout / 401 / 5xx / 坏响应不影响聊天可用性。
 - PromptHub 全程 5xx 期间仍可执行本地回滚，且 hold 生效后后续同步不会冲掉回滚结果。
 - 解除 hold 后恢复跟随 published revision。
 - 同一 Run attempt 在后台切换 bundle 前后保持原 revision、正文与 fingerprint；新 Run 使用新 revision 并保留 `previous_run_id`。
-- 正文被替换后 `inject_*` 仍不重复注入，收尾清理仍能剔除控制契约，语言契约不叠加。
+- 输入侧（确定性）：正文被替换后 `inject_*` 仍不重复注入，收尾清理仍能剔除控制契约，语言契约不叠加。
+- 输出侧（best-effort）：用户可见 reasoning 净化单独定义漏删/误删的失败语义与验收，不并入上一条，也不承诺由 section identity 保证。
 - 聊天热路径无 PromptHub HTTP 请求。
 - catalog 每一项都能被真实注入路径消费；缺少 resolver 时启动失败。
 - 代码默认值、PromptHub 条目与 catalog 均为英文；动态用户内容与外部原文不受此限。
@@ -259,7 +340,7 @@ P5 内部先在 `shadow` 模式校验字节、变量、完整性与差异，再�
 
 设计通过复审不代表以下假设成立，实施与验收阶段必须逐条取证：
 
-1. PromptHub 的 `revision` 确实是内容不可变摘要且永不复用。
+1. PromptHub 的 published bundle 在真实运行中不会复用 `source_revision`（算法本身已在 `HyxiaoGe/prompthub@5c9456e` 核实为内容摘要，此处只验证运行期不出现同摘要不同内容）。真实 `variables` 的实际存储形态（字符串列表或对象列表）需在 dev 抓取一次真实响应确认，以验证重算路径。
 2. 生产实际 worker 数、scheduler 是否确为每进程一份、`pg_advisory_xact_lock` 在真实 PostgreSQL 上的争用表现。
 3. 英文 system prompt 的 token 增量是否会突破分类器 `_HARD_MAX_INPUT_TOKENS = 2000` 与 1.5 秒超时预算。
 4. section identity 改造后，中文对话中模型 reasoning 的实际措辞是否仍能被泄漏拦截覆盖。此项只能实测，不能由单测证明。
@@ -268,3 +349,8 @@ P5 内部先在 `shadow` 模式校验字节、变量、完整性与差异，再�
 ## 当前状态
 
 本文为设计规格，尚未实施。截至提交时未修改任何业务代码、未扩 catalog、未改动 Prompt 正文。规格复审通过后按 P0 → P5 顺序实施，每阶段单独提交与验收。
+
+### 修订记录
+
+- **v2（本次）**：吸收 PR #35 的 8 条 P1 复审意见。新增 P0 字节一致前置条件；拆分输入侧 section identity 与输出侧 reasoning 净化并定死身份载体；以 `HyxiaoGe/prompthub@5c9456e` 的 canonical contract 取代 revision 的二选一表述，并补充重算需保留原始有序 `variables` 的实现前提；补齐 rollback hold 的持久状态机契约；taxonomy 注入方式定稿为代码渲染受控变量；快照解析点上移到能力分类之前；三组剩余范围完成唯一归类；删除发布门禁中对本地化正文子串的 marker 校验。
+- **v1**：三方复审共识初稿。
