@@ -32,6 +32,8 @@ from app.services.prompt_effective_map import (  # noqa: E402
     build_effective_baseline_bundle,
     capture_pre_p0_effective_map,
     code_default_effective_revision,
+    diff_effective_maps,
+    resolve_effective_map_with_current_code,
     verify_bundle_matches_effective_map,
 )
 
@@ -54,10 +56,35 @@ def main(argv: list[str] | None = None) -> int:
     verify.add_argument("--baseline", required=True, help="capture 产出的基线 bundle")
     verify.add_argument("--candidate", required=True, help="待激活 bundle")
 
+    preflight = sub.add_parser(
+        "preflight",
+        help="迁移安全判据：比对部署前 effective map 与候选代码在当前配置下的实际解析结果",
+    )
+    preflight.add_argument("--baseline", required=True, help="capture 产出的基线 bundle")
+
     args = parser.parse_args(argv)
     if args.command == "capture":
         return _capture(Path(args.out), sync_mode=args.sync_mode)
+    if args.command == "preflight":
+        return _preflight(Path(args.baseline))
     return _verify(Path(args.baseline), Path(args.candidate))
+
+
+def _preflight(baseline_path: Path) -> int:
+    """安全判据只能是逐 key 字节相等；captured_source 不能承担这个判据。"""
+
+    baseline = _load_baseline(baseline_path)
+    candidate = resolve_effective_map_with_current_code()
+    mismatches = diff_effective_maps(baseline, candidate)
+    if mismatches:
+        print("迁移前置校验失败，按此配置部署会改变模型可见正文：", file=sys.stderr)
+        for item in mismatches:
+            print(f"  - {item}", file=sys.stderr)
+        return 1
+    print(f"迁移前置校验通过（{len(baseline)} 项逐 key 字节相等），按当前配置部署不会改变正文。")
+    for key in sorted(candidate):
+        print(f"  {key}: source={candidate[key].source}")
+    return 0
 
 
 def _capture(out_path: Path, *, sync_mode: str) -> int:

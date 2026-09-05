@@ -23,6 +23,9 @@ class PromptSpec:
     name: str
     variables: tuple[str, ...]
     marker: str
+    # P0 过渡期额外接受的历史 marker。过渡完成（attested）后不再接受，
+    # 避免旧契约长期留存。仅用于让过渡前已发布的 bundle 继续通过校验。
+    legacy_markers: tuple[str, ...] = ()
 
 
 class PromptCatalogIntegrityError(RuntimeError):
@@ -54,7 +57,27 @@ PROMPT_SPECS = (
         "文件内容增强",
         ("query", "file_content"),
         "以下是相关文件内容，请结合这些内容回答：",
+        ("参考以下文件内容:",),
     ),
+)
+
+# P0 之前这些 key 的模型可见值来自代码，不来自 bundle 或 legacy 配置：
+# 前五项的 getter 直接 return 代码常量；file_content_enhancement 此前没有消费方，
+# 包装语硬编码在 inject_file_content 里。
+#
+# 过渡期（PROMPT_P0_BASELINE_ATTESTED 未置位）这些 key 一律钉在代码默认值上，
+# 与 P0 之前逐字节一致。这样候选代码可以直接在 apply 模式部署，**不需要经过
+# disabled 窗口**——后者会让另外 5 项也回落代码默认值，而它们的线上有效值
+# 未必与代码默认值相同（dev 的 limit_summary 即为此例）。
+PRE_P0_CODE_ONLY_KEYS = frozenset(
+    {
+        "app_identity",
+        "tool_usage_contract",
+        "no_tool_network_boundary",
+        "no_vision_file_boundary",
+        "continuation_system",
+        "file_content_enhancement",
+    }
 )
 
 PROMPT_SPEC_BY_KEY = {spec.key: spec for spec in PROMPT_SPECS}

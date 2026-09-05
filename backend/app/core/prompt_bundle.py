@@ -14,7 +14,12 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.logger import app_logger as logger
-from app.core.prompt_catalog import PROMPT_SPEC_BY_KEY, PROMPT_SPEC_BY_SLUG, PROMPT_SPECS
+from app.core.prompt_catalog import (
+    PRE_P0_CODE_ONLY_KEYS,
+    PROMPT_SPEC_BY_KEY,
+    PROMPT_SPEC_BY_SLUG,
+    PROMPT_SPECS,
+)
 from app.db.database import SessionLocal
 from app.db.models import RuntimeConfigEntry
 
@@ -102,6 +107,17 @@ def resolve_prompt_template_with_metadata(name: str, fallback: str) -> tuple[str
     「完整 bundle 原子切换」与单 Run 冻结。
     """
 
+    if _is_pinned_during_p0_transition(name):
+        # 过渡期：这些 key 钉在代码默认值上，与 P0 之前逐字节一致。
+        # 因此候选代码可直接在 apply 模式部署，无需经过会改变其余 key 的 disabled 窗口。
+        spec = PROMPT_SPEC_BY_KEY.get(name)
+        return fallback, {
+            "source": "code-default-p0-transition",
+            "prompt_slug": spec.slug if spec is not None else name,
+            "prompt_version": "code-default",
+            "prompt_revision": None,
+        }
+
     if settings.PROMPTHUB_SYNC_MODE == "apply":
         bundle = _load_active_bundle_payload()
         resolved = _template_from_bundle_with_metadata(bundle, name)
@@ -168,7 +184,7 @@ def _validate_prompt_item(prompt: Any, spec: Any) -> tuple[list[str], dict[str, 
         issues.append(f"{prefix}: template_engine 必须为 none")
     if not isinstance(content, str) or not content.strip():
         issues.append(f"{prefix}: content 必须是非空字符串")
-    elif spec.marker not in content:
+    elif not _marker_is_acceptable(content, spec):
         issues.append(f"{prefix}: 缺少固定 marker")
     elif spec.variables and not _format_contract_is_valid(content, spec.variables):
         issues.append(f"{prefix}: content 占位符与 variables 不匹配")
@@ -206,7 +222,7 @@ def _stored_prompt_is_valid(key: str, prompt: Any) -> bool:
         and bool(prompt.get("version"))
         and isinstance(content, str)
         and bool(content.strip())
-        and spec.marker in content
+        and _marker_is_acceptable(content, spec)
         and (not spec.variables or _format_contract_is_valid(content, spec.variables))
         and isinstance(variables, list)
         and set(variables) == set(spec.variables)
@@ -283,6 +299,22 @@ def _load_active_bundle_payload(
     if use_cache:
         _BUNDLE_CACHE = (now, payload)
     return payload
+
+
+def _is_pinned_during_p0_transition(name: str) -> bool:
+    """P0 过渡未完成时，原本由代码提供有效值的 key 继续钉在代码默认值上。"""
+
+    return not settings.PROMPT_P0_BASELINE_ATTESTED and name in PRE_P0_CODE_ONLY_KEYS
+
+
+def _marker_is_acceptable(content: str, spec: Any) -> bool:
+    """校验 marker；过渡期额外接受历史 marker，使过渡前发布的 bundle 仍然有效。"""
+
+    if spec.marker in content:
+        return True
+    if settings.PROMPT_P0_BASELINE_ATTESTED:
+        return False
+    return any(marker in content for marker in getattr(spec, "legacy_markers", ()))
 
 
 def _sha256(content: str) -> str:

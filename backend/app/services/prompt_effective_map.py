@@ -19,26 +19,15 @@ from typing import Any
 
 from app.core.config import settings
 from app.core.prompt_bundle import load_stored_active_bundle_payload
-from app.core.prompt_catalog import CATALOG_VERSION, PROMPT_SPECS, PromptSpec
+from app.core.prompt_catalog import (
+    CATALOG_VERSION,
+    PRE_P0_CODE_ONLY_KEYS,
+    PROMPT_SPECS,
+    PromptSpec,
+)
 from app.core.runtime_config import SessionFactory, get_runtime_config_payload
 from app.db.database import SessionLocal
 from app.services.runtime_config_defaults import DEFAULT_PROMPT_TEMPLATES
-
-# P0 之前这些 key 的模型可见值来自代码，不来自 bundle 或 legacy 配置：
-# 前五项的 getter 直接 return 代码常量；file_content_enhancement 此前根本没有
-# 消费方，其包装语硬编码在 inject_file_content 里（本次改为读取模板）。
-# 抓取部署前 effective map 时必须复现该语义，否则会把「本应是代码常量」的条目
-# 误记成 bundle / legacy 值；过渡门禁也以该集合为准。
-PRE_P0_CODE_ONLY_KEYS = frozenset(
-    {
-        "app_identity",
-        "tool_usage_contract",
-        "no_tool_network_boundary",
-        "no_vision_file_boundary",
-        "continuation_system",
-        "file_content_enhancement",
-    }
-)
 
 
 class EffectiveBaselineMismatch(RuntimeError):
@@ -146,17 +135,19 @@ def assert_bundle_matches_effective_map(
 
 
 def assert_p0_transition_gate(bundle_prompts: dict[str, str]) -> None:
-    """P0 切换门禁：不可绕过，在任何 bundle 激活前与 apply 模式启动时强制执行。
+    """校验 attestation 这一**声明**是否属实，不可绕过。
 
-    P0 让 `PRE_P0_CODE_ONLY_KEYS` 五项首次开始消费 bundle。若此时 bundle 里这五项的
-    正文与代码常量不同，模型可见正文会在切换瞬间改变——这正是 P0 必须排除的情形。
-    因此在 P0 过渡完成前，激活任何 bundle 都要求这五项与代码默认值**逐字节相等**。
+    过渡期（未 attested）`PRE_P0_CODE_ONLY_KEYS` 被钉在代码默认值上，bundle 里这几项
+    的内容不参与消费，因此无需拦截——拦截反而会挡住过渡期发布新基线 bundle。
 
-    `PROMPT_P0_BASELINE_ATTESTED=true` 表示过渡已完成并经复审，此后这五项与其余六项
-    一样可以正常热更新。该开关只应在 effective baseline 校验通过后由发布流程置位。
+    `PROMPT_P0_BASELINE_ATTESTED=true` 是运维给出的「已完成 capture 与逐 key 复核」
+    声明，置位后这些 key 立即改由 bundle 提供。本门禁在激活与 apply 启动两处校验该
+    声明：若 bundle 里这些项与代码默认值不是逐字节相等，说明声明与事实不符，fail closed。
+
+    该断言随 P5 英文化一并移除——届时这些正文会被有意改写，不再等于代码默认值。
     """
 
-    if settings.PROMPT_P0_BASELINE_ATTESTED:
+    if not settings.PROMPT_P0_BASELINE_ATTESTED:
         return
     mismatches = []
     for key in sorted(PRE_P0_CODE_ONLY_KEYS):
@@ -169,8 +160,8 @@ def assert_p0_transition_gate(bundle_prompts: dict[str, str]) -> None:
             )
     if mismatches:
         raise EffectiveBaselineMismatch(
-            "P0 过渡门禁未通过，禁止激活该 bundle；请先跑 effective baseline 校验并置位 "
-            "PROMPT_P0_BASELINE_ATTESTED: " + "; ".join(mismatches)
+            "PROMPT_P0_BASELINE_ATTESTED 已置位，但 bundle 与代码默认值不一致，"
+            "说明基线复核未真正通过：" + "; ".join(mismatches)
         )
 
 
@@ -261,3 +252,46 @@ def _sha256(content: str) -> str:
 
 def _sha256_bytes(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
+
+
+def resolve_effective_map_with_current_code() -> dict[str, EffectiveEntry]:
+    """返回**候选代码在当前进程配置下**实际解析出的 11 项正文。
+
+    迁移安全判据只能是「部署前 effective map 与候选实际输出逐 key 字节相等」。
+    `captured_source` 不能承担这个判据：过渡期 `PRE_P0_CODE_ONLY_KEYS` 按构造就是
+    `code-default`，而其余 key 是否安全取决于正文本身而非来源标签。
+    """
+
+    from app.core.prompt_bundle import resolve_prompt_template_with_metadata
+
+    resolved: dict[str, EffectiveEntry] = {}
+    for spec in PROMPT_SPECS:
+        content, metadata = resolve_prompt_template_with_metadata(spec.key, DEFAULT_PROMPT_TEMPLATES[spec.key])
+        resolved[spec.key] = _entry(
+            spec,
+            content,
+            str(metadata.get("source") or "unknown"),
+            str(metadata.get("prompt_version") or "unknown"),
+        )
+    return resolved
+
+
+def diff_effective_maps(
+    baseline: dict[str, EffectiveEntry],
+    candidate: dict[str, EffectiveEntry],
+) -> list[str]:
+    """逐 key UTF-8 原始字节比对两份 effective map，返回不一致说明。"""
+
+    _assert_covers_catalog(baseline)
+    _assert_covers_catalog(candidate)
+    mismatches: list[str] = []
+    for key in sorted(baseline):
+        expected = baseline[key].content.encode("utf-8")
+        actual = candidate[key].content.encode("utf-8")
+        if expected != actual:
+            mismatches.append(
+                f"{key}: 部署前有效值与候选解析结果字节不一致"
+                f"（baseline_source={baseline[key].source} candidate_source={candidate[key].source}"
+                f" expected_sha256={_sha256_bytes(expected)} actual_sha256={_sha256_bytes(actual)}）"
+            )
+    return mismatches

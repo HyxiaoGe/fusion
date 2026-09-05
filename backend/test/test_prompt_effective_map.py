@@ -186,28 +186,32 @@ class P0TransitionGateTests(unittest.TestCase):
         prompts.update(overrides or {})
         return prompts
 
-    def test_passes_when_code_only_keys_match_code_defaults(self):
+    def test_attested_claim_passes_when_bundle_matches_code_defaults(self):
         from app.services.prompt_effective_map import assert_p0_transition_gate
 
-        with patch("app.services.prompt_effective_map.settings.PROMPT_P0_BASELINE_ATTESTED", False):
+        with patch("app.services.prompt_effective_map.settings.PROMPT_P0_BASELINE_ATTESTED", True):
             assert_p0_transition_gate(self._bundle_prompts())
 
-    def test_blocks_when_a_code_only_key_differs(self):
+    def test_attested_claim_is_rejected_when_bundle_differs(self):
+        """attested 是运维声明；声明与事实不符必须 fail closed。"""
+
         from app.services.prompt_effective_map import EffectiveBaselineMismatch, assert_p0_transition_gate
 
-        with patch("app.services.prompt_effective_map.settings.PROMPT_P0_BASELINE_ATTESTED", False):
+        with patch("app.services.prompt_effective_map.settings.PROMPT_P0_BASELINE_ATTESTED", True):
             with self.assertRaises(EffectiveBaselineMismatch) as ctx:
                 assert_p0_transition_gate(self._bundle_prompts({"app_identity": "改过的身份规则"}))
         self.assertIn("app_identity", str(ctx.exception))
 
-    def test_attested_flag_allows_normal_hot_update(self):
+    def test_unattested_does_not_block_publishing_new_baseline(self):
+        """过渡期这些 key 被钉住，bundle 内容不参与消费，拦截反而会挡住发新基线。"""
+
         from app.services.prompt_effective_map import assert_p0_transition_gate
 
-        with patch("app.services.prompt_effective_map.settings.PROMPT_P0_BASELINE_ATTESTED", True):
-            assert_p0_transition_gate(self._bundle_prompts({"app_identity": "过渡后正常热更新"}))
+        with patch("app.services.prompt_effective_map.settings.PROMPT_P0_BASELINE_ATTESTED", False):
+            assert_p0_transition_gate(self._bundle_prompts({"app_identity": "尚未生效的新正文"}))
 
     def test_activation_is_blocked_before_any_row_is_written(self):
-        """门禁失败必须真正阻止激活：不写行、不改 LKG。"""
+        """attested 下门禁失败必须真正阻止激活：不写行、不改 LKG。"""
 
         from app.services import prompthub_sync_service
         from app.services.prompt_effective_map import EffectiveBaselineMismatch
@@ -223,7 +227,7 @@ class P0TransitionGateTests(unittest.TestCase):
         }
         session_factory = unittest.mock.Mock()
 
-        with patch("app.services.prompt_effective_map.settings.PROMPT_P0_BASELINE_ATTESTED", False):
+        with patch("app.services.prompt_effective_map.settings.PROMPT_P0_BASELINE_ATTESTED", True):
             with self.assertRaises(EffectiveBaselineMismatch):
                 prompthub_sync_service._persist_bundle(payload, mode="apply", session_factory=session_factory)
 
@@ -244,7 +248,7 @@ class P0TransitionGateTests(unittest.TestCase):
         }
         with (
             patch("app.services.prompt_catalog_integrity.settings.PROMPTHUB_SYNC_MODE", "apply"),
-            patch("app.services.prompt_effective_map.settings.PROMPT_P0_BASELINE_ATTESTED", False),
+            patch("app.services.prompt_effective_map.settings.PROMPT_P0_BASELINE_ATTESTED", True),
             patch.object(prompt_catalog_integrity, "get_active_prompt_bundle_payload", return_value=payload),
         ):
             with self.assertRaises(EffectiveBaselineMismatch):
@@ -275,18 +279,6 @@ class P0TransitionGateTests(unittest.TestCase):
                 prompt_catalog_integrity.verify_p0_baseline_gate()
 
         self.assertIn("没有可校验的有效 LKG", str(ctx.exception))
-
-    def test_apply_attested_without_active_bundle_starts(self):
-        """过渡已 attested 后，无 LKG 走代码默认值是既定设计，不再拦截。"""
-
-        from app.services import prompt_catalog_integrity
-
-        with (
-            patch("app.services.prompt_catalog_integrity.settings.PROMPTHUB_SYNC_MODE", "apply"),
-            patch("app.services.prompt_catalog_integrity.settings.PROMPT_P0_BASELINE_ATTESTED", True),
-            patch.object(prompt_catalog_integrity, "get_active_prompt_bundle_payload", return_value=None),
-        ):
-            prompt_catalog_integrity.verify_p0_baseline_gate()
 
 
 class CaptureIsIndependentOfCurrentSyncModeTests(unittest.TestCase):
@@ -331,3 +323,136 @@ class CaptureIsIndependentOfCurrentSyncModeTests(unittest.TestCase):
 
         with self.assertRaises(SystemExit):
             module.main(["capture", "--out", "/tmp/x.json"])
+
+
+class DisabledWindowEliminationTests(unittest.TestCase):
+    """候选代码必须能直接在 apply 模式部署，不经过会改变其余 key 的 disabled 窗口。"""
+
+    def test_transition_pins_code_only_keys_to_code_defaults_even_in_apply(self):
+        from app.core import prompt_bundle
+        from app.services.runtime_config_defaults import DEFAULT_PROMPT_TEMPLATES
+
+        bundle = {
+            "schema_version": 1,
+            "project_slug": "fusion",
+            "revision": "e" * 64,
+            "prompts": {
+                "app_identity": {
+                    "slug": "app-identity",
+                    "version": "9.9.9",
+                    "content": "BUNDLE 身份",
+                    "content_sha256": hashlib.sha256("BUNDLE 身份".encode()).hexdigest(),
+                }
+            },
+        }
+        with (
+            patch("app.core.prompt_bundle.settings.PROMPTHUB_SYNC_MODE", "apply"),
+            patch("app.core.prompt_bundle.settings.PROMPT_P0_BASELINE_ATTESTED", False),
+            patch("app.core.prompt_bundle._load_active_bundle_payload", return_value=bundle),
+        ):
+            content, metadata = prompt_bundle.resolve_prompt_template_with_metadata(
+                "app_identity", DEFAULT_PROMPT_TEMPLATES["app_identity"]
+            )
+
+        self.assertEqual(content, DEFAULT_PROMPT_TEMPLATES["app_identity"])
+        self.assertEqual(metadata["source"], "code-default-p0-transition")
+
+    def test_other_keys_keep_consuming_bundle_during_transition(self):
+        """其余 key 在过渡期仍从 bundle 取值——这正是不能走 disabled 的原因。"""
+
+        from app.core import prompt_bundle
+
+        bundle = {
+            "schema_version": 1,
+            "project_slug": "fusion",
+            "revision": "e" * 64,
+            "prompts": {
+                "limit_summary": {
+                    "slug": "limit-summary",
+                    "version": "1.0.0",
+                    "content": "线上触顶总结",
+                    "content_sha256": hashlib.sha256("线上触顶总结".encode()).hexdigest(),
+                }
+            },
+        }
+        with (
+            patch("app.core.prompt_bundle.settings.PROMPTHUB_SYNC_MODE", "apply"),
+            patch("app.core.prompt_bundle.settings.PROMPT_P0_BASELINE_ATTESTED", False),
+            patch("app.core.prompt_bundle._load_active_bundle_payload", return_value=bundle),
+        ):
+            content, _ = prompt_bundle.resolve_prompt_template_with_metadata("limit_summary", "代码默认值")
+
+        self.assertEqual(content, "线上触顶总结")
+
+    def test_attested_lets_code_only_keys_consume_bundle(self):
+        from app.core import prompt_bundle
+
+        bundle = {
+            "schema_version": 1,
+            "project_slug": "fusion",
+            "revision": "e" * 64,
+            "prompts": {
+                "app_identity": {
+                    "slug": "app-identity",
+                    "version": "9.9.9",
+                    "content": "BUNDLE 身份",
+                    "content_sha256": hashlib.sha256("BUNDLE 身份".encode()).hexdigest(),
+                }
+            },
+        }
+        with (
+            patch("app.core.prompt_bundle.settings.PROMPTHUB_SYNC_MODE", "apply"),
+            patch("app.core.prompt_bundle.settings.PROMPT_P0_BASELINE_ATTESTED", True),
+            patch("app.core.prompt_bundle._load_active_bundle_payload", return_value=bundle),
+        ):
+            content, _ = prompt_bundle.resolve_prompt_template_with_metadata("app_identity", "代码默认值")
+
+        self.assertEqual(content, "BUNDLE 身份")
+
+    def test_legacy_marker_accepted_only_before_attestation(self):
+        """过渡前发布的 bundle 必须仍能通过校验，否则整包被拒会让全部 key 回落默认值。"""
+
+        from app.core import prompt_bundle
+        from app.core.prompt_catalog import PROMPT_SPEC_BY_KEY
+
+        spec = PROMPT_SPEC_BY_KEY["file_content_enhancement"]
+        legacy_content = "用户问题: {query}\n\n参考以下文件内容:\n{file_content}"
+
+        with patch("app.core.prompt_bundle.settings.PROMPT_P0_BASELINE_ATTESTED", False):
+            self.assertTrue(prompt_bundle._marker_is_acceptable(legacy_content, spec))
+        with patch("app.core.prompt_bundle.settings.PROMPT_P0_BASELINE_ATTESTED", True):
+            self.assertFalse(prompt_bundle._marker_is_acceptable(legacy_content, spec))
+
+
+class MigrationCriterionTests(unittest.TestCase):
+    """迁移判据必须是逐 key 字节相等，不能用 captured_source。"""
+
+    def test_source_labels_cannot_serve_as_criterion(self):
+        from app.core.prompt_catalog import PRE_P0_CODE_ONLY_KEYS
+        from app.services import prompt_effective_map
+
+        with (
+            patch.object(prompt_effective_map, "load_stored_active_bundle_payload", return_value={"prompts": {}}),
+            patch.object(prompt_effective_map, "get_runtime_config_payload", return_value=({}, {})),
+        ):
+            captured = prompt_effective_map.capture_pre_p0_effective_map(sync_mode="apply")
+
+        # 这些 key 按构造就是 code-default，「全部为 prompthub」在逻辑上不可能成立。
+        for key in PRE_P0_CODE_ONLY_KEYS:
+            self.assertEqual(captured[key].source, "code-default")
+
+    def test_diff_reports_byte_level_mismatch(self):
+        from app.services.prompt_effective_map import diff_effective_maps
+
+        baseline = _full_effective_map()
+        candidate = _full_effective_map({"limit_summary": baseline["limit_summary"].content + "\n"})
+
+        mismatches = diff_effective_maps(baseline, candidate)
+
+        self.assertEqual(len(mismatches), 1)
+        self.assertIn("limit_summary", mismatches[0])
+
+    def test_identical_maps_report_no_mismatch(self):
+        from app.services.prompt_effective_map import diff_effective_maps
+
+        self.assertEqual(diff_effective_maps(_full_effective_map(), _full_effective_map()), [])
