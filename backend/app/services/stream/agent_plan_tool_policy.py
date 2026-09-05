@@ -518,3 +518,52 @@ def _is_route_followup(message: str) -> bool:
     return bool(
         _resolve_mobility_intent_strength(message) > _MobilityIntentStrength.NONE or _ROUTE_FOLLOWUP_RE.search(message)
     )
+
+
+# 产品能力包 → 该包语义上不可省略、必须出现在计划里的工具。
+#
+# 计划门禁过去用 `resolve_product_capability_signals()` 从原文正则里二次推导出行意图，
+# 与模型分类器各判各的：线上 mobility_intercity 分类正确、三个工具已公开，门禁却认为
+# "这不是出行请求"，既不要求调用也不限制范围，模型 9 步 0 调用直到触顶（issue #30）。
+# 分类结果才是唯一事实源：能力包与公开工具在首轮 LLM 之前已经冻结，门禁直接消费它。
+#
+# 只收录语义单一、强制不会误伤的包：单工具包就是它自己；travel_air_rail 的语义本身
+# 就是空铁对比，两边都要。
+#
+# 刻意不收录：
+# - mobility_intercity：置信度为 medium，PR #27 定下"公开但不强制"——低置信度的出行
+#   改写句公开 route_compare 但不设门禁。是否改为强制是产品取舍，不在本次单方面推翻。
+# - mixed_itinerary：五个工具没有单一主工具，强制任何一个都会误伤；"N 选一"需要
+#   PlanCoordinator 支持分组语义，另案处理。
+_PRODUCT_PACKAGE_REQUIRED_TOOLS: dict[str, tuple[str, ...]] = {
+    "weather": (AMAP_WEATHER_FORECAST,),
+    "place_discovery": (AMAP_LOCAL_PLACE_SEARCH,),
+    "mobility_route": (AMAP_ROUTE_COMPARE,),
+    "flight": (FLYAI_SEARCH_FLIGHTS,),
+    "train": (FLYAI_SEARCH_TRAINS,),
+    "travel_air_rail": (FLYAI_SEARCH_FLIGHTS, FLYAI_SEARCH_TRAINS),
+}
+
+
+def resolve_product_package_plan_policy(
+    *,
+    package_id: str,
+    announced_tool_names: list[str],
+) -> AgentPlanToolPolicy | None:
+    """按已冻结的能力包派生计划门禁；不收录的包返回 None，沿用既有路径。
+
+    只引用本次实际公开的工具：全局禁网或工具不可用时公开集合会收窄，此时不能要求
+    一个根本没公开的工具，否则计划永远无法通过校验。
+    """
+
+    if package_id not in _PRODUCT_PACKAGE_REQUIRED_TOOLS:
+        return None
+    announced = frozenset(name for name in announced_tool_names if name)
+    required = {tool_name: 1 for tool_name in _PRODUCT_PACKAGE_REQUIRED_TOOLS[package_id] if tool_name in announced}
+    if not required:
+        return None
+    return AgentPlanToolPolicy(
+        required_initial_tool_counts=required,
+        allowed_tool_names=announced,
+        reason=f"capability_package:{package_id}",
+    )

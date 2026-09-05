@@ -26,7 +26,11 @@ from app.services.chat.message_builder import (
 )
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_TOOL_NAMES
 from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_TOOL_NAMES
-from app.services.stream.agent_plan_tool_policy import AgentPlanToolPolicy, resolve_agent_plan_tool_policy
+from app.services.stream.agent_plan_tool_policy import (
+    AgentPlanToolPolicy,
+    resolve_agent_plan_tool_policy,
+    resolve_product_package_plan_policy,
+)
 from app.services.stream.agent_task_policy import resolve_agent_task_policy
 from app.services.stream.persistence import preprocess_url_in_message
 from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
@@ -327,7 +331,11 @@ def build_agent_loop_call_config(
     elif capability_resolution.package_id == "verified_web":
         plan_tool_policy = AgentPlanToolPolicy()
     else:
-        plan_tool_policy = resolve_agent_plan_tool_policy(
+        # 产品包直接消费已冻结的分类结果，不再用正则从原文二次推导出行意图（issue #30）。
+        plan_tool_policy = resolve_product_package_plan_policy(
+            package_id=capability_resolution.package_id,
+            announced_tool_names=external_tool_names,
+        ) or resolve_agent_plan_tool_policy(
             original_message=original_message,
             announced_tool_names=external_tool_names,
             task_context_messages=task_context_messages,

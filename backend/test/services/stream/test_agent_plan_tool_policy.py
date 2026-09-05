@@ -1,9 +1,12 @@
 import unittest
 from types import SimpleNamespace
 
+import pytest
+
 from app.services.stream.agent_plan_tool_policy import (
     resolve_agent_plan_tool_policy,
     resolve_product_capability_signals,
+    resolve_product_package_plan_policy,
 )
 from app.utils.location_names import (
     _CITY_RECORDS as CITY_RECORDS,
@@ -14,6 +17,7 @@ from app.utils.location_names import (
     normalize_en_name,
     resolve_city_key,
 )
+from app.utils.run_capability_contract import CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES
 
 
 class AgentPlanToolPolicyTests(unittest.TestCase):
@@ -700,3 +704,69 @@ class LocationGazetteerRecordTests(unittest.TestCase):
         self.assertEqual(resolve_city_key("广州南站"), resolve_city_key("广州"))
         self.assertEqual(resolve_city_key("上海虹桥站"), resolve_city_key("上海"))
         self.assertIsNone(resolve_city_key("北京大学"))
+
+
+class TestPackageDrivenPlanToolPolicy:
+    """issue #30 分析项 4 根因 a：计划门禁不得用正则二次推导出行意图。
+
+    模型分类器已经判定了能力包并冻结了公开工具，计划门禁却用 #29 之前的老正则重新推一遍，
+    两层各判各的。线上表现：weather 分类正确但门禁完全识别不出（老正则对盲测集的产品类
+    条目只识别 4/15，weather 组 0/3），公开了工具却既不要求调用也不限制范围。
+    """
+
+    @pytest.mark.parametrize(
+        ("package_id", "required"),
+        [
+            ("weather", {"weather_forecast": 1}),
+            ("place_discovery", {"local_place_search": 1}),
+            ("mobility_route", {"route_compare": 1}),
+            ("flight", {"search_flights": 1}),
+            ("train", {"search_trains": 1}),
+            ("travel_air_rail", {"search_flights": 1, "search_trains": 1}),
+        ],
+    )
+    def test_产品包按分类结果派生门禁(self, package_id: str, required: dict):
+        announced = list(CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES[package_id])
+
+        policy = resolve_product_package_plan_policy(package_id=package_id, announced_tool_names=announced)
+
+        assert policy is not None
+        assert policy.required_initial_tool_counts == required
+        assert policy.allowed_tool_names == frozenset(announced)
+        assert policy.reason == f"capability_package:{package_id}"
+
+    def test_门禁不再依赖原文措辞(self):
+        # 老正则只认「从X到Y怎么走」这类裸规范式；加任何自然措辞就识别不出。
+        # 派生自能力包之后，同一个包无论用户怎么说都得到同一份门禁。
+        announced = list(CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES["weather"])
+
+        policy = resolve_product_package_plan_policy(package_id="weather", announced_tool_names=announced)
+
+        assert policy is not None
+        assert policy.required_initial_tool_counts == {"weather_forecast": 1}
+
+    def test_未公开的工具不会被写进门禁(self):
+        # 全局禁网或工具不可用时公开集合会收窄，门禁只能引用实际公开的工具。
+        policy = resolve_product_package_plan_policy(
+            package_id="travel_air_rail",
+            announced_tool_names=["search_trains"],
+        )
+
+        assert policy is not None
+        assert policy.required_initial_tool_counts == {"search_trains": 1}
+        assert policy.allowed_tool_names == frozenset({"search_trains"})
+
+    def test_必需工具一个都没公开时不设门禁(self):
+        assert resolve_product_package_plan_policy(package_id="weather", announced_tool_names=[]) is None
+
+    @pytest.mark.parametrize("package_id", ["direct", "transform", "fresh_web", "clarification_only"])
+    def test_非产品包不受影响(self, package_id: str):
+        assert resolve_product_package_plan_policy(package_id=package_id, announced_tool_names=[]) is None
+
+    @pytest.mark.parametrize("package_id", ["mobility_intercity", "mixed_itinerary"])
+    def test_刻意不收录的包沿用既有路径(self, package_id: str):
+        # mobility_intercity 置信度为 medium，PR #27 定下"公开但不强制"；
+        # mixed_itinerary 没有单一主工具。两者都返回 None，交回既有 resolve_agent_plan_tool_policy。
+        announced = list(CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES[package_id])
+
+        assert resolve_product_package_plan_policy(package_id=package_id, announced_tool_names=announced) is None
