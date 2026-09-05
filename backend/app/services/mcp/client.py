@@ -163,6 +163,9 @@ class HttpExchangeRecord:
     status_code: int | None = None
     content_type: str | None = None
     provider_error_code: str | None = None
+    # session.initialize() 成功之前都算握手阶段。list_tools / call_tool 也要先握手，
+    # 所以不能用外层 operation_name 判断是否处于握手（issue #32 复审）。
+    handshake_complete: bool = False
     _scanned_bytes: int = 0
     _scan_buffer: bytes = b""
 
@@ -202,28 +205,69 @@ class HttpExchangeRecord:
         return details
 
 
-class _BodyScanningStream(httpx.AsyncByteStream):
-    """把响应正文原样透传给 SDK，同时只在开头一段里找供应商错误签名。"""
+_http_exchange_record: contextvars.ContextVar[HttpExchangeRecord | None] = contextvars.ContextVar(
+    "mcp_http_exchange_record",
+    default=None,
+)
 
-    def __init__(self, inner: Any, record: HttpExchangeRecord):
+
+# SSE 流会一直开着，绝不能主动读；只有有限的非流式响应才可以先读完再重建。
+_STREAMING_CONTENT_TYPES = frozenset({"text/event-stream"})
+# 非流式响应超过这个体积就不扫描：正常的鉴权错误体只有几十字节，超限的一定不是它，
+# 与其冒着截断或重复正文的风险，不如放弃识别。
+_FINITE_BODY_BUFFER_LIMIT = 262_144
+
+
+async def _scanned_response(response: httpx.Response, record: HttpExchangeRecord) -> httpx.Response:
+    """对非 SSE 响应读完有限正文、扫描签名，再用同样的正文重建响应。
+
+    仅包装流是不够的：供应商返回的错误体不是合法 MCP 帧，SDK 根本不会迭代它，签名
+    永远不会被观察到（issue #32 复审）。因此必须主动读，而读完就得把正文原样还回去。
+    SSE 响应保持原样——读它会一直阻塞。
+    """
+
+    if record.content_type in _STREAMING_CONTENT_TYPES:
+        return response
+    buffered: list[bytes] = []
+    total = 0
+    async for chunk in response.stream:
+        buffered.append(chunk)
+        total += len(chunk)
+        if total > _FINITE_BODY_BUFFER_LIMIT:
+            # 已经读了一部分且无法安全续读，只能把读到的原样交回，不做识别。
+            return httpx.Response(
+                status_code=response.status_code,
+                headers=response.headers,
+                stream=_ReplayStream(buffered, response.stream),
+                extensions=response.extensions,
+            )
+    body = b"".join(buffered)
+    record.observe_body_chunk(body)
+    return httpx.Response(
+        status_code=response.status_code,
+        headers=response.headers,
+        content=body,
+        extensions=response.extensions,
+    )
+
+
+class _ReplayStream(httpx.AsyncByteStream):
+    """回放已读分块后继续透传剩余流；只用于超过缓冲上限的兜底路径。"""
+
+    def __init__(self, buffered: list[bytes], inner: Any):
+        self._buffered = buffered
         self._inner = inner
-        self._record = record
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
+        for chunk in self._buffered:
+            yield chunk
         async for chunk in self._inner:
-            self._record.observe_body_chunk(chunk)
             yield chunk
 
     async def aclose(self) -> None:
         aclose = getattr(self._inner, "aclose", None)
         if aclose is not None:
             await aclose()
-
-
-_http_exchange_record: contextvars.ContextVar[HttpExchangeRecord | None] = contextvars.ContextVar(
-    "mcp_http_exchange_record",
-    default=None,
-)
 
 
 class _RecordingTransport(httpx.AsyncBaseTransport):
@@ -250,7 +294,7 @@ class _RecordingTransport(httpx.AsyncBaseTransport):
         record = _http_exchange_record.get()
         if record is not None:
             record.record(response)
-            response.stream = _BodyScanningStream(response.stream, record)
+            return await _scanned_response(response, record)
         return response
 
     async def aclose(self) -> None:
@@ -426,6 +470,9 @@ class McpClientManager:
                     ) as session:
                         async with asyncio.timeout(connect_timeout_seconds):
                             await session.initialize()
+                        handshake_record = _http_exchange_record.get()
+                        if handshake_record is not None:
+                            handshake_record.handshake_complete = True
                         result = await operation(session, call_timeout_seconds)
                     logger.info(
                         "MCP 操作完成 server_id=%s provider=%s operation=%s attempt=%s duration_ms=%s",
@@ -478,7 +525,13 @@ class McpClientManager:
                 return await run_attempts()
         except TimeoutError:
             record = _http_exchange_record.get()
-            if operation_name != "initialize":
+            if record is not None and not record.handshake_complete and record.provider_error_code is not None:
+                error = McpClientError(
+                    record.provider_error_code,
+                    "MCP 服务鉴权失败",
+                    safe_details=record.as_safe_details(),
+                )
+            elif record is not None and record.handshake_complete:
                 error = McpClientError("call_timeout", "MCP 服务调用超时")
             elif record is not None and record.responded:
                 error = McpClientError(
@@ -640,7 +693,10 @@ def _classify_exception(exc: Exception, operation_name: str) -> McpClientError:
             return McpClientError("upstream_error", "MCP 服务调用失败")
     if any(isinstance(error, (TimeoutError, httpx.TimeoutException)) for error in errors):
         record = _http_exchange_record.get()
-        if operation_name == "initialize":
+        # list_tools / call_tool 也要先完成 session.initialize()，握手阶段失败时它们的
+        # operation_name 却是 tools_list / tools_call，用它判断会漏掉（issue #32 复审）。
+        in_handshake = record is None or not record.handshake_complete
+        if in_handshake:
             # 服务端答复过却没能完成 MCP 握手，说明连接与出网都是通的，问题在供应商侧
             # ——常见于鉴权失败但错误藏在 MCP 流内、不体现为 HTTP 状态码的实现。
             # 报成 connect_timeout 会把排查带向网络方向（issue #32）。

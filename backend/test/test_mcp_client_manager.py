@@ -1013,6 +1013,8 @@ class HandshakeRejectionClassificationTests(unittest.IsolatedAsyncioTestCase):
 
         record = HttpExchangeRecord()
         record.responded = True
+        # 握手已完成才轮得到工具调用超时；握手阶段的失败归握手判定。
+        record.handshake_complete = True
         token = _http_exchange_record.set(record)
         try:
             error = _classify_exception(TimeoutError(), "tools_call")
@@ -1199,3 +1201,115 @@ class ProviderAuthErrorInBodyTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(record.provider_error_code)
         self.assertEqual(len(body), 100_016)
         self.assertNotIn("INVALID_USER_KEY", repr(record.as_safe_details()))
+
+
+class RealSdkPathAuthFailureTests(unittest.IsolatedAsyncioTestCase):
+    """走真实 streamable_http_client / ClientSession，不手工 drain 响应流。
+
+    issue #32 复审：上一版单测显式遍历 response.stream 才让签名识别生效，而真实 SDK
+    在响应不是合法 MCP 帧时根本不会迭代它，于是线上仍然是 handshake_rejected /
+    call_timeout。这组用例专门覆盖"没有人读流"的真实路径。
+    """
+
+    AMAP_ERROR_BODY = b'{"status":"0","info":"INVALID_USER_KEY","infocode":"10001"}'
+
+    def _manager(self):
+        import httpx
+
+        from app.services.mcp.client import McpClientManager, StreamableHttpMcpConnector, _RecordingTransport
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                content=self.AMAP_ERROR_BODY,
+            )
+
+        connector = StreamableHttpMcpConnector()
+        original_connect = connector.connect
+
+        def patched_transport(*args, **kwargs):
+            transport = _RecordingTransport(*args, **kwargs)
+            transport._transport = httpx.MockTransport(handler)
+            return transport
+
+        return (
+            McpClientManager(
+                policy=build_policy(
+                    allowed_hosts=frozenset({"mcp.amap.com"}),
+                    allowed_credential_refs=frozenset({"AMAP_MCP_API_KEY"}),
+                    connect_timeout_seconds=0.4,
+                    call_timeout_seconds=0.6,
+                    idempotent_total_timeout_seconds=2.0,
+                ),
+                connector=connector,
+                environ={"AMAP_MCP_API_KEY": "invalid-key"},
+            ),
+            patched_transport,
+            original_connect,
+        )
+
+    def _config(self):
+        return build_config(
+            provider="amap",
+            endpoint_url="https://mcp.amap.com/mcp",
+            auth_type="query",
+            auth_name="key",
+            credential_ref="AMAP_MCP_API_KEY",
+            allowed_tools=["maps_weather"],
+        )
+
+    async def _run_operation(self, coroutine_factory):
+        from unittest.mock import patch
+
+        manager, patched_transport, _ = self._manager()
+        with patch("app.services.mcp.client._RecordingTransport", new=patched_transport):
+            with self.assertRaises(Exception) as ctx:
+                await coroutine_factory(manager)
+        return ctx.exception
+
+    async def test_initialize_在无效密钥下判为_auth_failed(self):
+        error = await self._run_operation(lambda m: m.test_connection(self._config()))
+
+        self.assertEqual(error.code, "auth_failed")
+
+    async def test_tools_list_同样判为_auth_failed(self):
+        error = await self._run_operation(lambda m: m.list_tools(self._config()))
+
+        self.assertEqual(error.code, "auth_failed")
+
+    async def test_tools_call_同样判为_auth_failed(self):
+        error = await self._run_operation(lambda m: m.call_tool(self._config(), "maps_weather", {"city": "北京"}))
+
+        self.assertEqual(error.code, "auth_failed")
+
+    async def test_鉴权失败不重试(self):
+        from unittest.mock import patch
+
+        manager, patched_transport, _ = self._manager()
+        attempts = []
+
+        import httpx
+
+        def counting_handler(request: httpx.Request) -> httpx.Response:
+            attempts.append(request)
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                content=self.AMAP_ERROR_BODY,
+            )
+
+        from app.services.mcp.client import _RecordingTransport as RealRecordingTransport
+
+        def transport_factory(*args, **kwargs):
+            # 必须先捕获真实类：patch 之后再 import 拿到的是本函数自己，会无限递归。
+            transport = RealRecordingTransport(*args, **kwargs)
+            transport._transport = httpx.MockTransport(counting_handler)
+            return transport
+
+        with patch("app.services.mcp.client._RecordingTransport", new=transport_factory):
+            with self.assertRaises(Exception):
+                await manager.list_tools(self._config())
+
+        # tools_list 是幂等操作，可重试码会跑两轮；auth_failed 必须只跑一轮。
+        self.assertEqual(len(attempts), 1)
