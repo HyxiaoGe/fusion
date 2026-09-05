@@ -15,7 +15,7 @@ from app.services.mcp.client import (  # noqa: E402
     McpClientManager,
     McpClientPolicy,
     McpConnectionConfig,
-    _QueryParameterTransport,
+    _RecordingTransport,
 )
 
 
@@ -762,7 +762,7 @@ class McpClientManagerTests(unittest.TestCase):
             captured_urls.append(str(request.url))
             return httpx.Response(200, json={"ok": True})
 
-        transport = _QueryParameterTransport({"api_key": secret})
+        transport = _RecordingTransport({"api_key": secret})
         transport._transport = httpx.MockTransport(handler)
 
         async def request_once():
@@ -963,3 +963,141 @@ class McpClientManagerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HandshakeRejectionClassificationTests(unittest.IsolatedAsyncioTestCase):
+    """issue #32：供应商在 MCP 流内拒绝时，不得报成 connect_timeout。
+
+    高德鉴权失败不体现为 HTTP 状态码——HTTP 层成功，错误藏在 MCP 流内，于是
+    initialize 永不完成，5 秒超时兜底，异常链里只剩 TimeoutError。报成
+    connect_timeout 会把排查带向出网方向，而真实原因是密钥无效。
+    """
+
+    @staticmethod
+    def _classify(*, responded: bool, status_code: int | None = None, content_type: str | None = None):
+        from app.services.mcp.client import HttpExchangeRecord, _classify_exception, _http_exchange_record
+
+        record = HttpExchangeRecord()
+        if responded:
+            record.responded = True
+            record.status_code = status_code
+            record.content_type = content_type
+        token = _http_exchange_record.set(record)
+        try:
+            return _classify_exception(TimeoutError(), "initialize")
+        finally:
+            _http_exchange_record.reset(token)
+
+    def test_服务端答复过则判为握手被拒(self):
+        error = self._classify(responded=True, status_code=200, content_type="application/json")
+
+        self.assertEqual(error.code, "handshake_rejected")
+        self.assertEqual(error.safe_details["http_status"], 200)
+        self.assertEqual(error.safe_details["content_type"], "application/json")
+        self.assertTrue(error.safe_details["http_responded"])
+
+    def test_没有任何答复才判为连接超时(self):
+        error = self._classify(responded=False)
+
+        self.assertEqual(error.code, "connect_timeout")
+
+    def test_握手被拒不参与重试(self):
+        from app.services.mcp.client import _RETRYABLE_ERROR_CODES
+
+        # 服务端已经答复过，重试只是再等一个完整超时，不可能成功。
+        self.assertNotIn("handshake_rejected", _RETRYABLE_ERROR_CODES)
+        self.assertIn("connect_timeout", _RETRYABLE_ERROR_CODES)
+
+    def test_工具调用超时不受影响(self):
+        from app.services.mcp.client import HttpExchangeRecord, _classify_exception, _http_exchange_record
+
+        record = HttpExchangeRecord()
+        record.responded = True
+        token = _http_exchange_record.set(record)
+        try:
+            error = _classify_exception(TimeoutError(), "tools_call")
+        finally:
+            _http_exchange_record.reset(token)
+
+        self.assertEqual(error.code, "call_timeout")
+
+    def test_错误详情不含任何响应正文(self):
+        from app.services.mcp.client import HttpExchangeRecord
+
+        record = HttpExchangeRecord()
+        record.record(SimpleNamespace(status_code=401, headers={"content-type": "application/json; charset=utf-8"}))
+
+        details = record.as_safe_details()
+        self.assertEqual(set(details), {"http_responded", "http_status", "content_type"})
+        # content-type 只保留主类型，参数被剥掉
+        self.assertEqual(details["content_type"], "application/json")
+
+
+class RecordingTransportTests(unittest.IsolatedAsyncioTestCase):
+    async def test_记录状态码但不读取响应正文(self):
+        import httpx
+
+        from app.services.mcp.client import HttpExchangeRecord, _http_exchange_record
+
+        body_reads = []
+
+        class SpyTransport(httpx.AsyncBaseTransport):
+            async def handle_async_request(self, request):
+                return httpx.Response(
+                    403,
+                    headers={"content-type": "text/event-stream"},
+                    content=b"provider error body",
+                )
+
+        from app.services.mcp.client import _RecordingTransport
+
+        transport = _RecordingTransport({"key": "credential-value"})
+        transport._transport = SpyTransport()
+        record = HttpExchangeRecord()
+        token = _http_exchange_record.set(record)
+        try:
+            await transport.handle_async_request(httpx.Request("POST", "https://example.com/mcp"))
+        finally:
+            _http_exchange_record.reset(token)
+
+        self.assertTrue(record.responded)
+        self.assertEqual(record.status_code, 403)
+        self.assertEqual(record.content_type, "text/event-stream")
+        # 记录器只读状态行与响应头，不触碰正文
+        self.assertEqual(body_reads, [])
+
+    async def test_凭证仍然注入到查询参数(self):
+        import httpx
+
+        seen: list[httpx.Request] = []
+
+        class SpyTransport(httpx.AsyncBaseTransport):
+            async def handle_async_request(self, request):
+                seen.append(request)
+                return httpx.Response(200)
+
+        from app.services.mcp.client import _RecordingTransport
+
+        transport = _RecordingTransport({"key": "credential-value"})
+        transport._transport = SpyTransport()
+        await transport.handle_async_request(httpx.Request("POST", "https://example.com/mcp"))
+
+        self.assertIn("key=credential-value", str(seen[0].url))
+
+    async def test_没有查询凭证时请求不被改写(self):
+        import httpx
+
+        seen: list[httpx.Request] = []
+
+        class SpyTransport(httpx.AsyncBaseTransport):
+            async def handle_async_request(self, request):
+                seen.append(request)
+                return httpx.Response(200)
+
+        from app.services.mcp.client import _RecordingTransport
+
+        transport = _RecordingTransport()
+        transport._transport = SpyTransport()
+        await transport.handle_async_request(httpx.Request("POST", "https://example.com/mcp?a=1"))
+
+        self.assertEqual(str(seen[0].url), "https://example.com/mcp?a=1")

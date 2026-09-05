@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import ipaddress
 import json
 import logging
@@ -136,23 +137,64 @@ class McpConnector(Protocol):
     async def close(self) -> None: ...
 
 
-class _QueryParameterTransport(httpx.AsyncBaseTransport):
-    """在 HTTPX 日志层之后注入 query 凭证，避免最终 URL 出现在日志和异常中。"""
+@dataclass
+class HttpExchangeRecord:
+    """一次 MCP 操作里 HTTP 层实际发生了什么。
 
-    def __init__(self, query_params: dict[str, str]):
-        self._query_params = query_params
+    只记录状态码与 content-type 这类固定事实，不持有任何响应正文——正文可能包含
+    供应商返回的凭证相关内容，也不需要它就能把"服务端答复了"与"根本没连上"分开。
+    """
+
+    responded: bool = False
+    status_code: int | None = None
+    content_type: str | None = None
+
+    def record(self, response: httpx.Response) -> None:
+        self.responded = True
+        self.status_code = response.status_code
+        content_type = response.headers.get("content-type")
+        self.content_type = content_type.split(";", 1)[0].strip().lower() if content_type else None
+
+    def as_safe_details(self) -> dict[str, Any]:
+        details: dict[str, Any] = {"http_responded": self.responded}
+        if self.status_code is not None:
+            details["http_status"] = self.status_code
+        if self.content_type is not None:
+            details["content_type"] = self.content_type
+        return details
+
+
+_http_exchange_record: contextvars.ContextVar[HttpExchangeRecord | None] = contextvars.ContextVar(
+    "mcp_http_exchange_record",
+    default=None,
+)
+
+
+class _RecordingTransport(httpx.AsyncBaseTransport):
+    """在 HTTPX 日志层之后注入 query 凭证，并记录 HTTP 交换是否真的有过答复。
+
+    凭证注入必须发生在这一层，避免最终 URL 出现在日志和异常中；交换记录也放在这里，
+    因为供应商在 HTTP 成功、错误藏在 MCP 流内时，上层只能看到一个 TimeoutError。
+    """
+
+    def __init__(self, query_params: dict[str, str] | None = None):
+        self._query_params = query_params or {}
         self._transport = httpx.AsyncHTTPTransport(retries=0)
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        credential_url = request.url.copy_merge_params(self._query_params)
-        credential_request = httpx.Request(
-            request.method,
-            credential_url,
-            headers=request.headers,
-            stream=request.stream,
-            extensions=request.extensions,
-        )
-        return await self._transport.handle_async_request(credential_request)
+        if self._query_params:
+            request = httpx.Request(
+                request.method,
+                request.url.copy_merge_params(self._query_params),
+                headers=request.headers,
+                stream=request.stream,
+                extensions=request.extensions,
+            )
+        response = await self._transport.handle_async_request(request)
+        record = _http_exchange_record.get()
+        if record is not None:
+            record.record(response)
+        return response
 
     async def aclose(self) -> None:
         await self._transport.aclose()
@@ -171,7 +213,7 @@ class StreamableHttpMcpConnector:
         connect_timeout_seconds: float,
         call_timeout_seconds: float,
     ) -> AsyncIterator[McpSession]:
-        transport = _QueryParameterTransport(query_params) if query_params else httpx.AsyncHTTPTransport(retries=0)
+        transport = _RecordingTransport(query_params)
         timeout = httpx.Timeout(call_timeout_seconds, connect=connect_timeout_seconds)
         async with httpx.AsyncClient(
             headers=headers,
@@ -315,6 +357,7 @@ class McpClientManager:
 
         async def run_attempts():
             for attempt in range(1, max_attempts + 1):
+                _http_exchange_record.set(HttpExchangeRecord())
                 try:
                     connection = self._resolve_connection(config)
                     async with self.connector.connect(
@@ -377,11 +420,17 @@ class McpClientManager:
             async with asyncio.timeout(max(0.1, idempotent_total_timeout_seconds)):
                 return await run_attempts()
         except TimeoutError:
-            error = (
-                McpClientError("connect_timeout", "连接 MCP 服务超时")
-                if operation_name == "initialize"
-                else McpClientError("call_timeout", "MCP 服务调用超时")
-            )
+            record = _http_exchange_record.get()
+            if operation_name != "initialize":
+                error = McpClientError("call_timeout", "MCP 服务调用超时")
+            elif record is not None and record.responded:
+                error = McpClientError(
+                    "handshake_rejected",
+                    "MCP 服务已响应但未完成握手，可能是凭据或服务端策略拒绝",
+                    safe_details=record.as_safe_details(),
+                )
+            else:
+                error = McpClientError("connect_timeout", "连接 MCP 服务超时")
             logger.warning(
                 "MCP 操作总预算耗尽 server_id=%s provider=%s operation=%s error_code=%s duration_ms=%s",
                 config.server_id,
@@ -533,7 +582,17 @@ def _classify_exception(exc: Exception, operation_name: str) -> McpClientError:
                 return McpClientError("endpoint_not_found", "MCP 服务端点不存在")
             return McpClientError("upstream_error", "MCP 服务调用失败")
     if any(isinstance(error, (TimeoutError, httpx.TimeoutException)) for error in errors):
+        record = _http_exchange_record.get()
         if operation_name == "initialize":
+            # 服务端答复过却没能完成 MCP 握手，说明连接与出网都是通的，问题在供应商侧
+            # ——常见于鉴权失败但错误藏在 MCP 流内、不体现为 HTTP 状态码的实现。
+            # 报成 connect_timeout 会把排查带向网络方向（issue #32）。
+            if record is not None and record.responded:
+                return McpClientError(
+                    "handshake_rejected",
+                    "MCP 服务已响应但未完成握手，可能是凭据或服务端策略拒绝",
+                    safe_details=record.as_safe_details(),
+                )
             return McpClientError("connect_timeout", "连接 MCP 服务超时")
         return McpClientError("call_timeout", "MCP 服务调用超时")
     if any(isinstance(error, (httpx.NetworkError, httpx.ProtocolError)) for error in errors):
