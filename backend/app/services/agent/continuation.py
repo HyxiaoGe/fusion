@@ -10,6 +10,8 @@ from app.ai.prompts.agent_loop import (
     CONTINUATION_SYSTEM_PROMPT as _CONTINUATION_SYSTEM_PROMPT,
 )
 from app.ai.prompts.agent_loop import get_continuation_system_prompt
+from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
+from app.ai.prompts.section_ids import CONTINUATION_SYSTEM
 from app.db.models import AgentSession
 from app.db.models import Message as MessageModel
 from app.schemas.chat import ContentBlock
@@ -33,12 +35,17 @@ class AgentContinuationContext:
     initial_content_blocks: list[ContentBlock]
 
 
-def inject_continuation_prompt(messages: list[dict]) -> list[dict]:
+def inject_continuation_prompt(messages: list[PromptMessage | dict]) -> list[PromptMessage]:
+    normalized = ensure_prompt_messages(messages)
     insert_at = 0
-    while insert_at < len(messages) and messages[insert_at].get("role") == "system":
+    while insert_at < len(normalized) and normalized[insert_at].role == "system":
         insert_at += 1
-    prompt = {"role": "system", "content": get_continuation_system_prompt()}
-    return [*messages[:insert_at], prompt, *messages[insert_at:]]
+    prompt = PromptMessage(
+        role="system",
+        content=get_continuation_system_prompt(),
+        section_id=CONTINUATION_SYSTEM,
+    )
+    return [*normalized[:insert_at], prompt, *normalized[insert_at:]]
 
 
 def resolve_continuation_limits(session: AgentSession, *, default_limits: AgentLoopLimits) -> AgentLoopLimits:

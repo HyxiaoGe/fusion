@@ -10,6 +10,7 @@ from typing import Any
 
 from app.ai import litellm_health
 from app.ai.llm_round_observability import create_llm_round_observation
+from app.ai.prompts.prompt_message import PromptMessage, to_provider_messages
 from app.core.logger import app_logger as logger
 from app.schemas.chat import ContextUsage, Usage
 from app.services.agent.llm_round_detail_recorder import LlmRoundDetailDraft
@@ -62,7 +63,7 @@ def _create_agent_round_observation(
         model_id=model_id,
         provider=provider,
         litellm_model=litellm_model,
-        messages=context_plan.messages,
+        messages=to_provider_messages(context_plan.messages),
         call_kwargs=call_kwargs,
         assistant_message_id=assistant_message_id,
         context_management=context_plan.telemetry(),
@@ -94,7 +95,7 @@ async def collect_agent_round_stream(
     model_id: str | None = None,
     litellm_model: str,
     litellm_kwargs: dict,
-    messages: list[dict],
+    messages: list[PromptMessage | dict],
     should_use_reasoning: bool,
     call_kwargs: dict,
     step_context: Any,
@@ -111,7 +112,7 @@ async def collect_agent_round_stream(
     response = await llm_call_fn(
         litellm_model,
         litellm_kwargs,
-        messages,
+        to_provider_messages(messages),
         **call_kwargs,
     )
     if observation is not None:
@@ -218,7 +219,7 @@ async def run_agent_round(
     provider: str,
     litellm_model: str,
     litellm_kwargs: dict,
-    messages: list[dict],
+    messages: list[PromptMessage],
     should_use_reasoning: bool,
     call_kwargs: dict,
     accumulated_usage: Usage,
@@ -290,7 +291,7 @@ async def run_agent_round(
         run_id=run_id,
         message_id=assistant_message_id,
         detail_scheduler=llm_round_detail_scheduler,
-        system_prompt_fingerprint=fingerprint_system_messages(effective_messages),
+        system_prompt_fingerprint=fingerprint_system_messages(to_provider_messages(effective_messages)),
     )
     observation.start()
     partial_output: dict[str, str] = {}

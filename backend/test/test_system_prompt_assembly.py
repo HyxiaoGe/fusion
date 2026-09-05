@@ -20,6 +20,11 @@ class SystemPromptAssemblyTests(unittest.TestCase):
         self.assertNotIn("请解释", str(result.metadata))
         self.assertNotIn("重复规则", str(result.messages))
         self.assertTrue(all(set(m) == {"role", "content"} for m in result.messages))
+        self.assertEqual(
+            [message.section_id for message in result.messages],
+            ["app_identity", "tool", "current_date", "user_preferences"],
+        )
+        self.assertTrue(all("section_id" not in dict(message) for message in result.messages))
 
     def test_failure_has_safe_metadata_and_no_exception_text(self):
         from app.ai.prompts.system_prompt import SystemPromptAssemblyError, assemble_system_prompt

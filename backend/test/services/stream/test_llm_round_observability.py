@@ -7,11 +7,22 @@ from threading import BoundedSemaphore
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from app.ai.prompts.prompt_message import PromptMessage
 from app.schemas.chat import Message, TextBlock, Usage
 from app.services.chat.message_builder import build_llm_messages
 
 
 class LLMRoundObservabilityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_token_estimator_strips_internal_section_identity(self):
+        from app.ai.llm_round_observability import estimate_prompt_tokens
+
+        message = PromptMessage(role="system", content="规则", section_id="app_identity")
+        with patch("app.ai.llm_round_observability.litellm.token_counter", return_value=7) as counter:
+            result = estimate_prompt_tokens("test/model", [message], {})
+
+        self.assertEqual(result, 7)
+        self.assertEqual(counter.call_args.kwargs["messages"], [{"role": "system", "content": "规则"}])
+
     async def test_context_management_metadata_is_allowlisted_and_reuses_estimate(self):
         from app.ai.llm_round_observability import LLMRoundObservation, RoundMetadata
 
@@ -281,19 +292,27 @@ class LLMRoundObservabilityTests(unittest.IsolatedAsyncioTestCase):
         observation.start()
         observation.observe_chunk(
             SimpleNamespace(
-                choices=[SimpleNamespace(delta=SimpleNamespace(reasoning_content="隐藏推理", content=None, tool_calls=None))]
+                choices=[
+                    SimpleNamespace(delta=SimpleNamespace(reasoning_content="隐藏推理", content=None, tool_calls=None))
+                ]
             )
         )
         observation.observe_output_candidate("reasoning")
         observation.observe_chunk(
             SimpleNamespace(
-                choices=[SimpleNamespace(delta=SimpleNamespace(reasoning_content=None, content="可见正文", tool_calls=None))]
+                choices=[
+                    SimpleNamespace(delta=SimpleNamespace(reasoning_content=None, content="可见正文", tool_calls=None))
+                ]
             )
         )
         observation.observe_output_candidate("content")
         observation.observe_chunk(
             SimpleNamespace(
-                choices=[SimpleNamespace(delta=SimpleNamespace(reasoning_content="同块推理", content=None, tool_calls=[object()]))]
+                choices=[
+                    SimpleNamespace(
+                        delta=SimpleNamespace(reasoning_content="同块推理", content=None, tool_calls=[object()])
+                    )
+                ]
             )
         )
         observation.observe_output_candidate("reasoning")
@@ -322,14 +341,18 @@ class LLMRoundObservabilityTests(unittest.IsolatedAsyncioTestCase):
         now[0] = 20.1
         observation.observe_chunk(
             SimpleNamespace(
-                choices=[SimpleNamespace(delta=SimpleNamespace(reasoning_content="隐藏", content=None, tool_calls=None))]
+                choices=[
+                    SimpleNamespace(delta=SimpleNamespace(reasoning_content="隐藏", content=None, tool_calls=None))
+                ]
             )
         )
         observation.observe_output_candidate("reasoning")
         now[0] = 20.4
         observation.observe_chunk(
             SimpleNamespace(
-                choices=[SimpleNamespace(delta=SimpleNamespace(reasoning_content=None, content="正文", tool_calls=None))]
+                choices=[
+                    SimpleNamespace(delta=SimpleNamespace(reasoning_content=None, content="正文", tool_calls=None))
+                ]
             )
         )
         observation.observe_output_candidate("content")
@@ -355,7 +378,11 @@ class LLMRoundObservabilityTests(unittest.IsolatedAsyncioTestCase):
         now[0] = 20.6
         observation.observe_chunk(
             SimpleNamespace(
-                choices=[SimpleNamespace(delta=SimpleNamespace(reasoning_content="隐藏", content="隐藏正文", tool_calls=None))]
+                choices=[
+                    SimpleNamespace(
+                        delta=SimpleNamespace(reasoning_content="隐藏", content="隐藏正文", tool_calls=None)
+                    )
+                ]
             )
         )
         observation.observe_output_candidate("reasoning")
@@ -363,7 +390,9 @@ class LLMRoundObservabilityTests(unittest.IsolatedAsyncioTestCase):
         now[0] = 20.9
         observation.observe_chunk(
             SimpleNamespace(
-                choices=[SimpleNamespace(delta=SimpleNamespace(reasoning_content=None, content=None, tool_calls=[object()]))]
+                choices=[
+                    SimpleNamespace(delta=SimpleNamespace(reasoning_content=None, content=None, tool_calls=[object()]))
+                ]
             )
         )
         observation.observe_output_candidate("tool_call")

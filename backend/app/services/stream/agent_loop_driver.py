@@ -6,6 +6,12 @@ from copy import deepcopy
 from inspect import Parameter, signature
 
 from app.ai.prompts.product_results import build_product_result_round_prompt
+from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
+from app.ai.prompts.section_ids import (
+    DEEP_RESEARCH_STAGE,
+    PRODUCT_RESULT_ROUND,
+    RESEARCH_EVIDENCE_WORKSET,
+)
 from app.services.stream.agent_loop_outcome import AgentLoopExit, AgentLoopOutcome
 from app.services.stream.agent_loop_policy import check_agent_loop_limit
 from app.services.stream.agent_loop_round_outcome import AgentRoundOutcomeRequest, handle_agent_round_outcome
@@ -29,7 +35,7 @@ from app.services.stream.step_lifecycle import AgentStepContext
 async def run_agent_loop(
     *,
     db,
-    messages: list[dict],
+    messages: list[PromptMessage],
     state: AgentLoopState,
     runtime: AgentLoopRuntime,
 ) -> AgentLoopOutcome:
@@ -149,7 +155,7 @@ async def run_agent_loop(
 async def _complete_product_result_without_llm(
     *,
     db,
-    messages: list[dict],
+    messages: list[PromptMessage],
     state: AgentLoopState,
     runtime: AgentLoopRuntime,
 ) -> None:
@@ -224,7 +230,7 @@ def _accepts_keyword(fn, keyword: str) -> bool:
 
 async def _run_round(
     *,
-    messages: list[dict],
+    messages: list[PromptMessage],
     state: AgentLoopState,
     runtime: AgentLoopRuntime,
     step_number: int,
@@ -531,7 +537,7 @@ async def _run_limit_summary(
     *,
     state: AgentLoopState,
     runtime: AgentLoopRuntime,
-    messages: list[dict],
+    messages: list[PromptMessage],
     summary_finish_reason: str = "limit_summary",
 ) -> None:
     if not state.plan_coordinator.execution_items_terminal():
@@ -569,7 +575,7 @@ async def _run_limit_summary(
 
 
 def _messages_with_research_workset(
-    messages: list[dict],
+    messages: list[PromptMessage | dict],
     *,
     state: AgentLoopState,
     runtime: AgentLoopRuntime,
@@ -578,23 +584,24 @@ def _messages_with_research_workset(
     plan_repair_tool: str | None = None,
     active_plan_item_ids: list[str] | None = None,
     terminal_summary: bool = False,
-) -> list[dict]:
+) -> list[PromptMessage]:
+    normalized = ensure_prompt_messages(messages)
     if runtime.task_mode != "deep_research":
         if not terminal_summary:
-            return messages
+            return normalized
         untrusted_messages = build_research_untrusted_context_messages(
             state.research_workset,
             include_candidates=True,
         )
         if not untrusted_messages:
-            return messages
+            return normalized
         insert_at = 0
-        while insert_at < len(messages) and messages[insert_at].get("role") == "system":
+        while insert_at < len(normalized) and normalized[insert_at].role == "system":
             insert_at += 1
         return [
-            *messages[:insert_at],
+            *normalized[:insert_at],
             *untrusted_messages,
-            *messages[insert_at:],
+            *normalized[insert_at:],
         ]
     stage_prompt = (
         build_deep_research_stage_prompt(
@@ -614,34 +621,38 @@ def _messages_with_research_workset(
         include_candidates=include_candidates,
     )
     if not stage_prompt and not prompt and not untrusted_messages:
-        return messages
+        return normalized
+    normalized = [
+        message for message in normalized if message.section_id not in {DEEP_RESEARCH_STAGE, RESEARCH_EVIDENCE_WORKSET}
+    ]
     insert_at = 0
-    while insert_at < len(messages) and messages[insert_at].get("role") == "system":
+    while insert_at < len(normalized) and normalized[insert_at].role == "system":
         insert_at += 1
     return [
-        *messages[:insert_at],
-        *([{"role": "system", "content": stage_prompt}] if stage_prompt else []),
-        *([{"role": "system", "content": prompt}] if prompt else []),
+        *normalized[:insert_at],
+        *([PromptMessage(role="system", content=stage_prompt, section_id=DEEP_RESEARCH_STAGE)] if stage_prompt else []),
+        *([PromptMessage(role="system", content=prompt, section_id=RESEARCH_EVIDENCE_WORKSET)] if prompt else []),
         *untrusted_messages,
-        *messages[insert_at:],
+        *normalized[insert_at:],
     ]
 
 
 def _messages_with_product_result_constraint(
-    messages: list[dict],
+    messages: list[PromptMessage | dict],
     *,
     content_blocks: list,
-) -> list[dict]:
+) -> list[PromptMessage]:
     """只为当前模型轮次添加静态约束，不修改 Run 的持久消息与初始提示词快照。"""
 
     prompt = build_product_result_round_prompt(content_blocks)
-    if not prompt or any(message.get("role") == "system" and message.get("content") == prompt for message in messages):
-        return messages
+    normalized = ensure_prompt_messages(messages)
+    if not prompt or any(message.section_id == PRODUCT_RESULT_ROUND for message in normalized):
+        return normalized
     insert_at = 0
-    while insert_at < len(messages) and messages[insert_at].get("role") == "system":
+    while insert_at < len(normalized) and normalized[insert_at].role == "system":
         insert_at += 1
     return [
-        *messages[:insert_at],
-        {"role": "system", "content": prompt},
-        *messages[insert_at:],
+        *normalized[:insert_at],
+        PromptMessage(role="system", content=prompt, section_id=PRODUCT_RESULT_ROUND),
+        *normalized[insert_at:],
     ]

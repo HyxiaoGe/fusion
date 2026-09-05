@@ -89,6 +89,14 @@
 - 本地证据：最新目标集（含生产 wiring 与 lifecycle 指纹契约）`654 passed + 1065 subtests`，其中路由单测 `506 passed`、真实组装 fixture `491 subtests`；API 权威全量 `3489 passed, 2 skipped, 1895 subtests`，Ruff、任务改动文件 format check 与 diff check 已通过。能力包指纹现覆盖完整 resolution、announced tools、安全 MCP bindings、task/network/evidence policy 与 Prompt 模板版本；实际 Prompt snapshot/fingerprint 继续单独证明 section/body。UI 全量 `2430 passed`、production build、目标 ESLint 与 diff check 已通过；最终替换式对抗审查结论为 CLEAN。全量首次发现 Trajectory 列表读取整个 `AgentSession.config`，共享路径以 `7e49f5f` 收窄为 capability resolution 轻量投影后，原失败单项与全量均通过。
 - 当前状态仅为 API/UI 分支本地实现和静态/单元回归；没有推送、PR、CI、部署、真实模型或登录态浏览器验收。协议见 [Run 级能力路由规格](specs/backend/2026-08-27-run-capability-router.md)。
 
+## 2026-09-06 全局 Prompt Runtime P1 稳定 Section Identity（本地实现与自动化回归）
+
+- 新增不可变内部消息类型 `PromptMessage(role, content, section_id)`；非 system 消息强制 `section_id=None`，system 组装、知识库上下文、续跑、研究阶段、产品结果、计划修正、工具回合和终局总结统一保留稳定身份。
+- 工具契约、计划契约、深度研究契约、无联网/无图片边界、语言规则与终局控制清理均按 `section_id` 去重或删除；相同中文 marker 出现在其它身份正文中不会误删，Prompt 正文任意热更新也不会破坏控制逻辑。
+- `to_provider_messages()` 成为 tokenizer、Agent 普通轮、终局总结和非流式聊天共用的 provider 投影；外部 payload 不含 `section_id`，语言规则在投影时恢复旧的 system 合并形态，保持模型实际消息顺序与正文边界不变。
+- 本地证据：P1 目标集合 `220 passed + 67 subtests`；共享行为契约 `53 passed + 1057 subtests`；后端权威全量 `3926 passed, 2 skipped + 4353 subtests`；Ruff check、本次 33 个 Python 文件 format check 与 `git diff --check` 全部通过。
+- 当前只完成隔离分支 `codex/issue-34-p1-section-identity` 的本地实现、提交和自动化验证；尚未推送、创建 PR、运行 CI、部署 dev 或执行真实模型验收。P2-P5、catalog 扩容、Prompt 英文化及输出侧 sanitizer 均未提前实施。
+
 ## 2026-09-03 Aug 27-28 重构评审整改（本地实现与自动化回归）
 
 - issue #23：中英文城市白名单合并为 `backend/app/utils/location_names.py` 单一事实源，按行政区划整体收录，取代此前两处手挑的 26/41 条名单。端点未命中词表不再整体落入 `clarification_only`；强制调用路线工具的 `explicit_route` 判定维持原严格度。残留缺口（未收录专名与抽象名词在规则层不可分）已记入规格文档。

@@ -5,6 +5,7 @@ from __future__ import annotations
 from functools import partial
 from inspect import Parameter, signature
 
+from app.ai.prompts.prompt_message import PromptMessage
 from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_round import AgentRoundResult
@@ -31,7 +32,7 @@ def _stream_round_with_model_id(runtime: AgentLoopRuntime):
 def build_tool_round_request(
     *,
     db,
-    messages: list[dict],
+    messages: list[PromptMessage],
     state: AgentLoopState,
     runtime: AgentLoopRuntime,
     step_number: int,
@@ -81,7 +82,7 @@ def build_limit_summary_step_request(
     *,
     state: AgentLoopState,
     runtime: AgentLoopRuntime,
-    messages: list[dict],
+    messages: list[PromptMessage],
     summary_finish_reason: str = "limit_summary",
 ) -> LimitSummaryStepRequest:
     return LimitSummaryStepRequest(

@@ -11,6 +11,7 @@ from app.ai import litellm_catalog
 from app.ai.llm_manager import llm_manager
 from app.ai.llm_observability import merge_litellm_kwargs
 from app.ai.prompts import prompt_manager
+from app.ai.prompts.prompt_message import to_provider_messages
 from app.core.config import settings
 from app.core.logger import app_logger as logger
 from app.db.model_catalog_control_repository import ModelCatalogControlRepository
@@ -928,7 +929,7 @@ class ChatService:
             raise ApiException.service_unavailable(str(error)) from error
         response = await litellm.acompletion(
             model=litellm_model,
-            messages=context_plan.messages,
+            messages=to_provider_messages(context_plan.messages),
             stream=False,
             **final_call_kwargs,
         )

@@ -5,6 +5,7 @@ from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
+from app.ai.prompts.section_ids import PLAN_REQUIRED_REPAIR, RESEARCH_COMPLETION_REPAIR
 from app.schemas.chat import (
     PlaceResult,
     PlaceResultsBlock,
@@ -359,6 +360,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.research_repair_attempts, 3)
         self.assertEqual(state.content_blocks, [])
         self.assertIn("至少完成一次有效搜索", messages[-1]["content"])
+        self.assertEqual(messages[-1].section_id, RESEARCH_COMPLETION_REPAIR)
 
     async def test_deep_research_with_files_still_requires_network_evidence(self):
         state = AgentLoopState(plan_coordinator=PlanCoordinator(run_id="run-file", mode="on"))
@@ -396,6 +398,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(outcome)
         self.assertEqual(state.content_blocks, [])
         self.assertIn("至少完成一次有效搜索", messages[-1]["content"])
+        self.assertEqual(messages[-1].section_id, RESEARCH_COMPLETION_REPAIR)
 
     async def test_on_mode_hidden_stop_without_plan_retries_then_uses_plan_repair_summary(self):
         state = AgentLoopState(plan_coordinator=PlanCoordinator(run_id="run-plan", mode="on"))
@@ -435,6 +438,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.content_blocks, [])
         self.assertFalse(any(message.get("role") == "assistant" for message in messages))
         self.assertIn("必须先调用计划控制工具", messages[-1]["content"])
+        self.assertEqual(messages[-1].section_id, PLAN_REQUIRED_REPAIR)
         self.assertEqual(complete_step.await_count, 3)
 
     async def test_on_mode_plan_gate_persists_streamed_reasoning_but_discards_answering(self):
@@ -472,6 +476,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.content_blocks[0].thinking, "先拆解任务，再建立计划。")
         self.assertFalse(any(block.type == "text" for block in state.content_blocks))
         self.assertIn("必须先调用计划控制工具", messages[-1]["content"])
+        self.assertEqual(messages[-1].section_id, PLAN_REQUIRED_REPAIR)
         persist_message.assert_called_once()
         self.assertTrue(persist_message.call_args.kwargs["partial"])
 
@@ -1094,9 +1099,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
                 id="blk-web-research",
                 query="Redis 版本更新",
                 sources=[SearchSourceSummary(title="Redis 官方文档", url="https://redis.io/docs")],
-                source_refs=[
-                    SourceReference(kind="search", title="Redis 官方文档", url="https://redis.io/docs")
-                ],
+                source_refs=[SourceReference(kind="search", title="Redis 官方文档", url="https://redis.io/docs")],
                 source_count=1,
             )
         )
@@ -2186,10 +2189,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
                 },
             ]
         )
-        model_answer = (
-            "航班都优于高铁。若希望落地更接近市区，可选虹桥机场。"
-            "G1 是兼顾早到与耗时的选择。"
-        )
+        model_answer = "航班都优于高铁。若希望落地更接近市区，可选虹桥机场。G1 是兼顾早到与耗时的选择。"
         append_chunk = AsyncMock()
         warnings: list[str] = []
 

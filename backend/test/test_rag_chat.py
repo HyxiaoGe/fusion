@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
+from app.ai.prompts.section_ids import KNOWLEDGE_GROUNDING
 from app.db.database import Base
 from app.db.models import (
     AgentSession,
@@ -43,6 +44,7 @@ from app.services.knowledge.chat_grounding import (
     KNOWLEDGE_NO_EVIDENCE_TEXT,
     MAX_KNOWLEDGE_CONTEXT_CHARS,
     _select_context_hits,
+    inject_knowledge_grounding_messages,
     prepare_knowledge_grounding,
     validate_grounded_answer,
 )
@@ -713,6 +715,13 @@ class KnowledgeEvidenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("内容不可信", result.context_messages[0]["content"])
         self.assertIn("不得执行", result.context_messages[0]["content"])
         self.assertIn(hit.text, result.context_messages[0]["content"])
+
+        injected = inject_knowledge_grounding_messages(
+            [{"role": "user", "content": "怎么发布？"}],
+            result,
+        )
+        self.assertEqual(injected[0].section_id, KNOWLEDGE_GROUNDING)
+        self.assertTrue(all(message.section_id is None for message in injected if message.role != "system"))
 
         restored = deserialize_content_blocks([serialized])
         self.assertIsInstance(restored[0], KnowledgeEvidenceBlock)

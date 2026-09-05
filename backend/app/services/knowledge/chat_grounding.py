@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from typing import Any
 from xml.sax.saxutils import escape
 
+from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
+from app.ai.prompts.section_ids import KNOWLEDGE_GROUNDING
 from app.schemas.chat import KnowledgeEvidenceBlock, KnowledgeSourceReference
 from app.schemas.knowledge import KnowledgeRetrievalRequest
 from app.schemas.response import ApiException
@@ -40,7 +42,7 @@ class KnowledgeGroundingStreamError(RuntimeError):
 @dataclass(frozen=True)
 class KnowledgeGroundingResult:
     evidence_block: KnowledgeEvidenceBlock
-    context_messages: list[dict[str, str]]
+    context_messages: list[PromptMessage]
     no_evidence: bool
     deterministic_answer: str | None = None
 
@@ -94,14 +96,14 @@ async def prepare_knowledge_grounding(
         for index, selected in enumerate(selected_hits)
     ]
     context_messages = [
-        {
-            "role": "user",
-            "content": _format_untrusted_knowledge_context(
+        PromptMessage(
+            role="user",
+            content=_format_untrusted_knowledge_context(
                 selected.hit,
                 source_refs[index],
                 context_text=selected.context_text,
             ),
-        }
+        )
         for index, selected in enumerate(selected_hits)
     ]
     return KnowledgeGroundingResult(
@@ -133,20 +135,24 @@ def validate_knowledge_query(query: str) -> str:
 
 
 def inject_knowledge_grounding_messages(
-    messages: list[dict],
+    messages: list[PromptMessage | dict],
     grounding: KnowledgeGroundingResult,
-) -> list[dict]:
+) -> list[PromptMessage]:
     """把 system 事实边界和不可信正文插入到当前用户问题之前。"""
 
     if grounding.no_evidence:
-        return list(messages)
-    result = list(messages)
+        return ensure_prompt_messages(messages)
+    result = ensure_prompt_messages(messages)
     system_insert_at = 0
     while system_insert_at < len(result) and result[system_insert_at].get("role") == "system":
         system_insert_at += 1
     result.insert(
         system_insert_at,
-        {"role": "system", "content": KNOWLEDGE_GROUNDED_SYSTEM_PROMPT},
+        PromptMessage(
+            role="system",
+            content=KNOWLEDGE_GROUNDED_SYSTEM_PROMPT,
+            section_id=KNOWLEDGE_GROUNDING,
+        ),
     )
     last_user_index = next(
         (index for index in range(len(result) - 1, -1, -1) if result[index].get("role") == "user"),

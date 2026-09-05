@@ -17,8 +17,19 @@ from app.ai.prompts.agent_loop import (
     PLAN_REPAIR_SUMMARY_PROMPT,
     PLAN_SYNTHESIS_PROMPT,
     RESEARCH_EVIDENCE_SUMMARY_PROMPT,
-    SUMMARY_NON_DISCLOSURE_PROMPT,
     get_limit_summary_prompt,
+)
+from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages, to_provider_messages
+from app.ai.prompts.section_ids import (
+    DEEP_RESEARCH_CONTROL_SECTION_IDS,
+    LIMIT_SUMMARY,
+    NO_PROGRESS_SUMMARY,
+    PLAN_REPAIR_SUMMARY,
+    PLAN_SYNTHESIS,
+    RESEARCH_COMPLETION_REPAIR,
+    RESEARCH_EVIDENCE_SUMMARY,
+    SUMMARY_TOOL_PROTOCOL_RETRY,
+    is_terminal_control_section,
 )
 from app.core.logger import app_logger as logger
 from app.schemas.chat import ContextUsage, KnowledgeEvidenceBlock, TextBlock, ThinkingBlock, Usage
@@ -84,7 +95,7 @@ class LimitSummaryStepRequest:
     provider: str
     litellm_model: str
     litellm_kwargs: dict
-    messages: list[dict]
+    messages: list[PromptMessage]
     should_use_reasoning: bool
     content_blocks: list
     call_kwargs: dict
@@ -147,34 +158,38 @@ def compute_summary_timeout(*, total_timeout_s: int, run_start: float, clock: Ca
 
 
 def append_limit_summary_prompt(
-    messages: list[dict],
+    messages: list[PromptMessage | dict],
     *,
     summary_finish_reason: str = "limit_summary",
     task_mode: str = "standard",
     content_blocks: list | None = None,
 ) -> None:
+    messages[:] = ensure_prompt_messages(messages)
     if summary_finish_reason == "plan_synthesis":
         prompt = PLAN_SYNTHESIS_PROMPT
+        section_id = PLAN_SYNTHESIS
     elif summary_finish_reason == "no_progress_summary":
         prompt = NO_PROGRESS_SUMMARY_PROMPT
+        section_id = NO_PROGRESS_SUMMARY
     elif summary_finish_reason == "plan_repair_exhausted":
         prompt = PLAN_REPAIR_SUMMARY_PROMPT
+        section_id = PLAN_REPAIR_SUMMARY
     elif summary_finish_reason == "research_evidence_repair_exhausted":
         prompt = RESEARCH_EVIDENCE_SUMMARY_PROMPT
+        section_id = RESEARCH_EVIDENCE_SUMMARY
     else:
         prompt = get_limit_summary_prompt()
-        if SUMMARY_NON_DISCLOSURE_PROMPT not in prompt:
-            prompt = f"{prompt}\n\n{SUMMARY_NON_DISCLOSURE_PROMPT}"
-    if task_mode == "deep_research" and RESEARCH_EVIDENCE_SUMMARY_PROMPT not in prompt:
+        section_id = LIMIT_SUMMARY
+    if task_mode == "deep_research" and section_id != RESEARCH_EVIDENCE_SUMMARY:
         prompt = f"{prompt}\n\n{RESEARCH_EVIDENCE_SUMMARY_PROMPT}"
     # 一次工具证据都没有时，"基于已收集的信息"指向空集；补上诚实下限，避免用参数记忆补齐。
     if content_blocks is not None and not has_tool_evidence(content_blocks):
         prompt = f"{prompt}\n\n{NO_TOOL_EVIDENCE_SUMMARY_PROMPT}"
-    messages.append({"role": "system", "content": prompt})
+    messages.append(PromptMessage(role="system", content=prompt, section_id=section_id))
 
 
 def remove_conflicting_tool_usage_contract(
-    messages: list[dict],
+    messages: list[PromptMessage | dict],
     *,
     task_mode: str = "standard",
     final_synthesis: bool = False,
@@ -182,30 +197,17 @@ def remove_conflicting_tool_usage_contract(
     """收尾总结移除会继续诱发工具协议的旧契约与事务历史。"""
 
     del final_synthesis  # 终局总结统一清理控制契约，不再按结束原因分叉。
-    terminal_control_markers = (
-        "【自主联网判断规则】",
-        "【工具调用一致性规则】",
-        "【执行计划控制规则】",
-        "【可核验证据计划规则】",
-        "【计划控制修正】",
-        "【计划执行修正】",
-    )
-    deep_research_control_markers = (
-        "【深度研究执行约束】",
-        "【深度研究阶段控制】",
-        "【深度研究完成校验】",
-    )
+    normalized = ensure_prompt_messages(messages)
     strip_tool_transactions = task_mode == "deep_research" or _only_recoverable_tool_transactions(messages)
-    filtered: list[dict] = []
-    for message in messages:
-        role = message.get("role")
-        content = str(message.get("content", ""))
-        if role == "system" and any(marker in content for marker in terminal_control_markers):
+    filtered: list[PromptMessage] = []
+    for message in normalized:
+        role = message.role
+        if role == "system" and is_terminal_control_section(message.section_id):
             continue
         if (
             task_mode == "deep_research"
             and role == "system"
-            and any(marker in content for marker in deep_research_control_markers)
+            and message.section_id in DEEP_RESEARCH_CONTROL_SECTION_IDS
         ):
             continue
         if strip_tool_transactions and role == "assistant" and message.get("tool_calls"):
@@ -216,7 +218,7 @@ def remove_conflicting_tool_usage_contract(
     messages[:] = filtered
 
 
-def _only_recoverable_tool_transactions(messages: list[dict]) -> bool:
+def _only_recoverable_tool_transactions(messages: list[PromptMessage | dict]) -> bool:
     """仅当全部事务都有服务端安全投影时，才从普通总结上下文移除原始协议。"""
 
     recoverable_tool_names = {"update_plan", "web_search", "url_read"}
@@ -287,7 +289,7 @@ def _create_limit_summary_observation(
         model_id=request.model_id,
         provider=request.provider,
         litellm_model=request.litellm_model,
-        messages=context_plan.messages,
+        messages=to_provider_messages(context_plan.messages),
         call_kwargs=call_kwargs,
         assistant_message_id=request.assistant_message_id,
         context_management=context_plan.telemetry(),
@@ -357,7 +359,7 @@ async def call_limit_summary_round(
         run_id=request.run_id,
         message_id=request.assistant_message_id,
         detail_scheduler=request.llm_round_detail_scheduler,
-        system_prompt_fingerprint=fingerprint_system_messages(effective_messages),
+        system_prompt_fingerprint=fingerprint_system_messages(to_provider_messages(effective_messages)),
     )
     observation.start()
     detail_partial_output = partial_output if partial_output is not None else {}
@@ -365,7 +367,7 @@ async def call_limit_summary_round(
         response = await request.llm_call_fn(
             request.litellm_model,
             request.litellm_kwargs,
-            effective_messages,
+            to_provider_messages(effective_messages),
             **final_call_kwargs,
         )
         response = observation.wrap_response(response)
@@ -618,7 +620,13 @@ async def run_summary_round_with_timeout(
             "无工具收尾总结返回了工具协议，执行一次无工具重试: "
             f"conv_id={request.conversation_id}, run_id={request.run_id}, step={request.step_number}"
         )
-        request.messages.append({"role": "system", "content": SUMMARY_TOOL_PROTOCOL_RETRY_PROMPT})
+        request.messages.append(
+            PromptMessage(
+                role="system",
+                content=SUMMARY_TOOL_PROTOCOL_RETRY_PROMPT,
+                section_id=SUMMARY_TOOL_PROTOCOL_RETRY,
+            )
+        )
         retry_remaining = remaining - (time.monotonic() - started_at)
         if retry_remaining <= 0:
             return _build_streamed_retry_failure(
@@ -743,10 +751,11 @@ async def _repair_deep_research_summary_citations(
     if remaining <= 0:
         return result
     request.messages.append(
-        {
-            "role": "system",
-            "content": build_research_repair_prompt(validation.reason, workset),
-        }
+        PromptMessage(
+            role="system",
+            content=build_research_repair_prompt(validation.reason, workset),
+            section_id=RESEARCH_COMPLETION_REPAIR,
+        )
     )
     await _finish_summary_round_lifecycle(result, model_output_visible=False)
     try:

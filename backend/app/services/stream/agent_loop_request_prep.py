@@ -14,6 +14,14 @@ from app.ai.prompts.agent_loop import (
     get_no_vision_file_boundary_prompt,
     get_tool_usage_contract_prompt,
 )
+from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_message, ensure_prompt_messages
+from app.ai.prompts.section_ids import (
+    AGENT_PLAN_CONTROL,
+    DEEP_RESEARCH_CONTRACT,
+    NO_TOOL_NETWORK_BOUNDARY,
+    NO_VISION_FILE_BOUNDARY,
+    TOOL_USAGE_CONTRACT,
+)
 from app.ai.prompts.system_prompt import SystemPromptSection, assemble_system_prompt
 from app.ai.skills.registry import RunSkillResolution, SkillReleasePin, load_skills_for_package
 from app.ai.tools import build_url_read_tool, build_web_search_tool
@@ -138,7 +146,7 @@ def build_update_plan_tool(allowed_tool_names: list[str] | None = None) -> dict[
 
 @dataclass(frozen=True)
 class AgentLoopPreparedMessages:
-    messages: list[dict]
+    messages: list[PromptMessage]
     initial_content_blocks: list[Any] = field(default_factory=list)
     final_tool_names: list[str] = field(default_factory=list)
     prompt_assembly: dict[str, Any] | None = None
@@ -406,9 +414,13 @@ async def prepare_agent_loop_messages(
     call_config: AgentLoopCallConfig,
     file_repo_factory: Callable[[Any], Any] | None = None,
     load_user_system_prompt_fn: Callable[[Any, str], str | None] | None = None,
-    build_llm_messages_fn: Callable[..., Awaitable[list[dict]]] | None = None,
+    build_llm_messages_fn: Callable[..., Awaitable[list[PromptMessage | dict]]] | None = None,
     is_image_file_fn: Callable[[str, Any], bool] | None = None,
-    inject_file_content_fn: Callable[[list[dict], str, dict[str, str]], list[dict]] | None = None,
+    inject_file_content_fn: Callable[
+        [list[PromptMessage | dict], str, dict[str, str]],
+        list[PromptMessage | dict],
+    ]
+    | None = None,
     preprocess_url_in_message_fn: Callable[..., Awaitable[tuple[Any | None, dict | None, str | None]]] | None = None,
     preprocess_user_input: bool = True,
     extra_system_prompts: list[str] | None = None,
@@ -422,14 +434,16 @@ async def prepare_agent_loop_messages(
 
     file_repo = file_repo_factory(db)
     user_system_prompt = load_user_system_prompt_fn(db, user_id)
-    messages = await build_llm_messages_fn(
-        raw_messages,
-        has_vision,
-        file_repo,
-        None,
-        include_base_system=False,
-        user_id=user_id,
-        conversation_id=conversation_id,
+    messages = ensure_prompt_messages(
+        await build_llm_messages_fn(
+            raw_messages,
+            has_vision,
+            file_repo,
+            None,
+            include_base_system=False,
+            user_id=user_id,
+            conversation_id=conversation_id,
+        )
     )
 
     if preprocess_user_input:
@@ -438,13 +452,15 @@ async def prepare_agent_loop_messages(
             file_repo=file_repo,
             is_image_file_fn=is_image_file_fn,
         )
-        messages = _inject_non_image_file_contents(
-            messages=messages,
-            file_ids=file_ids,
-            original_message=original_message,
-            file_repo=file_repo,
-            is_image_file_fn=is_image_file_fn,
-            inject_file_content_fn=inject_file_content_fn,
+        messages = ensure_prompt_messages(
+            _inject_non_image_file_contents(
+                messages=messages,
+                file_ids=file_ids,
+                original_message=original_message,
+                file_repo=file_repo,
+                is_image_file_fn=is_image_file_fn,
+                inject_file_content_fn=inject_file_content_fn,
+            )
         )
 
         if call_config.evidence_policy == "knowledge_grounded_v1":
@@ -463,24 +479,24 @@ async def prepare_agent_loop_messages(
     def selected_sections():
         # 只在空消息集上选择可信模板，用户文本不会影响段落是否存在。
         if has_image_attachment and not has_vision:
-            yield SystemPromptSection("no_vision_file_boundary", get_no_vision_file_boundary_prompt())
+            yield SystemPromptSection(NO_VISION_FILE_BOUNDARY, get_no_vision_file_boundary_prompt())
         for index, prompt in enumerate(extra_system_prompts or []):
             yield SystemPromptSection(f"extra_system_{index}", prompt)
         resolution = call_config.capability_resolution
         if "web_search" in resolution.external_tool_names:
-            yield SystemPromptSection("tool_usage_contract", get_tool_usage_contract_prompt())
+            yield SystemPromptSection(TOOL_USAGE_CONTRACT, get_tool_usage_contract_prompt())
         if resolution.effective_plan_mode != "off":
             yield SystemPromptSection(
-                "agent_plan_control",
+                AGENT_PLAN_CONTROL,
                 get_agent_plan_control_prompt(resolution.effective_plan_mode),
             )
         for skill in resolution.loaded_skills:
             yield SystemPromptSection(skill.metadata.section_id, skill.content)
         if resolution.package_id == "deep_research":
-            yield SystemPromptSection("deep_research_contract", DEEP_RESEARCH_CONTRACT_PROMPT)
+            yield SystemPromptSection(DEEP_RESEARCH_CONTRACT, DEEP_RESEARCH_CONTRACT_PROMPT)
         if resolution.network_boundary_required:
             yield SystemPromptSection(
-                "no_tool_network_boundary",
+                NO_TOOL_NETWORK_BOUNDARY,
                 get_no_tool_network_boundary_prompt(),
             )
 
@@ -489,7 +505,7 @@ async def prepare_agent_loop_messages(
         include_current_date=call_config.capability_resolution.include_current_date,
         sections=selected_sections,
     )
-    messages = [*assembly.messages, *messages]
+    messages = [*assembly.messages, *ensure_prompt_messages(messages)]
     return AgentLoopPreparedMessages(
         messages=messages,
         initial_content_blocks=initial_content_blocks,
@@ -500,23 +516,30 @@ async def prepare_agent_loop_messages(
             "fingerprint": assembly.metadata["fingerprint"],
             "char_count": assembly.metadata["char_count"],
             "sections": [
-                {"section_id": section_id, "content": message["content"]}
-                for section_id, message in zip(assembly.metadata["section_ids"], assembly.messages, strict=True)
+                {"section_id": message.section_id, "content": message["content"]} for message in assembly.messages
             ],
         },
         final_tool_names=list(call_config.capability_resolution.external_tool_names),
     )
 
 
-def inject_extra_system_prompts(messages: list[dict], prompts: list[str]) -> list[dict]:
+def inject_extra_system_prompts(
+    messages: list[PromptMessage | dict],
+    prompts: list[str],
+) -> list[PromptMessage]:
+    messages[:] = ensure_prompt_messages(messages)
     if not prompts:
         return messages
 
     insert_at = 0
-    while insert_at < len(messages) and messages[insert_at].get("role") == "system":
+    while insert_at < len(messages) and messages[insert_at].role == "system":
         insert_at += 1
-    prompt_messages = [{"role": "system", "content": prompt} for prompt in prompts]
-    return [*messages[:insert_at], *prompt_messages, *messages[insert_at:]]
+    prompt_messages = [
+        PromptMessage(role="system", content=prompt, section_id=f"extra_system_{index}")
+        for index, prompt in enumerate(prompts)
+    ]
+    messages[insert_at:insert_at] = prompt_messages
+    return messages
 
 
 def _has_image_file(
@@ -532,13 +555,16 @@ def _has_image_file(
 
 def _inject_non_image_file_contents(
     *,
-    messages: list[dict],
+    messages: list[PromptMessage],
     file_ids: list | None,
     original_message: str,
     file_repo: Any,
     is_image_file_fn: Callable[[str, Any], bool],
-    inject_file_content_fn: Callable[[list[dict], str, dict[str, str]], list[dict]],
-) -> list[dict]:
+    inject_file_content_fn: Callable[
+        [list[PromptMessage | dict], str, dict[str, str]],
+        list[PromptMessage | dict],
+    ],
+) -> list[PromptMessage | dict]:
     if not file_ids:
         return messages
 
@@ -554,11 +580,11 @@ def _inject_non_image_file_contents(
 
 async def _prepare_url_context(
     *,
-    messages: list[dict],
+    messages: list[PromptMessage],
     original_message: str,
     call_config: AgentLoopCallConfig,
     preprocess_url_in_message_fn: Callable[..., Awaitable[tuple[Any | None, dict | None, str | None]]],
-) -> tuple[list[dict], list[Any]]:
+) -> tuple[list[PromptMessage], list[Any]]:
     if "url_read" not in call_config.capability_resolution.external_tool_names:
         return messages, []
     initial_content_blocks = []
@@ -568,73 +594,88 @@ async def _prepare_url_context(
         call_config.call_kwargs,
     )
     if url_context_msg:
-        messages.insert(-1, url_context_msg)
+        messages.insert(-1, ensure_prompt_message(url_context_msg))
     if url_read_block:
         initial_content_blocks.append(url_read_block)
     return messages, initial_content_blocks
 
 
-def inject_tool_usage_contract(messages: list[dict], call_kwargs: dict) -> list[dict]:
+def inject_tool_usage_contract(
+    messages: list[PromptMessage | dict],
+    call_kwargs: dict,
+) -> list[PromptMessage]:
     """工具模式下补一条 system 约束，避免 reasoning 口头承诺搜索但不发 tool_call。"""
+    messages[:] = ensure_prompt_messages(messages)
     if "web_search" not in set(announced_tool_names_from_call_kwargs(call_kwargs)):
         return messages
-    if any(msg.get("role") == "system" and msg.get("content") == get_tool_usage_contract_prompt() for msg in messages):
+    if any(message.section_id == TOOL_USAGE_CONTRACT for message in messages):
         return messages
 
     insert_at = 0
-    while insert_at < len(messages) and messages[insert_at].get("role") == "system":
+    while insert_at < len(messages) and messages[insert_at].role == "system":
         insert_at += 1
-    contract_msg = {"role": "system", "content": get_tool_usage_contract_prompt()}
-    return [*messages[:insert_at], contract_msg, *messages[insert_at:]]
+    contract_msg = PromptMessage(
+        role="system",
+        content=get_tool_usage_contract_prompt(),
+        section_id=TOOL_USAGE_CONTRACT,
+    )
+    messages.insert(insert_at, contract_msg)
+    return messages
 
 
 def inject_plan_control_contract(
-    messages: list[dict],
+    messages: list[PromptMessage | dict],
     call_config: AgentLoopCallConfig,
-) -> list[dict]:
+) -> list[PromptMessage]:
     """向支持计划控制的模型注入行为契约，避免复杂任务只展示观察型占位计划。"""
 
+    messages[:] = ensure_prompt_messages(messages)
     if "update_plan" not in getattr(call_config, "control_tool_names", frozenset()):
         return messages
-    if any(
-        msg.get("role") == "system" and msg.get("content") == get_agent_plan_control_prompt(call_config.plan_mode)
-        for msg in messages
-    ):
+    if any(message.section_id == AGENT_PLAN_CONTROL for message in messages):
         return messages
 
     insert_at = 0
-    while insert_at < len(messages) and messages[insert_at].get("role") == "system":
+    while insert_at < len(messages) and messages[insert_at].role == "system":
         insert_at += 1
-    contract_msg = {
-        "role": "system",
-        "content": get_agent_plan_control_prompt(call_config.plan_mode),
-    }
-    return [*messages[:insert_at], contract_msg, *messages[insert_at:]]
+    contract_msg = PromptMessage(
+        role="system",
+        content=get_agent_plan_control_prompt(call_config.plan_mode),
+        section_id=AGENT_PLAN_CONTROL,
+    )
+    messages.insert(insert_at, contract_msg)
+    return messages
 
 
 def inject_deep_research_contract(
-    messages: list[dict],
+    messages: list[PromptMessage | dict],
     call_config: AgentLoopCallConfig,
-) -> list[dict]:
+) -> list[PromptMessage]:
+    messages[:] = ensure_prompt_messages(messages)
     if getattr(call_config, "task_mode", "standard") != "deep_research":
         return messages
-    if any(
-        message.get("role") == "system" and message.get("content") == DEEP_RESEARCH_CONTRACT_PROMPT
-        for message in messages
-    ):
+    if any(message.section_id == DEEP_RESEARCH_CONTRACT for message in messages):
         return messages
     insert_at = 0
-    while insert_at < len(messages) and messages[insert_at].get("role") == "system":
+    while insert_at < len(messages) and messages[insert_at].role == "system":
         insert_at += 1
-    return [
-        *messages[:insert_at],
-        {"role": "system", "content": DEEP_RESEARCH_CONTRACT_PROMPT},
-        *messages[insert_at:],
-    ]
+    messages.insert(
+        insert_at,
+        PromptMessage(
+            role="system",
+            content=DEEP_RESEARCH_CONTRACT_PROMPT,
+            section_id=DEEP_RESEARCH_CONTRACT,
+        ),
+    )
+    return messages
 
 
-def inject_no_tool_network_boundary(messages: list[dict], call_kwargs: dict) -> list[dict]:
+def inject_no_tool_network_boundary(
+    messages: list[PromptMessage | dict],
+    call_kwargs: dict,
+) -> list[PromptMessage]:
     """无联网工具模式下补一条 system 边界，避免模型把内部知识包装成实时搜索。"""
+    messages[:] = ensure_prompt_messages(messages)
     announced_tools = set(announced_tool_names_from_call_kwargs(call_kwargs))
     network_tool_names = {"web_search", "url_read"}
     if (
@@ -644,27 +685,34 @@ def inject_no_tool_network_boundary(messages: list[dict], call_kwargs: dict) -> 
         or any(name.startswith("mcp_") for name in announced_tools)
     ):
         return messages
-    if any(
-        msg.get("role") == "system" and msg.get("content") == get_no_tool_network_boundary_prompt() for msg in messages
-    ):
+    if any(message.section_id == NO_TOOL_NETWORK_BOUNDARY for message in messages):
         return messages
 
     insert_at = 0
-    while insert_at < len(messages) and messages[insert_at].get("role") == "system":
+    while insert_at < len(messages) and messages[insert_at].role == "system":
         insert_at += 1
-    boundary_msg = {"role": "system", "content": get_no_tool_network_boundary_prompt()}
-    return [*messages[:insert_at], boundary_msg, *messages[insert_at:]]
+    boundary_msg = PromptMessage(
+        role="system",
+        content=get_no_tool_network_boundary_prompt(),
+        section_id=NO_TOOL_NETWORK_BOUNDARY,
+    )
+    messages.insert(insert_at, boundary_msg)
+    return messages
 
 
-def inject_no_vision_file_boundary(messages: list[dict]) -> list[dict]:
+def inject_no_vision_file_boundary(messages: list[PromptMessage | dict]) -> list[PromptMessage]:
     """图片已附加但当前模型无 vision 时，给 LLM 明确能力边界，避免臆测图片内容。"""
-    if any(
-        msg.get("role") == "system" and msg.get("content") == get_no_vision_file_boundary_prompt() for msg in messages
-    ):
+    messages[:] = ensure_prompt_messages(messages)
+    if any(message.section_id == NO_VISION_FILE_BOUNDARY for message in messages):
         return messages
 
     insert_at = 0
-    while insert_at < len(messages) and messages[insert_at].get("role") == "system":
+    while insert_at < len(messages) and messages[insert_at].role == "system":
         insert_at += 1
-    boundary_msg = {"role": "system", "content": get_no_vision_file_boundary_prompt()}
-    return [*messages[:insert_at], boundary_msg, *messages[insert_at:]]
+    boundary_msg = PromptMessage(
+        role="system",
+        content=get_no_vision_file_boundary_prompt(),
+        section_id=NO_VISION_FILE_BOUNDARY,
+    )
+    messages.insert(insert_at, boundary_msg)
+    return messages

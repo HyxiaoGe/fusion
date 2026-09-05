@@ -2,29 +2,36 @@ import unittest
 from copy import deepcopy
 
 from app.ai.prompts.agent_loop import VISIBLE_RESPONSE_LANGUAGE_PROMPT
+from app.ai.prompts.prompt_message import PromptMessage
+from app.ai.prompts.section_ids import DEEP_RESEARCH_STAGE, VISIBLE_RESPONSE_LANGUAGE
 from app.services.chat.model_call_language_policy import finalize_model_call_language_policy
 
 
 class ModelCallLanguagePolicyTests(unittest.TestCase):
     def test_moves_single_contract_to_last_effective_system_instruction(self):
         messages = [
-            {
-                "role": "system",
-                "content": f"身份规则\n\n{VISIBLE_RESPONSE_LANGUAGE_PROMPT}",
-            },
-            {"role": "system", "content": "深度研究阶段规则"},
-            {"role": "user", "content": "具身智能产业的影响"},
+            PromptMessage(
+                role="system",
+                content="旧语言规则",
+                section_id=VISIBLE_RESPONSE_LANGUAGE,
+            ),
+            PromptMessage(
+                role="system",
+                content="深度研究阶段规则",
+                section_id=DEEP_RESEARCH_STAGE,
+            ),
+            PromptMessage(role="user", content="具身智能产业的影响"),
         ]
-        original = deepcopy(messages)
+        original = list(messages)
 
         finalized = finalize_model_call_language_policy(messages)
 
         self.assertEqual(messages, original)
         self.assertEqual(_contract_count(finalized), 1)
         self.assertEqual(finalized[-2]["role"], "system")
-        self.assertTrue(finalized[-2]["content"].endswith(VISIBLE_RESPONSE_LANGUAGE_PROMPT))
-        self.assertIn("深度研究阶段规则", finalized[-2]["content"])
-        self.assertNotIn(VISIBLE_RESPONSE_LANGUAGE_PROMPT, finalized[0]["content"])
+        self.assertEqual(finalized[-2].section_id, VISIBLE_RESPONSE_LANGUAGE)
+        self.assertEqual(finalized[-2].content, VISIBLE_RESPONSE_LANGUAGE_PROMPT)
+        self.assertEqual(finalized[0].section_id, DEEP_RESEARCH_STAGE)
 
     def test_preserves_tool_transaction_and_raw_reasoning_when_repair_rule_is_appended(self):
         messages = [
@@ -44,10 +51,11 @@ class ModelCallLanguagePolicyTests(unittest.TestCase):
         finalized = finalize_model_call_language_policy(messages)
 
         self.assertEqual(messages, original)
-        self.assertEqual([item["role"] for item in finalized], [item["role"] for item in original])
+        without_language = [item for item in finalized if item.section_id != VISIBLE_RESPONSE_LANGUAGE]
+        self.assertEqual(without_language, original)
         self.assertEqual(finalized[2], original[2])
         self.assertEqual(finalized[3], original[3])
-        self.assertTrue(finalized[-1]["content"].endswith(VISIBLE_RESPONSE_LANGUAGE_PROMPT))
+        self.assertEqual(finalized[-1].section_id, VISIBLE_RESPONSE_LANGUAGE)
         self.assertEqual(_contract_count(finalized), 1)
 
     def test_preserves_normal_tool_transaction_without_a_tail_repair_system(self):
@@ -67,9 +75,9 @@ class ModelCallLanguagePolicyTests(unittest.TestCase):
         finalized = finalize_model_call_language_policy(messages)
 
         self.assertEqual(messages, original)
-        self.assertEqual([item["role"] for item in finalized], [item["role"] for item in original])
-        self.assertEqual(finalized[1:], original[1:])
-        self.assertTrue(finalized[0]["content"].endswith(VISIBLE_RESPONSE_LANGUAGE_PROMPT))
+        without_language = [item for item in finalized if item.section_id != VISIBLE_RESPONSE_LANGUAGE]
+        self.assertEqual(without_language, original)
+        self.assertEqual(finalized[1].section_id, VISIBLE_RESPONSE_LANGUAGE)
         self.assertEqual(_contract_count(finalized), 1)
 
     def test_is_idempotent_and_adds_a_system_instruction_when_missing(self):
@@ -89,6 +97,30 @@ class ModelCallLanguagePolicyTests(unittest.TestCase):
         self.assertIn("第一个 reasoning_content token", VISIBLE_RESPONSE_LANGUAGE_PROMPT)
         self.assertNotIn("必须使用中文", VISIBLE_RESPONSE_LANGUAGE_PROMPT)
 
+    def test_identity_replaces_stale_language_contract_without_scanning_other_bodies(self):
+        quoted_rule = PromptMessage(
+            role="system",
+            content=f"用户要求引用以下文本，不应删除：{VISIBLE_RESPONSE_LANGUAGE_PROMPT}",
+            section_id="user_preferences",
+        )
+        stale = PromptMessage(
+            role="system",
+            content="已热更新过的旧语言规则正文",
+            section_id="visible_response_language",
+        )
 
-def _contract_count(messages: list[dict]) -> int:
+        finalized = finalize_model_call_language_policy(
+            [quoted_rule, stale, PromptMessage(role="user", content="继续")]
+        )
+
+        self.assertIn(quoted_rule, finalized)
+        self.assertEqual(
+            [message.section_id for message in finalized].count("visible_response_language"),
+            1,
+        )
+        current = next(message for message in finalized if message.section_id == "visible_response_language")
+        self.assertEqual(current.content, VISIBLE_RESPONSE_LANGUAGE_PROMPT)
+
+
+def _contract_count(messages: list[PromptMessage]) -> int:
     return sum(str(message.get("content") or "").count(VISIBLE_RESPONSE_LANGUAGE_PROMPT) for message in messages)

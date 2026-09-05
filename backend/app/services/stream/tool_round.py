@@ -6,12 +6,13 @@ import json
 import logging
 import re
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
 from urllib.parse import urlsplit
 
+from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
 from app.schemas.chat import (
     FlightResultsBlock,
     ItineraryResultsBlock,
@@ -85,7 +86,7 @@ class ToolRoundRequest:
     model_id: str
     provider: str
     content_blocks: list
-    messages: list[dict]
+    messages: list[PromptMessage]
     tool_calls: list[dict]
     reasoning_buf: str
     should_use_reasoning: bool
@@ -122,11 +123,9 @@ def build_assistant_tool_message(
     reasoning_buf: str,
     should_use_reasoning: bool,
     protocol_content_buf: str | None = None,
-) -> dict:
+) -> PromptMessage:
     protocol_content = protocol_content_buf if isinstance(protocol_content_buf, str) else ""
-    message = {
-        "role": "assistant",
-        "content": protocol_content,
+    provider_fields = {
         "tool_calls": [
             {
                 "id": tool_call["id"],
@@ -140,8 +139,20 @@ def build_assistant_tool_message(
         ],
     }
     if should_use_reasoning and reasoning_buf and "<think" not in protocol_content.lower():
-        message["reasoning_content"] = reasoning_buf
-    return message
+        provider_fields["reasoning_content"] = reasoning_buf
+    return PromptMessage(
+        role="assistant",
+        content=protocol_content,
+        provider_fields=provider_fields,
+    )
+
+
+def _tool_message(*, tool_call_id: str, content: str) -> PromptMessage:
+    return PromptMessage(
+        role="tool",
+        content=content,
+        provider_fields={"tool_call_id": tool_call_id},
+    )
 
 
 def restore_reasoning_after_tool_decision(call_kwargs: dict, *, provider: str | None = None) -> None:
@@ -292,11 +303,10 @@ def append_tool_round_messages_with_plan(
         tool_call_id = str(tool_call.get("id", ""))
         if tool_call_id in control_responses_by_id:
             request.messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call["id"],
-                    "content": control_responses_by_id[tool_call_id],
-                }
+                _tool_message(
+                    tool_call_id=tool_call["id"],
+                    content=control_responses_by_id[tool_call_id],
+                )
             )
             continue
         record = records_by_id.get(tool_call_id)
@@ -320,63 +330,52 @@ def append_tool_round_messages_with_plan(
                 built_content_blocks[tool_call_id] = content_block
             if content_block is not None:
                 request.content_blocks.append(content_block)
-            request.messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call["id"],
-                    "content": tool_context,
-                }
-            )
+            request.messages.append(_tool_message(tool_call_id=tool_call["id"], content=tool_context))
             continue
 
         if tool_call_id in missing_result_ids:
             request.messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call["id"],
-                    "content": _format_missing_tool_result_context(),
-                }
+                _tool_message(
+                    tool_call_id=tool_call["id"],
+                    content=_format_missing_tool_result_context(),
+                )
             )
             continue
 
         blocked_context = context_blocked_by_id.get(tool_call_id)
         if blocked_context is not None:
             request.messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call["id"],
-                    "content": _format_context_unavailable_tool_context(blocked_context),
-                }
+                _tool_message(
+                    tool_call_id=tool_call["id"],
+                    content=_format_context_unavailable_tool_context(blocked_context),
+                )
             )
             continue
 
         if tool_call_id in reused_ids:
             request.messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call["id"],
-                    "content": _format_reused_tool_context(),
-                }
+                _tool_message(
+                    tool_call_id=tool_call["id"],
+                    content=_format_reused_tool_context(),
+                )
             )
             continue
 
         if tool_call_id in not_executed_ids:
             request.messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call["id"],
-                    "content": _format_not_executed_tool_context(),
-                }
+                _tool_message(
+                    tool_call_id=tool_call["id"],
+                    content=_format_not_executed_tool_context(),
+                )
             )
             continue
 
         if tool_call_id in unavailable_ids:
             request.messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call["id"],
-                    "content": _format_unavailable_tool_context(),
-                }
+                _tool_message(
+                    tool_call_id=tool_call["id"],
+                    content=_format_unavailable_tool_context(),
+                )
             )
 
 
@@ -506,6 +505,7 @@ async def complete_tool_round_step(
 
 
 async def handle_tool_calls_round(*, request: ToolRoundRequest) -> ToolRoundOutcome:
+    request.messages[:] = ensure_prompt_messages(request.messages)
     append_tool_round_reasoning(request)
     persist_tool_round_checkpoint(request)
 
@@ -1457,7 +1457,7 @@ def _tool_arguments(tool_calls: list[dict]) -> list[dict]:
 def _apply_explicit_train_category(
     tool_calls: list[dict],
     *,
-    messages: list[dict],
+    messages: list[PromptMessage | dict],
 ) -> list[dict]:
     """把用户明确的高铁约束写入工具参数，避免价格排序混入普速列车。"""
 
@@ -1465,7 +1465,7 @@ def _apply_explicit_train_category(
         (
             str(message.get("content") or "")
             for message in reversed(messages)
-            if isinstance(message, dict) and message.get("role") == "user"
+            if isinstance(message, Mapping) and message.get("role") == "user"
         ),
         "",
     )

@@ -104,6 +104,7 @@ class PromptRuntimeTemplatesTests(unittest.TestCase):
         self.assertEqual(messages[0], {"role": "system", "content": "运行时工具一致性规则"})
 
     def test_limit_summary_uses_runtime_prompt(self):
+        from app.ai.prompts.section_ids import LIMIT_SUMMARY
         from app.services.stream import limit_summary
 
         messages = []
@@ -116,8 +117,8 @@ class PromptRuntimeTemplatesTests(unittest.TestCase):
             limit_summary.append_limit_summary_prompt(messages)
 
         content = messages[-1]["content"]
-        self.assertIn("运行时触顶总结规则", content)
-        self.assertIn("不要向用户提及", content)
+        self.assertEqual(content, "运行时触顶总结规则")
+        self.assertEqual(messages[-1].section_id, LIMIT_SUMMARY)
 
     def test_continuation_injects_runtime_prompt(self):
         from app.services.agent import continuation

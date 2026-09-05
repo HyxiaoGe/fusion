@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from typing import Any
 
 from app.core.logger import app_logger as logger
@@ -76,7 +77,7 @@ def _conversation_text(messages: list[dict] | None) -> str:
 
     parts: list[str] = []
     for message in messages or []:
-        if not isinstance(message, dict) or message.get("role") != "user":
+        if not isinstance(message, Mapping) or message.get("role") != "user":
             continue
         content = message.get("content")
         if isinstance(content, str):
