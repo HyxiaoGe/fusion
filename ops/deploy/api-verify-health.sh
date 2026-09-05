@@ -217,6 +217,19 @@ print(f"auth JWKS ok: {url}")
 PY
 
 docker exec -i fusion-api python - <<'PY'
+# P0 过渡门禁的容器内核验：确认 attested 开关确实下发到容器，而不是停留在
+# workflow 变量里。未 attested 时 apply 模式启动会校验 active bundle。
+from app.core.config import settings
+
+raw_mode = settings.PROMPTHUB_SYNC_MODE
+mode = getattr(raw_mode, "value", raw_mode).strip().lower()
+attested = settings.PROMPT_P0_BASELINE_ATTESTED
+print(f"prompt P0 baseline gate: sync_mode={mode} attested={attested}")
+if mode == "apply" and not attested:
+    print("prompt P0 baseline gate: apply 尚未 attested，启动门禁会校验 active bundle")
+PY
+
+docker exec -i fusion-api python - <<'PY'
 import asyncio
 import json
 import re

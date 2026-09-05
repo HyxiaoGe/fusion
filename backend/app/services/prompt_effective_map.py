@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.core.config import settings
-from app.core.prompt_bundle import get_active_prompt_bundle_payload
+from app.core.prompt_bundle import load_stored_active_bundle_payload
 from app.core.prompt_catalog import CATALOG_VERSION, PROMPT_SPECS, PromptSpec
 from app.core.runtime_config import SessionFactory, get_runtime_config_payload
 from app.db.database import SessionLocal
@@ -64,15 +64,21 @@ class EffectiveEntry:
 def capture_pre_p0_effective_map(
     *,
     session_factory: SessionFactory = SessionLocal,
+    sync_mode: str | None = None,
 ) -> dict[str, EffectiveEntry]:
     """复现 P0 之前的解析语义，抓取 11 项的真实有效值。
 
     - `PRE_P0_CODE_ONLY_KEYS` 取代码常量；
     - 其余 key 按 P0 之前的 active bundle -> legacy Runtime Config -> 代码默认值解析。
+
+    `sync_mode` 必须是**被抓取环境**当时的消费模式，而不是本进程的设置：抓取通常在
+    切模式/换镜像之前从一次性容器里跑，两者可能不同。因此 stored LKG 一律用
+    `load_stored_active_bundle_payload()` 直读（不受模式开关影响），再按传入的
+    `sync_mode` 决定 P0 之前是否真的会命中它。
     """
 
-    # get_active_prompt_bundle_payload() 已含 apply 模式判定与 stored payload 校验。
-    bundle = get_active_prompt_bundle_payload()
+    effective_sync_mode = (sync_mode or settings.PROMPTHUB_SYNC_MODE or "").strip().lower()
+    bundle = load_stored_active_bundle_payload() if effective_sync_mode == "apply" else None
     effective_map: dict[str, EffectiveEntry] = {}
     for spec in PROMPT_SPECS:
         effective_map[spec.key] = _capture_entry(spec, bundle=bundle, session_factory=session_factory)

@@ -129,6 +129,21 @@ def get_active_prompt_bundle_revision() -> str | None:
     return revision if isinstance(revision, str) else None
 
 
+def load_stored_active_bundle_payload() -> dict[str, Any] | None:
+    """只读当前已激活并校验通过的 stored LKG，**不受 PROMPTHUB_SYNC_MODE 影响**。
+
+    `get_active_prompt_bundle_payload()` 在非 apply 模式必然返回 None，因为它表达的是
+    「热路径此刻是否在用 bundle」。而抓取部署前 effective map 要回答的是另一个问题：
+    「库里实际存着哪一版 LKG」——迁移工具必须用本函数，否则在 disabled/shadow 下
+    抓取会把已消费项误记成 legacy / 代码默认值。
+    """
+
+    bundle = _load_active_bundle_payload(use_cache=False)
+    if not isinstance(bundle, dict) or not validate_stored_bundle_payload(bundle):
+        return None
+    return copy.deepcopy(bundle)
+
+
 def get_active_prompt_bundle_payload() -> dict[str, Any] | None:
     """返回当前 apply 热路径使用的 bundle 副本，供只读治理诊断使用。"""
 

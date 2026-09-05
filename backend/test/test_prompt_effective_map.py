@@ -3,7 +3,10 @@
 import hashlib
 import unittest
 import unittest.mock
+from pathlib import Path
 from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _entry(key, slug, content, variables=()):
@@ -41,10 +44,10 @@ class EffectiveMapCaptureTests(unittest.TestCase):
             }
         }
         with (
-            patch.object(prompt_effective_map, "get_active_prompt_bundle_payload", return_value=bundle),
+            patch.object(prompt_effective_map, "load_stored_active_bundle_payload", return_value=bundle),
             patch.object(prompt_effective_map, "get_runtime_config_payload", return_value=({}, {})),
         ):
-            captured = prompt_effective_map.capture_pre_p0_effective_map()
+            captured = prompt_effective_map.capture_pre_p0_effective_map(sync_mode="apply")
 
         for key in prompt_effective_map.PRE_P0_CODE_ONLY_KEYS:
             with self.subTest(key=key):
@@ -56,10 +59,10 @@ class EffectiveMapCaptureTests(unittest.TestCase):
 
         bundle = {"prompts": {"generate_title": {"slug": "generate-title", "version": "2.0.0", "content": "线上标题"}}}
         with (
-            patch.object(prompt_effective_map, "get_active_prompt_bundle_payload", return_value=bundle),
+            patch.object(prompt_effective_map, "load_stored_active_bundle_payload", return_value=bundle),
             patch.object(prompt_effective_map, "get_runtime_config_payload", return_value=({}, {})),
         ):
-            captured = prompt_effective_map.capture_pre_p0_effective_map()
+            captured = prompt_effective_map.capture_pre_p0_effective_map(sync_mode="apply")
 
         self.assertEqual(captured["generate_title"].content, "线上标题")
         self.assertEqual(captured["generate_title"].source, "prompthub")
@@ -76,10 +79,10 @@ class EffectiveMapCaptureTests(unittest.TestCase):
             return default, {"source": "code-default", "version": "code-default"}
 
         with (
-            patch.object(prompt_effective_map, "get_active_prompt_bundle_payload", return_value=None),
+            patch.object(prompt_effective_map, "load_stored_active_bundle_payload", return_value=None),
             patch.object(prompt_effective_map, "get_runtime_config_payload", side_effect=loader),
         ):
-            captured = prompt_effective_map.capture_pre_p0_effective_map()
+            captured = prompt_effective_map.capture_pre_p0_effective_map(sync_mode="apply")
 
         self.assertEqual(captured["generate_title"].content, "legacy 标题")
         self.assertEqual(captured["generate_title"].source, "db")
@@ -89,10 +92,10 @@ class EffectiveMapCaptureTests(unittest.TestCase):
         from app.services import prompt_effective_map
 
         with (
-            patch.object(prompt_effective_map, "get_active_prompt_bundle_payload", return_value=None),
+            patch.object(prompt_effective_map, "load_stored_active_bundle_payload", return_value=None),
             patch.object(prompt_effective_map, "get_runtime_config_payload", return_value=({}, {})),
         ):
-            captured = prompt_effective_map.capture_pre_p0_effective_map()
+            captured = prompt_effective_map.capture_pre_p0_effective_map(sync_mode="apply")
 
         self.assertEqual(set(captured), set(PROMPT_SPEC_BY_KEY))
 
@@ -284,3 +287,47 @@ class P0TransitionGateTests(unittest.TestCase):
             patch.object(prompt_catalog_integrity, "get_active_prompt_bundle_payload", return_value=None),
         ):
             prompt_catalog_integrity.verify_p0_baseline_gate()
+
+
+class CaptureIsIndependentOfCurrentSyncModeTests(unittest.TestCase):
+    """抓取必须读实际 stored LKG，不能被本进程的消费模式开关左右。"""
+
+    def test_apply_capture_reads_stored_lkg_even_when_process_mode_is_disabled(self):
+        from app.services import prompt_effective_map
+
+        bundle = {"prompts": {"generate_title": {"slug": "generate-title", "version": "3.0.0", "content": "线上标题"}}}
+        with (
+            patch("app.services.prompt_effective_map.settings.PROMPTHUB_SYNC_MODE", "disabled"),
+            patch.object(prompt_effective_map, "load_stored_active_bundle_payload", return_value=bundle),
+            patch.object(prompt_effective_map, "get_runtime_config_payload", return_value=({}, {})),
+        ):
+            captured = prompt_effective_map.capture_pre_p0_effective_map(sync_mode="apply")
+
+        self.assertEqual(captured["generate_title"].content, "线上标题")
+        self.assertEqual(captured["generate_title"].source, "prompthub")
+
+    def test_non_apply_capture_does_not_consult_stored_lkg(self):
+        """目标环境本就不是 apply 时，P0 之前不会命中 bundle，抓取也不该命中。"""
+
+        from app.services import prompt_effective_map
+
+        loader = unittest.mock.Mock(return_value={"prompts": {}})
+        with (
+            patch.object(prompt_effective_map, "load_stored_active_bundle_payload", loader),
+            patch.object(prompt_effective_map, "get_runtime_config_payload", return_value=({}, {})),
+        ):
+            prompt_effective_map.capture_pre_p0_effective_map(sync_mode="shadow")
+
+        loader.assert_not_called()
+
+    def test_cli_requires_explicit_sync_mode(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "verify_p0_effective_baseline", ROOT / "scripts" / "verify_p0_effective_baseline.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        with self.assertRaises(SystemExit):
+            module.main(["capture", "--out", "/tmp/x.json"])

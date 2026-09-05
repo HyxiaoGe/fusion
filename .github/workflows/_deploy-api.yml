@@ -201,6 +201,7 @@ jobs:
           ROLLBACK_REQUESTED: ${{ needs.prepare.outputs.rollback_requested }}
           DEPLOY_PROMPTHUB_API_KEY: ${{ secrets.PROMPTHUB_API_KEY }}
           DEPLOY_PROMPTHUB_SYNC_MODE: ${{ vars.PROMPTHUB_SYNC_MODE || 'disabled' }}
+          DEPLOY_PROMPT_P0_BASELINE_ATTESTED: ${{ vars.PROMPT_P0_BASELINE_ATTESTED || 'false' }}
           DEPLOY_MCP_ALLOWED_HOSTS: ${{ vars.MCP_ALLOWED_HOSTS }}
           DEPLOY_MCP_ALLOWED_CREDENTIAL_REFS: ${{ vars.MCP_ALLOWED_CREDENTIAL_REFS }}
           DEPLOY_MCP_CONNECT_TIMEOUT_SECONDS: ${{ vars.MCP_CONNECT_TIMEOUT_SECONDS }}
@@ -335,6 +336,7 @@ jobs:
           ROLLBACK_MODEL_MANAGEMENT_TIMER_UNIT_B64: ${{ steps.capture_rollback_target.outputs.model_management_timer_unit_b64 }}
           DEPLOY_PROMPTHUB_API_KEY: ${{ secrets.PROMPTHUB_API_KEY }}
           DEPLOY_PROMPTHUB_SYNC_MODE: ${{ vars.PROMPTHUB_SYNC_MODE || 'disabled' }}
+          DEPLOY_PROMPT_P0_BASELINE_ATTESTED: ${{ vars.PROMPT_P0_BASELINE_ATTESTED || 'false' }}
           DEPLOY_MCP_ALLOWED_HOSTS: ${{ vars.MCP_ALLOWED_HOSTS }}
           DEPLOY_MCP_ALLOWED_CREDENTIAL_REFS: ${{ vars.MCP_ALLOWED_CREDENTIAL_REFS }}
           DEPLOY_MCP_CONNECT_TIMEOUT_SECONDS: ${{ vars.MCP_CONNECT_TIMEOUT_SECONDS }}

@@ -2,8 +2,9 @@
 
 用法::
 
-    # 1. 抓取部署前 effective map 并生成基线 bundle（留存为「行为零变化」的事后证据）
-    python scripts/verify_p0_effective_baseline.py capture --out baseline.json
+    # 1. 抓取部署前 effective map（必须在切模式/换镜像**之前**执行；
+    #    --sync-mode 填目标环境当时的 PROMPTHUB_SYNC_MODE）
+    python scripts/verify_p0_effective_baseline.py capture --sync-mode apply --out baseline.json
 
     # 2. 发布该基线到 PromptHub 后，用待激活 bundle 逐 key 字节复核
     python scripts/verify_p0_effective_baseline.py verify --baseline baseline.json --candidate candidate.json
@@ -41,6 +42,13 @@ def main(argv: list[str] | None = None) -> int:
 
     capture = sub.add_parser("capture", help="抓取部署前 effective map 并生成基线 bundle")
     capture.add_argument("--out", required=True, help="基线 bundle 输出路径")
+    capture.add_argument(
+        "--sync-mode",
+        required=True,
+        choices=("apply", "shadow", "disabled"),
+        help="被抓取环境**当时**的 PROMPTHUB_SYNC_MODE。必须显式给出：抓取要在切模式/"
+        "换镜像之前完成，本进程的设置未必等于目标环境的设置，写错会抓到错误的基线。",
+    )
 
     verify = sub.add_parser("verify", help="逐 key UTF-8 字节校验待激活 bundle")
     verify.add_argument("--baseline", required=True, help="capture 产出的基线 bundle")
@@ -48,16 +56,23 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     if args.command == "capture":
-        return _capture(Path(args.out))
+        return _capture(Path(args.out), sync_mode=args.sync_mode)
     return _verify(Path(args.baseline), Path(args.candidate))
 
 
-def _capture(out_path: Path) -> int:
-    effective_map = capture_pre_p0_effective_map()
+def _capture(out_path: Path, *, sync_mode: str) -> int:
+    if sync_mode != "apply":
+        print(
+            f"注意：按 sync_mode={sync_mode} 抓取，P0 之前不会命中 active bundle，"
+            "已消费项将记为 legacy / 代码默认值。若目标环境实际是 apply，请改用 --sync-mode apply。",
+            file=sys.stderr,
+        )
+    effective_map = capture_pre_p0_effective_map(sync_mode=sync_mode)
     payload = build_effective_baseline_bundle(effective_map)
     payload["code_default_effective_revision"] = code_default_effective_revision()
+    payload["captured_sync_mode"] = sync_mode
     out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"已抓取 {len(payload['prompts'])} 项 effective map -> {out_path}")
+    print(f"已抓取 {len(payload['prompts'])} 项 effective map（sync_mode={sync_mode}）-> {out_path}")
     for entry in payload["prompts"]:
         print(f"  {entry['slug']}: source={entry['captured_source']} version={entry['captured_version']}")
     print("注意：本文件是「行为零变化」的事后可核对证据，必须留存。")
