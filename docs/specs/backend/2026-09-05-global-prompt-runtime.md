@@ -96,9 +96,28 @@ P0 会让此前直接返回代码常量的 5 个 getter（`app_identity`、`tool
 本期要求：
 
 - 保留 `user_visible_content.py` 现有机制与短语列表结构，不做重构。
-- **P5 硬门禁**：英文化后必须基于新英文 prompt 与**实测**的真实 reasoning 输出重新标定短语列表，中英文各自取样；未完成标定不得进入 P5 生产发布。
-- 必须给出可度量的失败语义：分别记录**漏删率**（内部控制规则出现在用户可见 reasoning）与**误删率**（正常 reasoning 段落被整段删除），两者单独设阈值并单独验收，不并入输入侧确定性验收。
 - 已知既有风险：`"according to the rules"` 一类过泛英文短语在英文化后误删概率上升（该函数删除 marker 到下一空行的**整段**，`:153-158`）。这是误删率指标要覆盖的首要场景。
+
+#### 验收分两层，不得合并
+
+只写「各自设阈值」不构成门禁——没有分母、样本冻结时点、校准集与 holdout 的隔离、模型与轮数，实施者可以在看到输出后反复调短语与样本直到通过，等于为验收数据过拟合。因此固定为：
+
+**第一层：确定性 sanitizer fixtures（硬门禁）**
+
+- 固定输入 → 固定输出的单测夹具，不调用模型。
+- 覆盖三类：命中样本（必须删除）、正常负例（必须保留）、跨 SSE chunk 边界的半截 marker。
+- 通过线：命中 **100%**，误删 **0**。任一不满足即失败。
+
+**第二层：真实模型 holdout（硬门禁）**
+
+- 样本来自本规格「自然盲测」一节的自然表达样本，**不新增诱导样本**，与第 386 行的约束一致。
+- **校准集与 holdout 严格分离**：短语表只允许基于校准集标定；**holdout 的输出禁止回流到短语表**，无论结果好坏。
+- **冻结时点**：holdout 在短语表标定开始**之前**冻结，标定期间不得修改。
+- 固定规模：2 个支持工具调用的模型 × 每样本 3 轮 × 中英文各 30 条自然样本。
+- 判定：**漏删**指内部控制规则出现在用户可见 reasoning；**误删**指正常 reasoning 段落被整段删除。
+- 通过线：漏删 **0**（出现任意一次即失败，内部规则泄漏无可接受下限）；误删率 **≤ 1%**，且每个误删实例须人工复核确认不影响用户对回答的理解。
+
+阈值若需调整，必须经显式复审改本规格，不得在实施阶段自行放宽。
 
 ## Run attempt 冻结语义
 
@@ -113,7 +132,20 @@ P0 会让此前直接返回代码常量的 5 个 getter（`app_identity`、`tool
 | `PromptBundleSnapshot` | **能力分类之前** | 完整模板、变量定义、`source_kind` / `source_revision` / `effective_revision` | 分类器（只读此层）、渲染第二层 |
 | `RunPromptSnapshot` | **能力分类之后** | 本 Run 实际选中的最终 messages、section identities、fingerprint，及其所属 bundle identity | Run 内所有后续阶段 |
 
-`RunPromptSnapshot` 只从 `PromptBundleSnapshot` 渲染，不重新解析任何来源。`_start_run` 时持久化 `RunPromptSnapshot` 及其 bundle identity。
+`RunPromptSnapshot` 只从 `PromptBundleSnapshot` 渲染，不重新解析任何来源。
+
+#### 持久化顺序与失败语义
+
+现有 lifecycle 是先 `_start_run()`（`agent_loop_lifecycle.py:191`）、后 `prepare_messages_fn()`（`:340`）才生成快照，且 `write_system_prompt_snapshot_fn()` 失败会被吞掉——只置 `detail_status = "degraded"` 并告警，生成继续（`:378-381`）。因此「`_start_run` 时持久化分类后才产生的 `RunPromptSnapshot`」与现有顺序不相容，而「每个 Run 必须记录身份」又与 best-effort 吞异常相矛盾。两者必须分开定义：
+
+| 阶段 | 动作 | 失败语义 |
+|---|---|---|
+| 能力分类之前 | 解析 `PromptBundleSnapshot` | 失败即 fail closed，不进入分类 |
+| start-run | **原子写入** `source_kind` + `effective_revision` + bundle identity | **失败则不得开始任何模型调用**，Run 以错误终止 |
+| 分类之后、**首个 LLM 调用之前** | 构造 `RunPromptSnapshot`（最终 messages、section identities、fingerprint） | 构造失败即 fail closed |
+| 快照完整正文落库 | 写 `agent_system_prompt_snapshots` | **保持 best-effort**：失败置 `detail_status = "degraded"` 并告警，不终止生成 |
+
+即：**身份（轻量、必须原子持久化）与正文快照（重、可降级）是两件事**。前者是审计与冻结的最小充分集，随 start-run 一起落库；后者仍可降级，但必须显式标记 `detail_status` 并告警，不得再宣称「必持久化」。
 
 规格要求：
 
@@ -179,9 +211,37 @@ revision = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 | 字段 | 取值 |
 |---|---|
 | `source_kind` | `prompthub_lkg` 或 `code_default` |
-| `effective_revision` | `prompthub_lkg` 路径记录 `source_revision`；`code_default` 路径记录由 `catalog_version` + 代码默认正文与变量按**同一 canonical 算法**计算出的确定性摘要 |
+| `effective_revision` | `prompthub_lkg` 路径记录 `source_revision`；`code_default` 路径记录下述 code-default canonical digest |
 
-代码默认值路径的 `effective_revision` 因此是可复现的：同一份代码必然得到同一摘要，可用于事后判定某个 Run 跑在哪一版代码默认值上。trajectory、盲测报告与诊断一律记录 `source_kind + effective_revision` 两个字段，不得只记录其一。
+**code-default digest 不是 PromptHub 那套算法，这是有意的。** PromptHub 的 canonical 要求每项都有 `version`，顶层也没有 `catalog_version`；而 `PromptSpec`（`app/core/prompt_catalog.py:9-14`）只有 `key` / `slug` / `name` / `variables` / `marker`，**没有 version 字段**。因此「按同一算法」在数学上不成立——两个实现必然算出不同值。此前的写法是错的。
+
+code-default canonical JSON 精确定义如下：
+
+```python
+canonical = json.dumps(
+    {
+        "catalog_version": CATALOG_VERSION,
+        "prompts": [
+            {
+                "key": spec.key,
+                "slug": spec.slug,
+                "content_sha256": hashlib.sha256(default_body.encode("utf-8")).hexdigest(),
+                "variables": list(spec.variables),
+            }
+            for spec in sorted(PROMPT_SPECS, key=lambda item: item.slug)
+        ],
+    },
+    ensure_ascii=False, separators=(",", ":"), sort_keys=True,
+)
+effective_revision = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+```
+
+- 排序键为 `slug`，与 PromptHub 一致；序列化参数（`ensure_ascii=False`、`separators=(",", ":")`、`sort_keys=True`）同样一致，便于两套实现复用同一序列化工具。
+- 不含 `version`（代码默认值没有该概念），改以 `catalog_version` 在顶层承担版本身份。
+- 因为两套算法输入不同，两者的摘要**永远不会相等**，也不应相等；`source_kind` 是唯一的区分依据，读取方必须先看 `source_kind` 再解释 `effective_revision`，不得把 code-default digest 误当成 PromptHub `source_revision`。
+- 与 `local_payload_checksum` 也是不同用途：后者校验本地 payload（含 `schema_version`）的完整性，不承担 Run 身份。
+
+代码默认值路径的 `effective_revision` 因此是可复现的：同一份代码必然得到同一摘要，可用于事后判定某个 Run 跑在哪一版代码默认值上。trajectory、盲测报告与诊断一律记录 `source_kind + effective_revision`，不得只记录其一。
 
 ### 回滚 hold
 
@@ -282,6 +342,14 @@ Skill 正文单独说明：`app/ai/skills/registry.py:23-31` 的 `_PACKAGE_SKILL
 
 不采用「在 bundle 校验中反向解析正文枚举」的方案：它会把标点、示例措辞和英文化表达变成协议解析器的输入，既脆弱，又重新制造了本规格 P1 要消除的正文耦合。
 
+**代码渲染带来一个新的审计缺口，必须一并补上。** taxonomy 由代码渲染后，真正送给分类模型的 system prompt 不再仅由 `source_revision` 决定：同一个 bundle revision 下，代码侧 `_MODEL_PACKAGE_IDS` / `_CANONICAL_TOOL_ORDER` / `CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES` 一改，分类行为就会变，而两层快照只记录 bundle 模板与主 Run 最终 messages，分类器的渲染结果不在任何审计对象里，行为变化将无法归因。
+
+规格要求：
+
+- 在 capability resolution / Run 审计中持久化 **`classifier_prompt_fingerprint`**，基于「冻结模板 + 本次代码渲染出的 package / tool mapping」计算。
+- 该指纹**不包含用户消息**，与 `fingerprint_system_messages` 同样只承载结构与内容标识。
+- 盲测报告必须记录该指纹；`source_kind + effective_revision + classifier_prompt_fingerprint` 三者共同构成分类行为的可归因身份，缺一不可。
+
 ### 模板引擎必须与 PromptHub 统一
 
 两端当前使用**语义相反**的模板系统，这是本规格此前最严重的遗漏：
@@ -318,14 +386,13 @@ Skill 正文单独说明：`app/ai/skills/registry.py:23-31` 的 `_PACKAGE_SKILL
 
 即分类发生在 Run 启动**之前**，此时并不存在「已冻结的正文」。若分类器与后续组装各自解析，同一个 Run 的分类依据与执行正文可能来自不同 revision。
 
-**定稿结论：**
+**定稿结论：** 冻结时序以「Run attempt 冻结语义」一节的**两层模型**为唯一定义，本节不重复定义，只记录时序结论：
 
-- 在**能力分类之前**一次性解析出完整的不可变 `PromptBundleSnapshot`。
-- 同一个快照对象同时传给分类器与后续消息组装，全程按引用传递，不重新解析。
-- Run 启动时持久化该快照的 revision 与 fingerprint。
-- 分类器**只读内存快照**，在 1.5 秒预算（`_HARD_TIMEOUT_SECONDS`）内不访问数据库——`resolve_prompt_template` 缓存未命中时会做同步 DB 读（`prompt_bundle.py:266` `SessionLocal`），该路径已有 `_can_begin_blocking_work` 门控，说明它对阻塞高度敏感。
+- `PromptBundleSnapshot` 的解析点上移到 `build_agent_loop_call_config_from_inputs()` **之前**，成为 Run attempt 冻结的实际起点。
+- 分类器**只读该层内存快照**，在 1.5 秒预算（`_HARD_TIMEOUT_SECONDS`）内不访问数据库——`resolve_prompt_template` 缓存未命中时会做同步 DB 读（`prompt_bundle.py:266` `SessionLocal`），该路径已有 `_can_begin_blocking_work` 门控，说明它对阻塞高度敏感。
+- `RunPromptSnapshot` 在分类之后、首个 LLM 调用之前从第一层派生；身份字段随 start-run 原子写入。详见该节的「持久化顺序与失败语义」。
 
-这样分类结果与执行正文才真正来自同一 revision。快照的解析点因此上移到 `build_agent_loop_call_config_from_inputs()` 之前，成为 Run attempt 冻结的实际起点。
+这样分类依据与执行正文来自同一 revision，且不产生「分类前冻结最终 messages」的循环依赖。
 
 ## 剩余范围归类（已定稿）
 
@@ -346,10 +413,10 @@ Skill 正文单独说明：`app/ai/skills/registry.py:23-31` 的 `_PACKAGE_SKILL
 
 1. **P0 声明即消费。** catalog 单一事实源 + 启动期 fail-fast + 契约测试；`11` 改为派生；catalog key 停止读取 legacy `prompt_template` 命名空间。**apply 前必须完成 effective map 抓取 → 发布 effective baseline → 逐 key 字节复核三步**，满足后行为零变化。
 2. **P1 稳定 section identity。** 输入侧身份改为不可变 `PromptMessage(role, content, section_id)` 并在唯一转换点剥离，去重/清理/语言策略按身份工作；输出侧 reasoning 净化作为独立 best-effort 防线单独立项与验收。输入侧行为零变化。
-3. **P2 单 Run attempt 冻结。** 快照解析点上移到能力分类之前，同一不可变快照贯穿分类与组装；Run 启动持久化 revision 与 fingerprint；新 Run 独立解析；`extra_system_prompts` 改传 section id。
+3. **P2 单 Run attempt 冻结。** 分类前冻结 `PromptBundleSnapshot`，分类后、首个 LLM 调用前派生 `RunPromptSnapshot`；`source_kind` + `effective_revision` 随 start-run 原子写入，失败则不开始模型调用；正文快照保持 best-effort 并显式标记 `detail_status`；新 Run 独立解析；`extra_system_prompts` 改传 section id。
 4. **P3 完整性与可回滚。** canonical checksum、`source_revision` 与 `local_payload_checksum` 分离、`source_kind` + `effective_revision`、`catalog_version`、受审计 rollback hold（current-state row + transition events）、独立冲突诊断状态、修正 active-LKG diff 基线。**模板引擎切换到 sandboxed Jinja2 作为本阶段独立步骤**，完成后重新发布一次基线。
 5. **P4 多 worker 最终一致。** interval 60 秒、TTL 30 秒、保留各 worker 轮询与数据库互斥、120 秒收敛、150 秒告警。
-6. **P5 扩 catalog、英文改写、联网边界修正。** 按分批顺序：辅助生成任务 → 搜索上下文与工具 description → 收尾与续写 → 计划与深度研究 → 分类器最后。英文化与 marker 切换必须与 P1 同批或在其之后。SKILL.md 升版本并更新 pin。
+6. **P5 扩 catalog、英文改写、联网边界修正。** 按分批顺序：辅助生成任务 → 搜索上下文与工具 description → 收尾与续写 → 计划与深度研究 → 分类器最后。英文化与 marker 切换必须与 P1 同批或在其之后。分类器迁移同时落地 taxonomy 受控变量注入与 `classifier_prompt_fingerprint` 审计。**输出侧 sanitizer 的重新标定（含 holdout 验收）是本阶段生产发布的硬门禁。** SKILL.md 升版本并更新 pin。
 
 P5 内部先在 `shadow` 模式校验字节、变量、完整性与差异，再在 dev 切 `apply` 确认同步、LKG、Run 冻结、审计与回滚，最后经代码门禁与真实模型盲测方可部署生产。
 
@@ -358,9 +425,13 @@ P5 内部先在 `shadow` 模式校验字节、变量、完整性与差异，再�
 ### 自动化契约
 
 - bundle 缺项、重复 slug、未知 slug、非法变量、必需变量缺失、正文为空、`source_revision` 重算不相等时整包拒绝，原 LKG 不变。
-- **发布门禁不包含任何对本地化正文子串的校验。** 身份由 bundle key / slug 与内部 sidecar section identity 承担，正文中不存在必须出现的 marker；「缺少 catalog 项」已由「bundle 缺项」覆盖。保留 marker 校验会在英文化后重新把发布流程绑死在中文措辞上。
+- **发布门禁不包含任何对本地化正文子串的校验。** 身份由 bundle key / slug 与 `PromptMessage.section_id` 承担，正文中不存在必须出现的 marker；「缺少 catalog 项」已由「bundle 缺项」覆盖。保留 marker 校验会在英文化后重新把发布流程绑死在中文措辞上。
 - 同一 `source_revision` 对应不同重算结果时拒绝并产生独立 `revision_conflict` 诊断，LKG 不变，且不覆盖本地行。
-- P0 apply 前置校验：待激活 bundle 与代码常量字节一致（或已发布代码默认值基线 bundle），不满足则 fail closed 且不进入 apply。
+- P0 apply 前置校验：待激活 bundle 与**部署前 effective map** 逐 key 字节一致（effective map 由 5 个未消费项的代码常量 + 6 个已消费项的当前真实解析结果构成），不满足则 fail closed 且不进入 apply；effective map 抓取结果留存备查。
+- `RunPromptSnapshot` 在分类之后、首个 LLM 调用之前构造；`source_kind` + `effective_revision` 随 start-run 原子写入，写入失败时 Run 以错误终止且不发起任何模型调用。
+- 正文快照落库失败时置 `detail_status = "degraded"` 并告警，不终止生成——这是唯一允许降级的一环，身份字段不适用。
+- `classifier_prompt_fingerprint` 随 capability resolution 持久化，且不包含用户消息。
+- 输出侧 sanitizer：确定性 fixtures 命中 100% / 误删 0；真实模型 holdout 漏删 0、误删率 ≤ 1%，holdout 输出未回流短语表。
 - hold 状态跨进程重启、跨 worker 保持一致；held 期间 scheduler 只 shadow-fetch 与告警，绝不 activate。
 - PromptHub timeout / 401 / 5xx / 坏响应不影响聊天可用性。
 - PromptHub 全程 5xx 期间仍可执行本地回滚，且 hold 生效后后续同步不会冲掉回滚结果。
@@ -394,7 +465,7 @@ P5 内部先在 `shadow` 模式校验字节、变量、完整性与差异，再�
 - **工具是否真实执行**：以 tool_call / tool result 事件为准，不以回答文字判定。
 - **证据质量**：引用编号是否确实来自本轮研究证据工作集。
 - **失败归因分布**：`credentials_missing` / `input_budget_exceeded` / `deadline_exceeded` / `invalid_response` 均返回 `clarification_only`。英文 prompt 变长会同时抬高输入 token 与首 token 延迟，可能把原本 `model` 分类的样本推成 `deadline_exceeded`，表现为「联网判断变差」但根因是预算。需记录改动前后的 `duration_ms` 与 `error_type` 分布，并为英文 prompt 设 token 预算上限（当前 `_HARD_MAX_INPUT_TOKENS = 2000`）。
-- **实际 bundle revision**。
+- **`source_kind` + `effective_revision` + `classifier_prompt_fingerprint`** 三者，不能只记录其中之一。
 
 使用至少两个支持工具调用的模型做 dev 盲测，报告改动前后的分类别对比与失败样本。
 
@@ -426,6 +497,7 @@ P5 内部先在 `shadow` 模式校验字节、变量、完整性与差异，再�
 
 ### 修订记录
 
+- **v4（本次）**：吸收 PR #35 第三轮 6 条 P1。输出侧 reasoning 验收拆为确定性 fixtures（命中 100% / 误删 0）与真实模型 holdout（漏删 0、误删 ≤ 1%），固定冻结时点、校准集与 holdout 隔离、模型与轮数；定稿快照持久化顺序与失败语义（身份原子写入、正文快照 best-effort）；给出 code-default canonical JSON 的精确字段（不含 `version`，以 `catalog_version` 承担版本身份，与 PromptHub 算法有意不同）；新增 `classifier_prompt_fingerprint` 审计；清除后半段残留的单层快照描述与验收清单中的废弃口径。
 - **v2**：吸收 PR #35 第一轮 8 条 P1 复审意见。新增 P0 字节一致前置条件；拆分输入侧 section identity 与输出侧 reasoning 净化并定死身份载体；以 `HyxiaoGe/prompthub@5c9456e` 的 canonical contract 取代 revision 的二选一表述，并补充重算需保留原始有序 `variables` 的实现前提；补齐 rollback hold 的持久状态机契约；taxonomy 注入方式定稿为代码渲染受控变量；快照解析点上移到能力分类之前；三组剩余范围完成唯一归类；删除发布门禁中对本地化正文子串的 marker 校验。
 - **v3（本次）**：吸收 PR #35 第二轮 8 条 P1。消除第四级 legacy 回退；新增降级路径的 `source_kind` + `effective_revision` 可审计身份；P0 基线改为基于部署前 effective map 而非全代码默认值；section identity 载体定稿为不可变 `PromptMessage`；输出侧 reasoning 给出唯一结论（维持现有机制 + P5 重新标定硬门禁 + 漏删/误删双指标）；冻结拆为 `PromptBundleSnapshot` / `RunPromptSnapshot` 两层以消除循环依赖；hold 审计拆为 current-state row + append-only events 且 activation 判断在锁内直读 DB；**模板引擎定稿为与 PromptHub 一致的 sandboxed Jinja2**，作废此前的 `{{` / `}}` 转义建议。
 - **v1**：三方复审共识初稿。
