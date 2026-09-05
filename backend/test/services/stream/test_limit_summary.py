@@ -32,6 +32,18 @@ from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream_state_service import StreamOwnershipLostError
 
 
+def _plan_synthesis_evidence() -> list:
+    """测流式契约的 plan_synthesis 用例需要工具证据：零证据的综合会改走缓存输出。"""
+
+    return [
+        SearchBlock(
+            type="search",
+            query="计划检索",
+            sources=[SearchSourceSummary(title="来源", url="https://example.com/plan")],
+        )
+    ]
+
+
 def _deep_summary_evidence() -> tuple[ResearchEvidenceWorkset, list]:
     blocks = [
         SearchBlock(
@@ -592,7 +604,12 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
         round_results,
         llm_call_fn=None,
         events=None,
+        content_blocks=None,
     ):
+        # plan_synthesis 只在留下工具证据时才流式直发；零证据的终态改走缓存输出，
+        # 由 PlanSynthesisNoEvidenceFactBoundaryTests 覆盖（issue #31）。测流式与
+        # 部分输出契约的用例需要显式传入证据块作为前置条件。
+        content_blocks = [] if content_blocks is None else content_blocks
         queued_results = iter(round_results)
         stream_kwargs = []
         events = events if events is not None else []
@@ -634,7 +651,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             litellm_kwargs={},
             messages=[{"role": "user", "content": "请给出最终回答"}],
             should_use_reasoning=False,
-            content_blocks=[],
+            content_blocks=content_blocks,
             call_kwargs={
                 "tools": [{"function": {"name": "web_search"}}],
                 "tool_choice": "auto",
@@ -657,7 +674,8 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_standard_plan_synthesis_streams_round_and_never_bulk_appends_answer(self):
         request, stream_kwargs, _events, prepare_context_fn = self._plan_synthesis_request(
-            round_results=[("综合推理", "第一段第二段", [], "stop", Usage(input_tokens=2, output_tokens=3))]
+            round_results=[("综合推理", "第一段第二段", [], "stop", Usage(input_tokens=2, output_tokens=3))],
+            content_blocks=_plan_synthesis_evidence(),
         )
 
         with (
@@ -669,7 +687,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(stream_kwargs[0]["defer_output"])
         append_chunk.assert_not_awaited()
         self.assertFalse(outcome.incomplete)
-        self.assertEqual([block.type for block in request.content_blocks], ["thinking", "text"])
+        self.assertEqual([block.type for block in request.content_blocks], ["search", "thinking", "text"])
         self.assertEqual(request.content_blocks[-2].thinking, "综合推理")
         self.assertEqual(request.content_blocks[-1].text, "第一段第二段")
 
@@ -724,7 +742,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             litellm_kwargs={},
             messages=[{"role": "user", "content": "总结"}],
             should_use_reasoning=True,
-            content_blocks=[],
+            content_blocks=_plan_synthesis_evidence(),
             call_kwargs={},
             accumulated_usage=Usage(input_tokens=0, output_tokens=0),
             emitter=AsyncMock(),
@@ -767,13 +785,16 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
         )
         summary_append.assert_not_awaited()
         self.assertTrue(outcome.incomplete)
-        self.assertEqual([block.type for block in request.content_blocks], ["thinking", "text"])
+        self.assertEqual([block.type for block in request.content_blocks], ["search", "thinking", "text"])
         self.assertEqual(request.content_blocks[-2].thinking, "部分综合推理")
         self.assertEqual(request.content_blocks[-1].text, "部分正文")
 
     async def test_standard_plan_synthesis_stream_error_persists_sent_partial(self):
         warnings = []
-        request, _stream_kwargs, _events, prepare_context_fn = self._plan_synthesis_request(round_results=[])
+        request, _stream_kwargs, _events, prepare_context_fn = self._plan_synthesis_request(
+            round_results=[],
+            content_blocks=_plan_synthesis_evidence(),
+        )
 
         async def stream_round_fn(*_args, partial_output=None, **_kwargs):
             partial_output["reasoning_buf"] = "异常前已发送推理"
@@ -793,9 +814,9 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(outcome.incomplete)
         append_chunk.assert_not_awaited()
-        self.assertEqual([block.type for block in request.content_blocks], ["thinking", "text"])
-        self.assertEqual(request.content_blocks[0].thinking, "异常前已发送推理")
-        self.assertEqual(request.content_blocks[1].text, "异常前已发送正文")
+        self.assertEqual([block.type for block in request.content_blocks], ["search", "thinking", "text"])
+        self.assertEqual(request.content_blocks[-2].thinking, "异常前已发送推理")
+        self.assertEqual(request.content_blocks[-1].text, "异常前已发送正文")
         self.assertTrue(any("RuntimeError" in warning for warning in warnings))
 
     async def test_standard_plan_synthesis_ownership_loss_is_never_converted_to_partial(self):
@@ -994,6 +1015,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             ],
             llm_call_fn=AsyncMock(return_value="response-1"),
             events=events,
+            content_blocks=_plan_synthesis_evidence(),
         )
 
         async def append_answer(_conversation_id, chunk_type, answer, *_args, **_kwargs):
@@ -1011,14 +1033,15 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(stream_kwargs[0]["defer_output"])
         self.assertTrue(outcome.incomplete)
         append_chunk.assert_not_awaited()
-        self.assertEqual([block.type for block in request.content_blocks], ["thinking", "text"])
+        self.assertEqual([block.type for block in request.content_blocks], ["search", "thinking", "text"])
         self.assertEqual(request.content_blocks[-2].thinking, "已流式发送的安全推理。")
         self.assertEqual(request.content_blocks[-1].text, "已流式发送的安全正文。")
         self.assertEqual([event[0] for event in events], ["round_complete"])
 
     async def test_empty_plan_synthesis_emits_safe_fallback_and_marks_incomplete(self):
         request, stream_kwargs, _events, prepare_context_fn = self._plan_synthesis_request(
-            round_results=[("", "", [], "stop", None)]
+            round_results=[("", "", [], "stop", None)],
+            content_blocks=_plan_synthesis_evidence(),
         )
 
         with (
@@ -1035,7 +1058,8 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_reasoning_only_plan_synthesis_persists_reasoning_and_appends_safe_fallback(self):
         request, stream_kwargs, _events, prepare_context_fn = self._plan_synthesis_request(
-            round_results=[("仅供内部使用的推理", "", [], "stop", None)]
+            round_results=[("仅供内部使用的推理", "", [], "stop", None)],
+            content_blocks=_plan_synthesis_evidence(),
         )
 
         with (
@@ -1048,9 +1072,9 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(outcome.incomplete)
         append_chunk.assert_awaited_once()
         self.assertEqual(append_chunk.await_args.args[2], SUMMARY_PROTOCOL_FALLBACK_TEXT)
-        self.assertEqual([block.type for block in request.content_blocks], ["thinking", "text"])
-        self.assertEqual(request.content_blocks[0].thinking, "仅供内部使用的推理")
-        self.assertEqual(request.content_blocks[1].text, SUMMARY_PROTOCOL_FALLBACK_TEXT)
+        self.assertEqual([block.type for block in request.content_blocks], ["search", "thinking", "text"])
+        self.assertEqual(request.content_blocks[-2].thinking, "仅供内部使用的推理")
+        self.assertEqual(request.content_blocks[-1].text, SUMMARY_PROTOCOL_FALLBACK_TEXT)
 
     async def test_reasoning_only_timed_out_plan_synthesis_keeps_thinking_and_appends_fallback(self):
         request, _stream_kwargs, _events, prepare_context_fn = self._plan_synthesis_request(round_results=[])
@@ -1082,6 +1106,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
                 ("重试已发送推理", "", protocol_call, "tool_calls", None),
             ],
             llm_call_fn=AsyncMock(side_effect=["response-1", "response-2"]),
+            content_blocks=_plan_synthesis_evidence(),
         )
 
         with (
@@ -1094,9 +1119,9 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(outcome.incomplete)
         append_chunk.assert_awaited_once()
         self.assertEqual(append_chunk.await_args.args[2], SUMMARY_PROTOCOL_FALLBACK_TEXT)
-        self.assertEqual([block.type for block in request.content_blocks], ["thinking", "text"])
-        self.assertEqual(request.content_blocks[0].thinking, "首轮已发送推理重试已发送推理")
-        self.assertEqual(request.content_blocks[1].text, SUMMARY_PROTOCOL_FALLBACK_TEXT)
+        self.assertEqual([block.type for block in request.content_blocks], ["search", "thinking", "text"])
+        self.assertEqual(request.content_blocks[-2].thinking, "首轮已发送推理重试已发送推理")
+        self.assertEqual(request.content_blocks[-1].text, SUMMARY_PROTOCOL_FALLBACK_TEXT)
 
     async def test_empty_repeated_protocol_appends_and_persists_one_fallback(self):
         protocol_call = [{"id": "tc-protocol", "name": "web_search", "arguments": "{}"}]
@@ -1687,7 +1712,9 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
                 )
                 stream_append = AsyncMock()
                 summary_append = AsyncMock()
-                content_blocks = []
+                # plan_synthesis 只在留下工具证据时才流式直发（issue #31）；两侧用同一份
+                # 前置证据，保证这里比较的仍然只是输出模式差异。
+                content_blocks = _plan_synthesis_evidence()
                 request = LimitSummaryStepRequest(
                     conversation_id="conv-k3-summary",
                     task_id="task-k3-summary",
@@ -1747,12 +1774,8 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
                     summary_append.assert_awaited_once()
                     self.assertEqual(summary_append.await_args.args[1:3], ("answering", "最终答复"))
                 self.assertFalse(outcome.incomplete)
-                if summary_finish_reason == "plan_synthesis":
-                    self.assertEqual([block.type for block in content_blocks], ["thinking", "text"])
-                    self.assertEqual(content_blocks[-2].thinking, "候选协议推理最终综合推理")
-                else:
-                    self.assertEqual([block.type for block in content_blocks], ["thinking", "text"])
-                    self.assertEqual(content_blocks[-2].thinking, "候选协议推理最终综合推理")
+                self.assertEqual([block.type for block in content_blocks], ["search", "thinking", "text"])
+                self.assertEqual(content_blocks[-2].thinking, "候选协议推理最终综合推理")
 
     async def test_no_progress_summary_uses_safe_fallback_after_repeated_tool_protocol(self):
         content_blocks = []
@@ -2553,14 +2576,13 @@ class LimitSummaryNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase):
 
 
 class PlanSynthesisNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase):
-    """plan_synthesis 与触顶总结同属"零工具证据"终态。
+    """plan_synthesis 与触顶总结同属"零工具证据"终态（issue #30 P1-B / #31）。
 
     `ready_for_plan_synthesis()` 的准入条件本身就包含"没有产品结果、没有尝试过产品
-    工具"，叠加 `tool_call_count == 0` 的未公告工具路径，就是 issue #30 P1-B 的同形场景。
+    工具"，叠加 `tool_call_count == 0` 的未公告工具路径，就是 P1-B 的同形场景。
 
-    但这条分支的正文是流式直发的：门禁只能保证落库记录诚实、终态标记未完成、事件可观测，
-    **拦不住已经送达用户的流式内容**。彻底修复需要让零证据的 plan_synthesis 改走缓存
-    输出，那会连带改变推理块持久化与部分输出语义，另案处理。
+    零证据时本分支改走缓存输出，事实边界在正文送达用户之前生效；留下工具证据的综合
+    仍然流式直发，行为不变。
     """
 
     _FABRICATED = "高铁直达大约 5 小时，二等座 280 元；也可以坐 G1234 次列车。"
@@ -2586,7 +2608,10 @@ class PlanSynthesisNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase)
                 estimated_tokens_after=100,
             )
 
-        async def stream_round_fn(*_args, **_kwargs):
+        stream_kwargs: list = []
+
+        async def stream_round_fn(*_args, **kwargs):
+            stream_kwargs.append(kwargs)
             return "", answer, [], "stop", Usage(input_tokens=2, output_tokens=3)
 
         request = LimitSummaryStepRequest(
@@ -2616,45 +2641,49 @@ class PlanSynthesisNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase)
             summary_finish_reason="plan_synthesis",
             defer_output=True,
         )
-        return request, prepare_context_fn
+        return request, prepare_context_fn, stream_kwargs
 
     async def _run(self, *, answer: str, content_blocks: list):
-        request, prepare_context_fn = self._request(answer=answer, content_blocks=content_blocks)
+        request, prepare_context_fn, stream_kwargs = self._request(answer=answer, content_blocks=content_blocks)
         with (
             patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
             patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append_chunk,
         ):
             outcome = await run_limit_summary_step(request=request)
-        return request, append_chunk, outcome
+        return request, append_chunk, outcome, stream_kwargs
 
-    async def test_零证据的计划综合落库记录被改成诚实答复并标记未完成(self):
-        request, append_chunk, outcome = await self._run(answer=self._FABRICATED, content_blocks=[])
+    async def test_零证据的计划综合改走缓存输出且伪造事实不会发出(self):
+        request, append_chunk, outcome, stream_kwargs = await self._run(
+            answer=self._FABRICATED,
+            content_blocks=[],
+        )
 
+        # 关键断言：正文没有流式直发，用户侧只收到门禁替换后的诚实答复。
+        self.assertTrue(stream_kwargs[0]["defer_output"])
+        append_chunk.assert_awaited_once()
+        emitted = append_chunk.await_args.args[2]
+        self.assertEqual(emitted, NO_EVIDENCE_ANSWER_TEXT)
+        self.assertNotIn("280", emitted)
+        self.assertNotIn("G1234", emitted)
         self.assertEqual(request.content_blocks[-1].text, NO_EVIDENCE_ANSWER_TEXT)
         self.assertTrue(outcome.incomplete)
-        # 流式正文已发出，只能补发一次更正内容；这是本分支已知的残留缺口。
-        self.assertEqual(append_chunk.await_args.args[2], NO_EVIDENCE_ANSWER_TEXT)
 
-    async def test_零证据但诚实的计划综合完全不被改写(self):
+    async def test_零证据但诚实的计划综合原文完整送达(self):
         honest = "这次没能取到实时班次，高铁和飞机都是常见选择，建议到购票平台确认。"
 
-        request, append_chunk, outcome = await self._run(answer=honest, content_blocks=[])
+        request, append_chunk, outcome, _stream_kwargs = await self._run(answer=honest, content_blocks=[])
 
+        self.assertEqual(append_chunk.await_args.args[2], honest)
         self.assertEqual(request.content_blocks[-1].text, honest)
         self.assertFalse(outcome.incomplete)
-        append_chunk.assert_not_awaited()
 
     async def test_有工具证据的计划综合保持流式直发且不被改写(self):
-        blocks = [
-            SearchBlock(
-                type="search",
-                query="武汉到桂林",
-                sources=[SearchSourceSummary(title="来源", url="https://example.com/a")],
-            )
-        ]
+        request, append_chunk, outcome, stream_kwargs = await self._run(
+            answer=self._FABRICATED,
+            content_blocks=_plan_synthesis_evidence(),
+        )
 
-        request, append_chunk, outcome = await self._run(answer=self._FABRICATED, content_blocks=blocks)
-
+        self.assertFalse(stream_kwargs[0]["defer_output"])
+        append_chunk.assert_not_awaited()
         self.assertEqual(request.content_blocks[-1].text, self._FABRICATED)
         self.assertFalse(outcome.incomplete)
-        append_chunk.assert_not_awaited()

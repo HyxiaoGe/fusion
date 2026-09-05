@@ -111,10 +111,25 @@ class LimitSummaryStepRequest:
     llm_round_detail_scheduler: Callable[[Any], Any] | None = None
 
 
-def _streams_standard_plan_synthesis(request: LimitSummaryStepRequest) -> bool:
-    """普通计划最终综合直接透传正文；深度研究仍需缓存全文完成校验。"""
+def _is_standard_plan_synthesis(request: LimitSummaryStepRequest) -> bool:
+    """是否属于普通计划最终综合这一形态；只看终结原因，不看输出模式。
+
+    超时/异常的部分输出打捞与工具协议兜底都按形态判断：无论正文走流式还是缓存，
+    已经产生的推理与正文都应当保留。
+    """
 
     return request.summary_finish_reason == "plan_synthesis" and request.task_mode != "deep_research"
+
+
+def _streams_standard_plan_synthesis(request: LimitSummaryStepRequest) -> bool:
+    """普通计划最终综合直接透传正文；深度研究仍需缓存全文完成校验。
+
+    `ready_for_plan_synthesis()` 的准入条件本身就包含"没有产品结果"，因此本分支可以在
+    零工具证据下终结整个 run。此时改走缓存输出，让事实边界能在正文送达用户之前生效；
+    否则未经查证的班次与票价已经发出，事后再拦也收不回来（issue #31）。
+    """
+
+    return _is_standard_plan_synthesis(request) and has_tool_evidence(request.content_blocks)
 
 
 def _should_defer_summary_output(request: LimitSummaryStepRequest) -> bool:
@@ -555,7 +570,7 @@ async def run_summary_round_with_timeout(
                 thinking_block_id=thinking_block_id,
                 text_block_id=text_block_id,
                 step_id=summary_context.step_id,
-                partial_output=first_partial if _streams_standard_plan_synthesis(request) else None,
+                partial_output=first_partial if _is_standard_plan_synthesis(request) else None,
                 round_index=next_round_index,
             ),
             timeout=remaining,
@@ -581,7 +596,7 @@ async def run_summary_round_with_timeout(
 
     if not _is_summary_tool_protocol_violation(first_result):
         result = first_result
-    elif _streams_standard_plan_synthesis(request) and first_result.content_buf:
+    elif _is_standard_plan_synthesis(request) and first_result.content_buf:
         warning = request.warning_fn if request.warning_fn is not None else logger.warning
         warning(
             "流式计划综合返回了工具协议，保留已发送的安全正文并终止综合: "
@@ -1049,14 +1064,15 @@ async def _commit_limit_summary_result(
             }
             or not has_answer
         )
-        answer = round_result.content_buf if has_streamed_content else SUMMARY_PROTOCOL_FALLBACK_TEXT
-        # plan_synthesis 的正文是流式直发的，事后拦不住已经送达用户的内容；这里只能保证
-        # 落库记录诚实、终态标记为未完成，并留下可聚合观测。彻底修复需要让零证据的
-        # plan_synthesis 改走缓存输出，那会连带改变推理块持久化与部分输出语义，另案处理。
-        answer, unsupported_fact_kind = _guard_no_evidence_answer(request, answer)
-        if unsupported_fact_kind is not None:
-            incomplete = True
-        if not has_streamed_content or unsupported_fact_kind is not None:
+        if has_streamed_content:
+            # 正文已流式发出，只补落库；只有留下工具证据的综合才会走到这里。
+            answer = round_result.content_buf
+        else:
+            # 零证据的综合改走缓存输出，事实边界在正文送达用户之前生效（issue #31）。
+            answer = round_result.content_buf.strip() or SUMMARY_PROTOCOL_FALLBACK_TEXT
+            answer, unsupported_fact_kind = _guard_no_evidence_answer(request, answer)
+            if unsupported_fact_kind is not None:
+                incomplete = True
             await append_chunk(
                 request.conversation_id,
                 "answering",
@@ -1066,6 +1082,8 @@ async def _commit_limit_summary_result(
                 run_id=request.run_id,
                 step_id=summary_context.step_id,
             )
+            if has_answer and unsupported_fact_kind is None:
+                await _finish_summary_round_lifecycle(round_result, model_output_visible=True)
         if answer:
             request.content_blocks.append(TextBlock(type="text", id=text_block_id, text=answer))
         return incomplete
