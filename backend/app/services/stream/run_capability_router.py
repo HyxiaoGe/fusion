@@ -82,11 +82,24 @@ _CURRENT_EXTERNAL_QUERY_RE = re.compile(
     r"(?:今天|今日|明天|后天|昨天|当前|现在)(?:请|帮我|替我)?(?:查|查询)|"
     r"多少|是否|吗[？?]?$"
 )
+# 查证/核验/验证/交叉验证与 verify 在中文和英文里首先都是普通及物动词（验证假设、核验
+# 身份、交叉验证模型）。字面层是模型无法纠错的抢先短路，命中即返回、语义层再也看不到，
+# 所以这些动词只有绑定到外部主张类宾语时才算查证请求；判不出来就返回 None 交给语义层。
+# fact-check / cross-check 本身只用于核对外部主张，不需要额外约束。见 issue #30 P1-A。
+_EXTERNAL_CLAIM_OBJECT = (
+    r"(?:说法|消息|新闻|报道|传闻|爆料|公告|声明|通告|来源|出处|原文|"
+    r"真伪|真假|真实性|准确性|可信度|是不是真的|是否属实|属实|"
+    r"claim|rumou?r|report|announcement|statement|source)"
+)
+_AMBIGUOUS_VERIFY_VERB = r"(?:查证|核验|交叉验证|验证|\bverify\b)"
+_VERIFY_OBJECT_WINDOW = r"[^。！？!?；;]{0,14}?"
 _VERIFIED_SOURCE_RE = re.compile(
     r"官方(?:公告|原文|资料|来源)|一手来源|可靠来源|权威来源|"
-    r"(?:查证|核验|验证|交叉验证)|只依据(?:该|这个)页面|"
+    rf"{_AMBIGUOUS_VERIFY_VERB}{_VERIFY_OBJECT_WINDOW}{_EXTERNAL_CLAIM_OBJECT}|"
+    rf"{_EXTERNAL_CLAIM_OBJECT}{_VERIFY_OBJECT_WINDOW}{_AMBIGUOUS_VERIFY_VERB}|"
+    r"只依据(?:该|这个)页面|"
     r"\b(?:official.{0,32}(?:announcement|source|documentation|release notes)|"
-    r"primary source|verify|fact-check|cross-check)\b",
+    r"primary source|fact-check|cross-check)\b",
     re.IGNORECASE,
 )
 _URL_LOCAL_SOURCE_ONLY_RE = re.compile(

@@ -3925,3 +3925,58 @@ def test_non_place_endpoints_never_expose_map_tools(message):
 
     assert route.package_id == "clarification_only"
     assert route.external_tool_names == ()
+
+
+class TestVerifiedWebVerbNeedsClaimObject:
+    """issue #30 P1-A：字面层不得因裸动词「验证」抢先判为 verified_web。
+
+    `_VERIFIED_SOURCE_RE` 其余每个分支都带宾语约束（官方公告、一手来源、primary
+    source），只有查证/核验/验证/交叉验证是裸动词——而这些在中文里首先是普通及物动词。
+    字面层是模型无法纠错的抢先短路，命中即返回，语义层永远看不到，因此它只应在确定时
+    命中：要求动词绑定外部主张类宾语，判不出来就交给语义层。
+    """
+
+    @staticmethod
+    def _literal(message: str):
+        request = _extract_request_signals(message)
+        return _classify_literal_layer(request, ALL_TOOLS)
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "一个功能从试用走到正式收费，定价前应该验证什么？",
+            "定价前应该验证什么",
+            "这个方案需要验证哪些假设",
+            "上线前要验证什么",
+            "我想验证一下我的想法对不对",
+            "招人的时候怎么核验候选人的能力",
+            "创业初期最该验证的是什么",
+            "用交叉验证评估模型效果靠谱吗",
+        ],
+    )
+    def test_抽象语境的裸动词不再短路(self, message: str):
+        route = self._literal(message)
+        assert route is None or route.package_id != "verified_web"
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "帮我核验一下官方公告里的数字",
+            "请查证一下这个说法是不是真的",
+            "帮我验证一下这条新闻的真实性",
+            "这条传闻帮我查证下",
+            "核验 OpenAI 最新官方公告",
+            "不要联网搜索旧文档；核验 OpenAI 最新官方公告",
+            "verify the latest official OpenAI announcement",
+            "Please fact-check this claim",
+            "cross-check it with official sources",
+        ],
+    )
+    def test_带外部主张宾语的仍然命中(self, message: str):
+        route = self._literal(message)
+        assert route is not None
+        assert route.package_id == "verified_web"
+
+    def test_判不出来时交给语义层而不是直接给结论(self):
+        # 字面层返回 None 意味着进入模型语义层；这是本修复的核心：不确定就不抢答。
+        assert self._literal("定价前应该验证什么") is None
