@@ -162,3 +162,13 @@
 3. 用 `rg` 搜索相关关键词，至少覆盖 `docs/implementation-plans`、`docs/specs`、存在时的 `backend/docs/MODEL_ACCEPTANCE_RUNBOOK.md` 以及受影响应用文档与源码。
 4. 先列“已完成事实”，再列“不能重复建议”，最后才给新的建议。
 5. 如果没有高置信下一步，直接说“当前不建议继续开基础设施优化坑”，不要硬凑方向。
+
+## 2026-09-06 Issue #34 P3a：完整 v2 LKG 与部署前桥接（本地验证，待 PR 复审）
+
+- 从 `origin/master@ed3a789365a46c5724420d2ffec18d6f06040e81` 建立独立分支；用户定稿 v1 逻辑放弃、物理暂留，不推断旧字段，不实现 runtime v1 fallback。
+- 从原始 published variables/正文重算官方 source revision，新增本地 schema 2/catalog/checksum；同 revision 冲突不覆盖，shadow 不取消 active，差异相对锁内 active 计算。新物理键 `prompt_bundle/fusion:v2` 不改历史 P2 Run 身份。
+- 发布前用核验旧 image ID 和原 Prompt 配置冻结基线，再由候选 oneshot 原子预置 v2/追加回执，失败在服务替换前终止。首次发布保留 v1 active；旧 worker 和旧代码回滚锚点退出后另行停用，绝不删除正文。
+- 独立工作树复审修复三项问题：提交后访问过期 ORM 对象、shell 配置被 Docker env-file 误解释、停止旧容器无法抓取基线。默认 SessionLocal 事务、三种容器状态、身份变化与各失败路径均有测试。
+- 本地全量 pytest `3983 passed, 2 skipped, 4371 subtests passed`；unittest `3044 tests, OK (skipped=2)`；仓库级契约 `67 tests, OK`；Ruff/改动文件格式、架构、shell 与 diff 检查通过。测试使用 mock HTTP/模型、SQLite 和 fake Docker，没有启动本地服务。
+- 本次授权范围仅到分支、独立 PR 和复审；未合并、未部署、未写 PromptHub、未改 GitHub 变量、未删除数据。P3b hold 与 P3c 引擎桥接另阶段实现，不能把本条视为全部 P3 或真实环境验收完成。
+- [定稿实施计划](implementation-plans/2026-09-06-global-prompt-runtime-p3.md)；[P3a 迁移与验证报告](reports/backend/2026-09-06-global-prompt-runtime-p3a.md)。

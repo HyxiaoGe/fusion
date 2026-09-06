@@ -195,6 +195,16 @@ jobs:
         id: apply_migrations
         if: inputs.migration_enabled && needs.prepare.outputs.rollback_requested != 'true'
         run: ops/deploy/api-apply-alembic-migrations.sh
+      - name: Prepare verified Prompt bundle
+        id: prepare_prompt_bundle
+        if: needs.prepare.outputs.rollback_requested != 'true'
+        env:
+          PREVIOUS_API_ID: ${{ steps.capture_rollback_target.outputs.api_image_id }}
+          PREVIOUS_API_REF: ${{ steps.capture_rollback_target.outputs.api_image_ref }}
+          DEPLOY_PROMPTHUB_API_KEY: ${{ secrets.PROMPTHUB_API_KEY }}
+          DEPLOY_PROMPTHUB_SYNC_MODE: ${{ vars.PROMPTHUB_SYNC_MODE || 'disabled' }}
+          DEPLOY_PROMPT_P0_BASELINE_ATTESTED: ${{ vars.PROMPT_P0_BASELINE_ATTESTED || 'false' }}
+        run: ops/deploy/api-prepare-prompt-bundle.sh
       - name: Pull and restart fusion-api
         id: deploy_candidate
         env:

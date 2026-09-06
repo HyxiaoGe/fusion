@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import json
 from dataclasses import FrozenInstanceError
 from unittest.mock import patch
 
@@ -14,23 +15,50 @@ from app.services.runtime_config_defaults import DEFAULT_PROMPT_TEMPLATES
 
 
 def bundle_payload(revision, suffix):
-    return {
-        "schema_version": 1,
+    payload = {
+        "schema_version": 2,
+        "catalog_version": CATALOG_VERSION,
         "project_slug": "fusion",
         "revision": revision,
         "prompts": {
             spec.key: {
                 "slug": spec.slug,
-                "version": "1.0.0",
+                "version": f"fixture-{revision}",
                 "content": DEFAULT_PROMPT_TEMPLATES[spec.key] + suffix,
                 "content_sha256": hashlib.sha256(
                     (DEFAULT_PROMPT_TEMPLATES[spec.key] + suffix).encode("utf-8")
                 ).hexdigest(),
                 "variables": list(spec.variables),
+                "raw_variables": list(spec.variables),
+                "format": "text",
+                "template_engine": "none",
+                "published_at": None,
             }
             for spec in PROMPT_SPECS
         },
     }
+
+    canonical = {
+        "project_slug": "fusion",
+        "prompts": [
+            {
+                "slug": item["slug"],
+                "version": item["version"],
+                "content_sha256": item["content_sha256"],
+                "variables": item["raw_variables"],
+            }
+            for item in sorted(payload["prompts"].values(), key=lambda item: item["slug"])
+        ],
+    }
+
+    def checksum(material):
+        return hashlib.sha256(
+            json.dumps(material, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        ).hexdigest()
+
+    payload["revision"] = checksum(canonical)
+    payload["local_payload_checksum"] = checksum(payload)
+    return payload
 
 
 @pytest.fixture(autouse=True)
@@ -55,7 +83,7 @@ def test_frozen_getters_keep_a_after_active_switches_to_b_and_payload_is_mutated
         with prompt_bundle.use_prompt_snapshot(newer):
             assert get_app_identity_prompt().endswith("\n版本 B")
     assert frozen.source_kind == "prompthub_lkg"
-    assert frozen.effective_revision == "a" * 64
+    assert frozen.effective_revision == bundle_payload("a" * 64, "\n版本 A")["revision"]
     assert frozen.classifier_prompt == "分类 A"
     with pytest.raises(FrozenInstanceError):
         frozen.effective_revision = "b" * 64
@@ -153,7 +181,7 @@ def test_independent_auxiliary_call_uses_new_bundle_and_records_its_own_identity
         assert prompt.endswith(" B")
         sent = merge_litellm_kwargs("generate_title", prompt_metadata=metadata)["extra_body"]["metadata"]
         assert sent["source_kind"] == "prompthub_lkg"
-        assert sent["effective_revision"] == "b" * 64
+        assert sent["effective_revision"] == bundle_payload("b" * 64, " B")["revision"]
         assert get_app_identity_prompt().endswith(" A")
 
 

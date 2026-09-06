@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.prompt_bundle import get_active_prompt_bundle_payload, validate_stored_bundle_payload
+from app.core.prompt_bundle import diagnose_stored_bundle_payload, get_active_prompt_bundle_payload
 from app.core.runtime_config import (
     SessionFactory,
     clear_runtime_config_cache,
@@ -297,8 +297,12 @@ def _serialize_runtime_config_entry(
     default_payload: dict[str, Any] | None,
 ) -> dict[str, Any]:
     if row.namespace == "prompt_bundle":
-        valid = validate_stored_bundle_payload(row.payload)
-        issues = [] if valid else ["Prompt bundle LKG 结构、版本或 checksum 无效"]
+        status = diagnose_stored_bundle_payload(row.payload)
+        valid = status == "valid"
+        issues = [] if valid else [f"Prompt bundle LKG 不可用：{status}"]
+        if row.key == "fusion:v2:bridge":
+            valid = isinstance(row.payload, dict) and row.payload.get("action") in {"seeded", "retired"}
+            issues = [] if valid else ["部署桥接回执无效"]
     elif isinstance(row.payload, dict):
         candidate_payload = (
             deep_merge_config(default_payload, row.payload) if default_payload is not None else row.payload

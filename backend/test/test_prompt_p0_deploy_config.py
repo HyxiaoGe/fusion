@@ -7,20 +7,20 @@ false，过渡完成后正常热更新会被门禁永久拦住。
 import unittest
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 MONOREPO_ROOT = ROOT.parent
 FLAG = "PROMPT_P0_BASELINE_ATTESTED"
 
 
 class PromptP0DeployConfigTests(unittest.TestCase):
-    def test_deploy_workflow_passes_flag_to_both_jobs(self):
+    def test_deploy_workflow_passes_flag_to_prepare_deploy_and_rollback(self):
         workflow = (MONOREPO_ROOT / ".github/workflows/_deploy-api.yml").read_text(encoding="utf-8")
-
-        self.assertEqual(
-            workflow.count(f"DEPLOY_{FLAG}: " + "${{ vars." + FLAG + " || 'false' }}"),
-            2,
-            "部署与回滚两处 job 都必须下发该开关",
-        )
+        steps = {step.get("name"): step for step in yaml.safe_load(workflow)["jobs"]["deploy-dev"]["steps"]}
+        for name in ("Prepare verified Prompt bundle", "Pull and restart fusion-api", "Roll back failed deployment"):
+            with self.subTest(step=name):
+                self.assertEqual(steps[name]["env"].get(f"DEPLOY_{FLAG}"), "${{ vars." + FLAG + " || 'false' }}")
 
     def test_pull_and_restart_exports_and_injects_flag(self):
         script = (MONOREPO_ROOT / "ops/deploy/api-pull-and-restart.sh").read_text(encoding="utf-8")

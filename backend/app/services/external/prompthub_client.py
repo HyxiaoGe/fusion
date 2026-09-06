@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 from typing import Any
 
@@ -17,6 +18,7 @@ class PromptHubBundleItem:
     status: str
     content: str
     variables: tuple[str, ...]
+    raw_variables: list[Any]
     format: str
     template_engine: str
     published_at: str | None
@@ -119,6 +121,7 @@ def _parse_bundle_item(item: Any) -> PromptHubBundleItem:
         status=_required_string(item, "status"),
         content=_required_string(item, "content", allow_blank=True),
         variables=variables,
+        raw_variables=copy.deepcopy(raw_variables),
         format=_required_string(item, "format"),
         template_engine=_required_string(item, "template_engine"),
         published_at=published_at,

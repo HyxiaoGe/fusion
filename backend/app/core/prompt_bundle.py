@@ -14,7 +14,18 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.logger import app_logger as logger
+from app.core.prompt_bundle_integrity import (
+    PROMPT_BUNDLE_NAMESPACE,
+    PROMPT_BUNDLE_SCHEMA_VERSION,
+    PROMPT_BUNDLE_STORAGE_KEY,
+    PromptBundleRevisionConflict,
+    PromptBundleValidationError,
+    compute_local_payload_checksum,
+    compute_source_revision,
+    normalize_variable_names,
+)
 from app.core.prompt_catalog import (
+    CATALOG_VERSION,
     PRE_P0_CODE_ONLY_KEYS,
     PROMPT_SPEC_BY_KEY,
     PROMPT_SPEC_BY_SLUG,
@@ -34,10 +45,6 @@ from app.db.models import RuntimeConfigEntry
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _BUNDLE_CACHE_TTL_SECONDS = 60.0
 _BUNDLE_CACHE: tuple[float, dict[str, Any] | None] | None = None
-
-
-class PromptBundleValidationError(ValueError):
-    pass
 
 
 def freeze_prompt_bundle(defaults: Mapping[str, str], *, classifier_prompt: str = "") -> PromptBundleSnapshot:
@@ -86,26 +93,48 @@ def validate_published_bundle(bundle: Any) -> dict[str, Any]:
 
     if issues:
         raise PromptBundleValidationError("; ".join(issues))
-    return {
-        "schema_version": 1,
+    if compute_source_revision(bundle.project_slug, validated_prompts.values()) != revision:
+        raise PromptBundleRevisionConflict("PromptHub source_revision 与原始发布材料不一致")
+    payload = {
+        "schema_version": PROMPT_BUNDLE_SCHEMA_VERSION,
+        "catalog_version": CATALOG_VERSION,
         "project_slug": bundle.project_slug,
         "revision": revision,
         "prompts": validated_prompts,
     }
+    payload["local_payload_checksum"] = compute_local_payload_checksum(payload)
+    return payload
 
 
 def validate_stored_bundle_payload(payload: Any) -> bool:
+    return diagnose_stored_bundle_payload(payload) == "valid"
+
+
+def diagnose_stored_bundle_payload(payload: Any) -> str:
+    """区分旧格式、catalog 漂移与完整性损坏；诊断不包含正文。"""
     if not isinstance(payload, dict):
-        return False
-    if payload.get("schema_version") != 1 or payload.get("project_slug") != settings.PROMPTHUB_PROJECT_SLUG:
-        return False
-    revision = payload.get("revision")
-    prompts = payload.get("prompts")
+        return "payload_invalid"
+    if type(payload.get("schema_version")) is not int or payload["schema_version"] != PROMPT_BUNDLE_SCHEMA_VERSION:
+        return "schema_unsupported"
+    if payload.get("catalog_version") != CATALOG_VERSION:
+        return "catalog_mismatch"
+    if payload.get("project_slug") != settings.PROMPTHUB_PROJECT_SLUG:
+        return "project_mismatch"
+    revision, prompts = payload.get("revision"), payload.get("prompts")
     if not isinstance(revision, str) or _SHA256_PATTERN.fullmatch(revision) is None:
-        return False
+        return "revision_invalid"
     if not isinstance(prompts, dict) or set(prompts) != set(PROMPT_SPEC_BY_KEY):
-        return False
-    return all(_stored_prompt_is_valid(key, prompts.get(key)) for key in PROMPT_SPEC_BY_KEY)
+        return "catalog_mismatch"
+    try:
+        if payload.get("local_payload_checksum") != compute_local_payload_checksum(payload):
+            return "local_checksum_mismatch"
+        if not all(_stored_prompt_is_valid(key, prompts.get(key)) for key in PROMPT_SPEC_BY_KEY):
+            return "prompt_contract_invalid"
+        if revision != compute_source_revision(payload["project_slug"], prompts.values()):
+            return "revision_conflict"
+        return "valid"
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return "payload_invalid"
 
 
 def resolve_prompt_template(name: str, fallback: str) -> str:
@@ -199,14 +228,14 @@ def _validate_prompt_item(prompt: Any, spec: Any) -> tuple[list[str], dict[str, 
     variables = getattr(prompt, "variables", None)
     if getattr(prompt, "status", None) != "published":
         issues.append(f"{prefix}: status 必须为 published")
-    if getattr(prompt, "format", None) != "text":
-        issues.append(f"{prefix}: format 必须为 text")
-    if getattr(prompt, "template_engine", None) != "none":
-        issues.append(f"{prefix}: template_engine 必须为 none")
+    if getattr(prompt, "format", None) != spec.format:
+        issues.append(f"{prefix}: format 必须为 {spec.format}")
+    if getattr(prompt, "template_engine", None) != spec.template_engine:
+        issues.append(f"{prefix}: template_engine 必须为 {spec.template_engine}")
+    if getattr(prompt, "published_at", None) is not None and not isinstance(prompt.published_at, str):
+        issues.append(f"{prefix}: published_at 无效")
     if not isinstance(content, str) or not content.strip():
         issues.append(f"{prefix}: content 必须是非空字符串")
-    elif not _marker_is_acceptable(content, spec):
-        issues.append(f"{prefix}: 缺少固定 marker")
     elif spec.variables and not _format_contract_is_valid(content, spec.variables):
         issues.append(f"{prefix}: content 占位符与 variables 不匹配")
     if (
@@ -215,6 +244,13 @@ def _validate_prompt_item(prompt: Any, spec: Any) -> tuple[list[str], dict[str, 
         or set(variables) != set(spec.variables)
     ):
         issues.append(f"{prefix}: variables 不匹配")
+    raw_variables = getattr(prompt, "raw_variables", None)
+    try:
+        raw_names = normalize_variable_names(raw_variables)
+        if raw_names != variables:
+            issues.append(f"{prefix}: 原始 variables 与归一化名字不一致")
+    except (TypeError, ValueError):
+        issues.append(f"{prefix}: 原始 variables 无效")
     version = getattr(prompt, "version", None)
     if not isinstance(version, str) or not version:
         issues.append(f"{prefix}: version 无效")
@@ -225,6 +261,9 @@ def _validate_prompt_item(prompt: Any, spec: Any) -> tuple[list[str], dict[str, 
         "version": version,
         "content": content,
         "variables": list(spec.variables),
+        "raw_variables": copy.deepcopy(raw_variables),
+        "format": prompt.format,
+        "template_engine": prompt.template_engine,
         "content_sha256": _sha256(content),
         "published_at": getattr(prompt, "published_at", None),
     }
@@ -243,10 +282,15 @@ def _stored_prompt_is_valid(key: str, prompt: Any) -> bool:
         and bool(prompt.get("version"))
         and isinstance(content, str)
         and bool(content.strip())
-        and _marker_is_acceptable(content, spec)
         and (not spec.variables or _format_contract_is_valid(content, spec.variables))
         and isinstance(variables, list)
         and set(variables) == set(spec.variables)
+        and len(variables) == len(spec.variables)
+        and set(normalize_variable_names(prompt.get("raw_variables"))) == set(spec.variables)
+        and len(normalize_variable_names(prompt.get("raw_variables"))) == len(spec.variables)
+        and prompt.get("format") == spec.format
+        and prompt.get("template_engine") == spec.template_engine
+        and (prompt.get("published_at") is None or isinstance(prompt["published_at"], str))
         and isinstance(checksum, str)
         and checksum == _sha256(content)
     )
@@ -302,8 +346,8 @@ def _load_active_bundle_payload(
         rows = (
             session.query(RuntimeConfigEntry)
             .filter(
-                RuntimeConfigEntry.namespace == "prompt_bundle",
-                RuntimeConfigEntry.key == "fusion",
+                RuntimeConfigEntry.namespace == PROMPT_BUNDLE_NAMESPACE,
+                RuntimeConfigEntry.key == PROMPT_BUNDLE_STORAGE_KEY,
                 RuntimeConfigEntry.is_active.is_(True),
             )
             .order_by(RuntimeConfigEntry.updated_at.desc(), RuntimeConfigEntry.created_at.desc())
@@ -326,16 +370,6 @@ def _is_pinned_during_p0_transition(name: str) -> bool:
     """P0 过渡未完成时，原本由代码提供有效值的 key 继续钉在代码默认值上。"""
 
     return not settings.PROMPT_P0_BASELINE_ATTESTED and name in PRE_P0_CODE_ONLY_KEYS
-
-
-def _marker_is_acceptable(content: str, spec: Any) -> bool:
-    """校验 marker；过渡期额外接受历史 marker，使过渡前发布的 bundle 仍然有效。"""
-
-    if spec.marker in content:
-        return True
-    if settings.PROMPT_P0_BASELINE_ATTESTED:
-        return False
-    return any(marker in content for marker in getattr(spec, "legacy_markers", ()))
 
 
 def _sha256(content: str) -> str:
