@@ -17,7 +17,7 @@ from app.core.config import settings  # noqa: E402
 from app.core.prompt_bundle import load_stored_active_bundle_payload, validate_published_bundle  # noqa: E402
 from app.core.prompt_catalog import PROMPT_SPEC_BY_KEY  # noqa: E402
 from app.services.prompt_bundle_bridge import _assert_same_contents, seed_verified_bundle  # noqa: E402
-from app.services.prompt_effective_map import assert_p0_transition_gate  # noqa: E402
+from app.services.prompt_effective_map import assert_payload_p0_gate  # noqa: E402
 from app.services.prompthub_sync_service import _build_client  # noqa: E402
 
 
@@ -59,13 +59,13 @@ def prepare(args):
     if existing is not None:
         contents = {key: item["content"] for key, item in existing["prompts"].items()}
         _assert_same_contents(contents, baseline)
-        assert_p0_transition_gate(contents)
+        assert_payload_p0_gate(existing)
         return {"status": "v2_ready", "revision": existing["revision"]}
     bundle = asyncio.run(fetch_bundle())
     payload = validate_published_bundle(bundle)
     contents = {key: item["content"] for key, item in payload["prompts"].items()}
     _assert_same_contents(contents, baseline)
-    assert_p0_transition_gate(contents)
+    assert_payload_p0_gate(payload)
     if not args.apply:
         return {"status": "validated", "revision": payload["revision"], "mode": "dry-run"}
     return seed_verified_bundle(

@@ -134,7 +134,7 @@ def assert_bundle_matches_effective_map(
         raise EffectiveBaselineMismatch("; ".join(mismatches))
 
 
-def assert_p0_transition_gate(bundle_prompts: dict[str, str]) -> None:
+def assert_p0_transition_gate(bundle_prompts: dict[str, str], *, template_engine: str = "none") -> None:
     """校验 attestation 这一**声明**是否属实，不可绕过。
 
     过渡期（未 attested）`PRE_P0_CODE_ONLY_KEYS` 被钉在代码默认值上，bundle 里这几项
@@ -149,9 +149,10 @@ def assert_p0_transition_gate(bundle_prompts: dict[str, str]) -> None:
 
     if not settings.PROMPT_P0_BASELINE_ATTESTED:
         return
+    defaults = p0_defaults_for_engine(template_engine)
     mismatches = []
     for key in sorted(PRE_P0_CODE_ONLY_KEYS):
-        expected = DEFAULT_PROMPT_TEMPLATES[key].encode("utf-8")
+        expected = defaults[key].encode("utf-8")
         actual = bundle_prompts.get(key, "").encode("utf-8")
         if expected != actual:
             mismatches.append(
@@ -295,3 +296,27 @@ def diff_effective_maps(
                 f" expected_sha256={_sha256_bytes(expected)} actual_sha256={_sha256_bytes(actual)}）"
             )
     return mismatches
+
+
+def p0_defaults_for_engine(template_engine: str) -> dict[str, str]:
+    """只选择显式受审查的原字节基线，不接受渲染等价替代。"""
+    if template_engine == "none":
+        return DEFAULT_PROMPT_TEMPLATES
+    if template_engine == "jinja2":
+        from app.ai.prompts.jinja_defaults import JINJA_PROMPT_TEMPLATES
+
+        return JINJA_PROMPT_TEMPLATES
+    raise EffectiveBaselineMismatch("没有该引擎的 P0 原字节基线")
+
+
+def assert_payload_p0_gate(payload: dict) -> None:
+    """原字节门禁绑定已声明的整包引擎，不允许从正文推断或使用另一基线。"""
+    from app.core.prompt_template_engine import payload_template_engine
+
+    try:
+        engine = payload_template_engine(payload)
+    except (KeyError, ValueError, TypeError) as exc:
+        raise EffectiveBaselineMismatch("无法确定完整包的 P0 引擎基线") from exc
+    if engine == "jinja2" and not settings.PROMPT_P0_BASELINE_ATTESTED:
+        raise EffectiveBaselineMismatch("Jinja2 激活要求独立 P0 attestation，不能沿用未完成的过渡期")
+    assert_p0_transition_gate(bundle_payload_contents(payload), template_engine=engine)

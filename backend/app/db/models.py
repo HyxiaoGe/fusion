@@ -43,6 +43,20 @@ def get_china_time():
     return datetime.now(timezone(timedelta(hours=8)))
 
 
+class PromptBundleEngineTransition(Base):
+    """单向迁移阶段的追加事实；无行表示 legacy。"""
+
+    __tablename__ = "prompt_bundle_engine_transitions"
+    project_slug = Column(String(120), primary_key=True)
+    stage = Column(String(16), primary_key=True)
+    revision = Column(String(64), nullable=False)
+    actor = Column(String(120), nullable=False)
+    reason = Column(Text, nullable=False)
+    evidence = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=get_china_time)
+    __table_args__ = (CheckConstraint("stage IN ('bridge', 'jinja2')", name="ck_prompt_engine_stage"),)
+
+
 message_order_sequence = Sequence("message_order_sequence", start=1, increment=2)
 
 

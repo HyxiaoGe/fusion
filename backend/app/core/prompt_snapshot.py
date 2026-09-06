@@ -10,7 +10,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Protocol
 
-from app.core.prompt_catalog import CATALOG_VERSION, PROMPT_SPECS
+from app.core.prompt_catalog import CATALOG_VERSION, DEFAULT_TEMPLATE_ENGINE, PROMPT_SPECS
 
 
 @dataclass(frozen=True)
@@ -20,6 +20,8 @@ class PromptTemplateSnapshot:
     content: str
     variables: tuple[str, ...]
     version: str
+    format: str = "text"
+    template_engine: str = DEFAULT_TEMPLATE_ENGINE
 
 
 @dataclass(frozen=True)
@@ -52,6 +54,8 @@ class PromptBundleSnapshot:
             "prompt_slug": item.slug,
             "prompt_version": item.version,
             "prompt_revision": self.source_revision,
+            "format": item.format,
+            "template_engine": item.template_engine,
         }
 
 
@@ -95,6 +99,8 @@ def build_bundle_snapshot(
             content=payload["prompts"][spec.key]["content"] if payload else defaults[spec.key],
             variables=tuple(spec.variables),
             version=payload["prompts"][spec.key]["version"] if payload else "code-default",
+            format=payload["prompts"][spec.key]["format"] if payload else spec.format,
+            template_engine=payload["prompts"][spec.key]["template_engine"] if payload else DEFAULT_TEMPLATE_ENGINE,
         )
         for spec in sorted(PROMPT_SPECS, key=lambda item: item.slug)
     )
@@ -103,7 +109,7 @@ def build_bundle_snapshot(
         source_kind="prompthub_lkg" if payload else "code_default",
         source_revision=source_revision,
         effective_revision=source_revision or _code_default_revision(templates),
-        catalog_version=CATALOG_VERSION,
+        catalog_version=payload["catalog_version"] if payload else CATALOG_VERSION,
         templates=templates,
         classifier_prompt=classifier_prompt,
     )

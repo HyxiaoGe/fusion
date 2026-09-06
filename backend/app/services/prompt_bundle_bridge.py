@@ -11,7 +11,7 @@ from app.core.prompt_bundle_integrity import PROMPT_BUNDLE_NAMESPACE, compute_lo
 from app.core.runtime_config import SessionFactory
 from app.db.database import SessionLocal
 from app.db.models import RuntimeConfigEntry, get_china_time
-from app.services.prompt_effective_map import assert_p0_transition_gate
+from app.services.prompt_effective_map import assert_payload_p0_gate
 from app.services.prompthub_sync_service import (
     _acquire_advisory_lock,
     _clear_prompt_caches,
@@ -43,7 +43,7 @@ def seed_verified_bundle(
     payload = validate_published_bundle(bundle)
     contents = {key: item["content"] for key, item in payload["prompts"].items()}
     _assert_same_contents(contents, baseline)
-    assert_p0_transition_gate(contents)
+    assert_payload_p0_gate(payload)
     with session_factory() as session:
         _acquire_advisory_lock(session)
         legacy = _require_legacy_baseline(session, expected_legacy_revision, baseline)
@@ -84,7 +84,7 @@ def retire_legacy_bundle(
             or not validate_stored_bundle_payload(active[0].payload)
         ):
             raise PromptBundleBridgeError("不能停用 v1：目标 v2 active 尚未验证")
-        assert_p0_transition_gate({key: item["content"] for key, item in active[0].payload["prompts"].items()})
+        assert_payload_p0_gate(active[0].payload)
         legacy = _load_legacy_active_rows(session)
         if any(row.payload.get("schema_version") != 1 for row in legacy):
             raise PromptBundleBridgeError("旧存储键中存在未知 schema，拒绝自动停用")

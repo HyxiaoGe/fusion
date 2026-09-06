@@ -22,7 +22,7 @@ class PromptManagerCallSiteTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 chat_service_module.prompt_manager,
                 "resolve_template_with_metadata",
-                return_value=("标记A-{content}", {}),
+                return_value=("标记A-{content}", {"format": "text", "template_engine": "none"}),
             ),
             patch.object(chat_service_module.litellm, "acompletion", side_effect=fake_acompletion),
         ):
@@ -43,7 +43,11 @@ class PromptManagerCallSiteTests(unittest.IsolatedAsyncioTestCase):
 
         service = module.SuggestedQuestionService.__new__(module.SuggestedQuestionService)
         with (
-            patch.object(module.prompt_manager, "resolve_template_with_metadata", return_value=("标记B-{content}", {})),
+            patch.object(
+                module.prompt_manager,
+                "resolve_template_with_metadata",
+                return_value=("标记B-{content}", {"format": "text", "template_engine": "none"}),
+            ),
             patch.object(module.litellm, "acompletion", side_effect=fake_acompletion),
             patch.object(
                 module.SuggestedQuestionService,
@@ -61,7 +65,9 @@ class PromptManagerCallSiteTests(unittest.IsolatedAsyncioTestCase):
         from app.ai.prompts.prompt_manager import prompt_manager
 
         with patch.object(
-            prompt_manager, "resolve_template_with_metadata", return_value=("标记C-{query}-{file_content}", {})
+            prompt_manager,
+            "resolve_template_with_metadata",
+            return_value=("标记C-{query}-{file_content}", {"format": "text", "template_engine": "none"}),
         ):
             prompt, _meta = prompt_manager.format_prompt_with_metadata(
                 "file_analysis", query="问题", file_content="正文"
@@ -157,7 +163,9 @@ class FileContentEnhancementConsumptionTests(unittest.TestCase):
         from app.services.chat.message_builder import inject_file_content
 
         with patch.object(
-            prompt_manager, "resolve_template_with_metadata", return_value=("标记K-{query}-{file_content}", {})
+            prompt_manager,
+            "resolve_template_with_metadata",
+            return_value=("标记K-{query}-{file_content}", {"format": "text", "template_engine": "none"}),
         ):
             result = inject_file_content([{"role": "user", "content": "问"}], "问", {"a": "内容"})
 
@@ -181,7 +189,9 @@ class RegistrationBindsToProductionPathTests(unittest.TestCase):
 
         accessor = registered_prompt_consumers()["generate_title"]
         with patch.object(
-            prompt_manager, "resolve_template_with_metadata", return_value=("同一解析点-{content}", {})
+            prompt_manager,
+            "resolve_template_with_metadata",
+            return_value=("同一解析点-{content}", {"format": "text", "template_engine": "none"}),
         ) as resolver:
             via_registry = accessor()
             via_production, _meta = prompt_manager.format_prompt_with_metadata("generate_title", content="X")

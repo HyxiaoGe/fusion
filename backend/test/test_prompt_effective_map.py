@@ -342,6 +342,8 @@ class DisabledWindowEliminationTests(unittest.TestCase):
                     "version": "9.9.9",
                     "content": "BUNDLE 身份",
                     "content_sha256": hashlib.sha256("BUNDLE 身份".encode()).hexdigest(),
+                    "format": "text",
+                    "template_engine": "none",
                 }
             },
         }
@@ -372,6 +374,8 @@ class DisabledWindowEliminationTests(unittest.TestCase):
                     "version": "1.0.0",
                     "content": "线上触顶总结",
                     "content_sha256": hashlib.sha256("线上触顶总结".encode()).hexdigest(),
+                    "format": "text",
+                    "template_engine": "none",
                 }
             },
         }
@@ -397,6 +401,8 @@ class DisabledWindowEliminationTests(unittest.TestCase):
                     "version": "9.9.9",
                     "content": "BUNDLE 身份",
                     "content_sha256": hashlib.sha256("BUNDLE 身份".encode()).hexdigest(),
+                    "format": "text",
+                    "template_engine": "none",
                 }
             },
         }

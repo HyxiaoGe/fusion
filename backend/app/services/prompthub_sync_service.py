@@ -36,7 +36,7 @@ from app.services.external.prompthub_client import (
     PromptHubClientError,
     PromptHubPublishedBundleClient,
 )
-from app.services.prompt_effective_map import EffectiveBaselineMismatch, assert_p0_transition_gate
+from app.services.prompt_effective_map import EffectiveBaselineMismatch, assert_payload_p0_gate
 from app.services.runtime_config_defaults import DEFAULT_PROMPT_TEMPLATES
 
 SyncMode = Literal["disabled", "shadow", "apply"]
@@ -168,7 +168,7 @@ def _persist_bundle(
     session: Session | None = None
     try:
         if mode == "apply":
-            assert_p0_transition_gate({key: item["content"] for key, item in payload["prompts"].items()})
+            assert_payload_p0_gate(payload)
         if not validate_stored_bundle_payload(payload):
             raise PromptBundleValidationError("待持久化的 v2 Prompt bundle 无效")
         session = session_factory()
@@ -212,7 +212,7 @@ def _persist_locked(
         raise PromptBundleValidationError("hold 目标与有效 active 不一致，拒绝自动改变任何 active")
     persist_mode = "shadow" if held else mode
     if persist_mode == "apply":
-        assert_p0_transition_gate({key: item["content"] for key, item in payload["prompts"].items()})
+        assert_payload_p0_gate(payload)
     result = _persist_candidate_locked(session, rows, payload, mode=persist_mode)
     return {
         **result,

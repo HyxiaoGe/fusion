@@ -14,6 +14,13 @@ migrated_factory = migrations.migrated_factory
 PATH = Path(__file__).resolve().parents[2] / "ops/deploy/prompt-hold-preflight.py"
 
 
+@pytest.fixture(autouse=True)
+def engine_schema(migrated_factory):
+    from test.test_prompt_engine_policy import install_engine_policy
+
+    install_engine_policy(migrated_factory)
+
+
 def preflight(factory):
     assert PATH.is_file(), "缺少目标镜像 hold preflight"
     spec = importlib.util.spec_from_file_location("hold_target_preflight", PATH)

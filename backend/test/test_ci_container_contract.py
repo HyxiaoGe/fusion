@@ -159,6 +159,10 @@ class CIContainerContractTest(unittest.TestCase):
             "test/test_prompt_bundle_hold_api.py",
             "test/test_prompt_bundle_hold_migration.py",
             "test/test_prompt_bundle_hold_preflight.py",
+            "test/test_prompt_engine_bridge.py",
+            "test/test_prompt_engine_policy.py",
+            "test/test_prompt_engine_deployment.py",
+            "test/test_jinja_baseline_proposal.py",
             "test/test_prompt_bundle_hold_deployment.py",
         )
         for filename in ("linux-build-and-test.sh", "windows-build-and-test.ps1"):

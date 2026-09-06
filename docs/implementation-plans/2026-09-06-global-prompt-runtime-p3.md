@@ -41,3 +41,7 @@ P3b 继续实施独立数据库 current-state hold 和 append-only transition ev
 ## P3b 实施补充
 
 为避免代码回滚到不识别 hold 的 P3a 后被旧同步器覆盖，增加持久数据库触发器保护与目标镜像真实冻结 preflight。hold schema 生效后，受当前发布器管理的目标最低能力固定为 v2，不随当前 following/held 状态放宽到 v1；代码回滚保留 schema 和审计。事务显式使用 READ COMMITTED 可见性前提，其他隔离级别 fail closed。具体接口、失败路径和环境验收边界见 [P3b 报告](../reports/backend/2026-09-06-global-prompt-runtime-p3b.md)。
+
+## P3c 桥接与收口约束
+
+增加 legacy → bridge → jinja2 单向持久阶段和数据库激活保护。桥接代码保留旧 v2 原样读取及代码默认值，只在独立完整新 catalog 中接受 Jinja。阶段提升与部署共用 fusion-dev concurrency，必须验证全部策略契约、真实 worker、原字节 active 和新兼容回滚锚点；引擎声明字符串不能代替消费能力。最终只支持 Jinja2 的代码另建分支/提交，在持久阶段已收口后才能启动，不能跳过独立桥接构建与发布。细节见 [P3c 桥接报告](../reports/backend/2026-09-06-global-prompt-runtime-p3c-bridge.md)。

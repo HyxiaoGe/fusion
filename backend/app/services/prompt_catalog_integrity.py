@@ -39,8 +39,7 @@ def verify_p0_baseline_gate() -> None:
 
     from app.services.prompt_effective_map import (
         EffectiveBaselineMismatch,
-        assert_p0_transition_gate,
-        bundle_payload_contents,
+        assert_payload_p0_gate,
     )
 
     payload = get_active_prompt_bundle_payload()
@@ -51,4 +50,9 @@ def verify_p0_baseline_gate() -> None:
             "此时启动会在未经基线校验的情况下改变正文。请修复 active bundle，或在确认"
             "无历史正文需要保留后置位 PROMPT_P0_BASELINE_ATTESTED。"
         )
-    assert_p0_transition_gate(bundle_payload_contents(payload))
+    from app.core.prompt_catalog import DEFAULT_TEMPLATE_ENGINE
+    from app.core.prompt_template_engine import payload_template_engine
+
+    if not settings.PROMPT_P0_BASELINE_ATTESTED and payload_template_engine(payload) != DEFAULT_TEMPLATE_ENGINE:
+        raise EffectiveBaselineMismatch("独立 Jinja2 基线要求先完成 P0 attestation")
+    assert_payload_p0_gate(payload)
