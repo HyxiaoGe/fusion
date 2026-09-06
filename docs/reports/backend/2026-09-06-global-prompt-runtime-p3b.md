@@ -21,7 +21,7 @@ PostgreSQL 保护触发器使用同一锁，阻止 held 目标被停用、删除
 
 1. 先应用新增迁移 `e4b6c9d2a701`，保留 P3a 已有 v2 和旧行。新 hold 代码缺少该 schema 时，部署 preflight 拒绝启动。
 2. 当前 master 发布脚本把 preflight 代码注入所选不可变目标镜像，使用最终数据库/Prompt 配置运行真实完整包校验、P0 门禁和 freeze；不依赖旧镜像自带新脚本。
-3. hold schema 启用后，所有受该发布器管理的正向部署和代码回滚目标均至少支持完整 v2，即使此刻是 following 也不允许回退 P2/v1；这避免 preflight 后才进入 held 的竞态。历史旧 workflow 的重跑不属于受保护入口。
+3. hold schema 启用后，所有受该发布器管理的正向部署和代码回滚目标均至少支持完整 v2 且保持 apply，即使此刻是 following 也不允许回退 P2/v1 或切为 disabled/shadow；这避免 preflight 后才进入 held 的竞态。enter 同样要求实际运行模式为 apply。历史旧 workflow 的重跑不属于受保护入口。
 4. 失败回滚先核对旧 ref/ID，再进行同样的目标检查；恢复后再次调用运行容器的真实 freeze。支持 v2 的 P3a 可在数据库保护下读取 held 版本；不 downgrade hold schema 或删除触发器。
 5. held 验收以持久 target 与真实完整冻结为依据；远端同步状态独立记录，远端故障不能迫使安全 held 回滚失败。following 仍执行正常远端完整包同步验收。
 
@@ -33,6 +33,6 @@ migration downgrade 明确拒绝执行，避免代码回滚顺带丢失 hold 与
 
 历史 P3a 同步器逐字保存在测试夹具并校验 SHA-256，不随新实现调整。独立工作树代码复审未发现可达 P0/P1，另一独立契约审查提出的回滚能力下限、数据库保护和真实冻结验证均已落实。正式提交后再次进行当前 HEAD 复审。
 
-最终本地 pytest 为 `4031 passed, 2 skipped, 4381 subtests passed`，unittest 为 `3044 tests, OK (skipped=2)`，根目录部署/CI 契约为 `67 tests, OK`。Ruff、架构检查、改动文件格式、shell 静态检查与 diff 检查通过。上述结果是本地自动化证据，不等同于 PR CI 或部署验收。
+当前 HEAD 复审发现非 apply 进入 hold 和部署模式转换竞态，已补齐 enter 与受管理部署目标的 apply 约束，包含 following/held × disabled/shadow 负向。整改后全量 pytest 为 `4036 passed, 2 skipped, 4381 subtests passed`；原 unittest `3044 tests, OK (skipped=2)` 与根目录部署/CI 契约 `67 tests, OK` 不受该 pytest/纯 Python 修改影响。Ruff、架构检查、改动文件格式、shell 静态检查与 diff 检查通过。上述结果是本地自动化证据，不等同于 PR CI 或部署验收。
 
 本次没有启动本地 Fusion/Docker/数据库服务，没有访问 dev、写 PromptHub、调整 GitHub 变量或执行迁移。真实 PostgreSQL 并发锁等待、线上多 worker 收敛、授权发布后的新 Run 验收仍属环境门禁，不能由 SQLite 或 mock 结果代替。

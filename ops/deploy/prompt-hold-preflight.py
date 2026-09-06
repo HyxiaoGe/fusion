@@ -37,9 +37,9 @@ def verify_prompt_hold_target(session_factory):
         if current_state not in {"following", "held"}:
             raise ValueError("Prompt hold 持久状态无效")
         if settings.PROMPTHUB_SYNC_MODE != "apply":
-            if current_state == "held":
-                raise ValueError("held 期间目标必须保持 apply，不能静默使用代码默认值")
-            return {"state": current_state, "mode": settings.PROMPTHUB_SYNC_MODE}
+            raise ValueError(
+                "hold schema 启用后目标必须保持 apply，避免检查后进入 held 的竞态"
+            )
         return _verify_frozen(
             session, current_state, state["target_revision"] if state else None
         )

@@ -32,7 +32,10 @@ def migrated_factory(tmp_path):
     RuntimeConfigEntry.__table__.create(engine)
     with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
         load_migration().upgrade()
-    with patch("app.core.config.settings.PROMPT_P0_BASELINE_ATTESTED", True):
+    with (
+        patch("app.core.config.settings.PROMPT_P0_BASELINE_ATTESTED", True),
+        patch("app.core.config.settings.PROMPTHUB_SYNC_MODE", "apply"),
+    ):
         yield sessionmaker(bind=engine)
     engine.dispose()
 

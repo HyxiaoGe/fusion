@@ -30,7 +30,10 @@ def factory(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'hold.db'}")
     for model in (RuntimeConfigEntry, PromptBundleHoldState, PromptBundleHoldTransition):
         model.__table__.create(engine)
-    with patch("app.core.config.settings.PROMPT_P0_BASELINE_ATTESTED", True):
+    with (
+        patch("app.core.config.settings.PROMPT_P0_BASELINE_ATTESTED", True),
+        patch("app.core.config.settings.PROMPTHUB_SYNC_MODE", "apply"),
+    ):
         yield sessionmaker(bind=engine)
     engine.dispose()
 
@@ -72,6 +75,16 @@ def history(factory):
             (row.action, row.target_revision, row.actor, row.reason, row.generation)
             for row in session.query(PromptBundleHoldTransition).order_by(PromptBundleHoldTransition.generation)
         ]
+
+
+@pytest.mark.parametrize("mode", ["disabled", "shadow"])
+def test_enter_requires_actual_apply_consumption(factory, mode):
+    old, new = versions(factory)
+    with patch("app.core.config.settings.PROMPTHUB_SYNC_MODE", mode):
+        with pytest.raises(ApiException, match="apply"):
+            enter(factory, old.revision)
+    assert active_revision(factory) == new.revision
+    assert history(factory) == []
 
 
 @pytest.mark.anyio

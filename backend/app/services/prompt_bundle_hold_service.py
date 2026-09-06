@@ -38,6 +38,8 @@ def enter_prompt_bundle_hold(
 ) -> dict[str, Any]:
     """原子激活完整 v2 历史版本并锁定；不依赖 PromptHub 或外部模型。"""
     _validate_operation(target_revision, actor, reason)
+    if settings.PROMPTHUB_SYNC_MODE != "apply":
+        raise ApiException.conflict("进入 hold 必须使用 apply，保证真实冻结消费目标版本")
     with session_factory() as session:
         _acquire_advisory_lock(session)
         state = _load_state(session)

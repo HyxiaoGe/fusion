@@ -181,3 +181,8 @@
 - 本地全量 pytest `4031 passed, 2 skipped, 4381 subtests passed`；unittest `3044 tests, OK (skipped=2)`；根目录契约 `67 tests, OK`；Ruff、改动文件格式、架构、shell 静态与 diff 检查通过。旧 P3a 同步器、新旧 revision、独立 worker 重启、陈旧缓存、真实脚本拼接和远端超时均有回归。
 - 本阶段仅为本地实现与提交，当前 HEAD 独立复审另行记录。P3a 分支已推送，但创建 PR 被自动审批拒绝，具体 GitHub 外发确认尚未收到；P3b 尚未推送或创建 PR。未合并、未部署、未写 PromptHub、未改 GitHub 变量、未删除数据。P3c 桥接与 Jinja2 收口仍待独立实现。
 - [P3b 验证与回滚报告](reports/backend/2026-09-06-global-prompt-runtime-p3b.md)。
+
+### P3b 当前 HEAD 复审整改
+
+- `3a705b66` 独立契约复审发现非 apply 模式可进入不被真实消费的 hold，以及 preflight 后进入 held 的模式转换竞态。enter 已要求 apply；hold schema 启用后受管理的所有部署/回滚目标始终要求 apply，不按检查瞬间的 following 状态放宽。
+- 新增负向先复现四项失败，整改后目标 `52 passed`、后端全量 `4036 passed, 2 skipped, 4381 subtests passed`，Ruff 与 diff 检查通过。未执行任何环境操作或外发。

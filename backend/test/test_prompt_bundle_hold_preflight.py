@@ -47,10 +47,13 @@ def test_held_requires_target_image_real_freeze_to_consume_target(migrated_facto
     assert result["revision"] == old.revision
 
 
-def test_disabling_apply_cannot_silently_bypass_hold(migrated_factory):
+@pytest.mark.parametrize("mode", ["disabled", "shadow"])
+@pytest.mark.parametrize("held", [True, False])
+def test_disabling_apply_cannot_silently_bypass_hold(migrated_factory, mode, held):
     old, new = versions(migrated_factory)
-    enter(migrated_factory, old.revision)
-    with patch("app.core.config.settings.PROMPTHUB_SYNC_MODE", "disabled"):
+    if held:
+        enter(migrated_factory, old.revision)
+    with patch("app.core.config.settings.PROMPTHUB_SYNC_MODE", mode):
         with pytest.raises(ValueError, match="apply"):
             preflight(migrated_factory)
 
