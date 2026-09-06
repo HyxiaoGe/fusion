@@ -19,6 +19,17 @@ class CIContainerContractTest(unittest.TestCase):
             script_directory.mkdir(parents=True)
             build_script = script_directory / "linux-build-and-test.sh"
             build_script.write_text(source_build_script.read_text(encoding="utf-8"), encoding="utf-8")
+            preflight_directory = monorepo_root / "backend/scripts"
+            preflight_directory.mkdir(parents=True)
+            preflight = preflight_directory / "check_frozen_prompt_fixture_bytes.py"
+            preflight.write_text(
+                (ROOT / "scripts/check_frozen_prompt_fixture_bytes.py").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            fixture_directory = monorepo_root / "backend/test/fixtures/prompt_bundle"
+            fixture_directory.mkdir(parents=True)
+            fixture = fixture_directory / "p3a_sync.py"
+            fixture.write_bytes((ROOT / "test/fixtures/prompt_bundle/p3a_sync.py").read_bytes())
             bin_dir = temp_root / "bin"
             bin_dir.mkdir()
             docker_log = temp_root / "docker.log"
@@ -145,6 +156,17 @@ class CIContainerContractTest(unittest.TestCase):
             windows_build_script,
         )
 
+    def test_frozen_prompt_fixture_preflight_runs_before_any_docker_build(self) -> None:
+        commands = {
+            "linux-build-and-test.sh": "scripts/check_frozen_prompt_fixture_bytes.py",
+            "windows-build-and-test.ps1": "check-frozen-prompt-fixture-bytes.ps1",
+        }
+        for filename, command in commands.items():
+            script = (ROOT / ".github/scripts" / filename).read_text(encoding="utf-8")
+            with self.subTest(script=filename):
+                self.assertIn(command, script)
+                self.assertLess(script.index(command), script.index("docker build"))
+
     def test_prompt_freeze_contracts_run_in_both_container_entrypoints(self) -> None:
         required_tests = (
             "test/test_prompt_bundle_snapshot.py",
@@ -158,6 +180,7 @@ class CIContainerContractTest(unittest.TestCase):
             "test/test_prompt_bundle_hold.py",
             "test/test_prompt_bundle_hold_api.py",
             "test/test_prompt_bundle_hold_migration.py",
+            "test/test_frozen_prompt_fixture_bytes.py",
             "test/test_prompt_bundle_hold_preflight.py",
             "test/test_prompt_engine_bridge.py",
             "test/test_prompt_engine_policy.py",

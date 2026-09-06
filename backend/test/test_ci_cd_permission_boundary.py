@@ -297,6 +297,37 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         self.assertEqual(contract_mode & 0o111, 0o111)
         self.assertEqual(contract_mode & 0o7000, 0)
 
+    def test_pr_workflow_frontloads_frozen_fixture_bytes_on_hosted_windows(self) -> None:
+        jobs = self.pr_document["jobs"]
+        preflight = jobs["prompt-fixture-bytes"]
+        self.assertEqual(preflight["runs-on"], "windows-latest")
+        self.assertEqual(preflight["needs"], "changes")
+        self.assertEqual(
+            normalized_condition(preflight["if"]),
+            "needs.changes.outputs.api == 'true'",
+        )
+        self.assertNotIn("environment", preflight)
+        self.assertNotIn("permissions", preflight)
+        self.assertNotIn("env", preflight)
+
+        checkout = workflow_step(preflight, "Checkout")
+        self.assertFalse(checkout["with"].get("persist-credentials", True))
+        byte_check = workflow_step(preflight, "Verify frozen Prompt fixture bytes")
+        self.assertEqual(
+            byte_check["run"],
+            "powershell -NoProfile -ExecutionPolicy Bypass -File "
+            "backend/.github/scripts/check-frozen-prompt-fixture-bytes.ps1",
+        )
+
+        self.assertEqual(jobs["api"]["needs"], ["changes", "prompt-fixture-bytes"])
+        self.assertEqual(jobs["ui"]["needs"], ["changes", "prompt-fixture-bytes"])
+        self.assertIn("prompt-fixture-bytes", jobs["required"]["needs"])
+        required_step = workflow_step(jobs["required"], "Verify required application jobs")
+        self.assertEqual(
+            required_step["env"]["PROMPT_FIXTURE_RESULT"],
+            "${{ needs.prompt-fixture-bytes.result }}",
+        )
+
     def test_release_safety_manifest_maps_real_workflow_roles(self) -> None:
         self.assertEqual(
             self.release_safety_manifest,
@@ -490,7 +521,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
     def test_all_checkouts_disable_credential_persistence(self) -> None:
         checkout_action = CHECKOUT_ACTION.removesuffix(" # v6")
         for workflow, expected_checkouts in (
-            (self.pr_document, 4),
+            (self.pr_document, 5),
             (self.release_document, 4),
         ):
             checkout_steps = [

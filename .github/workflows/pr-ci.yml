@@ -92,10 +92,25 @@ jobs:
           online-audits: false
           version: "1.29.0"
 
-  api:
-    name: API validation
+  prompt-fixture-bytes:
+    name: Prompt fixture byte preflight
     needs: changes
     if: needs.changes.outputs.api == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Verify frozen Prompt fixture bytes
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File backend/.github/scripts/check-frozen-prompt-fixture-bytes.ps1
+
+  api:
+    name: API validation
+    needs: [changes, prompt-fixture-bytes]
+    if: ${{ always() && needs.changes.outputs.api == 'true' && needs.prompt-fixture-bytes.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
@@ -129,8 +144,8 @@ jobs:
 
   ui:
     name: UI validation
-    needs: changes
-    if: needs.changes.outputs.ui == 'true'
+    needs: [changes, prompt-fixture-bytes]
+    if: ${{ always() && needs.changes.outputs.ui == 'true' && (needs.changes.outputs.api != 'true' || needs.prompt-fixture-bytes.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -195,7 +210,7 @@ jobs:
 
   required:
     name: Fusion required gate
-    needs: [changes, workflow-security, api, ui]
+    needs: [changes, workflow-security, prompt-fixture-bytes, api, ui]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -205,6 +220,7 @@ jobs:
           WORKFLOW_SECURITY_RESULT: ${{ needs.workflow-security.result }}
           CHANGES_RESULT: ${{ needs.changes.result }}
           API_EXPECTED: ${{ needs.changes.outputs.api }}
+          PROMPT_FIXTURE_RESULT: ${{ needs.prompt-fixture-bytes.result }}
           API_RESULT: ${{ needs.api.result }}
           UI_EXPECTED: ${{ needs.changes.outputs.ui }}
           UI_RESULT: ${{ needs.ui.result }}
@@ -232,6 +248,14 @@ jobs:
               exit 1
               ;;
           esac
+          if [ "${API_EXPECTED}" = "true" ] && [ "${PROMPT_FIXTURE_RESULT}" != "success" ]; then
+            echo "Prompt fixture 字节预检应运行但结果不是 success: ${PROMPT_FIXTURE_RESULT}"
+            exit 1
+          fi
+          if [ "${API_EXPECTED}" != "true" ] && [ "${PROMPT_FIXTURE_RESULT}" != "skipped" ]; then
+            echo "Prompt fixture 字节预检不应运行但结果不是 skipped: ${PROMPT_FIXTURE_RESULT}"
+            exit 1
+          fi
           if [ "${API_EXPECTED}" = "true" ] && [ "${API_RESULT}" != "success" ]; then
             echo "API 应运行但结果不是 success: ${API_RESULT}"
             exit 1
