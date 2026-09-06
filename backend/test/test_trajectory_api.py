@@ -221,8 +221,8 @@ class TrajectoryApiTests(unittest.TestCase):
 
     def test_run_identity_survives_missing_body_and_exposes_only_safe_fields(self):
         identity = {
-            "source_kind": "prompthub_lkg",
-            "source_revision": "a" * 64,
+            "source_kind": "code_default",
+            "source_revision": None,
             "effective_revision": "a" * 64,
             "catalog_version": "2026-09-05.1",
         }

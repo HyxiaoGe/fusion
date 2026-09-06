@@ -106,8 +106,8 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
         by_name = {item["function"]["name"]: item["function"]["parameters"] for item in FLYAI_TRAVEL_DEFINITIONS}
         descriptions = [item["function"]["description"] for item in FLYAI_TRAVEL_DEFINITIONS]
         for description in descriptions:
-            self.assertIn("组合行程", description)
-            self.assertIn("不得先调用任何出行、天气或接驳工具", description)
+            self.assertIn("combined itinerary", description)
+            self.assertIn("do not call any travel, weather, or local-transfer tool", description)
 
         self.assertEqual(set(by_name), {FLYAI_SEARCH_FLIGHTS, FLYAI_SEARCH_TRAINS})
         for parameters in by_name.values():
@@ -263,8 +263,8 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(block.trains[0].actions, [])
         context = handler.format_llm_context(result)
         self.assertIn(FLYAI_TRAVEL_FACT_BOUNDARY_SYSTEM_PROMPT, context)
-        self.assertIn("如果用户还要求到达后的市内接驳", context)
-        self.assertIn("只调用一次 route_compare", context)
+        self.assertIn("local transfer after arrival", context)
+        self.assertIn("call route_compare exactly once", context)
         self.assertNotIn("evil.example", context)
 
     def test_llm_context_budget_includes_trusted_result_wrapper(self):

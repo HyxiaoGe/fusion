@@ -282,17 +282,15 @@ class TrajectoryPromptBundleIdentity(BaseModel):
 
     model_config = ConfigDict(extra="ignore", strict=True)
 
-    source_kind: Literal["prompthub_lkg", "code_default"]
+    source_kind: Literal["code_default"]
     source_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     effective_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     catalog_version: str = Field(min_length=1, max_length=64)
 
     @model_validator(mode="after")
     def validate_source_identity(self):
-        if self.source_kind == "prompthub_lkg" and self.source_revision != self.effective_revision:
-            raise ValueError("LKG 来源与有效版本身份不一致")
-        if self.source_kind == "code_default" and self.source_revision is not None:
-            raise ValueError("代码默认值不能携带 PromptHub 发布身份")
+        if self.source_revision is not None:
+            raise ValueError("本地 Prompt 不能携带远端发布身份")
         return self
 
 

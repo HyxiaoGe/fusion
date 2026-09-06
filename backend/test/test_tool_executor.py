@@ -109,8 +109,8 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(record.result.data["error_code"], "context7_library_id_unresolved")
         self.assertTrue(record.result.data["local_preflight"])
         self.assertNotIn("repair", record.result.data)
-        self.assertIn("请先调用库解析工具", record.format_llm_context())
-        self.assertNotIn("改写成不含代码块", record.format_llm_context())
+        self.assertIn("Call the library-resolution tool first", record.format_llm_context())
+        self.assertNotIn("without code blocks", record.format_llm_context())
         handler.log.assert_awaited_once()
 
     def test_success_signature_failure_log_does_not_leak_raw_exception(self):
@@ -419,7 +419,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(record.result.data["repair"]["retryable"])
         self.assertFalse(record.result.data["repair"]["requires_user_input"])
         self.assertIn('"tool_result": "argument_repair_required"', record.format_llm_context())
-        self.assertIn("有效 JSON 对象", record.format_llm_context())
+        self.assertIn("valid JSON object", record.format_llm_context())
         handler.execute.assert_not_awaited()
         handler.log.assert_awaited_once()
         self.assertEqual(handler.log.await_args.kwargs["tool_call_id"], "call-invalid-json")
@@ -1245,8 +1245,8 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(handler.log.await_count, 1)
         self.assertFalse(records[0].reused)
         self.assertTrue(records[1].reused)
-        self.assertIn("复用上一条成功结果", records[1].format_llm_context())
-        self.assertIn("直接回答", records[1].format_llm_context())
+        self.assertIn("Reuse the previous successful result", records[1].format_llm_context())
+        self.assertIn("answer directly", records[1].format_llm_context())
         self.assertIsNone(records[1].build_content_block())
         self.assertEqual(emitter.tool_call_started.await_count, 1)
         self.assertEqual(emitter.tool_call_completed.await_count, 1)
@@ -1652,8 +1652,8 @@ class WebSearchRedirectPresentationTests(unittest.TestCase):
         summary = handler._build_result_summary(result)
 
         self.assertIsNone(handler.build_content_block(result, "blk-search", "log-search"))
-        self.assertIn("优先", context)
-        self.assertIn("候选来源", context)
+        self.assertIn("First read the next high-value candidate", context)
+        self.assertIn("candidate sources remain", context)
         self.assertNotIn("url_read", context)
         self.assertNotIn("reader-service", context)
         self.assertEqual(summary["title"], "优先读取已有候选")
@@ -1940,7 +1940,10 @@ class ToolExecutorMessageIdTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(record.handler)
         self.assertEqual(record.result.status, "failed")
         self.assertEqual(record.result.error_message, "未知工具: missing_tool")
-        self.assertEqual(record.format_llm_context(), "工具未取得可用结果，不能把该工具结果作为依据。")
+        self.assertEqual(
+            record.format_llm_context(),
+            "The tool returned no usable result, so its result cannot be treated as evidence.",
+        )
         self.assertIsNone(record.build_content_block())
 
     async def test_execute_tools_parallel_unknown_handler_does_not_emit_events(self):

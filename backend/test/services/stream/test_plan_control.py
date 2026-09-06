@@ -152,7 +152,7 @@ class PlanControlTests(unittest.IsolatedAsyncioTestCase):
         response = json.loads(result.tool_responses["plan-no-progress-recovery"])
         self.assertEqual(response["status"], "rejected")
         self.assertEqual(response["reason"], "missing_required_recovery_owner")
-        self.assertIn("新增一个 pending 工具步骤", response["hint"])
+        self.assertIn("add one pending tool step", response["hint"])
         self.assertEqual(result.repair_attempt_count, 1)
 
         changed_plan = coordinator.canonical_plan_for_model()
@@ -506,8 +506,8 @@ class PlanControlTests(unittest.IsolatedAsyncioTestCase):
         response = json.loads(result.tool_responses["plan-1"])
         self.assertEqual(response["status"], "rejected")
         self.assertEqual(response["reason"], "multiple_tools_per_item")
-        self.assertIn("planned_tools 最多声明一个", response["hint"])
-        self.assertIn("拆成", response["hint"])
+        self.assertIn("planned_tools may declare at most one", response["hint"])
+        self.assertIn("split them into separate steps", response["hint"])
         self.assertFalse(coordinator.has_valid_model_plan)
 
     async def test_missing_initial_tool_coverage_returns_executable_repair_hint(self):
@@ -548,13 +548,13 @@ class PlanControlTests(unittest.IsolatedAsyncioTestCase):
         response = json.loads(result.tool_responses["plan-1"])
         self.assertEqual(response["reason"], "missing_required_initial_tool_coverage")
         self.assertIn("web_search", response["hint"])
-        self.assertIn("url_read×2", response["hint"])
-        self.assertIn("独立步骤", response["hint"])
-        self.assertNotIn("同一个 url_read 步骤", response["hint"])
-        self.assertIn("每个 url_read 计划项负责一个独立来源任务", response["hint"])
-        self.assertIn("仅当服务端将同一任务保持为 retryable/running 时", response["hint"])
-        self.assertIn("跨轮重试", response["hint"])
-        self.assertNotIn("每个 url_read 步骤只读取一个来源", response["hint"])
+        self.assertIn("url_read x 2", response["hint"])
+        self.assertIn("separate steps", response["hint"])
+        self.assertNotIn("one url_read step may cover", response["hint"])
+        self.assertIn("Each url_read plan item owns one independent source task", response["hint"])
+        self.assertIn("only when the server keeps that same task retryable/running", response["hint"])
+        self.assertIn("across rounds", response["hint"])
+        self.assertNotIn("Each url_read step may read only one source", response["hint"])
 
     async def test_missing_answer_phase_returns_executable_repair_hint(self):
         coordinator = PlanCoordinator(run_id="run-missing-answer", mode="on")
@@ -1032,10 +1032,10 @@ class PlanControlTests(unittest.IsolatedAsyncioTestCase):
         rejected = json.loads(result.tool_responses["b"])
         self.assertEqual(rejected["status"], "not_executed")
         self.assertEqual(rejected["reason"], "plan_item_already_bound")
-        self.assertIn("同一批次", rejected["hint"])
-        self.assertIn("后续轮次", rejected["hint"])
+        self.assertIn("one batch", rejected["hint"])
+        self.assertIn("later round", rejected["hint"])
         self.assertIn("retryable/running", rejected["hint"])
-        self.assertNotIn("同一计划项只允许一次真实工具调用", rejected["hint"])
+        self.assertNotIn("one real tool call per plan item", rejected["hint"])
 
     async def test_same_plan_item_rejects_second_call_in_batch_but_allows_next_round_retry(self):
         coordinator = PlanCoordinator(run_id="run-cross-round-retry", mode="on")

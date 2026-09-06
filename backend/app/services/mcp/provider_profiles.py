@@ -4,6 +4,8 @@ from copy import deepcopy
 from typing import Any
 from urllib.parse import urlsplit
 
+from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
+
 AMAP_MCP_HOST = "mcp.amap.com"
 CONTEXT7_MCP_HOST = "mcp.context7.com"
 AMAP_CREDENTIAL_REF = "AMAP_MCP_API_KEY"
@@ -34,26 +36,20 @@ CONTEXT7_READ_ONLY_TOOL_ALLOWLIST = frozenset(
 )
 
 _AMAP_TOOL_GUIDANCE = {
-    "maps_geo": " 当用户给出自然语言地点且后续需要坐标时先使用本工具，不得猜测经纬度。",
-    "maps_regeocode": " 仅使用用户提供或可信工具返回的坐标，不得猜测经纬度。",
-    "maps_text_search": " 用于按城市和关键词粗搜 POI；不得把未返回的实时排队、人均价格或空位信息当作事实。",
-    "maps_around_search": " location 必须来自本轮可信工具结果，不得猜测经纬度。",
-    "maps_search_detail": " id 必须来自本轮地点搜索返回的 POI ID，不得自行编造。",
-    "maps_distance": " 起终点坐标必须来自用户输入或本轮可信工具结果，不得猜测经纬度。",
-    "maps_direction_bicycling": " 起终点坐标必须来自用户输入或本轮可信工具结果，不得猜测经纬度。",
-    "maps_direction_walking": " 起终点坐标必须来自用户输入或本轮可信工具结果，不得猜测经纬度。",
-    "maps_direction_driving": " 起终点坐标必须来自用户输入或本轮可信工具结果，不得猜测经纬度。",
-    "maps_direction_transit_integrated": " 起终点坐标必须来自用户输入或本轮可信工具结果，不得猜测经纬度。",
+    "maps_geo": render_runtime_prompt("mcp.amap_geo"),
+    "maps_regeocode": render_runtime_prompt("mcp.amap_regeocode"),
+    "maps_text_search": render_runtime_prompt("mcp.amap_text_search"),
+    "maps_around_search": render_runtime_prompt("mcp.amap_around_search"),
+    "maps_search_detail": render_runtime_prompt("mcp.amap_search_detail"),
+    "maps_distance": render_runtime_prompt("mcp.amap_coordinates"),
+    "maps_direction_bicycling": render_runtime_prompt("mcp.amap_coordinates"),
+    "maps_direction_walking": render_runtime_prompt("mcp.amap_coordinates"),
+    "maps_direction_driving": render_runtime_prompt("mcp.amap_coordinates"),
+    "maps_direction_transit_integrated": render_runtime_prompt("mcp.amap_coordinates"),
 }
 _CONTEXT7_TOOL_GUIDANCE = {
-    "resolve-library-id": (
-        " 仅用于解析公开软件库的 Context7 标识；libraryName 使用公开库名，query 只描述待查的公开文档问题。"
-        "不得发送密钥、令牌、个人数据、私有源码、内部实现或完整用户内容。"
-    ),
-    "query-docs": (
-        " 必须先调用 resolve-library-id；libraryId 只能使用本轮解析结果，不得自行编造。"
-        "query 只写单行、最小化的公开文档问题，不得发送代码、密钥、令牌、个人数据或内部实现。"
-    ),
+    "resolve-library-id": render_runtime_prompt("mcp.context7_resolve"),
+    "query-docs": render_runtime_prompt("mcp.context7_query"),
 }
 _CONTEXT7_TOOL_SCHEMA_OVERRIDES: dict[str, dict[str, Any]] = {
     "resolve-library-id": {

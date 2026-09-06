@@ -16,6 +16,7 @@ from app.ai.prompts.agent_loop import (
 )
 from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_message, ensure_prompt_messages
 from app.ai.prompts.run_prompt_snapshot import RunPromptSnapshot
+from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.ai.prompts.section_ids import (
     AGENT_PLAN_CONTROL,
     CONTINUATION_SYSTEM,
@@ -86,25 +87,20 @@ def build_update_plan_tool(allowed_tool_names: list[str] | None = None) -> dict[
     if normalized_allowed_tool_names:
         planned_tool_schema["enum"] = normalized_allowed_tool_names
     planned_tools_max_items = 1 if normalized_allowed_tool_names else 0
-    planned_tools_description = (
-        "执行步骤最多声明一个当前已提供的真实工具；多工具拆成独立步骤。"
-        if normalized_allowed_tool_names
-        else "本次没有外部工具，必须提交空数组。"
+    planned_tools_description = render_runtime_prompt(
+        "stream.planned_tools_available" if normalized_allowed_tool_names else "stream.planned_tools_unavailable"
     )
 
     return {
         "type": "function",
         "function": {
             "name": "update_plan",
-            "description": (
-                "创建或更新本次任务的执行计划。复杂、多步骤或需要调用外部工具的任务应先调用；"
-                "这是内部控制工具，不查询外部数据。"
-            ),
+            "description": render_runtime_prompt("stream.update_plan_description"),
             "parameters": {
                 "type": "object",
                 "additionalProperties": False,
                 "properties": {
-                    "explanation": {"type": "string", "description": "本次创建或修订计划的原因。"},
+                    "explanation": {"type": "string", "description": render_runtime_prompt("stream.plan_explanation")},
                     "plan": {
                         "type": "array",
                         "minItems": 2,
@@ -116,16 +112,13 @@ def build_update_plan_tool(allowed_tool_names: list[str] | None = None) -> dict[
                                 "id": {
                                     "type": "string",
                                     "pattern": PLAN_ITEM_ID_PATTERN,
-                                    "description": "稳定步骤 ID；可使用数字、字母、下划线和连字符。",
+                                    "description": render_runtime_prompt("stream.plan_step_id"),
                                 },
-                                "step": {"type": "string", "description": "用户可理解的结果导向步骤。"},
+                                "step": {"type": "string", "description": render_runtime_prompt("stream.plan_step")},
                                 "status": {
                                     "type": "string",
                                     "enum": ["pending", "in_progress"],
-                                    "description": (
-                                        "为兼容提供商接受 pending/in_progress；请始终提交 pending，"
-                                        "真实运行态和终态由服务端推进。"
-                                    ),
+                                    "description": render_runtime_prompt("stream.plan_status"),
                                 },
                                 "kind": {
                                     "type": "string",
@@ -193,9 +186,7 @@ def _with_plan_item_binding(tool: dict, *, required: bool) -> dict:
     properties[PLAN_ITEM_ARGUMENT_NAME] = {
         "type": "string",
         "pattern": PLAN_ITEM_ID_PATTERN,
-        "description": (
-            "内部计划步骤 ID。存在执行计划时，必须填写本次调用所属步骤的精确 id；该字段由 Fusion 在调用真实工具前移除。"
-        ),
+        "description": render_runtime_prompt("stream.plan_item_binding"),
     }
     if required:
         required_fields = parameters.setdefault("required", [])

@@ -709,13 +709,13 @@ class FileService:
     def _get_file_parsing_prompt(self, mimetype: str, filename: str) -> str:
         """根据文件类型生成解析提示词"""
         if mimetype.startswith("image/"):
-            return f"请详细描述这张图片的内容。图片文件名: {filename}"
+            return f"Describe this image in detail. Image filename: {filename}"
         elif mimetype == "application/pdf":
-            return f"请分析这个PDF文档(文件名:{filename})的内容并提供详细摘要。"
+            return f"Analyze this PDF document and provide a detailed summary. Filename: {filename}"
         elif mimetype.startswith("text/"):
-            return f"请分析这个文本文件(文件名:{filename})的内容并提供详细摘要。"
+            return f"Analyze this text file and provide a detailed summary. Filename: {filename}"
         else:
-            return f"请分析这个文件(文件名:{filename})的内容并提供详细摘要。"
+            return f"Analyze this file and provide a detailed summary. Filename: {filename}"
 
     @staticmethod
     def _serialize_created_at(created_at: Any) -> Any:

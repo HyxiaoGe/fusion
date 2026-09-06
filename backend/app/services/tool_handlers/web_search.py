@@ -15,6 +15,7 @@ from app.ai.prompts.agent_loop import (
     SEARCH_CONTEXT_OPENING,
     SEARCH_CONTEXT_TRUST_BOUNDARY,
 )
+from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.core.logger import app_logger as logger
 from app.schemas.chat import SearchBlock, SearchSource, SearchSourceSummary, SourceReference
 from app.services.agent_strategy_config import get_agent_strategy_config
@@ -221,33 +222,23 @@ class WebSearchHandler(BaseToolHandler):
         if result.data.get("read_alternatives_available"):
             query = result.data.get("query", "")
             unread_count = result.data.get("unread_candidate_count", 0)
-            return (
-                f"本次搜索「{query}」没有执行：上一轮网页读取失败后，仍有 {unread_count} 个未读取的候选来源。"
-                "请不要马上继续搜索；应优先从前面的结构化来源选择建议中读取下一个高价值候选来源。"
-                "如果候选来源都不可用，再说明来源不可用并基于已有搜索摘要回答。"
+            return render_runtime_prompt(
+                "tool_handlers.search_read_alternatives",
+                query=query,
+                unread_count=unread_count,
             )
 
         if result.data.get("search_plan_limited"):
             query = result.data.get("query", "")
-            return (
-                f"本次搜索「{query}」没有执行：搜索计划已收敛，继续搜索会增加重复候选。"
-                "请不要继续发起同类搜索；优先读取已经推荐的高价值来源，"
-                "或基于前面搜索结果整理回答。"
-            )
+            return render_runtime_prompt("tool_handlers.search_plan_limited", query=query)
 
         if result.data.get("duplicate_search_skipped"):
             query = result.data.get("query", "")
-            return (
-                f"本次搜索「{query}」与本轮已完成搜索高度重复，系统已跳过真实搜索请求。"
-                "请优先基于前面已经返回的搜索结果继续判断；"
-                "只有需要官方来源、权威媒体、地区、时间范围等互补维度时，才发起新的搜索。"
-            )
+            return render_runtime_prompt("tool_handlers.search_duplicate", query=query)
 
         sources: List[SearchSource] = result.data.get("sources", [])
         if not sources:
-            return (
-                "搜索未取得可用结果，不能把这次搜索作为依据；如需回答，请说明搜索来源不可用，或仅基于其他可用信息回答。"
-            )
+            return render_runtime_prompt("tool_handlers.search_unavailable")
 
         parts = [SEARCH_CONTEXT_OPENING]
         parts.append(SEARCH_CONTEXT_TRUST_BOUNDARY)
@@ -256,12 +247,18 @@ class WebSearchHandler(BaseToolHandler):
         context_source_limit = _normalize_context_source_limit(result.data.get("context_source_limit"))
         context_sources = sources[:context_source_limit]
         if len(sources) > len(context_sources):
-            parts.append(f"搜索返回 {len(sources)} 条结果，仅前 {len(context_sources)} 条注入上下文。\n")
+            parts.append(
+                render_runtime_prompt(
+                    "tool_handlers.search_truncated",
+                    source_count=len(sources),
+                    context_count=len(context_sources),
+                )
+            )
 
         for source_index, source in enumerate(context_sources):
             citation_number = _citation_number(citation_numbers, source_index)
             parts.append(f"[{citation_number}] {source.title}")
-            parts.append(f"    来源: {source.url}")
+            parts.append(f"    Source: {source.url}")
             content = source.content or source.description
             parts.append(
                 format_untrusted_source_context(
@@ -278,7 +275,7 @@ class WebSearchHandler(BaseToolHandler):
             )
             parts.append("")
 
-        parts.append("注意：")
+        parts.append("Notes:")
         parts.extend(f"- {rule}" for rule in SEARCH_CONTEXT_FOLLOW_UP_RULES)
 
         return "\n".join(parts)

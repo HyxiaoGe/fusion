@@ -359,7 +359,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcomes[2].summary_finish_reason, "research_evidence_repair_exhausted")
         self.assertEqual(state.research_repair_attempts, 3)
         self.assertEqual(state.content_blocks, [])
-        self.assertIn("至少完成一次有效搜索", messages[-1]["content"])
+        self.assertIn("Complete at least one valid search", messages[-1]["content"])
         self.assertEqual(messages[-1].section_id, RESEARCH_COMPLETION_REPAIR)
 
     async def test_deep_research_with_files_still_requires_network_evidence(self):
@@ -397,7 +397,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(outcome)
         self.assertEqual(state.content_blocks, [])
-        self.assertIn("至少完成一次有效搜索", messages[-1]["content"])
+        self.assertIn("Complete at least one valid search", messages[-1]["content"])
         self.assertEqual(messages[-1].section_id, RESEARCH_COMPLETION_REPAIR)
 
     async def test_on_mode_hidden_stop_without_plan_retries_then_uses_plan_repair_summary(self):
@@ -437,7 +437,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.plan_coordinator.repair_attempt_count, 3)
         self.assertEqual(state.content_blocks, [])
         self.assertFalse(any(message.get("role") == "assistant" for message in messages))
-        self.assertIn("必须先调用计划控制工具", messages[-1]["content"])
+        self.assertIn("First call the plan-control tool", messages[-1]["content"])
         self.assertEqual(messages[-1].section_id, PLAN_REQUIRED_REPAIR)
         self.assertEqual(complete_step.await_count, 3)
 
@@ -475,7 +475,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.content_blocks[0].type, "thinking")
         self.assertEqual(state.content_blocks[0].thinking, "先拆解任务，再建立计划。")
         self.assertFalse(any(block.type == "text" for block in state.content_blocks))
-        self.assertIn("必须先调用计划控制工具", messages[-1]["content"])
+        self.assertIn("First call the plan-control tool", messages[-1]["content"])
         self.assertEqual(messages[-1].section_id, PLAN_REQUIRED_REPAIR)
         persist_message.assert_called_once()
         self.assertTrue(persist_message.call_args.kwargs["partial"])

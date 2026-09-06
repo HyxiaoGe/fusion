@@ -3,7 +3,7 @@ alembic==1.18.4
 anthropic==0.49.0
 fastapi==0.115.12
 httpx==0.28.1
-# PromptHub 相同的 sandboxed Jinja2 配置；显式固定，不依赖传递依赖。
+# 本地 Prompt 使用 sandboxed Jinja2；显式固定，不依赖传递依赖。
 Jinja2==3.1.6
 litellm>=1.40.0,<2.0.0
 fastapi-sso==0.21.0  # LiteLLM logging path 可选 import，不装会刷 ModuleNotFoundError

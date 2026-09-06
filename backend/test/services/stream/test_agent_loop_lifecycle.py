@@ -2035,18 +2035,12 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             await _start_event_run(**kwargs)
 
         config = self._call_config()
-        config.prompt_bundle_snapshot = replace(
-            config.prompt_bundle_snapshot,
-            source_kind="prompthub_lkg",
-            source_revision="b" * 64,
-            effective_revision="b" * 64,
+        config.prompt_bundle_snapshot = replace(config.prompt_bundle_snapshot, effective_revision="b" * 64)
+        await run_agent_loop_lifecycle(
+            request=self._request(call_config=config),
+            execution=self._execution(call_config=config),
+            dependencies=self._dependencies(start_agent_run_fn=start_agent_run_fn),
         )
-        with patch("app.core.prompt_bundle._load_active_bundle_payload", side_effect=AssertionError("不得重读 active")):
-            await run_agent_loop_lifecycle(
-                request=self._request(call_config=config),
-                execution=self._execution(call_config=config),
-                dependencies=self._dependencies(start_agent_run_fn=start_agent_run_fn),
-            )
 
         self.assertEqual(
             configs[0]["runtime_config_versions"]["prompt_bundle/fusion"],

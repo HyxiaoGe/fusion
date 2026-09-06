@@ -175,7 +175,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         user_messages = [message for message in prepared.messages if message["role"] == "user"]
         self.assertEqual(len(user_messages), 1)
         self.assertIn("文档正文", user_messages[0]["content"])
-        self.assertIn("文件内容 (1)", user_messages[0]["content"])
+        self.assertIn("File content (1)", user_messages[0]["content"])
         self.assertIn({"role": "system", "content": APP_IDENTITY_PROMPT}, prepared.messages)
         self.assertEqual(prepared.prompt_assembly["status"], "ready")
         self.assertEqual(file_repo.requested_content_ids, [["doc-1"]])
@@ -740,11 +740,11 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             str(message.get("content", "")) for message in simple.messages if message.get("role") == "system"
         )
 
-        self.assertIn("# 可核验证据研究", verified_system_text)
-        self.assertIn("先搜索候选来源", verified_system_text)
-        self.assertIn("独立来源交叉核验", verified_system_text)
-        self.assertNotIn("【可核验证据计划规则】", verified_system_text)
-        self.assertNotIn("# 可核验证据研究", simple_system_text)
+        self.assertIn("# Verified Research", verified_system_text)
+        self.assertIn("Search for candidate sources first", verified_system_text)
+        self.assertIn("with independent sources", verified_system_text)
+        self.assertNotIn("[Verified-research plan rules]", verified_system_text)
+        self.assertNotIn("# Verified Research", simple_system_text)
 
     def test_deep_research_forces_plan_mode_and_records_task_policy(self):
         config = build_agent_loop_call_config(
@@ -777,17 +777,17 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         research_messages = inject_deep_research_contract([{"role": "user", "content": "调研"}], research)
         standard_messages = inject_deep_research_contract([{"role": "user", "content": "调研"}], standard)
 
-        self.assertIn("【深度研究执行约束】", research_messages[0]["content"])
-        self.assertIn("互补查询", research_messages[0]["content"])
-        self.assertIn("正文使用 [n] 引用", research_messages[0]["content"])
-        self.assertIn("planned_tools 必须覆盖一个 web_search 步骤", research_messages[0]["content"])
-        self.assertIn("至少两个独立的 url_read 步骤", research_messages[0]["content"])
-        self.assertNotIn("同一个读取步骤可以读取多个独立来源", research_messages[0]["content"])
-        self.assertIn("每个读取步骤负责一个独立来源任务", research_messages[0]["content"])
-        self.assertIn("只有服务端将同一任务保持为 retryable/running 时", research_messages[0]["content"])
-        self.assertIn("跨轮重试", research_messages[0]["content"])
-        self.assertNotIn("每个读取步骤只读取一个来源", research_messages[0]["content"])
-        self.assertIn("web_search 与 url_read 必须由不同计划步骤负责", research_messages[0]["content"])
+        self.assertIn("[Deep-research execution contract]", research_messages[0]["content"])
+        self.assertIn("complementary queries", research_messages[0]["content"])
+        self.assertIn("Use [n] citations in the answer body", research_messages[0]["content"])
+        self.assertIn("planned_tools must include one web_search step", research_messages[0]["content"])
+        self.assertIn("at least two independent url_read steps", research_messages[0]["content"])
+        self.assertNotIn("one read step may read multiple independent sources", research_messages[0]["content"])
+        self.assertIn("Each read step must cover a distinct source task", research_messages[0]["content"])
+        self.assertIn("only when the server keeps that same task retryable/running", research_messages[0]["content"])
+        self.assertIn("across rounds", research_messages[0]["content"])
+        self.assertNotIn("Each read step must read only one source", research_messages[0]["content"])
+        self.assertIn("web_search and url_read must belong to different plan steps", research_messages[0]["content"])
         self.assertEqual(standard_messages, [{"role": "user", "content": "调研"}])
 
     def test_plan_mode_off_preserves_old_tools_without_control_tool(self):
@@ -931,14 +931,14 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(prepared[0]["role"], "system")
         contract = prepared[0]["content"]
-        self.assertIn("【执行计划控制规则】", contract)
-        self.assertIn("首次调用外部工具前必须先创建计划", contract)
-        self.assertIn("行程规划、方案比较、调研、审查", contract)
-        self.assertIn("两次或以上外部工具调用", contract)
-        self.assertIn("一次独立事实查询", contract)
-        self.assertIn("不要自行把步骤标成 completed", contract)
-        self.assertIn("不要向用户叙述拒绝原因", contract)
-        self.assertIn("不得以计划失败为由越过门禁", contract)
+        self.assertIn("[Execution-plan control rules]", contract)
+        self.assertIn("before the first external tool call", contract)
+        self.assertIn("itinerary planning, option comparison, research, review", contract)
+        self.assertIn("two or more external tool calls", contract)
+        self.assertIn("one independent factual lookup", contract)
+        self.assertIn("Do not mark steps completed", contract)
+        self.assertIn("Do not narrate the rejection", contract)
+        self.assertIn("bypass the gate because planning failed", contract)
         self.assertNotIn("update_plan", contract)
 
     def test_on_plan_contract_requires_plan_before_any_answer_or_external_tool(self):
@@ -950,8 +950,8 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
 
         prepared = inject_plan_control_contract([{"role": "user", "content": "你好"}], config)
 
-        self.assertIn("本轮启用了强制计划模式", prepared[0]["content"])
-        self.assertIn("回答或调用任何外部工具前", prepared[0]["content"])
+        self.assertIn("Mandatory planning mode is enabled for this round", prepared[0]["content"])
+        self.assertIn("before answering or calling any external tool", prepared[0]["content"])
 
     def test_plan_contract_is_not_injected_when_plan_mode_is_off(self):
         config = build_agent_loop_call_config(
@@ -1374,15 +1374,15 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             [message["role"] for message in prepared.messages],
             ["system", "system", "system", "user"],
         )
-        self.assertIn("【Fusion 身份一致性规则】", prepared.messages[0]["content"])
-        self.assertIn("【无联网工具边界规则】", prepared.messages[1]["content"])
-        self.assertIn("不要声称已经搜索", prepared.messages[1]["content"])
-        self.assertIn("无法实时核验", prepared.messages[1]["content"])
-        self.assertIn("不要把已有知识包装成最新事实", prepared.messages[1]["content"])
-        self.assertIn("普通稳定问题直接回答", prepared.messages[1]["content"])
-        self.assertNotIn("切换模型", prepared.messages[1]["content"])
-        self.assertNotIn("【工具调用一致性规则】", prepared.messages[1]["content"])
-        self.assertIn("【当前真实日期】", prepared.messages[2]["content"])
+        self.assertIn("[Fusion identity consistency]", prepared.messages[0]["content"])
+        self.assertIn("[No web-access tools]", prepared.messages[1]["content"])
+        self.assertIn("Do not claim or imply that you searched", prepared.messages[1]["content"])
+        self.assertIn("cannot verify them in real time", prepared.messages[1]["content"])
+        self.assertIn("Never present existing knowledge as current verification", prepared.messages[1]["content"])
+        self.assertIn("Answer ordinary stable questions directly", prepared.messages[1]["content"])
+        self.assertNotIn("switch models", prepared.messages[1]["content"])
+        self.assertNotIn("[Tool-call consistency]", prepared.messages[1]["content"])
+        self.assertIn("[Current date]", prepared.messages[2]["content"])
         self.assertEqual(prepared.messages[3]["content"], "OpenAI 最近发布了什么模型？")
 
     async def test_prepare_messages_injects_no_vision_boundary_when_image_attached_to_text_model(self):
@@ -1423,9 +1423,9 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             [message["role"] for message in prepared.messages],
             ["system", "system", "user"],
         )
-        self.assertIn("【无图片理解能力边界规则】", prepared.messages[1]["content"])
-        self.assertIn("当前模型不能读取或理解图片附件", prepared.messages[1]["content"])
-        self.assertIn("不要臆测图片内容", prepared.messages[1]["content"])
+        self.assertIn("[No image-understanding capability]", prepared.messages[1]["content"])
+        self.assertIn("cannot read or understand image attachments", prepared.messages[1]["content"])
+        self.assertIn("Do not guess its contents", prepared.messages[1]["content"])
         self.assertEqual(prepared.messages[2]["content"], "这张图里有什么？")
 
     async def test_prepare_messages_builds_llm_input_files_url_context_and_tool_contract(self):
@@ -1506,6 +1506,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIsNone(build_calls[0]["user_system_prompt"])
+        self.assertIn("user's personalization preferences", prepared.messages[2]["content"])
         self.assertIn("用户偏好", prepared.messages[2]["content"])
         self.assertIs(build_calls[0]["repo"], file_repo)
         self.assertEqual(build_calls[0]["user_id"], "user-1")
@@ -1518,8 +1519,8 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             [message["role"] for message in prepared.messages],
             ["system", "system", "system", "user", "user"],
         )
-        self.assertIn("【Fusion 身份一致性规则】", prepared.messages[0]["content"])
-        self.assertIn("【无图片理解能力边界规则】", prepared.messages[1]["content"])
+        self.assertIn("[Fusion identity consistency]", prepared.messages[0]["content"])
+        self.assertIn("[No image-understanding capability]", prepared.messages[1]["content"])
         self.assertIn("<web_context>", prepared.messages[3]["content"])
         self.assertIn("文档正文", prepared.messages[4]["content"])
         self.assertEqual(call_config.announced_tools, ["url_read"])
@@ -1535,8 +1536,8 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(prepared[0], {"role": "system", "content": TOOL_USAGE_CONTRACT_PROMPT})
         self.assertIn(NETWORK_DECISION_PROMPT, TOOL_USAGE_CONTRACT_PROMPT)
-        self.assertIn("必须调用 web_search", TOOL_USAGE_CONTRACT_PROMPT)
-        self.assertIn("没有调用工具", TOOL_USAGE_CONTRACT_PROMPT)
+        self.assertIn("must actually call web_search", TOOL_USAGE_CONTRACT_PROMPT)
+        self.assertIn("When no tool was called", TOOL_USAGE_CONTRACT_PROMPT)
 
     def test_tool_usage_contract_deduplicates_by_section_identity_after_body_changes(self):
         from app.services.stream.agent_loop_request_prep import inject_tool_usage_contract
@@ -1565,25 +1566,24 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         prepared = inject_no_tool_network_boundary(messages, call_kwargs={})
 
         self.assertEqual(prepared[0], {"role": "system", "content": NO_TOOL_NETWORK_BOUNDARY_PROMPT})
-        self.assertIn("没有联网搜索或网页读取工具", NO_TOOL_NETWORK_BOUNDARY_PROMPT)
-        self.assertIn("不要声称已经搜索", NO_TOOL_NETWORK_BOUNDARY_PROMPT)
-        self.assertIn("无法实时核验", NO_TOOL_NETWORK_BOUNDARY_PROMPT)
-        self.assertIn("不要把已有知识包装成最新事实", NO_TOOL_NETWORK_BOUNDARY_PROMPT)
-        self.assertIn("不要把缺少工具描述成系统故障", NO_TOOL_NETWORK_BOUNDARY_PROMPT)
-        self.assertIn("普通稳定问题直接回答", NO_TOOL_NETWORK_BOUNDARY_PROMPT)
-        self.assertNotIn("切换模型", NO_TOOL_NETWORK_BOUNDARY_PROMPT)
+        self.assertIn("no web search or URL reading tool", NO_TOOL_NETWORK_BOUNDARY_PROMPT)
+        self.assertIn("Do not claim or imply that you searched", NO_TOOL_NETWORK_BOUNDARY_PROMPT)
+        self.assertIn("cannot verify them in real time", NO_TOOL_NETWORK_BOUNDARY_PROMPT)
+        self.assertIn("Never present existing knowledge as current verification", NO_TOOL_NETWORK_BOUNDARY_PROMPT)
+        self.assertIn("Do not describe missing tools as a system failure", NO_TOOL_NETWORK_BOUNDARY_PROMPT)
+        self.assertIn("Answer ordinary stable questions directly", NO_TOOL_NETWORK_BOUNDARY_PROMPT)
+        self.assertNotIn("switch models", NO_TOOL_NETWORK_BOUNDARY_PROMPT)
 
     def test_tool_usage_contract_defines_autonomous_search_decision_matrix(self):
         from app.ai.prompts.agent_loop import TOOL_USAGE_CONTRACT_PROMPT
 
-        self.assertIn("不要依据用户是否说了", TOOL_USAGE_CONTRACT_PROMPT)
-        self.assertIn("联网", TOOL_USAGE_CONTRACT_PROMPT)
-        self.assertIn("搜索", TOOL_USAGE_CONTRACT_PROMPT)
-        self.assertIn("微信A2A互通怎么用？", TOOL_USAGE_CONTRACT_PROMPT)
-        self.assertIn("OpenAI 最近发布了哪些产品更新？", TOOL_USAGE_CONTRACT_PROMPT)
-        self.assertIn("你好，你是谁？", TOOL_USAGE_CONTRACT_PROMPT)
-        self.assertIn("1+1等于几？", TOOL_USAGE_CONTRACT_PROMPT)
-        self.assertIn("不应调用 web_search", TOOL_USAGE_CONTRACT_PROMPT)
+        self.assertIn("Do not decide whether to use a tool merely", TOOL_USAGE_CONTRACT_PROMPT)
+        self.assertIn("question itself requires current external facts", TOOL_USAGE_CONTRACT_PROMPT)
+        self.assertIn("How do I use WeChat A2A interoperability?", TOOL_USAGE_CONTRACT_PROMPT)
+        self.assertIn("What products has OpenAI released recently?", TOOL_USAGE_CONTRACT_PROMPT)
+        self.assertIn("Hello, who are you?", TOOL_USAGE_CONTRACT_PROMPT)
+        self.assertIn("What is 1+1?", TOOL_USAGE_CONTRACT_PROMPT)
+        self.assertIn("Do not use web_search", TOOL_USAGE_CONTRACT_PROMPT)
 
     async def test_prepare_messages_injects_extra_system_prompts_without_user_preprocess(self):
         async def build_llm_messages_fn(
@@ -1631,7 +1631,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(prepared.initial_content_blocks, [])
-        self.assertIn("继续上一轮", prepared.messages[1].content)
+        self.assertIn("Continue the previous response", prepared.messages[1].content)
         self.assertEqual(prepared.messages[2]["role"], "user")
         self.assertEqual(
             [message.section_id for message in prepared.messages[:2]],

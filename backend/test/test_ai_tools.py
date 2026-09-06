@@ -33,12 +33,12 @@ class AiToolSchemaTests(unittest.TestCase):
         description = tool["function"]["description"]
         query_description = tool["function"]["parameters"]["properties"]["query"]["description"]
 
-        self.assertIn("默认只发起 1 次搜索", description)
-        self.assertIn("第二个互补搜索", description)
-        self.assertIn("官方来源、权威媒体、地区、时间范围", description)
-        self.assertIn("第三次搜索只适用于 deep_research", description)
-        self.assertIn("同义改写重复搜索", description)
-        self.assertIn("不要用中英文翻译或同义改写重复搜索同一意图", query_description)
+        self.assertIn("Make one search by default", description)
+        self.assertIn("second search only for a genuinely complementary dimension", description)
+        self.assertIn("official sources, authoritative media, regions, or time ranges", description)
+        self.assertIn("third search is only for deep_research", description)
+        self.assertIn("synonymous rephrasing", description)
+        self.assertIn("Do not repeat the same intent", query_description)
 
     def test_web_search_tool_description_guides_autonomous_natural_questions(self):
         from app.ai.tools import build_web_search_tool
@@ -46,13 +46,13 @@ class AiToolSchemaTests(unittest.TestCase):
         tool = build_web_search_tool()
         description = tool["function"]["description"]
 
-        self.assertIn("即使用户没有说", description)
-        self.assertIn("使用方法", description)
-        self.assertIn("接入", description)
-        self.assertIn("互通", description)
-        self.assertIn("微信A2A互通怎么用？", description)
-        self.assertIn("纯闲聊", description)
-        self.assertIn("1+1", description)
+        self.assertIn("even if the user does not explicitly say", description)
+        self.assertIn("current usage", description)
+        self.assertIn("integration", description)
+        self.assertIn("interoperability", description)
+        self.assertIn("How do I use WeChat A2A interoperability?", description)
+        self.assertIn("Casual conversation", description)
+        self.assertIn("simple arithmetic", description)
 
     def test_web_search_tool_description_keeps_stable_product_facts_offline(self):
         from app.ai.tools import build_web_search_tool
@@ -60,10 +60,10 @@ class AiToolSchemaTests(unittest.TestCase):
         tool = build_web_search_tool()
         description = tool["function"]["description"]
 
-        self.assertIn("稳定背景", description)
-        self.assertIn("历史原因", description)
-        self.assertIn("iPhone 从 Lightning 换成 USB-C 的核心原因", description)
-        self.assertIn("价值、风险和落地建议", description)
+        self.assertIn("stable background", description)
+        self.assertIn("historical causes", description)
+        self.assertIn("why the iPhone moved from Lightning to USB-C", description)
+        self.assertIn("value, risks, and adoption advice", description)
 
     def test_url_read_schema_exposes_optional_reason(self):
         from app.ai.tools import URL_READ_TOOL
@@ -81,13 +81,13 @@ class AiToolSchemaTests(unittest.TestCase):
 
         description = URL_READ_TOOL["function"]["description"]
 
-        self.assertIn("官方来源", description)
-        self.assertIn("原文公告", description)
-        self.assertIn("高相关结果", description)
-        self.assertIn("视频", description)
-        self.assertIn("论坛", description)
-        self.assertIn("低相关结果", description)
-        self.assertIn("降权", description)
+        self.assertIn("official sources", description)
+        self.assertIn("primary announcements", description)
+        self.assertIn("highly relevant results", description)
+        self.assertIn("videos", description)
+        self.assertIn("forums", description)
+        self.assertIn("low-relevance results", description)
+        self.assertIn("Deprioritize", description)
 
 
 if __name__ == "__main__":

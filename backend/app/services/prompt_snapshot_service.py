@@ -2,15 +2,15 @@
 
 from functools import wraps
 
+from app.ai.prompts.local_templates import CODE_DEFAULT_PROMPT_TEMPLATES
 from app.core.prompt_bundle import freeze_prompt_bundle
 from app.core.prompt_snapshot import PromptBundleSnapshot, use_prompt_snapshot
-from app.services.runtime_config_defaults import DEFAULT_PROMPT_TEMPLATES
 
 
 def freeze_runtime_prompt_bundle() -> PromptBundleSnapshot:
     from app.services.stream.run_capability_model_classifier import _system_prompt
 
-    return freeze_prompt_bundle(DEFAULT_PROMPT_TEMPLATES, classifier_prompt=_system_prompt())
+    return freeze_prompt_bundle(CODE_DEFAULT_PROMPT_TEMPLATES, classifier_prompt=_system_prompt())
 
 
 def with_call_config_prompt_snapshot(prepare_fn):

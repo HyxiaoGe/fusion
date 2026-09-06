@@ -1094,10 +1094,10 @@ class ChatServiceTests(unittest.TestCase):
         sent_messages = mock_litellm.acompletion.await_args.kwargs["messages"]
         self.assertEqual([message["role"] for message in sent_messages[:3]], ["system", "system", "user"])
         self.assertIn("日期 system", sent_messages[0]["content"])
-        self.assertIn("【无联网工具边界规则】", sent_messages[1]["content"])
-        self.assertIn("无法实时核验", sent_messages[1]["content"])
-        self.assertIn("不要把已有知识包装成最新事实", sent_messages[1]["content"])
-        self.assertIn("不要把缺少工具描述成系统故障", sent_messages[1]["content"])
+        self.assertIn("[No web-access tools]", sent_messages[1]["content"])
+        self.assertIn("cannot verify them in real time", sent_messages[1]["content"])
+        self.assertIn("Never present existing knowledge as current verification", sent_messages[1]["content"])
+        self.assertIn("Do not describe missing tools as a system failure", sent_messages[1]["content"])
         self.assertEqual(sent_messages[2]["content"], "OpenAI 最近发布了什么模型？")
         self.assertEqual(
             mock_litellm.acompletion.await_args.kwargs["extra_body"],
@@ -1784,9 +1784,9 @@ class ChatServiceTests(unittest.TestCase):
         sent_messages = mock_litellm.acompletion.await_args.kwargs["messages"]
         self.assertEqual([message["role"] for message in sent_messages[:4]], ["system", "system", "system", "user"])
         self.assertIn("日期 system", sent_messages[0]["content"])
-        self.assertIn("【无图片理解能力边界规则】", sent_messages[1]["content"])
-        self.assertIn("当前模型不能读取或理解图片附件", sent_messages[1]["content"])
-        self.assertIn("【无联网工具边界规则】", sent_messages[2]["content"])
+        self.assertIn("[No image-understanding capability]", sent_messages[1]["content"])
+        self.assertIn("cannot read or understand image attachments", sent_messages[1]["content"])
+        self.assertIn("[No web-access tools]", sent_messages[2]["content"])
         self.assertEqual(sent_messages[3]["content"], "这张图里有什么？")
         generated_messages = [call.args[0] for call in service.conversation_service.create_message.call_args_list]
         self.assertEqual(len(generated_messages), 1)

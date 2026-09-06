@@ -182,7 +182,7 @@ class ToolRoundBudgetTests(IsolatedAsyncioTestCase):
             ["user", "assistant", "tool"],
         )
         self.assertEqual(second_request.messages[-1]["tool_call_id"], "tc-train-2")
-        self.assertIn("复用上一条成功结果", second_request.messages[-1]["content"])
+        self.assertIn("Reuse the previous successful result", second_request.messages[-1]["content"])
         self.assertEqual(second_request.content_blocks, [])
 
     async def test_qwen_four_train_calls_with_identical_last_two_count_three_actual_executions(self):
@@ -238,7 +238,7 @@ class ToolRoundBudgetTests(IsolatedAsyncioTestCase):
             [message["role"] for message in request.messages],
             ["user", "assistant", "tool", "tool", "tool", "tool"],
         )
-        self.assertIn("复用上一条成功结果", request.messages[-1]["content"])
+        self.assertIn("Reuse the previous successful result", request.messages[-1]["content"])
         self.assertEqual(request.content_blocks, [])
 
     async def test_denied_context_executes_no_tool_consumes_no_quota_and_appends_synthetic_result(self):
@@ -537,7 +537,10 @@ class ToolRoundBudgetTests(IsolatedAsyncioTestCase):
             payload = json.loads(message["content"])
             self.assertEqual(payload["status"], "failed")
             self.assertEqual(payload["reason"], "execution_result_missing")
-            self.assertEqual(payload["message"], "工具执行未返回可用记录，本次结果不能作为事实依据。")
+            self.assertEqual(
+                payload["message"],
+                "Tool execution returned no usable record, so this result cannot be treated as factual evidence.",
+            )
             self.assertNotIn("SSE", message["content"])
 
     async def test_duplicate_execution_records_are_ignored(self):

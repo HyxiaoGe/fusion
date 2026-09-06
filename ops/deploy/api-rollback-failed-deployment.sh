@@ -80,9 +80,6 @@ print(json.dumps(routes, separators=(",", ":")), end="")
 ')" || exit 1
 export KNOWLEDGE_EMBEDDING_REVISION_ROUTES="${compact_revision_routes}"
 export CONTEXT7_API_KEY=""
-export PROMPTHUB_API_KEY="${DEPLOY_PROMPTHUB_API_KEY:-}"
-export PROMPTHUB_SYNC_MODE="${DEPLOY_PROMPTHUB_SYNC_MODE:-disabled}"
-export PROMPT_P0_BASELINE_ATTESTED="${DEPLOY_PROMPT_P0_BASELINE_ATTESTED:-false}"
 export MCP_ALLOWED_HOSTS="${DEPLOY_MCP_ALLOWED_HOSTS:-${MCP_ALLOWED_HOSTS:-learn.microsoft.com,dashscope.aliyuncs.com,mcp.amap.com,mcp.context7.com}}"
 export MCP_ALLOWED_CREDENTIAL_REFS="${DEPLOY_MCP_ALLOWED_CREDENTIAL_REFS:-${MCP_ALLOWED_CREDENTIAL_REFS:-DASHSCOPE_API_KEY,AMAP_MCP_API_KEY,CONTEXT7_API_KEY}}"
 export MCP_CONNECT_TIMEOUT_SECONDS="${DEPLOY_MCP_CONNECT_TIMEOUT_SECONDS:-${MCP_CONNECT_TIMEOUT_SECONDS:-5}}"
@@ -183,8 +180,6 @@ ensure_rollback_image() {
 
 ensure_rollback_image "${ROLLBACK_API_IMAGE_REF}" "${ROLLBACK_API_IMAGE_ID}"
 ensure_rollback_image "${ROLLBACK_ADAPTER_IMAGE_REF}" "${ROLLBACK_ADAPTER_IMAGE_ID}"
-
-"${GITHUB_WORKSPACE}/ops/deploy/api-check-prompt-hold-target.sh" "${DEPLOY_API_IMAGE}"
 
 current_api_ref="$(docker inspect fusion-api --format '{{.Config.Image}}' 2>/dev/null || true)"
 current_api_id="$(docker inspect fusion-api --format '{{.Image}}' 2>/dev/null || true)"
@@ -294,8 +289,6 @@ if [ "${ROLLBACK_KNOWLEDGE_WORKER_EXISTED}" = "true" ]; then
     exit 1
   fi
 fi
-
-"${GITHUB_WORKSPACE}/ops/deploy/api-check-prompt-hold-target.sh" running
 
 rollback_api_sha="${ROLLBACK_DEPLOYMENT_SHA}"
 if [[ ! "${rollback_api_sha}" =~ ^[0-9a-f]{40}$ ]]; then

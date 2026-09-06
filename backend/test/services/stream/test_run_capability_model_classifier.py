@@ -524,22 +524,22 @@ def test_system_prompt_defines_taxonomy_tool_mapping_order_and_negative_boundari
 
     assert messages is not None
     prompt = messages[0]["content"]
-    assert "fresh_web：最新或当前外部事实" in prompt
-    assert "verified_web：要求官方或可靠来源" in prompt
-    assert "url_read：给定 URL 的读取或总结" in prompt
-    assert "mobility_route：明确同城路线" in prompt
-    assert "mobility_intercity：跨城起终点但方式不明确" in prompt
-    assert "travel_air_rail：仅比较航班与火车" in prompt
-    assert "mixed_itinerary：2–3 个不同产品族" in prompt
+    assert "fresh_web: latest or current external facts" in prompt
+    assert "verified_web: requests verification or official/reliable sources" in prompt
+    assert "url_read: reads or summarizes a supplied URL" in prompt
+    assert "mobility_route: explicitly asks for a local route" in prompt
+    assert "mobility_intercity: supplies intercity origin and destination" in prompt
+    assert "travel_air_rail: compares flights and trains only" in prompt
+    assert "mixed_itinerary: combines 2 to 3 distinct product families" in prompt
     assert "canonical order" in prompt
-    assert "禁止选择 deep_research" in prompt
-    assert "全局禁网时不得选择任何外部工具" in prompt
-    assert "标准 package 要表达请求实际需要的能力" in prompt
-    assert "available_tool_names 只用于本调用前的精确 MCP literal 授权" in prompt
-    assert "组织、职业、产品或融资阶段" in prompt
-    assert "不得仅因阶段名称选择 fresh_web" in prompt
-    assert "路线能力必须同时有可定位的起点和终点" in prompt
-    assert "只有目的地或使用公司、家等相对指代" in prompt
+    assert "Never choose deep_research" in prompt
+    assert "When networking is globally disabled, choose no external tools" in prompt
+    assert "standard package must represent the capability the request actually needs" in prompt
+    assert "available_tool_names is used only to authorize exact MCP literals" in prompt
+    assert "organizations, careers, products, or funding stages" in prompt
+    assert "Do not choose fresh_web merely because a stage name appears" in prompt
+    assert "route capability requires both a locatable origin and destination" in prompt
+    assert "only a destination is provided" in prompt
 
 
 def test_missing_explicit_tool_names_is_rejected() -> None:

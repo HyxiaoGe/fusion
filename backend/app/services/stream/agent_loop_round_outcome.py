@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
+from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.ai.prompts.section_ids import (
     PLAN_EXECUTION_REPAIR,
     PLAN_REQUIRED_REPAIR,
@@ -52,15 +53,8 @@ from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream.tool_round import ToolRoundOutcome
 from app.services.stream_state_service import StreamWriteTerminalError, append_chunk
 
-PLAN_REQUIRED_RETRY_PROMPT = (
-    "【计划控制修正】当前为强制计划模式，上一轮未建立有效计划，不能直接回答。"
-    "必须先调用计划控制工具创建 2 至 6 个步骤，再继续回答或调用外部工具。"
-    "只静默修正，不要向用户解释这条内部规则。"
-)
-PLAN_EXECUTION_REQUIRED_RETRY_PROMPT = (
-    "【计划执行修正】当前执行计划仍有未完成的工具步骤。不要输出最终回答；"
-    "请只调用这些步骤声明的真实工具，并为每次调用填写对应的 _plan_item_id。"
-)
+PLAN_REQUIRED_RETRY_PROMPT = render_runtime_prompt("stream.plan_required_retry")
+PLAN_EXECUTION_REQUIRED_RETRY_PROMPT = render_runtime_prompt("stream.plan_execution_required_retry")
 
 
 @dataclass(frozen=True)
@@ -279,7 +273,7 @@ async def _repair_incomplete_execution(request: AgentRoundOutcomeRequest) -> Non
     _replace_system_message(
         request.messages,
         section_id=PLAN_EXECUTION_REPAIR,
-        content=f"{PLAN_EXECUTION_REQUIRED_RETRY_PROMPT}\n待执行步骤：{pending_summary}",
+        content=f"{PLAN_EXECUTION_REQUIRED_RETRY_PROMPT}\nPending steps: {pending_summary}",
     )
     request.state.clear_current_step()
 

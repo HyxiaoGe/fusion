@@ -48,7 +48,7 @@ class PromptBundleSnapshot:
         if item is None:
             raise ValueError(f"冻结 Prompt 中不存在 section: {name}")
         return item.content, {
-            "source": "prompthub" if self.source_kind == "prompthub_lkg" else "code-default",
+            "source": "code-default",
             "source_kind": self.source_kind,
             "effective_revision": self.effective_revision,
             "prompt_slug": item.slug,
@@ -85,9 +85,7 @@ def use_prompt_snapshot(snapshot: PromptSnapshotSource) -> Iterator[None]:
         _CURRENT_SNAPSHOT.reset(token)
 
 
-def build_bundle_snapshot(
-    defaults: Mapping[str, str], *, payload: dict | None, classifier_prompt: str
-) -> PromptBundleSnapshot:
+def build_bundle_snapshot(defaults: Mapping[str, str], *, classifier_prompt: str) -> PromptBundleSnapshot:
     if set(defaults) != {spec.key for spec in PROMPT_SPECS}:
         raise ValueError("代码默认 Prompt 必须完整覆盖 catalog")
     if any(not isinstance(body, str) or not body.strip() for body in defaults.values()):
@@ -96,20 +94,19 @@ def build_bundle_snapshot(
         PromptTemplateSnapshot(
             key=spec.key,
             slug=spec.slug,
-            content=payload["prompts"][spec.key]["content"] if payload else defaults[spec.key],
+            content=defaults[spec.key],
             variables=tuple(spec.variables),
-            version=payload["prompts"][spec.key]["version"] if payload else "code-default",
-            format=payload["prompts"][spec.key]["format"] if payload else spec.format,
-            template_engine=payload["prompts"][spec.key]["template_engine"] if payload else DEFAULT_TEMPLATE_ENGINE,
+            version="code-default",
+            format=spec.format,
+            template_engine=DEFAULT_TEMPLATE_ENGINE,
         )
         for spec in sorted(PROMPT_SPECS, key=lambda item: item.slug)
     )
-    source_revision = payload["revision"] if payload else None
     return PromptBundleSnapshot(
-        source_kind="prompthub_lkg" if payload else "code_default",
-        source_revision=source_revision,
-        effective_revision=source_revision or _code_default_revision(templates),
-        catalog_version=payload["catalog_version"] if payload else CATALOG_VERSION,
+        source_kind="code_default",
+        source_revision=None,
+        effective_revision=_code_default_revision(templates),
+        catalog_version=CATALOG_VERSION,
         templates=templates,
         classifier_prompt=classifier_prompt,
     )

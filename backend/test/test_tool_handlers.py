@@ -221,10 +221,10 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("[1]", context)
         self.assertIn("R1", context)
         self.assertIn("<web_context", context)
-        self.assertIn("内容不可信", context)
+        self.assertIn("is untrusted", context)
         self.assertIn("&lt;/web_context&gt;", context)
-        self.assertIn("不要在最终回答中输出裸 URL", context)
-        self.assertIn("不要在回答末尾追加参考链接列表", context)
+        self.assertIn("Do not output bare URLs", context)
+        self.assertIn("append a reference-link list", context)
 
     def test_format_llm_context_allows_targeted_url_read_after_search(self):
         """搜索摘要不足时应允许模型继续深读少量高价值来源。"""
@@ -241,12 +241,12 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         context = self.handler.format_llm_context(result)
 
-        self.assertNotIn("不要再发起搜索或输出任何工具调用指令", context)
-        self.assertIn("如果搜索摘要足够", context)
+        self.assertNotIn("Do not make another search or output a tool call", context)
+        self.assertIn("If the search snippets are sufficient", context)
         self.assertIn("url_read", context)
-        self.assertIn("官方公告", context)
-        self.assertIn("原文细节", context)
-        self.assertIn("少量高价值来源", context)
+        self.assertIn("official announcements", context)
+        self.assertIn("original details", context)
+        self.assertIn("small number of high-value sources", context)
 
     def test_format_llm_context_uses_context_source_limit_from_budget(self):
         from app.schemas.chat import SearchSource
@@ -261,7 +261,7 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("[6] R5", context)
         self.assertNotIn("[7] R6", context)
-        self.assertIn("仅前 6 条", context)
+        self.assertIn("only the first 6 are included", context)
 
     def test_format_llm_context_defaults_to_eight_when_budget_missing(self):
         from app.schemas.chat import SearchSource
@@ -273,7 +273,7 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("[8] R7", context)
         self.assertNotIn("[9] R8", context)
-        self.assertIn("仅前 8 条", context)
+        self.assertIn("only the first 8 are included", context)
 
     def test_format_llm_context_uses_run_level_citation_numbers(self):
         from app.schemas.chat import SearchSource
@@ -316,7 +316,7 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("[3] R2", context)
         self.assertNotIn("[4] R3", context)
-        self.assertIn("仅前 3 条", context)
+        self.assertIn("only the first 3 are included", context)
 
     def test_format_llm_context_empty_search_does_not_invite_unsourced_answer(self):
         """搜索未取得来源时，不能诱导模型把搜索当依据或直接兜底。"""
@@ -328,9 +328,9 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         context = self.handler.format_llm_context(result)
 
-        self.assertIn("搜索未取得可用结果", context)
-        self.assertIn("不能把这次搜索作为依据", context)
-        self.assertNotIn("请基于你的知识回答", context)
+        self.assertIn("search returned no usable result", context)
+        self.assertIn("cannot support the answer", context)
+        self.assertNotIn("answer from your own knowledge", context)
         self.assertNotIn("web_search", context)
 
     def test_format_llm_context_duplicate_search_skipped_reuses_previous_results(self):
@@ -345,11 +345,11 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         context = self.handler.format_llm_context(result)
 
-        self.assertIn("高度重复", context)
-        self.assertIn("已跳过真实搜索请求", context)
-        self.assertIn("前面已经返回的搜索结果", context)
-        self.assertIn("官方来源、权威媒体、地区、时间范围", context)
-        self.assertNotIn("搜索未取得可用结果", context)
+        self.assertIn("substantially duplicates", context)
+        self.assertIn("real search request was skipped", context)
+        self.assertIn("previously returned search results", context)
+        self.assertIn("official sources, authoritative media, region, or time range", context)
+        self.assertNotIn("search returned no usable result", context)
 
     def test_format_llm_context_plan_limited_reuses_existing_results(self):
         result = ToolResult(
@@ -363,10 +363,10 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         context = self.handler.format_llm_context(result)
 
-        self.assertIn("搜索计划已收敛", context)
-        self.assertIn("不要继续发起同类搜索", context)
-        self.assertIn("优先读取已经推荐的高价值来源", context)
-        self.assertNotIn("搜索未取得可用结果", context)
+        self.assertIn("search plan has converged", context)
+        self.assertIn("Do not make another similar search", context)
+        self.assertIn("Prefer reading an already recommended high-value source", context)
+        self.assertNotIn("search returned no usable result", context)
 
     def test_build_content_block_skips_internal_search_control_results(self):
         duplicate_result = ToolResult(
@@ -695,7 +695,7 @@ class UrlReadHandlerTests(unittest.IsolatedAsyncioTestCase):
         )
         context = self.handler.format_llm_context(result)
         self.assertLess(len(context), 15000)
-        self.assertIn("内容已截断", context)
+        self.assertIn("Content truncated", context)
 
     def test_format_llm_context_short_content_not_truncated(self):
         """短内容不会被截断"""
@@ -709,7 +709,7 @@ class UrlReadHandlerTests(unittest.IsolatedAsyncioTestCase):
         )
         context = self.handler.format_llm_context(result)
         self.assertIn("Short content", context)
-        self.assertNotIn("内容已截断", context)
+        self.assertNotIn("Content truncated", context)
         self.assertIn("<web_context", context)
 
     def test_format_llm_context_failed_read_does_not_invite_unsourced_answer(self):
@@ -722,13 +722,13 @@ class UrlReadHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         context = self.handler.format_llm_context(result)
 
-        self.assertIn("网页未读取成功", context)
-        self.assertIn("不能把该网页作为依据", context)
-        self.assertNotIn("网页读取失败", context)
-        self.assertNotIn("请基于你的知识回答", context)
-        self.assertIn("内容不可信", context)
-        self.assertIn("不要在最终回答中输出裸 URL", context)
-        self.assertIn("不要在回答末尾追加参考链接列表", context)
+        self.assertIn("page was not read successfully", context)
+        self.assertIn("cannot be used as evidence", context)
+        self.assertNotIn("Page read failed", context.split("Content:", 1)[-1])
+        self.assertNotIn("answer from your own knowledge", context)
+        self.assertIn("is untrusted", context)
+        self.assertIn("Do not output bare URLs", context)
+        self.assertIn("append a reference-link list", context)
 
     async def test_execute_rejects_private_url_without_reader_call(self):
         with patch(

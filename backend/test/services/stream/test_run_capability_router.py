@@ -3355,7 +3355,7 @@ def test_verified_web_route_freezes_versioned_skill_before_run_start():
     assert metadata.section_id == "skill:verified-research@1.0.0"
     assert re.fullmatch(r"[0-9a-f]{64}", metadata.content_sha256)
     assert route.loaded_skills[0].metadata == metadata
-    assert route.loaded_skills[0].content.startswith("# 可核验证据研究")
+    assert route.loaded_skills[0].content.startswith("# Verified Research")
 
 
 @pytest.mark.parametrize(

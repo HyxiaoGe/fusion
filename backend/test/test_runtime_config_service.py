@@ -51,8 +51,8 @@ class RuntimeConfigServiceTests(unittest.TestCase):
 
         clear_runtime_config_cache()
 
-    def test_default_seed_rows_cover_strategy_presentation_and_prompts(self):
-        from app.services.runtime_config_defaults import DEFAULT_PROMPT_TEMPLATES, iter_default_runtime_config_seed_rows
+    def test_default_seed_rows_cover_supported_runtime_config(self):
+        from app.services.runtime_config_defaults import iter_default_runtime_config_seed_rows
 
         rows = list(iter_default_runtime_config_seed_rows())
         row_keys = {(row["namespace"], row["key"]) for row in rows}
@@ -60,9 +60,7 @@ class RuntimeConfigServiceTests(unittest.TestCase):
         self.assertIn(("agent_strategy", "default"), row_keys)
         self.assertIn(("model_presentation", "default"), row_keys)
         self.assertIn(("ui_prompt_catalog", "home"), row_keys)
-        for prompt_key in DEFAULT_PROMPT_TEMPLATES:
-            self.assertIn(("prompt_template", prompt_key), row_keys)
-        self.assertEqual(len(rows), 3 + len(DEFAULT_PROMPT_TEMPLATES))
+        self.assertEqual(len(rows), 3)
         self.assertEqual(len({row["id"] for row in rows}), len(rows))
         for row in rows:
             UUID(row["id"])

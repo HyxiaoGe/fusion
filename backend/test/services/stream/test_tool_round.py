@@ -2194,16 +2194,16 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(messages[2]["content"], "第一个搜索上下文")
         self.assertEqual(messages[3]["tool_call_id"], "tc-search-2")
         self.assertIn("第二个搜索上下文", messages[3]["content"])
-        self.assertIn("结构化来源选择建议", messages[3]["content"])
-        self.assertIn("建议深读最多 3 个来源", messages[3]["content"])
+        self.assertIn("Structured source-selection guidance", messages[3]["content"])
+        self.assertIn("Read at most 3 recommended sources", messages[3]["content"])
         self.assertIn("Previewing GPT-5.6 Sol", messages[3]["content"])
         self.assertIn("GPT-5.6 Preview System Card", messages[3]["content"])
         self.assertIn("Axios", messages[3]["content"])
-        self.assertIn("低优先级候选", messages[3]["content"])
+        self.assertIn("Low-priority candidates", messages[3]["content"])
         self.assertIn("threads.com", messages[3]["content"])
-        self.assertIn("未建议深读原因", messages[3]["content"])
-        self.assertIn("必须先读取至少 1 个建议优先深读来源", messages[3]["content"])
-        self.assertIn("回答当前事实结论前", messages[3]["content"])
+        self.assertIn("Reasons not recommended", messages[3]["content"])
+        self.assertIn("Read at least 1 recommended high-priority source", messages[3]["content"])
+        self.assertIn("before stating a factual conclusion", messages[3]["content"])
 
     def test_append_tool_round_messages_keeps_citations_unique_across_search_rounds(self):
         from app.services.tool_handlers.web_search import WebSearchHandler
@@ -2623,7 +2623,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
             selected_events[0]["id"],
             stable_web_evidence_id("https://openai.com/index/previewing-gpt-5-6-sol", fallback="unused"),
         )
-        self.assertIn("建议深读", selected_events[0]["claim"])
+        self.assertIn("official source", selected_events[0]["claim"])
 
     async def test_tool_round_selected_evidence_count_follows_quick_fact_read_limit(self):
         tool_call = {"id": "tc-search", "name": "web_search", "arguments": '{"query":"OpenAI GPT-5.6 是什么"}'}

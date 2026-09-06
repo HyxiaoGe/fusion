@@ -3,6 +3,7 @@
 负责提供各种提示词模板，并支持模板变量替换
 """
 
+from app.ai.prompts.local_templates import CODE_DEFAULT_PROMPT_TEMPLATES
 from app.ai.prompts.templates import (
     FILE_ANALYSIS_PROMPT,
     FILE_CONTENT_ENHANCEMENT_PROMPT,
@@ -53,9 +54,7 @@ class PromptManager:
 
         # 标题、推荐问题与文件分析是独立模型调用，即使异步任务继承了主 Run
         # 的 ContextVar，也必须重新冻结自己的来源。附件包装仍走 format_prompt。
-        from app.ai.prompts.defaults import DEFAULT_PROMPT_TEMPLATES
-
-        with use_prompt_snapshot(freeze_prompt_bundle(DEFAULT_PROMPT_TEMPLATES)):
+        with use_prompt_snapshot(freeze_prompt_bundle(CODE_DEFAULT_PROMPT_TEMPLATES)):
             template, metadata = self.resolve_template_with_metadata(template_name)
         return render_prompt_template(template, metadata["template_engine"], kwargs), metadata
 

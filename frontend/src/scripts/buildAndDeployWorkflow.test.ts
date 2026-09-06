@@ -372,7 +372,7 @@ const actionDocuments = [
     expect(pullRequestWorkflow).not.toContain('name: Build on Windows runner');
     expect(pullRequestWorkflow).not.toContain('过渡检查名');
     expect(pullRequestWorkflow).toContain('runs-on: ubuntu-latest');
-    expect(pullRequestWorkflow).toContain('runs-on: windows-latest');
+    expect(pullRequestWorkflow).not.toContain('runs-on: windows-latest');
     expect(pullRequestWorkflow).not.toContain('self-hosted');
     expect(pullRequestWorkflow).not.toContain('Windows, X64');
     expect(pullRequestWorkflow).not.toContain('environment:');
@@ -413,7 +413,7 @@ const actionDocuments = [
       }
     }
     expect(externalActionCount).toBeGreaterThan(0);
-    expect(pullRequestWorkflow.split(`uses: ${checkoutAction}`)).toHaveLength(6);
+    expect(pullRequestWorkflow.split(`uses: ${checkoutAction}`)).toHaveLength(5);
     expect(releaseWorkflow.split(`uses: ${checkoutAction}`)).toHaveLength(4);
   });
 

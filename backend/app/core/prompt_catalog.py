@@ -1,9 +1,8 @@
-"""Fusion 与 PromptHub 之间的固定 Prompt 映射契约。
+"""Fusion 本地 Prompt 的固定映射与消费契约。
 
 catalog 是单一事实源：这里声明的每一个 `PromptSpec` 都必须有真实注入路径消费它。
 消费方通过 `register_prompt_consumer` 注册 accessor，启动期由
-`assert_catalog_fully_consumed()` 校验，缺失即 fail-fast——避免出现
-「PromptHub 发布成功、revision 变更，但模型行为不变」的静默空转。
+`assert_catalog_fully_consumed()` 校验，缺失即 fail-fast，避免声明了但模型未实际消费。
 """
 
 from __future__ import annotations
@@ -57,25 +56,6 @@ PROMPT_SPECS = (
     ),
 )
 
-# P0 之前这些 key 的模型可见值来自代码，不来自 bundle 或 legacy 配置：
-# 前五项的 getter 直接 return 代码常量；file_content_enhancement 此前没有消费方，
-# 包装语硬编码在 inject_file_content 里。
-#
-# 过渡期（PROMPT_P0_BASELINE_ATTESTED 未置位）这些 key 一律钉在代码默认值上，
-# 与 P0 之前逐字节一致。这样候选代码可以直接在 apply 模式部署，**不需要经过
-# disabled 窗口**——后者会让另外 5 项也回落代码默认值，而它们的线上有效值
-# 未必与代码默认值相同（dev 的 limit_summary 即为此例）。
-PRE_P0_CODE_ONLY_KEYS = frozenset(
-    {
-        "app_identity",
-        "tool_usage_contract",
-        "no_tool_network_boundary",
-        "no_vision_file_boundary",
-        "continuation_system",
-        "file_content_enhancement",
-    }
-)
-
 PROMPT_SPEC_BY_KEY = {spec.key: spec for spec in PROMPT_SPECS}
 PROMPT_SPEC_BY_SLUG = {spec.slug: spec for spec in PROMPT_SPECS}
 
@@ -110,4 +90,4 @@ def assert_catalog_fully_consumed() -> None:
 
     missing = sorted(set(PROMPT_SPEC_BY_KEY) - set(_CONSUMERS))
     if missing:
-        raise PromptCatalogIntegrityError("以下 catalog Prompt 没有注册消费方，热更新会静默空转: " + ", ".join(missing))
+        raise PromptCatalogIntegrityError("以下 catalog Prompt 没有注册消费方: " + ", ".join(missing))

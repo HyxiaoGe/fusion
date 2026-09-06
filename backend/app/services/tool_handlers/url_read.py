@@ -4,6 +4,7 @@ UrlReadHandler — 网页读取工具处理器
 
 import time
 
+from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.core.config import settings
 from app.schemas.chat import SourceReference, UrlBlock
 from app.services.agent.sanitizer import URL_READ_REASON_MAX_CHARS, sanitize_url_read_arguments
@@ -193,14 +194,12 @@ class UrlReadHandler(BaseToolHandler):
         content = result.data.get("content", "")
 
         if not content:
-            unavailable_message = (
-                "网页未读取成功，不能把该网页作为依据；如需回答，请说明该来源不可用，或仅基于其他可用信息回答。"
-            )
+            unavailable_message = render_runtime_prompt("tool_handlers.url_read_unavailable")
             return format_untrusted_source_context(
                 UntrustedSourceContext(
                     source_id="U1",
                     source_type="url_read",
-                    title=title or "网页未读取成功",
+                    title=title or "Page read failed",
                     url=url,
                     content=unavailable_message,
                     provider="web",
@@ -216,13 +215,13 @@ class UrlReadHandler(BaseToolHandler):
             truncated = True
 
         if truncated:
-            content = f"{content}\n（内容已截断，仅展示前部分）"
+            content = f"{content}\n{render_runtime_prompt('shared.truncated')}"
 
         return format_untrusted_source_context(
             UntrustedSourceContext(
                 source_id="U1",
                 source_type="url_read",
-                title=title or "未知",
+                title=title or "Unknown",
                 url=url,
                 content=content,
                 provider="web",

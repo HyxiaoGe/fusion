@@ -145,14 +145,14 @@ class AgentLoopCallSiteTests(unittest.IsolatedAsyncioTestCase):
 
 
 class FileContentEnhancementConsumptionTests(unittest.TestCase):
-    """该条目此前无任何消费方；接入模板后必须真实可达且正文逐字节不变。"""
+    """文件增强模板必须真实可达，且用户内容保持原样。"""
 
-    def test_wrapper_text_is_byte_identical_to_previous_hardcoded_output(self):
+    def test_wrapper_text_uses_external_english_template_without_changing_user_content(self):
         from app.services.chat.message_builder import inject_file_content
 
         file_contents = {"a": "AAA", "b": "BBB"}
-        combined = "\n\n".join(f"文件内容 ({i + 1}):\n{c}" for i, c in enumerate(file_contents.values()))
-        expected = f"我的问题\n\n以下是相关文件内容，请结合这些内容回答：\n{combined}"
+        combined = "\n\n".join(f"File content ({i + 1}):\n{c}" for i, c in enumerate(file_contents.values()))
+        expected = f"我的问题\n\nThe following file content is relevant. Use it when answering:\n{combined}\n"
 
         result = inject_file_content([{"role": "user", "content": "我的问题"}], "我的问题", file_contents)
 
@@ -177,7 +177,7 @@ class FileContentEnhancementConsumptionTests(unittest.TestCase):
         result = inject_file_content([], "只有附件", {"a": "AAA"})
 
         self.assertEqual(result[0]["role"], "user")
-        self.assertIn("以下是相关文件内容，请结合这些内容回答：", result[0]["content"])
+        self.assertIn("The following file content is relevant", result[0]["content"])
 
 
 class RegistrationBindsToProductionPathTests(unittest.TestCase):
