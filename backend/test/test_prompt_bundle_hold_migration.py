@@ -127,7 +127,7 @@ def test_postgresql_guard_uses_same_transaction_lock_and_covers_all_mutations():
 
 def test_frozen_p3a_probe_source_is_stable_with_crlf_checkout(tmp_path):
     path = Path(__file__).parent / "fixtures/prompt_bundle/p3a_sync.py"
-    expected = path.read_bytes()
+    expected = load_frozen_p3a_probe_source(path)
     windows_path = tmp_path / "p3a_sync.py"
     windows_path.write_bytes(expected.replace(b"\n", b"\r\n"))
 
