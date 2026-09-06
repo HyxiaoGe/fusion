@@ -24,6 +24,7 @@ from app.schemas.trajectory import (
     TrajectoryEventRecord,
     TrajectoryLlmRoundSummary,
     TrajectoryNodeDetailResponse,
+    TrajectoryPromptBundleIdentity,
     TrajectoryRunListResponse,
     TrajectoryRunSummary,
     TrajectorySkillResolution,
@@ -94,6 +95,7 @@ class TrajectoryQueryService:
                 llm_detail_schema_version=(row.meta.llm_detail_schema_version if row.meta is not None else None),
                 llm_round_count=row.meta.llm_round_count if row.meta is not None else 0,
                 capability_resolution=row.capability_resolution,
+                prompt_bundle=row.prompt_bundle,
             )
             for row in bounded_rows
         ]
@@ -646,6 +648,7 @@ class TrajectoryQueryService:
                 llm_detail_schema_version=meta.llm_detail_schema_version if meta is not None else None,
                 llm_round_count=meta.llm_round_count if meta is not None else 0,
                 capability_resolution=row.capability_resolution,
+                prompt_bundle=row.prompt_bundle,
             ),
             records=projection.records,
             spans=projection.spans,
@@ -670,6 +673,7 @@ class TrajectoryQueryService:
         llm_detail_schema_version: int | None = None,
         llm_round_count: int = 0,
         capability_resolution: object | None = None,
+        prompt_bundle: object | None = None,
     ) -> TrajectoryRunSummary:
         return TrajectoryRunSummary(
             run_id=run.id,
@@ -686,7 +690,15 @@ class TrajectoryQueryService:
             llm_detail_schema_version=llm_detail_schema_version,
             llm_round_count=llm_round_count,
             capability_resolution=TrajectoryQueryService._capability_resolution(capability_resolution),
+            prompt_bundle=TrajectoryQueryService._prompt_bundle_identity(prompt_bundle),
         )
+
+    @staticmethod
+    def _prompt_bundle_identity(raw_identity: object) -> TrajectoryPromptBundleIdentity | None:
+        try:
+            return TrajectoryPromptBundleIdentity.model_validate(raw_identity)
+        except ValidationError:
+            return None
 
     @staticmethod
     def _capability_resolution(raw_resolution: object) -> TrajectoryCapabilityResolution | None:

@@ -219,6 +219,22 @@ class TrajectoryApiTests(unittest.TestCase):
             self.assertNotIn("PRIVATE 正文", response.text)
             self.assertNotIn("system_prompt_snapshot", response.text)
 
+    def test_run_identity_survives_missing_body_and_exposes_only_safe_fields(self):
+        identity = {
+            "source_kind": "prompthub_lkg",
+            "source_revision": "a" * 64,
+            "effective_revision": "a" * 64,
+            "catalog_version": "2026-09-05.1",
+        }
+        self._add_run("run-prompt", run_config={"prompt_bundle": {**identity, "content": "PRIVATE 正文"}})
+        listing = self.client.get("/api/conversations/conv-1/runs")
+        snapshot = self.client.get("/api/conversations/conv-1/runs/run-prompt/trajectory")
+        self.assertEqual(listing.status_code, 200)
+        self.assertEqual(snapshot.status_code, 200)
+        self.assertEqual(listing.json()["data"]["items"][0]["prompt_bundle"], identity)
+        self.assertEqual(snapshot.json()["data"]["run"]["prompt_bundle"], identity)
+        self.assertNotIn("PRIVATE 正文", listing.text + snapshot.text)
+
     def test_legacy_and_invalid_run_capability_resolution_are_null(self):
         self._add_run("run-legacy", run_config={"max_steps": 8})
         invalid_resolutions = (

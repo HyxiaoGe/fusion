@@ -15,8 +15,10 @@ from app.ai.prompts.agent_loop import (
     get_tool_usage_contract_prompt,
 )
 from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_message, ensure_prompt_messages
+from app.ai.prompts.run_prompt_snapshot import RunPromptSnapshot
 from app.ai.prompts.section_ids import (
     AGENT_PLAN_CONTROL,
+    CONTINUATION_SYSTEM,
     DEEP_RESEARCH_CONTRACT,
     NO_TOOL_NETWORK_BOUNDARY,
     NO_VISION_FILE_BOUNDARY,
@@ -25,6 +27,7 @@ from app.ai.prompts.section_ids import (
 from app.ai.prompts.system_prompt import SystemPromptSection, assemble_system_prompt
 from app.ai.skills.registry import RunSkillResolution, SkillReleasePin, load_skills_for_package
 from app.ai.tools import build_url_read_tool, build_web_search_tool
+from app.core.prompt_snapshot import PromptBundleSnapshot, use_prompt_snapshot
 from app.db.repositories import FileRepository
 from app.services.agent.plan_coordinator import PlanMode
 from app.services.chat.message_builder import (
@@ -34,6 +37,7 @@ from app.services.chat.message_builder import (
 )
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_TOOL_NAMES
 from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_TOOL_NAMES
+from app.services.prompt_snapshot_service import freeze_runtime_prompt_bundle, with_call_config_prompt_snapshot
 from app.services.stream.agent_plan_tool_policy import (
     AgentPlanToolPolicy,
     resolve_agent_plan_tool_policy,
@@ -71,6 +75,7 @@ class AgentLoopCallConfig:
     evidence_policy: str = "standard"
     required_initial_tool_counts: dict[str, int] = field(default_factory=dict)
     plan_tool_policy_reason: str | None = None
+    prompt_bundle_snapshot: PromptBundleSnapshot | None = None
 
 
 def build_update_plan_tool(allowed_tool_names: list[str] | None = None) -> dict[str, Any]:
@@ -151,6 +156,7 @@ class AgentLoopPreparedMessages:
     final_tool_names: list[str] = field(default_factory=list)
     prompt_assembly: dict[str, Any] | None = None
     prompt_snapshot: dict[str, Any] | None = None
+    run_prompt_snapshot: RunPromptSnapshot | None = None
 
 
 def announced_tool_names_from_call_kwargs(call_kwargs: dict) -> list[str]:
@@ -235,7 +241,9 @@ def build_agent_loop_call_config(
     task_context_messages: list[object] | None = None,
     skill_release_pins: tuple[SkillReleasePin, ...] | None = None,
     classify_fn: CapabilityClassifier | None = None,
+    prompt_bundle_snapshot: PromptBundleSnapshot | None = None,
 ) -> AgentLoopCallConfig:
+    prompt_bundle_snapshot = prompt_bundle_snapshot or freeze_runtime_prompt_bundle()
     options = options or {}
     capabilities = capabilities or {}
     knowledge_grounded = options.get("knowledge_grounded") is True
@@ -255,12 +263,8 @@ def build_agent_loop_call_config(
         call_kwargs["max_tokens"] = max_tokens
     available_tools: list[dict] = []
     if supports_function_calling:
-        available_tools.extend(
-            [
-                build_web_search_tool_fn(),
-                build_url_read_tool_fn(),
-            ]
-        )
+        with use_prompt_snapshot(prompt_bundle_snapshot):
+            available_tools.extend([build_web_search_tool_fn(), build_url_read_tool_fn()])
     provided_handlers = dynamic_tool_handlers or {}
     if supports_dynamic_tools:
         available_tools.extend(
@@ -283,19 +287,20 @@ def build_agent_loop_call_config(
                 release_pins=skill_release_pins,
             )
 
-    capability_resolution = resolve_run_capability_route(
-        original_message=original_message,
-        task_context_messages=task_context_messages,
-        available_tool_names=route_tool_names,
-        requested_plan_mode=requested_plan_mode,
-        task_policy=task_policy,
-        capabilities=capabilities,
-        tools_disabled=tools_disabled,
-        knowledge_grounded=knowledge_grounded,
-        unavailable_tool_names=unavailable_tool_names,
-        load_skills_fn=skill_loader,
-        classify_fn=classify_fn,
-    )
+    with use_prompt_snapshot(prompt_bundle_snapshot):
+        capability_resolution = resolve_run_capability_route(
+            original_message=original_message,
+            task_context_messages=task_context_messages,
+            available_tool_names=route_tool_names,
+            requested_plan_mode=requested_plan_mode,
+            task_policy=task_policy,
+            capabilities=capabilities,
+            tools_disabled=tools_disabled,
+            knowledge_grounded=knowledge_grounded,
+            unavailable_tool_names=unavailable_tool_names,
+            load_skills_fn=skill_loader,
+            classify_fn=classify_fn,
+        )
     if (
         skill_release_pins
         and capability_resolution.skill_resolution is not None
@@ -392,6 +397,7 @@ def build_agent_loop_call_config(
         evidence_policy="knowledge_grounded_v1" if knowledge_grounded else task_policy.evidence_policy,
         required_initial_tool_counts=dict(plan_tool_policy.required_initial_tool_counts),
         plan_tool_policy_reason=plan_tool_policy.reason,
+        prompt_bundle_snapshot=prompt_bundle_snapshot,
     )
 
 
@@ -402,6 +408,7 @@ def load_user_system_prompt(db, user_id: str) -> str | None:
     return user_record.system_prompt if user_record else None
 
 
+@with_call_config_prompt_snapshot
 async def prepare_agent_loop_messages(
     *,
     db,
@@ -425,6 +432,8 @@ async def prepare_agent_loop_messages(
     preprocess_user_input: bool = True,
     extra_system_prompts: list[str] | None = None,
 ) -> AgentLoopPreparedMessages:
+    if any(section_id != CONTINUATION_SYSTEM for section_id in extra_system_prompts or []):
+        raise ValueError("extra_system_prompts 只能包含已注册的 section identity")
     file_repo_factory = file_repo_factory or FileRepository
     load_user_system_prompt_fn = load_user_system_prompt_fn or load_user_system_prompt
     build_llm_messages_fn = build_llm_messages_fn or build_llm_messages
@@ -480,8 +489,8 @@ async def prepare_agent_loop_messages(
         # 只在空消息集上选择可信模板，用户文本不会影响段落是否存在。
         if has_image_attachment and not has_vision:
             yield SystemPromptSection(NO_VISION_FILE_BOUNDARY, get_no_vision_file_boundary_prompt())
-        for index, prompt in enumerate(extra_system_prompts or []):
-            yield SystemPromptSection(f"extra_system_{index}", prompt)
+        for section_id in extra_system_prompts or []:
+            yield SystemPromptSection(section_id, call_config.prompt_bundle_snapshot.resolve(section_id)[0])
         resolution = call_config.capability_resolution
         if "web_search" in resolution.external_tool_names:
             yield SystemPromptSection(TOOL_USAGE_CONTRACT, get_tool_usage_contract_prompt())
@@ -506,19 +515,17 @@ async def prepare_agent_loop_messages(
         sections=selected_sections,
     )
     messages = [*assembly.messages, *ensure_prompt_messages(messages)]
+    run_snapshot = RunPromptSnapshot(
+        bundle_snapshot=call_config.prompt_bundle_snapshot,
+        messages=tuple(assembly.messages),
+        template_version=assembly.metadata["template_version"],
+    )
     return AgentLoopPreparedMessages(
         messages=messages,
         initial_content_blocks=initial_content_blocks,
         prompt_assembly=assembly.metadata,
-        prompt_snapshot={
-            "schema_version": 1,
-            "template_version": assembly.metadata["template_version"],
-            "fingerprint": assembly.metadata["fingerprint"],
-            "char_count": assembly.metadata["char_count"],
-            "sections": [
-                {"section_id": message.section_id, "content": message["content"]} for message in assembly.messages
-            ],
-        },
+        prompt_snapshot=run_snapshot.to_storage(),
+        run_prompt_snapshot=run_snapshot,
         final_tool_names=list(call_config.capability_resolution.external_tool_names),
     )
 

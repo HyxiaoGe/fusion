@@ -7,7 +7,7 @@ import hashlib
 import re
 import string
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -20,6 +20,14 @@ from app.core.prompt_catalog import (
     PROMPT_SPEC_BY_SLUG,
     PROMPT_SPECS,
 )
+from app.core.prompt_snapshot import (
+    PromptBundleSnapshot,
+    build_bundle_snapshot,
+    current_prompt_snapshot,
+)
+from app.core.prompt_snapshot import (
+    use_prompt_snapshot as use_prompt_snapshot,
+)
 from app.db.database import SessionLocal
 from app.db.models import RuntimeConfigEntry
 
@@ -30,6 +38,15 @@ _BUNDLE_CACHE: tuple[float, dict[str, Any] | None] | None = None
 
 class PromptBundleValidationError(ValueError):
     pass
+
+
+def freeze_prompt_bundle(defaults: Mapping[str, str], *, classifier_prompt: str = "") -> PromptBundleSnapshot:
+    """分类前一次解析完整包；无有效 LKG 时只允许整包代码默认值。"""
+    payload = get_active_prompt_bundle_payload()
+    if payload is not None and not settings.PROMPT_P0_BASELINE_ATTESTED:
+        if any(payload["prompts"][key]["content"] != defaults[key] for key in PRE_P0_CODE_ONLY_KEYS):
+            raise ValueError("P0 过渡正文尚未与完整基线一致，不能冻结混合来源")
+    return build_bundle_snapshot(defaults, payload=payload, classifier_prompt=classifier_prompt)
 
 
 def clear_prompt_bundle_cache() -> None:
@@ -106,6 +123,10 @@ def resolve_prompt_template_with_metadata(name: str, fallback: str) -> tuple[str
     Runtime Config 行，会让同一个 Run 由 bundle 与多行 legacy 拼出，破坏
     「完整 bundle 原子切换」与单 Run 冻结。
     """
+
+    frozen = current_prompt_snapshot()
+    if frozen is not None:
+        return frozen.resolve(name)
 
     if _is_pinned_during_p0_transition(name):
         # 过渡期：这些 key 钉在代码默认值上，与 P0 之前逐字节一致。

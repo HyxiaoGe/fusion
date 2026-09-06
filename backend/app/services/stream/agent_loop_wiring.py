@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from app.core.prompt_snapshot import PromptBundleSnapshot
 from app.services.stream.agent_loop_execution import (
     AgentLoopDependencies,
     AgentLoopExecutionRequest,
@@ -48,6 +49,8 @@ class AgentLoopRunInput:
     extra_system_prompts: list[str] | None = None
     preprocess_user_input: bool = True
     knowledge_base_ids: list[str] | None = None
+    prompt_bundle_snapshot: PromptBundleSnapshot | None = None
+    prompt_identity_persisted: bool = False
 
     def to_execution_request(
         self,
@@ -90,6 +93,7 @@ class AgentLoopRunInput:
             extra_system_prompts=self.extra_system_prompts or [],
             preprocess_user_input=self.preprocess_user_input,
             knowledge_base_ids=self.knowledge_base_ids or [],
+            prompt_identity_persisted=self.prompt_identity_persisted,
         )
 
 
@@ -292,9 +296,14 @@ def build_agent_loop_call_config_from_inputs(
             else {}
         ),
         **(
+            {"prompt_bundle_snapshot": run_input.prompt_bundle_snapshot}
+            if run_input.prompt_bundle_snapshot is not None
+            and _accepts_keyword(build_call_config_fn, "prompt_bundle_snapshot")
+            else {}
+        ),
+        **(
             {"skill_release_pins": inputs.skill_release_pins}
-            if inputs.skill_release_pins is not None
-            and _accepts_keyword(build_call_config_fn, "skill_release_pins")
+            if inputs.skill_release_pins is not None and _accepts_keyword(build_call_config_fn, "skill_release_pins")
             else {}
         ),
     )

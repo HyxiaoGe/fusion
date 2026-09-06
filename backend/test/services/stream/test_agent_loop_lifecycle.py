@@ -29,6 +29,7 @@ from app.schemas.chat import (
 )
 from app.services.agent.trajectory_recorder import TrajectoryRecorder
 from app.services.knowledge.chat_grounding import KnowledgeGroundingResult
+from app.services.prompt_snapshot_service import freeze_runtime_prompt_bundle
 from app.services.stream.agent_loop_driver import AgentLoopExit, AgentLoopOutcome
 from app.services.stream.agent_loop_execution import (
     AgentLoopDependencies as ExecutionDependencies,
@@ -105,6 +106,16 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 for key, message in zip(assembly.metadata["section_ids"], assembly.messages, strict=True)
             ],
         }
+        from app.ai.prompts.agent_loop import VISIBLE_RESPONSE_LANGUAGE_PROMPT
+        from app.utils.prompt_fingerprint import fingerprint_system_messages
+
+        snapshot["sections"].append(
+            {"section_id": "visible_response_language", "content": VISIBLE_RESPONSE_LANGUAGE_PROMPT}
+        )
+        snapshot["char_count"] += len(VISIBLE_RESPONSE_LANGUAGE_PROMPT)
+        snapshot["fingerprint"] = fingerprint_system_messages(
+            [{"role": "system", "content": section["content"]} for section in snapshot["sections"]]
+        )
         prepared = SimpleNamespace(
             messages=assembly.messages,
             initial_content_blocks=[],
@@ -140,7 +151,7 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(skill_events), 1)
         self.assertEqual(skill_events[0]["status"], "not_selected")
         self.assertIsNone(skill_events[0]["detail_status"])
-        self.assertEqual(prompt_events[0]["fingerprint"], assembly.metadata["fingerprint"])
+        self.assertEqual(prompt_events[0]["fingerprint"], snapshot["fingerprint"])
         self.assertEqual(prompt_events[0]["detail_status"], "available")
         self.assertNotIn("不能进入事件的规则原文", str(emitted))
 
@@ -570,6 +581,7 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
     def _call_config(self):
         return SimpleNamespace(
             should_use_reasoning=False,
+            prompt_bundle_snapshot=freeze_runtime_prompt_bundle(),
             call_kwargs={},
             announced_tools=["web_search"],
             capability_resolution=RunCapabilityResolution(
@@ -908,6 +920,7 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             "info_fn": lambda _message: None,
             "error_fn": lambda _message: None,
             "warning_fn": lambda _message: None,
+            "write_system_prompt_snapshot_fn": AsyncMock(),
         }
         values.update(overrides)
         return AgentLoopLifecycleDependencies(**values)
@@ -995,7 +1008,9 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 "evidence_policy": "standard",
                 "runtime_config_versions": {
                     "agent_strategy/default": "code-default",
+                    "prompt_bundle/fusion": call_config.prompt_bundle_snapshot.effective_revision,
                 },
+                "prompt_bundle": call_config.prompt_bundle_snapshot.identity(),
                 "capability_resolution": self._expected_capability_resolution(),
             },
         )
@@ -1008,7 +1023,8 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(call_order[2][3], call_config)
         self.assertEqual(call_order[2][4], "user-life")
         self.assertEqual(call_order[2][5], "conv-life")
-        self.assertEqual(call_order[3][1], [{"role": "user", "content": "prepared"}])
+        self.assertEqual(call_order[3][1][-1], {"role": "user", "content": "prepared"})
+        self.assertEqual(call_order[3][1][0].section_id, "visible_response_language")
         self.assertEqual(call_order[3][2], [initial_block])
         self.assertIs(call_order[4][1], execution.completion_context)
 
@@ -1044,7 +1060,7 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             finalized.append(expected_last_sequence)
             self.assertEqual(
                 [event["type"] for event in events],
-                ["run_started", "skills_resolved", "run_interrupted"],
+                ["run_started", "skills_resolved", "system_prompt_prepared", "run_interrupted"],
             )
 
         execution.trajectory_recorder.finalize = AsyncMock(side_effect=finalize)
@@ -1067,15 +1083,15 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(session_cache.status, "interrupted")
         self.assertTrue(execution.state.terminal_emitted)
-        self.assertEqual(finalized, [2])
+        self.assertEqual(finalized, [3])
         self.assertEqual(
             [event["type"] for event in events],
-            ["run_started", "skills_resolved", "run_interrupted"],
+            ["run_started", "skills_resolved", "system_prompt_prepared", "run_interrupted"],
         )
         complete_run.assert_not_awaited()
         fallback_status.assert_not_awaited()
         execution.emitter.seal_and_get_last_sequence.assert_awaited_once_with()
-        execution.trajectory_recorder.finalize.assert_awaited_once_with(2)
+        execution.trajectory_recorder.finalize.assert_awaited_once_with(3)
 
     async def test_completed_persist_superseded_terminal_failure_keeps_business_status_and_no_double_terminal(self):
         for terminal_error in (
@@ -1144,13 +1160,13 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(execution.state.terminal_emitted)
                 self.assertEqual(
                     [event["type"] for event in events],
-                    ["run_started", "skills_resolved"],
+                    ["run_started", "skills_resolved", "system_prompt_prepared"],
                 )
                 fallback_status.assert_not_awaited()
                 finalize_cancelled.assert_not_awaited()
                 finalize_failed.assert_not_awaited()
                 execution.emitter.seal_and_get_last_sequence.assert_awaited_once_with()
-                execution.trajectory_recorder.finalize.assert_awaited_once_with(2)
+                execution.trajectory_recorder.finalize.assert_awaited_once_with(3)
 
     async def test_completed_persist_superseded_cancel_during_terminal_has_no_second_terminal(self):
         terminal_entered = asyncio.Event()
@@ -1213,7 +1229,7 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
         fallback_status.assert_not_awaited()
         finalize_cancelled.assert_not_awaited()
         execution.emitter.seal_and_get_last_sequence.assert_awaited_once_with()
-        execution.trajectory_recorder.finalize.assert_awaited_once_with(2)
+        execution.trajectory_recorder.finalize.assert_awaited_once_with(3)
 
     async def test_completed_persist_superseded_real_ledger_terminal_matrix(self):
         scenarios = (
@@ -1376,9 +1392,9 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                             self.assertIsNotNone(meta.finalized_at)
 
                     expected_events = (
-                        ["run_started", "skills_resolved", "run_interrupted"]
+                        ["run_started", "skills_resolved", "system_prompt_prepared", "run_interrupted"]
                         if scenario == "accepted"
-                        else ["run_started", "skills_resolved"]
+                        else ["run_started", "skills_resolved", "system_prompt_prepared"]
                     )
                     self.assertEqual(event_types, expected_events)
                     if scenario == "accepted":
@@ -1387,9 +1403,9 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(
                         required_event_types,
                         (
-                            ["run_started", "skills_resolved", "run_interrupted"]
+                            ["run_started", "skills_resolved", "system_prompt_prepared", "run_interrupted"]
                             if writer_error is None
-                            else ["run_started", "skills_resolved"]
+                            else ["run_started", "skills_resolved", "system_prompt_prepared"]
                         ),
                     )
                     self.assertEqual(execution.state.terminal_emitted, terminal_emitted)
@@ -1397,7 +1413,7 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                     dependencies.finalize_cancelled_run_fn.assert_not_awaited()
                     dependencies.finalize_failed_run_fn.assert_not_awaited()
                     execution.emitter.seal_and_get_last_sequence.assert_awaited_once_with()
-                    recorder.finalize.assert_awaited_once_with(2)
+                    recorder.finalize.assert_awaited_once_with(3)
                     if terminal_emitted:
                         finalize_stream.assert_awaited_once()
                     else:
@@ -1938,7 +1954,9 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 "evidence_policy": "standard",
                 "runtime_config_versions": {
                     "agent_strategy/default": "agent-strategy-v7",
+                    "prompt_bundle/fusion": self._call_config().prompt_bundle_snapshot.effective_revision,
                 },
+                "prompt_bundle": self._call_config().prompt_bundle_snapshot.identity(),
                 "capability_resolution": self._expected_capability_resolution(),
             },
         )
@@ -1947,6 +1965,7 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
         configs = []
         call_config = SimpleNamespace(
             should_use_reasoning=False,
+            prompt_bundle_snapshot=freeze_runtime_prompt_bundle(),
             call_kwargs={},
             announced_tools=["mcp_docs_a1b2c3d4"],
             capability_resolution=RunCapabilityResolution(
@@ -2015,13 +2034,17 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             configs.append(kwargs["config"])
             await _start_event_run(**kwargs)
 
-        with patch(
-            "app.services.stream.agent_loop_lifecycle.get_active_prompt_bundle_revision",
-            return_value="b" * 64,
-        ):
+        config = self._call_config()
+        config.prompt_bundle_snapshot = replace(
+            config.prompt_bundle_snapshot,
+            source_kind="prompthub_lkg",
+            source_revision="b" * 64,
+            effective_revision="b" * 64,
+        )
+        with patch("app.core.prompt_bundle._load_active_bundle_payload", side_effect=AssertionError("不得重读 active")):
             await run_agent_loop_lifecycle(
-                request=self._request(),
-                execution=self._execution(),
+                request=self._request(call_config=config),
+                execution=self._execution(call_config=config),
                 dependencies=self._dependencies(start_agent_run_fn=start_agent_run_fn),
             )
 
@@ -2069,7 +2092,9 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             dependencies=self._dependencies(start_agent_run_fn=start_agent_run_fn),
         )
 
-        self.assertEqual([event["type"] for event in emitted], ["run_started", "skills_resolved"])
+        self.assertEqual(
+            [event["type"] for event in emitted], ["run_started", "skills_resolved", "system_prompt_prepared"]
+        )
         self.assertFalse(hasattr(execution.state, "plan_items"))
 
     async def test_lifecycle_passes_continuation_inputs_and_preserves_existing_blocks_first(self):

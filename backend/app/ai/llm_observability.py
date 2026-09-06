@@ -46,7 +46,7 @@ def merge_openai_extra_body(
     merged = dict(extra_body or {})
     metadata = dict(merged.get("metadata") or {})
     metadata["tags"] = build_litellm_metadata(phase)["tags"]
-    for key in ("prompt_slug", "prompt_version", "prompt_revision"):
+    for key in ("prompt_slug", "prompt_version", "prompt_revision", "source_kind", "effective_revision"):
         value = (prompt_metadata or {}).get(key)
         if isinstance(value, str) and value:
             metadata[key] = value

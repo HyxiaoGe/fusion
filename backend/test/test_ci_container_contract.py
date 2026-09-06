@@ -26,7 +26,7 @@ class CIContainerContractTest(unittest.TestCase):
             fake_docker.write_text(
                 "#!/usr/bin/env bash\n"
                 "printf '<call>\\n' >> \"${DOCKER_LOG}\"\n"
-                "printf '%s\\n' \"$@\" >> \"${DOCKER_LOG}\"\n",
+                'printf \'%s\\n\' "$@" >> "${DOCKER_LOG}"\n',
                 encoding="utf-8",
             )
             fake_docker.chmod(0o755)
@@ -144,6 +144,19 @@ class CIContainerContractTest(unittest.TestCase):
             '--mount "type=bind,source=$monorepoRoot\\ops,target=/ops,readonly"',
             windows_build_script,
         )
+
+    def test_prompt_freeze_contracts_run_in_both_container_entrypoints(self) -> None:
+        required_tests = (
+            "test/test_prompt_bundle_snapshot.py",
+            "test/services/stream/test_prompt_run_identity.py",
+            "test/services/stream/test_run_prompt_snapshot.py",
+        )
+        for filename in ("linux-build-and-test.sh", "windows-build-and-test.ps1"):
+            script = (ROOT / ".github/scripts" / filename).read_text(encoding="utf-8")
+            pytest_command = next(line for line in script.splitlines() if "python -m pytest" in line)
+            for test_file in required_tests:
+                with self.subTest(script=filename, test_file=test_file):
+                    self.assertIn(test_file, pytest_command)
 
     def test_windows_release_build_disables_registry_incompatible_attestations(self) -> None:
         windows_build_script = (ROOT / ".github/scripts/windows-build-and-test.ps1").read_text(encoding="utf-8")

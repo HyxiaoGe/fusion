@@ -11,14 +11,16 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.ai.prompts.run_prompt_snapshot import RunPromptSnapshot
 from app.ai.prompts.system_prompt import TEMPLATE_VERSION, SystemPromptAssemblyError
 from app.core.logger import app_logger as logger
-from app.core.prompt_bundle import get_active_prompt_bundle_revision
+from app.core.prompt_snapshot import use_prompt_snapshot
 from app.schemas.chat import TextBlock
 from app.schemas.response import ApiException
 from app.schemas.trajectory import TrajectoryCapabilityResolution
 from app.services.agent.session_cache import write_system_prompt_snapshot
 from app.services.agent_strategy_config import get_agent_strategy_config
+from app.services.chat.model_call_language_policy import finalize_model_call_language_policy
 from app.services.knowledge.chat_grounding import (
     KnowledgeGroundingStreamError,
     inject_knowledge_grounding_messages,
@@ -29,7 +31,7 @@ from app.services.knowledge.chat_grounding import (
 from app.services.stream.agent_loop_execution import AgentLoopExecutionContext
 from app.services.stream.agent_loop_outcome import AgentLoopExit
 from app.services.stream.agent_loop_policy import AgentLoopLimits, map_run_terminal_state
-from app.services.stream.agent_loop_request_prep import AgentLoopCallConfig
+from app.services.stream.agent_loop_request_prep import AgentLoopCallConfig, AgentLoopPreparedMessages
 from app.services.stream.research_evidence import assign_missing_source_reference_metadata
 from app.services.stream.run_capability_router import serialize_capability_resolution
 from app.services.stream_state_service import StreamOwnershipLostError
@@ -52,6 +54,7 @@ class AgentLoopLifecycleRequest:
     extra_system_prompts: list[str] = field(default_factory=list)
     preprocess_user_input: bool = True
     knowledge_base_ids: list[str] = field(default_factory=list)
+    prompt_identity_persisted: bool = False
 
 
 @dataclass(frozen=True)
@@ -224,11 +227,12 @@ async def _run_success_path(
                 generate_suggestions=False,
             )
             return
-    prepared_messages = await _prepare_messages(request=request, execution=execution, dependencies=dependencies)
+    prepared_messages = await _prepare_messages(
+        request=request, execution=execution, dependencies=dependencies, grounding=grounding
+    )
     execution.state.content_blocks.extend(request.initial_content_blocks)
     execution.state.content_blocks.extend(prepared_messages.initial_content_blocks)
     if grounding is not None:
-        prepared_messages.messages[:] = inject_knowledge_grounding_messages(prepared_messages.messages, grounding)
         await execution.emitter.run_progress_updated(
             phase="synthesizing",
             label="正在基于知识库整理回答",
@@ -248,12 +252,13 @@ async def _run_success_path(
         allow_read_success=True,
     )
 
-    loop_outcome = await dependencies.run_agent_loop_fn(
-        db=execution.completion_context.db,
-        messages=prepared_messages.messages,
-        state=execution.state,
-        runtime=execution.runtime,
-    )
+    with use_prompt_snapshot(prepared_messages.run_prompt_snapshot):
+        loop_outcome = await dependencies.run_agent_loop_fn(
+            db=execution.completion_context.db,
+            messages=prepared_messages.messages,
+            state=execution.state,
+            runtime=execution.runtime,
+        )
     if loop_outcome.exit == AgentLoopExit.SUPERSEDED:
         await _finalize_superseded(
             error_msg=loop_outcome.error_msg,
@@ -297,6 +302,7 @@ async def _start_run(
         run_attempt_kind=execution.run_attempt_kind,
         tools=request.call_config.announced_tools,
         config=_run_config(request.limits, request.call_config),
+        identity_persisted=request.prompt_identity_persisted,
     )
 
 
@@ -335,6 +341,7 @@ async def _prepare_messages(
     request: AgentLoopLifecycleRequest,
     execution: AgentLoopExecutionContext,
     dependencies: AgentLoopLifecycleDependencies,
+    grounding: Any = None,
 ) -> Any:
     try:
         prepared = await dependencies.prepare_messages_fn(
@@ -360,6 +367,36 @@ async def _prepare_messages(
     except Exception:
         await _emit_loaded_skills_degraded(request=request, execution=execution)
         raise
+    bundle_snapshot = request.call_config.prompt_bundle_snapshot
+    if bundle_snapshot is None:
+        raise ValueError("Run 缺少分类前冻结的 PromptBundleSnapshot")
+    with use_prompt_snapshot(bundle_snapshot):
+        if grounding is not None:
+            prepared.messages[:] = inject_knowledge_grounding_messages(prepared.messages, grounding)
+        prepared.messages[:] = finalize_model_call_language_policy(prepared.messages)
+        run_snapshot = RunPromptSnapshot(
+            bundle_snapshot=bundle_snapshot,
+            messages=tuple(message for message in prepared.messages if message.role == "system"),
+            template_version=TEMPLATE_VERSION,
+        )
+    snapshot_data = run_snapshot.to_storage()
+    prepared = AgentLoopPreparedMessages(
+        messages=prepared.messages,
+        initial_content_blocks=prepared.initial_content_blocks,
+        final_tool_names=getattr(prepared, "final_tool_names", []),
+        run_prompt_snapshot=run_snapshot,
+        prompt_snapshot=snapshot_data,
+        prompt_assembly={
+            **(prepared.prompt_assembly or {}),
+            "status": "ready",
+            "source": "code",
+            "template_version": TEMPLATE_VERSION,
+            "section_ids": [message.section_id for message in run_snapshot.messages],
+            "fingerprint": run_snapshot.fingerprint,
+            "char_count": snapshot_data["char_count"],
+            "duration_ms": (prepared.prompt_assembly or {}).get("duration_ms", 0),
+        },
+    )
     metadata = getattr(prepared, "prompt_assembly", None)
     skill_detail_status = "degraded"
     if metadata is not None:
@@ -606,7 +643,8 @@ def _run_config(limits: AgentLoopLimits, call_config: AgentLoopCallConfig | None
     runtime_config_versions = {
         "agent_strategy/default": strategy_meta.get("version", "code-default"),
     }
-    prompt_revision = get_active_prompt_bundle_revision()
+    bundle_snapshot = getattr(call_config, "prompt_bundle_snapshot", None)
+    prompt_revision = bundle_snapshot.effective_revision if bundle_snapshot is not None else None
     if prompt_revision is not None:
         runtime_config_versions["prompt_bundle/fusion"] = prompt_revision
     config = {
@@ -619,6 +657,8 @@ def _run_config(limits: AgentLoopLimits, call_config: AgentLoopCallConfig | None
         "evidence_policy": getattr(call_config, "evidence_policy", "standard"),
         "runtime_config_versions": runtime_config_versions,
     }
+    if bundle_snapshot is not None:
+        config["prompt_bundle"] = bundle_snapshot.identity()
     binding_fields = (
         "alias",
         "server_id",

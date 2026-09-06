@@ -27,9 +27,11 @@ class RunWithMeta:
     run: AgentSession
     meta: UserTrajectoryMetaRow | None
     capability_resolution: object | None
+    prompt_bundle: object | None = None
 
 
 _CAPABILITY_RESOLUTION_PROJECTION = AgentSession.run_config["capability_resolution"].label("capability_resolution")
+_PROMPT_BUNDLE_PROJECTION = AgentSession.run_config["prompt_bundle"].label("prompt_bundle")
 
 
 def _llm_round_count_subquery():
@@ -63,6 +65,7 @@ class TrajectoryRepository:
                 RunTrajectoryMeta.llm_detail_schema_version,
                 _llm_round_count_subquery(),
                 _CAPABILITY_RESOLUTION_PROJECTION,
+                _PROMPT_BUNDLE_PROJECTION,
             )
             .select_from(Conversation)
             .options(
@@ -96,8 +99,9 @@ class TrajectoryRepository:
         return [
             RunWithMeta(
                 run=row[1],
-                meta=self._user_meta_from_columns(row[2:-1]),
-                capability_resolution=row[-1],
+                meta=self._user_meta_from_columns(row[2:-2]),
+                capability_resolution=row[-2],
+                prompt_bundle=row[-1],
             )
             for row in rows
             if row[1] is not None
@@ -115,6 +119,7 @@ class TrajectoryRepository:
                 RunTrajectoryMeta.llm_detail_schema_version,
                 _llm_round_count_subquery(),
                 _CAPABILITY_RESOLUTION_PROJECTION,
+                _PROMPT_BUNDLE_PROJECTION,
             )
             .options(
                 load_only(
@@ -143,8 +148,9 @@ class TrajectoryRepository:
             return None
         return RunWithMeta(
             run=row[0],
-            meta=self._user_meta_from_columns(row[1:-1]),
-            capability_resolution=row[-1],
+            meta=self._user_meta_from_columns(row[1:-2]),
+            capability_resolution=row[-2],
+            prompt_bundle=row[-1],
         )
 
     def get_run_for_admin(self, conversation_id: str, run_id: str) -> RunWithMeta | None:
@@ -160,6 +166,7 @@ class TrajectoryRepository:
                 RunTrajectoryMeta.llm_detail_schema_version,
                 _llm_round_count_subquery(),
                 _CAPABILITY_RESOLUTION_PROJECTION,
+                _PROMPT_BUNDLE_PROJECTION,
             )
             .options(
                 load_only(
@@ -186,8 +193,9 @@ class TrajectoryRepository:
             return None
         return RunWithMeta(
             run=row[0],
-            meta=self._user_meta_from_columns(row[1:-1]),
-            capability_resolution=row[-1],
+            meta=self._user_meta_from_columns(row[1:-2]),
+            capability_resolution=row[-2],
+            prompt_bundle=row[-1],
         )
 
     def get_detail_run(

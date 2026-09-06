@@ -12,6 +12,7 @@ from app.ai.llm_manager import llm_manager
 from app.ai.llm_observability import merge_litellm_kwargs
 from app.ai.prompts import prompt_manager
 from app.ai.prompts.prompt_message import to_provider_messages
+from app.ai.prompts.section_ids import CONTINUATION_SYSTEM
 from app.core.config import settings
 from app.core.logger import app_logger as logger
 from app.db.model_catalog_control_repository import ModelCatalogControlRepository
@@ -31,7 +32,6 @@ from app.schemas.response import ApiException, ErrorCode
 from app.services.agent.context_broker import submit_context_result
 from app.services.agent.continuation import (
     build_continuation_context,
-    get_continuation_system_prompt,
 )
 from app.services.agent.session_cache import (
     InvalidPreviousRunError,
@@ -792,7 +792,7 @@ class ChatService:
                 previous_run_id=continuation.previous_session.id,
                 run_attempt_kind="continue",
                 initial_content_blocks=continuation.initial_content_blocks,
-                extra_system_prompts=[get_continuation_system_prompt()],
+                extra_system_prompts=[CONTINUATION_SYSTEM],
                 preprocess_user_input=False,
                 limits=continuation.limits,
             )

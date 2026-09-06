@@ -277,6 +277,25 @@ class TrajectoryProjection(BaseModel):
     spans: list[TrajectorySpan] = Field(default_factory=list)
 
 
+class TrajectoryPromptBundleIdentity(BaseModel):
+    """正文缺失或降级时仍可读取的最小 Prompt 版本身份。"""
+
+    model_config = ConfigDict(extra="ignore", strict=True)
+
+    source_kind: Literal["prompthub_lkg", "code_default"]
+    source_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    effective_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    catalog_version: str = Field(min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_source_identity(self):
+        if self.source_kind == "prompthub_lkg" and self.source_revision != self.effective_revision:
+            raise ValueError("LKG 来源与有效版本身份不一致")
+        if self.source_kind == "code_default" and self.source_revision is not None:
+            raise ValueError("代码默认值不能携带 PromptHub 发布身份")
+        return self
+
+
 class TrajectoryRunSummary(BaseModel):
     """AgentSession 权威摘要在普通读取端点中的稳定形状。"""
 
@@ -296,6 +315,7 @@ class TrajectoryRunSummary(BaseModel):
     llm_detail_schema_version: int | None = None
     llm_round_count: int = 0
     capability_resolution: TrajectoryCapabilityResolution | None = None
+    prompt_bundle: TrajectoryPromptBundleIdentity | None = None
 
 
 class TrajectoryRunListResponse(BaseModel):

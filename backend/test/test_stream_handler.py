@@ -273,6 +273,7 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
         self.write_step_terminal_mock = AsyncMock()
         self.session_cache_patchers = [
             patch("app.services.agent.session_cache.write_session_started", AsyncMock()),
+            patch("app.services.agent.session_cache.complete_session_configuration", AsyncMock()),
             patch("app.services.agent.session_cache.write_step_started", self.write_step_started_mock),
             patch("app.services.agent.session_cache.write_step_completed", self.write_step_completed_mock),
             patch("app.services.agent.session_cache.write_step_terminal", self.write_step_terminal_mock),
@@ -383,7 +384,7 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(prompt_event["step_id"])
         self.assertEqual(
             prompt_event["section_ids"],
-            ["app_identity"],
+            ["app_identity", "visible_response_language"],
         )
         self.assertRegex(prompt_event["fingerprint"], r"^[0-9a-f]{64}$")
         self.assertGreater(prompt_event["char_count"], 0)
@@ -859,7 +860,9 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
             patch("app.services.stream.runner.run_agent_loop_lifecycle", AsyncMock()) as run_lifecycle,
             patch("app.services.stream.runner._CALL_CONFIG_BUILD_DEADLINE_SECONDS", 0.01),
             patch("app.services.stream.run_capability_model_classifier.settings.LITELLM_API_KEY", "test-key"),
-            patch("app.services.stream.run_capability_model_classifier.settings.LITELLM_PROXY_URL", "https://proxy.test"),
+            patch(
+                "app.services.stream.run_capability_model_classifier.settings.LITELLM_PROXY_URL", "https://proxy.test"
+            ),
             patch("app.services.stream.run_capability_model_classifier.litellm.token_counter", _slow_token_counter),
             patch("app.services.stream.run_capability_model_classifier.litellm.completion") as completion,
             patch("app.services.stream.run_capability_model_classifier.logger.info") as log_info,
@@ -884,7 +887,9 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.07)
 
         completion.assert_not_called()
-        self.assertEqual(assemble_lifecycle.call_args.kwargs["call_config"].capability_resolution.package_id, "clarification_only")
+        self.assertEqual(
+            assemble_lifecycle.call_args.kwargs["call_config"].capability_resolution.package_id, "clarification_only"
+        )
         run_lifecycle.assert_awaited_once()
         self.assertEqual([call.args[1] for call in log_info.call_args_list], ["failed"])
 
@@ -895,9 +900,7 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
             completion_side_effect=SimpleNamespace(
                 choices=[
                     SimpleNamespace(
-                        message=SimpleNamespace(
-                            content=json.dumps({"package_id": "direct", "explicit_tool_names": []})
-                        )
+                        message=SimpleNamespace(content=json.dumps({"package_id": "direct", "explicit_tool_names": []}))
                     )
                 ]
             )
@@ -945,7 +948,9 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
             patch("app.services.stream.runner.run_agent_loop_lifecycle", AsyncMock()) as run_lifecycle,
             patch("app.services.stream.runner._CALL_CONFIG_BUILD_DEADLINE_SECONDS", 0.01),
             patch("app.services.stream.run_capability_model_classifier.settings.LITELLM_API_KEY", "test-key"),
-            patch("app.services.stream.run_capability_model_classifier.settings.LITELLM_PROXY_URL", "https://proxy.test"),
+            patch(
+                "app.services.stream.run_capability_model_classifier.settings.LITELLM_PROXY_URL", "https://proxy.test"
+            ),
             patch("app.services.stream.run_capability_model_classifier.litellm.token_counter", lambda **_kwargs: 1),
             patch(
                 "app.services.stream.run_capability_model_classifier.litellm.completion",
@@ -977,7 +982,9 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.07)
 
         completion.assert_called_once()
-        self.assertEqual(assemble_lifecycle.call_args.kwargs["call_config"].capability_resolution.package_id, "clarification_only")
+        self.assertEqual(
+            assemble_lifecycle.call_args.kwargs["call_config"].capability_resolution.package_id, "clarification_only"
+        )
         run_lifecycle.assert_awaited_once()
         self.assertEqual([call.args[1] for call in log_info.call_args_list], ["failed"])
         self.assertEqual([call.args[4] for call in log_info.call_args_list], ["deadline_exceeded"])

@@ -6,6 +6,7 @@ spec §4.1。本模块只负责 agent loop 的控制流编排，所有"做事"�
 
 import asyncio
 import time
+import uuid
 from dataclasses import replace
 from functools import partial
 from typing import Optional
@@ -15,6 +16,7 @@ from app.db.database import SessionLocal
 from app.services.agent import session_cache
 from app.services.agent.llm_round_detail_recorder import schedule_llm_round_detail
 from app.services.mcp.agent_tools import load_mcp_agent_tools, load_mcp_authorized_tool_aliases
+from app.services.prompt_snapshot_service import freeze_runtime_prompt_bundle
 from app.services.stream.agent_loop_driver import run_agent_loop
 from app.services.stream.agent_loop_execution import build_agent_loop_execution
 from app.services.stream.agent_loop_lifecycle import (
@@ -265,6 +267,8 @@ class StreamHandler:
         )
 
         db = SessionLocal()
+        identity_started = False
+        lifecycle_started = False
         try:
             dependencies = _agent_loop_wiring_dependencies()
             run_persist_message = partial(
@@ -275,6 +279,24 @@ class StreamHandler:
                 create_after_retry_user_id=create_after_retry_user_id,
             )
             dependencies = replace(dependencies, persist_message_fn=run_persist_message)
+            run_input = replace(
+                run_input,
+                trace_id=run_input.trace_id or str(uuid.uuid4()),
+                prompt_bundle_snapshot=freeze_runtime_prompt_bundle(),
+            )
+            await dependencies.session_cache.write_session_started(
+                run_id=run_input.trace_id,
+                conversation_id=conversation_id,
+                user_id=user_id,
+                model_id=model_id,
+                provider=provider,
+                message_id=assistant_message_id,
+                turn_message_id=turn_message_id or assistant_message_id,
+                previous_run_id=previous_run_id,
+                run_attempt_kind=run_attempt_kind,
+                run_config={"prompt_bundle": run_input.prompt_bundle_snapshot.identity()},
+            )
+            identity_started = True
             call_config_inputs = prepare_agent_loop_call_config_inputs(
                 run_input=run_input,
                 db=db,
@@ -302,6 +324,10 @@ class StreamHandler:
                     inputs=call_config_inputs,
                     build_call_config_fn=_build_deadline_fallback_call_config_fn(),
                 )
+            except BaseException:
+                deadline_gate.expire()
+                raise
+            run_input = replace(run_input, prompt_identity_persisted=True)
             lifecycle_call = assemble_agent_loop_lifecycle_call(
                 run_input=run_input,
                 db=db,
@@ -309,6 +335,31 @@ class StreamHandler:
                 dependencies=dependencies,
                 call_config=call_config,
             )
+            lifecycle_started = True
             await _run_agent_loop_lifecycle_call(lifecycle_call)
+        except BaseException as error:
+            if identity_started and not lifecycle_started:
+                try:
+                    await dependencies.session_cache.write_session_status(
+                        run_id=run_input.trace_id,
+                        status="interrupted" if isinstance(error, asyncio.CancelledError) else "error",
+                        total_steps=0,
+                        total_tool_calls=0,
+                    )
+                except Exception as status_error:
+                    logger.warning(f"分类前后失败终态保存失败: error_type={type(status_error).__name__}")
+            if not lifecycle_started:
+                try:
+                    cancelled = isinstance(error, asyncio.CancelledError)
+                    await dependencies.finalize_stream_fn(
+                        conversation_id,
+                        success=False,
+                        task_id=task_id,
+                        error_code="stream_interrupted" if cancelled else "agent_run_failed",
+                        error_msg="生成已中断" if cancelled else "运行准备失败，请稍后重试",
+                    )
+                except Exception as stream_error:
+                    logger.warning(f"运行准备失败后的流终态保存失败: error_type={type(stream_error).__name__}")
+            raise
         finally:
             db.close()
