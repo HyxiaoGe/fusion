@@ -4,6 +4,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $expectedSha256 = "1fc5150883d4a5f85f022c9278bb779c9a2d37df1567047728c3f6f8e240fb3f"
+$expectedLegacyV2Sha256 = "442674b68077a82e1d6d4b5a2d6c290e92bf8842eec3106d05f620376bfbd090"
 
 function ConvertTo-CanonicalLf {
     param([byte[]]$Bytes)
@@ -38,9 +39,16 @@ function Get-Sha256Hex {
     return ([System.BitConverter]::ToString($hash)).Replace("-", "").ToLowerInvariant()
 }
 
+$appRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 if ([string]::IsNullOrWhiteSpace($FixturePath)) {
-    $appRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
     $FixturePath = Join-Path $appRoot "test\fixtures\prompt_bundle\p3a_sync.py"
+}
+
+$legacyV2FixturePath = Join-Path $appRoot "test\fixtures\prompt_bundle\legacy_v2_contract.json"
+[byte[]]$legacyV2Bytes = [System.IO.File]::ReadAllBytes($legacyV2FixturePath)
+$legacyV2Sha256 = Get-Sha256Hex $legacyV2Bytes
+if ($legacyV2Sha256 -ne $expectedLegacyV2Sha256) {
+    throw "frozen legacy v2 contract digest mismatch: expected=$expectedLegacyV2Sha256 actual=$legacyV2Sha256"
 }
 
 [byte[]]$canonical = ConvertTo-CanonicalLf ([System.IO.File]::ReadAllBytes($FixturePath))

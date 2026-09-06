@@ -30,6 +30,10 @@ class CIContainerContractTest(unittest.TestCase):
             fixture_directory.mkdir(parents=True)
             fixture = fixture_directory / "p3a_sync.py"
             fixture.write_bytes((ROOT / "test/fixtures/prompt_bundle/p3a_sync.py").read_bytes())
+            legacy_fixture = fixture_directory / "legacy_v2_contract.json"
+            legacy_fixture.write_bytes(
+                (ROOT / "test/fixtures/prompt_bundle/legacy_v2_contract.json").read_bytes()
+            )
             bin_dir = temp_root / "bin"
             bin_dir.mkdir()
             docker_log = temp_root / "docker.log"

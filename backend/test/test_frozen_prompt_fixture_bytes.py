@@ -5,13 +5,19 @@ from pathlib import Path
 import pytest
 
 from scripts.check_frozen_prompt_fixture_bytes import (
+    EXPECTED_LEGACY_V2_SHA256,
     EXPECTED_P3A_SHA256,
     canonicalize_lf,
+    load_frozen_legacy_v2_contract,
     load_frozen_p3a_probe_source,
     verify_frozen_prompt_fixture_bytes,
 )
 
 FIXTURE = Path(__file__).parent / "fixtures/prompt_bundle/p3a_sync.py"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+LEGACY_V2_FIXTURE_ATTRIBUTE = (
+    "backend/test/fixtures/prompt_bundle/legacy_v2_contract.json text eol=lf"
+)
 
 
 def test_lf_and_crlf_checkouts_have_the_same_canonical_bytes(tmp_path):
@@ -37,5 +43,20 @@ def test_modified_fixture_content_is_rejected(tmp_path):
         load_frozen_p3a_probe_source(modified)
 
 
+def test_legacy_contract_rejects_checkout_byte_conversion(tmp_path):
+    fixture = Path(__file__).parent / "fixtures/prompt_bundle/legacy_v2_contract.json"
+    converted = tmp_path / "legacy_v2_contract.json"
+    converted.write_bytes(fixture.read_bytes().replace(b"\n", b"\r\n"))
+
+    with pytest.raises(ValueError, match=EXPECTED_LEGACY_V2_SHA256):
+        load_frozen_legacy_v2_contract(converted)
+
+
 def test_real_fixture_and_checkout_independence_self_check_pass():
     assert verify_frozen_prompt_fixture_bytes() == EXPECTED_P3A_SHA256
+
+
+def test_digest_sensitive_legacy_contract_is_forced_to_lf_on_every_checkout():
+    attributes = (REPOSITORY_ROOT / ".gitattributes").read_text(encoding="utf-8").splitlines()
+
+    assert LEGACY_V2_FIXTURE_ATTRIBUTE in attributes
