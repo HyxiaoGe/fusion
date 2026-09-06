@@ -1876,6 +1876,9 @@ class ChatServiceTests(unittest.TestCase):
 
         self.assertEqual(title, "Fusion Chat")
         self.assertEqual(mock_litellm.acompletion.await_args.kwargs["max_tokens"], 512)
+        metadata = mock_litellm.acompletion.await_args.kwargs["extra_body"]["metadata"]
+        self.assertEqual(metadata.pop("source_kind"), "code_default")
+        self.assertRegex(metadata.pop("effective_revision"), r"^[0-9a-f]{64}$")
         self.assertEqual(
             mock_litellm.acompletion.await_args.kwargs["extra_body"],
             {

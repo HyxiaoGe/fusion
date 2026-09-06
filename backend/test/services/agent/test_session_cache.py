@@ -263,7 +263,7 @@ class SessionCacheTests(unittest.IsolatedAsyncioTestCase):
         with patch("app.services.agent.session_cache.SessionLocal") as mock_sl:
             session = MagicMock()
             mock_sl.return_value.__enter__.return_value = session
-            existing = MagicMock()
+            existing = MagicMock(run_config=None)
             existing.conversation_id = "c1"
             existing.user_id = "u1"
             existing.message_id = "msg-1"
@@ -291,7 +291,7 @@ class SessionCacheTests(unittest.IsolatedAsyncioTestCase):
             session = MagicMock()
             mock_sl.return_value.__enter__.return_value = session
             # 模拟已有行
-            existing = MagicMock()
+            existing = MagicMock(run_config=None)
             existing.total_steps = 5
             existing.total_tool_calls = 3
             existing.total_duration_ms = 1234
@@ -582,7 +582,7 @@ class SessionCacheTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_write_session_started_rechecks_same_run_after_conversation_lock(self):
         lock_acquired = False
-        existing = MagicMock()
+        existing = MagicMock(run_config=None)
         existing.conversation_id = "c1"
         existing.user_id = "u1"
         existing.message_id = "assistant-1"

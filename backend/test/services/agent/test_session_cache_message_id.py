@@ -43,7 +43,7 @@ class SessionCacheMessageIdTests(unittest.IsolatedAsyncioTestCase):
         with patch("app.services.agent.session_cache.SessionLocal") as mock_sl:
             session = MagicMock()
             mock_sl.return_value.__enter__.return_value = session
-            existing = MagicMock()
+            existing = MagicMock(run_config=None)
             existing.conversation_id = "conv-2"
             existing.user_id = "user-2"
             existing.message_id = "assistant-1"

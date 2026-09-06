@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from app.ai.llm_observability import merge_litellm_kwargs
 from app.core.config import settings
 from app.core.logger import app_logger as logger
+from app.core.prompt_snapshot import current_prompt_snapshot
 from app.services.stream.run_capability_router import _CandidateRoute, _classify_literal_layer, _extract_request_signals
 from app.utils.run_capability_contract import CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES
 
@@ -365,7 +366,9 @@ def _build_messages(
     history = _most_recent_complete_turn(conversation_messages, context_turns=effective_limits.context_turns)
     system_message = {
         "role": "system",
-        "content": _system_prompt(),
+        "content": current_prompt_snapshot().classifier_prompt
+        if current_prompt_snapshot() is not None
+        else _system_prompt(),
     }
     messages = [system_message, *history, {"role": "user", "content": current_message}]
     if not _can_begin_blocking_work(deadline_event, deadline_gate):

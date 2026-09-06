@@ -118,6 +118,8 @@ async def write_session_started(
                         turn_message_id=turn_message_id,
                         previous_run_id=previous_run_id,
                     )
+                    if (existing.run_config or {}).get("prompt_bundle") is not None:
+                        raise ValueError("已冻结身份的 Run 不得重入；retry/regenerate/continue 必须创建新 Run")
                     _reset_existing_session(
                         existing,
                         model_id=model_id,
@@ -150,6 +152,22 @@ async def write_session_started(
                     f"轨迹 attempt 分配冲突，准备重试: turn_message_id={turn_message_id} "
                     f"allocation_try={allocation_try}"
                 )
+
+
+async def complete_session_configuration(*, run_id: str, conversation_id: str, user_id: str, run_config: dict) -> None:
+    """分类后补齐配置；不重置计数、终态或已原子持久化的 Prompt 身份。"""
+    with SessionLocal() as session:
+        _lock_conversation(session, conversation_id)
+        row = session.get(AgentSession, run_id)
+        if row is None or row.conversation_id != conversation_id or row.user_id != user_id:
+            raise ValueError("待完成配置的 Run 不存在或归属不符")
+        identity = (row.run_config or {}).get("prompt_bundle")
+        if not identity or identity != run_config.get("prompt_bundle"):
+            raise ValueError("Run Prompt 身份与分类前原子持久化值不一致")
+        if row.status != "running":
+            raise ValueError("终态 Run 不能重新完成运行配置")
+        row.run_config = deepcopy(run_config)
+        session.commit()
 
 
 def _allocate_new_session(

@@ -25,6 +25,7 @@ class AgentLoopContractResult:
     persist_calls: list[dict] = field(default_factory=list)
     finalize_calls: list[dict] = field(default_factory=list)
     session_started_calls: list[dict] = field(default_factory=list)
+    session_configuration_calls: list[dict] = field(default_factory=list)
     session_status_calls: list[dict] = field(default_factory=list)
     step_started_calls: list[dict] = field(default_factory=list)
     step_completed_calls: list[dict] = field(default_factory=list)
@@ -108,6 +109,14 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
 
         async def _capture_session_started(**kwargs):
             result.session_started_calls.append(dict(kwargs))
+
+        async def _capture_session_configuration(**kwargs):
+            self.assertEqual(len(result.session_started_calls), 1)
+            self.assertEqual(
+                kwargs["run_config"]["prompt_bundle"],
+                result.session_started_calls[0]["run_config"]["prompt_bundle"],
+            )
+            result.session_configuration_calls.append(dict(kwargs))
 
         async def _capture_session_status(**kwargs):
             result.session_status_calls.append(dict(kwargs))
@@ -243,6 +252,13 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
             stack.enter_context(
                 patch("app.services.agent.session_cache.write_session_started", side_effect=_capture_session_started)
             )
+            stack.enter_context(
+                patch(
+                    "app.services.agent.session_cache.complete_session_configuration",
+                    side_effect=_capture_session_configuration,
+                )
+            )
+            stack.enter_context(patch("app.services.agent.session_cache.write_system_prompt_snapshot", AsyncMock()))
             stack.enter_context(
                 patch("app.services.agent.session_cache.write_session_status", side_effect=_capture_session_status)
             )

@@ -9,8 +9,9 @@ from app.ai.prompts.templates import (
     GENERATE_SUGGESTED_QUESTIONS_PROMPT,
     GENERATE_TITLE_PROMPT,
 )
-from app.core.prompt_bundle import resolve_prompt_template_with_metadata
+from app.core.prompt_bundle import freeze_prompt_bundle, resolve_prompt_template_with_metadata
 from app.core.prompt_catalog import register_prompt_consumer
+from app.core.prompt_snapshot import use_prompt_snapshot
 
 
 class PromptManager:
@@ -52,7 +53,12 @@ class PromptManager:
     def format_prompt_with_metadata(self, template_name: str, **kwargs) -> tuple[str, dict]:
         """格式化 Prompt，并返回其 slug/version/revision 观测字段。"""
 
-        template, metadata = self.resolve_template_with_metadata(template_name)
+        # 标题、推荐问题与文件分析是独立模型调用，即使异步任务继承了主 Run
+        # 的 ContextVar，也必须重新冻结自己的来源。附件包装仍走 format_prompt。
+        from app.ai.prompts.defaults import DEFAULT_PROMPT_TEMPLATES
+
+        with use_prompt_snapshot(freeze_prompt_bundle(DEFAULT_PROMPT_TEMPLATES)):
+            template, metadata = self.resolve_template_with_metadata(template_name)
         try:
             return template.format(**kwargs), metadata
         except KeyError as e:

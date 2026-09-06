@@ -1627,15 +1627,15 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             inject_file_content_fn=should_not_inject_file_content,
             preprocess_url_in_message_fn=should_not_preprocess_url,
             preprocess_user_input=False,
-            extra_system_prompts=["继续执行，不要重写前文"],
+            extra_system_prompts=["continuation_system"],
         )
 
         self.assertEqual(prepared.initial_content_blocks, [])
-        self.assertEqual(prepared.messages[1], {"role": "system", "content": "继续执行，不要重写前文"})
+        self.assertIn("继续上一轮", prepared.messages[1].content)
         self.assertEqual(prepared.messages[2]["role"], "user")
         self.assertEqual(
             [message.section_id for message in prepared.messages[:2]],
-            ["app_identity", "extra_system_0"],
+            ["app_identity", "continuation_system"],
         )
         self.assertTrue(all(message.section_id is None for message in prepared.messages[2:]))
 

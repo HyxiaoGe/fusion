@@ -258,11 +258,7 @@ class SuggestedQuestionServiceTests(unittest.TestCase):
             run_id="run-1",
         )
         response = SimpleNamespace(
-            choices=[
-                SimpleNamespace(
-                    message=SimpleNamespace(content="1. 问题一\n2. 问题二\n3. 问题三\n4. 问题四")
-                )
-            ]
+            choices=[SimpleNamespace(message=SimpleNamespace(content="1. 问题一\n2. 问题二\n3. 问题三\n4. 问题四"))]
         )
 
         with (
@@ -279,6 +275,9 @@ class SuggestedQuestionServiceTests(unittest.TestCase):
         self.assertEqual(result.questions, ["问题一", "问题二", "问题三"])
         self.assertEqual(self._message().suggested_questions, ["问题一", "问题二", "问题三"])
         self.assertEqual(completion.await_args.kwargs["max_tokens"], 512)
+        metadata = completion.await_args.kwargs["extra_body"]["metadata"]
+        self.assertEqual(metadata.pop("source_kind"), "code_default")
+        self.assertRegex(metadata.pop("effective_revision"), r"^[a-f0-9]{64}$")
         self.assertEqual(
             completion.await_args.kwargs["extra_body"],
             {
@@ -316,8 +315,7 @@ class SuggestedQuestionServiceTests(unittest.TestCase):
 class SuggestedQuestionsMigrationTests(unittest.TestCase):
     def test_upgrade_marks_historical_rows_with_questions_ready(self):
         migration_path = (
-            Path(__file__).parents[1]
-            / "alembic/versions/e8b4c2d7f901_add_suggested_question_generation_state.py"
+            Path(__file__).parents[1] / "alembic/versions/e8b4c2d7f901_add_suggested_question_generation_state.py"
         )
         spec = importlib.util.spec_from_file_location("suggested_question_migration", migration_path)
         self.assertIsNotNone(spec)

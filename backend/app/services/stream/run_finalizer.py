@@ -99,19 +99,28 @@ async def start_agent_run(
     run_attempt_kind: str,
     tools: list[str],
     config: dict[str, Any],
+    identity_persisted: bool = False,
 ) -> None:
-    await session_cache.write_session_started(
-        run_id=run_id,
-        conversation_id=conversation_id,
-        user_id=user_id,
-        model_id=model_id,
-        provider=provider,
-        message_id=message_id,
-        turn_message_id=turn_message_id,
-        previous_run_id=previous_run_id,
-        run_attempt_kind=run_attempt_kind,
-        run_config=config,
-    )
+    if identity_persisted:
+        await session_cache.complete_session_configuration(
+            run_id=run_id,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            run_config=config,
+        )
+    else:
+        await session_cache.write_session_started(
+            run_id=run_id,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            model_id=model_id,
+            provider=provider,
+            message_id=message_id,
+            turn_message_id=turn_message_id,
+            previous_run_id=previous_run_id,
+            run_attempt_kind=run_attempt_kind,
+            run_config=config,
+        )
     await emitter.run_started(
         message_id=message_id,
         model=model_id,
