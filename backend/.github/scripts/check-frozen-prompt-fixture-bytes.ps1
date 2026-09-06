@@ -46,12 +46,29 @@ if ([string]::IsNullOrWhiteSpace($FixturePath)) {
 
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $appRoot ".."))
 $legacyV2RelativePath = "backend/test/fixtures/prompt_bundle/legacy_v2_contract.json"
-& git -C $repositoryRoot checkout-index --force -- $legacyV2RelativePath
-if ($LASTEXITCODE -ne 0) {
-    throw "failed to rematerialize frozen legacy v2 contract from the checked-out index"
+$legacyV2FixturePath = Join-Path $appRoot "test\fixtures\prompt_bundle\legacy_v2_contract.json"
+$materializationRelativeRoot = ".fusion-prompt-fixture-$([System.Guid]::NewGuid().ToString('N'))"
+$materializationRoot = Join-Path $repositoryRoot $materializationRelativeRoot
+try {
+    & git -C $repositoryRoot checkout-index --force "--prefix=$materializationRelativeRoot/" -- $legacyV2RelativePath
+    if ($LASTEXITCODE -ne 0) {
+        throw "failed to export frozen legacy v2 contract from the checked-out index"
+    }
+
+    $materializedLegacyV2FixturePath = Join-Path $materializationRoot $legacyV2RelativePath
+    [byte[]]$materializedLegacyV2Bytes = [System.IO.File]::ReadAllBytes($materializedLegacyV2FixturePath)
+    $materializedLegacyV2Sha256 = Get-Sha256Hex $materializedLegacyV2Bytes
+    if ($materializedLegacyV2Sha256 -ne $expectedLegacyV2Sha256) {
+        throw "frozen legacy v2 index digest mismatch: expected=$expectedLegacyV2Sha256 actual=$materializedLegacyV2Sha256"
+    }
+
+    [System.IO.File]::Replace($materializedLegacyV2FixturePath, $legacyV2FixturePath, $null)
+} finally {
+    if ([System.IO.Directory]::Exists($materializationRoot)) {
+        [System.IO.Directory]::Delete($materializationRoot, $true)
+    }
 }
 
-$legacyV2FixturePath = Join-Path $appRoot "test\fixtures\prompt_bundle\legacy_v2_contract.json"
 [byte[]]$legacyV2Bytes = [System.IO.File]::ReadAllBytes($legacyV2FixturePath)
 $legacyV2Sha256 = Get-Sha256Hex $legacyV2Bytes
 if ($legacyV2Sha256 -ne $expectedLegacyV2Sha256) {
