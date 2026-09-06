@@ -12,6 +12,12 @@ class _FakeQuery:
     def filter(self, *args, **kwargs):
         return self
 
+    def filter_by(self, **kwargs):
+        return self
+
+    def first(self):
+        return self.rows[0] if self.rows else None
+
     def order_by(self, *args, **kwargs):
         return self
 
@@ -31,7 +37,9 @@ class _FakeSession:
         self.closed = False
 
     def query(self, model):
-        return _FakeQuery(self.rows)
+        from app.db.models import PromptBundleHoldState
+
+        return _FakeQuery([] if model is PromptBundleHoldState else self.rows)
 
     def add(self, row):
         self.rows.append(row)
@@ -104,7 +112,7 @@ class PromptHubSyncServiceTests(unittest.IsolatedAsyncioTestCase):
             namespace="prompt_bundle",
             key="fusion:v2",
             version="a" * 64,
-            payload={"revision": "a" * 64},
+            payload={"revision": "a" * 64, "project_slug": "fusion"},
             is_active=True,
         )
         session = _FakeSession([old])
@@ -181,7 +189,7 @@ class PromptHubSyncServiceTests(unittest.IsolatedAsyncioTestCase):
             namespace="prompt_bundle",
             key="fusion:v2",
             version="a" * 64,
-            payload={"revision": "a" * 64},
+            payload={"revision": "a" * 64, "project_slug": "fusion"},
             is_active=True,
         )
         shadow_lkg = SimpleNamespace(
@@ -215,7 +223,7 @@ class PromptHubSyncServiceTests(unittest.IsolatedAsyncioTestCase):
             namespace="prompt_bundle",
             key="fusion:v2",
             version="a" * 64,
-            payload={"revision": "a" * 64},
+            payload={"revision": "a" * 64, "project_slug": "fusion"},
             is_active=True,
         )
         corrupted = SimpleNamespace(
@@ -223,7 +231,7 @@ class PromptHubSyncServiceTests(unittest.IsolatedAsyncioTestCase):
             namespace="prompt_bundle",
             key="fusion:v2",
             version=_published_bundle().revision,
-            payload={"schema_version": 0, "revision": _published_bundle().revision},
+            payload={"schema_version": 0, "revision": _published_bundle().revision, "project_slug": "fusion"},
             is_active=False,
         )
         session = _FakeSession([old, corrupted])
@@ -279,7 +287,7 @@ class PromptHubSyncServiceTests(unittest.IsolatedAsyncioTestCase):
             namespace="prompt_bundle",
             key="fusion:v2",
             version="a" * 64,
-            payload={"revision": "a" * 64},
+            payload={"revision": "a" * 64, "project_slug": "fusion"},
             is_active=True,
         )
         invalid_bundle = _published_bundle()

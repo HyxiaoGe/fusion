@@ -22,7 +22,6 @@ from app.core.prompt_bundle import (
     validate_stored_bundle_payload,
 )
 from app.core.prompt_bundle_integrity import (
-    PROMPT_BUNDLE_LOGICAL_CATALOG,
     PROMPT_BUNDLE_NAMESPACE,
     PROMPT_BUNDLE_STORAGE_KEY,
     PromptBundleRevisionConflict,
@@ -31,7 +30,6 @@ from app.core.prompt_catalog import PROMPT_SPECS
 from app.core.runtime_config import SessionFactory, clear_runtime_config_cache
 from app.db.database import SessionLocal
 from app.db.models import RuntimeConfigEntry
-from app.db.prompt_bundle_hold_repository import load_prompt_bundle_hold
 from app.services.external.prompthub_client import (
     PromptHubClientError,
     PromptHubPublishedBundleClient,
@@ -96,24 +94,14 @@ async def sync_prompthub_bundle(
         "last_error": None,
     }
     _update_diagnostics(result)
-    _log_sync_result(result)
-    return copy.deepcopy(result)
-
-
-def _log_sync_result(result):
-    if result["hold_state"] == "held" and result["held_revision"] != result["revision"]:
-        logger.warning(
-            "Prompt hold 保持本地 revision=%s，published revision=%s 仅作校验",
-            result["held_revision"],
-            result["revision"],
-        )
     logger.info(
         "PromptHub bundle 同步成功: mode=%s revision=%s changed=%s idempotent=%s",
-        result["mode"],
-        result["revision"],
-        len(result["changed_prompt_keys"]),
-        result["idempotent"],
+        effective_mode,
+        payload["revision"],
+        len(persist_result["changed_prompt_keys"]),
+        persist_result["idempotent"],
     )
+    return copy.deepcopy(result)
 
 
 async def run_prompthub_sync_best_effort() -> dict[str, Any]:
@@ -199,30 +187,7 @@ def _persist_locked(
     payload: dict[str, Any],
     *,
     mode: str,
-) -> dict[str, Any]:
-    hold = load_prompt_bundle_hold(session, settings.PROMPTHUB_PROJECT_SLUG, PROMPT_BUNDLE_LOGICAL_CATALOG)
-    held = hold is not None and hold.state == "held"
-    active = [row for row in rows if row.is_active]
-    active_revision = active[0].version if len(active) == 1 else None
-    if held and (
-        active_revision != hold.target_revision
-        or not validate_stored_bundle_payload(active[0].payload)
-        or active[0].payload["revision"] != hold.target_revision
-    ):
-        raise PromptBundleValidationError("hold 目标与有效 active 不一致，拒绝自动改变任何 active")
-    persist_mode = "shadow" if held else mode
-    if persist_mode == "apply":
-        assert_p0_transition_gate({key: item["content"] for key, item in payload["prompts"].items()})
-    result = _persist_candidate_locked(session, rows, payload, mode=persist_mode)
-    return {
-        **result,
-        "hold_state": "held" if held else "following",
-        "held_revision": hold.target_revision if held else None,
-        "active_revision": payload["revision"] if result["active"] else active_revision,
-    }
-
-
-def _persist_candidate_locked(session, rows, payload, *, mode):
+) -> dict[str, bool]:
     existing = next((row for row in rows if row.version == payload["revision"]), None)
     if existing is not None:
         if not validate_stored_bundle_payload(existing.payload) or existing.payload != payload:
@@ -262,8 +227,6 @@ def _load_bundle_rows(session: Session) -> list[RuntimeConfigEntry]:
         for row in rows
         if getattr(row, "namespace", None) == PROMPT_BUNDLE_NAMESPACE
         and getattr(row, "key", None) == PROMPT_BUNDLE_STORAGE_KEY
-        and isinstance(row.payload, dict)
-        and row.payload.get("project_slug") == settings.PROMPTHUB_PROJECT_SLUG
     ]
 
 
@@ -275,9 +238,6 @@ def _activate_row(rows: list[RuntimeConfigEntry], target: RuntimeConfigEntry) ->
 def _acquire_advisory_lock(session: Session) -> None:
     bind = session.get_bind()
     if bind.dialect.name == "postgresql":
-        isolation = session.execute(text("SELECT current_setting('transaction_isolation')")).scalar_one()
-        if isolation != "read committed":
-            raise ValueError("Prompt 激活和 hold 转换要求 READ COMMITTED，拒绝陈旧事务快照")
         session.execute(
             text("SELECT pg_advisory_xact_lock(:lock_id)"),
             {"lock_id": _ADVISORY_LOCK_ID},

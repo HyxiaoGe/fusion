@@ -126,6 +126,7 @@ def _load_legacy_active_rows(session):
     return (
         session.query(RuntimeConfigEntry)
         .filter_by(namespace=PROMPT_BUNDLE_NAMESPACE, key=_LEGACY_KEY, is_active=True)
+        .filter(RuntimeConfigEntry.payload["project_slug"].as_string() == settings.PROMPTHUB_PROJECT_SLUG)
         .all()
     )
 

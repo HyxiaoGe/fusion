@@ -364,6 +364,8 @@ else:
     print("candidate knowledge settings ok")
 PY
 fi
+"${GITHUB_WORKSPACE}/ops/deploy/api-check-prompt-hold-target.sh" "${DEPLOY_API_IMAGE}"
+
 if docker run --rm --entrypoint /bin/sh "${DEPLOY_API_IMAGE}" -c 'test -f /app/scripts/run_knowledge_worker.py'; then
   knowledge_worker_supported="true"
 else

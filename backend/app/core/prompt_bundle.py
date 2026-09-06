@@ -348,6 +348,7 @@ def _load_active_bundle_payload(
             .filter(
                 RuntimeConfigEntry.namespace == PROMPT_BUNDLE_NAMESPACE,
                 RuntimeConfigEntry.key == PROMPT_BUNDLE_STORAGE_KEY,
+                RuntimeConfigEntry.payload["project_slug"].as_string() == settings.PROMPTHUB_PROJECT_SLUG,
                 RuntimeConfigEntry.is_active.is_(True),
             )
             .order_by(RuntimeConfigEntry.updated_at.desc(), RuntimeConfigEntry.created_at.desc())

@@ -155,6 +155,11 @@ class CIContainerContractTest(unittest.TestCase):
             "test/test_prompt_bundle_bridge.py",
             "test/test_prompt_bundle_bridge_cli.py",
             "test/test_prompt_bundle_bridge_deployment.py",
+            "test/test_prompt_bundle_hold.py",
+            "test/test_prompt_bundle_hold_api.py",
+            "test/test_prompt_bundle_hold_migration.py",
+            "test/test_prompt_bundle_hold_preflight.py",
+            "test/test_prompt_bundle_hold_deployment.py",
         )
         for filename in ("linux-build-and-test.sh", "windows-build-and-test.ps1"):
             script = (ROOT / ".github/scripts" / filename).read_text(encoding="utf-8")
