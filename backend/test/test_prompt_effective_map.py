@@ -237,7 +237,7 @@ class P0TransitionGateTests(unittest.TestCase):
     def test_apply_startup_fails_fast_on_ungated_active_bundle(self):
         """首次部署时库里可能已有从未过门禁的 active bundle，启动必须拦住。"""
 
-        from app.services import prompt_catalog_integrity
+        from app.services import prompt_catalog_integrity, prompt_engine_policy
         from app.services.prompt_effective_map import EffectiveBaselineMismatch
 
         payload = {
@@ -250,15 +250,25 @@ class P0TransitionGateTests(unittest.TestCase):
             patch("app.services.prompt_catalog_integrity.settings.PROMPTHUB_SYNC_MODE", "apply"),
             patch("app.services.prompt_effective_map.settings.PROMPT_P0_BASELINE_ATTESTED", True),
             patch.object(prompt_catalog_integrity, "get_active_prompt_bundle_payload", return_value=payload),
+            patch.object(prompt_engine_policy, "verify_final_prompt_engine_stage"),
         ):
             with self.assertRaises(EffectiveBaselineMismatch):
                 prompt_catalog_integrity.verify_p0_baseline_gate()
 
-    def test_non_apply_startup_skips_gate(self):
-        from app.services import prompt_catalog_integrity
+    def test_non_apply_startup_still_requires_final_engine_stage(self):
+        from app.services import prompt_catalog_integrity, prompt_engine_policy
 
-        with patch("app.services.prompt_catalog_integrity.settings.PROMPTHUB_SYNC_MODE", "disabled"):
-            prompt_catalog_integrity.verify_p0_baseline_gate()
+        for mode in ("disabled", "shadow"):
+            with (
+                patch("app.services.prompt_catalog_integrity.settings.PROMPTHUB_SYNC_MODE", mode),
+                patch.object(
+                    prompt_engine_policy,
+                    "verify_final_prompt_engine_stage",
+                    side_effect=ValueError("最终阶段尚未收口"),
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, "最终阶段尚未收口"):
+                    prompt_catalog_integrity.verify_p0_baseline_gate()
 
     def test_apply_unattested_without_active_bundle_fails_closed(self):
         """无有效 LKG 是正常可达状态，不是跳过门禁的理由。
@@ -267,13 +277,14 @@ class P0TransitionGateTests(unittest.TestCase):
         同样情形直接落到代码默认值，因此未经基线校验就启动会改变模型可见正文。
         """
 
-        from app.services import prompt_catalog_integrity
+        from app.services import prompt_catalog_integrity, prompt_engine_policy
         from app.services.prompt_effective_map import EffectiveBaselineMismatch
 
         with (
             patch("app.services.prompt_catalog_integrity.settings.PROMPTHUB_SYNC_MODE", "apply"),
             patch("app.services.prompt_catalog_integrity.settings.PROMPT_P0_BASELINE_ATTESTED", False),
             patch.object(prompt_catalog_integrity, "get_active_prompt_bundle_payload", return_value=None),
+            patch.object(prompt_engine_policy, "verify_final_prompt_engine_stage"),
         ):
             with self.assertRaises(EffectiveBaselineMismatch) as ctx:
                 prompt_catalog_integrity.verify_p0_baseline_gate()

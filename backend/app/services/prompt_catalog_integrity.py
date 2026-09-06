@@ -34,6 +34,9 @@ def verify_p0_baseline_gate() -> None:
       回落代码默认值而 P0 之前会回落 legacy，这一情形仍需拒绝。
     """
 
+    from app.services.prompt_engine_policy import verify_final_prompt_engine_stage
+
+    verify_final_prompt_engine_stage()
     if settings.PROMPTHUB_SYNC_MODE != "apply":
         return
 
@@ -56,6 +59,3 @@ def verify_p0_baseline_gate() -> None:
     if not settings.PROMPT_P0_BASELINE_ATTESTED and payload_template_engine(payload) != DEFAULT_TEMPLATE_ENGINE:
         raise EffectiveBaselineMismatch("独立 Jinja2 基线要求先完成 P0 attestation")
     assert_payload_p0_gate(payload)
-    from app.services.prompt_engine_policy import verify_final_prompt_engine_stage
-
-    verify_final_prompt_engine_stage()
