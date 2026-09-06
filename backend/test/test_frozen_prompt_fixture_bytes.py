@@ -122,6 +122,6 @@ def test_windows_preflight_rematerializes_before_checking_raw_digest():
 
     export_index = script.index("checkout-index --force")
     verify_export = script.index("ReadAllBytes($materializedLegacyV2FixturePath)")
-    replace_worktree = script.index("[System.IO.File]::Replace")
+    replace_worktree = script.index("[System.IO.File]::Copy")
     verify_worktree = script.index("ReadAllBytes($legacyV2FixturePath)")
     assert export_index < verify_export < replace_worktree < verify_worktree

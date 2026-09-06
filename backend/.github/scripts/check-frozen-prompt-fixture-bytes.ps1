@@ -62,7 +62,7 @@ try {
         throw "frozen legacy v2 index digest mismatch: expected=$expectedLegacyV2Sha256 actual=$materializedLegacyV2Sha256"
     }
 
-    [System.IO.File]::Replace($materializedLegacyV2FixturePath, $legacyV2FixturePath, $null)
+    [System.IO.File]::Copy($materializedLegacyV2FixturePath, $legacyV2FixturePath, $true)
 } finally {
     if ([System.IO.Directory]::Exists($materializationRoot)) {
         [System.IO.Directory]::Delete($materializationRoot, $true)
