@@ -134,6 +134,52 @@ async def _parent_cancel_waits_for_tool_cleanup():
     assert cleaned.is_set()
 
 
+def test_parent_cancel_waits_for_slow_cleanup_after_fast_sibling_exits():
+    asyncio.run(_parent_cancel_waits_for_slow_cleanup_after_fast_sibling_exits())
+
+
+async def _parent_cancel_waits_for_slow_cleanup_after_fast_sibling_exits():
+    fast_started, slow_started, fast_cleaned = (asyncio.Event() for _ in range(3))
+    cleanup_started, release_cleanup, cleaned = (asyncio.Event() for _ in range(3))
+    owned_tasks = set()
+
+    async def fast():
+        owned_tasks.add(asyncio.current_task())
+        fast_started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            fast_cleaned.set()
+
+    async def slow():
+        owned_tasks.add(asyncio.current_task())
+        slow_started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleanup_started.set()
+            await release_cleanup.wait()
+            cleaned.set()
+
+    batch = asyncio.create_task(execute_tool_batch(_request({"fast": fast, "slow": slow}), _calls("fast", "slow")))
+    try:
+        await asyncio.wait_for(asyncio.gather(fast_started.wait(), slow_started.wait()), timeout=1)
+        batch.cancel("用户取消")
+        await asyncio.wait_for(asyncio.gather(fast_cleaned.wait(), cleanup_started.wait()), timeout=1)
+        done, _ = await asyncio.wait({batch}, timeout=0.05)
+        assert not done, "慢工具清理闸门打开前，批次不能因快工具先退出而返回"
+        assert not cleaned.is_set()
+        release_cleanup.set()
+        with pytest.raises(asyncio.CancelledError) as raised:
+            await batch
+        assert raised.value.args == ("用户取消",)
+        assert cleaned.is_set()
+    finally:
+        release_cleanup.set()
+        batch.cancel()
+        await asyncio.gather(batch, *owned_tasks, return_exceptions=True)
+
+
 def test_normal_parallel_batch_returns_input_order():
     asyncio.run(_normal_parallel_batch_returns_input_order())
 

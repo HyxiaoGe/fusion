@@ -1322,7 +1322,8 @@ async def execute_tool_batch(
     except BaseException:
         # gather 不会因单个子任务失败而取消兄弟任务；批次退出前必须等本地清理完成。
         for task in tasks:
-            if not task.done():
+            # 外层取消已由 gather 传给子任务；重复取消会打断 wait_for 正在等待的工具清理。
+            if not task.done() and not task.cancelling():
                 task.cancel()
         cleanup = asyncio.gather(*tasks, return_exceptions=True)
         while not cleanup.done():
