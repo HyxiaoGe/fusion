@@ -1,5 +1,7 @@
 """冻结 Prompt 夹具的跨平台字节契约。"""
 
+import hashlib
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -60,3 +62,44 @@ def test_digest_sensitive_legacy_contract_is_forced_to_lf_on_every_checkout():
     attributes = (REPOSITORY_ROOT / ".gitattributes").read_text(encoding="utf-8").splitlines()
 
     assert LEGACY_V2_FIXTURE_ATTRIBUTE in attributes
+
+
+def test_forced_index_checkout_repairs_a_stale_crlf_worktree(tmp_path):
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    fixture = repository / "backend/test/fixtures/prompt_bundle/legacy_v2_contract.json"
+    fixture.parent.mkdir(parents=True)
+    canonical = b'{"prompt":"line one\nline two"}\n'
+    fixture.write_bytes(canonical)
+    (repository / ".gitattributes").write_text(
+        LEGACY_V2_FIXTURE_ATTRIBUTE + "\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
+    subprocess.run(["git", "add", "."], cwd=repository, check=True)
+    fixture.write_bytes(canonical.replace(b"\n", b"\r\n"))
+
+    subprocess.run(
+        [
+            "git",
+            "checkout-index",
+            "--force",
+            "--",
+            "backend/test/fixtures/prompt_bundle/legacy_v2_contract.json",
+        ],
+        cwd=repository,
+        check=True,
+    )
+
+    assert fixture.read_bytes() == canonical
+    assert hashlib.sha256(fixture.read_bytes()).hexdigest() != hashlib.sha256(
+        canonical.replace(b"\n", b"\r\n")
+    ).hexdigest()
+
+
+def test_windows_preflight_rematerializes_before_checking_raw_digest():
+    script = (
+        REPOSITORY_ROOT / "backend/.github/scripts/check-frozen-prompt-fixture-bytes.ps1"
+    ).read_text(encoding="utf-8")
+
+    assert script.index("checkout-index --force") < script.index("ReadAllBytes($legacyV2FixturePath)")

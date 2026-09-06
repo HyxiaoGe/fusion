@@ -44,6 +44,13 @@ if ([string]::IsNullOrWhiteSpace($FixturePath)) {
     $FixturePath = Join-Path $appRoot "test\fixtures\prompt_bundle\p3a_sync.py"
 }
 
+$repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $appRoot ".."))
+$legacyV2RelativePath = "backend/test/fixtures/prompt_bundle/legacy_v2_contract.json"
+& git -C $repositoryRoot checkout-index --force -- $legacyV2RelativePath
+if ($LASTEXITCODE -ne 0) {
+    throw "failed to rematerialize frozen legacy v2 contract from the checked-out index"
+}
+
 $legacyV2FixturePath = Join-Path $appRoot "test\fixtures\prompt_bundle\legacy_v2_contract.json"
 [byte[]]$legacyV2Bytes = [System.IO.File]::ReadAllBytes($legacyV2FixturePath)
 $legacyV2Sha256 = Get-Sha256Hex $legacyV2Bytes
