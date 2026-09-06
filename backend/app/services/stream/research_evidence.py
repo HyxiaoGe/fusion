@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from app.ai.prompts.prompt_message import PromptMessage
+from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.services.source_context import UntrustedSourceContext, format_untrusted_source_context
 from app.services.source_evidence_ledger import canonicalize_evidence_url, stable_web_evidence_id
 
@@ -181,44 +182,19 @@ def build_deep_research_stage_prompt(
     """生成不含任何外部来源内容的确定性阶段控制语。"""
 
     if plan_repair_tool:
-        return (
-            f"【深度研究阶段控制】当前计划没有可执行的 {plan_repair_tool} 步骤。"
-            f"未完成计划项的 planned_tools 必须明确包含 {plan_repair_tool}，"
-            "否则阶段工具不能合法绑定。当前阶段只能调用 update_plan 修订计划；"
-            "不要调用任何外部工具。计划修订成功后，系统会在下一轮仅开放阶段所需工具。"
-        )
+        return render_runtime_prompt("research.stage_plan_repair", tool=plan_repair_tool)
     binding_prompt = ""
     if active_plan_item_ids:
-        allowed_ids = "、".join(f"`{item_id}`" for item_id in active_plan_item_ids)
-        binding_prompt = (
-            f"调用阶段工具时，_plan_item_id 只能使用当前未完成计划项 ID：{allowed_ids}；"
-            "不要沿用已经完成、失败或跳过的步骤 ID。"
-        )
+        allowed_ids = ", ".join(f"`{item_id}`" for item_id in active_plan_item_ids)
+        binding_prompt = render_runtime_prompt("research.stage_binding", allowed_ids=allowed_ids)
     if stage == "search":
-        return (
-            "【深度研究阶段控制】有效计划已建立，但本轮尚无成功搜索。"
-            "当前阶段只能调用 web_search；不要重复 update_plan，不要调用 url_read 或其他工具。"
-            f"{binding_prompt}"
-        )
+        return render_runtime_prompt("research.stage_search", binding_prompt=binding_prompt)
     if stage == "read":
-        return (
-            "【深度研究阶段控制】已获得搜索候选，但成功读取不足两个不同 URL。"
-            "当前阶段只能调用 url_read，并优先读取尚未读取的候选来源；"
-            "不要重复 update_plan、web_search 或其他工具。"
-            f"{binding_prompt}"
-        )
+        return render_runtime_prompt("research.stage_read", binding_prompt=binding_prompt)
     if stage == "search_repair":
-        return (
-            "【深度研究阶段控制】已有成功搜索，但当前没有未读候选，且成功读取不足两个不同 URL。"
-            "当前阶段只能调用 web_search，补充新的候选来源；不要重复 update_plan 或调用其他工具。"
-            f"{binding_prompt}"
-        )
+        return render_runtime_prompt("research.stage_search_repair", binding_prompt=binding_prompt)
     if stage == "synthesis":
-        return (
-            "【深度研究阶段控制】已经取得足够的已读来源，当前进入最终综合阶段。"
-            "不要再调用任何工具，也不要更新计划；请直接回答用户，并在相关事实后使用"
-            "研究证据工作集列出的已读来源编号 [n]。不得引用候选或读取失败的编号。"
-        )
+        return render_runtime_prompt("research.stage_synthesis")
     return ""
 
 
@@ -250,10 +226,7 @@ def build_research_workset_prompt(
 ) -> str:
     if not workset.sources:
         return ""
-    lines = [
-        "【本轮研究证据工作集】",
-        "该消息只包含服务端生成的引用控制状态。正文只能引用标记为“已读”的编号；候选编号不得引用。",
-    ]
+    lines = [render_runtime_prompt("research.workset_header")]
     for source in sorted(
         workset.sources.values(),
         key=lambda item: (item.citation_index, item.evidence_id),
@@ -270,8 +243,8 @@ def build_research_workset_prompt(
         )
         retry_policy = " retry=forbidden" if is_failed else ""
         lines.append(f"[{source.citation_index}] evidence_id={evidence_id} status={source_status}{retry_policy}")
-    if len(lines) == 2:
-        lines.append("当前没有已成功读取、可用于正式引用的来源。")
+    if len(lines) == 1:
+        lines.append(render_runtime_prompt("research.workset_empty"))
     return "\n".join(lines)
 
 
@@ -295,18 +268,20 @@ def build_research_untrusted_context_messages(
             continue
         facts = []
         if source.summary:
-            facts.append(f"裁剪摘要：{source.summary}")
+            facts.append(render_runtime_prompt("research.bounded_summary", summary=source.summary))
         if source.key_findings:
-            facts.append(f"关键发现：{'；'.join(source.key_findings)}")
+            facts.append(render_runtime_prompt("research.key_findings", findings="; ".join(source.key_findings)))
         if not facts:
-            facts.append("仅恢复来源身份，正文未持久化，引用前必须重新读取。")
+            facts.append(render_runtime_prompt("research.identity_only"))
         content = format_untrusted_source_context(
             UntrustedSourceContext(
                 source_id=source.evidence_id,
                 source_type="url_read" if source.kind == "url_read" else "search",
                 title=source.title,
                 url=source.url,
-                content=f"引用编号：[{source.citation_index}]\n" + "\n".join(facts),
+                content=render_runtime_prompt("research.citation_number", citation_index=source.citation_index)
+                + "\n"
+                + "\n".join(facts),
                 provider="web",
             ),
             max_chars=MAX_RESEARCH_SOURCE_CONTEXT_CHARS,
@@ -317,19 +292,15 @@ def build_research_untrusted_context_messages(
 
 def build_research_repair_prompt(reason: str, workset: ResearchEvidenceWorkset) -> str:
     if reason == "missing_search":
-        action = "至少完成一次有效搜索，并用互补查询覆盖问题的关键方面。"
+        action = render_runtime_prompt("research.repair_missing_search")
     elif reason == "insufficient_reads":
-        action = "至少读取两个不同 URL 的原文；优先读取已有候选来源，不能只依据搜索摘要。"
+        action = render_runtime_prompt("research.repair_insufficient_reads")
     elif reason == "missing_citation":
-        action = "重新综合回答，并在正文中加入本轮证据工作集已有的 [n] 引用。"
+        action = render_runtime_prompt("research.repair_missing_citation")
     else:
-        action = "正文包含无法映射到本轮成功来源的引用；删除非法编号，只使用证据工作集已有的 [n]。"
+        action = render_runtime_prompt("research.repair_invalid_citation")
     workset_prompt = build_research_workset_prompt(workset)
-    return (
-        "【深度研究完成校验】上一轮候选回答尚未满足研究证据要求，不能展示给用户。"
-        f"{action} 只静默修正，不要解释内部校验、工具、预算或协议。"
-        + (f"\n\n{workset_prompt}" if workset_prompt else "")
-    )
+    return render_runtime_prompt("research.repair", action=action, workset_prompt=workset_prompt)
 
 
 def assign_missing_source_reference_metadata(content_blocks: list[Any]) -> None:

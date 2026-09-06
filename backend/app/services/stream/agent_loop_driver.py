@@ -7,6 +7,7 @@ from inspect import Parameter, signature
 
 from app.ai.prompts.product_results import build_product_result_round_prompt
 from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
+from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.ai.prompts.section_ids import (
     DEEP_RESEARCH_STAGE,
     PRODUCT_RESULT_ROUND,
@@ -460,7 +461,7 @@ def _constrain_research_stage_plan_binding(
             {
                 "type": "string",
                 "enum": list(active_plan_item_ids),
-                "description": "内部计划步骤 ID，只能选择当前仍可执行的计划项。",
+                "description": render_runtime_prompt("stream.active_plan_item_binding"),
             }
         )
         properties["_plan_item_id"] = binding

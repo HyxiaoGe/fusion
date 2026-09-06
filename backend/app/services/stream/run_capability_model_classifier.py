@@ -13,6 +13,7 @@ import litellm
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.ai.llm_observability import merge_litellm_kwargs
+from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.core.config import settings
 from app.core.logger import app_logger as logger
 from app.core.prompt_snapshot import current_prompt_snapshot
@@ -386,30 +387,7 @@ def _build_messages(
 
 
 def _system_prompt() -> str:
-    return """将当前请求分类为一个 package_id。只输出 JSON 对象，且必须同时包含 package_id 和 explicit_tool_names 两个字段；不得有额外字段。
-固定 taxonomy 与工具映射（explicit_tool_names 必须完全匹配，按 canonical order）：
-- direct：问候、身份、稳定常识或简单计算；[]。
-- transform：翻译、改写、润色或已给文本摘要；[]。
-- date：只问当前日期或星期；[]。
-- fresh_web：最新或当前外部事实、新闻、公开发布；[web_search]。
-- verified_web：要求官方或可靠来源、查证；[web_search,url_read]。
-- url_read：给定 URL 的读取或总结；[url_read]。
-- weather：明确天气、气温、降水或风力；[weather_forecast]。
-- place_discovery：附近地点、餐厅、酒店、景点发现；[local_place_search]。
-- mobility_route：明确同城路线、公交、驾车、步行或通勤；[route_compare]。
-- flight：明确航班、飞机或机票；[search_flights]。
-- train：明确高铁、动车、火车或车次；[search_trains]。
-- travel_air_rail：仅比较航班与火车；[search_flights,search_trains]。
-- mobility_intercity：跨城起终点但方式不明确；[route_compare,search_flights,search_trains]。
-- mixed_itinerary：2–3 个不同产品族；只可为天气、地点、路线、航班、火车的组合，且不能仅为航班加火车。
-- clarification_only：能力不明、关键实体不足、冲突或不符合以上规则；[]。
-关键边界：
-- 组织、职业、产品或融资阶段的演进、准备与建议属于稳定咨询 direct；信息不足时才选 clarification_only。不得仅因阶段名称选择 fresh_web，只有明确询问最新或当前外部事实才联网。
-- 路线能力必须同时有可定位的起点和终点；只有目的地或使用公司、家等相对指代时选择 clarification_only。
-- 比较两座城市是否适合工作、生活或发展不是出行意图；未要求当前外部事实时选择 direct。
-canonical order 固定为 web_search,url_read,weather_forecast,local_place_search,route_compare,search_flights,search_trains。
-标准 package 要表达请求实际需要的能力，不得因当前 definitions 或 available_tool_names 缺少标准产品工具而改选 clarification_only；实际可用性、禁工具、无 function calling 与 knowledge-grounded 降级由后续 resolver 决定。
-available_tool_names 只用于本调用前的精确 MCP literal 授权，不能作为标准 package 工具可用性的依据。禁止选择 deep_research、knowledge_grounded、tools_unavailable 或 mcp_explicit。全局禁网时不得选择任何外部工具；包与工具不匹配或不确定时选择 clarification_only。"""
+    return render_runtime_prompt("classifier.system")
 
 
 def _most_recent_complete_turn(

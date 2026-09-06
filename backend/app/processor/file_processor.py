@@ -8,7 +8,11 @@ import litellm
 from app.ai.llm_manager import llm_manager
 from app.ai.llm_observability import merge_litellm_kwargs
 from app.ai.prompts import prompt_manager
+from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.core.logger import app_logger as logger
+
+DEFAULT_FILE_ANALYSIS_PROMPT = render_runtime_prompt("file_processor.default_analysis")
+IMAGE_ANALYSIS_SYSTEM_PROMPT = render_runtime_prompt("file_processor.image_analysis")
 
 
 class FileProcessor:
@@ -38,7 +42,7 @@ class FileProcessor:
         try:
             # 生成默认查询（如果未提供）
             if not query:
-                query = "请分析这些文件的内容并提供详细描述。"
+                query = DEFAULT_FILE_ANALYSIS_PROMPT
 
             files_data = []
             for i, path in enumerate(file_paths):
@@ -84,7 +88,7 @@ class FileProcessor:
             )
 
             extracted_sections.append(
-                f"文件 {index}: {file_data['file_name']} (类型: {file_data['mime_type']})\n{normalized_text}"
+                f"File {index}: {file_data['file_name']} (type: {file_data['mime_type']})\n{normalized_text}"
             )
 
         return "\n\n".join(extracted_sections)
@@ -236,7 +240,7 @@ class FileProcessor:
         """统一截断长文本，避免提示或本地摘要过大。"""
         normalized_text = text.strip()
         if len(normalized_text) > limit:
-            return normalized_text[:limit] + "...(内容过长已截断)"
+            return normalized_text[:limit] + "...[Content truncated because it is too long.]"
         return normalized_text
 
     def _build_prompt(self, query: str, files_data: List[Dict[str, Any]]) -> str:
@@ -254,7 +258,7 @@ class FileProcessor:
         # 准备文件内容
         file_content_text = ""
         for i, file in enumerate(files_data):
-            file_content_text += f"文件 {i + 1}: {file['file_name']} (类型: {file['mime_type']})\n"
+            file_content_text += f"File {i + 1}: {file['file_name']} (type: {file['mime_type']})\n"
 
             # 如果有提取的文本内容，添加到提示中
             if file.get("extracted_text"):
@@ -263,7 +267,7 @@ class FileProcessor:
                     self.PROMPT_TEXT_PREVIEW_LIMIT,
                 )
 
-                file_content_text += f"文件内容:\n{text}\n\n"
+                file_content_text += f"File content:\n{text}\n\n"
 
         # 使用提示词管理器构建提示
         return prompt_manager.format_prompt_with_metadata(
@@ -285,7 +289,12 @@ class FileProcessor:
             messages = [
                 {
                     "role": "system",
-                    "content": [{"type": "text", "text": "你是一个专业的图像分析助手，请详细分析图片内容。"}],
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": IMAGE_ANALYSIS_SYSTEM_PROMPT,
+                        }
+                    ],
                 }
             ]
 

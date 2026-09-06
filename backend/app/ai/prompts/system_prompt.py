@@ -9,6 +9,7 @@ from typing import Any
 
 from app.ai.prompts.agent_loop import build_current_date_system_prompt, get_app_identity_prompt
 from app.ai.prompts.prompt_message import PromptMessage
+from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.ai.prompts.section_ids import APP_IDENTITY, CURRENT_DATE, USER_PREFERENCES
 from app.utils.prompt_fingerprint import fingerprint_system_messages
 
@@ -49,8 +50,10 @@ def build_dynamic_sections(
         sections.append(
             SystemPromptSection(
                 USER_PREFERENCES,
-                "以下是用户的个性化偏好设置，请在回答中自然遵守，但不要主动提及这些设置本身：\n\n"
-                + user_system_prompt.strip(),
+                render_runtime_prompt(
+                    "system_prompt.user_preferences",
+                    user_system_prompt=user_system_prompt.strip(),
+                ),
             )
         )
     return sections

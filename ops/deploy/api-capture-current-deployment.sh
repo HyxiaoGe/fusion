@@ -148,7 +148,7 @@ defaults = {
     "MILVUS_TIMEOUT_SECONDS": "10",
     "MILVUS_DOCKER_NETWORK": "fusion_knowledge_milvus",
 }
-known_networks = {"postgres_default", "middleware_default", "fusion-prompthub", "fusion-flyai"}
+known_networks = {"postgres_default", "middleware_default", "fusion-flyai"}
 
 def read_config(container):
     captured = {}

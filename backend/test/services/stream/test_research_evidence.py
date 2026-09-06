@@ -83,7 +83,8 @@ class ResearchEvidenceTests(unittest.TestCase):
         self.assertEqual(len(contexts), 1)
         self.assertEqual(contexts[0]["role"], "user")
         self.assertIn('source_url="https://example.com/retry-source"', contexts[0]["content"])
-        self.assertIn("仅恢复来源身份，正文未持久化，引用前必须重新读取", contexts[0]["content"])
+        self.assertIn("Only source identity was restored", contexts[0]["content"])
+        self.assertIn("must be read again before citation", contexts[0]["content"])
         self.assertEqual(workset.attempted_read_urls, set())
         self.assertEqual(workset.unread_candidate_urls, {"https://example.com/retry-source"})
 

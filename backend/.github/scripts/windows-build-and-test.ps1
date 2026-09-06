@@ -16,9 +16,6 @@ $appRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 $monorepoRoot = [System.IO.Path]::GetFullPath((Join-Path $appRoot ".."))
 $linuxBuildScript = Join-Path $appRoot ".github\scripts\linux-build-and-test.sh"
 
-& (Join-Path $PSScriptRoot "check-frozen-prompt-fixture-bytes.ps1") `
-    -FixturePath (Join-Path $appRoot "test\fixtures\prompt_bundle\p3a_sync.py")
-
 docker build --target production --provenance=false -t $image $appRoot
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -41,7 +38,7 @@ try {
         --mount "type=bind,source=$monorepoRoot\.github,target=/.github,readonly" `
         --mount "type=bind,source=$monorepoRoot\ops,target=/ops,readonly" `
         --mount "type=bind,source=$normalizedLinuxScript,target=/app/.github/scripts/linux-build-and-test.sh,readonly" `
-        $image sh -lc "timeout 300s python -m pip install --default-timeout=30 --no-cache-dir -r requirements-ci.txt && python scripts/check_architecture.py && ruff check . && timeout 270s python -u -m unittest discover -s test -t . -v && timeout 120s python -m pytest -q test/services/stream/test_run_capability_router.py test/ai/skills/test_registry.py test/test_prompt_bundle_snapshot.py test/services/stream/test_prompt_run_identity.py test/services/stream/test_run_prompt_snapshot.py test/test_prompt_bundle_v2_integrity.py test/test_prompt_bundle_v2_transactions.py test/test_prompt_bundle_bridge.py test/test_prompt_bundle_bridge_cli.py test/test_prompt_bundle_bridge_deployment.py test/test_prompt_bundle_hold.py test/test_prompt_bundle_hold_api.py test/test_prompt_bundle_hold_migration.py test/test_frozen_prompt_fixture_bytes.py test/test_prompt_bundle_hold_preflight.py test/test_prompt_bundle_hold_deployment.py test/test_prompt_template_engine.py test/test_prompt_engine_policy.py test/test_prompt_engine_deployment.py test/test_prompt_jinja_only.py"
+        $image sh -lc "timeout 300s python -m pip install --default-timeout=30 --no-cache-dir -r requirements-ci.txt && python scripts/check_architecture.py && ruff check . && timeout 270s python -u -m unittest discover -s test -t . -v && timeout 120s python -m pytest -q test/services/stream/test_run_capability_router.py test/ai/skills/test_registry.py test/test_prompt_bundle_snapshot.py test/services/stream/test_prompt_run_identity.py test/services/stream/test_run_prompt_snapshot.py test/test_prompt_template_engine.py"
     $testExitCode = $LASTEXITCODE
 } finally {
     if ($null -ne $normalizedLinuxScript) {

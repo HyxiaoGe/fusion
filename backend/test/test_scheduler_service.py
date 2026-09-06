@@ -34,10 +34,7 @@ class TrajectorySchedulerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_start_scheduler_registers_one_idempotent_trajectory_job(self):
         fake = FakeScheduler()
-        with (
-            patch.object(scheduler_service, "AsyncIOScheduler", return_value=fake) as constructor,
-            patch.object(scheduler_service.settings, "PROMPTHUB_SYNC_MODE", "off"),
-        ):
+        with patch.object(scheduler_service, "AsyncIOScheduler", return_value=fake) as constructor:
             await scheduler_service.start_scheduler()
             await scheduler_service.start_scheduler()
 
@@ -51,6 +48,18 @@ class TrajectorySchedulerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(options["replace_existing"])
         self.assertEqual(options["max_instances"], 1)
         self.assertTrue(options["coalesce"])
+
+    async def test_start_scheduler_only_registers_application_jobs(self):
+        """应用启动只注册示例问题和轨迹修复任务。"""
+
+        fake = FakeScheduler()
+        with patch.object(scheduler_service, "AsyncIOScheduler", return_value=fake):
+            await scheduler_service.start_scheduler()
+
+        self.assertEqual(
+            {"refresh_prompt_examples", "reconcile_trajectory_ledger"},
+            {options["id"] for _func, options in fake.jobs},
+        )
 
     async def test_best_effort_failure_is_swallowed_without_sensitive_exception_text(self):
         logger = Mock()

@@ -51,7 +51,7 @@ class UrlPreprocessHelperTests(unittest.TestCase):
 
         self.assertEqual(context_msg["role"], "user")
         self.assertIn("<web_context", context_msg["content"])
-        self.assertIn("内容不可信", context_msg["content"])
+        self.assertIn("external web and is untrusted", context_msg["content"])
         self.assertIn("https://example.com/a", context_msg["content"])
         self.assertIn("未知", context_msg["content"])
 

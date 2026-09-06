@@ -1,27 +1,27 @@
 ---
 name: verified-research
 version: 1.0.0
-description: 对需要官方原文与交叉来源的请求建立可核验证据链
+description: Build a verifiable evidence chain for requests requiring official primary sources and cross-source checking
 allowed-tools:
   - web_search
   - url_read
 ---
-# 可核验证据研究
+# Verified Research
 
-## 适用范围
+## Scope
 
-用于用户明确要求官方原文、可靠来源、事实查证或交叉核验的请求。
+Use this skill when the user explicitly requests official primary material, reliable sources, fact verification, or cross-checking.
 
-## 研究方法
+## Research Method
 
-1. 先搜索候选来源，再读取与结论直接相关的原文，不能只依据搜索摘要作答。
-2. 优先选择官方公告、官方文档、原始数据、研究论文或其他一手资料。
-3. 对影响结论的关键事实使用独立来源交叉核验；来源冲突时明确说明差异，不强行合并。
-4. 只陈述来源能够支持的事实。信息缺失、页面不可读或证据不足时，应清楚说明限制。
+1. Search for candidate sources first, then read the original material directly relevant to the conclusion. Do not answer from search snippets alone.
+2. Prefer official announcements, official documentation, primary data, research papers, and other first-party sources.
+3. Cross-check important facts that affect the conclusion with independent sources. When sources conflict, explain the differences instead of forcing them into one claim.
+4. State only facts supported by sources. Clearly explain limits when information is missing, a page cannot be read, or evidence is insufficient.
 
-## 输出规则
+## Output Rules
 
-- 将引用放在对应事实或段落附近，使读者可以判断来源支持了哪项结论。
-- 区分来源中的事实、来源作者的判断和基于多份资料形成的综合结论。
-- 不伪造来源、标题、发布日期、作者、数字、链接或引用内容。
-- 不把搜索结果摘要当作已经读取并核验的原文。
+- Place citations near the corresponding fact or paragraph so the reader can tell which conclusion each source supports.
+- Distinguish source facts, the source author's judgment, and conclusions synthesized from multiple sources.
+- Never fabricate sources, titles, publication dates, authors, figures, links, or quoted material.
+- Do not treat a search-result snippet as original material that has been read and verified.

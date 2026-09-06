@@ -153,11 +153,11 @@ class LimitSummaryHelpersTests(unittest.TestCase):
         append_limit_summary_prompt(messages, summary_finish_reason="no_progress_summary")
 
         content = messages[-1]["content"]
-        self.assertIn("现有搜索已不再产生新的有效信息", content)
-        self.assertIn("不要向用户提及", content)
-        self.assertNotIn("工具调用上限", content)
-        self.assertNotIn("额度", content)
-        self.assertNotIn("预算", content)
+        self.assertIn("searches are no longer producing useful new information", content)
+        self.assertIn("Do not mention internal stop reasons", content)
+        self.assertNotIn("tool-call limit", content)
+        self.assertNotIn("quota", content)
+        self.assertNotIn("budget", content)
 
     def test_plan_repair_summary_does_not_claim_tool_limit(self):
         messages = []
@@ -165,9 +165,9 @@ class LimitSummaryHelpersTests(unittest.TestCase):
         append_limit_summary_prompt(messages, summary_finish_reason="plan_repair_exhausted")
 
         content = messages[-1]["content"]
-        self.assertIn("只基于已经实际取得的结果", content)
-        self.assertIn("建议重试", content)
-        self.assertNotIn("你已达到工具调用上限", content)
+        self.assertIn("only results that were actually obtained", content)
+        self.assertIn("suggest retrying", content)
+        self.assertNotIn("reached the tool-call limit", content)
 
     def test_deep_research_plan_repair_summary_keeps_research_citation_contract(self):
         messages = []
@@ -179,10 +179,10 @@ class LimitSummaryHelpersTests(unittest.TestCase):
         )
 
         content = messages[-1]["content"]
-        self.assertIn("只基于已经实际取得的结果", content)
-        self.assertIn("只基于当前已成功取得并读取的来源", content)
-        self.assertIn("只能使用研究证据工作集列出的引用编号", content)
-        self.assertNotIn("你已达到工具调用上限", content)
+        self.assertIn("only results that were actually obtained", content)
+        self.assertIn("only sources that were successfully obtained and read", content)
+        self.assertIn("Use only citation numbers listed in the research evidence workset", content)
+        self.assertNotIn("reached the tool-call limit", content)
 
     def test_build_limit_summary_call_kwargs_copies_and_removes_tool_controls(self):
         tools = [{"function": {"name": "web_search"}}]
@@ -1347,7 +1347,10 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
                     )
                 )
                 self.assertTrue(
-                    any("深度研究完成校验" in str(message.get("content") or "") for message in sent_snapshots[1])
+                    any(
+                        "[Deep-research completion validation]" in str(message.get("content") or "")
+                        for message in sent_snapshots[1]
+                    )
                 )
                 self.assertTrue(sent_snapshots[1][-1]["content"].endswith(VISIBLE_RESPONSE_LANGUAGE_PROMPT))
                 self.assertFalse(
@@ -1359,7 +1362,10 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(emitter.evidence_item_upserted.await_count, 2)
                 self.assertTrue(any("引用校验未通过" in warning for warning in warnings))
                 self.assertTrue(
-                    any("深度研究完成校验" in str(message.get("content", "")) for message in request.messages)
+                    any(
+                        "[Deep-research completion validation]" in str(message.get("content", ""))
+                        for message in request.messages
+                    )
                 )
 
     async def test_deep_summary_keeps_deterministic_failure_when_citation_repair_still_invalid(self):
@@ -1509,7 +1515,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             str(message.get("content", "")) for message in sent_messages if message.get("role") == "system"
         )
         self.assertNotIn("【工具调用一致性规则】", system_text)
-        self.assertIn("现有搜索已不再产生新的有效信息", system_text)
+        self.assertIn("searches are no longer producing useful new information", system_text)
 
     async def test_all_final_summaries_strip_tool_transactions_and_control_prompts(self):
         source_messages = [
@@ -1711,7 +1717,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
                 for snapshot in sent_snapshots
             )
         )
-        self.assertIn("不要输出任何工具调用", sent_snapshots[1][-1]["content"])
+        self.assertIn("Do not output tool calls", sent_snapshots[1][-1]["content"])
         self.assertTrue(sent_snapshots[1][-1]["content"].endswith(VISIBLE_RESPONSE_LANGUAGE_PROMPT))
         self.assertFalse(
             any(VISIBLE_RESPONSE_LANGUAGE_PROMPT in str(item.get("content") or "") for item in request.messages)
@@ -1725,7 +1731,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(content_blocks[1].text, "最终答复")
         self.assertNotIn("工具协议前缀", content_blocks[1].text)
         self.assertTrue(any("工具协议" in warning for warning in warnings))
-        self.assertTrue(any("不要输出任何工具调用" in str(message.get("content", "")) for message in request.messages))
+        self.assertTrue(any("Do not output tool calls" in str(message.get("content", "")) for message in request.messages))
         self.assertEqual(emitter.llm_round_completed.await_count, 2)
         self.assertIsNone(emitter.llm_round_completed.await_args_list[0].kwargs["ttft_ms"])
 
@@ -2635,8 +2641,8 @@ class LimitSummaryNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase):
             await run_limit_summary_step(request=request)
 
         summary_prompt = request.messages[-1]["content"]
-        self.assertIn("没有取得任何工具结果", summary_prompt)
-        self.assertIn("不得给出具体", summary_prompt)
+        self.assertIn("No tool result was obtained", summary_prompt)
+        self.assertIn("Do not provide dynamic data", summary_prompt)
 
     async def test_有工具证据时不追加无证据提示词(self):
         blocks = [
@@ -2658,7 +2664,7 @@ class LimitSummaryNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase):
             await run_limit_summary_step(request=request)
 
         summary_prompt = request.messages[-1]["content"]
-        self.assertNotIn("没有取得任何工具结果", summary_prompt)
+        self.assertNotIn("No tool result was obtained", summary_prompt)
 
 
 class PlanSynthesisNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase):

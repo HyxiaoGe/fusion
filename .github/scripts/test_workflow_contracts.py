@@ -1,6 +1,5 @@
 import os
 import subprocess
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -17,10 +16,6 @@ APP_WORKFLOW_PATH = ROOT / ".github/workflows/_deploy-app.yml"
 ORCHESTRATOR_PATH = ROOT / ".github/workflows/deploy-dev.yml"
 DISPATCH_CONTRACT_PATH = ROOT / ".github/contracts/deploy-dispatch.yml"
 ACTIONLINT_CONFIG_PATH = ROOT / ".github/actionlint.yaml"
-GITATTRIBUTES_PATH = ROOT / ".gitattributes"
-LEGACY_V2_FIXTURE_ATTRIBUTE = (
-    "backend/test/fixtures/prompt_bundle/legacy_v2_contract.json text eol=lf"
-)
 
 
 def load_workflow(path: Path) -> dict:
@@ -61,85 +56,14 @@ class WorkflowContractTests(unittest.TestCase):
 
     def test_application_jobs_are_independent_and_gate_is_constant(self) -> None:
         jobs = self.ci["jobs"]
-        self.assertEqual(jobs["prompt-fixture-bytes"]["needs"], "changes")
-        self.assertEqual(jobs["prompt-fixture-bytes"]["runs-on"], "windows-latest")
-        self.assertEqual(jobs["api"]["needs"], ["changes", "prompt-fixture-bytes"])
-        self.assertEqual(jobs["ui"]["needs"], ["changes", "prompt-fixture-bytes"])
+        self.assertEqual(jobs["api"]["needs"], "changes")
+        self.assertEqual(jobs["ui"]["needs"], "changes")
         self.assertEqual(
             jobs["required"]["needs"],
-            ["changes", "workflow-security", "prompt-fixture-bytes", "api", "ui"],
+            ["changes", "workflow-security", "api", "ui"],
         )
         self.assertEqual(jobs["required"]["if"], "always()")
         self.assertEqual(jobs["required"]["name"], "Fusion required gate")
-
-    def test_digest_sensitive_legacy_contract_is_forced_to_lf_on_every_checkout(self) -> None:
-        attributes = GITATTRIBUTES_PATH.read_text(encoding="utf-8").splitlines()
-
-        self.assertIn(LEGACY_V2_FIXTURE_ATTRIBUTE, attributes)
-
-    def test_fresh_index_export_repairs_stale_crlf_across_branch_transition(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            repository = Path(temporary_directory) / "repository"
-            repository.mkdir()
-            fixture = repository / "backend/test/fixtures/prompt_bundle/legacy_v2_contract.json"
-            fixture.parent.mkdir(parents=True)
-            canonical = b'{"prompt":"line one\nline two"}\n'
-            fixture.write_bytes(canonical)
-            subprocess.run(["git", "init", "-q", "-b", "master"], cwd=repository, check=True)
-            subprocess.run(
-                ["git", "config", "user.name", "Fusion CI"], cwd=repository, check=True
-            )
-            subprocess.run(
-                ["git", "config", "user.email", "fusion-ci@example.invalid"],
-                cwd=repository,
-                check=True,
-            )
-            subprocess.run(
-                ["git", "config", "core.autocrlf", "true"], cwd=repository, check=True
-            )
-            subprocess.run(["git", "add", "."], cwd=repository, check=True)
-            subprocess.run(["git", "commit", "-q", "-m", "legacy"], cwd=repository, check=True)
-            subprocess.run(
-                ["git", "switch", "-q", "-c", "hotfix"], cwd=repository, check=True
-            )
-            (repository / ".gitattributes").write_text(
-                LEGACY_V2_FIXTURE_ATTRIBUTE + "\n",
-                encoding="utf-8",
-            )
-            subprocess.run(["git", "add", ".gitattributes"], cwd=repository, check=True)
-            subprocess.run(
-                ["git", "commit", "-q", "-m", "force lf"], cwd=repository, check=True
-            )
-            subprocess.run(["git", "switch", "-q", "master"], cwd=repository, check=True)
-            fixture.unlink()
-            subprocess.run(
-                ["git", "checkout-index", "--force", "--", str(fixture.relative_to(repository))],
-                cwd=repository,
-                check=True,
-            )
-            stale = canonical.replace(b"\n", b"\r\n")
-            self.assertEqual(fixture.read_bytes(), stale)
-            subprocess.run(["git", "switch", "-q", "hotfix"], cwd=repository, check=True)
-            self.assertEqual(fixture.read_bytes(), stale)
-
-            export_root = repository / ".fusion-prompt-fixture-export"
-            subprocess.run(
-                [
-                    "git",
-                    "checkout-index",
-                    "--force",
-                    "--prefix=.fusion-prompt-fixture-export/",
-                    "--",
-                    "backend/test/fixtures/prompt_bundle/legacy_v2_contract.json",
-                ],
-                cwd=repository,
-                check=True,
-            )
-            exported = export_root / "backend/test/fixtures/prompt_bundle/legacy_v2_contract.json"
-
-            self.assertEqual(exported.read_bytes(), canonical)
-            exported.replace(fixture)
-            self.assertEqual(fixture.read_bytes(), canonical)
 
     def test_workflow_security_job_runs_actionlint_and_zizmor(self) -> None:
         job = self.ci["jobs"]["workflow-security"]
@@ -217,7 +141,6 @@ class WorkflowContractTests(unittest.TestCase):
             {
                 "CHANGES_RESULT": "success",
                 "API_EXPECTED": "false",
-                "PROMPT_FIXTURE_RESULT": "skipped",
                 "API_RESULT": "skipped",
                 "UI_EXPECTED": "true",
                 "UI_RESULT": "success",
@@ -229,7 +152,6 @@ class WorkflowContractTests(unittest.TestCase):
             {
                 "CHANGES_RESULT": "success",
                 "API_EXPECTED": "true",
-                "PROMPT_FIXTURE_RESULT": "success",
                 "API_RESULT": "failure",
                 "UI_EXPECTED": "false",
                 "UI_RESULT": "skipped",
@@ -237,23 +159,10 @@ class WorkflowContractTests(unittest.TestCase):
         )
         self.assertNotEqual(expected_api_failed.returncode, 0)
 
-        fixture_preflight_failed = run(
-            {
-                "CHANGES_RESULT": "success",
-                "API_EXPECTED": "true",
-                "PROMPT_FIXTURE_RESULT": "failure",
-                "API_RESULT": "skipped",
-                "UI_EXPECTED": "false",
-                "UI_RESULT": "skipped",
-            }
-        )
-        self.assertNotEqual(fixture_preflight_failed.returncode, 0)
-
         missing_api_decision = run(
             {
                 "CHANGES_RESULT": "success",
                 "API_EXPECTED": "",
-                "PROMPT_FIXTURE_RESULT": "skipped",
                 "API_RESULT": "skipped",
                 "UI_EXPECTED": "false",
                 "UI_RESULT": "skipped",
@@ -265,7 +174,6 @@ class WorkflowContractTests(unittest.TestCase):
             {
                 "CHANGES_RESULT": "success",
                 "API_EXPECTED": "false",
-                "PROMPT_FIXTURE_RESULT": "skipped",
                 "API_RESULT": "skipped",
                 "UI_EXPECTED": "unexpected",
                 "UI_RESULT": "skipped",
@@ -278,7 +186,6 @@ class WorkflowContractTests(unittest.TestCase):
                 "WORKFLOW_SECURITY_RESULT": "failure",
                 "CHANGES_RESULT": "success",
                 "API_EXPECTED": "false",
-                "PROMPT_FIXTURE_RESULT": "skipped",
                 "API_RESULT": "skipped",
                 "UI_EXPECTED": "false",
                 "UI_RESULT": "skipped",

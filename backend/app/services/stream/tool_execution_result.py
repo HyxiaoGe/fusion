@@ -11,15 +11,14 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
+
 if TYPE_CHECKING:
     from app.schemas.chat import ContentBlock
     from app.services.tool_handlers.base import BaseToolHandler, ToolResult
 
-TOOL_RESULT_UNAVAILABLE_CONTEXT = "工具未取得可用结果，不能把该工具结果作为依据。"
-TOOL_RESULT_REUSED_CONTEXT = (
-    "该工具的同名同参查询已在本轮成功执行。请复用上一条成功结果并直接回答，"
-    "不要再次调用相同工具，也不要重复生成结果卡片。"
-)
+TOOL_RESULT_UNAVAILABLE_CONTEXT = render_runtime_prompt("tool_result.unavailable")
+TOOL_RESULT_REUSED_CONTEXT = render_runtime_prompt("tool_result.reused")
 
 
 @dataclass
@@ -83,17 +82,14 @@ def _format_argument_repair_context(result: ToolResult) -> str | None:
         sort_keys=True,
     )
     if safe_repair.get("retryable") is True and safe_repair.get("action") == "provide_argument":
-        instruction = (
-            "只能使用 repair.allowed_values 中由后端核验过的值，保留原调用其余参数并补齐 required_fields，"
-            "不得改写查询目标或自行选择其他值；最多重试 1 次。"
-        )
+        instruction = render_runtime_prompt("tool_result.repair_verified")
     elif safe_repair.get("retryable") is True:
-        instruction = "按已公告的工具参数 schema 重新生成有效 JSON 对象；只修复参数，保留用户原意，最多重试 1 次。"
+        instruction = render_runtime_prompt("tool_result.repair_schema")
     elif safe_repair.get("requires_user_input") is True:
-        instruction = "不要继续调用该工具；请向用户确认缺失或冲突的信息。"
+        instruction = render_runtime_prompt("tool_result.repair_user")
     else:
-        instruction = "本次自动修正已经结束；不要继续调用该工具，也不要要求用户补充并不缺失的信息。"
-    return f"工具参数校验未通过；这不是可用于回答的事实结果。{instruction} 不得把错误信息或候选值当作事实。\n{payload}"
+        instruction = render_runtime_prompt("tool_result.repair_ended")
+    return render_runtime_prompt("tool_result.repair_wrapper", instruction=instruction, payload=payload)
 
 
 def _safe_repair_projection(

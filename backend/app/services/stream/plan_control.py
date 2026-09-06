@@ -6,6 +6,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.core.logger import app_logger as logger
 from app.services.agent.plan_coordinator import PlanCoordinator
 
@@ -67,43 +68,26 @@ def _response(
 
 def _control_rejection_hint(reason: str, coordinator: PlanCoordinator) -> str | None:
     if reason in {"attempted_item_removed", "terminal_item_removed"}:
-        return (
-            "保留 canonical_plan 中全部既有步骤 ID；直接复用其中的 step、kind、depends_on 和 "
-            "planned_tools，并将提交状态统一写为 pending；真实状态由系统保留。"
-        )
+        return render_runtime_prompt("stream.plan_hint_preserve")
     if reason == "missing_required_initial_tool_coverage":
-        requirements = "、".join(
-            f"{tool_name}×{count}" for tool_name, count in coordinator.required_initial_tool_counts.items()
+        requirements = ", ".join(
+            f"{tool_name} x {count}" for tool_name, count in coordinator.required_initial_tool_counts.items()
         )
-        return (
-            f"重新提交计划，并为所需工具分别保留独立步骤：{requirements}。"
-            "这些步骤必须处于 pending，planned_tools 只声明该步骤实际使用的一个工具；"
-            "每个 url_read 计划项负责一个独立来源任务，多个来源必须拆成多个计划项；"
-            "仅当服务端将同一任务保持为 retryable/running 时，才可跨轮重试该计划项。"
-        )
+        return render_runtime_prompt("stream.plan_hint_coverage", requirements=requirements)
     if reason == "research_read_missing_search_dependency":
-        return (
-            "重新提交计划：每个 url_read 步骤都必须通过 depends_on 直接或间接依赖至少一个 "
-            "web_search 步骤，不能把 url_read 放在首批可执行步骤中；最终回答需依赖全部读取步骤。"
-        )
+        return render_runtime_prompt("stream.plan_hint_search_dependency")
     if reason == "missing_required_recovery_owner":
-        return (
-            "原计划没有恢复失败任务所需的可执行步骤；请保留全部既有终态步骤，"
-            "并新增一个 pending 工具步骤，将它接入原依赖图和最终回答步骤。"
-        )
+        return render_runtime_prompt("stream.plan_hint_recovery")
     if reason == "invalid_plan_structure":
-        return "重新提交 2 至 6 个步骤；每项包含稳定 id、非空 step、pending 状态，以及 planned_tools 数组。"
+        return render_runtime_prompt("stream.plan_hint_structure")
     if reason == "multiple_tools_per_item":
-        return "每个执行步骤的 planned_tools 最多声明一个真实工具；需要多个工具时拆成有依赖关系的独立步骤。"
+        return render_runtime_prompt("stream.plan_hint_multiple_tools")
     if reason == "unannounced_planned_tool":
-        return "planned_tools 只能使用当前请求实际提供的工具名称；删除不可用工具后重新提交计划。"
+        return render_runtime_prompt("stream.plan_hint_unannounced")
     if reason == "missing_answer_phase":
-        return (
-            "重新提交计划，并增加一个 kind 为 answer 或 synthesis 的最终步骤；"
-            "该步骤的 planned_tools 使用空数组，并依赖需要先完成的查询或核验步骤。"
-        )
+        return render_runtime_prompt("stream.plan_hint_answer_phase")
     if reason in {"unknown_dependency", "self_dependency", "dependency_cycle"}:
-        return "depends_on 只能引用本次计划中已经声明的其他步骤 ID，并且不能形成循环依赖。"
+        return render_runtime_prompt("stream.plan_hint_dependency")
     return None
 
 
@@ -259,11 +243,7 @@ async def process_plan_control_calls(
                     status="not_executed",
                     reason="plan_item_already_bound",
                     revision=coordinator.revision,
-                    hint=(
-                        "同一批次的不同工具调用不能复用同一计划项；请为每个独立工具任务创建不同步骤，"
-                        "并分别提交对应的 _plan_item_id。服务端标记为 retryable/running 的同一任务"
-                        "可在后续轮次使用原计划项重试。"
-                    ),
+                    hint=render_runtime_prompt("stream.plan_item_already_bound"),
                 )
                 continue
             round_bound_item_ids.add(plan_item_id)
@@ -282,12 +262,7 @@ async def process_plan_control_calls(
                 status="not_executed",
                 reason="plan_item_required",
                 revision=coordinator.revision,
-                hint=(
-                    "修订计划后重试：_plan_item_id 必须等于本次调用所属未完成步骤的精确 id，"
-                    "该步骤 planned_tools 必须只包含本次真实工具名称，且所有前置步骤已经完成；"
-                    "同一批次的不同调用不能复用同一计划项，只有服务端保持为 retryable/running 的"
-                    "同一任务可在后续轮次复用原计划项。"
-                ),
+                hint=render_runtime_prompt("stream.plan_item_required"),
             )
             continue
         executable_external_calls.append(call)

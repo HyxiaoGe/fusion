@@ -438,18 +438,6 @@ class Settings(BaseSettings):
     FLYAI_TRAVEL_TOOL_TIMEOUT_SECONDS: float = float(os.getenv("FLYAI_TRAVEL_TOOL_TIMEOUT_SECONDS", "20"))
     FLYAI_TRAVEL_MAX_TOOL_CALLS_PER_RUN: int = int(os.getenv("FLYAI_TRAVEL_MAX_TOOL_CALLS_PER_RUN", "4"))
 
-    # PromptHub bundle 后台同步；disabled 不发出请求，聊天热路径始终只读本地 LKG。
-    PROMPTHUB_SYNC_MODE: str = os.getenv("PROMPTHUB_SYNC_MODE", "disabled").lower()
-    PROMPTHUB_BASE_URL: str = os.getenv("PROMPTHUB_BASE_URL", "")
-    PROMPTHUB_API_KEY: str = os.getenv("PROMPTHUB_API_KEY", "")
-    PROMPTHUB_PROJECT_SLUG: str = os.getenv("PROMPTHUB_PROJECT_SLUG", "fusion")
-    PROMPTHUB_REQUEST_TIMEOUT_SECONDS: float = float(os.getenv("PROMPTHUB_REQUEST_TIMEOUT_SECONDS", "3"))
-    PROMPTHUB_SYNC_INTERVAL_SECONDS: int = int(os.getenv("PROMPTHUB_SYNC_INTERVAL_SECONDS", "300"))
-    PROMPTHUB_SYNC_ON_STARTUP: bool = os.getenv("PROMPTHUB_SYNC_ON_STARTUP", "true").lower() == "true"
-    # P0 过渡门禁：未置位时，激活 bundle 与 apply 模式启动都要求原 code-only 五项
-    # 与代码默认值逐字节一致。只应在 effective baseline 校验通过后由发布流程置位。
-    PROMPT_P0_BASELINE_ATTESTED: bool = os.getenv("PROMPT_P0_BASELINE_ATTESTED", "false").lower() == "true"
-
     # 文档站点开关（生产关掉减少攻击面）
     ENABLE_DOCS: bool = True
 

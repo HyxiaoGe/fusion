@@ -544,8 +544,8 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
         second_system_text = "\n".join(
             message["content"] for message in result.llm_calls[1]["messages"] if message["role"] == "system"
         )
-        self.assertNotIn("【本轮产品结果综合约束】", first_system_text)
-        self.assertIn("【本轮产品结果综合约束】", second_system_text)
+        self.assertNotIn("[Product-result synthesis contract for this round]", first_system_text)
+        self.assertIn("[Product-result synthesis contract for this round]", second_system_text)
 
         round_events = [event for event in result.events if event["type"] == "llm_round_started"]
         self.assertEqual(len(round_events), 2)
@@ -1031,8 +1031,8 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
                 for message in second_round_tool_messages
             )
         )
-        self.assertTrue(all("不能作为事实依据" in message["content"] for message in second_round_tool_messages))
-        self.assertTrue(all("停止重复调用" in message["content"] for message in second_round_tool_messages))
+        self.assertTrue(all("cannot be used as factual evidence" in message["content"] for message in second_round_tool_messages))
+        self.assertTrue(all("stop repeating it" in message["content"] for message in second_round_tool_messages))
 
     async def test_mixed_stale_and_announced_tool_calls_only_execute_announced_tools(self):
         stale_alias = "mcp_maps_search_a1b2c3d4"

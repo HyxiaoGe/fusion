@@ -14,8 +14,6 @@ from typing import Any
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
-from app.core.prompt_bundle import diagnose_stored_bundle_payload, get_active_prompt_bundle_payload
 from app.core.runtime_config import (
     SessionFactory,
     clear_runtime_config_cache,
@@ -26,11 +24,9 @@ from app.core.runtime_config_schema import validate_runtime_config_payload
 from app.db.database import SessionLocal
 from app.db.models import RuntimeConfigEntry
 from app.schemas.response import ApiException
-from app.services.prompthub_sync_service import get_prompthub_sync_diagnostics
 from app.services.runtime_config_defaults import (
     DEFAULT_AGENT_STRATEGY_CONFIG,
     DEFAULT_MODEL_PRESENTATION_CONFIG,
-    DEFAULT_PROMPT_TEMPLATES,
 )
 
 
@@ -42,17 +38,14 @@ def build_runtime_config_snapshot(
 
     entries = _load_runtime_config_entries(session_factory)
     defaults = get_runtime_config_defaults()
-    prompt_bundle = get_active_prompt_bundle_payload()
     return {
         "generated_at": datetime.now(UTC).isoformat(),
-        "prompt_sync": get_prompthub_sync_diagnostics(),
         "effective": [
             _build_effective_entry(
                 namespace,
                 key,
                 default_payload,
                 session_factory=session_factory,
-                prompt_bundle=prompt_bundle,
             )
             for (namespace, key), default_payload in defaults.items()
         ],
@@ -211,10 +204,8 @@ def set_runtime_config_entry_active(
 
 
 def _reject_runtime_prompt_mutation(namespace: str) -> None:
-    if namespace == "prompt_bundle":
-        raise ApiException.conflict("prompt_bundle 是 PromptHub 同步服务的只读保留域")
-    if settings.PROMPTHUB_SYNC_MODE == "apply" and namespace == "prompt_template":
-        raise ApiException.conflict("PromptHub apply 模式下禁止新建或激活旧 prompt_template")
+    if namespace in {"prompt_bundle", "prompt_template"}:
+        raise ApiException.conflict("Prompt 模板由代码仓库维护，不能通过运行时配置修改")
 
 
 def get_runtime_config_defaults() -> dict[tuple[str, str], dict[str, Any]]:
@@ -224,8 +215,6 @@ def get_runtime_config_defaults() -> dict[tuple[str, str], dict[str, Any]]:
         ("agent_strategy", "default"): DEFAULT_AGENT_STRATEGY_CONFIG,
         ("model_presentation", "default"): DEFAULT_MODEL_PRESENTATION_CONFIG,
     }
-    for key, template in DEFAULT_PROMPT_TEMPLATES.items():
-        defaults[("prompt_template", key)] = {"template": template}
     return defaults
 
 
@@ -254,23 +243,7 @@ def _build_effective_entry(
     default_payload: dict[str, Any],
     *,
     session_factory: SessionFactory,
-    prompt_bundle: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    if namespace == "prompt_template" and prompt_bundle is not None:
-        prompt = prompt_bundle.get("prompts", {}).get(key)
-        if isinstance(prompt, dict):
-            return {
-                "namespace": namespace,
-                "key": key,
-                "source": "prompthub",
-                "version": prompt["version"],
-                "prompt_revision": prompt_bundle["revision"],
-                "valid": True,
-                "issues": [],
-                "skipped_versions": [],
-                "validation_warnings": {},
-                "payload": {"template": prompt["content"]},
-            }
     payload, meta = get_runtime_config_payload(
         namespace,
         key,
@@ -296,14 +269,7 @@ def _serialize_runtime_config_entry(
     row: RuntimeConfigEntry,
     default_payload: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    if row.namespace == "prompt_bundle":
-        status = diagnose_stored_bundle_payload(row.payload)
-        valid = status == "valid"
-        issues = [] if valid else [f"Prompt bundle LKG 不可用：{status}"]
-        if row.key == "fusion:v2:bridge":
-            valid = isinstance(row.payload, dict) and row.payload.get("action") in {"seeded", "retired"}
-            issues = [] if valid else ["部署桥接回执无效"]
-    elif isinstance(row.payload, dict):
+    if isinstance(row.payload, dict):
         candidate_payload = (
             deep_merge_config(default_payload, row.payload) if default_payload is not None else row.payload
         )

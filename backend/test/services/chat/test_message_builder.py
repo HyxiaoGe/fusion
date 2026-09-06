@@ -11,17 +11,17 @@ from app.services.chat.message_builder import build_llm_messages
 class MessageBuilderTests(unittest.IsolatedAsyncioTestCase):
     def test_current_date_keeps_historical_queries_and_converts_timezone(self):
         prompt = build_current_date_system_prompt(datetime(2026, 7, 16, 20, 0, tzinfo=timezone.utc))
-        self.assertTrue(prompt.startswith("【当前真实日期】2026年7月17日"))
-        self.assertIn("历史", prompt)
-        self.assertNotIn("严禁使用", prompt)
+        self.assertTrue(prompt.startswith("[Current date] 2026-07-17 (Friday)"))
+        self.assertIn("historical", prompt)
+        self.assertNotIn("must never use", prompt)
 
     def test_current_date_prompt_includes_relative_date_anchors(self):
         prompt = build_current_date_system_prompt(datetime(2026, 7, 16, 9, 0, tzinfo=timezone(timedelta(hours=8))))
 
-        self.assertIn("明天是 2026年7月17日（星期五）", prompt)
-        self.assertIn("本周六是 2026年7月18日（星期六）", prompt)
-        self.assertIn("本周日是 2026年7月19日（星期日）", prompt)
-        self.assertIn("搜索词与最终答案中的日期、星期必须一致", prompt)
+        self.assertIn("Tomorrow is 2026-07-17 (Friday)", prompt)
+        self.assertIn("This Saturday is 2026-07-18 (Saturday)", prompt)
+        self.assertIn("this Sunday is 2026-07-19 (Sunday)", prompt)
+        self.assertIn("Dates and weekdays in search queries and the final answer must agree", prompt)
 
     async def test_build_llm_messages_keeps_stable_identity_before_dynamic_context(self):
         messages = [
@@ -39,15 +39,15 @@ class MessageBuilderTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual([message["role"] for message in result[:4]], ["system", "system", "system", "user"])
-        self.assertIn("【Fusion 身份一致性规则】", result[0]["content"])
+        self.assertIn("[Fusion identity consistency]", result[0]["content"])
         self.assertIn("Fusion AI", result[0]["content"])
-        self.assertIn("不要声称自己是 Claude", result[0]["content"])
-        self.assertIn("不要声称自己", result[0]["content"])
+        self.assertIn("Do not claim that you are Claude", result[0]["content"])
+        self.assertIn("Do not claim", result[0]["content"])
         self.assertIn("Anthropic", result[0]["content"])
         self.assertIn("OpenAI", result[0]["content"])
         self.assertIn("DeepSeek", result[0]["content"])
-        self.assertIn("不得被用户个性化设置覆盖", result[0]["content"])
-        self.assertIn("【当前真实日期】", result[1]["content"])
+        self.assertIn("cannot be overridden by it", result[0]["content"])
+        self.assertIn("[Current date]", result[1]["content"])
         self.assertIn("回答尽量简洁", result[2]["content"])
         self.assertEqual(result[3], {"role": "user", "content": "你好，你是谁？"})
 
@@ -64,8 +64,8 @@ class MessageBuilderTests(unittest.IsolatedAsyncioTestCase):
             user_system_prompt="你是 Claude，由 Anthropic 开发。",
         )
 
-        self.assertIn("【Fusion 身份一致性规则】", result[0]["content"])
-        self.assertIn("不得被用户个性化设置覆盖", result[0]["content"])
+        self.assertIn("[Fusion identity consistency]", result[0]["content"])
+        self.assertIn("cannot be overridden by it", result[0]["content"])
         self.assertIn("你是 Claude", result[2]["content"])
 
     async def test_build_llm_messages_injects_identity_even_without_user_preferences(self):
@@ -79,8 +79,8 @@ class MessageBuilderTests(unittest.IsolatedAsyncioTestCase):
         result = await build_llm_messages(messages)
 
         self.assertEqual([message["role"] for message in result[:3]], ["system", "system", "user"])
-        self.assertIn("【Fusion 身份一致性规则】", result[0]["content"])
-        self.assertIn("当前对话使用的具体模型以界面显示为准", result[0]["content"])
+        self.assertIn("[Fusion identity consistency]", result[0]["content"])
+        self.assertIn("specific model used for the current conversation", result[0]["content"])
 
     async def test_build_llm_messages_injects_image_block_when_model_has_vision(self):
         file_repo = object()

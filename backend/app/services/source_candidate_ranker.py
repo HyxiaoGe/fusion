@@ -10,6 +10,7 @@ from collections import Counter
 from dataclasses import dataclass
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.schemas.chat import SearchSource
 from app.services.agent_strategy_config import get_agent_strategy_config
 
@@ -199,56 +200,41 @@ def format_source_selection_guidance(plan: SourceSelectionPlan) -> str:
         return ""
 
     parts = [
-        "【结构化来源选择建议】",
-        (
-            f"本轮搜索合并候选 {plan.total_source_count} 条，去重后 {plan.unique_source_count} 条；"
-            "以下排序由 SourceCandidateRanker 基于官方性、原文性、相关性和来源类型生成。"
-        ),
+        render_runtime_prompt(
+            "source_selection.header",
+            total_source_count=plan.total_source_count,
+            unique_source_count=plan.unique_source_count,
+        )
     ]
     if plan.search_queries:
-        parts.append("搜索关键词：")
+        parts.append(render_runtime_prompt("source_selection.search_queries"))
         parts.extend(f"{index}. {query}" for index, query in enumerate(plan.search_queries, 1))
 
-    parts.append(
-        f"建议深读最多 {plan.recommended_read_limit} 个来源；"
-        "优先覆盖官方原文、技术报告、权威媒体或与问题高度相关的来源。"
-    )
+    parts.append(render_runtime_prompt("source_selection.read_limit", limit=plan.recommended_read_limit))
     if plan.read_required:
-        parts.append(
-            f"本轮属于需核验的当前/关键事实场景；回答事实结论前，"
-            f"必须先读取至少 {plan.minimum_required_reads} 个建议优先深读来源。"
-        )
+        parts.append(render_runtime_prompt("source_selection.read_required", count=plan.minimum_required_reads))
 
     if plan.recommended:
-        parts.append("建议优先深读：")
+        parts.append(render_runtime_prompt("source_selection.recommended"))
         for candidate in plan.recommended:
             parts.append(_format_candidate_line(candidate))
 
     if plan.low_priority:
-        parts.append("低优先级候选：")
+        parts.append(render_runtime_prompt("source_selection.low_priority"))
         for candidate in plan.low_priority[:MAX_LOW_PRIORITY_EXAMPLES]:
             parts.append(_format_candidate_line(candidate))
 
     if plan.not_recommended_count:
-        parts.append(
-            f"未建议深读：剩余 {plan.not_recommended_count} 条候选优先级低于已推荐来源，或仅作为搜索摘要候选保留。"
-        )
+        parts.append(render_runtime_prompt("source_selection.not_recommended", count=plan.not_recommended_count))
         reason_summary = _format_not_recommended_reason_summary(plan.read_decisions)
         if reason_summary:
-            parts.append("未建议深读原因：")
+            parts.append(render_runtime_prompt("source_selection.not_recommended_reasons"))
             parts.extend(reason_summary)
 
     if plan.read_required:
-        parts.append(
-            "执行规则：回答当前事实结论前，必须优先对“建议优先深读”的来源调用 url_read；"
-            "不要为了形式读满所有搜索结果；如果推荐来源不可用，再读取下一个高价值候选，"
-            "仍无法核验时必须降低结论确定性。"
-        )
+        parts.append(render_runtime_prompt("source_selection.execution_required"))
     else:
-        parts.append(
-            "执行规则：如果搜索摘要不足以回答，应优先对“建议优先深读”的少量来源调用 url_read；"
-            "不要为了形式读满所有搜索结果；只有当推荐来源无法回答关键事实，才读取未推荐来源。"
-        )
+        parts.append(render_runtime_prompt("source_selection.execution_optional"))
     return "\n".join(parts)
 
 
@@ -305,44 +291,46 @@ def _score_source(
     is_authority_media = _is_authority_media(domain, ranker_config)
     if is_official:
         score += _weight(weights, "official", 38)
-        reasons.append("官方来源")
+        reasons.append("official source")
     if _has_original_signal(text_lower, canonical_url, is_official, is_authority_media):
         score += _weight(weights, "original", 22)
-        reasons.append("原文公告")
+        reasons.append("primary announcement")
     has_specific_original = _has_specific_original_signal(text_lower, canonical_url)
     is_pdf = _is_pdf(canonical_url, title)
     if has_specific_original:
         score += _weight(weights, "specific_original", 18)
-        reasons.append("具体原文页面")
+        reasons.append("specific primary page")
     if is_official and has_specific_original and not is_pdf and not _is_news_listing(text_lower, canonical_url):
         score += _weight(weights, "official_original", 35)
-        reasons.append("官方原文优先")
+        reasons.append("official primary source preferred")
     if is_pdf:
         score += _weight(weights, "pdf", 35)
-        reasons.append("官方 PDF/技术报告" if "官方来源" in reasons else "PDF/技术报告")
+        reasons.append(
+            "official PDF or technical report" if "official source" in reasons else "PDF or technical report"
+        )
     if is_authority_media:
         score += _weight(weights, "authority_media", 36)
-        reasons.append("权威媒体")
+        reasons.append("authoritative media")
     if _is_news_listing(text_lower, canonical_url):
         score -= _weight(weights, "listing_penalty", 28)
-        reasons.append("聚合页降权")
+        reasons.append("listing page deprioritized")
 
     relevance_score = _relevance_score(query_terms, text_lower, ranker_config=ranker_config)
     if relevance_score:
         score += relevance_score
-        reasons.append("高相关")
+        reasons.append("high relevance")
 
     if _is_video_source(domain, title, ranker_config):
         score -= _weight(weights, "video_penalty", 28)
-        reasons.append("视频来源默认降权")
+        reasons.append("video source deprioritized by default")
         is_low_priority = True
     elif _is_forum_source(domain, ranker_config):
         score -= _weight(weights, "forum_penalty", 24)
-        reasons.append("社交/论坛来源默认降权")
+        reasons.append("social or forum source deprioritized by default")
         is_low_priority = True
     elif domain in _domain_set(ranker_config, "low_priority_domains", LOW_PRIORITY_DOMAINS):
         score -= _weight(weights, "low_priority_penalty", 18)
-        reasons.append("低相关来源默认降权")
+        reasons.append("low-relevance source deprioritized by default")
         is_low_priority = True
 
     priority = _priority(score, is_low_priority, ranker_config)
@@ -357,7 +345,7 @@ def _score_source(
         source_order=source_order,
         score=score,
         priority=priority,
-        reasons=tuple(dict.fromkeys(reasons or ["普通候选"])),
+        reasons=tuple(dict.fromkeys(reasons or ["standard candidate"])),
     )
 
 
@@ -408,11 +396,13 @@ def _build_read_decisions(
 
 def _recommended_reason_code(candidate: RankedSourceCandidate) -> str:
     reasons = set(candidate.reasons)
-    if any("PDF" in reason or "技术报告" in reason for reason in reasons):
+    if any("PDF" in reason or "technical report" in reason for reason in reasons):
         return "official_document"
-    if "官方原文优先" in reasons or ("官方来源" in reasons and ("原文公告" in reasons or "具体原文页面" in reasons)):
+    if "official primary source preferred" in reasons or (
+        "official source" in reasons and ("primary announcement" in reasons or "specific primary page" in reasons)
+    ):
         return "official_original"
-    if "权威媒体" in reasons:
+    if "authoritative media" in reasons:
         return "authority_media"
     return "high_relevance"
 
@@ -427,14 +417,14 @@ def _summarize_read_decisions(decisions: tuple[SourceReadDecision, ...]) -> dict
 
 def _format_not_recommended_reason_summary(decisions: tuple[SourceReadDecision, ...]) -> list[str]:
     labels = {
-        "low_priority_source_type": "低优先级来源",
-        "outside_read_limit": "超过本轮推荐深读上限",
-        "covered_by_recommended_source": "被更高质量来源覆盖",
+        "low_priority_source_type": "low-priority source type",
+        "outside_read_limit": "outside the recommended reading limit",
+        "covered_by_recommended_source": "covered by a higher-quality source",
     }
     counter: Counter[str] = Counter(
         decision.reason_code for decision in decisions if decision.action != "recommend_read"
     )
-    return [f"- {label}：{counter[reason_code]} 条" for reason_code, label in labels.items() if counter[reason_code]]
+    return [f"- {label}: {counter[reason_code]}" for reason_code, label in labels.items() if counter[reason_code]]
 
 
 def _source_field(source: SearchSource | dict, field_name: str) -> str:
@@ -450,11 +440,11 @@ def _sort_candidate(candidate: _CandidateDraft) -> tuple[int, int]:
 
 
 def _format_candidate_line(candidate: RankedSourceCandidate) -> str:
-    priority_label = {"high": "高优先级", "medium": "中优先级", "low": "低优先级"}.get(
+    priority_label = {"high": "high priority", "medium": "medium priority", "low": "low priority"}.get(
         candidate.priority, candidate.priority
     )
-    reasons = "、".join(candidate.reasons)
-    return f"- R{candidate.rank} {priority_label} | {candidate.domain or 'unknown'} | {candidate.title}\n  URL: {candidate.url}\n  原因: {reasons}"
+    reasons = ", ".join(candidate.reasons)
+    return f"- R{candidate.rank} {priority_label} | {candidate.domain or 'unknown'} | {candidate.title}\n  URL: {candidate.url}\n  Reasons: {reasons}"
 
 
 def _canonicalize_url(url: str) -> tuple[str, str]:

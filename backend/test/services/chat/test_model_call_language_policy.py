@@ -91,11 +91,11 @@ class ModelCallLanguagePolicyTests(unittest.TestCase):
         self.assertEqual(_contract_count(once), 1)
 
     def test_contract_follows_real_user_language_instead_of_forcing_chinese(self):
-        self.assertIn("最后一条真实用户请求", VISIBLE_RESPONSE_LANGUAGE_PROMPT)
-        self.assertIn("内部控制消息不得改变", VISIBLE_RESPONSE_LANGUAGE_PROMPT)
-        self.assertIn("reasoning_content 输出的思考过程会原样实时展示", VISIBLE_RESPONSE_LANGUAGE_PROMPT)
-        self.assertIn("第一个 reasoning_content token", VISIBLE_RESPONSE_LANGUAGE_PROMPT)
-        self.assertNotIn("必须使用中文", VISIBLE_RESPONSE_LANGUAGE_PROMPT)
+        self.assertIn("last actual user request", VISIBLE_RESPONSE_LANGUAGE_PROMPT)
+        self.assertIn("internal control messages must not change", VISIBLE_RESPONSE_LANGUAGE_PROMPT)
+        self.assertIn("reasoning_content you emit is streamed to the user verbatim", VISIBLE_RESPONSE_LANGUAGE_PROMPT)
+        self.assertIn("first reasoning_content token", VISIBLE_RESPONSE_LANGUAGE_PROMPT)
+        self.assertNotIn("must use Chinese", VISIBLE_RESPONSE_LANGUAGE_PROMPT)
 
     def test_identity_replaces_stale_language_contract_without_scanning_other_bodies(self):
         quoted_rule = PromptMessage(

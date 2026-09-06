@@ -43,20 +43,6 @@ def get_china_time():
     return datetime.now(timezone(timedelta(hours=8)))
 
 
-class PromptBundleEngineTransition(Base):
-    """单向迁移阶段的追加事实；无行表示 legacy。"""
-
-    __tablename__ = "prompt_bundle_engine_transitions"
-    project_slug = Column(String(120), primary_key=True)
-    stage = Column(String(16), primary_key=True)
-    revision = Column(String(64), nullable=False)
-    actor = Column(String(120), nullable=False)
-    reason = Column(Text, nullable=False)
-    evidence = Column(JSON, nullable=False)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=get_china_time)
-    __table_args__ = (CheckConstraint("stage IN ('bridge', 'jinja2')", name="ck_prompt_engine_stage"),)
-
-
 message_order_sequence = Sequence("message_order_sequence", start=1, increment=2)
 
 
@@ -652,46 +638,6 @@ class RuntimeConfigEntry(Base):
     __table_args__ = (
         UniqueConstraint("namespace", "key", "version", name="uq_runtime_config_namespace_key_version"),
         Index("ix_runtime_config_active_lookup", "namespace", "key", "is_active", "updated_at"),
-    )
-
-
-class PromptBundleHoldState(Base):
-    """每个项目和逻辑 catalog 的持久跟随状态；激活判断必须锁内直读。"""
-
-    __tablename__ = "prompt_bundle_hold_states"
-    project_slug = Column(String(120), primary_key=True)
-    catalog = Column(String(120), primary_key=True)
-    state = Column(String(16), nullable=False)
-    target_revision = Column(String(64), nullable=True)
-    generation = Column(Integer, nullable=False, default=0)
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=get_china_time)
-    __table_args__ = (
-        CheckConstraint("state IN ('following', 'held')", name="ck_prompt_hold_state"),
-        CheckConstraint(
-            "(state = 'held' AND target_revision IS NOT NULL) OR (state = 'following' AND target_revision IS NULL)",
-            name="ck_prompt_hold_target",
-        ),
-        CheckConstraint("generation >= 0", name="ck_prompt_hold_generation"),
-    )
-
-
-class PromptBundleHoldTransition(Base):
-    """追加式转换审计；不关联用户删除，保留操作时的身份和原因。"""
-
-    __tablename__ = "prompt_bundle_hold_transitions"
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    project_slug = Column(String(120), nullable=False)
-    catalog = Column(String(120), nullable=False)
-    generation = Column(Integer, nullable=False)
-    action = Column(String(16), nullable=False)
-    target_revision = Column(String(64), nullable=False)
-    actor = Column(String(120), nullable=False)
-    reason = Column(Text, nullable=False)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=get_china_time)
-    __table_args__ = (
-        UniqueConstraint("project_slug", "catalog", "generation", name="uq_prompt_hold_transition_generation"),
-        CheckConstraint("action IN ('entered', 'released')", name="ck_prompt_hold_transition_action"),
-        CheckConstraint("generation > 0", name="ck_prompt_hold_transition_generation"),
     )
 
 

@@ -27,11 +27,11 @@ class McpProviderProfileTests(unittest.TestCase):
 
         resolve_guidance = endpoint_tool_guidance(endpoint, "resolve-library-id")
         query_guidance = endpoint_tool_guidance(endpoint, "query-docs")
-        self.assertIn("公开", resolve_guidance)
-        self.assertIn("不得发送", resolve_guidance)
+        self.assertIn("public software library", resolve_guidance)
+        self.assertIn("Do not send", resolve_guidance)
         self.assertIn("resolve-library-id", query_guidance)
-        self.assertIn("必须先调用", query_guidance)
-        self.assertIn("不得发送", query_guidance)
+        self.assertIn("Call resolve-library-id first", query_guidance)
+        self.assertIn("Do not send", query_guidance)
 
         self.assertEqual(
             endpoint_tool_schema_override(endpoint, "resolve-library-id"),

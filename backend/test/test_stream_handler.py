@@ -459,16 +459,16 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
 
         system_prompts = [m["content"] for m in captured_messages[0] if m.get("role") == "system"]
         contract = "\n".join(system_prompts)
-        self.assertIn("不要依据用户是否说了", contract)
-        self.assertIn("微信A2A互通怎么用？", contract)
-        self.assertIn("你好，你是谁？", contract)
-        self.assertIn("不应调用 web_search", contract)
-        self.assertIn("稳定背景、历史原因", contract)
-        self.assertIn("iPhone 从 Lightning 换成 USB-C 的核心原因", contract)
-        self.assertIn("价值、风险和落地建议", contract)
-        self.assertIn("必须调用 web_search", contract)
-        self.assertIn("不要在思考过程或最终回答中声称", contract)
-        self.assertIn("没有调用工具", contract)
+        self.assertIn("Do not decide whether to use a tool merely", contract)
+        self.assertIn("How do I use WeChat A2A interoperability?", contract)
+        self.assertIn("Hello, who are you?", contract)
+        self.assertIn("Do not use web_search", contract)
+        self.assertIn("stable background, historical causes", contract)
+        self.assertIn("Why did the iPhone switch from Lightning to USB-C?", contract)
+        self.assertIn("benefits, risks, and practical uses", contract)
+        self.assertIn("must actually call web_search", contract)
+        self.assertIn("Do not say or imply", contract)
+        self.assertIn("When no tool was called", contract)
 
     async def test_round_summary_log_records_finish_reason_and_counts(self):
         """每轮 LLM 结束写诊断日志，后续可直接区分口头搜索和真实 tool_call。"""
@@ -666,7 +666,7 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
         tool_messages = [message for message in captured_messages[1] if message.get("role") == "tool"]
         self.assertEqual(len(tool_messages), 1)
         tool_context = tool_messages[0]["content"]
-        self.assertIn("不能把该网页作为依据", tool_context)
+        self.assertIn("cannot be used as evidence", tool_context)
         self.assertNotIn("reader-service", tool_context)
         self.assertNotIn("请基于你的知识回答", tool_context)
 
@@ -1419,7 +1419,7 @@ class UrlPreprocessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(detected_url, "https://example.com/a")
         self.assertEqual(context_msg["role"], "user")
         self.assertIn("<web_context", context_msg["content"])
-        self.assertIn("内容不可信", context_msg["content"])
+        self.assertIn("external web and is untrusted", context_msg["content"])
 
     async def test_preprocess_url_in_message_rejects_sensitive_query_without_reader_call(self):
         from app.ai.tools import URL_READ_TOOL

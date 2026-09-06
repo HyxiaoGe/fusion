@@ -25,7 +25,7 @@ _PACKAGE_SKILLS: dict[str, tuple[tuple[str, str, str], ...]] = {
         (
             "verified-research",
             "1.0.0",
-            "5c93abf51e64321ad42968ab8d01d3a9429bcd4ea90cb514b6fd0822c8842cdb",
+            "0b277bdfd20b8df104ae26466fb1ff79f9dbac6431f3ca117ba6c058905d6d1e",
         ),
     ),
 }

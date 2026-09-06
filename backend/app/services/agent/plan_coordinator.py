@@ -8,6 +8,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
+
 PlanMode = Literal["auto", "on", "off"]
 PlanSource = Literal["model"]
 PlanStatus = Literal["pending", "running", "completed", "failed", "skipped", "blocked"]
@@ -300,7 +302,7 @@ class PlanCoordinator:
                 "items": [
                     {
                         "id": "research-search",
-                        "title": "搜索候选来源",
+                        "title": render_runtime_prompt("research.fallback_search_title"),
                         "status": "pending",
                         "kind": "search",
                         "depends_on": [],
@@ -308,7 +310,7 @@ class PlanCoordinator:
                     },
                     {
                         "id": "research-read-primary",
-                        "title": "核验首个关键来源",
+                        "title": render_runtime_prompt("research.fallback_primary_title"),
                         "status": "pending",
                         "kind": "read",
                         "depends_on": ["research-search"],
@@ -316,7 +318,7 @@ class PlanCoordinator:
                     },
                     {
                         "id": "research-read-secondary",
-                        "title": "交叉核验独立来源",
+                        "title": render_runtime_prompt("research.fallback_secondary_title"),
                         "status": "pending",
                         "kind": "read",
                         "depends_on": ["research-search"],
@@ -324,7 +326,7 @@ class PlanCoordinator:
                     },
                     {
                         "id": "research-answer",
-                        "title": "整理研究结论",
+                        "title": render_runtime_prompt("research.fallback_answer_title"),
                         "status": "pending",
                         "kind": "answer",
                         "depends_on": ["research-read-primary", "research-read-secondary"],
@@ -424,7 +426,9 @@ class PlanCoordinator:
             insertion_template = successful_search_owner
         recovery_item = {
             "id": recovery_id,
-            "title": "读取替补来源" if tool_name == "url_read" else "补充执行失败任务",
+            "title": render_runtime_prompt(
+                "research.replacement_source_title" if tool_name == "url_read" else "research.retry_task_title"
+            ),
             "status": "pending",
             "kind": template.get("kind", "other"),
             "depends_on": recovery_depends_on,

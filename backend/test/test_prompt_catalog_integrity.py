@@ -31,19 +31,11 @@ class PromptCatalogConsumerRegistryTests(unittest.TestCase):
                 prompt_catalog.register_prompt_consumer("app_identity")(lambda: "second")
 
     def test_catalog_count_is_derived_not_hardcoded(self):
-        from app.core.prompt_bundle import PromptBundleValidationError, validate_published_bundle
+        from app.ai.prompts.defaults import DEFAULT_PROMPT_TEMPLATES
         from app.core.prompt_catalog import PROMPT_SPECS
 
-        with self.assertRaises(PromptBundleValidationError) as ctx:
-            validate_published_bundle(_EmptyBundle())
-
-        self.assertIn(f"{len(PROMPT_SPECS)} 个约定 Prompt", str(ctx.exception))
-
-
-class _EmptyBundle:
-    project_slug = "fusion"
-    revision = "a" * 64
-    prompts: tuple = ()
+        self.assertEqual(len(DEFAULT_PROMPT_TEMPLATES), len(PROMPT_SPECS))
+        self.assertEqual(set(DEFAULT_PROMPT_TEMPLATES), {spec.key for spec in PROMPT_SPECS})
 
 
 if __name__ == "__main__":

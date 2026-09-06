@@ -8,6 +8,7 @@ WEB_SEARCH_TOOL 是函数（不是 const），每次调用时重算当前年份�
 from datetime import datetime, timedelta, timezone
 
 from app.ai.prompts.agent_loop import get_url_read_tool_description
+from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 
 _CHINA_TZ = timezone(timedelta(hours=8))
 
@@ -21,44 +22,17 @@ def build_web_search_tool() -> dict:
         "type": "function",
         "function": {
             "name": "web_search",
-            "description": (
-                "搜索互联网获取实时信息。以下情况应该使用此工具：\n"
-                "- 用户询问最新新闻、时事、实时数据（天气、股价、赛事比分）\n"
-                f"- 用户的问题包含时间敏感词（'最新'、'今天'、'目前'、'{year}年'）\n"
-                "- 用户询问你不确定或可能已过时的事实\n"
-                "- 用户询问特定产品的价格、在售状态、上市安排、支持范围、兼容性、官方流程等当前状态\n\n"
-                "自然问题判断规则：\n"
-                "- 即使用户没有说「联网」「搜索」「查询」，只要问题要求当前使用方法、接入、集成、"
-                "互通、开通条件、支持范围、兼容性、官方文档、产品更新等可能变化的信息，也应优先搜索\n"
-                "- 如果问题只是稳定背景、历史原因或通用解释，不要仅因出现产品、公司、接口、协议或法规就搜索\n"
-                "- 示例：微信A2A互通怎么用？；OpenAI 最近发布了哪些产品更新？\n\n"
-                "搜索次数规则：\n"
-                "- 默认只发起 1 次搜索，先用最精准关键词获取候选来源\n"
-                "- 第二次搜索只在互补维度成立时使用，例如官方来源、权威媒体、地区、时间范围"
-                "等维度需要对照、多方比较或深度核验时，才发起第二个互补搜索\n"
-                "- 第三次搜索只适用于 deep_research 深度研究场景，普通最新信息或产品更新不要发起第三次搜索\n"
-                "- 同一轮不要用中文/英文翻译或同义改写重复搜索同一意图\n\n"
-                "以下情况不应使用此工具：\n"
-                "- 通用知识问答（数学公式、科学原理、历史常识）\n"
-                "- 稳定背景、历史原因或已知政策影响的通用解释，例如：iPhone 从 Lightning 换成 USB-C 的核心原因\n"
-                "- 不依赖最新事实的观点分析、方案建议、经验总结，例如：AI 编程助手的价值、风险和落地建议\n"
-                "- 代码编写、翻译、创意写作\n"
-                "- 用户明确要求基于你自身知识回答\n"
-                "- 纯闲聊或情感交流，例如：你好，你是谁？；1+1等于几？"
-            ),
+            "description": render_runtime_prompt("ai_tools.web_search_description", year=year),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": (
-                            "搜索关键词。规则：\n"
-                            "- 使用与用户消息相同的语言（用户用中文就搜中文）\n"
-                            "- 简洁精准，3-8 个词\n"
-                            "- 不要用中英文翻译或同义改写重复搜索同一意图\n"
-                            f"- **必须用 {year} 或更晚的年份，禁止使用 {year - 1} 或更早的年份**\n"
-                            f"- 包含时间限定词（如 '{year}年'、'最新'、'今日'）以获取最新结果\n"
-                            f"- 示例：'{year}年{month}月AI 视频生成最新进展' 而不是 'AI video generation'"
+                        "description": render_runtime_prompt(
+                            "ai_tools.web_search_query",
+                            year=year,
+                            previous_year=year - 1,
+                            month=f"{month:02d}",
                         ),
                     },
                     "intent": {
@@ -70,20 +44,16 @@ def build_web_search_tool() -> dict:
                             "deep_research",
                             "official_source",
                         ],
-                        "description": (
-                            "搜索意图：quick_fact=快速事实，freshness=最新进展，"
-                            "comparison=多方对比，deep_research=深入调研，"
-                            "official_source=优先官方来源。"
-                        ),
+                        "description": render_runtime_prompt("ai_tools.web_search_intent"),
                     },
                     "domains": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "可选域名过滤列表，最多 5 个合法域名，例如 openai.com。",
+                        "description": render_runtime_prompt("ai_tools.web_search_domains"),
                     },
                     "recency_days": {
                         "type": "integer",
-                        "description": "可选时间范围天数，后端会限制在 1 到 365 天之间。",
+                        "description": render_runtime_prompt("ai_tools.web_search_recency"),
                     },
                 },
                 "required": ["query"],
@@ -109,11 +79,11 @@ def build_url_read_tool() -> dict:
                 "properties": {
                     "url": {
                         "type": "string",
-                        "description": "要读取的完整 URL 地址（包含 http:// 或 https://）",
+                        "description": render_runtime_prompt("ai_tools.url"),
                     },
                     "reason": {
                         "type": "string",
-                        "description": "读取该 URL 的原因，用于联网诊断展示，后端最多保留 160 个字符。",
+                        "description": render_runtime_prompt("ai_tools.url_reason"),
                     },
                 },
                 "required": ["url"],

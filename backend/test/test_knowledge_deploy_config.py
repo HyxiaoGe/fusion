@@ -318,7 +318,6 @@ class KnowledgeDeployConfigTests(unittest.TestCase):
                         "Networks": {
                             "postgres_default": {},
                             "middleware_default": {},
-                            "fusion-prompthub": {},
                             "fusion-flyai": {},
                         }
                     },

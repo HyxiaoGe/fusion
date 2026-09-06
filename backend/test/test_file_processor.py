@@ -24,7 +24,7 @@ class FileProcessorTests(unittest.IsolatedAsyncioTestCase):
             result = await processor.process_files(["/tmp/note.txt"], mime_types=["text/plain"])
 
         self.assertEqual(result["model"], "local-text-extraction")
-        self.assertIn("文件 1: note.txt", result["content"])
+        self.assertIn("File 1: note.txt", result["content"])
         self.assertIn("第一行", result["content"])
         call_model.assert_not_called()
 
@@ -71,8 +71,8 @@ class FileProcessorTests(unittest.IsolatedAsyncioTestCase):
             ]
         )
 
-        self.assertIn("...(内容过长已截断)", content)
-        self.assertIn("文件 1: note.txt", content)
+        self.assertIn("...[Content truncated because it is too long.]", content)
+        self.assertIn("File 1: note.txt", content)
 
     def test_build_prompt_truncates_extracted_text(self):
         processor = FileProcessor()
@@ -89,7 +89,7 @@ class FileProcessorTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
-        self.assertIn("...(内容过长已截断)", prompt)
+        self.assertIn("...[Content truncated because it is too long.]", prompt)
         self.assertIn("总结一下", prompt)
 
     def test_run_optional_text_extractor_returns_none_on_missing_dependency(self):

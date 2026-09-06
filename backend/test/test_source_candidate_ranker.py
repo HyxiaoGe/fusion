@@ -113,16 +113,16 @@ class SourceCandidateRankerTests(unittest.TestCase):
                 "https://axios.com/2026/06/26/openai-gpt-sol-terra-luna-trump",
             ],
         )
-        self.assertIn("官方来源", plan.recommended[0].reasons)
-        self.assertIn("原文公告", plan.recommended[0].reasons)
-        self.assertIn("官方 PDF/技术报告", plan.recommended[1].reasons)
-        self.assertIn("权威媒体", plan.recommended[2].reasons)
+        self.assertIn("official source", plan.recommended[0].reasons)
+        self.assertIn("primary announcement", plan.recommended[0].reasons)
+        self.assertIn("official PDF or technical report", plan.recommended[1].reasons)
+        self.assertIn("authoritative media", plan.recommended[2].reasons)
 
         by_domain = {candidate.domain: candidate for candidate in plan.candidates}
         self.assertEqual(by_domain["threads.com"].priority, "low")
-        self.assertIn("社交/论坛来源默认降权", by_domain["threads.com"].reasons)
+        self.assertIn("social or forum source deprioritized by default", by_domain["threads.com"].reasons)
         self.assertEqual(by_domain["youtube.com"].priority, "low")
-        self.assertIn("视频来源默认降权", by_domain["youtube.com"].reasons)
+        self.assertIn("video source deprioritized by default", by_domain["youtube.com"].reasons)
 
     def test_rank_search_sources_uses_configured_authority_media_domain(self):
         with patch.object(
@@ -180,7 +180,7 @@ class SourceCandidateRankerTests(unittest.TestCase):
             )
 
         self.assertEqual(plan.recommended[0].domain, "example.com")
-        self.assertIn("权威媒体", plan.recommended[0].reasons)
+        self.assertIn("authoritative media", plan.recommended[0].reasons)
 
     def test_format_source_selection_guidance_explains_recommended_reads(self):
         search_results = [
@@ -205,14 +205,14 @@ class SourceCandidateRankerTests(unittest.TestCase):
 
         guidance = format_source_selection_guidance(plan)
 
-        self.assertIn("结构化来源选择建议", guidance)
-        self.assertIn("合并候选 2 条，去重后 2 条", guidance)
-        self.assertIn("建议优先深读", guidance)
+        self.assertIn("Structured source-selection guidance", guidance)
+        self.assertIn("2 combined candidates and 2 after deduplication", guidance)
+        self.assertIn("Recommended for priority reading", guidance)
         self.assertIn("Previewing GPT-5.6 Sol", guidance)
-        self.assertIn("官方来源", guidance)
-        self.assertIn("低优先级候选", guidance)
+        self.assertIn("official source", guidance)
+        self.assertIn("Low-priority candidates", guidance)
         self.assertIn("threads.com", guidance)
-        self.assertIn("不要为了形式读满所有搜索结果", guidance)
+        self.assertIn("Do not read every search result merely for completeness", guidance)
 
     def test_source_selection_plan_records_read_decisions_for_all_candidates(self):
         search_results = [
@@ -261,10 +261,10 @@ class SourceCandidateRankerTests(unittest.TestCase):
 
         guidance = format_source_selection_guidance(plan)
 
-        self.assertIn("未建议深读原因", guidance)
-        self.assertIn("低优先级来源", guidance)
-        self.assertIn("超过本轮推荐深读上限", guidance)
-        self.assertIn("只有当推荐来源无法回答关键事实", guidance)
+        self.assertIn("Reasons not recommended", guidance)
+        self.assertIn("low-priority source type", guidance)
+        self.assertIn("outside the recommended reading limit", guidance)
+        self.assertIn("only when recommended sources cannot answer an important fact", guidance)
 
     def test_search_read_planner_recommends_one_read_for_quick_fact(self):
         from app.services.search_read_planner import build_search_read_plan
@@ -405,8 +405,8 @@ class SourceCandidateRankerTests(unittest.TestCase):
         self.assertFalse(plan.read_required)
         self.assertEqual(plan.minimum_required_reads, 0)
         self.assertEqual(plan.read_required_reason, "")
-        self.assertIn("如果搜索摘要不足以回答", guidance)
-        self.assertNotIn("必须先读取至少", guidance)
+        self.assertIn("if search snippets are insufficient", guidance)
+        self.assertNotIn("Read at least", guidance)
 
     def test_search_read_plan_guidance_explains_read_limit_and_unrecommended_candidates(self):
         from app.services.search_read_planner import build_search_read_plan, format_search_read_plan_guidance
@@ -425,8 +425,8 @@ class SourceCandidateRankerTests(unittest.TestCase):
 
         guidance = format_search_read_plan_guidance(plan)
 
-        self.assertIn("搜索关键词", guidance)
-        self.assertIn("建议深读最多 2 个来源", guidance)
-        self.assertIn("必须先读取至少 1 个建议优先深读来源", guidance)
-        self.assertIn("未建议深读", guidance)
-        self.assertIn("不要为了形式读满所有搜索结果", guidance)
+        self.assertIn("Search queries", guidance)
+        self.assertIn("Read at most 2 recommended sources", guidance)
+        self.assertIn("Read at least 1 recommended high-priority source", guidance)
+        self.assertIn("Not recommended for deeper reading", guidance)
+        self.assertIn("Do not read every search result merely for completeness", guidance)

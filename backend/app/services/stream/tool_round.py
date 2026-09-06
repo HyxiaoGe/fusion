@@ -13,6 +13,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
+from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.schemas.chat import (
     FlightResultsBlock,
     ItineraryResultsBlock,
@@ -865,7 +866,11 @@ async def _emit_citation_source_evidence(
                         "url": url,
                         "domain": urlsplit(url).hostname,
                         "claim": base_evidence.get("claim")
-                        or ("已读取网页原文。" if block_type == "url_read" else "搜索候选来源。"),
+                        or render_runtime_prompt(
+                            "research.original_page_claim"
+                            if block_type == "url_read"
+                            else "research.candidate_source_claim"
+                        ),
                         "snippet": base_evidence.get("snippet"),
                         "used_by_final_answer": False,
                         "citation_index": citation_index,
@@ -1332,7 +1337,7 @@ def _format_missing_tool_result_context() -> str:
         {
             "status": "failed",
             "reason": "execution_result_missing",
-            "message": "工具执行未返回可用记录，本次结果不能作为事实依据。",
+            "message": render_runtime_prompt("tool_result.missing"),
         },
         ensure_ascii=False,
     )
@@ -1344,7 +1349,7 @@ def _format_not_executed_tool_context() -> str:
             "status": "not_executed",
             "reason": "limit_reached",
             "limit_reason": "max_tool_calls",
-            "message": "Agent 工具调用额度已耗尽，本次调用未执行，不能将其视为事实依据。",
+            "message": render_runtime_prompt("tool_result.limit"),
         },
         ensure_ascii=False,
     )
@@ -1355,7 +1360,7 @@ def _format_reused_tool_context() -> str:
         {
             "status": "reused",
             "reason": "identical_successful_result",
-            "message": "同名同参查询已成功执行；请复用上一条成功结果并直接回答，不要再次调用或重复展示。",
+            "message": render_runtime_prompt("tool_result.reused_json"),
         },
         ensure_ascii=False,
     )
@@ -1366,7 +1371,7 @@ def _format_unavailable_tool_context() -> str:
         {
             "status": "not_executed",
             "reason": "tool_not_announced_this_round",
-            "message": "该工具本轮不可用，本次调用未执行，不能作为事实依据；请停止重复调用。",
+            "message": render_runtime_prompt("tool_result.unannounced"),
         },
         ensure_ascii=False,
     )
@@ -1380,7 +1385,7 @@ def _format_context_unavailable_tool_context(blocked: BlockedToolContext) -> str
             "context_type": "geolocation",
             "context_status": blocked.status,
             "reason": blocked.reason,
-            "instruction": "未执行工具；不得声称已获取用户位置，本 run 不要再次请求当前位置。",
+            "instruction": render_runtime_prompt("tool_result.location_unavailable"),
         },
         ensure_ascii=False,
     )

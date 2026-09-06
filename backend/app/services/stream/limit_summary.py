@@ -20,6 +20,7 @@ from app.ai.prompts.agent_loop import (
     get_limit_summary_prompt,
 )
 from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages, to_provider_messages
+from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.ai.prompts.section_ids import (
     DEEP_RESEARCH_CONTROL_SECTION_IDS,
     LIMIT_SUMMARY,
@@ -259,10 +260,7 @@ def _only_recoverable_tool_transactions(messages: list[PromptMessage | dict]) ->
     )
 
 
-SUMMARY_TOOL_PROTOCOL_RETRY_PROMPT = (
-    "请立即基于已有资料直接输出面向用户的最终答复。当前不能调用任何工具；"
-    "不要输出任何工具调用、DSML/XML 协议、函数名、参数或内部规划，只输出自然语言答案。"
-)
+SUMMARY_TOOL_PROTOCOL_RETRY_PROMPT = render_runtime_prompt("stream.summary_tool_protocol_retry")
 
 SUMMARY_PROTOCOL_FALLBACK_TEXT = "当前未能生成可靠的最终答复，请稍后重试。"
 DEEP_RESEARCH_INCOMPLETE_TEXT = (

@@ -9,9 +9,9 @@ import pytest
 
 from app.ai.skills.registry import SkillReleasePin, load_skills_for_package
 
-VALID_BODY = """# 可核验研究
+VALID_BODY = """# Verified Research
 
-先搜索候选来源，再读取原文并交叉核验关键事实。
+Search for candidate sources, then read the original material and cross-check key facts.
 """
 
 
@@ -19,7 +19,7 @@ def _skill_document(
     *,
     name: str = "verified-research",
     version: str = "1.0.0",
-    description: str = "对需要官方原文与交叉来源的请求建立可核验证据链",
+    description: str = "Build a verifiable evidence chain for requests requiring official primary sources and cross-source checking",
     allowed_tools: tuple[str, ...] | None = ("web_search", "url_read"),
     body: str = VALID_BODY,
     extra_frontmatter: str = "",
@@ -69,14 +69,16 @@ def test_bundled_verified_research_skill_loads_as_frozen_snapshot() -> None:
     assert loaded.metadata == result.resolution.skills[0]
     assert loaded.metadata.skill_id == "verified-research"
     assert loaded.metadata.version == "1.0.0"
-    assert loaded.metadata.description == "对需要官方原文与交叉来源的请求建立可核验证据链"
+    assert loaded.metadata.description == (
+        "Build a verifiable evidence chain for requests requiring official primary sources and cross-source checking"
+    )
     assert loaded.metadata.allowed_tool_names == ("web_search", "url_read")
     assert loaded.metadata.activation_source == "capability_package"
     assert loaded.metadata.section_id == "skill:verified-research@1.0.0"
     assert loaded.metadata.char_count == len(loaded.content)
     assert loaded.metadata.content_sha256 == hashlib.sha256(loaded.content.encode("utf-8")).hexdigest()
-    assert "官方" in loaded.content
-    assert "交叉" in loaded.content
+    assert "official" in loaded.content
+    assert "Cross-check" in loaded.content
 
     serialized_resolution = asdict(result.resolution)
     assert "content" not in serialized_resolution
@@ -102,13 +104,13 @@ def test_platform_line_endings_keep_published_body_digest_stable(
 
     assert result.resolution.status == "loaded"
     assert result.resolution.skills[0].content_sha256 == (
-        "5c93abf51e64321ad42968ab8d01d3a9429bcd4ea90cb514b6fd0822c8842cdb"
+        "0b277bdfd20b8df104ae26466fb1ff79f9dbac6431f3ca117ba6c058905d6d1e"
     )
     assert "\r" not in result.loaded_skills[0].content
 
 
 def test_published_version_rejects_body_changed_without_version_bump(tmp_path: Path) -> None:
-    _write_skill(tmp_path, payload=_skill_document(body="# 被原地修改\n\n这不应继续冒充 1.0.0。\n"))
+    _write_skill(tmp_path, payload=_skill_document(body="# Modified in place\n\nThis must not impersonate 1.0.0.\n"))
 
     result = load_skills_for_package(
         "verified_web",
@@ -197,7 +199,7 @@ def test_unmapped_package_does_not_touch_skill_files(package_id: str, tmp_path: 
         ),
         (
             "version_directory_mismatch",
-            _skill_document(version="1.0.1"),
+            _skill_document(version="1.0.2"),
             "1.0.0",
             ("web_search", "url_read"),
         ),

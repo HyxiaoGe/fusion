@@ -195,23 +195,10 @@ jobs:
         id: apply_migrations
         if: inputs.migration_enabled && needs.prepare.outputs.rollback_requested != 'true'
         run: ops/deploy/api-apply-alembic-migrations.sh
-      - name: Prepare verified Prompt bundle
-        id: prepare_prompt_bundle
-        if: needs.prepare.outputs.rollback_requested != 'true'
-        env:
-          PREVIOUS_API_ID: ${{ steps.capture_rollback_target.outputs.api_image_id }}
-          PREVIOUS_API_REF: ${{ steps.capture_rollback_target.outputs.api_image_ref }}
-          DEPLOY_PROMPTHUB_API_KEY: ${{ secrets.PROMPTHUB_API_KEY }}
-          DEPLOY_PROMPTHUB_SYNC_MODE: ${{ vars.PROMPTHUB_SYNC_MODE || 'disabled' }}
-          DEPLOY_PROMPT_P0_BASELINE_ATTESTED: ${{ vars.PROMPT_P0_BASELINE_ATTESTED || 'false' }}
-        run: ops/deploy/api-prepare-prompt-bundle.sh
       - name: Pull and restart fusion-api
         id: deploy_candidate
         env:
           ROLLBACK_REQUESTED: ${{ needs.prepare.outputs.rollback_requested }}
-          DEPLOY_PROMPTHUB_API_KEY: ${{ secrets.PROMPTHUB_API_KEY }}
-          DEPLOY_PROMPTHUB_SYNC_MODE: ${{ vars.PROMPTHUB_SYNC_MODE || 'disabled' }}
-          DEPLOY_PROMPT_P0_BASELINE_ATTESTED: ${{ vars.PROMPT_P0_BASELINE_ATTESTED || 'false' }}
           DEPLOY_MCP_ALLOWED_HOSTS: ${{ vars.MCP_ALLOWED_HOSTS }}
           DEPLOY_MCP_ALLOWED_CREDENTIAL_REFS: ${{ vars.MCP_ALLOWED_CREDENTIAL_REFS }}
           DEPLOY_MCP_CONNECT_TIMEOUT_SECONDS: ${{ vars.MCP_CONNECT_TIMEOUT_SECONDS }}
@@ -344,9 +331,6 @@ jobs:
           ROLLBACK_MODEL_MANAGEMENT_TIMER_UNIT_EXISTED: ${{ steps.capture_rollback_target.outputs.model_management_timer_unit_existed }}
           ROLLBACK_MODEL_MANAGEMENT_SERVICE_UNIT_B64: ${{ steps.capture_rollback_target.outputs.model_management_service_unit_b64 }}
           ROLLBACK_MODEL_MANAGEMENT_TIMER_UNIT_B64: ${{ steps.capture_rollback_target.outputs.model_management_timer_unit_b64 }}
-          DEPLOY_PROMPTHUB_API_KEY: ${{ secrets.PROMPTHUB_API_KEY }}
-          DEPLOY_PROMPTHUB_SYNC_MODE: ${{ vars.PROMPTHUB_SYNC_MODE || 'disabled' }}
-          DEPLOY_PROMPT_P0_BASELINE_ATTESTED: ${{ vars.PROMPT_P0_BASELINE_ATTESTED || 'false' }}
           DEPLOY_MCP_ALLOWED_HOSTS: ${{ vars.MCP_ALLOWED_HOSTS }}
           DEPLOY_MCP_ALLOWED_CREDENTIAL_REFS: ${{ vars.MCP_ALLOWED_CREDENTIAL_REFS }}
           DEPLOY_MCP_CONNECT_TIMEOUT_SECONDS: ${{ vars.MCP_CONNECT_TIMEOUT_SECONDS }}

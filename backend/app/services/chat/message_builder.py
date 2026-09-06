@@ -158,7 +158,7 @@ def inject_file_content(
     包装语来自 catalog 的 `file_content_enhancement`，是该条目的真实消费路径；
     代码默认值与此前硬编码文本逐字节一致，接入模板不改变模型可见正文。
     """
-    combined = "\n\n".join(f"文件内容 ({i + 1}):\n{content}" for i, content in enumerate(file_contents.values()))
+    combined = "\n\n".join(f"File content ({i + 1}):\n{content}" for i, content in enumerate(file_contents.values()))
     enhanced = prompt_manager.format_prompt(
         "file_content_enhancement",
         query=original_message,

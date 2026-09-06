@@ -17,9 +17,6 @@ set -a
 source "${FUSION_RUNTIME_ENV}"
 set +a
 export CONTEXT7_API_KEY=""
-export PROMPTHUB_API_KEY="${DEPLOY_PROMPTHUB_API_KEY:-}"
-export PROMPTHUB_SYNC_MODE="${DEPLOY_PROMPTHUB_SYNC_MODE:-disabled}"
-export PROMPT_P0_BASELINE_ATTESTED="${DEPLOY_PROMPT_P0_BASELINE_ATTESTED:-false}"
 export RUN_CAPABILITY_CLASSIFIER_MODEL="${DEPLOY_RUN_CAPABILITY_CLASSIFIER_MODEL:-${RUN_CAPABILITY_CLASSIFIER_MODEL:-deepseek-chat}}"
 export RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL="${DEPLOY_RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL:-${RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL:-deepseek/deepseek-chat}}"
 export MCP_ALLOWED_HOSTS="${DEPLOY_MCP_ALLOWED_HOSTS:-${MCP_ALLOWED_HOSTS:-learn.microsoft.com,dashscope.aliyuncs.com,mcp.amap.com,mcp.context7.com}}"
@@ -364,8 +361,6 @@ else:
     print("candidate knowledge settings ok")
 PY
 fi
-"${GITHUB_WORKSPACE}/ops/deploy/api-check-prompt-hold-target.sh" "${DEPLOY_API_IMAGE}"
-
 if docker run --rm --entrypoint /bin/sh "${DEPLOY_API_IMAGE}" -c 'test -f /app/scripts/run_knowledge_worker.py'; then
   knowledge_worker_supported="true"
 else
@@ -479,14 +474,6 @@ services:
       - LITELLM_MODEL_ADMISSION_WORKER_ENABLED=${LITELLM_MODEL_ADMISSION_WORKER_ENABLED:-false}
       - LITELLM_MODEL_ADMISSION_WORKER_TOKEN=${LITELLM_MODEL_ADMISSION_WORKER_TOKEN:-}
       - LITELLM_MODEL_ADMISSION_LEASE_SECONDS=${LITELLM_MODEL_ADMISSION_LEASE_SECONDS:-600}
-      - PROMPTHUB_SYNC_MODE=${PROMPTHUB_SYNC_MODE:-disabled}
-      - PROMPT_P0_BASELINE_ATTESTED=${PROMPT_P0_BASELINE_ATTESTED:-false}
-      - PROMPTHUB_BASE_URL=${PROMPTHUB_BASE_URL:-http://prompthub-backend:8000}
-      - PROMPTHUB_API_KEY=${PROMPTHUB_API_KEY:-}
-      - PROMPTHUB_PROJECT_SLUG=${PROMPTHUB_PROJECT_SLUG:-fusion}
-      - PROMPTHUB_REQUEST_TIMEOUT_SECONDS=${PROMPTHUB_REQUEST_TIMEOUT_SECONDS:-3}
-      - PROMPTHUB_SYNC_INTERVAL_SECONDS=${PROMPTHUB_SYNC_INTERVAL_SECONDS:-300}
-      - PROMPTHUB_SYNC_ON_STARTUP=${PROMPTHUB_SYNC_ON_STARTUP:-true}
       - MCP_ALLOWED_HOSTS=${MCP_ALLOWED_HOSTS}
       - MCP_ALLOWED_CREDENTIAL_REFS=${MCP_ALLOWED_CREDENTIAL_REFS}
       - MCP_CONNECT_TIMEOUT_SECONDS=${MCP_CONNECT_TIMEOUT_SECONDS}
@@ -553,7 +540,6 @@ services:
     networks:
       - postgres_default
       - middleware_default
-      - fusion-prompthub
       - fusion-flyai
       - fusion-knowledge-milvus
 
@@ -638,8 +624,6 @@ networks:
     external: true
   middleware_default:
     external: true
-  fusion-prompthub:
-    external: true
   fusion-flyai:
     name: fusion-flyai
     driver: bridge
@@ -647,8 +631,6 @@ networks:
     external: true
     name: ${MILVUS_DOCKER_NETWORK}
 EOF
-docker network inspect fusion-prompthub >/dev/null 2>&1 \
-  || docker network create fusion-prompthub >/dev/null
 if [ "${knowledge_worker_supported}" = "true" ]; then
   docker compose --project-name fusion -f docker-compose.fusion-api-ghcr.yml --profile knowledge-worker up -d
 else
