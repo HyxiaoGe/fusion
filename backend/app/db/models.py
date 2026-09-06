@@ -641,6 +641,46 @@ class RuntimeConfigEntry(Base):
     )
 
 
+class PromptBundleHoldState(Base):
+    """每个项目和逻辑 catalog 的持久跟随状态；激活判断必须锁内直读。"""
+
+    __tablename__ = "prompt_bundle_hold_states"
+    project_slug = Column(String(120), primary_key=True)
+    catalog = Column(String(120), primary_key=True)
+    state = Column(String(16), nullable=False)
+    target_revision = Column(String(64), nullable=True)
+    generation = Column(Integer, nullable=False, default=0)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=get_china_time)
+    __table_args__ = (
+        CheckConstraint("state IN ('following', 'held')", name="ck_prompt_hold_state"),
+        CheckConstraint(
+            "(state = 'held' AND target_revision IS NOT NULL) OR (state = 'following' AND target_revision IS NULL)",
+            name="ck_prompt_hold_target",
+        ),
+        CheckConstraint("generation >= 0", name="ck_prompt_hold_generation"),
+    )
+
+
+class PromptBundleHoldTransition(Base):
+    """追加式转换审计；不关联用户删除，保留操作时的身份和原因。"""
+
+    __tablename__ = "prompt_bundle_hold_transitions"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_slug = Column(String(120), nullable=False)
+    catalog = Column(String(120), nullable=False)
+    generation = Column(Integer, nullable=False)
+    action = Column(String(16), nullable=False)
+    target_revision = Column(String(64), nullable=False)
+    actor = Column(String(120), nullable=False)
+    reason = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=get_china_time)
+    __table_args__ = (
+        UniqueConstraint("project_slug", "catalog", "generation", name="uq_prompt_hold_transition_generation"),
+        CheckConstraint("action IN ('entered', 'released')", name="ck_prompt_hold_transition_action"),
+        CheckConstraint("generation > 0", name="ck_prompt_hold_transition_generation"),
+    )
+
+
 class McpServer(Base):
     """管理员维护的远程 MCP 服务配置，不保存凭证原文。"""
 

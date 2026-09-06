@@ -2,13 +2,18 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.deps import get_current_admin_user
 from app.db.models import User as UserModel
 from app.schemas.response import success
 from app.services.external import search_usage_client
 from app.services.external.search_usage_client import SearchUsageClientError
+from app.services.prompt_bundle_hold_service import (
+    enter_prompt_bundle_hold,
+    get_prompt_bundle_hold,
+    release_prompt_bundle_hold,
+)
 from app.services.runtime_config_governance import (
     activate_runtime_config_entry,
     build_runtime_config_snapshot,
@@ -112,3 +117,24 @@ async def update_runtime_config_status(
     _admin: UserModel = Depends(get_current_admin_user),
 ):
     return success(set_runtime_config_entry_active(entry_id, request.is_active))
+
+
+class PromptBundleHoldRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    target_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+@router.get("/prompt-bundle/hold")
+def read_prompt_bundle_hold(_admin: UserModel = Depends(get_current_admin_user)):
+    return success(get_prompt_bundle_hold())
+
+
+@router.post("/prompt-bundle/hold")
+def hold_prompt_bundle(request: PromptBundleHoldRequest, admin: UserModel = Depends(get_current_admin_user)):
+    return success(enter_prompt_bundle_hold(request.target_revision, actor=admin.id, reason=request.reason))
+
+
+@router.post("/prompt-bundle/hold/release")
+def release_held_prompt_bundle(request: PromptBundleHoldRequest, admin: UserModel = Depends(get_current_admin_user)):
+    return success(release_prompt_bundle_hold(request.target_revision, actor=admin.id, reason=request.reason))

@@ -184,6 +184,8 @@ ensure_rollback_image() {
 ensure_rollback_image "${ROLLBACK_API_IMAGE_REF}" "${ROLLBACK_API_IMAGE_ID}"
 ensure_rollback_image "${ROLLBACK_ADAPTER_IMAGE_REF}" "${ROLLBACK_ADAPTER_IMAGE_ID}"
 
+"${GITHUB_WORKSPACE}/ops/deploy/api-check-prompt-hold-target.sh" "${DEPLOY_API_IMAGE}"
+
 current_api_ref="$(docker inspect fusion-api --format '{{.Config.Image}}' 2>/dev/null || true)"
 current_api_id="$(docker inspect fusion-api --format '{{.Image}}' 2>/dev/null || true)"
 current_adapter_ref="$(docker inspect fusion-flyai-adapter --format '{{.Config.Image}}' 2>/dev/null || true)"
@@ -292,6 +294,8 @@ if [ "${ROLLBACK_KNOWLEDGE_WORKER_EXISTED}" = "true" ]; then
     exit 1
   fi
 fi
+
+"${GITHUB_WORKSPACE}/ops/deploy/api-check-prompt-hold-target.sh" running
 
 rollback_api_sha="${ROLLBACK_DEPLOYMENT_SHA}"
 if [[ ! "${rollback_api_sha}" =~ ^[0-9a-f]{40}$ ]]; then

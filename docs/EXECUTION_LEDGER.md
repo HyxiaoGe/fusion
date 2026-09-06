@@ -172,3 +172,12 @@
 - 本地全量 pytest `3983 passed, 2 skipped, 4371 subtests passed`；unittest `3044 tests, OK (skipped=2)`；仓库级契约 `67 tests, OK`；Ruff/改动文件格式、架构、shell 与 diff 检查通过。测试使用 mock HTTP/模型、SQLite 和 fake Docker，没有启动本地服务。
 - 本次授权范围仅到分支、独立 PR 和复审；未合并、未部署、未写 PromptHub、未改 GitHub 变量、未删除数据。P3b hold 与 P3c 引擎桥接另阶段实现，不能把本条视为全部 P3 或真实环境验收完成。
 - [定稿实施计划](implementation-plans/2026-09-06-global-prompt-runtime-p3.md)；[P3a 迁移与验证报告](reports/backend/2026-09-06-global-prompt-runtime-p3a.md)。
+
+## 2026-09-06 Issue #34 P3b：持久 hold、审计与回滚保护（本地实现与自动化验证）
+
+- 在 P3a `90962a5c05368d6fbe038c95de6de5bc59da310a` 上建立独立分支 `codex/issue-34-p3-persistent-hold`。管理员进入/解除 hold 时，完整 v2 激活、持久 current-state 与追加审计在同一事务内提交；重复请求幂等，普通用户和伪造 actor 被拒绝。
+- 同步在原 advisory lock 内直读 hold；held 期间只保存通过完整性和 P0 校验的 inactive 候选。数据库触发器保护 held 目标和审计历史，代码回滚后的原 P3a 同步器也无法越过保护。PostgreSQL 路径要求 READ COMMITTED；SQLite 测试不替代真实 PostgreSQL 并发验证。
+- 发布器向目标镜像注入当前 preflight，验证目标真实完整包读取与冻结。hold schema 启用后，正向与失败回滚目标至少支持完整 v2；held 冒烟验收使用持久目标和真实 freeze，远端故障另记状态。保留 v1 和历史 Run，不执行 schema downgrade。
+- 本地全量 pytest `4031 passed, 2 skipped, 4381 subtests passed`；unittest `3044 tests, OK (skipped=2)`；根目录契约 `67 tests, OK`；Ruff、改动文件格式、架构、shell 静态与 diff 检查通过。旧 P3a 同步器、新旧 revision、独立 worker 重启、陈旧缓存、真实脚本拼接和远端超时均有回归。
+- 本阶段仅为本地实现与提交，当前 HEAD 独立复审另行记录。P3a 分支已推送，但创建 PR 被自动审批拒绝，具体 GitHub 外发确认尚未收到；P3b 尚未推送或创建 PR。未合并、未部署、未写 PromptHub、未改 GitHub 变量、未删除数据。P3c 桥接与 Jinja2 收口仍待独立实现。
+- [P3b 验证与回滚报告](reports/backend/2026-09-06-global-prompt-runtime-p3b.md)。

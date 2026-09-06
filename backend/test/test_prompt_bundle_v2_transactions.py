@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from app.core.prompt_bundle import clear_prompt_bundle_cache, validate_published_bundle
-from app.db.models import RuntimeConfigEntry
+from app.db.models import PromptBundleHoldState, PromptBundleHoldTransition, RuntimeConfigEntry
 from app.services.prompthub_sync_service import sync_prompthub_bundle
 from test.test_prompt_bundle_v2_integrity import canonical_revision, published_v2_fixture
 
@@ -17,7 +17,8 @@ from test.test_prompt_bundle_v2_integrity import canonical_revision, published_v
 @pytest.fixture
 def session_factory(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'prompt.db'}")
-    RuntimeConfigEntry.__table__.create(engine)
+    for model in (RuntimeConfigEntry, PromptBundleHoldState, PromptBundleHoldTransition):
+        model.__table__.create(engine)
     factory = sessionmaker(bind=engine)
     clear_prompt_bundle_cache()
     yield factory
@@ -86,10 +87,13 @@ async def test_shadow_never_deactivates_existing_active_v2(session_factory):
 
 
 @pytest.mark.anyio
-async def test_same_source_revision_conflict_is_distinct_and_does_not_repair_row(session_factory):
+@pytest.mark.parametrize("missing_scope", [False, True])
+async def test_same_source_revision_conflict_is_distinct_and_does_not_repair_row(session_factory, missing_scope):
     bundle = published_v2_fixture()
     corrupted = validate_published_bundle(bundle)
     corrupted["prompts"]["limit_summary"]["content"] += "损坏"
+    if missing_scope:
+        corrupted.pop("project_slug")
     row_id = add_bundle(session_factory, corrupted)
     result = await synchronize(session_factory, bundle)
     assert result["status"] == "revision_conflict"
