@@ -62,6 +62,16 @@
 - 已有验收报告中的慢响应、失败模型或质量风险进入产品策略调整。
 - 知识库、项目空间等新方向，但必须先做现状确认和计划。
 
+## 2026-09-07 Agent loop 可靠终止与输出归因（本地实现与自动化验证）
+
+- 从删除 PromptHub 的 `ba6e108a` 建立隔离分支 `codex/agent-loop-reliability`。保留本地 prompt、自实现循环和既有产品策略，不引入框架、数据库迁移或新观测服务。
+- `6c5cd2c5`、`8009f090`、`c230a823`：服务端 checkpoint/取消/失败保留真实工具结果，客户端仍拒绝伪造结果；并行工具异常后等待取消清理，修复重复 cancel 打断异步 finally；三种预算触顶直接交付现有产品事实和未完成说明，不继续请求模型、工具或计划修复。
+- `d9ad4387`：通过既有 LLM terminal、账本、详情 API 和 trajectory 界面说明模型候选已采用、已改写/替换、未采用或已撤回，并记录来源与原因。保留原候选，旧历史显示未知，无模型收尾不借前一轮身份；Linux/Windows 原门禁追加新增函数式 pytest。
+- 主代理综合后端 `557 passed + 194 subtests`，前端五文件 `192 passed`，根 CI 契约 `67 tests OK`；改动文件 Ruff/format/ESLint、架构、shell 静态及 diff 检查通过，production build 成功。完整 tsc 仍有 25 处既有错误，与干净基线逐字一致，无新增错误。
+- Task 1、Task 2 均通过独立规格与质量审查；最终全分支审查发现的单慢工具重复父取消缺口已在 `c230a823` 修复并定向复审通过，无剩余可达 P0/P1。
+- 本条仅记录本地代码与隔离测试。未 push、PR、远端 CI、合并、部署或真实浏览器/模型/外部工具验收，保留分支和工作树供审阅。
+- [规格](specs/backend/2026-09-07-agent-loop-reliability.md)；[实施计划](implementation-plans/2026-09-07-agent-loop-reliability.md)；[验证报告](reports/backend/2026-09-07-agent-loop-reliability.md)。
+
 ## 2026-08-26 主聊天系统提示词一期（本地实现/静态验证，未推送、未 PR、未部署）
 
 - 统一本地可信段落组装；用户偏好不会替代基础规则或因标题碰撞抑制工具/计划规则；修复历史查询年份限制。
