@@ -26,7 +26,7 @@ def _published_bundle(*, revision: str | None = None):
                 variables=spec.variables,
                 raw_variables=list(spec.variables),
                 format="text",
-                template_engine="none",
+                template_engine=spec.template_engine,
                 published_at="2026-07-10T00:00:00Z",
             )
             for spec in PROMPT_SPECS

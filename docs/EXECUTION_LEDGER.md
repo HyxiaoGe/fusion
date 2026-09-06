@@ -195,3 +195,11 @@
 - 本地全量 pytest `4072 passed, 2 skipped, 4389 subtests passed`，unittest `3044 tests, OK (skipped=2)`；根目录契约 `67 tests, OK`；随后两项追加策略回归与 CI 契约目标 `19 passed`。Ruff、改动格式、架构与 diff 检查通过。
 - 未推送、创建 PR、合并、部署、访问真实 PromptHub 渲染端点或启动服务。P3a PR 创建仍被自动审批阻止，具体外发确认未收到。该条只记录独立桥接代码，最终 Jinja2-only 收口版本另行实现；真实往返、PostgreSQL 并发和多 worker 验收另列环境门禁。
 - [P3c 桥接报告](reports/backend/2026-09-06-global-prompt-runtime-p3c-bridge.md)。
+
+## 2026-09-06 Issue #34 P3c 最终收口（本地实现与自动化验证）
+
+- 基于独立桥接提交 `9fc318b693bb7a55fc70577708e5e32ed19f815d` 建立 `codex/issue-34-p3-jinja-only`；P3a `90962a5c`、P3b `97da2d22` 和桥接版本均已通过两名独立代理 exact-HEAD 复审。最终树只接受 Jinja2，移除旧运行时渲染与桥接专用转换工具；四项默认模板保持桥接 Jinja 基线原字节，历史 P2 Run 身份与正文不改写。
+- apply 启动要求完整 LKG、P0 原字节门禁和持久 jinja2 阶段同时成立，legacy/bridge 不放行。发布探针执行持久阶段要求的全部引擎契约，最终镜像不能跳过中间桥接部署。完整旧 v2 负向夹具保留原始材料并固定哈希，数据库审计和旧包继续保留。
+- 最终全量 pytest `4071 passed, 2 skipped, 4389 subtests passed`；unittest `3045 tests, OK (skipped=2)`；仓库级契约 `67 tests, OK`；Ruff、架构与 diff 检查通过。两名独立工作树复审无可达 P0/P1，另有 53 项独立目标测试及 SQLite 启动阶段验证；正式提交后再核对 exact HEAD。
+- P3a 已推送但 PR 创建被自动审批拒绝，具体外发确认尚未收到；其余三阶段保持本地。未创建 PR、合并、部署、启动服务、迁移真实数据库、写 PromptHub 或修改 GitHub 变量。真实 PromptHub 往返、PostgreSQL 并发、多 worker 收敛和新 Run 验收仍是后续环境门禁。
+- [P3c 最终报告](reports/backend/2026-09-06-global-prompt-runtime-p3c-final.md)。

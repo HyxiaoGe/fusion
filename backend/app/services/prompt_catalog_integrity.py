@@ -34,6 +34,9 @@ def verify_p0_baseline_gate() -> None:
       回落代码默认值而 P0 之前会回落 legacy，这一情形仍需拒绝。
     """
 
+    from app.services.prompt_engine_policy import verify_final_prompt_engine_stage
+
+    verify_final_prompt_engine_stage()
     if settings.PROMPTHUB_SYNC_MODE != "apply":
         return
 

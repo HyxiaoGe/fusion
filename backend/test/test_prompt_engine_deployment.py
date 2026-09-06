@@ -21,29 +21,16 @@ def load(name):
     return module
 
 
-def test_reader_probe_executes_both_real_contracts_and_rejects_bad_consumer(monkeypatch):
+def test_final_reader_probe_accepts_jinja_and_rejects_bridge_floor(monkeypatch):
     from app.ai.prompts.prompt_manager import prompt_manager
 
     module = load("prompt-hold-preflight")
-    module.verify_engine_reader_profiles({"none", "jinja2"})
+    module.verify_engine_reader_profiles({"jinja2"})
+    with pytest.raises(ValueError):
+        module.verify_engine_reader_profiles({"none", "jinja2"})
     monkeypatch.setattr(prompt_manager, "format_prompt", lambda *args, **kwargs: "未渲染的正文")
     with pytest.raises(ValueError, match="消费路径"):
-        module.verify_engine_reader_profiles({"none", "jinja2"})
-
-
-def test_bridge_cannot_be_proved_only_by_legacy_active(monkeypatch):
-    from app.core import prompt_bundle
-
-    validate = prompt_bundle.validate_published_bundle
-
-    def legacy_only(bundle):
-        if bundle.prompts[0].template_engine == "jinja2":
-            raise ValueError("目标实际只有旧契约")
-        return validate(bundle)
-
-    monkeypatch.setattr(prompt_bundle, "validate_published_bundle", legacy_only)
-    with pytest.raises(ValueError, match="旧契约"):
-        load("prompt-hold-preflight").verify_engine_reader_profiles({"none", "jinja2"})
+        module.verify_engine_reader_profiles({"jinja2"})
 
 
 @pytest.fixture

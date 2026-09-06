@@ -16,9 +16,10 @@ PATH = Path(__file__).resolve().parents[2] / "ops/deploy/prompt-hold-preflight.p
 
 @pytest.fixture(autouse=True)
 def engine_schema(migrated_factory):
-    from test.test_prompt_engine_policy import install_engine_policy
+    from test.test_prompt_engine_policy import install_engine_policy, seed_engine_stage
 
     install_engine_policy(migrated_factory)
+    seed_engine_stage(migrated_factory)
 
 
 def preflight(factory):

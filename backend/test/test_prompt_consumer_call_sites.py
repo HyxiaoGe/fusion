@@ -22,7 +22,7 @@ class PromptManagerCallSiteTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 chat_service_module.prompt_manager,
                 "resolve_template_with_metadata",
-                return_value=("标记A-{content}", {"format": "text", "template_engine": "none"}),
+                return_value=("标记A-{{ content }}", {"format": "text", "template_engine": "jinja2"}),
             ),
             patch.object(chat_service_module.litellm, "acompletion", side_effect=fake_acompletion),
         ):
@@ -46,7 +46,7 @@ class PromptManagerCallSiteTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 module.prompt_manager,
                 "resolve_template_with_metadata",
-                return_value=("标记B-{content}", {"format": "text", "template_engine": "none"}),
+                return_value=("标记B-{{ content }}", {"format": "text", "template_engine": "jinja2"}),
             ),
             patch.object(module.litellm, "acompletion", side_effect=fake_acompletion),
             patch.object(
@@ -67,7 +67,7 @@ class PromptManagerCallSiteTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(
             prompt_manager,
             "resolve_template_with_metadata",
-            return_value=("标记C-{query}-{file_content}", {"format": "text", "template_engine": "none"}),
+            return_value=("标记C-{{ query }}-{{ file_content }}", {"format": "text", "template_engine": "jinja2"}),
         ):
             prompt, _meta = prompt_manager.format_prompt_with_metadata(
                 "file_analysis", query="问题", file_content="正文"
@@ -165,7 +165,7 @@ class FileContentEnhancementConsumptionTests(unittest.TestCase):
         with patch.object(
             prompt_manager,
             "resolve_template_with_metadata",
-            return_value=("标记K-{query}-{file_content}", {"format": "text", "template_engine": "none"}),
+            return_value=("标记K-{{ query }}-{{ file_content }}", {"format": "text", "template_engine": "jinja2"}),
         ):
             result = inject_file_content([{"role": "user", "content": "问"}], "问", {"a": "内容"})
 
@@ -191,11 +191,11 @@ class RegistrationBindsToProductionPathTests(unittest.TestCase):
         with patch.object(
             prompt_manager,
             "resolve_template_with_metadata",
-            return_value=("同一解析点-{content}", {"format": "text", "template_engine": "none"}),
+            return_value=("同一解析点-{{ content }}", {"format": "text", "template_engine": "jinja2"}),
         ) as resolver:
             via_registry = accessor()
             via_production, _meta = prompt_manager.format_prompt_with_metadata("generate_title", content="X")
 
-        self.assertEqual(via_registry, "同一解析点-{content}")
+        self.assertEqual(via_registry, "同一解析点-{{ content }}")
         self.assertEqual(via_production, "同一解析点-X")
         self.assertEqual(resolver.call_count, 2)

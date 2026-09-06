@@ -45,3 +45,5 @@ P3b 继续实施独立数据库 current-state hold 和 append-only transition ev
 ## P3c 桥接与收口约束
 
 增加 legacy → bridge → jinja2 单向持久阶段和数据库激活保护。桥接代码保留旧 v2 原样读取及代码默认值，只在独立完整新 catalog 中接受 Jinja。阶段提升与部署共用 fusion-dev concurrency，必须验证全部策略契约、真实 worker、原字节 active 和新兼容回滚锚点；引擎声明字符串不能代替消费能力。最终只支持 Jinja2 的代码另建分支/提交，在持久阶段已收口后才能启动，不能跳过独立桥接构建与发布。细节见 [P3c 桥接报告](../reports/backend/2026-09-06-global-prompt-runtime-p3c-bridge.md)。
+
+最终收口代码位于独立分支 `codex/issue-34-p3-jinja-only`，以桥接提交 `9fc318b6` 为直接基线；最终运行时、历史夹具和测试契约的区别见 [最终收口报告](../reports/backend/2026-09-06-global-prompt-runtime-p3c-final.md)。
