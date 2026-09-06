@@ -6,12 +6,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 from app.db.models import RuntimeConfigEntry
 from test.test_prompt_bundle_hold import enter, versions
 
