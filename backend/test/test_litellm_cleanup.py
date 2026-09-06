@@ -14,6 +14,7 @@ class LifespanCleanupTests(unittest.IsolatedAsyncioTestCase):
             patch("main.litellm_health.stop", new=AsyncMock()),
             patch("main.stop_scheduler", new=AsyncMock()),
             patch("main.close_redis", new=AsyncMock()),
+            patch("app.services.prompt_engine_policy.verify_final_prompt_engine_stage"),
             patch("main.litellm_cleanup.close_async_clients", new=AsyncMock()) as close_litellm,
         ):
             async with main.lifespan(main.app):
