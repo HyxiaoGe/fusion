@@ -4,11 +4,11 @@ import importlib.util
 from pathlib import Path
 
 import pytest
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 from test import test_prompt_bundle_hold_migration as hold_migrations
 from test.test_prompt_bundle_hold import active_revision, enter, versions
 
