@@ -24,6 +24,14 @@ def get_prompt_engine_stage(session):
     return "jinja2" if "jinja2" in stages else "bridge" if "bridge" in stages else "legacy"
 
 
+def verify_final_prompt_engine_stage(*, session_factory=SessionLocal):
+    """最终运行时启动必须在已完成的持久 Jinja2 阶段，不能跳过桥接。"""
+    with session_factory() as session:
+        _acquire_advisory_lock(session)
+        if get_prompt_engine_stage(session) != "jinja2":
+            raise ValueError("最终 Jinja2 运行时要求先完成独立 bridge 与持久阶段收口")
+
+
 def advance_prompt_engine_policy(stage, *, expected_revision, actor, reason, evidence, session_factory=SessionLocal):
     """在发布串行协调范围内调用，证据由真实 worker 与回滚镜像检查生成。"""
     if stage not in {"bridge", "jinja2"} or settings.PROMPTHUB_SYNC_MODE != "apply":

@@ -13,9 +13,9 @@ from dataclasses import dataclass
 
 # catalog 结构版本。新增/删除 spec 或改变契约字段时递增。
 # code-default effective_revision 的 canonical 摘要以它承担版本身份。
-CATALOG_VERSION = "2026-09-06.1"
-DEFAULT_TEMPLATE_ENGINE = "none"
-CATALOG_VERSION_BY_ENGINE = {"none": "2026-09-06.1", "jinja2": "2026-09-06.2"}
+CATALOG_VERSION = "2026-09-06.2"
+DEFAULT_TEMPLATE_ENGINE = "jinja2"
+CATALOG_VERSION_BY_ENGINE = {"jinja2": CATALOG_VERSION}
 SUPPORTED_TEMPLATE_ENGINES = frozenset(CATALOG_VERSION_BY_ENGINE)
 
 
@@ -26,7 +26,7 @@ class PromptSpec:
     name: str
     variables: tuple[str, ...]
     format: str = "text"
-    template_engine: str = "none"
+    template_engine: str = DEFAULT_TEMPLATE_ENGINE
 
 
 class PromptCatalogIntegrityError(RuntimeError):

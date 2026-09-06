@@ -14,7 +14,7 @@ GENERATE_TITLE_PROMPT = """请为以下对话内容生成一个简短、具体�
 6. 只有在完全无法判断主题时，才返回"新对话"
 
 对话内容：
-{content}"""
+{{ content }}"""
 
 # 生成推荐问题的提示词
 GENERATE_SUGGESTED_QUESTIONS_PROMPT = """根据以下最近一轮对话内容，生成三个用户可能想问的后续问题，这些问题应该能够帮助用户进一步探索话题或获取更多相关信息。
@@ -27,21 +27,21 @@ GENERATE_SUGGESTED_QUESTIONS_PROMPT = """根据以下最近一轮对话内容，
 6. 问题应该使用中文，语言自然流畅
 
 对话内容：
-{content}
+{{ content }}
 
 请给出三个推荐问题（直接给出问题列表，无需其他解释）："""
 
 # 文件处理提示词
 FILE_ANALYSIS_PROMPT = """请分析以下文件并回答问题。
 
-问题: {query}
+问题: {{ query }}
 
-{file_content}"""
+{{ file_content }}"""
 
 # 文件内容增强提示词。
 # 正文与 inject_file_content 此前硬编码的包装语逐字节一致，确保接入模板后
 # 模型可见正文不变；变更此处会直接改变带附件对话的用户消息。
-FILE_CONTENT_ENHANCEMENT_PROMPT = """{query}
+FILE_CONTENT_ENHANCEMENT_PROMPT = """{{ query }}
 
 以下是相关文件内容，请结合这些内容回答：
-{file_content}"""
+{{ file_content }}"""

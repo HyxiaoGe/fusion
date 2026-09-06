@@ -64,6 +64,24 @@ class _CommitFailingSession(_FakeSession):
 
 
 class PromptHubSyncServiceTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        # 最终 Jinja2 的正常环境已完成独立 P0 基线；负向用例单独关闭。
+        attestation = patch("app.core.config.settings.PROMPT_P0_BASELINE_ATTESTED", True)
+        attestation.start()
+        self.addCleanup(attestation.stop)
+
+    async def test_unattested_final_jinja_activation_never_writes(self):
+        from app.services.prompthub_sync_service import sync_prompthub_bundle
+
+        session = _FakeSession()
+        client = SimpleNamespace(fetch_published_bundle=AsyncMock(return_value=_published_bundle()))
+        with patch("app.core.config.settings.PROMPT_P0_BASELINE_ATTESTED", False):
+            result = await sync_prompthub_bundle(mode="apply", client=client, session_factory=lambda: session)
+        self.assertEqual(result["status"], "error")
+        self.assertIn("attestation", result["last_error"])
+        self.assertEqual(session.added, [])
+        self.assertEqual(session.commits, 0)
+
     async def test_disabled_does_not_call_prompthub_or_database(self):
         from app.services.prompthub_sync_service import sync_prompthub_bundle
 

@@ -321,7 +321,14 @@ def _sha256(content: str) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="迁移 Fusion Runtime Prompt 到 PromptHub")
     parser.add_argument("--apply", action="store_true", help="执行写入；默认仅 dry-run")
-    args = parser.parse_args()
+    parser.parse_args()
+    raise SystemExit(
+        "最终 Jinja2 运行时不执行旧初始化迁移；完整基线迁移必须使用独立桥接版本和已复核的原始 published 材料"
+    )
+
+
+def _historical_migration_entry(args, parser) -> int:
+    """保留旧迁移算法供历史回归；最终版本 CLI 不进入此路径。"""
     base_url = os.getenv("PROMPTHUB_ADMIN_BASE_URL") or os.getenv("PROMPTHUB_BASE_URL", "")
     api_key = os.getenv("PROMPTHUB_ADMIN_API_KEY", "")
     if not base_url or not api_key:

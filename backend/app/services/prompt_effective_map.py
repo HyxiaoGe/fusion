@@ -21,6 +21,7 @@ from app.core.config import settings
 from app.core.prompt_bundle import load_stored_active_bundle_payload
 from app.core.prompt_catalog import (
     CATALOG_VERSION,
+    DEFAULT_TEMPLATE_ENGINE,
     PRE_P0_CODE_ONLY_KEYS,
     PROMPT_SPECS,
     PromptSpec,
@@ -134,7 +135,9 @@ def assert_bundle_matches_effective_map(
         raise EffectiveBaselineMismatch("; ".join(mismatches))
 
 
-def assert_p0_transition_gate(bundle_prompts: dict[str, str], *, template_engine: str = "none") -> None:
+def assert_p0_transition_gate(
+    bundle_prompts: dict[str, str], *, template_engine: str = DEFAULT_TEMPLATE_ENGINE
+) -> None:
     """校验 attestation 这一**声明**是否属实，不可绕过。
 
     过渡期（未 attested）`PRE_P0_CODE_ONLY_KEYS` 被钉在代码默认值上，bundle 里这几项
@@ -300,12 +303,8 @@ def diff_effective_maps(
 
 def p0_defaults_for_engine(template_engine: str) -> dict[str, str]:
     """只选择显式受审查的原字节基线，不接受渲染等价替代。"""
-    if template_engine == "none":
-        return DEFAULT_PROMPT_TEMPLATES
     if template_engine == "jinja2":
-        from app.ai.prompts.jinja_defaults import JINJA_PROMPT_TEMPLATES
-
-        return JINJA_PROMPT_TEMPLATES
+        return DEFAULT_PROMPT_TEMPLATES
     raise EffectiveBaselineMismatch("没有该引擎的 P0 原字节基线")
 
 

@@ -1,6 +1,4 @@
-"""完整包引擎契约；桥接期明确区分旧格式与 sandboxed Jinja2。"""
-
-import string
+"""完整包只接受 sandboxed Jinja2；旧引擎仅保留在独立桥接构建中。"""
 
 from jinja2 import StrictUndefined, TemplateError, meta
 from jinja2.sandbox import SandboxedEnvironment
@@ -27,10 +25,6 @@ def template_contract_is_valid(content: str, variables: tuple[str, ...], engine:
             if not variables and any(marker in content for marker in ("{{", "{%", "{#")):
                 return False
             fields = meta.find_undeclared_variables(_JINJA.parse(content))
-        elif engine == "none":
-            if not variables:
-                return True
-            fields = {name for _, name, _, _ in string.Formatter().parse(content) if name is not None}
         else:
             return False
         if fields != set(variables):
@@ -46,8 +40,6 @@ def render_prompt_template(content: str, engine: str, values: dict) -> str:
     try:
         if engine == "jinja2":
             return _JINJA.from_string(content).render(**values)
-        if engine == "none":
-            return content.format(**values)
         raise ValueError("不支持的 Prompt 模板引擎")
     except (TemplateError, KeyError, IndexError, AttributeError, TypeError) as exc:
         raise ValueError("Prompt 模板渲染失败或缺少必需参数") from exc

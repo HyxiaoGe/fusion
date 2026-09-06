@@ -31,7 +31,7 @@ def bundle_payload(revision, suffix):
                 "variables": list(spec.variables),
                 "raw_variables": list(spec.variables),
                 "format": "text",
-                "template_engine": "none",
+                "template_engine": spec.template_engine,
                 "published_at": None,
             }
             for spec in PROMPT_SPECS

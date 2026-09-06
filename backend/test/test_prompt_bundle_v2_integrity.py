@@ -56,7 +56,7 @@ def test_v2_preserves_raw_variables_and_has_independent_local_checksum():
     assert payload["revision"] == canonical_revision(bundle)
     assert payload["prompts"]["file_analysis"]["raw_variables"] == bundle.prompts[-2].raw_variables
     assert payload["prompts"]["file_analysis"]["format"] == "text"
-    assert payload["prompts"]["file_analysis"]["template_engine"] == "none"
+    assert payload["prompts"]["file_analysis"]["template_engine"] == "jinja2"
     checksum = payload["local_payload_checksum"]
     material = {key: value for key, value in payload.items() if key != "local_payload_checksum"}
     encoded = json.dumps(material, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")

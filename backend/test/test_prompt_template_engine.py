@@ -22,13 +22,10 @@ def jinja_bundle():
     return bundle
 
 
-def test_complete_old_and_jinja_profiles_have_distinct_catalogs():
-    old = validate_published_bundle(published_v2_fixture())
-    new = validate_published_bundle(jinja_bundle())
-    assert old["catalog_version"] == "2026-09-06.1"
-    assert new["catalog_version"] == "2026-09-06.2"
-    assert old["revision"] != new["revision"]
-    assert validate_stored_bundle_payload(old) and validate_stored_bundle_payload(new)
+def test_final_jinja_profile_has_current_catalog():
+    payload = validate_published_bundle(jinja_bundle())
+    assert payload["catalog_version"] == "2026-09-06.2"
+    assert validate_stored_bundle_payload(payload)
 
 
 @pytest.mark.parametrize("change", ["mixed", "format", "unknown", "missing", "syntax", "constant"])
@@ -90,7 +87,7 @@ def test_snapshot_keeps_engine_after_active_switch_and_caller_mutation(monkeypat
     identity = copy.deepcopy(before.identity())
     monkeypatch.setattr(prompt_bundle, "_load_active_bundle_payload", lambda: new)
     old["prompts"]["generate_title"]["template_engine"] = "jinja2"
-    for frozen, engine in ((before, "none"), (after, "jinja2"), (before, "none")):
+    for frozen, engine in ((before, "jinja2"), (after, "jinja2"), (before, "jinja2")):
         with use_prompt_snapshot(frozen):
             assert frozen.resolve("generate_title")[1]["template_engine"] == engine
             assert prompt_manager.format_prompt("generate_title", content="{{ 中文 }}").endswith("{{ 中文 }}")
@@ -108,14 +105,14 @@ def test_strict_undefined_sandbox_and_trailing_newline():
         render_prompt_template("{{ content.__class__.__mro__ }}", "jinja2", {"content": "x"})
 
 
-def test_p0_gate_keeps_independent_raw_byte_baselines(monkeypatch):
+def test_final_p0_gate_requires_jinja_raw_baseline(monkeypatch):
     from app.core.config import settings
     from app.services.prompt_effective_map import assert_p0_transition_gate
 
     monkeypatch.setattr(settings, "PROMPT_P0_BASELINE_ATTESTED", True)
     new = validate_published_bundle(jinja_bundle())
     contents = {key: item["content"] for key, item in new["prompts"].items()}
-    assert_p0_transition_gate(DEFAULT_PROMPT_TEMPLATES, template_engine="none")
+    assert_p0_transition_gate(DEFAULT_PROMPT_TEMPLATES, template_engine="jinja2")
     assert_p0_transition_gate(contents, template_engine="jinja2")
     with pytest.raises(RuntimeError):
         assert_p0_transition_gate(contents, template_engine="none")
