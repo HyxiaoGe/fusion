@@ -1,5 +1,6 @@
 import os
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -75,6 +76,70 @@ class WorkflowContractTests(unittest.TestCase):
         attributes = GITATTRIBUTES_PATH.read_text(encoding="utf-8").splitlines()
 
         self.assertIn(LEGACY_V2_FIXTURE_ATTRIBUTE, attributes)
+
+    def test_fresh_index_export_repairs_stale_crlf_across_branch_transition(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory) / "repository"
+            repository.mkdir()
+            fixture = repository / "backend/test/fixtures/prompt_bundle/legacy_v2_contract.json"
+            fixture.parent.mkdir(parents=True)
+            canonical = b'{"prompt":"line one\nline two"}\n'
+            fixture.write_bytes(canonical)
+            subprocess.run(["git", "init", "-q", "-b", "master"], cwd=repository, check=True)
+            subprocess.run(
+                ["git", "config", "user.name", "Fusion CI"], cwd=repository, check=True
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "fusion-ci@example.invalid"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "core.autocrlf", "true"], cwd=repository, check=True
+            )
+            subprocess.run(["git", "add", "."], cwd=repository, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "legacy"], cwd=repository, check=True)
+            subprocess.run(
+                ["git", "switch", "-q", "-c", "hotfix"], cwd=repository, check=True
+            )
+            (repository / ".gitattributes").write_text(
+                LEGACY_V2_FIXTURE_ATTRIBUTE + "\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", ".gitattributes"], cwd=repository, check=True)
+            subprocess.run(
+                ["git", "commit", "-q", "-m", "force lf"], cwd=repository, check=True
+            )
+            subprocess.run(["git", "switch", "-q", "master"], cwd=repository, check=True)
+            fixture.unlink()
+            subprocess.run(
+                ["git", "checkout-index", "--force", "--", str(fixture.relative_to(repository))],
+                cwd=repository,
+                check=True,
+            )
+            stale = canonical.replace(b"\n", b"\r\n")
+            self.assertEqual(fixture.read_bytes(), stale)
+            subprocess.run(["git", "switch", "-q", "hotfix"], cwd=repository, check=True)
+            self.assertEqual(fixture.read_bytes(), stale)
+
+            export_root = repository / ".fusion-prompt-fixture-export"
+            subprocess.run(
+                [
+                    "git",
+                    "checkout-index",
+                    "--force",
+                    "--prefix=.fusion-prompt-fixture-export/",
+                    "--",
+                    "backend/test/fixtures/prompt_bundle/legacy_v2_contract.json",
+                ],
+                cwd=repository,
+                check=True,
+            )
+            exported = export_root / "backend/test/fixtures/prompt_bundle/legacy_v2_contract.json"
+
+            self.assertEqual(exported.read_bytes(), canonical)
+            exported.replace(fixture)
+            self.assertEqual(fixture.read_bytes(), canonical)
 
     def test_workflow_security_job_runs_actionlint_and_zizmor(self) -> None:
         job = self.ci["jobs"]["workflow-security"]
