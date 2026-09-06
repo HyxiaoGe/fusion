@@ -21,10 +21,16 @@
 从本 worktree 的 backend 目录运行，只借用 `/Users/sean/code/fusion/fusion-api/.venv/bin/python` 的完整依赖环境；未修改该旧仓或安装依赖，未启动本地 Fusion 服务。
 
 - 目标回归：`173 passed, 34 subtests passed`；全量失败接缝定向复测 `67 passed, 3 subtests passed`。
-- 最终后端全量 `DATABASE_URL='sqlite:///:memory:' <python> -m pytest test/ -q`：`3942 passed, 2 skipped, 9 warnings, 4353 subtests passed`，52.07 秒。
+- 最终后端全量 `DATABASE_URL='sqlite:///:memory:' <python> -m pytest test/ -q`：`3943 passed, 2 skipped, 9 warnings, 4359 subtests passed`，50.85 秒。
 - `<python> -m ruff check app test`、本次 Python 改动的 `ruff format --check`、架构检查、`git diff --check` 均通过。架构检查保留 4 项既有 API 测试文件覆盖警告；pytest 警告为既有依赖弃用提示。
 - 本阶段没有新数据库迁移、catalog 扩容、Prompt 英文化、引擎切换、PromptHub 写入或 TTL 调整；P3–P5 按独立 PR 继续。
 
 ## 交付层级
 
 本文记录本地代码和自动化证据。独立当前 HEAD 复审、远端 PR/CI、合并、dev 部署、真实模型和已有登录 Chrome 验收须分别追加链接与版本证据，不能由这里的测试结果替代。
+
+## 当前 HEAD 审查与 CI 入口补充
+
+- 独立代理已审 `66cd3cf98bb6d33305c967560aa304b141273b32`，未发现可达 P0/P1 运行时问题；独立目标回归 `68 passed, 23 subtests passed`。另通过实际 runner → 工具轮 → limit summary 的模拟实验：工具阶段切 B 后当前 Run 两次请求仍读 A，新冻结读 B，退出恢复 ContextVar。此实验没有真实模型、外部工具或服务启动。
+- 主代理随后发现容器入口的 unittest discovery 不执行新增的三个 pytest 函数式文件。先加入 Linux/Windows 双入口契约，观察 6 个子用例失败，再将三文件加入既有 pytest 命令；目标执行 `667 passed, 6 subtests passed`。Windows 文件以字节替换保留编码与换行，未引入非 ASCII 脚本内容。
+- 对应 P2 PR 为 [#38](https://github.com/HyxiaoGe/fusion/pull/38)；CI 补丁改变 HEAD，原审查结论不冒充新 HEAD 结论，最终复审与 CI 仍单独核对。

@@ -102,8 +102,8 @@
 - 接手代码基线为 PR [#37](https://github.com/HyxiaoGe/fusion/pull/37) 合并后的 `3c737caf41399b7868bb0e8ec24da2a2a3d6249b`；现场核对 PR #36/#37 均已合并且 5 项检查成功。上文 P1 未推送记录是当时的历史快照；用户提供的后续 dev 与真实 Chrome 验收作为接手背景，本阶段没有复跑或补称为新验收。
 - `PromptBundleSnapshot` 在分类前完整冻结模板，身份与新 Run 原子持久化；分类后只能补配置，已冻结的 Run 不得重入。分类准备失败/取消会落 Run 与 SSE 终态，身份写入失败不进入模型。
 - `RunPromptSnapshot` 包含初始最终系统段落、身份和指纹；工具、总结、continuation 与语言策略使用同一冻结上下文。正文持久化仍可显式 degraded，安全只读接口可独立返回版本身份。标题和推荐问题每次独立冻结并携带自己的归因。
-- 本地后端全量：`3942 passed, 2 skipped, 4353 subtests passed`；Ruff 与架构检查、改动文件 format、`git diff --check` 通过。验证包括切包、并发 task/thread、取消、原子身份失败、同 Run 重入拒绝与三个新 attempt 的 lineage；记录见 [P2 验证报告](reports/backend/2026-09-06-global-prompt-runtime-p2.md)。
-- 分支 `codex/issue-34-p2-run-snapshot` 仅完成本阶段实现与自动化验证。当前 HEAD 独立复审、push/PR CI、合并、dev 部署和真实模型验收分别留待证据确认；P3–P5 尚未编码，不宣称 issue #34 完成。
+- 本地后端全量：`3943 passed, 2 skipped, 4359 subtests passed`；Ruff 与架构检查、改动文件 format、`git diff --check` 通过。验证包括切包、并发 task/thread、取消、原子身份失败、同 Run 重入拒绝与三个新 attempt 的 lineage；记录见 [P2 验证报告](reports/backend/2026-09-06-global-prompt-runtime-p2.md)。
+- 分支 `codex/issue-34-p2-run-snapshot` 已推送并创建 PR [#38](https://github.com/HyxiaoGe/fusion/pull/38)。`66cd3cf9` 独立运行时复审无可达 P0/P1，模拟 runner 切包实验通过；后续补齐 Linux/Windows 容器入口的三个 pytest 冻结文件执行契约，目标 `667 passed + 6 subtests`。最终 HEAD 复审和 PR CI 单独核对；尚未合并、部署 dev 或做真实模型验收，P3–P5 尚未编码。
 
 ## 2026-09-03 Aug 27-28 重构评审整改（本地实现与自动化回归）
 
