@@ -66,6 +66,7 @@ class AgentRoundOutcomeRequest:
     step_number: int
     step_context: AgentStepContext
     round_result: AgentRoundResult
+    terminal: bool = False
 
 
 async def handle_agent_round_outcome(
@@ -100,6 +101,11 @@ async def _handle_agent_round_outcome(
     *,
     request: AgentRoundOutcomeRequest,
 ) -> AgentLoopOutcome | None:
+    if request.terminal:
+        # 服务器确定性收尾不再请求模型补计划、修参或继续执行。
+        await _complete_text_round(request)
+        return AgentLoopOutcome(exit=AgentLoopExit.COMPLETED)
+
     if _requires_deep_synthesis_protocol_summary(request):
         return await _complete_deep_synthesis_protocol_round(request)
 
@@ -452,6 +458,9 @@ async def _commit_deferred_answer(
     if request.runtime.evidence_policy == "knowledge_grounded_v1":
         return await _commit_deferred_knowledge_answer(request)
 
+    if request.terminal and request.state.limit_reason is not None:
+        return await _commit_terminal_product_answer(request)
+
     clarification = build_tool_repair_clarification(request.state.pending_tool_repairs)
     if clarification:
         grounded_answer = build_grounded_product_answer(
@@ -472,6 +481,26 @@ async def _commit_deferred_answer(
         return _with_replaced_answer(request, answer)
 
     return await _commit_deferred_product_answer(request)
+
+
+async def _commit_terminal_product_answer(request: AgentRoundOutcomeRequest) -> AgentRoundOutcomeRequest:
+    """额度触顶后只交付已知产品事实，并如实说明不能继续执行的计划项。"""
+    answer = build_grounded_product_answer(request.state.content_blocks, messages=request.messages)
+    if not answer:
+        answer = build_product_tool_failure_answer(request.messages)
+    clarification = build_tool_repair_clarification(request.state.pending_tool_repairs)
+    pending_items = request.state.plan_coordinator.pending_execution_items()
+    incomplete = ""
+    if pending_items:
+        titles = "、".join(str(item.get("title") or item.get("id")) for item in pending_items)
+        incomplete = f"本次执行已达到上限，以下任务尚未完成：{titles}。以上仅包含已经取得的结果。"
+        snapshot = request.state.plan_coordinator.block_pending_execution(reason="limit_reached_execution_blocked")
+        if snapshot is not None:
+            await request.runtime.emitter.plan_snapshot(**snapshot)
+    answer = "\n\n".join(part for part in (answer, clarification, incomplete) if part)
+    answer = neutralize_product_provider_mentions(answer, request.state.content_blocks)
+    await _append_committed_answer(request, answer)
+    return _with_replaced_answer(request, answer)
 
 
 async def _commit_deferred_knowledge_answer(
@@ -696,6 +725,7 @@ def _with_replaced_answer(
         runtime=request.runtime,
         step_number=request.step_number,
         step_context=request.step_context,
+        terminal=request.terminal,
         round_result=AgentRoundResult(
             reasoning_buf=visible_reasoning,
             protocol_reasoning_buf=request.round_result.protocol_reasoning_buf,

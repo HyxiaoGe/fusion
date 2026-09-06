@@ -171,6 +171,7 @@ async def _complete_product_result_without_llm(
             runtime=runtime,
             step_number=step_number,
             step_context=step_context,
+            terminal=True,
             round_result=AgentRoundResult(
                 reasoning_buf="",
                 content_buf="",

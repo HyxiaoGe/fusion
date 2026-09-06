@@ -1316,7 +1316,22 @@ async def execute_tool_batch(
     pending.extend(execute_reusable_group(grouped_calls) for grouped_calls in argument_repair_groups.values())
     if amap_product_calls:
         pending.append(execute_amap_products())
-    batches = await asyncio.gather(*pending)
+    tasks = [asyncio.create_task(operation) for operation in pending]
+    try:
+        batches = await asyncio.gather(*tasks)
+    except BaseException:
+        # gather 不会因单个子任务失败而取消兄弟任务；批次退出前必须等本地清理完成。
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        cleanup = asyncio.gather(*tasks, return_exceptions=True)
+        while not cleanup.done():
+            try:
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError:
+                # 清理期间再次取消也不能遗留工具任务，或替换首个控制流异常。
+                continue
+        raise
 
     indexed_results: list[tuple[int, ToolExecutionRecord]] = []
     for batch in batches:
