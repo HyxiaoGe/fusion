@@ -5,13 +5,16 @@ from pathlib import Path
 import pytest
 
 from scripts.check_frozen_prompt_fixture_bytes import (
+    EXPECTED_LEGACY_V2_SHA256,
     EXPECTED_P3A_SHA256,
     canonicalize_lf,
+    load_frozen_legacy_v2_contract,
     load_frozen_p3a_probe_source,
     verify_frozen_prompt_fixture_bytes,
 )
 
 FIXTURE = Path(__file__).parent / "fixtures/prompt_bundle/p3a_sync.py"
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_lf_and_crlf_checkouts_have_the_same_canonical_bytes(tmp_path):
@@ -37,5 +40,26 @@ def test_modified_fixture_content_is_rejected(tmp_path):
         load_frozen_p3a_probe_source(modified)
 
 
+def test_legacy_contract_rejects_checkout_byte_conversion(tmp_path):
+    fixture = Path(__file__).parent / "fixtures/prompt_bundle/legacy_v2_contract.json"
+    converted = tmp_path / "legacy_v2_contract.json"
+    converted.write_bytes(fixture.read_bytes().replace(b"\n", b"\r\n"))
+
+    with pytest.raises(ValueError, match=EXPECTED_LEGACY_V2_SHA256):
+        load_frozen_legacy_v2_contract(converted)
+
+
 def test_real_fixture_and_checkout_independence_self_check_pass():
     assert verify_frozen_prompt_fixture_bytes() == EXPECTED_P3A_SHA256
+
+
+def test_windows_preflight_rematerializes_before_checking_raw_digest():
+    script = (BACKEND_ROOT / ".github/scripts/check-frozen-prompt-fixture-bytes.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    export_index = script.index("checkout-index --force")
+    verify_export = script.index("ReadAllBytes($materializedLegacyV2FixturePath)")
+    replace_worktree = script.index("[System.IO.File]::Copy")
+    verify_worktree = script.index("ReadAllBytes($legacyV2FixturePath)")
+    assert export_index < verify_export < replace_worktree < verify_worktree

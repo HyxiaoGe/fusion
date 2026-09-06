@@ -4,6 +4,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $expectedSha256 = "1fc5150883d4a5f85f022c9278bb779c9a2d37df1567047728c3f6f8e240fb3f"
+$expectedLegacyV2Sha256 = "442674b68077a82e1d6d4b5a2d6c290e92bf8842eec3106d05f620376bfbd090"
 
 function ConvertTo-CanonicalLf {
     param([byte[]]$Bytes)
@@ -38,9 +39,40 @@ function Get-Sha256Hex {
     return ([System.BitConverter]::ToString($hash)).Replace("-", "").ToLowerInvariant()
 }
 
+$appRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 if ([string]::IsNullOrWhiteSpace($FixturePath)) {
-    $appRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
     $FixturePath = Join-Path $appRoot "test\fixtures\prompt_bundle\p3a_sync.py"
+}
+
+$repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $appRoot ".."))
+$legacyV2RelativePath = "backend/test/fixtures/prompt_bundle/legacy_v2_contract.json"
+$legacyV2FixturePath = Join-Path $appRoot "test\fixtures\prompt_bundle\legacy_v2_contract.json"
+$materializationRelativeRoot = ".fusion-prompt-fixture-$([System.Guid]::NewGuid().ToString('N'))"
+$materializationRoot = Join-Path $repositoryRoot $materializationRelativeRoot
+try {
+    & git -C $repositoryRoot checkout-index --force "--prefix=$materializationRelativeRoot/" -- $legacyV2RelativePath
+    if ($LASTEXITCODE -ne 0) {
+        throw "failed to export frozen legacy v2 contract from the checked-out index"
+    }
+
+    $materializedLegacyV2FixturePath = Join-Path $materializationRoot $legacyV2RelativePath
+    [byte[]]$materializedLegacyV2Bytes = [System.IO.File]::ReadAllBytes($materializedLegacyV2FixturePath)
+    $materializedLegacyV2Sha256 = Get-Sha256Hex $materializedLegacyV2Bytes
+    if ($materializedLegacyV2Sha256 -ne $expectedLegacyV2Sha256) {
+        throw "frozen legacy v2 index digest mismatch: expected=$expectedLegacyV2Sha256 actual=$materializedLegacyV2Sha256"
+    }
+
+    [System.IO.File]::Copy($materializedLegacyV2FixturePath, $legacyV2FixturePath, $true)
+} finally {
+    if ([System.IO.Directory]::Exists($materializationRoot)) {
+        [System.IO.Directory]::Delete($materializationRoot, $true)
+    }
+}
+
+[byte[]]$legacyV2Bytes = [System.IO.File]::ReadAllBytes($legacyV2FixturePath)
+$legacyV2Sha256 = Get-Sha256Hex $legacyV2Bytes
+if ($legacyV2Sha256 -ne $expectedLegacyV2Sha256) {
+    throw "frozen legacy v2 contract digest mismatch: expected=$expectedLegacyV2Sha256 actual=$legacyV2Sha256"
 }
 
 [byte[]]$canonical = ConvertTo-CanonicalLf ([System.IO.File]::ReadAllBytes($FixturePath))
