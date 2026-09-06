@@ -1317,15 +1317,18 @@ async def execute_tool_batch(
     if amap_product_calls:
         pending.append(execute_amap_products())
     tasks = [asyncio.create_task(operation) for operation in pending]
+    batch = asyncio.gather(*tasks)
     try:
-        batches = await asyncio.gather(*tasks)
+        # 父取消立即转入显式清理，避免后续取消经 gather 再次打断工具的 finally。
+        batches = await asyncio.shield(batch)
     except BaseException:
         # gather 不会因单个子任务失败而取消兄弟任务；批次退出前必须等本地清理完成。
         for task in tasks:
-            # 外层取消已由 gather 传给子任务；重复取消会打断 wait_for 正在等待的工具清理。
+            # 已在取消中的任务继续完成原清理，不能再次打断 wait_for 的清理等待。
             if not task.done() and not task.cancelling():
                 task.cancel()
-        cleanup = asyncio.gather(*tasks, return_exceptions=True)
+        # 原聚合 future 也必须消费，否则 shield 后可能遗留未读取的异常。
+        cleanup = asyncio.gather(batch, *tasks, return_exceptions=True)
         while not cleanup.done():
             try:
                 await asyncio.shield(cleanup)

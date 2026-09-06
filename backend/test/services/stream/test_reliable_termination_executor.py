@@ -1,6 +1,7 @@
 """真实 executor 的并发清理、异常身份与结果顺序回归。"""
 
 import asyncio
+import gc
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -173,6 +174,49 @@ async def _parent_cancel_waits_for_slow_cleanup_after_fast_sibling_exits():
         with pytest.raises(asyncio.CancelledError) as raised:
             await batch
         assert raised.value.args == ("用户取消",)
+        assert cleaned.is_set()
+    finally:
+        release_cleanup.set()
+        batch.cancel()
+        await asyncio.gather(batch, *owned_tasks, return_exceptions=True)
+
+
+def test_repeated_parent_cancel_waits_for_single_tool_cleanup_and_keeps_first_cancel():
+    unhandled = []
+    asyncio.run(_repeated_parent_cancel_waits_for_single_tool_cleanup(unhandled))
+    gc.collect()
+    assert not unhandled, "聚合 future 与工具任务异常必须全部消费"
+
+
+async def _repeated_parent_cancel_waits_for_single_tool_cleanup(unhandled):
+    asyncio.get_running_loop().set_exception_handler(lambda _loop, context: unhandled.append(context))
+    started, cleanup_started, release_cleanup, cleaned = (asyncio.Event() for _ in range(4))
+    owned_tasks = set()
+
+    async def slow():
+        owned_tasks.add(asyncio.current_task())
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleanup_started.set()
+            await release_cleanup.wait()
+            cleaned.set()
+
+    batch = asyncio.create_task(execute_tool_batch(_request({"slow": slow}), _calls("slow")))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=1)
+        batch.cancel("第一次取消")
+        await asyncio.wait_for(cleanup_started.wait(), timeout=1)
+        await asyncio.sleep(0)
+        batch.cancel("第二次取消")
+        done, _ = await asyncio.wait({batch}, timeout=0.05)
+        assert not done, "第二次父取消不得让批次在唯一工具清理完成前退出"
+        assert not cleaned.is_set()
+        release_cleanup.set()
+        with pytest.raises(asyncio.CancelledError) as raised:
+            await batch
+        assert raised.value.args == ("第一次取消",)
         assert cleaned.is_set()
     finally:
         release_cleanup.set()
