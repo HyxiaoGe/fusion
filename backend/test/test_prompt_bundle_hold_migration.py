@@ -13,15 +13,10 @@ from sqlalchemy.orm import sessionmaker
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from app.db.models import RuntimeConfigEntry
+from scripts.check_frozen_prompt_fixture_bytes import load_frozen_p3a_probe_source
 from test.test_prompt_bundle_hold import enter, versions
 
 PATH = Path(__file__).resolve().parents[1] / "alembic/versions/e4b6c9d2a701_add_prompt_bundle_hold.py"
-
-
-def load_frozen_p3a_probe_source(path: Path) -> bytes:
-    source = path.read_bytes().replace(b"\r\n", b"\n")
-    assert b"\r" not in source
-    return source
 
 
 def load_migration():
