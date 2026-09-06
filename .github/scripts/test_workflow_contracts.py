@@ -56,11 +56,13 @@ class WorkflowContractTests(unittest.TestCase):
 
     def test_application_jobs_are_independent_and_gate_is_constant(self) -> None:
         jobs = self.ci["jobs"]
-        self.assertEqual(jobs["api"]["needs"], "changes")
-        self.assertEqual(jobs["ui"]["needs"], "changes")
+        self.assertEqual(jobs["prompt-fixture-bytes"]["needs"], "changes")
+        self.assertEqual(jobs["prompt-fixture-bytes"]["runs-on"], "windows-latest")
+        self.assertEqual(jobs["api"]["needs"], ["changes", "prompt-fixture-bytes"])
+        self.assertEqual(jobs["ui"]["needs"], ["changes", "prompt-fixture-bytes"])
         self.assertEqual(
             jobs["required"]["needs"],
-            ["changes", "workflow-security", "api", "ui"],
+            ["changes", "workflow-security", "prompt-fixture-bytes", "api", "ui"],
         )
         self.assertEqual(jobs["required"]["if"], "always()")
         self.assertEqual(jobs["required"]["name"], "Fusion required gate")
@@ -141,6 +143,7 @@ class WorkflowContractTests(unittest.TestCase):
             {
                 "CHANGES_RESULT": "success",
                 "API_EXPECTED": "false",
+                "PROMPT_FIXTURE_RESULT": "skipped",
                 "API_RESULT": "skipped",
                 "UI_EXPECTED": "true",
                 "UI_RESULT": "success",
@@ -152,6 +155,7 @@ class WorkflowContractTests(unittest.TestCase):
             {
                 "CHANGES_RESULT": "success",
                 "API_EXPECTED": "true",
+                "PROMPT_FIXTURE_RESULT": "success",
                 "API_RESULT": "failure",
                 "UI_EXPECTED": "false",
                 "UI_RESULT": "skipped",
@@ -159,10 +163,23 @@ class WorkflowContractTests(unittest.TestCase):
         )
         self.assertNotEqual(expected_api_failed.returncode, 0)
 
+        fixture_preflight_failed = run(
+            {
+                "CHANGES_RESULT": "success",
+                "API_EXPECTED": "true",
+                "PROMPT_FIXTURE_RESULT": "failure",
+                "API_RESULT": "skipped",
+                "UI_EXPECTED": "false",
+                "UI_RESULT": "skipped",
+            }
+        )
+        self.assertNotEqual(fixture_preflight_failed.returncode, 0)
+
         missing_api_decision = run(
             {
                 "CHANGES_RESULT": "success",
                 "API_EXPECTED": "",
+                "PROMPT_FIXTURE_RESULT": "skipped",
                 "API_RESULT": "skipped",
                 "UI_EXPECTED": "false",
                 "UI_RESULT": "skipped",
@@ -174,6 +191,7 @@ class WorkflowContractTests(unittest.TestCase):
             {
                 "CHANGES_RESULT": "success",
                 "API_EXPECTED": "false",
+                "PROMPT_FIXTURE_RESULT": "skipped",
                 "API_RESULT": "skipped",
                 "UI_EXPECTED": "unexpected",
                 "UI_RESULT": "skipped",
@@ -186,6 +204,7 @@ class WorkflowContractTests(unittest.TestCase):
                 "WORKFLOW_SECURITY_RESULT": "failure",
                 "CHANGES_RESULT": "success",
                 "API_EXPECTED": "false",
+                "PROMPT_FIXTURE_RESULT": "skipped",
                 "API_RESULT": "skipped",
                 "UI_EXPECTED": "false",
                 "UI_RESULT": "skipped",
