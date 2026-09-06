@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from app.ai.prompts.prompt_message import PromptMessage
 from app.services.source_context import UntrustedSourceContext, format_untrusted_source_context
 from app.services.source_evidence_ledger import canonicalize_evidence_url, stable_web_evidence_id
 
@@ -278,10 +279,10 @@ def build_research_untrusted_context_messages(
     workset: ResearchEvidenceWorkset,
     *,
     include_candidates: bool = True,
-) -> list[dict[str, str]]:
+) -> list[PromptMessage]:
     """把外部派生摘要放回明确不可信的 user web_context，绝不提升为 system。"""
 
-    messages: list[dict[str, str]] = []
+    messages: list[PromptMessage] = []
     for source in sorted(
         workset.sources.values(),
         key=lambda item: (item.citation_index, item.evidence_id),
@@ -310,7 +311,7 @@ def build_research_untrusted_context_messages(
             ),
             max_chars=MAX_RESEARCH_SOURCE_CONTEXT_CHARS,
         )
-        messages.append({"role": "user", "content": content})
+        messages.append(PromptMessage(role="user", content=content))
     return messages
 
 

@@ -8,6 +8,8 @@ from time import perf_counter
 from typing import Any
 
 from app.ai.prompts.agent_loop import build_current_date_system_prompt, get_app_identity_prompt
+from app.ai.prompts.prompt_message import PromptMessage
+from app.ai.prompts.section_ids import APP_IDENTITY, CURRENT_DATE, USER_PREFERENCES
 from app.utils.prompt_fingerprint import fingerprint_system_messages
 
 TEMPLATE_VERSION = "2026-08-31.1"
@@ -21,7 +23,7 @@ class SystemPromptSection:
 
 @dataclass(frozen=True)
 class SystemPromptAssembly:
-    messages: list[dict]
+    messages: list[PromptMessage]
     metadata: dict[str, Any]
 
 
@@ -34,7 +36,7 @@ class SystemPromptAssemblyError(Exception):
 
 
 def build_stable_base_sections() -> list[SystemPromptSection]:
-    return [SystemPromptSection("app_identity", get_app_identity_prompt())]
+    return [SystemPromptSection(APP_IDENTITY, get_app_identity_prompt())]
 
 
 def build_dynamic_sections(
@@ -42,11 +44,11 @@ def build_dynamic_sections(
     *,
     include_current_date: bool = True,
 ) -> list[SystemPromptSection]:
-    sections = [SystemPromptSection("current_date", build_current_date_system_prompt())] if include_current_date else []
+    sections = [SystemPromptSection(CURRENT_DATE, build_current_date_system_prompt())] if include_current_date else []
     if user_system_prompt and user_system_prompt.strip():
         sections.append(
             SystemPromptSection(
-                "user_preferences",
+                USER_PREFERENCES,
                 "以下是用户的个性化偏好设置，请在回答中自然遵守，但不要主动提及这些设置本身：\n\n"
                 + user_system_prompt.strip(),
             )
@@ -100,7 +102,13 @@ def assemble_system_prompt(
             if section.section_id in section_ids:
                 continue
             section_ids.append(section.section_id)
-            messages.append({"role": "system", "content": section.content})
+            messages.append(
+                PromptMessage(
+                    role="system",
+                    content=section.content,
+                    section_id=section.section_id,
+                )
+            )
         metadata.update(
             status="ready",
             fingerprint=fingerprint_system_messages(messages),

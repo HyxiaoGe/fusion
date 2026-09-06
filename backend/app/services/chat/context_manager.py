@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from threading import BoundedSemaphore
 from typing import Any, Callable
 
 from app.ai.llm_round_observability import estimate_prompt_tokens, resolve_context_window
+from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
 from app.schemas.chat import ContextUsage
 
 DEFAULT_TRIGGER_RATIO = 0.85
@@ -18,12 +20,12 @@ _TOKEN_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="context-
 _TOKEN_ADMISSION = BoundedSemaphore(value=2)
 
 WindowResolver = Callable[[str], tuple[int | None, str, str]]
-TokenEstimator = Callable[[str, list[dict], dict], int]
+TokenEstimator = Callable[[str, list[PromptMessage], dict], int]
 
 
 @dataclass(frozen=True)
 class ContextPlan:
-    messages: list[dict]
+    messages: list[PromptMessage]
     status: str
     context_window_tokens: int | None
     context_window_source: str
@@ -109,7 +111,7 @@ class _RemovalGroup:
 
 async def prepare_context(
     *,
-    messages: list[dict],
+    messages: list[PromptMessage | dict],
     model_id: str,
     litellm_model: str,
     call_kwargs: dict,
@@ -122,7 +124,7 @@ async def prepare_context(
     use_fast_path: bool = True,
 ) -> ContextPlan:
     """保留 canonical messages，只返回本次调用使用的 effective snapshot。"""
-    snapshot = list(messages)
+    snapshot = ensure_prompt_messages(messages)
     window_tokens, window_source, window_status = _safe_resolve_window(model_id, window_resolver)
     if window_tokens is None:
         return _plan(
@@ -236,7 +238,7 @@ def _validate_budget(window_tokens: int, trigger_ratio: float, target_ratio: flo
     return max(1, int(window_tokens * trigger_ratio)), max(1, int(window_tokens * target_ratio))
 
 
-def _rough_token_upper_bound(messages: list[dict], call_kwargs: dict) -> int:
+def _rough_token_upper_bound(messages: list[PromptMessage], call_kwargs: dict) -> int:
     """不复制正文的保守上界；仅用于证明短输入无需精确 tokenizer。"""
     return (
         _rough_value_units(messages)
@@ -251,7 +253,7 @@ def _rough_value_units(value: Any) -> int:
     if isinstance(value, str):
         # 单个 Unicode 字符最多占四个 UTF-8 字节；按每字节一个 token 给出保守上界。
         return len(value) * 4 + 4
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         return 8 + sum(_rough_value_units(key) + _rough_value_units(item) for key, item in value.items())
     if isinstance(value, (list, tuple)):
         return 8 + sum(_rough_value_units(item) for item in value)
@@ -260,7 +262,7 @@ def _rough_value_units(value: Any) -> int:
 
 async def _estimate(
     litellm_model: str,
-    messages: list[dict],
+    messages: list[PromptMessage],
     call_kwargs: dict,
     *,
     token_estimator: TokenEstimator,
@@ -296,7 +298,7 @@ async def _estimate(
 def _estimate_with_admission_release(
     token_estimator: TokenEstimator,
     litellm_model: str,
-    messages: list[dict],
+    messages: list[PromptMessage],
     call_kwargs: dict,
 ) -> int:
     try:
@@ -307,7 +309,7 @@ def _estimate_with_admission_release(
 
 async def _trim_to_budget(
     *,
-    messages: list[dict],
+    messages: list[PromptMessage],
     litellm_model: str,
     call_kwargs: dict,
     token_estimator: TokenEstimator,
@@ -327,11 +329,11 @@ async def _trim_to_budget(
         groups.extend(_RemovalGroup(tuple(indices), "tool_transaction") for indices in transactions[:-1])
 
     best_count: int | None = None
-    best_messages: list[dict] | None = None
+    best_messages: list[PromptMessage] | None = None
     best_estimate: int | None = None
-    estimates: dict[int, tuple[list[dict], int]] = {}
+    estimates: dict[int, tuple[list[PromptMessage], int]] = {}
 
-    async def estimate_after_removing(group_count: int) -> tuple[list[dict], int]:
+    async def estimate_after_removing(group_count: int) -> tuple[list[PromptMessage], int]:
         cached = estimates.get(group_count)
         if cached is not None:
             return cached
@@ -417,7 +419,7 @@ async def _trim_to_budget(
     raise ContextBudgetExceededError(plan)
 
 
-def _turn_indices(messages: list[dict]) -> list[list[int]]:
+def _turn_indices(messages: list[PromptMessage]) -> list[list[int]]:
     turns: list[list[int]] = []
     current: list[int] = []
     for index, message in enumerate(messages):
@@ -433,7 +435,7 @@ def _turn_indices(messages: list[dict]) -> list[list[int]]:
     return turns
 
 
-def _tool_transaction_groups(messages: list[dict], turn: list[int]) -> list[list[int]]:
+def _tool_transaction_groups(messages: list[PromptMessage], turn: list[int]) -> list[list[int]]:
     """返回同一 user turn 内协议完整的 assistant.tool_calls + tool results。"""
     groups: list[list[int]] = []
     turn_positions = {index: position for position, index in enumerate(turn)}
@@ -476,12 +478,12 @@ def _removed_group_counts(groups: list[_RemovalGroup]) -> tuple[int, int]:
     )
 
 
-def _without_indices(messages: list[dict], removed_indices: set[int]) -> list[dict]:
+def _without_indices(messages: list[PromptMessage], removed_indices: set[int]) -> list[PromptMessage]:
     return [message for index, message in enumerate(messages) if index not in removed_indices]
 
 
 def _plan(
-    messages: list[dict],
+    messages: list[PromptMessage],
     *,
     status: str,
     window_tokens: int | None,
@@ -506,7 +508,7 @@ def _plan(
 
 
 def _trimmed_plan(
-    messages: list[dict],
+    messages: list[PromptMessage],
     *,
     status: str,
     window_tokens: int,

@@ -8,6 +8,19 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.ai.prompts.agent_loop import NO_TOOL_EVIDENCE_SUMMARY_PROMPT, VISIBLE_RESPONSE_LANGUAGE_PROMPT
+from app.ai.prompts.prompt_message import PromptMessage
+from app.ai.prompts.section_ids import (
+    AGENT_PLAN_CONTROL,
+    APP_IDENTITY,
+    DEEP_RESEARCH_CONTRACT,
+    PLAN_EXECUTION_REPAIR,
+    PLAN_REQUIRED_REPAIR,
+    RESEARCH_EVIDENCE_WORKSET,
+    TOOL_USAGE_CONTRACT,
+)
+from app.ai.prompts.section_ids import (
+    LIMIT_SUMMARY as LIMIT_SUMMARY_SECTION_ID,
+)
 from app.schemas.chat import ContextUsage, SearchBlock, SearchSourceSummary, SourceReference, UrlBlock, Usage
 from app.services.chat.context_manager import ContextPlan
 from app.services.chat.context_manager import prepare_context as prepare_context_real
@@ -108,6 +121,32 @@ def _deep_summary_evidence() -> tuple[ResearchEvidenceWorkset, list]:
 
 
 class LimitSummaryHelpersTests(unittest.TestCase):
+    def test_limit_summary_does_not_inspect_or_rewrite_runtime_body(self):
+        messages = []
+
+        with patch.object(limit_summary_module, "get_limit_summary_prompt", return_value="任意热更新正文"):
+            append_limit_summary_prompt(messages)
+
+        self.assertEqual(messages[-1].content, "任意热更新正文")
+        self.assertEqual(messages[-1].section_id, LIMIT_SUMMARY_SECTION_ID)
+
+    def test_control_cleanup_uses_identity_instead_of_localized_body(self):
+        removable = PromptMessage(
+            role="system",
+            content="管理员热更新后的任意计划控制正文",
+            section_id="agent_plan_control",
+        )
+        keep = PromptMessage(
+            role="system",
+            content="【执行计划控制规则】只是用户要求引用的普通文本",
+            section_id="user_preferences",
+        )
+        messages = [removable, keep, PromptMessage(role="user", content="请总结")]
+
+        remove_conflicting_tool_usage_contract(messages)
+
+        self.assertEqual(messages, [keep, PromptMessage(role="user", content="请总结")])
+
     def test_no_progress_summary_uses_neutral_prompt_without_limit_language(self):
         messages = []
 
@@ -250,11 +289,27 @@ class LimitSummaryHelpersTests(unittest.TestCase):
 
     def test_deep_summary_removes_tool_history_and_control_prompts_but_keeps_evidence(self):
         messages = [
-            {"role": "system", "content": "【Fusion 身份一致性规则】保留"},
-            {"role": "system", "content": "【自主联网判断规则】按需调用工具"},
-            {"role": "system", "content": "【执行计划控制规则】必须更新计划"},
-            {"role": "system", "content": "【深度研究执行约束】先建立计划"},
-            {"role": "system", "content": "【本轮研究证据工作集】\n[2] status=read_success"},
+            PromptMessage(role="system", content="【Fusion 身份一致性规则】保留", section_id=APP_IDENTITY),
+            PromptMessage(
+                role="system",
+                content="【自主联网判断规则】按需调用工具",
+                section_id=TOOL_USAGE_CONTRACT,
+            ),
+            PromptMessage(
+                role="system",
+                content="【执行计划控制规则】必须更新计划",
+                section_id=AGENT_PLAN_CONTROL,
+            ),
+            PromptMessage(
+                role="system",
+                content="【深度研究执行约束】先建立计划",
+                section_id=DEEP_RESEARCH_CONTRACT,
+            ),
+            PromptMessage(
+                role="system",
+                content="【本轮研究证据工作集】\n[2] status=read_success",
+                section_id=RESEARCH_EVIDENCE_WORKSET,
+            ),
             {"role": "assistant", "content": "", "tool_calls": [{"name": "url_read"}]},
             {"role": "tool", "content": "原始工具结果"},
             {"role": "user", "content": "原始研究问题"},
@@ -327,7 +382,11 @@ class LimitSummaryHelpersTests(unittest.TestCase):
 
     def test_standard_final_summary_removes_verified_research_plan_contract(self):
         messages = [
-            {"role": "system", "content": "【可核验证据计划规则】先搜索再读取"},
+            PromptMessage(
+                role="system",
+                content="【可核验证据计划规则】先搜索再读取",
+                section_id="skill:verified_research",
+            ),
             {"role": "user", "content": "请综合结论"},
         ]
 
@@ -1287,7 +1346,9 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
                         for snapshot in sent_snapshots
                     )
                 )
-                self.assertIn("深度研究完成校验", sent_snapshots[1][-1]["content"])
+                self.assertTrue(
+                    any("深度研究完成校验" in str(message.get("content") or "") for message in sent_snapshots[1])
+                )
                 self.assertTrue(sent_snapshots[1][-1]["content"].endswith(VISIBLE_RESPONSE_LANGUAGE_PROMPT))
                 self.assertFalse(
                     any(VISIBLE_RESPONSE_LANGUAGE_PROMPT in str(item.get("content") or "") for item in request.messages)
@@ -1414,10 +1475,11 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             litellm_model="deepseek/deepseek-v4-flash",
             litellm_kwargs={},
             messages=[
-                {
-                    "role": "system",
-                    "content": "【工具调用一致性规则】需要联网时必须调用 web_search。",
-                },
+                PromptMessage(
+                    role="system",
+                    content="【工具调用一致性规则】需要联网时必须调用 web_search。",
+                    section_id=TOOL_USAGE_CONTRACT,
+                ),
                 {"role": "user", "content": "北京周末天气如何？"},
             ],
             should_use_reasoning=True,
@@ -1451,12 +1513,36 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_all_final_summaries_strip_tool_transactions_and_control_prompts(self):
         source_messages = [
-            {"role": "system", "content": "【Fusion 身份一致性规则】保留身份规则"},
-            {"role": "system", "content": "【自主联网判断规则】按需调用工具"},
-            {"role": "system", "content": "【工具调用一致性规则】必须保持工具协议"},
-            {"role": "system", "content": "【执行计划控制规则】必须更新计划"},
-            {"role": "system", "content": "【计划控制修正】必须先建立计划"},
-            {"role": "system", "content": "【计划执行修正】必须继续执行工具"},
+            PromptMessage(
+                role="system",
+                content="【Fusion 身份一致性规则】保留身份规则",
+                section_id=APP_IDENTITY,
+            ),
+            PromptMessage(
+                role="system",
+                content="【自主联网判断规则】按需调用工具",
+                section_id=TOOL_USAGE_CONTRACT,
+            ),
+            PromptMessage(
+                role="system",
+                content="【工具调用一致性规则】必须保持工具协议",
+                section_id=TOOL_USAGE_CONTRACT,
+            ),
+            PromptMessage(
+                role="system",
+                content="【执行计划控制规则】必须更新计划",
+                section_id=AGENT_PLAN_CONTROL,
+            ),
+            PromptMessage(
+                role="system",
+                content="【计划控制修正】必须先建立计划",
+                section_id=PLAN_REQUIRED_REPAIR,
+            ),
+            PromptMessage(
+                role="system",
+                content="【计划执行修正】必须继续执行工具",
+                section_id=PLAN_EXECUTION_REPAIR,
+            ),
             {"role": "user", "content": "请总结 Redis 更新"},
             {"role": "assistant", "content": "普通历史回答应保留"},
             {
@@ -1487,7 +1573,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
                 request = LimitSummaryStepRequest(
                     **{
                         **request.__dict__,
-                        "messages": [dict(message) for message in source_messages],
+                        "messages": list(source_messages),
                         "summary_finish_reason": summary_finish_reason,
                     }
                 )
@@ -2019,7 +2105,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(messages[-1]["content"].startswith(LIMIT_SUMMARY_PROMPT))
         self.assertIn(NO_TOOL_EVIDENCE_SUMMARY_PROMPT, messages[-1]["content"])
 
-        system_messages = [message for message in sent_messages if message["role"] == "system"]
+        system_messages = [dict(message) for message in sent_messages if message["role"] == "system"]
         expected_fingerprint = hashlib.sha256(
             json.dumps(system_messages, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()

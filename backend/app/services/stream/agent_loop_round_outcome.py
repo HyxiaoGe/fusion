@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
+from app.ai.prompts.section_ids import (
+    PLAN_EXECUTION_REPAIR,
+    PLAN_REQUIRED_REPAIR,
+    RESEARCH_COMPLETION_REPAIR,
+)
 from app.core.config import settings
 from app.core.logger import app_logger as logger
 from app.schemas.chat import KnowledgeEvidenceBlock, ThinkingBlock
@@ -60,7 +66,7 @@ PLAN_EXECUTION_REQUIRED_RETRY_PROMPT = (
 @dataclass(frozen=True)
 class AgentRoundOutcomeRequest:
     db: object
-    messages: list[dict]
+    messages: list[PromptMessage]
     state: AgentLoopState
     runtime: AgentLoopRuntime
     step_number: int
@@ -270,11 +276,10 @@ async def _repair_incomplete_execution(request: AgentRoundOutcomeRequest) -> Non
         }
         for item in pending_items
     ]
-    request.messages.append(
-        {
-            "role": "system",
-            "content": f"{PLAN_EXECUTION_REQUIRED_RETRY_PROMPT}\n待执行步骤：{pending_summary}",
-        }
+    _replace_system_message(
+        request.messages,
+        section_id=PLAN_EXECUTION_REPAIR,
+        content=f"{PLAN_EXECUTION_REQUIRED_RETRY_PROMPT}\n待执行步骤：{pending_summary}",
     )
     request.state.clear_current_step()
 
@@ -305,11 +310,10 @@ async def _repair_research_completion(
         max_tool_calls=request.runtime.limits.max_tool_calls,
         clock=request.runtime.clock,
     )
-    request.messages.append(
-        {
-            "role": "system",
-            "content": build_research_repair_prompt(result.reason, request.state.research_workset),
-        }
+    _replace_system_message(
+        request.messages,
+        section_id=RESEARCH_COMPLETION_REPAIR,
+        content=build_research_repair_prompt(result.reason, request.state.research_workset),
     )
     request.state.clear_current_step()
     if request.state.record_research_repair():
@@ -334,21 +338,43 @@ async def _complete_plan_required_round(request: AgentRoundOutcomeRequest) -> No
         max_tool_calls=request.runtime.limits.max_tool_calls,
         clock=request.runtime.clock,
     )
-    if not any(
-        message.get("role") == "system" and PLAN_REQUIRED_RETRY_PROMPT in str(message.get("content", ""))
-        for message in request.messages
-    ):
-        request.messages.append({"role": "system", "content": PLAN_REQUIRED_RETRY_PROMPT})
+    _replace_system_message(
+        request.messages,
+        section_id=PLAN_REQUIRED_REPAIR,
+        content=PLAN_REQUIRED_RETRY_PROMPT,
+    )
     request.state.clear_current_step()
 
 
-def _remove_plan_required_retry_prompt(messages: list[dict]) -> None:
+def _replace_system_message(
+    messages: list[PromptMessage | dict],
+    *,
+    section_id: str,
+    content: str,
+) -> None:
+    normalized = ensure_prompt_messages(messages)
+    replacement = PromptMessage(role="system", content=content, section_id=section_id)
+    existing_index = next(
+        (index for index, message in enumerate(normalized) if message.section_id == section_id),
+        None,
+    )
+    if existing_index is None:
+        normalized.append(replacement)
+    else:
+        normalized[existing_index] = replacement
+        normalized = [
+            message
+            for index, message in enumerate(normalized)
+            if message.section_id != section_id or index == existing_index
+        ]
+    messages[:] = normalized
+
+
+def _remove_plan_required_retry_prompt(messages: list[PromptMessage | dict]) -> None:
     """兜底计划生效后移除已经过期的强制建计划指令。"""
 
     messages[:] = [
-        message
-        for message in messages
-        if not (message.get("role") == "system" and message.get("content") == PLAN_REQUIRED_RETRY_PROMPT)
+        message for message in ensure_prompt_messages(messages) if message.section_id != PLAN_REQUIRED_REPAIR
     ]
 
 

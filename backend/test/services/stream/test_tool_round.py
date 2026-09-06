@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from pydantic import BaseModel
 
+from app.ai.prompts.prompt_message import PromptMessage
 from app.schemas.chat import (
     PlaceResult,
     PlaceResultsBlock,
@@ -1590,6 +1591,8 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
                 "reasoning_content": "需要搜索",
             },
         )
+        self.assertIsInstance(message, PromptMessage)
+        self.assertIsNone(message.section_id)
 
         no_reasoning = build_assistant_tool_message(
             tool_calls=tool_calls,

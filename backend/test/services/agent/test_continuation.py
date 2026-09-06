@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from app.ai.prompts.section_ids import CONTINUATION_SYSTEM
 from app.db.database import Base
 from app.db.models import AgentSession
 from app.db.models import Message as MessageModel
@@ -244,6 +245,7 @@ class AgentContinuationTests(unittest.TestCase):
 
         self.assertEqual(result[0]["content"], "用户自定义系统提示")
         self.assertEqual(result[1], {"role": "system", "content": CONTINUATION_SYSTEM_PROMPT})
+        self.assertEqual(result[1].section_id, CONTINUATION_SYSTEM)
         self.assertEqual(result[2]["role"], "user")
 
     def test_resolve_continuation_limits_uses_session_config(self):

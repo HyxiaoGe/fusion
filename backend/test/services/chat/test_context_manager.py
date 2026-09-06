@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import BoundedSemaphore
 from unittest.mock import patch
 
+from app.ai.prompts.prompt_message import PromptMessage, to_provider_messages
 from app.schemas.chat import Message, TextBlock
 from app.services.chat.context_manager import (
     ContextBudgetExceededError,
@@ -39,6 +40,27 @@ def _known_window(_model_id):
 
 
 class ContextManagerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_fast_path_counts_prompt_message_content_before_skipping_estimator(self):
+        calls = []
+
+        def estimator(*args):
+            calls.append(args)
+            return 10
+
+        plan = await prepare_context(
+            messages=[PromptMessage(role="user", content="x" * 30)],
+            model_id="model-a",
+            litellm_model="litellm_proxy/model-a",
+            call_kwargs={},
+            window_resolver=_known_window,
+            token_estimator=estimator,
+            run_in_thread=False,
+        )
+
+        self.assertEqual(plan.status, "no_op")
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(all(isinstance(message, PromptMessage) for message in plan.messages))
+
     async def test_real_4k_fixture_trims_old_history_and_keeps_system_and_latest_turn(self):
         history = []
         for index in range(6):
@@ -255,9 +277,10 @@ class ContextManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(plan.status, {"trimmed", "trimmed_required_above_target"})
         self.assertEqual(plan.removed_turns, 0)
         self.assertEqual(plan.removed_tool_transactions, 1)
-        self.assertNotIn("old-1", str(plan.messages))
-        self.assertIn("new-1", str(plan.messages))
-        self.assertIn("new-2", str(plan.messages))
+        provider_messages = to_provider_messages(plan.messages)
+        self.assertNotIn("old-1", str(provider_messages))
+        self.assertIn("new-1", str(provider_messages))
+        self.assertIn("new-2", str(provider_messages))
         self.assertEqual([message["role"] for message in plan.messages[-3:]], ["assistant", "tool", "tool"])
 
     async def test_current_url_context_and_latest_user_are_one_mandatory_turn(self):

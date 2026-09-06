@@ -1,6 +1,8 @@
 import unittest
+from dataclasses import FrozenInstanceError
 from unittest.mock import patch
 
+from app.ai.prompts.prompt_message import PromptMessage
 from app.ai.skills.registry import SkillReleasePin
 from app.schemas.chat import TextBlock
 from app.services.agent.plan_coordinator import PlanCoordinator
@@ -223,7 +225,8 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(
             "请解释", next(s["content"] for s in snapshot["sections"] if s["section_id"] == "user_preferences")
         )
-        prepared.messages[0]["content"] = "运行中追加或改写的内容"
+        with self.assertRaises(FrozenInstanceError):
+            prepared.messages[0].content = "运行中追加或改写的内容"
         self.assertNotEqual(snapshot["sections"][0]["content"], "运行中追加或改写的内容")
 
     async def test_assembly_sections_follow_actual_capabilities_and_modes(self):
@@ -1535,6 +1538,25 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("必须调用 web_search", TOOL_USAGE_CONTRACT_PROMPT)
         self.assertIn("没有调用工具", TOOL_USAGE_CONTRACT_PROMPT)
 
+    def test_tool_usage_contract_deduplicates_by_section_identity_after_body_changes(self):
+        from app.services.stream.agent_loop_request_prep import inject_tool_usage_contract
+
+        existing = PromptMessage(
+            role="system",
+            content="管理员热更新后的任意工具规则正文",
+            section_id="tool_usage_contract",
+        )
+        prepared = inject_tool_usage_contract(
+            [existing, PromptMessage(role="user", content="最新公告")],
+            {"tools": [{"type": "function", "function": {"name": "web_search"}}]},
+        )
+
+        self.assertEqual(
+            [message.section_id for message in prepared].count("tool_usage_contract"),
+            1,
+        )
+        self.assertIs(prepared[0], existing)
+
     def test_no_tool_network_boundary_uses_centralized_prompt(self):
         from app.ai.prompts.agent_loop import NO_TOOL_NETWORK_BOUNDARY_PROMPT
         from app.services.stream.agent_loop_request_prep import inject_no_tool_network_boundary
@@ -1611,6 +1633,11 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(prepared.initial_content_blocks, [])
         self.assertEqual(prepared.messages[1], {"role": "system", "content": "继续执行，不要重写前文"})
         self.assertEqual(prepared.messages[2]["role"], "user")
+        self.assertEqual(
+            [message.section_id for message in prepared.messages[:2]],
+            ["app_identity", "extra_system_0"],
+        )
+        self.assertTrue(all(message.section_id is None for message in prepared.messages[2:]))
 
     async def test_prepare_messages_passes_conversation_scope_to_builder(self):
         build_calls = []

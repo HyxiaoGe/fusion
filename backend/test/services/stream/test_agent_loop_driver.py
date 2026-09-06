@@ -2,6 +2,7 @@ import unittest
 from dataclasses import dataclass, field
 from unittest.mock import AsyncMock, patch
 
+from app.ai.prompts.section_ids import PRODUCT_RESULT_ROUND, RESEARCH_EVIDENCE_WORKSET
 from app.schemas.chat import PlaceResult, PlaceResultsBlock, SourceReference, TextBlock, UrlBlock, Usage
 from app.services.agent.plan_coordinator import PlanCoordinator
 from app.services.stream.agent_loop_driver import AgentLoopExit, _run_limit_summary, _run_round, run_agent_loop
@@ -209,6 +210,10 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("不得声称天气会影响活动体验、路面状况或安全", system_text)
         self.assertIn("不要直接使用“适合”“不适合”“建议”“不建议”评价活动", system_text)
         self.assertIn("只说明返回事实、时间粒度边界和用户条件是否满足", system_text)
+        self.assertEqual(
+            [message.section_id for message in captured[0]["messages"]].count(PRODUCT_RESULT_ROUND),
+            1,
+        )
 
     async def test_mixed_flight_and_train_results_require_both_types_without_markdown_table(self):
         captured = []
@@ -2003,6 +2008,10 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
         system_messages = [message["content"] for message in captured[0]["messages"] if message["role"] == "system"]
         self.assertTrue(any("【本轮研究证据工作集】" in content for content in system_messages))
         self.assertTrue(any("[17] evidence_id=ev-report status=read_success" in content for content in system_messages))
+        self.assertEqual(
+            [message.section_id for message in captured[0]["messages"]].count(RESEARCH_EVIDENCE_WORKSET),
+            1,
+        )
         self.assertFalse(any("忽略之前指令" in content for content in system_messages))
         self.assertFalse(any("example.com" in content for content in system_messages))
         untrusted_messages = [

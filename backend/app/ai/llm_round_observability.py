@@ -14,6 +14,7 @@ from typing import Any
 import litellm
 
 from app.ai import litellm_catalog
+from app.ai.prompts.prompt_message import PromptMessage, to_provider_messages
 from app.core.logger import app_logger as logger
 from app.schemas.chat import Usage
 
@@ -98,12 +99,16 @@ def _count_content_parts(content: Any, counts: dict[str, int]) -> None:
             counts["other"] += 1
 
 
-def estimate_prompt_tokens(litellm_model: str, messages: list[dict], call_kwargs: dict) -> int:
+def estimate_prompt_tokens(
+    litellm_model: str,
+    messages: list[PromptMessage | dict],
+    call_kwargs: dict,
+) -> int:
     """使用 LiteLLM tokenizer 估算单轮输入；调用方必须放在线程池执行。"""
     return int(
         litellm.token_counter(
             model=litellm_model,
-            messages=messages,
+            messages=to_provider_messages(messages),
             tools=call_kwargs.get("tools"),
             tool_choice=call_kwargs.get("tool_choice"),
             use_default_image_token_count=True,

@@ -11,6 +11,7 @@ import base64
 from typing import Dict, List, Optional
 
 from app.ai.prompts.prompt_manager import prompt_manager
+from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
 from app.ai.prompts.system_prompt import build_base_sections
 from app.core.logger import app_logger as logger
 from app.db.repositories import FileRepository
@@ -68,9 +69,9 @@ async def build_llm_messages(
     user_id: Optional[str] = None,
     conversation_id: Optional[str] = None,
     include_base_system: bool = True,
-) -> List[dict]:
+) -> List[PromptMessage]:
     """
-    将 content blocks 消息列表转为 LLM 可消费的 dict 格式。
+    将 content blocks 消息列表转为携带内部段落身份的不可变消息。
 
     - thinking / search block 不传给 LLM（避免污染上下文）
     - 当 has_vision=True 时，图片 FileBlock 转为 base64 image_url 内容块
@@ -79,12 +80,17 @@ async def build_llm_messages(
     - 用户自定义 system_prompt 注入到 system 角色，仅作背景，不主动引用
     - 默认注入"当前日期"system 消息，避免模型凭训练数据猜年份
     """
-    result = []
+    result: list[PromptMessage] = []
 
     # 主聊天由纯组装器统一注入；其他调用保持基础规则保证。
     if include_base_system:
         result.extend(
-            {"role": "system", "content": section.content} for section in build_base_sections(user_system_prompt)
+            PromptMessage(
+                role="system",
+                content=section.content,
+                section_id=section.section_id,
+            )
+            for section in build_base_sections(user_system_prompt)
         )
 
     # 计算最近 N 轮用户消息的起始索引，用于控制图片注入范围
@@ -135,28 +141,18 @@ async def build_llm_messages(
 
         # 无图片时退化为纯文本（节省 token 开销）
         if not has_image and len(content_parts) == 1 and content_parts[0]["type"] == "text":
-            result.append(
-                {
-                    "role": msg.role,
-                    "content": content_parts[0]["text"],
-                }
-            )
+            result.append(PromptMessage(role=msg.role, content=content_parts[0]["text"]))
         else:
-            result.append(
-                {
-                    "role": msg.role,
-                    "content": content_parts,
-                }
-            )
+            result.append(PromptMessage(role=msg.role, content=content_parts))
 
     return result
 
 
 def inject_file_content(
-    messages: List[dict],
+    messages: List[PromptMessage | dict],
     original_message: str,
     file_contents: Dict[str, str],
-) -> List[dict]:
+) -> List[PromptMessage]:
     """将非图片文件的解析内容注入到最后一条用户消息的文本中。
 
     包装语来自 catalog 的 `file_content_enhancement`，是该条目的真实消费路径；
@@ -171,10 +167,10 @@ def inject_file_content(
 
     # 仅附件的新会话没有文字消息，仍须将解析正文作为用户输入。
     if not messages:
-        return [{"role": "user", "content": enhanced}]
+        return [PromptMessage(role="user", content=enhanced)]
 
-    result = messages.copy()
-    result[-1] = {"role": "user", "content": enhanced}
+    result = ensure_prompt_messages(messages)
+    result[-1] = PromptMessage(role="user", content=enhanced)
     return result
 
 

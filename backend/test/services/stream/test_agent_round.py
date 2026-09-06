@@ -5,6 +5,8 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.ai.prompts.agent_loop import VISIBLE_RESPONSE_LANGUAGE_PROMPT
+from app.ai.prompts.prompt_message import PromptMessage, to_provider_messages
+from app.ai.prompts.section_ids import VISIBLE_RESPONSE_LANGUAGE
 from app.schemas.chat import ContextUsage, Usage
 from app.services.chat.context_manager import ContextBudgetExceededError, ContextPlan
 from app.services.stream.agent_round import accumulate_usage, collect_agent_round_stream, run_agent_round
@@ -426,7 +428,17 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
                 emitter=emitter,
             )
 
-        self.assertEqual(sent_messages, prepared_messages)
+        self.assertTrue(all(isinstance(message, PromptMessage) for message in prepared_messages))
+        self.assertEqual(
+            to_provider_messages(prepared_messages),
+            sent_messages,
+        )
+        self.assertTrue(all(isinstance(message, dict) for message in sent_messages))
+        self.assertTrue(all("section_id" not in message for message in sent_messages))
+        self.assertEqual(
+            [message.section_id for message in prepared_messages].count(VISIBLE_RESPONSE_LANGUAGE),
+            1,
+        )
         system_messages = [message for message in sent_messages if message["role"] == "system"]
         expected_fingerprint = hashlib.sha256(
             json.dumps(system_messages, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
