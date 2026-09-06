@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 # catalog 结构版本。新增/删除 spec 或改变契约字段时递增。
 # code-default effective_revision 的 canonical 摘要以它承担版本身份。
-CATALOG_VERSION = "2026-09-05.1"
+CATALOG_VERSION = "2026-09-06.1"
 
 
 @dataclass(frozen=True)
@@ -22,10 +22,8 @@ class PromptSpec:
     slug: str
     name: str
     variables: tuple[str, ...]
-    marker: str
-    # P0 过渡期额外接受的历史 marker。过渡完成（attested）后不再接受，
-    # 避免旧契约长期留存。仅用于让过渡前已发布的 bundle 继续通过校验。
-    legacy_markers: tuple[str, ...] = ()
+    format: str = "text"
+    template_engine: str = "none"
 
 
 class PromptCatalogIntegrityError(RuntimeError):
@@ -33,31 +31,26 @@ class PromptCatalogIntegrityError(RuntimeError):
 
 
 PROMPT_SPECS = (
-    PromptSpec("app_identity", "app-identity", "Fusion 应用身份", (), "【Fusion 身份一致性规则】"),
-    PromptSpec("tool_usage_contract", "tool-usage-contract", "工具调用一致性规则", (), "【工具调用一致性规则】"),
-    PromptSpec("no_tool_network_boundary", "no-tool-network-boundary", "无联网工具边界", (), "【无联网工具边界规则】"),
-    PromptSpec(
-        "no_vision_file_boundary", "no-vision-file-boundary", "无图片理解能力边界", (), "【无图片理解能力边界规则】"
-    ),
-    PromptSpec("url_read_tool_description", "url-read-tool-description", "URL 读取工具说明", (), "读取指定 URL"),
-    PromptSpec("limit_summary", "limit-summary", "工具上限总结", (), "工具调用上限"),
-    PromptSpec("continuation_system", "continuation-system", "续写系统规则", (), "继续上一轮"),
-    PromptSpec("generate_title", "generate-title", "生成会话标题", ("content",), "对话内容："),
+    PromptSpec("app_identity", "app-identity", "Fusion 应用身份", ()),
+    PromptSpec("tool_usage_contract", "tool-usage-contract", "工具调用一致性规则", ()),
+    PromptSpec("no_tool_network_boundary", "no-tool-network-boundary", "无联网工具边界", ()),
+    PromptSpec("no_vision_file_boundary", "no-vision-file-boundary", "无图片理解能力边界", ()),
+    PromptSpec("url_read_tool_description", "url-read-tool-description", "URL 读取工具说明", ()),
+    PromptSpec("limit_summary", "limit-summary", "工具上限总结", ()),
+    PromptSpec("continuation_system", "continuation-system", "续写系统规则", ()),
+    PromptSpec("generate_title", "generate-title", "生成会话标题", ("content",)),
     PromptSpec(
         "generate_suggested_questions",
         "generate-suggested-questions",
         "生成推荐问题",
         ("content",),
-        "三个推荐问题",
     ),
-    PromptSpec("file_analysis", "file-analysis", "文件分析", ("query", "file_content"), "问题:"),
+    PromptSpec("file_analysis", "file-analysis", "文件分析", ("query", "file_content")),
     PromptSpec(
         "file_content_enhancement",
         "file-content-enhancement",
         "文件内容增强",
         ("query", "file_content"),
-        "以下是相关文件内容，请结合这些内容回答：",
-        ("参考以下文件内容:",),
     ),
 )
 

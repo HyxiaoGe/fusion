@@ -21,9 +21,9 @@ WRAPPERS = (
     ROOT / ".github/workflows/_deploy-ui.yml",
 )
 WRAPPER_LINE_BUDGETS = {
-    # P0 过渡门禁开关 PROMPT_P0_BASELINE_ATTESTED 需在 deploy-dev 与回滚两处 job
-    # 各下发一行，故预算自 402 提升到 404。
-    API_WRAPPER.name: 404,
+    # P3a 在服务替换前增加独立、可失败的完整包预置步骤及旧镜像身份绑定（10 行）。
+    # 具体实现仍放在 ops 脚本，原 P0 门禁和回滚步骤保留。
+    API_WRAPPER.name: 414,
     "_deploy-ui.yml": 400,
 }
 
@@ -201,7 +201,7 @@ class DeployScriptContractTests(unittest.TestCase):
     def test_wrappers_stay_within_task4_line_budget(self) -> None:
         for wrapper in WRAPPERS:
             with self.subTest(wrapper=wrapper.name):
-                # API 为分类器发布变量新增两行；其余 wrapper 保持原有 400 行上限。
+                # API 只增加已审阅的门禁步骤；UI 保持原有 400 行上限。
                 self.assertLessEqual(
                     len(wrapper.read_text(encoding="utf-8").splitlines()),
                     WRAPPER_LINE_BUDGETS[wrapper.name],

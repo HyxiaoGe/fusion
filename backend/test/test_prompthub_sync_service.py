@@ -72,7 +72,7 @@ class PromptHubSyncServiceTests(unittest.IsolatedAsyncioTestCase):
         client.fetch_published_bundle.assert_not_awaited()
         session_factory.assert_not_called()
 
-    async def test_shadow_persists_validated_lkg_inactive_and_reports_zero_diff(self):
+    async def test_shadow_persists_inactive_and_distinguishes_missing_active_from_code_default(self):
         from app.services.prompthub_sync_service import sync_prompthub_bundle
 
         session = _FakeSession()
@@ -85,11 +85,14 @@ class PromptHubSyncServiceTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result["status"], "success")
-        self.assertEqual(result["revision"], "b" * 64)
-        self.assertEqual(result["changed_prompt_keys"], [])
+        self.assertEqual(result["revision"], _published_bundle().revision)
+        from app.core.prompt_catalog import PROMPT_SPECS
+
+        self.assertEqual(result["changed_prompt_keys"], sorted(spec.key for spec in PROMPT_SPECS))
+        self.assertEqual(result["code_default_changed_prompt_keys"], [])
         self.assertEqual(len(session.added), 1)
         self.assertEqual(session.added[0].namespace, "prompt_bundle")
-        self.assertEqual(session.added[0].key, "fusion")
+        self.assertEqual(session.added[0].key, "fusion:v2")
         self.assertFalse(session.added[0].is_active)
         self.assertEqual(session.commits, 1)
 
@@ -99,7 +102,7 @@ class PromptHubSyncServiceTests(unittest.IsolatedAsyncioTestCase):
         old = SimpleNamespace(
             id="old",
             namespace="prompt_bundle",
-            key="fusion",
+            key="fusion:v2",
             version="a" * 64,
             payload={"revision": "a" * 64},
             is_active=True,
@@ -125,8 +128,8 @@ class PromptHubSyncServiceTests(unittest.IsolatedAsyncioTestCase):
         existing = SimpleNamespace(
             id="same",
             namespace="prompt_bundle",
-            key="fusion",
-            version="b" * 64,
+            key="fusion:v2",
+            version=_published_bundle().revision,
             payload=validate_published_bundle(_published_bundle()),
             is_active=True,
         )
@@ -143,15 +146,15 @@ class PromptHubSyncServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(session.added, [])
         self.assertEqual(session.commits, 0)
 
-    async def test_shadow_makes_same_revision_inactive_after_apply_rollback(self):
+    async def test_shadow_preserves_existing_active_revision(self):
         from app.core.prompt_bundle import validate_published_bundle
         from app.services.prompthub_sync_service import sync_prompthub_bundle
 
         existing = SimpleNamespace(
             id="same",
             namespace="prompt_bundle",
-            key="fusion",
-            version="b" * 64,
+            key="fusion:v2",
+            version=_published_bundle().revision,
             payload=validate_published_bundle(_published_bundle()),
             is_active=True,
         )
@@ -164,10 +167,10 @@ class PromptHubSyncServiceTests(unittest.IsolatedAsyncioTestCase):
             session_factory=lambda: session,
         )
 
-        self.assertFalse(result["idempotent"])
-        self.assertFalse(result["active"])
-        self.assertFalse(existing.is_active)
-        self.assertEqual(session.commits, 1)
+        self.assertTrue(result["idempotent"])
+        self.assertTrue(result["active"])
+        self.assertTrue(existing.is_active)
+        self.assertEqual(session.commits, 0)
 
     async def test_apply_activates_inactive_same_revision_created_by_shadow(self):
         from app.core.prompt_bundle import validate_published_bundle
@@ -176,7 +179,7 @@ class PromptHubSyncServiceTests(unittest.IsolatedAsyncioTestCase):
         old = SimpleNamespace(
             id="old",
             namespace="prompt_bundle",
-            key="fusion",
+            key="fusion:v2",
             version="a" * 64,
             payload={"revision": "a" * 64},
             is_active=True,
@@ -184,8 +187,8 @@ class PromptHubSyncServiceTests(unittest.IsolatedAsyncioTestCase):
         shadow_lkg = SimpleNamespace(
             id="shadow",
             namespace="prompt_bundle",
-            key="fusion",
-            version="b" * 64,
+            key="fusion:v2",
+            version=_published_bundle().revision,
             payload=validate_published_bundle(_published_bundle()),
             is_active=False,
         )
@@ -210,7 +213,7 @@ class PromptHubSyncServiceTests(unittest.IsolatedAsyncioTestCase):
         old = SimpleNamespace(
             id="old",
             namespace="prompt_bundle",
-            key="fusion",
+            key="fusion:v2",
             version="a" * 64,
             payload={"revision": "a" * 64},
             is_active=True,
@@ -218,9 +221,9 @@ class PromptHubSyncServiceTests(unittest.IsolatedAsyncioTestCase):
         corrupted = SimpleNamespace(
             id="corrupted",
             namespace="prompt_bundle",
-            key="fusion",
-            version="b" * 64,
-            payload={"schema_version": 0, "revision": "b" * 64},
+            key="fusion:v2",
+            version=_published_bundle().revision,
+            payload={"schema_version": 0, "revision": _published_bundle().revision},
             is_active=False,
         )
         session = _FakeSession([old, corrupted])
@@ -232,7 +235,7 @@ class PromptHubSyncServiceTests(unittest.IsolatedAsyncioTestCase):
             session_factory=lambda: session,
         )
 
-        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["status"], "revision_conflict")
         self.assertTrue(old.is_active)
         self.assertFalse(corrupted.is_active)
         self.assertEqual(session.commits, 0)
@@ -274,7 +277,7 @@ class PromptHubSyncServiceTests(unittest.IsolatedAsyncioTestCase):
         existing = SimpleNamespace(
             id="old",
             namespace="prompt_bundle",
-            key="fusion",
+            key="fusion:v2",
             version="a" * 64,
             payload={"revision": "a" * 64},
             is_active=True,
@@ -325,7 +328,7 @@ class PromptHubSyncDiagnosticsTests(unittest.TestCase):
         diagnostics = {
             "mode": "shadow",
             "status": "success",
-            "revision": "b" * 64,
+            "revision": _published_bundle().revision,
             "last_success_at": "2026-07-10T00:00:00+00:00",
             "last_error": None,
         }

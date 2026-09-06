@@ -30,6 +30,24 @@ def _bundle_response() -> dict:
 
 
 class PromptHubPublishedBundleClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_preserves_original_variable_definitions_and_order(self):
+        from app.services.external.prompthub_client import PromptHubPublishedBundleClient
+
+        response = _bundle_response()
+        variables = [{"name": "z", "description": "原始定义", "required": True}, {"name": "a", "default": None}]
+        response["data"]["prompts"][0]["variables"] = variables
+        client = PromptHubPublishedBundleClient(
+            base_url="http://prompthub.local",
+            api_key="test",
+            project_slug="fusion",
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, json=response)),
+        )
+        bundle = await client.fetch_published_bundle()
+        self.assertEqual(bundle.prompts[0].variables, ("z", "a"))
+        self.assertEqual(bundle.prompts[0].raw_variables, variables)
+        variables[0]["description"] = "后续修改"
+        self.assertEqual(bundle.prompts[0].raw_variables[0]["description"], "原始定义")
+
     async def test_fetches_published_bundle_with_bearer_token(self):
         from app.services.external.prompthub_client import PromptHubPublishedBundleClient
 

@@ -46,7 +46,7 @@ async def test_continuation_and_summary_consume_same_frozen_bundle_after_active_
         continuation = next(message for message in prepared.messages if message.section_id == CONTINUATION_SYSTEM)
         assert continuation.content.endswith(" 版本 A")
         snapshot = prepared.run_prompt_snapshot
-        assert snapshot.bundle_snapshot.effective_revision == "a" * 64
+        assert snapshot.bundle_snapshot.effective_revision == bundle_payload("a" * 64, " 版本 A")["revision"]
         assert snapshot.fingerprint == prepared.prompt_snapshot["fingerprint"]
         with prompt_bundle.use_prompt_snapshot(snapshot):
             assert get_limit_summary_prompt().endswith(" 版本 A")

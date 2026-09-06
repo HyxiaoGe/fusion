@@ -1,18 +1,20 @@
 import hashlib
+import json
 import unittest
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import patch
 
 
-def _published_bundle(*, revision: str = "b" * 64):
+def _published_bundle(*, revision: str | None = None):
     from app.core.prompt_catalog import PROMPT_SPECS
     from app.services.external.prompthub_client import PromptHubBundle, PromptHubBundleItem
     from app.services.runtime_config_defaults import DEFAULT_PROMPT_TEMPLATES
 
-    return PromptHubBundle(
+    bundle = PromptHubBundle(
         project_id="project-1",
         project_slug="fusion",
-        revision=revision,
+        revision=revision or "",
         prompts=tuple(
             PromptHubBundleItem(
                 id=f"id-{spec.slug}",
@@ -22,6 +24,7 @@ def _published_bundle(*, revision: str = "b" * 64):
                 status="published",
                 content=DEFAULT_PROMPT_TEMPLATES[spec.key],
                 variables=spec.variables,
+                raw_variables=list(spec.variables),
                 format="text",
                 template_engine="none",
                 published_at="2026-07-10T00:00:00Z",
@@ -29,6 +32,23 @@ def _published_bundle(*, revision: str = "b" * 64):
             for spec in PROMPT_SPECS
         ),
     )
+
+    canonical = {
+        "project_slug": bundle.project_slug,
+        "prompts": [
+            {
+                "slug": item.slug,
+                "version": item.version,
+                "content_sha256": hashlib.sha256(item.content.encode("utf-8")).hexdigest(),
+                "variables": item.raw_variables,
+            }
+            for item in sorted(bundle.prompts, key=lambda item: item.slug)
+        ],
+    }
+    digest = hashlib.sha256(
+        json.dumps(canonical, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    return replace(bundle, revision=revision or digest)
 
 
 class PromptBundleValidationTests(unittest.TestCase):
@@ -57,8 +77,8 @@ class PromptBundleValidationTests(unittest.TestCase):
 
         validated = validate_published_bundle(_published_bundle())
 
-        self.assertEqual(validated["schema_version"], 1)
-        self.assertEqual(validated["revision"], "b" * 64)
+        self.assertEqual(validated["schema_version"], 2)
+        self.assertEqual(validated["revision"], _published_bundle().revision)
         self.assertEqual(len(validated["prompts"]), 11)
         self.assertEqual(len(validated["prompts"]["generate_title"]["content_sha256"]), 64)
         self.assertEqual(validated["prompts"]["generate_title"]["variables"], ["content"])
@@ -80,7 +100,7 @@ class PromptBundleValidationTests(unittest.TestCase):
                 with self.assertRaises(PromptBundleValidationError):
                     validate_published_bundle(invalid)
 
-    def test_rejects_bad_revision_variables_marker_and_prompt_contract(self):
+    def test_rejects_bad_revision_variables_and_prompt_contract(self):
         from app.core.prompt_bundle import PromptBundleValidationError, validate_published_bundle
 
         base = _published_bundle()
@@ -95,18 +115,6 @@ class PromptBundleValidationTests(unittest.TestCase):
                             *base.prompts[:-4],
                             SimpleNamespace(**{**vars(base.prompts[-4]), "variables": ()}),
                             *base.prompts[-3:],
-                        ),
-                    }
-                ),
-            ),
-            (
-                "marker",
-                SimpleNamespace(
-                    **{
-                        **vars(base),
-                        "prompts": (
-                            SimpleNamespace(**{**vars(base.prompts[0]), "content": "没有固定标记"}),
-                            *base.prompts[1:],
                         ),
                     }
                 ),

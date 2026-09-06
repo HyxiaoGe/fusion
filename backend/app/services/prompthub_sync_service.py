@@ -21,8 +21,13 @@ from app.core.prompt_bundle import (
     validate_published_bundle,
     validate_stored_bundle_payload,
 )
+from app.core.prompt_bundle_integrity import (
+    PROMPT_BUNDLE_NAMESPACE,
+    PROMPT_BUNDLE_STORAGE_KEY,
+    PromptBundleRevisionConflict,
+)
 from app.core.prompt_catalog import PROMPT_SPECS
-from app.core.runtime_config import SessionFactory, clear_runtime_config_cache, get_runtime_config_payload
+from app.core.runtime_config import SessionFactory, clear_runtime_config_cache
 from app.db.database import SessionLocal
 from app.db.models import RuntimeConfigEntry
 from app.services.external.prompthub_client import (
@@ -67,17 +72,14 @@ async def sync_prompthub_bundle(
         effective_client = client or _build_client()
         bundle = await effective_client.fetch_published_bundle()
         payload = validate_published_bundle(bundle)
-        changed_keys = await asyncio.to_thread(
-            _build_shadow_diff,
-            payload,
-            session_factory=session_factory,
-        )
         persist_result = await asyncio.to_thread(
             _persist_bundle,
             payload,
             mode=effective_mode,
             session_factory=session_factory,
         )
+    except PromptBundleRevisionConflict as exc:
+        return _record_error(effective_mode, attempted_at, str(exc), status="revision_conflict")
     except (PromptHubClientError, PromptBundleValidationError, EffectiveBaselineMismatch, ValueError) as exc:
         return _record_error(effective_mode, attempted_at, str(exc))
     except Exception:
@@ -88,9 +90,7 @@ async def sync_prompthub_bundle(
         **_base_result(effective_mode, "success", attempted_at),
         "last_success_at": _utc_now(),
         "revision": payload["revision"],
-        "changed_prompt_keys": changed_keys,
-        "idempotent": persist_result["idempotent"],
-        "active": persist_result["active"],
+        **persist_result,
         "last_error": None,
     }
     _update_diagnostics(result)
@@ -98,7 +98,7 @@ async def sync_prompthub_bundle(
         "PromptHub bundle 同步成功: mode=%s revision=%s changed=%s idempotent=%s",
         effective_mode,
         payload["revision"],
-        len(changed_keys),
+        len(persist_result["changed_prompt_keys"]),
         persist_result["idempotent"],
     )
     return copy.deepcopy(result)
@@ -131,26 +131,20 @@ def _build_client() -> PromptHubPublishedBundleClient:
     )
 
 
-def _build_shadow_diff(
-    payload: dict[str, Any],
-    *,
-    session_factory: SessionFactory,
-) -> list[str]:
-    changed_keys: list[str] = []
-    for spec in PROMPT_SPECS:
-        legacy, _meta = get_runtime_config_payload(
-            "prompt_template",
-            spec.key,
-            {"template": DEFAULT_PROMPT_TEMPLATES[spec.key]},
-            session_factory=session_factory,
-            use_cache=False,
-        )
-        current = legacy.get("template")
-        remote_checksum = payload["prompts"][spec.key]["content_sha256"]
-        current_checksum = _sha256(current) if isinstance(current, str) else None
-        if current_checksum != remote_checksum:
-            changed_keys.append(spec.key)
-    return changed_keys
+def _build_shadow_diff(payload: dict[str, Any], rows: list[RuntimeConfigEntry]) -> dict[str, Any]:
+    """在激活事务的锁内固定差异基准，避免同步期间基线漂移。"""
+    active = next((row for row in rows if row.is_active and validate_stored_bundle_payload(row.payload)), None)
+    baseline = active.payload["prompts"] if active is not None else {}
+    checksums = {key: item["content_sha256"] for key, item in payload["prompts"].items()}
+    return {
+        "baseline_revision": active.version if active is not None else None,
+        "changed_prompt_keys": sorted(
+            key for key, checksum in checksums.items() if baseline.get(key, {}).get("content_sha256") != checksum
+        ),
+        "code_default_changed_prompt_keys": sorted(
+            spec.key for spec in PROMPT_SPECS if checksums[spec.key] != _sha256(DEFAULT_PROMPT_TEMPLATES[spec.key])
+        ),
+    }
 
 
 def _persist_bundle(
@@ -158,53 +152,26 @@ def _persist_bundle(
     *,
     mode: str,
     session_factory: SessionFactory,
-) -> dict[str, bool]:
+) -> dict[str, Any]:
     session: Session | None = None
     try:
-        session = session_factory()
         if mode == "apply":
-            # 不可绕过的 P0 过渡门禁：新建行与复用旧行两条激活路径都在此之前。
             assert_p0_transition_gate({key: item["content"] for key, item in payload["prompts"].items()})
+        if not validate_stored_bundle_payload(payload):
+            raise PromptBundleValidationError("待持久化的 v2 Prompt bundle 无效")
+        session = session_factory()
         _acquire_advisory_lock(session)
         rows = _load_bundle_rows(session)
-        existing = next((row for row in rows if row.version == payload["revision"]), None)
-        if existing is not None:
-            if not validate_stored_bundle_payload(existing.payload) or existing.payload != payload:
-                raise ValueError("同 revision 的本地 Prompt bundle 已损坏或内容不一致")
-            if mode == "shadow":
-                if not existing.is_active:
-                    return {"idempotent": True, "active": False}
-                existing.is_active = False
-                session.commit()
-                _clear_prompt_caches()
-                return {"idempotent": False, "active": False}
-            if existing.is_active:
-                return {"idempotent": True, "active": True}
-            _activate_row(rows, existing)
+        diff = _build_shadow_diff(payload, rows)
+        result = _persist_locked(session, rows, payload, mode=mode)
+        if not result["idempotent"]:
             session.commit()
             _clear_prompt_caches()
-            return {"idempotent": False, "active": True}
-
-        row = RuntimeConfigEntry(
-            id=str(uuid.uuid4()),
-            namespace="prompt_bundle",
-            key="fusion",
-            version=payload["revision"],
-            payload=copy.deepcopy(payload),
-            is_active=mode == "apply",
-            description="PromptHub fusion published bundle LKG",
-        )
-        if mode == "apply":
-            for peer in rows:
-                peer.is_active = False
-        session.add(row)
-        session.commit()
-        _clear_prompt_caches()
-        return {"idempotent": False, "active": bool(row.is_active)}
+        return {**diff, **result}
     except IntegrityError:
         if session is not None:
             session.rollback()
-        raise ValueError("Prompt bundle revision 并发写入冲突") from None
+        raise PromptBundleRevisionConflict("Prompt bundle revision 并发写入冲突") from None
     except Exception:
         if session is not None:
             session.rollback()
@@ -214,12 +181,43 @@ def _persist_bundle(
             session.close()
 
 
+def _persist_locked(
+    session: Session,
+    rows: list[RuntimeConfigEntry],
+    payload: dict[str, Any],
+    *,
+    mode: str,
+) -> dict[str, bool]:
+    existing = next((row for row in rows if row.version == payload["revision"]), None)
+    if existing is not None:
+        if not validate_stored_bundle_payload(existing.payload) or existing.payload != payload:
+            raise PromptBundleRevisionConflict("同 revision 的本地 Prompt bundle 已损坏或内容不一致")
+        if mode == "shadow" or existing.is_active:
+            return {"idempotent": True, "active": bool(existing.is_active)}
+        _activate_row(rows, existing)
+        return {"idempotent": False, "active": True}
+
+    row = RuntimeConfigEntry(
+        id=str(uuid.uuid4()),
+        namespace=PROMPT_BUNDLE_NAMESPACE,
+        key=PROMPT_BUNDLE_STORAGE_KEY,
+        version=payload["revision"],
+        payload=copy.deepcopy(payload),
+        is_active=mode == "apply",
+        description="PromptHub 完整校验的 v2 LKG",
+    )
+    if mode == "apply":
+        _activate_row(rows, row)
+    session.add(row)
+    return {"idempotent": False, "active": bool(row.is_active)}
+
+
 def _load_bundle_rows(session: Session) -> list[RuntimeConfigEntry]:
     rows = (
         session.query(RuntimeConfigEntry)
         .filter(
-            RuntimeConfigEntry.namespace == "prompt_bundle",
-            RuntimeConfigEntry.key == "fusion",
+            RuntimeConfigEntry.namespace == PROMPT_BUNDLE_NAMESPACE,
+            RuntimeConfigEntry.key == PROMPT_BUNDLE_STORAGE_KEY,
         )
         .order_by(RuntimeConfigEntry.updated_at.desc(), RuntimeConfigEntry.created_at.desc())
         .all()
@@ -227,7 +225,8 @@ def _load_bundle_rows(session: Session) -> list[RuntimeConfigEntry]:
     return [
         row
         for row in rows
-        if getattr(row, "namespace", None) == "prompt_bundle" and getattr(row, "key", None) == "fusion"
+        if getattr(row, "namespace", None) == PROMPT_BUNDLE_NAMESPACE
+        and getattr(row, "key", None) == PROMPT_BUNDLE_STORAGE_KEY
     ]
 
 
@@ -250,9 +249,9 @@ def _clear_prompt_caches() -> None:
     clear_prompt_bundle_cache()
 
 
-def _record_error(mode: str, attempted_at: str, message: str) -> dict[str, Any]:
+def _record_error(mode: str, attempted_at: str, message: str, *, status: str = "error") -> dict[str, Any]:
     result = {
-        **_base_result(mode, "error", attempted_at),
+        **_base_result(mode, status, attempted_at),
         "last_success_at": _DIAGNOSTICS.get("last_success_at"),
         "revision": _DIAGNOSTICS.get("revision"),
         "changed_prompt_keys": copy.deepcopy(_DIAGNOSTICS.get("changed_prompt_keys", [])),

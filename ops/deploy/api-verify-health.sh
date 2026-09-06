@@ -229,9 +229,10 @@ if mode == "apply" and not attested:
     print("prompt P0 baseline gate: apply 尚未 attested，启动门禁会校验 active bundle")
 PY
 
-docker exec -i fusion-api python - <<'PY'
+docker exec -i -e FUSION_ROLLBACK_REQUESTED="${ROLLBACK_REQUESTED:-false}" fusion-api python - <<'PY'
 import asyncio
 import json
+import os
 import re
 import urllib.error
 import urllib.request
@@ -276,7 +277,9 @@ if not isinstance(data, dict):
     raise SystemExit("PromptHub bundle smoke data is missing")
 prompts = data.get("prompts")
 revision = data.get("revision")
-if not isinstance(prompts, list) or len(prompts) != 11:
+from app.core.prompt_catalog import PROMPT_SPECS
+
+if not isinstance(prompts, list) or len(prompts) != len(PROMPT_SPECS):
     count = len(prompts) if isinstance(prompts, list) else "invalid"
     raise SystemExit(f"PromptHub bundle smoke prompt count mismatch: {count}")
 if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{64}", revision) is None:
@@ -285,6 +288,12 @@ if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{64}", revision) is N
 from app.db.database import SessionLocal
 from app.db.models import RuntimeConfigEntry
 from app.services.prompthub_sync_service import sync_prompthub_bundle
+try:
+    from app.core.prompt_bundle_integrity import PROMPT_BUNDLE_NAMESPACE, PROMPT_BUNDLE_STORAGE_KEY
+except ModuleNotFoundError:
+    if os.environ.get("FUSION_ROLLBACK_REQUESTED") != "true":
+        raise SystemExit("候选代码没有 v2 存储契约，拒绝以旧行通过验收")
+    PROMPT_BUNDLE_NAMESPACE, PROMPT_BUNDLE_STORAGE_KEY = "prompt_bundle", "fusion"
 
 sync_result = asyncio.run(sync_prompthub_bundle())
 if sync_result.get("status") != "success" or sync_result.get("revision") != revision:
@@ -295,8 +304,8 @@ try:
     rows = (
         session.query(RuntimeConfigEntry)
         .filter(
-            RuntimeConfigEntry.namespace == "prompt_bundle",
-            RuntimeConfigEntry.key == "fusion",
+            RuntimeConfigEntry.namespace == PROMPT_BUNDLE_NAMESPACE,
+            RuntimeConfigEntry.key == PROMPT_BUNDLE_STORAGE_KEY,
         )
         .all()
     )
@@ -306,10 +315,16 @@ matching = [row for row in rows if row.version == revision]
 active = [row for row in rows if row.is_active]
 if len(matching) != 1:
     raise SystemExit("PromptHub synced revision is missing or duplicated")
-if mode == "shadow" and matching[0].is_active:
-    raise SystemExit("PromptHub shadow revision must remain inactive")
+if mode == "shadow" and bool(matching[0].is_active) != bool(sync_result.get("active")):
+    raise SystemExit("PromptHub shadow 诊断与持久状态不一致")
 if mode == "apply" and (not matching[0].is_active or len(active) != 1):
     raise SystemExit("PromptHub apply revision was not atomically activated")
+if mode == "apply":
+    from app.ai.prompts.defaults import DEFAULT_PROMPT_TEMPLATES
+    from app.core.prompt_bundle import freeze_prompt_bundle
+    frozen = freeze_prompt_bundle(DEFAULT_PROMPT_TEMPLATES)
+    if frozen.source_kind != "prompthub_lkg" or frozen.source_revision != revision:
+        raise SystemExit("真实冻结入口没有消费刚验收的完整 LKG")
 print(
     "PromptHub bundle smoke passed: "
     f"mode={mode} prompts={len(prompts)} revision={revision[:12]}... persisted=true"

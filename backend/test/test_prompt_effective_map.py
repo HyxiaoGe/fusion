@@ -409,19 +409,15 @@ class DisabledWindowEliminationTests(unittest.TestCase):
 
         self.assertEqual(content, "BUNDLE 身份")
 
-    def test_legacy_marker_accepted_only_before_attestation(self):
-        """过渡前发布的 bundle 必须仍能通过校验，否则整包被拒会让全部 key 回落默认值。"""
+    def test_p0_byte_gate_still_rejects_historical_enhancement_after_marker_gate_removed(self):
+        from app.services.prompt_effective_map import EffectiveBaselineMismatch, assert_p0_transition_gate
+        from app.services.runtime_config_defaults import DEFAULT_PROMPT_TEMPLATES
 
-        from app.core import prompt_bundle
-        from app.core.prompt_catalog import PROMPT_SPEC_BY_KEY
-
-        spec = PROMPT_SPEC_BY_KEY["file_content_enhancement"]
-        legacy_content = "用户问题: {query}\n\n参考以下文件内容:\n{file_content}"
-
-        with patch("app.core.prompt_bundle.settings.PROMPT_P0_BASELINE_ATTESTED", False):
-            self.assertTrue(prompt_bundle._marker_is_acceptable(legacy_content, spec))
-        with patch("app.core.prompt_bundle.settings.PROMPT_P0_BASELINE_ATTESTED", True):
-            self.assertFalse(prompt_bundle._marker_is_acceptable(legacy_content, spec))
+        contents = dict(DEFAULT_PROMPT_TEMPLATES)
+        contents["file_content_enhancement"] = "用户问题: {query}\n\n参考以下文件内容:\n{file_content}"
+        with patch("app.services.prompt_effective_map.settings.PROMPT_P0_BASELINE_ATTESTED", True):
+            with self.assertRaises(EffectiveBaselineMismatch):
+                assert_p0_transition_gate(contents)
 
 
 class MigrationCriterionTests(unittest.TestCase):
