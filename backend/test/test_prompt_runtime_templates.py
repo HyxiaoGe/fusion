@@ -10,7 +10,7 @@ class PromptRuntimeTemplatesTests(unittest.TestCase):
 
         with patch(
             "app.ai.prompts.prompt_manager.resolve_prompt_template_with_metadata",
-            return_value=("标题：{content}", {}),
+            return_value=("标题：{content}", {"format": "text", "template_engine": "none"}),
         ) as resolver:
             prompt = prompt_manager.format_prompt("generate_title", content="Redis")
 

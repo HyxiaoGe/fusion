@@ -186,3 +186,12 @@
 
 - `3a705b66` 独立契约复审发现非 apply 模式可进入不被真实消费的 hold，以及 preflight 后进入 held 的模式转换竞态。enter 已要求 apply；hold schema 启用后受管理的所有部署/回滚目标始终要求 apply，不按检查瞬间的 following 状态放宽。
 - 新增负向先复现四项失败，整改后目标 `52 passed`、后端全量 `4036 passed, 2 skipped, 4381 subtests passed`，Ruff 与 diff 检查通过。未执行任何环境操作或外发。
+
+## 2026-09-06 Issue #34 P3c 独立引擎桥接（本地实现与自动化验证）
+
+- 基于已通过两名独立代理 exact-HEAD 复审的 P3b `97da2d226b2d910bf76428fb8c23d12f25833d47` 建立 `codex/issue-34-p3-jinja-bridge`。完整旧 v2 原样保留，新 Jinja2 完整包有独立 catalog 与 P0 原字节基线；冻结 format/engine，四处模板消费者使用同次解析元数据。
+- 追加持久 legacy → bridge → jinja2 转换事实及数据库激活保护，禁止跳过桥接或退回旧阶段。发布器按持久阶段执行全部引擎的真实校验/冻结/渲染探针；阶段提升与发布/回滚共用 fusion-dev 串行协调，验证 worker 和独立镜像锚点后才提交。
+- 独立复审发现并修复未 attested 提升/激活、遗漏可自动恢复旧容器，以及 API 实际未配置 Docker HEALTHCHECK 的问题；已加入失败时不改变 active、不追加阶段事件的负向。基线提案工具仅从完整原始 published 导出材料生成文件，不写 PromptHub 或数据库。
+- 本地全量 pytest `4072 passed, 2 skipped, 4389 subtests passed`，unittest `3044 tests, OK (skipped=2)`；根目录契约 `67 tests, OK`；随后两项追加策略回归与 CI 契约目标 `19 passed`。Ruff、改动格式、架构与 diff 检查通过。
+- 未推送、创建 PR、合并、部署、访问真实 PromptHub 渲染端点或启动服务。P3a PR 创建仍被自动审批阻止，具体外发确认未收到。该条只记录独立桥接代码，最终 Jinja2-only 收口版本另行实现；真实往返、PostgreSQL 并发和多 worker 验收另列环境门禁。
+- [P3c 桥接报告](reports/backend/2026-09-06-global-prompt-runtime-p3c-bridge.md)。

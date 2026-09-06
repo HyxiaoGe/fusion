@@ -1,0 +1,52 @@
+name: Fusion Prompt 引擎阶段提升
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: 目标持久阶段
+        required: true
+        type: choice
+        options: [bridge, jinja2]
+      expected_revision:
+        description: 已复核的完整 active source revision
+        required: true
+        type: string
+      reason:
+        description: 迁移原因与验收记录
+        required: true
+        type: string
+      apply:
+        description: 显式提升；默认仅核验
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# 与正向部署、手动回滚及失败回滚使用同一串行范围。
+concurrency:
+  group: fusion-dev
+  cancel-in-progress: false
+
+jobs:
+  transition:
+    if: github.ref == 'refs/heads/master'
+    runs-on: [self-hosted, Linux, X64, fusion-api]
+    environment: dev
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: master
+          persist-credentials: false
+      - name: 校验消费者与独立回滚锚点并提升阶段
+        env:
+          TARGET_STAGE: ${{ inputs.stage }}
+          EXPECTED_REVISION: ${{ inputs.expected_revision }}
+          TRANSITION_REASON: ${{ inputs.reason }}
+          APPLY_TRANSITION: ${{ inputs.apply }}
+        run: |
+          args=(--stage "$TARGET_STAGE" --expected-revision "$EXPECTED_REVISION" --reason "$TRANSITION_REASON")
+          if [ "$APPLY_TRANSITION" = true ]; then args+=(--apply); fi
+          python3 ops/deploy/prompt-engine-transition.py "${args[@]}"

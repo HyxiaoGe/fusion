@@ -12,6 +12,7 @@ from app.ai.prompts.templates import (
 from app.core.prompt_bundle import freeze_prompt_bundle, resolve_prompt_template_with_metadata
 from app.core.prompt_catalog import register_prompt_consumer
 from app.core.prompt_snapshot import use_prompt_snapshot
+from app.core.prompt_template_engine import render_prompt_template
 
 
 class PromptManager:
@@ -44,11 +45,8 @@ class PromptManager:
 
     def format_prompt(self, template_name: str, **kwargs) -> str:
         """使用提供的参数格式化提示词模板"""
-        template = self.get_template(template_name)
-        try:
-            return template.format(**kwargs)
-        except KeyError as e:
-            raise ValueError(f"格式化提示词模板时缺少参数: {e}")
+        template, metadata = self.resolve_template_with_metadata(template_name)
+        return render_prompt_template(template, metadata["template_engine"], kwargs)
 
     def format_prompt_with_metadata(self, template_name: str, **kwargs) -> tuple[str, dict]:
         """格式化 Prompt，并返回其 slug/version/revision 观测字段。"""
@@ -59,10 +57,7 @@ class PromptManager:
 
         with use_prompt_snapshot(freeze_prompt_bundle(DEFAULT_PROMPT_TEMPLATES)):
             template, metadata = self.resolve_template_with_metadata(template_name)
-        try:
-            return template.format(**kwargs), metadata
-        except KeyError as e:
-            raise ValueError(f"格式化提示词模板时缺少参数: {e}")
+        return render_prompt_template(template, metadata["template_engine"], kwargs), metadata
 
     def add_template(self, name: str, template: str) -> None:
         """添加或更新提示词模板"""

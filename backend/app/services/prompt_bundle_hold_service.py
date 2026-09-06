@@ -14,7 +14,7 @@ from app.db.database import SessionLocal
 from app.db.models import PromptBundleHoldState, PromptBundleHoldTransition, get_china_time
 from app.db.prompt_bundle_hold_repository import load_prompt_bundle_hold
 from app.schemas.response import ApiException
-from app.services.prompt_effective_map import assert_p0_transition_gate
+from app.services.prompt_effective_map import assert_payload_p0_gate
 from app.services.prompthub_sync_service import (
     _acquire_advisory_lock,
     _activate_row,
@@ -47,7 +47,7 @@ def enter_prompt_bundle_hold(
         target = next((row for row in rows if row.version == target_revision), None)
         if target is None or not _valid_target(target):
             raise ApiException.conflict("回滚目标必须是当前 catalog 中校验通过的完整 v2")
-        assert_p0_transition_gate({key: item["content"] for key, item in target.payload["prompts"].items()})
+        assert_payload_p0_gate(target.payload)
         if state is not None and state.state == "held":
             if state.target_revision != target_revision or [row.id for row in rows if row.is_active] != [target.id]:
                 raise ApiException.conflict("已有不同或损坏的 hold；须先核验并解除")

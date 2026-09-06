@@ -181,6 +181,8 @@ class PromptBundleResolverTests(unittest.TestCase):
                     "content": "标题模板 {content}",
                     "variables": ["content"],
                     "content_sha256": hashlib.sha256("标题模板 {content}".encode()).hexdigest(),
+                    "format": "text",
+                    "template_engine": "none",
                     "published_at": "2026-07-10T00:00:00Z",
                 }
             },
@@ -203,6 +205,8 @@ class PromptBundleResolverTests(unittest.TestCase):
                 "prompt_slug": "generate-title",
                 "prompt_version": "1.2.3",
                 "prompt_revision": "c" * 64,
+                "format": "text",
+                "template_engine": "none",
             },
         )
 
@@ -220,6 +224,8 @@ class PromptBundleResolverTests(unittest.TestCase):
                     "content": "Bundle 标题：{content}",
                     "variables": ["content"],
                     "content_sha256": hashlib.sha256("Bundle 标题：{content}".encode()).hexdigest(),
+                    "format": "text",
+                    "template_engine": "none",
                     "published_at": None,
                 }
             },
