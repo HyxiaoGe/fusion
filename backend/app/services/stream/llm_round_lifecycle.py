@@ -79,6 +79,8 @@ class LLMRoundLifecycle:
     reasoning_text: str = ""
     content_text: str = ""
     detail_scheduled: bool = False
+    text_block_id: str | None = None
+    output_provenance: dict[str, Any] | None = None
 
     @classmethod
     async def start(
@@ -95,6 +97,7 @@ class LLMRoundLifecycle:
         message_id: str | None = None,
         detail_scheduler: Callable[[LlmRoundDetailDraft], Any] | None = None,
         system_prompt_fingerprint: str | None = None,
+        text_block_id: str | None = None,
     ) -> LLMRoundLifecycle | None:
         emit = getattr(emitter, "llm_round_started", None)
         if not callable(emit):
@@ -108,6 +111,7 @@ class LLMRoundLifecycle:
             run_id=run_id,
             message_id=message_id,
             detail_scheduler=detail_scheduler,
+            text_block_id=text_block_id,
         )
         await emit(
             llm_round_id=lifecycle.llm_round_id,
@@ -128,14 +132,35 @@ class LLMRoundLifecycle:
         self.finish_reason = finish_reason
 
     def record_detail(self, *, reasoning_text: str, content_text: str) -> None:
-        """保存该 logical round 已对用户可见的正文，等待终态后异步落库。"""
+        """保存该 logical round 的原始候选正文，等待终态后异步落库。"""
 
         self.reasoning_text = reasoning_text
         self.content_text = content_text
 
+    def record_output(self, *, disposition: str, source: str, reason: str, block_id: str | None = None) -> None:
+        """仅由成功发布或明确抑制边界调用，不从 finish_reason 推断采用。"""
+        if self.terminal_emitted:
+            return
+        self.output_provenance = {
+            "disposition": disposition,
+            "source": source,
+            "reason": reason,
+            "block_id": (block_id or self.text_block_id) if source != "none" else None,
+        }
+
+    def suppress_output(self, reason: str) -> None:
+        if self.output_provenance is None:
+            self.record_output(disposition="suppressed", source="none", reason=reason)
+
+    def _output_metadata(self, default_reason: str) -> dict[str, Any]:
+        self.suppress_output(default_reason if self.content_text else "no_content")
+        return self.output_provenance
+
     async def publish_visible_output(self, visible_kind: str | None = None) -> None:
         """在对应可见 chunk 已写 Redis 后发送首次输出事件。"""
 
+        if visible_kind == "content" and self.output_provenance is None:
+            self.record_output(disposition="emitted", source="model", reason="streamed")
         if self.first_output_emitted or self.terminal_emitted:
             return
         delta_kind = visible_kind
@@ -172,6 +197,7 @@ class LLMRoundLifecycle:
             await self.publish_visible_output(getattr(self.observation, "first_output_delta_kind", None))
         usage = self.usage or Usage()
         await self.emitter.llm_round_completed(
+            output_provenance=self._output_metadata("not_committed"),
             llm_round_id=self.llm_round_id,
             finish_reason=self.finish_reason,
             input_tokens=usage.input_tokens,
@@ -195,6 +221,7 @@ class LLMRoundLifecycle:
         if self.terminal_emitted:
             return
         await self.emitter.llm_round_failed(
+            output_provenance=self._output_metadata("round_failed"),
             llm_round_id=self.llm_round_id,
             error_code=_llm_error_code(error),
             message=None,
@@ -207,6 +234,7 @@ class LLMRoundLifecycle:
         if self.terminal_emitted:
             return
         await self.emitter.llm_round_cancelled(
+            output_provenance=self._output_metadata("round_cancelled"),
             llm_round_id=self.llm_round_id,
             reason=reason,
             parent_step_id=self.parent_step_id,

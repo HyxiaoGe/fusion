@@ -614,6 +614,7 @@ class TrajectoryNodeDetailServiceTests(unittest.TestCase):
         terminal_at: datetime | None,
         detail: tuple[str, str] | None = None,
         schema_version: int | None = 1,
+        output_provenance: dict | None = None,
     ) -> None:
         with self.Session() as db:
             db.add(
@@ -650,7 +651,11 @@ class TrajectoryNodeDetailServiceTests(unittest.TestCase):
                         schema_version=1,
                         event_ts=terminal_at,
                         step_id="step-1",
-                        payload={"llm_round_id": llm_round_id, "duration_ms": 100},
+                        payload={
+                            "llm_round_id": llm_round_id,
+                            "duration_ms": 100,
+                            "output_provenance": output_provenance,
+                        },
                     )
                 )
             if detail is not None:
@@ -690,6 +695,7 @@ class TrajectoryNodeDetailServiceTests(unittest.TestCase):
         self.assertEqual(response.available_sections, ["summary", "thinking", "output", "timing"])
         self.assertEqual(response.detail.reasoning_text, "显式推理")
         self.assertEqual(response.detail.output_text, "最终输出")
+        self.assertIsNone(response.detail.output_provenance)
         self.assertEqual(response.redacted_fields, ["reasoning_text"])
         self.assertEqual(response.truncated_fields, ["content_text"])
 
@@ -1009,6 +1015,31 @@ class TrajectoryNodeDetailServiceTests(unittest.TestCase):
                 max_runs_per_conversation=10,
                 detail_settle_grace_seconds=-0.1,
             )
+
+    def test_llm_output_provenance_query_isolates_conversation_run_round_and_owner(self):
+        provenance = {
+            "disposition": "replaced",
+            "source": "server",
+            "reason": "product_guard",
+            "block_id": "text-exact",
+        }
+        for run_id, output in (("run-exact", provenance), ("run-other", {**provenance, "block_id": "other-text"})):
+            self._run(run_id)
+            self._llm_round(
+                run_id,
+                "round-exact",
+                terminal_at=self.now,
+                detail=("", "模型原候选"),
+                output_provenance={**output, "answer": "禁止复制"},
+            )
+        service = self._service()
+        response = service.get_user_llm_node_detail("conv-1", "run-exact", "round-exact", "user-1")
+        self.assertEqual(response.detail.output_provenance.model_dump(), provenance)
+        self.assertEqual(response.detail.output_text, "模型原候选")
+        self.assertNotIn("禁止复制", response.model_dump_json())
+        self.assertIsNone(service.get_user_llm_node_detail("conv-2", "run-exact", "round-exact", "user-2"))
+        self.assertIsNone(service.get_user_llm_node_detail("conv-1", "run-exact", "round-exact", "user-2"))
+        self.assertIsNone(service.get_user_llm_node_detail("conv-1", "run-exact", "round-other", "user-1"))
 
 
 if __name__ == "__main__":

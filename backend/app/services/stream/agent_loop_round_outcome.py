@@ -167,6 +167,7 @@ def _requires_deep_synthesis_protocol_summary(request: AgentRoundOutcomeRequest)
 async def _complete_deep_synthesis_protocol_round(
     request: AgentRoundOutcomeRequest,
 ) -> AgentLoopOutcome:
+    _record_suppression(request, "research_guard")
     request.runtime.warning_fn(
         "深度研究综合阶段返回未公告工具协议，切换到无工具证据收口: "
         f"conv_id={request.runtime.conversation_id}, run_id={request.runtime.run_id}, "
@@ -192,6 +193,8 @@ async def _complete_tool_protocol_error_round(
     request: AgentRoundOutcomeRequest,
 ) -> AgentLoopOutcome:
     """协议前缀不是最终答案，统一交给无工具总结做有界重试。"""
+
+    _record_suppression(request, "tool_round")
 
     request.runtime.warning_fn(
         "模型工具协议无法解析，切换到无工具安全收口: "
@@ -244,6 +247,8 @@ def _requires_plan_synthesis(request: AgentRoundOutcomeRequest) -> bool:
 async def _complete_round_before_plan_synthesis(request: AgentRoundOutcomeRequest) -> None:
     """计划执行完成后的普通回合只负责收 step，正文统一交给显式综合阶段。"""
 
+    _record_suppression(request, "plan_continues")
+
     await complete_text_response_step(
         context=request.step_context,
         emitter=request.runtime.emitter,
@@ -258,6 +263,8 @@ async def _complete_round_before_plan_synthesis(request: AgentRoundOutcomeReques
 
 async def _repair_incomplete_execution(request: AgentRoundOutcomeRequest) -> None:
     """计划执行未终态时丢弃正文，下一轮只允许继续执行既定工具步骤。"""
+
+    _record_suppression(request, "plan_continues")
 
     await complete_text_response_step(
         context=request.step_context,
@@ -297,6 +304,7 @@ def _requires_research_completion_repair(request: AgentRoundOutcomeRequest) -> b
 async def _repair_research_completion(
     request: AgentRoundOutcomeRequest,
 ) -> AgentLoopOutcome | None:
+    _record_suppression(request, "research_guard")
     result = validate_research_completion(
         request.state.research_workset,
         request.round_result.content_buf,
@@ -411,6 +419,7 @@ def _persist_visible_plan_reasoning_checkpoint(request: AgentRoundOutcomeRequest
 async def _repair_missing_required_plan(
     request: AgentRoundOutcomeRequest,
 ) -> AgentLoopOutcome | None:
+    _record_suppression(request, "plan_continues")
     await _complete_plan_required_round(request)
     repair_result = request.state.plan_coordinator.record_repair_round_with_fallback()
     if repair_result.fallback is not None and repair_result.fallback.snapshot is not None:
@@ -524,7 +533,12 @@ async def _commit_deferred_knowledge_answer(
         )
         answer = KNOWLEDGE_UNVERIFIABLE_ANSWER_TEXT
         model_output_visible = False
-    await _append_committed_answer(request, answer, model_output_visible=model_output_visible)
+    await _append_committed_answer(
+        request,
+        answer,
+        model_output_visible=model_output_visible,
+        output_reason="deferred" if model_output_visible else "knowledge_guard",
+    )
     return _with_replaced_answer(request, answer)
 
 
@@ -687,11 +701,18 @@ def _has_product_answer_context(state: AgentLoopState) -> bool:
     )
 
 
+def _record_suppression(request: AgentRoundOutcomeRequest, reason: str) -> None:
+    lifecycle = request.round_result.llm_lifecycle
+    if lifecycle is not None:
+        lifecycle.suppress_output(reason)
+
+
 async def _append_committed_answer(
     request: AgentRoundOutcomeRequest,
     answer: str,
     *,
     model_output_visible: bool = False,
+    output_reason: str | None = None,
 ) -> None:
     snapshot = request.state.plan_coordinator.begin_synthesis()
     emit_snapshot = getattr(request.runtime.emitter, "plan_snapshot", None)
@@ -707,8 +728,21 @@ async def _append_committed_answer(
         step_id=request.step_context.step_id,
     )
     lifecycle = request.round_result.llm_lifecycle
-    if model_output_visible and lifecycle is not None:
-        await lifecycle.publish_visible_output("content")
+    if lifecycle is not None:
+        unchanged = model_output_visible and answer == request.round_result.content_buf
+        reason = output_reason or (
+            "deferred" if unchanged else "server_rewrite" if model_output_visible else "product_guard"
+        )
+        if not unchanged and reason == "deferred":
+            reason = "server_rewrite"
+        lifecycle.record_output(
+            disposition="emitted" if unchanged else "replaced",
+            source="model" if unchanged else "server",
+            reason=reason,
+            block_id=request.step_context.text_block_id,
+        )
+        if model_output_visible:
+            await lifecycle.publish_visible_output("content")
 
 
 def _with_replaced_answer(
@@ -774,6 +808,10 @@ async def _complete_empty_round_before_summary(request: AgentRoundOutcomeRequest
 
 async def _handle_tool_calls_round(request: AgentRoundOutcomeRequest) -> AgentLoopOutcome | None:
     await _discard_streamed_tool_round_content(request)
+    lifecycle = request.round_result.llm_lifecycle
+    if lifecycle is not None:
+        lifecycle.suppress_output("tool_round")
+        await lifecycle.finish_success(output_visible=False)
     outcome = await request.runtime.handle_tool_calls_round_fn(
         request=build_tool_round_request(
             db=request.db,
@@ -857,6 +895,9 @@ async def _discard_streamed_tool_round_content(request: AgentRoundOutcomeRequest
     if discard is None:
         return
     await discard(block_id=request.step_context.text_block_id)
+    lifecycle = request.round_result.llm_lifecycle
+    if lifecycle is not None:
+        lifecycle.record_output(disposition="suppressed", source="none", reason="tool_retracted")
 
 
 async def _complete_unknown_round(request: AgentRoundOutcomeRequest) -> None:

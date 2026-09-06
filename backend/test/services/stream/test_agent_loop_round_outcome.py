@@ -1025,6 +1025,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         complete_step_fn = AsyncMock()
         warnings: list[str] = []
         llm_lifecycle = AsyncMock()
+        llm_lifecycle.record_output = Mock()
 
         with patch("app.services.stream.agent_loop_round_outcome.append_chunk", append_chunk):
             outcome = await handle_agent_round_outcome(
@@ -1814,6 +1815,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         step_context = _step_context("step-product")
         warnings: list[str] = []
         llm_lifecycle = AsyncMock()
+        llm_lifecycle.record_output = Mock()
 
         with patch("app.services.stream.agent_loop_round_outcome.append_chunk", append_chunk):
             outcome = await handle_agent_round_outcome(

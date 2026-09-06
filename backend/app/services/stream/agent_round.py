@@ -287,6 +287,7 @@ async def run_agent_round(
         model=model_id,
         provider=provider,
         parent_step_id=step_context.step_id,
+        text_block_id=step_context.text_block_id,
         conversation_id=conversation_id,
         run_id=run_id,
         message_id=assistant_message_id,
@@ -356,7 +357,8 @@ async def run_agent_round(
                     await lifecycle.publish_visible_output("content")
                 elif reasoning_buf:
                     await lifecycle.publish_visible_output("reasoning")
-                await lifecycle.finish_success(output_visible=False)
+                if not tool_calls:
+                    await lifecycle.finish_success(output_visible=False)
         if finish_reason != "cancelled":
             litellm_health.record_success(model_id)
         log_agent_round_summary(

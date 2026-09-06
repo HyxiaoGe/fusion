@@ -387,6 +387,35 @@
       "about": "关于"
     },
   "trajectory": {
+    "outputProvenance": {
+      "title": "正文输出归因",
+      "emitted": "已输出",
+      "suppressed": "未输出",
+      "replaced": "已改写或替换",
+      "retracted": "已撤回",
+      "unknown": "未知（未记录输出归因）",
+      "sources": {
+        "model": "模型",
+        "server": "服务端",
+        "none": "无正文输出"
+      },
+      "reasons": {
+        "streamed": "模型正文已流式写出",
+        "deferred": "延迟候选已采用",
+        "server_rewrite": "服务端已编辑模型正文",
+        "product_guard": "产品结果策略改写或替换了候选",
+        "knowledge_guard": "知识库引用校验未通过，使用服务端答复",
+        "plan_continues": "计划仍需继续，候选未采用",
+        "tool_round": "该轮进入工具调用，正文候选未采用",
+        "tool_retracted": "工具调用前展示的正文已撤回",
+        "research_guard": "研究证据校验未通过，候选未采用或被替换",
+        "summary_guard": "总结安全策略未采用或替换了候选",
+        "no_content": "该轮没有正文候选",
+        "not_committed": "候选尚未成功写出",
+        "round_failed": "调用失败前没有正文写出",
+        "round_cancelled": "调用取消前没有正文写出"
+      }
+    },
     "systemPrompt": {
       "title": "Run 初始系统提示词",
       "body": "正文",

@@ -376,6 +376,31 @@ class ToolNodeDetail(BaseModel):
     error: dict[str, str] | None = None
 
 
+class LlmOutputProvenance(BaseModel):
+    """单轮正文的实际处置，不携带候选或答案全文。"""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    disposition: Literal["emitted", "suppressed", "replaced"]
+    source: Literal["model", "server", "none"]
+    reason: Literal[
+        "streamed",
+        "deferred",
+        "server_rewrite",
+        "product_guard",
+        "knowledge_guard",
+        "plan_continues",
+        "tool_round",
+        "tool_retracted",
+        "research_guard",
+        "summary_guard",
+        "no_content",
+        "not_committed",
+        "round_failed",
+        "round_cancelled",
+    ]
+    block_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+
 class LlmNodeDetail(BaseModel):
     """普通用户可读取的单个 LLM Round 正文详情。"""
 
@@ -384,6 +409,7 @@ class LlmNodeDetail(BaseModel):
     llm_round_id: str
     reasoning_text: str | None = None
     output_text: str | None = None
+    output_provenance: LlmOutputProvenance | None = None
 
 
 class SystemPromptSection(BaseModel):

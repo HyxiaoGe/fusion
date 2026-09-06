@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.chat import ContextStatus, KnowledgeEvidenceBlock, ProductResultBlock
 from app.schemas.trajectory import (
+    LlmOutputProvenance,
     TrajectoryCapabilityResolution,
     TrajectorySkillMetadata,
     TrajectorySkillResolution,
@@ -127,6 +128,7 @@ class LLMRoundFirstOutputDelta(AgentEventBase):
 
 
 class LLMRoundCompleted(AgentEventBase):
+    output_provenance: LlmOutputProvenance | None = None
     type: Literal["llm_round_completed"]
     llm_round_id: str
     status: Literal["success"]
@@ -142,6 +144,7 @@ class LLMRoundCompleted(AgentEventBase):
 
 
 class LLMRoundFailed(AgentEventBase):
+    output_provenance: LlmOutputProvenance | None = None
     type: Literal["llm_round_failed"]
     llm_round_id: str
     status: Literal["failed"]
@@ -150,6 +153,7 @@ class LLMRoundFailed(AgentEventBase):
 
 
 class LLMRoundCancelled(AgentEventBase):
+    output_provenance: LlmOutputProvenance | None = None
     type: Literal["llm_round_cancelled"]
     llm_round_id: str
     status: Literal["cancelled"]

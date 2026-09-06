@@ -932,3 +932,23 @@ describe('Skills 解析元数据', () => {
     })).toBeNull();
   });
 });
+
+
+describe('正文归因的实时与历史安全投影', () => {
+  it.each(['llm_round_completed', 'llm_round_failed', 'llm_round_cancelled'])('%s 保留有界归因并丢弃全文', type => {
+    const provenance = { disposition: 'replaced', source: 'server', reason: 'product_guard', block_id: 'text-1' };
+    const payload = { llm_round_id: 'round-1', output_provenance: { ...provenance, candidate: '禁止复制', answer: '禁止复制' } };
+    const live = normalizeSseTrajectoryEvent({
+      type, schema_version: 1, run_id: 'run-1', step_id: 'step-1', sequence: 3,
+      trace_id: 'trace-1', tool_call_id: null, parent_step_id: null,
+      ts: Date.parse(timestamp) / 1000, ...payload,
+    });
+    const history = normalizeTrajectoryRecord('run-1', {
+      record_type: 'event', event_type: type, run_id: 'run-1', schema_version: 1,
+      sequence: 3, timestamp, step_id: 'step-1', tool_call_id: null, parent_step_id: null, trace_id: null, payload,
+    });
+    expect(live?.payload.output_provenance).toEqual(provenance);
+    expect(history?.payload.output_provenance).toEqual(provenance);
+    expect(JSON.stringify(live)).not.toContain('禁止复制');
+  });
+});

@@ -1,11 +1,13 @@
 import type { TrajectorySnapshotCacheEntry } from '@/redux/slices/trajectorySlice';
 import type { Message } from '@/types/conversation';
 import type {
+  LlmOutputProvenance,
   TrajectoryCapabilityResolution,
   TrajectoryRunSummary,
   TrajectorySpan,
 } from '@/types/trajectory';
 import {
+  normalizeOutputProvenance,
   normalizeTrajectoryCapabilityResolution,
   type NormalizedTrajectoryEvent,
 } from './normalizeTrajectoryEvent';
@@ -140,6 +142,7 @@ export interface LlmRoundCell extends TrajectoryCellBase {
   durationMs: number | null;
   ttftMs: number | null;
   detailAvailable: boolean;
+  outputProvenance?: LlmOutputProvenance | null;
   events: NormalizedTrajectoryEvent[];
 }
 
@@ -718,6 +721,7 @@ function projectDetailCells(detail: DetailContext, runCell: RunCell): Trajectory
         existing.model = stringValue(item.payload.model) ?? existing.model;
         existing.provider = stringValue(item.payload.provider) ?? existing.provider;
         existing.status = llmRoundStatus(item, existing.status);
+        existing.outputProvenance = normalizeOutputProvenance(item.payload.output_provenance) ?? existing.outputProvenance;
         existing.inputTokens = numberValue(item.payload.input_tokens) ?? existing.inputTokens;
         existing.outputTokens = numberValue(item.payload.output_tokens) ?? existing.outputTokens;
         existing.reasoningTokens = numberValue(item.payload.reasoning_tokens) ?? existing.reasoningTokens;
@@ -744,6 +748,7 @@ function projectDetailCells(detail: DetailContext, runCell: RunCell): Trajectory
           durationMs: numberValue(item.payload.duration_ms),
           ttftMs: numberValue(item.payload.ttft_ms),
           detailAvailable: detail.run.llmDetailSchemaVersion === 1,
+          outputProvenance: normalizeOutputProvenance(item.payload.output_provenance),
           events: [item],
         };
         llmRounds.set(llmRoundId, cell);

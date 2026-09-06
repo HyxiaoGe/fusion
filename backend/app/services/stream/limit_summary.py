@@ -353,6 +353,7 @@ async def call_limit_summary_round(
         model=request.model_id,
         provider=request.provider,
         parent_step_id=step_id,
+        text_block_id=text_block_id,
         conversation_id=request.conversation_id,
         run_id=request.run_id,
         message_id=request.assistant_message_id,
@@ -755,6 +756,8 @@ async def _repair_deep_research_summary_citations(
             section_id=RESEARCH_COMPLETION_REPAIR,
         )
     )
+    if result.llm_lifecycle is not None:
+        result.llm_lifecycle.suppress_output("research_guard")
     await _finish_summary_round_lifecycle(result, model_output_visible=False)
     try:
         repaired = await asyncio.wait_for(
@@ -802,6 +805,19 @@ def _is_summary_tool_protocol_violation(result: LimitSummaryRoundResult) -> bool
     return bool(result.tool_calls) or result.finish_reason == "tool_protocol_error"
 
 
+def _record_summary_output(result: LimitSummaryRoundResult, answer: str, reason: str) -> None:
+    """正文成功写出后，用原候选识别所有总结兜底及编辑。"""
+    lifecycle = result.llm_lifecycle
+    if lifecycle is None or lifecycle.terminal_emitted:
+        return
+    unchanged = answer == lifecycle.content_text
+    lifecycle.record_output(
+        disposition="emitted" if unchanged else "replaced",
+        source="model" if unchanged else "server",
+        reason="deferred" if unchanged else reason,
+    )
+
+
 async def _finish_summary_round_lifecycle(
     result: LimitSummaryRoundResult,
     *,
@@ -827,7 +843,11 @@ def _build_summary_protocol_fallback(
         context=result.context,
         tool_calls=(),
         finish_reason="protocol_fallback",
-        llm_lifecycle=result.llm_lifecycle,
+        llm_lifecycle=(
+            result.llm_lifecycle
+            if result.llm_lifecycle is not None and not result.llm_lifecycle.terminal_emitted
+            else None
+        ),
     )
 
 
@@ -1053,6 +1073,7 @@ async def _commit_limit_summary_result(
             run_id=request.run_id,
             step_id=summary_context.step_id,
         )
+        _record_summary_output(round_result, answer, "knowledge_guard")
         if valid:
             await _finish_summary_round_lifecycle(round_result, model_output_visible=True)
         request.content_blocks.append(TextBlock(type="text", id=text_block_id, text=answer))
@@ -1089,6 +1110,7 @@ async def _commit_limit_summary_result(
                 run_id=request.run_id,
                 step_id=summary_context.step_id,
             )
+            _record_summary_output(round_result, answer, "summary_guard")
             if has_answer and unsupported_fact_kind is None:
                 await _finish_summary_round_lifecycle(round_result, model_output_visible=True)
         if answer:
@@ -1113,6 +1135,7 @@ async def _commit_limit_summary_result(
                 run_id=request.run_id,
                 step_id=summary_context.step_id,
             )
+            _record_summary_output(round_result, answer, "summary_guard")
             if round_result.content_buf.strip() and unsupported_fact_kind is None:
                 await _finish_summary_round_lifecycle(round_result, model_output_visible=True)
         if round_result.content_buf.strip() and unsupported_fact_kind is None:
@@ -1153,6 +1176,7 @@ async def _complete_deep_research_summary(
         run_id=request.run_id,
         step_id=step_id,
     )
+    _record_summary_output(round_result, answer, "research_guard")
     if validation.is_valid:
         await _finish_summary_round_lifecycle(round_result, model_output_visible=True)
     append_summary_content_blocks(
