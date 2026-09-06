@@ -6,16 +6,22 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 from app.db.models import RuntimeConfigEntry
 from test.test_prompt_bundle_hold import enter, versions
 
 PATH = Path(__file__).resolve().parents[1] / "alembic/versions/e4b6c9d2a701_add_prompt_bundle_hold.py"
+
+
+def load_frozen_p3a_probe_source(path: Path) -> bytes:
+    source = path.read_bytes().replace(b"\r\n", b"\n")
+    assert b"\r" not in source
+    return source
 
 
 def load_migration():
@@ -119,6 +125,15 @@ def test_postgresql_guard_uses_same_transaction_lock_and_covers_all_mutations():
     assert "BEFORE UPDATE OR DELETE ON prompt_bundle_hold_transitions" in sql
 
 
+def test_frozen_p3a_probe_source_is_stable_with_crlf_checkout(tmp_path):
+    path = Path(__file__).parent / "fixtures/prompt_bundle/p3a_sync.py"
+    expected = load_frozen_p3a_probe_source(path)
+    windows_path = tmp_path / "p3a_sync.py"
+    windows_path.write_bytes(expected.replace(b"\n", b"\r\n"))
+
+    assert load_frozen_p3a_probe_source(windows_path) == expected
+
+
 @pytest.mark.parametrize("existing_candidate", [True, False])
 def test_real_p3a_sync_writer_is_blocked_while_held_then_follows_after_release(migrated_factory, existing_candidate):
     import asyncio
@@ -130,7 +145,7 @@ def test_real_p3a_sync_writer_is_blocked_while_held_then_follows_after_release(m
     from test.test_prompt_bundle_v2_integrity import canonical_revision
 
     path = Path(__file__).parent / "fixtures/prompt_bundle/p3a_sync.py"
-    source = path.read_bytes()
+    source = load_frozen_p3a_probe_source(path)
     expected = "1fc5150883d4a5f85f022c9278bb779c9a2d37df1567047728c3f6f8e240fb3f"
     assert hashlib.sha256(source).hexdigest() == expected
     previous = types.ModuleType("app.services.p3a_compatibility_probe")
