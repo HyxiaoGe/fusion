@@ -1660,6 +1660,60 @@ class WebSearchRedirectPresentationTests(unittest.TestCase):
 
 
 class AgentEventCompositeWriterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ownership_loss_records_only_explicit_cancellation_terminals(self):
+        from app.services.stream_state_service import StreamOwnershipLostError
+
+        cases = [
+            ({"type": "run_interrupted"}, True),
+            ({"type": "llm_round_cancelled"}, True),
+            ({"type": "retrieval_cancelled"}, True),
+            ({"type": "tool_attempt_completed", "status": "cancelled"}, True),
+            ({"type": "tool_attempt_completed", "status": "success"}, False),
+            ({"type": "tool_attempt_completed", "status": "failed"}, False),
+            ({"type": "tool_attempt_completed", "status": "timeout"}, False),
+            ({"type": "tool_call_completed", "status": "failed"}, False),
+            ({"type": "llm_round_completed"}, False),
+            ({"type": "llm_round_failed"}, False),
+            ({"type": "plan_snapshot"}, False),
+            ({"type": "content_block_upserted"}, False),
+        ]
+        for payload, accepted in cases:
+            with self.subTest(payload=payload):
+                failure = StreamOwnershipLostError("流已停止")
+                progress = MagicMock()
+                trajectory = AsyncMock()
+                redis_writer = AsyncMock()
+                redis_writer.append_chunk.side_effect = failure
+                writer = AgentEventCompositeWriter(
+                    redis_writer=redis_writer,
+                    recorder=progress,
+                    trajectory_recorder=trajectory,
+                )
+                with self.assertRaises(StreamOwnershipLostError) as raised:
+                    await writer.append_chunk("c1", "task-1", "agent_event", payload)
+                self.assertIs(raised.exception, failure)
+                progress.record_chunk.assert_not_called()
+                if accepted:
+                    trajectory.record_chunk.assert_awaited_once_with("c1", "agent_event", payload)
+                else:
+                    trajectory.record_chunk.assert_not_awaited()
+
+    async def test_cancel_terminal_does_not_hide_redis_or_auxiliary_failure(self):
+        from app.services.stream_state_service import StreamOwnershipLostError
+
+        for primary in (StreamOwnershipLostError("流已停止"), RuntimeError("Redis 不可用")):
+            with self.subTest(primary=type(primary).__name__):
+                trajectory = AsyncMock()
+                trajectory.record_chunk.side_effect = asyncio.CancelledError("辅助记录被取消")
+                redis_writer = AsyncMock()
+                redis_writer.append_chunk.side_effect = primary
+                writer = AgentEventCompositeWriter(redis_writer=redis_writer, trajectory_recorder=trajectory)
+                with self.assertRaises(type(primary)) as raised:
+                    await writer.append_chunk("c1", "task-1", "agent_event", {"type": "llm_round_cancelled"})
+                self.assertIs(raised.exception, primary)
+                if not isinstance(primary, StreamOwnershipLostError):
+                    trajectory.record_chunk.assert_not_awaited()
+
     async def test_writes_redis_then_progress_then_trajectory(self):
         calls = []
 

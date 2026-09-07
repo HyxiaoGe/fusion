@@ -1029,7 +1029,11 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_post_stream_summary_context_error_and_cancel_close_round(self):
         workset, blocks = _deep_summary_evidence()
-        for primary in (RuntimeError("final summary context failed"), asyncio.CancelledError()):
+        for primary in (
+            RuntimeError("final summary context failed"),
+            asyncio.CancelledError(),
+            StreamOwnershipLostError("流已停止"),
+        ):
             with self.subTest(primary=type(primary).__name__):
                 request, emitter, _stream_kwargs, prepare_context_fn = self._deep_request(
                     workset=workset,
@@ -1055,7 +1059,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
                         )
 
                 self.assertIs(raised.exception, primary)
-                if isinstance(primary, asyncio.CancelledError):
+                if isinstance(primary, (asyncio.CancelledError, StreamOwnershipLostError)):
                     emitter.llm_round_cancelled.assert_awaited_once()
                 else:
                     emitter.llm_round_failed.assert_awaited_once()
@@ -1731,7 +1735,9 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(content_blocks[1].text, "最终答复")
         self.assertNotIn("工具协议前缀", content_blocks[1].text)
         self.assertTrue(any("工具协议" in warning for warning in warnings))
-        self.assertTrue(any("Do not output tool calls" in str(message.get("content", "")) for message in request.messages))
+        self.assertTrue(
+            any("Do not output tool calls" in str(message.get("content", "")) for message in request.messages)
+        )
         self.assertEqual(emitter.llm_round_completed.await_count, 2)
         self.assertIsNone(emitter.llm_round_completed.await_args_list[0].kwargs["ttft_ms"])
 

@@ -31,7 +31,12 @@ from app.services.stream.tool_call_lifecycle import (
     execute_tool_with_lifecycle,
 )
 from app.services.stream.tool_execution_result import ToolExecutionRecord
-from app.services.stream_state_service import StreamWriteTerminalError, StreamWriteUnavailableError, append_chunk
+from app.services.stream_state_service import (
+    StreamOwnershipLostError,
+    StreamWriteTerminalError,
+    StreamWriteUnavailableError,
+    append_chunk,
+)
 
 if TYPE_CHECKING:
     from app.services.stream.network_budget import NetworkToolBudget
@@ -230,7 +235,25 @@ class AgentEventCompositeWriter:
         self.trajectory_recorder = trajectory_recorder
 
     async def append_chunk(self, conversation_id: str, task_id: str, chunk_type: str, payload: dict) -> None:
-        await self.redis_writer.append_chunk(conversation_id, task_id, chunk_type, payload)
+        try:
+            await self.redis_writer.append_chunk(conversation_id, task_id, chunk_type, payload)
+        except StreamOwnershipLostError:
+            # stop 先冻结实时流；仅保留真实取消事实到该 Run 账本，不能恢复写入权或更新 progress。
+            cancellation_terminal = payload.get("type") in {
+                "run_interrupted",
+                "llm_round_cancelled",
+                "retrieval_cancelled",
+            } or (payload.get("type") == "tool_attempt_completed" and payload.get("status") == "cancelled")
+            if chunk_type == "agent_event" and cancellation_terminal and self.trajectory_recorder is not None:
+                try:
+                    await self.trajectory_recorder.record_chunk(conversation_id, chunk_type, payload)
+                except BaseException as error:  # 辅助记录失败不得替换原所有权异常或取消流程。
+                    logger.warning(
+                        "中断终态旁路记录失败: run_id=%s error_type=%s",
+                        payload.get("run_id"),
+                        type(error).__name__,
+                    )
+            raise
         if self.recorder is not None:
             try:
                 self.recorder.record_chunk(conversation_id, chunk_type, payload)
