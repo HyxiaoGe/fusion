@@ -2224,7 +2224,7 @@ class ToolExecutorMessageIdTests(unittest.IsolatedAsyncioTestCase):
         handler = AsyncMock()
         handler.tool_name = "web_search"
         handler.execute.return_value = ToolResult(status="success")
-        budget = NetworkToolBudget(web_search_calls=4)
+        budget = NetworkToolBudget(web_search_calls=40)
 
         with patch("app.services.tool_handlers.get_handler", return_value=handler):
             results = await execute_tools_parallel(
@@ -2270,7 +2270,7 @@ class ToolExecutorMessageIdTests(unittest.IsolatedAsyncioTestCase):
         emitter.tool_call_started.side_effect = record_started
         emitter.tool_call_completed.side_effect = record_completed
 
-        budget = NetworkToolBudget(web_search_calls=4)
+        budget = NetworkToolBudget(web_search_calls=40)
 
         with patch("app.services.tool_handlers.get_handler", return_value=handler):
             results = await execute_tools_parallel(

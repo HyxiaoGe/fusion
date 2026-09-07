@@ -199,6 +199,9 @@ jobs:
         id: deploy_candidate
         env:
           ROLLBACK_REQUESTED: ${{ needs.prepare.outputs.rollback_requested }}
+          DEPLOY_AGENT_MAX_STEPS: ${{ vars.AGENT_MAX_STEPS }}
+          DEPLOY_AGENT_MAX_TOOL_CALLS: ${{ vars.AGENT_MAX_TOOL_CALLS }}
+          DEPLOY_AGENT_TOTAL_TIMEOUT: ${{ vars.AGENT_TOTAL_TIMEOUT }}
           DEPLOY_MCP_ALLOWED_HOSTS: ${{ vars.MCP_ALLOWED_HOSTS }}
           DEPLOY_MCP_ALLOWED_CREDENTIAL_REFS: ${{ vars.MCP_ALLOWED_CREDENTIAL_REFS }}
           DEPLOY_MCP_CONNECT_TIMEOUT_SECONDS: ${{ vars.MCP_CONNECT_TIMEOUT_SECONDS }}
@@ -331,6 +334,9 @@ jobs:
           ROLLBACK_MODEL_MANAGEMENT_TIMER_UNIT_EXISTED: ${{ steps.capture_rollback_target.outputs.model_management_timer_unit_existed }}
           ROLLBACK_MODEL_MANAGEMENT_SERVICE_UNIT_B64: ${{ steps.capture_rollback_target.outputs.model_management_service_unit_b64 }}
           ROLLBACK_MODEL_MANAGEMENT_TIMER_UNIT_B64: ${{ steps.capture_rollback_target.outputs.model_management_timer_unit_b64 }}
+          DEPLOY_AGENT_MAX_STEPS: ${{ vars.AGENT_MAX_STEPS }}
+          DEPLOY_AGENT_MAX_TOOL_CALLS: ${{ vars.AGENT_MAX_TOOL_CALLS }}
+          DEPLOY_AGENT_TOTAL_TIMEOUT: ${{ vars.AGENT_TOTAL_TIMEOUT }}
           DEPLOY_MCP_ALLOWED_HOSTS: ${{ vars.MCP_ALLOWED_HOSTS }}
           DEPLOY_MCP_ALLOWED_CREDENTIAL_REFS: ${{ vars.MCP_ALLOWED_CREDENTIAL_REFS }}
           DEPLOY_MCP_CONNECT_TIMEOUT_SECONDS: ${{ vars.MCP_CONNECT_TIMEOUT_SECONDS }}

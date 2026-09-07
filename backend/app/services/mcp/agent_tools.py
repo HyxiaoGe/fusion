@@ -162,7 +162,7 @@ class McpAgentToolLimits:
     max_tools: int = 16
     max_definition_bytes: int = 65_536
     max_llm_context_bytes: int = 12_000
-    max_tool_calls_per_server_per_run: int = 8
+    max_tool_calls_per_server_per_run: int = 64
 
     def __post_init__(self) -> None:
         if (

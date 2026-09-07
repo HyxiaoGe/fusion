@@ -16,10 +16,10 @@ from app.services.search_budget import (
 from app.services.source_evidence_ledger import canonicalize_evidence_url
 from app.services.tool_handlers.base import ToolResult
 
-MAX_SEARCH_CALLS = 4
-DEFAULT_PLANNED_SEARCH_CALLS = 2
-DEEP_RESEARCH_PLANNED_SEARCH_CALLS = 3
-MAX_URL_READ_CALLS = 5
+MAX_SEARCH_CALLS = 40
+DEFAULT_PLANNED_SEARCH_CALLS = 40
+DEEP_RESEARCH_PLANNED_SEARCH_CALLS = 40
+MAX_URL_READ_CALLS = 100
 MAX_DOMAINS = 5
 REPAIR_SEARCH_COUNT = 3
 REPAIR_CONTEXT_SOURCE_LIMIT = 3

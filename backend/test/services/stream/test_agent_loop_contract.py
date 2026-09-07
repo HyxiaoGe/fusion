@@ -1252,8 +1252,8 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
                 if event["type"] == "run_progress_updated"
             ],
             [
-                ("researching", "正在调用外部工具", None, 0, 20),
-                ("researching", "已完成外部工具调用", None, 1, 20),
+                ("researching", "正在调用外部工具", None, 0, 200),
+                ("researching", "已完成外部工具调用", None, 1, 200),
             ],
         )
         self.assertEqual([event["sequence"] for event in result.events], list(range(len(result.events))))

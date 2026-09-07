@@ -49,15 +49,10 @@ def inject_continuation_prompt(messages: list[PromptMessage | dict]) -> list[Pro
 
 
 def resolve_continuation_limits(session: AgentSession, *, default_limits: AgentLoopLimits) -> AgentLoopLimits:
-    config = session.run_config if isinstance(session.run_config, dict) else {}
-    try:
-        return AgentLoopLimits(
-            max_steps=int(config.get("max_steps", default_limits.max_steps)),
-            max_tool_calls=int(config.get("max_tool_calls", default_limits.max_tool_calls)),
-            total_timeout_s=float(config.get("timeout_s", default_limits.total_timeout_s)),
-        )
-    except (TypeError, ValueError):
-        return default_limits
+    """续跑是新的 Run，使用当前预算；历史快照只记录原 Run 的执行事实。"""
+
+    del session
+    return default_limits
 
 
 def resolve_continuation_plan_mode(session: AgentSession) -> PlanMode:

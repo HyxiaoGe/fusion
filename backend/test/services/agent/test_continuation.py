@@ -248,15 +248,17 @@ class AgentContinuationTests(unittest.TestCase):
         self.assertEqual(result[1].section_id, CONTINUATION_SYSTEM)
         self.assertEqual(result[2]["role"], "user")
 
-    def test_resolve_continuation_limits_uses_session_config(self):
-        session = SimpleNamespace(run_config={"max_steps": 4, "max_tool_calls": 7, "timeout_s": 90})
+    def test_resolve_continuation_limits_uses_current_budget_without_changing_history(self):
+        config = {"max_steps": 8, "max_tool_calls": 20, "timeout_s": 300}
+        session = SimpleNamespace(run_config=dict(config))
 
         limits = resolve_continuation_limits(
             session,
-            default_limits=AgentLoopLimits(max_steps=8, max_tool_calls=20, total_timeout_s=300),
+            default_limits=AgentLoopLimits(max_steps=64, max_tool_calls=200, total_timeout_s=1800),
         )
 
-        self.assertEqual(limits, AgentLoopLimits(max_steps=4, max_tool_calls=7, total_timeout_s=90))
+        self.assertEqual(limits, AgentLoopLimits(max_steps=64, max_tool_calls=200, total_timeout_s=1800))
+        self.assertEqual(session.run_config, config)
 
     def test_resolve_continuation_limits_falls_back_to_default_for_missing_config(self):
         session = SimpleNamespace(run_config=None)
@@ -412,7 +414,7 @@ class AgentContinuationTests(unittest.TestCase):
             db.close()
             engine.dispose()
 
-    def test_build_continuation_context_reuses_assistant_message_blocks_and_limits(self):
+    def test_build_continuation_context_preserves_blocks_and_plan_with_current_limits(self):
         message = SimpleNamespace(
             id="msg-1",
             conversation_id="conv-1",
@@ -447,7 +449,7 @@ class AgentContinuationTests(unittest.TestCase):
 
         self.assertIs(context.assistant_message, message)
         self.assertIs(context.previous_session, previous_session)
-        self.assertEqual(context.limits, AgentLoopLimits(max_steps=3, max_tool_calls=5, total_timeout_s=60))
+        self.assertEqual(context.limits, AgentLoopLimits(max_steps=8, max_tool_calls=20, total_timeout_s=300))
         self.assertEqual(context.plan_mode, "on")
         self.assertEqual(context.initial_content_blocks, [TextBlock(type="text", id="blk_old", text="旧回答")])
 

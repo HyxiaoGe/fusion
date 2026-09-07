@@ -166,8 +166,8 @@ class DeployAuthConfigTests(unittest.TestCase):
 
     def test_mcp_per_server_run_budget_is_configured_and_deployed(self):
         self.assertIn("MCP_MAX_TOOL_CALLS_PER_SERVER_PER_RUN: int = int(os.getenv(", self.app_config)
-        self.assertIn("MCP_MAX_TOOL_CALLS_PER_SERVER_PER_RUN=8", self.env_example)
-        self.assertIn("MCP_MAX_TOOL_CALLS_PER_SERVER_PER_RUN:-8", self.workflow)
+        self.assertIn("MCP_MAX_TOOL_CALLS_PER_SERVER_PER_RUN=64", self.env_example)
+        self.assertIn("MCP_MAX_TOOL_CALLS_PER_SERVER_PER_RUN:-64", self.workflow)
 
     def test_mcp_server_circuit_breaker_is_configured_and_deployed(self):
         self.assertIn("MCP_SERVER_CIRCUIT_FAILURE_THRESHOLD: int = int(os.getenv(", self.app_config)
