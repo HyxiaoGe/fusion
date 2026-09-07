@@ -20,6 +20,8 @@ MAX_REASON_CHARS = URL_READ_REASON_MAX_CHARS
 
 
 class UrlReadHandler(BaseToolHandler):
+    supports_run_level_citations = True
+
     @property
     def tool_name(self) -> str:
         return "url_read"
@@ -193,11 +195,11 @@ class UrlReadHandler(BaseToolHandler):
         title = result.data.get("title", "")
         content = result.data.get("content", "")
 
-        if not content:
+        if result.status != "success" or not content:
             unavailable_message = render_runtime_prompt("tool_handlers.url_read_unavailable")
             return format_untrusted_source_context(
                 UntrustedSourceContext(
-                    source_id="U1",
+                    source_id="url-read-unavailable",
                     source_type="url_read",
                     title=title or "Page read failed",
                     url=url,
@@ -217,9 +219,13 @@ class UrlReadHandler(BaseToolHandler):
         if truncated:
             content = f"{content}\n{render_runtime_prompt('shared.truncated')}"
 
-        return format_untrusted_source_context(
+        # 编号由运行期注册表分配，并与持久化 source_refs 共享，不能按读页次数重置。
+        citation_number = citation_numbers[0] if citation_numbers else None
+        if not isinstance(citation_number, int) or isinstance(citation_number, bool) or citation_number < 1:
+            citation_number = None
+        context = format_untrusted_source_context(
             UntrustedSourceContext(
-                source_id="U1",
+                source_id=str(citation_number) if citation_number is not None else "url-read-unassigned",
                 source_type="url_read",
                 title=title or "Unknown",
                 url=url,
@@ -228,6 +234,7 @@ class UrlReadHandler(BaseToolHandler):
             ),
             max_chars=max_content_chars + 100,
         )
+        return f"[{citation_number}]\n{context}" if citation_number is not None else context
 
     def _build_result_summary(self, result: ToolResult) -> dict:
         """URL 读取轻量摘要：title + favicon。

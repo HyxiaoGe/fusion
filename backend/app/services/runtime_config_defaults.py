@@ -289,6 +289,8 @@ def iter_default_runtime_config_seed_rows() -> Iterator[dict]:
         "is_active": True,
         "description": "首页任务卡与系统提示词模板目录",
     }
+
+
 def _seed_id(namespace: str, key: str, version: str = "2026-07-02.v1") -> str:
     return str(uuid5(NAMESPACE_URL, f"fusion/runtime-config/{namespace}/{key}/{version}"))
 
@@ -298,25 +300,26 @@ DEFAULT_AGENT_STRATEGY_CONFIG = {
         "agent_tools_disabled_aliases": ["qwen-vl-max"],
     },
     "search": {
+        # 兼容已有治理配置结构；数量由模型请求与硬上限决定，旧意图/追问预算不再参与执行。
         "standard_budget": {
             "name": "standard",
-            "requested_count": 5,
-            "context_source_limit": 5,
+            "requested_count": 10,
+            "context_source_limit": 10,
         },
         "budgets_by_intent": {
-            "quick_fact": {"name": "quick_fact", "requested_count": 3, "context_source_limit": 3},
-            "freshness": {"name": "freshness", "requested_count": 5, "context_source_limit": 5},
-            "comparison": {"name": "comparison", "requested_count": 8, "context_source_limit": 6},
-            "deep_research": {"name": "deep_research", "requested_count": 10, "context_source_limit": 8},
-            "official_source": {"name": "official_source", "requested_count": 5, "context_source_limit": 4},
+            "quick_fact": {"name": "quick_fact", "requested_count": 10, "context_source_limit": 10},
+            "freshness": {"name": "freshness", "requested_count": 10, "context_source_limit": 10},
+            "comparison": {"name": "comparison", "requested_count": 10, "context_source_limit": 10},
+            "deep_research": {"name": "deep_research", "requested_count": 10, "context_source_limit": 10},
+            "official_source": {"name": "official_source", "requested_count": 10, "context_source_limit": 10},
         },
         "followup_budgets_by_name": {
-            "standard": {"name": "standard_followup", "requested_count": 3, "context_source_limit": 3},
-            "quick_fact": {"name": "quick_fact_followup", "requested_count": 3, "context_source_limit": 3},
-            "freshness": {"name": "freshness_followup", "requested_count": 3, "context_source_limit": 3},
-            "official_source": {"name": "official_source_followup", "requested_count": 3, "context_source_limit": 3},
-            "comparison": {"name": "comparison_followup", "requested_count": 5, "context_source_limit": 4},
-            "deep_research": {"name": "deep_research_followup", "requested_count": 5, "context_source_limit": 5},
+            "standard": {"name": "standard_followup", "requested_count": 10, "context_source_limit": 10},
+            "quick_fact": {"name": "quick_fact_followup", "requested_count": 10, "context_source_limit": 10},
+            "freshness": {"name": "freshness_followup", "requested_count": 10, "context_source_limit": 10},
+            "official_source": {"name": "official_source_followup", "requested_count": 10, "context_source_limit": 10},
+            "comparison": {"name": "comparison_followup", "requested_count": 10, "context_source_limit": 10},
+            "deep_research": {"name": "deep_research_followup", "requested_count": 10, "context_source_limit": 10},
         },
         "intent_keywords": {
             "comparison": [
@@ -399,12 +402,14 @@ DEFAULT_AGENT_STRATEGY_CONFIG = {
     },
     "network": {
         "max_search_calls": 40,
+        # 兼容旧配置快照；执行只消费 max_search_calls，不再提前判定计划收敛。
         "default_planned_search_calls": 40,
         "deep_research_planned_search_calls": 40,
         "max_url_read_calls": 100,
         "max_domains": 5,
-        "repair_search_count": 3,
-        "repair_context_source_limit": 3,
+        # 兼容旧配置快照；修复搜索同样使用模型请求数量。
+        "repair_search_count": 10,
+        "repair_context_source_limit": 10,
         "weak_search_result_threshold": 2,
         "min_recency_days": 1,
         "max_recency_days": 365,

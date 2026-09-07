@@ -23,7 +23,7 @@ from app.services.external.search_client import search_web
 from app.services.source_context import UntrustedSourceContext, format_untrusted_source_context
 from app.services.tool_handlers.base import BaseToolHandler, ToolResult
 
-MAX_CONTEXT_SOURCES = 8
+MAX_CONTEXT_SOURCES = 10
 DEFAULT_MAX_SOURCES_PER_DOMAIN = 2
 TRACKING_QUERY_PARAMS = {
     "_hsenc",
@@ -68,7 +68,7 @@ class WebSearchHandler(BaseToolHandler):
                     "query": query,
                     "sources": [],
                     "result_count": 0,
-                    "requested_count": args.get("count", 5),
+                    "requested_count": args.get("count", 10),
                     "actual_count": 0,
                     "context_source_count": 0,
                     "context_source_limit": context_source_limit,
@@ -80,7 +80,7 @@ class WebSearchHandler(BaseToolHandler):
                 },
             )
 
-        requested_count = args.get("count", 5)
+        requested_count = args.get("count", 10)
         domains = args.get("domains") or []
         recency_days = args.get("recency_days")
         intent = args.get("intent")
@@ -274,6 +274,23 @@ class WebSearchHandler(BaseToolHandler):
                 )
             )
             parts.append("")
+
+        for source_index, source in enumerate(sources[len(context_sources):], start=len(context_sources)):
+            citation_number = _citation_number(citation_numbers, source_index)
+            parts.append(f"[{citation_number}] {source.title}")
+            parts.append(
+                format_untrusted_source_context(
+                    UntrustedSourceContext(
+                        source_id=f"S{citation_number}",
+                        source_type="search",
+                        title=source.title,
+                        url=source.url,
+                        content="",
+                        provider="search-service",
+                    ),
+                    max_chars=300,
+                )
+            )
 
         parts.append("Notes:")
         parts.extend(f"- {rule}" for rule in SEARCH_CONTEXT_FOLLOW_UP_RULES)

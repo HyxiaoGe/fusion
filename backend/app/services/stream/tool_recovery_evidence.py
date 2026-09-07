@@ -8,6 +8,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from app.services.final_answer_evidence import build_used_final_answer_evidence
+from app.services.search_budget import MAX_CONTEXT_SOURCES
 from app.services.source_evidence_ledger import canonicalize_evidence_url
 
 _CITATION_PATTERN = re.compile(r"(?:\[(\d{1,3})\]|⟦(\d{1,3})⟧)")
@@ -27,7 +28,8 @@ class RecoveryEvidenceWorkset:
         if not isinstance(data, dict):
             return
         if tool_name == "web_search":
-            for source in data.get("sources") or []:
+            sources = data.get("sources") or []
+            for source in sources[: _injected_source_count(data)]:
                 if _has_content(_value(source, "content")) or _has_content(_value(source, "description")):
                     self._record("search", _value(source, "url"))
         elif tool_name == "url_read" and _has_content(data.get("content")):
@@ -36,6 +38,17 @@ class RecoveryEvidenceWorkset:
     def _record(self, kind: str, raw_url: Any) -> None:
         if url := _canonical_url(raw_url):
             self.source_keys.add((kind, url))
+
+
+def _injected_source_count(data: dict[str, Any]) -> int:
+    # 只登记已注入模型的正文摘要；额外候选只有链接身份，读页成功后才可作为事实依据。
+    limits = []
+    for key in ("context_source_count", "context_source_limit"):
+        if key not in data:
+            continue
+        value = data[key]
+        limits.append(value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0)
+    return min(limits) if limits else MAX_CONTEXT_SOURCES
 
 
 def has_recovery_evidence(content_blocks: list[Any], *, evidence: RecoveryEvidenceWorkset) -> bool:

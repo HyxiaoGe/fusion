@@ -10,23 +10,17 @@ from app.services.agent_strategy_config import get_agent_strategy_config
 from app.services.search_budget import (
     SearchBudgetDecision,
     derive_search_budget,
-    is_duplicate_search_query,
     resolve_search_intent,
 )
 from app.services.source_evidence_ledger import canonicalize_evidence_url
 from app.services.tool_handlers.base import ToolResult
 
 MAX_SEARCH_CALLS = 40
-DEFAULT_PLANNED_SEARCH_CALLS = 40
-DEEP_RESEARCH_PLANNED_SEARCH_CALLS = 40
 MAX_URL_READ_CALLS = 100
 MAX_DOMAINS = 5
-REPAIR_SEARCH_COUNT = 3
-REPAIR_CONTEXT_SOURCE_LIMIT = 3
 WEAK_SEARCH_RESULT_THRESHOLD = 2
 MIN_RECENCY_DAYS = 1
 MAX_RECENCY_DAYS = 365
-DEEP_RESEARCH_INTENT = "deep_research"
 READ_ALTERNATIVE_ACTIONS = {"recommend_read"}
 PROVIDER_SEARCH_ACTIONS = {"execute", "narrow_followup", "repair_search"}
 
@@ -43,6 +37,7 @@ class NetworkToolBudget:
     url_read_calls: int = 0
     web_search_queries: list[str] = field(default_factory=list)
     web_search_intents: list[str | None] = field(default_factory=list)
+    web_search_request_keys: set[tuple] = field(default_factory=set)
     repair_search_used: bool = False
     pending_search_repair_reason_code: str | None = None
     read_failure_pending: bool = False
@@ -69,65 +64,28 @@ class NetworkToolBudget:
         else:
             normalized.pop("domains", None)
 
-        planned_search_limit = _planned_search_call_limit(
-            intent,
-            self.web_search_intents,
-            profile=self.profile,
-            network_config=network_config,
-        )
+        # 仅保留全局调用上限；旧计划次数不会将互补查询判为“已收敛”。
+        planned_search_limit = _network_int(network_config, "max_search_calls", MAX_SEARCH_CALLS)
         previous_query_count = len(self.web_search_queries)
 
         repair_reason_code = self._consume_search_repair_reason_code()
 
-        if not repair_reason_code and not domains and self._has_unread_read_alternatives():
-            normalized["count"] = 0
-            normalized["context_source_limit"] = 0
-            normalized["search_budget"] = "read_alternative_redirect"
-            decision = _search_budget_decision(
-                query=query,
-                intent=intent,
-                action="redirect_to_read_alternative",
-                budget_name="read_alternative_redirect",
-                requested_count=0,
-                context_source_limit=0,
-                reason_code="read_alternatives_available",
-                previous_query_count=previous_query_count,
-                planned_search_limit=planned_search_limit,
+        search_budget = derive_search_budget(intent, requested_count=normalized.get("count"))
+        if normalized.get("recency_days") is not None:
+            normalized["recency_days"] = _clamp_int(
+                normalized.get("recency_days"),
+                _network_int(network_config, "min_recency_days", MIN_RECENCY_DAYS),
+                _network_int(network_config, "min_recency_days", MIN_RECENCY_DAYS),
+                _network_int(network_config, "max_recency_days", MAX_RECENCY_DAYS),
             )
-            normalized["budget_decision"] = decision
-            return normalized, ToolResult(
-                status="degraded",
-                error_message="已有未读取候选来源，已暂停继续搜索",
-                data={
-                    "query": query,
-                    "sources": [],
-                    "result_count": 0,
-                    "requested_count": 0,
-                    "actual_count": 0,
-                    "context_source_count": 0,
-                    "context_source_limit": 0,
-                    "search_budget": "read_alternative_redirect",
-                    "intent": intent,
-                    "domains": domains,
-                    "recency_days": normalized.get("recency_days"),
-                    "budget_limited": False,
-                    "read_alternatives_available": True,
-                    "unread_candidate_count": len(self._unread_candidate_urls()),
-                    "budget_decision": decision,
-                },
-            )
-
-        if (
-            not repair_reason_code
-            and not domains
-            and is_duplicate_search_query(
-                query,
-                intent,
-                previous_queries=self.web_search_queries,
-                previous_intents=self.web_search_intents,
-                strategy_config=strategy_config,
-            )
-        ):
+        # 只拦截相同 provider 请求；换来源、时间或数量均可能获取互补证据。
+        request_key = (
+            " ".join(query.split()).casefold(),
+            tuple(sorted(domains)),
+            normalized.get("recency_days"),
+            search_budget.requested_count,
+        )
+        if not repair_reason_code and request_key in self.web_search_request_keys:
             normalized["count"] = 0
             normalized["context_source_limit"] = 0
             normalized["search_budget"] = "duplicate_skipped"
@@ -164,50 +122,22 @@ class NetworkToolBudget:
                 },
             )
 
-        search_budget = derive_search_budget(
-            intent,
-            query=query,
-            previous_queries=self.web_search_queries,
-            previous_intents=self.web_search_intents,
-            strategy_config=strategy_config,
-        )
-        if repair_reason_code:
-            normalized["count"] = _network_int(network_config, "repair_search_count", REPAIR_SEARCH_COUNT)
-            normalized["context_source_limit"] = _network_int(
-                network_config,
-                "repair_context_source_limit",
-                REPAIR_CONTEXT_SOURCE_LIMIT,
-            )
-            normalized["search_budget"] = "repair"
-        else:
-            normalized["count"] = search_budget.requested_count
-            normalized["context_source_limit"] = search_budget.context_source_limit
-            normalized["search_budget"] = search_budget.name
-
-        effective_planned_search_limit = planned_search_limit
+        normalized["count"] = search_budget.requested_count
+        normalized["context_source_limit"] = search_budget.context_source_limit
+        normalized["search_budget"] = "repair" if repair_reason_code else search_budget.name
         max_search_calls = _network_int(network_config, "max_search_calls", MAX_SEARCH_CALLS)
-        if repair_reason_code and self.web_search_calls >= planned_search_limit:
-            effective_planned_search_limit = min(max_search_calls, self.web_search_calls + 1)
         decision = _search_budget_decision(
             query=query,
             intent=intent,
-            action="repair_search" if repair_reason_code else _allowed_search_action(search_budget.name),
+            action="repair_search" if repair_reason_code else "execute",
             budget_name=normalized["search_budget"],
             requested_count=normalized["count"],
             context_source_limit=normalized["context_source_limit"],
-            reason_code=repair_reason_code or _allowed_search_reason_code(search_budget.name, previous_query_count),
+            reason_code=repair_reason_code or _allowed_search_reason_code(previous_query_count),
             previous_query_count=previous_query_count,
-            planned_search_limit=effective_planned_search_limit,
+            planned_search_limit=planned_search_limit,
         )
         normalized["budget_decision"] = decision
-
-        if normalized.get("recency_days") is not None:
-            normalized["recency_days"] = _clamp_int(
-                normalized.get("recency_days"),
-                _network_int(network_config, "min_recency_days", MIN_RECENCY_DAYS),
-                _network_int(network_config, "min_recency_days", MIN_RECENCY_DAYS),
-                _network_int(network_config, "max_recency_days", MAX_RECENCY_DAYS),
-            )
 
         if self.web_search_calls >= max_search_calls:
             decision = _search_budget_decision(
@@ -245,45 +175,7 @@ class NetworkToolBudget:
                 },
             )
 
-        if self.web_search_calls >= effective_planned_search_limit:
-            normalized["count"] = 0
-            normalized["context_source_limit"] = 0
-            normalized["search_budget"] = "planner_limited"
-            decision = _search_budget_decision(
-                query=str(normalized.get("query") or ""),
-                intent=normalized.get("intent"),
-                action="limit_planner",
-                budget_name="planner_limited",
-                requested_count=0,
-                context_source_limit=0,
-                reason_code="planned_search_limit_reached",
-                previous_query_count=previous_query_count,
-                planned_search_limit=effective_planned_search_limit,
-            )
-            normalized["budget_decision"] = decision
-            return normalized, ToolResult(
-                status="degraded",
-                error_message="搜索计划已收敛",
-                data={
-                    "query": normalized.get("query", ""),
-                    "sources": [],
-                    "result_count": 0,
-                    "requested_count": 0,
-                    "actual_count": 0,
-                    "context_source_count": 0,
-                    "context_source_limit": 0,
-                    "search_budget": "planner_limited",
-                    "intent": normalized.get("intent"),
-                    "domains": normalized.get("domains", []),
-                    "recency_days": normalized.get("recency_days"),
-                    "budget_limited": False,
-                    "search_plan_limited": True,
-                    "planned_search_limit": effective_planned_search_limit,
-                    "executed_search_count": self.web_search_calls,
-                    "budget_decision": decision,
-                },
-            )
-
+        self.web_search_request_keys.add(request_key)
         self.web_search_calls += 1
         self.web_search_queries.append(query)
         self.web_search_intents.append(intent)
@@ -414,15 +306,6 @@ class NetworkToolBudget:
             return None
         return self.pending_search_repair_reason_code
 
-    def _unread_candidate_urls(self) -> set[str]:
-        return self.candidate_read_urls - self.attempted_read_urls
-
-    def _has_unread_read_alternatives(self) -> bool:
-        has_alternatives = bool(self._unread_candidate_urls())
-        if not has_alternatives:
-            self.read_failure_pending = False
-        return self.read_failure_pending and has_alternatives
-
 
 def _clamp_int(value, default: int, minimum: int, maximum: int) -> int:
     try:
@@ -464,29 +347,7 @@ def _extract_domain(value: str) -> str | None:
     return None
 
 
-def _planned_search_call_limit(
-    intent: str | None,
-    previous_intents: list[str | None],
-    *,
-    profile: str = "standard",
-    network_config: dict | None = None,
-) -> int:
-    """控制真实 provider 搜索轮次，避免 LLM 机械扩写 query。"""
-
-    if profile == DEEP_RESEARCH_INTENT or intent == DEEP_RESEARCH_INTENT or DEEP_RESEARCH_INTENT in previous_intents:
-        return _network_int(network_config, "deep_research_planned_search_calls", DEEP_RESEARCH_PLANNED_SEARCH_CALLS)
-    return _network_int(network_config, "default_planned_search_calls", DEFAULT_PLANNED_SEARCH_CALLS)
-
-
-def _allowed_search_action(budget_name: str) -> str:
-    if budget_name.endswith("_followup"):
-        return "narrow_followup"
-    return "execute"
-
-
-def _allowed_search_reason_code(budget_name: str, previous_query_count: int) -> str:
-    if budget_name.endswith("_followup"):
-        return "similar_followup"
+def _allowed_search_reason_code(previous_query_count: int) -> str:
     if previous_query_count > 0:
         return "complementary_search"
     return "initial_search"

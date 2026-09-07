@@ -2208,8 +2208,8 @@ class ToolExecutorMessageIdTests(unittest.IsolatedAsyncioTestCase):
 
         normalized = {
             "query": "redis",
-            "count": 5,
-            "context_source_limit": 5,
+            "count": 20,
+            "context_source_limit": 10,
             "search_budget": "standard",
             "recency_days": 1,
         }
@@ -2241,8 +2241,8 @@ class ToolExecutorMessageIdTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(record.tool_name, "web_search")
         self.assertEqual(record.result.status, "degraded")
         self.assertTrue(record.result.data["budget_limited"])
-        self.assertEqual(record.result.data["requested_count"], 5)
-        self.assertEqual(record.result.data["context_source_limit"], 5)
+        self.assertEqual(record.result.data["requested_count"], 8)
+        self.assertEqual(record.result.data["context_source_limit"], 8)
         self.assertEqual(record.result.data["search_budget"], "standard")
         self.assertIs(record.handler, handler)
         handler.execute.assert_not_awaited()
@@ -2293,8 +2293,8 @@ class ToolExecutorMessageIdTests(unittest.IsolatedAsyncioTestCase):
             tool_name="web_search",
             arguments={
                 "query": "q5",
-                "count": 5,
-                "context_source_limit": 5,
+                "count": 8,
+                "context_source_limit": 8,
                 "search_budget": "standard",
             },
         )

@@ -1,6 +1,6 @@
 """联网搜索预算策略。
 
-本模块只负责把搜索意图映射为内部预算，避免 LLM 直接决定 provider count。
+模型决定结果数量，服务端只应用请求和上下文的硬上限。
 """
 
 from __future__ import annotations
@@ -32,26 +32,10 @@ class SearchBudgetDecision:
     planned_search_limit: int
 
 
-STANDARD_SEARCH_BUDGET = SearchBudget(name="standard", requested_count=5, context_source_limit=5)
-
-SEARCH_BUDGETS_BY_INTENT = {
-    "quick_fact": SearchBudget(name="quick_fact", requested_count=3, context_source_limit=3),
-    "freshness": SearchBudget(name="freshness", requested_count=5, context_source_limit=5),
-    "comparison": SearchBudget(name="comparison", requested_count=8, context_source_limit=6),
-    "deep_research": SearchBudget(name="deep_research", requested_count=10, context_source_limit=8),
-    "official_source": SearchBudget(name="official_source", requested_count=5, context_source_limit=4),
-}
-
-FOLLOWUP_SEARCH_BUDGETS_BY_NAME = {
-    "standard": SearchBudget(name="standard_followup", requested_count=3, context_source_limit=3),
-    "quick_fact": SearchBudget(name="quick_fact_followup", requested_count=3, context_source_limit=3),
-    "freshness": SearchBudget(name="freshness_followup", requested_count=3, context_source_limit=3),
-    "official_source": SearchBudget(name="official_source_followup", requested_count=3, context_source_limit=3),
-    "comparison": SearchBudget(name="comparison_followup", requested_count=5, context_source_limit=4),
-    "deep_research": SearchBudget(name="deep_research_followup", requested_count=5, context_source_limit=5),
-}
-
-SUPPORTED_SEARCH_INTENTS = set(SEARCH_BUDGETS_BY_INTENT)
+DEFAULT_SEARCH_COUNT = 10
+MAX_SEARCH_COUNT = 20
+MAX_CONTEXT_SOURCES = 10
+SUPPORTED_SEARCH_INTENTS = {"quick_fact", "freshness", "comparison", "deep_research", "official_source"}
 
 _LATIN_TOKEN_RE = re.compile(r"[a-z0-9]+")
 _CJK_SEQUENCE_RE = re.compile(r"[\u4e00-\u9fff]+")
@@ -130,9 +114,6 @@ _QUICK_FACT_KEYWORDS = (
     "how much",
 )
 
-_SIMILAR_FOLLOWUP_THRESHOLD = 0.55
-_DUPLICATE_SEARCH_THRESHOLD = 0.82
-
 
 def normalize_search_intent(value, *, strategy_config: dict | None = None) -> str | None:
     if not isinstance(value, str):
@@ -180,96 +161,20 @@ def infer_search_intent(query: str, *, strategy_config: dict | None = None) -> s
 def derive_search_budget(
     intent: str | None,
     *,
-    query: str | None = None,
-    previous_queries: Sequence[str] = (),
-    previous_intents: Sequence[str | None] = (),
-    strategy_config: dict | None = None,
+    requested_count: object = None,
 ) -> SearchBudget:
-    search_config = _search_config(strategy_config)
-    standard_budget = _budget_from_config(search_config.get("standard_budget"), STANDARD_SEARCH_BUDGET)
-    budgets_by_intent = {
-        name: _budget_from_config(payload, SEARCH_BUDGETS_BY_INTENT.get(name, standard_budget))
-        for name, payload in (search_config.get("budgets_by_intent") or {}).items()
-    }
-    followup_budgets_by_name = {
-        name: _budget_from_config(payload, FOLLOWUP_SEARCH_BUDGETS_BY_NAME.get(name, standard_budget))
-        for name, payload in (search_config.get("followup_budgets_by_name") or {}).items()
-    }
-    base_budget = budgets_by_intent.get(intent, standard_budget) if intent else standard_budget
-    if _is_similar_followup_query(
-        query or "",
-        intent,
-        previous_queries=previous_queries,
-        previous_intents=previous_intents,
-        strategy_config=strategy_config,
-    ):
-        return followup_budgets_by_name.get(base_budget.name, base_budget)
-    return base_budget
+    """旧配置的意图/追问小预算不再覆写模型数量，避免升级后仍被 DB 旧值压低。"""
 
-
-def is_duplicate_search_query(
-    query: str,
-    intent: str | None,
-    *,
-    previous_queries: Sequence[str],
-    previous_intents: Sequence[str | None],
-    strategy_config: dict | None = None,
-) -> bool:
-    """判断本次搜索是否与已执行搜索重复到应跳过真实 provider 调用。"""
-
-    normalized_query = _normalize_query_text(query)
-    if not normalized_query or not previous_queries:
-        return False
-
-    padded_intents: list[str | None] = list(previous_intents)
-    if len(padded_intents) < len(previous_queries):
-        padded_intents.extend([None] * (len(previous_queries) - len(padded_intents)))
-
-    for previous_query, previous_intent in zip(previous_queries, padded_intents):
-        normalized_previous = _normalize_query_text(previous_query)
-        if not normalized_previous:
-            continue
-        if normalized_query == normalized_previous:
-            return True
-        if previous_intent != intent:
-            continue
-        threshold = _threshold("duplicate_search", _DUPLICATE_SEARCH_THRESHOLD, strategy_config)
-        if _query_similarity(query, previous_query) >= threshold:
-            return True
-    return False
-
-
-def _is_similar_followup_query(
-    query: str,
-    intent: str | None,
-    *,
-    previous_queries: Sequence[str],
-    previous_intents: Sequence[str | None],
-    strategy_config: dict | None = None,
-) -> bool:
-    if not query or not previous_queries:
-        return False
-
-    padded_intents: list[str | None] = list(previous_intents)
-    if len(padded_intents) < len(previous_queries):
-        padded_intents.extend([None] * (len(previous_queries) - len(padded_intents)))
-
-    for previous_query, previous_intent in zip(previous_queries, padded_intents):
-        if previous_intent != intent:
-            continue
-        threshold = _threshold("similar_followup", _SIMILAR_FOLLOWUP_THRESHOLD, strategy_config)
-        if _query_similarity(query, previous_query) >= threshold:
-            return True
-    return False
-
-
-def _query_similarity(left: str, right: str) -> float:
-    left_tokens = _query_tokens(left)
-    right_tokens = _query_tokens(right)
-    if not left_tokens or not right_tokens:
-        return 0
-    shared_count = len(left_tokens & right_tokens)
-    return shared_count / min(len(left_tokens), len(right_tokens))
+    try:
+        count = int(requested_count) if not isinstance(requested_count, bool) else DEFAULT_SEARCH_COUNT
+    except (TypeError, ValueError, OverflowError):
+        count = DEFAULT_SEARCH_COUNT
+    count = max(1, min(MAX_SEARCH_COUNT, count))
+    return SearchBudget(
+        name=intent if intent in SUPPORTED_SEARCH_INTENTS else "standard",
+        requested_count=count,
+        context_source_limit=min(count, MAX_CONTEXT_SOURCES),
+    )
 
 
 def _query_tokens(query: str) -> set[str]:
@@ -295,26 +200,6 @@ def _supported_search_intents(strategy_config: dict | None = None) -> set[str]:
     if isinstance(configured, dict) and configured:
         return set(configured)
     return SUPPORTED_SEARCH_INTENTS
-
-
-def _budget_from_config(value, fallback: SearchBudget) -> SearchBudget:
-    if not isinstance(value, dict):
-        return fallback
-    try:
-        return SearchBudget(
-            name=str(value.get("name") or fallback.name),
-            requested_count=max(0, int(value.get("requested_count", fallback.requested_count))),
-            context_source_limit=max(0, int(value.get("context_source_limit", fallback.context_source_limit))),
-        )
-    except (TypeError, ValueError):
-        return fallback
-
-
-def _threshold(name: str, fallback: float, strategy_config: dict | None = None) -> float:
-    try:
-        return float((_search_config(strategy_config).get("thresholds") or {}).get(name, fallback))
-    except (TypeError, ValueError):
-        return fallback
 
 
 def _normalize_query_text(query: str) -> str:
