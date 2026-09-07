@@ -62,6 +62,13 @@
 - 已有验收报告中的慢响应、失败模型或质量风险进入产品策略调整。
 - 知识库、项目空间等新方向，但必须先做现状确认和计划。
 
+## 2026-09-07 工具载荷和结果可观测性修复（本地验证通过，已获发布授权）
+
+- 用户指出 trajectory 入参/结果过度脱敏；确认日志先只保存审计摘要、详情再复用审计过滤。分支 `codex/trajectory-tool-details` 在既有 ToolCallLog JSON 元数据中保存有界业务快照，详情独立读取；凭据遮盖与截断分别标记，历史摘要和损坏记录明确提示。
+- 不改工具执行、模型上下文、权限或数据库结构；原审计列表投影保留，正文列按需加载，避免批量查询增加负载。记录的是 handler 业务输入/返回，不是原始 HTTP 或格式化后的精确 Observation。
+- 本地核心回归 155 passed + 79 subtests，工具执行关联回归 231 passed + 110 subtests（两组重叠 11 项）；前端 52 passed，Ruff/ESLint、架构、diff 与生产构建通过；独立审查无 P0/P1。
+- 用户在本地交付后明确要求“发布吧”，继续提交、PR/CI、合并、dev 部署和真实调用/刷新验收；最终结果完成后补记。详见 [修复记录](reports/backend/2026-09-07-trajectory-tool-details.md) 与 [实施计划](implementation-plans/2026-09-07-trajectory-tool-details.md)。
+
 ## 2026-09-07 Agent 停止轨迹补修（已发布并完成目标真实验收）
 
 - 首批真实验收发现 Redis 停止后末轮取消事件丢失；在隔离分支 `codex/agent-loop-stop-trajectory` 补修，PR head `c61ffb58`、合并/部署 SHA `7a93c7fffb5108b0a0b5aa6b991a2cd62e78a00f`，PR [#50](https://github.com/HyxiaoGe/fusion/pull/50)。仅保留明确取消终态到该 Run 账本，重抛原所有权异常，LLM 详情只调度一次；未改消息写入权或历史数据。

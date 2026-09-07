@@ -416,6 +416,10 @@
         "round_cancelled": "调用取消前没有正文写出"
       }
     },
+    "toolDetail": {
+      "legacySummary": "此记录仅保存了工具摘要，未记录完整载荷和结果",
+      "invalid": "工具详情记录无效，暂时无法展示"
+    },
     "systemPrompt": {
       "title": "Run 初始系统提示词",
       "body": "正文",

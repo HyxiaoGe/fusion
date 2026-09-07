@@ -756,6 +756,9 @@ function RemoteDetailSection({
       const messageKey = response.reason === 'skills_detail_invalid' ? 'bodyInvalid' : 'bodyMissing';
       return <p className="text-sm text-warn">{t(`trajectory.skills.${messageKey}`)}</p>;
     }
+    if (response.reason === 'tool_detail_invalid') {
+      return <p className="text-sm text-warn">{t('trajectory.toolDetail.invalid')}</p>;
+    }
     return (
       <p className="text-sm text-warn">
         {response.node_type === 'llm'
@@ -787,6 +790,9 @@ function RemoteDetailSection({
     : null;
   return (
     <div className="space-y-3">
+      {response.reason === 'tool_detail_legacy_summary' && (
+        <p className="text-sm text-muted-foreground">{t('trajectory.toolDetail.legacySummary')}</p>
+      )}
       {value === null ? (
         <p className="text-sm text-muted-foreground">该部分未提供</p>
       ) : (
