@@ -170,7 +170,7 @@ function AssistantMessageFrame({
   ));
   const [localReasoningVisible, setLocalReasoningVisible] = useState(message.isReasoningVisible || false);
   const [answerEvidenceSidebarOpen, setAnswerEvidenceSidebarOpen] = useState(false);
-  const [citationHighlight, setCitationHighlight] = useState<{ index: number; tick: number }>({ index: -1, tick: 0 });
+  const [citationHighlight, setCitationHighlight] = useState<{ index: number; tick: number; citationIndex?: number }>({ index: -1, tick: 0 });
   const userToggledReasoningRef = useRef(false);
 
   const {
@@ -210,6 +210,11 @@ function AssistantMessageFrame({
     setAnswerEvidenceSidebarOpen(true);
     setCitationHighlight(prev => ({ index, tick: prev.tick + 1 }));
   }, []);
+
+  const handleMarkdownCitationClick = useCallback((index: number) => {
+    setAnswerEvidenceSidebarOpen(true);
+    setCitationHighlight(prev => ({ index, tick: prev.tick + 1, citationIndex: searchSources[index]?.citation_index }));
+  }, [searchSources]);
 
   const handleSourcesClose = useCallback(() => {
     setAnswerEvidenceSidebarOpen(false);
@@ -274,8 +279,8 @@ function AssistantMessageFrame({
   const markdownProps = useMemo(() => ({
     content: displayText || '',
     sources: searchSources,
-    onCitationClick: searchSources.length > 0 ? handleCitationClick : undefined,
-  }), [displayText, handleCitationClick, searchSources]);
+    onCitationClick: searchSources.length > 0 ? handleMarkdownCitationClick : undefined,
+  }), [displayText, handleMarkdownCitationClick, searchSources]);
 
   useEffect(() => {
     if (!isStreaming && hasThinking && displayText && message.isReasoningVisible) {
@@ -371,6 +376,7 @@ function AssistantMessageFrame({
           isOpen={answerEvidenceSidebarOpen}
           onClose={handleSourcesClose}
           highlightIndex={citationHighlight.index}
+          highlightCitationIndex={citationHighlight.citationIndex}
           highlightTick={citationHighlight.tick}
         />
       ) : null}

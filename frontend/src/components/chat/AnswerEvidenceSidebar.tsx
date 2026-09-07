@@ -17,6 +17,7 @@ interface AnswerEvidenceSidebarProps {
   isOpen: boolean;
   onClose: () => void;
   highlightIndex?: number;
+  highlightCitationIndex?: number;
   highlightTick?: number;
 }
 
@@ -27,13 +28,14 @@ export default function AnswerEvidenceSidebar({
   isOpen,
   onClose,
   highlightIndex,
+  highlightCitationIndex,
   highlightTick,
 }: AnswerEvidenceSidebarProps) {
   const itemRefs = useRef<Array<HTMLDivElement | null>>([]);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const usedItems = model?.usedItems ?? EMPTY_USED_ITEMS;
-  const candidateItems = model?.candidateItems ?? [];
+  const candidateItems = model?.candidateItems ?? EMPTY_USED_ITEMS;
   useChatDetailOverlayRegistration(isOpen && Boolean(model?.isRenderable));
 
   useEffect(() => {
@@ -63,9 +65,11 @@ export default function AnswerEvidenceSidebar({
 
   useEffect(() => {
     if (!isOpen) return;
-    if (typeof highlightIndex !== 'number' || highlightIndex < 0) return;
-    const itemIndex = usedItems.findIndex(
-      item => item.sourceIndex === highlightIndex,
+    if (highlightCitationIndex == null && (typeof highlightIndex !== 'number' || highlightIndex < 0)) return;
+    const itemIndex = [...usedItems, ...candidateItems].findIndex(
+      item => highlightCitationIndex != null
+        ? item.citationIndex === highlightCitationIndex
+        : item.sourceIndex === highlightIndex,
     );
     if (itemIndex < 0) return;
     const element = itemRefs.current[itemIndex];
@@ -74,7 +78,7 @@ export default function AnswerEvidenceSidebar({
       element.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 100);
     return () => clearTimeout(timer);
-  }, [highlightIndex, highlightTick, isOpen, usedItems]);
+  }, [highlightCitationIndex, highlightIndex, highlightTick, isOpen, usedItems, candidateItems]);
 
   if (!isOpen || !model?.isRenderable) {
     return null;
@@ -146,7 +150,7 @@ export default function AnswerEvidenceSidebar({
                     key={item.id}
                     ref={(element) => { itemRefs.current[index] = element; }}
                     item={item}
-                    highlighted={item.sourceIndex === highlightIndex}
+                    highlighted={highlightCitationIndex != null ? item.citationIndex === highlightCitationIndex : item.sourceIndex === highlightIndex}
                     highlightTick={highlightTick}
                   />
                 ))}
@@ -158,11 +162,13 @@ export default function AnswerEvidenceSidebar({
             <section className={usedItems.length > 0 ? 'mt-5' : undefined}>
               <h4 className="mb-2 text-xs font-medium text-foreground">候选来源</h4>
               <div className="space-y-2">
-                {candidateItems.map(item => (
+                {candidateItems.map((item, index) => (
                   <UsedSourceItem
                     key={item.id}
+                    ref={(element) => { itemRefs.current[usedItems.length + index] = element; }}
                     item={item}
-                    highlighted={false}
+                    highlighted={highlightCitationIndex != null && item.citationIndex === highlightCitationIndex}
+                    highlightTick={highlightTick}
                   />
                 ))}
               </div>
