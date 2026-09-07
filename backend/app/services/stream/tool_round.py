@@ -314,6 +314,12 @@ def append_tool_round_messages_with_plan(
         if record is not None:
             citation_numbers = _assign_search_citation_numbers(citation_registry, record)
             tool_context = record.format_llm_context(citation_numbers=citation_numbers)
+            if record.result.status == "failed":
+                alternatives = sorted((request.announced_tool_names or frozenset()) - {record.tool_name, "update_plan"})
+                if alternatives:
+                    tool_context += "\n\n" + render_runtime_prompt(
+                        "tool_result.recover_failure", available_tools=", ".join(alternatives)
+                    )
             source_selection_guidance = source_selection_guidance_by_tool_call_id.get(tool_call_id)
             if source_selection_guidance:
                 tool_context = f"{tool_context}\n\n{source_selection_guidance}"
@@ -598,6 +604,10 @@ async def handle_tool_calls_round(*, request: ToolRoundRequest) -> ToolRoundOutc
         run_id=request.run_id,
     )
     executed_results = [record for record in results if not record.reused]
+    if request.agent_state is not None:
+        for record in executed_results:
+            request.agent_state.record_tool_outcome(record.tool_name, record.result.status)
+            request.agent_state.recovery_evidence.record_result(record.tool_name, record.result)
     executed_count = _actual_tool_execution_count(executable_tool_calls, results)
     has_successful_tool_progress = any(not record.reused and record.result.status == "success" for record in results)
     if request.agent_state is not None and has_successful_tool_progress:

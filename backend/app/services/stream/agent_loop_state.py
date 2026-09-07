@@ -12,6 +12,7 @@ from app.services.stream.itinerary_observability import ItineraryToolObservation
 from app.services.stream.product_result_answer import has_product_result_blocks
 from app.services.stream.research_evidence import MAX_RESEARCH_REPAIRS, ResearchEvidenceWorkset
 from app.services.stream.run_finalizer import AgentRunStats
+from app.services.stream.tool_recovery_evidence import RecoveryEvidenceWorkset
 
 NO_PROGRESS_SEARCH_SUMMARY_THRESHOLD = 2
 
@@ -68,6 +69,19 @@ class AgentLoopState:
     research_network_required: bool = False
     research_repair_attempts: int = 0
     required_plan_repair_tool: str | None = None
+    failed_tool_names: set[str] = field(default_factory=set)
+    attempted_tool_names: set[str] = field(default_factory=set)
+    successful_tool_names: set[str] = field(default_factory=set)
+    tool_recovery_prompted: bool = False
+    recovery_evidence: RecoveryEvidenceWorkset = field(default_factory=RecoveryEvidenceWorkset)
+
+    def record_tool_outcome(self, tool_name: str, status: str) -> None:
+        self.attempted_tool_names.add(tool_name)
+        if status in {"failed", "degraded"}:
+            self.failed_tool_names.add(tool_name)
+        elif status == "success":
+            self.failed_tool_names.discard(tool_name)
+            self.successful_tool_names.add(tool_name)
 
     def next_step_number(self) -> int:
         self.step += 1

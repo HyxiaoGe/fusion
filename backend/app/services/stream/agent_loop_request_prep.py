@@ -483,6 +483,8 @@ async def prepare_agent_loop_messages(
         for section_id in extra_system_prompts or []:
             yield SystemPromptSection(section_id, call_config.prompt_bundle_snapshot.resolve(section_id)[0])
         resolution = call_config.capability_resolution
+        if resolution.external_tool_names:
+            yield SystemPromptSection("tool_failure_policy", render_runtime_prompt("stream.tool_failure_policy"))
         if "web_search" in resolution.external_tool_names:
             yield SystemPromptSection(TOOL_USAGE_CONTRACT, get_tool_usage_contract_prompt())
         if resolution.effective_plan_mode != "off":

@@ -188,7 +188,7 @@ export function normalizeTrajectoryCapabilityResolution(
     || !CAPABILITY_RESOLUTION_MODES.has(value.resolution_mode)
     || !isUniqueIdentifierList(value.reason_codes, 1, 4)
     || !Array.isArray(value.external_tool_names)
-    || value.external_tool_names.length > 3
+    || value.external_tool_names.length > 5
     || value.external_tool_names.some(tool => (
       typeof tool !== 'string' || !TOOL_NAME_PATTERN.test(tool) || tool === 'update_plan'
     ))

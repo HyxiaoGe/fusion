@@ -319,10 +319,14 @@
     "capability_eval_group": "main",
     "expected_package_id": "weather",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "weather_forecast"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -341,10 +345,12 @@
     "capability_eval_group": "main",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -369,6 +375,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -390,10 +397,13 @@
     "capability_eval_group": "main",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -411,10 +421,14 @@
     "capability_eval_group": "main",
     "expected_package_id": "place_discovery",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "local_place_search"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -432,10 +446,14 @@
     "capability_eval_group": "main",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -454,10 +472,14 @@
     "capability_eval_group": "main",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -476,10 +498,14 @@
     "capability_eval_group": "main",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -498,11 +524,15 @@
     "capability_eval_group": "main",
     "expected_package_id": "travel_air_rail",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -522,12 +552,16 @@
     "capability_eval_group": "main",
     "expected_package_id": "mobility_intercity",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -548,12 +582,16 @@
     "capability_eval_group": "main",
     "expected_package_id": "mixed_itinerary",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -578,6 +616,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "deep_research_contract",
@@ -700,10 +739,14 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -743,10 +786,14 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "weather",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "weather_forecast"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date",
       "user_preferences"
     ],
@@ -794,10 +841,14 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -872,10 +923,12 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -896,10 +949,14 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "weather",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "weather_forecast"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -919,10 +976,14 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -942,10 +1003,14 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -965,10 +1030,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -987,12 +1055,16 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_intercity",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -1014,10 +1086,12 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -1038,10 +1112,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1060,10 +1137,14 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -1083,10 +1164,14 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -1106,12 +1191,16 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_intercity",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -1133,10 +1222,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1160,6 +1252,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -1182,11 +1275,15 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "mixed_itinerary",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "weather_forecast",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -1207,11 +1304,15 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "mixed_itinerary",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "weather_forecast",
       "local_place_search"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -1232,11 +1333,15 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "mixed_itinerary",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "weather_forecast",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -1341,12 +1446,16 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_intercity",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -1368,12 +1477,16 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_intercity",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -1480,10 +1593,13 @@
     "question": "不要联网搜索，只读取 https://example.com/report",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1502,10 +1618,13 @@
     "question": "Do not search the web; only read https://example.com/report",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1524,10 +1643,12 @@
     "question": "不用打开网页，请联网搜索 OpenAI 最新发布",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -1590,10 +1711,14 @@
     "question": "How do I get from Pudong Airport to Disneyland?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -1613,10 +1738,14 @@
     "question": "How do I get from Tiananmen to the Forbidden City?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -1636,12 +1765,16 @@
     "question": "How do I get from Harbin to Beijing?",
     "expected_package_id": "mobility_intercity",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -1663,10 +1796,14 @@
     "question": "How do I get from Beijing to Shanghai by train?",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -1686,10 +1823,14 @@
     "question": "How do I get from Beijing to Shanghai by plane?",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -1835,10 +1976,13 @@
     "question": "不要联网搜索但只读取 https://example.com/report",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1857,10 +2001,13 @@
     "question": "Do not search the web but only read https://example.com/report",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1879,10 +2026,13 @@
     "question": "Do not open https://example.com/a; read https://example.com/b",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1901,10 +2051,12 @@
     "question": "Do not search old news; search the latest AI news",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -2056,6 +2208,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -2083,6 +2236,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -2105,11 +2259,15 @@
     "question": "How do I get from Beijing to Shanghai by train or plane?",
     "expected_package_id": "travel_air_rail",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -2130,10 +2288,14 @@
     "question": "How do I get from Beijing to Shanghai by airplane?",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -2153,11 +2315,15 @@
     "question": "How do I get from Beijing to Shanghai by train or bus?",
     "expected_package_id": "mixed_itinerary",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -2283,10 +2449,12 @@
     "question": "The app is in offline mode; search the web for fixes",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -2307,10 +2475,12 @@
     "question": "Don't use the internet for old docs, but search the web for the latest docs",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -2331,10 +2501,12 @@
     "question": "不要使用互联网查旧公告，但请联网搜索最新公告",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -2355,10 +2527,12 @@
     "question": "不要搜索旧新闻而要搜索最新新闻",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -2568,10 +2742,13 @@
     "question": "Translate this page into Chinese: https://example.com/report",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2590,10 +2767,13 @@
     "question": "把这个页面翻译成中文：https://example.com/report",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2612,10 +2792,13 @@
     "question": "Translate the following URL into Chinese: https://example.com/report",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2634,10 +2817,12 @@
     "question": "Translate \"OpenAI\" into Chinese and search the web for its latest announcement",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -2663,6 +2848,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -2685,10 +2871,13 @@
     "question": "Translate \"headline\" after reading https://example.com/report.",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2749,10 +2938,14 @@
     "question": "How do I get from Pudong Airport to Disneyland by train?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -2772,10 +2965,14 @@
     "question": "How do I get from Tiananmen to the Forbidden City by train?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -2795,10 +2992,14 @@
     "question": "How do I get from Beijing to Shanghai by car?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -2818,10 +3019,14 @@
     "question": "How do I get from Beijing to Shanghai by public transit?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -2841,11 +3046,15 @@
     "question": "How do I get from Beijing to Shanghai by train, or by plane?",
     "expected_package_id": "travel_air_rail",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -2866,11 +3075,15 @@
     "question": "How do I get from Beijing to Shanghai via rail, then by air?",
     "expected_package_id": "travel_air_rail",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -2891,11 +3104,15 @@
     "question": "How do I get from Beijing to Shanghai by train or coach?",
     "expected_package_id": "mixed_itinerary",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -2958,12 +3175,16 @@
     "question": "I'm in Beijing and I want to go to Shanghai. It's urgent.",
     "expected_package_id": "mobility_intercity",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -2985,10 +3206,14 @@
     "question": "不要联网查旧新闻，但查明天上海天气",
     "expected_package_id": "weather",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "weather_forecast"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -3008,10 +3233,14 @@
     "question": "Don't use the internet for news, but find flights from Beijing to Shanghai tomorrow",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -3031,10 +3260,12 @@
     "question": "Don't call web_search for old news; search the web for the latest AI news",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -3055,10 +3286,13 @@
     "question": "Do not call url_read for https://example.com/a; read https://example.com/b",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -3077,10 +3311,14 @@
     "question": "Do not call search_flights for old routes; find flights from Beijing to Shanghai tomorrow",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -3163,10 +3401,14 @@
     "question": "Do not call mcp_unrelated_tool; then call mcp_unrelated_tool",
     "expected_package_id": "mcp_explicit",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "mcp_unrelated_tool"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -3211,6 +3453,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -3238,6 +3481,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -3260,10 +3504,14 @@
     "question": "How do I get from Beijing to Shanghai by train, not by plane?",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -3283,10 +3531,14 @@
     "question": "How do I get from Beijing to Shanghai by car, not by plane?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -3348,10 +3600,13 @@
     "question": "Open \"https://example.com/report\" and summarize it.",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -3370,10 +3625,13 @@
     "question": "Summarize `https://example.com/report`.",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -3392,10 +3650,14 @@
     "question": "Please call `mcp_unrelated_tool`.",
     "expected_package_id": "mcp_explicit",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "mcp_unrelated_tool"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -3414,10 +3676,12 @@
     "question": "Translate \"OpenAI\" and do a web search for context.",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -3438,10 +3702,12 @@
     "question": "Translate \"OpenAI\" and browse the web for context.",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -3462,12 +3728,16 @@
     "question": "How do I get from Beijing to Shanghai by car, train, or plane?",
     "expected_package_id": "mixed_itinerary",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -3488,11 +3758,15 @@
     "question": "How do I get from Beijing to Shanghai by train, plane, or air?",
     "expected_package_id": "travel_air_rail",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -3513,10 +3787,12 @@
     "question": "Search the latest AI news; do not search old quantum news.",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -3537,10 +3813,13 @@
     "question": "Read https://example.com/b; do not open https://example.com/a.",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -3564,6 +3843,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -3726,10 +4006,13 @@
     "question": "Summarize https://example.com/latest-news",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -3748,10 +4031,13 @@
     "question": "Summarize \"https://example.com/latest-news\"",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -3770,10 +4056,13 @@
     "question": "Read https://example.com/official-announcement",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -3792,10 +4081,13 @@
     "question": "Summarize https://example.com/latest-news using only this page",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -3814,10 +4106,14 @@
     "question": "How do I get from Beijing to Shanghai, not by train, but by plane?",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -3837,10 +4133,14 @@
     "question": "How do I get from Beijing to Shanghai by train or plane, but not by plane?",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -3860,11 +4160,15 @@
     "question": "How do I get from Beijing to Shanghai by car, train, or plane, but not by plane?",
     "expected_package_id": "mixed_itinerary",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -3885,10 +4189,14 @@
     "question": "How do I get from Beijing to Shanghai by train rather than plane?",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -3908,10 +4216,14 @@
     "question": "How do I get from Beijing to Shanghai by car instead of train or plane?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -3931,10 +4243,14 @@
     "question": "How do I get from Beijing to Shanghai by car, not train or plane?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -3954,10 +4270,14 @@
     "question": "How do I get from Beijing to Shanghai by car or train, but not train?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -3977,10 +4297,14 @@
     "question": "Call search_flights for Beijing to Shanghai tomorrow",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -4000,10 +4324,14 @@
     "question": "Do not call search_flights; then call search_flights for Beijing to Shanghai tomorrow",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -4023,10 +4351,14 @@
     "question": "Find flights from Beijing to Shanghai tomorrow; do not call search_flights for old routes",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -4046,10 +4378,14 @@
     "question": "Find flights from Beijing to Shanghai tomorrow and do not call search_flights for old routes",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -4069,10 +4405,12 @@
     "question": "Search the latest AI news and do not search old quantum news",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -4093,10 +4431,13 @@
     "question": "Read https://example.com/b and do not open https://example.com/a",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -4120,6 +4461,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -4147,6 +4489,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -4174,6 +4517,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -4201,6 +4545,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -4263,10 +4608,12 @@
     "question": "Translate \"OpenAI\" and do a quick web search for context.",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -4287,10 +4634,12 @@
     "question": "Translate \"OpenAI\" and browse online for context.",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -4316,6 +4665,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -4338,10 +4688,14 @@
     "question": "Do not call search_flights for this request; call search_flights for Beijing to Shanghai tomorrow.",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -4566,6 +4920,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -4593,6 +4948,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -4615,10 +4971,14 @@
     "question": "How do I get from Beijing to Shanghai by car with air conditioning?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -4638,10 +4998,14 @@
     "question": "How do I get from Beijing to Shanghai by railway with air conditioning?",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -4661,11 +5025,15 @@
     "question": "How do I get from Beijing to Shanghai by not only train but also plane?",
     "expected_package_id": "travel_air_rail",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -4686,11 +5054,15 @@
     "question": "How do I get from Beijing to Shanghai by train, no stops, or plane?",
     "expected_package_id": "travel_air_rail",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -4711,10 +5083,14 @@
     "question": "How do I get from Beijing to Shanghai by train as opposed to plane?",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -4734,10 +5110,14 @@
     "question": "How do I get from Beijing to Shanghai by car, avoiding train and plane?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -4777,10 +5157,14 @@
     "question": "Call search_flights for tomorrow; do not call search_flights for old routes.",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -4800,10 +5184,14 @@
     "question": "Call the tool `mcp_unrelated_tool`.",
     "expected_package_id": "mcp_explicit",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "mcp_unrelated_tool"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -4882,10 +5270,13 @@
     "question": "Read https://example.com/report and do not cross-check it with official sources",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -4904,10 +5295,12 @@
     "question": "Translate \"OpenAI\" and browse the internet for context",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -5008,10 +5401,14 @@
     "question": "How do I get from Beijing to Shanghai by car while monitoring air quality?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -5091,10 +5488,13 @@
     "question": "Read https://example.com/report and do not cross check it with official sources",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -5113,10 +5513,13 @@
     "question": "Read https://example.com/report?lang=en&v=2",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -5400,6 +5803,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -5427,6 +5831,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -5454,6 +5859,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -5476,10 +5882,14 @@
     "question": "How do I get from Beijing airport to downtown by air-conditioned car?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -5499,10 +5909,14 @@
     "question": "How do I get from Beijing airport to downtown by air conditioned car?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -5522,10 +5936,14 @@
     "question": "How do I get from Beijing to Shanghai by train, excluding plane, and car?",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -5545,10 +5963,14 @@
     "question": "How do I get from Beijing to Shanghai by train, other than plane, and car?",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -5568,10 +5990,14 @@
     "question": "How do I get from Beijing to Shanghai by train, other than plane?",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -5591,10 +6017,14 @@
     "question": "How do I get from Beijing to Shanghai by car, excluding train and plane?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -5614,10 +6044,14 @@
     "question": "How do I get from Beijing to Shanghai by train or plane, with plane excluded?",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -5637,10 +6071,14 @@
     "question": "How do I get from Beijing to Shanghai by car, skipping train and plane?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -5660,10 +6098,14 @@
     "question": "Call the MCP tool `mcp_unrelated_tool`.",
     "expected_package_id": "mcp_explicit",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "mcp_unrelated_tool"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -5682,10 +6124,12 @@
     "question": "Don't use the internet. Actually, search the web for the latest OpenAI news",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -5706,10 +6150,12 @@
     "question": "Do not call web_search; then call web_search for OpenAI background",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -5730,10 +6176,13 @@
     "question": "Do not call url_read; then call url_read for https://example.com/report",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -5872,11 +6321,15 @@
     "question": "Not only find flights from Beijing to Shanghai tomorrow, but also find trains.",
     "expected_package_id": "travel_air_rail",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -5897,10 +6350,14 @@
     "question": "Don't forget to find flights from Beijing to Shanghai tomorrow.",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -5920,11 +6377,15 @@
     "question": "Do not just find flights from Beijing to Shanghai tomorrow; also compare trains.",
     "expected_package_id": "travel_air_rail",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -5945,11 +6406,15 @@
     "question": "Don't only look for restaurants near People's Square; also check weather.",
     "expected_package_id": "mixed_itinerary",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "weather_forecast",
       "local_place_search"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -6030,10 +6495,13 @@
     "question": "Read https://example.com/report and search within the page for references",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -6052,10 +6520,13 @@
     "question": "Read https://example.com/report and search the document for references",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -6074,10 +6545,12 @@
     "question": "Translate \"OpenAI\" and browse the public web for context",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -6158,10 +6631,13 @@
     "question": "Read https://example.com/report and search this page for references",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -6180,10 +6656,13 @@
     "question": "Read https://example.com/report and search inside it for references",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -6202,10 +6681,13 @@
     "question": "读取 https://example.com/report 并搜索页面中的关键词",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -6264,11 +6746,15 @@
     "question": "Not merely find flights from Beijing to Shanghai tomorrow; also compare trains.",
     "expected_package_id": "travel_air_rail",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -6289,11 +6775,15 @@
     "question": "Don't simply look for restaurants near People's Square; also check weather.",
     "expected_package_id": "mixed_itinerary",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "weather_forecast",
       "local_place_search"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -6314,10 +6804,14 @@
     "question": "Do not fail to find flights from Beijing to Shanghai tomorrow.",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -6337,10 +6831,14 @@
     "question": "How do I get from Beijing to Shanghai by car, excluding train, bus, and plane?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -6360,10 +6858,14 @@
     "question": "How do I get from Beijing to Shanghai by car, with train and plane excluded?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -6383,10 +6885,14 @@
     "question": "How do I get from Beijing to Shanghai by car, with plane and train excluded?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -6566,10 +7072,12 @@
     "question": "不要联网；但调用 web_search 搜索最新 OpenAI 新闻。",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -6595,6 +7103,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -6622,6 +7131,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -6649,6 +7159,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -6671,10 +7182,13 @@
     "question": "Read https://example.com/report?q=old,latest-news",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -6693,10 +7207,13 @@
     "question": "读取 https://example.com/report?q=旧，最新消息",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -6715,10 +7232,13 @@
     "question": "Read https://example.com/report?q=old;latest-news",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -6737,10 +7257,14 @@
     "question": "How do I get from Beijing to Shanghai by car, ranked by air quality?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -6760,10 +7284,14 @@
     "question": "How do I get from Beijing to Shanghai by car, chosen by air quality exposure?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -6783,11 +7311,15 @@
     "question": "How do I get from Beijing to Shanghai, excluding plane, by train and car?",
     "expected_package_id": "mixed_itinerary",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -6808,10 +7340,14 @@
     "question": "How do I get from Beijing to Shanghai by train, with plane not allowed?",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -6831,10 +7367,14 @@
     "question": "How do I get from Beijing to Shanghai by train, with plane prohibited?",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -6854,10 +7394,14 @@
     "question": "How do I get from Beijing to Shanghai by train, except for plane?",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -6877,10 +7421,14 @@
     "question": "How do I get from Beijing to Shanghai by train, excluding any plane?",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -6900,10 +7448,14 @@
     "question": "How do I get from Beijing to Shanghai by train, avoiding all flights?",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -6923,10 +7475,14 @@
     "question": "How do I get from Beijing to Shanghai by train or plane, with plane (excluded)?",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -6946,10 +7502,14 @@
     "question": "Exclude overnight flights from Beijing to Shanghai and show daytime options.",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -6969,10 +7529,14 @@
     "question": "No nonstop flights from Beijing to Shanghai; show connecting options.",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -6992,10 +7556,14 @@
     "question": "Skip overnight trains from Beijing to Shanghai; show daytime options.",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -7055,10 +7623,13 @@
     "question": "Read https://example.com/report and search it for references.",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -7077,10 +7648,13 @@
     "question": "Read https://example.com/report and search its contents for references.",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -7639,10 +8213,13 @@
     "question": "Read https://example.com/report?q=old;search=latest-news",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -7661,10 +8238,13 @@
     "question": "Read https://example.com/report?q=old,search=latest-news",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -7683,10 +8263,13 @@
     "question": "Read https://example.com/report?filter:search=latest-news",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -7705,10 +8288,13 @@
     "question": "读取 https://example.com/report?q=旧；搜索=最新消息",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -7727,10 +8313,13 @@
     "question": "Read https://example.com/report?q=old;open=latest-news",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -7754,6 +8343,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -7781,6 +8371,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -7808,6 +8399,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -7835,6 +8427,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -8157,10 +8750,14 @@
     "question": "How do I get from Beijing to Shanghai by train and plane, leaving out plane?",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -8180,10 +8777,14 @@
     "question": "How do I get from Beijing to Shanghai by train and plane, omit plane.",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -8203,10 +8804,14 @@
     "question": "How do I get from Beijing to Shanghai by train and plane, with the exception of plane?",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -8226,10 +8831,14 @@
     "question": "How do I get from Beijing to Shanghai by train and plane, all but plane.",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -8249,10 +8858,14 @@
     "question": "How do I get from Beijing to Shanghai by train and plane, plane is off limits.",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -8272,10 +8885,14 @@
     "question": "How do I get from Beijing to Shanghai by car, ranked by air pollution?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -8295,10 +8912,14 @@
     "question": "How do I get from Beijing to Shanghai by car, selected by air emissions?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -8318,10 +8939,14 @@
     "question": "How do I get from Beijing to Shanghai by car, optimized by air pollution exposure?",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -8341,10 +8966,14 @@
     "question": "Exclude expensive flights from Beijing to Shanghai and show budget options.",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -8364,10 +8993,14 @@
     "question": "Avoid connecting flights from Beijing to Shanghai and show nonstop alternatives.",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -8387,10 +9020,14 @@
     "question": "No delayed flights from Beijing to Shanghai; show on-time options.",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -8410,10 +9047,14 @@
     "question": "Skip first class flights from Beijing to Shanghai and find economy options.",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -8433,10 +9074,14 @@
     "question": "Exclude first class trains from Beijing to Shanghai and show economy options.",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -8456,10 +9101,14 @@
     "question": "Avoid slow trains from Beijing to Shanghai and show faster alternatives.",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -8479,10 +9128,14 @@
     "question": "Are there no flights from Beijing to Shanghai tomorrow?",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -8502,10 +9155,14 @@
     "question": "Are there no direct flights from Beijing to Shanghai tomorrow?",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -8525,10 +9182,14 @@
     "question": "Is there no overnight flight from Beijing to Shanghai tomorrow?",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -8548,10 +9209,14 @@
     "question": "Are there no trains from Beijing to Shanghai tomorrow?",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -8571,10 +9236,14 @@
     "question": "Is there no direct train from Beijing to Shanghai tomorrow?",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -8594,11 +9263,15 @@
     "question": "Not solely flights from Beijing to Shanghai but also trains from Beijing to Shanghai tomorrow.",
     "expected_package_id": "travel_air_rail",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -8619,11 +9292,15 @@
     "question": "Not exclusively flights from Beijing to Shanghai but also trains from Beijing to Shanghai tomorrow.",
     "expected_package_id": "travel_air_rail",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -8808,6 +9485,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -8830,10 +9508,12 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -9094,10 +9774,12 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -9123,6 +9805,7 @@
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
       "skill:verified-research@1.0.0",
@@ -9145,10 +9828,12 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -9169,10 +9854,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "url_read",
     "expected_announced_tools": [
+      "web_search",
       "url_read"
     ],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -9191,10 +9879,14 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -9234,10 +9926,14 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "weather",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "weather_forecast"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -9317,10 +10013,12 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -9341,10 +10039,12 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -9365,10 +10065,12 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -9389,10 +10091,12 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "fresh_web",
     "expected_announced_tools": [
-      "web_search"
+      "web_search",
+      "url_read"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
       "tool_usage_contract",
       "current_date"
     ],
@@ -9573,10 +10277,14 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -9596,10 +10304,14 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -9659,10 +10371,14 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "flight",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_flights"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -9682,10 +10398,14 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "train",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -9705,9 +10425,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_51"
@@ -9721,9 +10445,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_52"
@@ -9736,10 +10464,21 @@
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
     "expected_package_id": "flight",
-    "expected_announced_tools": ["search_flights"],
-    "expected_prompt_section_ids": ["app_identity", "current_date"],
+    "expected_announced_tools": [
+      "web_search",
+      "url_read",
+      "search_flights"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
+      "current_date"
+    ],
     "expected_resolution_mode": "routed",
-    "required_capability_reason_codes": ["explicit_flight_request"],
+    "required_capability_reason_codes": [
+      "explicit_flight_request"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_53"
@@ -9752,10 +10491,21 @@
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
     "expected_package_id": "flight",
-    "expected_announced_tools": ["search_flights"],
-    "expected_prompt_section_ids": ["app_identity", "current_date"],
+    "expected_announced_tools": [
+      "web_search",
+      "url_read",
+      "search_flights"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
+      "current_date"
+    ],
     "expected_resolution_mode": "routed",
-    "required_capability_reason_codes": ["explicit_flight_request"],
+    "required_capability_reason_codes": [
+      "explicit_flight_request"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_54"
@@ -9768,10 +10518,21 @@
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
     "expected_package_id": "flight",
-    "expected_announced_tools": ["search_flights"],
-    "expected_prompt_section_ids": ["app_identity", "current_date"],
+    "expected_announced_tools": [
+      "web_search",
+      "url_read",
+      "search_flights"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
+      "current_date"
+    ],
     "expected_resolution_mode": "routed",
-    "required_capability_reason_codes": ["explicit_flight_request"],
+    "required_capability_reason_codes": [
+      "explicit_flight_request"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_55"
@@ -9784,10 +10545,21 @@
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
     "expected_package_id": "train",
-    "expected_announced_tools": ["search_trains"],
-    "expected_prompt_section_ids": ["app_identity", "current_date"],
+    "expected_announced_tools": [
+      "web_search",
+      "url_read",
+      "search_trains"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
+      "current_date"
+    ],
     "expected_resolution_mode": "routed",
-    "required_capability_reason_codes": ["explicit_train_request"],
+    "required_capability_reason_codes": [
+      "explicit_train_request"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_56"
@@ -9801,9 +10573,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_57"
@@ -9817,9 +10593,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_58"
@@ -9833,9 +10613,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_59"
@@ -9849,9 +10633,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_60"
@@ -9864,10 +10652,21 @@
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
     "expected_package_id": "flight",
-    "expected_announced_tools": ["search_flights"],
-    "expected_prompt_section_ids": ["app_identity", "current_date"],
+    "expected_announced_tools": [
+      "web_search",
+      "url_read",
+      "search_flights"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
+      "current_date"
+    ],
     "expected_resolution_mode": "routed",
-    "required_capability_reason_codes": ["explicit_flight_request"],
+    "required_capability_reason_codes": [
+      "explicit_flight_request"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_61"
@@ -9880,10 +10679,21 @@
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
     "expected_package_id": "weather",
-    "expected_announced_tools": ["weather_forecast"],
-    "expected_prompt_section_ids": ["app_identity", "current_date"],
+    "expected_announced_tools": [
+      "web_search",
+      "url_read",
+      "weather_forecast"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
+      "current_date"
+    ],
     "expected_resolution_mode": "routed",
-    "required_capability_reason_codes": ["explicit_weather_request"],
+    "required_capability_reason_codes": [
+      "explicit_weather_request"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_62"
@@ -9896,10 +10706,21 @@
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
     "expected_package_id": "flight",
-    "expected_announced_tools": ["search_flights"],
-    "expected_prompt_section_ids": ["app_identity", "current_date"],
+    "expected_announced_tools": [
+      "web_search",
+      "url_read",
+      "search_flights"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
+      "current_date"
+    ],
     "expected_resolution_mode": "routed",
-    "required_capability_reason_codes": ["explicit_flight_request"],
+    "required_capability_reason_codes": [
+      "explicit_flight_request"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_63"
@@ -9912,10 +10733,21 @@
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
     "expected_package_id": "train",
-    "expected_announced_tools": ["search_trains"],
-    "expected_prompt_section_ids": ["app_identity", "current_date"],
+    "expected_announced_tools": [
+      "web_search",
+      "url_read",
+      "search_trains"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
+      "current_date"
+    ],
     "expected_resolution_mode": "routed",
-    "required_capability_reason_codes": ["explicit_train_request"],
+    "required_capability_reason_codes": [
+      "explicit_train_request"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_64"
@@ -9929,9 +10761,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_65"
@@ -9945,9 +10781,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_66"
@@ -9961,9 +10801,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_67"
@@ -9977,9 +10821,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_68"
@@ -9993,9 +10841,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_69"
@@ -10009,9 +10861,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_70"
@@ -10024,10 +10880,21 @@
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_route",
-    "expected_announced_tools": ["route_compare"],
-    "expected_prompt_section_ids": ["app_identity", "agent_plan_control"],
+    "expected_announced_tools": [
+      "web_search",
+      "url_read",
+      "route_compare"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
+      "agent_plan_control"
+    ],
     "expected_resolution_mode": "routed",
-    "required_capability_reason_codes": ["explicit_route_task"],
+    "required_capability_reason_codes": [
+      "explicit_route_task"
+    ],
     "expected_effective_plan_mode": "auto",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_71"
@@ -10040,10 +10907,21 @@
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_route",
-    "expected_announced_tools": ["route_compare"],
-    "expected_prompt_section_ids": ["app_identity", "agent_plan_control"],
+    "expected_announced_tools": [
+      "web_search",
+      "url_read",
+      "route_compare"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
+      "agent_plan_control"
+    ],
     "expected_resolution_mode": "routed",
-    "required_capability_reason_codes": ["explicit_route_task"],
+    "required_capability_reason_codes": [
+      "explicit_route_task"
+    ],
     "expected_effective_plan_mode": "auto",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_72"
@@ -10056,10 +10934,21 @@
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
     "expected_package_id": "flight",
-    "expected_announced_tools": ["search_flights"],
-    "expected_prompt_section_ids": ["app_identity", "current_date"],
+    "expected_announced_tools": [
+      "web_search",
+      "url_read",
+      "search_flights"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
+      "current_date"
+    ],
     "expected_resolution_mode": "routed",
-    "required_capability_reason_codes": ["explicit_flight_request"],
+    "required_capability_reason_codes": [
+      "explicit_flight_request"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_73"
@@ -10072,10 +10961,21 @@
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
     "expected_package_id": "weather",
-    "expected_announced_tools": ["weather_forecast"],
-    "expected_prompt_section_ids": ["app_identity", "current_date"],
+    "expected_announced_tools": [
+      "web_search",
+      "url_read",
+      "weather_forecast"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
+      "current_date"
+    ],
     "expected_resolution_mode": "routed",
-    "required_capability_reason_codes": ["explicit_weather_request"],
+    "required_capability_reason_codes": [
+      "explicit_weather_request"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_74"
@@ -10088,10 +10988,20 @@
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
     "expected_package_id": "place_discovery",
-    "expected_announced_tools": ["local_place_search"],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_announced_tools": [
+      "web_search",
+      "url_read",
+      "local_place_search"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract"
+    ],
     "expected_resolution_mode": "routed",
-    "required_capability_reason_codes": ["explicit_place_discovery"],
+    "required_capability_reason_codes": [
+      "explicit_place_discovery"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_75"
@@ -10105,9 +11015,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_76"
@@ -10121,9 +11035,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_77"
@@ -10137,9 +11055,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_78"
@@ -10153,9 +11075,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_79"
@@ -10169,9 +11095,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_80"
@@ -10184,10 +11114,21 @@
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
     "expected_package_id": "flight",
-    "expected_announced_tools": ["search_flights"],
-    "expected_prompt_section_ids": ["app_identity", "current_date"],
+    "expected_announced_tools": [
+      "web_search",
+      "url_read",
+      "search_flights"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
+      "current_date"
+    ],
     "expected_resolution_mode": "routed",
-    "required_capability_reason_codes": ["explicit_flight_request"],
+    "required_capability_reason_codes": [
+      "explicit_flight_request"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_81"
@@ -10200,10 +11141,21 @@
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
     "expected_package_id": "weather",
-    "expected_announced_tools": ["weather_forecast"],
-    "expected_prompt_section_ids": ["app_identity", "current_date"],
+    "expected_announced_tools": [
+      "web_search",
+      "url_read",
+      "weather_forecast"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
+      "current_date"
+    ],
     "expected_resolution_mode": "routed",
-    "required_capability_reason_codes": ["explicit_weather_request"],
+    "required_capability_reason_codes": [
+      "explicit_weather_request"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_82"
@@ -10216,10 +11168,20 @@
     "expected_surface": "evidence",
     "capability_eval_group": "adversarial",
     "expected_package_id": "fresh_web",
-    "expected_announced_tools": ["web_search"],
-    "expected_prompt_section_ids": ["app_identity", "tool_usage_contract", "current_date"],
+    "expected_announced_tools": [
+      "web_search",
+      "url_read"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
+      "current_date"
+    ],
     "expected_resolution_mode": "routed",
-    "required_capability_reason_codes": ["fresh_external_fact"],
+    "required_capability_reason_codes": [
+      "fresh_external_fact"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_83"
@@ -10233,9 +11195,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_84"
@@ -10249,9 +11215,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_85"
@@ -10264,10 +11234,21 @@
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_route",
-    "expected_announced_tools": ["route_compare"],
-    "expected_prompt_section_ids": ["app_identity", "agent_plan_control"],
+    "expected_announced_tools": [
+      "web_search",
+      "url_read",
+      "route_compare"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
+      "agent_plan_control"
+    ],
     "expected_resolution_mode": "routed",
-    "required_capability_reason_codes": ["explicit_route_task"],
+    "required_capability_reason_codes": [
+      "explicit_route_task"
+    ],
     "expected_effective_plan_mode": "auto",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_86"
@@ -10280,10 +11261,21 @@
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_route",
-    "expected_announced_tools": ["route_compare"],
-    "expected_prompt_section_ids": ["app_identity", "agent_plan_control"],
+    "expected_announced_tools": [
+      "web_search",
+      "url_read",
+      "route_compare"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
+      "agent_plan_control"
+    ],
     "expected_resolution_mode": "routed",
-    "required_capability_reason_codes": ["explicit_route_task"],
+    "required_capability_reason_codes": [
+      "explicit_route_task"
+    ],
     "expected_effective_plan_mode": "auto",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_87"
@@ -10297,9 +11289,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_88"
@@ -10313,9 +11309,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_89"
@@ -10328,10 +11328,21 @@
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_route",
-    "expected_announced_tools": ["route_compare"],
-    "expected_prompt_section_ids": ["app_identity", "agent_plan_control"],
+    "expected_announced_tools": [
+      "web_search",
+      "url_read",
+      "route_compare"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
+      "agent_plan_control"
+    ],
     "expected_resolution_mode": "routed",
-    "required_capability_reason_codes": ["explicit_route_task"],
+    "required_capability_reason_codes": [
+      "explicit_route_task"
+    ],
     "expected_effective_plan_mode": "auto",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_90"
@@ -10344,10 +11355,21 @@
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_route",
-    "expected_announced_tools": ["route_compare"],
-    "expected_prompt_section_ids": ["app_identity", "agent_plan_control"],
+    "expected_announced_tools": [
+      "web_search",
+      "url_read",
+      "route_compare"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
+      "agent_plan_control"
+    ],
     "expected_resolution_mode": "routed",
-    "required_capability_reason_codes": ["explicit_route_task"],
+    "required_capability_reason_codes": [
+      "explicit_route_task"
+    ],
     "expected_effective_plan_mode": "auto",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_91"
@@ -10361,9 +11383,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_92"
@@ -10377,9 +11403,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_93"
@@ -10393,9 +11423,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_94"
@@ -10409,9 +11443,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_95"
@@ -10425,9 +11463,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_96"
@@ -10441,9 +11483,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_97"
@@ -10457,9 +11503,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_98"
@@ -10473,9 +11523,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_99"
@@ -10489,9 +11543,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_100"
@@ -10504,10 +11562,20 @@
     "expected_surface": "evidence",
     "capability_eval_group": "adversarial",
     "expected_package_id": "fresh_web",
-    "expected_announced_tools": ["web_search"],
-    "expected_prompt_section_ids": ["app_identity", "tool_usage_contract", "current_date"],
+    "expected_announced_tools": [
+      "web_search",
+      "url_read"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
+      "current_date"
+    ],
     "expected_resolution_mode": "routed",
-    "required_capability_reason_codes": ["fresh_external_fact"],
+    "required_capability_reason_codes": [
+      "fresh_external_fact"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_101"
@@ -10520,10 +11588,20 @@
     "expected_surface": "evidence",
     "capability_eval_group": "adversarial",
     "expected_package_id": "fresh_web",
-    "expected_announced_tools": ["web_search"],
-    "expected_prompt_section_ids": ["app_identity", "tool_usage_contract", "current_date"],
+    "expected_announced_tools": [
+      "web_search",
+      "url_read"
+    ],
+    "expected_prompt_section_ids": [
+      "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
+      "current_date"
+    ],
     "expected_resolution_mode": "routed",
-    "required_capability_reason_codes": ["fresh_external_fact"],
+    "required_capability_reason_codes": [
+      "fresh_external_fact"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_102"
@@ -10537,9 +11615,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_103"
@@ -10553,9 +11635,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_104"
@@ -10569,9 +11655,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_105"
@@ -10585,9 +11675,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_106"
@@ -10601,9 +11695,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_107"
@@ -10617,9 +11715,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_108"
@@ -10633,9 +11735,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_109"
@@ -10649,9 +11755,13 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
-    "expected_prompt_section_ids": ["app_identity"],
+    "expected_prompt_section_ids": [
+      "app_identity"
+    ],
     "expected_resolution_mode": "clarification",
-    "required_capability_reason_codes": ["insufficient_capability_signal"],
+    "required_capability_reason_codes": [
+      "insufficient_capability_signal"
+    ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_110"
@@ -10665,12 +11775,16 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_intercity",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -10691,12 +11805,16 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_intercity",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -10717,12 +11835,16 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_intercity",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -10743,12 +11865,16 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_intercity",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -10769,12 +11895,16 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_intercity",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -10795,10 +11925,14 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -10817,12 +11951,16 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_intercity",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -10843,10 +11981,14 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_route",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control"
     ],
     "expected_resolution_mode": "routed",
@@ -10864,8 +12006,7 @@
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
-    "expected_announced_tools": [
-    ],
+    "expected_announced_tools": [],
     "expected_prompt_section_ids": [
       "app_identity"
     ],
@@ -10884,8 +12025,7 @@
     "expected_surface": "direct_answer",
     "capability_eval_group": "adversarial",
     "expected_package_id": "clarification_only",
-    "expected_announced_tools": [
-    ],
+    "expected_announced_tools": [],
     "expected_prompt_section_ids": [
       "app_identity"
     ],
@@ -10905,12 +12045,16 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_intercity",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -10931,12 +12075,16 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_intercity",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],
@@ -10957,12 +12105,16 @@
     "capability_eval_group": "adversarial",
     "expected_package_id": "mobility_intercity",
     "expected_announced_tools": [
+      "web_search",
+      "url_read",
       "route_compare",
       "search_flights",
       "search_trains"
     ],
     "expected_prompt_section_ids": [
       "app_identity",
+      "tool_failure_policy",
+      "tool_usage_contract",
       "agent_plan_control",
       "current_date"
     ],

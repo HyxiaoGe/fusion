@@ -44,6 +44,14 @@ CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES = MappingProxyType(
         "clarification_only": (),
     }
 )
+# 联网工具只是外部任务的可选替代，不参与主能力可用性和初始调用门禁。
+CAPABILITY_RECOVERY_TOOL_NAMES = ("web_search", "url_read")
+CAPABILITY_RECOVERY_PACKAGES = frozenset(
+    package for package, names in CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES.items() if names
+) | {"mcp_explicit"}
+CAPABILITY_MAX_EXTERNAL_TOOLS = 5
+
+
 CAPABILITY_AUTO_PLAN_PACKAGES = frozenset(
     {"verified_web", "mobility_route", "travel_air_rail", "mobility_intercity", "mixed_itinerary"}
 )
@@ -165,16 +173,27 @@ def validate_capability_resolution_semantics(
     tool_names = tuple(external_tool_names)
     if CAPABILITY_CONTROL_TOOL_NAMES.intersection(tool_names):
         raise ValueError("能力路由外部工具不得包含内部控制工具")
-    if len(tool_names) > 3:
-        raise ValueError("能力路由最多三个外部工具")
+    if len(tool_names) > CAPABILITY_MAX_EXTERNAL_TOOLS:
+        raise ValueError("能力路由最多三个主工具和两个联网替代工具")
+
+    primary_tool_names = tuple(name for name in tool_names if name not in CAPABILITY_RECOVERY_TOOL_NAMES)
+    if len(primary_tool_names) > 3:
+        raise ValueError("能力路由最多三个主工具和两个联网替代工具")
 
     if package_id == "mcp_explicit":
-        if len(tool_names) != 1 or not is_authorized_mcp_tool_alias(tool_names[0]):
-            raise ValueError("显式 MCP 能力包必须且只能包含一个 mcp_ 授权别名")
+        aliases = tuple(name for name in tool_names if name not in CAPABILITY_RECOVERY_TOOL_NAMES)
+        if len(aliases) != 1 or not is_authorized_mcp_tool_alias(aliases[0]):
+            raise ValueError("显式 MCP 能力包必须包含一个 mcp_ 授权别名，可附加联网替代工具")
+        expected = tuple(name for name in CAPABILITY_RECOVERY_TOOL_NAMES if name in tool_names) + aliases
+        if tool_names != expected:
+            raise ValueError("能力包外部工具必须使用 canonical order")
     else:
         allowed_tool_names = CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES.get(package_id)
         if allowed_tool_names is None:
             raise ValueError("能力路由包含未知能力包")
+        if package_id in CAPABILITY_RECOVERY_PACKAGES:
+            combined = frozenset((*allowed_tool_names, *CAPABILITY_RECOVERY_TOOL_NAMES))
+            allowed_tool_names = tuple(name for name in CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER if name in combined)
         actual_tool_names = frozenset(tool_names)
         allowed_tool_name_set = frozenset(allowed_tool_names)
         if package_id in _ZERO_EXTERNAL_TOOL_PACKAGES and actual_tool_names:

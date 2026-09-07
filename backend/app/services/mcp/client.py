@@ -457,7 +457,12 @@ class McpClientManager:
                         "MCP 工具参数校验失败",
                         safe_details=safe_details,
                     )
-                raise McpClientError("tool_error", "MCP 工具执行失败")
+                credential = self._resolve_credential(config.credential_ref) if config.auth_type != "none" else ""
+                raise McpClientError(
+                    "tool_error",
+                    "MCP 工具执行失败",
+                    safe_details=_project_tool_error_text(payload, credential=credential),
+                )
             return payload
 
         return await self._run(config, "tools_call", operation)
@@ -763,6 +768,39 @@ def _normalize_json_payload(value: Any) -> Any:
         return json.loads(json.dumps(value, ensure_ascii=False, allow_nan=False))
     except (TypeError, ValueError, OverflowError):
         raise McpClientError("invalid_response", "MCP 服务返回无效响应") from None
+
+
+def _project_tool_error_text(payload: dict[str, Any], *, credential: str) -> dict[str, Any]:
+    """保留有界上游观察，移除凭据；自由文本不参与错误分类。"""
+
+    content = payload.get("content")
+    if not isinstance(content, list):
+        return {}
+    text = "\n".join(
+        item["text"]
+        for item in content
+        if isinstance(item, dict) and item.get("type") == "text" and isinstance(item.get("text"), str)
+    )
+    if credential:
+        text = text.replace(credential, "[REDACTED]")
+    text = re.sub(r"https?://[^\s<>]+", "[URL omitted]", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"\b(?:proxy[ _-]*authorization|authorization)\s*[\"']?\s*[:=]\s*[\"']?(?:bearer|basic|token)\s+[^\s\"',;]+",
+        "Authorization: [REDACTED]",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"\b(?:api[ _-]*key|key|client[ _-]*secret|secret|password|access[ _-]*token|token|cookie|session[ _-]*id|authorization)"
+        r"[\"']?\s*[:=]\s*(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)",
+        "[credential redacted]",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = _strip_unsafe_controls(text).strip()
+    if not text:
+        return {}
+    return {"upstream_message": text[:1024], **({"truncated": True} if len(text) > 1024 else {})}
 
 
 def _project_structured_tool_error(payload: dict[str, Any]) -> dict[str, Any] | None:

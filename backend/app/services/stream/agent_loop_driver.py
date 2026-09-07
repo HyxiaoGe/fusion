@@ -350,6 +350,7 @@ async def _run_round(
     should_defer_output = (
         has_product_result_blocks(state.content_blocks)
         or state.product_tool_attempted
+        or bool(state.failed_tool_names)
         or state.pending_tool_repairs
         or must_defer_until_plan
         or runtime.plan_mode == "on"

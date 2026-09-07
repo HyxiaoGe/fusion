@@ -29,6 +29,8 @@ from app.utils.run_capability_contract import (
     CAPABILITY_CONTROL_TOOL_NAMES,
     CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES,
     CAPABILITY_REASON_CODES,
+    CAPABILITY_RECOVERY_PACKAGES,
+    CAPABILITY_RECOVERY_TOOL_NAMES,
     is_authorized_mcp_tool_alias,
     validate_capability_resolution_semantics,
 )
@@ -37,7 +39,7 @@ Confidence = Literal["high", "medium", "low"]
 ResolutionMode = Literal["routed", "degraded", "clarification"]
 
 SCHEMA_VERSION = 2
-ROUTER_VERSION = "2026-09-04.1"
+ROUTER_VERSION = "2026-09-07.1"
 
 _CANONICAL_EXTERNAL_TOOL_ORDER = CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER
 _CONTROL_TOOL_NAMES = CAPABILITY_CONTROL_TOOL_NAMES
@@ -625,7 +627,8 @@ def resolve_run_capability_route(
 
     resolution = _resolution(
         candidate=candidate,
-        available_tool_names=available_tool_names,
+        available_tool_names=[name for name in available_tool_names if name not in unavailable_tools],
+        allow_recovery_tools=search_capable,
         requested_plan_mode=requested_plan_mode,
         function_calling=function_calling,
         tools_disabled=tools_disabled,
@@ -1366,8 +1369,11 @@ def _resolution(
     function_calling: bool,
     tools_disabled: bool,
     network_boundary_required: bool = False,
+    allow_recovery_tools: bool = False,
 ) -> RunCapabilityResolution:
     requested_tools = candidate.explicit_tool_names or _PACKAGE_TOOLS.get(candidate.package_id, ())
+    if allow_recovery_tools and candidate.package_id in CAPABILITY_RECOVERY_PACKAGES:
+        requested_tools = (*requested_tools, *CAPABILITY_RECOVERY_TOOL_NAMES)
     available = frozenset(name for name in available_tool_names if isinstance(name, str) and name)
     tools = tuple(
         name

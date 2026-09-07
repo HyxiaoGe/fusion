@@ -566,6 +566,7 @@ class McpAgentToolHandler(BaseToolHandler):
             return self._failed_result(
                 started_at,
                 error_code=error.code,
+                error_details=error.safe_details,
                 validation_errors=_project_remote_validation_errors(
                     self.input_schema,
                     error,
@@ -597,7 +598,20 @@ class McpAgentToolHandler(BaseToolHandler):
                 return render_runtime_prompt("mcp.budget_exhausted")
             if result.data.get("error_code") == "server_circuit_open":
                 return render_runtime_prompt("mcp.circuit_open")
-            return render_runtime_prompt("mcp.unavailable")
+            failure_contract = render_runtime_prompt("mcp.unavailable")
+            if not result.data.get("error_details"):
+                return failure_contract
+            return failure_contract + _format_untrusted_mcp_context(
+                binding=self.binding,
+                payload_text=json.dumps(
+                    {
+                        "error_code": result.data.get("error_code"),
+                        "error_details": result.data["error_details"],
+                    },
+                    ensure_ascii=False,
+                ),
+                max_bytes=max(0, self.max_llm_context_bytes - len(failure_contract.encode())),
+            )
         payload_text = json.dumps(result.data["payload"], ensure_ascii=False, sort_keys=True)
         return _format_untrusted_mcp_context(
             binding=self.binding,
@@ -644,6 +658,7 @@ class McpAgentToolHandler(BaseToolHandler):
         started_at: float,
         *,
         error_code: str,
+        error_details: dict[str, Any] | None = None,
         validation_errors: list[str] | None = None,
         local_preflight: bool = False,
     ) -> ToolResult:
@@ -651,6 +666,11 @@ class McpAgentToolHandler(BaseToolHandler):
             **self._binding_metadata(),
             "error_code": _safe_mcp_error_code(error_code) or "internal_error",
         }
+        upstream_message = (error_details or {}).get("upstream_message")
+        if isinstance(upstream_message, str) and upstream_message:
+            data["error_details"] = {"upstream_message": upstream_message[:1024]}
+            if (error_details or {}).get("truncated") is True:
+                data["error_details"]["truncated"] = True
         if validation_errors:
             data["validation_errors"] = validation_errors[:8]
         if local_preflight:

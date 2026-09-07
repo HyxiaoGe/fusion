@@ -210,7 +210,7 @@ describe('normalizeTrajectoryEvent', () => {
   it.each([
     ['额外字段', { ...capabilityResolution, raw_query: '北京天气' }],
     ['非法工具', { ...capabilityResolution, external_tool_names: ['update_plan'] }],
-    ['超界工具', { ...capabilityResolution, external_tool_names: ['a', 'b', 'c', 'd'] }],
+    ['超界工具', { ...capabilityResolution, external_tool_names: ['a', 'b', 'c', 'd', 'e', 'f'] }],
     ['重复理由', { ...capabilityResolution, reason_codes: ['explicit_weather_request', 'explicit_weather_request'] }],
     ['非法版本', { ...capabilityResolution, router_version: 'latest' }],
     ['非法指纹', { ...capabilityResolution, bundle_fingerprint: 'a'.repeat(64) }],
@@ -951,4 +951,10 @@ describe('正文归因的实时与历史安全投影', () => {
     expect(history?.payload.output_provenance).toEqual(provenance);
     expect(JSON.stringify(live)).not.toContain('禁止复制');
   });
+});
+
+
+it('保留三个主工具和两个联网替代工具的运行能力信息', () => {
+  const value = { ...capabilityResolution, external_tool_names: ['web_search', 'url_read', 'route_compare', 'search_flights', 'search_trains'] };
+  expect(normalizeTrajectoryCapabilityResolution(value)?.external_tool_names).toEqual(value.external_tool_names);
 });

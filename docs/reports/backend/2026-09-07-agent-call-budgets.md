@@ -1,6 +1,6 @@
 # Agent 调用预算放宽记录
 
-## 交付状态
+## 初次实现状态（发布前）
 
 2026-09-07（Asia/Shanghai），用户明确要求放宽调用预算，Firecrawl 额度充足。已在线调整四项联网预算；Agent 总预算、MCP 默认值、Redis 有效期和续跑预算的代码修改已验证，尚未推送、PR、合并或部署。当前运行代码仍为 `f7880b24`。
 
@@ -48,3 +48,25 @@
 ## 发布前完整回归补充
 
 PR #52 首次 CI 在 3012 项后端测试中发现 4 个仍引用旧预算的测试断言/触顶输入：进度事件总预算、MCP 部署默认值、两处工具执行器搜索触顶。已同步至新预算，保留触顶不调用 handler、事件先于日志等原行为断言。补修后本地完整后端 `3012 tests OK (skipped=2)`，耗时 51.709 秒；目标 Ruff 与差异检查通过。首次失败未合并或部署。
+
+## 授权发布
+
+用户随后明确要求「发布吧」。PR [#52](https://github.com/HyxiaoGe/fusion/pull/52) 最新检查提交 `58eca2f084cb208a7a0d0709fee2d55b7849f55d`；[PR CI](https://github.com/HyxiaoGe/fusion/actions/runs/34102125383) 的 API、UI、工作流安全、变更检测和 required gate 全部通过。北京时间 16:52:55 合并到 master，提交 `38b29a8fedcebebd8b12f22c7292cd1c419b1a44`，已核对合并后的完整文件树与通过检查的 PR head 一致。
+
+本次 [dev 部署流水线](https://github.com/HyxiaoGe/fusion/actions/runs/34102954248) 与 [master CI](https://github.com/HyxiaoGe/fusion/actions/runs/34102953660) 对应上述 SHA。部署后实际状态以下文验收证据为准；前文「未部署」为首次实现阶段记录。
+
+
+## 部署后实际核验（北京时间 17:00–17:02）
+
+- 17:00:47 在部署容器内读取真实 runner 装配：64 轮、200 次工具、1800 秒；MCP 64 次；Redis lock/stream TTL 1920 秒。运行时网络版本仍为 `2026-09-07.agent-budget-v2`，预算 40/40/40/100。
+- 同一容器真实预算代码在旧 8 轮、20 调用、301 秒，以及 32 轮/100 调用/900 秒处均允许继续。普通与研究模式分别放行 40 次搜索参数准备及 100 次读取参数准备；MCP 本地预算放行 64 次并在第 65 次阻断。外部提供方调用 0 次，没有创建测试对话；这不是实际长对话验收。
+- 17:01:34 API `/health` 返回 healthy，数据库/Redis connected。17:01:52 accepted-release SHA 为 `38b29a8fedcebebd8b12f22c7292cd1c419b1a44`，运行容器 image ID 与台账一致，running=true、restarts=0。
+- API image ID：`sha256:98b48bdde352ae3d586fa5523cb49352de6edf55c14a9db3bfb781c87b341ceb`；digest：`sha256:678f14671f6b1d1c0c406fe501161b64533124c134360cc0b2301fd82595367e`。
+- 复用 Chrome extension（browser 2，tab 643084497）已登录 sean 的既有 [南京天气会话](https://fusion.seanfield.org/chat/deebf176-cefe-4303-8270-99458e5bc46a)，刷新后历史回答、天气卡片、已完成状态与轨迹完整标记仍在。服务端实际观察到会话列表、会话详情、runs 三类 GET 均为 200。09:00 UTC 后检查窗口未检出 ERROR/CRITICAL/Traceback。
+- 本次没有捕获浏览器 console，因此不声明 console 无错误；没有发送新聊天，也未验证真实 30 分钟长任务或跨工具失败恢复。上述缺口不影响已核实的部署身份、健康与预算配置生效结论。
+
+### UI 同步发布
+
+17:08:01 UI accepted-release 同步为 `38b29a8fedcebebd8b12f22c7292cd1c419b1a44`。运行 image ID 与台账均为 `sha256:631691ec2e2ecacf23c0f07b79a508277c22584fdef0a46c116a42d80c5d5401`，digest `sha256:6cd901f55ede324f5549bb79aa07e49d08bbab77bf5b24756e39edc5a81d064d`；running=true、restarts=0。替换后再次刷新同一已登录会话，正文、卡片、已完成/轨迹完整标记保持，三类会话读取接口再次为 200。
+
+最终 [master CI](https://github.com/HyxiaoGe/fusion/actions/runs/34102953660) 与 [dev 部署](https://github.com/HyxiaoGe/fusion/actions/runs/34102954248) 均 completed/success。API/UI 参数校验、Windows 测试构建推送、dev 健康/冒烟/台账记录及收尾成功；跨应用实现分支按设计 skipped，无失败回滚。当前结论为前后端已部署、预算运行代码已核验生效、既有登录页刷新读取正常；真实长对话与浏览器 console 的验证边界如上。
