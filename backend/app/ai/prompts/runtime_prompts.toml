@@ -321,6 +321,7 @@ amap_search_detail = """ id must be a POI ID returned by a place search in this 
 amap_coordinates = """ Origin and destination coordinates must come from user input or a trusted tool result in this round; never guess coordinates."""
 
 [tool_handlers]
+url_read_failure_reason = """Read failure: {{ failure_kind }}. No article body was obtained. Continue with an alternative source; do not count this page as successfully read or cite its wrapper metadata as evidence."""
 url_read_unavailable = """The page was not read successfully and cannot be used as evidence. State that the source is unavailable, or answer only from other available information."""
 search_read_alternatives = """The search for '{{ query }}' was not executed: after the previous page-read failure, {{ unread_count }} unread candidate sources remain. Do not search again immediately. First read the next high-value candidate from the earlier structured source-selection guidance. If every candidate is unavailable, state that the sources are unavailable and answer from existing search snippets."""
 search_plan_limited = """The search for '{{ query }}' was not executed because the search plan has converged and further searching would add duplicate candidates. Do not make another similar search. Prefer reading an already recommended high-value source or organize the answer from earlier search results."""

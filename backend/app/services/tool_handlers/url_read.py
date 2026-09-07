@@ -13,6 +13,7 @@ from app.services.external.reader_client import read_url_with_diagnostics
 from app.services.security.url_policy import evaluate_url_policy
 from app.services.source_context import UntrustedSourceContext, format_untrusted_source_context
 from app.services.tool_handlers.base import BaseToolHandler, ToolResult
+from app.services.tool_handlers.url_read_body import select_article_body
 
 # 注入 LLM 上下文时的最大字符数（约 4000 token）
 MAX_CONTENT_CHARS = 8000
@@ -122,6 +123,7 @@ class UrlReadHandler(BaseToolHandler):
                         "upstream_status": failure.upstream_status if failure else None,
                         "attempts": failure.attempts if failure else 1,
                         "reader_duration_ms": failure.reader_duration_ms if failure else None,
+                        "reader_diagnostic": failure.reader_diagnostic if failure else None,
                     },
                 )
 
@@ -197,6 +199,10 @@ class UrlReadHandler(BaseToolHandler):
 
         if result.status != "success" or not content:
             unavailable_message = render_runtime_prompt("tool_handlers.url_read_unavailable")
+            if result.data.get("failure_kind") in {"empty_content", "access_blocked"}:
+                unavailable_message += "\n" + render_runtime_prompt(
+                    "tool_handlers.url_read_failure_reason", failure_kind=result.data["failure_kind"]
+                )
             return format_untrusted_source_context(
                 UntrustedSourceContext(
                     source_id="url-read-unavailable",
@@ -209,7 +215,8 @@ class UrlReadHandler(BaseToolHandler):
                 max_chars=MAX_CONTENT_CHARS + 100,
             )
 
-        # 截断过长的内容
+        # 规范 reader 包装中优先从精确标题对应的正文取窗口，原始结果仍完整保留。
+        content = select_article_body(content, title)
         truncated = False
         max_content_chars = _tool_context_int("url_read_max_content_chars", MAX_CONTENT_CHARS)
         if len(content) > max_content_chars:
