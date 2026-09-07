@@ -37,6 +37,7 @@ class UrlReadFailure:
     upstream_status: int | None = None
     attempts: int = 1
     reader_duration_ms: int | None = None
+    reader_diagnostic: str | None = None
 
 
 @dataclass
@@ -76,6 +77,8 @@ _FAILURE_MESSAGES = {
     "http_status": "网页暂时无法读取，已跳过该来源",
     "parse_error": "网页读取响应异常，已跳过该来源",
     "unknown": "网页读取发生异常，已跳过该来源",
+    "empty_content": "网页读取未取得正文，已跳过该来源",
+    "access_blocked": "网页访问受限，未取得正文，已跳过该来源",
 }
 
 _WRAPPED_UPSTREAM_ERROR_RE = re.compile(
@@ -190,6 +193,36 @@ def _wrapped_upstream_failure(data: dict) -> UrlReadFailure | None:
     )
 
 
+def _empty_content_failure(data: dict) -> UrlReadFailure | None:
+    """仅识别空内容或标准读取器包装后的空正文，不按文章中的验证码词拒绝。"""
+    content = data.get("content")
+    if not isinstance(content, str):
+        return None
+    header = ""
+    body = content
+    marker = re.search(r"(?im)^Markdown Content:[ \t]*\r?$", content[:4000])
+    if marker is not None:
+        candidate_header = content[: marker.start()]
+        if candidate_header.lstrip().startswith("Title:") and re.search(
+            r"(?im)^URL Source:\s*https?://", candidate_header
+        ):
+            header = candidate_header
+            body = content[marker.end() :]
+    if body.strip():
+        return None
+    blocked = bool(
+        re.search(r"(?im)^Warning:.*(?:CAPTCHA|access denied|access blocked|requires? authentication)", header)
+    )
+    failure = _failure(
+        "access_blocked" if blocked else "empty_content",
+        attempts=_bounded_int(data.get("attempts"), default=1, minimum=1, maximum=10),
+        reader_duration_ms=_optional_bounded_int(data.get("fetch_ms"), minimum=0, maximum=300_000),
+    )
+    # 保存有界原始诊断以供轨迹详情观察，绝不把包装文字注册成事实正文。
+    failure.reader_diagnostic = content[:4000]
+    return failure
+
+
 def _log_failure(
     failure: UrlReadFailure,
     *,
@@ -233,7 +266,7 @@ async def read_url_with_diagnostics(url: str, timeout: float | None = None) -> U
                 data = resp.json()
                 if not isinstance(data, dict):
                     raise TypeError("reader 响应必须是对象")
-                wrapped_failure = _wrapped_upstream_failure(data)
+                wrapped_failure = _wrapped_upstream_failure(data) or _empty_content_failure(data)
                 if wrapped_failure is not None:
                     _log_failure(
                         wrapped_failure,
