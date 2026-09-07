@@ -309,22 +309,37 @@ function collectCitationSources(
   fallbackSources: SearchSourceSummary[],
   answerEvidence: AnswerEvidenceModel | null,
 ): SearchSourceSummary[] {
-  const stableItems = answerEvidence?.items.filter(item => item.citationIndex != null) ?? [];
-  if (stableItems.length > 0) {
-    return stableItems.map(item => ({
-      title: item.title,
-      url: item.url,
-      favicon: item.favicon,
-      evidence_id: item.evidenceId,
-      citation_index: item.citationIndex,
-      kind: item.kind === 'knowledge' ? 'knowledge' : 'web',
-    }));
-  }
+  const stableItems = [
+    ...(answerEvidence?.usedItems ?? answerEvidence?.items ?? []),
+    ...(answerEvidence?.candidateItems ?? []),
+  ].filter(item => item.citationIndex != null);
 
   const sourceRefs = [
     ...searchBlocks.flatMap(block => block.source_refs ?? []),
     ...urlBlocks.flatMap(block => block.source_refs ?? []),
   ];
+  // 正文引用映射独立于摘要展示；以持久化编号为准，补充知识库等非网页来源。
+  const byCitation = new Map<number, SearchSourceSummary>();
+  for (const item of stableItems) {
+    byCitation.set(item.citationIndex!, {
+      title: item.title, url: item.url, favicon: item.favicon,
+      evidence_id: item.evidenceId, citation_index: item.citationIndex,
+      kind: item.kind === 'knowledge' ? 'knowledge' : 'web',
+    });
+  }
+  for (const ref of sourceRefs.filter(isUsableSourceRef)) {
+    if (ref.citation_index == null) continue;
+    const existing = byCitation.get(ref.citation_index);
+    byCitation.set(ref.citation_index, {
+      ...existing,
+      title: existing?.title ?? ref.title, url: ref.url,
+      favicon: existing?.favicon ?? ref.favicon,
+      evidence_id: ref.evidence_id, citation_index: ref.citation_index, kind: 'web',
+    });
+  }
+  if (byCitation.size > 0) {
+    return [...byCitation.values()].sort((left, right) => left.citation_index! - right.citation_index!);
+  }
   if (sourceRefs.length === 0) {
     return fallbackSources;
   }

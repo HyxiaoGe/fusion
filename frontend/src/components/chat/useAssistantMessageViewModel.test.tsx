@@ -869,3 +869,28 @@ describe('useAssistantMessageViewModel', () => {
     expect(result.current.answerEvidence).toBeNull();
   });
 });
+
+describe('引用映射独立于依据摘要', () => {
+  it('有已使用摘要时仍保留所有来源编号供正文和侧栏定位', () => {
+    const result = deriveStaticAssistantMessageViewModel({
+      message: { id: 'citation-full', role: 'assistant', content: [{
+        type: 'search', id: 'search-all', query: '搜索', sources: [],
+        source_refs: Array.from({ length: 39 }, (_, i) => ({
+          kind: 'search' as const, title: `来源 ${i + 1}`, url: `https://example.com/${i + 1}`,
+          evidence_id: `ev-${i + 1}`, citation_index: i + 1, status: 'success' as const,
+        })),
+      }, { type: 'text', id: 'answer', text: '依据[2][12][39]' }] },
+      currentRun: {
+        runId: 'run-full', messageId: 'citation-full', status: 'completed', steps: [],
+        config: { maxSteps: 64, maxToolCalls: 200, timeoutS: 1800 },
+        totalSteps: 3, totalToolCalls: 5, lastSequence: 100, evidence: [{
+          id: 'ev-39', kind: 'web', status: 'used', title: '来源39', url: 'https://example.com/39',
+          citationIndex: 39, claim: '', usedByFinalAnswer: true,
+        }],
+      },
+      isLoadingQuestions: false, suggestedQuestionsCount: 0,
+    });
+    expect(result.searchSources.map(source => source.citation_index)).toEqual(Array.from({ length: 39 }, (_, i) => i + 1));
+    expect(result.answerEvidence?.usedItems?.map(item => item.citationIndex)).toEqual([2, 12, 39]);
+  });
+});

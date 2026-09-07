@@ -997,3 +997,45 @@ describe('deriveAnswerEvidence', () => {
     expect(evidence?.hiddenSearchCount).toBe(0);
   });
 });
+
+describe('完整来源注册不受摘要数量影响', () => {
+  it('12条摘要之外的真实引用仍进入已使用列表，其他来源保持候选', () => {
+    const refs: SourceReference[] = Array.from({ length: 39 }, (_, index) => ({
+      kind: 'search', status: 'success', title: `来源 ${index + 1}`,
+      url: `https://example.com/${index + 1}`, evidence_id: `ev-${index + 1}`, citation_index: index + 1,
+    }));
+    const evidence = deriveAnswerEvidence({
+      searchSources: [], urlBlocks: [], sourceRefs: refs,
+      answerText: '依据 [2][12][16][21][24][26][39]。',
+      agentEvidence: refs.slice(27).map(ref => ({
+        id: ref.evidence_id!, kind: 'web', status: 'candidate', title: ref.title,
+        url: ref.url, citationIndex: ref.citation_index, claim: '', usedByFinalAnswer: false,
+      })),
+    });
+    expect(evidence?.usedItems?.map(item => item.citationIndex)).toEqual([2, 12, 16, 21, 24, 26, 39]);
+    expect(evidence?.candidateItems).toHaveLength(32);
+    expect(evidence?.totalCount).toBe(39);
+  });
+});
+
+it('没有Agent摘要的刷新历史按实际编号区分引用和候选', () => {
+  const evidence = deriveAnswerEvidence({
+    searchSources: [], urlBlocks: [], answerText: '依据[12][21]。',
+    sourceRefs: [2, 12, 21].map(citation_index => ({
+      kind: 'search', title: `来源${citation_index}`, url: `https://example.com/${citation_index}`,
+      citation_index, status: 'success',
+    })),
+  });
+  expect(evidence?.usedItems?.map(item => item.citationIndex)).toEqual([12, 21]);
+  expect(evidence?.candidateItems?.map(item => item.citationIndex)).toEqual([2]);
+});
+
+it('同URL读取失败不抹掉可引用的搜索摘要且不标记为已深读', () => {
+  const evidence = deriveAnswerEvidence({
+    searchSources: [], urlBlocks: [{ type: 'url_read', id: 'read-failed', url: 'https://example.com/12', status: 'failed' }],
+    answerText: '搜索摘要[12]。',
+    sourceRefs: [{kind: 'search', title: 'Reuters', url: 'https://example.com/12', evidence_id: 'ev-12', citation_index: 12, status: 'success'}],
+    agentEvidence: [{id: 'ev-12', kind: 'web', status: 'read_failed', title: 'Reuters', url: 'https://example.com/12', citationIndex: 12, claim: '', usedByFinalAnswer: false}],
+  });
+  expect(evidence?.usedItems).toEqual([expect.objectContaining({citationIndex: 12, kind: 'search_source', deepRead: false})]);
+});

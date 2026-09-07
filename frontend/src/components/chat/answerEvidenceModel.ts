@@ -102,13 +102,20 @@ export function deriveAnswerEvidence(input: DeriveAnswerEvidenceInput): AnswerEv
     return buildKnowledgeOnlyEvidence(knowledgeEvidence);
   }
 
+  const citedIndexes = collectExplicitCitationIndexes(input.answerText ?? '');
+  const hasStableIndexes = items.some(item => item.citationIndex != null);
+  const usedItems = hasStableIndexes
+    ? items.filter(item => item.citationIndex != null && citedIndexes.has(item.citationIndex))
+    : items;
+  const candidateItems = items.filter(item => !usedItems.includes(item));
+  const primaryItems = usedItems.length > 0 ? usedItems : candidateItems;
   return mergeKnowledgeEvidence({
-    items,
-    previewItems: items,
-    usedItems: items,
-    candidateItems: [],
-    usedCount: items.length,
-    candidateCount: 0,
+    items: primaryItems,
+    previewItems: primaryItems,
+    usedItems,
+    candidateItems,
+    usedCount: usedItems.length,
+    candidateCount: candidateItems.length,
     searchCount: searchItems.length,
     urlCount,
     knowledgeCount: 0,
@@ -126,6 +133,34 @@ function deriveAgentEvidenceModel(input: DeriveAnswerEvidenceInput): AnswerEvide
     return null;
   }
 
+  // Agent 摘要有数量上限；完整 source_refs 才是引用注册表。
+  const citedIndexes = collectExplicitCitationIndexes(input.answerText ?? '');
+  for (const ref of input.sourceRefs?.filter(isUsableSourceRef) ?? []) {
+    const existing = evidence.find(item => (
+      (ref.evidence_id && item.id === ref.evidence_id) || normalizeUrlKey(item.url) === normalizeUrlKey(ref.url)
+    ));
+    const citationIndex = ref.citation_index ?? existing?.citationIndex;
+    const usedByCitation = citationIndex != null && citedIndexes.has(citationIndex);
+    if (existing) {
+      const index = evidence.indexOf(existing);
+      evidence[index] = {
+        ...existing,
+        citationIndex,
+        usedByFinalAnswer: existing.usedByFinalAnswer || usedByCitation,
+      };
+    } else {
+      evidence.push({
+        id: ref.evidence_id || `source-ref-${normalizeUrlKey(ref.url)}`,
+        kind: 'web',
+        status: ref.kind === 'url_read' ? 'read_success' : 'candidate',
+        title: ref.title,
+        url: ref.url,
+        citationIndex,
+        claim: '',
+        usedByFinalAnswer: usedByCitation,
+      });
+    }
+  }
   const context = buildAgentEvidenceContext(input, evidence);
   const usedEvidence = evidence.filter(item => item.usedByFinalAnswer || item.status === 'used');
   const usedItems = sortEvidenceItemsByCitation(

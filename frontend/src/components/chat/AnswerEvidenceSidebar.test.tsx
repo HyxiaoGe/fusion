@@ -222,3 +222,14 @@ describe('AnswerEvidenceSidebar', () => {
     );
   });
 });
+
+it('稳定引用编号优先于列表位置，候选也能准确聚焦', () => {
+  const sparse = {
+    ...model,
+    usedItems: [{ ...model.usedItems[0], sourceIndex: 0, citationIndex: 39 }],
+    candidateItems: [{ ...model.usedItems[0], id: 'candidate-12', title: '第十二来源', sourceIndex: 11, citationIndex: 12 }],
+  };
+  render(<AnswerEvidenceSidebar model={sparse} isOpen onClose={() => {}} highlightIndex={0} highlightCitationIndex={12} />);
+  expect(screen.getByTestId('answer-evidence-used-search-11')).toHaveClass('border-l-info');
+  expect(screen.getByTestId('answer-evidence-used-search-0')).not.toHaveClass('border-l-info');
+});
