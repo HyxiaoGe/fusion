@@ -11,6 +11,7 @@ from app.schemas.chat import ContextUsage, Usage
 from app.services.chat.context_manager import ContextBudgetExceededError, ContextPlan
 from app.services.stream.agent_round import accumulate_usage, collect_agent_round_stream, run_agent_round
 from app.services.stream.step_lifecycle import AgentStepContext
+from app.services.stream_state_service import StreamOwnershipLostError
 
 
 class AgentRoundUsageTests(unittest.TestCase):
@@ -323,7 +324,11 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(emitter.llm_round_completed.await_args.kwargs["ttft_ms"])
 
     async def test_post_stream_context_error_and_cancel_close_llm_round(self):
-        for primary in (RuntimeError("final context failed"), asyncio.CancelledError()):
+        for primary in (
+            RuntimeError("final context failed"),
+            asyncio.CancelledError(),
+            StreamOwnershipLostError("流已停止"),
+        ):
             with self.subTest(primary=type(primary).__name__):
                 emitter = AsyncMock()
                 observation = MagicMock(first_output_delta_kind=None, duration_ms=10)
@@ -367,7 +372,7 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
                         )
 
                 self.assertIs(raised.exception, primary)
-                if isinstance(primary, asyncio.CancelledError):
+                if isinstance(primary, (asyncio.CancelledError, StreamOwnershipLostError)):
                     emitter.llm_round_cancelled.assert_awaited_once()
                     emitter.llm_round_failed.assert_not_awaited()
                 else:

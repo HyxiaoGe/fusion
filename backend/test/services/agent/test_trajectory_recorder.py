@@ -6,6 +6,7 @@ import threading
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from sqlalchemy import create_engine, select
@@ -14,6 +15,8 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.database import Base
 from app.db.models import AgentEvent, AgentSession, RunTrajectoryMeta
+from app.services.agent.emitter import AgentEventEmitter
+from app.services.agent.queued_trajectory_recorder import QueuedTrajectoryRecorder
 from app.services.agent.trajectory_recorder import (
     TRAJECTORY_CONNECT_TIMEOUT_SECONDS,
     TRAJECTORY_LOCK_TIMEOUT_MS,
@@ -23,6 +26,9 @@ from app.services.agent.trajectory_recorder import (
     _FinalizeHandshake,
     create_trajectory_session_factory,
 )
+from app.services.stream.llm_round_lifecycle import LLMRoundLifecycle
+from app.services.stream.tool_executor import AgentEventCompositeWriter
+from app.services.stream_state_service import StreamOwnershipLostError
 
 TERMINAL_INTENT_ID = "11111111-1111-4111-8111-111111111111"
 FOREIGN_TERMINAL_INTENT_ID = "22222222-2222-4222-8222-222222222222"
@@ -87,6 +93,82 @@ class FailingSubmitExecutor(concurrent.futures.Executor):
 
 
 class RecorderDatabaseTests(unittest.IsolatedAsyncioTestCase):
+    async def test_stopped_stream_keeps_cancelled_round_provenance_and_complete_ledger(self):
+        await self._assert_stopped_stream_ledger(visible=True)
+
+    async def test_stopped_stream_without_body_records_cancelled_suppression(self):
+        await self._assert_stopped_stream_ledger(visible=False)
+
+    async def _assert_stopped_stream_ledger(self, *, visible):
+        ownership_error = StreamOwnershipLostError("流已被停止接口冻结")
+
+        class RedisWriter:
+            stopped = False
+
+            def __init__(self):
+                self.events = []
+
+            async def append_chunk(self, _conversation_id, _task_id, _chunk_type, payload):
+                if self.stopped:
+                    raise ownership_error
+                self.events.append(payload)
+
+        redis_writer = RedisWriter()
+        recorder = QueuedTrajectoryRecorder(self._recorder())
+        emitter = AgentEventEmitter(
+            run_id="run-1",
+            trace_id="trace-1",
+            conversation_id="conv-1",
+            task_id="task-1",
+            redis_writer=AgentEventCompositeWriter(redis_writer=redis_writer, trajectory_recorder=recorder),
+        )
+        drafts = []
+        await emitter.run_started(message_id="msg-1", model="gpt-4", tools=[], config={})
+        step_id = await emitter.step_started(step_number=1)
+        lifecycle = await LLMRoundLifecycle.start(
+            emitter=emitter,
+            observation=SimpleNamespace(),
+            round_index=1,
+            model="gpt-4",
+            provider="openai",
+            parent_step_id=step_id,
+            conversation_id="conv-1",
+            run_id="run-1",
+            message_id="msg-1",
+            detail_scheduler=drafts.append,
+        )
+        if visible:
+            lifecycle.record_detail(reasoning_text="", content_text="已经展示的回答")
+            lifecycle.record_output(disposition="emitted", source="model", reason="streamed", block_id="text-1")
+        redis_writer.stopped = True
+        try:
+            with self.assertRaises(StreamOwnershipLostError) as raised:
+                await lifecycle.finish_cancelled(reason="user_cancelled")
+            self.assertIs(raised.exception, ownership_error)
+            await lifecycle.finish_cancelled(reason="user_cancelled")
+            with self.assertRaises(StreamOwnershipLostError) as raised:
+                await emitter.run_interrupted(reason="user_cancelled")
+            self.assertIs(raised.exception, ownership_error)
+        finally:
+            await recorder.finalize(await emitter.seal_and_get_last_sequence())
+
+        with self.Session() as db:
+            rows = db.query(AgentEvent).filter_by(run_id="run-1").order_by(AgentEvent.sequence).all()
+            self.assertEqual([row.sequence for row in rows], [0, 1, 2, 3, 4])
+            self.assertEqual([row.event_type for row in rows[-2:]], ["llm_round_cancelled", "run_interrupted"])
+            expected = (
+                {"disposition": "emitted", "source": "model", "reason": "streamed", "block_id": "text-1"}
+                if visible
+                else {"disposition": "suppressed", "source": "none", "reason": "no_content", "block_id": None}
+            )
+            self.assertEqual(rows[-2].payload["output_provenance"], expected)
+            meta = db.get(RunTrajectoryMeta, "run-1")
+            self.assertEqual(meta.trajectory_status, "complete")
+            self.assertEqual(meta.expected_last_sequence, 4)
+        self.assertEqual(len(redis_writer.events), 3)
+        self.assertEqual(len(drafts), 1)
+        self.assertEqual(drafts[0].content_text, "已经展示的回答" if visible else "")
+
     async def test_prompt_metadata_and_effective_request_fingerprint_survive_database_reload(self):
         recorder = self._recorder()
         await recorder.record_chunk(

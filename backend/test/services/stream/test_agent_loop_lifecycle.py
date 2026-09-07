@@ -1246,7 +1246,7 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 StreamOwnershipLostError("ownership lost"),
                 None,
                 False,
-                "degraded",
+                "complete",
             ),
             ("trajectory_sink", None, "write_failed", True, "degraded"),
         )
@@ -1393,11 +1393,11 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
                     expected_events = (
                         ["run_started", "skills_resolved", "system_prompt_prepared", "run_interrupted"]
-                        if scenario == "accepted"
+                        if scenario in {"accepted", "ownership"}
                         else ["run_started", "skills_resolved", "system_prompt_prepared"]
                     )
                     self.assertEqual(event_types, expected_events)
-                    if scenario == "accepted":
+                    if scenario in {"accepted", "ownership"}:
                         self.assertEqual(ledger_events[-1].payload["reason"], "superseded")
                     required_event_types = [event["type"] for event in redis_writer.events]
                     self.assertEqual(

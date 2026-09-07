@@ -18,6 +18,7 @@ from app.services.chat.context_manager import ContextManagementError, ContextPla
 from app.services.chat.model_call_language_policy import finalize_model_call_language_policy
 from app.services.stream.context_status import build_context_usage, emit_context_status
 from app.services.stream.llm_round_lifecycle import LLMRoundLifecycle, accumulate_token_usage
+from app.services.stream_state_service import StreamOwnershipLostError
 from app.utils.prompt_fingerprint import fingerprint_system_messages
 
 
@@ -177,7 +178,7 @@ async def _close_round_after_primary_error(
     if lifecycle is None:
         return
     try:
-        if isinstance(error, asyncio.CancelledError):
+        if isinstance(error, (asyncio.CancelledError, StreamOwnershipLostError)):
             await lifecycle.finish_cancelled(reason="shutdown")
         else:
             await lifecycle.finish_failed(error)

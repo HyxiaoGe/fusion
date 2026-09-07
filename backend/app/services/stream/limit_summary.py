@@ -54,7 +54,7 @@ from app.services.stream.research_evidence import (
     build_research_repair_prompt,
     validate_research_completion,
 )
-from app.services.stream_state_service import StreamWriteTerminalError, append_chunk
+from app.services.stream_state_service import StreamOwnershipLostError, StreamWriteTerminalError, append_chunk
 from app.utils.prompt_fingerprint import fingerprint_system_messages
 
 LIMIT_SUMMARY_PROMPT = _LIMIT_SUMMARY_PROMPT
@@ -506,7 +506,7 @@ async def _close_summary_round_after_primary_error(
     if lifecycle is None:
         return
     try:
-        if isinstance(error, asyncio.CancelledError):
+        if isinstance(error, (asyncio.CancelledError, StreamOwnershipLostError)):
             await lifecycle.finish_cancelled(reason="shutdown")
         else:
             await lifecycle.finish_failed(error)

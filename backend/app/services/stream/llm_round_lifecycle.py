@@ -11,6 +11,7 @@ from typing import Any
 from app.core.logger import app_logger as logger
 from app.schemas.chat import Usage
 from app.services.agent.llm_round_detail_recorder import LlmRoundDetailDraft
+from app.services.stream_state_service import StreamOwnershipLostError
 
 
 def _measured_int(observation: Any, name: str) -> int | None:
@@ -233,12 +234,18 @@ class LLMRoundLifecycle:
     async def finish_cancelled(self, *, reason: str) -> None:
         if self.terminal_emitted:
             return
-        await self.emitter.llm_round_cancelled(
-            output_provenance=self._output_metadata("round_cancelled"),
-            llm_round_id=self.llm_round_id,
-            reason=reason,
-            parent_step_id=self.parent_step_id,
-        )
+        try:
+            await self.emitter.llm_round_cancelled(
+                output_provenance=self._output_metadata("round_cancelled"),
+                llm_round_id=self.llm_round_id,
+                reason=reason,
+                parent_step_id=self.parent_step_id,
+            )
+        except StreamOwnershipLostError:
+            # 取消事件已尝试独立记账；原模型候选仍应只调度一次，不重发实时流。
+            self.terminal_emitted = True
+            self._schedule_detail()
+            raise
         self.terminal_emitted = True
         self._schedule_detail()
 
