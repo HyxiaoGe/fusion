@@ -18,3 +18,25 @@
 前端轨迹模块218项测试、production build通过；静态和差异检查通过。路由fixtures只同步公告工具和提示段落，主工具、实际调用要求和负例保留。新增证据/路由/集成用例均使用unittest兼容形式进入现有CI。
 
 最终本地完整后端：`3035 tests OK (skipped=2)`，49.294秒。目标恢复/证据/路由集成均由unittest discovery执行。
+
+## 发布与真实验收
+
+修复分支 `codex/tool-failure-recovery`，实现提交 `8149517a`；PR #53 在 head `222b953a00b9e6b1d581872698f8ffcefb876cce` 通过 API、UI、安全与 required gate（CI `34108025796`），合并为 `a1f861ec05c79c0089b164d7cc629dab63fa96c5`。dev 发布流水线为 `34108697319`。
+
+北京时间18:01，API 发布台账与运行镜像一致，SHA 为上述合并提交，API digest 为 `sha256:b5d509bab2dc6e5ef9557b48214b5ac56c4756788070d016d387338b1018509f`。容器运行、重启数0，健康检查、数据库和Redis正常。
+
+在用户既有 Chrome extension 标签页中，新建 Fusion 对话并原样发送：“这周五我要去香港旅游，大概旅游三天，你可以帮我看下具体的天气如何吗”。使用原 DeepSeek V4 Flash、思考开启、自动模式，不强制工具、不注入模拟返回。
+
+- 会话：<https://fusion.seanfield.org/chat/9e205530-4bf8-4f2b-9afd-4428d7ede9c6>。
+- Run：`a490233a363a4f249399fe1f76142683`，4轮、3次工具调用，23.949秒，completed。
+- 实际顺序：`weather_forecast failed`（666ms，`API 调用失败：UNKNOWN_ERROR`）→ `web_search success`（2815ms）→ `url_read success`（6267ms）→ 模型带引用回答。
+- 工具详情保留上游错误；路由器 `2026-09-07.1` 公告搜索、读取、天气三个工具。模型在第2轮自主改用联网搜索，本次没有触发服务端早停补救轮。
+- 网页读取返回香港天文台 `https://visithk.weather.gov.hk/index_uc.htm` 正文10883字符。逐项核对原文与最终回答：9月11日26–32°C、间有阳光、降雨概率低；12日25–30°C、微雨、中高；13日25–30°C、微雨、中。最终回答引用该来源，未被旧产品卡片兜底覆盖。
+- 数据库轨迹 complete，67条事件，sequence 0–66连续，终态与可见页面一致。
+- 聊天发送、会话读取、轨迹及两次工具详情请求均200，控制台无error。唯一失败网络请求是外站 `https://hko.gov.hk/favicon.ico` 图片连接关闭，不影响搜索、网页正文或回答。
+
+北京时间18:06，UI台账和运行镜像也确认是 `a1f861ec05c79c0089b164d7cc629dab63fa96c5`，digest `sha256:0d9129e58e172aab09eb6267f4de4454094f9c1163c0eda9ed531eff1de90c81`，运行且重启数0。master CI `34108696960` 与 dev 发布 `34108697319` 均 success；API/UI测试、镜像发布、dev部署及发布契约全部通过，互斥的另一类型工作流按设计skipped。
+
+新版UI刷新后，三天回答、引用、已完成状态、完整轨迹及三个工具节点均保留。最终刷新窗口无事件截断；观察到的10个API响应全部200，控制台无error。刷新取消了一条旧 `/api/models/` 请求（canceled=true，ERR_ABORTED），新同路径请求200，非服务失败。页面最终停留在已完成的聊天回答。
+
+高德上游本身仍失败；本次修复交付的是通用工具失败恢复，不宣称修好了高德提供方。真实验收覆盖此次自然天气场景；强制全工具失败与模型过早stop路径由隔离集成回归覆盖，没有在线注入故障。

@@ -242,11 +242,11 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
         context = self.handler.format_llm_context(result)
 
         self.assertNotIn("Do not make another search or output a tool call", context)
-        self.assertIn("If the search snippets are sufficient", context)
+        self.assertIn("fill evidence gaps", context)
         self.assertIn("url_read", context)
         self.assertIn("official announcements", context)
         self.assertIn("original details", context)
-        self.assertIn("small number of high-value sources", context)
+        self.assertIn("high-value sources", context)
 
     def test_format_llm_context_uses_context_source_limit_from_budget(self):
         from app.schemas.chat import SearchSource
@@ -260,8 +260,9 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
         context = self.handler.format_llm_context(result)
 
         self.assertIn("[6] R5", context)
-        self.assertNotIn("[7] R6", context)
-        self.assertIn("only the first 6 are included", context)
+        self.assertIn("[7] R6", context)
+        self.assertNotIn("\nd6\n", context)
+        self.assertIn("only the first 6 are included with snippets", context)
 
     def test_format_llm_context_defaults_to_eight_when_budget_missing(self):
         from app.schemas.chat import SearchSource
@@ -272,8 +273,8 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
         context = self.handler.format_llm_context(result)
 
         self.assertIn("[8] R7", context)
-        self.assertNotIn("[9] R8", context)
-        self.assertIn("only the first 8 are included", context)
+        self.assertIn("[9] R8", context)
+        self.assertIn("only the first 8 are included with snippets", context)
 
     def test_format_llm_context_uses_run_level_citation_numbers(self):
         from app.schemas.chat import SearchSource
@@ -315,8 +316,8 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
             context = self.handler.format_llm_context(result)
 
         self.assertIn("[3] R2", context)
-        self.assertNotIn("[4] R3", context)
-        self.assertIn("only the first 3 are included", context)
+        self.assertIn("[4] R3", context)
+        self.assertIn("only the first 3 are included with snippets", context)
 
     def test_format_llm_context_empty_search_does_not_invite_unsourced_answer(self):
         """搜索未取得来源时，不能诱导模型把搜索当依据或直接兜底。"""

@@ -13,7 +13,7 @@ from app.schemas.chat import SearchSource
 
 async def search_web(
     query: str,
-    count: int = 5,
+    count: int = 10,
     *,
     domains: list[str] | None = None,
     recency_days: int | None = None,
@@ -64,9 +64,9 @@ async def search_web(
         return []
 
 
-def _freshness_from_recency_days(recency_days: int | None) -> str:
+def _freshness_from_recency_days(recency_days: int | None) -> str | None:
     if recency_days is None:
-        return "pw"
+        return None
     if recency_days <= 1:
         return "pd"
     if recency_days <= 7:

@@ -2,14 +2,16 @@ import unittest
 
 
 class AiToolSchemaTests(unittest.TestCase):
-    def test_web_search_schema_exposes_decision_options_but_not_count(self):
+    def test_web_search_schema_exposes_model_result_count(self):
         from app.ai.tools import build_web_search_tool
 
         tool = build_web_search_tool()
         properties = tool["function"]["parameters"]["properties"]
 
         self.assertIn("query", properties)
-        self.assertNotIn("count", properties)
+        self.assertEqual(properties["count"]["minimum"], 1)
+        self.assertEqual(properties["count"]["maximum"], 20)
+        self.assertEqual(properties["count"]["default"], 10)
         self.assertIn("intent", properties)
         self.assertIn("domains", properties)
         self.assertIn("recency_days", properties)
@@ -33,12 +35,12 @@ class AiToolSchemaTests(unittest.TestCase):
         description = tool["function"]["description"]
         query_description = tool["function"]["parameters"]["properties"]["query"]["description"]
 
-        self.assertIn("Make one search by default", description)
-        self.assertIn("second search only for a genuinely complementary dimension", description)
-        self.assertIn("official sources, authoritative media, regions, or time ranges", description)
-        self.assertIn("third search is only for deep_research", description)
-        self.assertIn("synonymous rephrasing", description)
-        self.assertIn("Do not repeat the same intent", query_description)
+        self.assertIn("independent queries in parallel", description)
+        self.assertIn("evidence gaps", description)
+        self.assertIn("original reporting", description)
+        self.assertNotIn("third search is only", description)
+        self.assertIn("language of the likely original sources", query_description)
+        self.assertNotIn("Use the same language", query_description)
 
     def test_web_search_tool_description_guides_autonomous_natural_questions(self):
         from app.ai.tools import build_web_search_tool

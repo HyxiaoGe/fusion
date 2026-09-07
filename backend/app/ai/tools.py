@@ -35,6 +35,13 @@ def build_web_search_tool() -> dict:
                             month=f"{month:02d}",
                         ),
                     },
+                    "count": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 20,
+                        "default": 10,
+                        "description": render_runtime_prompt("ai_tools.web_search_count"),
+                    },
                     "intent": {
                         "type": "string",
                         "enum": [

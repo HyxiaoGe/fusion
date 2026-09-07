@@ -29,7 +29,7 @@ class AgentStrategyConfigTests(unittest.TestCase):
         )
 
         self.assertEqual(config["search"]["standard_budget"]["requested_count"], 7)
-        self.assertEqual(config["search"]["standard_budget"]["context_source_limit"], 5)
+        self.assertEqual(config["search"]["standard_budget"]["context_source_limit"], 10)
         self.assertEqual(meta["source"], "override")
 
 

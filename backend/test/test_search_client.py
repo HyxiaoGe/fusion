@@ -50,7 +50,7 @@ class SearchClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sources[0].result_provider, "brave")
         self.assertTrue(sources[0].fallback_used)
         self.assertEqual(sources[0].provider_chain, ["firecrawl", "brave"])
-        self.assertEqual(calls[0]["json"]["freshness"], "pw")
+        self.assertIsNone(calls[0]["json"]["freshness"])
 
     async def test_search_web_passes_domain_filters_and_recency_freshness(self):
         from app.services.external.search_client import search_web

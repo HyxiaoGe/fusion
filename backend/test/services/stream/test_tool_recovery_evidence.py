@@ -94,3 +94,27 @@ class ToolRecoveryEvidenceTests(unittest.TestCase):
             source_refs=[SourceReference(kind="search", url=URL, citation_index=7)],
         )
         assert is_grounded_recovery_answer("明天有骤雨。[7]", [source_block], evidence=workset)
+
+    def test_metadata_candidates_beyond_injected_summary_cap_are_not_evidence(self):
+        workset = RecoveryEvidenceWorkset()
+        sources = [{"url": f"https://example.org/{i}", "description": f"正文{i}"} for i in range(3)]
+        for counts in ({"context_source_count": 1}, {"context_source_limit": 1}, {"context_source_count": 0}):
+            with self.subTest(counts=counts):
+                workset = RecoveryEvidenceWorkset()
+                workset.record_result("web_search", ToolResult(status="success", data={"sources": sources, **counts}))
+                self.assertFalse(
+                    is_grounded_recovery_answer(
+                        "声称具体事实[3]", [block(url="https://example.org/2", index=3)], evidence=workset
+                    )
+                )
+        workset.record_result(
+            "url_read", ToolResult(status="success", data={"url": "https://example.org/2", "content": "真正读到的正文"})
+        )
+        read_block = {
+            "type": "url_read",
+            "status": "success",
+            "source_refs": [
+                {"kind": "url_read", "url": "https://example.org/2", "status": "success", "citation_index": 3}
+            ],
+        }
+        self.assertTrue(is_grounded_recovery_answer("读取后结论[3]", [read_block], evidence=workset))
