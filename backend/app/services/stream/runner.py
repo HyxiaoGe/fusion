@@ -11,6 +11,7 @@ from dataclasses import replace
 from functools import partial
 from typing import Optional
 
+from app.core.config import settings
 from app.core.logger import app_logger as logger
 from app.db.database import SessionLocal
 from app.services.agent import session_cache
@@ -73,9 +74,9 @@ from app.services.suggested_question_worker import (
 )
 
 # Agent Loop 限制
-AGENT_MAX_STEPS = 8  # LLM 调用轮次上限
-AGENT_MAX_TOOL_CALLS = 20  # 工具执行总次数上限
-AGENT_TOTAL_TIMEOUT = 300  # 5 分钟硬超时
+AGENT_MAX_STEPS = settings.AGENT_MAX_STEPS  # LLM 调用轮次上限
+AGENT_MAX_TOOL_CALLS = settings.AGENT_MAX_TOOL_CALLS  # 工具执行总次数上限
+AGENT_TOTAL_TIMEOUT = settings.AGENT_TOTAL_TIMEOUT  # 单次运行时限（秒）
 _CALL_CONFIG_BUILD_DEADLINE_SECONDS = 1.5
 
 

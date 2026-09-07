@@ -10,7 +10,7 @@ workflow	step	script	body_sha256
 .github/workflows/_deploy-api.yml	Resolve API deployment digest	ops/deploy/api-resolve-deployment-digest.sh	b457203ca500d9248d0afbacc8e01ba7f6bf6d29b7e05a923809be4f0778b79c
 .github/workflows/_deploy-api.yml	Pause model management worker before API deploy	ops/deploy/api-pause-model-management-worker.sh	b59738483f76c29d28e31c88a58c2d3ec7797ba6cbdd7848a696120541d4a47b
 .github/workflows/_deploy-api.yml	Apply alembic migrations	ops/deploy/api-apply-alembic-migrations.sh	d551f00a445e352bcedb1b1633f3b03342824e397bdfef1604a6212028203ac3
-.github/workflows/_deploy-api.yml	Pull and restart fusion-api	ops/deploy/api-pull-and-restart.sh	91b54dd86a85cf86173a5b40b31e3a37654fc5134c5409cf4b2d321e0a251151
+.github/workflows/_deploy-api.yml	Pull and restart fusion-api	ops/deploy/api-pull-and-restart.sh	8177e1b42d9127d1b1f571fedbec2895be3460b4348aa459e10b0b4639ba3bc1
 .github/workflows/_deploy-api.yml	Verify deployed image identity	ops/deploy/api-verify-image-identity.sh	0ba67f2cc67cac14f949aefd562af300bb6c2a7546c3a3963934b4e3d67c1ec7
 .github/workflows/_deploy-api.yml	Verify health	ops/deploy/api-verify-health.sh	20e3c5da0a44df0b1010784c645c95cd0b5d4feee907ac4ba397baeae54b0532
 .github/workflows/_deploy-api.yml	Install LiteLLM governance discovery	ops/deploy/api-install-litellm-governance.sh	facb85e4c99c36b22044384eb5798ec6fb26fff4669b059ea5152727250e1c13
@@ -20,7 +20,7 @@ workflow	step	script	body_sha256
 .github/workflows/_deploy-api.yml	Preserve API rollback images	ops/deploy/api-preserve-rollback-images.sh	17845eaa17a21ca0e7250eebeaec107e92c642b8202354ffeb816b2a86779d6e
 .github/workflows/_deploy-api.yml	Record accepted API release	ops/deploy/api-record-accepted-release.sh	9a01a7270546a2afb653d519113972c33117a60b91a903b06b4c909b7f105add
 .github/workflows/_deploy-api.yml	Restore model management worker after pre-deploy failure	ops/deploy/api-restore-model-management-worker-predeploy-failure.sh	d9ac29a55eb8a92b77489f572e8447cf7eb54ede2b091ea42e406d3539b4caa4
-.github/workflows/_deploy-api.yml	Roll back failed deployment	ops/deploy/api-rollback-failed-deployment.sh	8b150b3992f686ce83311d63cfddf031a091a6e6fc253fabeb2a3c374c60c62d
+.github/workflows/_deploy-api.yml	Roll back failed deployment	ops/deploy/api-rollback-failed-deployment.sh	689bcc5357dd4a7ba501b25b0d937ed6edcae5e0b519e6acba06d9c1433fba56
 .github/workflows/_deploy-api.yml	Push CI/CD metrics	ops/deploy/api-push-cicd-metrics.sh	ef8a2505ec2a58a7d952cf9466bbf2314457d5ba648978b6f7b9daad475e35c6
 .github/workflows/_deploy-api.yml	通知飞书(部署结果)	ops/deploy/api-notify-feishu.sh	fe63c48d3e8699ab378a5ebf101ee6f7e96b27d48a03d0d7a8b0f5a78b94406e
 .github/workflows/_deploy-api.yml	Cleanup Docker credential directory	ops/deploy/api-cleanup-docker-credential-directory.sh	c8eeae01ac0f6bb6525e18487a06b15cf31611ed9192be57df330fbbad9d0c31

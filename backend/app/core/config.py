@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     )
     RUN_CAPABILITY_CLASSIFIER_CONTEXT_TURNS: int = int(os.getenv("RUN_CAPABILITY_CLASSIFIER_CONTEXT_TURNS", "1"))
 
+    # 单次 Agent 运行预算；给多轮查证和工具失败后的恢复留出空间。
+    AGENT_MAX_STEPS: int = Field(default=64, ge=1)
+    AGENT_MAX_TOOL_CALLS: int = Field(default=200, ge=1)
+    AGENT_TOTAL_TIMEOUT: int = Field(default=1800, ge=1)
+
     # 数据库配置
     DATABASE_URL: str = os.getenv("DATABASE_URL")
 
@@ -420,7 +425,7 @@ class Settings(BaseSettings):
     MCP_MAX_TOOL_DESCRIPTION_CHARS: int = int(os.getenv("MCP_MAX_TOOL_DESCRIPTION_CHARS", "2000"))
     MCP_MAX_TOOL_SCHEMA_BYTES: int = int(os.getenv("MCP_MAX_TOOL_SCHEMA_BYTES", "32768"))
     MCP_MAX_RESPONSE_BYTES: int = int(os.getenv("MCP_MAX_RESPONSE_BYTES", "262144"))
-    MCP_MAX_TOOL_CALLS_PER_SERVER_PER_RUN: int = int(os.getenv("MCP_MAX_TOOL_CALLS_PER_SERVER_PER_RUN", "8"))
+    MCP_MAX_TOOL_CALLS_PER_SERVER_PER_RUN: int = int(os.getenv("MCP_MAX_TOOL_CALLS_PER_SERVER_PER_RUN", "64"))
     MCP_SERVER_CIRCUIT_FAILURE_THRESHOLD: int = int(os.getenv("MCP_SERVER_CIRCUIT_FAILURE_THRESHOLD", "3"))
     MCP_SERVER_CIRCUIT_COOLDOWN_SECONDS: float = float(os.getenv("MCP_SERVER_CIRCUIT_COOLDOWN_SECONDS", "30"))
     # 超过这个时长的探测结果在管理视图里标记为 stale：health_status 记录的是上次

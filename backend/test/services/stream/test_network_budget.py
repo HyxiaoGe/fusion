@@ -1,12 +1,26 @@
 import unittest
+from copy import deepcopy
 from unittest.mock import Mock, patch
 
 from app.schemas.chat import SearchSource
+from app.services.runtime_config_defaults import DEFAULT_AGENT_STRATEGY_CONFIG
 from app.services.source_candidate_ranker import SearchResultForRanking, rank_search_sources
 from app.services.stream import network_budget as network_budget_module
 from app.services.stream.network_budget import NetworkToolBudget
 from app.services.stream.tool_execution_result import ToolExecutionRecord
 from app.services.tool_handlers.base import ToolResult
+
+
+def _low_network_budget():
+    """用显式低预算保留触顶与修复搜索的边界验证。"""
+    config = deepcopy(DEFAULT_AGENT_STRATEGY_CONFIG)
+    config["network"].update(
+        max_search_calls=4,
+        default_planned_search_calls=2,
+        deep_research_planned_search_calls=3,
+        max_url_read_calls=5,
+    )
+    return patch.object(network_budget_module, "get_agent_strategy_config", return_value=(config, None))
 
 
 def _search_record(args: dict, *, status: str, sources: list[SearchSource] | None = None) -> ToolExecutionRecord:
@@ -86,7 +100,44 @@ def _source_plan_with_read_limit(urls: list[str], *, max_recommended: int):
 
 
 class NetworkToolBudgetTests(unittest.TestCase):
+    def test_default_search_budget_allows_forty_provider_calls(self):
+        for config in (deepcopy(DEFAULT_AGENT_STRATEGY_CONFIG), {}):
+            for profile in ("standard", "deep_research"):
+                with self.subTest(configured=bool(config), profile=profile), patch.object(
+                    network_budget_module, "get_agent_strategy_config", return_value=(config, None)
+                ):
+                    budget = NetworkToolBudget(profile=profile)
+                    for index in range(40):
+                        args, degraded = budget.prepare_web_search_args(
+                            {"query": f"核对资料 {index}", "domains": ["example.com"]}
+                        )
+                        self.assertIsNone(degraded, f"第 {index + 1} 次搜索不应被预算阻断")
+                        self.assertGreater(args["count"], 0)
+                    self.assertEqual(budget.web_search_calls, 40)
+                    args, degraded = budget.prepare_web_search_args(
+                        {"query": "核对最后一份资料", "domains": ["example.com"]}
+                    )
+                    self.assertTrue(degraded.data["budget_limited"])
+                    self.assertEqual(args["budget_decision"]["reason_code"], "hard_search_limit_reached")
+                    self.assertEqual(budget.web_search_calls, 40)
+
+    def test_default_read_budget_allows_one_hundred_provider_calls(self):
+        for config in (deepcopy(DEFAULT_AGENT_STRATEGY_CONFIG), {}):
+            for profile in ("standard", "deep_research"):
+                with self.subTest(configured=bool(config), profile=profile), patch.object(
+                    network_budget_module, "get_agent_strategy_config", return_value=(config, None)
+                ):
+                    budget = NetworkToolBudget(profile=profile)
+                    for index in range(100):
+                        _args, degraded = budget.prepare_url_read_args({"url": f"https://example.com/{index}"})
+                        self.assertIsNone(degraded, f"第 {index + 1} 次读取不应被预算阻断")
+                    self.assertEqual(budget.url_read_calls, 100)
+                    _args, degraded = budget.prepare_url_read_args({"url": "https://example.com/last"})
+                    self.assertTrue(degraded.data["budget_limited"])
+                    self.assertEqual(budget.url_read_calls, 100)
+
     def test_deep_research_profile_uses_research_limit_without_overwriting_query_intent(self):
+        self.enterContext(_low_network_budget())
         budget = NetworkToolBudget(profile="deep_research")
 
         first_args, first_degraded = budget.prepare_web_search_args(
@@ -194,7 +245,7 @@ class NetworkToolBudgetTests(unittest.TestCase):
         self.assertEqual(args["budget_decision"]["requested_count"], args["count"])
         self.assertEqual(args["budget_decision"]["context_source_limit"], args["context_source_limit"])
         self.assertEqual(args["budget_decision"]["previous_query_count"], 0)
-        self.assertEqual(args["budget_decision"]["planned_search_limit"], 2)
+        self.assertEqual(args["budget_decision"]["planned_search_limit"], 40)
 
     def test_similar_followup_records_narrow_followup_decision(self):
         budget = NetworkToolBudget()
@@ -231,6 +282,7 @@ class NetworkToolBudgetTests(unittest.TestCase):
         self.assertEqual(budget.web_search_calls, 1)
 
     def test_planner_limited_search_records_limit_decision(self):
+        self.enterContext(_low_network_budget())
         budget = NetworkToolBudget()
 
         first_args, first_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026年产品更新 最新发布"})
@@ -281,6 +333,7 @@ class NetworkToolBudgetTests(unittest.TestCase):
         self.assertLessEqual(second_args["count"], 3)
 
     def test_repair_search_is_single_use_and_third_regular_search_is_limited(self):
+        self.enterContext(_low_network_budget())
         budget = NetworkToolBudget()
 
         first_args, _first_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026 最新产品"})
@@ -464,6 +517,7 @@ class NetworkToolBudgetTests(unittest.TestCase):
         self.assertEqual(media_args["context_source_limit"], 6)
 
     def test_third_non_deep_search_returns_plan_limited_without_provider_call(self):
+        self.enterContext(_low_network_budget())
         budget = NetworkToolBudget()
 
         first_args, first_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026年产品更新 最新发布"})
@@ -488,6 +542,7 @@ class NetworkToolBudgetTests(unittest.TestCase):
         )
 
     def test_deep_research_allows_third_effective_search(self):
+        self.enterContext(_low_network_budget())
         budget = NetworkToolBudget()
 
         first_args, first_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026年 深入调研 技术报告"})
@@ -591,6 +646,7 @@ class NetworkToolBudgetTests(unittest.TestCase):
         self.assertEqual(high_args["recency_days"], 365)
 
     def test_web_search_hard_cap_returns_degraded_without_consuming_handler(self):
+        self.enterContext(_low_network_budget())
         budget = NetworkToolBudget(web_search_calls=4)
 
         args, degraded = budget.prepare_web_search_args({"query": "q4", "count": 8})
@@ -601,6 +657,7 @@ class NetworkToolBudgetTests(unittest.TestCase):
         self.assertTrue(degraded.data["budget_limited"])
 
     def test_standard_sixth_url_read_returns_degraded(self):
+        self.enterContext(_low_network_budget())
         budget = NetworkToolBudget()
 
         for i in range(5):
@@ -615,6 +672,7 @@ class NetworkToolBudgetTests(unittest.TestCase):
         self.assertTrue(degraded.data["budget_limited"])
 
     def test_deep_research_sixth_url_read_returns_degraded_like_standard(self):
+        self.enterContext(_low_network_budget())
         budget = NetworkToolBudget(profile="deep_research")
 
         for i in range(5):
