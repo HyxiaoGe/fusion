@@ -287,7 +287,8 @@ function renderPanel(
 }
 
 describe('TrajectoryNodeDetailPanel', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('zh-CN');
     getTrajectoryLlmNodeDetailMock.mockReset();
     getTrajectoryToolNodeDetailMock.mockReset();
   });
@@ -401,6 +402,57 @@ describe('TrajectoryNodeDetailPanel', () => {
     expect(raw).toHaveTextContent('"output_text": "项目整体结构清晰。"');
     expect(getTrajectoryLlmNodeDetailMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('tab', { name: '载荷' })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['emitted', 'model', 'deferred', '已输出', '模型'],
+    ['suppressed', 'none', 'plan_continues', '未输出', '无正文输出'],
+    ['replaced', 'server', 'product_guard', '已改写或替换', '服务端'],
+  ] as const)('模型候选的 %s 处置独立于成功状态', async (disposition, source, reason, label, sourceLabel) => {
+    getTrajectoryLlmNodeDetailMock.mockResolvedValue({
+      status: 'available', node_type: 'llm', available_sections: ['output'],
+      detail: {
+        llm_round_id: 'round-1', output_text: '未经采用的模型候选',
+        output_provenance: { disposition, source, reason, block_id: source === 'none' ? null : 'text-1' },
+      }, redacted_fields: [], truncated_fields: [], reason: null,
+    });
+    renderPanel(llmCell());
+    fireEvent.click(screen.getByRole('tab', { name: '预览' }));
+    expect(await screen.findByText(label)).toBeInTheDocument();
+    expect(screen.getByText(sourceLabel)).toBeInTheDocument();
+    expect(screen.getByText('未经采用的模型候选')).toBeInTheDocument();
+  });
+
+  it('旧详情没有输出归因时显示未知', async () => {
+    getTrajectoryLlmNodeDetailMock.mockResolvedValue({
+      status: 'available', node_type: 'llm', available_sections: ['output'],
+      detail: { llm_round_id: 'round-1', output_text: '历史候选' },
+      redacted_fields: [], truncated_fields: [], reason: null,
+    });
+    renderPanel(llmCell());
+    fireEvent.click(screen.getByRole('tab', { name: '预览' }));
+    expect(await screen.findByText('未知（未记录输出归因）')).toBeInTheDocument();
+    expect(screen.queryByText('已输出')).not.toBeInTheDocument();
+  });
+
+  it('实时终态归因覆盖已缓存的旧详情，并随语言切换更新', async () => {
+    getTrajectoryLlmNodeDetailMock.mockResolvedValue({
+      status: 'available', node_type: 'llm', available_sections: ['output'],
+      detail: { llm_round_id: 'round-1', output_text: '原始候选' },
+      redacted_fields: [], truncated_fields: [], reason: null,
+    });
+    const { rerender } = renderPanel(llmCell());
+    fireEvent.click(screen.getByRole('tab', { name: '预览' }));
+    expect(await screen.findByText('原始候选')).toBeInTheDocument();
+    rerender(<TrajectoryNodeDetailPanel conversationId="conversation-1" span={null} cell={{
+      ...llmCell(), outputProvenance: { disposition: 'suppressed', source: 'none', reason: 'tool_retracted', block_id: null },
+    }} />);
+    expect(screen.getByText('已撤回')).toBeInTheDocument();
+    expect(screen.getByText('工具调用前展示的正文已撤回')).toBeInTheDocument();
+    expect(getTrajectoryLlmNodeDetailMock).toHaveBeenCalledTimes(1);
+    await act(async () => i18n.changeLanguage('en-US'));
+    expect(screen.getByText('Retracted')).toBeInTheDocument();
+    expect(screen.getByText('Text shown before the tool call was retracted')).toBeInTheDocument();
   });
 
   it('LLM capability 未启用时保留生命周期摘要，但不渲染正文页签或兼容文案', () => {

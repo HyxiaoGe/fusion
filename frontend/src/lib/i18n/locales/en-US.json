@@ -387,6 +387,35 @@
       "about": "About"
     },
   "trajectory": {
+    "outputProvenance": {
+      "title": "Text output provenance",
+      "emitted": "Emitted",
+      "suppressed": "Not emitted",
+      "replaced": "Rewritten or replaced",
+      "retracted": "Retracted",
+      "unknown": "Unknown (output provenance not recorded)",
+      "sources": {
+        "model": "Model",
+        "server": "Server",
+        "none": "No text output"
+      },
+      "reasons": {
+        "streamed": "Model text was streamed",
+        "deferred": "Deferred candidate was adopted",
+        "server_rewrite": "The server edited the model text",
+        "product_guard": "Product policy rewrote or replaced the candidate",
+        "knowledge_guard": "Knowledge citation validation failed; server answer used",
+        "plan_continues": "The plan continues; candidate was not adopted",
+        "tool_round": "This round proceeded to tools; candidate was not adopted",
+        "tool_retracted": "Text shown before the tool call was retracted",
+        "research_guard": "Research evidence checks suppressed or replaced the candidate",
+        "summary_guard": "Summary safety policy suppressed or replaced the candidate",
+        "no_content": "No text candidate in this round",
+        "not_committed": "The candidate was not successfully published",
+        "round_failed": "No text was published before the call failed",
+        "round_cancelled": "No text was published before cancellation"
+      }
+    },
     "systemPrompt": {
       "title": "Initial Run system prompt",
       "body": "Prompt",

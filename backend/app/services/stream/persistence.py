@@ -104,8 +104,13 @@ def filter_authoritative_partial_content(
     return [selected[key] for key in order]
 
 
-def merge_partial_content_blocks(existing_content: list, incoming_content: list) -> list[dict]:
-    """按 block ID 合并 partial，并保留两侧独有的内容块。"""
+def merge_partial_content_blocks(
+    existing_content: list,
+    incoming_content: list,
+    *,
+    trusted_server_content: bool = False,
+) -> list[dict]:
+    """按 ID 合并 partial；只有可信服务器调用可以增加结构化工具结果。"""
     merged = [_serialize_content_block(block) for block in existing_content]
     positions = {
         block.get("id"): index for index, block in enumerate(merged) if isinstance(block, dict) and block.get("id")
@@ -113,7 +118,9 @@ def merge_partial_content_blocks(existing_content: list, incoming_content: list)
 
     for raw_block in incoming_content:
         incoming = _serialize_content_block(raw_block)
-        if not isinstance(incoming, dict) or incoming.get("type") not in {"text", "thinking"}:
+        if not isinstance(incoming, dict):
+            continue
+        if not trusted_server_content and incoming.get("type") not in {"text", "thinking"}:
             continue
         block_id = incoming.get("id") if isinstance(incoming, dict) else None
         if not block_id or block_id not in positions:
@@ -238,7 +245,7 @@ def persist_message(
                 elif existing.sequence != sequence:
                     raise ValueError("assistant 消息顺序号与预留值不一致")
             existing.content = (
-                merge_partial_content_blocks(existing.content or [], serialized_content)
+                merge_partial_content_blocks(existing.content or [], serialized_content, trusted_server_content=True)
                 if partial
                 else serialized_content
             )

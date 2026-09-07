@@ -32,6 +32,7 @@ from app.schemas.trajectory import (
 )
 from app.services.admin_audit_sanitizer import sanitize_admin_value
 from app.services.admin_audit_service import AdminAuditService
+from app.services.agent.trajectory_payload import sanitize_output_provenance
 from app.services.agent.trajectory_projector import project_trajectory
 from app.services.agent.trajectory_reconciliation import (
     resolve_ledger_watermark,
@@ -370,6 +371,14 @@ class TrajectoryQueryService:
                     llm_round_id=llm_round_id,
                     reasoning_text=detail.reasoning_text,
                     output_text=detail.content_text,
+                    output_provenance=next(
+                        (
+                            sanitize_output_provenance(event.payload.get("output_provenance"))
+                            for event in reversed(lifecycle)
+                            if event.event_type in {"llm_round_completed", "llm_round_failed", "llm_round_cancelled"}
+                        ),
+                        None,
+                    ),
                 ),
                 redacted_fields=list(detail.redacted_fields or []),
                 truncated_fields=list(detail.truncated_fields or []),

@@ -12,9 +12,11 @@ import {
   buildTrajectoryNodeDetailModel,
   type TrajectoryNodeDetailModel,
 } from '@/lib/trajectory/trajectoryNodeDetailModel';
+import { normalizeOutputProvenance } from '@/lib/trajectory/normalizeTrajectoryEvent';
 import type { TrajectoryCell } from '@/lib/trajectory/TrajectoryCellProjection';
 import { extractTextFromBlocks, type ContentBlock } from '@/types/conversation';
 import type {
+  LlmOutputProvenance,
   TrajectoryNodeDetailResponse,
   TrajectorySkillNodeDetail,
   TrajectorySpan,
@@ -289,6 +291,15 @@ function TrajectoryNodeDetailContent({
               : model.title}
         </h2>
       </div>
+
+      {isLlm && (
+        <OutputProvenanceSection provenance={
+          cell.outputProvenance ?? normalizeOutputProvenance(
+            response?.detail && 'llm_round_id' in response.detail
+              ? response.detail.output_provenance : null,
+          )
+        } />
+      )}
 
       <div
         role="tablist"
@@ -947,6 +958,20 @@ function SkillsAvailableDetailSection({ response }: { response: TrajectoryNodeDe
   );
 }
 
+function OutputProvenanceSection({ provenance }: { provenance: LlmOutputProvenance | null }) {
+  const { t } = useTranslation();
+  return (
+    <section className="mb-4 space-y-2 rounded-md border border-border/60 p-3 text-sm">
+      <h3 className="font-semibold">{t('trajectory.outputProvenance.title')}</h3>
+      <p>{t(`trajectory.outputProvenance.${provenance?.reason === 'tool_retracted' ? 'retracted' : provenance?.disposition ?? 'unknown'}`)}</p>
+      {provenance && <>
+        <p>{t(`trajectory.outputProvenance.sources.${provenance.source}`)}</p>
+        <p className="text-muted-foreground">{t(`trajectory.outputProvenance.reasons.${provenance.reason}`)}</p>
+      </>}
+    </section>
+  );
+}
+
 function LlmAvailableDetailSection({
   section,
   response,
@@ -999,6 +1024,7 @@ function LlmAvailableDetailSection({
             llm_round_id: detail.llm_round_id,
             reasoning_text: hasReasoning ? detail.reasoning_text : null,
             output_text: hasOutput ? detail.output_text : null,
+            output_provenance: detail.output_provenance ?? null,
           }, null, 2)}</code>
         </pre>
       )}

@@ -180,6 +180,15 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
         completed = emitter.llm_round_completed.await_args.kwargs
         self.assertEqual(completed["total_tokens"], 5)
         self.assertEqual(completed["ttft_ms"], 125)
+        self.assertEqual(
+            completed["output_provenance"],
+            {
+                "disposition": "emitted",
+                "source": "model",
+                "reason": "streamed",
+                "block_id": "text",
+            },
+        )
 
     async def test_cancelled_llm_call_emits_cancelled_and_reraises(self):
         emitter = AsyncMock()
@@ -229,7 +238,9 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
         context_plan = MagicMock(messages=[], estimated_tokens_after=10)
         context_plan.telemetry.return_value = {"context_management_status": "no_op"}
 
-        async def stream_round_fn(*_args, partial_output, **_kwargs):
+        async def stream_round_fn(*_args, partial_output, on_visible_output, **_kwargs):
+            await on_visible_output("reasoning")
+            await on_visible_output("content")
             partial_output["reasoning_buf"] = "部分推理"
             partial_output["content_buf"] = "部分回答"
             raise RuntimeError("stream failed")
@@ -261,6 +272,7 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
                 )
 
         emitter.llm_round_failed.assert_awaited_once()
+        self.assertEqual(emitter.llm_round_failed.call_args.kwargs["output_provenance"]["disposition"], "emitted")
         detail_scheduler.assert_called_once()
         draft = detail_scheduler.call_args.args[0]
         self.assertEqual(draft.reasoning_text, "部分推理")

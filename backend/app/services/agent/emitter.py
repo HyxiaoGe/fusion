@@ -318,11 +318,13 @@ class AgentEventEmitter:
         ttft_ms: int | None,
         duration_ms: int,
         parent_step_id: str | None = None,
+        output_provenance: dict[str, Any] | None = None,
     ) -> None:
         await self._emit(
             ev.LLMRoundCompleted(
                 type="llm_round_completed",
                 llm_round_id=llm_round_id,
+                output_provenance=output_provenance,
                 status="success",
                 finish_reason=finish_reason,
                 input_tokens=input_tokens,
@@ -344,12 +346,14 @@ class AgentEventEmitter:
         error_code: str | None,
         message: str | None,
         parent_step_id: str | None = None,
+        output_provenance: dict[str, Any] | None = None,
     ) -> None:
         safe_error_code, safe_message = self._controlled_error(error_code, _LLM_ERROR_SUMMARIES)
         await self._emit(
             ev.LLMRoundFailed(
                 type="llm_round_failed",
                 llm_round_id=llm_round_id,
+                output_provenance=output_provenance,
                 status="failed",
                 error_code=safe_error_code,
                 message=safe_message,
@@ -363,11 +367,13 @@ class AgentEventEmitter:
         llm_round_id: str,
         reason: str,
         parent_step_id: str | None = None,
+        output_provenance: dict[str, Any] | None = None,
     ) -> None:
         await self._emit(
             ev.LLMRoundCancelled(
                 type="llm_round_cancelled",
                 llm_round_id=llm_round_id,
+                output_provenance=output_provenance,
                 status="cancelled",
                 reason=reason,
                 **self._envelope(parent_step_id=parent_step_id),

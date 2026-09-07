@@ -15,7 +15,7 @@ docker run --rm \
   --mount "type=bind,source=${app_root}/README.md,target=/app/README.md,readonly" \
   --mount "type=bind,source=${monorepo_root}/.github,target=/.github,readonly" \
   --mount "type=bind,source=${monorepo_root}/ops,target=/ops,readonly" \
-  "${image}" sh -lc "timeout 300s python -m pip install --default-timeout=30 --no-cache-dir -r requirements-ci.txt && python scripts/check_architecture.py && ruff check . && timeout 270s python -u -m unittest discover -s test -t . -v && timeout 120s python -m pytest -q test/services/stream/test_run_capability_router.py test/ai/skills/test_registry.py test/test_prompt_bundle_snapshot.py test/services/stream/test_prompt_run_identity.py test/services/stream/test_run_prompt_snapshot.py test/test_prompt_template_engine.py"
+  "${image}" sh -lc "timeout 300s python -m pip install --default-timeout=30 --no-cache-dir -r requirements-ci.txt && python scripts/check_architecture.py && ruff check . && timeout 270s python -u -m unittest discover -s test -t . -v && timeout 120s python -m pytest -q test/services/stream/test_run_capability_router.py test/ai/skills/test_registry.py test/test_prompt_bundle_snapshot.py test/services/stream/test_prompt_run_identity.py test/services/stream/test_run_prompt_snapshot.py test/test_prompt_template_engine.py test/services/stream/test_reliable_termination_executor.py test/services/stream/test_reliable_termination_limits.py test/services/stream/test_reliable_termination_persistence.py"
 
 docker build --target test -t "${adapter_image}-test" "${app_root}/flyai-adapter"
 docker build --target production -t "${adapter_image}" "${app_root}/flyai-adapter"

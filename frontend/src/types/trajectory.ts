@@ -204,10 +204,18 @@ export interface TrajectoryToolNodeDetail {
   error: Record<string, string> | null;
 }
 
+export interface LlmOutputProvenance {
+  disposition: 'emitted' | 'suppressed' | 'replaced';
+  source: 'model' | 'server' | 'none';
+  reason: 'streamed' | 'deferred' | 'server_rewrite' | 'product_guard' | 'knowledge_guard' | 'plan_continues' | 'tool_round' | 'tool_retracted' | 'research_guard' | 'summary_guard' | 'no_content' | 'not_committed' | 'round_failed' | 'round_cancelled';
+  block_id: string | null;
+}
+
 export interface TrajectoryLlmNodeDetail {
   llm_round_id: string;
   reasoning_text: string | null;
   output_text: string | null;
+  output_provenance?: LlmOutputProvenance | null;
 }
 
 export interface TrajectorySystemPromptNodeDetail {

@@ -9,7 +9,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import ValidationError
 
-from app.schemas.trajectory import TrajectoryCapabilityResolution, TrajectorySkillMetadata
+from app.schemas.trajectory import LlmOutputProvenance, TrajectoryCapabilityResolution, TrajectorySkillMetadata
 from app.utils.run_capability_contract import CAPABILITY_CONTROL_TOOL_NAMES
 
 MAX_LEDGER_TEXT_LENGTH = 512
@@ -48,6 +48,7 @@ _EVENT_FIELDS: dict[str, frozenset[str]] = {
             "llm_round_id",
             "status",
             "finish_reason",
+            "output_provenance",
             "input_tokens",
             "output_tokens",
             "total_tokens",
@@ -58,8 +59,8 @@ _EVENT_FIELDS: dict[str, frozenset[str]] = {
             "duration_ms",
         }
     ),
-    "llm_round_failed": frozenset({"llm_round_id", "status", "error_code", "message"}),
-    "llm_round_cancelled": frozenset({"llm_round_id", "status", "reason"}),
+    "llm_round_failed": frozenset({"llm_round_id", "status", "error_code", "message", "output_provenance"}),
+    "llm_round_cancelled": frozenset({"llm_round_id", "status", "reason", "output_provenance"}),
     "retrieval_started": frozenset({"retrieval_id", "query_summary"}),
     "retrieval_completed": frozenset({"retrieval_id", "status", "document_count", "duration_ms"}),
     "retrieval_failed": frozenset({"retrieval_id", "status", "error_code", "message"}),
@@ -255,6 +256,17 @@ _SKILL_METADATA_FIELDS = (
 )
 
 
+def sanitize_output_provenance(value: Any) -> dict[str, Any] | None:
+    """归因只接受枚举与有界块 ID，额外正文禁止进入账本。"""
+    if not isinstance(value, Mapping):
+        return None
+    candidate = {key: value[key] for key in ("disposition", "source", "reason", "block_id") if key in value}
+    try:
+        return LlmOutputProvenance.model_validate(candidate).model_dump()
+    except ValidationError:
+        return None
+
+
 def _sanitize_skill_metadata(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, Mapping):
         return None
@@ -343,7 +355,7 @@ def build_trajectory_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     for field in allowed_fields:
         if field not in payload:
             continue
-        sanitizer = _SPECIAL_SANITIZERS.get(field)
+        sanitizer = sanitize_output_provenance if field == "output_provenance" else _SPECIAL_SANITIZERS.get(field)
         if sanitizer is not None:
             stored[field] = sanitizer(payload[field])
         elif field in _LIST_FIELDS:
