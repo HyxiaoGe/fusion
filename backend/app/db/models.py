@@ -21,7 +21,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.ext.compiler import compiles
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import deferred, relationship
 from sqlalchemy.sql.functions import next_value
 
 from app.db.database import Base
@@ -709,7 +709,8 @@ class ToolCallLog(Base):
 
     input_params = Column(JSONB, nullable=True)
     output_data = Column(JSONB, nullable=True)
-    extra_metadata = Column("metadata", JSONB, nullable=True)
+    # 工具正文仅在精确详情查询中显式加载，列表维持轻量摘要。
+    extra_metadata = deferred(Column("metadata", JSONB, nullable=True))
 
     trace_id = Column(String, nullable=True, index=True)
     tool_call_id = Column(String, nullable=True)

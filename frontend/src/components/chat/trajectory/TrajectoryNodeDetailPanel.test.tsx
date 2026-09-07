@@ -404,6 +404,26 @@ describe('TrajectoryNodeDetailPanel', () => {
     expect(screen.queryByRole('tab', { name: '载荷' })).not.toBeInTheDocument();
   });
 
+  it('历史工具摘要说明未记录完整数据，且不把截断误报为脱敏', async () => {
+    getTrajectoryToolNodeDetailMock.mockResolvedValue(detail('available', {
+      reason: 'tool_detail_legacy_summary',
+      truncated_fields: ['result.content'],
+      redacted_fields: [],
+    }));
+    renderPanel();
+    fireEvent.click(screen.getByRole('tab', { name: '结果' }));
+    expect(await screen.findByText('此记录仅保存了工具摘要，未记录完整载荷和结果')).toBeInTheDocument();
+    expect(screen.getByText('部分正文已截断')).toBeInTheDocument();
+    expect(screen.queryByText('部分字段已脱敏')).not.toBeInTheDocument();
+  });
+
+  it('损坏的工具快照显示记录损坏而不是关联失败', async () => {
+    getTrajectoryToolNodeDetailMock.mockResolvedValue(detail('degraded', { reason: 'tool_detail_invalid' }));
+    renderPanel();
+    fireEvent.click(screen.getByRole('tab', { name: '结果' }));
+    expect(await screen.findByText('工具详情记录无效，暂时无法展示')).toBeInTheDocument();
+  });
+
   it.each([
     ['emitted', 'model', 'deferred', '已输出', '模型'],
     ['suppressed', 'none', 'plan_continues', '未输出', '无正文输出'],

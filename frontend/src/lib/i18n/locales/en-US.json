@@ -416,6 +416,10 @@
         "round_cancelled": "No text was published before cancellation"
       }
     },
+    "toolDetail": {
+      "legacySummary": "Only a tool summary was saved for this record; the full payload and result were not recorded",
+      "invalid": "The tool detail record is invalid and cannot be displayed"
+    },
     "systemPrompt": {
       "title": "Initial Run system prompt",
       "body": "Prompt",

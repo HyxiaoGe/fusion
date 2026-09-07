@@ -251,6 +251,7 @@ class TrajectoryRepository:
                     ToolCallLog.provider,
                     ToolCallLog.input_params,
                     ToolCallLog.output_data,
+                    ToolCallLog.extra_metadata,
                     ToolCallLog.trace_id,
                     ToolCallLog.tool_call_id,
                     ToolCallLog.step_number,

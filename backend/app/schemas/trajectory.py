@@ -362,6 +362,19 @@ class TrajectorySnapshot(BaseModel):
     llm_round_summaries: list[TrajectoryLlmRoundSummary] = Field(default_factory=list)
 
 
+class ToolDetailSnapshot(BaseModel):
+    """工具调用时保存的业务详情；与审计摘要分开，不接受损坏格式。"""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: int = Field(ge=1, le=1)
+    payload: dict[str, Any]
+    result: dict[str, Any]
+    error: str | None
+    redacted_fields: list[str] = Field(max_length=64)
+    truncated_fields: list[str] = Field(max_length=64)
+
+
 class ToolNodeDetail(BaseModel):
     """普通用户可读取的 Tool 节点安全详情。"""
 

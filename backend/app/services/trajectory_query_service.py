@@ -18,6 +18,7 @@ from app.schemas.trajectory import (
     SkillsNodeDetail,
     SystemPromptNodeDetail,
     SystemPromptSnapshot,
+    ToolDetailSnapshot,
     ToolNodeDetail,
     TrajectoryCapabilityResolution,
     TrajectoryCompleteness,
@@ -437,6 +438,9 @@ class TrajectoryQueryService:
 
     @staticmethod
     def _available_tool_detail(tool_call_id: str, tool) -> TrajectoryNodeDetailResponse:
+        metadata = tool.extra_metadata if isinstance(tool.extra_metadata, dict) else {}
+        if "trajectory_detail" in metadata:
+            return TrajectoryQueryService._captured_tool_detail(tool_call_id, tool, metadata["trajectory_detail"])
         safe_item = TrajectoryQueryService._user_tool_item(tool)
         payload = safe_item["payload"] or None
         result = safe_item["result"] or None
@@ -460,7 +464,33 @@ class TrajectoryQueryService:
                 error=safe_item["error"],
             ),
             redacted_fields=safe_item["redacted_fields"],
-            reason=None,
+            reason="tool_detail_legacy_summary",
+        )
+
+    @staticmethod
+    def _captured_tool_detail(tool_call_id: str, tool, raw_snapshot: object) -> TrajectoryNodeDetailResponse:
+        """按需读取当次业务快照，不再复用管理员审计的字段白名单。"""
+        try:
+            snapshot = ToolDetailSnapshot.model_validate(raw_snapshot)
+        except ValidationError:
+            return TrajectoryQueryService._unavailable_tool_detail("degraded", "tool_detail_invalid")
+        sections = ["summary", "payload", "result"]
+        if tool.duration_ms is not None:
+            sections.append("timing")
+        return TrajectoryNodeDetailResponse(
+            status="available",
+            available_sections=sections,
+            detail=ToolNodeDetail(
+                tool_call_id=tool_call_id,
+                tool_name=tool.tool_name,
+                status=tool.status,
+                duration_ms=tool.duration_ms,
+                payload=snapshot.payload,
+                result=snapshot.result,
+                error={"type": "execution_failed", "message": snapshot.error} if snapshot.error else None,
+            ),
+            redacted_fields=snapshot.redacted_fields,
+            truncated_fields=snapshot.truncated_fields,
         )
 
     @staticmethod

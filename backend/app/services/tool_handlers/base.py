@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from app.core.logger import app_logger as logger
 from app.schemas.chat import ContentBlock
 from app.services.agent_logger import log_tool_call
+from app.services.tool_detail_snapshot import build_tool_detail_snapshot
 
 if TYPE_CHECKING:
     from app.services.agent.emitter import AgentEventEmitter
@@ -66,6 +67,19 @@ def _task_done_callback(task: asyncio.Task):
     exc = task.exception()
     if exc:
         logger.error("日志写入异步任务异常: error_type=%s", type(exc).__name__)
+
+
+def _capture_trajectory_detail(input_params: dict, result: ToolResult) -> dict:
+    """从执行侧对象复制业务详情；辅助记录失败不改变工具执行结果。"""
+    try:
+        return build_tool_detail_snapshot(
+            _serialize_for_json(input_params),
+            _serialize_for_json(result.data),
+            result.error_message,
+        )
+    except Exception as exc:
+        logger.warning("工具详情采集失败: error_type=%s", type(exc).__name__)
+        return {"schema_version": 1, "capture_failed": True}
 
 
 class BaseToolHandler(ABC):
@@ -133,6 +147,7 @@ class BaseToolHandler(ABC):
                 provider=provider,
                 input_params=safe_input_params,
                 output_data=_serialize_for_json(safe_output_data),
+                metadata={"trajectory_detail": _capture_trajectory_detail(input_params, result)},
                 error_message=result.error_message,
                 trace_id=trace_id,
                 tool_call_id=tool_call_id,

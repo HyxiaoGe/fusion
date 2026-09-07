@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import tempfile
@@ -117,6 +118,7 @@ class TrajectoryNodeDetailServiceTests(unittest.TestCase):
         output_data: dict | None = None,
         duration_ms: int | None = 125,
         error_message: str | None = None,
+        extra_metadata: dict | None = None,
     ) -> None:
         with self.Session() as db:
             db.add(
@@ -133,6 +135,7 @@ class TrajectoryNodeDetailServiceTests(unittest.TestCase):
                     input_params=input_params,
                     output_data=output_data,
                     error_message=error_message,
+                    extra_metadata=extra_metadata,
                     trace_id=run_id,
                     tool_call_id=tool_call_id,
                     step_number=1,
@@ -728,6 +731,171 @@ class TrajectoryNodeDetailServiceTests(unittest.TestCase):
         self.assertEqual((live.status, live.reason), ("pending", "llm_round_in_progress"))
         self.assertEqual((settling.status, settling.reason), ("pending", "llm_detail_settling"))
         self.assertEqual((degraded.status, degraded.reason), ("degraded", "llm_detail_missing"))
+
+    def _record_live_tool(self, handler, payload, result):
+        """使用真实日志写入，只替换数据库连接，重新查询验证持久化边界。"""
+        self._run("run-captured", terminal_at=self.now - timedelta(minutes=1))
+
+        async def record():
+            with patch("app.services.agent_logger.SessionLocal", self.Session):
+                await handler.log(
+                    log_id="log-captured",
+                    conversation_id="conv-1",
+                    user_id="user-1",
+                    model_id="model-1",
+                    provider="provider-1",
+                    result=result,
+                    input_params=payload,
+                    trace_id="run-captured",
+                    tool_call_id="call-captured",
+                    message_id="msg-run-captured",
+                )
+                await asyncio.sleep(0)
+
+        asyncio.run(record())
+
+    def test_new_weather_detail_retains_business_io_after_database_reload(self):
+        """若仍读取审计参数个数与结果元数据，刷新后城市和天气正文会消失。"""
+        from app.services.admin_audit_service import AdminAuditService
+        from app.services.mcp.amap_product_tools import AmapProductToolBinding, AmapProductToolHandler
+        from app.services.tool_handlers.base import ToolResult
+
+        handler = AmapProductToolHandler(
+            binding=AmapProductToolBinding(
+                alias="weather_forecast",
+                server_id="amap-1",
+                provider="amap",
+                remote_tool_name="maps_weather",
+                config_version=1,
+                tool_label="查询天气",
+                definition_sha256="a" * 64,
+            ),
+            remote_executor=None,
+            dependency_hashes={},
+            max_llm_context_bytes=12000,
+        )
+        payload = {"city": "南京"}
+        data = {"result": {"city": "南京", "forecasts": [{"date": "2026-09-07", "weather": "晴"}]}}
+        self._record_live_tool(handler, payload, ToolResult(status="success", data=data, duration_ms=125))
+
+        for _ in range(2):
+            response = self._service().get_user_tool_node_detail("conv-1", "run-captured", "call-captured", "user-1")
+            self.assertEqual(response.detail.payload, {"city": "南京"})
+            self.assertEqual(response.detail.result, data)
+            self.assertEqual(response.redacted_fields, [])
+            self.assertEqual(response.truncated_fields, [])
+            self.assertIsNone(response.reason)
+        with self.Session() as db:
+            audit = AdminAuditService._tool_item(db.get(ToolCallLog, "log-captured"))
+            self.assertNotIn("forecasts", json.dumps(audit, ensure_ascii=False, default=str))
+            self.assertNotIn("南京", json.dumps(audit, ensure_ascii=False, default=str))
+        self.assertIsNone(
+            self._service().get_user_tool_node_detail("conv-1", "run-captured", "call-captured", "user-2")
+        )
+
+    def test_new_url_detail_preserves_content_and_only_masks_credentials(self):
+        """若复用审计正文黑名单或遮盖所有 URL 查询值，就无法核对工具观察。"""
+        from app.services.tool_handlers.base import ToolResult
+        from app.services.tool_handlers.url_read import UrlReadHandler
+
+        payload = {
+            "url": "https://example.com/?city=Nanjing&token=query-secret",
+            "reason": "核对天气",
+            "api_key": "key-secret",
+        }
+        data = {
+            "content": "南京晴，适合散步。",
+            "messages": [{"content": "普通业务正文"}],
+            "headers": {"Set-Cookie": "cookie-secret"},
+        }
+        original = deepcopy((payload, data))
+        self._record_live_tool(UrlReadHandler(), payload, ToolResult(status="success", data=data))
+        response = self._service().get_user_tool_node_detail("conv-1", "run-captured", "call-captured", "user-1")
+
+        self.assertEqual(response.detail.result["content"], "南京晴，适合散步。")
+        self.assertEqual(response.detail.result["messages"], [{"content": "普通业务正文"}])
+        self.assertIn("city=Nanjing", response.detail.payload["url"])
+        for secret in ("query-secret", "key-secret", "cookie-secret"):
+            self.assertNotIn(secret, response.model_dump_json())
+        self.assertIn("payload.api_key", response.redacted_fields)
+        self.assertIn("result.headers.Set-Cookie", response.redacted_fields)
+        self.assertEqual((payload, data), original)
+
+    def test_new_tool_detail_marks_truncation_separately_and_retains_error_reason(self):
+        """若入库截断标记丢失或错误只剩通用提示，就无法区分数据缺失与执行失败。"""
+        from app.services.tool_handlers.base import ToolResult
+        from app.services.tool_handlers.url_read import UrlReadHandler
+
+        self._record_live_tool(
+            UrlReadHandler(),
+            {},
+            ToolResult(
+                status="failed",
+                data={"content": "气象数据" * 20000},
+                error_message="上游返回 429，请稍后重试，Authorization: Bearer error-secret",
+            ),
+        )
+        response = self._service().get_user_tool_node_detail("conv-1", "run-captured", "call-captured", "user-1")
+        self.assertEqual(response.detail.payload, {})
+        self.assertIn("payload", response.available_sections)
+        self.assertTrue(response.detail.result["content"].startswith("气象数据"))
+        self.assertLess(len(response.detail.result["content"]), 80000)
+        self.assertIn("result.content", response.truncated_fields)
+        self.assertNotIn("result.content", response.redacted_fields)
+        self.assertIn("429", response.detail.error["message"])
+        self.assertNotIn("error-secret", response.model_dump_json())
+
+    def test_legacy_tool_detail_identifies_summary_without_inventing_business_io(self):
+        """旧日志没有原始内容时必须明确标记摘要，不能假装完整详情。"""
+        self._run("run-legacy")
+        self._tool(
+            "run-legacy",
+            "call-legacy",
+            tool_name="weather_forecast",
+            input_params={"argument_count": 1},
+            output_data={"status": "success"},
+        )
+        response = self._service().get_user_tool_node_detail("conv-1", "run-legacy", "call-legacy", "user-1")
+        self.assertEqual(response.reason, "tool_detail_legacy_summary")
+        self.assertEqual(response.detail.payload, {"argument_count": 1})
+
+    def test_malformed_new_tool_detail_does_not_silently_fall_back_to_summary(self):
+        """已标记采集的损坏快照应明确降级，避免把缺失数据伪装成历史摘要。"""
+        self._run("run-invalid")
+        self._tool(
+            "run-invalid", "call-invalid", extra_metadata={"trajectory_detail": {"schema_version": 1, "payload": "bad"}}
+        )
+        response = self._service().get_user_tool_node_detail("conv-1", "run-invalid", "call-invalid", "user-1")
+        self.assertEqual(response.status, "degraded")
+        self.assertEqual(response.reason, "tool_detail_invalid")
+        self.assertIsNone(response.detail)
+
+    def test_admin_lists_do_not_fetch_new_tool_detail_bodies(self):
+        """列表只消费摘要时不得批量加载新正文，否则大结果会放大列表查询内存。"""
+        from app.db.admin_audit_repository import AdminAuditRepository
+        from app.services.admin_audit_service import AdminAuditService
+        from app.services.tool_handlers.base import ToolResult
+        from app.services.tool_handlers.url_read import UrlReadHandler
+
+        self._record_live_tool(UrlReadHandler(), {}, ToolResult(status="success", data={"content": "正文" * 10000}))
+        statements = []
+
+        def record_sql(_connection, _cursor, statement, _parameters, _context, _many):
+            statements.append(statement)
+
+        event.listen(self.engine, "before_cursor_execute", record_sql)
+        try:
+            with self.Session() as db:
+                repository = AdminAuditRepository(db)
+                rows, total = repository.list_tool_calls("conv-1", page=1, page_size=10)
+                self.assertEqual(total, 1)
+                self.assertEqual(AdminAuditService._tool_item(rows[0])["status"], "success")
+                runs, _ = repository.list_agent_runs("conv-1", page=1, page_size=10)
+                self.assertEqual(len(runs[0]["tool_calls"]), 1)
+        finally:
+            event.remove(self.engine, "before_cursor_execute", record_sql)
+        # count 子查询可能列举映射列，但只返回计数；核对实际返回的列。
+        self.assertFalse(any("tool_call_logs.metadata" in statement.split("\nFROM", 1)[0] for statement in statements))
 
     def test_available_precedes_watermark_and_uses_safe_allowlist_projection(self):
         """若先判水位或回传原始工具日志，水位前的精确日志会丢失并泄漏凭据。"""

@@ -62,7 +62,22 @@
 - 已有验收报告中的慢响应、失败模型或质量风险进入产品策略调整。
 - 知识库、项目空间等新方向，但必须先做现状确认和计划。
 
-## 2026-09-07 Agent loop 首批 dev 发布（已部署，真实验收发现停止轨迹缺口）
+## 2026-09-07 工具载荷和结果可观测性修复（本地验证通过，已获发布授权）
+
+- 用户指出 trajectory 入参/结果过度脱敏；确认日志先只保存审计摘要、详情再复用审计过滤。分支 `codex/trajectory-tool-details` 在既有 ToolCallLog JSON 元数据中保存有界业务快照，详情独立读取；凭据遮盖与截断分别标记，历史摘要和损坏记录明确提示。
+- 不改工具执行、模型上下文、权限或数据库结构；原审计列表投影保留，正文列按需加载，避免批量查询增加负载。记录的是 handler 业务输入/返回，不是原始 HTTP 或格式化后的精确 Observation。
+- 本地核心回归 155 passed + 79 subtests，工具执行关联回归 231 passed + 110 subtests（两组重叠 11 项）；前端 52 passed，Ruff/ESLint、架构、diff 与生产构建通过；独立审查无 P0/P1。
+- 用户在本地交付后明确要求“发布吧”，继续提交、PR/CI、合并、dev 部署和真实调用/刷新验收；最终结果完成后补记。详见 [修复记录](reports/backend/2026-09-07-trajectory-tool-details.md) 与 [实施计划](implementation-plans/2026-09-07-trajectory-tool-details.md)。
+
+## 2026-09-07 Agent 停止轨迹补修（已发布并完成目标真实验收）
+
+- 首批真实验收发现 Redis 停止后末轮取消事件丢失；在隔离分支 `codex/agent-loop-stop-trajectory` 补修，PR head `c61ffb58`、合并/部署 SHA `7a93c7fffb5108b0a0b5aa6b991a2cd62e78a00f`，PR [#50](https://github.com/HyxiaoGe/fusion/pull/50)。仅保留明确取消终态到该 Run 账本，重抛原所有权异常，LLM 详情只调度一次；未改消息写入权或历史数据。
+- 本地 `375 passed + 173 subtests`，Ruff、架构与 diff 检查、独立审查通过；[PR CI](https://github.com/HyxiaoGe/fusion/actions/runs/34084963675)、[master CI](https://github.com/HyxiaoGe/fusion/actions/runs/34085415461)、[dev API → UI](https://github.com/HyxiaoGe/fusion/actions/runs/34085415682) 均 success。13:14:19 部署完成；13:14:43 独立核对 API/UI accepted SHA、镜像、服务健康，重启均 0。
+- 新自然天气对话 [1c5ef7b8](https://fusion.seanfield.org/chat/1c5ef7b8-99c7-4244-a193-05b9a29940e6)，Run `7751ec243378462181570a8d8ab3a75d`：真实工具卡片后停止，刷新卡片完全一致；23 条事件 sequence 0–22 连续，取消和 Run 中断均明确记录，末轮归因为 suppressed/none/no_content，轨迹 complete。最终部署后再次刷新与接口/console 检查通过。
+- 普通输出、工具前抑制、服务端替换已在首批自然用例验证；工具执行中普通失败结果或计划快照被拒绝时仍如实降级，不声称所有停止场景都完整。多城市 clarification_only 与现有 product_guard 策略独立记录，未扩入修复。
+- [完整补修与验收记录](reports/backend/2026-09-07-agent-stop-trajectory.md)。以下首批记录保留为问题发现时的历史阶段。
+
+## 2026-09-07 Agent loop 首批 dev 发布（历史：真实验收发现停止轨迹缺口）
 
 - 用户明确授权发布；PR [#49](https://github.com/HyxiaoGe/fusion/pull/49) 合入 master，部署 SHA `11906526a49907e70b8c0133342b5524e2c57faf`。
 - PR CI [34071451174](https://github.com/HyxiaoGe/fusion/actions/runs/34071451174)、master CI [34071945145](https://github.com/HyxiaoGe/fusion/actions/runs/34071945145)、dev API → UI [34071945449](https://github.com/HyxiaoGe/fusion/actions/runs/34071945449) 均 success；前后端部署于北京时间 2026-09-07 09:17:21 完成。
