@@ -961,8 +961,8 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
         second_round_tool_names = {
             tool["function"]["name"] for tool in result.llm_calls[1]["call_kwargs"].get("tools", [])
         }
-        self.assertEqual(first_round_tool_names, {exhausted_alias})
-        self.assertEqual(second_round_tool_names, set())
+        self.assertEqual(first_round_tool_names, {exhausted_alias, "web_search", "url_read"})
+        self.assertEqual(second_round_tool_names, {"web_search", "url_read"})
         self.assertNotIn(sibling_alias, first_round_tool_names)
         self.assertNotIn(available_alias, first_round_tool_names)
         self.assertNotIn(

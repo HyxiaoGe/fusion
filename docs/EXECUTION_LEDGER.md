@@ -247,3 +247,9 @@
 - 最终全量 pytest `4071 passed, 2 skipped, 4389 subtests passed`；unittest `3045 tests, OK (skipped=2)`；仓库级契约 `67 tests, OK`；Ruff、架构与 diff 检查通过。两名独立工作树复审无可达 P0/P1，另有 53 项独立目标测试及 SQLite 启动阶段验证；正式提交后再核对 exact HEAD。
 - P3a 已推送但 PR 创建被自动审批拒绝，具体外发确认尚未收到；其余三阶段保持本地。未创建 PR、合并、部署、启动服务、迁移真实数据库、写 PromptHub 或修改 GitHub 变量。真实 PromptHub 往返、PostgreSQL 并发、多 worker 收敛和新 Run 验收仍是后续环境门禁。
 - [P3c 最终报告](reports/backend/2026-09-06-global-prompt-runtime-p3c-final.md)。
+
+
+## 2026-09-07 工具失败恢复（实现与隔离验证）
+
+- 原失败Run `459accfa1afb463a98e6e8285570713e` 已确认非预算问题；修复上游错误保留、替代工具公告、失败后继续与无证据incomplete。预算发布不替代本任务。
+- 实施和验证见 [工具失败恢复报告](reports/backend/2026-09-07-tool-failure-recovery.md)；目标环境验收状态以后续发布证据为准。

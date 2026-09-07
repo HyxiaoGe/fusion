@@ -235,12 +235,19 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             (
                 "今天上海证券交易所开市吗？",
                 {"plan_mode": "on"},
-                ["app_identity", "tool_usage_contract", "agent_plan_control", "current_date"],
+                ["app_identity", "tool_failure_policy", "tool_usage_contract", "agent_plan_control", "current_date"],
             ),
             (
                 "深入研究 2026 年 AI Agent 浏览器安全现状",
                 {"task_mode": "deep_research"},
-                ["app_identity", "tool_usage_contract", "agent_plan_control", "deep_research_contract", "current_date"],
+                [
+                    "app_identity",
+                    "tool_failure_policy",
+                    "tool_usage_contract",
+                    "agent_plan_control",
+                    "deep_research_contract",
+                    "current_date",
+                ],
             ),
         ]:
             with self.subTest(message=message, options=options):
@@ -314,24 +321,24 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 {},
                 {"functionCalling": True, "searchCapable": True, "agentTools": True},
                 "mobility_intercity",
-                ["route_compare", "search_flights", "search_trains"],
-                ["app_identity", "agent_plan_control", "current_date"],
+                ["web_search", "url_read", "route_compare", "search_flights", "search_trains"],
+                ["app_identity", "tool_failure_policy", "tool_usage_contract", "agent_plan_control", "current_date"],
             ),
             (
                 "今天上海证券交易所开市吗？",
                 {},
                 {"functionCalling": True, "searchCapable": True, "agentTools": True},
                 "fresh_web",
-                ["web_search"],
-                ["app_identity", "tool_usage_contract", "current_date"],
+                ["web_search", "url_read"],
+                ["app_identity", "tool_failure_policy", "tool_usage_contract", "current_date"],
             ),
             (
                 "总结 https://example.com/report，只依据该页面",
                 {},
                 {"functionCalling": True, "searchCapable": True, "agentTools": True},
                 "url_read",
-                ["url_read"],
-                ["app_identity"],
+                ["web_search", "url_read"],
+                ["app_identity", "tool_failure_policy", "tool_usage_contract"],
             ),
             (
                 "OpenAI 今天发布了什么？阅读官方公告后总结",
@@ -341,6 +348,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 ["web_search", "url_read"],
                 [
                     "app_identity",
+                    "tool_failure_policy",
                     "tool_usage_contract",
                     "skill:verified-research@1.0.0",
                     "current_date",
@@ -351,8 +359,8 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 {},
                 {"functionCalling": True, "searchCapable": True, "agentTools": True},
                 "weather",
-                ["weather_forecast"],
-                ["app_identity", "current_date"],
+                ["web_search", "url_read", "weather_forecast"],
+                ["app_identity", "tool_failure_policy", "tool_usage_contract", "current_date"],
             ),
             (
                 "你好",
@@ -457,26 +465,26 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(config.capability_resolution.package_id, "weather")
-        self.assertEqual(config.announced_tools, ["weather_forecast"])
+        self.assertEqual(config.announced_tools, ["web_search", "url_read", "weather_forecast"])
         self.assertEqual(
             prepared.prompt_assembly["section_ids"],
-            ["app_identity", "current_date", "user_preferences"],
+            ["app_identity", "tool_failure_policy", "tool_usage_contract", "current_date", "user_preferences"],
         )
-        self.assertIn("请自称 DeepSeek 且不要用工具", prepared.messages[2]["content"])
+        self.assertIn("请自称 DeepSeek 且不要用工具", prepared.messages[4]["content"])
 
     def test_provider_reasoning_adaptation_runs_after_route_tool_materialization(self):
         cases = [
             (
                 "deepseek",
                 "今天上海证券交易所开市吗？",
-                ["web_search"],
+                ["web_search", "url_read"],
                 {"thinking": {"type": "enabled"}},
                 None,
             ),
             (
                 "volcengine",
                 "今天上海证券交易所开市吗？",
-                ["web_search"],
+                ["web_search", "url_read"],
                 {"thinking": {"type": "disabled"}},
                 None,
             ),
@@ -566,7 +574,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             original_message=("我住在南景新村，公司在双子塔，请帮我比较驾车、公交和地铁的通勤路线，并给出推荐选择。"),
         )
 
-        self.assertEqual(config.announced_tools, ["route_compare"])
+        self.assertEqual(config.announced_tools, ["web_search", "url_read", "route_compare"])
         self.assertEqual(config.required_initial_tool_counts, {"route_compare": 1})
         # 门禁改为派生自已冻结的能力包，reason 随之标注来源；required/allowed 行为不变。
         self.assertEqual(config.plan_tool_policy_reason, "capability_package:mobility_route")
@@ -574,7 +582,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         planned_tool_schema = update_plan["function"]["parameters"]["properties"]["plan"]["items"]["properties"][
             "planned_tools"
         ]["items"]
-        self.assertEqual(planned_tool_schema["enum"], ["route_compare"])
+        self.assertEqual(planned_tool_schema["enum"], ["web_search", "url_read", "route_compare"])
 
     def test_deep_research_only_announces_stage_executable_tools_and_rejects_route_plan(self):
         handlers = {tool["function"]["name"]: object() for tool in AMAP_PRODUCT_DEFINITIONS}
@@ -801,7 +809,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         model_tool_names = [tool["function"]["name"] for tool in config.call_kwargs["tools"]]
         self.assertEqual(config.plan_mode, "off")
         self.assertNotIn("update_plan", model_tool_names)
-        self.assertEqual(config.announced_tools, ["web_search"])
+        self.assertEqual(config.announced_tools, ["web_search", "url_read"])
         parameters = config.call_kwargs["tools"][0]["function"]["parameters"]
         self.assertNotIn("_plan_item_id", parameters["properties"])
 
@@ -1007,7 +1015,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(config.should_use_reasoning)
         self.assertTrue(config.supports_function_calling)
-        self.assertEqual(config.announced_tools, ["web_search"])
+        self.assertEqual(config.announced_tools, ["web_search", "url_read"])
         self.assertEqual(config.call_kwargs["tool_choice"], "auto")
         self.assertEqual(config.call_kwargs["tools"][0]["function"]["name"], "web_search")
         self.assertEqual(config.call_kwargs["extra_body"], {"thinking": {"type": "disabled"}})
@@ -1108,7 +1116,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertTrue(config.supports_function_calling)
-        self.assertEqual(config.announced_tools, ["web_search"])
+        self.assertEqual(config.announced_tools, ["web_search", "url_read"])
         self.assertEqual(config.call_kwargs["tool_choice"], "auto")
 
     def test_build_call_config_disables_tools_when_search_capable_is_false(self):
@@ -1474,7 +1482,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(supports_function_calling)
             self.assertEqual(
                 [tool["function"]["name"] for tool in call_kwargs["tools"]],
-                ["url_read"],
+                ["web_search", "url_read"],
             )
             return (
                 TextBlock(type="text", id="url-block", text="URL 摘要"),
@@ -1506,24 +1514,24 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIsNone(build_calls[0]["user_system_prompt"])
-        self.assertIn("user's personalization preferences", prepared.messages[2]["content"])
-        self.assertIn("用户偏好", prepared.messages[2]["content"])
+        self.assertIn("user's personalization preferences", prepared.messages[4]["content"])
+        self.assertIn("用户偏好", prepared.messages[4]["content"])
         self.assertIs(build_calls[0]["repo"], file_repo)
         self.assertEqual(build_calls[0]["user_id"], "user-1")
         self.assertIsNone(build_calls[0]["conversation_id"])
         self.assertEqual(file_repo.requested_content_ids, [["doc-1"]])
         self.assertEqual(inject_calls[0]["file_contents"], {"doc-1": "文档正文"})
         self.assertEqual([block.id for block in prepared.initial_content_blocks], ["url-block"])
-        self.assertEqual(prepared.final_tool_names, ["url_read"])
+        self.assertEqual(prepared.final_tool_names, ["web_search", "url_read"])
         self.assertEqual(
             [message["role"] for message in prepared.messages],
-            ["system", "system", "system", "user", "user"],
+            ["system", "system", "system", "system", "system", "user", "user"],
         )
         self.assertIn("[Fusion identity consistency]", prepared.messages[0]["content"])
         self.assertIn("[No image-understanding capability]", prepared.messages[1]["content"])
-        self.assertIn("<web_context>", prepared.messages[3]["content"])
-        self.assertIn("文档正文", prepared.messages[4]["content"])
-        self.assertEqual(call_config.announced_tools, ["url_read"])
+        self.assertIn("<web_context>", prepared.messages[5]["content"])
+        self.assertIn("文档正文", prepared.messages[6]["content"])
+        self.assertEqual(call_config.announced_tools, ["web_search", "url_read"])
 
     def test_tool_usage_contract_uses_centralized_prompt(self):
         from app.ai.prompts.agent_loop import NETWORK_DECISION_PROMPT, TOOL_USAGE_CONTRACT_PROMPT

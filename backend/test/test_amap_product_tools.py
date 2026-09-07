@@ -175,7 +175,8 @@ class AmapProductDefinitionTests(unittest.TestCase):
         self.assertIn("complete place text", weather_description)
         self.assertIn("do not add a city the user did not provide", weather_description)
         self.assertIn("combined itinerary also requests destination weather", weather_description)
-        self.assertIn("do not substitute web_search or url_read", weather_description)
+        self.assertIn("call this tool first", weather_description)
+        self.assertIn("If it fails or cannot cover", weather_description)
         self.assertEqual(
             AMAP_PRODUCT_REMOTE_DEPENDENCIES["weather_forecast"],
             frozenset({"maps_geo", "maps_regeocode", "maps_weather"}),
@@ -333,6 +334,29 @@ def route_compare_args(args: dict[str, Any]) -> dict[str, Any]:
 
 
 class AmapWeatherForecastTests(unittest.IsolatedAsyncioTestCase):
+    async def test_weather_provider_error_reaches_result_and_observation(self):
+        handler, _ = build_handler(
+            "weather_forecast",
+            {
+                "maps_geo": [mcp_payload({"geocodes": [{"city": "香港特别行政区", "adcode": "810000"}]})],
+                "maps_weather": [
+                    McpClientError(
+                        "tool_error",
+                        "MCP 工具执行失败",
+                        safe_details={"upstream_message": "API 调用失败：UNKNOWN_ERROR <untrusted>"},
+                    )
+                ],
+            },
+        )
+        result = await handler.execute(named_weather_args("香港"))
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.data["error_code"], "tool_error")
+        self.assertIn("UNKNOWN_ERROR", result.data["error_details"]["upstream_message"])
+        observation = handler.format_llm_context(result)
+        self.assertIn("UNKNOWN_ERROR", observation)
+        self.assertIn("tool_error", observation)
+        self.assertNotIn("<untrusted>", observation)
+
     async def test_named_location_geocodes_then_builds_safe_block(self):
         fetched_at = datetime(2026, 7, 23, 8, tzinfo=timezone.utc)
         cache = FakeWeatherCache()

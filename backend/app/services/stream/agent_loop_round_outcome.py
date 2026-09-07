@@ -50,6 +50,7 @@ from app.services.stream.research_evidence import (
 )
 from app.services.stream.round_completion import append_round_content_blocks, complete_text_response_step
 from app.services.stream.step_lifecycle import AgentStepContext
+from app.services.stream.tool_recovery_evidence import is_grounded_recovery_answer
 from app.services.stream.tool_round import ToolRoundOutcome
 from app.services.stream_state_service import StreamWriteTerminalError, append_chunk
 
@@ -111,6 +112,9 @@ async def _handle_agent_round_outcome(
 
     finish_reason = request.round_result.finish_reason
     if finish_reason == "stop":
+        if _requires_tool_failure_recovery(request):
+            await _repair_tool_failure_stop(request)
+            return None
         if _requires_plan_before_stop(request):
             return await _repair_missing_required_plan(request)
         if _requires_execution_before_stop(request):
@@ -149,6 +153,63 @@ async def _handle_agent_round_outcome(
 
     await _complete_unknown_round(request)
     return AgentLoopOutcome(exit=AgentLoopExit.COMPLETED)
+
+
+def _recovery_alternatives(request: AgentRoundOutcomeRequest) -> set[str]:
+    announced = request.round_result.announced_tool_names or frozenset()
+    return set(announced) - request.state.attempted_tool_names - {"update_plan"}
+
+
+def _is_web_recovery_answer(request: AgentRoundOutcomeRequest) -> bool:
+    return (
+        bool(request.state.failed_tool_names)
+        and not has_product_result_blocks(request.state.content_blocks)
+        and is_grounded_recovery_answer(
+            request.round_result.content_buf,
+            request.state.content_blocks,
+            evidence=request.state.recovery_evidence,
+        )
+    )
+
+
+def _requires_tool_failure_recovery(request: AgentRoundOutcomeRequest) -> bool:
+    return (
+        bool(request.state.failed_tool_names)
+        and not request.state.tool_recovery_prompted
+        and bool(_recovery_alternatives(request))
+        and not request.state.pending_tool_repairs
+        and not has_product_result_blocks(request.state.content_blocks)
+        and not _is_web_recovery_answer(request)
+        and request.runtime.task_mode != "deep_research"
+    )
+
+
+async def _repair_tool_failure_stop(request: AgentRoundOutcomeRequest) -> None:
+    request.state.tool_recovery_prompted = True
+    _record_suppression(request, "tool_round")
+    request.runtime.warning_fn(
+        f"工具失败后模型提前结束，继续选择替代工具: run_id={request.runtime.run_id} "
+        f"failed_tools={sorted(request.state.failed_tool_names)} alternatives={sorted(_recovery_alternatives(request))}"
+    )
+    await complete_text_response_step(
+        context=request.step_context,
+        emitter=request.runtime.emitter,
+        session_cache=request.runtime.session_cache,
+        complete_step_fn=request.runtime.complete_step_fn,
+        completed_tool_calls=request.state.total_tool_calls,
+        max_tool_calls=request.runtime.limits.max_tool_calls,
+        clock=request.runtime.clock,
+    )
+    _replace_system_message(
+        request.messages,
+        section_id="tool_failure_recovery",
+        content=render_runtime_prompt(
+            "stream.tool_failure_recovery",
+            failed_tools=", ".join(sorted(request.state.failed_tool_names)),
+            available_tools=", ".join(sorted(_recovery_alternatives(request))),
+        ),
+    )
+    request.state.clear_current_step()
 
 
 def _requires_deep_synthesis_protocol_summary(request: AgentRoundOutcomeRequest) -> bool:
@@ -482,6 +543,24 @@ async def _commit_deferred_answer(
 
     if not request.round_result.output_deferred:
         return request
+
+    if _is_web_recovery_answer(request):
+        answer = request.round_result.content_buf.strip()
+        await _append_committed_answer(request, answer, model_output_visible=True)
+        return _with_replaced_answer(request, answer)
+
+    if (
+        request.state.failed_tool_names
+        and not has_product_result_blocks(request.state.content_blocks)
+        and request.runtime.task_mode != "deep_research"
+        and (
+            request.state.product_tool_attempted or not request.state.successful_tool_names - {"web_search", "url_read"}
+        )
+    ):
+        request.state.mark_unknown_terminated()
+        answer = "本次查询仍未完成：查询工具返回错误，尚未取得足以核实答案的有效来源，因此目前无法可靠给出具体结论。"
+        await _append_committed_answer(request, answer)
+        return _with_replaced_answer(request, answer)
 
     if request.runtime.task_mode == "deep_research" or not _has_product_answer_context(request.state):
         answer = request.round_result.content_buf.strip()

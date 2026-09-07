@@ -404,7 +404,7 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.session_statuses[-1]["status"], "completed")
 
     async def test_run_started_declares_plan_mode_url_read_once_before_url_prep(self):
-        """明确 URL 读取在 Run 初始只声明 url_read，预处理不得重复回填。"""
+        """明确 URL 读取在 Run 初始声明读取和搜索替代工具，预处理不得重复回填。"""
         from app.services.external.reader_client import UrlReadResult
 
         with patch(
@@ -433,7 +433,7 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
 
         run_started = self._agent_events()[0]
         self.assertEqual(run_started["type"], "run_started")
-        self.assertEqual(run_started["tools"], ["url_read"])
+        self.assertEqual(run_started["tools"], ["web_search", "url_read"])
 
     async def test_tool_mode_injects_web_search_contract_prompt(self):
         """工具模式：调用 LLM 前注入契约，避免 thinking 口头搜索但不发 tool_call。"""
@@ -633,7 +633,8 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
         await self._invoke(
             stream_round_side_effect=[
                 ("", "", [tool_call], "tool_calls", None),
-                ("", "Final answer", [], "stop", None),
+                ("", "暂未读取到页面正文。", [], "stop", None),
+                ("", "仍未获得该页面正文，无法据此提供可靠摘要。", [], "stop", None),
             ],
             execute_tools_result=[
                 ToolExecutionRecord(
@@ -662,13 +663,23 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
             original_message="总结 https://example.com，只依据该页面",
         )
 
-        self.assertGreaterEqual(len(captured_messages), 2)
+        self.assertEqual(len(captured_messages), 3)
         tool_messages = [message for message in captured_messages[1] if message.get("role") == "tool"]
         self.assertEqual(len(tool_messages), 1)
         tool_context = tool_messages[0]["content"]
         self.assertIn("cannot be used as evidence", tool_context)
         self.assertNotIn("reader-service", tool_context)
         self.assertNotIn("请基于你的知识回答", tool_context)
+
+        recovery_messages = [
+            message
+            for message in captured_messages[2]
+            if "The task is not complete just because a tool failed." in str(message.get("content", ""))
+        ]
+        self.assertEqual(len(recovery_messages), 1)
+        completed = [event for event in self._agent_events() if event["type"] == "run_completed"]
+        self.assertEqual(len(completed), 1)
+        self.assertEqual(completed[0]["finish_reason"], "incomplete")
 
     async def test_generate_to_redis_closes_db_when_lifecycle_raises(self):
         """runner 外层必须负责 DB session 生命周期，即使 lifecycle 失败也要关闭。"""

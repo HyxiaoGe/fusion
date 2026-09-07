@@ -524,7 +524,7 @@ class AmapProductToolHandler(BaseToolHandler):
                 result.data.update(self._safe_metadata(stats))
                 return result
             if local_recovery is None:
-                return self._failed_result(started_at, stats, error.code)
+                return self._failed_result(started_at, stats, error.code, error_details=error.safe_details)
         except Exception:
             local_recovery = self._recover_local_detail_result(partial)
             if local_recovery is None:
@@ -1176,10 +1176,25 @@ class AmapProductToolHandler(BaseToolHandler):
                 )
                 return render_runtime_prompt("amap.repair", payload=repair_payload)
             if self.tool_name == AMAP_WEATHER_FORECAST:
-                return render_runtime_prompt("amap.weather_unavailable")
-            if self.tool_name in {AMAP_LOCAL_PLACE_SEARCH, AMAP_ROUTE_COMPARE}:
-                return render_runtime_prompt("amap.place_route_unavailable")
-            return render_runtime_prompt("amap.product_unavailable")
+                failure_contract = render_runtime_prompt("amap.weather_unavailable")
+            elif self.tool_name in {AMAP_LOCAL_PLACE_SEARCH, AMAP_ROUTE_COMPARE}:
+                failure_contract = render_runtime_prompt("amap.place_route_unavailable")
+            else:
+                failure_contract = render_runtime_prompt("amap.product_unavailable")
+            if not result.data.get("error_details"):
+                return failure_contract
+            return _format_untrusted_context(
+                tool_name=self.tool_name,
+                payload_text=json.dumps(
+                    {
+                        "error_code": result.data.get("error_code"),
+                        "error_details": result.data["error_details"],
+                    },
+                    ensure_ascii=False,
+                ),
+                max_bytes=self.max_llm_context_bytes,
+                usage_contract=failure_contract,
+            )
         payload_text = json.dumps(result.data["result"], ensure_ascii=False, sort_keys=True)
         if self.tool_name == AMAP_LOCAL_PLACE_SEARCH:
             usage_contract = _LOCAL_PLACE_RESULT_USAGE_CONTRACT
@@ -1270,6 +1285,8 @@ class AmapProductToolHandler(BaseToolHandler):
         started_at: float,
         stats: "_RemoteCallStats",
         error_code: str,
+        *,
+        error_details: dict[str, Any] | None = None,
     ) -> ToolResult:
         return ToolResult(
             status="failed",
@@ -1277,6 +1294,7 @@ class AmapProductToolHandler(BaseToolHandler):
             data={
                 **self._safe_metadata(stats),
                 "error_code": error_code if re.fullmatch(r"[a-z][a-z0-9_]{0,63}", error_code) else "internal_error",
+                **({"error_details": dict(error_details)} if error_details else {}),
             },
             error_message=MCP_TOOL_UNAVAILABLE_MESSAGE,
         )

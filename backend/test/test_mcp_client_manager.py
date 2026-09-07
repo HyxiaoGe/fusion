@@ -929,7 +929,7 @@ class McpClientManagerTests(unittest.TestCase):
         )
         self.assertNotIn("secret", str(captured.exception.safe_details))
 
-    def test_free_text_tool_error_remains_generic_and_is_not_guessed_as_repairable(self):
+    def test_free_text_tool_error_preserves_observation_without_guessing_repairability(self):
         payload = {
             "content": [{"type": "text", "text": "missing query"}],
             "isError": True,
@@ -950,7 +950,33 @@ class McpClientManagerTests(unittest.TestCase):
             asyncio.run(manager.call_tool(build_config(allowed_tools=["search"]), "search", {}))
 
         self.assertEqual(captured.exception.code, "tool_error")
-        self.assertEqual(captured.exception.safe_details, {})
+        self.assertEqual(captured.exception.safe_details, {"upstream_message": "missing query"})
+
+    def test_upstream_error_text_is_bounded_and_removes_credentials(self):
+        message = (
+            "API 调用失败：UNKNOWN_ERROR test-secret "
+            'api_key="other-secret" Authorization: Bearer header-secret '
+            "https://example.com/error?key=url-secret " + "x" * 2000
+        )
+        session = FakeSession(
+            call_result=SimpleNamespace(
+                model_dump=lambda **_: {
+                    "content": [{"type": "text", "text": message}],
+                    "isError": True,
+                }
+            )
+        )
+        manager = McpClientManager(
+            policy=build_policy(), connector=FakeConnector(session), environ={"DASHSCOPE_API_KEY": "test-secret"}
+        )
+        with self.assertRaises(McpClientError) as captured:
+            asyncio.run(manager.call_tool(build_config(allowed_tools=["search"]), "search", {}))
+        details = captured.exception.safe_details
+        self.assertIn("UNKNOWN_ERROR", details["upstream_message"])
+        self.assertLessEqual(len(details["upstream_message"]), 1024)
+        self.assertTrue(details["truncated"])
+        for secret in ("test-secret", "other-secret", "header-secret", "url-secret"):
+            self.assertNotIn(secret, repr(details))
 
     def test_close_delegates_to_connector(self):
         connector = FakeConnector(FakeSession())

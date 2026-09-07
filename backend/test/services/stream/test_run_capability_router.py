@@ -141,7 +141,7 @@ def _resolve(
         (
             "今天上海证券交易所开市吗？",
             "fresh_web",
-            ("web_search",),
+            ("web_search", "url_read"),
             "off",
             True,
             False,
@@ -151,7 +151,7 @@ def _resolve(
         (
             "今天 OpenAI 有什么新发布？请简单说明。",
             "fresh_web",
-            ("web_search",),
+            ("web_search", "url_read"),
             "off",
             True,
             False,
@@ -171,7 +171,7 @@ def _resolve(
         (
             "总结 https://example.com/report，只依据该页面",
             "url_read",
-            ("url_read",),
+            ("web_search", "url_read"),
             "off",
             False,
             False,
@@ -181,7 +181,7 @@ def _resolve(
         (
             "明天上海天气怎样？",
             "weather",
-            ("weather_forecast",),
+            ("web_search", "url_read", "weather_forecast"),
             "off",
             True,
             False,
@@ -191,7 +191,7 @@ def _resolve(
         (
             "找人民广场附近评分较高的咖啡店",
             "place_discovery",
-            ("local_place_search",),
+            ("web_search", "url_read", "local_place_search"),
             "off",
             False,
             False,
@@ -201,7 +201,7 @@ def _resolve(
         (
             "从上海虹桥站到外滩怎么坐公共交通？",
             "mobility_route",
-            ("route_compare",),
+            ("web_search", "url_read", "route_compare"),
             "auto",
             False,
             False,
@@ -211,7 +211,7 @@ def _resolve(
         (
             "查 2026-09-10 上海到北京的机票",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
             "off",
             True,
             False,
@@ -221,7 +221,7 @@ def _resolve(
         (
             "查 2026-09-10 上海到北京的高铁",
             "train",
-            ("search_trains",),
+            ("web_search", "url_read", "search_trains"),
             "off",
             True,
             False,
@@ -231,7 +231,7 @@ def _resolve(
         (
             "北京去上海，飞机还是高铁好？",
             "travel_air_rail",
-            ("search_flights", "search_trains"),
+            ("web_search", "url_read", "search_flights", "search_trains"),
             "auto",
             True,
             False,
@@ -241,7 +241,7 @@ def _resolve(
         (
             "我现在在北京，我想去上海，你可以帮我吗",
             "mobility_intercity",
-            ("route_compare", "search_flights", "search_trains"),
+            ("web_search", "url_read", "route_compare", "search_flights", "search_trains"),
             "auto",
             True,
             False,
@@ -291,7 +291,7 @@ def _resolve(
         (
             "What is the latest OpenAI release?",
             "fresh_web",
-            ("web_search",),
+            ("web_search", "url_read"),
             "off",
             True,
             False,
@@ -311,7 +311,7 @@ def _resolve(
         (
             "Summarize https://example.com/report using only that page.",
             "url_read",
-            ("url_read",),
+            ("web_search", "url_read"),
             "off",
             False,
             False,
@@ -321,7 +321,7 @@ def _resolve(
         (
             "What is the weather in Shanghai today?",
             "weather",
-            ("weather_forecast",),
+            ("web_search", "url_read", "weather_forecast"),
             "off",
             True,
             False,
@@ -331,7 +331,7 @@ def _resolve(
         (
             "Find highly rated coffee shops near People's Square.",
             "place_discovery",
-            ("local_place_search",),
+            ("web_search", "url_read", "local_place_search"),
             "off",
             False,
             False,
@@ -341,7 +341,7 @@ def _resolve(
         (
             "How do I get from Shanghai Hongqiao Station to the Bund by public transit?",
             "mobility_route",
-            ("route_compare",),
+            ("web_search", "url_read", "route_compare"),
             "auto",
             False,
             False,
@@ -351,7 +351,7 @@ def _resolve(
         (
             "Find flights from Shanghai to Beijing on 2026-09-10.",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
             "off",
             True,
             False,
@@ -361,7 +361,7 @@ def _resolve(
         (
             "Find trains from Shanghai to Beijing on 2026-09-10.",
             "train",
-            ("search_trains",),
+            ("web_search", "url_read", "search_trains"),
             "off",
             True,
             False,
@@ -371,7 +371,7 @@ def _resolve(
         (
             "Compare flights and trains from Beijing to Shanghai.",
             "travel_air_rail",
-            ("search_flights", "search_trains"),
+            ("web_search", "url_read", "search_flights", "search_trains"),
             "auto",
             True,
             False,
@@ -381,7 +381,7 @@ def _resolve(
         (
             "I'm in Beijing and I want to go to Shanghai. Can you help me?",
             "mobility_intercity",
-            ("route_compare", "search_flights", "search_trains"),
+            ("web_search", "url_read", "route_compare", "search_flights", "search_trains"),
             "auto",
             True,
             False,
@@ -391,7 +391,7 @@ def _resolve(
         (
             "How do I get from Beijing to Shanghai?",
             "mobility_intercity",
-            ("route_compare", "search_flights", "search_trains"),
+            ("web_search", "url_read", "route_compare", "search_flights", "search_trains"),
             "auto",
             True,
             False,
@@ -401,7 +401,7 @@ def _resolve(
         (
             "I need to travel from Beijing to Shanghai.",
             "mobility_intercity",
-            ("route_compare", "search_flights", "search_trains"),
+            ("web_search", "url_read", "route_compare", "search_flights", "search_trains"),
             "auto",
             True,
             False,
@@ -411,7 +411,7 @@ def _resolve(
         (
             "联网查一下量子计算的入门资料",
             "fresh_web",
-            ("web_search",),
+            ("web_search", "url_read"),
             "off",
             True,
             False,
@@ -421,7 +421,7 @@ def _resolve(
         (
             "打开 https://example.com/report 看看",
             "url_read",
-            ("url_read",),
+            ("web_search", "url_read"),
             "off",
             False,
             False,
@@ -431,7 +431,7 @@ def _resolve(
         (
             "从虹桥机场到外滩怎么走？",
             "mobility_route",
-            ("route_compare",),
+            ("web_search", "url_read", "route_compare"),
             "auto",
             False,
             False,
@@ -441,7 +441,7 @@ def _resolve(
         (
             "从上海火车站到人民广场怎么坐地铁？",
             "mobility_route",
-            ("route_compare",),
+            ("web_search", "url_read", "route_compare"),
             "auto",
             False,
             False,
@@ -451,7 +451,7 @@ def _resolve(
         (
             "从上海市人民广场到上海市外滩怎么坐公共交通？",
             "mobility_route",
-            ("route_compare",),
+            ("web_search", "url_read", "route_compare"),
             "auto",
             False,
             False,
@@ -461,7 +461,7 @@ def _resolve(
         (
             "从北京市到上海市怎么去？",
             "mobility_intercity",
-            ("route_compare", "search_flights", "search_trains"),
+            ("web_search", "url_read", "route_compare", "search_flights", "search_trains"),
             "auto",
             True,
             False,
@@ -471,7 +471,7 @@ def _resolve(
         (
             "从北京到上海怎么去？",
             "mobility_intercity",
-            ("route_compare", "search_flights", "search_trains"),
+            ("web_search", "url_read", "route_compare", "search_flights", "search_trains"),
             "auto",
             True,
             False,
@@ -499,7 +499,7 @@ def test_route_matrix(
     assert route.network_boundary_required is expected_network_boundary
     assert route.confidence == expected_confidence
     assert route.reason_codes == expected_reason_codes
-    assert len(route.external_tool_names) <= 3 or route.package_id == "deep_research"
+    assert len(route.external_tool_names) <= 5 or route.package_id == "deep_research"
 
 
 @pytest.mark.parametrize(
@@ -642,7 +642,7 @@ def test_later_explicit_web_authorization_overrides_scoped_description_or_denial
     route = _resolve(message)
 
     assert route.package_id == "fresh_web"
-    assert route.external_tool_names == ("web_search",)
+    assert route.external_tool_names == ("web_search", "url_read")
 
 
 @pytest.mark.parametrize(
@@ -682,7 +682,7 @@ def test_negated_mcp_alias_is_not_treated_as_explicit_authorization():
         (
             "I'm in Beijing and I want to go to Shanghai. It's urgent.",
             "mobility_intercity",
-            ("route_compare", "search_flights", "search_trains"),
+            ("web_search", "url_read", "route_compare", "search_flights", "search_trains"),
         ),
     ],
 )
@@ -703,12 +703,12 @@ def test_ascii_contractions_are_not_mistaken_for_single_quoted_literals(
         (
             "不要联网查旧新闻，但查明天上海天气",
             "weather",
-            ("weather_forecast",),
+            ("web_search", "url_read", "weather_forecast"),
         ),
         (
             "Don't use the internet for news, but find flights from Beijing to Shanghai tomorrow",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
         ),
     ],
 )
@@ -729,17 +729,17 @@ def test_scoped_all_network_denial_does_not_lock_later_product_capability(
         (
             "Don't call web_search for old news; search the web for the latest AI news",
             "fresh_web",
-            ("web_search",),
+            ("web_search", "url_read"),
         ),
         (
             "Do not call url_read for https://example.com/a; read https://example.com/b",
             "url_read",
-            ("url_read",),
+            ("web_search", "url_read"),
         ),
         (
             "Do not call search_flights for old routes; find flights from Beijing to Shanghai tomorrow",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
         ),
     ],
 )
@@ -775,7 +775,7 @@ def test_final_product_tool_denial_prevents_requested_tool_announcement(message)
         (
             "Do not call mcp_unrelated_tool; then call mcp_unrelated_tool",
             "mcp_explicit",
-            ("mcp_unrelated_tool",),
+            ("web_search", "url_read", "mcp_unrelated_tool"),
         ),
         (
             "Call mcp_unrelated_tool; then do not call mcp_unrelated_tool",
@@ -815,12 +815,12 @@ def test_url_read_and_independent_web_action_keep_both_tools(message):
         (
             "How do I get from Beijing to Shanghai by train, not by plane?",
             "train",
-            ("search_trains",),
+            ("web_search", "url_read", "search_trains"),
         ),
         (
             "How do I get from Beijing to Shanghai by car, not by plane?",
             "mobility_route",
-            ("route_compare",),
+            ("web_search", "url_read", "route_compare"),
         ),
     ],
 )
@@ -855,17 +855,17 @@ def test_polite_offline_constraint_still_blocks_external_tools(message):
         (
             'Open "https://example.com/report" and summarize it.',
             "url_read",
-            ("url_read",),
+            ("web_search", "url_read"),
         ),
         (
             "Summarize `https://example.com/report`.",
             "url_read",
-            ("url_read",),
+            ("web_search", "url_read"),
         ),
         (
             "Please call `mcp_unrelated_tool`.",
             "mcp_explicit",
-            ("mcp_unrelated_tool",),
+            ("web_search", "url_read", "mcp_unrelated_tool"),
         ),
     ],
 )
@@ -891,7 +891,7 @@ def test_transform_with_common_explicit_web_action_keeps_search_tool(message):
     route = _resolve(message)
 
     assert route.package_id == "fresh_web"
-    assert route.external_tool_names == ("web_search",)
+    assert route.external_tool_names == ("web_search", "url_read")
 
 
 @pytest.mark.parametrize(
@@ -900,12 +900,12 @@ def test_transform_with_common_explicit_web_action_keeps_search_tool(message):
         (
             "How do I get from Beijing to Shanghai by car, train, or plane?",
             "mixed_itinerary",
-            ("route_compare", "search_flights", "search_trains"),
+            ("web_search", "url_read", "route_compare", "search_flights", "search_trains"),
         ),
         (
             "How do I get from Beijing to Shanghai by train, plane, or air?",
             "travel_air_rail",
-            ("search_flights", "search_trains"),
+            ("web_search", "url_read", "search_flights", "search_trains"),
         ),
     ],
 )
@@ -926,12 +926,12 @@ def test_comma_enumerated_route_modes_preserve_the_full_union(
         (
             "Search the latest AI news; do not search old quantum news.",
             "fresh_web",
-            ("web_search",),
+            ("web_search", "url_read"),
         ),
         (
             "Read https://example.com/b; do not open https://example.com/a.",
             "url_read",
-            ("url_read",),
+            ("web_search", "url_read"),
         ),
     ],
 )
@@ -966,42 +966,42 @@ def test_trailing_network_negation_keeps_stable_knowledge_direct():
         (
             "不要联网搜索，只读取 https://example.com/report",
             "url_read",
-            ("url_read",),
+            ("web_search", "url_read"),
         ),
         (
             "Do not search the web; only read https://example.com/report",
             "url_read",
-            ("url_read",),
+            ("web_search", "url_read"),
         ),
         (
             "不要联网搜索但只读取 https://example.com/report",
             "url_read",
-            ("url_read",),
+            ("web_search", "url_read"),
         ),
         (
             "Do not search the web but only read https://example.com/report",
             "url_read",
-            ("url_read",),
+            ("web_search", "url_read"),
         ),
         (
             "不用打开网页，请联网搜索 OpenAI 最新发布",
             "fresh_web",
-            ("web_search",),
+            ("web_search", "url_read"),
         ),
         (
             "不要打开网页但请联网搜索 OpenAI 最新发布",
             "fresh_web",
-            ("web_search",),
+            ("web_search", "url_read"),
         ),
         (
             "Do not open https://example.com/a; read https://example.com/b",
             "url_read",
-            ("url_read",),
+            ("web_search", "url_read"),
         ),
         (
             "Do not search old news; search the latest AI news",
             "fresh_web",
-            ("web_search",),
+            ("web_search", "url_read"),
         ),
     ],
 )
@@ -1081,14 +1081,14 @@ def test_page_translation_with_url_keeps_url_read_tool(message):
     route = _resolve(message)
 
     assert route.package_id == "url_read"
-    assert route.external_tool_names == ("url_read",)
+    assert route.external_tool_names == ("web_search", "url_read")
 
 
 def test_quoted_translation_with_independent_search_keeps_search_tool():
     route = _resolve('Translate "OpenAI" into Chinese and search the web for its latest announcement')
 
     assert route.package_id == "fresh_web"
-    assert route.external_tool_names == ("web_search",)
+    assert route.external_tool_names == ("web_search", "url_read")
 
 
 @pytest.mark.parametrize(
@@ -1102,7 +1102,7 @@ def test_quoted_translation_with_independent_search_keeps_search_tool():
         (
             'Translate "headline" after reading https://example.com/report.',
             "url_read",
-            ("url_read",),
+            ("web_search", "url_read"),
         ),
         (
             "Translate the words latest news into Chinese.",
@@ -1147,17 +1147,17 @@ def test_english_abstract_from_to_relations_do_not_trigger_routes(message):
         (
             "How do I get from Pudong Airport to Disneyland?",
             "mobility_route",
-            ("route_compare",),
+            ("web_search", "url_read", "route_compare"),
         ),
         (
             "How do I get from Tiananmen to the Forbidden City?",
             "mobility_route",
-            ("route_compare",),
+            ("web_search", "url_read", "route_compare"),
         ),
         (
             "How do I get from Harbin to Beijing?",
             "mobility_intercity",
-            ("route_compare", "search_flights", "search_trains"),
+            ("web_search", "url_read", "route_compare", "search_flights", "search_trains"),
         ),
     ],
 )
@@ -1178,12 +1178,12 @@ def test_english_physical_routes_are_not_swallowed_by_stable_knowledge(
         (
             "How do I get from Beijing to Shanghai by train?",
             "train",
-            ("search_trains",),
+            ("web_search", "url_read", "search_trains"),
         ),
         (
             "How do I get from Beijing to Shanghai by plane?",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
         ),
     ],
 )
@@ -1204,17 +1204,17 @@ def test_english_explicit_travel_mode_uses_only_the_requested_tool(
         (
             "How do I get from Beijing to Shanghai by train or plane?",
             "travel_air_rail",
-            ("search_flights", "search_trains"),
+            ("web_search", "url_read", "search_flights", "search_trains"),
         ),
         (
             "How do I get from Beijing to Shanghai by airplane?",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
         ),
         (
             "How do I get from Beijing to Shanghai by train or bus?",
             "mixed_itinerary",
-            ("route_compare", "search_trains"),
+            ("web_search", "url_read", "route_compare", "search_trains"),
         ),
     ],
 )
@@ -1240,7 +1240,7 @@ def test_local_train_request_uses_route_compare_instead_of_intercity_ticket_sear
     route = _resolve(message)
 
     assert route.package_id == "mobility_route"
-    assert route.external_tool_names == ("route_compare",)
+    assert route.external_tool_names == ("web_search", "url_read", "route_compare")
 
 
 @pytest.mark.parametrize(
@@ -1254,14 +1254,14 @@ def test_intercity_explicit_ground_route_does_not_announce_ticket_tools(message)
     route = _resolve(message)
 
     assert route.package_id == "mobility_route"
-    assert route.external_tool_names == ("route_compare",)
+    assert route.external_tool_names == ("web_search", "url_read", "route_compare")
 
 
 def test_comma_separated_intercity_modes_preserve_flight_and_train_tools():
     route = _resolve("How do I get from Beijing to Shanghai by train, or by plane?")
 
     assert route.package_id == "travel_air_rail"
-    assert route.external_tool_names == ("search_flights", "search_trains")
+    assert route.external_tool_names == ("web_search", "url_read", "search_flights", "search_trains")
 
 
 @pytest.mark.parametrize(
@@ -1270,12 +1270,12 @@ def test_comma_separated_intercity_modes_preserve_flight_and_train_tools():
         (
             "How do I get from Beijing to Shanghai via rail, then by air?",
             "travel_air_rail",
-            ("search_flights", "search_trains"),
+            ("web_search", "url_read", "search_flights", "search_trains"),
         ),
         (
             "How do I get from Beijing to Shanghai by train or coach?",
             "mixed_itinerary",
-            ("route_compare", "search_trains"),
+            ("web_search", "url_read", "route_compare", "search_trains"),
         ),
     ],
 )
@@ -1339,7 +1339,7 @@ def test_unknown_english_from_to_route_requires_clarification_instead_of_direct_
         (
             "把 https://example.com/report 翻译成中文",
             "url_read",
-            ("url_read",),
+            ("web_search", "url_read"),
         ),
         (
             "翻译 OpenAI 今天最新发布的官方公告",
@@ -1349,17 +1349,17 @@ def test_unknown_english_from_to_route_requires_clarification_instead_of_direct_
         (
             "查明天上海天气和上海到北京的机票",
             "mixed_itinerary",
-            ("weather_forecast", "search_flights"),
+            ("web_search", "url_read", "weather_forecast", "search_flights"),
         ),
         (
             "查明天上海天气，并找人民广场附近的咖啡店",
             "mixed_itinerary",
-            ("weather_forecast", "local_place_search"),
+            ("web_search", "url_read", "weather_forecast", "local_place_search"),
         ),
         (
             "规划从上海虹桥站到外滩的公共交通路线，并查明天天气",
             "mixed_itinerary",
-            ("weather_forecast", "route_compare"),
+            ("web_search", "url_read", "weather_forecast", "route_compare"),
         ),
     ],
 )
@@ -1509,7 +1509,7 @@ def test_adjacent_route_result_enables_elliptical_route_followup():
     )
 
     assert route.package_id == "mobility_route"
-    assert route.external_tool_names == ("route_compare",)
+    assert route.external_tool_names == ("web_search", "url_read", "route_compare")
     assert route.effective_plan_mode == "auto"
     assert route.reason_codes == ("adjacent_route_followup",)
 
@@ -1542,11 +1542,7 @@ def test_bare_intercity_relation_with_transport_choice_is_routed():
     route = _resolve("北京到上海哪种方式好？")
 
     assert route.package_id == "mobility_intercity"
-    assert route.external_tool_names == (
-        "route_compare",
-        "search_flights",
-        "search_trains",
-    )
+    assert route.external_tool_names == ("web_search", "url_read", "route_compare", "search_flights", "search_trains")
     assert route.reason_codes == (
         "origin_destination_relation",
         "intercity_locations",
@@ -1565,11 +1561,7 @@ def test_structured_intercity_relation_is_itself_a_mobility_signal(message):
     route = _resolve(message)
 
     assert route.package_id == "mobility_intercity"
-    assert route.external_tool_names == (
-        "route_compare",
-        "search_flights",
-        "search_trains",
-    )
+    assert route.external_tool_names == ("web_search", "url_read", "route_compare", "search_flights", "search_trains")
     assert route.reason_codes == (
         "origin_destination_relation",
         "intercity_locations",
@@ -1616,7 +1608,7 @@ def test_institution_slots_are_valid_when_route_action_is_explicit():
     route = _resolve("从北京大学到上海交通大学哪个路线更快？")
 
     assert route.package_id == "mobility_route"
-    assert route.external_tool_names == ("route_compare",)
+    assert route.external_tool_names == ("web_search", "url_read", "route_compare")
     assert route.reason_codes == ("explicit_route_task",)
 
 
@@ -1634,7 +1626,7 @@ def test_explicit_mobility_accepts_confirmed_physical_endpoint_slots(message):
     route = _resolve(message)
 
     assert route.package_id == "mobility_route"
-    assert route.external_tool_names == ("route_compare",)
+    assert route.external_tool_names == ("web_search", "url_read", "route_compare")
     assert route.reason_codes == ("explicit_route_task",)
 
 
@@ -1675,7 +1667,7 @@ def test_plain_route_request_structure_exposes_route_compare(message):
     route = _resolve(message)
 
     assert route.package_id == "mobility_route"
-    assert route.external_tool_names == ("route_compare",)
+    assert route.external_tool_names == ("web_search", "url_read", "route_compare")
     assert route.reason_codes == ("explicit_route_task",)
 
 
@@ -1729,11 +1721,7 @@ def test_safe_natural_location_slots_keep_structured_intercity_package():
     route = _resolve("从广州南站到深圳北站")
 
     assert route.package_id == "mobility_intercity"
-    assert route.external_tool_names == (
-        "route_compare",
-        "search_flights",
-        "search_trains",
-    )
+    assert route.external_tool_names == ("web_search", "url_read", "route_compare", "search_flights", "search_trains")
 
 
 def test_greeting_prefix_does_not_turn_an_ambiguous_request_into_direct():
@@ -1749,7 +1737,7 @@ def test_tools_are_canonical_and_intersect_available_names():
         available_tool_names=["search_trains", "search_flights", "web_search"],
     )
 
-    assert route.external_tool_names == ("search_flights", "search_trains")
+    assert route.external_tool_names == ("web_search", "search_flights", "search_trains")
 
 
 def test_three_tool_package_keeps_canonical_partial_subsequence():
@@ -1766,11 +1754,7 @@ def test_mixed_itinerary_keeps_only_three_travel_tools():
     route = _resolve("从北京到上海，比较飞机和高铁，并规划落地后的市内接驳路线")
 
     assert route.package_id == "mixed_itinerary"
-    assert route.external_tool_names == (
-        "route_compare",
-        "search_flights",
-        "search_trains",
-    )
+    assert route.external_tool_names == ("web_search", "url_read", "route_compare", "search_flights", "search_trains")
     assert route.effective_plan_mode == "auto"
     assert route.reason_codes == ("mixed_itinerary_request",)
 
@@ -1853,7 +1837,7 @@ def test_url_path_words_do_not_synthesize_an_independent_web_search(message):
     route = _resolve(message)
 
     assert route.package_id == "url_read"
-    assert route.external_tool_names == ("url_read",)
+    assert route.external_tool_names == ("web_search", "url_read")
 
 
 @pytest.mark.parametrize(
@@ -1862,37 +1846,37 @@ def test_url_path_words_do_not_synthesize_an_independent_web_search(message):
         (
             "How do I get from Beijing to Shanghai, not by train, but by plane?",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
         ),
         (
             "How do I get from Beijing to Shanghai by train or plane, but not by plane?",
             "train",
-            ("search_trains",),
+            ("web_search", "url_read", "search_trains"),
         ),
         (
             "How do I get from Beijing to Shanghai by car, train, or plane, but not by plane?",
             "mixed_itinerary",
-            ("route_compare", "search_trains"),
+            ("web_search", "url_read", "route_compare", "search_trains"),
         ),
         (
             "How do I get from Beijing to Shanghai by train rather than plane?",
             "train",
-            ("search_trains",),
+            ("web_search", "url_read", "search_trains"),
         ),
         (
             "How do I get from Beijing to Shanghai by car instead of train or plane?",
             "mobility_route",
-            ("route_compare",),
+            ("web_search", "url_read", "route_compare"),
         ),
         (
             "How do I get from Beijing to Shanghai by car, not train or plane?",
             "mobility_route",
-            ("route_compare",),
+            ("web_search", "url_read", "route_compare"),
         ),
         (
             "How do I get from Beijing to Shanghai by car or train, but not train?",
             "mobility_route",
-            ("route_compare",),
+            ("web_search", "url_read", "route_compare"),
         ),
     ],
 )
@@ -1918,7 +1902,7 @@ def test_explicit_positive_product_tool_directive_authorizes_that_product(messag
     route = _resolve(message)
 
     assert route.package_id == "flight"
-    assert route.external_tool_names == ("search_flights",)
+    assert route.external_tool_names == ("web_search", "url_read", "search_flights")
 
 
 @pytest.mark.parametrize(
@@ -1932,7 +1916,7 @@ def test_scoped_product_denial_does_not_cancel_prior_positive_request(message):
     route = _resolve(message)
 
     assert route.package_id == "flight"
-    assert route.external_tool_names == ("search_flights",)
+    assert route.external_tool_names == ("web_search", "url_read", "search_flights")
 
 
 @pytest.mark.parametrize(
@@ -1941,12 +1925,12 @@ def test_scoped_product_denial_does_not_cancel_prior_positive_request(message):
         (
             "Search the latest AI news and do not search old quantum news",
             "fresh_web",
-            ("web_search",),
+            ("web_search", "url_read"),
         ),
         (
             "Read https://example.com/b and do not open https://example.com/a",
             "url_read",
-            ("url_read",),
+            ("web_search", "url_read"),
         ),
     ],
 )
@@ -1997,12 +1981,12 @@ def test_mcp_last_denial_syntax_variants_remove_alias(message):
         (
             'Translate "OpenAI" and do a quick web search for context.',
             "fresh_web",
-            ("web_search",),
+            ("web_search", "url_read"),
         ),
         (
             'Translate "OpenAI" and browse online for context.',
             "fresh_web",
-            ("web_search",),
+            ("web_search", "url_read"),
         ),
         (
             "Summarize https://example.com/report and do a quick web search for updates",
@@ -2028,7 +2012,7 @@ def test_product_alias_scope_events_do_not_crash_real_route_resolution():
     )
 
     assert route.package_id == "flight"
-    assert route.external_tool_names == ("search_flights",)
+    assert route.external_tool_names == ("web_search", "url_read", "search_flights")
 
 
 @pytest.mark.parametrize(
@@ -2124,32 +2108,32 @@ def test_url_delimiters_do_not_swallow_independent_web_action(message):
         (
             "How do I get from Beijing to Shanghai by car with air conditioning?",
             "mobility_route",
-            ("route_compare",),
+            ("web_search", "url_read", "route_compare"),
         ),
         (
             "How do I get from Beijing to Shanghai by railway with air conditioning?",
             "train",
-            ("search_trains",),
+            ("web_search", "url_read", "search_trains"),
         ),
         (
             "How do I get from Beijing to Shanghai by not only train but also plane?",
             "travel_air_rail",
-            ("search_flights", "search_trains"),
+            ("web_search", "url_read", "search_flights", "search_trains"),
         ),
         (
             "How do I get from Beijing to Shanghai by train, no stops, or plane?",
             "travel_air_rail",
-            ("search_flights", "search_trains"),
+            ("web_search", "url_read", "search_flights", "search_trains"),
         ),
         (
             "How do I get from Beijing to Shanghai by train as opposed to plane?",
             "train",
-            ("search_trains",),
+            ("web_search", "url_read", "search_trains"),
         ),
         (
             "How do I get from Beijing to Shanghai by car, avoiding train and plane?",
             "mobility_route",
-            ("route_compare",),
+            ("web_search", "url_read", "route_compare"),
         ),
     ],
 )
@@ -2175,7 +2159,7 @@ def test_route_mode_lexemes_and_negative_scope_do_not_over_authorize(
         (
             "Call search_flights for tomorrow; do not call search_flights for old routes.",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
         ),
     ],
 )
@@ -2194,7 +2178,7 @@ def test_mcp_alias_allows_the_tool_filler_between_action_and_alias():
     route = _resolve("Call the tool `mcp_unrelated_tool`.")
 
     assert route.package_id == "mcp_explicit"
-    assert route.external_tool_names == ("mcp_unrelated_tool",)
+    assert route.external_tool_names == ("web_search", "url_read", "mcp_unrelated_tool")
 
 
 @pytest.mark.parametrize(
@@ -2218,7 +2202,7 @@ def test_mcp_alias_allows_the_tool_filler_between_action_and_alias():
         (
             "Read https://example.com/report and do not cross-check it with official sources",
             "url_read",
-            ("url_read",),
+            ("web_search", "url_read"),
         ),
     ],
 )
@@ -2237,7 +2221,7 @@ def test_browse_the_internet_is_an_explicit_web_action_for_transform():
     route = _resolve('Translate "OpenAI" and browse the internet for context')
 
     assert route.package_id == "fresh_web"
-    assert route.external_tool_names == ("web_search",)
+    assert route.external_tool_names == ("web_search", "url_read")
 
 
 @pytest.mark.parametrize(
@@ -2266,7 +2250,7 @@ def test_negated_natural_product_actions_do_not_announce_product_tools(message):
         (
             "How do I get from Beijing to Shanghai by car while monitoring air quality?",
             "mobility_route",
-            ("route_compare",),
+            ("web_search", "url_read", "route_compare"),
         ),
         (
             "Avoid giving directions from Beijing to Shanghai",
@@ -2286,12 +2270,12 @@ def test_negated_natural_product_actions_do_not_announce_product_tools(message):
         (
             "Read https://example.com/report and do not cross check it with official sources",
             "url_read",
-            ("url_read",),
+            ("web_search", "url_read"),
         ),
         (
             "Read https://example.com/report?lang=en&v=2",
             "url_read",
-            ("url_read",),
+            ("web_search", "url_read"),
         ),
     ],
 )
@@ -2377,7 +2361,7 @@ def test_air_conditioned_car_does_not_authorize_flight_search(message):
     route = _resolve(message)
 
     assert route.package_id == "mobility_route"
-    assert route.external_tool_names == ("route_compare",)
+    assert route.external_tool_names == ("web_search", "url_read", "route_compare")
 
 
 @pytest.mark.parametrize(
@@ -2386,32 +2370,32 @@ def test_air_conditioned_car_does_not_authorize_flight_search(message):
         (
             "How do I get from Beijing to Shanghai by train, excluding plane, and car?",
             "train",
-            ("search_trains",),
+            ("web_search", "url_read", "search_trains"),
         ),
         (
             "How do I get from Beijing to Shanghai by train, other than plane, and car?",
             "train",
-            ("search_trains",),
+            ("web_search", "url_read", "search_trains"),
         ),
         (
             "How do I get from Beijing to Shanghai by train, other than plane?",
             "train",
-            ("search_trains",),
+            ("web_search", "url_read", "search_trains"),
         ),
         (
             "How do I get from Beijing to Shanghai by car, excluding train and plane?",
             "mobility_route",
-            ("route_compare",),
+            ("web_search", "url_read", "route_compare"),
         ),
         (
             "How do I get from Beijing to Shanghai by train or plane, with plane excluded?",
             "train",
-            ("search_trains",),
+            ("web_search", "url_read", "search_trains"),
         ),
         (
             "How do I get from Beijing to Shanghai by car, skipping train and plane?",
             "mobility_route",
-            ("route_compare",),
+            ("web_search", "url_read", "route_compare"),
         ),
     ],
 )
@@ -2430,7 +2414,7 @@ def test_mcp_alias_allows_mcp_tool_filler():
     route = _resolve("Call the MCP tool `mcp_unrelated_tool`.")
 
     assert route.package_id == "mcp_explicit"
-    assert route.external_tool_names == ("mcp_unrelated_tool",)
+    assert route.external_tool_names == ("web_search", "url_read", "mcp_unrelated_tool")
 
 
 @pytest.mark.parametrize(
@@ -2439,17 +2423,17 @@ def test_mcp_alias_allows_mcp_tool_filler():
         (
             "Don't use the internet. Actually, search the web for the latest OpenAI news",
             "fresh_web",
-            ("web_search",),
+            ("web_search", "url_read"),
         ),
         (
             "Do not call web_search; then call web_search for OpenAI background",
             "fresh_web",
-            ("web_search",),
+            ("web_search", "url_read"),
         ),
         (
             "Do not call url_read; then call url_read for https://example.com/report",
             "url_read",
-            ("url_read",),
+            ("web_search", "url_read"),
         ),
     ],
 )
@@ -2488,22 +2472,22 @@ def test_avoid_refrain_and_consult_denials_block_network_tools(message):
         (
             "Not only find flights from Beijing to Shanghai tomorrow, but also find trains.",
             "travel_air_rail",
-            ("search_flights", "search_trains"),
+            ("web_search", "url_read", "search_flights", "search_trains"),
         ),
         (
             "Don't forget to find flights from Beijing to Shanghai tomorrow.",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
         ),
         (
             "Do not just find flights from Beijing to Shanghai tomorrow; also compare trains.",
             "travel_air_rail",
-            ("search_flights", "search_trains"),
+            ("web_search", "url_read", "search_flights", "search_trains"),
         ),
         (
             "Don't only look for restaurants near People's Square; also check weather.",
             "mixed_itinerary",
-            ("weather_forecast", "local_place_search"),
+            ("web_search", "url_read", "weather_forecast", "local_place_search"),
         ),
     ],
 )
@@ -2544,14 +2528,14 @@ def test_search_inside_provided_page_does_not_add_public_web_search(message):
     route = _resolve(message)
 
     assert route.package_id == "url_read"
-    assert route.external_tool_names == ("url_read",)
+    assert route.external_tool_names == ("web_search", "url_read")
 
 
 def test_browse_public_web_is_an_explicit_web_action_for_transform():
     route = _resolve('Translate "OpenAI" and browse the public web for context')
 
     assert route.package_id == "fresh_web"
-    assert route.external_tool_names == ("web_search",)
+    assert route.external_tool_names == ("web_search", "url_read")
 
 
 @pytest.mark.parametrize(
@@ -2581,7 +2565,7 @@ def test_page_local_search_pronouns_and_chinese_do_not_add_public_web(message):
     route = _resolve(message)
 
     assert route.package_id == "url_read"
-    assert route.external_tool_names == ("url_read",)
+    assert route.external_tool_names == ("web_search", "url_read")
 
 
 @pytest.mark.parametrize(
@@ -2604,17 +2588,17 @@ def test_direct_official_source_denial_blocks_verified_tools(message):
         (
             "Not merely find flights from Beijing to Shanghai tomorrow; also compare trains.",
             "travel_air_rail",
-            ("search_flights", "search_trains"),
+            ("web_search", "url_read", "search_flights", "search_trains"),
         ),
         (
             "Don't simply look for restaurants near People's Square; also check weather.",
             "mixed_itinerary",
-            ("weather_forecast", "local_place_search"),
+            ("web_search", "url_read", "weather_forecast", "local_place_search"),
         ),
         (
             "Do not fail to find flights from Beijing to Shanghai tomorrow.",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
         ),
     ],
 )
@@ -2641,7 +2625,7 @@ def test_coordinated_mode_exclusion_lists_keep_only_allowed_route_mode(message):
     route = _resolve(message)
 
     assert route.package_id == "mobility_route"
-    assert route.external_tool_names == ("route_compare",)
+    assert route.external_tool_names == ("web_search", "url_read", "route_compare")
 
 
 @pytest.mark.parametrize(
@@ -2680,7 +2664,7 @@ def test_chinese_builtin_web_directive_reauthorizes_generic_network_denial():
     route = _resolve("不要联网；但调用 web_search 搜索最新 OpenAI 新闻。")
 
     assert route.package_id == "fresh_web"
-    assert route.external_tool_names == ("web_search",)
+    assert route.external_tool_names == ("web_search", "url_read")
 
 
 @pytest.mark.parametrize(
@@ -2710,7 +2694,7 @@ def test_freshness_words_inside_legal_url_query_do_not_add_public_web_search(mes
     route = _resolve(message)
 
     assert route.package_id == "url_read"
-    assert route.external_tool_names == ("url_read",)
+    assert route.external_tool_names == ("web_search", "url_read")
 
 
 @pytest.mark.parametrize(
@@ -2724,7 +2708,7 @@ def test_air_quality_phrases_do_not_authorize_flight_search(message):
     route = _resolve(message)
 
     assert route.package_id == "mobility_route"
-    assert route.external_tool_names == ("route_compare",)
+    assert route.external_tool_names == ("web_search", "url_read", "route_compare")
 
 
 @pytest.mark.parametrize(
@@ -2733,37 +2717,37 @@ def test_air_quality_phrases_do_not_authorize_flight_search(message):
         (
             "How do I get from Beijing to Shanghai, excluding plane, by train and car?",
             "mixed_itinerary",
-            ("route_compare", "search_trains"),
+            ("web_search", "url_read", "route_compare", "search_trains"),
         ),
         (
             "How do I get from Beijing to Shanghai by train, with plane not allowed?",
             "train",
-            ("search_trains",),
+            ("web_search", "url_read", "search_trains"),
         ),
         (
             "How do I get from Beijing to Shanghai by train, with plane prohibited?",
             "train",
-            ("search_trains",),
+            ("web_search", "url_read", "search_trains"),
         ),
         (
             "How do I get from Beijing to Shanghai by train, except for plane?",
             "train",
-            ("search_trains",),
+            ("web_search", "url_read", "search_trains"),
         ),
         (
             "How do I get from Beijing to Shanghai by train, excluding any plane?",
             "train",
-            ("search_trains",),
+            ("web_search", "url_read", "search_trains"),
         ),
         (
             "How do I get from Beijing to Shanghai by train, avoiding all flights?",
             "train",
-            ("search_trains",),
+            ("web_search", "url_read", "search_trains"),
         ),
         (
             "How do I get from Beijing to Shanghai by train or plane, with plane (excluded)?",
             "train",
-            ("search_trains",),
+            ("web_search", "url_read", "search_trains"),
         ),
     ],
 )
@@ -2784,17 +2768,17 @@ def test_route_mode_exclusion_modifiers_and_postfixes_remove_denied_modes(
         (
             "Exclude overnight flights from Beijing to Shanghai and show daytime options.",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
         ),
         (
             "No nonstop flights from Beijing to Shanghai; show connecting options.",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
         ),
         (
             "Skip overnight trains from Beijing to Shanghai; show daytime options.",
             "train",
-            ("search_trains",),
+            ("web_search", "url_read", "search_trains"),
         ),
     ],
 )
@@ -2834,7 +2818,7 @@ def test_more_page_local_pronouns_do_not_add_public_web_search(message):
     route = _resolve(message)
 
     assert route.package_id == "url_read"
-    assert route.external_tool_names == ("url_read",)
+    assert route.external_tool_names == ("web_search", "url_read")
 
 
 @pytest.mark.parametrize(
@@ -2914,7 +2898,7 @@ def test_source_definition_questions_remain_direct(message):
         (
             "What is a current price for Bitcoin right now, in USD?",
             "fresh_web",
-            ("web_search",),
+            ("web_search", "url_read"),
         ),
     ],
 )
@@ -2952,7 +2936,7 @@ def test_definition_questions_with_domain_or_explanation_qualifiers_remain_direc
         (
             "What is a current price in USD for Bitcoin right now?",
             "fresh_web",
-            ("web_search",),
+            ("web_search", "url_read"),
         ),
         (
             "What is an official source in journalism for OpenAI's latest announcement?",
@@ -2979,17 +2963,17 @@ def test_definition_domain_tail_cannot_absorb_a_following_external_query(
         (
             "Do not execute web_search; then execute web_search to search the latest AI news.",
             "fresh_web",
-            ("web_search",),
+            ("web_search", "url_read"),
         ),
         (
             "Do not execute url_read; then execute url_read to read https://example.com/report.",
             "url_read",
-            ("url_read",),
+            ("web_search", "url_read"),
         ),
         (
             "查询北京到上海的航班；禁止调用 search_flights；随后调用 search_flights 查询北京到上海的航班。",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
         ),
     ],
 )
@@ -3011,7 +2995,7 @@ def test_final_explicit_reauthorization_wins_after_hard_tool_denial(
         (
             "What is a weather forecast in Shanghai this evening?",
             "weather",
-            ("weather_forecast",),
+            ("web_search", "url_read", "weather_forecast"),
         ),
     ],
 )
@@ -3052,7 +3036,7 @@ def test_final_natural_reauthorization_accepts_common_sequence_markers(message):
     route = _resolve(message)
 
     assert route.package_id == "fresh_web"
-    assert route.external_tool_names == ("web_search",)
+    assert route.external_tool_names == ("web_search", "url_read")
 
 
 @pytest.mark.parametrize(
@@ -3066,7 +3050,7 @@ def test_definition_noun_type_cannot_absorb_news_or_asset_queries(message):
     route = _resolve(message)
 
     assert route.package_id == "fresh_web"
-    assert route.external_tool_names == ("web_search",)
+    assert route.external_tool_names == ("web_search", "url_read")
 
 
 @pytest.mark.parametrize(
@@ -3121,102 +3105,102 @@ def test_product_requests_do_not_cross_comma_or_colon_into_final_denial(message)
         (
             "不要查询航班——随后查询北京到上海的航班。",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
         ),
         (
             "Flights from Paris–Charles de Gaulle to New York tomorrow.",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
         ),
         (
             "不要查询航班 — 随后查询北京到上海的航班。",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
         ),
         (
             "不要查询高铁 — 随后查询北京到上海的高铁。",
             "train",
-            ("search_trains",),
+            ("web_search", "url_read", "search_trains"),
         ),
         (
             "不要查询航班随后查询北京到上海的航班。",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
         ),
         (
             "Do not find flights——find flights from Beijing to Shanghai tomorrow.",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
         ),
         (
             "不要查询航班：随后查询北京到上海的航班。",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
         ),
         (
             "不要查询高铁:随后查询北京到上海的高铁。",
             "train",
-            ("search_trains",),
+            ("web_search", "url_read", "search_trains"),
         ),
         (
             "不要查询北京到上海的航班随后查询广州到深圳的航班。",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
         ),
         (
             "不要查询北京到上海的航班价格随后查询广州到深圳的航班。",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
         ),
         (
             "不要查询上海天气结果随后查询北京明天天气。",
             "weather",
-            ("weather_forecast",),
+            ("web_search", "url_read", "weather_forecast"),
         ),
         (
             "Do not check weather; then check weather in Shanghai tomorrow.",
             "weather",
-            ("weather_forecast",),
+            ("web_search", "url_read", "weather_forecast"),
         ),
         (
             "Book later flights tomorrow.",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
         ),
         (
             "Show later trains tomorrow.",
             "train",
-            ("search_trains",),
+            ("web_search", "url_read", "search_trains"),
         ),
         (
             "Do not show route from City Hall to Downtown; then show route from City Hall to Downtown.",
             "mobility_route",
-            ("route_compare",),
+            ("web_search", "url_read", "route_compare"),
         ),
         (
             "不要给出从故宫到颐和园的路线随后给出从故宫到颐和园的路线。",
             "mobility_route",
-            ("route_compare",),
+            ("web_search", "url_read", "route_compare"),
         ),
         (
             "不要给出从故宫到颐和园的路线随后查询从故宫到颐和园的路线。",
             "mobility_route",
-            ("route_compare",),
+            ("web_search", "url_read", "route_compare"),
         ),
         (
             "Do not find flights then find flights from Beijing to Shanghai tomorrow.",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
         ),
         (
             "Do not check weather then check weather in Shanghai tomorrow.",
             "weather",
-            ("weather_forecast",),
+            ("web_search", "url_read", "weather_forecast"),
         ),
         (
             "不要找咖啡店随后找人民广场附近的咖啡店。",
             "place_discovery",
-            ("local_place_search",),
+            ("web_search", "url_read", "local_place_search"),
         ),
     ],
 )
@@ -3235,7 +3219,7 @@ def test_final_query_reauthorization_restores_web_search():
     route = _resolve("不要查询最新 AI 新闻；随后查询最新 AI 新闻。")
 
     assert route.package_id == "fresh_web"
-    assert route.external_tool_names == ("web_search",)
+    assert route.external_tool_names == ("web_search", "url_read")
 
 
 @pytest.mark.parametrize(
@@ -3275,7 +3259,7 @@ def test_chinese_product_contrast_boundary_preserves_final_positive_request(mess
     route = _resolve(message)
 
     assert route.package_id == "weather"
-    assert route.external_tool_names == ("weather_forecast",)
+    assert route.external_tool_names == ("web_search", "url_read", "weather_forecast")
 
 
 def test_exact_authorized_mcp_alias_can_select_only_that_tool():
@@ -3285,7 +3269,7 @@ def test_exact_authorized_mcp_alias_can_select_only_that_tool():
     )
 
     assert route.package_id == "mcp_explicit"
-    assert route.external_tool_names == ("mcp_unrelated_tool",)
+    assert route.external_tool_names == ("web_search", "url_read", "mcp_unrelated_tool")
     assert route.effective_plan_mode == "off"
     assert route.reason_codes == ("explicit_authorized_tool_alias",)
 
@@ -3317,12 +3301,12 @@ def test_serialization_only_contains_safe_protocol_fields():
 
     assert payload == {
         "schema_version": 2,
-        "router_version": "2026-09-04.1",
+        "router_version": "2026-09-07.1",
         "package_id": "mobility_intercity",
         "confidence": "medium",
         "resolution_mode": "routed",
         "reason_codes": ["origin_destination_relation", "intercity_locations"],
-        "external_tool_names": ["route_compare", "search_flights", "search_trains"],
+        "external_tool_names": ["web_search", "url_read", "route_compare", "search_flights", "search_trains"],
         "effective_plan_mode": "auto",
         "include_current_date": True,
         "network_boundary_required": False,
@@ -3430,14 +3414,14 @@ def test_cities_outside_the_old_whitelist_no_longer_fall_into_clarification(mess
     route = _resolve(message)
 
     assert route.package_id == package_id
-    assert route.external_tool_names == ("route_compare", "search_flights", "search_trains")
+    assert route.external_tool_names == ("web_search", "url_read", "route_compare", "search_flights", "search_trains")
 
 
 def test_same_city_hub_to_landmark_stays_a_local_route():
     route = _resolve("从上海虹桥站到外滩怎么坐公共交通？")
 
     assert route.package_id == "mobility_route"
-    assert route.external_tool_names == ("route_compare",)
+    assert route.external_tool_names == ("web_search", "url_read", "route_compare")
 
 
 def test_english_and_chinese_city_pairs_resolve_to_the_same_package():
@@ -3483,7 +3467,7 @@ def test_capability_classifier_is_replaceable_without_touching_the_skeleton():
     assert calls[0]["message"] == "随便说点什么"
     # 契约校验、工具派生、指纹与 Skill 终态仍由骨架完成。
     assert resolution.package_id == "weather"
-    assert resolution.external_tool_names == ("weather_forecast",)
+    assert resolution.external_tool_names == ("web_search", "url_read", "weather_forecast")
     assert resolution.resolution_mode == "routed"
     assert resolution.include_current_date is True
     assert resolution.skill_resolution is not None
@@ -3591,27 +3575,27 @@ def test_literal_layer_defers_non_literal_requests():
         (
             "请调用 mcp_unrelated_tool 处理数据，然后查明天北京天气",
             "weather",
-            ("weather_forecast",),
+            ("web_search", "url_read", "weather_forecast"),
         ),
         (
             "请调用mcp_unrelated_tool处理数据然后找上海附近咖啡店",
             "place_discovery",
-            ("local_place_search",),
+            ("web_search", "url_read", "local_place_search"),
         ),
         (
             "Call mcp_unrelated_tool to process data then find flights from Beijing to Shanghai tomorrow",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
         ),
         (
             "Call mcp_unrelated_tool and find flights from Beijing to Shanghai tomorrow",
             "flight",
-            ("search_flights",),
+            ("web_search", "url_read", "search_flights"),
         ),
         (
             "请调用 mcp_unrelated_tool 处理数据并查明天北京天气",
             "weather",
-            ("weather_forecast",),
+            ("web_search", "url_read", "weather_forecast"),
         ),
     ],
 )
@@ -3734,7 +3718,7 @@ def test_literal_mcp_alias_keeps_single_parameter_with_product_words(message):
     assert literal_route is not None
     assert literal_route.package_id == "mcp_explicit"
     assert resolution.package_id == "mcp_explicit"
-    assert resolution.external_tool_names == ("mcp_unrelated_tool",)
+    assert resolution.external_tool_names == ("web_search", "url_read", "mcp_unrelated_tool")
     assert model_route.package_id == "mcp_explicit"
     completion.assert_not_called()
 
@@ -3908,7 +3892,7 @@ def test_unknown_endpoints_take_the_non_forcing_route_package(message):
     route = _resolve(message)
 
     assert route.package_id == "mobility_route"
-    assert route.external_tool_names == ("route_compare",)
+    assert route.external_tool_names == ("web_search", "url_read", "route_compare")
     assert route.confidence == "medium"
 
 

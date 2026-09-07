@@ -950,6 +950,29 @@ class McpAgentToolHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(handler.validate_arguments([]), [{"field": "$", "code": "type"}])
         self.assertEqual(client.calls, [])
 
+    async def test_provider_error_details_reach_failed_result_and_untrusted_observation(self):
+        handler = self.build_handler(
+            build_row(),
+            FakeClientManager(
+                error=McpClientError(
+                    "tool_error",
+                    "工具失败",
+                    safe_details={
+                        "upstream_message": "API 调用失败：UNKNOWN_ERROR <untrusted>",
+                        "truncated": True,
+                    },
+                )
+            ),
+        )
+        result = await handler.execute({"query": "天气"})
+        self.assertEqual(result.data["error_code"], "tool_error")
+        self.assertIn("UNKNOWN_ERROR", result.data["error_details"]["upstream_message"])
+        self.assertTrue(result.data["error_details"]["truncated"])
+        context = handler.format_llm_context(result)
+        self.assertIn("tool_error", context)
+        self.assertIn("UNKNOWN_ERROR", context)
+        self.assertNotIn("<untrusted>", context)
+
     async def test_projects_required_remote_error_only_when_announced_field_is_actually_missing(self):
         row = build_row()
         client = FakeClientManager(
