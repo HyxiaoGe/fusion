@@ -62,6 +62,14 @@
 - 已有验收报告中的慢响应、失败模型或质量风险进入产品策略调整。
 - 知识库、项目空间等新方向，但必须先做现状确认和计划。
 
+## 2026-09-07 Agent loop 首批 dev 发布（已部署，登录态交互待验收）
+
+- 用户明确授权发布；PR [#49](https://github.com/HyxiaoGe/fusion/pull/49) 合入 master，部署 SHA `11906526a49907e70b8c0133342b5524e2c57faf`。
+- PR CI [34071451174](https://github.com/HyxiaoGe/fusion/actions/runs/34071451174)、master CI [34071945145](https://github.com/HyxiaoGe/fusion/actions/runs/34071945145)、dev API → UI [34071945449](https://github.com/HyxiaoGe/fusion/actions/runs/34071945449) 均 success；前后端部署于北京时间 2026-09-07 09:17:21 完成。
+- 独立核对 API/UI accepted SHA、容器 image ID/digest 均匹配；服务运行中且重启数均为 0；API healthy、数据库/Redis connected，UI/chat/new HTTP200，公网页面引用的 JS 已包含新归因界面。
+- 用户 Chrome 标签最初被其他任务占用，最后复查时 Mac 锁屏。未进行登录态新对话、轨迹交互、刷新恢复及用户浏览器 network/console 验收；部署冒烟和静态资源检查不替代该验收。
+- [发布记录与查看方式](reports/backend/2026-09-07-agent-loop-dev-release.md)。下面的本地实现记录保留为发布前历史阶段。
+
 ## 2026-09-07 Agent loop 可靠终止与输出归因（本地实现与自动化验证）
 
 - 从删除 PromptHub 的 `ba6e108a` 建立隔离分支 `codex/agent-loop-reliability`。保留本地 prompt、自实现循环和既有产品策略，不引入框架、数据库迁移或新观测服务。
