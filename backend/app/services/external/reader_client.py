@@ -25,6 +25,8 @@ class UrlReadResult:
     content_length: int
     fetch_ms: int
     attempts: int = 1
+    published_at: str | None = None
+    site_name: str | None = None
 
 
 @dataclass
@@ -54,6 +56,8 @@ def _build_result(data: dict) -> UrlReadResult:
         title=data.get("title"),
         content=data["content"],
         favicon=data.get("favicon"),
+        published_at=data.get("published_at"),
+        site_name=data.get("site_name"),
         content_length=data.get("content_length", 0),
         fetch_ms=data.get("fetch_ms", 0),
         attempts=_bounded_int(data.get("attempts"), default=1, minimum=1, maximum=10),

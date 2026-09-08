@@ -359,6 +359,7 @@ async def call_limit_summary_round(
         message_id=request.assistant_message_id,
         detail_scheduler=request.llm_round_detail_scheduler,
         system_prompt_fingerprint=fingerprint_system_messages(to_provider_messages(effective_messages)),
+        context_visibility=context_plan.tool_visibility(finalized_messages),
     )
     observation.start()
     detail_partial_output = partial_output if partial_output is not None else {}

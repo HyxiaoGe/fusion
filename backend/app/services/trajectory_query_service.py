@@ -20,6 +20,7 @@ from app.schemas.trajectory import (
     SystemPromptSnapshot,
     ToolDetailSnapshot,
     ToolNodeDetail,
+    ToolObservation,
     TrajectoryCapabilityResolution,
     TrajectoryCompleteness,
     TrajectoryEventRecord,
@@ -33,7 +34,7 @@ from app.schemas.trajectory import (
 )
 from app.services.admin_audit_sanitizer import sanitize_admin_value
 from app.services.admin_audit_service import AdminAuditService
-from app.services.agent.trajectory_payload import sanitize_output_provenance
+from app.services.agent.trajectory_payload import sanitize_context_visibility, sanitize_output_provenance
 from app.services.agent.trajectory_projector import project_trajectory
 from app.services.agent.trajectory_reconciliation import (
     resolve_ledger_watermark,
@@ -370,6 +371,14 @@ class TrajectoryQueryService:
                 available_sections=sections,
                 detail=LlmNodeDetail(
                     llm_round_id=llm_round_id,
+                    context_visibility=next(
+                        (
+                            sanitize_context_visibility(event.payload.get("context_visibility"))
+                            for event in lifecycle
+                            if event.event_type == "llm_round_started"
+                        ),
+                        None,
+                    ),
                     reasoning_text=detail.reasoning_text,
                     output_text=detail.content_text,
                     output_provenance=next(
@@ -438,6 +447,19 @@ class TrajectoryQueryService:
 
     @staticmethod
     def _available_tool_detail(tool_call_id: str, tool) -> TrajectoryNodeDetailResponse:
+        response = TrajectoryQueryService._available_tool_result(tool_call_id, tool)
+        if isinstance(response.detail, ToolNodeDetail):
+            metadata = tool.extra_metadata if isinstance(tool.extra_metadata, dict) else {}
+            try:
+                response.detail.observation = ToolObservation.model_validate(
+                    metadata.get("tool_observation", {"status": "not_recorded"})
+                )
+            except ValidationError:
+                response.detail.observation = ToolObservation(status="capture_failed")
+        return response
+
+    @staticmethod
+    def _available_tool_result(tool_call_id: str, tool) -> TrajectoryNodeDetailResponse:
         metadata = tool.extra_metadata if isinstance(tool.extra_metadata, dict) else {}
         if "trajectory_detail" in metadata:
             return TrajectoryQueryService._captured_tool_detail(tool_call_id, tool, metadata["trajectory_detail"])

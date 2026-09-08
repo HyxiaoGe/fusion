@@ -351,6 +351,18 @@ class TrajectoryApiTests(unittest.TestCase):
     def test_llm_node_detail_endpoint_returns_exact_visible_text_and_uniform_404(self):
         from app.db.models import AgentEvent, AgentLlmRoundDetail, RunTrajectoryMeta
 
+        visibility = {
+            "schema_version": 1,
+            "scope": "application_messages_after_context_management",
+            "context_status": "trimmed",
+            "before_tool_call_ids": ["old", "visible"],
+            "visible_tool_call_ids": ["visible"],
+            "removed_tool_call_ids": ["old"],
+            "before_count": 2,
+            "visible_count": 1,
+            "removed_count": 1,
+            "truncated": False,
+        }
         self._add_run("run-llm-detail")
         meta = self.db.get(RunTrajectoryMeta, "run-llm-detail")
         meta.llm_detail_schema_version = 1
@@ -365,7 +377,7 @@ class TrajectoryApiTests(unittest.TestCase):
                     schema_version=1,
                     event_ts=self.now,
                     step_id="step-1",
-                    payload={"llm_round_id": "round-exact", "round_index": 1},
+                    payload={"llm_round_id": "round-exact", "round_index": 1, "context_visibility": visibility},
                 ),
                 AgentEvent(
                     conversation_id="conv-1",
@@ -403,9 +415,48 @@ class TrajectoryApiTests(unittest.TestCase):
         self.assertEqual(data["node_type"], "llm")
         self.assertEqual(data["detail"]["reasoning_text"], "模型显式推理")
         self.assertEqual(data["detail"]["output_text"], "模型输出")
+        self.assertEqual(data["detail"]["context_visibility"], visibility)
         for response in (wrong_node, cross_user):
             self.assertEqual(response.status_code, 404)
             self.assertEqual(response.json()["message"], "会话或轨迹不存在，或无权访问")
+
+    def test_tool_observation_reload_preserves_safe_text_and_historical_status(self):
+        from unittest.mock import patch
+
+        from app.db.models import ToolCallLog
+        from app.services.agent_logger import attach_tool_observation
+        from app.services.tool_detail_snapshot import build_tool_observation_snapshot
+
+        self._add_run("run-observation")
+        self._add_run("run-observation-old")
+        self._add_run("run-observation-other", conversation_id="conv-2", user_id="user-2")
+        row = self.db.query(ToolCallLog).filter_by(trace_id="run-observation").one()
+        snapshot = build_tool_observation_snapshot(
+            "实际反馈 [8] token=private-secret " + "业务正文" * 40000, step_number=2
+        )
+        with patch("app.services.agent_logger.SessionLocal", self.Session):
+            attach_tool_observation(
+                log_id=row.id, run_id="run-observation", tool_call_id="call-run-observation", observation=snapshot
+            )
+        for _ in range(2):
+            self.db.expire_all()
+            response = self.client.get(
+                "/api/conversations/conv-1/runs/run-observation/node-detail/tool/call-run-observation"
+            )
+            self.assertEqual(response.status_code, 200)
+            captured = response.json()["data"]["detail"]["observation"]
+            self.assertEqual(captured["status"], "available")
+            self.assertIn("实际反馈 [8]", captured["text"])
+            self.assertEqual(captured["truncated_fields"], ["observation"])
+            self.assertNotIn("private-secret", response.text)
+        old = self.client.get(
+            "/api/conversations/conv-1/runs/run-observation-old/node-detail/tool/call-run-observation-old"
+        )
+        self.assertEqual(old.json()["data"]["detail"]["observation"]["status"], "not_recorded")
+        denied = self.client.get(
+            "/api/conversations/conv-2/runs/run-observation-other/node-detail/tool/call-run-observation-other"
+        )
+        self.assertEqual(denied.status_code, 404)
 
     def test_system_prompt_detail_returns_persisted_body_only_to_exact_owner(self):
         """正文端点必须有普通用户信封、完整归属校验，且列表和快照不携带正文。"""

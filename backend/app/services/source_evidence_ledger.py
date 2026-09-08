@@ -4,31 +4,10 @@ from __future__ import annotations
 
 import hashlib
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 from app.services.source_candidate_ranker import RankedSourceCandidate
-
-TRACKING_QUERY_PARAMS = {
-    "_hsenc",
-    "_hsmi",
-    "dclid",
-    "fbclid",
-    "gclid",
-    "igshid",
-    "mc_cid",
-    "mc_eid",
-    "mkt_tok",
-    "msclkid",
-    "spm",
-    "ttclid",
-    "twclid",
-    "utm_campaign",
-    "utm_content",
-    "utm_medium",
-    "utm_source",
-    "utm_term",
-    "yclid",
-}
+from app.services.source_url_identity import canonicalize_source_url as canonicalize_evidence_url
 
 URL_READ_STATUS_TO_EVIDENCE_STATUS = {
     "success": "read_success",
@@ -36,35 +15,6 @@ URL_READ_STATUS_TO_EVIDENCE_STATUS = {
     "failed": "read_failed",
     "interrupted": "read_failed",
 }
-
-
-def canonicalize_evidence_url(url: str) -> str:
-    """生成用于 evidence 去重的稳定 URL。"""
-    stripped_url = (url or "").strip()
-    if not stripped_url:
-        return ""
-    try:
-        parsed = urlsplit(stripped_url)
-    except ValueError:
-        return ""
-    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
-        return ""
-
-    scheme = parsed.scheme.lower()
-    host = parsed.hostname.lower()
-    if host.startswith("www."):
-        host = host[4:]
-    netloc = host
-    if parsed.port and not ((scheme == "http" and parsed.port == 80) or (scheme == "https" and parsed.port == 443)):
-        netloc = f"{host}:{parsed.port}"
-
-    query_items = [
-        (key, value)
-        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
-        if key.lower() not in TRACKING_QUERY_PARAMS
-    ]
-    query = urlencode(sorted(query_items))
-    return urlunsplit((scheme, netloc, parsed.path or "", query, ""))
 
 
 def stable_web_evidence_id(url: str, *, fallback: str) -> str:
@@ -77,8 +27,7 @@ def stable_web_evidence_id(url: str, *, fallback: str) -> str:
 
 def build_search_source_evidence_item(source: Any, *, tool_call_id: str, source_index: int) -> dict[str, Any]:
     url = _source_value(source, "url") or ""
-    canonical_url = canonicalize_evidence_url(url)
-    evidence_url = canonical_url or url
+    evidence_url = url
     title = _safe_text(_source_value(source, "title"), 80) or "搜索结果"
     claim = _safe_text(
         _source_value(source, "description") or _source_value(source, "content") or title,
@@ -103,8 +52,7 @@ def build_url_read_evidence_item(
     url = str(result_data.get("url") or result_data.get("safe_log_url") or "").strip()
     if not url:
         return None
-    canonical_url = canonicalize_evidence_url(url)
-    evidence_url = canonical_url or url
+    evidence_url = url
     evidence_status = URL_READ_STATUS_TO_EVIDENCE_STATUS.get(status, "read_failed")
     title = _safe_text(result_data.get("title"), 80) or _domain(evidence_url) or "网页来源"
     content = result_data.get("content") or result_data.get("reason") or result_data.get("failure_detail")
@@ -136,7 +84,7 @@ def build_selected_source_evidence_item(candidate: RankedSourceCandidate) -> dic
         "kind": "web",
         "status": "selected",
         "title": _safe_text(candidate.title, 80) or "建议深读来源",
-        "url": canonicalize_evidence_url(candidate.url) or candidate.url,
+        "url": candidate.url,
         "domain": candidate.domain or _domain(candidate.url),
         "claim": claim,
         "snippet": snippet,

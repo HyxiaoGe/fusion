@@ -47,6 +47,7 @@ class ToolResult:
     data: dict = field(default_factory=dict)
     error_message: Optional[str] = None
     duration_ms: Optional[int] = None
+    trajectory_log_task: asyncio.Task | None = field(default=None, repr=False, compare=False)
 
 
 def _serialize_for_json(obj):
@@ -154,6 +155,7 @@ class BaseToolHandler(ABC):
                 step_number=step_number,
             )
         )
+        result.trajectory_log_task = task
         task.add_done_callback(_task_done_callback)
 
     def sanitize_input_params_for_log(self, input_params: dict) -> dict:

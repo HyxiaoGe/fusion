@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -37,6 +38,42 @@ class ContextPlan:
     removed_turns: int = 0
     removed_tool_transactions: int = 0
     removed_messages: int = 0
+
+    def tool_visibility(self, before_messages: list[PromptMessage | dict]) -> dict[str, Any] | None:
+        """记录本轮实际工具消息的裁剪集合，采集失败不干扰调用。"""
+        try:
+
+            def tool_ids(messages):
+                return list(
+                    dict.fromkeys(
+                        str(message.get("tool_call_id"))
+                        for message in messages
+                        if message.get("role") == "tool" and message.get("tool_call_id")
+                    )
+                )
+
+            before = tool_ids(before_messages)
+            visible = tool_ids(self.messages)
+            visible_set = set(visible)
+            groups = {
+                "before": before,
+                "visible": visible,
+                "removed": [tool_id for tool_id in before if tool_id not in visible_set],
+            }
+            snapshot = {
+                "schema_version": 1,
+                "scope": "application_messages_after_context_management",
+                "context_status": self.status,
+                "truncated": False,
+            }
+            for name, values in groups.items():
+                safe_ids = [value for value in values if re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", value)][:200]
+                snapshot[f"{name}_tool_call_ids"] = safe_ids
+                snapshot[f"{name}_count"] = len(values)
+                snapshot["truncated"] |= len(safe_ids) != len(values)
+            return snapshot
+        except Exception:
+            return None
 
     def to_usage_context(
         self,

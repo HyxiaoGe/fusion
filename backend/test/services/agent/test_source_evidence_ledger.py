@@ -30,7 +30,7 @@ def test_search_and_url_read_share_stable_evidence_id():
         fallback="ev-tc-search-0",
     )
     assert search_item["id"] == read_item["id"]
-    assert search_item["url"] == "https://example.com/news/launch?a=1&b=2"
+    assert search_item["url"] == "https://www.Example.com/news/launch?utm_source=newsletter&b=2&a=1#section"
 
 
 def test_search_candidate_uses_candidate_status():
@@ -84,3 +84,27 @@ def test_url_read_status_maps_to_read_lifecycle():
     assert success_item["status"] == "read_success"
     assert degraded_item["status"] == "read_degraded"
     assert failed_item["status"] == "read_failed"
+
+
+def test_evidence_preserves_raw_read_and_selected_candidate_urls():
+    from app.services.source_candidate_ranker import RankedSourceCandidate
+    from app.services.source_evidence_ledger import build_selected_source_evidence_item
+
+    raw = "https://www.example.com/report?utm_source=feed#chapter"
+    read = build_url_read_evidence_item({"url": raw, "content": "证据正文"}, status="success", tool_call_id="read")
+    candidate = RankedSourceCandidate(
+        rank=1,
+        title="报告",
+        url=raw,
+        domain="example.com",
+        query="设施报告",
+        tool_call_id="search",
+        source_index=1,
+        score=0,
+        priority="",
+        reasons=(),
+    )
+    selected = build_selected_source_evidence_item(candidate)
+    assert read["url"] == raw
+    assert selected["url"] == raw
+    assert read["id"] == selected["id"] == stable_web_evidence_id("https://example.com/report", fallback="unused")

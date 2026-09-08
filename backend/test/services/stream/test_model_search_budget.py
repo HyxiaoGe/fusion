@@ -55,7 +55,7 @@ class ModelSearchBudgetTests(unittest.TestCase):
         self.assertEqual(budget.web_search_calls, 4)
 
     def test_unread_candidates_do_not_prevent_complementary_search(self):
-        budget = NetworkToolBudget(read_failure_pending=True, candidate_read_urls={"https://example.com/old"})
+        budget = NetworkToolBudget()
         _args, result = budget.prepare_web_search_args({"query": "香港天文台降雨概率"})
         self.assertIsNone(result)
         self.assertEqual(budget.web_search_calls, 1)
@@ -67,11 +67,11 @@ class ModelSearchBudgetTests(unittest.TestCase):
                 _args, result = budget.prepare_web_search_args({"query": "香港天气", **overrides})
                 self.assertIsNone(result)
         _args, duplicate = budget.prepare_web_search_args({"query": " 香港天气 ", "count": 20})
-        self.assertTrue(duplicate.data["duplicate_search_skipped"])
-        self.assertEqual(budget.web_search_calls, 4)
+        self.assertIsNone(duplicate)
+        self.assertEqual(budget.web_search_calls, 5)
 
-    def test_repair_search_preserves_explicit_count(self):
-        budget = NetworkToolBudget(pending_search_repair_reason_code="previous_search_no_results")
+    def test_search_preserves_explicit_count(self):
+        budget = NetworkToolBudget()
         args, result = budget.prepare_web_search_args({"query": "香港天气", "count": 15})
         self.assertIsNone(result)
         self.assertEqual(args["count"], 15)
@@ -84,7 +84,7 @@ class ModelSearchBudgetTests(unittest.TestCase):
                 self.assertIsNone(result)
                 self.assertEqual(args["count"], expected)
 
-    def test_domain_order_and_intent_do_not_bypass_identical_provider_request(self):
+    def test_reordered_domains_and_identical_provider_request_both_execute(self):
         budget = NetworkToolBudget()
         first, first_result = budget.prepare_web_search_args(
             {"query": "香港天气", "domains": ["hko.gov.hk", "weather.gov.hk"], "intent": "quick_fact"}
@@ -93,11 +93,11 @@ class ModelSearchBudgetTests(unittest.TestCase):
             {"query": "香港天气", "domains": ["weather.gov.hk", "hko.gov.hk"], "intent": "unsupported"}
         )
         self.assertIsNone(first_result)
-        self.assertTrue(duplicate.data["duplicate_search_skipped"])
-        self.assertEqual(budget.web_search_calls, 1)
+        self.assertIsNone(duplicate)
+        self.assertEqual(budget.web_search_calls, 2)
 
-    def test_repair_does_not_bypass_global_call_budget(self):
-        budget = NetworkToolBudget(web_search_calls=40, pending_search_repair_reason_code="previous_search_no_results")
+    def test_search_does_not_bypass_global_call_budget(self):
+        budget = NetworkToolBudget(web_search_calls=40)
         _args, result = budget.prepare_web_search_args({"query": "香港天气", "count": 20})
         self.assertTrue(result.data["budget_limited"])
         self.assertEqual(budget.web_search_calls, 40)

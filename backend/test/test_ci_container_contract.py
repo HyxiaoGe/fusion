@@ -159,6 +159,23 @@ class CIContainerContractTest(unittest.TestCase):
                 with self.subTest(script=filename, test_file=test_file):
                     self.assertIn(test_file, pytest_command)
 
+    def test_agent_feedback_regressions_run_in_both_container_entrypoints(self) -> None:
+        required_tests = (
+            "test/services/agent/test_progress_digest.py",
+            "test/services/agent/test_source_evidence_ledger.py",
+            "test/test_source_candidate_ranker.py",
+            "test/scripts/test_agent_feedback_eval.py",
+            "test/services/stream/test_observation_trajectory.py",
+            "test/services/stream/test_search_feedback_observation.py",
+            "test/services/stream/test_source_url_identity.py",
+        )
+        for filename in ("linux-build-and-test.sh", "windows-build-and-test.ps1"):
+            script = (ROOT / ".github/scripts" / filename).read_text(encoding="utf-8")
+            pytest_command = next(line for line in script.splitlines() if "python -m pytest" in line)
+            for test_file in required_tests:
+                with self.subTest(script=filename, test_file=test_file):
+                    self.assertIn(test_file, pytest_command)
+
     def test_windows_release_build_disables_registry_incompatible_attestations(self) -> None:
         windows_build_script = (ROOT / ".github/scripts/windows-build-and-test.ps1").read_text(encoding="utf-8")
         build_commands = [

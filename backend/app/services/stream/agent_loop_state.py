@@ -70,18 +70,26 @@ class AgentLoopState:
     research_repair_attempts: int = 0
     required_plan_repair_tool: str | None = None
     failed_tool_names: set[str] = field(default_factory=set)
+    degraded_tool_names: set[str] = field(default_factory=set)
     attempted_tool_names: set[str] = field(default_factory=set)
     successful_tool_names: set[str] = field(default_factory=set)
     tool_recovery_prompted: bool = False
     recovery_evidence: RecoveryEvidenceWorkset = field(default_factory=RecoveryEvidenceWorkset)
 
     def record_tool_outcome(self, tool_name: str, status: str) -> None:
+        """累计各类执行结果；一次成功不能抹掉其他调用的失败或降级。"""
         self.attempted_tool_names.add(tool_name)
-        if status in {"failed", "degraded"}:
+        if status == "failed":
             self.failed_tool_names.add(tool_name)
+        elif status == "degraded":
+            self.degraded_tool_names.add(tool_name)
         elif status == "success":
-            self.failed_tool_names.discard(tool_name)
             self.successful_tool_names.add(tool_name)
+
+    @property
+    def tool_issue_names(self) -> set[str]:
+        """需要结合实际证据判断恢复的工具；集合非空不表示任务失败。"""
+        return self.failed_tool_names | self.degraded_tool_names
 
     def next_step_number(self) -> int:
         self.step += 1

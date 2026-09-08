@@ -133,6 +133,8 @@ class UrlReadHandler(BaseToolHandler):
                 data={
                     "url": result.url,
                     "title": result.title,
+                    "published_at": getattr(result, "published_at", None),
+                    "site_name": getattr(result, "site_name", None),
                     "content": result.content,
                     "favicon": result.favicon,
                     "content_length": result.content_length,
@@ -196,6 +198,9 @@ class UrlReadHandler(BaseToolHandler):
         url = result.data.get("url", "")
         title = result.data.get("title", "")
         content = result.data.get("content", "")
+        request_context = render_runtime_prompt(
+            "tool_handlers.url_read_request", url=url, reason=result.data.get("reason") or "Unknown"
+        )
 
         if result.status != "success" or not content:
             unavailable_message = render_runtime_prompt("tool_handlers.url_read_unavailable")
@@ -203,7 +208,7 @@ class UrlReadHandler(BaseToolHandler):
                 unavailable_message += "\n" + render_runtime_prompt(
                     "tool_handlers.url_read_failure_reason", failure_kind=result.data["failure_kind"]
                 )
-            return format_untrusted_source_context(
+            context = format_untrusted_source_context(
                 UntrustedSourceContext(
                     source_id="url-read-unavailable",
                     source_type="url_read",
@@ -214,6 +219,7 @@ class UrlReadHandler(BaseToolHandler):
                 ),
                 max_chars=MAX_CONTENT_CHARS + 100,
             )
+            return f"{request_context}\n{context}"
 
         # 规范 reader 包装中优先从精确标题对应的正文取窗口，原始结果仍完整保留。
         content = select_article_body(content, title)
@@ -238,10 +244,13 @@ class UrlReadHandler(BaseToolHandler):
                 url=url,
                 content=content,
                 provider="web",
+                published_at=result.data.get("published_at"),
+                site_name=result.data.get("site_name"),
             ),
             max_chars=max_content_chars + 100,
         )
-        return f"[{citation_number}]\n{context}" if citation_number is not None else context
+        numbered_context = f"[{citation_number}]\n{context}" if citation_number is not None else context
+        return f"{request_context}\n{numbered_context}"
 
     def _build_result_summary(self, result: ToolResult) -> dict:
         """URL 读取轻量摘要：title + favicon。

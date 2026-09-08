@@ -958,3 +958,16 @@ it('保留三个主工具和两个联网替代工具的运行能力信息', () =
   const value = { ...capabilityResolution, external_tool_names: ['web_search', 'url_read', 'route_compare', 'search_flights', 'search_trains'] };
   expect(normalizeTrajectoryCapabilityResolution(value)?.external_tool_names).toEqual(value.external_tool_names);
 });
+
+describe('工具上下文可见性', () => {
+  it('实时与历史保留有界 ID 集合并拒绝混入正文', () => {
+    const context_visibility = { schema_version: 1, scope: 'application_messages_after_context_management', context_status: 'trimmed', before_tool_call_ids: ['old', 'kept'], visible_tool_call_ids: ['kept'], removed_tool_call_ids: ['old'], before_count: 2, visible_count: 1, removed_count: 1, truncated: false };
+    const envelope = { type: 'llm_round_started', run_id: 'run-v', sequence: 2, trace_id: 'trace-v', ts: 100, llm_round_id: 'round-v', schema_version: 1, step_id: null, tool_call_id: null, parent_step_id: null };
+    const live = normalizeSseTrajectoryEvent({ ...envelope, context_visibility });
+    const durable = normalizeTrajectoryRecord('run-v', { sequence: 2, event_type: 'llm_round_started', schema_version: 1, timestamp, step_id: null, parent_step_id: null, tool_call_id: null, trace_id: 'trace-v', payload: { ...envelope, context_visibility } });
+    expect(live?.payload.context_visibility).toEqual(context_visibility);
+    expect(durable?.payload.context_visibility).toEqual(context_visibility);
+    expect(normalizeSseTrajectoryEvent({ ...envelope, context_visibility: { ...context_visibility, visible_tool_call_ids: ['token=secret'] } })?.payload.context_visibility).toBeNull();
+    expect(normalizeSseTrajectoryEvent({ ...envelope, context_visibility: { ...context_visibility, visible_tool_call_ids: Array.from({ length: 201 }, () => 'id') } })?.payload.context_visibility).toBeNull();
+  });
+});

@@ -8,13 +8,14 @@ from typing import Any, Literal
 
 from app.ai.prompts.prompt_message import PromptMessage
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
+from app.services.security.url_policy import MAX_URL_LENGTH
 from app.services.source_context import UntrustedSourceContext, format_untrusted_source_context
 from app.services.source_evidence_ledger import canonicalize_evidence_url, stable_web_evidence_id
 
 MAX_RESEARCH_SOURCES = 12
 MAX_RESEARCH_REPAIRS = 2
 MAX_RESEARCH_SOURCE_CONTEXT_CHARS = 360
-MAX_RESEARCH_SOURCE_URL_CHARS = 500
+MAX_RESEARCH_SOURCE_URL_CHARS = MAX_URL_LENGTH
 _CITATION_PATTERN = re.compile(r"(?:\[(\d{1,3})\]|⟦(\d{1,3})⟧)")
 _SAFE_EVIDENCE_ID_PATTERN = re.compile(r"^ev-[A-Za-z0-9_-]{1,80}$")
 DeepResearchStage = Literal["planning", "search", "read", "search_repair", "synthesis"]
@@ -29,6 +30,11 @@ class ResearchSource:
     kind: str
     summary: str = ""
     key_findings: tuple[str, ...] = ()
+
+    @property
+    def url_key(self) -> str:
+        """读页状态比较使用完整身份键，恢复链接继续使用原始 URL。"""
+        return canonicalize_evidence_url(self.url)
 
 
 @dataclass(frozen=True)
@@ -87,7 +93,7 @@ class ResearchEvidenceWorkset:
                     continue
                 self.sources[source.evidence_id] = source
                 if allow_read_success and (block_type == "url_read" or source.kind == "url_read"):
-                    self.successful_read_urls.add(source.url)
+                    self.successful_read_urls.add(source.url_key)
 
             self._cap_sources()
 
@@ -95,14 +101,14 @@ class ResearchEvidenceWorkset:
         if len(self.sources) <= MAX_RESEARCH_SOURCES:
             return
         read_sources = sorted(
-            (source for source in self.sources.values() if source.url in self.successful_read_urls),
+            (source for source in self.sources.values() if source.url_key in self.successful_read_urls),
             key=lambda source: (source.citation_index, source.evidence_id),
         )
         candidates = sorted(
             (
                 source
                 for source in self.sources.values()
-                if source.url not in self.successful_read_urls and source.url not in self.attempted_read_urls
+                if source.url_key not in self.successful_read_urls and source.url_key not in self.attempted_read_urls
             ),
             key=lambda source: (source.citation_index, source.evidence_id),
         )
@@ -110,7 +116,7 @@ class ResearchEvidenceWorkset:
             (
                 source
                 for source in self.sources.values()
-                if source.url not in self.successful_read_urls and source.url in self.attempted_read_urls
+                if source.url_key not in self.successful_read_urls and source.url_key in self.attempted_read_urls
             ),
             key=lambda source: (source.citation_index, source.evidence_id),
         )
@@ -119,11 +125,13 @@ class ResearchEvidenceWorkset:
 
     @property
     def valid_citation_indexes(self) -> set[int]:
-        return {source.citation_index for source in self.sources.values() if source.url in self.successful_read_urls}
+        return {
+            source.citation_index for source in self.sources.values() if source.url_key in self.successful_read_urls
+        }
 
     @property
     def unread_candidate_urls(self) -> set[str]:
-        return {source.url for source in self.sources.values()} - self.attempted_read_urls
+        return {source.url for source in self.sources.values() if source.url_key not in self.attempted_read_urls}
 
 
 def resolve_deep_research_stage(
@@ -231,8 +239,8 @@ def build_research_workset_prompt(
         workset.sources.values(),
         key=lambda item: (item.citation_index, item.evidence_id),
     ):
-        is_read = source.url in workset.successful_read_urls
-        is_failed = source.url in workset.attempted_read_urls and not is_read
+        is_read = source.url_key in workset.successful_read_urls
+        is_failed = source.url_key in workset.attempted_read_urls and not is_read
         if not is_read and not include_candidates:
             continue
         source_status = "read_success" if is_read else "read_failed" if is_failed else "candidate"
@@ -260,8 +268,8 @@ def build_research_untrusted_context_messages(
         workset.sources.values(),
         key=lambda item: (item.citation_index, item.evidence_id),
     ):
-        is_read = source.url in workset.successful_read_urls
-        is_failed = source.url in workset.attempted_read_urls and not is_read
+        is_read = source.url_key in workset.successful_read_urls
+        is_failed = source.url_key in workset.attempted_read_urls and not is_read
         if is_failed:
             continue
         if not is_read and not include_candidates:
@@ -309,8 +317,8 @@ def assign_missing_source_reference_metadata(content_blocks: list[Any]) -> None:
     for block in content_blocks:
         if _value(block, "type") != "url_read" or _value(block, "source_refs"):
             continue
-        url = canonicalize_evidence_url(str(_value(block, "url") or ""))
-        if not url:
+        url = str(_value(block, "url") or "")
+        if not canonicalize_evidence_url(url):
             continue
         reference = {
             "kind": "url_read",
@@ -325,6 +333,7 @@ def assign_missing_source_reference_metadata(content_blocks: list[Any]) -> None:
         _set_value(block, "source_count", 1)
 
     registry: dict[str, int] = {}
+    evidence_ids: dict[str, str] = {}
     max_index = 0
     for block in content_blocks:
         for ref in _value(block, "source_refs") or []:
@@ -332,8 +341,15 @@ def assign_missing_source_reference_metadata(content_blocks: list[Any]) -> None:
             citation_index = _value(ref, "citation_index")
             if isinstance(citation_index, int) and not isinstance(citation_index, bool) and citation_index > 0:
                 max_index = max(max_index, citation_index)
-            if canonical_url and isinstance(citation_index, int) and citation_index > 0:
+            if (
+                canonical_url
+                and isinstance(citation_index, int)
+                and not isinstance(citation_index, bool)
+                and citation_index > 0
+            ):
                 registry.setdefault(canonical_url, citation_index)
+            if canonical_url and _value(ref, "evidence_id"):
+                evidence_ids.setdefault(canonical_url, str(_value(ref, "evidence_id")))
 
     for block in content_blocks:
         for ref in _value(block, "source_refs") or []:
@@ -345,13 +361,16 @@ def assign_missing_source_reference_metadata(content_blocks: list[Any]) -> None:
                 max_index += 1
                 citation_index = max_index
                 registry[canonical_url] = citation_index
-            evidence_id = stable_web_evidence_id(
+            evidence_id = evidence_ids.get(canonical_url) or stable_web_evidence_id(
                 canonical_url,
                 fallback=f"ev-ref-{citation_index}",
             )
+            evidence_ids.setdefault(canonical_url, evidence_id)
             if isinstance(ref, dict):
-                ref.setdefault("evidence_id", evidence_id)
-                ref.setdefault("citation_index", citation_index)
+                if not ref.get("evidence_id"):
+                    ref["evidence_id"] = evidence_id
+                if not ref.get("citation_index"):
+                    ref["citation_index"] = citation_index
             else:
                 if not _value(ref, "evidence_id"):
                     setattr(ref, "evidence_id", evidence_id)
@@ -365,7 +384,7 @@ def _research_source_from_ref(
 ) -> ResearchSource | None:
     raw_url = str(_value(ref, "url") or "").strip()
     canonical_url = canonicalize_evidence_url(raw_url)
-    if not canonical_url:
+    if not canonical_url or len(raw_url) > MAX_RESEARCH_SOURCE_URL_CHARS:
         return None
     citation_index = _value(ref, "citation_index")
     if not isinstance(citation_index, int) or isinstance(citation_index, bool) or citation_index < 1:
@@ -373,12 +392,14 @@ def _research_source_from_ref(
     evidence_id = str(
         _value(ref, "evidence_id") or stable_web_evidence_id(canonical_url, fallback=f"ev-ref-{citation_index}")
     )
-    summary, key_findings = summaries.get(evidence_id, ("", []))
+    summary, key_findings = summaries.get(
+        evidence_id, summaries.get(stable_web_evidence_id(raw_url, fallback=evidence_id), ("", []))
+    )
     return ResearchSource(
         evidence_id=evidence_id,
         citation_index=citation_index,
         title=str(_value(ref, "title") or "网页来源")[:80],
-        url=canonical_url[:MAX_RESEARCH_SOURCE_URL_CHARS],
+        url=raw_url,
         kind=str(_value(ref, "kind") or "search"),
         summary=str(summary or "")[:180],
         key_findings=tuple(str(item)[:80] for item in key_findings[:5]),

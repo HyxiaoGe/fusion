@@ -183,7 +183,7 @@ class FinalAnswerEvidenceTests(unittest.TestCase):
             answer_text="详见 https://openai.com/news/product 的官方公告。",
         )
 
-        self.assertEqual([item["url"] for item in used], ["https://openai.com/news/product"])
+        self.assertEqual([item["url"] for item in used], ["https://openai.com/news/product?utm_source=x"])
 
     def test_marks_unique_domain_mention_as_used(self):
         from app.services.final_answer_evidence import build_used_final_answer_evidence

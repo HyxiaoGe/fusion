@@ -1,3 +1,5 @@
+import type { ContextToolVisibility } from './trajectory';
+
 export type AgentRunStatus =
   | 'running'
   | 'completed'
@@ -349,4 +351,5 @@ export interface AgentLlmRoundStartedEvent extends AgentEventEnvelope {
   model: string;
   provider?: string | null;
   system_prompt_fingerprint?: string | null;
+  context_visibility?: ContextToolVisibility | null;
 }

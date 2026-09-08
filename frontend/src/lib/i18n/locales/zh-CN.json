@@ -416,6 +416,24 @@
         "round_cancelled": "调用取消前没有正文写出"
       }
     },
+    "observation": {
+      "toolReturn": "工具返回",
+      "title": "模型反馈（Observation）",
+      "scope": "这是本应用格式化并追加指导后回填的工具消息。采集发生在后续上下文裁剪前，不代表供应商最终 HTTP 请求全文。",
+      "notRecorded": "当前尚无已采集的模型反馈。旧记录可能未采集，新记录可稍后刷新查看；不能从工具返回还原。",
+      "failed": "实际模型反馈采集失败",
+      "originalChars": "原始消息 {{count}} 字符"
+    },
+    "contextVisibility": {
+      "title": "本轮工具上下文",
+      "scope": "记录本应用上下文裁剪后准备提交的工具消息范围；曾获取的结果可能已移除，不代表模型采用了全部证据。",
+      "before": "裁剪前已有 {{count}} 条工具消息",
+      "visible": "本轮保留 {{count}} 条",
+      "removed": "裁剪移除 {{count}} 条",
+      "none": "无",
+      "truncated": "ID 列表已截断，数量仍表示完整集合",
+      "notRecorded": "此轮未采集工具上下文可见范围"
+    },
     "toolDetail": {
       "legacySummary": "此记录仅保存了工具摘要，未记录完整载荷和结果",
       "invalid": "工具详情记录无效，暂时无法展示"
