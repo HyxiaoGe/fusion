@@ -8,13 +8,17 @@ from typing import Any
 import litellm
 from sqlalchemy.orm import Session
 
-from app.ai.llm_manager import llm_manager
 from app.ai.llm_observability import merge_litellm_kwargs
 from app.ai.prompts import prompt_manager
 from app.core.logger import app_logger as logger
 from app.db.models import Conversation as ConversationModel
 from app.db.models import Message as MessageModel
 from app.services.chat.utils import ChatUtils
+from app.services.utility_model import (
+    UTILITY_LLM_TIMEOUT,
+    UTILITY_MAX_TOKENS,
+    resolve_utility_model,
+)
 
 SUGGESTION_STATUS_IDLE = "idle"
 SUGGESTION_STATUS_PENDING = "pending"
@@ -59,9 +63,6 @@ class SuggestedQuestionGenerationResult:
 class SuggestedQuestionService:
     """以 assistant message 为唯一目标管理推荐问题。"""
 
-    UTILITY_MODEL_ID = "deepseek-chat"
-    UTILITY_LLM_TIMEOUT = 8
-    MAX_TOKENS = 512
     FALLBACK_QUESTIONS = [
         "您对这个主题还有其他问题吗？",
         "您想了解更多相关信息吗？",
@@ -280,13 +281,13 @@ class SuggestedQuestionService:
                 "generate_suggested_questions",
                 content=dialog_content,
             )
-            litellm_model, _, litellm_kwargs = self._resolve_utility_model(conversation_model_id)
+            litellm_model, _, litellm_kwargs = resolve_utility_model(conversation_model_id)
             response = await litellm.acompletion(
                 model=litellm_model,
                 messages=[{"role": "user", "content": prompt}],
                 stream=False,
-                max_tokens=self.MAX_TOKENS,
-                timeout=self.UTILITY_LLM_TIMEOUT,
+                max_tokens=UTILITY_MAX_TOKENS,
+                timeout=UTILITY_LLM_TIMEOUT,
                 **merge_litellm_kwargs(
                     "suggest_questions",
                     litellm_kwargs,
@@ -298,12 +299,6 @@ class SuggestedQuestionService:
         except Exception as error:  # noqa: BLE001 — 推荐问题失败不能影响正文终态
             logger.warning("生成推荐问题失败，使用回退问题: error_type=%s", type(error).__name__)
             return list(self.FALLBACK_QUESTIONS)
-
-    def _resolve_utility_model(self, conversation_model_id: str) -> tuple:
-        try:
-            return llm_manager.resolve_model(self.UTILITY_MODEL_ID)
-        except ValueError:
-            return llm_manager.resolve_model(conversation_model_id)
 
     def _advance_revision(self, message: MessageModel) -> SuggestedQuestionClaim:
         revision = int(message.suggested_questions_revision or 0) + 1
