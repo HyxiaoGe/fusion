@@ -47,7 +47,11 @@ from app.services.stream.limit_summary_fact_guard import (
     has_tool_evidence,
     resolve_no_evidence_answer,
 )
-from app.services.stream.llm_round_lifecycle import LLMRoundLifecycle, accumulate_token_usage
+from app.services.stream.llm_round_lifecycle import (
+    LLMRoundLifecycle,
+    accumulate_token_usage,
+    round_tool_names,
+)
 from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
 from app.services.stream.research_evidence import (
     ResearchEvidenceWorkset,
@@ -360,6 +364,7 @@ async def call_limit_summary_round(
         detail_scheduler=request.llm_round_detail_scheduler,
         system_prompt_fingerprint=fingerprint_system_messages(to_provider_messages(effective_messages)),
         context_visibility=context_plan.tool_visibility(finalized_messages),
+        tool_names=round_tool_names(final_call_kwargs),
     )
     observation.start()
     detail_partial_output = partial_output if partial_output is not None else {}

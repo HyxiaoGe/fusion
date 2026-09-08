@@ -17,7 +17,11 @@ from app.services.agent.llm_round_detail_recorder import LlmRoundDetailDraft
 from app.services.chat.context_manager import ContextManagementError, ContextPlan, prepare_context
 from app.services.chat.model_call_language_policy import finalize_model_call_language_policy
 from app.services.stream.context_status import build_context_usage, emit_context_status
-from app.services.stream.llm_round_lifecycle import LLMRoundLifecycle, accumulate_token_usage
+from app.services.stream.llm_round_lifecycle import (
+    LLMRoundLifecycle,
+    accumulate_token_usage,
+    round_tool_names,
+)
 from app.services.stream_state_service import StreamOwnershipLostError
 from app.utils.prompt_fingerprint import fingerprint_system_messages
 
@@ -295,6 +299,7 @@ async def run_agent_round(
         detail_scheduler=llm_round_detail_scheduler,
         system_prompt_fingerprint=fingerprint_system_messages(to_provider_messages(effective_messages)),
         context_visibility=context_plan.tool_visibility(finalized_messages),
+        tool_names=round_tool_names(call_kwargs),
     )
     observation.start()
     partial_output: dict[str, str] = {}

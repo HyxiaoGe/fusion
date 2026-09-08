@@ -120,6 +120,9 @@ class LLMRoundStarted(AgentEventBase):
     provider: str
     system_prompt_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     context_visibility: ContextToolVisibility | None = None
+    # 当轮实际送给模型的工具目录（经研究阶段与耗尽裁剪之后），
+    # 用于回答「模型这一步为什么没用某个工具」——目录里没有，还是有但没选。
+    tool_names: list[str] = Field(default_factory=list)
 
 
 class LLMRoundFirstOutputDelta(AgentEventBase):
