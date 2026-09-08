@@ -565,6 +565,110 @@ describe('sendMessageStream — 新 envelope 协议', () => {
     }));
   });
 
+  it('解析 suggested_questions_ready 并透出问题列表', async () => {
+    fetchWithAuthMock.mockResolvedValue(
+      createStreamResponse([
+        agentEvent('suggested_questions_ready', {
+          message_id: 'server-assistant-1',
+          revision: 4,
+          status: 'ready',
+          questions: ['问题一', '问题二'],
+          duration_ms: 1200,
+        }, 1),
+        envelope('done', {}),
+        'data: [DONE]\n\n',
+      ]),
+    );
+    const onSuggestedQuestionsReady = vi.fn();
+
+    await sendMessageStream(
+      { model_id: 'gpt', message: 'hi', conversation_id: 'conv-1' },
+      {
+        onReady: vi.fn(),
+        onReasoning: vi.fn(),
+        onAnswering: vi.fn(),
+        onSuggestedQuestionsReady,
+        onDone: vi.fn(),
+        onError: vi.fn(),
+      },
+    );
+
+    expect(onSuggestedQuestionsReady).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'suggested_questions_ready',
+      message_id: 'server-assistant-1',
+      revision: 4,
+      status: 'ready',
+      questions: ['问题一', '问题二'],
+    }));
+  });
+
+  it('解析 status 为 failed 的 suggested_questions_ready', async () => {
+    fetchWithAuthMock.mockResolvedValue(
+      createStreamResponse([
+        agentEvent('suggested_questions_ready', {
+          message_id: 'server-assistant-1',
+          revision: 2,
+          status: 'failed',
+          questions: [],
+          duration_ms: 8000,
+        }, 1),
+        envelope('done', {}),
+        'data: [DONE]\n\n',
+      ]),
+    );
+    const onSuggestedQuestionsReady = vi.fn();
+
+    await sendMessageStream(
+      { model_id: 'gpt', message: 'hi', conversation_id: 'conv-1' },
+      {
+        onReady: vi.fn(),
+        onReasoning: vi.fn(),
+        onAnswering: vi.fn(),
+        onSuggestedQuestionsReady,
+        onDone: vi.fn(),
+        onError: vi.fn(),
+      },
+    );
+
+    expect(onSuggestedQuestionsReady).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed',
+      questions: [],
+    }));
+  });
+
+  it('忽略 questions 非字符串数组的 suggested_questions_ready', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    fetchWithAuthMock.mockResolvedValue(
+      createStreamResponse([
+        agentEvent('suggested_questions_ready', {
+          message_id: 'server-assistant-1',
+          revision: 1,
+          status: 'ready',
+          questions: [1, 2],
+          duration_ms: 10,
+        }, 1),
+        envelope('done', {}),
+        'data: [DONE]\n\n',
+      ]),
+    );
+    const onSuggestedQuestionsReady = vi.fn();
+
+    await sendMessageStream(
+      { model_id: 'gpt', message: 'hi', conversation_id: 'conv-1' },
+      {
+        onReady: vi.fn(),
+        onReasoning: vi.fn(),
+        onAnswering: vi.fn(),
+        onSuggestedQuestionsReady,
+        onDone: vi.fn(),
+        onError: vi.fn(),
+      },
+    );
+
+    expect(onSuggestedQuestionsReady).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it('忽略字段无效的 suggested_questions_pending', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     fetchWithAuthMock.mockResolvedValue(

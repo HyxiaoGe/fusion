@@ -517,6 +517,51 @@ const conversationSlice = createSlice({
         ].filter((id): id is string => Boolean(id)))),
       };
     },
+    applySuggestedQuestionsReady(
+      state,
+      action: PayloadAction<{
+        conversationId: string;
+        messageId: string;
+        localMessageId?: string;
+        revision: number;
+        status: 'ready' | 'failed';
+        questions: string[];
+      }>
+    ) {
+      const {
+        conversationId,
+        messageId,
+        localMessageId,
+        revision,
+        status,
+        questions,
+      } = action.payload;
+      const conversation = state.byId[conversationId];
+      if (!conversation) return;
+      const message = conversation.messages.find((item) => item.id === messageId)
+        ?? (localMessageId
+          ? conversation.messages.find((item) => item.id === localMessageId)
+          : undefined);
+      if (!message || message.role !== 'assistant') return;
+
+      const readySnapshot: Message = {
+        ...message,
+        suggestedQuestions: questions,
+        suggestedQuestionsStatus: status,
+        suggestedQuestionsRevision: revision,
+      };
+      // 与轮询共用同一套 CAS 判定：迟到或被抢占的结果不会覆盖更新的 revision。
+      if (!shouldApplySuggestedQuestionsSnapshot(message, readySnapshot)) return;
+
+      // failed 保留上一批问题，避免页面上已展示的推荐被清空。
+      if (status === 'ready') {
+        message.suggestedQuestions = questions;
+      }
+      message.suggestedQuestionsStatus = status;
+      message.suggestedQuestionsRevision = revision;
+      // 结果已直达，无需再观察轮询。
+      delete state.suggestedQuestionsObservations[conversationId];
+    },
     requestSuggestedQuestionsObservation(
       state,
       action: PayloadAction<{ conversationId: string; messageIds: string[] }>
@@ -663,6 +708,7 @@ const conversationSlice = createSlice({
 export const {
   acknowledgeConversationListRefresh,
   applySuggestedQuestionsPending,
+  applySuggestedQuestionsReady,
   appendConversationList,
   appendMessage,
   clearConversationMessages,
