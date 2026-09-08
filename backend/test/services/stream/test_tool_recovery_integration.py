@@ -16,7 +16,7 @@ def _tool_round(tool_id, name, arguments):
     return ("", "", [{"id": tool_id, "name": name, "arguments": arguments}], "tool_calls", None)
 
 
-async def _run_recovery(*, search_success):
+async def _run_recovery(*, search_success, answer_suffix="[1]", degrade_read=False):
     # 复用隔离持久化/LLM fixture，执行器、真实处理器和恢复决策均不替换。
     from test.services.stream.test_agent_loop_contract import AgentLoopContractTests
     from test.test_amap_product_tools import build_handler, mcp_payload
@@ -61,13 +61,18 @@ async def _run_recovery(*, search_success):
         handlers={"weather_forecast": weather, "web_search": WebSearchHandler(), "url_read": UrlReadHandler()},
         audit_bindings=[],
     )
-    answer = "香港明天有骤雨，后天部分时间有阳光，第三天有雷暴。[1]"
+    answer = f"香港明天有骤雨，后天部分时间有阳光，第三天有雷暴。{answer_suffix}"
     rounds = [
         _tool_round("weather-1", "weather_forecast", '{"location":"香港","location_source":"named"}'),
         ("", "天气工具失败，我无法查询。", [], "stop", None),
         _tool_round("search-1", "web_search", '{"query":"香港未来三天天气 香港天文台"}'),
         ("", answer if search_success else "所有查询失败。", [], "stop", None),
     ]
+    if degrade_read:
+        rounds.insert(
+            -1,
+            _tool_round("read-1", "url_read", '{"url":"https://www.hko.gov.hk/forecast"}'),
+        )
     sources = [
         SearchSource(
             title="香港三天天气",
@@ -81,6 +86,10 @@ async def _run_recovery(*, search_success):
             "app.services.tool_handlers.web_search.search_web",
             AsyncMock(return_value=sources if search_success else []),
         ),
+        patch(
+            "app.services.tool_handlers.url_read.read_url_with_diagnostics",
+            AsyncMock(return_value=SimpleNamespace(result=None, failure=None)),
+        ),
     ):
         result = await harness._run_agent_contract(
             rounds=rounds,
@@ -93,6 +102,22 @@ async def _run_recovery(*, search_success):
 
 
 class ToolRecoveryIntegrationTests(unittest.TestCase):
+    def test_failed_domain_then_search_then_degraded_read_preserves_original_model_answer(self):
+        for suffix in ("", "[999]"):
+            with self.subTest(suffix=suffix):
+                result, answer, _ = asyncio.run(
+                    _run_recovery(search_success=True, answer_suffix=suffix, degrade_read=True)
+                )
+                self.assertEqual(
+                    [call["args"][0][0]["name"] for call in result.tool_execute_calls],
+                    ["weather_forecast", "web_search", "url_read"],
+                )
+                visible = "".join(call["content"] for call in result.append_calls if call["chunk_type"] == "answering")
+                self.assertEqual(visible, answer)
+                self.assertEqual(result.session_status_calls[-1]["status"], "completed")
+                self.assertEqual(result.persist_calls[-1]["block_types"][-1], "text")
+                self.assertFalse(result.persist_calls[-1]["partial"])
+
     def test_weather_failure_uses_real_search_and_finishes_truthfully(self):
         for search_success in [True, False]:
             with self.subTest(search_success=search_success):

@@ -1,4 +1,5 @@
 import unittest
+from itertools import permutations
 from types import SimpleNamespace
 
 from app.schemas.chat import ContextUsage, TextBlock, Usage
@@ -6,6 +7,22 @@ from app.services.stream.agent_loop_state import AgentLoopState
 
 
 class AgentLoopStateTests(unittest.TestCase):
+    def test_tool_outcomes_accumulate_without_order_sensitive_failure_erasure(self):
+        for statuses in permutations(("success", "degraded", "failed")):
+            with self.subTest(statuses=statuses):
+                state = AgentLoopState()
+                for status in statuses:
+                    state.record_tool_outcome("url_read", status)
+                self.assertEqual(state.failed_tool_names, {"url_read"})
+                self.assertEqual(state.degraded_tool_names, {"url_read"})
+                self.assertEqual(state.successful_tool_names, {"url_read"})
+
+    def test_degraded_tool_is_not_recorded_as_failed(self):
+        state = AgentLoopState()
+        state.record_tool_outcome("url_read", "degraded")
+        self.assertEqual(state.failed_tool_names, set())
+        self.assertEqual(state.degraded_tool_names, {"url_read"})
+
     def test_active_elapsed_excludes_context_wait(self):
         state = AgentLoopState(context_wait_seconds=45.0)
 

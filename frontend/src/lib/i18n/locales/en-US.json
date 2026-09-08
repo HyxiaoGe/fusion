@@ -416,6 +416,24 @@
         "round_cancelled": "No text was published before cancellation"
       }
     },
+    "observation": {
+      "toolReturn": "Tool return",
+      "title": "Model feedback (Observation)",
+      "scope": "Tool message filled by this application after formatting and guidance, before later context trimming. This is not the final provider HTTP request.",
+      "notRecorded": "No captured model feedback is currently available. Older records may not have captured it; refresh later for recent records. It cannot be reconstructed from the tool return.",
+      "failed": "Model feedback capture failed",
+      "originalChars": "Original message: {{count}} characters"
+    },
+    "contextVisibility": {
+      "title": "Tool context for this round",
+      "scope": "Tool messages prepared by the application after context trimming. Previously obtained results may be removed; visibility does not mean all evidence was used.",
+      "before": "Before trimming: {{count}} tool messages",
+      "visible": "Retained this round: {{count}}",
+      "removed": "Removed by trimming: {{count}}",
+      "none": "None",
+      "truncated": "ID lists were truncated; counts represent the complete sets.",
+      "notRecorded": "Tool context visibility was not captured for this round."
+    },
     "toolDetail": {
       "legacySummary": "Only a tool summary was saved for this record; the full payload and result were not recorded",
       "invalid": "The tool detail record is invalid and cannot be displayed"

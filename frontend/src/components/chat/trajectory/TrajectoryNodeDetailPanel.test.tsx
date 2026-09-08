@@ -417,6 +417,50 @@ describe('TrajectoryNodeDetailPanel', () => {
     expect(screen.queryByText('部分字段已脱敏')).not.toBeInTheDocument();
   });
 
+  it('工具返回与实际模型反馈独立显示，重新挂载从 API 恢复', async () => {
+    const response = detail('available');
+    response.detail = {
+      ...response.detail!,
+      observation: { schema_version: 1, status: 'available', text: '应用实际工具消息 [7] [REDACTED]', original_chars: 80000, generated_round_index: 1, redacted_fields: ['observation'], truncated_fields: ['observation'] },
+    };
+    getTrajectoryToolNodeDetailMock.mockResolvedValue(response);
+    const view = renderPanel();
+    fireEvent.click(screen.getByRole('tab', { name: '结果' }));
+    expect(await screen.findByRole('heading', { name: '工具返回' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '模型反馈（Observation）' })).toBeInTheDocument();
+    expect(screen.getByText('应用实际工具消息 [7] [REDACTED]')).toBeInTheDocument();
+    expect(screen.getByText('部分正文已截断')).toBeInTheDocument();
+    expect(screen.getByText('部分字段已脱敏')).toBeInTheDocument();
+    view.unmount();
+    renderPanel();
+    fireEvent.click(screen.getByRole('tab', { name: '结果' }));
+    expect(await screen.findByText('应用实际工具消息 [7] [REDACTED]')).toBeInTheDocument();
+    expect(getTrajectoryToolNodeDetailMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('旧工具记录明确表示未采集模型反馈', async () => {
+    getTrajectoryToolNodeDetailMock.mockResolvedValue(detail('available'));
+    renderPanel();
+    fireEvent.click(screen.getByRole('tab', { name: '结果' }));
+    expect(await screen.findByText('当前尚无已采集的模型反馈。旧记录可能未采集，新记录可稍后刷新查看；不能从工具返回还原。')).toBeInTheDocument();
+  });
+
+  it('模型预览区分本轮保留与裁剪移除的工具消息', async () => {
+    getTrajectoryLlmNodeDetailMock.mockResolvedValue({
+      status: 'available', node_type: 'llm', available_sections: ['summary', 'output'],
+      detail: { llm_round_id: 'round-1', output_text: '回答', context_visibility: {
+        schema_version: 1, scope: 'application_messages_after_context_management', context_status: 'trimmed',
+        before_tool_call_ids: ['old-call', 'visible-call'], visible_tool_call_ids: ['visible-call'], removed_tool_call_ids: ['old-call'],
+        before_count: 2, visible_count: 1, removed_count: 1, truncated: false,
+      } }, redacted_fields: [], truncated_fields: [],
+    });
+    renderPanel(llmCell());
+    fireEvent.click(screen.getByRole('tab', { name: '预览' }));
+    expect(await screen.findByRole('heading', { name: '本轮工具上下文' })).toBeInTheDocument();
+    expect(screen.getByText(/本轮保留.*visible-call/)).toBeInTheDocument();
+    expect(screen.getByText(/裁剪移除.*old-call/)).toBeInTheDocument();
+  });
+
   it('损坏的工具快照显示记录损坏而不是关联失败', async () => {
     getTrajectoryToolNodeDetailMock.mockResolvedValue(detail('degraded', { reason: 'tool_detail_invalid' }));
     renderPanel();

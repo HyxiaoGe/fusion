@@ -47,7 +47,10 @@ def build_used_final_answer_evidence(
         return []
 
     search_sources, read_sources = _collect_sources(content_blocks)
-    all_sources = _dedupe_sources([*search_sources, *read_sources])
+    citation_sources = [*search_sources, *read_sources]
+    search_sources = _dedupe_sources(search_sources)
+    read_sources = _dedupe_sources(read_sources)
+    all_sources = _dedupe_sources(citation_sources)
     if not all_sources:
         return []
 
@@ -55,16 +58,16 @@ def build_used_final_answer_evidence(
         allowed = set(allowed_citation_indexes or ())
         used = _sources_from_allowed_explicit_citations(
             normalized_answer,
-            all_sources,
+            citation_sources,
             allowed_citation_indexes=allowed,
         )
         return [_to_evidence_item(source) for source in _dedupe_sources(used)]
     if evidence_policy == "knowledge_grounded_v1":
-        used = _sources_from_citations(normalized_answer, search_sources, all_sources)
+        used = _sources_from_citations(normalized_answer, search_sources, citation_sources)
         return [_to_evidence_item(source) for source in _dedupe_sources(used)]
 
     used: list[_AnswerSource] = []
-    _extend_unique(used, _sources_from_citations(normalized_answer, search_sources, all_sources))
+    _extend_unique(used, _sources_from_citations(normalized_answer, search_sources, citation_sources))
     _extend_unique(used, _sources_from_url_mentions(normalized_answer, all_sources))
     _extend_unique(used, _sources_from_unique_domain_mentions(normalized_answer, all_sources))
 
@@ -134,7 +137,7 @@ def _collect_sources(content_blocks: list[Any]) -> tuple[list[_AnswerSource], li
             if source is not None:
                 read_sources.append(source)
 
-    return _dedupe_sources(search_sources), _dedupe_sources(read_sources)
+    return search_sources, read_sources
 
 
 def _source_refs(block: Any) -> list[Any]:
@@ -264,7 +267,7 @@ def _dedupe_sources(sources: list[_AnswerSource]) -> list[_AnswerSource]:
 
 
 def _to_evidence_item(source: _AnswerSource) -> dict[str, Any]:
-    evidence_url = source.canonical_url or source.url
+    evidence_url = source.url or source.canonical_url
     return {
         "id": source.evidence_id,
         "kind": "knowledge" if source.kind == "knowledge" else "web",

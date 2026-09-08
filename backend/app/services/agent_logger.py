@@ -151,3 +151,19 @@ async def log_agent_session(
         db.rollback()
     finally:
         db.close()
+
+
+def attach_tool_observation(
+    *,
+    log_id: str,
+    run_id: str,
+    tool_call_id: str,
+    observation: dict,
+) -> None:
+    """初始日志完成后按精确关联更新元数据，原业务详情保持不变。"""
+    with SessionLocal() as db:
+        row = db.get(ToolCallLog, log_id)
+        if row is None or row.trace_id != run_id or row.tool_call_id != tool_call_id:
+            raise ValueError("工具反馈缺少精确日志关联")
+        row.extra_metadata = {**(row.extra_metadata or {}), "tool_observation": observation}
+        db.commit()

@@ -9,7 +9,12 @@ from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import ValidationError
 
-from app.schemas.trajectory import LlmOutputProvenance, TrajectoryCapabilityResolution, TrajectorySkillMetadata
+from app.schemas.trajectory import (
+    ContextToolVisibility,
+    LlmOutputProvenance,
+    TrajectoryCapabilityResolution,
+    TrajectorySkillMetadata,
+)
 from app.utils.run_capability_contract import CAPABILITY_CONTROL_TOOL_NAMES
 
 MAX_LEDGER_TEXT_LENGTH = 512
@@ -41,7 +46,9 @@ _EVENT_FIELDS: dict[str, frozenset[str]] = {
     "run_interrupted": frozenset({"reason"}),
     "run_failed": frozenset({"error_code", "message"}),
     "run_completed": frozenset({"total_steps", "total_tool_calls", "finish_reason"}),
-    "llm_round_started": frozenset({"llm_round_id", "round_index", "model", "provider", "system_prompt_fingerprint"}),
+    "llm_round_started": frozenset(
+        {"llm_round_id", "round_index", "model", "provider", "system_prompt_fingerprint", "context_visibility"}
+    ),
     "llm_round_first_output_delta": frozenset({"llm_round_id", "delta_kind", "ttft_ms"}),
     "llm_round_completed": frozenset(
         {
@@ -256,6 +263,20 @@ _SKILL_METADATA_FIELDS = (
 )
 
 
+def sanitize_context_visibility(value: Any) -> dict[str, Any] | None:
+    """只接受有界 ID 集合，不允许正文或凭据通过上下文可见性字段入库。"""
+    if not isinstance(value, Mapping):
+        return None
+    try:
+        snapshot = ContextToolVisibility.model_validate(value)
+        for ids in (snapshot.before_tool_call_ids, snapshot.visible_tool_call_ids, snapshot.removed_tool_call_ids):
+            if any(re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", tool_id) is None for tool_id in ids):
+                return None
+        return snapshot.model_dump()
+    except ValidationError:
+        return None
+
+
 def sanitize_output_provenance(value: Any) -> dict[str, Any] | None:
     """归因只接受枚举与有界块 ID，额外正文禁止进入账本。"""
     if not isinstance(value, Mapping):
@@ -334,6 +355,7 @@ def _sanitize_scalar(value: Any) -> Any:
 
 
 _SPECIAL_SANITIZERS: dict[str, Callable[[Any], Any]] = {
+    "context_visibility": sanitize_context_visibility,
     "items": _sanitize_plan_items,
     "item": _sanitize_plan_item,
     "evidence": _sanitize_evidence,

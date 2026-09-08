@@ -52,6 +52,8 @@ async def search_web(
                 description=r.get("description", ""),
                 content=r.get("content"),
                 favicon=r.get("favicon"),
+                published_at=r.get("published_at"),
+                site_name=r.get("site_name"),
                 requested_provider=requested_provider,
                 result_provider=result_provider,
                 fallback_used=fallback_used,

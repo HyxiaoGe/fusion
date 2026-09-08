@@ -50,6 +50,7 @@ def build_tool_round_request(
         content_blocks=state.content_blocks,
         messages=messages,
         tool_calls=round_result.tool_calls,
+        originating_llm_round_id=getattr(round_result.llm_lifecycle, "llm_round_id", None),
         reasoning_buf=round_result.reasoning_buf,
         protocol_reasoning_buf=round_result.protocol_reasoning_buf,
         protocol_content_buf=round_result.protocol_content_buf,

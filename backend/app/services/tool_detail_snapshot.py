@@ -64,12 +64,12 @@ _INLINE_CREDENTIAL_RE = re.compile(
     r"(?<![\w-])((?:api[_-]?key|client[_-]?secret|access[_-]?token|refresh[_-]?token|"
     r"id[_-]?token|session[_-]?(?:id|token)|token|password|passwd|private[_-]?key|"
     r"secret|authorization|proxy[_-]?authorization)[\"']?\s*[:=]\s*)"
-    r"(\"[^\"\r\n]*\"|'[^'\r\n]*'|(?:Basic|Bearer)\s+[A-Za-z0-9._~+/=-]+|[A-Za-z0-9._~+/=-]+)",
+    r"(\"[^\"\r\n]*(?:\"|$)|'[^'\r\n]*(?:'|$)|(?:Basic|Bearer)\s+[A-Za-z0-9._~+/=-]+|[A-Za-z0-9._~+/=-]+)",
     re.IGNORECASE,
 )
 _INLINE_COOKIE_RE = re.compile(
     r"(?<![\w-])((?:cookie|set[_-]?cookie)[\"']?\s*[:=]\s*)"
-    r"(\"[^\"\r\n]*\"|'[^'\r\n]*'|[A-Za-z0-9._~+/=-]+(?:[ \t]*;[ \t]*[A-Za-z0-9._~+/=-]+)*)",
+    r"(\"[^\"\r\n]*(?:\"|$)|'[^'\r\n]*(?:'|$)|[A-Za-z0-9._~+/=-]+(?:[ \t]*;[ \t]*[A-Za-z0-9._~+/=-]+)*)",
     re.IGNORECASE,
 )
 
@@ -222,3 +222,18 @@ def build_tool_detail_snapshot(payload: dict, result: dict, error: str | None = 
     snapshot["redacted_fields"] = sorted(redacted.values)
     snapshot["truncated_fields"] = sorted(truncated.values)
     return snapshot
+
+
+def build_tool_observation_snapshot(text: str, *, step_number: int) -> dict:
+    """只复制已经回填的工具消息；正文最多 48 KiB，单字符串最多 32K 字符。"""
+    redacted, truncated = _FieldPaths(), _FieldPaths()
+    safe_text = _SnapshotCopy(48 * 1024, redacted, truncated).copy(text, "observation")
+    return {
+        "schema_version": 1,
+        "status": "available",
+        "text": safe_text,
+        "original_chars": len(text),
+        "generated_round_index": step_number,
+        "redacted_fields": sorted(redacted.values),
+        "truncated_fields": sorted(truncated.values),
+    }

@@ -3,17 +3,12 @@ WebSearchHandler — 网络搜索工具处理器
 从 stream_handler.py 提取，行为保持不变
 """
 
-import re
 import time
-import unicodedata
 from typing import List, Optional
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from app.ai.prompts.agent_loop import (
-    SEARCH_CONTEXT_CITATION_RULE,
     SEARCH_CONTEXT_FOLLOW_UP_RULES,
     SEARCH_CONTEXT_OPENING,
-    SEARCH_CONTEXT_TRUST_BOUNDARY,
 )
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.core.logger import app_logger as logger
@@ -21,28 +16,10 @@ from app.schemas.chat import SearchBlock, SearchSource, SearchSourceSummary, Sou
 from app.services.agent_strategy_config import get_agent_strategy_config
 from app.services.external.search_client import search_web
 from app.services.source_context import UntrustedSourceContext, format_untrusted_source_context
+from app.services.source_url_identity import canonicalize_source_url
 from app.services.tool_handlers.base import BaseToolHandler, ToolResult
 
 MAX_CONTEXT_SOURCES = 10
-DEFAULT_MAX_SOURCES_PER_DOMAIN = 2
-TRACKING_QUERY_PARAMS = {
-    "_hsenc",
-    "_hsmi",
-    "dclid",
-    "fbclid",
-    "gclid",
-    "igshid",
-    "mc_cid",
-    "mc_eid",
-    "mkt_tok",
-    "msclkid",
-    "spm",
-    "ttclid",
-    "twclid",
-    "vero_conv",
-    "vero_id",
-    "yclid",
-}
 
 
 class WebSearchHandler(BaseToolHandler):
@@ -161,13 +138,6 @@ class WebSearchHandler(BaseToolHandler):
             )
 
     def build_content_block(self, result: ToolResult, block_id: str, log_id: str) -> SearchBlock | None:
-        if (
-            result.data.get("duplicate_search_skipped")
-            or result.data.get("search_plan_limited")
-            or result.data.get("read_alternatives_available")
-        ):
-            return None
-
         sources: List[SearchSource] = result.data.get("sources", [])
         source_refs = [
             SourceReference(
@@ -219,30 +189,12 @@ class WebSearchHandler(BaseToolHandler):
         *,
         citation_numbers: list[int] | None = None,
     ) -> str:
-        if result.data.get("read_alternatives_available"):
-            query = result.data.get("query", "")
-            unread_count = result.data.get("unread_candidate_count", 0)
-            return render_runtime_prompt(
-                "tool_handlers.search_read_alternatives",
-                query=query,
-                unread_count=unread_count,
-            )
-
-        if result.data.get("search_plan_limited"):
-            query = result.data.get("query", "")
-            return render_runtime_prompt("tool_handlers.search_plan_limited", query=query)
-
-        if result.data.get("duplicate_search_skipped"):
-            query = result.data.get("query", "")
-            return render_runtime_prompt("tool_handlers.search_duplicate", query=query)
-
+        query_context = render_runtime_prompt("tool_handlers.search_query", query=result.data.get("query", ""))
         sources: List[SearchSource] = result.data.get("sources", [])
         if not sources:
-            return render_runtime_prompt("tool_handlers.search_unavailable")
+            return f"{query_context}\n{render_runtime_prompt('tool_handlers.search_unavailable')}"
 
-        parts = [SEARCH_CONTEXT_OPENING]
-        parts.append(SEARCH_CONTEXT_TRUST_BOUNDARY)
-        parts.append(SEARCH_CONTEXT_CITATION_RULE)
+        parts = [query_context, SEARCH_CONTEXT_OPENING, render_runtime_prompt("source_context.rules")]
 
         context_source_limit = _normalize_context_source_limit(result.data.get("context_source_limit"))
         context_sources = sources[:context_source_limit]
@@ -263,32 +215,38 @@ class WebSearchHandler(BaseToolHandler):
             parts.append(
                 format_untrusted_source_context(
                     UntrustedSourceContext(
-                        source_id=f"S{citation_number}",
+                        source_id=str(citation_number),
                         source_type="search",
                         title=source.title,
                         url=source.url,
                         content=content,
                         provider="search-service",
+                        published_at=source.published_at,
+                        site_name=source.site_name,
                     ),
                     max_chars=1000,
+                    include_rules=False,
                 )
             )
             parts.append("")
 
-        for source_index, source in enumerate(sources[len(context_sources):], start=len(context_sources)):
+        for source_index, source in enumerate(sources[len(context_sources) :], start=len(context_sources)):
             citation_number = _citation_number(citation_numbers, source_index)
             parts.append(f"[{citation_number}] {source.title}")
             parts.append(
                 format_untrusted_source_context(
                     UntrustedSourceContext(
-                        source_id=f"S{citation_number}",
+                        source_id=str(citation_number),
                         source_type="search",
                         title=source.title,
                         url=source.url,
                         content="",
                         provider="search-service",
+                        published_at=source.published_at,
+                        site_name=source.site_name,
                     ),
                     max_chars=300,
+                    include_rules=False,
                 )
             )
 
@@ -303,24 +261,6 @@ class WebSearchHandler(BaseToolHandler):
         emitter.tool_call_completed 内部还会经 cap_and_truncate(1024) 兜底。
         """
         data = result.data or {}
-        if data.get("read_alternatives_available"):
-            return {
-                "kind": "search",
-                "title": "优先读取已有候选",
-                "truncated": False,
-            }
-        if data.get("search_plan_limited"):
-            return {
-                "kind": "search",
-                "title": "搜索计划已收敛",
-                "truncated": False,
-            }
-        if data.get("duplicate_search_skipped"):
-            return {
-                "kind": "search",
-                "title": "重复搜索已跳过",
-                "truncated": False,
-            }
         if result.status != "success":
             return {"kind": "search", "truncated": False}
         sources = data.get("sources") or []
@@ -367,129 +307,17 @@ def _citation_number(citation_numbers: list[int] | None, source_index: int) -> i
 
 
 def _post_process_sources(sources: List[SearchSource], intent: Optional[str], domains: list[str]) -> List[SearchSource]:
-    tool_context = _tool_context_config()
-    max_sources_per_domain = _tool_context_int(
-        tool_context,
-        "max_sources_per_domain",
-        DEFAULT_MAX_SOURCES_PER_DOMAIN,
-    )
-    relax_domain_limit = intent == "official_source" or _has_single_domain_filter(domains)
+    # 只用规范化键去重；原链接及 provider 顺序必须用于展示和后续读取。
     seen_urls: set[str] = set()
-    seen_domain_titles: set[tuple[str, str]] = set()
-    domain_counts: dict[str, int] = {}
     processed: List[SearchSource] = []
-
     for source in sources:
-        canonical_url, normalized_domain = _canonicalize_search_url(source.url)
-        url_key = canonical_url or source.url.strip()
+        key = canonicalize_source_url(source.url)
+        url_key = key or source.url.strip()
         if url_key in seen_urls:
             continue
-
-        title_key = _normalize_title(source.title)
-        domain_title_key = (normalized_domain, title_key) if normalized_domain and title_key else None
-        if domain_title_key and domain_title_key in seen_domain_titles:
-            continue
-
-        if (
-            not relax_domain_limit
-            and normalized_domain
-            and domain_counts.get(normalized_domain, 0) >= max_sources_per_domain
-        ):
-            continue
-
         seen_urls.add(url_key)
-        if domain_title_key:
-            seen_domain_titles.add(domain_title_key)
-        if normalized_domain:
-            domain_counts[normalized_domain] = domain_counts.get(normalized_domain, 0) + 1
-        processed.append(_copy_source_with_url(source, canonical_url))
-
+        processed.append(source)
     return processed
-
-
-def _canonicalize_search_url(url: str) -> tuple[str, str]:
-    stripped_url = (url or "").strip()
-    if not stripped_url:
-        return "", ""
-
-    try:
-        parsed = urlsplit(stripped_url)
-    except ValueError:
-        return stripped_url, ""
-
-    if not parsed.netloc:
-        return stripped_url, ""
-
-    scheme = parsed.scheme.lower() or "https"
-    normalized_domain = _normalize_domain(parsed.hostname or "")
-    if not normalized_domain:
-        return stripped_url, ""
-
-    try:
-        port = parsed.port
-    except ValueError:
-        return stripped_url, normalized_domain
-
-    include_port = port and not ((scheme == "http" and port == 80) or (scheme == "https" and port == 443))
-    netloc = f"{normalized_domain}:{port}" if include_port else normalized_domain
-    query = _canonicalize_query(parsed.query)
-    path = "" if parsed.path == "/" else parsed.path.rstrip("/")
-    return urlunsplit((scheme, netloc, path, query, "")), normalized_domain
-
-
-def _canonicalize_query(query: str) -> str:
-    params = []
-    for key, value in parse_qsl(query, keep_blank_values=True):
-        normalized_key = key.lower()
-        if normalized_key.startswith("utm_") or normalized_key in TRACKING_QUERY_PARAMS:
-            continue
-        params.append((key, value))
-
-    params.sort(key=lambda item: (item[0].lower(), item[1]))
-    return urlencode(params, doseq=True)
-
-
-def _normalize_domain(domain: str) -> str:
-    normalized = domain.strip().rstrip(".").lower()
-    while normalized.startswith("www."):
-        normalized = normalized[4:]
-    return normalized
-
-
-def _normalize_domain_filter(domain: str) -> str:
-    stripped_domain = (domain or "").strip()
-    if not stripped_domain:
-        return ""
-
-    try:
-        parsed = urlsplit(stripped_domain)
-    except ValueError:
-        parsed = None
-
-    if parsed and parsed.hostname:
-        host = parsed.hostname
-    else:
-        host = stripped_domain.split("/", 1)[0]
-        host = host.split(":", 1)[0]
-
-    return _normalize_domain(host.removeprefix("*."))
-
-
-def _has_single_domain_filter(domains: list[str]) -> bool:
-    normalized_domains = {_normalize_domain_filter(domain) for domain in domains if _normalize_domain_filter(domain)}
-    return len(normalized_domains) == 1
-
-
-def _normalize_title(title: str) -> str:
-    normalized = unicodedata.normalize("NFKC", title or "").casefold()
-    normalized = re.sub(r"[^\w]+", " ", normalized, flags=re.UNICODE)
-    return re.sub(r"\s+", " ", normalized).strip()
-
-
-def _copy_source_with_url(source: SearchSource, url: str) -> SearchSource:
-    if not url or source.url == url:
-        return source
-    return source.model_copy(update={"url": url})
 
 
 def _tool_context_config() -> dict:

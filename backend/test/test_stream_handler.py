@@ -674,9 +674,10 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
         recovery_messages = [
             message
             for message in captured_messages[2]
-            if "The task is not complete just because a tool failed." in str(message.get("content", ""))
+            if "Earlier tool calls failed or were degraded" in str(message.get("content", ""))
         ]
         self.assertEqual(len(recovery_messages), 1)
+        self.assertIn("Affected tools: url_read", recovery_messages[0]["content"])
         completed = [event for event in self._agent_events() if event["type"] == "run_completed"]
         self.assertEqual(len(completed), 1)
         self.assertEqual(completed[0]["finish_reason"], "incomplete")

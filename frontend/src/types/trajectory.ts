@@ -194,6 +194,30 @@ export type TrajectoryToolNodeDetailSection = Extract<
   'summary' | 'payload' | 'result' | 'timing' | 'schema'
 >;
 
+export interface ToolObservation {
+  schema_version: 1;
+  status: 'available' | 'not_recorded' | 'capture_failed';
+  text?: string | null;
+  original_chars?: number | null;
+  generated_round_index?: number | null;
+  llm_round_id?: string | null;
+  redacted_fields: string[];
+  truncated_fields: string[];
+}
+
+export interface ContextToolVisibility {
+  schema_version: 1;
+  scope: 'application_messages_after_context_management';
+  context_status: string;
+  before_tool_call_ids: string[];
+  visible_tool_call_ids: string[];
+  removed_tool_call_ids: string[];
+  before_count: number;
+  visible_count: number;
+  removed_count: number;
+  truncated: boolean;
+}
+
 export interface TrajectoryToolNodeDetail {
   tool_call_id: string;
   tool_name: string;
@@ -202,6 +226,7 @@ export interface TrajectoryToolNodeDetail {
   payload: Record<string, unknown> | null;
   result: Record<string, unknown> | null;
   error: Record<string, string> | null;
+  observation?: ToolObservation;
 }
 
 export interface LlmOutputProvenance {
@@ -216,6 +241,7 @@ export interface TrajectoryLlmNodeDetail {
   reasoning_text: string | null;
   output_text: string | null;
   output_provenance?: LlmOutputProvenance | null;
+  context_visibility?: ContextToolVisibility | null;
 }
 
 export interface TrajectorySystemPromptNodeDetail {

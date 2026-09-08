@@ -1,5 +1,7 @@
 'use client';
 
+import type { ContextToolVisibility, ToolObservation } from "@/types/trajectory";
+
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -793,6 +795,7 @@ function RemoteDetailSection({
       {response.reason === 'tool_detail_legacy_summary' && (
         <p className="text-sm text-muted-foreground">{t('trajectory.toolDetail.legacySummary')}</p>
       )}
+      {toolSection === 'result' && <h3 className="text-sm font-semibold">{t('trajectory.observation.toolReturn')}</h3>}
       {value === null ? (
         <p className="text-sm text-muted-foreground">该部分未提供</p>
       ) : (
@@ -801,8 +804,38 @@ function RemoteDetailSection({
         </pre>
       )}
       <DetailWarnings redactedFields={redactedFields} truncatedFields={truncatedFields} />
+      {toolSection === 'result' && <ToolObservationSection observation={
+        response.detail && 'tool_call_id' in response.detail ? response.detail.observation : undefined
+      } />}
     </div>
   );
+}
+
+function ToolObservationSection({ observation }: { observation?: ToolObservation }) {
+  const { t } = useTranslation();
+  return <section className="space-y-3 border-t border-border/60 pt-3">
+    <h3 className="text-sm font-semibold">{t('trajectory.observation.title')}</h3>
+    <p className="text-sm text-muted-foreground">{t('trajectory.observation.scope')}</p>
+    {observation?.status === 'available' && typeof observation.text === 'string' ? <>
+      <pre className="max-h-96 whitespace-pre-wrap break-words overflow-auto rounded-md border border-border/60 bg-muted/20 p-3 text-xs">{observation.text}</pre>
+      <p className="text-xs text-muted-foreground">{t('trajectory.observation.originalChars', { count: observation.original_chars ?? undefined })}</p>
+      <DetailWarnings redactedFields={observation.redacted_fields ?? []} truncatedFields={observation.truncated_fields ?? []} />
+    </> : <p className="text-sm text-muted-foreground">{t(`trajectory.observation.${observation?.status === 'capture_failed' ? 'failed' : 'notRecorded'}`)}</p>}
+  </section>;
+}
+
+function ContextVisibilitySection({ visibility }: { visibility?: ContextToolVisibility | null }) {
+  const { t } = useTranslation();
+  return <section className="space-y-2 rounded-md border border-border/60 p-3 text-sm">
+    <h3 className="font-semibold">{t('trajectory.contextVisibility.title')}</h3>
+    <p className="text-muted-foreground">{t('trajectory.contextVisibility.scope')}</p>
+    {visibility ? <>
+      <p>{t('trajectory.contextVisibility.before', { count: visibility.before_count })}</p>
+      <p className="break-all">{t('trajectory.contextVisibility.visible', { count: visibility.visible_count })}：{visibility.visible_tool_call_ids.join('、') || t('trajectory.contextVisibility.none')}</p>
+      <p className="break-all">{t('trajectory.contextVisibility.removed', { count: visibility.removed_count })}：{visibility.removed_tool_call_ids.join('、') || t('trajectory.contextVisibility.none')}</p>
+      {visibility.truncated && <p className="text-warn">{t('trajectory.contextVisibility.truncated')}</p>}
+    </> : <p>{t('trajectory.contextVisibility.notRecorded')}</p>}
+  </section>;
 }
 
 function SystemPromptAvailableDetailSection({ response }: { response: TrajectoryNodeDetailResponse }) {
@@ -1005,6 +1038,7 @@ function LlmAvailableDetailSection({
     <div className="space-y-4">
       {section === 'preview' ? (
         <div className="space-y-5">
+          <ContextVisibilitySection visibility={detail.context_visibility} />
           <section className="space-y-2">
             <h3 className="text-sm font-semibold text-foreground">思考过程</h3>
             {hasReasoning ? (
@@ -1031,6 +1065,7 @@ function LlmAvailableDetailSection({
             reasoning_text: hasReasoning ? detail.reasoning_text : null,
             output_text: hasOutput ? detail.output_text : null,
             output_provenance: detail.output_provenance ?? null,
+            context_visibility: detail.context_visibility ?? null,
           }, null, 2)}</code>
         </pre>
       )}

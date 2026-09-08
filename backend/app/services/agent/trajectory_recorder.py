@@ -251,6 +251,10 @@ class TrajectoryRecorder:
             self._latch_sealed = True
             return self._degraded_reason
 
+    async def write_auxiliary(self, operation: Callable[[], _T]) -> _T | None:
+        """复用账本专用线程和准入上限；真实 worker 结束前不释放容量。"""
+        return await self._run_isolated(operation)
+
     async def _run_isolated(self, operation: Callable[[], _T]) -> _T | None:
         if not self._semaphore.acquire(blocking=False):
             self._mark_degraded("admission_full")

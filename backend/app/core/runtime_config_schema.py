@@ -85,7 +85,7 @@ def _validate_ui_prompt_catalog(payload: dict[str, Any], issues: list[str]) -> N
 
 
 def _validate_agent_strategy(payload: dict[str, Any], issues: list[str]) -> None:
-    for field in ("model_runtime", "search", "network", "read_planner", "source_ranker", "tool_context"):
+    for field in ("model_runtime", "search", "network", "tool_context"):
         _require_dict(payload, field, issues)
 
     model_runtime = payload.get("model_runtime")
@@ -96,25 +96,12 @@ def _validate_agent_strategy(payload: dict[str, Any], issues: list[str]) -> None
 
     search = payload.get("search")
     if isinstance(search, dict):
-        _require_dict(search, "standard_budget", issues, prefix="search")
-        _require_dict(search, "budgets_by_intent", issues, prefix="search")
-        _require_dict(search, "followup_budgets_by_name", issues, prefix="search")
         _require_dict(search, "intent_keywords", issues, prefix="search")
-        _require_dict(search, "thresholds", issues, prefix="search")
 
     network = payload.get("network")
     if isinstance(network, dict):
         _require_positive_int(network, "max_search_calls", issues, prefix="network")
         _require_positive_int(network, "max_url_read_calls", issues, prefix="network")
-
-    read_planner = payload.get("read_planner")
-    if isinstance(read_planner, dict):
-        _require_dict(read_planner, "read_limits", issues, prefix="read_planner")
-
-    source_ranker = payload.get("source_ranker")
-    if isinstance(source_ranker, dict):
-        _require_dict(source_ranker, "weights", issues, prefix="source_ranker")
-        _require_dict(source_ranker, "priority_thresholds", issues, prefix="source_ranker")
 
     tool_context = payload.get("tool_context")
     if isinstance(tool_context, dict):

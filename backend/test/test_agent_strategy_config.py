@@ -11,8 +11,6 @@ class AgentStrategyConfigTests(unittest.TestCase):
         self.assertIn("model_runtime", DEFAULT_AGENT_STRATEGY_CONFIG)
         self.assertIn("search", config)
         self.assertIn("network", config)
-        self.assertIn("read_planner", config)
-        self.assertIn("source_ranker", config)
         self.assertIn("tool_context", config)
 
     def test_get_agent_strategy_config_allows_test_override(self):
@@ -21,15 +19,15 @@ class AgentStrategyConfigTests(unittest.TestCase):
         config, meta = get_agent_strategy_config(
             override={
                 "search": {
-                    "standard_budget": {
-                        "requested_count": 7,
+                    "intent_keywords": {
+                        "quick_fact": ["总数"],
                     }
                 }
             }
         )
 
-        self.assertEqual(config["search"]["standard_budget"]["requested_count"], 7)
-        self.assertEqual(config["search"]["standard_budget"]["context_source_limit"], 10)
+        self.assertEqual(config["search"]["intent_keywords"]["quick_fact"], ["总数"])
+        self.assertIn("official_source", config["search"]["intent_keywords"])
         self.assertEqual(meta["source"], "override")
 
 

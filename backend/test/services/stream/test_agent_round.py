@@ -415,6 +415,12 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
         messages = [
             {"role": "system", "content": "身份规则"},
             {"role": "user", "content": "分析具身智能产业"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{"id": "context-call", "function": {"name": "weather"}}],
+            },
+            {"role": "tool", "tool_call_id": "context-call", "content": "天气反馈"},
             {"role": "system", "content": "当前执行搜索阶段"},
         ]
 
@@ -461,6 +467,12 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
             json.dumps(system_messages, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
         self.assertEqual(emitter.llm_round_started.await_args.kwargs["system_prompt_fingerprint"], expected_fingerprint)
+        visibility = emitter.llm_round_started.await_args.kwargs["context_visibility"]
+        self.assertEqual(
+            visibility["visible_tool_call_ids"],
+            [message["tool_call_id"] for message in sent_messages if message["role"] == "tool"],
+        )
+        self.assertEqual(visibility["visible_tool_call_ids"], ["context-call"])
         self.assertTrue(sent_messages[-1]["content"].endswith(VISIBLE_RESPONSE_LANGUAGE_PROMPT))
         self.assertEqual(
             sum(str(item.get("content") or "").count(VISIBLE_RESPONSE_LANGUAGE_PROMPT) for item in sent_messages),

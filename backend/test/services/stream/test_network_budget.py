@@ -268,21 +268,6 @@ class NetworkToolBudgetTests(unittest.TestCase):
         self.assertEqual(second_args["budget_decision"]["previous_query_count"], 1)
         self.assertEqual(second_args["count"], 10)
 
-    def test_duplicate_search_records_skip_duplicate_decision(self):
-        budget = NetworkToolBudget()
-
-        _first_args, first_degraded = budget.prepare_web_search_args({"query": "OpenAI 最新公告 2026年7月"})
-        second_args, second_degraded = budget.prepare_web_search_args({"query": "OpenAI 最新公告 2026年7月"})
-
-        self.assertIsNone(first_degraded)
-        self.assertIsNotNone(second_degraded)
-        self.assertEqual(second_args["budget_decision"]["action"], "skip_duplicate")
-        self.assertEqual(second_args["budget_decision"]["reason_code"], "duplicate_query")
-        self.assertEqual(second_degraded.data["budget_decision"]["action"], "skip_duplicate")
-        self.assertEqual(second_degraded.data["budget_decision"]["reason_code"], "duplicate_query")
-        self.assertEqual(second_args["count"], 0)
-        self.assertEqual(budget.web_search_calls, 1)
-
     def test_legacy_planner_limit_does_not_block_third_search(self):
         self.enterContext(_low_network_budget())
         budget = NetworkToolBudget()
@@ -300,7 +285,7 @@ class NetworkToolBudgetTests(unittest.TestCase):
         self.assertEqual(third_args["count"], 10)
         self.assertEqual(budget.web_search_calls, 3)
 
-    def test_empty_first_search_marks_next_search_as_repair(self):
+    def test_empty_first_search_allows_normal_followup(self):
         budget = NetworkToolBudget()
 
         first_args, first_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026 最新产品"})
@@ -309,12 +294,12 @@ class NetworkToolBudgetTests(unittest.TestCase):
 
         self.assertIsNone(first_degraded)
         self.assertIsNone(second_degraded)
-        self.assertEqual(second_args["budget_decision"]["action"], "repair_search")
-        self.assertEqual(second_args["budget_decision"]["reason_code"], "previous_search_no_results")
+        self.assertEqual(second_args["budget_decision"]["action"], "execute")
+        self.assertEqual(second_args["budget_decision"]["reason_code"], "complementary_search")
         self.assertEqual(second_args["count"], 10)
         self.assertEqual(budget.web_search_calls, 2)
 
-    def test_weak_first_search_marks_next_search_as_repair(self):
+    def test_single_source_search_allows_normal_followup(self):
         budget = NetworkToolBudget()
         weak_source = SearchSource(
             title="社交转述",
@@ -328,11 +313,11 @@ class NetworkToolBudgetTests(unittest.TestCase):
 
         self.assertIsNone(first_degraded)
         self.assertIsNone(second_degraded)
-        self.assertEqual(second_args["budget_decision"]["action"], "repair_search")
-        self.assertEqual(second_args["budget_decision"]["reason_code"], "previous_search_weak_results")
+        self.assertEqual(second_args["budget_decision"]["action"], "execute")
+        self.assertEqual(second_args["budget_decision"]["reason_code"], "complementary_search")
         self.assertEqual(second_args["count"], 10)
 
-    def test_repair_search_is_single_use_and_third_regular_search_continues(self):
+    def test_search_continues_after_multiple_empty_results(self):
         self.enterContext(_low_network_budget())
         budget = NetworkToolBudget()
 
@@ -343,13 +328,13 @@ class NetworkToolBudgetTests(unittest.TestCase):
         third_args, third_degraded = budget.prepare_web_search_args({"query": "OpenAI 权威媒体 2026 最新"})
 
         self.assertIsNone(second_degraded)
-        self.assertEqual(second_args["budget_decision"]["action"], "repair_search")
+        self.assertEqual(second_args["budget_decision"]["action"], "execute")
         self.assertIsNone(third_degraded)
         self.assertEqual(third_args["budget_decision"]["action"], "execute")
         self.assertEqual(third_args["budget_decision"]["reason_code"], "complementary_search")
         self.assertEqual(budget.web_search_calls, 3)
 
-    def test_pending_repair_takes_precedence_over_duplicate_search(self):
+    def test_same_query_can_retry_after_empty_result(self):
         budget = NetworkToolBudget()
 
         first_args, _first_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026 最新产品"})
@@ -357,8 +342,8 @@ class NetworkToolBudgetTests(unittest.TestCase):
         second_args, second_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026 最新产品"})
 
         self.assertIsNone(second_degraded)
-        self.assertEqual(second_args["budget_decision"]["action"], "repair_search")
-        self.assertEqual(second_args["budget_decision"]["reason_code"], "previous_search_no_results")
+        self.assertEqual(second_args["budget_decision"]["action"], "execute")
+        self.assertEqual(second_args["budget_decision"]["reason_code"], "complementary_search")
         self.assertEqual(budget.web_search_calls, 2)
 
     def test_read_failure_with_unread_candidates_still_allows_search(self):
@@ -461,21 +446,6 @@ class NetworkToolBudgetTests(unittest.TestCase):
         self.assertEqual(second_args["search_budget"], "freshness")
         self.assertEqual(second_args["count"], 10)
         self.assertEqual(second_args["context_source_limit"], 10)
-
-    def test_duplicate_web_search_returns_degraded_without_consuming_provider_budget(self):
-        budget = NetworkToolBudget()
-
-        first_args, first_degraded = budget.prepare_web_search_args({"query": "OpenAI 最新公告 2026年6月 新闻"})
-        second_args, second_degraded = budget.prepare_web_search_args({"query": "OpenAI 最新公告 2026年6月 新闻"})
-
-        self.assertIsNone(first_degraded)
-        self.assertEqual(first_args["search_budget"], "official_source")
-        self.assertIsNotNone(second_degraded)
-        self.assertEqual(second_degraded.status, "degraded")
-        self.assertTrue(second_degraded.data["duplicate_search_skipped"])
-        self.assertEqual(second_args["search_budget"], "duplicate_skipped")
-        self.assertEqual(second_args["count"], 0)
-        self.assertEqual(budget.web_search_calls, 1)
 
     def test_web_search_preserves_budget_for_similar_followup(self):
         budget = NetworkToolBudget()

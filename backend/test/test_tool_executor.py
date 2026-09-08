@@ -1633,32 +1633,6 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         route_handler.execute.assert_awaited_once()
 
 
-class WebSearchRedirectPresentationTests(unittest.TestCase):
-    def test_read_alternative_redirect_has_safe_context_without_search_block(self):
-        from app.services.tool_handlers.web_search import WebSearchHandler
-
-        handler = WebSearchHandler()
-        result = ToolResult(
-            status="degraded",
-            error_message="已有未读取候选来源，已暂停继续搜索",
-            data={
-                "query": "继续搜索同一问题",
-                "read_alternatives_available": True,
-                "unread_candidate_count": 1,
-            },
-        )
-
-        context = handler.format_llm_context(result)
-        summary = handler._build_result_summary(result)
-
-        self.assertIsNone(handler.build_content_block(result, "blk-search", "log-search"))
-        self.assertIn("First read the next high-value candidate", context)
-        self.assertIn("candidate sources remain", context)
-        self.assertNotIn("url_read", context)
-        self.assertNotIn("reader-service", context)
-        self.assertEqual(summary["title"], "优先读取已有候选")
-
-
 class AgentEventCompositeWriterTests(unittest.IsolatedAsyncioTestCase):
     async def test_ownership_loss_records_only_explicit_cancellation_terminals(self):
         from app.services.stream_state_service import StreamOwnershipLostError

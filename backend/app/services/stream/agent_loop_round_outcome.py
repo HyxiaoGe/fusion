@@ -162,8 +162,10 @@ def _recovery_alternatives(request: AgentRoundOutcomeRequest) -> set[str]:
 
 def _is_web_recovery_answer(request: AgentRoundOutcomeRequest) -> bool:
     return (
-        bool(request.state.failed_tool_names)
+        bool(request.state.tool_issue_names)
         and not has_product_result_blocks(request.state.content_blocks)
+        and request.runtime.task_mode != "deep_research"
+        and request.runtime.evidence_policy != "knowledge_grounded_v1"
         and is_grounded_recovery_answer(
             request.round_result.content_buf,
             request.state.content_blocks,
@@ -174,13 +176,17 @@ def _is_web_recovery_answer(request: AgentRoundOutcomeRequest) -> bool:
 
 def _requires_tool_failure_recovery(request: AgentRoundOutcomeRequest) -> bool:
     return (
-        bool(request.state.failed_tool_names)
+        bool(request.state.tool_issue_names)
         and not request.state.tool_recovery_prompted
         and bool(_recovery_alternatives(request))
         and not request.state.pending_tool_repairs
         and not has_product_result_blocks(request.state.content_blocks)
+        and (
+            request.state.product_tool_attempted or not request.state.successful_tool_names - {"web_search", "url_read"}
+        )
         and not _is_web_recovery_answer(request)
         and request.runtime.task_mode != "deep_research"
+        and request.runtime.evidence_policy != "knowledge_grounded_v1"
     )
 
 
@@ -188,8 +194,8 @@ async def _repair_tool_failure_stop(request: AgentRoundOutcomeRequest) -> None:
     request.state.tool_recovery_prompted = True
     _record_suppression(request, "tool_round")
     request.runtime.warning_fn(
-        f"工具失败后模型提前结束，继续选择替代工具: run_id={request.runtime.run_id} "
-        f"failed_tools={sorted(request.state.failed_tool_names)} alternatives={sorted(_recovery_alternatives(request))}"
+        f"工具失败或降级后缺少有效证据，继续选择替代工具: run_id={request.runtime.run_id} "
+        f"tool_issues={sorted(request.state.tool_issue_names)} alternatives={sorted(_recovery_alternatives(request))}"
     )
     await complete_text_response_step(
         context=request.step_context,
@@ -205,7 +211,7 @@ async def _repair_tool_failure_stop(request: AgentRoundOutcomeRequest) -> None:
         section_id="tool_failure_recovery",
         content=render_runtime_prompt(
             "stream.tool_failure_recovery",
-            failed_tools=", ".join(sorted(request.state.failed_tool_names)),
+            failed_tools=", ".join(sorted(request.state.tool_issue_names)),
             available_tools=", ".join(sorted(_recovery_alternatives(request))),
         ),
     )
@@ -550,7 +556,7 @@ async def _commit_deferred_answer(
         return _with_replaced_answer(request, answer)
 
     if (
-        request.state.failed_tool_names
+        request.state.tool_issue_names
         and not has_product_result_blocks(request.state.content_blocks)
         and request.runtime.task_mode != "deep_research"
         and (
@@ -558,7 +564,9 @@ async def _commit_deferred_answer(
         )
     ):
         request.state.mark_unknown_terminated()
-        answer = "本次查询仍未完成：查询工具返回错误，尚未取得足以核实答案的有效来源，因此目前无法可靠给出具体结论。"
+        answer = (
+            "本次查询仍未完成：查询工具未能取得可用结果，尚未取得足以核实答案的有效来源，因此目前无法可靠给出具体结论。"
+        )
         await _append_committed_answer(request, answer)
         return _with_replaced_answer(request, answer)
 

@@ -36,7 +36,7 @@ class ToolRecoveryEvidenceTests(unittest.TestCase):
             with self.subTest(answer=answer):
                 assert is_grounded_recovery_answer(answer, [block()], evidence=evidence())
 
-    def test_reject_unattributed_or_invented_references(self):
+    def test_evidence_presence_is_independent_of_answer_citation_format(self):
         for answer in [
             "明天有骤雨。",
             "明天有骤雨。[9]",
@@ -45,6 +45,11 @@ class ToolRecoveryEvidenceTests(unittest.TestCase):
             f"[链接]({URL}/invented)",
             "[1] https://invented.example/report",
         ]:
+            with self.subTest(answer=answer):
+                assert is_grounded_recovery_answer(answer, [block()], evidence=evidence())
+
+    def test_empty_answer_is_not_a_recovery_answer(self):
+        for answer in ("", "  \n"):
             with self.subTest(answer=answer):
                 assert not is_grounded_recovery_answer(answer, [block()], evidence=evidence())
 

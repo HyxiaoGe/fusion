@@ -2194,16 +2194,16 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(messages[2]["content"], "第一个搜索上下文")
         self.assertEqual(messages[3]["tool_call_id"], "tc-search-2")
         self.assertIn("第二个搜索上下文", messages[3]["content"])
-        self.assertIn("Structured source-selection guidance", messages[3]["content"])
-        self.assertIn("Read at most 3 recommended sources", messages[3]["content"])
+        self.assertIn("[Search candidates]", messages[3]["content"])
+        self.assertNotIn("Read at most", messages[3]["content"])
         self.assertIn("Previewing GPT-5.6 Sol", messages[3]["content"])
         self.assertIn("GPT-5.6 Preview System Card", messages[3]["content"])
         self.assertIn("Axios", messages[3]["content"])
-        self.assertIn("Low-priority candidates", messages[3]["content"])
+        self.assertNotIn("Low-priority", messages[3]["content"])
         self.assertIn("threads.com", messages[3]["content"])
-        self.assertIn("Reasons not recommended", messages[3]["content"])
-        self.assertIn("Read at least 1 recommended high-priority source", messages[3]["content"])
-        self.assertIn("before stating a factual conclusion", messages[3]["content"])
+        self.assertNotIn("Reasons not recommended", messages[3]["content"])
+        self.assertNotIn("Read at least", messages[3]["content"])
+        self.assertIn("not a reading quota or a quality ranking", messages[3]["content"])
 
     def test_append_tool_round_messages_keeps_citations_unique_across_search_rounds(self):
         from app.services.tool_handlers.web_search import WebSearchHandler
@@ -2465,21 +2465,19 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(ledger["summary"]["executed_search_count"], 2)
         self.assertEqual(ledger["summary"]["provider_search_count"], 2)
-        self.assertEqual(ledger["summary"]["recommended_read_count"], 3)
-        self.assertEqual(ledger["summary"]["deprioritized_count"], 1)
-        self.assertTrue(ledger["summary"]["read_required"])
-        self.assertEqual(ledger["summary"]["minimum_required_reads"], 1)
-        self.assertEqual(ledger["summary"]["read_required_reason"], "official_source_requires_verification")
+        self.assertEqual(ledger["summary"]["recommended_read_count"], 0)
+        self.assertEqual(ledger["summary"]["deprioritized_count"], 0)
+        self.assertFalse(ledger["summary"]["read_required"])
+        self.assertEqual(ledger["summary"]["minimum_required_reads"], 0)
+        self.assertEqual(ledger["summary"]["read_required_reason"], "")
         self.assertEqual(
             [decision["reason_code"] for decision in ledger["search_decisions"]],
             ["initial_search", "similar_followup"],
         )
-        self.assertIn("official_original", ledger["summary"]["decision_reason_codes"])
-        self.assertIn("official_document", ledger["summary"]["decision_reason_codes"])
-        self.assertIn("low_priority_source_type", ledger["summary"]["decision_reason_codes"])
+        self.assertIn("provider_order", ledger["summary"]["decision_reason_codes"])
         self.assertEqual(
             [decision["domain"] for decision in ledger["read_decisions"] if decision["action"] == "deprioritize"],
-            ["youtube.com"],
+            [],
         )
 
     def test_search_read_decision_ledger_counts_repair_search_as_provider_search(self):
@@ -2528,7 +2526,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ledger["search_decisions"][0]["action"], "repair_search")
         self.assertIn("previous_search_no_results", ledger["summary"]["decision_reason_codes"])
 
-    async def test_handle_tool_calls_round_emits_selected_evidence_for_ranker_recommendations(self):
+    async def test_handle_tool_calls_round_does_not_mark_unread_candidates_as_selected(self):
         tool_call = {"id": "tc-search", "name": "web_search", "arguments": '{"query":"OpenAI GPT-5.6"}'}
         handler = Mock()
         handler.format_llm_context.return_value = "搜索上下文"
@@ -2610,22 +2608,9 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
             else:
                 tool_round_module.mark_tool_round_started = original_mark_tool_round_started
 
-        emitter.evidence_item_upserted.assert_awaited()
-        selected_calls = [
-            call
-            for call in emitter.evidence_item_upserted.await_args_list
-            if call.kwargs["evidence"]["status"] == "selected"
-        ]
-        selected_events = [call.kwargs["evidence"] for call in selected_calls]
-        self.assertEqual(len(selected_events), 1)
-        self.assertEqual(selected_calls[0].kwargs["tool_call_id"], "tc-search")
-        self.assertEqual(
-            selected_events[0]["id"],
-            stable_web_evidence_id("https://openai.com/index/previewing-gpt-5-6-sol", fallback="unused"),
-        )
-        self.assertIn("official source", selected_events[0]["claim"])
+        emitter.evidence_item_upserted.assert_not_awaited()
 
-    async def test_tool_round_selected_evidence_count_follows_quick_fact_read_limit(self):
+    async def test_tool_round_does_not_choose_reads_for_quick_facts(self):
         tool_call = {"id": "tc-search", "name": "web_search", "arguments": '{"query":"OpenAI GPT-5.6 是什么"}'}
         handler = Mock()
         handler.format_llm_context.return_value = "搜索上下文"
@@ -2703,4 +2688,4 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
             for call in emitter.evidence_item_upserted.await_args_list
             if call.kwargs["evidence"]["status"] == "selected"
         ]
-        self.assertEqual(len(selected_events), 1)
+        self.assertEqual(selected_events, [])

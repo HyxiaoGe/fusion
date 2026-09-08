@@ -119,7 +119,7 @@ def normalize_search_intent(value, *, strategy_config: dict | None = None) -> st
     if not isinstance(value, str):
         return None
     intent = value.strip().lower()
-    if intent in _supported_search_intents(strategy_config):
+    if intent in SUPPORTED_SEARCH_INTENTS:
         return intent
     return None
 
@@ -192,14 +192,6 @@ def _search_config(strategy_config: dict | None = None) -> dict:
     if strategy_config is None:
         strategy_config, _meta = get_agent_strategy_config()
     return strategy_config.get("search") or {}
-
-
-def _supported_search_intents(strategy_config: dict | None = None) -> set[str]:
-    search_config = _search_config(strategy_config)
-    configured = search_config.get("budgets_by_intent")
-    if isinstance(configured, dict) and configured:
-        return set(configured)
-    return SUPPORTED_SEARCH_INTENTS
 
 
 def _normalize_query_text(query: str) -> str:

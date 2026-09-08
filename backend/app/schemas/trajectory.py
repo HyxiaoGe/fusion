@@ -375,6 +375,42 @@ class ToolDetailSnapshot(BaseModel):
     truncated_fields: list[str] = Field(max_length=64)
 
 
+class ToolObservation(BaseModel):
+    """应用实际回填的工具反馈；旧记录禁止根据原始结果重建。"""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    schema_version: Literal[1] = 1
+    status: Literal["available", "not_recorded", "capture_failed"] = "not_recorded"
+    text: str | None = Field(default=None, max_length=32768)
+    original_chars: int | None = Field(default=None, ge=0)
+    llm_round_id: str | None = Field(default=None, max_length=128)
+    generated_round_index: int | None = Field(default=None, ge=1)
+    redacted_fields: list[str] = Field(default_factory=list, max_length=64)
+    truncated_fields: list[str] = Field(default_factory=list, max_length=64)
+
+    @model_validator(mode="after")
+    def _require_captured_text(self) -> ToolObservation:
+        if self.status == "available" and (not self.text or self.original_chars is None):
+            raise ValueError("可用反馈必须包含实际采集正文及原始字符数")
+        return self
+
+
+class ContextToolVisibility(BaseModel):
+    """本应用裁剪前后的工具消息 ID，非供应商 HTTP 请求全文。"""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    schema_version: Literal[1] = 1
+    scope: Literal["application_messages_after_context_management"]
+    context_status: str = Field(pattern=r"^[a-z_]{1,64}$")
+    before_tool_call_ids: list[str] = Field(max_length=200)
+    visible_tool_call_ids: list[str] = Field(max_length=200)
+    removed_tool_call_ids: list[str] = Field(max_length=200)
+    before_count: int = Field(ge=0)
+    visible_count: int = Field(ge=0)
+    removed_count: int = Field(ge=0)
+    truncated: bool
+
+
 class ToolNodeDetail(BaseModel):
     """普通用户可读取的 Tool 节点安全详情。"""
 
@@ -387,6 +423,7 @@ class ToolNodeDetail(BaseModel):
     payload: dict[str, Any] | None = None
     result: dict[str, Any] | None = None
     error: dict[str, str] | None = None
+    observation: ToolObservation = Field(default_factory=ToolObservation)
 
 
 class LlmOutputProvenance(BaseModel):
@@ -423,6 +460,7 @@ class LlmNodeDetail(BaseModel):
     reasoning_text: str | None = None
     output_text: str | None = None
     output_provenance: LlmOutputProvenance | None = None
+    context_visibility: ContextToolVisibility | None = None
 
 
 class SystemPromptSection(BaseModel):

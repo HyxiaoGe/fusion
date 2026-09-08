@@ -58,6 +58,8 @@ class SearchSource(BaseModel):
     url: str
     description: str
     content: Optional[str] = None  # 网页正文摘要（Tavily 等 provider 支持）
+    published_at: Optional[str] = None  # 仅透传上游明确给出的发布日期
+    site_name: Optional[str] = None  # 发布站点，不表示报道事件主体
     favicon: Optional[str] = None  # 网站 favicon URL
     requested_provider: Optional[str] = None
     result_provider: Optional[str] = None

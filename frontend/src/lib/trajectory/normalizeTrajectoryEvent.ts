@@ -1,4 +1,5 @@
 import type {
+  ContextToolVisibility,
   LlmOutputProvenance,
   TrajectoryCapabilityResolution,
   TrajectoryCapabilitySkillResolution,
@@ -36,7 +37,7 @@ const EVENT_PAYLOAD_FIELDS: Record<string, readonly string[]> = {
   run_interrupted: ['reason'],
   run_failed: ['error_code', 'message'],
   run_completed: ['total_steps', 'total_tool_calls', 'finish_reason'],
-  llm_round_started: ['llm_round_id', 'round_index', 'model', 'provider', 'system_prompt_fingerprint'],
+  llm_round_started: ['llm_round_id', 'round_index', 'model', 'provider', 'system_prompt_fingerprint', 'context_visibility'],
   llm_round_first_output_delta: ['llm_round_id', 'delta_kind', 'ttft_ms'],
   llm_round_completed: [
     'llm_round_id', 'status', 'finish_reason', 'input_tokens', 'output_tokens', 'total_tokens',
@@ -485,6 +486,25 @@ export function normalizeOutputProvenance(value: unknown): LlmOutputProvenance |
   return { disposition, source, reason, block_id: blockId };
 }
 
+export function normalizeContextToolVisibility(value: unknown): ContextToolVisibility | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  if (row.schema_version !== 1 || row.scope !== 'application_messages_after_context_management'
+    || typeof row.context_status !== 'string' || !/^[a-z_]{1,64}$/.test(row.context_status)
+    || typeof row.truncated !== 'boolean') return null;
+  for (const field of ['before', 'visible', 'removed']) {
+    const ids = row[`${field}_tool_call_ids`];
+    const count = row[`${field}_count`];
+    if (!Array.isArray(ids) || ids.length > 200 || !ids.every(id => typeof id === 'string' && /^[A-Za-z0-9_.:-]{1,128}$/.test(id))
+      || typeof count !== 'number' || !Number.isInteger(count) || count < ids.length) return null;
+  }
+  return {
+    schema_version: 1, scope: row.scope, context_status: row.context_status, truncated: row.truncated,
+    before_tool_call_ids: row.before_tool_call_ids as string[], visible_tool_call_ids: row.visible_tool_call_ids as string[], removed_tool_call_ids: row.removed_tool_call_ids as string[],
+    before_count: row.before_count as number, visible_count: row.visible_count as number, removed_count: row.removed_count as number,
+  };
+}
+
 function sanitizePayload(eventType: string, source: Record<string, unknown>): Record<string, unknown> | null {
   const fields = EVENT_PAYLOAD_FIELDS[eventType];
   if (!fields) return null;
@@ -513,7 +533,8 @@ function sanitizePayload(eventType: string, source: Record<string, unknown>): Re
     } else if (field === 'capability_resolution') {
       const resolution = normalizeTrajectoryCapabilityResolution(source[field]);
       if (resolution) payload[field] = resolution;
-    } else if (field === 'output_provenance') payload[field] = normalizeOutputProvenance(source[field]);
+    } else if (field === 'context_visibility') payload[field] = normalizeContextToolVisibility(source[field]);
+    else if (field === 'output_provenance') payload[field] = normalizeOutputProvenance(source[field]);
     else if (field === 'items') payload[field] = sanitizePlanItems(source[field]);
     else if (field === 'item') payload[field] = sanitizePlanItem(source[field]);
     else if (field === 'evidence') payload[field] = sanitizeEvidence(source[field]);

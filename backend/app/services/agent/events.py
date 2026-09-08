@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.chat import ContextStatus, KnowledgeEvidenceBlock, ProductResultBlock
 from app.schemas.trajectory import (
+    ContextToolVisibility,
     LlmOutputProvenance,
     TrajectoryCapabilityResolution,
     TrajectorySkillMetadata,
@@ -118,6 +119,7 @@ class LLMRoundStarted(AgentEventBase):
     model: str
     provider: str
     system_prompt_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    context_visibility: ContextToolVisibility | None = None
 
 
 class LLMRoundFirstOutputDelta(AgentEventBase):

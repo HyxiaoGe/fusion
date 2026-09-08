@@ -88,7 +88,7 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.data["provider_chain"], ["firecrawl", "brave"])
 
     async def test_execute_post_processes_search_sources_before_outputs(self):
-        """搜索结果先去重和做域名多样性限制，再进入结果、内容块和上下文"""
+        """搜索结果仅按 URL 去重，原始链接与原始顺序进入全部输出"""
         from app.schemas.chat import SearchSource
 
         mock_sources = [
@@ -117,23 +117,29 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.status, "success")
         self.assertEqual(
-            [source.title for source in result.data["sources"]], ["Redis Docs", "Redis Pricing", "Official Redis"]
+            [source.title for source in result.data["sources"]],
+            ["Redis Docs", "Redis Pricing", "  redis   pricing ", "Redis Download", "Official Redis"],
         )
-        self.assertEqual(result.data["sources"][0].url, "https://example.com/docs")
+        self.assertEqual(
+            result.data["sources"][0].url, "https://WWW.Example.com/docs?utm_source=newsletter&gclid=abc#intro"
+        )
         self.assertEqual(result.data["actual_count"], 7)
-        self.assertEqual(result.data["result_count"], 3)
-        self.assertEqual(result.data["context_source_count"], 3)
+        self.assertEqual(result.data["result_count"], 5)
+        self.assertEqual(result.data["context_source_count"], 5)
         self.assertEqual(result.data["result_provider"], "brave")
         self.assertTrue(result.data["fallback_used"])
         self.assertEqual(result.data["provider_chain"], ["firecrawl", "brave"])
 
         block = self.handler.build_content_block(result, "blk_123", "log_456")
-        self.assertEqual(block.source_count, 3)
-        self.assertEqual([source.title for source in block.sources], ["Redis Docs", "Redis Pricing", "Official Redis"])
+        self.assertEqual(block.source_count, 5)
+        self.assertEqual(
+            [source.title for source in block.sources],
+            ["Redis Docs", "Redis Pricing", "  redis   pricing ", "Redis Download", "Official Redis"],
+        )
 
         context = self.handler.format_llm_context(result)
-        self.assertIn("[3] Official Redis", context)
-        self.assertNotIn("Redis Download", context)
+        self.assertIn("[5] Official Redis", context)
+        self.assertIn("Redis Download", context)
 
     async def test_execute_relaxes_domain_limit_for_official_or_single_domain_search(self):
         """官方意图或显式单域限制不按普通搜索的同域 2 条上限裁剪"""
@@ -288,7 +294,7 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
         context = self.handler.format_llm_context(result, citation_numbers=[6, 7])
 
         self.assertIn("[6] 北京官方天气", context)
-        self.assertIn('source_id="S6"', context)
+        self.assertIn('source_id="6"', context)
         self.assertIn("[7] 北京徒步提醒", context)
         self.assertNotIn("[1] 北京官方天气", context)
 
@@ -333,62 +339,6 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("cannot support the answer", context)
         self.assertNotIn("answer from your own knowledge", context)
         self.assertNotIn("web_search", context)
-
-    def test_format_llm_context_duplicate_search_skipped_reuses_previous_results(self):
-        result = ToolResult(
-            status="degraded",
-            data={
-                "sources": [],
-                "query": "OpenAI 最新公告 2026年6月 新闻",
-                "duplicate_search_skipped": True,
-            },
-        )
-
-        context = self.handler.format_llm_context(result)
-
-        self.assertIn("substantially duplicates", context)
-        self.assertIn("real search request was skipped", context)
-        self.assertIn("previously returned search results", context)
-        self.assertIn("official sources, authoritative media, region, or time range", context)
-        self.assertNotIn("search returned no usable result", context)
-
-    def test_format_llm_context_plan_limited_reuses_existing_results(self):
-        result = ToolResult(
-            status="degraded",
-            data={
-                "sources": [],
-                "query": "OpenAI GPT-5.6 Sol 预览 2026年6月",
-                "search_plan_limited": True,
-            },
-        )
-
-        context = self.handler.format_llm_context(result)
-
-        self.assertIn("search plan has converged", context)
-        self.assertIn("Do not make another similar search", context)
-        self.assertIn("Prefer reading an already recommended high-value source", context)
-        self.assertNotIn("search returned no usable result", context)
-
-    def test_build_content_block_skips_internal_search_control_results(self):
-        duplicate_result = ToolResult(
-            status="degraded",
-            data={
-                "query": "OpenAI 最新公告 2026年6月 新闻",
-                "sources": [],
-                "duplicate_search_skipped": True,
-            },
-        )
-        limited_result = ToolResult(
-            status="degraded",
-            data={
-                "query": "OpenAI GPT-5.6 Sol 预览 2026年6月",
-                "sources": [],
-                "search_plan_limited": True,
-            },
-        )
-
-        self.assertIsNone(self.handler.build_content_block(duplicate_result, "blk_dup", "log_dup"))
-        self.assertIsNone(self.handler.build_content_block(limited_result, "blk_limited", "log_limited"))
 
     def test_build_content_block(self):
         """构造 SearchBlock"""

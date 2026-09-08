@@ -1,4 +1,4 @@
-"""工具失败后替代网页证据的运行期登记与显式引用门禁。"""
+"""工具失败或降级后替代网页证据的运行期登记。"""
 
 from __future__ import annotations
 
@@ -7,11 +7,9 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
-from app.services.final_answer_evidence import build_used_final_answer_evidence
 from app.services.search_budget import MAX_CONTEXT_SOURCES
 from app.services.source_evidence_ledger import canonicalize_evidence_url
 
-_CITATION_PATTERN = re.compile(r"(?:\[(\d{1,3})\]|⟦(\d{1,3})⟧)")
 _URL_PATTERN = re.compile(r"https?://[^\s\])}>\"'，。；、]+", re.IGNORECASE)
 
 
@@ -62,30 +60,14 @@ def is_grounded_recovery_answer(
     *,
     evidence: RecoveryEvidenceWorkset,
 ) -> bool:
-    """验证来源存在且被显式引用；不声称能机械证明答案每个语义事实。
+    """判断非空答复是否有实际网页证据，不验证逐项事实或引用正确性。
 
-    调用方仍须保证发生过产品工具失败，且没有成功产品结果需要原校验。
-    无证据时的诚实失败收尾应走独立分支，不能通过此门禁。
+    引用缺失或格式错误不等于没有取得来源，不能据此丢弃正常答复。
+    调用方须保留成功产品结果、知识库和深度研究各自的校验边界。
     """
     if not isinstance(answer, str) or not answer.strip():
         return False
-    blocks = _eligible_blocks(content_blocks, evidence)
-    refs = [ref for block in blocks for ref in block["source_refs"]]
-    allowed_indexes = {ref["citation_index"] for ref in refs if _valid_index(ref.get("citation_index"))}
-    citations = {int(match.group(1) or match.group(2)) for match in _CITATION_PATTERN.finditer(answer)}
-    if not citations.issubset(allowed_indexes):
-        return False
-    mentioned_urls = {_canonical_url(url) for url in _URL_PATTERN.findall(answer)}
-    allowed_urls = {ref["url"] for ref in refs}
-    if not mentioned_urls.issubset(allowed_urls):
-        return False
-    used = build_used_final_answer_evidence(
-        content_blocks=blocks,
-        answer_text=answer,
-        evidence_policy="deep_research_v1",
-        allowed_citation_indexes=allowed_indexes,
-    )
-    return bool(used or mentioned_urls)
+    return has_recovery_evidence(content_blocks, evidence=evidence)
 
 
 def _eligible_blocks(content_blocks: list[Any], evidence: RecoveryEvidenceWorkset) -> list[dict[str, Any]]:
@@ -130,10 +112,6 @@ def _canonical_url(value: Any) -> str:
         return canonicalize_evidence_url(value)
     except ValueError:
         return ""
-
-
-def _valid_index(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
 def _value(value: Any, key: str) -> Any:

@@ -294,6 +294,7 @@ async def run_agent_round(
         message_id=assistant_message_id,
         detail_scheduler=llm_round_detail_scheduler,
         system_prompt_fingerprint=fingerprint_system_messages(to_provider_messages(effective_messages)),
+        context_visibility=context_plan.tool_visibility(finalized_messages),
     )
     observation.start()
     partial_output: dict[str, str] = {}

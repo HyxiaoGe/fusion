@@ -98,6 +98,7 @@ class LLMRoundLifecycle:
         message_id: str | None = None,
         detail_scheduler: Callable[[LlmRoundDetailDraft], Any] | None = None,
         system_prompt_fingerprint: str | None = None,
+        context_visibility: dict | None = None,
         text_block_id: str | None = None,
     ) -> LLMRoundLifecycle | None:
         emit = getattr(emitter, "llm_round_started", None)
@@ -120,6 +121,7 @@ class LLMRoundLifecycle:
             model=model,
             provider=provider,
             parent_step_id=parent_step_id,
+            **({"context_visibility": context_visibility} if context_visibility is not None else {}),
             **(
                 {"system_prompt_fingerprint": system_prompt_fingerprint}
                 if system_prompt_fingerprint is not None

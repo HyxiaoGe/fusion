@@ -18,11 +18,8 @@ from app.services.tool_handlers.base import ToolResult
 MAX_SEARCH_CALLS = 40
 MAX_URL_READ_CALLS = 100
 MAX_DOMAINS = 5
-WEAK_SEARCH_RESULT_THRESHOLD = 2
 MIN_RECENCY_DAYS = 1
 MAX_RECENCY_DAYS = 365
-READ_ALTERNATIVE_ACTIONS = {"recommend_read"}
-PROVIDER_SEARCH_ACTIONS = {"execute", "narrow_followup", "repair_search"}
 
 _DOMAIN_RE = re.compile(r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 
@@ -36,12 +33,6 @@ class NetworkToolBudget:
     web_search_calls: int = 0
     url_read_calls: int = 0
     web_search_queries: list[str] = field(default_factory=list)
-    web_search_intents: list[str | None] = field(default_factory=list)
-    web_search_request_keys: set[tuple] = field(default_factory=set)
-    repair_search_used: bool = False
-    pending_search_repair_reason_code: str | None = None
-    read_failure_pending: bool = False
-    candidate_read_urls: set[str] = field(default_factory=set)
     attempted_read_urls: set[str] = field(default_factory=set)
     read_url_plan_items: dict[str, str] = field(default_factory=dict)
 
@@ -68,8 +59,6 @@ class NetworkToolBudget:
         planned_search_limit = _network_int(network_config, "max_search_calls", MAX_SEARCH_CALLS)
         previous_query_count = len(self.web_search_queries)
 
-        repair_reason_code = self._consume_search_repair_reason_code()
-
         search_budget = derive_search_budget(intent, requested_count=normalized.get("count"))
         if normalized.get("recency_days") is not None:
             normalized["recency_days"] = _clamp_int(
@@ -78,62 +67,18 @@ class NetworkToolBudget:
                 _network_int(network_config, "min_recency_days", MIN_RECENCY_DAYS),
                 _network_int(network_config, "max_recency_days", MAX_RECENCY_DAYS),
             )
-        # 只拦截相同 provider 请求；换来源、时间或数量均可能获取互补证据。
-        request_key = (
-            " ".join(query.split()).casefold(),
-            tuple(sorted(domains)),
-            normalized.get("recency_days"),
-            search_budget.requested_count,
-        )
-        if not repair_reason_code and request_key in self.web_search_request_keys:
-            normalized["count"] = 0
-            normalized["context_source_limit"] = 0
-            normalized["search_budget"] = "duplicate_skipped"
-            decision = _search_budget_decision(
-                query=query,
-                intent=intent,
-                action="skip_duplicate",
-                budget_name="duplicate_skipped",
-                requested_count=0,
-                context_source_limit=0,
-                reason_code="duplicate_query",
-                previous_query_count=previous_query_count,
-                planned_search_limit=planned_search_limit,
-            )
-            normalized["budget_decision"] = decision
-            return normalized, ToolResult(
-                status="degraded",
-                error_message="重复搜索已跳过",
-                data={
-                    "query": query,
-                    "sources": [],
-                    "result_count": 0,
-                    "requested_count": 0,
-                    "actual_count": 0,
-                    "context_source_count": 0,
-                    "context_source_limit": 0,
-                    "search_budget": "duplicate_skipped",
-                    "intent": intent,
-                    "domains": domains,
-                    "recency_days": normalized.get("recency_days"),
-                    "budget_limited": False,
-                    "duplicate_search_skipped": True,
-                    "budget_decision": decision,
-                },
-            )
-
         normalized["count"] = search_budget.requested_count
         normalized["context_source_limit"] = search_budget.context_source_limit
-        normalized["search_budget"] = "repair" if repair_reason_code else search_budget.name
+        normalized["search_budget"] = search_budget.name
         max_search_calls = _network_int(network_config, "max_search_calls", MAX_SEARCH_CALLS)
         decision = _search_budget_decision(
             query=query,
             intent=intent,
-            action="repair_search" if repair_reason_code else "execute",
+            action="execute",
             budget_name=normalized["search_budget"],
             requested_count=normalized["count"],
             context_source_limit=normalized["context_source_limit"],
-            reason_code=repair_reason_code or _allowed_search_reason_code(previous_query_count),
+            reason_code=_allowed_search_reason_code(previous_query_count),
             previous_query_count=previous_query_count,
             planned_search_limit=planned_search_limit,
         )
@@ -175,13 +120,8 @@ class NetworkToolBudget:
                 },
             )
 
-        self.web_search_request_keys.add(request_key)
         self.web_search_calls += 1
         self.web_search_queries.append(query)
-        self.web_search_intents.append(intent)
-        if repair_reason_code:
-            self.repair_search_used = True
-            self.pending_search_repair_reason_code = None
         return normalized, None
 
     def prepare_url_read_args(
@@ -237,37 +177,10 @@ class NetworkToolBudget:
     def record_tool_results(self, results: list, *, source_plan=None) -> None:
         """回填本轮工具执行结果，供下一次预算决策使用。"""
 
-        self._record_source_plan_candidates(source_plan)
         for record in results or []:
-            tool_name = getattr(record, "tool_name", "")
             result = getattr(record, "result", None)
-            if result is None:
-                continue
-            if tool_name == "web_search":
-                self._record_search_result(result)
-            elif tool_name == "url_read":
+            if getattr(record, "tool_name", "") == "url_read" and result is not None:
                 self._record_url_read_result(record, result)
-        self._drop_attempted_read_candidates()
-
-    def _record_search_result(self, result) -> None:
-        data = getattr(result, "data", None) or {}
-        decision = data.get("budget_decision") if isinstance(data, dict) else {}
-        action = decision.get("action") if isinstance(decision, dict) else ""
-        if action and action not in PROVIDER_SEARCH_ACTIONS:
-            return
-
-        result_count = _result_count(data)
-        if result.status != "success" or result_count == 0:
-            self._set_pending_search_repair("previous_search_no_results")
-            return
-        strategy_config, _meta = get_agent_strategy_config()
-        weak_threshold = _network_int(
-            _network_config(strategy_config), "weak_search_result_threshold", WEAK_SEARCH_RESULT_THRESHOLD
-        )
-        if result_count < weak_threshold:
-            self._set_pending_search_repair("previous_search_weak_results")
-            return
-        self.pending_search_repair_reason_code = None
 
     def _record_url_read_result(self, record, result) -> None:
         url = _record_url(record, result)
@@ -277,34 +190,6 @@ class NetworkToolBudget:
             plan_item_id = getattr(record, "tool_call", {}).get("plan_item_id")
             if isinstance(plan_item_id, str) and plan_item_id:
                 self.read_url_plan_items.setdefault(canonical_url, plan_item_id)
-        if result.status != "success":
-            self.read_failure_pending = True
-        elif url:
-            self.read_failure_pending = False
-
-    def _record_source_plan_candidates(self, source_plan) -> None:
-        decisions = getattr(source_plan, "read_decisions", ()) if source_plan is not None else ()
-        for decision in decisions or ():
-            if getattr(decision, "action", "") not in READ_ALTERNATIVE_ACTIONS:
-                continue
-            url = getattr(getattr(decision, "candidate", None), "url", "")
-            if url:
-                self.candidate_read_urls.add(str(url))
-        self._drop_attempted_read_candidates()
-
-    def _drop_attempted_read_candidates(self) -> None:
-        if self.attempted_read_urls:
-            self.candidate_read_urls.difference_update(self.attempted_read_urls)
-
-    def _set_pending_search_repair(self, reason_code: str) -> None:
-        if not self.repair_search_used:
-            self.pending_search_repair_reason_code = reason_code
-
-    def _consume_search_repair_reason_code(self) -> str | None:
-        if self.repair_search_used:
-            self.pending_search_repair_reason_code = None
-            return None
-        return self.pending_search_repair_reason_code
 
 
 def _clamp_int(value, default: int, minimum: int, maximum: int) -> int:
@@ -378,15 +263,6 @@ def _search_budget_decision(
             planned_search_limit=planned_search_limit,
         )
     )
-
-
-def _result_count(data: dict) -> int:
-    value = data.get("result_count")
-    try:
-        return max(0, int(value))
-    except (TypeError, ValueError):
-        sources = data.get("sources")
-        return len(sources) if isinstance(sources, list) else 0
 
 
 def _network_config(strategy_config: dict | None) -> dict:

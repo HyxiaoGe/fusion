@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -24,6 +25,8 @@ from app.schemas.chat import (
 )
 from app.schemas.content_block_registry import is_registered_rich_content_block
 from app.services.agent.progress_digest import build_evidence_items, build_tool_result_digest
+from app.services.agent.trajectory_recorder import TrajectoryRecorder
+from app.services.agent_logger import attach_tool_observation
 from app.services.search_read_planner import build_search_read_plan, format_search_read_plan_guidance
 from app.services.source_candidate_ranker import (
     SearchResultForRanking,
@@ -52,6 +55,7 @@ from app.services.stream.tool_executor import (
     is_local_argument_preflight_failure,
 )
 from app.services.stream_state_service import StreamWriteTerminalError
+from app.services.tool_detail_snapshot import build_tool_observation_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +105,7 @@ class ToolRoundRequest:
     persist_message_fn: Callable[..., Any]
     execute_tools_fn: Callable[..., Awaitable[list[ToolExecutionRecord]]]
     complete_step_fn: Callable[..., Awaitable[Any]]
+    originating_llm_round_id: str | None = None
     protocol_reasoning_buf: str | None = None
     protocol_content_buf: str | None = None
     assistant_message_sequence: int | None = None
@@ -277,7 +282,8 @@ def append_tool_round_messages_with_plan(
     context_blocked_calls: dict[str, BlockedToolContext] | None = None,
     built_content_blocks: dict[str, Any] | None = None,
     control_tool_responses: dict[str, str] | None = None,
-) -> None:
+) -> dict[str, str]:
+    first_message = len(request.messages)
     request.messages.append(
         build_assistant_tool_message(
             tool_calls=request.tool_calls,
@@ -332,6 +338,7 @@ def append_tool_round_messages_with_plan(
                 content_block,
                 record=record,
                 citation_numbers=citation_numbers,
+                known_content_blocks=request.content_blocks,
             )
             if built_content_blocks is not None and tool_call_id in built_content_blocks:
                 built_content_blocks[tool_call_id] = content_block
@@ -385,26 +392,114 @@ def append_tool_round_messages_with_plan(
                 )
             )
 
+    return {
+        str(message.get("tool_call_id")): message.get("content")
+        for message in request.messages[first_message:]
+        if message.get("role") == "tool" and isinstance(message.get("content"), str)
+    }
+
+
+# 单进程补写有界；每批只等待 50ms，慢日志交给后台等待，30s 后记录失败。
+_PENDING_OBSERVATION_WRITES: set[asyncio.Task] = set()
+_MAX_PENDING_OBSERVATION_WRITES = 128
+
+
+async def _persist_observation_after_log(
+    pending_log: asyncio.Task,
+    *,
+    log_id: str,
+    run_id: str,
+    conversation_id: str,
+    message_id: str | None,
+    tool_call_id: str,
+    snapshot: dict,
+) -> None:
+    try:
+        await asyncio.wait_for(asyncio.shield(pending_log), timeout=30.0)
+        recorder = TrajectoryRecorder(run_id=run_id, conversation_id=conversation_id, message_id=message_id)
+        await recorder.write_auxiliary(
+            lambda: attach_tool_observation(
+                log_id=log_id,
+                run_id=run_id,
+                tool_call_id=tool_call_id,
+                observation=snapshot,
+            )
+        )
+        if recorder.degraded_reason is not None:
+            logger.warning("工具模型反馈写入未确认: reason=%s", recorder.degraded_reason)
+    except Exception as exc:
+        logger.warning("工具模型反馈记录失败: error_type=%s", type(exc).__name__)
+
+
+async def persist_tool_observations(
+    request: ToolRoundRequest,
+    results: list[ToolExecutionRecord],
+    observations: dict[str, str],
+) -> None:
+    """按初始日志完成顺序补写反馈；整批等待有界，失败不改变工具收尾。"""
+    scheduled = []
+    for record in results:
+        tool_call_id = str(record.tool_call.get("id", ""))
+        pending_log = getattr(record.result, "trajectory_log_task", None)
+        if record.reused or tool_call_id not in observations or pending_log is None:
+            continue
+        if len(_PENDING_OBSERVATION_WRITES) >= _MAX_PENDING_OBSERVATION_WRITES:
+            logger.warning("工具模型反馈未采集: 补写队列已满")
+            continue
+        try:
+            snapshot = build_tool_observation_snapshot(observations[tool_call_id], step_number=request.step_number)
+            snapshot["llm_round_id"] = getattr(request, "originating_llm_round_id", None)
+        except Exception:
+            snapshot = {"schema_version": 1, "status": "capture_failed"}
+        task = asyncio.create_task(
+            _persist_observation_after_log(
+                pending_log,
+                log_id=record.log_id,
+                run_id=request.run_id,
+                conversation_id=request.conversation_id,
+                message_id=getattr(request, "assistant_message_id", None),
+                tool_call_id=tool_call_id,
+                snapshot=snapshot,
+            )
+        )
+        _PENDING_OBSERVATION_WRITES.add(task)
+        task.add_done_callback(_PENDING_OBSERVATION_WRITES.discard)
+        scheduled.append(task)
+    if scheduled:
+        await asyncio.wait(scheduled, timeout=0.05)
+
+
+class _CitationRegistry(dict[str, int]):
+    """同一来源可有历史引用别名；保留全部已用编号，避免新编号冲突。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.reserved_indexes: set[int] = set()
+
 
 def _build_search_citation_registry(content_blocks: list[Any]) -> dict[str, int]:
     search_blocks = [block for block in content_blocks if _value(block, "type") in {"search", "url_read"}]
-    use_source_refs = any(_value(block, "source_refs") for block in search_blocks)
-    registry: dict[str, int] = {}
-
-    for block in search_blocks:
-        sources = (_value(block, "source_refs") or []) if use_source_refs else (_value(block, "sources") or [])
-        for source in sources:
-            if use_source_refs:
-                if _value(source, "status") not in {None, "", "success"}:
-                    continue
-            key = _citation_source_key(source)
-            if key and key not in registry:
-                explicit_index = _value(source, "citation_index")
-                registry[key] = (
-                    explicit_index
-                    if isinstance(explicit_index, int) and not isinstance(explicit_index, bool) and explicit_index > 0
-                    else max(registry.values(), default=0) + 1
-                )
+    sources = [
+        source
+        for block in search_blocks
+        for source in (_value(block, "source_refs") or _value(block, "sources") or [])
+        if _value(source, "status") in {None, "", "success"}
+    ]
+    registry = _CitationRegistry()
+    # 先保留全部历史显式编号，再给真正缺失的旧来源补号。
+    for source in sources:
+        key = _citation_source_key(source)
+        index = _value(source, "citation_index")
+        if isinstance(index, int) and not isinstance(index, bool) and index > 0:
+            registry.reserved_indexes.add(index)
+            if key:
+                registry.setdefault(key, index)
+    for source in sources:
+        key = _citation_source_key(source)
+        if key and key not in registry:
+            index = max(registry.reserved_indexes, default=0) + 1
+            registry[key] = index
+            registry.reserved_indexes.add(index)
     return registry
 
 
@@ -430,7 +525,7 @@ def _assign_search_citation_numbers(
         return None
 
     numbers: list[int] = []
-    next_number = max(registry.values(), default=0) + 1
+    next_number = max([*registry.values(), *getattr(registry, "reserved_indexes", ())], default=0) + 1
     for source_index, source in enumerate(sources, 1):
         key = _citation_source_key(source) or f"{record.tool_call.get('id', '')}:{source_index}"
         citation_number = registry.get(key)
@@ -447,21 +542,40 @@ def _attach_source_reference_metadata(
     *,
     record: ToolExecutionRecord,
     citation_numbers: list[int] | None,
+    known_content_blocks: list[Any] | None = None,
 ) -> Any:
     refs = _value(content_block, "source_refs")
     if content_block is None or not isinstance(refs, list) or not citation_numbers:
         return content_block
+    known_refs = {}
+    for block in known_content_blocks or []:
+        for known in _value(block, "source_refs") or []:
+            if _value(known, "status") in {None, "", "success"}:
+                known_refs.setdefault(_citation_source_key(known), []).append(known)
     enriched_refs = []
     for index, ref in enumerate(refs):
         citation_index = citation_numbers[index] if index < len(citation_numbers) else None
         raw_url = str(_value(ref, "url") or "")
-        evidence_id = stable_web_evidence_id(
-            raw_url,
-            fallback=f"ev-{record.tool_call.get('id', 'tool')}-{index}",
+        aliases = known_refs.get(_citation_source_key(ref), [])
+        existing = next(
+            (
+                known
+                for known in aliases
+                if _value(known, "evidence_id") and _value(known, "citation_index") == citation_index
+            ),
+            next((known for known in aliases if _value(known, "evidence_id")), None),
+        )
+        evidence_id = (
+            _value(ref, "evidence_id")
+            or _value(existing, "evidence_id")
+            or stable_web_evidence_id(
+                raw_url,
+                fallback=f"ev-{record.tool_call.get('id', 'tool')}-{index}",
+            )
         )
         update = {
             "evidence_id": evidence_id,
-            "citation_index": citation_index,
+            "citation_index": _value(ref, "citation_index") or citation_index,
         }
         if hasattr(ref, "model_copy"):
             enriched_refs.append(ref.model_copy(update=update))
@@ -647,7 +761,7 @@ async def handle_tool_calls_round(*, request: ToolRoundRequest) -> ToolRoundOutc
     record_network_budget_feedback(request, executed_results, source_plan=source_plan)
     await emit_selected_source_evidence(request, executed_results, source_plan=source_plan)
     built_content_blocks = build_tool_round_content_blocks(results)
-    append_tool_round_messages_with_plan(
+    observations = append_tool_round_messages_with_plan(
         request,
         results,
         source_plan=source_plan,
@@ -659,6 +773,7 @@ async def handle_tool_calls_round(*, request: ToolRoundRequest) -> ToolRoundOutc
         built_content_blocks=built_content_blocks,
         control_tool_responses=control_result.tool_responses,
     )
+    await persist_tool_observations(request, results, observations)
     _record_research_workset(request.agent_state, results, built_content_blocks=built_content_blocks)
     await _emit_citation_source_evidence(
         request,
@@ -857,10 +972,17 @@ async def _emit_citation_source_evidence(
         for ref in _value(block, "source_refs") or []:
             evidence_id = _value(ref, "evidence_id")
             citation_index = _value(ref, "citation_index")
-            url = canonicalize_evidence_url(str(_value(ref, "url") or ""))
-            if not evidence_id or not citation_index or not url:
+            url = str(_value(ref, "url") or "")
+            if not evidence_id or not citation_index or not canonicalize_evidence_url(url):
                 continue
-            base_evidence = base_evidence_by_id.get(str(evidence_id), {})
+            base_evidence = base_evidence_by_id.get(str(evidence_id)) or next(
+                (
+                    item
+                    for item in base_evidence_by_id.values()
+                    if canonicalize_evidence_url(str(item.get("url") or "")) == canonicalize_evidence_url(url)
+                ),
+                {},
+            )
             try:
                 await emit(
                     tool_call_id=tool_call_id,
