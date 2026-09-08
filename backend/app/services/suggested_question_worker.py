@@ -12,6 +12,7 @@ from app.db.models import Message as MessageModel
 from app.services.suggested_question_service import (
     SUGGESTION_STATUS_PENDING,
     SuggestedQuestionClaim,
+    SuggestedQuestionGenerationResult,
     SuggestedQuestionService,
 )
 
@@ -49,13 +50,16 @@ async def run_suggested_question_generation_worker(
     claim: SuggestedQuestionClaim,
     *,
     session_factory: SessionFactory | None = None,
-) -> None:
-    """使用独立 DB session 生成；异常与非停机取消会把当前 revision 收敛到 failed。"""
+) -> SuggestedQuestionGenerationResult | None:
+    """使用独立 DB session 生成；异常与非停机取消会把当前 revision 收敛到 failed。
+
+    返回生成结果供封口前送达使用；失败时返回 None（DB 已收敛为 failed）。
+    """
 
     factory = session_factory or SessionLocal
     db = factory()
     try:
-        await SuggestedQuestionService(db).generate_claimed_questions(claim)
+        return await SuggestedQuestionService(db).generate_claimed_questions(claim)
     except asyncio.CancelledError:
         db.rollback()
         db.close()
@@ -76,6 +80,7 @@ async def run_suggested_question_generation_worker(
             claim.revision,
             type(error).__name__,
         )
+        return None
     finally:
         if db is not None:
             db.close()

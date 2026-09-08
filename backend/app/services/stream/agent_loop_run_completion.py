@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -11,6 +13,14 @@ from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.itinerary_observability import build_itinerary_run_payload, emit_itinerary_run_log
 from app.services.stream.run_finalizer import InterruptedStatusWriteError, interrupt_agent_run
 from app.services.stream_state_service import StreamOwnershipLostError, StreamWriteTerminalError
+
+# 封口前的送达预算（秒）。推荐问题赶在这个窗口内完成就直接随 SSE 送达，
+# 否则保持 pending、由后台任务落库，前端走详情兜底读取。
+#
+# 取值权衡：辅助模型自身超时是 UTILITY_LLM_TIMEOUT(8s)，死等会把流多握 8 秒，
+# 显著放大与"被新请求取代"的撞车窗口；这里只等一小段，保证主链路几乎不被拖长。
+# 未来若有第二个封口前送达的任务（如自动标题），应与本预算共享同一个窗口而不是各自叠加。
+SUGGESTED_QUESTIONS_DELIVERY_BUDGET_SECONDS = 2.0
 
 PersistMessageFn = Callable[..., Any]
 FinalizeStreamFn = Callable[..., Awaitable[Any]]
@@ -160,18 +170,30 @@ async def finalize_completed_run(
                 except Exception as error:  # noqa: BLE001 — 辅助事件不能阻塞 SSE 终态
                     if warning_fn is not None:
                         warning_fn(f"发送推荐问题 pending 事件失败: error_type={type(error).__name__}")
+        # 生成必须在封口前启动：封口会把流状态置为 done 并释放写锁，
+        # 之后无法再向同一条流追加事件，结果就只能靠前端回头拉取。
+        suggestion_generation = None
+        suggestion_started_at = time.monotonic()
+        if suggestion_claim is not None and generate_suggested_questions_fn is not None:
+            try:
+                suggestion_generation = generate_suggested_questions_fn(claim=suggestion_claim)
+            except Exception as error:  # noqa: BLE001 — 辅助任务异常绝不能阻塞 SSE 终态
+                if warning_fn is not None:
+                    warning_fn(f"调度推荐问题失败: error_type={type(error).__name__}")
+        if suggestion_claim is not None and isinstance(suggestion_generation, asyncio.Future):
+            await _deliver_suggested_questions_before_seal(
+                context=context,
+                claim=suggestion_claim,
+                generation=suggestion_generation,
+                started_at=suggestion_started_at,
+                warning_fn=warning_fn,
+            )
         try:
             await finalize_stream_fn(context.conversation_id, success=True, task_id=context.task_id)
         except BaseException:
             if suggestion_claim is not None and fail_suggested_questions_fn is not None:
                 fail_suggested_questions_fn(claim=suggestion_claim)
             raise
-        if suggestion_claim is not None and generate_suggested_questions_fn is not None:
-            try:
-                generate_suggested_questions_fn(claim=suggestion_claim)
-            except Exception as error:  # noqa: BLE001 — SSE 已终态，辅助任务异常仅记录
-                if warning_fn is not None:
-                    warning_fn(f"终态后调度推荐问题失败: error_type={type(error).__name__}")
     finally:
         _emit_itinerary_observation(
             context,
@@ -179,6 +201,65 @@ async def finalize_completed_run(
             finish_reason=terminal_state.run_finish_reason,
             limit_reason=context.state.limit_reason,
         )
+
+
+async def _deliver_suggested_questions_before_seal(
+    *,
+    context: AgentLoopRunCompletionContext,
+    claim: Any,
+    generation: asyncio.Future,
+    started_at: float,
+    warning_fn: WarningFn | None,
+) -> None:
+    """在封口前有界等待推荐问题，赶上就直接送达。
+
+    超时不取消生成任务：它会继续在后台跑完并按 revision CAS 落库，
+    前端此时仍是 pending，走详情兜底读取，不会丢结果。
+    """
+    try:
+        done, _pending = await asyncio.wait(
+            {generation},
+            timeout=SUGGESTED_QUESTIONS_DELIVERY_BUDGET_SECONDS,
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:  # noqa: BLE001 — 送达失败绝不能阻塞 SSE 终态
+        if warning_fn is not None:
+            warning_fn(f"等待推荐问题送达失败: error_type={type(error).__name__}")
+        return
+
+    if not done:
+        # 没赶上窗口，保持 pending 由前端兜底读取。
+        return
+
+    try:
+        result = generation.result()
+    except asyncio.CancelledError:
+        return
+    except Exception as error:  # noqa: BLE001 — 生成异常已由 worker 收敛为 failed
+        if warning_fn is not None:
+            warning_fn(f"推荐问题生成异常: error_type={type(error).__name__}")
+        result = None
+
+    # 被更高 revision 抢占时不送达：抢占方会用自己的 claim 再发一次事件。
+    if result is not None and not getattr(result, "applied", False):
+        return
+
+    duration_ms = max(0, int((time.monotonic() - started_at) * 1000))
+    emit_ready = getattr(context.emitter, "suggested_questions_ready", None)
+    if emit_ready is None:
+        return
+    try:
+        await emit_ready(
+            message_id=getattr(result, "message_id", None) or claim.message_id,
+            revision=getattr(result, "revision", None) or claim.revision,
+            status="ready" if result is not None else "failed",
+            questions=list(getattr(result, "questions", []) or []),
+            duration_ms=duration_ms,
+        )
+    except Exception as error:  # noqa: BLE001 — 辅助事件不能阻塞 SSE 终态
+        if warning_fn is not None:
+            warning_fn(f"发送推荐问题 ready 事件失败: error_type={type(error).__name__}")
 
 
 def _has_formal_text(content_blocks: list[Any]) -> bool:
