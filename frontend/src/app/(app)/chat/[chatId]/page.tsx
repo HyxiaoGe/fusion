@@ -33,6 +33,7 @@ import {
   removeMessage,
   requestSuggestedQuestionsObservation,
   setLastReadyConversationSnapshot,
+  updateConversationTitle,
   updateMessage,
 } from '@/redux/slices/conversationSlice';
 import {
@@ -432,6 +433,15 @@ export default function ChatPage() {
             resolveConversationId: () => chatId,
             resolveTrajectoryConversationId: () => chatId,
           }),
+          onConversationTitleUpdated: ev => {
+            if (cancelled) return;
+            dispatchOrBufferRecoveryAction(() => {
+              dispatch(updateConversationTitle({
+                id: ev.conversation_id,
+                title: ev.title,
+              }));
+            });
+          },
           onSuggestedQuestionsPending: ev => {
             if (cancelled) return;
             dispatchOrBufferRecoveryAction(() => {

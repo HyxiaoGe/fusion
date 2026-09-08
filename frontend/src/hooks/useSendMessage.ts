@@ -46,7 +46,6 @@ import {
 } from '@/lib/api/chat';
 import type { StreamCallbacks } from '@/lib/api/chat';
 import { runResumableStream } from '@/lib/api/resumableStream';
-import { generateChatTitle } from '@/lib/api/title';
 import { createAgentStreamEventHandlers } from '@/lib/agent/streamEventHandlers';
 import {
   recoverReasoningOnlyFinalBlocks,
@@ -194,40 +193,16 @@ function isInterruptedStreamSignal(value: unknown): boolean {
   );
 }
 
-function hasEmptyKnowledgeEvidence(blocks: ContentBlock[]): boolean {
-  return blocks.some(
-    (block) => block.type === 'knowledge_evidence' && block.status === 'empty',
-  );
-}
-
-async function postStreamActions(
+// 标题不再由前端在终态后拉取：它只取决于首个提问，后端在 run 早期就生成好并
+// 经 conversation_title_updated 事件推来。这里只保留会话列表刷新作为兜底
+// （事件因封口或断线未送达时，刷新仍能拿到已落库的标题）。
+function postStreamActions(
   conversationId: string,
   dispatch: ReturnType<typeof useAppDispatch>,
   isSessionCurrent: () => boolean,
-  skipTitleGeneration = false,
 ) {
   if (!isSessionCurrent()) return;
-  try {
-    if (!skipTitleGeneration) {
-      const title = await generateChatTitle(conversationId, undefined, { max_length: 20 });
-      if (!isSessionCurrent()) return;
-      dispatch(updateConversationTitle({ id: conversationId, title }));
-      dispatch(setAnimatingTitleId(conversationId));
-      setTimeout(() => {
-        if (isSessionCurrent()) {
-          dispatch(setAnimatingTitleId(null));
-        }
-      }, title.length * 200 + 1000);
-    }
-  } catch (error) {
-    if (isSessionCurrent()) {
-      console.warn('自动生成会话标题失败', error);
-    }
-  } finally {
-    if (isSessionCurrent()) {
-      dispatch(requestConversationListRefresh(conversationId));
-    }
-  }
+  dispatch(requestConversationListRefresh(conversationId));
 }
 
 export function useSendMessage(activeConversationId?: string | null) {
@@ -867,18 +842,10 @@ export function useSendMessage(activeConversationId?: string | null) {
         };
       };
 
-      const startPostStreamActions = (
-        conversationId: string,
-        skipTitleGeneration = false,
-      ) => {
+      const startPostStreamActions = (conversationId: string) => {
         if (!isDraft || postStreamActionsStarted || !isSessionCurrent()) return;
         postStreamActionsStarted = true;
-        void postStreamActions(
-          conversationId,
-          dispatch,
-          isSessionCurrent,
-          skipTitleGeneration,
-        );
+        postStreamActions(conversationId, dispatch, isSessionCurrent);
       };
 
       const doCompleteStream = (payload: NonNullable<typeof donePayload>) => {
@@ -944,9 +911,8 @@ export function useSendMessage(activeConversationId?: string | null) {
         activeRetryTurnSnapshotRef.current = null;
         options.onStreamEnd?.(finalConvId);
         void hydrateAuthoritativeConversation(finalConvId, isSessionCurrent);
-        // 仅新对话的第一轮生成标题，后续轮次不再更新
         if (isDraft) {
-          startPostStreamActions(finalConvId, hasEmptyKnowledgeEvidence(rawFinalBlocks));
+          startPostStreamActions(finalConvId);
         } else {
           if (isSessionCurrent()) {
             dispatch(requestConversationListRefresh(finalConvId));
@@ -1018,6 +984,20 @@ export function useSendMessage(activeConversationId?: string | null) {
               },
             }),
 
+            onConversationTitleUpdated: ev => {
+              if (!isSessionCurrent()) return;
+              dispatch(updateConversationTitle({
+                id: ev.conversation_id,
+                title: ev.title,
+              }));
+              dispatch(setAnimatingTitleId(ev.conversation_id));
+              setTimeout(() => {
+                if (isSessionCurrent()) {
+                  dispatch(setAnimatingTitleId(null));
+                }
+              }, ev.title.length * 200 + 1000);
+            },
+
             onSuggestedQuestionsPending: ev => {
               const target = resolveSuggestedQuestionsTarget(ev.message_id);
               if (!target) return;
@@ -1041,20 +1021,11 @@ export function useSendMessage(activeConversationId?: string | null) {
             onDone: ({ conversationId: incomingConvId }) => {
               if (!isActiveSendCurrent()) return;
               donePayload = { incomingConvId };
-              // 标题生成只依赖后端已完成首轮持久化，不应等待视觉打字机排空。
-              // 这里先确保草稿已 materialize，再启动独立于 send generation 的一次性任务。
+              // 标题本身已由 SSE 事件送达，这里只确保草稿已 materialize 后刷新会话列表。
               materializeIfNeeded(incomingConvId);
-              const titleConversationId = serverConvId ?? incomingConvId ?? activeConvIdRef.current;
-              if (titleConversationId) {
-                const streamState = (
-                  store.getState() as {
-                    stream: import('@/redux/slices/streamSlice').StreamState;
-                  }
-                ).stream;
-                startPostStreamActions(
-                  titleConversationId,
-                  hasEmptyKnowledgeEvidence(selectFullStreamContentBlocks(streamState)),
-                );
+              const refreshConversationId = serverConvId ?? incomingConvId ?? activeConvIdRef.current;
+              if (refreshConversationId) {
+                startPostStreamActions(refreshConversationId);
               }
               if (!assistantHasContentRef.current) {
                 // 没有文本内容，直接完成（打字机从未启动）
