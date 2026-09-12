@@ -508,6 +508,29 @@ class AgentEventEmitter:
             )
         )
 
+    async def suggested_questions_ready(
+        self,
+        *,
+        message_id: str,
+        revision: int,
+        status: str,
+        questions: list[str],
+        duration_ms: int,
+    ) -> None:
+        """在封口前送达推荐问题结果；封口后调用会被 _emit 拒绝。"""
+        await self._emit(
+            ev.SuggestedQuestionsReady(
+                type="suggested_questions_ready",
+                protocol_version=2,
+                message_id=message_id,
+                revision=revision,
+                status=status,
+                questions=list(questions),
+                duration_ms=duration_ms,
+                **self._envelope(step_id=None),
+            )
+        )
+
     async def run_progress_updated(
         self,
         *,

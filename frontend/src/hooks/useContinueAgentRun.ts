@@ -21,6 +21,7 @@ import {
 } from '@/lib/chat/suggestedQuestionState';
 import {
   applySuggestedQuestionsPending,
+  applySuggestedQuestionsReady,
   requestSuggestedQuestionsObservation,
   updateMessage,
 } from '@/redux/slices/conversationSlice';
@@ -178,6 +179,17 @@ function buildContinuationStreamCallbacks({
         messageId: ev.message_id,
         localMessageId: assistantMessageId,
         revision: ev.revision,
+      }));
+    },
+    onSuggestedQuestionsReady: ev => {
+      if (!isActive()) return;
+      dispatch(applySuggestedQuestionsReady({
+        conversationId,
+        messageId: ev.message_id,
+        localMessageId: assistantMessageId,
+        revision: ev.revision,
+        status: ev.status,
+        questions: ev.questions,
       }));
     },
     onDone: () => {

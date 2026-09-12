@@ -5,6 +5,7 @@ import { useStore } from 'react-redux';
 // localStorage 标记已移除，完全依赖后端 stream-status 判断是否重连
 import {
   applySuggestedQuestionsPending,
+  applySuggestedQuestionsReady,
   appendMessage,
   materializeConversation,
   mergeHydratedConversation,
@@ -839,6 +840,33 @@ export function useSendMessage(activeConversationId?: string | null) {
         options.onMaterialized?.(incomingConvId);
       };
 
+      // pending 与 ready 必须落在同一条 assistant 消息上：草稿期本地 ID 与
+      // 服务端 ID 可能尚未合流，两者都要能对上才允许写入。
+      const resolveSuggestedQuestionsTarget = (eventMessageId: string) => {
+        if (!isActiveSendCurrent() || !activeConvIdRef.current) return null;
+        const localMessageId = assistantMessageIdRef.current;
+        const knownServerMessageId = serverMessageIdRef.current;
+        const activeConversation = (
+          store.getState() as RootState
+        ).conversation.byId[activeConvIdRef.current];
+        const hasDirectMessage = activeConversation?.messages.some(
+          message => message.id === eventMessageId && message.role === 'assistant',
+        );
+        if (
+          !hasDirectMessage
+          && (!localMessageId || knownServerMessageId !== eventMessageId)
+        ) {
+          return null;
+        }
+        return {
+          conversationId: activeConvIdRef.current,
+          messageId: eventMessageId,
+          localMessageId: (knownServerMessageId === eventMessageId
+            ? localMessageId
+            : undefined) ?? undefined,
+        };
+      };
+
       const startPostStreamActions = (
         conversationId: string,
         skipTitleGeneration = false,
@@ -991,28 +1019,22 @@ export function useSendMessage(activeConversationId?: string | null) {
             }),
 
             onSuggestedQuestionsPending: ev => {
-              if (!isActiveSendCurrent() || !activeConvIdRef.current) return;
-              const localMessageId = assistantMessageIdRef.current;
-              const knownServerMessageId = serverMessageIdRef.current;
-              const activeConversation = (
-                store.getState() as RootState
-              ).conversation.byId[activeConvIdRef.current];
-              const hasDirectMessage = activeConversation?.messages.some(
-                message => message.id === ev.message_id && message.role === 'assistant',
-              );
-              if (
-                !hasDirectMessage
-                && (!localMessageId || knownServerMessageId !== ev.message_id)
-              ) {
-                return;
-              }
+              const target = resolveSuggestedQuestionsTarget(ev.message_id);
+              if (!target) return;
               dispatch(applySuggestedQuestionsPending({
-                conversationId: activeConvIdRef.current,
-                messageId: ev.message_id,
-                localMessageId: knownServerMessageId === ev.message_id
-                  ? localMessageId
-                  : undefined,
+                ...target,
                 revision: ev.revision,
+              }));
+            },
+
+            onSuggestedQuestionsReady: ev => {
+              const target = resolveSuggestedQuestionsTarget(ev.message_id);
+              if (!target) return;
+              dispatch(applySuggestedQuestionsReady({
+                ...target,
+                revision: ev.revision,
+                status: ev.status,
+                questions: ev.questions,
               }));
             },
 

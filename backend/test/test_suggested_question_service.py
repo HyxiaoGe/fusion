@@ -262,7 +262,7 @@ class SuggestedQuestionServiceTests(unittest.TestCase):
         )
 
         with (
-            patch("app.services.suggested_question_service.llm_manager.resolve_model") as resolve_model,
+            patch("app.services.utility_model.llm_manager.resolve_model") as resolve_model,
             patch(
                 "app.services.suggested_question_service.litellm.acompletion",
                 new=AsyncMock(return_value=response),

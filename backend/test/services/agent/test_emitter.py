@@ -362,6 +362,59 @@ class EmitterEnvelopeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[-1]["status"], "pending")
         self.assertIsNone(events[-1]["step_id"])
 
+    async def test_suggested_questions_ready_follows_pending_before_seal(self):
+        writer = AsyncMock()
+        em = AgentEventEmitter(
+            run_id="r1",
+            trace_id="r1",
+            conversation_id="c1",
+            task_id="task-1",
+            redis_writer=writer,
+        )
+        await em.run_completed(total_steps=1, total_tool_calls=0, finish_reason="stop")
+        await em.suggested_questions_pending(message_id="msg-1", revision=2)
+
+        await em.suggested_questions_ready(
+            message_id="msg-1",
+            revision=2,
+            status="ready",
+            questions=["问题一", "问题二"],
+            duration_ms=1200,
+        )
+
+        events = [call.args[3] for call in writer.append_chunk.call_args_list]
+        self.assertEqual(
+            [event["type"] for event in events],
+            ["run_completed", "suggested_questions_pending", "suggested_questions_ready"],
+        )
+        self.assertEqual(events[-1]["status"], "ready")
+        self.assertEqual(events[-1]["questions"], ["问题一", "问题二"])
+        self.assertEqual(events[-1]["revision"], 2)
+        self.assertEqual(events[-1]["duration_ms"], 1200)
+        self.assertIsNone(events[-1]["step_id"])
+
+    async def test_suggested_questions_ready_rejected_after_seal(self):
+        """封口后不允许再追加；调用方必须把送达放在 finalize 之前。"""
+        writer = AsyncMock()
+        em = AgentEventEmitter(
+            run_id="r1",
+            trace_id="r1",
+            conversation_id="c1",
+            task_id="task-1",
+            redis_writer=writer,
+        )
+        await em.run_completed(total_steps=1, total_tool_calls=0, finish_reason="stop")
+        await em.seal_and_get_last_sequence()
+
+        with self.assertRaises(RuntimeError):
+            await em.suggested_questions_ready(
+                message_id="msg-1",
+                revision=1,
+                status="ready",
+                questions=["问题一"],
+                duration_ms=10,
+            )
+
     async def test_sequence_monotonic_under_concurrency(self):
         writer = AsyncMock()
 

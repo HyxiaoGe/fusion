@@ -1,8 +1,9 @@
+import asyncio
 import unittest
 from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from app.db.models import AgentSession
 from app.schemas.chat import ContextUsage, TextBlock, Usage
@@ -507,7 +508,7 @@ class AgentLoopRunCompletionTests(unittest.IsolatedAsyncioTestCase):
         emitter.run_completed.assert_not_awaited()
         self.assertTrue(state.terminal_emitted)
 
-    async def test_finalize_completed_claims_before_stream_finalization_and_generates_after(self):
+    async def test_finalize_completed_dispatches_and_delivers_before_stream_finalization(self):
         state = AgentLoopState()
         state.content_blocks.append(TextBlock(type="text", id="txt-1", text="正式回答"))
         calls = []
@@ -546,7 +547,7 @@ class AgentLoopRunCompletionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             [name for name, _payload in calls],
-            ["persist", "complete", "claim", "pending_event", "finalize", "dispatch"],
+            ["persist", "complete", "claim", "pending_event", "dispatch", "finalize"],
         )
         self.assertEqual(calls[2][1]["assistant_message_id"], "msg-1")
         self.assertEqual(calls[2][1]["run_id"], "run-1")
@@ -554,8 +555,8 @@ class AgentLoopRunCompletionTests(unittest.IsolatedAsyncioTestCase):
             calls[3][1],
             {"message_id": "msg-1", "revision": 1},
         )
-        self.assertIs(calls[5][1]["claim"], claim)
-        self.assertNotIn("db", calls[5][1])
+        self.assertIs(calls[4][1]["claim"], claim)
+        self.assertNotIn("db", calls[4][1])
 
     async def test_suggestion_claim_failure_does_not_block_completed_stream_terminal(self):
         state = AgentLoopState()
@@ -607,9 +608,123 @@ class AgentLoopRunCompletionTests(unittest.IsolatedAsyncioTestCase):
             warning_fn=lambda _message: calls.append("warning"),
         )
 
-        self.assertEqual(calls, ["finalize", "dispatch", "warning"])
+        # 调度阶段抛错只记警告，终态照常封口。
+        self.assertEqual(calls, ["dispatch", "warning", "finalize"])
 
-    async def test_stream_finalize_failure_marks_claim_failed_and_never_dispatches(self):
+    async def _run_with_generation(self, generation_factory, *, emitter=None):
+        state = AgentLoopState()
+        state.content_blocks.append(TextBlock(type="text", id="txt-1", text="正式回答"))
+        calls = []
+        claim = SimpleNamespace(message_id="msg-1", revision=2)
+
+        async def finalize_stream_fn(*_args, **_kwargs):
+            calls.append("finalize")
+
+        emitter = emitter or AsyncMock()
+
+        async def emit_pending(**_kwargs):
+            calls.append("pending_event")
+
+        async def emit_ready(**kwargs):
+            calls.append(("ready_event", kwargs))
+
+        emitter.suggested_questions_pending.side_effect = emit_pending
+        emitter.suggested_questions_ready.side_effect = emit_ready
+
+        def generate_suggested_questions_fn(**_kwargs):
+            calls.append("dispatch")
+            return generation_factory()
+
+        await finalize_completed_run(
+            context=replace(_context(state), emitter=emitter),
+            terminal_state=SimpleNamespace(session_status="completed", run_finish_reason="stop"),
+            persist_message_fn=lambda *_args: True,
+            complete_agent_run_fn=AsyncMock(),
+            finalize_stream_fn=finalize_stream_fn,
+            claim_suggested_questions_fn=lambda **_kwargs: claim,
+            generate_suggested_questions_fn=generate_suggested_questions_fn,
+            warning_fn=lambda message: calls.append(("warning", message)),
+        )
+        return calls
+
+    async def test_questions_ready_within_budget_are_delivered_before_seal(self):
+        async def generate():
+            return SimpleNamespace(
+                applied=True,
+                message_id="msg-1",
+                revision=2,
+                questions=["问题一", "问题二"],
+            )
+
+        calls = await self._run_with_generation(lambda: asyncio.ensure_future(generate()))
+
+        names = [call if isinstance(call, str) else call[0] for call in calls]
+        self.assertEqual(names, ["pending_event", "dispatch", "ready_event", "finalize"])
+        ready_payload = calls[2][1]
+        self.assertEqual(ready_payload["status"], "ready")
+        self.assertEqual(ready_payload["questions"], ["问题一", "问题二"])
+        self.assertEqual(ready_payload["revision"], 2)
+        self.assertGreaterEqual(ready_payload["duration_ms"], 0)
+
+    async def test_generation_slower_than_budget_keeps_pending_without_cancelling(self):
+        """超时不取消：任务继续在后台跑完落库，前端保持 pending 走兜底读取。"""
+        started = asyncio.Event()
+
+        async def slow_generate():
+            started.set()
+            await asyncio.sleep(5)
+            return SimpleNamespace(applied=True, message_id="msg-1", revision=2, questions=["迟到"])
+
+        task = None
+
+        def factory():
+            nonlocal task
+            task = asyncio.ensure_future(slow_generate())
+            return task
+
+        with patch(
+            "app.services.stream.agent_loop_run_completion.SUGGESTED_QUESTIONS_DELIVERY_BUDGET_SECONDS",
+            0.05,
+        ):
+            calls = await self._run_with_generation(factory)
+
+        names = [call if isinstance(call, str) else call[0] for call in calls]
+        self.assertEqual(names, ["pending_event", "dispatch", "finalize"])
+        self.assertTrue(started.is_set())
+        self.assertFalse(task.cancelled())
+        self.assertFalse(task.done())
+        task.cancel()
+
+    async def test_generation_failure_delivers_failed_status_without_blocking_terminal(self):
+        async def failed_generate():
+            return None
+
+        calls = await self._run_with_generation(lambda: asyncio.ensure_future(failed_generate()))
+
+        names = [call if isinstance(call, str) else call[0] for call in calls]
+        self.assertEqual(names, ["pending_event", "dispatch", "ready_event", "finalize"])
+        ready_payload = calls[2][1]
+        self.assertEqual(ready_payload["status"], "failed")
+        self.assertEqual(ready_payload["questions"], [])
+        self.assertEqual(ready_payload["message_id"], "msg-1")
+
+    async def test_superseded_generation_is_not_delivered(self):
+        """被更高 revision 抢占的结果不送达，抢占方会用自己的 claim 再发一次。"""
+
+        async def superseded_generate():
+            return SimpleNamespace(
+                applied=False,
+                message_id="msg-1",
+                revision=9,
+                questions=["旧批次"],
+            )
+
+        calls = await self._run_with_generation(lambda: asyncio.ensure_future(superseded_generate()))
+
+        names = [call if isinstance(call, str) else call[0] for call in calls]
+        self.assertEqual(names, ["pending_event", "dispatch", "finalize"])
+
+    async def test_stream_finalize_failure_still_marks_claim_failed_after_dispatch(self):
         state = AgentLoopState()
         state.content_blocks.append(TextBlock(type="text", id="txt-1", text="正式回答"))
         claim = SimpleNamespace(revision=1)
@@ -631,7 +746,8 @@ class AgentLoopRunCompletionTests(unittest.IsolatedAsyncioTestCase):
                 fail_suggested_questions_fn=lambda **kwargs: calls.append(("failed", kwargs["claim"])),
             )
 
-        self.assertEqual(calls, ["finalize", ("failed", claim)])
+        # 生成已在封口前启动，finalize 失败仍按 CAS 把当前 revision 收敛为 failed。
+        self.assertEqual(calls, ["dispatch", "finalize", ("failed", claim)])
 
     async def test_finalize_completed_does_not_complete_answer_plan_without_nonempty_text(self):
         state = AgentLoopState()

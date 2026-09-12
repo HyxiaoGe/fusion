@@ -220,6 +220,22 @@ class SuggestedQuestionsPending(AgentEventBase):
     status: Literal["pending"] = "pending"
 
 
+class SuggestedQuestionsReady(AgentEventBase):
+    """推荐问题在封口前完成，结果随本事件直接送达前端。
+
+    赶不上封口窗口时不会有本事件，结果仍由后台任务落库，前端走详情兜底读取。
+    questions 只随 SSE 下发，不进轨迹账本（账本只记元数据，见 trajectory_payload）。
+    """
+
+    type: Literal["suggested_questions_ready"]
+    protocol_version: Literal[2]
+    message_id: str
+    revision: int = Field(ge=1)
+    status: Literal["ready", "failed"]
+    questions: list[str] = Field(default_factory=list)
+    duration_ms: int = Field(ge=0)
+
+
 AgentProgressPhase = Literal[
     "planning", "thinking", "researching", "reading", "synthesizing", "answering", "recovering"
 ]
@@ -436,6 +452,7 @@ AnyAgentEvent = Annotated[
     | ToolAttemptStarted
     | ToolAttemptCompleted
     | SuggestedQuestionsPending
+    | SuggestedQuestionsReady
     | RunProgressUpdated
     | PlanSnapshot
     | PlanStepUpdated

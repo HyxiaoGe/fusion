@@ -49,12 +49,7 @@ class PromptManagerCallSiteTests(unittest.IsolatedAsyncioTestCase):
                 return_value=("标记B-{{ content }}", {"format": "text", "template_engine": "jinja2"}),
             ),
             patch.object(module.litellm, "acompletion", side_effect=fake_acompletion),
-            patch.object(
-                module.SuggestedQuestionService,
-                "_resolve_utility_model",
-                return_value=("m", None, {}),
-                create=True,
-            ),
+            patch.object(module, "resolve_utility_model", return_value=("m", None, {})),
         ):
             await service._generate("对话内容", "model-1")
 

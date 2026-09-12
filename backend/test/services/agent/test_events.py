@@ -26,6 +26,7 @@ from app.services.agent.events import (
     StepCompleted,
     StepStarted,
     SuggestedQuestionsPending,
+    SuggestedQuestionsReady,
     ToolAttemptCompleted,
     ToolAttemptStarted,
     ToolCallCompleted,
@@ -682,6 +683,84 @@ class AgentEventModelTests(unittest.TestCase):
                 purpose="bogus",
                 reason="x",
                 expires_at=123.5,
+                **self._common(),
+            )
+
+    def test_suggested_questions_ready_carries_questions_and_duration(self):
+        event = SuggestedQuestionsReady(
+            type="suggested_questions_ready",
+            protocol_version=2,
+            message_id="msg-1",
+            revision=3,
+            status="ready",
+            questions=["问题一", "问题二"],
+            duration_ms=1200,
+            **self._common(),
+        )
+
+        self.assertEqual(
+            event.model_dump(),
+            {
+                **self._common(),
+                "schema_version": 1,
+                "parent_run_id": None,
+                "parent_step_id": None,
+                "type": "suggested_questions_ready",
+                "protocol_version": 2,
+                "message_id": "msg-1",
+                "revision": 3,
+                "status": "ready",
+                "questions": ["问题一", "问题二"],
+                "duration_ms": 1200,
+            },
+        )
+
+    def test_suggested_questions_ready_allows_failed_without_questions(self):
+        event = SuggestedQuestionsReady(
+            type="suggested_questions_ready",
+            protocol_version=2,
+            message_id="msg-1",
+            revision=1,
+            status="failed",
+            duration_ms=8000,
+            **self._common(),
+        )
+
+        self.assertEqual(event.questions, [])
+        self.assertEqual(event.status, "failed")
+
+    def test_suggested_questions_ready_rejects_非法版本与状态(self):
+        with self.assertRaises(ValidationError):
+            SuggestedQuestionsReady(
+                type="suggested_questions_ready",
+                protocol_version=2,
+                message_id="msg-1",
+                revision=0,
+                status="ready",
+                questions=[],
+                duration_ms=1,
+                **self._common(),
+            )
+        with self.assertRaises(ValidationError):
+            SuggestedQuestionsReady(
+                type="suggested_questions_ready",
+                protocol_version=2,
+                message_id="msg-1",
+                revision=1,
+                status="pending",
+                questions=[],
+                duration_ms=1,
+                **self._common(),
+            )
+        with self.assertRaises(ValidationError):
+            SuggestedQuestionsReady(
+                type="suggested_questions_ready",
+                protocol_version=2,
+                message_id="msg-1",
+                revision=1,
+                status="ready",
+                questions=[],
+                duration_ms=-1,
                 **self._common(),
             )
 

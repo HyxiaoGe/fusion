@@ -402,6 +402,15 @@ export interface StreamCallbacks {
       status: 'pending';
     },
   ) => void;
+  /** 推荐问题在封口前生成完成，结果随事件直达，正常路径无需再拉详情。 */
+  onSuggestedQuestionsReady?: (
+    ev: AgentEventEnvelope & {
+      message_id: string;
+      revision: number;
+      status: 'ready' | 'failed';
+      questions: string[];
+    },
+  ) => void;
   /** 已通过普通用户 allowlist 归一化的实时轨迹事件。 */
   onTrajectoryEvent?: (event: NormalizedTrajectoryEvent) => void;
 
@@ -637,6 +646,32 @@ async function parseSseEnvelopeStream(
             protocol_version: 2,
             phase,
             message_id: messageId,
+          } as never);
+        }
+        case 'suggested_questions_ready': {
+          const messageId = ev.message_id;
+          const revision = ev.revision;
+          const status = ev.status;
+          const questions = ev.questions;
+          if (
+            typeof messageId !== 'string'
+            || !messageId
+            || typeof revision !== 'number'
+            || !Number.isInteger(revision)
+            || revision < 1
+            || (status !== 'ready' && status !== 'failed')
+            || !Array.isArray(questions)
+            || questions.some((question) => typeof question !== 'string')
+          ) {
+            console.warn('[chat] suggested_questions_ready 数据无效，已忽略', ev);
+            return;
+          }
+          return callbacks.onSuggestedQuestionsReady?.({
+            ...ev,
+            message_id: messageId,
+            revision,
+            status,
+            questions: questions as string[],
           } as never);
         }
         case 'suggested_questions_pending': {

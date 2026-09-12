@@ -83,6 +83,10 @@ _EVENT_FIELDS: dict[str, frozenset[str]] = {
     "tool_attempt_started": frozenset({"tool_attempt_id", "tool_name", "attempt_index"}),
     "tool_attempt_completed": frozenset({"tool_attempt_id", "status", "error_code", "duration_ms"}),
     "suggested_questions_pending": frozenset({"protocol_version", "message_id", "revision", "status"}),
+    # 刻意不含 questions：账本只记元数据，生成内容的真相源是消息行。
+    "suggested_questions_ready": frozenset(
+        {"protocol_version", "message_id", "revision", "status", "duration_ms"}
+    ),
     "run_progress_updated": frozenset(
         {
             "protocol_version",

@@ -76,6 +76,11 @@ from app.services.suggested_question_service import (
     SuggestedQuestionService,
 )
 from app.services.task_manager import register_task
+from app.services.utility_model import (
+    UTILITY_LLM_TIMEOUT,
+    UTILITY_MAX_TOKENS,
+    resolve_utility_model,
+)
 
 
 def _require_stream_initialized(result: StreamInitResult) -> None:
@@ -1028,25 +1033,6 @@ class ChatService:
         self.db.commit()
         return ChatResponse(conversation_id=conversation_id, message=assistant_message)
 
-    # 辅助功能（标题、推荐问题）固定使用的轻量快速模型，不跟随对话模型，
-    # 避免对话用的是慢/贵的 thinking 模型时拖累这些"锦上添花"的小活。
-    # 注意：qwen-max-latest 是旗舰重模型，经 LiteLLM Proxy → dashscope 实测约 20s，
-    # 会撞 main.py 的 TimeoutMiddleware(10s) 直接 408，故固定用快速的 deepseek-chat（实测约 3s）。
-    UTILITY_MODEL_ID = "deepseek-chat"
-    # 辅助 LLM 调用的内部超时（秒），必须 < TimeoutMiddleware 的 10s。
-    # 这样即便将来换的辅助模型偏慢，也能在中间件掐断前自己抛错走 fallback，而不是把 408 吐给前端。
-    UTILITY_LLM_TIMEOUT = 8
-    # 标题最终会截断到 30 字，但 deepseek-chat 会先消耗 reasoning token；
-    # 128 在真实回归中仍可能只返回 reasoning、正文为空，因此与推荐问题统一留足 512。
-    TITLE_MAX_TOKENS = 512
-
-    def _resolve_utility_model(self, conversation_model_id: str) -> tuple:
-        """解析辅助功能模型，固定用轻量模型，找不到则回退对话模型"""
-        try:
-            return llm_manager.resolve_model(self.UTILITY_MODEL_ID)
-        except ValueError:
-            return llm_manager.resolve_model(conversation_model_id)
-
     async def generate_title(
         self,
         user_id: str,
@@ -1078,13 +1064,13 @@ class ChatService:
                 "generate_title",
                 content=seed_text,
             )
-            litellm_model, _, litellm_kwargs = self._resolve_utility_model(conversation.model_id)
+            litellm_model, _, litellm_kwargs = resolve_utility_model(conversation.model_id)
             response = await litellm.acompletion(
                 model=litellm_model,
                 messages=[{"role": "user", "content": prompt}],
                 stream=False,
-                max_tokens=self.TITLE_MAX_TOKENS,
-                timeout=self.UTILITY_LLM_TIMEOUT,
+                max_tokens=UTILITY_MAX_TOKENS,
+                timeout=UTILITY_LLM_TIMEOUT,
                 **merge_litellm_kwargs(
                     "generate_title",
                     litellm_kwargs,

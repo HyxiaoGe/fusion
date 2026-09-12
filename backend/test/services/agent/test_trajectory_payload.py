@@ -178,6 +178,14 @@ EVENT_FIELDS = {
         "revision": 1,
         "status": "pending",
     },
+    "suggested_questions_ready": {
+        "protocol_version": 2,
+        "message_id": "msg-1",
+        "revision": 1,
+        "status": "ready",
+        "questions": ["问题一", "问题二"],
+        "duration_ms": 1200,
+    },
     "run_progress_updated": {
         "protocol_version": 2,
         "phase": "thinking",
@@ -352,6 +360,7 @@ EVENT_ALLOWED_FIELDS = {
     "tool_attempt_started": {"tool_attempt_id", "tool_name", "attempt_index"},
     "tool_attempt_completed": {"tool_attempt_id", "status", "error_code", "duration_ms"},
     "suggested_questions_pending": {"protocol_version", "message_id", "revision", "status"},
+    "suggested_questions_ready": {"protocol_version", "message_id", "revision", "status", "duration_ms"},
     "run_progress_updated": {
         "protocol_version",
         "phase",
@@ -677,6 +686,22 @@ class TrajectoryPayloadTests(unittest.TestCase):
         )
 
         self.assertEqual(payload["tool_names"], ["web_search", "url_read"])
+
+    def test_suggested_questions_ready_records_metadata_but_never_the_questions(self):
+        """账本只记"发生了什么、耗时多久"，生成内容的真相源是消息行。"""
+        payload = build_trajectory_payload(
+            {
+                **COMMON,
+                "type": "suggested_questions_ready",
+                **EVENT_FIELDS["suggested_questions_ready"],
+            }
+        )
+
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["revision"], 1)
+        self.assertEqual(payload["duration_ms"], 1200)
+        self.assertNotIn("questions", payload)
+        self.assertNotIn("问题一", str(payload))
 
     def test_every_event_type_uses_an_explicit_top_level_allowlist(self):
         for event_type in sorted(EVENT_FIELDS):

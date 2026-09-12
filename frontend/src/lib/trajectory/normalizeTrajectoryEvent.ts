@@ -55,6 +55,7 @@ const EVENT_PAYLOAD_FIELDS: Record<string, readonly string[]> = {
   tool_attempt_started: ['tool_attempt_id', 'tool_name', 'attempt_index'],
   tool_attempt_completed: ['tool_attempt_id', 'status', 'error_code', 'duration_ms'],
   suggested_questions_pending: ['protocol_version', 'message_id', 'revision', 'status'],
+  suggested_questions_ready: ['protocol_version', 'message_id', 'revision', 'status', 'duration_ms'],
   run_progress_updated: [
     'protocol_version', 'phase', 'label', 'completed_steps', 'total_steps',
     'completed_tool_calls', 'max_tool_calls',

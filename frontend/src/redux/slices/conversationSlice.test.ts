@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import reducer, {
   applySuggestedQuestionsPending,
+  applySuggestedQuestionsReady,
   clearConversationMessages,
   materializeConversation,
   mergeHydratedConversation,
@@ -255,6 +256,108 @@ describe('conversationSlice', () => {
       suggestedQuestions: ['手动新问题'],
       suggestedQuestionsStatus: 'pending',
       suggestedQuestionsRevision: 6,
+    });
+  });
+
+  it('ready 事件写入问题并清除观察，正常路径无需再轮询', () => {
+    const assistant: Message = {
+      ...textMessage('server-assistant'),
+      role: 'assistant',
+    };
+    let state = reducer(undefined, upsertConversation(createConversation({ messages: [assistant] })));
+
+    state = reducer(state, applySuggestedQuestionsPending({
+      conversationId: 'conv-1',
+      messageId: 'server-assistant',
+      revision: 3,
+    }));
+    expect(state.suggestedQuestionsObservations['conv-1']).toBeDefined();
+
+    state = reducer(state, applySuggestedQuestionsReady({
+      conversationId: 'conv-1',
+      messageId: 'server-assistant',
+      revision: 3,
+      status: 'ready',
+      questions: ['问题一', '问题二'],
+    }));
+
+    expect(state.byId['conv-1'].messages[0]).toMatchObject({
+      suggestedQuestions: ['问题一', '问题二'],
+      suggestedQuestionsStatus: 'ready',
+      suggestedQuestionsRevision: 3,
+    });
+    expect(state.suggestedQuestionsObservations['conv-1']).toBeUndefined();
+  });
+
+  it('ready 事件拒绝比当前更旧的 revision', () => {
+    const assistant: Message = {
+      ...textMessage('server-assistant'),
+      role: 'assistant',
+      suggestedQuestions: ['新批次'],
+      suggestedQuestionsStatus: 'ready',
+      suggestedQuestionsRevision: 5,
+    };
+    let state = reducer(undefined, upsertConversation(createConversation({ messages: [assistant] })));
+
+    state = reducer(state, applySuggestedQuestionsReady({
+      conversationId: 'conv-1',
+      messageId: 'server-assistant',
+      revision: 4,
+      status: 'ready',
+      questions: ['迟到的旧批次'],
+    }));
+
+    expect(state.byId['conv-1'].messages[0]).toMatchObject({
+      suggestedQuestions: ['新批次'],
+      suggestedQuestionsRevision: 5,
+    });
+  });
+
+  it('ready 事件为 failed 时保留上一批问题但落定状态', () => {
+    const assistant: Message = {
+      ...textMessage('server-assistant'),
+      role: 'assistant',
+      suggestedQuestions: ['上一批'],
+      suggestedQuestionsStatus: 'ready',
+      suggestedQuestionsRevision: 2,
+    };
+    let state = reducer(undefined, upsertConversation(createConversation({ messages: [assistant] })));
+
+    state = reducer(state, applySuggestedQuestionsReady({
+      conversationId: 'conv-1',
+      messageId: 'server-assistant',
+      revision: 3,
+      status: 'failed',
+      questions: [],
+    }));
+
+    expect(state.byId['conv-1'].messages[0]).toMatchObject({
+      suggestedQuestions: ['上一批'],
+      suggestedQuestionsStatus: 'failed',
+      suggestedQuestionsRevision: 3,
+    });
+  });
+
+  it('ready 事件可用服务端 ID 映射本地 placeholder', () => {
+    const placeholder: Message = {
+      ...textMessage('local-assistant'),
+      role: 'assistant',
+    };
+    let state = reducer(undefined, upsertConversation(createConversation({ messages: [placeholder] })));
+
+    state = reducer(state, applySuggestedQuestionsReady({
+      conversationId: 'conv-1',
+      messageId: 'server-assistant',
+      localMessageId: 'local-assistant',
+      revision: 1,
+      status: 'ready',
+      questions: ['问题一'],
+    }));
+
+    expect(state.byId['conv-1'].messages[0]).toMatchObject({
+      suggestedQuestions: ['问题一'],
+      suggestedQuestionsStatus: 'ready',
+      suggestedQuestionsRevision: 1,
     });
   });
 
