@@ -60,6 +60,23 @@ def accumulate_token_usage(current: Usage, addition: Usage | None) -> Usage:
     )
 
 
+def round_tool_names(call_kwargs: Any) -> list[str]:
+    """取当轮实际送给模型的工具名，顺序与请求一致。
+
+    call_kwargs 已经过驱动层的研究阶段裁剪与耗尽工具剔除，因此这里拿到的
+    就是模型这一轮真正看得见的目录。
+    """
+    if not isinstance(call_kwargs, dict):
+        return []
+    names: list[str] = []
+    for tool in call_kwargs.get("tools") or []:
+        function = tool.get("function") if isinstance(tool, dict) else None
+        name = function.get("name") if isinstance(function, dict) else None
+        if isinstance(name, str) and name:
+            names.append(name)
+    return names
+
+
 @dataclass
 class LLMRoundLifecycle:
     """单个真实 LLM logical round 的无敏感生命周期句柄。"""
@@ -100,6 +117,7 @@ class LLMRoundLifecycle:
         system_prompt_fingerprint: str | None = None,
         context_visibility: dict | None = None,
         text_block_id: str | None = None,
+        tool_names: list[str] | None = None,
     ) -> LLMRoundLifecycle | None:
         emit = getattr(emitter, "llm_round_started", None)
         if not callable(emit):
@@ -121,6 +139,7 @@ class LLMRoundLifecycle:
             model=model,
             provider=provider,
             parent_step_id=parent_step_id,
+            **({"tool_names": list(tool_names)} if tool_names is not None else {}),
             **({"context_visibility": context_visibility} if context_visibility is not None else {}),
             **(
                 {"system_prompt_fingerprint": system_prompt_fingerprint}

@@ -47,7 +47,15 @@ _EVENT_FIELDS: dict[str, frozenset[str]] = {
     "run_failed": frozenset({"error_code", "message"}),
     "run_completed": frozenset({"total_steps", "total_tool_calls", "finish_reason"}),
     "llm_round_started": frozenset(
-        {"llm_round_id", "round_index", "model", "provider", "system_prompt_fingerprint", "context_visibility"}
+        {
+            "llm_round_id",
+            "round_index",
+            "model",
+            "provider",
+            "system_prompt_fingerprint",
+            "context_visibility",
+            "tool_names",
+        }
     ),
     "llm_round_first_output_delta": frozenset({"llm_round_id", "delta_kind", "ttft_ms"}),
     "llm_round_completed": frozenset(
@@ -341,6 +349,21 @@ def _sanitize_capability_resolution(value: Any) -> dict[str, Any] | None:
         return None
 
 
+def _sanitize_round_tool_names(value: Any) -> list[str]:
+    """当轮工具目录：保留完整顺序与控制工具，只做字符集校验与去重。
+
+    与 run_started 的 tools 不同——那个字段是「外部工具采样」，刻意截断到 3 条
+    且排除控制工具；本字段要回答「模型这一轮看得见哪些工具」，截断或剔除都会
+    让它失去诊断价值，因此只按账本通用上限约束条数。
+    """
+    sanitized: list[str] = []
+    for name in _bounded_list(value):
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]{0,127}", name) is None or name in sanitized:
+            continue
+        sanitized.append(name)
+    return sanitized
+
+
 def _sanitize_external_tool_names(value: Any) -> list[str]:
     sanitized = []
     for name in _bounded_list(value):
@@ -369,6 +392,7 @@ _SPECIAL_SANITIZERS: dict[str, Callable[[Any], Any]] = {
     "requested_skill_ids": _sanitize_requested_skill_ids,
     "capability_resolution": _sanitize_capability_resolution,
     "tools": _sanitize_external_tool_names,
+    "tool_names": _sanitize_round_tool_names,
 }
 
 
