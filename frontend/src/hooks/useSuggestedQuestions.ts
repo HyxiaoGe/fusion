@@ -16,8 +16,12 @@ import {
 } from '@/redux/slices/conversationSlice';
 import type { Conversation, Message } from '@/types/conversation';
 
-// 后端终态生成通常很快完成；轮询最多约 30 秒，避免异常 pending 留下永久定时器。
-const PENDING_POLL_DELAYS_MS = [350, 750, 1_000, 1_500, 2_500, 4_000, 5_000, 5_000, 5_000, 5_000];
+// 首批结果正常由 suggested_questions_ready 事件在封口前直达，这里只兜底三类情况：
+// 生成慢于后端送达预算、刷新/重进会话、以及尚未发布 ready 事件的旧后端。
+//
+// 首次延迟刻意大于后端的送达预算（2s），避免在事件即将到达时白拉一次会话详情；
+// 后续退避合计约 36 秒后停止，避免异常 pending 留下永久定时器。
+export const PENDING_POLL_DELAYS_MS = [2_500, 1_000, 1_500, 2_500, 4_000, 5_000, 5_000, 5_000, 5_000, 5_000];
 const MAX_UNKNOWN_OBSERVATION_CHECKS = 2;
 
 function getLastAssistantMessage(conversation: Conversation | undefined): Message | undefined {
@@ -29,7 +33,9 @@ function getLastAssistantMessage(conversation: Conversation | undefined): Messag
 /**
  * 推荐问题 hook
  *
- * 首批推荐由后端在回答终态异步生成。前端只观察 pending 状态并有限轮询；
+ * 首批推荐由后端生成：正常路径下结果在封口前经 SSE 的 suggested_questions_ready
+ * 事件直达，前端不需要为此拉取会话详情。这里的有限轮询只作为兜底，覆盖生成慢于
+ * 后端送达预算、刷新/重进会话，以及尚未发布 ready 事件的旧后端。
  * 只有用户点击“换一批”时才调用生成接口并传 force_refresh=true。
  */
 export const useSuggestedQuestions = (chatId: string | null) => {

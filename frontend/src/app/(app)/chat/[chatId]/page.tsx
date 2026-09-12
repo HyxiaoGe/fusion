@@ -27,6 +27,7 @@ import { selectAuthSessionKey, selectIsAuthenticated } from '@/redux/selectors';
 import { useStore } from 'react-redux';
 import {
   applySuggestedQuestionsPending,
+  applySuggestedQuestionsReady,
   appendMessage,
   clearConversationMessages,
   removeMessage,
@@ -439,6 +440,19 @@ export default function ChatPage() {
                 messageId: ev.message_id,
                 localMessageId: messageId,
                 revision: ev.revision,
+              }));
+            });
+          },
+          onSuggestedQuestionsReady: ev => {
+            if (cancelled) return;
+            dispatchOrBufferRecoveryAction(() => {
+              dispatch(applySuggestedQuestionsReady({
+                conversationId: chatId,
+                messageId: ev.message_id,
+                localMessageId: messageId,
+                revision: ev.revision,
+                status: ev.status,
+                questions: ev.questions,
               }));
             });
           },

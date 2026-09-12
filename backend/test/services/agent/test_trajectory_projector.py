@@ -312,6 +312,7 @@ def _assert_annotations_do_not_create_spans_and_attach_to_most_precise_parent():
         event(4, "evidence_item_upserted", step_id="step-1"),
         event(5, "context_status_updated", parent_step_id="step-1"),
         event(6, "suggested_questions_pending"),
+        event(7, "suggested_questions_ready"),
     ]
 
     projection = project_trajectory(records, run_status="running", run_ended_at=None, truncated=False)
@@ -321,6 +322,7 @@ def _assert_annotations_do_not_create_spans_and_attach_to_most_precise_parent():
     assert record_by_sequence(projection, 4).span_id == "step:step-1"
     assert record_by_sequence(projection, 5).span_id == "step:step-1"
     assert record_by_sequence(projection, 6).span_id == "run:run-1"
+    assert record_by_sequence(projection, 7).span_id == "run:run-1"
     assert span_by_id(projection, "step:step-1").record_sequences == [1, 3, 4, 5]
 
 

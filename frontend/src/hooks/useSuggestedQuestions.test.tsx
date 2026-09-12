@@ -6,11 +6,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import conversationReducer, {
   applySuggestedQuestionsPending,
+  applySuggestedQuestionsReady,
   requestSuggestedQuestionsObservation,
   updateMessage,
   upsertConversation,
 } from '@/redux/slices/conversationSlice';
 import type { Conversation, Message } from '@/types/conversation';
+
+// 首次轮询延迟随后端送达预算变化，这里按常量推进，避免写死数字。
+const FIRST_POLL_MS = 2_600;
 
 const {
   fetchSuggestedQuestionsMock,
@@ -135,7 +139,7 @@ describe('useSuggestedQuestions', () => {
 
     expect(result.current.isLoadingQuestions).toBe(true);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(400);
+      await vi.advanceTimersByTimeAsync(FIRST_POLL_MS);
     });
 
     expect(loadConversationDetailMock).toHaveBeenCalledWith('chat-a');
@@ -198,7 +202,7 @@ describe('useSuggestedQuestions', () => {
     expect(store.getState().conversation.suggestedQuestionsObservations['chat-a']).toBeDefined();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(400);
+      await vi.advanceTimersByTimeAsync(FIRST_POLL_MS);
     });
     expect(loadConversationDetailMock).toHaveBeenCalledTimes(2);
     expect(store.getState().conversation.suggestedQuestionsObservations['chat-a']).toBeUndefined();
@@ -210,6 +214,44 @@ describe('useSuggestedQuestions', () => {
     expect(loadConversationDetailMock).toHaveBeenCalledTimes(2);
     expect(result.current.suggestedQuestions).toEqual([]);
     expect(fetchSuggestedQuestionsMock).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it('ready 事件直达后不再为首批结果拉取会话详情', async () => {
+    vi.useFakeTimers();
+    const pending = assistantMessage('assistant-1', {
+      suggestedQuestionsStatus: 'pending',
+      suggestedQuestionsRevision: 1,
+    });
+    const { store, wrapper } = createWrapper([conversation('chat-a', [pending])]);
+    store.dispatch(applySuggestedQuestionsPending({
+      conversationId: 'chat-a',
+      messageId: 'assistant-1',
+      revision: 1,
+    }));
+
+    const { result } = renderHook(() => useSuggestedQuestions('chat-a'), { wrapper });
+
+    // 送达预算内 ready 事件抵达，早于首次兜底轮询。
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_200);
+      store.dispatch(applySuggestedQuestionsReady({
+        conversationId: 'chat-a',
+        messageId: 'assistant-1',
+        revision: 1,
+        status: 'ready',
+        questions: ['直达问题一', '直达问题二'],
+      }));
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+
+    expect(loadConversationDetailMock).not.toHaveBeenCalled();
+    expect(invalidateConversationDetailMock).not.toHaveBeenCalled();
+    expect(result.current.suggestedQuestions).toEqual(['直达问题一', '直达问题二']);
+    expect(result.current.isLoadingQuestions).toBe(false);
     vi.useRealTimers();
   });
 
@@ -239,13 +281,14 @@ describe('useSuggestedQuestions', () => {
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
-      await vi.advanceTimersByTimeAsync(400);
+      await vi.advanceTimersByTimeAsync(FIRST_POLL_MS);
     });
     expect(loadConversationDetailMock).toHaveBeenCalledTimes(2);
     expect(result.current.isLoadingQuestions).toBe(true);
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(800);
+      // 状态由 unknown 变为 pending 会让轮询 effect 重挂，退避从首次延迟重新开始。
+      await vi.advanceTimersByTimeAsync(FIRST_POLL_MS);
     });
     expect(loadConversationDetailMock).toHaveBeenCalledTimes(3);
     expect(result.current.suggestedQuestions).toEqual(['新后端推荐']);
@@ -336,7 +379,7 @@ describe('useSuggestedQuestions', () => {
 
     const { result } = renderHook(() => useSuggestedQuestions('chat-a'), { wrapper });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(400);
+      await vi.advanceTimersByTimeAsync(FIRST_POLL_MS);
     });
 
     expect(result.current.suggestedQuestions).toEqual(['映射后的推荐']);
@@ -440,7 +483,7 @@ describe('useSuggestedQuestions', () => {
     );
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(400);
+      await vi.advanceTimersByTimeAsync(FIRST_POLL_MS);
     });
     expect(loadConversationDetailMock).toHaveBeenCalledTimes(1);
 
@@ -476,7 +519,7 @@ describe('useSuggestedQuestions', () => {
 
     const { result } = renderHook(() => useSuggestedQuestions('chat-a'), { wrapper });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(400);
+      await vi.advanceTimersByTimeAsync(FIRST_POLL_MS);
     });
 
     await act(async () => {
@@ -550,7 +593,7 @@ describe('useSuggestedQuestions', () => {
     const { result } = renderHook(() => useSuggestedQuestions('chat-a'), { wrapper });
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(400);
+      await vi.advanceTimersByTimeAsync(FIRST_POLL_MS);
     });
 
     expect(result.current.isLoadingQuestions).toBe(false);
