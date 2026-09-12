@@ -220,6 +220,20 @@ class SuggestedQuestionsPending(AgentEventBase):
     status: Literal["pending"] = "pending"
 
 
+class ConversationTitleUpdated(AgentEventBase):
+    """会话标题已生成并落库，随事件直接送达前端。
+
+    标题只由首个用户提问决定，不依赖正文，因此在 run 早期就能算完并推送，
+    不需要等到封口前。title 只随 SSE 下发，不进轨迹账本。
+    """
+
+    type: Literal["conversation_title_updated"]
+    protocol_version: Literal[2]
+    conversation_id: str
+    title: str
+    duration_ms: int = Field(ge=0)
+
+
 class SuggestedQuestionsReady(AgentEventBase):
     """推荐问题在封口前完成，结果随本事件直接送达前端。
 
@@ -453,6 +467,7 @@ AnyAgentEvent = Annotated[
     | ToolAttemptCompleted
     | SuggestedQuestionsPending
     | SuggestedQuestionsReady
+    | ConversationTitleUpdated
     | RunProgressUpdated
     | PlanSnapshot
     | PlanStepUpdated

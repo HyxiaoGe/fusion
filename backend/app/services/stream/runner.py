@@ -16,6 +16,7 @@ from app.core.logger import app_logger as logger
 from app.db.database import SessionLocal
 from app.services.agent import session_cache
 from app.services.agent.llm_round_detail_recorder import schedule_llm_round_detail
+from app.services.conversation_title_worker import schedule_conversation_title_generation
 from app.services.mcp.agent_tools import load_mcp_agent_tools, load_mcp_authorized_tool_aliases
 from app.services.prompt_snapshot_service import freeze_runtime_prompt_bundle
 from app.services.stream.agent_loop_driver import run_agent_loop
@@ -149,6 +150,7 @@ def _agent_loop_wiring_dependencies() -> AgentLoopWiringDependencies:
         claim_suggested_questions_fn=claim_auto_suggested_questions,
         generate_suggested_questions_fn=schedule_suggested_question_generation,
         fail_suggested_questions_fn=fail_claimed_suggested_questions,
+        generate_conversation_title_fn=schedule_conversation_title_generation,
         load_dynamic_tools_fn=load_mcp_agent_tools,
         load_authorized_tool_names_fn=load_mcp_authorized_tool_aliases,
         load_previous_skill_release_pins_fn=load_previous_run_skill_release_pins,

@@ -531,6 +531,25 @@ class AgentEventEmitter:
             )
         )
 
+    async def conversation_title_updated(
+        self,
+        *,
+        conversation_id: str,
+        title: str,
+        duration_ms: int,
+    ) -> None:
+        """推送已生成的会话标题；封口后调用会被 _emit 拒绝，由调用方兜底。"""
+        await self._emit(
+            ev.ConversationTitleUpdated(
+                type="conversation_title_updated",
+                protocol_version=2,
+                conversation_id=conversation_id,
+                title=title,
+                duration_ms=duration_ms,
+                **self._envelope(step_id=None),
+            )
+        )
+
     async def run_progress_updated(
         self,
         *,

@@ -80,6 +80,7 @@ class AgentLoopLifecycleDependencies:
     claim_suggested_questions_fn: Callable[..., Any] | None = None
     generate_suggested_questions_fn: Callable[..., Any] | None = None
     fail_suggested_questions_fn: Callable[..., Any] | None = None
+    generate_conversation_title_fn: Callable[..., Any] | None = None
     write_system_prompt_snapshot_fn: AsyncFn = write_system_prompt_snapshot
 
 
@@ -304,6 +305,33 @@ async def _start_run(
         config=_run_config(request.limits, request.call_config),
         identity_persisted=request.prompt_identity_persisted,
     )
+    _start_conversation_title_generation(
+        execution=execution,
+        dependencies=dependencies,
+    )
+
+
+def _start_conversation_title_generation(
+    *,
+    execution: AgentLoopExecutionContext,
+    dependencies: AgentLoopLifecycleDependencies,
+) -> None:
+    """在 run 开始时并发生成会话标题。
+
+    标题只取决于首个用户提问，此刻该消息已落库，因此不必等正文；生成完成时流
+    通常仍在 streaming，任务自行推送事件。是否首轮由 worker 自行判定。
+    """
+    if dependencies.generate_conversation_title_fn is None:
+        return
+    context = execution.completion_context
+    try:
+        dependencies.generate_conversation_title_fn(
+            conversation_id=context.conversation_id,
+            user_id=execution.runtime.user_id,
+            emit_fn=getattr(execution.emitter, "conversation_title_updated", None),
+        )
+    except Exception as error:  # noqa: BLE001 — 标题绝不能影响正文链路
+        dependencies.warning_fn(f"调度会话标题生成失败: error_type={type(error).__name__}")
 
 
 def configure_research_state(

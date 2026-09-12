@@ -134,6 +134,7 @@ class AgentLoopWiringDependencies:
     claim_suggested_questions_fn: Callable[..., Any] | None = None
     generate_suggested_questions_fn: Callable[..., Any] | None = None
     fail_suggested_questions_fn: Callable[..., Any] | None = None
+    generate_conversation_title_fn: Callable[..., Any] | None = None
     load_dynamic_tools_fn: Callable[..., Any] | None = None
     load_authorized_tool_names_fn: Callable[..., list[str]] | None = None
     load_previous_skill_release_pins_fn: Callable[..., Any] | None = None
@@ -181,6 +182,7 @@ class AgentLoopWiringDependencies:
             claim_suggested_questions_fn=self.claim_suggested_questions_fn,
             generate_suggested_questions_fn=self.generate_suggested_questions_fn,
             fail_suggested_questions_fn=self.fail_suggested_questions_fn,
+            generate_conversation_title_fn=self.generate_conversation_title_fn,
         )
 
 

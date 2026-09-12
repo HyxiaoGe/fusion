@@ -178,6 +178,12 @@ EVENT_FIELDS = {
         "revision": 1,
         "status": "pending",
     },
+    "conversation_title_updated": {
+        "protocol_version": 2,
+        "conversation_id": "conv-1",
+        "title": "Redis 缓存设计",
+        "duration_ms": 900,
+    },
     "suggested_questions_ready": {
         "protocol_version": 2,
         "message_id": "msg-1",
@@ -361,6 +367,7 @@ EVENT_ALLOWED_FIELDS = {
     "tool_attempt_completed": {"tool_attempt_id", "status", "error_code", "duration_ms"},
     "suggested_questions_pending": {"protocol_version", "message_id", "revision", "status"},
     "suggested_questions_ready": {"protocol_version", "message_id", "revision", "status", "duration_ms"},
+    "conversation_title_updated": {"protocol_version", "conversation_id", "duration_ms"},
     "run_progress_updated": {
         "protocol_version",
         "phase",
@@ -702,6 +709,21 @@ class TrajectoryPayloadTests(unittest.TestCase):
         self.assertEqual(payload["duration_ms"], 1200)
         self.assertNotIn("questions", payload)
         self.assertNotIn("问题一", str(payload))
+
+    def test_conversation_title_records_metadata_but_never_the_title_text(self):
+        """与推荐问题同理：账本记元数据，标题正文的真相源是会话行。"""
+        payload = build_trajectory_payload(
+            {
+                **COMMON,
+                "type": "conversation_title_updated",
+                **EVENT_FIELDS["conversation_title_updated"],
+            }
+        )
+
+        self.assertEqual(payload["conversation_id"], "conv-1")
+        self.assertEqual(payload["duration_ms"], 900)
+        self.assertNotIn("title", payload)
+        self.assertNotIn("Redis", str(payload))
 
     def test_every_event_type_uses_an_explicit_top_level_allowlist(self):
         for event_type in sorted(EVENT_FIELDS):

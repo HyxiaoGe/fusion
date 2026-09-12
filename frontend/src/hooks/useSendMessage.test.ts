@@ -1494,15 +1494,28 @@ describe('useSendMessage', () => {
     expect(store.getState().conversation.byId['server-conv']).toBeUndefined();
   });
 
-  it('postStreamActions 等待标题期间 reset，迟到标题不得写回或刷新 metadata', async () => {
+  it('标题经 SSE 事件在正文流式期间写入，前端不再自行请求生成', async () => {
     const store = createStore();
-    let resolveTitle: ((title: string) => void) | undefined;
-    generateChatTitleMock.mockImplementationOnce(() => new Promise((resolve) => {
-      resolveTitle = resolve;
-    }));
     sendMessageStreamMock.mockImplementationOnce(
       async (_payload: unknown, callbacks: StreamCallbacks) => {
         callbacks.onReady({ messageId: 'assistant-1', conversationId: 'server-conv' });
+        emitRunStarted(callbacks);
+        // 标题只取决于首个提问，正文还在流式时就会到达。
+        callbacks.onConversationTitleUpdated?.({
+          type: 'conversation_title_updated',
+          protocol_version: 2,
+          run_id: 'run-1',
+          parent_run_id: null,
+          step_id: null,
+          parent_step_id: null,
+          tool_call_id: null,
+          sequence: 2,
+          trace_id: 'run-1',
+          ts: 0,
+          conversation_id: 'server-conv',
+          title: 'Redis 缓存设计',
+          duration_ms: 900,
+        } as never);
         callbacks.onAnswering({ block_id: 'answer', delta: '尚未排空的正文' });
         callbacks.onDone({ messageId: 'assistant-1', conversationId: 'server-conv' });
       }
@@ -1514,28 +1527,19 @@ describe('useSendMessage', () => {
     await act(async () => {
       await result.current.sendMessage('生成标题', { conversationId: null });
     });
-    await waitFor(() => expect(generateChatTitleMock).toHaveBeenCalledTimes(1));
-    act(() => {
-      store.dispatch(resetConversationState());
-    });
-    await act(async () => {
-      resolveTitle?.('迟到标题');
-      await Promise.resolve();
-    });
 
-    expect(store.getState().conversation.animatingTitleId).toBeNull();
-    expect(store.getState().conversation.conversationListDirtyIds).toEqual([]);
-    expect(store.getState().conversation.byId['server-conv']).toBeUndefined();
+    expect(store.getState().conversation.byId['server-conv']?.title).toBe('Redis 缓存设计');
+    expect(generateChatTitleMock).not.toHaveBeenCalled();
+    expect(store.getState().conversation.conversationListDirtyIds).toEqual(['server-conv']);
   });
 
-  it('新会话网络完成后立即且只启动一次标题生成，不等待打字机排空', async () => {
+  it('session 已 reset 时迟到的标题事件不写回', async () => {
     const store = createStore();
     let callbacks: StreamCallbacks | undefined;
     sendMessageStreamMock.mockImplementationOnce(
       async (_payload: unknown, nextCallbacks: StreamCallbacks) => {
         callbacks = nextCallbacks;
         nextCallbacks.onReady({ messageId: 'assistant-1', conversationId: 'server-conv' });
-        nextCallbacks.onAnswering({ block_id: 'answer', delta: '这是一段尚未播放完的长回答' });
         nextCallbacks.onDone({ messageId: 'assistant-1', conversationId: 'server-conv' });
       }
     );
@@ -1544,27 +1548,36 @@ describe('useSendMessage', () => {
     });
 
     await act(async () => {
-      await result.current.sendMessage('立即生成标题', { conversationId: null });
+      await result.current.sendMessage('生成标题', { conversationId: null });
     });
-
-    expect(store.getState().stream.isStreaming).toBe(true);
-    expect(generateChatTitleMock).toHaveBeenCalledTimes(1);
-    expect(generateChatTitleMock).toHaveBeenCalledWith(
-      'server-conv',
-      undefined,
-      { max_length: 20 }
-    );
+    act(() => {
+      store.dispatch(resetConversationState());
+    });
 
     act(() => {
-      callbacks?.onDone({ messageId: 'assistant-1', conversationId: 'server-conv' });
-      tickIntervals(20);
+      callbacks?.onConversationTitleUpdated?.({
+        type: 'conversation_title_updated',
+        protocol_version: 2,
+        run_id: 'run-1',
+        parent_run_id: null,
+        step_id: null,
+        parent_step_id: null,
+        tool_call_id: null,
+        sequence: 5,
+        trace_id: 'run-1',
+        ts: 0,
+        conversation_id: 'server-conv',
+        title: '迟到标题',
+        duration_ms: 900,
+      } as never);
     });
 
-    await waitFor(() => expect(store.getState().stream.isStreaming).toBe(false));
-    expect(generateChatTitleMock).toHaveBeenCalledTimes(1);
+    expect(store.getState().conversation.byId['server-conv']).toBeUndefined();
+    expect(store.getState().conversation.animatingTitleId).toBeNull();
   });
 
-  it('严格知识库空命中的新会话跳过标题 LLM，但保留本地标题和列表刷新', async () => {
+  it('严格知识库空命中的新会话同样会写入标题', async () => {
+    // 旧实现按空知识库证据跳过标题；标题既然只取决于首个提问，这个跳过条件已移除。
     const store = createStore();
     sendMessageStreamMock.mockImplementationOnce(
       async (_payload: unknown, callbacks: StreamCallbacks) => {
@@ -1583,45 +1596,21 @@ describe('useSendMessage', () => {
           ts: 0,
           content_block: knowledgeEvidenceBlock('empty'),
         });
-        callbacks.onDone({ messageId: 'assistant-1', conversationId: 'server-conv' });
-      },
-    );
-    const { result } = renderHook(() => useSendMessage(), {
-      wrapper: createWrapper(store),
-    });
-
-    await act(async () => {
-      await result.current.sendMessage('只按知识库回答', {
-        conversationId: null,
-        knowledgeBaseIds: ['kb-1'],
-      });
-    });
-
-    expect(generateChatTitleMock).not.toHaveBeenCalled();
-    expect(store.getState().conversation.byId['server-conv']?.title).toBe('只按知识库回答');
-    expect(store.getState().conversation.conversationListDirtyIds).toContain('server-conv');
-  });
-
-  it('严格知识库成功命中的新会话仍正常生成标题', async () => {
-    const store = createStore();
-    sendMessageStreamMock.mockImplementationOnce(
-      async (_payload: unknown, callbacks: StreamCallbacks) => {
-        callbacks.onReady({ messageId: 'assistant-1', conversationId: 'server-conv' });
-        emitRunStarted(callbacks);
-        callbacks.onContentBlockUpserted?.({
-          type: 'content_block_upserted',
+        callbacks.onConversationTitleUpdated?.({
+          type: 'conversation_title_updated',
           protocol_version: 2,
           run_id: 'run-knowledge',
           parent_run_id: null,
-          step_id: 'step-knowledge',
+          step_id: null,
           parent_step_id: null,
-          tool_call_id: 'tool-knowledge',
-          sequence: 1,
+          tool_call_id: null,
+          sequence: 2,
           trace_id: 'run-knowledge',
           ts: 0,
-          content_block: knowledgeEvidenceBlock('success'),
-        });
-        callbacks.onAnswering({ block_id: 'answer', delta: '退款期限为七天[1]。' });
+          conversation_id: 'server-conv',
+          title: '退款政策咨询',
+          duration_ms: 700,
+        } as never);
         callbacks.onDone({ messageId: 'assistant-1', conversationId: 'server-conv' });
       },
     );
@@ -1636,87 +1625,12 @@ describe('useSendMessage', () => {
       });
     });
 
-    expect(generateChatTitleMock).toHaveBeenCalledTimes(1);
-    expect(generateChatTitleMock).toHaveBeenCalledWith(
-      'server-conv',
-      undefined,
-      { max_length: 20 },
-    );
+    expect(store.getState().conversation.byId['server-conv']?.title).toBe('退款政策咨询');
+    expect(store.getState().conversation.conversationListDirtyIds).toContain('server-conv');
   });
 
-  it('标题生成已启动后，同 session 路由 handoff 不取消标题写回', async () => {
+  it('标题事件未送达时仍定向刷新会话 metadata 作为兜底', async () => {
     const store = createStore();
-    let resolveTitle: ((title: string) => void) | undefined;
-    generateChatTitleMock.mockImplementationOnce(() => new Promise((resolve) => {
-      resolveTitle = resolve;
-    }));
-    sendMessageStreamMock.mockImplementationOnce(
-      async (_payload: unknown, callbacks: StreamCallbacks) => {
-        callbacks.onReady({ messageId: 'assistant-1', conversationId: 'server-conv' });
-        callbacks.onAnswering({ block_id: 'answer', delta: '尚未排空' });
-        callbacks.onDone({ messageId: 'assistant-1', conversationId: 'server-conv' });
-      }
-    );
-    const { result, unmount } = renderHook(() => useSendMessage(), {
-      wrapper: createWrapper(store),
-    });
-
-    await act(async () => {
-      await result.current.sendMessage('路由切换标题', { conversationId: null });
-    });
-    await waitFor(() => expect(generateChatTitleMock).toHaveBeenCalledTimes(1));
-    unmount();
-
-    await act(async () => {
-      resolveTitle?.('切换后标题');
-      await Promise.resolve();
-    });
-
-    expect(store.getState().conversation.byId['server-conv']?.title).toBe('切换后标题');
-    expect(store.getState().conversation.conversationListDirtyIds).toEqual(['server-conv']);
-  });
-
-  it('标题生成已启动后，同 session 后续发送不取消标题写回', async () => {
-    const store = createStore();
-    let resolveTitle: ((title: string) => void) | undefined;
-    generateChatTitleMock.mockImplementationOnce(() => new Promise((resolve) => {
-      resolveTitle = resolve;
-    }));
-    sendMessageStreamMock
-      .mockImplementationOnce(async (_payload: unknown, callbacks: StreamCallbacks) => {
-        callbacks.onReady({ messageId: 'assistant-1', conversationId: 'server-conv' });
-        callbacks.onAnswering({ block_id: 'answer', delta: '第一轮尚未排空' });
-        callbacks.onDone({ messageId: 'assistant-1', conversationId: 'server-conv' });
-      })
-      .mockImplementationOnce(async (_payload: unknown, callbacks: StreamCallbacks) => {
-        callbacks.onReady({ messageId: 'assistant-2', conversationId: 'server-conv' });
-        callbacks.onDone({ messageId: 'assistant-2', conversationId: 'server-conv' });
-      });
-    const { result } = renderHook(() => useSendMessage(), {
-      wrapper: createWrapper(store),
-    });
-
-    await act(async () => {
-      await result.current.sendMessage('第一轮', { conversationId: null });
-    });
-    await waitFor(() => expect(generateChatTitleMock).toHaveBeenCalledTimes(1));
-
-    await act(async () => {
-      await result.current.sendMessage('第二轮', { conversationId: 'server-conv' });
-    });
-    await act(async () => {
-      resolveTitle?.('首轮生成标题');
-      await Promise.resolve();
-    });
-
-    expect(generateChatTitleMock).toHaveBeenCalledTimes(1);
-    expect(store.getState().conversation.byId['server-conv']?.title).toBe('首轮生成标题');
-  });
-
-  it('标题生成失败会记录告警并继续定向刷新会话 metadata', async () => {
-    const store = createStore();
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    generateChatTitleMock.mockRejectedValueOnce(new Error('title service unavailable'));
     sendMessageStreamMock.mockImplementationOnce(
       async (_payload: unknown, callbacks: StreamCallbacks) => {
         callbacks.onReady({ messageId: 'assistant-1', conversationId: 'server-conv' });
@@ -1728,16 +1642,13 @@ describe('useSendMessage', () => {
     });
 
     await act(async () => {
-      await result.current.sendMessage('标题失败', { conversationId: null });
+      await result.current.sendMessage('标题事件缺失', { conversationId: null });
     });
 
     await waitFor(() => {
-      expect(warnSpy).toHaveBeenCalledWith(
-        '自动生成会话标题失败',
-        expect.any(Error)
-      );
       expect(store.getState().conversation.conversationListDirtyIds).toEqual(['server-conv']);
     });
+    expect(generateChatTitleMock).not.toHaveBeenCalled();
   });
 
   it('uses completion time as assistant timestamp so long first replies can still fetch suggestions', async () => {
@@ -2839,7 +2750,7 @@ describe('useSendMessage', () => {
       expect(assistant?.content).toEqual([
         expect.objectContaining({ type: 'text', text: '前半段后半段' }),
       ]);
-      expect(generateChatTitleMock).toHaveBeenCalledTimes(1);
+      expect(generateChatTitleMock).not.toHaveBeenCalled();
       expect(state.stream.isStreaming).toBe(false);
       expect(
         dispatchSpy.mock.calls

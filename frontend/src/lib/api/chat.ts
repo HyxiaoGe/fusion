@@ -402,6 +402,13 @@ export interface StreamCallbacks {
       status: 'pending';
     },
   ) => void;
+  /** 会话标题已生成并落库；只由首个提问决定，通常在正文流式期间就到达。 */
+  onConversationTitleUpdated?: (
+    ev: AgentEventEnvelope & {
+      conversation_id: string;
+      title: string;
+    },
+  ) => void;
   /** 推荐问题在封口前生成完成，结果随事件直达，正常路径无需再拉详情。 */
   onSuggestedQuestionsReady?: (
     ev: AgentEventEnvelope & {
@@ -646,6 +653,24 @@ async function parseSseEnvelopeStream(
             protocol_version: 2,
             phase,
             message_id: messageId,
+          } as never);
+        }
+        case 'conversation_title_updated': {
+          const conversationId = ev.conversation_id;
+          const title = ev.title;
+          if (
+            typeof conversationId !== 'string'
+            || !conversationId
+            || typeof title !== 'string'
+            || !title.trim()
+          ) {
+            console.warn('[chat] conversation_title_updated 数据无效，已忽略', ev);
+            return;
+          }
+          return callbacks.onConversationTitleUpdated?.({
+            ...ev,
+            conversation_id: conversationId,
+            title,
           } as never);
         }
         case 'suggested_questions_ready': {

@@ -565,6 +565,70 @@ describe('sendMessageStream — 新 envelope 协议', () => {
     }));
   });
 
+  it('解析 conversation_title_updated 并透出标题', async () => {
+    fetchWithAuthMock.mockResolvedValue(
+      createStreamResponse([
+        agentEvent('conversation_title_updated', {
+          conversation_id: 'conv-1',
+          title: 'Redis 缓存设计',
+          duration_ms: 900,
+        }, 1),
+        envelope('done', {}),
+        'data: [DONE]\n\n',
+      ]),
+    );
+    const onConversationTitleUpdated = vi.fn();
+
+    await sendMessageStream(
+      { model_id: 'gpt', message: 'hi', conversation_id: 'conv-1' },
+      {
+        onReady: vi.fn(),
+        onReasoning: vi.fn(),
+        onAnswering: vi.fn(),
+        onConversationTitleUpdated,
+        onDone: vi.fn(),
+        onError: vi.fn(),
+      },
+    );
+
+    expect(onConversationTitleUpdated).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'conversation_title_updated',
+      conversation_id: 'conv-1',
+      title: 'Redis 缓存设计',
+    }));
+  });
+
+  it('忽略标题为空白的 conversation_title_updated', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    fetchWithAuthMock.mockResolvedValue(
+      createStreamResponse([
+        agentEvent('conversation_title_updated', {
+          conversation_id: 'conv-1',
+          title: '   ',
+          duration_ms: 900,
+        }, 1),
+        envelope('done', {}),
+        'data: [DONE]\n\n',
+      ]),
+    );
+    const onConversationTitleUpdated = vi.fn();
+
+    await sendMessageStream(
+      { model_id: 'gpt', message: 'hi', conversation_id: 'conv-1' },
+      {
+        onReady: vi.fn(),
+        onReasoning: vi.fn(),
+        onAnswering: vi.fn(),
+        onConversationTitleUpdated,
+        onDone: vi.fn(),
+        onError: vi.fn(),
+      },
+    );
+
+    expect(onConversationTitleUpdated).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it('解析 suggested_questions_ready 并透出问题列表', async () => {
     fetchWithAuthMock.mockResolvedValue(
       createStreamResponse([
