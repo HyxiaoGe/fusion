@@ -37,7 +37,10 @@ const EVENT_PAYLOAD_FIELDS: Record<string, readonly string[]> = {
   run_interrupted: ['reason'],
   run_failed: ['error_code', 'message'],
   run_completed: ['total_steps', 'total_tool_calls', 'finish_reason'],
-  llm_round_started: ['llm_round_id', 'round_index', 'model', 'provider', 'system_prompt_fingerprint', 'context_visibility'],
+  llm_round_started: [
+    'llm_round_id', 'round_index', 'model', 'provider', 'system_prompt_fingerprint',
+    'context_visibility', 'tool_names',
+  ],
   llm_round_first_output_delta: ['llm_round_id', 'delta_kind', 'ttft_ms'],
   llm_round_completed: [
     'llm_round_id', 'status', 'finish_reason', 'input_tokens', 'output_tokens', 'total_tokens',

@@ -274,6 +274,7 @@ class AgentEventEmitter:
         parent_step_id: str | None = None,
         system_prompt_fingerprint: str | None = None,
         context_visibility: dict | None = None,
+        tool_names: list[str] | None = None,
     ) -> None:
         await self._emit(
             ev.LLMRoundStarted(
@@ -284,6 +285,7 @@ class AgentEventEmitter:
                 provider=provider,
                 system_prompt_fingerprint=system_prompt_fingerprint,
                 context_visibility=context_visibility,
+                tool_names=list(tool_names or []),
                 **self._envelope(parent_step_id=parent_step_id),
             )
         )

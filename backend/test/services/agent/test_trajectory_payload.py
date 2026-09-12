@@ -96,6 +96,7 @@ EVENT_FIELDS = {
         "model": "gpt-4",
         "provider": "openai",
         "system_prompt_fingerprint": "b" * 64,
+        "tool_names": ["web_search", "url_read"],
     },
     "system_prompt_prepared": {
         "protocol_version": 2,
@@ -307,7 +308,14 @@ EVENT_ALLOWED_FIELDS = {
     "run_interrupted": {"reason"},
     "run_failed": {"error_code", "message"},
     "run_completed": {"total_steps", "total_tool_calls", "finish_reason"},
-    "llm_round_started": {"llm_round_id", "round_index", "model", "provider", "system_prompt_fingerprint"},
+    "llm_round_started": {
+        "llm_round_id",
+        "round_index",
+        "model",
+        "provider",
+        "system_prompt_fingerprint",
+        "tool_names",
+    },
     "system_prompt_prepared": {
         "protocol_version",
         "status",
@@ -648,6 +656,36 @@ class TrajectoryPayloadTests(unittest.TestCase):
         self.assertEqual(payload["detail_status"], "degraded")
         self.assertNotIn("PRIVATE", str(payload))
         self.assertNotIn("sections", payload)
+
+    def test_round_tool_names_keep_full_catalog_unlike_run_started_sample(self):
+        """当轮目录要完整：run_started.tools 是外部工具采样（截断到 3、排除控制工具），
+        本字段要回答「模型这轮看得见哪些工具」，截断会让它失去诊断价值。"""
+        payload = build_trajectory_payload(
+            {
+                **COMMON,
+                "type": "llm_round_started",
+                **EVENT_FIELDS["llm_round_started"],
+                "tool_names": ["web_search", "url_read", "plan_update", "submit_answer", "web_search"],
+            }
+        )
+
+        # 保留顺序、保留控制工具、去重，且不截断到 3 条。
+        self.assertEqual(
+            payload["tool_names"],
+            ["web_search", "url_read", "plan_update", "submit_answer"],
+        )
+
+    def test_round_tool_names_drop_malformed_entries(self):
+        payload = build_trajectory_payload(
+            {
+                **COMMON,
+                "type": "llm_round_started",
+                **EVENT_FIELDS["llm_round_started"],
+                "tool_names": ["web_search", "bad name!", "", "url_read"],
+            }
+        )
+
+        self.assertEqual(payload["tool_names"], ["web_search", "url_read"])
 
     def test_suggested_questions_ready_records_metadata_but_never_the_questions(self):
         """账本只记"发生了什么、耗时多久"，生成内容的真相源是消息行。"""
