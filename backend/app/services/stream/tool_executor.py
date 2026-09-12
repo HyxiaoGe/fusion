@@ -130,15 +130,20 @@ class ToolAttemptLifecycle:
             raise
 
         data = result.data if isinstance(result.data, dict) else {}
-        if data.get("error_code") == "tool_timeout":
+        attempt_error_code = _attempt_error_code(data)
+        if attempt_error_code == "tool_timeout":
             status = "timeout"
             error_code = "tool_timeout"
         elif result.status in {"success", "degraded"}:
+            # degraded 目前仍记为 success：把它改成独立状态会翻转既有 span 语义
+            # （trajectory_projector 与前端面板都读这个字段），属于另案决定。
             status = "success"
             error_code = None
         else:
             status = "failed"
-            error_code = None
+            # 工具通常已经给出错误码（MCP 侧有完整词汇表），此前一律写死 None，
+            # 排查工具失败时只能回头 join tool_call_logs 才拿得到原因。
+            error_code = attempt_error_code
         await self._complete(
             tool_attempt_id=tool_attempt_id,
             status=status,
@@ -174,6 +179,16 @@ class ToolAttemptLifecycle:
             )
         except BaseException as error:
             raise ToolLifecycleControlPlaneError(error) from error
+
+
+def _attempt_error_code(data: dict) -> str | None:
+    """只接受非空字符串错误码，其余一律视为缺失。
+
+    取值来自工具自身的结果载荷，不是上游原文：MCP 侧是一组固定内部码，
+    上游厂商的原始报错另存于 tool_call_logs 的 error_details。
+    """
+    value = data.get("error_code")
+    return value if isinstance(value, str) and value else None
 
 
 def _should_retry_tool_result(result) -> bool:
