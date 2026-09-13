@@ -46,6 +46,9 @@ def _request(record):
         reasoning_buf="",
         should_use_reasoning=False,
         announced_tool_names=frozenset({"weather", "web_search"}),
+        # 失败 Observation 的恢复指引会并入 run 级目录并查看计划状态。
+        call_kwargs={},
+        agent_state=None,
         run_id="run-1",
         conversation_id="conv-1",
         user_id="user-1",
