@@ -8,7 +8,10 @@ items 会绕过计划校验（例如 uncovered_execution_branch），掩盖真�
 import unittest
 
 from app.services.agent.plan_coordinator import PlanCoordinator
-from app.services.stream.agent_loop_driver import _filter_tools_for_research_stage
+from app.services.stream.agent_loop_driver import (
+    _filter_tools_for_research_stage,
+    resolve_plan_mode_allowed_tools,
+)
 
 _ALLOWED = frozenset({"weather_forecast", "web_search", "url_read"})
 
@@ -23,12 +26,12 @@ def _call_kwargs():
 
 
 def _offered(coordinator):
-    """复刻驱动循环在计划模式下的目录裁剪，返回模型这一轮实际看到的工具。"""
-    active = coordinator.active_plan_tool_names()
-    if not active and coordinator.claim_recovery_replan():
-        allowed = frozenset({"update_plan"})
-    else:
-        allowed = frozenset(active)
+    """模型这一轮实际看到的工具。
+
+    直接调用驱动循环使用的同一个门禁函数再过滤，不复制判断逻辑——复制过的
+    版本会与真实行为悄悄分叉。
+    """
+    allowed = resolve_plan_mode_allowed_tools(coordinator)
     filtered = _filter_tools_for_research_stage(_call_kwargs(), allowed_tool_names=allowed)
     return [tool["function"]["name"] for tool in filtered.get("tools") or []]
 
@@ -49,7 +52,7 @@ def _initial_plan():
     }
 
 
-def _recovery_plan():
+def _recovery_plan(answer_depends_on=("w", "s")):
     return {
         "reason": "高德失败，改用联网搜索",
         "items": [
@@ -58,7 +61,7 @@ def _recovery_plan():
             {"id": "s", "title": "搜索天气", "status": "pending", "kind": "search",
              "depends_on": [], "planned_tools": ["web_search"]},
             {"id": "a", "title": "回答", "status": "pending", "kind": "answer",
-             "depends_on": ["w", "s"], "planned_tools": []},
+             "depends_on": list(answer_depends_on), "planned_tools": []},
         ],
     }
 
@@ -97,10 +100,19 @@ class PlanRecoveryEndToEndTests(unittest.TestCase):
         self.assertEqual(self.coordinator.active_plan_tool_names(), set())
         self.assertEqual(_offered(self.coordinator), [])
 
-    def test_同一失败只领取一次恢复(self):
+    def test_首版恢复计划被拒后仍能提交修正(self):
+        """只是把 update_plan 摆出去不等于模型已答复：结构校验拒绝后
+        必须仍有工具用于提交修正，否则恢复机会会被提前耗尽。"""
         self._fail_weather()
-        self.assertTrue(self.coordinator.claim_recovery_replan())
-        self.assertFalse(self.coordinator.claim_recovery_replan())
+        self.assertEqual(_offered(self.coordinator), ["update_plan"])
+
+        rejected = self.coordinator.apply_model_update(_recovery_plan(answer_depends_on=["s"]))
+        self.assertFalse(rejected.accepted)
+        self.assertEqual(rejected.reason, "uncovered_execution_branch")
+
+        self.assertEqual(_offered(self.coordinator), ["update_plan"])
+        self.assertTrue(self.coordinator.apply_model_update(_recovery_plan()).accepted)
+        self.assertEqual(_offered(self.coordinator), ["web_search"])
 
     def test_恢复步骤自身失败可再次领取(self):
         """新的失败项是新的未处理失败，应当允许再想办法。"""
@@ -119,12 +131,12 @@ class PlanRecoveryEndToEndTests(unittest.TestCase):
         result = self.coordinator.apply_model_update(_initial_plan())
         self.assertEqual(result.reason, "no_change")
         self.assertFalse(self.coordinator.can_attempt_recovery_replan())
-        self.assertFalse(self.coordinator.claim_recovery_replan())
+        self.assertFalse(self.coordinator.needs_recovery_replan())
 
     def test_总修订次数用尽后不再交还(self):
         self._fail_weather()
         self.coordinator.valid_update_count = self.coordinator.max_valid_updates
-        self.assertFalse(self.coordinator.claim_recovery_replan())
+        self.assertFalse(self.coordinator.needs_recovery_replan())
 
 
 class BlockedToolItemTests(unittest.TestCase):

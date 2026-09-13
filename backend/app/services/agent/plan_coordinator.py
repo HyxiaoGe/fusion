@@ -203,6 +203,7 @@ class PlanCoordinator:
             return self._reject_repair("missing_required_recovery_owner")
         if self.has_valid_model_plan and normalized_items == self.items:
             self.consecutive_no_progress_updates += 1
+            self._mark_recovery_handled()
             return PlanUpdateResult(True, "no_change", self.snapshot(reason="no_change"))
         if self.valid_update_count >= min(6, self.max_valid_updates):
             return PlanUpdateResult(False, "control_update_limit_reached")
@@ -219,6 +220,7 @@ class PlanCoordinator:
                 if item_id in dependency_blocks:
                     item["status"] = "blocked"
             self.failed_tool_item_ids.update(dependency_blocks)
+        self._mark_recovery_handled()
         self.reset_repair_attempts()
         return PlanUpdateResult(True, "model_update", self.snapshot())
 
@@ -703,21 +705,25 @@ class PlanCoordinator:
             return False
         return self.valid_update_count < min(6, self.max_valid_updates)
 
-    def claim_recovery_replan(self) -> bool:
-        """存在尚未处理的工具失败时领取一次恢复重规划，并记下已处理的失败。
+    def needs_recovery_replan(self) -> bool:
+        """是否存在尚未处理的工具失败，需要把改计划权交还模型。
 
-        失败项必须永久保留 failed 状态，因此不能只看「历史上有没有失败」：恢复
-        成功、执行项全部结束后该条件依然成立，会把模型反复推回改计划。这里按
-        失败项 ID 记账，同一批失败只领取一次；恢复步骤自身失败会产生新的失败项，
-        可以再次领取。
+        纯查询，不记账。记账必须发生在模型真正给出答复时（计划被接受，或原样
+        重交表明无方案）——只是「把 update_plan 摆出去」就标记已处理的话，模型
+        第一版恢复计划被结构校验拒绝后就再也拿不到工具去提交修正了。
+
+        失败项必须永久保留 failed 状态，所以这里按失败项 ID 记账而非判断「历史
+        上有没有失败」：恢复成功后旧失败仍在，但已记入已处理集合，不会把模型
+        反复推回改计划；恢复步骤自身失败会产生新的失败项，可以再次触发。
         """
         if not self.can_attempt_recovery_replan():
             return False
-        unhandled = self.blocked_tool_item_ids() - self.recovery_replanned_item_ids
-        if not unhandled:
-            return False
-        self.recovery_replanned_item_ids |= unhandled
-        return True
+        return bool(self.blocked_tool_item_ids() - self.recovery_replanned_item_ids)
+
+    def _mark_recovery_handled(self) -> None:
+        """模型已就当前这批失败给出答复，本次恢复机会结束。"""
+
+        self.recovery_replanned_item_ids |= self.blocked_tool_item_ids()
 
     def plan_item_id_for_tool(
         self,

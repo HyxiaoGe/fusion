@@ -13,6 +13,7 @@ from app.ai.prompts.section_ids import (
     PRODUCT_RESULT_ROUND,
     RESEARCH_EVIDENCE_WORKSET,
 )
+from app.services.agent.plan_coordinator import PlanCoordinator
 from app.services.stream.agent_loop_outcome import AgentLoopExit, AgentLoopOutcome
 from app.services.stream.agent_loop_policy import check_agent_loop_limit
 from app.services.stream.agent_loop_round_outcome import AgentRoundOutcomeRequest, handle_agent_round_outcome
@@ -243,39 +244,19 @@ async def _run_round(
         dynamic_tool_handlers=runtime.dynamic_tool_handlers,
     )
     if runtime.task_mode != "deep_research" and runtime.plan_mode == "on":
-        if not state.plan_coordinator.has_valid_model_plan:
-            call_kwargs = _filter_tools_for_research_stage(
-                call_kwargs,
-                allowed_tool_names=frozenset({"update_plan"}),
-            )
-            call_kwargs = _require_tool_call(
-                call_kwargs,
-                preferred_tool_name="update_plan",
-                provider=runtime.provider,
-            )
-        elif not state.plan_coordinator.active_plan_tool_names() and state.plan_coordinator.claim_recovery_replan():
-            # 工具失败后该项转为终态、不再可绑定，active_plan_tool_names() 收敛为空，
-            # 于是工具目录被整个摘掉——模型既换不了工具也改不了计划，只能以
-            # incomplete 收口。但能力契约本就把 web_search/url_read 作为替代工具
-            # 公开了，这里把改计划权交还模型，让它按 Observation 自行加入恢复步骤；
-            # 执行工具仍受更新后的计划约束，失败与已完成的历史由 apply_model_update
-            # 的终态锁定保护。
-            call_kwargs = _filter_tools_for_research_stage(
-                call_kwargs,
-                allowed_tool_names=frozenset({"update_plan"}),
-            )
+        allowed_tool_names = resolve_plan_mode_allowed_tools(state.plan_coordinator)
+        call_kwargs = _filter_tools_for_research_stage(
+            call_kwargs,
+            allowed_tool_names=allowed_tool_names,
+        )
+        if allowed_tool_names == frozenset({"update_plan"}):
             call_kwargs = _require_tool_call(
                 call_kwargs,
                 preferred_tool_name="update_plan",
                 provider=runtime.provider,
             )
         else:
-            active_tool_names = state.plan_coordinator.active_plan_tool_names()
-            call_kwargs = _filter_tools_for_research_stage(
-                call_kwargs,
-                allowed_tool_names=frozenset(active_tool_names),
-            )
-            for tool_name in active_tool_names:
+            for tool_name in allowed_tool_names:
                 call_kwargs = _constrain_research_stage_plan_binding(
                     call_kwargs,
                     tool_name=tool_name,
@@ -390,6 +371,23 @@ async def _run_round(
     state.update_usage(round_result.accumulated_usage)
     state.update_context(round_result.context)
     return round_result
+
+
+def resolve_plan_mode_allowed_tools(coordinator: PlanCoordinator) -> frozenset[str]:
+    """计划模式下本轮允许模型看到的工具集合。
+
+    三种情形：计划尚未建立、计划因工具失败卡死且仍有未处理的失败，都收敛为
+    update_plan；其余按计划当前可绑定的工具。驱动循环与测试共用本函数，避免
+    测试复制一份判断逻辑而与真实行为悄悄分叉。
+    """
+    if not coordinator.has_valid_model_plan:
+        return frozenset({"update_plan"})
+    active = coordinator.active_plan_tool_names()
+    if not active and coordinator.needs_recovery_replan():
+        # 失败项转终态后不再可绑定，目录会被整个摘掉；能力契约本就把
+        # web_search/url_read 作为替代工具公开，这里让模型自行加入恢复步骤。
+        return frozenset({"update_plan"})
+    return frozenset(active)
 
 
 def _filter_tools_for_research_stage(
