@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -286,6 +287,7 @@ class SuggestedQuestionService:
     ) -> list[str]:
         if not dialog_content:
             return list(self.FALLBACK_QUESTIONS)
+        started_at = time.monotonic()
         try:
             prompt, prompt_metadata = prompt_manager.format_prompt_with_metadata(
                 "generate_suggested_questions",
@@ -308,9 +310,11 @@ class SuggestedQuestionService:
                     prompt_metadata=prompt_metadata,
                 ),
             )
+            _log_generation("ready", started_at, response=response)
             raw = response.choices[0].message.content or ""
             return ChatUtils.parse_questions(raw)[:3] or list(self.FALLBACK_QUESTIONS)
         except Exception as error:  # noqa: BLE001 — 推荐问题失败不能影响正文终态
+            _log_generation("failed", started_at, error=error)
             logger.warning("生成推荐问题失败，使用回退问题: error_type=%s", type(error).__name__)
             return list(self.FALLBACK_QUESTIONS)
 
@@ -378,6 +382,23 @@ class SuggestedQuestionService:
             if block_type == "text" and isinstance(text, str) and text.strip():
                 parts.append(text.strip())
         return "\n".join(parts)
+
+
+def _log_generation(result: str, started_at: float, *, response: Any = None, error: BaseException | None = None) -> None:
+    """记录模型调用耗时，成败都记。
+
+    封口前送达的预算只能靠真实耗时分布来定，而 ready 事件只在赶上窗口时才发出，
+    恰恰在「没赶上」那一侧什么都不留。completion_tokens 用于区分「模型吐得多」
+    与「上游慢」这两种截然不同的成因。只记元数据，不记对话与问题正文。
+    """
+    usage = getattr(response, "usage", None)
+    logger.info(
+        "suggested_questions_generate result=%s duration_ms=%s completion_tokens=%s error_type=%s",
+        result,
+        max(0, int((time.monotonic() - started_at) * 1000)),
+        getattr(usage, "completion_tokens", None),
+        type(error).__name__ if error is not None else None,
+    )
 
 
 def claim_auto_suggested_questions(
