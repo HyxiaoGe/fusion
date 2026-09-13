@@ -234,6 +234,24 @@ class FailureObservationRecoveryGuidanceTests(unittest.TestCase):
         self.assertEqual(self._offered_next_round(), ["update_plan"])
         self.assertIn(observation, request.messages)
 
+    def test_事前指引已覆盖两种空目录改法(self):
+        """提示只在被拒后出现是不够的：模型第一次就挂错依赖，服务端会静默接受。
+
+        结构 C（恢复步骤依赖已失败步骤）会被直接接受、恢复步骤转 blocked，
+        下一轮目录仍为空且没有任何报错，模型永远等不到 uncovered_execution_branch
+        的拒绝提示。两条约束因此必须进入这条事前送达路径。
+        """
+        request = self._request()
+
+        append_tool_round_messages(request, [_failed_weather_record()])
+
+        guidance = self._observation(request)["content"]
+        # C：恢复步骤自身不得依赖已失败步骤
+        self.assertIn("Do not make that new step depend on the failed step", guidance)
+        # A：终局回答步骤仍须覆盖含已失败在内的全部带工具步骤
+        self.assertIn("instead of replacing the entries already there", guidance)
+        self.assertIn("including the failed one", guidance)
+
     def test_指引不放行本轮未授权的工具调用(self):
         """放宽只作用于指引文本；合法性仍按本轮公告判定。"""
         request = self._request(tool_calls=[{"id": "tc-search", "name": "web_search", "arguments": {}}])
