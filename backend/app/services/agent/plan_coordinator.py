@@ -678,6 +678,29 @@ class PlanCoordinator:
             if isinstance(tool_name, str) and self._tool_item_is_bindable(item, tool_name)
         }
 
+    def has_blocked_tool_execution(self) -> bool:
+        """存在因失败/跳过/阻塞而无法再执行的工具项。
+
+        用于判断计划是否已经卡死：这类项不再满足 _tool_item_is_bindable 的
+        pending/running 要求，于是 active_plan_tool_names() 收敛为空集，
+        工具目录被整个摘掉。纯推理或回答项失败不计入——它们本就不带工具。
+        """
+        return any(
+            (item.get("planned_tools") or []) and item.get("status") in _FAILED_DEPENDENCY_STATUSES
+            for item in self.items
+        )
+
+    def can_attempt_recovery_replan(self) -> bool:
+        """计划因工具失败卡死时，是否还值得把改计划权交还模型。
+
+        不另设低次数上限——那会压制正常恢复。复用既有的无进展与总修订约束：
+        模型一旦原样重交计划（no_change），说明它拿不出新方案，再给也没有意义；
+        总修订次数仍受 max_valid_updates 限制。
+        """
+        if self.consecutive_no_progress_updates > 0:
+            return False
+        return self.valid_update_count < min(6, self.max_valid_updates)
+
     def plan_item_id_for_tool(
         self,
         tool_name: str,
