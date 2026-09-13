@@ -1,8 +1,8 @@
-"""计划模式下产品工具失败后，模型必须能重新规划。
+"""计划模式下产品工具失败后的恢复重规划。
 
-此前失败项转为 failed 后不再可绑定，active_plan_tool_names() 返回空集，
-工具目录被整个清空——模型既换不了工具，也改不了计划，只能以 incomplete 收口。
-但能力契约本来就把 web_search/url_read 作为替代工具公开了，两个机制互相抵消。
+全程走真实链路：apply_model_update 建立与修订计划、mark_tools_started /
+mark_tool_results 推进状态，再用驱动循环的过滤函数断言工具目录。手工设置
+items 会绕过计划校验（例如 uncovered_execution_branch），掩盖真实行为。
 """
 
 import unittest
@@ -10,129 +10,140 @@ import unittest
 from app.services.agent.plan_coordinator import PlanCoordinator
 from app.services.stream.agent_loop_driver import _filter_tools_for_research_stage
 
-
-def _coordinator_with(items):
-    coordinator = PlanCoordinator(run_id="run-1", mode="on")
-    coordinator.items = items
-    return coordinator
+_ALLOWED = frozenset({"weather_forecast", "web_search", "url_read"})
 
 
-def _item(item_id, status, planned_tools, kind="search"):
+def _call_kwargs():
     return {
-        "id": item_id,
-        "title": item_id,
-        "status": status,
-        "kind": kind,
-        "depends_on": [],
-        "planned_tools": planned_tools,
+        "tools": [
+            {"type": "function", "function": {"name": name, "parameters": {}}}
+            for name in ("weather_forecast", "web_search", "url_read", "update_plan")
+        ]
     }
 
 
-class BlockedToolExecutionTests(unittest.TestCase):
-    def test_产品工具失败时判定为受阻(self):
-        coordinator = _coordinator_with([
-            _item("weather", "failed", ["weather_forecast"]),
-            _item("answer", "pending", [], kind="answer"),
-        ])
-        self.assertTrue(coordinator.has_blocked_tool_execution())
-
-    def test_被跳过或阻塞同样算受阻(self):
-        for status in ("skipped", "blocked"):
-            with self.subTest(status=status):
-                coordinator = _coordinator_with([_item("t", status, ["weather_forecast"])])
-                self.assertTrue(coordinator.has_blocked_tool_execution())
-
-    def test_仅有待执行项时不算受阻(self):
-        coordinator = _coordinator_with([_item("weather", "pending", ["weather_forecast"])])
-        self.assertFalse(coordinator.has_blocked_tool_execution())
-
-    def test_没有工具的项失败不算工具执行受阻(self):
-        """纯推理/回答项失败不应触发工具恢复重规划。"""
-        coordinator = _coordinator_with([_item("reasoning", "failed", [], kind="reasoning")])
-        self.assertFalse(coordinator.has_blocked_tool_execution())
-
-    def test_失败项不再可绑定导致工具目录为空(self):
-        """复现被观测到的现象：第三轮 tool_names 为空。"""
-        coordinator = _coordinator_with([
-            _item("weather", "failed", ["weather_forecast"]),
-            _item("answer", "pending", [], kind="answer"),
-        ])
-        self.assertEqual(coordinator.active_plan_tool_names(), set())
+def _offered(coordinator):
+    """复刻驱动循环在计划模式下的目录裁剪，返回模型这一轮实际看到的工具。"""
+    active = coordinator.active_plan_tool_names()
+    if not active and coordinator.claim_recovery_replan():
+        allowed = frozenset({"update_plan"})
+    else:
+        allowed = frozenset(active)
+    filtered = _filter_tools_for_research_stage(_call_kwargs(), allowed_tool_names=allowed)
+    return [tool["function"]["name"] for tool in filtered.get("tools") or []]
 
 
-class RecoveryReplanBudgetTests(unittest.TestCase):
-    def test_默认允许交还改计划权(self):
-        coordinator = _coordinator_with([_item("weather", "failed", ["weather_forecast"])])
-        self.assertTrue(coordinator.can_attempt_recovery_replan())
+def _coordinator():
+    return PlanCoordinator(run_id="run-1", mode="on", allowed_tool_names=_ALLOWED)
 
-    def test_模型原样重交计划后不再交还(self):
-        """no_change 说明模型拿不出新方案，再给也没意义——这是无进展检测，
-        不是用固定次数压制正常恢复。"""
-        coordinator = _coordinator_with([_item("weather", "failed", ["weather_forecast"])])
-        coordinator.consecutive_no_progress_updates = 1
-        self.assertFalse(coordinator.can_attempt_recovery_replan())
+
+def _initial_plan():
+    return {
+        "reason": "先查天气再回答",
+        "items": [
+            {"id": "w", "title": "查天气", "status": "pending", "kind": "search",
+             "depends_on": [], "planned_tools": ["weather_forecast"]},
+            {"id": "a", "title": "回答", "status": "pending", "kind": "answer",
+             "depends_on": ["w"], "planned_tools": []},
+        ],
+    }
+
+
+def _recovery_plan():
+    return {
+        "reason": "高德失败，改用联网搜索",
+        "items": [
+            {"id": "w", "title": "查天气", "status": "failed", "kind": "search",
+             "depends_on": [], "planned_tools": ["weather_forecast"]},
+            {"id": "s", "title": "搜索天气", "status": "pending", "kind": "search",
+             "depends_on": [], "planned_tools": ["web_search"]},
+            {"id": "a", "title": "回答", "status": "pending", "kind": "answer",
+             "depends_on": ["w", "s"], "planned_tools": []},
+        ],
+    }
+
+
+class PlanRecoveryEndToEndTests(unittest.TestCase):
+    def setUp(self):
+        self.coordinator = _coordinator()
+        self.assertTrue(self.coordinator.apply_model_update(_initial_plan()).accepted)
+
+    def _fail_weather(self):
+        self.coordinator.mark_tools_started(["w"])
+        self.coordinator.mark_tool_results({"w": "failed"})
+
+    def test_失败前照常提供计划内工具(self):
+        self.assertEqual(_offered(self.coordinator), ["weather_forecast"])
+
+    def test_失败后本轮交还改计划权(self):
+        self._fail_weather()
+        self.assertEqual(_offered(self.coordinator), ["update_plan"])
+
+    def test_加入恢复项后下一轮提供联网工具(self):
+        self._fail_weather()
+        _offered(self.coordinator)
+        self.assertTrue(self.coordinator.apply_model_update(_recovery_plan()).accepted)
+        self.assertEqual(_offered(self.coordinator), ["web_search"])
+
+    def test_恢复成功后不再因旧失败强制重规划(self):
+        """失败项必须永久保留 failed，不能因此把模型反复推回改计划。"""
+        self._fail_weather()
+        _offered(self.coordinator)
+        self.coordinator.apply_model_update(_recovery_plan())
+        _offered(self.coordinator)
+        self.coordinator.mark_tools_started(["s"])
+        self.coordinator.mark_tool_results({"s": "completed"})
+
+        self.assertEqual(self.coordinator.active_plan_tool_names(), set())
+        self.assertEqual(_offered(self.coordinator), [])
+
+    def test_同一失败只领取一次恢复(self):
+        self._fail_weather()
+        self.assertTrue(self.coordinator.claim_recovery_replan())
+        self.assertFalse(self.coordinator.claim_recovery_replan())
+
+    def test_恢复步骤自身失败可再次领取(self):
+        """新的失败项是新的未处理失败，应当允许再想办法。"""
+        self._fail_weather()
+        _offered(self.coordinator)
+        self.coordinator.apply_model_update(_recovery_plan())
+        _offered(self.coordinator)
+        self.coordinator.mark_tools_started(["s"])
+        self.coordinator.mark_tool_results({"s": "failed"})
+
+        self.assertEqual(_offered(self.coordinator), ["update_plan"])
+
+    def test_原样重交计划后不再交还改计划权(self):
+        """no_change 说明模型拿不出新方案，此时应放行收口而非继续要求改计划。"""
+        self._fail_weather()
+        result = self.coordinator.apply_model_update(_initial_plan())
+        self.assertEqual(result.reason, "no_change")
+        self.assertFalse(self.coordinator.can_attempt_recovery_replan())
+        self.assertFalse(self.coordinator.claim_recovery_replan())
 
     def test_总修订次数用尽后不再交还(self):
-        coordinator = _coordinator_with([_item("weather", "failed", ["weather_forecast"])])
-        coordinator.valid_update_count = coordinator.max_valid_updates
-        self.assertFalse(coordinator.can_attempt_recovery_replan())
-
-    def test_修订次数未用尽时仍允许(self):
-        coordinator = _coordinator_with([_item("weather", "failed", ["weather_forecast"])])
-        coordinator.valid_update_count = 1
-        self.assertTrue(coordinator.can_attempt_recovery_replan())
+        self._fail_weather()
+        self.coordinator.valid_update_count = self.coordinator.max_valid_updates
+        self.assertFalse(self.coordinator.claim_recovery_replan())
 
 
-class DriverToolGateTests(unittest.TestCase):
-    """驱动循环的工具目录裁剪：卡死时必须交还 update_plan。"""
+class BlockedToolItemTests(unittest.TestCase):
+    def test_纯回答项失败不算工具执行受阻(self):
+        coordinator = _coordinator()
+        coordinator.apply_model_update(_initial_plan())
+        coordinator.items = [
+            {"id": "r", "title": "推理", "status": "failed", "kind": "reasoning",
+             "depends_on": [], "planned_tools": []},
+        ]
+        self.assertEqual(coordinator.blocked_tool_item_ids(), set())
 
-    @staticmethod
-    def _call_kwargs():
-        return {
-            "tools": [
-                {"type": "function", "function": {"name": name, "parameters": {}}}
-                for name in ("weather_forecast", "web_search", "url_read", "update_plan")
-            ]
-        }
-
-    @staticmethod
-    def _names(call_kwargs):
-        return [tool["function"]["name"] for tool in call_kwargs.get("tools") or []]
-
-    def test_卡死时目录收敛为改计划工具(self):
-        coordinator = _coordinator_with([
-            _item("weather", "failed", ["weather_forecast"]),
-            _item("answer", "pending", [], kind="answer"),
-        ])
-        self.assertEqual(coordinator.active_plan_tool_names(), set())
-        self.assertTrue(coordinator.has_blocked_tool_execution())
-        self.assertTrue(coordinator.can_attempt_recovery_replan())
-
-        filtered = _filter_tools_for_research_stage(
-            self._call_kwargs(),
-            allowed_tool_names=frozenset({"update_plan"}),
-        )
-        self.assertEqual(self._names(filtered), ["update_plan"])
-
-    def test_模型加入恢复步骤后可执行联网工具(self):
-        """重规划的目的：下一轮能真正用上契约already公开的替代工具。"""
-        coordinator = _coordinator_with([
-            _item("weather", "failed", ["weather_forecast"]),
-            _item("recover", "pending", ["web_search"]),
-            _item("answer", "pending", [], kind="answer"),
-        ])
-        self.assertEqual(coordinator.active_plan_tool_names(), {"web_search"})
-
-        filtered = _filter_tools_for_research_stage(
-            self._call_kwargs(),
-            allowed_tool_names=frozenset(coordinator.active_plan_tool_names()),
-        )
-        self.assertEqual(self._names(filtered), ["web_search"])
-
-    def test_未卡死时不触发恢复分支(self):
-        coordinator = _coordinator_with([_item("weather", "pending", ["weather_forecast"])])
-        self.assertTrue(coordinator.active_plan_tool_names())
-        self.assertFalse(coordinator.has_blocked_tool_execution())
+    def test_跳过与阻塞同样计入受阻(self):
+        for status in ("skipped", "blocked"):
+            with self.subTest(status=status):
+                coordinator = _coordinator()
+                coordinator.apply_model_update(_initial_plan())
+                coordinator.items[0]["status"] = status
+                self.assertEqual(coordinator.blocked_tool_item_ids(), {"w"})
 
 
 if __name__ == "__main__":

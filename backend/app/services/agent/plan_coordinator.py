@@ -91,6 +91,7 @@ class PlanCoordinator:
     successful_tool_item_ids: set[str] = field(default_factory=set)
     failed_tool_item_ids: set[str] = field(default_factory=set)
     server_recovery_item_ids: set[str] = field(default_factory=set)
+    recovery_replanned_item_ids: set[str] = field(default_factory=set)
     synthesis_started: bool = False
     terminal_outcome: str | None = None
 
@@ -678,20 +679,21 @@ class PlanCoordinator:
             if isinstance(tool_name, str) and self._tool_item_is_bindable(item, tool_name)
         }
 
-    def has_blocked_tool_execution(self) -> bool:
-        """存在因失败/跳过/阻塞而无法再执行的工具项。
+    def blocked_tool_item_ids(self) -> set[str]:
+        """因失败/跳过/阻塞而无法再执行的工具项。
 
-        用于判断计划是否已经卡死：这类项不再满足 _tool_item_is_bindable 的
-        pending/running 要求，于是 active_plan_tool_names() 收敛为空集，
-        工具目录被整个摘掉。纯推理或回答项失败不计入——它们本就不带工具。
+        这类项不再满足 _tool_item_is_bindable 的 pending/running 要求，于是
+        active_plan_tool_names() 收敛为空集，工具目录被整个摘掉。纯推理或回答项
+        失败不计入——它们本就不带工具。
         """
-        return any(
-            (item.get("planned_tools") or []) and item.get("status") in _FAILED_DEPENDENCY_STATUSES
+        return {
+            str(item.get("id"))
             for item in self.items
-        )
+            if (item.get("planned_tools") or []) and item.get("status") in _FAILED_DEPENDENCY_STATUSES
+        }
 
     def can_attempt_recovery_replan(self) -> bool:
-        """计划因工具失败卡死时，是否还值得把改计划权交还模型。
+        """是否还值得把改计划权交还模型。
 
         不另设低次数上限——那会压制正常恢复。复用既有的无进展与总修订约束：
         模型一旦原样重交计划（no_change），说明它拿不出新方案，再给也没有意义；
@@ -700,6 +702,22 @@ class PlanCoordinator:
         if self.consecutive_no_progress_updates > 0:
             return False
         return self.valid_update_count < min(6, self.max_valid_updates)
+
+    def claim_recovery_replan(self) -> bool:
+        """存在尚未处理的工具失败时领取一次恢复重规划，并记下已处理的失败。
+
+        失败项必须永久保留 failed 状态，因此不能只看「历史上有没有失败」：恢复
+        成功、执行项全部结束后该条件依然成立，会把模型反复推回改计划。这里按
+        失败项 ID 记账，同一批失败只领取一次；恢复步骤自身失败会产生新的失败项，
+        可以再次领取。
+        """
+        if not self.can_attempt_recovery_replan():
+            return False
+        unhandled = self.blocked_tool_item_ids() - self.recovery_replanned_item_ids
+        if not unhandled:
+            return False
+        self.recovery_replanned_item_ids |= unhandled
+        return True
 
     def plan_item_id_for_tool(
         self,

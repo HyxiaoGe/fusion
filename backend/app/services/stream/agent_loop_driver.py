@@ -253,11 +253,7 @@ async def _run_round(
                 preferred_tool_name="update_plan",
                 provider=runtime.provider,
             )
-        elif (
-            not state.plan_coordinator.active_plan_tool_names()
-            and state.plan_coordinator.has_blocked_tool_execution()
-            and state.plan_coordinator.can_attempt_recovery_replan()
-        ):
+        elif not state.plan_coordinator.active_plan_tool_names() and state.plan_coordinator.claim_recovery_replan():
             # 工具失败后该项转为终态、不再可绑定，active_plan_tool_names() 收敛为空，
             # 于是工具目录被整个摘掉——模型既换不了工具也改不了计划，只能以
             # incomplete 收口。但能力契约本就把 web_search/url_read 作为替代工具
