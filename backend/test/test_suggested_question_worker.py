@@ -47,7 +47,7 @@ class SuggestedQuestionWorkerTests(unittest.IsolatedAsyncioTestCase):
     async def test_worker_cancellation_marks_owned_revision_failed_with_new_session(self):
         started = asyncio.Event()
 
-        async def wait_forever(_service, _dialog_content, _model_id):
+        async def wait_forever(_service, _dialog_content, _model_id, **_kwargs):
             started.set()
             await asyncio.Event().wait()
 
@@ -104,7 +104,7 @@ class SuggestedQuestionWorkerTests(unittest.IsolatedAsyncioTestCase):
     async def test_worker_is_independent_from_chat_task_registry_and_shutdown_keeps_pending(self):
         started = asyncio.Event()
 
-        async def wait_forever(_service, _dialog_content, _model_id):
+        async def wait_forever(_service, _dialog_content, _model_id, **_kwargs):
             started.set()
             await asyncio.Event().wait()
 

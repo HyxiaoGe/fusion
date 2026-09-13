@@ -157,7 +157,11 @@ class SuggestedQuestionService:
         del options  # 预留兼容字段；辅助模型策略目前由服务端统一控制。
         try:
             dialog_content = self.build_dialog_content(claim.message_id)
-            questions = await self._generate(dialog_content, claim.model_id)
+            questions = await self._generate(
+                dialog_content,
+                claim.model_id,
+                revision=claim.revision,
+            )
             applied = self.store_generated_questions(claim=claim, questions=questions)
         except Exception:
             # 非 LLM 异常也必须释放 pending；CAS 保证已被更高 revision 抢占时不会误标失败。
@@ -273,7 +277,13 @@ class SuggestedQuestionService:
             lines.append(f"助手: {latest_ai}")
         return "\n".join(lines)
 
-    async def _generate(self, dialog_content: str, conversation_model_id: str) -> list[str]:
+    async def _generate(
+        self,
+        dialog_content: str,
+        conversation_model_id: str,
+        *,
+        revision: int | None = None,
+    ) -> list[str]:
         if not dialog_content:
             return list(self.FALLBACK_QUESTIONS)
         try:
@@ -288,6 +298,10 @@ class SuggestedQuestionService:
                 stream=False,
                 max_tokens=UTILITY_MAX_TOKENS,
                 timeout=UTILITY_LLM_TIMEOUT,
+                # 同一条消息重新生成时 prompt 与其余参数完全一致，代理会按请求负载
+                # 命中缓存并原样返回上一批，导致「换一批」换不动。revision 每次推进，
+                # 用它作 seed 即可让每批请求不同；温度未显式设置，走模型默认采样。
+                **({"seed": revision} if revision is not None else {}),
                 **merge_litellm_kwargs(
                     "suggest_questions",
                     litellm_kwargs,
