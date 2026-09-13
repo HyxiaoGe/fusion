@@ -26,6 +26,7 @@ from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_loop_step_requests import build_tool_round_request
 from app.services.stream.agent_round import AgentRoundResult
+from app.services.stream.llm_round_lifecycle import round_tool_names
 from app.services.stream.product_answer_observability import (
     build_product_answer_observation,
     emit_product_answer_observation,
@@ -156,8 +157,16 @@ async def _handle_agent_round_outcome(
 
 
 def _recovery_alternatives(request: AgentRoundOutcomeRequest) -> set[str]:
-    announced = request.round_result.announced_tool_names or frozenset()
-    return set(announced) - request.state.attempted_tool_names - {"update_plan"}
+    """本次运行还剩哪些可用于恢复的工具。
+
+    必须以 run 级公告为准，不能只看本轮目录：计划模式会把目录裁剪成计划内工具，
+    能力契约公开的 web_search/url_read 因此不在本轮公告里，若据此判断就会得出
+    「无替代方案」，恢复提示不再注入——模型拿到了改计划权，却没拿到该怎么用的
+    指引（真实验收 Run 77fa7280 即为此）。本轮公告仍并入，覆盖运行期动态追加。
+    """
+    announced = set(request.round_result.announced_tool_names or frozenset())
+    announced.update(round_tool_names(request.runtime.call_kwargs))
+    return announced - request.state.attempted_tool_names - {"update_plan"}
 
 
 def _is_web_recovery_answer(request: AgentRoundOutcomeRequest) -> bool:

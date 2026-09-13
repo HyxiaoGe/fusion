@@ -40,7 +40,8 @@ from app.services.source_evidence_ledger import (
 from app.services.stream.agent_loop_state import AgentLoopState, ProductToolOutcome
 from app.services.stream.itinerary_observability import build_itinerary_tool_observation
 from app.services.stream.itinerary_result_composer import compose_itinerary_result
-from app.services.stream.plan_control import process_plan_control_calls
+from app.services.stream.llm_round_lifecycle import round_tool_names
+from app.services.stream.plan_control import UPDATE_PLAN_TOOL_NAME, process_plan_control_calls
 from app.services.stream.step_lifecycle import AgentStepContext, mark_tool_round_started
 from app.services.stream.tool_context import (
     BlockedToolContext,
@@ -266,6 +267,31 @@ async def update_tool_round_plan_started(request: ToolRoundRequest, *, tool_call
     )
 
 
+def _failure_recovery_guidance(request: ToolRoundRequest, *, failed_tool_name: str) -> str:
+    """失败 Observation 附带的恢复指引：替代工具取 run 级目录，计划激活时追加改计划指引。
+
+    替代工具集合不能只看本轮公告。计划模式会把本轮目录裁剪成计划内工具，能力契约
+    公开的 web_search/url_read 因此不在公告里，据此判断会得出「无替代方案」而整段
+    跳过；而失败 Observation 是恢复规划轮开始之前唯一能给出指引的位置。
+
+    放宽仅限指引文本。本轮调用合法性仍由 _partition_tool_calls_by_announcement 按
+    公告判定，不得因为这里列出了某个工具就放行本轮未授权的调用——模型若直接调用
+    计划外工具，仍会被判为 unavailable。
+    """
+
+    alternatives = sorted(
+        (set(request.announced_tool_names or frozenset()) | set(round_tool_names(request.call_kwargs)))
+        - {failed_tool_name, UPDATE_PLAN_TOOL_NAME}
+    )
+    if not alternatives:
+        return ""
+    guidance = render_runtime_prompt("tool_result.recover_failure", available_tools=", ".join(alternatives))
+    coordinator = request.agent_state.plan_coordinator if request.agent_state is not None else None
+    if coordinator is not None and coordinator.has_valid_model_plan:
+        guidance += "\n\n" + render_runtime_prompt("stream.plan_hint_recovery")
+    return guidance
+
+
 def append_tool_round_messages(request: ToolRoundRequest, results: list[ToolExecutionRecord]) -> None:
     append_tool_round_messages_with_plan(request, results, source_plan=None)
 
@@ -321,11 +347,9 @@ def append_tool_round_messages_with_plan(
             citation_numbers = _assign_search_citation_numbers(citation_registry, record)
             tool_context = record.format_llm_context(citation_numbers=citation_numbers)
             if record.result.status == "failed":
-                alternatives = sorted((request.announced_tool_names or frozenset()) - {record.tool_name, "update_plan"})
-                if alternatives:
-                    tool_context += "\n\n" + render_runtime_prompt(
-                        "tool_result.recover_failure", available_tools=", ".join(alternatives)
-                    )
+                guidance = _failure_recovery_guidance(request, failed_tool_name=record.tool_name)
+                if guidance:
+                    tool_context += "\n\n" + guidance
             source_selection_guidance = source_selection_guidance_by_tool_call_id.get(tool_call_id)
             if source_selection_guidance:
                 tool_context = f"{tool_context}\n\n{source_selection_guidance}"
