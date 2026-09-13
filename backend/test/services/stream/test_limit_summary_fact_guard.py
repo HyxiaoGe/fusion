@@ -80,6 +80,17 @@ class TestResolveNoEvidenceAnswer:
         assert kind is not None
         assert answer == NO_EVIDENCE_ANSWER_TEXT
 
+    def test_收口文案不点名出行领域(self):
+        """本模块同样拦截气温，天气问题不该收到班次/价格/时长的文案。
+
+        真实验收 Run 8139d99f：天气请求收口时出现了出行文案。
+        """
+        answer, kind = resolve_no_evidence_answer("明天香港 26 度，适合散步。", content_blocks=[])
+        assert kind == "temperature"
+        assert answer == NO_EVIDENCE_ANSWER_TEXT
+        for travel_word in ("班次", "价格", "时长", "票价", "车次"):
+            assert travel_word not in NO_EVIDENCE_ANSWER_TEXT
+
     def test_有工具证据时一律放行(self):
         answer, kind = resolve_no_evidence_answer(
             _FABRICATED_ANSWER,

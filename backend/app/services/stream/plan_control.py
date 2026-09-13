@@ -8,7 +8,7 @@ from typing import Any
 
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.core.logger import app_logger as logger
-from app.services.agent.plan_coordinator import PlanCoordinator
+from app.services.agent.plan_coordinator import PlanCoordinator, uncovered_execution_tool_names
 
 UPDATE_PLAN_TOOL_NAME = "update_plan"
 PLAN_ITEM_ARGUMENT_NAME = "_plan_item_id"
@@ -78,6 +78,8 @@ def _control_rejection_hint(reason: str, coordinator: PlanCoordinator) -> str | 
         return render_runtime_prompt("stream.plan_hint_search_dependency")
     if reason == "missing_required_recovery_owner":
         return render_runtime_prompt("stream.plan_hint_recovery")
+    if reason == "uncovered_execution_branch":
+        return render_runtime_prompt("stream.plan_hint_uncovered_branch")
     if reason == "invalid_plan_structure":
         return render_runtime_prompt("stream.plan_hint_structure")
     if reason == "multiple_tools_per_item":
@@ -89,6 +91,23 @@ def _control_rejection_hint(reason: str, coordinator: PlanCoordinator) -> str | 
     if reason in {"unknown_dependency", "self_dependency", "dependency_cycle"}:
         return render_runtime_prompt("stream.plan_hint_dependency")
     return None
+
+
+def _uncovered_execution_tools(reason: str, items: Any, coordinator: PlanCoordinator) -> list[str] | None:
+    """uncovered_execution_branch 的可诊断补充：终局回答步骤漏掉了哪些执行工具。
+
+    错误码本身只说「存在没被覆盖的执行分支」。真实验收（Run 8139d99f）连续三次
+    被这个理由拒绝，却无法从日志判断模型提交了什么依赖结构。这里只回服务端声明
+    过的工具名，模型自定义的步骤 ID 与标题一律不入日志。
+    """
+
+    allowed_tool_names = coordinator.allowed_tool_names
+    if reason != "uncovered_execution_branch" or not isinstance(items, list) or allowed_tool_names is None:
+        return None
+    try:
+        return uncovered_execution_tool_names(items, allowed_tool_names=allowed_tool_names)
+    except Exception:  # noqa: BLE001 - 诊断日志不得影响拒绝回执
+        return None
 
 
 def _required_tool_coverage_summary(
@@ -161,7 +180,8 @@ async def process_plan_control_calls(
             if not isinstance(items, list) and isinstance(payload, dict):
                 items = payload.get("items")
             logger.info(
-                "计划控制更新被拒绝: run_id=%s reason=%s item_count=%s required_tool_coverage=%s",
+                "计划控制更新被拒绝: run_id=%s reason=%s item_count=%s required_tool_coverage=%s "
+                "uncovered_execution_tools=%s",
                 coordinator.run_id,
                 reason,
                 min(len(items), 7) if isinstance(items, list) else None,
@@ -169,6 +189,7 @@ async def process_plan_control_calls(
                     items if isinstance(items, list) else None,
                     coordinator,
                 ),
+                _uncovered_execution_tools(reason, items, coordinator),
             )
         responses[call_id] = _response(
             status="accepted" if accepted else "rejected",

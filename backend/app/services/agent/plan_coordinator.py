@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -1047,11 +1048,7 @@ def _user_visible_phase_title(group: list[dict[str, Any]]) -> str:
     }.get(phase_kind, "执行相关任务")
 
 
-def _terminal_answer_phase(
-    items: list[ModelPlanItem] | list[dict[str, Any]],
-) -> tuple[str | None, str | None]:
-    """校验计划终局可调度性，并返回覆盖全部执行分支的最终回答项。"""
-
+def _plan_graph(items: list[ModelPlanItem] | list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     graph: dict[str, dict[str, Any]] = {}
     for raw_item in items:
         if isinstance(raw_item, ModelPlanItem):
@@ -1070,32 +1067,76 @@ def _terminal_answer_phase(
                 "depends_on": depends_on,
                 "planned_tools": planned_tools,
             }
+    return graph
 
+
+def _plan_ancestors(graph: dict[str, dict[str, Any]], item_id: str) -> set[str]:
+    result: set[str] = set()
+    stack = list(graph.get(item_id, {}).get("depends_on") or [])
+    while stack:
+        dependency_id = str(stack.pop())
+        if dependency_id in result:
+            continue
+        result.add(dependency_id)
+        stack.extend(graph.get(dependency_id, {}).get("depends_on") or [])
+    return result
+
+
+def _terminal_answer_phase_ids(graph: dict[str, dict[str, Any]], answer_phase_ids: set[str]) -> list[str]:
+    depended_on_ids = {str(dependency_id) for item in graph.values() for dependency_id in item.get("depends_on") or []}
+    return [item_id for item_id in graph if item_id in answer_phase_ids and item_id not in depended_on_ids]
+
+
+def uncovered_execution_tool_names(
+    items: list[ModelPlanItem] | list[dict[str, Any]],
+    *,
+    allowed_tool_names: frozenset[str] | None,
+) -> list[str]:
+    """覆盖率最高的终局回答步骤还漏掉哪些执行工具。
+
+    uncovered_execution_branch 只说「存在没被覆盖的执行分支」，不说是哪一条，
+    真实验收因此无法判断模型究竟提交了什么依赖结构。这里只回服务端声明过的
+    工具名，不把模型自定义的步骤 ID 或标题写进日志。
+    """
+
+    graph = _plan_graph(items)
+    answer_phase_ids = {item_id for item_id, item in graph.items() if item.get("kind") in {"answer", "synthesis"}}
+    execution_item_ids = {item_id for item_id, item in graph.items() if item.get("planned_tools")}
+    terminal_phase_ids = _terminal_answer_phase_ids(graph, answer_phase_ids)
+    if not execution_item_ids or not terminal_phase_ids:
+        return []
+    best_uncovered = min(
+        (execution_item_ids - _plan_ancestors(graph, item_id) for item_id in terminal_phase_ids),
+        key=len,
+    )
+    return sorted(
+        {
+            tool_name
+            for item_id in best_uncovered
+            for tool_name in graph[item_id]["planned_tools"]
+            if allowed_tool_names is None or tool_name in allowed_tool_names
+        }
+    )
+
+
+def _terminal_answer_phase(
+    items: list[ModelPlanItem] | list[dict[str, Any]],
+) -> tuple[str | None, str | None]:
+    """校验计划终局可调度性，并返回覆盖全部执行分支的最终回答项。"""
+
+    graph = _plan_graph(items)
     answer_phase_ids = {item_id for item_id, item in graph.items() if item.get("kind") in {"answer", "synthesis"}}
     if not answer_phase_ids:
         return "missing_answer_phase", None
     if any(graph[item_id]["planned_tools"] for item_id in answer_phase_ids):
         return "answer_phase_has_tools", None
 
-    def ancestors(item_id: str) -> set[str]:
-        result: set[str] = set()
-        stack = list(graph.get(item_id, {}).get("depends_on") or [])
-        while stack:
-            dependency_id = str(stack.pop())
-            if dependency_id in result:
-                continue
-            result.add(dependency_id)
-            stack.extend(graph.get(dependency_id, {}).get("depends_on") or [])
-        return result
-
+    ancestors = partial(_plan_ancestors, graph)
     execution_item_ids = {item_id for item_id, item in graph.items() if item.get("planned_tools")}
     if any(answer_phase_ids.intersection(ancestors(item_id)) for item_id in execution_item_ids):
         return "execution_depends_on_answer_phase", None
 
-    depended_on_ids = {str(dependency_id) for item in graph.values() for dependency_id in item.get("depends_on") or []}
-    terminal_phase_ids = [
-        item_id for item_id in graph if item_id in answer_phase_ids and item_id not in depended_on_ids
-    ]
+    terminal_phase_ids = _terminal_answer_phase_ids(graph, answer_phase_ids)
     if not terminal_phase_ids:
         return "missing_terminal_answer_phase", None
 

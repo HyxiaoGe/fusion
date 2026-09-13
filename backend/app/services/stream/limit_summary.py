@@ -1127,7 +1127,7 @@ async def _commit_limit_summary_result(
         incomplete = round_result.finish_reason == "protocol_fallback" or not answer
         if not answer:
             answer = SUMMARY_PROTOCOL_FALLBACK_TEXT
-        # 本次 run 没有任何工具证据时，具体班次/票价/时长无从支撑，直接换成诚实答复。
+        # 本次 run 没有任何工具证据时，具体数值（班次、票价、时长、气温）无从支撑，直接换成诚实答复。
         answer, unsupported_fact_kind = _guard_no_evidence_answer(request, answer)
         if unsupported_fact_kind is not None:
             incomplete = True

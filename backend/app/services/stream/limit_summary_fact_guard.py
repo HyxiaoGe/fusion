@@ -23,7 +23,11 @@ from app.core.logger import app_logger as logger
 
 LOG_PREFIX = "LIMIT_SUMMARY_FACT_GUARD"
 
-NO_EVIDENCE_ANSWER_TEXT = "本次没能完成所需的查询，暂时无法给出可靠的班次、价格或时长。你可以稍后重试。"
+# 本模块同样拦截气温等非出行数值，文案不能只点名出行领域的班次、价格或时长
+# （真实验收 Run 8139d99f：天气问题收口时出现了出行文案）。
+NO_EVIDENCE_ANSWER_TEXT = (
+    "本次没能完成所需的查询，暂时无法给出可靠的具体数值。你可以稍后重试，或补充更明确的城市、地点或日期。"
+)
 
 # 工具证据块：搜索、网页读取、知识证据与全部产品结果块。
 _EVIDENCE_BLOCK_TYPES = frozenset(
