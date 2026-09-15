@@ -380,6 +380,11 @@ def strip_pending_dsml_tool_protocol(text: str, *, final: bool = False) -> str:
     """隐藏正文工具协议及末尾尚未收全的跨 chunk 前缀。"""
     hidden_starts: list[int] = []
     dsml_marker_index = text.find(_DSML_TOOL_CALLS_OPEN)
+    if dsml_marker_index < 0:
+        # 供应商吐出的标签名会变（见 contains_tool_protocol_residue），哨兵不会。
+        sentinel_index = _dsml_sentinel_index(text)
+        if sentinel_index is not None:
+            dsml_marker_index = sentinel_index
     if dsml_marker_index >= 0:
         hidden_starts.append(0 if not text[:dsml_marker_index].strip() else dsml_marker_index)
     elif (dsml_pending_start := _pending_dsml_tool_protocol_start(text)) is not None:
@@ -522,6 +527,45 @@ def _generic_tool_protocol_candidate(text: str) -> tuple[int, str] | None:
 
 def _generic_protocol_is_malformed(status: str) -> bool:
     return status in {"confirmed", "pending_body", "pending_function", "pending_tag", "partial_prefix"}
+
+
+def _dsml_sentinel_index(text: str) -> int | None:
+    """正文里第一个不在代码块中的 DSML 哨兵位置。
+
+    全角竖线哨兵不会出现在正常答复里，因此它本身足以判定「这是协议残留」，
+    不必依赖 tool_calls 这类会随供应商变化的具体标签名。
+    """
+
+    search_start = 0
+    while (index := text.find(_DSML_DISTINCT_PREFIX, search_start)) >= 0:
+        if not _is_markdown_code_position(text, index):
+            return index
+        search_start = index + len(_DSML_DISTINCT_PREFIX)
+    return None
+
+
+def contains_tool_protocol_residue(text: str) -> bool:
+    """最终答复里是否还留着未执行的工具协议结构。
+
+    识别放宽、恢复严格：这里只判断「像不像协议」，绝不尝试把它解析回可执行调用。
+
+    真实样本 Run e96ab8c9 吐出的是 `<｜｜DSML｜｜ calls>`，与精确字面量
+    `<｜｜DSML｜｜tool_calls>` 差了一个空格和 tool_ 前缀，同时从「精确匹配」与
+    「结尾半截前缀」两条臂之间漏了过去。这里改以哨兵为准，不认具体标签名。
+
+    与流式探测的口径差一处：结尾半截前缀（partial_prefix）不计入。流式探测判正
+    只是导向一次无工具重试，宽一点无妨；本函数判正会把整次运行变成非成功终态，
+    一个恰好以 `<t` 结尾的正常答复不该承担这个代价。
+    """
+
+    if not isinstance(text, str) or not text:
+        return False
+    if _dsml_sentinel_index(text) is not None:
+        return True
+    generic_candidate = _generic_tool_protocol_candidate(text)
+    if generic_candidate is None:
+        return False
+    return generic_candidate[1] in {"confirmed", "pending_body", "pending_function", "pending_tag"}
 
 
 def _is_markdown_code_position(text: str, index: int) -> bool:
@@ -809,6 +853,8 @@ async def consume_stream_round(response, request: LLMStreamRequest) -> LLMStream
 
     visible_content = strip_reasoning_tag_blocks(state.raw_content_buf)
     dsml_marker_index = visible_content.find(_DSML_TOOL_CALLS_OPEN)
+    if dsml_marker_index < 0 and _dsml_sentinel_index(visible_content) is not None:
+        dsml_marker_index = _dsml_sentinel_index(visible_content) or 0
     dsml_pending_start = _pending_dsml_tool_protocol_start(visible_content) if dsml_marker_index < 0 else None
     generic_candidate = _generic_tool_protocol_candidate(visible_content)
     has_malformed_protocol = dsml_marker_index >= 0 or (

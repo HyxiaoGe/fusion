@@ -52,6 +52,7 @@ from app.services.stream.llm_round_lifecycle import (
     accumulate_token_usage,
     round_tool_names,
 )
+from app.services.stream.llm_stream import contains_tool_protocol_residue
 from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
 from app.services.stream.research_evidence import (
     ResearchEvidenceWorkset,
@@ -1010,6 +1011,27 @@ async def run_limit_summary_step(
     )
 
 
+def _guard_protocol_residue(
+    request: LimitSummaryStepRequest,
+    answer: str,
+) -> tuple[str, bool]:
+    """未执行的工具协议不是答案，收尾总结同样不能放行。
+
+    与无证据守卫的边界不同：那一条「有任何工具证据就放行」，而协议残留与证据无关——
+    真实样本 Run e96ab8c9 正是搜索成功、证据齐备，正文却是一段没执行的更新计划协议。
+    """
+
+    if not contains_tool_protocol_residue(answer):
+        return answer, False
+    if request.warning_fn is not None:
+        request.warning_fn(
+            "收尾总结正文仍是未执行的工具协议，已替换为诚实答复: "
+            f"conv_id={request.conversation_id} run_id={request.run_id} "
+            f"finish_reason={request.summary_finish_reason}"
+        )
+    return SUMMARY_PROTOCOL_FALLBACK_TEXT, True
+
+
 def _guard_no_evidence_answer(
     request: LimitSummaryStepRequest,
     answer: str,
@@ -1101,11 +1123,17 @@ async def _commit_limit_summary_result(
         if has_streamed_content:
             # 正文已流式发出，只补落库；只有留下工具证据的综合才会走到这里。
             answer = round_result.content_buf
+            if contains_tool_protocol_residue(answer):
+                # 有证据的综合走直发，来不及拦下正文；但落库与终态仍必须是非成功。
+                # 常规情况下流式清理已经把残留摘掉，走到这里说明又出现了新变体。
+                answer, _ = _guard_protocol_residue(request, answer)
+                incomplete = True
         else:
             # 零证据的综合改走缓存输出，事实边界在正文送达用户之前生效（issue #31）。
             answer = round_result.content_buf.strip() or SUMMARY_PROTOCOL_FALLBACK_TEXT
+            answer, protocol_residue = _guard_protocol_residue(request, answer)
             answer, unsupported_fact_kind = _guard_no_evidence_answer(request, answer)
-            if unsupported_fact_kind is not None:
+            if unsupported_fact_kind is not None or protocol_residue:
                 incomplete = True
             await append_chunk(
                 request.conversation_id,
@@ -1117,7 +1145,7 @@ async def _commit_limit_summary_result(
                 step_id=summary_context.step_id,
             )
             _record_summary_output(round_result, answer, "summary_guard")
-            if has_answer and unsupported_fact_kind is None:
+            if has_answer and unsupported_fact_kind is None and not protocol_residue:
                 await _finish_summary_round_lifecycle(round_result, model_output_visible=True)
         if answer:
             request.content_blocks.append(TextBlock(type="text", id=text_block_id, text=answer))
@@ -1127,9 +1155,10 @@ async def _commit_limit_summary_result(
         incomplete = round_result.finish_reason == "protocol_fallback" or not answer
         if not answer:
             answer = SUMMARY_PROTOCOL_FALLBACK_TEXT
+        answer, protocol_residue = _guard_protocol_residue(request, answer)
         # 本次 run 没有任何工具证据时，具体数值（班次、票价、时长、气温）无从支撑，直接换成诚实答复。
         answer, unsupported_fact_kind = _guard_no_evidence_answer(request, answer)
-        if unsupported_fact_kind is not None:
+        if unsupported_fact_kind is not None or protocol_residue:
             incomplete = True
         if request.defer_output:
             await append_chunk(
@@ -1142,9 +1171,9 @@ async def _commit_limit_summary_result(
                 step_id=summary_context.step_id,
             )
             _record_summary_output(round_result, answer, "summary_guard")
-            if round_result.content_buf.strip() and unsupported_fact_kind is None:
+            if round_result.content_buf.strip() and unsupported_fact_kind is None and not protocol_residue:
                 await _finish_summary_round_lifecycle(round_result, model_output_visible=True)
-        if round_result.content_buf.strip() and unsupported_fact_kind is None:
+        if round_result.content_buf.strip() and unsupported_fact_kind is None and not protocol_residue:
             append_summary_content_blocks(
                 content_blocks=request.content_blocks,
                 content_buf=round_result.content_buf,
