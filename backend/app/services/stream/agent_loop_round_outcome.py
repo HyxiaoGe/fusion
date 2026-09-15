@@ -27,6 +27,7 @@ from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_loop_step_requests import build_tool_round_request
 from app.services.stream.agent_round import AgentRoundResult
 from app.services.stream.llm_round_lifecycle import round_tool_names
+from app.services.stream.llm_stream import contains_tool_protocol_residue
 from app.services.stream.product_answer_observability import (
     build_product_answer_observation,
     emit_product_answer_observation,
@@ -167,6 +168,31 @@ def _recovery_alternatives(request: AgentRoundOutcomeRequest) -> set[str]:
     announced = set(request.round_result.announced_tool_names or frozenset())
     announced.update(round_tool_names(request.runtime.call_kwargs))
     return announced - request.state.attempted_tool_names - {"update_plan"}
+
+
+PROTOCOL_RESIDUE_ANSWER_TEXT = "本次未能生成可靠的最终答复，请稍后重试。"
+
+
+def _reject_protocol_residue(request: AgentRoundOutcomeRequest, answer: str) -> str | None:
+    """模型正文仍是未执行的工具协议时，它不能充当最终答复。
+
+    这一层与证据无关。真实样本 Run e96ab8c9 搜索成功、证据齐备，
+    is_grounded_recovery_answer 因此放行，正文却是一段没有执行的更新计划协议，
+    运行还被标成了 stop / 已完成。判否与非成功终态必须落在同一处，
+    只把文本换掉、仍标成功不算修好。
+
+    不按中文工具名回译执行：识别放宽，恢复严格。
+    """
+
+    if not contains_tool_protocol_residue(answer):
+        return None
+    request.state.mark_unknown_terminated()
+    request.runtime.warning_fn(
+        "最终答复仍是未执行的工具协议，已替换并标记非成功终态: "
+        f"conv_id={request.runtime.conversation_id}, run_id={request.runtime.run_id}, "
+        f"step={request.step_number}"
+    )
+    return PROTOCOL_RESIDUE_ANSWER_TEXT
 
 
 def _is_web_recovery_answer(request: AgentRoundOutcomeRequest) -> bool:
@@ -561,6 +587,10 @@ async def _commit_deferred_answer(
 
     if _is_web_recovery_answer(request):
         answer = request.round_result.content_buf.strip()
+        rejected = _reject_protocol_residue(request, answer)
+        if rejected is not None:
+            await _append_committed_answer(request, rejected, output_reason="protocol_residue")
+            return _with_replaced_answer(request, rejected)
         await _append_committed_answer(request, answer, model_output_visible=True)
         return _with_replaced_answer(request, answer)
 
@@ -581,6 +611,10 @@ async def _commit_deferred_answer(
 
     if request.runtime.task_mode == "deep_research" or not _has_product_answer_context(request.state):
         answer = request.round_result.content_buf.strip()
+        rejected = _reject_protocol_residue(request, answer)
+        if rejected is not None:
+            await _append_committed_answer(request, rejected, output_reason="protocol_residue")
+            return _with_replaced_answer(request, rejected)
         if answer:
             await _append_committed_answer(request, answer, model_output_visible=True)
         return _with_replaced_answer(request, answer)

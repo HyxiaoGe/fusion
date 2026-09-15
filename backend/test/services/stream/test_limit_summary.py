@@ -2775,6 +2775,34 @@ class PlanSynthesisNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase)
         self.assertEqual(request.content_blocks[-1].text, honest)
         self.assertFalse(outcome.incomplete)
 
+    async def test_有工具证据时协议残留仍判非成功(self):
+        """Codex 指出的边界：有搜索证据的综合走流式直发，不经无证据门禁。
+
+        真实样本正是「搜索成功、证据齐备、正文却是没执行的协议」。
+        正文来不及拦，但落库与终态必须是非成功。
+        """
+        residue = '<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name="更新计划">\n</｜｜DSML｜｜ calls>'
+
+        request, _append_chunk, outcome, _stream_kwargs = await self._run(
+            answer=residue,
+            content_blocks=_plan_synthesis_evidence(),
+        )
+
+        self.assertNotIn("DSML", request.content_blocks[-1].text)
+        self.assertTrue(outcome.incomplete, "只换掉文本、仍标成功不算修好")
+
+    async def test_有工具证据的正常答复照常成功(self):
+        """识别放宽不能误伤：同一条证据路径下的真答案必须原样直发并保持成功。"""
+        honest = "桂林三天多为阴到多云，白天 24–28 度，适合安排室外行程。来源 [1]。"
+
+        request, _append_chunk, outcome, _stream_kwargs = await self._run(
+            answer=honest,
+            content_blocks=_plan_synthesis_evidence(),
+        )
+
+        self.assertEqual(request.content_blocks[-1].text, honest)
+        self.assertFalse(outcome.incomplete)
+
     async def test_有工具证据的计划综合保持流式直发且不被改写(self):
         request, append_chunk, outcome, stream_kwargs = await self._run(
             answer=self._FABRICATED,
