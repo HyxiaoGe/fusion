@@ -107,11 +107,17 @@ def _eligible_blocks(content_blocks: list[Any], evidence: RecoveryEvidenceWorkse
     return blocks
 
 
-def _has_content(value: Any) -> bool:
+def has_extractable_content(value: Any) -> bool:
+    """是否取到了实体正文。工具读页与自动预读共用同一判定，避免两条路径漂移。"""
+
     if not isinstance(value, str):
         return False
     # 只有链接或空白仍属于来源元数据，不能证明曾获取到内容。
     return bool(_URL_PATTERN.sub("", value).strip())
+
+
+def _has_content(value: Any) -> bool:
+    return has_extractable_content(value)
 
 
 def _canonical_url(value: Any) -> str:

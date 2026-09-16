@@ -243,6 +243,75 @@ class TestPrefetchedPageEvidence:
         assert answer == NO_EVIDENCE_ANSWER_TEXT
         assert kind == "required_external_evidence"
 
+    def test_只有链接的预读正文不算证据(self):
+        """reader 的空正文判定放行"正文只有一个链接"，此处必须按工具口径拦下。"""
+
+        from app.services.security.url_policy import UrlPolicyResult
+        from app.services.stream.persistence import build_url_read_block
+
+        policy = UrlPolicyResult(
+            allowed=True,
+            normalized_url="https://example.com/a",
+            reason="ok",
+            safe_log_url="https://example.com/a",
+        )
+        link_only = UrlReadResult(
+            url="https://example.com/a",
+            title="示例页面",
+            content="https://example.com/a",
+            favicon=None,
+            content_length=21,
+            fetch_ms=10,
+        )
+        block = build_url_read_block(
+            read_result=link_only, policy=policy, detected_url="https://example.com/a", block_id="blk-pre"
+        )
+        assert block.status == "degraded"
+
+        evidence = RecoveryEvidenceWorkset()
+        evidence.record_prefetched_page(block.url)
+        answer, kind = resolve_no_evidence_answer(
+            "这篇文章说该型号续航 5 小时，售价 280 元。",
+            capability_resolution=_capability("url_read"),
+            content_blocks=[block],
+            recovery_evidence=evidence,
+        )
+        assert answer == NO_EVIDENCE_ANSWER_TEXT
+        assert kind == "required_external_evidence"
+
+    def test_真实正文的预读仍标成功并放行(self):
+        from app.services.security.url_policy import UrlPolicyResult
+        from app.services.stream.persistence import build_url_read_block
+
+        policy = UrlPolicyResult(
+            allowed=True,
+            normalized_url="https://example.com/a",
+            reason="ok",
+            safe_log_url="https://example.com/a",
+        )
+        real = UrlReadResult(
+            url="https://example.com/a",
+            title="示例页面",
+            content="该型号实测续航 5 小时，官方定价 280 元。",
+            favicon=None,
+            content_length=24,
+            fetch_ms=10,
+        )
+        block = build_url_read_block(
+            read_result=real, policy=policy, detected_url="https://example.com/a", block_id="blk-pre"
+        )
+        assert block.status == "success"
+
+        evidence = RecoveryEvidenceWorkset()
+        evidence.record_prefetched_page(block.url)
+        candidate = "这篇文章说该型号续航 5 小时，售价 280 元。"
+        assert resolve_no_evidence_answer(
+            candidate,
+            capability_resolution=_capability("url_read"),
+            content_blocks=[block],
+            recovery_evidence=evidence,
+        ) == (candidate, None)
+
     def test_预读失败的块不算证据(self):
         from app.schemas.chat import UrlBlock
 
