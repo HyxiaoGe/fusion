@@ -11,7 +11,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.services.suggested_question_service import SuggestedQuestionService
+from app.services.suggested_question_service import SuggestedQuestionGenerationError, SuggestedQuestionService
 
 _MARKER = "suggested_questions_generate"
 
@@ -25,7 +25,7 @@ def _response(content: str, *, completion_tokens=None):
 
 
 class SuggestionTimingLogTests(unittest.TestCase):
-    def _run(self, acompletion):
+    def _run(self, acompletion, *, fails=False):
         service = SuggestedQuestionService.__new__(SuggestedQuestionService)
         with (
             patch("app.services.suggested_question_service.litellm.acompletion", new=acompletion),
@@ -39,7 +39,11 @@ class SuggestionTimingLogTests(unittest.TestCase):
             ),
             self.assertLogs("app", level=logging.INFO) as captured,
         ):
-            asyncio.run(service._generate("对话内容", "deepseek-chat", revision=1))
+            if fails:
+                with self.assertRaises(SuggestedQuestionGenerationError):
+                    asyncio.run(service._generate("对话内容", "deepseek-chat", revision=1))
+            else:
+                asyncio.run(service._generate("对话内容", "deepseek-chat", revision=1))
         return [line for line in captured.output if _MARKER in line]
 
     def test_成功时记录耗时与输出_token(self):
@@ -58,7 +62,7 @@ class SuggestionTimingLogTests(unittest.TestCase):
         async def boom(**_kwargs):
             raise RuntimeError("upstream down")
 
-        lines = self._run(boom)
+        lines = self._run(boom, fails=True)
         self.assertEqual(len(lines), 1)
         self.assertIn("result=failed", lines[0])
         self.assertIn("duration_ms=", lines[0])

@@ -681,8 +681,8 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
         neutralized = neutralize_product_provider_mentions(
             "根据 FlyAI 和飞猪旅行返回的结果，search_flights 返回 CZ1234。"
         )
-        self.assertNotIn("FlyAI", neutralized)
-        self.assertNotIn("飞猪", neutralized)
+        self.assertIn("FlyAI", neutralized)
+        self.assertIn("飞猪旅行", neutralized)
         self.assertNotIn("search_flights", neutralized)
         self.assertIn("航班查询", neutralized)
         failure = build_product_tool_failure_answer()

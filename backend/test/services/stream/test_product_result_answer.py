@@ -405,18 +405,17 @@ class ProductResultAnswerTests(unittest.TestCase):
         self.assertNotIn("路线查询尚未执行", answer)
         self.assertNotIn("起点", answer)
 
-    def test_neutralize_product_provider_mentions_keeps_sentences_natural(self):
-        answer = neutralize_product_provider_mentions(
-            "根据高德返回的路线结果，驾车更快。"
-            "路线时间和距离仅代表高德本次返回结果。"
-            "未返回的费用信息，本次高德结果无法确认。"
-        )
+    def test_visible_answer_preserves_brand_entities_without_result_cards(self):
+        for answer in (
+            "高德置地广场是你提到的目的地。",
+            "FlyAI Learning 是用户提供的机构名称。",
+            "The route from FlyAI Plaza is returned by FlyAI.",
+            "飞猪旅行的页面标题保留在用户提供的资料中。",
+        ):
+            with self.subTest(answer=answer):
+                self.assertEqual(neutralize_product_provider_mentions(answer), answer)
 
-        self.assertNotIn("高德", answer)
-        self.assertIn("根据本次查询返回的路线结果", answer)
-        self.assertIn("路线时间和距离仅代表本次查询结果", answer)
-        self.assertIn("未返回的费用信息，本次查询结果无法确认", answer)
-
+    def test_visible_answer_preserves_structured_brand_entities_and_attribution(self):
         entity_block = PlaceResultsBlock(
             type="place_results",
             schema_version=1,
@@ -426,26 +425,14 @@ class ProductResultAnswerTests(unittest.TestCase):
             result_count=1,
             places=[PlaceResult(name="高德置地广场")],
         )
-        entity_answer = neutralize_product_provider_mentions(
-            "高德置地广场是候选地点。高德返回了路线结果。",
-            [entity_block],
-        )
-        self.assertIn("高德置地广场", entity_answer)
-        self.assertIn("本次查询返回了路线结果", entity_answer)
+        answer = "高德置地广场是候选地点。高德返回了路线结果。"
+        self.assertEqual(neutralize_product_provider_mentions(answer, [entity_block]), answer)
 
-    def test_neutralize_product_provider_mentions_handles_recent_generated_variants(self):
-        answer = neutralize_product_provider_mentions(
-            "高德结果无法确认排队情况。"
-            "高德当前未能返回公共交通方案。"
-            "高德预估行驶时间约15分钟。"
-            "根据高德在民治附近查到的结果，可以考虑这些地点。"
+    def test_visible_answer_still_sanitizes_internal_tool_identifiers(self):
+        self.assertEqual(
+            neutralize_product_provider_mentions("local_place_search 返回高德置地广场。"),
+            "地点搜索返回高德置地广场。",
         )
-
-        self.assertNotIn("高德", answer)
-        self.assertIn("本次查询结果无法确认排队情况", answer)
-        self.assertIn("本次查询未能返回公共交通方案", answer)
-        self.assertIn("本次查询预估行驶时间约15分钟", answer)
-        self.assertIn("根据地图服务在民治附近查到的结果", answer)
 
     def test_product_tool_failure_answer_does_not_expose_provider_name(self):
         answer = build_product_tool_failure_answer()

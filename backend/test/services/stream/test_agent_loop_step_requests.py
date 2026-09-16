@@ -120,7 +120,9 @@ class AgentLoopStepRequestTests(unittest.TestCase):
         state.step = 3
         state.content_blocks.append(TextBlock(type="text", id="text-existing", text="已有内容"))
         messages = [{"role": "user", "content": "hi"}]
-        runtime = _runtime()
+        resolution = object()
+        fallback_context = object()
+        runtime = _runtime(capability_resolution=resolution, fallback_response_context=fallback_context)
 
         request = build_limit_summary_step_request(state=state, runtime=runtime, messages=messages)
 
@@ -129,6 +131,7 @@ class AgentLoopStepRequestTests(unittest.TestCase):
         self.assertEqual(request.conversation_id, "conv-req")
         self.assertEqual(request.task_id, "task-req")
         self.assertEqual(request.run_id, "run-req")
+        self.assertIs(getattr(request, "fallback_response_context", None), fallback_context)
         self.assertEqual(request.messages, messages)
         self.assertIs(request.content_blocks, state.content_blocks)
         self.assertIs(request.call_kwargs, runtime.call_kwargs)
@@ -146,6 +149,8 @@ class AgentLoopStepRequestTests(unittest.TestCase):
         self.assertIs(request.clock, runtime.clock)
         self.assertEqual(request.task_mode, "standard")
         self.assertEqual(request.evidence_policy, "standard")
+        self.assertIs(request.capability_resolution, resolution)
+        self.assertIs(request.recovery_evidence, state.recovery_evidence)
         self.assertTrue(request.defer_output)
         self.assertIs(request.research_workset, state.research_workset)
         self.assertIs(request.on_step_started.__self__, state)

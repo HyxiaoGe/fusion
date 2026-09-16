@@ -695,6 +695,76 @@ class AgentLoopRunCompletionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(task.done())
         task.cancel()
 
+    async def test_normal_generation_over_two_seconds_still_arrives_before_seal(self):
+        """常见的三秒内生成不能因旧的两秒窗口退回详情轮询。"""
+
+        async def generate():
+            await asyncio.sleep(2.1)
+            return SimpleNamespace(
+                applied=True,
+                message_id="msg-1",
+                revision=2,
+                status="ready",
+                questions=["直接送达的问题"],
+            )
+
+        calls = await self._run_with_generation(lambda: asyncio.create_task(generate()))
+
+        names = [call if isinstance(call, str) else call[0] for call in calls]
+        self.assertEqual(names, ["pending_event", "dispatch", "ready_event", "finalize"])
+        self.assertEqual(calls[2][1]["questions"], ["直接送达的问题"])
+
+    async def test_persisted_failed_generation_is_not_reported_as_ready(self):
+        async def generate():
+            return SimpleNamespace(
+                applied=True,
+                message_id="msg-1",
+                revision=2,
+                status="failed",
+                questions=["保留的上一批"],
+            )
+
+        calls = await self._run_with_generation(lambda: asyncio.create_task(generate()))
+
+        self.assertEqual(calls[2][1]["status"], "failed")
+        self.assertEqual(calls[2][1]["questions"], ["保留的上一批"])
+
+    async def test_cancel_during_suggestion_wait_seals_completed_stream_and_keeps_worker(self):
+        state = AgentLoopState()
+        state.content_blocks.append(TextBlock(type="text", id="txt-1", text="已完成的正式回答"))
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def generate():
+            started.set()
+            await release.wait()
+
+        worker = asyncio.create_task(generate())
+        seal = AsyncMock()
+        task = asyncio.create_task(
+            finalize_completed_run(
+                context=replace(_context(state), emitter=AsyncMock()),
+                terminal_state=SimpleNamespace(session_status="completed", run_finish_reason="stop"),
+                persist_message_fn=lambda *_args: True,
+                complete_agent_run_fn=AsyncMock(),
+                finalize_stream_fn=seal,
+                claim_suggested_questions_fn=lambda **_kwargs: SimpleNamespace(message_id="msg-1", revision=1),
+                generate_suggested_questions_fn=lambda **_kwargs: worker,
+            )
+        )
+        try:
+            await started.wait()
+            while not state.terminal_emitted:
+                await asyncio.sleep(0)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            self.assertFalse(worker.cancelled())
+            seal.assert_awaited_once_with("conv-1", success=True, task_id="task-1")
+        finally:
+            release.set()
+            await worker
+
     async def test_generation_failure_delivers_failed_status_without_blocking_terminal(self):
         async def failed_generate():
             return None

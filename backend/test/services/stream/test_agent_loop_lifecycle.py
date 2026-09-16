@@ -2255,6 +2255,34 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
+    async def test_completed_body_is_not_relabelled_when_auxiliary_tail_is_interrupted(self):
+        for error in (asyncio.CancelledError(), StreamOwnershipLostError("已被新请求接管")):
+            with self.subTest(error=type(error).__name__):
+                execution = self._execution()
+
+                async def finalize_completed(**_kwargs):
+                    execution.state.mark_terminal_emitted()
+                    raise error
+
+                cancelled = AsyncMock()
+                failed = AsyncMock()
+                dependencies = self._dependencies(
+                    finalize_completed_run_fn=finalize_completed,
+                    finalize_cancelled_run_fn=cancelled,
+                    finalize_failed_run_fn=failed,
+                )
+                if isinstance(error, asyncio.CancelledError):
+                    with self.assertRaises(asyncio.CancelledError):
+                        await run_agent_loop_lifecycle(
+                            request=self._request(), execution=execution, dependencies=dependencies
+                        )
+                else:
+                    await run_agent_loop_lifecycle(
+                        request=self._request(), execution=execution, dependencies=dependencies
+                    )
+                cancelled.assert_not_awaited()
+                failed.assert_not_awaited()
+
     async def test_ownership_lost_finalizes_as_cancelled_without_reporting_failure(self):
         call_order = []
         execution = self._execution()

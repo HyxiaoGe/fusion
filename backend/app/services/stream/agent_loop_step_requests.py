@@ -120,4 +120,7 @@ def build_limit_summary_step_request(
         research_workset=state.research_workset,
         defer_output=True,
         llm_round_detail_scheduler=runtime.llm_round_detail_scheduler,
+        capability_resolution=runtime.capability_resolution,
+        recovery_evidence=state.recovery_evidence,
+        fallback_response_context=runtime.fallback_response_context,
     )

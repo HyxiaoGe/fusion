@@ -29,26 +29,6 @@ _TRANSIT_TYPE_LABELS = {
     "mixed": "公交与地铁",
     "public_transit": "公共交通",
 }
-_PROVIDER_ATTRIBUTION_REPLACEMENTS = (
-    (re.compile(r"本次\s*高德(?:地图)?\s*结果"), "本次查询结果"),
-    (re.compile(r"高德(?:地图)?\s*本次返回(?:的)?结果"), "本次查询结果"),
-    (re.compile(r"根据\s*高德(?:地图)?\s*(?:本次)?返回的"), "根据本次查询返回的"),
-    (re.compile(r"高德(?:地图)?\s*(?:当前|本次)?\s*(?:未能|没有|未)\s*返回"), "本次查询未能返回"),
-    (re.compile(r"高德(?:地图)?\s*(?:本次)?返回了"), "本次查询返回了"),
-    (re.compile(r"高德(?:地图)?\s*(?:本次)?返回"), "本次查询返回"),
-    (re.compile(r"高德(?:地图)?\s*(?:的)?(?:查询|路线|地点)?结果"), "本次查询结果"),
-    (re.compile(r"高德(?:地图)?\s*(?:预估|估算)"), "本次查询预估"),
-    (re.compile(r"高德(?:地图)?\s*路线(?:服务|规划)"), "路线查询"),
-    (re.compile(r"高德(?:地图)?\s*参考消费"), "参考消费"),
-    (re.compile(r"高德(?:地图)?\s*(?:接口|工具|服务)"), "地图服务"),
-)
-_PROVIDER_NAME_RE = re.compile(r"高德(?:地图)?")
-_TRAVEL_PROVIDER_ATTRIBUTION_REPLACEMENTS = (
-    (re.compile(r"(?:根据|基于)\s*(?:FlyAI|飞猪(?:旅行)?)(?:本次)?(?:返回|查询)(?:的)?"), "根据本次查询返回的"),
-    (re.compile(r"(?:FlyAI|飞猪(?:旅行)?)(?:本次)?(?:返回|查询)(?:的)?结果"), "本次查询结果"),
-    (re.compile(r"(?:FlyAI|飞猪(?:旅行)?)(?:本次)?(?:未能|没有|未)返回"), "本次查询未能返回"),
-)
-_TRAVEL_PROVIDER_NAME_RE = re.compile(r"FlyAI|飞猪(?:旅行)?", re.IGNORECASE)
 _WEATHER_ACTIVITY_PATTERN = r"(?:骑行|骑车|自行车|跑步|慢跑|徒步|登山|爬山|露营|运动|出游|游玩)"
 _WEATHER_ACTIVITY_REQUEST_RE = re.compile(
     rf"(?:适合|适宜|能否|能不能|可以|可不可以|宜不宜).{{0,16}}(?P<after>{_WEATHER_ACTIVITY_PATTERN})|"
@@ -60,60 +40,13 @@ _TRAVEL_FASTEST_REQUEST_RE = re.compile(r"最快|用时最短|耗时最短|时�
 
 
 def neutralize_product_provider_mentions(answer: str, content_blocks: list[Any] | None = None) -> str:
-    """中性化产品正文中的供应商归因，同时保护结构化结果里的真实实体名。"""
+    """兼容既有调用，只净化内部工具标识，保留品牌、实体和来源原文。
 
-    neutralized = answer
-    protected_terms: dict[str, str] = {}
-    for index, term in enumerate(_provider_entity_terms(content_blocks or [])):
-        placeholder = f"\ue000{index}\ue001"
-        if term in neutralized:
-            neutralized = neutralized.replace(term, placeholder)
-            protected_terms[placeholder] = term
-    for pattern, replacement in _PROVIDER_ATTRIBUTION_REPLACEMENTS:
-        neutralized = pattern.sub(replacement, neutralized)
-    neutralized = _PROVIDER_NAME_RE.sub("地图服务", neutralized)
-    for pattern, replacement in _TRAVEL_PROVIDER_ATTRIBUTION_REPLACEMENTS:
-        neutralized = pattern.sub(replacement, neutralized)
-    neutralized = _TRAVEL_PROVIDER_NAME_RE.sub("出行查询", neutralized)
-    for placeholder, term in protected_terms.items():
-        neutralized = neutralized.replace(placeholder, term)
-    return sanitize_internal_tool_names(neutralized, final=True)
+    供应商中性表达由模型提示词约束；逐品牌替换无法可靠区分归因与实体。
+    content_blocks 参数保留兼容，品牌文本是否保留不再取决于结果卡片。
+    """
 
-
-def _provider_entity_terms(content_blocks: list[Any]) -> list[str]:
-    terms: set[str] = set()
-    for block in content_blocks:
-        block_type = _value(block, "type")
-        if block_type == "place_results":
-            for place in _value(block, "places") or []:
-                for key in ("name", "address", "district", "business_area"):
-                    value = _value(place, key)
-                    if isinstance(value, str) and "高德" in value:
-                        terms.add(value)
-        elif block_type == "route_results":
-            for endpoint_key in ("origin", "destination"):
-                value = _value(_value(block, endpoint_key), "label")
-                if isinstance(value, str) and "高德" in value:
-                    terms.add(value)
-        elif block_type == "weather_results":
-            for key in ("query", "resolved_location"):
-                value = _value(block, key)
-                if isinstance(value, str) and "高德" in value:
-                    terms.add(value)
-        elif block_type in {"flight_results", "train_results"}:
-            collection = "flights" if block_type == "flight_results" else "trains"
-            for option in _value(block, collection) or []:
-                for key in ("airline_name", "train_type"):
-                    value = _value(option, key)
-                    if isinstance(value, str) and _TRAVEL_PROVIDER_NAME_RE.search(value):
-                        terms.add(value)
-                for endpoint_key in ("departure", "arrival"):
-                    endpoint = _value(option, endpoint_key)
-                    for key in ("city", "station_name"):
-                        value = _value(endpoint, key)
-                        if isinstance(value, str) and _TRAVEL_PROVIDER_NAME_RE.search(value):
-                            terms.add(value)
-    return sorted(terms, key=len, reverse=True)
+    return sanitize_internal_tool_names(answer, final=True)
 
 
 def has_product_result_blocks(content_blocks: list[Any]) -> bool:

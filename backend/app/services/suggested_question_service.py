@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -35,6 +36,10 @@ class SuggestedQuestionTargetInvalidError(ValueError):
     """目标消息存在但没有可用于生成推荐问题的正式正文。"""
 
 
+class SuggestedQuestionGenerationError(RuntimeError):
+    """辅助生成未得到有效问题；不能把固定问题伪装成生成成功。"""
+
+
 @dataclass(frozen=True)
 class SuggestedQuestionClaim:
     message_id: str
@@ -63,12 +68,6 @@ class SuggestedQuestionGenerationResult:
 
 class SuggestedQuestionService:
     """以 assistant message 为唯一目标管理推荐问题。"""
-
-    FALLBACK_QUESTIONS = [
-        "您对这个主题还有其他问题吗？",
-        "您想了解更多相关信息吗？",
-        "您想要探讨这个话题的哪些方面？",
-    ]
 
     def __init__(self, db: Session):
         self.db = db
@@ -164,6 +163,16 @@ class SuggestedQuestionService:
                 revision=claim.revision,
             )
             applied = self.store_generated_questions(claim=claim, questions=questions)
+        except SuggestedQuestionGenerationError:
+            applied = self.mark_generation_failed(claim)
+            current = self._message_state(claim.message_id)
+            return SuggestedQuestionGenerationResult(
+                questions=current[0],
+                message_id=claim.message_id,
+                revision=current[1],
+                status=current[2],
+                applied=applied,
+            )
         except Exception:
             # 非 LLM 异常也必须释放 pending；CAS 保证已被更高 revision 抢占时不会误标失败。
             try:
@@ -286,7 +295,7 @@ class SuggestedQuestionService:
         revision: int | None = None,
     ) -> list[str]:
         if not dialog_content:
-            return list(self.FALLBACK_QUESTIONS)
+            raise SuggestedQuestionGenerationError("推荐问题缺少生成上下文")
         started_at = time.monotonic()
         try:
             prompt, prompt_metadata = prompt_manager.format_prompt_with_metadata(
@@ -294,29 +303,37 @@ class SuggestedQuestionService:
                 content=dialog_content,
             )
             litellm_model, _, litellm_kwargs = resolve_utility_model(conversation_model_id)
-            response = await litellm.acompletion(
-                model=litellm_model,
-                messages=[{"role": "user", "content": prompt}],
-                stream=False,
-                max_tokens=UTILITY_MAX_TOKENS,
-                timeout=UTILITY_LLM_TIMEOUT,
-                # 同一条消息重新生成时 prompt 与其余参数完全一致，代理会按请求负载
-                # 命中缓存并原样返回上一批，导致「换一批」换不动。revision 每次推进，
-                # 用它作 seed 即可让每批请求不同；温度未显式设置，走模型默认采样。
-                **({"seed": revision} if revision is not None else {}),
-                **merge_litellm_kwargs(
-                    "suggest_questions",
-                    litellm_kwargs,
-                    prompt_metadata=prompt_metadata,
+            # SDK 的 timeout 不保证覆盖内部重试；应用层截止时间也必须有界，
+            # 才能在 SSE 送达窗口内把成功或失败状态写回。
+            response = await asyncio.wait_for(
+                litellm.acompletion(
+                    model=litellm_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    stream=False,
+                    max_tokens=UTILITY_MAX_TOKENS,
+                    timeout=UTILITY_LLM_TIMEOUT,
+                    # 同一条消息重新生成时 prompt 与其余参数完全一致，代理会按请求负载
+                    # 命中缓存并原样返回上一批，导致「换一批」换不动。revision 每次推进，
+                    # 用它作 seed 即可让每批请求不同；温度未显式设置，走模型默认采样。
+                    **({"seed": revision} if revision is not None else {}),
+                    **merge_litellm_kwargs(
+                        "suggest_questions",
+                        litellm_kwargs,
+                        prompt_metadata=prompt_metadata,
+                    ),
                 ),
+                timeout=UTILITY_LLM_TIMEOUT,
             )
-            _log_generation("ready", started_at, response=response)
             raw = response.choices[0].message.content or ""
-            return ChatUtils.parse_questions(raw)[:3] or list(self.FALLBACK_QUESTIONS)
+            questions = ChatUtils.parse_questions(raw)[:3]
+            if not questions:
+                raise SuggestedQuestionGenerationError("模型没有返回有效推荐问题")
+            _log_generation("ready", started_at, response=response)
+            return questions
         except Exception as error:  # noqa: BLE001 — 推荐问题失败不能影响正文终态
             _log_generation("failed", started_at, error=error)
-            logger.warning("生成推荐问题失败，使用回退问题: error_type=%s", type(error).__name__)
-            return list(self.FALLBACK_QUESTIONS)
+            logger.warning("生成推荐问题失败，保留上一批问题: error_type=%s", type(error).__name__)
+            raise SuggestedQuestionGenerationError("推荐问题生成失败") from error
 
     def _advance_revision(self, message: MessageModel) -> SuggestedQuestionClaim:
         revision = int(message.suggested_questions_revision or 0) + 1
@@ -384,7 +401,9 @@ class SuggestedQuestionService:
         return "\n".join(parts)
 
 
-def _log_generation(result: str, started_at: float, *, response: Any = None, error: BaseException | None = None) -> None:
+def _log_generation(
+    result: str, started_at: float, *, response: Any = None, error: BaseException | None = None
+) -> None:
     """记录模型调用耗时，成败都记。
 
     封口前送达的预算只能靠真实耗时分布来定，而 ready 事件只在赶上窗口时才发出，

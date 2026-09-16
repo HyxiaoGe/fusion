@@ -25,6 +25,39 @@ def _unused_sync(*_args, **_kwargs):
 
 
 class AgentLoopExecutionTests(unittest.TestCase):
+    def test_真实原请求在执行入口冻结供安全兜底使用(self):
+        from app.services.stream.agent_loop_wiring import AgentLoopRunInput
+
+        run_input = AgentLoopRunInput(
+            conversation_id="conv-language",
+            user_id="user-language",
+            model_id="gpt-4",
+            litellm_model="openai/gpt-4",
+            litellm_kwargs={},
+            provider="openai",
+            raw_messages=[{"role": "user", "content": "内部续跑控制消息"}],
+            has_vision=False,
+            file_ids=None,
+            original_message="查询明天天气，请用英语回答。",
+            assistant_message_id="message-language",
+            task_id="task-language",
+            options={"response_language": "en"},
+            capabilities={},
+            trace_id="run-language",
+        )
+        request = run_input.to_execution_request(
+            db=None, call_config=SimpleNamespace(should_use_reasoning=False, call_kwargs={})
+        )
+        execution = build_agent_loop_execution(
+            request=request,
+            limits=AgentLoopLimits(max_steps=3, max_tool_calls=5, total_timeout_s=30),
+            dependencies=self._dependencies(clock=lambda: 100.0),
+        )
+        context = getattr(execution.runtime, "fallback_response_context", None)
+        self.assertIsNotNone(context, "真实用户请求没有传到安全兜底上下文")
+        self.assertEqual(context.original_message, "查询明天天气，请用英语回答。")
+        self.assertEqual(context.preferred_locale, "en")
+
     def _dependencies(self, *, clock):
         return AgentLoopDependencies(
             session_cache="session-cache",
@@ -252,9 +285,11 @@ class AgentLoopExecutionTests(unittest.TestCase):
 
     def test_build_agent_loop_runtime_accepts_prebuilt_execution_parts(self):
         call_kwargs = {"temperature": 0.1}
+        resolution = object()
         call_config = SimpleNamespace(
             should_use_reasoning=True,
             call_kwargs=call_kwargs,
+            capability_resolution=resolution,
         )
         request = AgentLoopExecutionRequest(
             db="db",
@@ -293,6 +328,7 @@ class AgentLoopExecutionTests(unittest.TestCase):
         self.assertEqual(runtime.task_id, "task-runtime")
         self.assertEqual(runtime.model_id, "gpt-4")
         self.assertIs(runtime.call_kwargs, call_kwargs)
+        self.assertIs(runtime.capability_resolution, resolution)
         self.assertIs(runtime.emitter, parts.emitter)
         self.assertIs(runtime.network_budget, parts.network_budget)
         self.assertIs(runtime.session_cache, dependencies.session_cache)

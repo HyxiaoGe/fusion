@@ -7,7 +7,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from inspect import Parameter, signature
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.ai.llm_round_observability import create_llm_round_observation
 from app.ai.prompts.agent_loop import LIMIT_SUMMARY_PROMPT as _LIMIT_SUMMARY_PROMPT
@@ -45,6 +45,7 @@ from app.services.stream.context_status import build_context_usage, emit_context
 from app.services.stream.limit_summary_fact_guard import (
     emit_fact_guard_observation,
     has_tool_evidence,
+    requires_external_evidence,
     resolve_no_evidence_answer,
 )
 from app.services.stream.llm_round_lifecycle import (
@@ -59,8 +60,14 @@ from app.services.stream.research_evidence import (
     build_research_repair_prompt,
     validate_research_completion,
 )
+from app.services.stream.safe_fallback_response import default_safe_fallback, render_safe_fallback
+from app.services.stream.tool_recovery_evidence import RecoveryEvidenceWorkset
 from app.services.stream_state_service import StreamOwnershipLostError, StreamWriteTerminalError, append_chunk
 from app.utils.prompt_fingerprint import fingerprint_system_messages
+
+if TYPE_CHECKING:
+    from app.services.stream.run_capability_router import RunCapabilityResolution
+    from app.services.stream.safe_fallback_response import FallbackResponseContext
 
 LIMIT_SUMMARY_PROMPT = _LIMIT_SUMMARY_PROMPT
 
@@ -126,6 +133,9 @@ class LimitSummaryStepRequest:
     research_workset: ResearchEvidenceWorkset | None = None
     defer_output: bool = True
     llm_round_detail_scheduler: Callable[[Any], Any] | None = None
+    capability_resolution: RunCapabilityResolution | None = None
+    recovery_evidence: RecoveryEvidenceWorkset | None = None
+    fallback_response_context: FallbackResponseContext | None = None
 
 
 def _is_standard_plan_synthesis(request: LimitSummaryStepRequest) -> bool:
@@ -146,12 +156,22 @@ def _streams_standard_plan_synthesis(request: LimitSummaryStepRequest) -> bool:
     否则未经查证的班次与票价已经发出，事后再拦也收不回来（issue #31）。
     """
 
-    return _is_standard_plan_synthesis(request) and has_tool_evidence(request.content_blocks)
+    return _is_standard_plan_synthesis(request) and has_tool_evidence(
+        request.content_blocks,
+        capability_resolution=request.capability_resolution,
+        recovery_evidence=request.recovery_evidence,
+    )
 
 
 def _should_defer_summary_output(request: LimitSummaryStepRequest) -> bool:
     if _streams_standard_plan_synthesis(request):
         return False
+    if requires_external_evidence(request.capability_resolution) and not has_tool_evidence(
+        request.content_blocks,
+        capability_resolution=request.capability_resolution,
+        recovery_evidence=request.recovery_evidence,
+    ):
+        return True
     return request.defer_output or request.task_mode == "deep_research"
 
 
@@ -169,6 +189,8 @@ def append_limit_summary_prompt(
     summary_finish_reason: str = "limit_summary",
     task_mode: str = "standard",
     content_blocks: list | None = None,
+    capability_resolution: RunCapabilityResolution | None = None,
+    recovery_evidence: RecoveryEvidenceWorkset | None = None,
 ) -> None:
     messages[:] = ensure_prompt_messages(messages)
     if summary_finish_reason == "plan_synthesis":
@@ -189,7 +211,13 @@ def append_limit_summary_prompt(
     if task_mode == "deep_research" and section_id != RESEARCH_EVIDENCE_SUMMARY:
         prompt = f"{prompt}\n\n{RESEARCH_EVIDENCE_SUMMARY_PROMPT}"
     # 一次工具证据都没有时，"基于已收集的信息"指向空集；补上诚实下限，避免用参数记忆补齐。
-    if content_blocks is not None and not has_tool_evidence(content_blocks):
+    if (
+        content_blocks is not None
+        and (capability_resolution is None or requires_external_evidence(capability_resolution))
+        and not has_tool_evidence(
+            content_blocks, capability_resolution=capability_resolution, recovery_evidence=recovery_evidence
+        )
+    ):
         prompt = f"{prompt}\n\n{NO_TOOL_EVIDENCE_SUMMARY_PROMPT}"
     messages.append(PromptMessage(role="system", content=prompt, section_id=section_id))
 
@@ -267,7 +295,7 @@ def _only_recoverable_tool_transactions(messages: list[PromptMessage | dict]) ->
 
 SUMMARY_TOOL_PROTOCOL_RETRY_PROMPT = render_runtime_prompt("stream.summary_tool_protocol_retry")
 
-SUMMARY_PROTOCOL_FALLBACK_TEXT = "当前未能生成可靠的最终答复，请稍后重试。"
+SUMMARY_PROTOCOL_FALLBACK_TEXT = default_safe_fallback("protocol_error")
 DEEP_RESEARCH_INCOMPLETE_TEXT = (
     "本次研究尚未完成，当前取得的可核验依据不足，暂时无法给出可靠结论。你可以稍后重试，或缩小研究范围后重新发起。"
 )
@@ -954,6 +982,8 @@ async def run_limit_summary_step(
         summary_finish_reason=request.summary_finish_reason,
         task_mode=request.task_mode,
         content_blocks=request.content_blocks,
+        capability_resolution=request.capability_resolution,
+        recovery_evidence=request.recovery_evidence,
     )
     thinking_block_id = summary_context.thinking_block_id
     text_block_id = summary_context.text_block_id
@@ -1011,7 +1041,15 @@ async def run_limit_summary_step(
     )
 
 
-def _guard_protocol_residue(
+async def _safe_summary_fallback(request: LimitSummaryStepRequest, reason: str) -> str:
+    context = request.fallback_response_context
+    remaining = 0.0
+    if context is not None and context.original_message:
+        remaining = request.total_timeout_s - max(0.0, request.clock() - request.run_start)
+    return await render_safe_fallback(reason, context=context, model_id=request.model_id, timeout_s=remaining)
+
+
+async def _guard_protocol_residue(
     request: LimitSummaryStepRequest,
     answer: str,
 ) -> tuple[str, bool]:
@@ -1029,19 +1067,21 @@ def _guard_protocol_residue(
             f"conv_id={request.conversation_id} run_id={request.run_id} "
             f"finish_reason={request.summary_finish_reason}"
         )
-    return SUMMARY_PROTOCOL_FALLBACK_TEXT, True
+    return await _safe_summary_fallback(request, "protocol_error"), True
 
 
-def _guard_no_evidence_answer(
+async def _guard_no_evidence_answer(
     request: LimitSummaryStepRequest,
     answer: str,
 ) -> tuple[str, str | None]:
-    """零工具证据时拦下未被对话输入支撑的动态数据，并留下可聚合的观测。"""
+    """按冻结能力和有效证据守住总结边界，并留下可聚合的观测。"""
 
     guarded, fact_kind = resolve_no_evidence_answer(
         answer,
         content_blocks=request.content_blocks,
         messages=request.messages,
+        capability_resolution=request.capability_resolution,
+        recovery_evidence=request.recovery_evidence,
     )
     if fact_kind is None:
         return guarded, None
@@ -1052,11 +1092,11 @@ def _guard_no_evidence_answer(
     )
     if request.warning_fn is not None:
         request.warning_fn(
-            "收尾总结无工具证据且含具体动态数据，已替换为诚实答复: "
+            "收尾总结缺少所需有效证据，已替换为诚实答复: "
             f"conv_id={request.conversation_id} run_id={request.run_id} "
             f"finish_reason={request.summary_finish_reason} fact_kind={fact_kind}"
         )
-    return guarded, fact_kind
+    return await _safe_summary_fallback(request, "no_evidence"), fact_kind
 
 
 async def _commit_limit_summary_result(
@@ -1126,13 +1166,15 @@ async def _commit_limit_summary_result(
             if contains_tool_protocol_residue(answer):
                 # 有证据的综合走直发，来不及拦下正文；但落库与终态仍必须是非成功。
                 # 常规情况下流式清理已经把残留摘掉，走到这里说明又出现了新变体。
-                answer, _ = _guard_protocol_residue(request, answer)
+                answer, _ = await _guard_protocol_residue(request, answer)
                 incomplete = True
         else:
             # 零证据的综合改走缓存输出，事实边界在正文送达用户之前生效（issue #31）。
-            answer = round_result.content_buf.strip() or SUMMARY_PROTOCOL_FALLBACK_TEXT
-            answer, protocol_residue = _guard_protocol_residue(request, answer)
-            answer, unsupported_fact_kind = _guard_no_evidence_answer(request, answer)
+            answer = round_result.content_buf.strip()
+            if not answer or round_result.finish_reason == "protocol_fallback":
+                answer = await _safe_summary_fallback(request, "protocol_error")
+            answer, protocol_residue = await _guard_protocol_residue(request, answer)
+            answer, unsupported_fact_kind = await _guard_no_evidence_answer(request, answer)
             if unsupported_fact_kind is not None or protocol_residue:
                 incomplete = True
             await append_chunk(
@@ -1153,14 +1195,14 @@ async def _commit_limit_summary_result(
     else:
         answer = round_result.content_buf.strip()
         incomplete = round_result.finish_reason == "protocol_fallback" or not answer
-        if not answer:
-            answer = SUMMARY_PROTOCOL_FALLBACK_TEXT
-        answer, protocol_residue = _guard_protocol_residue(request, answer)
+        if not answer or round_result.finish_reason == "protocol_fallback":
+            answer = await _safe_summary_fallback(request, "protocol_error")
+        answer, protocol_residue = await _guard_protocol_residue(request, answer)
         # 本次 run 没有任何工具证据时，具体数值（班次、票价、时长、气温）无从支撑，直接换成诚实答复。
-        answer, unsupported_fact_kind = _guard_no_evidence_answer(request, answer)
+        answer, unsupported_fact_kind = await _guard_no_evidence_answer(request, answer)
         if unsupported_fact_kind is not None or protocol_residue:
             incomplete = True
-        if request.defer_output:
+        if _should_defer_summary_output(request):
             await append_chunk(
                 request.conversation_id,
                 "answering",
@@ -1171,16 +1213,19 @@ async def _commit_limit_summary_result(
                 step_id=summary_context.step_id,
             )
             _record_summary_output(round_result, answer, "summary_guard")
-            if round_result.content_buf.strip() and unsupported_fact_kind is None and not protocol_residue:
+            if (
+                round_result.content_buf.strip()
+                and round_result.finish_reason != "protocol_fallback"
+                and unsupported_fact_kind is None
+                and not protocol_residue
+            ):
                 await _finish_summary_round_lifecycle(round_result, model_output_visible=True)
-        if round_result.content_buf.strip() and unsupported_fact_kind is None and not protocol_residue:
-            append_summary_content_blocks(
-                content_blocks=request.content_blocks,
-                content_buf=round_result.content_buf,
-                text_block_id=text_block_id,
-            )
-        else:
-            request.content_blocks.append(TextBlock(type="text", id=text_block_id, text=answer))
+        # 持久化必须使用实际交付的正文，不能重新采用本地化之前的模型候选或旧默认文案。
+        append_summary_content_blocks(
+            content_blocks=request.content_blocks,
+            content_buf=answer,
+            text_block_id=text_block_id,
+        )
         return incomplete
 
 
