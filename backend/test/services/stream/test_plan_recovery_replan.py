@@ -11,6 +11,7 @@ from app.services.agent.plan_coordinator import PlanCoordinator
 from app.services.stream.agent_loop_driver import (
     _filter_tools_for_research_stage,
     resolve_plan_mode_allowed_tools,
+    resolve_plan_mode_tool_policy,
 )
 
 _ALLOWED = frozenset({"weather_forecast", "web_search", "url_read"})
@@ -44,10 +45,22 @@ def _initial_plan():
     return {
         "reason": "先查天气再回答",
         "items": [
-            {"id": "w", "title": "查天气", "status": "pending", "kind": "search",
-             "depends_on": [], "planned_tools": ["weather_forecast"]},
-            {"id": "a", "title": "回答", "status": "pending", "kind": "answer",
-             "depends_on": ["w"], "planned_tools": []},
+            {
+                "id": "w",
+                "title": "查天气",
+                "status": "pending",
+                "kind": "search",
+                "depends_on": [],
+                "planned_tools": ["weather_forecast"],
+            },
+            {
+                "id": "a",
+                "title": "回答",
+                "status": "pending",
+                "kind": "answer",
+                "depends_on": ["w"],
+                "planned_tools": [],
+            },
         ],
     }
 
@@ -56,12 +69,30 @@ def _recovery_plan(answer_depends_on=("w", "s")):
     return {
         "reason": "高德失败，改用联网搜索",
         "items": [
-            {"id": "w", "title": "查天气", "status": "failed", "kind": "search",
-             "depends_on": [], "planned_tools": ["weather_forecast"]},
-            {"id": "s", "title": "搜索天气", "status": "pending", "kind": "search",
-             "depends_on": [], "planned_tools": ["web_search"]},
-            {"id": "a", "title": "回答", "status": "pending", "kind": "answer",
-             "depends_on": list(answer_depends_on), "planned_tools": []},
+            {
+                "id": "w",
+                "title": "查天气",
+                "status": "failed",
+                "kind": "search",
+                "depends_on": [],
+                "planned_tools": ["weather_forecast"],
+            },
+            {
+                "id": "s",
+                "title": "搜索天气",
+                "status": "pending",
+                "kind": "search",
+                "depends_on": [],
+                "planned_tools": ["web_search"],
+            },
+            {
+                "id": "a",
+                "title": "回答",
+                "status": "pending",
+                "kind": "answer",
+                "depends_on": list(answer_depends_on),
+                "planned_tools": [],
+            },
         ],
     }
 
@@ -89,7 +120,12 @@ class PlanRecoveryEndToEndTests(unittest.TestCase):
         self.assertEqual(_offered(self.coordinator), ["web_search"])
 
     def test_恢复成功后不再因旧失败强制重规划(self):
-        """失败项必须永久保留 failed，不能因此把模型反复推回改计划。"""
+        """失败项必须永久保留 failed，不能因此把模型反复推回改计划。
+
+        修订入口常驻之后，这里的判据从「目录为空」变成「不强制」：update_plan
+        仍会摆出来供模型按需补步骤，但 tool_choice 不再锁定，收口作答的路是通的。
+        把旧失败推回改计划这件事，靠的是 require_tool_call 而不是目录本身。
+        """
         self._fail_weather()
         _offered(self.coordinator)
         self.coordinator.apply_model_update(_recovery_plan())
@@ -98,7 +134,10 @@ class PlanRecoveryEndToEndTests(unittest.TestCase):
         self.coordinator.mark_tool_results({"s": "completed"})
 
         self.assertEqual(self.coordinator.active_plan_tool_names(), set())
-        self.assertEqual(_offered(self.coordinator), [])
+        self.assertFalse(self.coordinator.needs_recovery_replan())
+        policy = resolve_plan_mode_tool_policy(self.coordinator)
+        self.assertFalse(policy.require_tool_call, "旧失败不得把模型强制推回改计划")
+        self.assertIsNone(policy.preferred_tool_name)
 
     def test_首版恢复计划被拒后仍能提交修正(self):
         """只是把 update_plan 摆出去不等于模型已答复：结构校验拒绝后
@@ -130,7 +169,7 @@ class PlanRecoveryEndToEndTests(unittest.TestCase):
         self._fail_weather()
         result = self.coordinator.apply_model_update(_initial_plan())
         self.assertEqual(result.reason, "no_change")
-        self.assertFalse(self.coordinator.can_attempt_recovery_replan())
+        self.assertFalse(self.coordinator.can_attempt_plan_revision())
         self.assertFalse(self.coordinator.needs_recovery_replan())
 
     def test_总修订次数用尽后不再交还(self):
@@ -144,8 +183,14 @@ class BlockedToolItemTests(unittest.TestCase):
         coordinator = _coordinator()
         coordinator.apply_model_update(_initial_plan())
         coordinator.items = [
-            {"id": "r", "title": "推理", "status": "failed", "kind": "reasoning",
-             "depends_on": [], "planned_tools": []},
+            {
+                "id": "r",
+                "title": "推理",
+                "status": "failed",
+                "kind": "reasoning",
+                "depends_on": [],
+                "planned_tools": [],
+            },
         ]
         self.assertEqual(coordinator.blocked_tool_item_ids(), set())
 
