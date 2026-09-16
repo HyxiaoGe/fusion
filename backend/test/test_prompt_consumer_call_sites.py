@@ -51,8 +51,11 @@ class PromptManagerCallSiteTests(unittest.IsolatedAsyncioTestCase):
             patch.object(module.litellm, "acompletion", side_effect=fake_acompletion),
             patch.object(module, "resolve_utility_model", return_value=("m", None, {})),
         ):
-            await service._generate("对话内容", "model-1")
+            with self.assertRaises(module.SuggestedQuestionGenerationError) as raised:
+                await service._generate("对话内容", "model-1")
 
+        self.assertIsInstance(raised.exception.__cause__, RuntimeError)
+        self.assertEqual(str(raised.exception.__cause__), "stop-after-capture")
         self.assertIn("messages", captured)
         self.assertIn("标记B-对话内容", str(captured["messages"]))
 
