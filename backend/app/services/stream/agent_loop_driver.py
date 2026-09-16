@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import dataclass
 from inspect import Parameter, signature
 
 from app.ai.prompts.product_results import build_product_result_round_prompt
@@ -244,25 +245,24 @@ async def _run_round(
         dynamic_tool_handlers=runtime.dynamic_tool_handlers,
     )
     if runtime.task_mode != "deep_research" and runtime.plan_mode == "on":
-        allowed_tool_names = resolve_plan_mode_allowed_tools(state.plan_coordinator)
+        policy = resolve_plan_mode_tool_policy(state.plan_coordinator)
         call_kwargs = _filter_tools_for_research_stage(
             call_kwargs,
-            allowed_tool_names=allowed_tool_names,
+            allowed_tool_names=policy.allowed_tool_names,
         )
-        if allowed_tool_names == frozenset({"update_plan"}):
+        if policy.require_tool_call:
+            if policy.preferred_tool_name is None:
+                for tool_name in policy.allowed_tool_names:
+                    call_kwargs = _constrain_research_stage_plan_binding(
+                        call_kwargs,
+                        tool_name=tool_name,
+                        active_plan_item_ids=state.plan_coordinator.active_plan_item_ids_for_tool(tool_name),
+                    )
             call_kwargs = _require_tool_call(
                 call_kwargs,
-                preferred_tool_name="update_plan",
+                preferred_tool_name=policy.preferred_tool_name,
                 provider=runtime.provider,
             )
-        else:
-            for tool_name in allowed_tool_names:
-                call_kwargs = _constrain_research_stage_plan_binding(
-                    call_kwargs,
-                    tool_name=tool_name,
-                    active_plan_item_ids=state.plan_coordinator.active_plan_item_ids_for_tool(tool_name),
-                )
-            call_kwargs = _require_tool_call(call_kwargs, provider=runtime.provider)
     research_stage = None
     plan_repair_tool = None
     state.required_plan_repair_tool = None
@@ -373,21 +373,46 @@ async def _run_round(
     return round_result
 
 
-def resolve_plan_mode_allowed_tools(coordinator: PlanCoordinator) -> frozenset[str]:
-    """计划模式下本轮允许模型看到的工具集合。
+@dataclass(frozen=True)
+class PlanModeToolPolicy:
+    """计划模式下本轮的工具目录，以及服务端是否锁定工具选择。
 
-    三种情形：计划尚未建立、计划因工具失败卡死且仍有未处理的失败，都收敛为
-    update_plan；其余按计划当前可绑定的工具。驱动循环与测试共用本函数，避免
-    测试复制一份判断逻辑而与真实行为悄悄分叉。
+    强制与否必须和目录一起决定。只回目录会丢掉一个关键区别：计划内已无可执行
+    步骤时，模型既可能该收口作答，也可能刚拿到 Observation、发现还需要补一步
+    取证——此时开放 update_plan 但不能强制，否则模型被逼着改计划，永远答不了。
     """
+
+    allowed_tool_names: frozenset[str]
+    require_tool_call: bool
+    preferred_tool_name: str | None = None
+
+
+def resolve_plan_mode_tool_policy(coordinator: PlanCoordinator) -> PlanModeToolPolicy:
+    """驱动循环与测试共用本函数，避免测试复制一份判断逻辑而与真实行为悄悄分叉。"""
+
     if not coordinator.has_valid_model_plan:
-        return frozenset({"update_plan"})
+        return PlanModeToolPolicy(frozenset({"update_plan"}), True, "update_plan")
     active = coordinator.active_plan_tool_names()
-    if not active and coordinator.needs_recovery_replan():
+    if active:
+        # 计划内还有可执行步骤：照常锁定执行，不在执行途中开放修订。
+        return PlanModeToolPolicy(frozenset(active), True)
+    if coordinator.needs_recovery_replan():
         # 失败项转终态后不再可绑定，目录会被整个摘掉；能力契约本就把
         # web_search/url_read 作为替代工具公开，这里让模型自行加入恢复步骤。
-        return frozenset({"update_plan"})
-    return frozenset(active)
+        return PlanModeToolPolicy(frozenset({"update_plan"}), True, "update_plan")
+    if coordinator.can_attempt_plan_revision():
+        # 计划内已无可执行步骤，也没有待处理的失败。真实样本 Run fcbfcab7：
+        # web_search 成功后模型想读权威原文核对，却拿不到 update_plan——加步骤
+        # 这个动作本身需要 update_plan，而它此前只在出现新失败时才发。
+        # 开放修订入口但不强制：模型可以补一步取证，也可以直接收口作答。
+        return PlanModeToolPolicy(frozenset({"update_plan"}), False)
+    return PlanModeToolPolicy(frozenset(), False)
+
+
+def resolve_plan_mode_allowed_tools(coordinator: PlanCoordinator) -> frozenset[str]:
+    """只回本轮目录；是否锁定工具选择见 resolve_plan_mode_tool_policy。"""
+
+    return resolve_plan_mode_tool_policy(coordinator).allowed_tool_names
 
 
 def _filter_tools_for_research_stage(

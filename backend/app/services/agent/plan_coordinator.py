@@ -695,8 +695,12 @@ class PlanCoordinator:
             if (item.get("planned_tools") or []) and item.get("status") in _FAILED_DEPENDENCY_STATUSES
         }
 
-    def can_attempt_recovery_replan(self) -> bool:
-        """是否还值得把改计划权交还模型。
+    def can_attempt_plan_revision(self) -> bool:
+        """修订预算：还允不允许模型再改一次计划。
+
+        这是「能改几次」，与「什么时候能改」无关。两者曾经绑在一起——预算被嵌在
+        needs_recovery_replan 内部，于是 update_plan 只在出现新失败时才可见；
+        搜索成功后才发现需要读原文的模型只能先制造一次失败才拿得回改计划权。
 
         不另设低次数上限——那会压制正常恢复。复用既有的无进展与总修订约束：
         模型一旦原样重交计划（no_change），说明它拿不出新方案，再给也没有意义；
@@ -717,7 +721,7 @@ class PlanCoordinator:
         上有没有失败」：恢复成功后旧失败仍在，但已记入已处理集合，不会把模型
         反复推回改计划；恢复步骤自身失败会产生新的失败项，可以再次触发。
         """
-        if not self.can_attempt_recovery_replan():
+        if not self.can_attempt_plan_revision():
             return False
         return bool(self.blocked_tool_item_ids() - self.recovery_replanned_item_ids)
 
