@@ -103,6 +103,21 @@ def _is_usable_evidence(block: Any, *, external_only: bool) -> bool:
     )
 
 
+def _has_prefetched_page(content_blocks: list[Any] | None, evidence: RecoveryEvidenceWorkset) -> bool:
+    """自动预读的 url_read 块没有 source_refs，只能按块自身的 URL 比对登记。
+
+    登记只发生在本轮预读成功、正文已注入 messages 时（见 `record_prefetched_page`），
+    因此这里不放宽"元数据不算证据"的原则，只是补上 `_eligible_blocks` 够不到的形状。
+    """
+
+    return any(
+        _get_field(block, "type") == "url_read"
+        and _get_field(block, "status") == "success"
+        and evidence.has_source("url_read", _get_field(block, "url"))
+        for block in content_blocks or []
+    )
+
+
 def has_tool_evidence(
     content_blocks: list[Any] | None,
     *,
@@ -113,7 +128,10 @@ def has_tool_evidence(
 
     # 来源卡片只持久化元数据；success、标题和 URL 均不能证明模型拿到了正文。
     # 没有运行期快照的旧调用也必须关闭这条捷径，不能从来源身份重建证据。
-    if recovery_evidence is not None and has_recovery_evidence(content_blocks or [], evidence=recovery_evidence):
+    if recovery_evidence is not None and (
+        has_recovery_evidence(content_blocks or [], evidence=recovery_evidence)
+        or _has_prefetched_page(content_blocks, recovery_evidence)
+    ):
         return True
     external_only = requires_external_evidence(capability_resolution)
     return any(_is_usable_evidence(block, external_only=external_only) for block in content_blocks or [])

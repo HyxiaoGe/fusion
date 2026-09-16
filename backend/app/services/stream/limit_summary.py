@@ -1187,7 +1187,12 @@ async def _commit_limit_summary_result(
                 step_id=summary_context.step_id,
             )
             _record_summary_output(round_result, answer, "summary_guard")
-            if has_answer and unsupported_fact_kind is None and not protocol_residue:
+            if (
+                has_answer
+                and round_result.finish_reason != "protocol_fallback"
+                and unsupported_fact_kind is None
+                and not protocol_residue
+            ):
                 await _finish_summary_round_lifecycle(round_result, model_output_visible=True)
         if answer:
             request.content_blocks.append(TextBlock(type="text", id=text_block_id, text=answer))

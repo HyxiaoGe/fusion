@@ -925,6 +925,40 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
         values.update(overrides)
         return AgentLoopLifecycleDependencies(**values)
 
+    async def test_预读正文登记为本轮证据而续跑历史块不登记(self):
+        """预读成功的正文已注入 messages，与工具读页等价；续跑带回的块只有元数据。
+
+        与下方 configure_research_state 的 allow_read_success 口径一致：来源不同，入账不同。
+        """
+
+        from app.schemas.chat import UrlBlock
+
+        call_config = self._call_config()
+        limits = self._limits()
+        execution = self._execution(call_config=call_config, limits=limits)
+        prefetched = UrlBlock(type="url_read", id="blk-pre", url="https://example.com/a", title="预读页面")
+        carried_over = UrlBlock(type="url_read", id="blk-old", url="https://example.com/b", title="上一轮来源")
+
+        async def prepare_messages_fn(**_kwargs):
+            return AgentLoopPreparedMessages(
+                messages=[{"role": "user", "content": "prepared"}],
+                initial_content_blocks=[prefetched],
+            )
+
+        request = replace(
+            self._request(call_config=call_config, limits=limits),
+            initial_content_blocks=[carried_over],
+        )
+        await run_agent_loop_lifecycle(
+            request=request,
+            execution=execution,
+            dependencies=self._dependencies(prepare_messages_fn=prepare_messages_fn),
+        )
+
+        evidence = execution.state.recovery_evidence
+        self.assertTrue(evidence.has_source("url_read", "https://example.com/a"))
+        self.assertFalse(evidence.has_source("url_read", "https://example.com/b"))
+
     async def test_completed_path_prepares_runs_and_finalizes_in_order(self):
         call_order = []
         call_config = self._call_config()

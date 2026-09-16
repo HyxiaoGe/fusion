@@ -203,6 +203,57 @@ class TestResolveNoEvidenceAnswer:
         ) == (candidate, None)
 
 
+class TestPrefetchedPageEvidence:
+    """自动预读与续跑：预读块没有 source_refs，不能落进"零证据"（PR #72 复审）。"""
+
+    def _prefetched_block(self, url: str = "https://example.com/a"):
+        from app.schemas.chat import UrlBlock
+
+        return UrlBlock(type="url_read", id="blk-pre", url=url, title="示例页面")
+
+    def test_预读成功的正文算证据(self):
+        evidence = RecoveryEvidenceWorkset()
+        evidence.record_prefetched_page("https://example.com/a")
+        assert has_tool_evidence(
+            [self._prefetched_block()],
+            capability_resolution=_capability("url_read"),
+            recovery_evidence=evidence,
+        )
+
+    def test_预读成功时正确答案不被换成兜底文案(self):
+        candidate = "这篇文章说该型号续航 5 小时，售价 280 元。"
+        evidence = RecoveryEvidenceWorkset()
+        evidence.record_prefetched_page("https://example.com/a")
+        assert resolve_no_evidence_answer(
+            candidate,
+            capability_resolution=_capability("verified_web"),
+            content_blocks=[self._prefetched_block()],
+            recovery_evidence=evidence,
+        ) == (candidate, None)
+
+    def test_未登记的来源卡片仍不算证据(self):
+        """续跑带回的历史块不登记，元数据不能重建证据。"""
+
+        answer, kind = resolve_no_evidence_answer(
+            _FABRICATED_ANSWER,
+            capability_resolution=_capability("verified_web"),
+            content_blocks=[self._prefetched_block()],
+            recovery_evidence=RecoveryEvidenceWorkset(),
+        )
+        assert answer == NO_EVIDENCE_ANSWER_TEXT
+        assert kind == "required_external_evidence"
+
+    def test_预读失败的块不算证据(self):
+        from app.schemas.chat import UrlBlock
+
+        evidence = RecoveryEvidenceWorkset()
+        evidence.record_prefetched_page("https://example.com/a")
+        failed = UrlBlock(type="url_read", id="blk-pre", url="https://example.com/a", status="failed")
+        assert not has_tool_evidence(
+            [failed], capability_resolution=_capability("url_read"), recovery_evidence=evidence
+        )
+
+
 class TestFactGuardBoundaries:
     """自查发现的两处边界：道路编号不是车次；天气数值同属无证据动态事实。"""
 
