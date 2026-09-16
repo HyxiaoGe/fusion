@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import re
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -32,6 +33,7 @@ from app.services.stream import (
     tool_round,
 )
 from app.services.stream.run_capability_model_classifier import _system_prompt
+from app.services.stream.safe_fallback_response import SUPPORTED_FALLBACK_LOCALES
 
 _CJK = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
 
@@ -181,7 +183,19 @@ def test_bundled_skill_instruction_is_english():
 def test_runtime_prompt_file_is_external_english_jinja2_data():
     source = RUNTIME_PROMPT_FILE.read_text(encoding="utf-8")
 
-    _assert_english(source, path="runtime_prompts.toml")
+    # safe_fallback.responses 是直接呈现给用户的最终正文，必须覆盖用户语言，不属于模型指令；
+    # 模型可见的语言选择指令在 safe_fallback.language_selector，仍受英文约束。
+    data = tomllib.loads(source)
+    responses = data.get("safe_fallback", {}).pop("responses", None)
+    _assert_english(data, path="runtime_prompts.toml")
+
+    # 原先整文件扫描顺带保证了兜底文案齐全；改为按段排除后在这里显式补回覆盖度。
+    assert set(responses) == set(SUPPORTED_FALLBACK_LOCALES), "安全兜底文案缺少受支持语言"
+    for locale, bodies in responses.items():
+        assert set(bodies) == {"tool_failure", "no_evidence", "protocol_error"}, f"{locale} 兜底原因不全"
+        for reason, body in bodies.items():
+            assert body.strip(), f"{locale}.{reason} 兜底文案为空"
+
     assert "{{ current_date }}" in source
     assert "2026-09-07" in render_runtime_prompt(
         "agent_loop.current_date",

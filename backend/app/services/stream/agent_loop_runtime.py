@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.services.stream.agent_loop_policy import AgentLoopLimits
+
+if TYPE_CHECKING:
+    from app.services.stream.run_capability_router import RunCapabilityResolution
+    from app.services.stream.safe_fallback_response import FallbackResponseContext
 
 
 @dataclass(frozen=True)
@@ -46,3 +50,5 @@ class AgentLoopRuntime:
     task_mode: str = "standard"
     evidence_policy: str = "standard"
     llm_round_detail_scheduler: Callable[[Any], Any] | None = None
+    capability_resolution: RunCapabilityResolution | None = None
+    fallback_response_context: FallbackResponseContext | None = None

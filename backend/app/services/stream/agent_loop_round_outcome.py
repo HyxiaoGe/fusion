@@ -51,6 +51,7 @@ from app.services.stream.research_evidence import (
     validate_research_completion,
 )
 from app.services.stream.round_completion import append_round_content_blocks, complete_text_response_step
+from app.services.stream.safe_fallback_response import default_safe_fallback, render_safe_fallback
 from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream.tool_recovery_evidence import is_grounded_recovery_answer
 from app.services.stream.tool_round import ToolRoundOutcome
@@ -170,10 +171,20 @@ def _recovery_alternatives(request: AgentRoundOutcomeRequest) -> set[str]:
     return announced - request.state.attempted_tool_names - {"update_plan"}
 
 
-PROTOCOL_RESIDUE_ANSWER_TEXT = "本次未能生成可靠的最终答复，请稍后重试。"
+PROTOCOL_RESIDUE_ANSWER_TEXT = default_safe_fallback("protocol_error")
 
 
-def _reject_protocol_residue(request: AgentRoundOutcomeRequest, answer: str) -> str | None:
+async def _safe_round_fallback(request: AgentRoundOutcomeRequest, reason: str) -> str:
+    context = request.runtime.fallback_response_context
+    remaining = 0.0
+    if context is not None and context.original_message:
+        remaining = request.runtime.limits.total_timeout_s - request.state.active_elapsed_seconds(
+            now=request.runtime.clock(), run_start=request.runtime.run_start
+        )
+    return await render_safe_fallback(reason, context=context, model_id=request.runtime.model_id, timeout_s=remaining)
+
+
+async def _reject_protocol_residue(request: AgentRoundOutcomeRequest, answer: str) -> str | None:
     """模型正文仍是未执行的工具协议时，它不能充当最终答复。
 
     这一层与证据无关。真实样本 Run e96ab8c9 搜索成功、证据齐备，
@@ -192,7 +203,7 @@ def _reject_protocol_residue(request: AgentRoundOutcomeRequest, answer: str) -> 
         f"conv_id={request.runtime.conversation_id}, run_id={request.runtime.run_id}, "
         f"step={request.step_number}"
     )
-    return PROTOCOL_RESIDUE_ANSWER_TEXT
+    return await _safe_round_fallback(request, "protocol_error")
 
 
 def _is_web_recovery_answer(request: AgentRoundOutcomeRequest) -> bool:
@@ -587,7 +598,7 @@ async def _commit_deferred_answer(
 
     if _is_web_recovery_answer(request):
         answer = request.round_result.content_buf.strip()
-        rejected = _reject_protocol_residue(request, answer)
+        rejected = await _reject_protocol_residue(request, answer)
         if rejected is not None:
             await _append_committed_answer(request, rejected, output_reason="protocol_residue")
             return _with_replaced_answer(request, rejected)
@@ -603,15 +614,13 @@ async def _commit_deferred_answer(
         )
     ):
         request.state.mark_unknown_terminated()
-        answer = (
-            "本次查询仍未完成：查询工具未能取得可用结果，尚未取得足以核实答案的有效来源，因此目前无法可靠给出具体结论。"
-        )
+        answer = await _safe_round_fallback(request, "tool_failure")
         await _append_committed_answer(request, answer)
         return _with_replaced_answer(request, answer)
 
     if request.runtime.task_mode == "deep_research" or not _has_product_answer_context(request.state):
         answer = request.round_result.content_buf.strip()
-        rejected = _reject_protocol_residue(request, answer)
+        rejected = await _reject_protocol_residue(request, answer)
         if rejected is not None:
             await _append_committed_answer(request, rejected, output_reason="protocol_residue")
             return _with_replaced_answer(request, rejected)

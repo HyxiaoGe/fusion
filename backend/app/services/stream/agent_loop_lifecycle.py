@@ -95,13 +95,13 @@ async def run_agent_loop_lifecycle(
         await _run_success_path(request=request, execution=execution, dependencies=dependencies)
     except asyncio.CancelledError as error:
         primary_error = error
-        if not execution.state.superseded_terminal_decided:
+        if not execution.state.superseded_terminal_decided and not execution.state.terminal_emitted:
             await _finalize_cancelled(execution=execution, dependencies=dependencies)
         raise
     except StreamOwnershipLostError:
         # stop 接口或后续请求已经原子接管 Redis 终态时，后台任务可能先观察到
         # 写入权失效，再收到 asyncio cancellation。这属于正常中断，不应记为生成失败。
-        if not execution.state.superseded_terminal_decided:
+        if not execution.state.superseded_terminal_decided and not execution.state.terminal_emitted:
             await _finalize_cancelled(execution=execution, dependencies=dependencies)
     except Exception as error:
         primary_error = error
@@ -233,6 +233,11 @@ async def _run_success_path(
     )
     execution.state.content_blocks.extend(request.initial_content_blocks)
     execution.state.content_blocks.extend(prepared_messages.initial_content_blocks)
+    # 预读成功的正文已注入本轮 messages，与工具读页同等入账；续跑带回的历史块不登记，
+    # 与下方 configure_research_state 的 allow_read_success 口径保持一致。
+    for block in prepared_messages.initial_content_blocks:
+        if getattr(block, "type", None) == "url_read" and getattr(block, "status", None) == "success":
+            execution.state.recovery_evidence.record_prefetched_page(getattr(block, "url", None))
     if grounding is not None:
         await execution.emitter.run_progress_updated(
             phase="synthesizing",

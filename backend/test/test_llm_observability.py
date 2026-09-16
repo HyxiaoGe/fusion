@@ -14,6 +14,10 @@ class LLMObservabilityTests(unittest.TestCase):
 
         self.assertEqual(metadata, {"tags": ["app:fusion", "phase:run_capability_classifier"]})
 
+    def test_兜底语言选择有独立低基数标签(self):
+        metadata = merge_litellm_kwargs("fallback_language", {})
+        self.assertEqual(metadata["extra_body"]["metadata"]["tags"], ["app:fusion", "phase:fallback_language"])
+
     def test_merge_openai_extra_body_preserves_existing_fields(self):
         extra_body = {"thinking": {"type": "disabled"}}
 

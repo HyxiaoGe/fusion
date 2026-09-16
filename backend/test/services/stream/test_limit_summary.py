@@ -21,7 +21,15 @@ from app.ai.prompts.section_ids import (
 from app.ai.prompts.section_ids import (
     LIMIT_SUMMARY as LIMIT_SUMMARY_SECTION_ID,
 )
-from app.schemas.chat import ContextUsage, SearchBlock, SearchSourceSummary, SourceReference, UrlBlock, Usage
+from app.schemas.chat import (
+    ContextUsage,
+    SearchBlock,
+    SearchSource,
+    SearchSourceSummary,
+    SourceReference,
+    UrlBlock,
+    Usage,
+)
 from app.services.chat.context_manager import ContextPlan
 from app.services.chat.context_manager import prepare_context as prepare_context_real
 from app.services.stream import limit_summary as limit_summary_module
@@ -41,8 +49,13 @@ from app.services.stream.limit_summary import (
 )
 from app.services.stream.limit_summary_fact_guard import NO_EVIDENCE_ANSWER_TEXT
 from app.services.stream.research_evidence import ResearchEvidenceWorkset
+from app.services.stream.run_capability_router import RunCapabilityResolution
 from app.services.stream.step_lifecycle import AgentStepContext
+from app.services.stream.tool_recovery_evidence import RecoveryEvidenceWorkset
 from app.services.stream_state_service import StreamOwnershipLostError
+from app.services.tool_handlers.base import ToolResult
+from app.services.tool_handlers.url_read import UrlReadHandler
+from app.services.tool_handlers.web_search import WebSearchHandler
 
 
 def _plan_synthesis_evidence() -> list:
@@ -53,8 +66,38 @@ def _plan_synthesis_evidence() -> list:
             type="search",
             query="计划检索",
             sources=[SearchSourceSummary(title="来源", url="https://example.com/plan")],
+            source_refs=[SourceReference(kind="search", url="https://example.com/plan")],
         )
     ]
+
+
+def _summary_recovery_evidence() -> RecoveryEvidenceWorkset:
+    """与测试来源块对应的实际正文记录，不能仅靠卡片元数据模拟证据。"""
+
+    evidence = RecoveryEvidenceWorkset()
+    evidence.record_result(
+        "web_search",
+        ToolResult(
+            status="success",
+            data={
+                "sources": [
+                    {"url": "https://example.com/plan", "description": "计划查询得到的正文摘要。"},
+                    {"url": "https://example.com/a", "description": "出行查询得到的正文摘要。"},
+                ]
+            },
+        ),
+    )
+    evidence.record_result(
+        "url_read",
+        ToolResult(
+            status="success",
+            data={
+                "url": "https://example.com/timetable",
+                "content": "实际读到的班次正文。",
+            },
+        ),
+    )
+    return evidence
 
 
 def _deep_summary_evidence() -> tuple[ResearchEvidenceWorkset, list]:
@@ -711,6 +754,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             messages=[{"role": "user", "content": "请给出最终回答"}],
             should_use_reasoning=False,
             content_blocks=content_blocks,
+            recovery_evidence=_summary_recovery_evidence(),
             call_kwargs={
                 "tools": [{"function": {"name": "web_search"}}],
                 "tool_choice": "auto",
@@ -802,6 +846,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             messages=[{"role": "user", "content": "总结"}],
             should_use_reasoning=True,
             content_blocks=_plan_synthesis_evidence(),
+            recovery_evidence=_summary_recovery_evidence(),
             call_kwargs={},
             accumulated_usage=Usage(input_tokens=0, output_tokens=0),
             emitter=AsyncMock(),
@@ -1825,6 +1870,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
                     messages=[{"role": "user", "content": "总结"}],
                     should_use_reasoning=True,
                     content_blocks=content_blocks,
+                    recovery_evidence=_summary_recovery_evidence(),
                     call_kwargs={"tools": [{"function": {"name": "web_search"}}]},
                     accumulated_usage=Usage(input_tokens=0, output_tokens=0),
                     emitter=AsyncMock(),
@@ -2566,6 +2612,7 @@ class LimitSummaryNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase):
             messages=[{"role": "user", "content": user_message}],
             should_use_reasoning=False,
             content_blocks=content_blocks,
+            recovery_evidence=_summary_recovery_evidence(),
             call_kwargs={},
             accumulated_usage=Usage(input_tokens=1, output_tokens=1),
             emitter=AsyncMock(),
@@ -2618,6 +2665,7 @@ class LimitSummaryNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 type="search",
                 query="武汉到桂林",
                 sources=[SearchSourceSummary(title="来源", url="https://example.com/a")],
+                source_refs=[SourceReference(kind="search", url="https://example.com/a")],
             )
         ]
 
@@ -2656,6 +2704,7 @@ class LimitSummaryNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 type="search",
                 query="武汉到桂林",
                 sources=[SearchSourceSummary(title="来源", url="https://example.com/a")],
+                source_refs=[SourceReference(kind="search", url="https://example.com/a")],
             )
         ]
         request, prepare_context_fn = self._standard_request(
@@ -2724,6 +2773,7 @@ class PlanSynthesisNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase)
             messages=[{"role": "user", "content": "国庆想带父母从武汉去桂林玩，怎么过去省心一些？"}],
             should_use_reasoning=False,
             content_blocks=content_blocks,
+            recovery_evidence=_summary_recovery_evidence(),
             call_kwargs={"tools": [{"function": {"name": "web_search"}}], "tool_choice": "auto"},
             accumulated_usage=Usage(input_tokens=1, output_tokens=1),
             emitter=AsyncMock(),
@@ -2813,3 +2863,188 @@ class PlanSynthesisNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase)
         append_chunk.assert_not_awaited()
         self.assertEqual(request.content_blocks[-1].text, self._FABRICATED)
         self.assertFalse(outcome.incomplete)
+
+    async def test_冻结外部事实能力下失败搜索不能放行无数字答案或流式内容(self):
+        resolution = RunCapabilityResolution(
+            schema_version=1,
+            router_version="test",
+            package_id="fresh_web",
+            confidence="high",
+            resolution_mode="routed",
+            reason_codes=("fresh_external_fact",),
+            external_tool_names=("web_search",),
+            effective_plan_mode="off",
+            include_current_date=True,
+            network_boundary_required=False,
+        )
+        for finish_reason in ("limit_summary", "plan_synthesis"):
+            for answer in ("三百元，五小时，08:15 发车。", "今天照常运营。", "查询未成功。"):
+                with self.subTest(finish_reason=finish_reason, answer=answer):
+                    request, prepare, stream_kwargs = self._request(
+                        answer=answer,
+                        content_blocks=[SearchBlock(type="search", query="最新运营情况", status="failed", sources=[])],
+                    )
+                    request = replace(request, summary_finish_reason=finish_reason, capability_resolution=resolution)
+                    with (
+                        patch("app.services.stream.limit_summary.prepare_context", new=prepare),
+                        patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append,
+                    ):
+                        outcome = await run_limit_summary_step(request=request)
+                    self.assertTrue(stream_kwargs[0]["defer_output"])
+                    self.assertEqual(append.await_args.args[2], NO_EVIDENCE_ANSWER_TEXT)
+                    self.assertEqual(request.content_blocks[-1].text, NO_EVIDENCE_ANSWER_TEXT)
+                    self.assertTrue(outcome.incomplete)
+
+    async def test_冻结改写能力保留用户提供事实(self):
+        answer = "票价 300 元，08:15 发车。"
+        request, prepare, _ = self._request(answer=answer, content_blocks=[])
+        resolution = RunCapabilityResolution(
+            schema_version=1,
+            router_version="test",
+            package_id="transform",
+            confidence="high",
+            resolution_mode="routed",
+            reason_codes=("text_transform_request",),
+            external_tool_names=(),
+            effective_plan_mode="off",
+            include_current_date=False,
+            network_boundary_required=False,
+        )
+        request = replace(
+            request,
+            capability_resolution=resolution,
+            messages=[{"role": "user", "content": "请润色：票价 300 元，08:15 发车。"}],
+        )
+        with (
+            patch("app.services.stream.limit_summary.prepare_context", new=prepare),
+            patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append,
+        ):
+            outcome = await run_limit_summary_step(request=request)
+        self.assertEqual(append.await_args.args[2], answer)
+        self.assertFalse(outcome.incomplete)
+        self.assertNotIn("No tool result was obtained", request.messages[-1]["content"])
+
+    async def test_外部事实总结即使调用方允许直发也必须先校验(self):
+        request, prepare, stream_kwargs = self._request(answer="今天照常运营。", content_blocks=[])
+        resolution = RunCapabilityResolution(
+            schema_version=1,
+            router_version="test",
+            package_id="fresh_web",
+            confidence="high",
+            resolution_mode="routed",
+            reason_codes=("fresh_external_fact",),
+            external_tool_names=("web_search",),
+            effective_plan_mode="off",
+            include_current_date=True,
+            network_boundary_required=False,
+        )
+        request = replace(
+            request,
+            summary_finish_reason="limit_summary",
+            capability_resolution=resolution,
+            defer_output=False,
+        )
+        with (
+            patch("app.services.stream.limit_summary.prepare_context", new=prepare),
+            patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append,
+        ):
+            outcome = await run_limit_summary_step(request=request)
+        self.assertTrue(stream_kwargs[0]["defer_output"])
+        self.assertEqual(append.await_args.args[2], NO_EVIDENCE_ANSWER_TEXT)
+        self.assertTrue(outcome.incomplete)
+
+    async def test_外部事实综合只在成功网页恢复后恢复直发(self):
+        resolution = RunCapabilityResolution(
+            schema_version=1,
+            router_version="test",
+            package_id="mobility_intercity",
+            confidence="medium",
+            resolution_mode="routed",
+            reason_codes=("origin_destination_relation", "intercity_locations"),
+            external_tool_names=("route_compare", "search_flights", "search_trains"),
+            effective_plan_mode="auto",
+            include_current_date=True,
+            network_boundary_required=False,
+        )
+        knowledge = {
+            "type": "knowledge_evidence",
+            "status": "success",
+            "source_refs": [{"evidence_id": "ev-1"}],
+        }
+        page = UrlBlock(
+            type="url_read",
+            url="https://example.com/timetable",
+            status="success",
+            source_refs=[SourceReference(kind="url_read", url="https://example.com/timetable")],
+        )
+        for blocks, allowed in (([knowledge], False), ([knowledge, page], True)):
+            with self.subTest(successful_page=allowed):
+                answer = "该线路全天有票。"
+                request, prepare, stream_kwargs = self._request(answer=answer, content_blocks=list(blocks))
+                request = replace(request, capability_resolution=resolution)
+                with (
+                    patch("app.services.stream.limit_summary.prepare_context", new=prepare),
+                    patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append,
+                ):
+                    outcome = await run_limit_summary_step(request=request)
+                self.assertEqual(stream_kwargs[0]["defer_output"], not allowed)
+                self.assertEqual(outcome.incomplete, not allowed)
+                self.assertEqual(request.content_blocks[-1].text, answer if allowed else NO_EVIDENCE_ANSWER_TEXT)
+                if allowed:
+                    append.assert_not_awaited()
+                else:
+                    self.assertEqual(append.await_args.args[2], NO_EVIDENCE_ANSWER_TEXT)
+
+    async def test_真实来源卡片必须匹配本轮正文记录才能提交事实(self):
+        resolution = RunCapabilityResolution(
+            schema_version=1,
+            router_version="test",
+            package_id="fresh_web",
+            confidence="high",
+            resolution_mode="routed",
+            reason_codes=("fresh_external_fact",),
+            external_tool_names=("web_search",),
+            effective_plan_mode="off",
+            include_current_date=True,
+            network_boundary_required=False,
+        )
+        url = "https://example.com/timetable"
+        for handler in (WebSearchHandler(), UrlReadHandler()):
+            for usable in (False, True):
+                body = "车次八点十五出发。" if usable else url
+                tool_result = ToolResult(
+                    status="success",
+                    data={
+                        "url": url,
+                        "content": body,
+                        "query": "最新时刻表",
+                        "sources": [SearchSource(title="", url=url, description=body)],
+                        "context_source_count": 1,
+                    },
+                )
+                block = handler.build_content_block(tool_result, "tool-block", "tool-log")
+                evidence = RecoveryEvidenceWorkset()
+                evidence.record_result(handler.tool_name, tool_result)
+                for reason in ("limit_summary", "plan_synthesis"):
+                    with self.subTest(tool=handler.tool_name, usable=usable, reason=reason):
+                        candidate = "票价三百元，五小时，08:15 发车。"
+                        request, prepare, stream_kwargs = self._request(answer=candidate, content_blocks=[block])
+                        request = replace(
+                            request,
+                            capability_resolution=resolution,
+                            recovery_evidence=evidence,
+                            summary_finish_reason=reason,
+                        )
+                        with (
+                            patch("app.services.stream.limit_summary.prepare_context", new=prepare),
+                            patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append,
+                        ):
+                            outcome = await run_limit_summary_step(request=request)
+                        self.assertEqual(outcome.incomplete, not usable)
+                        self.assertEqual(
+                            request.content_blocks[-1].text, candidate if usable else NO_EVIDENCE_ANSWER_TEXT
+                        )
+                        self.assertEqual("No tool result was obtained" in request.messages[-1]["content"], not usable)
+                        self.assertEqual(stream_kwargs[0]["defer_output"], reason != "plan_synthesis" or not usable)
+                        if not usable:
+                            self.assertEqual(append.await_args.args[2], NO_EVIDENCE_ANSWER_TEXT)

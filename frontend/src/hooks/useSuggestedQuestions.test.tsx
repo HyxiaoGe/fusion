@@ -11,9 +11,16 @@ import conversationReducer, {
   updateMessage,
   upsertConversation,
 } from '@/redux/slices/conversationSlice';
+import streamReducer, {
+  endStream,
+  finalizeRun,
+  initRun,
+  setStreamStatus,
+  startStream,
+} from '@/redux/slices/streamSlice';
 import type { Conversation, Message } from '@/types/conversation';
 
-// 首次轮询延迟随后端送达预算变化，这里按常量推进，避免写死数字。
+// 无活跃 SSE 时，推进到首次兜底轮询之后。
 const FIRST_POLL_MS = 2_600;
 
 const {
@@ -67,7 +74,7 @@ function conversation(id: string, messages: Message[]): Conversation {
 
 function createWrapper(initialConversations: Conversation[]) {
   const store = configureStore({
-    reducer: { conversation: conversationReducer },
+    reducer: { conversation: conversationReducer, stream: streamReducer },
   });
   initialConversations.forEach((item) => store.dispatch(upsertConversation(item)));
 
@@ -251,6 +258,215 @@ describe('useSuggestedQuestions', () => {
     expect(loadConversationDetailMock).not.toHaveBeenCalled();
     expect(invalidateConversationDetailMock).not.toHaveBeenCalled();
     expect(result.current.suggestedQuestions).toEqual(['直达问题一', '直达问题二']);
+    expect(result.current.isLoadingQuestions).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it.each(['streaming', 'reconnecting'] as const)(
+    '当前消息的 SSE 为 %s 时等待直达事件，超过首次轮询时间及页面恢复也不抢跑',
+    async (streamStatus) => {
+      vi.useFakeTimers();
+      vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+      const pending = assistantMessage('assistant-live', {
+        suggestedQuestionsStatus: 'pending',
+        suggestedQuestionsRevision: 1,
+      });
+      const { store, wrapper } = createWrapper([conversation('chat-a', [pending])]);
+      store.dispatch(startStream({ conversationId: 'chat-a', messageId: 'assistant-live' }));
+      store.dispatch(setStreamStatus(streamStatus));
+      store.dispatch(applySuggestedQuestionsPending({
+        conversationId: 'chat-a',
+        messageId: 'assistant-live',
+        revision: 1,
+      }));
+      loadConversationDetailMock.mockResolvedValue(conversation('chat-a', [pending]));
+
+      const { result } = renderHook(() => useSuggestedQuestions('chat-a'), { wrapper });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+        window.dispatchEvent(new Event('focus'));
+        document.dispatchEvent(new Event('visibilitychange'));
+        await Promise.resolve();
+      });
+
+      expect(result.current.isLoadingQuestions).toBe(true);
+      expect(loadConversationDetailMock).not.toHaveBeenCalled();
+      expect(invalidateConversationDetailMock).not.toHaveBeenCalled();
+
+      act(() => {
+        store.dispatch(applySuggestedQuestionsReady({
+          conversationId: 'chat-a',
+          messageId: 'assistant-live',
+          revision: 1,
+          status: 'ready',
+          questions: ['耗时五秒后的直达推荐'],
+        }));
+      });
+      expect(result.current.suggestedQuestions).toEqual(['耗时五秒后的直达推荐']);
+      expect(result.current.isLoadingQuestions).toBe(false);
+
+      act(() => { store.dispatch(endStream()); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+      expect(loadConversationDetailMock).not.toHaveBeenCalled();
+      expect(fetchSuggestedQuestionsMock).not.toHaveBeenCalled();
+      vi.useRealTimers();
+    },
+  );
+
+  it('活跃 SSE 的 failed 事件停止等待并保留上一批推荐', async () => {
+    vi.useFakeTimers();
+    const pending = assistantMessage('assistant-failed-live', {
+      suggestedQuestions: ['上一批推荐'],
+      suggestedQuestionsStatus: 'pending',
+      suggestedQuestionsRevision: 2,
+    });
+    const { store, wrapper } = createWrapper([conversation('chat-a', [pending])]);
+    store.dispatch(startStream({ conversationId: 'chat-a', messageId: pending.id }));
+    const { result } = renderHook(() => useSuggestedQuestions('chat-a'), { wrapper });
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(loadConversationDetailMock).not.toHaveBeenCalled();
+    act(() => {
+      store.dispatch(applySuggestedQuestionsReady({
+        conversationId: 'chat-a',
+        messageId: pending.id,
+        revision: 2,
+        status: 'failed',
+        questions: [],
+      }));
+    });
+
+    expect(result.current.isLoadingQuestions).toBe(false);
+    expect(result.current.suggestedQuestions).toEqual(['上一批推荐']);
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(loadConversationDetailMock).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it.each(['completed', 'error', 'endStream'] as const)(
+    'SSE 进入 %s 后仍为 pending 时恢复有限详情轮询',
+    async (termination) => {
+      vi.useFakeTimers();
+      const pending = assistantMessage('assistant-disconnected', {
+        suggestedQuestionsStatus: 'pending',
+        suggestedQuestionsRevision: 1,
+      });
+      const ready = assistantMessage(pending.id, {
+        suggestedQuestions: ['断流恢复后的推荐'],
+        suggestedQuestionsStatus: 'ready',
+        suggestedQuestionsRevision: 1,
+      });
+      const { store, wrapper } = createWrapper([conversation('chat-a', [pending])]);
+      store.dispatch(startStream({ conversationId: 'chat-a', messageId: pending.id }));
+      store.dispatch(setStreamStatus('reconnecting'));
+      loadConversationDetailMock.mockResolvedValue(conversation('chat-a', [ready]));
+
+      const { result } = renderHook(() => useSuggestedQuestions('chat-a'), { wrapper });
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+      expect(loadConversationDetailMock).not.toHaveBeenCalled();
+
+      act(() => {
+        store.dispatch(termination === 'endStream' ? endStream() : setStreamStatus(termination));
+      });
+      await act(async () => { await vi.advanceTimersByTimeAsync(FIRST_POLL_MS); });
+
+      expect(loadConversationDetailMock).toHaveBeenCalledTimes(1);
+      expect(result.current.suggestedQuestions).toEqual(['断流恢复后的推荐']);
+      expect(result.current.isLoadingQuestions).toBe(false);
+      vi.useRealTimers();
+    },
+  );
+
+  it.each([
+    { conversationId: 'chat-b', messageId: 'assistant-pending' },
+    { conversationId: 'chat-a', messageId: 'assistant-other' },
+  ])('其他聊天或消息的活跃流 $conversationId/$messageId 不抑制当前恢复', async (otherStream) => {
+    vi.useFakeTimers();
+    const pending = assistantMessage('assistant-pending', {
+      suggestedQuestionsStatus: 'pending',
+      suggestedQuestionsRevision: 1,
+    });
+    const ready = assistantMessage(pending.id, {
+      suggestedQuestions: ['当前消息恢复推荐'],
+      suggestedQuestionsStatus: 'ready',
+      suggestedQuestionsRevision: 1,
+    });
+    const { store, wrapper } = createWrapper([conversation('chat-a', [pending])]);
+    store.dispatch(startStream(otherStream));
+    loadConversationDetailMock.mockResolvedValue(conversation('chat-a', [ready]));
+
+    const { result } = renderHook(() => useSuggestedQuestions('chat-a'), { wrapper });
+    await act(async () => { await vi.advanceTimersByTimeAsync(FIRST_POLL_MS); });
+
+    expect(loadConversationDetailMock).toHaveBeenCalledTimes(1);
+    expect(result.current.suggestedQuestions).toEqual(['当前消息恢复推荐']);
+    vi.useRealTimers();
+  });
+
+  it('服务端消息 ID 的重连流仍匹配本地 placeholder，直达 ready 后无需恢复请求', async () => {
+    vi.useFakeTimers();
+    const { store, wrapper } = createWrapper([
+      conversation('chat-a', [assistantMessage('local-assistant')]),
+    ]);
+    store.dispatch(applySuggestedQuestionsPending({
+      conversationId: 'chat-a',
+      messageId: 'server-assistant',
+      localMessageId: 'local-assistant',
+      revision: 2,
+    }));
+    store.dispatch(startStream({ conversationId: 'chat-a', messageId: 'server-assistant' }));
+    store.dispatch(setStreamStatus('reconnecting'));
+
+    const { result } = renderHook(() => useSuggestedQuestions('chat-a'), { wrapper });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(loadConversationDetailMock).not.toHaveBeenCalled();
+
+    act(() => {
+      store.dispatch(applySuggestedQuestionsReady({
+        conversationId: 'chat-a',
+        messageId: 'server-assistant',
+        localMessageId: 'local-assistant',
+        revision: 2,
+        status: 'ready',
+        questions: ['本地消息直达推荐'],
+      }));
+    });
+    expect(result.current.suggestedQuestions).toEqual(['本地消息直达推荐']);
+    expect(result.current.isLoadingQuestions).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it('run_completed 后通过 currentRun 映射等待仍活跃的 SSE，封口后才恢复详情', async () => {
+    vi.useFakeTimers();
+    const pending = assistantMessage('server-assistant', {
+      suggestedQuestionsStatus: 'pending',
+      suggestedQuestionsRevision: 1,
+    });
+    const { store, wrapper } = createWrapper([conversation('chat-a', [pending])]);
+    store.dispatch(startStream({ conversationId: 'chat-a', messageId: 'local-assistant' }));
+    store.dispatch(initRun({
+      runId: 'run-a',
+      messageId: 'local-assistant',
+      serverMessageId: 'server-assistant',
+      config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300 },
+      sequence: 1,
+    }));
+    store.dispatch(finalizeRun({ runId: 'run-a', status: 'completed', sequence: 2 }));
+    loadConversationDetailMock.mockResolvedValue(conversation('chat-a', [assistantMessage(pending.id, {
+      suggestedQuestions: ['封口后恢复推荐'],
+      suggestedQuestionsStatus: 'ready',
+      suggestedQuestionsRevision: 1,
+    })]));
+
+    const { result } = renderHook(() => useSuggestedQuestions('chat-a'), { wrapper });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(loadConversationDetailMock).not.toHaveBeenCalled();
+    expect(result.current.isLoadingQuestions).toBe(true);
+
+    act(() => { store.dispatch(endStream()); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(FIRST_POLL_MS); });
+    expect(loadConversationDetailMock).toHaveBeenCalledTimes(1);
+    expect(result.current.suggestedQuestions).toEqual(['封口后恢复推荐']);
     expect(result.current.isLoadingQuestions).toBe(false);
     vi.useRealTimers();
   });

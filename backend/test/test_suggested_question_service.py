@@ -306,6 +306,87 @@ class SuggestedQuestionServiceTests(unittest.TestCase):
         self.assertEqual(self._message().suggested_questions, ["上一批问题"])
         self.assertEqual(self._message().suggested_questions_status, "failed")
 
+    def test_llm_failure_is_persisted_and_returned_as_failed_preserving_previous_questions(self):
+        message = self._message()
+        message.suggested_questions = ["上一批问题"]
+        self.db.commit()
+        claim = self.service.claim_auto_generation(assistant_message_id=message.id, run_id="run-failure")
+
+        with (
+            patch("app.services.utility_model.llm_manager.resolve_model", return_value=("openai/test", "openai", {})),
+            patch(
+                "app.services.suggested_question_service.litellm.acompletion",
+                new=AsyncMock(side_effect=RuntimeError("上游不可用")),
+            ),
+        ):
+            result = asyncio.run(self.service.generate_claimed_questions(claim))
+
+        self.assertEqual(result.status, "failed")
+        self.assertTrue(result.applied)
+        self.assertEqual(result.questions, ["上一批问题"])
+        self.assertEqual(self._message().suggested_questions_status, "failed")
+        self.assertEqual(self._message().suggested_questions, ["上一批问题"])
+
+    def test_empty_model_output_is_failed_instead_of_fabricating_ready_questions(self):
+        claim = self.service.claim_auto_generation(assistant_message_id="assistant-msg-1", run_id="run-empty")
+        response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=""))])
+        with (
+            patch("app.services.utility_model.llm_manager.resolve_model", return_value=("openai/test", "openai", {})),
+            patch("app.services.suggested_question_service.litellm.acompletion", new=AsyncMock(return_value=response)),
+        ):
+            result = asyncio.run(self.service.generate_claimed_questions(claim))
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.questions, [])
+        self.assertEqual(self._message().suggested_questions_status, "failed")
+
+    def test_late_generation_failure_cannot_replace_a_newer_ready_revision(self):
+        claim = self.service.claim_auto_generation(assistant_message_id="assistant-msg-1", run_id="run-late-failure")
+
+        async def superseded_completion(**_kwargs):
+            newer = self.service.claim_request_generation(
+                conversation_id="conv-1",
+                user_id="user-1",
+                assistant_message_id="assistant-msg-1",
+                force_refresh=True,
+            ).claim
+            self.service.store_generated_questions(claim=newer, questions=["用户新换的一批"])
+            raise RuntimeError("旧任务失败")
+
+        with (
+            patch("app.services.utility_model.llm_manager.resolve_model", return_value=("openai/test", "openai", {})),
+            patch("app.services.suggested_question_service.litellm.acompletion", new=superseded_completion),
+        ):
+            result = asyncio.run(self.service.generate_claimed_questions(claim))
+
+        self.assertFalse(result.applied)
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(result.revision, 2)
+        self.assertEqual(result.questions, ["用户新换的一批"])
+        self.assertEqual(self._message().suggested_questions_status, "ready")
+
+    def test_generation_enforces_application_deadline_even_if_provider_ignores_timeout(self):
+        claim = self.service.claim_auto_generation(assistant_message_id="assistant-msg-1", run_id="run-timeout")
+        cancelled = []
+
+        async def slow_completion(**_kwargs):
+            try:
+                await asyncio.sleep(0.1)
+                return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="1. 迟到问题"))])
+            except asyncio.CancelledError:
+                cancelled.append(True)
+                raise
+
+        with (
+            patch("app.services.utility_model.llm_manager.resolve_model", return_value=("openai/test", "openai", {})),
+            patch("app.services.suggested_question_service.litellm.acompletion", new=slow_completion),
+            patch("app.services.suggested_question_service.UTILITY_LLM_TIMEOUT", 0.01),
+        ):
+            result = asyncio.run(self.service.generate_claimed_questions(claim))
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(cancelled, [True])
+
     def test_legacy_request_omits_force_refresh_for_api_compatibility(self):
         request = SuggestedQuestionsRequest(conversation_id="conv-1")
 

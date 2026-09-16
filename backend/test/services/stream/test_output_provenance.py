@@ -6,7 +6,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.schemas.chat import Usage
+from app.schemas.chat import PlaceResult, PlaceResultsBlock, Usage
 from app.services.agent.emitter import AgentEventEmitter
 from app.services.agent.trajectory_payload import build_trajectory_payload
 from app.services.stream.agent_loop_round_outcome import AgentRoundOutcomeRequest, handle_agent_round_outcome
@@ -171,8 +171,68 @@ class OutputProvenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(terminal["output_provenance"]["block_id"], "text-exact")
         self.assertNotIn("完整候选", str(captured))
 
-    async def test_product_neutralization_and_repair_are_server_output(self):
-        for mode in ("neutralize", "repair", "fallback", "weather", "mixed", "single", "pending"):
+    async def test_product_brand_preservation_and_tool_sanitization_record_actual_output_source(self):
+        for candidate, expected, disposition, source in (
+            (
+                "根据高德返回的结果，可以优先查看高德置地广场。",
+                "根据高德返回的结果，可以优先查看高德置地广场。",
+                "emitted",
+                "model",
+            ),
+            (
+                "local_place_search 返回的候选地点是高德置地广场。",
+                "地点搜索返回的候选地点是高德置地广场。",
+                "replaced",
+                "server",
+            ),
+        ):
+            with self.subTest(candidate=candidate):
+                lifecycle = await self._lifecycle()
+                lifecycle.record_detail(reasoning_text="", content_text=candidate)
+                state = AgentLoopState(product_tool_attempted=True)
+                state.mark_current_step("step-outcome")
+                state.content_blocks.append(
+                    PlaceResultsBlock(
+                        type="place_results",
+                        schema_version=1,
+                        provider="amap",
+                        query="商场",
+                        status="success",
+                        result_count=1,
+                        places=[PlaceResult(name="高德置地广场")],
+                    )
+                )
+                request = AgentRoundOutcomeRequest(
+                    db=None,
+                    messages=[{"role": "user", "content": "附近有什么商场"}],
+                    state=state,
+                    runtime=_runtime(emitter=lifecycle.emitter),
+                    step_number=1,
+                    step_context=_step_context(),
+                    round_result=AgentRoundResult(
+                        reasoning_buf="",
+                        content_buf=candidate,
+                        tool_calls=[],
+                        finish_reason="stop",
+                        accumulated_usage=Usage(),
+                        output_deferred=True,
+                        llm_lifecycle=lifecycle,
+                    ),
+                )
+                with (
+                    patch("app.services.stream.agent_loop_round_outcome.append_chunk", new=AsyncMock()) as append,
+                    patch("app.services.stream.agent_loop_round_outcome.complete_text_response_step", new=AsyncMock()),
+                ):
+                    await handle_agent_round_outcome(request=request)
+                self.assertEqual(append.call_args.args[2], expected)
+                self.assertEqual(state.content_blocks[-1].text, expected)
+                provenance = lifecycle.emitter.llm_round_completed.call_args.kwargs["output_provenance"]
+                self.assertEqual(provenance["disposition"], disposition)
+                self.assertEqual(provenance["source"], source)
+                self.assertEqual(lifecycle.content_text, candidate)
+
+    async def test_product_repair_and_fallback_are_server_output(self):
+        for mode in ("repair", "fallback", "weather", "mixed", "single", "pending"):
             with self.subTest(mode=mode):
                 lifecycle = await self._lifecycle()
                 lifecycle.record_detail(reasoning_text="", content_text="模型候选")
@@ -213,12 +273,8 @@ class OutputProvenanceTests(unittest.IsolatedAsyncioTestCase):
                         prefix + "build_tool_repair_clarification", return_value="待补参数" if mode == "pending" else ""
                     ),
                     patch(
-                        prefix + "neutralize_product_provider_mentions",
-                        side_effect=lambda answer, _: "中立改写" if mode == "neutralize" else answer,
-                    ),
-                    patch(
                         prefix + "validate_product_answer",
-                        return_value=SimpleNamespace(is_valid=mode == "neutralize", reason_code="test"),
+                        return_value=SimpleNamespace(is_valid=False, reason_code="test"),
                     ),
                     patch(
                         prefix + "repair_unsupported_product_answer",
@@ -301,6 +357,50 @@ class OutputProvenanceTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(provenance["source"], "model" if mode == "adopt" else "server")
                 self.assertEqual(provenance["block_id"], append.call_args.args[3])
                 self.assertEqual(lifecycle.content_text, "模型总结候选")
+
+    async def test_plan_synthesis_protocol_fallback_is_not_reported_as_model_output(self):
+        """零证据综合被协议兜底替换后，终态不能记成模型正文已送达（PR #72 复审）。"""
+
+        lifecycle = await self._lifecycle()
+        lifecycle.record_detail(reasoning_text="", content_text="残缺的工具协议")
+        request = replace(
+            summary_tests.LimitSummaryStepTests._deferred_commit_request(),
+            summary_finish_reason="plan_synthesis",
+            task_mode="normal",
+        )
+        result = LimitSummaryRoundResult(
+            reasoning_buf="",
+            content_buf="残缺的工具协议",
+            usage_data=None,
+            llm_lifecycle=lifecycle,
+            finish_reason="protocol_fallback",
+        )
+        with (
+            patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()),
+            patch(
+                "app.services.stream.limit_summary._safe_summary_fallback",
+                new=AsyncMock(return_value="服务端兜底文案"),
+            ),
+            patch(
+                "app.services.stream.limit_summary._guard_no_evidence_answer",
+                new=AsyncMock(return_value=("服务端兜底文案", None)),
+            ),
+        ):
+            await _commit_limit_summary_result(
+                request=request,
+                round_result=result,
+                summary_context=_step_context(),
+                thinking_block_id="thinking",
+                text_block_id="step-outcome-text",
+            )
+            await lifecycle.finish_success()
+        # 归因账本由 _record_summary_output 写，本来就正确；这里守的是 TTFT：
+        # 模型正文从未送达，不能为这一轮发出"首次输出"事件。
+        provenance = lifecycle.emitter.llm_round_completed.call_args.kwargs["output_provenance"]
+        self.assertEqual(provenance["disposition"], "replaced")
+        self.assertEqual(provenance["source"], "server")
+        lifecycle.emitter.llm_round_first_output_delta.assert_not_awaited()
+        self.assertFalse(lifecycle.first_output_emitted)
 
     async def test_server_terminal_without_model_does_not_borrow_previous_round(self):
         emitter = AsyncMock()

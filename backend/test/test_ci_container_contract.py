@@ -159,6 +159,24 @@ class CIContainerContractTest(unittest.TestCase):
                 with self.subTest(script=filename, test_file=test_file):
                     self.assertIn(test_file, pytest_command)
 
+    def test_pytest_only_safety_regressions_run_in_both_container_entrypoints(self) -> None:
+        """纯 pytest 风格的用例 unittest discover 收集不到，必须显式进入 pytest 清单。
+
+        这两个文件都只有普通类和模块级函数，没有 TestCase 子类；不挂进清单就等于
+        在 CI 里完全不跑，事实边界与提示词语言约束会失去回归保护。
+        """
+
+        required_tests = (
+            "test/services/stream/test_limit_summary_fact_guard.py",
+            "test/test_model_visible_prompts_are_english.py",
+        )
+        for filename in ("linux-build-and-test.sh", "windows-build-and-test.ps1"):
+            script = (ROOT / ".github/scripts" / filename).read_text(encoding="utf-8")
+            pytest_command = next(line for line in script.splitlines() if "python -m pytest" in line)
+            for test_file in required_tests:
+                with self.subTest(script=filename, test_file=test_file):
+                    self.assertIn(test_file, pytest_command)
+
     def test_agent_feedback_regressions_run_in_both_container_entrypoints(self) -> None:
         required_tests = (
             "test/services/agent/test_progress_digest.py",

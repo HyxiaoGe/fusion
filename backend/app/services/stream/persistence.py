@@ -339,12 +339,18 @@ def build_url_context_message(*, read_result, policy, detected_url: str) -> dict
 
 
 def build_url_read_block(*, read_result, policy, detected_url: str, block_id: str) -> UrlBlock:
+    from app.services.stream.tool_recovery_evidence import has_extractable_content
+
+    # reader 的空正文判定会先剥掉标准包装头，但只剩一个链接的正文仍会通过。
+    # 这种页面不是"成功读页"：它既污染 research evidence 计数，也会被误当作事实证据。
+    # 与工具读页共用同一判定，避免两条路径对"拿到正文"给出不同答案。
     return UrlBlock(
         type="url_read",
         id=block_id,
         url=read_result.url or resolve_reader_url(policy, detected_url),
         title=read_result.title,
         favicon=read_result.favicon,
+        status="success" if has_extractable_content(read_result.content) else "degraded",
     )
 
 

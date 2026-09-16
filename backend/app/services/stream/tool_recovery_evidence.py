@@ -33,6 +33,18 @@ class RecoveryEvidenceWorkset:
         elif tool_name == "url_read" and _has_content(data.get("content")):
             self._record("url_read", data.get("url"))
 
+    def record_prefetched_page(self, raw_url: Any) -> None:
+        """自动预读成功时正文已注入模型上下文，与本轮工具读页等价。
+
+        调用方必须只在读取成功、正文确实进入 messages 时登记；预读块本身只有
+        标题与 URL 元数据，事后无法从块上重建这个事实。
+        """
+
+        self._record("url_read", raw_url)
+
+    def has_source(self, kind: str, raw_url: Any) -> bool:
+        return bool((url := _canonical_url(raw_url)) and (kind, url) in self.source_keys)
+
     def _record(self, kind: str, raw_url: Any) -> None:
         if url := _canonical_url(raw_url):
             self.source_keys.add((kind, url))
@@ -95,11 +107,17 @@ def _eligible_blocks(content_blocks: list[Any], evidence: RecoveryEvidenceWorkse
     return blocks
 
 
-def _has_content(value: Any) -> bool:
+def has_extractable_content(value: Any) -> bool:
+    """是否取到了实体正文。工具读页与自动预读共用同一判定，避免两条路径漂移。"""
+
     if not isinstance(value, str):
         return False
     # 只有链接或空白仍属于来源元数据，不能证明曾获取到内容。
     return bool(_URL_PATTERN.sub("", value).strip())
+
+
+def _has_content(value: Any) -> bool:
+    return has_extractable_content(value)
 
 
 def _canonical_url(value: Any) -> str:

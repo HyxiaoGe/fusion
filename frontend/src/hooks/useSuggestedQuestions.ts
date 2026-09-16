@@ -19,8 +19,8 @@ import type { Conversation, Message } from '@/types/conversation';
 // 首批结果正常由 suggested_questions_ready 事件在封口前直达，这里只兜底三类情况：
 // 生成慢于后端送达预算、刷新/重进会话、以及尚未发布 ready 事件的旧后端。
 //
-// 首次延迟刻意大于后端的送达预算（2s），避免在事件即将到达时白拉一次会话详情；
-// 后续退避合计约 36 秒后停止，避免异常 pending 留下永久定时器。
+// 匹配当前消息的 SSE 活跃时先等待直达事件；流结束或刷新恢复后才启用以下退避，
+// 合计约 36 秒后停止，避免异常 pending 留下永久定时器。
 export const PENDING_POLL_DELAYS_MS = [2_500, 1_000, 1_500, 2_500, 4_000, 5_000, 5_000, 5_000, 5_000, 5_000];
 const MAX_UNKNOWN_OBSERVATION_CHECKS = 2;
 
@@ -63,6 +63,28 @@ export const useSuggestedQuestions = (chatId: string | null) => {
   const isExplicitObservation = Boolean(
     lastAssistantMessageId && observationMessageIds?.includes(lastAssistantMessageId)
   );
+  const isAwaitingStreamQuestions = useAppSelector((state) => {
+    const stream = state.stream;
+    if (
+      !chatId
+      || !lastAssistantMessageId
+      || persistedStatus !== 'pending'
+      || stream.conversationId !== chatId
+      || (stream.streamStatus !== 'streaming' && stream.streamStatus !== 'reconnecting')
+    ) {
+      return false;
+    }
+    // pending 事件和 run_started 均可能保存本地 placeholder 与服务端消息 ID 的映射。
+    // 只使用属于最后一条 assistant 的观察记录，避免其他消息的流阻止本条恢复。
+    return [
+      stream.messageId,
+      stream.currentRun?.messageId,
+      stream.currentRun?.serverMessageId,
+    ].some((messageId) => Boolean(messageId && (
+      messageId === lastAssistantMessageId
+      || (isExplicitObservation && observationMessageIds?.includes(messageId))
+    )));
+  });
 
   useEffect(() => {
     activeChatIdRef.current = chatId;
@@ -84,6 +106,11 @@ export const useSuggestedQuestions = (chatId: string | null) => {
       || (persistedStatus !== 'pending' && !isExplicitObservation)
     ) {
       setIsPendingPollLoading(false);
+      return;
+    }
+    if (isAwaitingStreamQuestions) {
+      // 活跃 SSE 已承接本条 pending 的送达，焦点/可见性恢复也不抢跑详情请求。
+      setIsPendingPollLoading(true);
       return;
     }
 
@@ -259,6 +286,7 @@ export const useSuggestedQuestions = (chatId: string | null) => {
   }, [
     chatId,
     dispatch,
+    isAwaitingStreamQuestions,
     isExplicitObservation,
     lastAssistantMessageId,
     observationMessageIds,

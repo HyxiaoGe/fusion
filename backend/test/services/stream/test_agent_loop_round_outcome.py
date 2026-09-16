@@ -1724,7 +1724,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
             {"search": "completed", "answer": "running"},
         )
 
-    async def test_valid_deferred_product_answer_neutralizes_provider_attribution_but_keeps_place_name(self):
+    async def test_valid_deferred_product_answer_preserves_brand_text_in_stream_and_storage(self):
         state = AgentLoopState()
         state.mark_current_step("step-product-provider-neutral")
         state.content_blocks.append(
@@ -1763,9 +1763,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(outcome.exit, AgentLoopExit.COMPLETED)
         emitted_answer = append_chunk.await_args.args[2]
-        self.assertIn("根据本次查询返回的结果", emitted_answer)
-        self.assertIn("高德置地广场", emitted_answer)
-        self.assertNotIn("根据高德返回", emitted_answer)
+        self.assertEqual(emitted_answer, "根据高德返回的结果，可以优先查看高德置地广场。")
         self.assertEqual(state.content_blocks[-1].text, emitted_answer)
 
     async def test_cancelled_deferred_model_output_is_not_persisted(self):

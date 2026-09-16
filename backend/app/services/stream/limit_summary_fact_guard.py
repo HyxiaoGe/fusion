@@ -7,9 +7,9 @@
 `validate_product_answer()` 拦不住这种情况：它以产品结果块为事实底表，没有结果块时
 直接返回 `missing_product_result`，而触顶路径根本没有接入它。
 
-这里只处理边界最干净的那一类：**整个 run 没有任何工具证据**。此时任何未出现在对话
-输入里的具体动态数值都无从支撑，不需要做模糊的事实比对。有任何证据块时本模块一律
-放行，交给既有的证据校验链路。
+这里只处理整个 run 没有有效工具证据的边界。冻结能力明确要求外部事实时，无论模型
+使用数字、中文数字还是纯文字，都不能把查询失败改写成成功结论。普通改写和稳定知识
+任务不受该边界约束；没有能力快照的旧调用仍保留动态数值守卫。
 """
 
 from __future__ import annotations
@@ -17,33 +17,34 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.core.logger import app_logger as logger
+from app.services.stream.safe_fallback_response import default_safe_fallback
+from app.services.stream.tool_recovery_evidence import RecoveryEvidenceWorkset, has_recovery_evidence
+from app.utils.run_capability_contract import CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES
+
+if TYPE_CHECKING:
+    from app.services.stream.run_capability_router import RunCapabilityResolution
 
 LOG_PREFIX = "LIMIT_SUMMARY_FACT_GUARD"
 
 # 本模块同样拦截气温等非出行数值，文案不能只点名出行领域的班次、价格或时长
 # （真实验收 Run 8139d99f：天气问题收口时出现了出行文案）。
-NO_EVIDENCE_ANSWER_TEXT = (
-    "本次没能完成所需的查询，暂时无法给出可靠的具体数值。你可以稍后重试，或补充更明确的城市、地点或日期。"
-)
+NO_EVIDENCE_ANSWER_TEXT = default_safe_fallback("no_evidence")
 
-# 工具证据块：搜索、网页读取、知识证据与全部产品结果块。
-_EVIDENCE_BLOCK_TYPES = frozenset(
-    {
-        "search",
-        "url_read",
-        "knowledge_evidence",
-        "file",
-        "place_results",
-        "route_results",
-        "weather_results",
-        "flight_results",
-        "train_results",
-        "itinerary_results",
-    }
+# 使用已冻结的能力包，不从输出措辞重新猜测用户意图。
+_EXTERNAL_FACT_PACKAGES = frozenset(
+    package for package, tools in CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES.items() if tools
 )
+_CONTEXT_ONLY_PACKAGES = frozenset({"direct", "transform", "date"})
+_PRODUCT_EVIDENCE_FIELDS = {
+    "place_results": ("places", ("name", "address")),
+    "route_results": ("routes", ("duration_s", "distance_m", "summary", "legs")),
+    "weather_results": ("forecast_days", ("high_c", "low_c", "day_weather")),
+    "flight_results": ("flights", ("flight_no",)),
+    "train_results": ("trains", ("train_no",)),
+}
 
 # 只收具体到可被用户当作查询结果的动态数值，不收泛化建议里的数字。
 _DYNAMIC_FACT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -66,14 +67,80 @@ _DYNAMIC_FACT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 _NORMALIZE_RE = re.compile(r"[\s,，]")
 
 
-def has_tool_evidence(content_blocks: list[Any] | None) -> bool:
-    """本次 run 是否留下了任何工具证据块。"""
+def _get_field(value: Any, name: str, default: Any = None) -> Any:
+    return value.get(name, default) if isinstance(value, Mapping) else getattr(value, name, default)
 
-    for block in content_blocks or []:
-        block_type = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
-        if block_type in _EVIDENCE_BLOCK_TYPES:
-            return True
-    return False
+
+def _has_value(value: Any) -> bool:
+    """零气温/零距离也是结果，空字符串和占位容器不是。"""
+
+    if isinstance(value, str):
+        return bool(value.strip())
+    return value is not None and value is not False and value != [] and value != {}
+
+
+def _has_successful_source(sources: Any, *, key: str = "url") -> bool:
+    return isinstance(sources, (list, tuple)) and any(
+        _get_field(source, "status", "success") in {"success", "degraded"} and _has_value(_get_field(source, key))
+        for source in sources
+    )
+
+
+def _is_usable_evidence(block: Any, *, external_only: bool) -> bool:
+    block_type = _get_field(block, "type")
+    status = _get_field(block, "status")
+    if status not in {"success", "degraded"}:
+        return False
+    if block_type == "knowledge_evidence":
+        return not external_only and _has_successful_source(_get_field(block, "source_refs"), key="evidence_id")
+    fields = _PRODUCT_EVIDENCE_FIELDS.get(block_type)
+    if fields is None:
+        # 文件只是用户附件引用；行程视图只是产品块的引用，都不能独立证明已取得事实。
+        return False
+    items = _get_field(block, fields[0], [])
+    return isinstance(items, (list, tuple)) and any(
+        any(_has_value(_get_field(item, name)) for name in fields[1]) for item in items
+    )
+
+
+def _has_prefetched_page(content_blocks: list[Any] | None, evidence: RecoveryEvidenceWorkset) -> bool:
+    """自动预读的 url_read 块没有 source_refs，只能按块自身的 URL 比对登记。
+
+    登记只发生在本轮预读成功、正文已注入 messages 时（见 `record_prefetched_page`），
+    因此这里不放宽"元数据不算证据"的原则，只是补上 `_eligible_blocks` 够不到的形状。
+    """
+
+    return any(
+        _get_field(block, "type") == "url_read"
+        and _get_field(block, "status") == "success"
+        and evidence.has_source("url_read", _get_field(block, "url"))
+        for block in content_blocks or []
+    )
+
+
+def has_tool_evidence(
+    content_blocks: list[Any] | None,
+    *,
+    capability_resolution: RunCapabilityResolution | None = None,
+    recovery_evidence: RecoveryEvidenceWorkset | None = None,
+) -> bool:
+    """本次 run 是否留下了成功且实质可用的来源/产品数据。"""
+
+    # 来源卡片只持久化元数据；success、标题和 URL 均不能证明模型拿到了正文。
+    # 没有运行期快照的旧调用也必须关闭这条捷径，不能从来源身份重建证据。
+    if recovery_evidence is not None and (
+        has_recovery_evidence(content_blocks or [], evidence=recovery_evidence)
+        or _has_prefetched_page(content_blocks, recovery_evidence)
+    ):
+        return True
+    external_only = requires_external_evidence(capability_resolution)
+    return any(_is_usable_evidence(block, external_only=external_only) for block in content_blocks or [])
+
+
+def requires_external_evidence(capability_resolution: RunCapabilityResolution | None) -> bool:
+    """只使用冻结能力中明确需要查询外部事实的包。"""
+
+    return _get_field(capability_resolution, "package_id") in _EXTERNAL_FACT_PACKAGES
 
 
 def _conversation_text(messages: list[dict] | None) -> str:
@@ -112,10 +179,19 @@ def resolve_no_evidence_answer(
     *,
     content_blocks: list[Any] | None,
     messages: list[dict] | None = None,
+    capability_resolution: RunCapabilityResolution | None = None,
+    recovery_evidence: RecoveryEvidenceWorkset | None = None,
 ) -> tuple[str, str | None]:
-    """无证据时拦下具体动态数值；返回 (最终答案, 触发类别)。"""
+    """按冻结事实需求拦住无证据总结；返回 (最终答案, 触发类别)。"""
 
-    if has_tool_evidence(content_blocks):
+    if has_tool_evidence(
+        content_blocks, capability_resolution=capability_resolution, recovery_evidence=recovery_evidence
+    ):
+        return answer, None
+    package_id = _get_field(capability_resolution, "package_id")
+    if requires_external_evidence(capability_resolution):
+        return NO_EVIDENCE_ANSWER_TEXT, "required_external_evidence"
+    if package_id in _CONTEXT_ONLY_PACKAGES:
         return answer, None
     kind = unsupported_dynamic_fact_kind(answer, messages=messages)
     if kind is None:

@@ -19,6 +19,7 @@ from app.services.stream.agent_loop_run_completion import AgentLoopRunCompletion
 from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.network_budget import NetworkToolBudget
+from app.services.stream.safe_fallback_response import FallbackResponseContext
 from app.services.stream.tool_executor import AgentEventCompositeWriter
 
 
@@ -58,6 +59,8 @@ class AgentLoopExecutionRequest:
     previous_run_id: str | None = None
     run_attempt_kind: str = "initial"
     assistant_message_sequence: int | None = None
+    original_message: str = ""
+    response_language: str | None = None
 
 
 @dataclass
@@ -220,6 +223,11 @@ def build_agent_loop_runtime(
         task_mode=getattr(request.call_config, "task_mode", "standard"),
         evidence_policy=getattr(request.call_config, "evidence_policy", "standard"),
         llm_round_detail_scheduler=llm_round_detail_scheduler,
+        capability_resolution=getattr(request.call_config, "capability_resolution", None),
+        fallback_response_context=FallbackResponseContext(
+            original_message=request.original_message,
+            preferred_locale=request.response_language,
+        ),
     )
 
 
