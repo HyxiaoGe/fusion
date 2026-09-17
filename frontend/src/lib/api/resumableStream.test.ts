@@ -82,6 +82,35 @@ describe('runResumableStream', () => {
     expect(terminalReconnect).not.toHaveBeenCalled();
   });
 
+  it('终态补发判定跨重连有效：done 派发过之后不再允许补发', async () => {
+    // issue #74：解析层在"流终止却无 done 信封"时补发终态，但它的标志只在单次
+    // 调用内有效。重连是新一次调用——若 done 其实早已送达，空回放会被误判为
+    // 从未收到终态而重复完成。该判定必须由跨重连的这一层给出。
+    const consumerCallbacks = callbacks();
+    const seen: boolean[] = [];
+
+    const openInitial = vi.fn(async (wrapped: StreamCallbacks) => {
+      seen.push(wrapped.shouldSynthesizeTerminal?.() ?? true);
+      wrapped.onDone({ messageId: 'm1', conversationId: 'c1' });
+      throw recoverableError('断线');
+    });
+    const openReconnect = vi.fn(async (_id: string, wrapped: StreamCallbacks) => {
+      seen.push(wrapped.shouldSynthesizeTerminal?.() ?? true);
+    });
+
+    await runResumableStream({
+      callbacks: consumerCallbacks,
+      signal: new AbortController().signal,
+      openInitial,
+      openReconnect,
+      retryDelaysMs: [0],
+    });
+
+    // 首次尚未派发终态时允许补发；done 送达后重连不得再补
+    expect(seen).toEqual([true, false]);
+    expect(consumerCallbacks.onDone).toHaveBeenCalledTimes(1);
+  });
+
   it('abort 能中断退避等待且不再打开 reconnect', async () => {
     const controller = new AbortController();
     const openReconnect = vi.fn();

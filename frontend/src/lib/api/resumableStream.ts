@@ -54,8 +54,16 @@ export async function runResumableStream({
 }: RunResumableStreamOptions): Promise<void> {
   let lastEntryId = '0';
   let reconnecting = false;
+  // 终态是否已经派发过，跨重连有效：解析层的补发只在整个生命周期内没收到过
+  // done 信封时才允许，否则空回放会造成重复完成（issue #74）。
+  let doneDispatched = false;
   const wrappedCallbacks: StreamCallbacks = {
     ...callbacks,
+    shouldSynthesizeTerminal: () => !doneDispatched,
+    onDone: payload => {
+      doneDispatched = true;
+      callbacks.onDone(payload);
+    },
     onEntryId: entryId => {
       lastEntryId = entryId;
       if (reconnecting) {

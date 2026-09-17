@@ -202,6 +202,14 @@ export interface StreamCallbacks {
   /** 当前 data frame 完整处理后确认的 Redis Stream entry id。 */
   onEntryId?: (entryId: string) => void;
   /**
+   * 是否允许在"流已终止但整段没有 done 信封"时补发终态（issue #74）。
+   *
+   * 补发标志只在单次解析调用内有效，而重连是新一次调用。若 done 其实早已送达，
+   * 重连后的空回放会被误判为"从未收到终态"而重复完成，抹掉已提交正文。
+   * 由跨重连生命周期的 runResumableStream 提供真实答案；直接调用时缺省为允许。
+   */
+  shouldSynthesizeTerminal?: () => boolean;
+  /**
    * 流首次握手：从 agent_event.run_started 拿到 messageId 时触发。
    *
    * 单次调用：sendMessageStream / reconnectStream 内部各自维护 readyFired flag 防重；
@@ -541,6 +549,10 @@ async function parseSseEnvelopeStream(
   const decoder = new TextDecoder();
   let buffer = '';
   let receivedDone = false;
+  // [DONE] 只是 SSE 终止符，业务终态是 chunk_type: 'done' 信封，两者是不同的东西。
+  // 重连到已封口的流时，done 信封可能在断线前就被消费过，重放里只剩终止符——
+  // 那样流会干净结束、不抛错，也没有任何一方触发终态回调（issue #74）。
+  let dispatchedDone = false;
   let entryId = '0';
   let pendingEntryId: string | null = null;
   let messageId = '';
@@ -795,6 +807,7 @@ async function parseSseEnvelopeStream(
             callbacks.onPreparing?.();
             break;
           case 'done':
+            dispatchedDone = true;
             callbacks.onDone({
               messageId,
               conversationId: ctx.doneConversationId
@@ -827,6 +840,14 @@ async function parseSseEnvelopeStream(
       cause: error,
     });
   } finally {
+    // 流已正常终止但整段中没有 done 信封时，补发一次终态，避免调用方永远等不到
+    // 收尾信号而把流状态一直挂着。异常路径不补：错误由上面的 throw 交给调用方。
+    if (receivedDone && !dispatchedDone && (callbacks.shouldSynthesizeTerminal?.() ?? true)) {
+      callbacks.onDone({
+        messageId,
+        conversationId: ctx.doneConversationId ? ctx.doneConversationId() : conversationId,
+      });
+    }
     reader.releaseLock();
   }
 
