@@ -2523,6 +2523,71 @@ describe('useSendMessage', () => {
     );
   });
 
+  it('正文传输途中的裸网络错误（非 StreamRequestError）仍收敛全局流状态', async () => {
+    // issue #74：真实 QUIC 尾部中断时 reader.read() 抛的是裸 TypeError，不是
+    // StreamRequestError，isRecoverableStreamError 判否 → runResumableStream 直接
+    // 抛出、一次重连都不尝试。此前两轮受控取证注入在响应交付阶段，被包装成了
+    // 可恢复错误，走的是重连路径，没有覆盖这条分支。
+    const store = createStore();
+    store.dispatch(upsertConversation({
+      id: 'existing-conv',
+      title: 'Existing',
+      model_id: 'model-1',
+      messages: [],
+      createdAt: 1,
+      updatedAt: 2,
+    }));
+    sendMessageStreamMock.mockImplementationOnce(async (_payload: unknown, callbacks: StreamCallbacks) => {
+      callbacks.onReady({ messageId: 'assistant-1', conversationId: 'existing-conv' });
+      callbacks.onAnswering({ block_id: 'answer', delta: '已经消费的部分正文' });
+      // 浏览器在连接中断时给出的是 TypeError，不带 recoverable 标记
+      throw new TypeError('Failed to fetch');
+    });
+
+    const { result } = renderHook(() => useSendMessage(), {
+      wrapper: createWrapper(store),
+    });
+
+    await act(async () => {
+      await result.current.sendMessage('测试裸网络错误', { conversationId: 'existing-conv' });
+    });
+
+    // 不可恢复 → 不应尝试任何重连
+    expect(reconnectStreamMock).not.toHaveBeenCalled();
+    // 决定性断言：输入框不能被永久锁死
+    expect(store.getState().stream.isStreaming).toBe(false);
+    expect(store.getState().stream.streamStatus).toBe('idle');
+  });
+
+  it('裸网络错误与可恢复错误最终都释放全局流状态', async () => {
+    for (const kind of ['bare', 'recoverable'] as const) {
+      const store = createStore();
+      store.dispatch(upsertConversation({
+        id: 'existing-conv',
+        title: 'Existing',
+        model_id: 'model-1',
+        messages: [],
+        createdAt: 1,
+        updatedAt: 2,
+      }));
+      sendMessageStreamMock.mockImplementationOnce(async (_payload: unknown, callbacks: StreamCallbacks) => {
+        callbacks.onReady({ messageId: 'assistant-1', conversationId: 'existing-conv' });
+        throw kind === 'bare' ? new TypeError('Failed to fetch') : streamError('网络连接中断', true);
+      });
+      reconnectStreamMock.mockRejectedValue(streamError('仍未恢复', true));
+
+      const { result } = renderHook(() => useSendMessage(), {
+        wrapper: createWrapper(store),
+      });
+      await act(async () => {
+        await result.current.sendMessage('测试', { conversationId: 'existing-conv' });
+      });
+
+      expect(store.getState().stream.isStreaming, kind).toBe(false);
+      reconnectStreamMock.mockReset();
+    }
+  });
+
   it('把后端 stream_interrupted 终态视为用户停止并权威水合，不标记发送失败', async () => {
     const store = createStore();
     store.dispatch(

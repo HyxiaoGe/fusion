@@ -1206,6 +1206,8 @@ describe('ChatInput', () => {
   it('深度研究运行中的停止按钮使用研究语义', () => {
     configureAuthenticatedVisionModel();
     currentState.stream.isStreaming = true;
+    // 停止语义按会话判定，夹具必须表达"正在生成的是当前会话"（issue #74）
+    currentState.stream.conversationId = 'chat-a';
     currentState.stream.currentRun = {
       runId: 'run-deep',
       messageId: 'assistant-1',
@@ -2392,6 +2394,7 @@ describe('ChatInput', () => {
     expect(screen.getByRole('button', { name: '执行模式：计划' })).toHaveTextContent('计划');
 
     currentState.stream.isStreaming = true;
+    currentState.stream.conversationId = 'chat-1';
     rerender(
       <ChatInput
         onSendMessage={onSendMessage}
@@ -3101,4 +3104,34 @@ describe('ChatInput', () => {
     );
     expect(triggerLoginDialogMock).toHaveBeenCalledTimes(1);
   });
+
+  it('另一个会话在生成时，Enter 与发送键不得变成停止当前会话之外的流', async () => {
+    // issue #74：isStreaming 是全局标志，而 textarea 不受它约束。用户可以在会话 B
+    // 打字，但按钮与 Enter 都会变成"停止"，实际停的是会话 A 的流，页面无任何提示。
+    currentState.stream = {
+      ...currentState.stream,
+      isStreaming: true,
+      conversationId: 'other-conv',
+    };
+    useAppSelectorMock.mockImplementation(selector => selector(currentState));
+    reactReduxUseSelectorMock.mockImplementation(selector => selector(currentState));
+
+    const onSendMessage = vi.fn(() => Promise.resolve());
+    const onStopStreaming = vi.fn();
+    render(
+      <ChatInput
+        onSendMessage={onSendMessage}
+        onStopStreaming={onStopStreaming}
+        activeChatId="chat-a"
+      />,
+    );
+
+    const textarea = screen.getByRole('textbox');
+    fireEvent.change(textarea, { target: { value: '在另一个会话里提问' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    // 当前会话没有在生成，Enter 不应停止别的会话的流
+    expect(onStopStreaming).not.toHaveBeenCalled();
+  });
+
 });
