@@ -1226,7 +1226,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      if (isStreaming && onStopStreaming) {
+      // 只有当前会话正在生成时，Enter 才是"停止"。否则在别的会话里按回车会停掉
+      // 另一条流，而页面上没有任何提示（issue #74 的实际症状）。
+      if (isCurrentConversationStreaming && onStopStreaming) {
         onStopStreaming();
         return;
       }
@@ -1577,23 +1579,23 @@ const ChatInput: React.FC<ChatInputProps> = ({
               onChange={onModelChange || (() => {})}
             />
             <Button
-              onClick={isStreaming && onStopStreaming ? onStopStreaming : handleSendMessage}
-              disabled={!canSend && !(isStreaming && onStopStreaming)}
-              variant={isStreaming && onStopStreaming ? "secondary" : "default"}
+              onClick={isCurrentConversationStreaming && onStopStreaming ? onStopStreaming : handleSendMessage}
+              disabled={!canSend && !(isCurrentConversationStreaming && onStopStreaming)}
+              variant={isCurrentConversationStreaming && onStopStreaming ? "secondary" : "default"}
               size="sm"
               className="h-8 w-8 p-0 rounded-lg"
               aria-label={
-                isStreaming && onStopStreaming
+                isCurrentConversationStreaming && onStopStreaming
                   ? (isDeepResearchStreaming ? "停止研究" : "停止生成")
                   : "发送消息"
               }
               title={
-                isStreaming && onStopStreaming
+                isCurrentConversationStreaming && onStopStreaming
                   ? (isDeepResearchStreaming ? "停止研究" : "停止生成")
                   : "发送消息"
               }
             >
-              {isStreaming && onStopStreaming ? (
+              {isCurrentConversationStreaming && onStopStreaming ? (
                 <Square className="h-4 w-4" />
               ) : (
                 <ArrowUp className="h-4 w-4" />
