@@ -236,6 +236,49 @@ class SuggestedQuestionServiceTests(unittest.TestCase):
         self.assertNotIn("后续问题", content)
         self.assertNotIn("后续回答", content)
 
+    def test_超长回答进入生成上下文前被截断(self):
+        """验收发现 6 次推荐 4 次失败；生成上下文此前完全没有长度上限。
+
+        输出侧只有 UTILITY_MAX_TOKENS=512，输入侧无界会让辅助模型把预算耗在
+        复述上，解析不出问题即整批失败。
+        """
+
+        from app.services.suggested_question_service import DIALOG_CONTENT_CHAR_LIMIT
+
+        long_answer = "结论。" * 4000
+        self.db.add_all(
+            [
+                Message(
+                    id="user-msg-long",
+                    conversation_id="conv-long",
+                    role="user",
+                    sequence=101,
+                    content=[{"type": "text", "id": "u-l", "text": "问一个复杂问题"}],
+                ),
+                Message(
+                    id="assistant-msg-long",
+                    conversation_id="conv-long",
+                    role="assistant",
+                    sequence=102,
+                    content=[{"type": "text", "id": "a-l", "text": long_answer}],
+                ),
+            ]
+        )
+        self.db.commit()
+
+        content = self.service.build_dialog_content("assistant-msg-long")
+
+        self.assertIn("问一个复杂问题", content)
+        self.assertLessEqual(len(content), 2 * DIALOG_CONTENT_CHAR_LIMIT + 64)
+        self.assertLess(len(content), len(long_answer))
+
+    def test_短回答不被截断(self):
+        content = self.service.build_dialog_content("assistant-msg-1")
+
+        self.assertIn("第一个问题", content)
+        self.assertIn("第一版正式回答", content)
+        self.assertNotIn("…", content)
+
     def test_old_non_force_request_claims_missing_questions_even_if_auto_is_pending(self):
         self.service.claim_auto_generation(
             assistant_message_id="assistant-msg-1",
