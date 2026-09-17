@@ -952,6 +952,47 @@ describe('ChatPage 会话切换体验', () => {
     expect(fetchQuestionsMock).not.toHaveBeenCalled();
   });
 
+  it('从正在生成的另一个会话切过来时，本会话仍要检查未完成的流', async () => {
+    // issue #74：该 effect 的依赖里没有 isStreaming，渲染闭包读到的是切会话前的全局旧值。
+    // 会话 A 在生成时切到会话 B，B 的未完成流检查会被整个跳过，且之后不会再重跑，
+    // 表现为只能整页刷新才恢复。全局标志因故卡住时更是彻底失效。
+    conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
+    hydrationById.set('chat-a', { view: 'ready' });
+    // 渲染期的全局标志仍指向别的会话（切换前的旧值）
+    streamState.isStreaming = true;
+    streamState.conversationId = 'other-conv';
+    // effect 执行时 store 已被切换清理，本会话并没有在生成
+    storeStreamState.isStreaming = false;
+    storeStreamState.conversationId = null;
+    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1' });
+    reconnectStreamMock.mockImplementation(async (_chatId, _cursor, callbacks) => {
+      callbacks.onDone();
+      return { entryId: '9-0' };
+    });
+
+    render(<ChatPage />);
+
+    await waitFor(() => expect(reconnectStreamMock).toHaveBeenCalledTimes(1));
+    expect(reconnectStreamMock.mock.calls[0][0]).toBe('chat-a');
+  });
+
+  it('本会话已经在生成时不重复发起恢复', async () => {
+    conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
+    hydrationById.set('chat-a', { view: 'ready' });
+    streamState.isStreaming = true;
+    streamState.conversationId = 'chat-a';
+    storeStreamState.isStreaming = true;
+    storeStreamState.conversationId = 'chat-a';
+    storeStreamState.messageId = 'assistant-1';
+    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1' });
+
+    render(<ChatPage />);
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(fetchStreamStatusMock).not.toHaveBeenCalled();
+    expect(reconnectStreamMock).not.toHaveBeenCalled();
+  });
+
   it('恢复流把推荐 pending 事件绑定到当前 assistant', async () => {
     conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
     hydrationById.set('chat-a', { view: 'ready' });
