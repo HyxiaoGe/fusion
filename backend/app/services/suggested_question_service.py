@@ -36,6 +36,16 @@ class SuggestedQuestionTargetInvalidError(ValueError):
     """目标消息存在但没有可用于生成推荐问题的正式正文。"""
 
 
+# 推荐问题只需要知道"这轮聊了什么"，不需要完整正文。输出侧有 UTILITY_MAX_TOKENS
+# 上限，输入侧无界会让辅助模型把预算耗在复述上，最终解析不出问题而整批失败
+# （2026-09-17 验收：6 次首批推荐 4 次 failed）。
+DIALOG_CONTENT_CHAR_LIMIT = 1200
+
+
+def _clip(text: str) -> str:
+    return text if len(text) <= DIALOG_CONTENT_CHAR_LIMIT else f"{text[:DIALOG_CONTENT_CHAR_LIMIT]}…（正文已截断）"
+
+
 class SuggestedQuestionGenerationError(RuntimeError):
     """辅助生成未得到有效问题；不能把固定问题伪装成生成成功。"""
 
@@ -282,9 +292,9 @@ class SuggestedQuestionService:
 
         lines = []
         if latest_user:
-            lines.append(f"用户: {latest_user}")
+            lines.append(f"用户: {_clip(latest_user)}")
         if latest_ai:
-            lines.append(f"助手: {latest_ai}")
+            lines.append(f"助手: {_clip(latest_ai)}")
         return "\n".join(lines)
 
     async def _generate(
@@ -297,6 +307,8 @@ class SuggestedQuestionService:
         if not dialog_content:
             raise SuggestedQuestionGenerationError("推荐问题缺少生成上下文")
         started_at = time.monotonic()
+        response: Any = None
+        raw_chars: int | None = None
         try:
             prompt, prompt_metadata = prompt_manager.format_prompt_with_metadata(
                 "generate_suggested_questions",
@@ -325,13 +337,16 @@ class SuggestedQuestionService:
                 timeout=UTILITY_LLM_TIMEOUT,
             )
             raw = response.choices[0].message.content or ""
+            raw_chars = len(raw)
             questions = ChatUtils.parse_questions(raw)[:3]
             if not questions:
                 raise SuggestedQuestionGenerationError("模型没有返回有效推荐问题")
             _log_generation("ready", started_at, response=response)
             return questions
         except Exception as error:  # noqa: BLE001 — 推荐问题失败不能影响正文终态
-            _log_generation("failed", started_at, error=error)
+            # 失败侧此前只记 error_type，无法区分空输出、被 max_tokens 截断和上游异常，
+            # 验收时只能写"不能确定成因"。这里补结构化元数据，仍不记正文。
+            _log_generation("failed", started_at, response=response, error=error, raw_chars=raw_chars)
             logger.warning("生成推荐问题失败，保留上一批问题: error_type=%s", type(error).__name__)
             raise SuggestedQuestionGenerationError("推荐问题生成失败") from error
 
@@ -402,20 +417,36 @@ class SuggestedQuestionService:
 
 
 def _log_generation(
-    result: str, started_at: float, *, response: Any = None, error: BaseException | None = None
+    result: str,
+    started_at: float,
+    *,
+    response: Any = None,
+    error: BaseException | None = None,
+    raw_chars: int | None = None,
 ) -> None:
     """记录模型调用耗时，成败都记。
 
     封口前送达的预算只能靠真实耗时分布来定，而 ready 事件只在赶上窗口时才发出，
     恰恰在「没赶上」那一侧什么都不留。completion_tokens 用于区分「模型吐得多」
-    与「上游慢」这两种截然不同的成因。只记元数据，不记对话与问题正文。
+    与「上游慢」这两种截然不同的成因。
+
+    finish_reason 与 raw_chars 用于定位解析失败：finish_reason=length 说明被
+    max_tokens 截断，raw_chars=0 说明上游给了空正文，两者都不成立才是格式问题。
+    只记元数据，不记对话与问题正文。
     """
     usage = getattr(response, "usage", None)
+    finish_reason = None
+    choices = getattr(response, "choices", None)
+    if choices:
+        finish_reason = getattr(choices[0], "finish_reason", None)
     logger.info(
-        "suggested_questions_generate result=%s duration_ms=%s completion_tokens=%s error_type=%s",
+        "suggested_questions_generate result=%s duration_ms=%s completion_tokens=%s "
+        "finish_reason=%s raw_chars=%s error_type=%s",
         result,
         max(0, int((time.monotonic() - started_at) * 1000)),
         getattr(usage, "completion_tokens", None),
+        finish_reason,
+        raw_chars,
         type(error).__name__ if error is not None else None,
     )
 

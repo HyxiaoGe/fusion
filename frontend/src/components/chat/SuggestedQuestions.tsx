@@ -4,10 +4,12 @@ import { HelpCircle, MessageSquare, RefreshCw } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { useAppSelector } from '@/redux/hooks';
 import { useToast } from '@/components/ui/toast';
+import type { SuggestedQuestionsStatus } from '@/types/conversation';
 
 interface SuggestedQuestionsProps {
   questions: string[];
   isLoading: boolean;
+  status?: SuggestedQuestionsStatus;
   onSelectQuestion: (question: string) => void;
   onRefresh?: () => void; // 添加刷新回调函数
   className?: string;
@@ -16,6 +18,7 @@ interface SuggestedQuestionsProps {
 const SuggestedQuestions: React.FC<SuggestedQuestionsProps> = ({ 
   questions, 
   isLoading,
+  status,
   onSelectQuestion,
   onRefresh,
   className
@@ -39,7 +42,9 @@ const SuggestedQuestions: React.FC<SuggestedQuestionsProps> = ({
     }
   }, [questions]);
 
-  if (questions.length === 0 && !isLoading) return null;
+  // 生成失败此前直接 return null，用户既看不到原因也无法重试（2026-09-17 验收）。
+  const hasFailedWithoutQuestions = status === 'failed' && questions.length === 0 && !isLoading;
+  if (questions.length === 0 && !isLoading && !(hasFailedWithoutQuestions && onRefresh)) return null;
 
   // 处理问题选择的函数，添加登录检查
   const handleQuestionSelect = (question: string) => {
@@ -78,7 +83,7 @@ const SuggestedQuestions: React.FC<SuggestedQuestionsProps> = ({
       <div className="flex items-center justify-between mb-2">
         <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
           <HelpCircle className="w-3 h-3 text-info" />
-          你可能想问：
+          {hasFailedWithoutQuestions ? '推荐问题生成失败' : '你可能想问：'}
         </span>
         
         {/* 换一批按钮 */}
@@ -103,6 +108,25 @@ const SuggestedQuestions: React.FC<SuggestedQuestionsProps> = ({
       </div>
       
       <div className="flex flex-col space-y-2">
+        {hasFailedWithoutQuestions && onRefresh && (
+          <div className="flex items-center justify-between gap-2 py-1">
+            <span className="text-xs text-muted-foreground">
+              这次没能生成可继续追问的问题，不影响上面的回答。
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 transition-colors duration-fast disabled:opacity-60"
+              onClick={handleRefresh}
+              disabled={isBusy}
+              aria-busy={isRefreshing}
+            >
+              <RefreshCw className={cn('h-3 w-3 transition-transform duration-500', isRefreshing && 'animate-spin')} />
+              <span>{isRefreshing ? '重试中' : '重试'}</span>
+            </Button>
+          </div>
+        )}
+
         {/* 显示推荐问题列表（loading 时隐藏，避免与 loading 动画重叠） */}
         {!isLoading && questions.map((question, index) => (
           <Button
