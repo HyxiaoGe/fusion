@@ -365,6 +365,8 @@ function AssistantMessageFrame({
         <SuggestedQuestions
           questions={suggestedQuestions}
           isLoading={isLoadingQuestions}
+          // 状态取自正在渲染的这条消息本身；仅在 isLastMessage 时渲染，二者同源。
+          status={message.suggestedQuestionsStatus}
           onSelectQuestion={onSelectQuestion}
           onRefresh={onRefreshQuestions}
         />
