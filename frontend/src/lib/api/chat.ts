@@ -541,6 +541,10 @@ async function parseSseEnvelopeStream(
   const decoder = new TextDecoder();
   let buffer = '';
   let receivedDone = false;
+  // [DONE] 只是 SSE 终止符，业务终态是 chunk_type: 'done' 信封，两者是不同的东西。
+  // 重连到已封口的流时，done 信封可能在断线前就被消费过，重放里只剩终止符——
+  // 那样流会干净结束、不抛错，也没有任何一方触发终态回调（issue #74）。
+  let dispatchedDone = false;
   let entryId = '0';
   let pendingEntryId: string | null = null;
   let messageId = '';
@@ -795,6 +799,7 @@ async function parseSseEnvelopeStream(
             callbacks.onPreparing?.();
             break;
           case 'done':
+            dispatchedDone = true;
             callbacks.onDone({
               messageId,
               conversationId: ctx.doneConversationId
@@ -827,6 +832,14 @@ async function parseSseEnvelopeStream(
       cause: error,
     });
   } finally {
+    // 流已正常终止但整段中没有 done 信封时，补发一次终态，避免调用方永远等不到
+    // 收尾信号而把流状态一直挂着。异常路径不补：错误由上面的 throw 交给调用方。
+    if (receivedDone && !dispatchedDone) {
+      callbacks.onDone({
+        messageId,
+        conversationId: ctx.doneConversationId ? ctx.doneConversationId() : conversationId,
+      });
+    }
     reader.releaseLock();
   }
 

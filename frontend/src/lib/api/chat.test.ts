@@ -310,6 +310,57 @@ function agentEvent(
 }
 
 describe('sendMessageStream — 新 envelope 协议', () => {
+
+  it('只有 SSE 终止符、没有 done 信封时仍补发一次终态', async () => {
+    // 重连到已封口的流时，done 信封可能在断线前就被消费过，重放里只剩 [DONE]。
+    // 它只置 receivedDone、不触发 onDone，于是流干净结束却没有任何终态回调，
+    // 调用方会把流状态一直挂着（侧边栏转圈、发送键变停止键）。
+    fetchWithAuthMock.mockResolvedValueOnce(
+      createStreamResponse([
+        envelope('ready', { message_id: 'm1', conversation_id: 'c1' }),
+        'data: [DONE]\n\n',
+      ]),
+    );
+    const onDone = vi.fn();
+
+    await sendMessageStream(
+      { model_id: 'g', message: '测试' },
+      {
+        onReady: vi.fn(),
+        onReasoning: vi.fn(),
+        onAnswering: vi.fn(),
+        onDone,
+        onError: vi.fn(),
+      },
+    );
+
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it('已有 done 信封时不重复补发', async () => {
+    fetchWithAuthMock.mockResolvedValueOnce(
+      createStreamResponse([
+        envelope('ready', { message_id: 'm1', conversation_id: 'c1' }),
+        envelope('done', {}),
+        'data: [DONE]\n\n',
+      ]),
+    );
+    const onDone = vi.fn();
+
+    await sendMessageStream(
+      { model_id: 'g', message: '测试' },
+      {
+        onReady: vi.fn(),
+        onReasoning: vi.fn(),
+        onAnswering: vi.fn(),
+        onDone,
+        onError: vi.fn(),
+      },
+    );
+
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
   beforeEach(() => {
     fetchWithAuthMock.mockReset();
   });
