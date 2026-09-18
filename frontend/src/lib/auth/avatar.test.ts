@@ -1,6 +1,8 @@
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { proxiedAvatar } from './avatar';
+import { DEFAULT_USER_AVATAR_SRC, proxiedAvatar } from './avatar';
 
 // 头像 <img> 走同源代理（/api/auth/avatar），把"国内直连 Google/GitHub 图床慢/被墙"
 // 收敛到后端一次抓取 + 浏览器强缓存。这里只校验 URL 改写策略，不碰网络。
@@ -40,5 +42,22 @@ describe('proxiedAvatar: 同源头像代理 URL 改写', () => {
     expect(proxiedAvatar('   ')).toBeUndefined();
     expect(proxiedAvatar(undefined)).toBeUndefined();
     expect(proxiedAvatar(null)).toBeUndefined();
+  });
+});
+
+describe('DEFAULT_USER_AVATAR_SRC', () => {
+  it('指向仓库内 public 资源，而不是运行时 CDN', () => {
+    expect(DEFAULT_USER_AVATAR_SRC).toBe('/assets/default-user.svg');
+    expect(DEFAULT_USER_AVATAR_SRC.startsWith('/assets/')).toBe(true);
+    expect(DEFAULT_USER_AVATAR_SRC).not.toMatch(/^https?:/);
+  });
+
+  it('对应的 SVG 文件存在于 frontend/public', () => {
+    const publicFile = resolve(
+      process.cwd(),
+      'public',
+      DEFAULT_USER_AVATAR_SRC.replace(/^\//, ''),
+    );
+    expect(existsSync(publicFile)).toBe(true);
   });
 });

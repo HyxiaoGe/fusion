@@ -12,6 +12,9 @@ const PROXIED_HOSTS = new Set([
   'avatars.githubusercontent.com',
 ]);
 
+/** 仓库内通用头像（public/assets），无 DB 头像 URL 时使用。 */
+export const DEFAULT_USER_AVATAR_SRC = '/assets/default-user.svg';
+
 export function proxiedAvatar(rawUrl?: string | null): string | undefined {
   const url = rawUrl?.trim();
   if (!url) {

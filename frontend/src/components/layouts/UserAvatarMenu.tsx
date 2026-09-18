@@ -18,7 +18,7 @@ import { endStream } from "@/redux/slices/streamSlice";
 import { Settings, LogOut, LogIn, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { LoginDialog } from "@/components/auth/LoginDialog";
-import { proxiedAvatar } from "@/lib/auth/avatar";
+import { DEFAULT_USER_AVATAR_SRC, proxiedAvatar } from "@/lib/auth/avatar";
 import { useHasMounted } from "@/hooks/useHasMounted";
 
 export function UserAvatarMenu() {
@@ -36,16 +36,6 @@ export function UserAvatarMenu() {
     return '用户';
   };
 
-  const getAvatarFallbackText = () => {
-    if (isAuthenticated && user) {
-      const displayName = getUserDisplayName().trim();
-      if (displayName) {
-        return displayName.slice(0, 1).toUpperCase();
-      }
-    }
-    return '👤';
-  };
-
   // 获取用户状态描述
   const getUserStatusText = () => {
     if (isAuthenticated && user) {
@@ -54,11 +44,8 @@ export function UserAvatarMenu() {
     return '未登录';
   };
 
-  // 是否有用户真实头像 - 更严格的检查
-  const hasUserAvatar = Boolean(isAuthenticated && user?.avatar);
-  
-  // 确保总是有一个emoji作为备用
-  const fallbackText = getAvatarFallbackText();
+  const displayName = getUserDisplayName();
+  const avatarSrc = proxiedAvatar(user?.avatar) ?? DEFAULT_USER_AVATAR_SRC;
 
   const handleOpenSettings = () => {
     dispatch(openSettingsDialog({}));
@@ -94,27 +81,13 @@ export function UserAvatarMenu() {
       {isAuthenticated ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="relative h-9 w-9 rounded-full hover:scale-110 transition-all duration-300 shadow-sm hover:shadow-md">
+            <Button variant="ghost" size="icon" className="relative h-9 w-9 rounded-full hover:scale-110 transition-all duration-300 shadow-sm hover:shadow-md">
               <Avatar 
                 key={`avatar-${isAuthenticated}-${user?.avatar}`}
                 className="h-8 w-8"
               >
-                {hasUserAvatar && user?.avatar ? (
-                  <>
-                    <AvatarImage src={proxiedAvatar(user.avatar)} alt={getUserDisplayName()} />
-                    <AvatarFallback className="text-sm bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-blue-900/20 dark:to-indigo-900/20 text-foreground border">
-                      <div className="w-full h-full flex items-center justify-center">
-                        <span className="block text-center leading-none">{fallbackText}</span>
-                      </div>
-                    </AvatarFallback>
-                  </>
-                ) : (
-                  <AvatarFallback className="text-sm bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-blue-900/20 dark:to-indigo-900/20 text-foreground border">
-                    <div className="w-full h-full flex items-center justify-center">
-                      <span className="block text-center leading-none">{fallbackText}</span>
-                    </div>
-                  </AvatarFallback>
-                )}
+                <AvatarImage src={avatarSrc} alt={displayName} />
+                <AvatarFallback className="bg-muted" />
               </Avatar>
             </Button>
           </DropdownMenuTrigger>
@@ -123,26 +96,16 @@ export function UserAvatarMenu() {
           <DropdownMenuItem>
             <div className="flex items-center space-x-3">
               <div className="flex-shrink-0">
-                {hasUserAvatar && user?.avatar ? (
-                  <Avatar 
-                    key={`menu-avatar-${isAuthenticated}-${user?.avatar}`}
-                    className="h-8 w-8"
-                  >
-                    <AvatarImage src={proxiedAvatar(user.avatar)} alt={getUserDisplayName()} />
-                    <AvatarFallback className="text-sm">
-                      <div className="w-full h-full flex items-center justify-center">
-                        <span className="block text-center leading-none">{fallbackText}</span>
-                      </div>
-                    </AvatarFallback>
-                  </Avatar>
-                ) : (
-                  <div className="w-8 h-8 flex items-center justify-center">
-                    <span className="text-lg block text-center leading-none">{fallbackText}</span>
-                  </div>
-                )}
+                <Avatar 
+                  key={`menu-avatar-${isAuthenticated}-${user?.avatar}`}
+                  className="h-8 w-8"
+                >
+                  <AvatarImage src={avatarSrc} alt={displayName} />
+                  <AvatarFallback className="bg-muted" />
+                </Avatar>
               </div>
               <div className="flex flex-col space-y-1">
-                <p className="text-sm font-medium leading-none">{getUserDisplayName()}</p>
+                <p className="text-sm font-medium leading-none">{displayName}</p>
                 <p className="text-xs leading-none text-muted-foreground">
                   {getUserStatusText()}
                 </p>
