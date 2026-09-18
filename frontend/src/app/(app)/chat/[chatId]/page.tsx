@@ -287,7 +287,11 @@ export default function ChatPage() {
     recoveryTaskIdRef.current = null;
   }, [chatId]);
   useEffect(() => {
-    if (!chatId || !isAuthenticated || !hydrationDone || isStreaming) return;
+    // 只拦"本会话已经在生成"。stream.isStreaming 是全局标志，属于当前正在生成的那个会话；
+    // 它又不在依赖里，渲染闭包读到的是切会话前的旧值。从正在生成的会话 A 切到 B 时，
+    // 裸用它会把 B 的未完成流检查整个跳过，且此后不会再重跑，只能整页刷新（issue #74）。
+    if (!chatId || !isAuthenticated || !hydrationDone) return;
+    if (isStreaming && streamConversationId === chatId) return;
     // 每个 chatId 只尝试一次重连，防止 stop 后重复触发
     if (reconnectAttemptedRef.current) return;
     reconnectAttemptedRef.current = true;

@@ -122,6 +122,7 @@ export default function KnowledgeBaseComposerControl({
               variant={selectedIds.length > 0 ? 'secondary' : 'ghost'}
               size="sm"
               disabled={disabled}
+              data-testid="knowledge-base-composer-trigger"
               aria-label={t('knowledgeBase.composer.trigger')}
               className="h-7 shrink-0 gap-1.5 px-2 text-xs"
             >

@@ -3134,4 +3134,23 @@ describe('ChatInput', () => {
     expect(onStopStreaming).not.toHaveBeenCalled();
   });
 
+  it('另一个会话在生成时，当前会话的知识库控件不得被禁用', async () => {
+    // 同一类缺陷的另一处：知识库控件此前直接读全局 stream.isStreaming，
+    // 于是别的会话一开始生成，本会话就选不了知识库；全局标志卡住时更是永久禁用。
+    configureAuthenticatedVisionModel();
+    currentState.stream = {
+      ...currentState.stream,
+      isStreaming: true,
+      conversationId: 'other-conv',
+    };
+    useAppSelectorMock.mockImplementation(selector => selector(currentState));
+    reactReduxUseSelectorMock.mockImplementation(selector => selector(currentState));
+
+    render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('knowledge-base-composer-trigger')).not.toBeDisabled();
+    });
+  });
+
 });

@@ -250,7 +250,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
   )!;
   const ActiveComposerAgentModeIcon = activeComposerAgentMode.icon;
   const modelsLoadStatus = useAppSelector((state) => state.models.loadStatus);
-  const isStreaming = useAppSelector((state) => state.stream.isStreaming);
   const currentRun = useAppSelector((state) => state.stream.currentRun);
   const selectContextStatus = useMemo(
     () => makeSelectConversationContextStatus(activeChatId),
@@ -320,8 +319,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
   // 登录态与会话选择会在客户端从持久状态恢复。SSR 与 hydration 首帧先保持
   // 中性输入框结构，挂载后再显示严格知识库控件，避免整棵 composer 被重建。
   const hasKnowledgeSelection = hasHydrated && selectedKnowledgeBaseIds.length > 0;
+  // 只读当前会话的生成状态：全局 stream.isStreaming 会把别的会话的流算到本会话头上
+  // （issue #74 的同一类缺陷），而 currentRun 始终属于正在生成的那个会话。
   const isDeepResearchStreaming = Boolean(
-    isStreaming && currentRun?.config.taskMode === "deep_research",
+    isCurrentConversationStreaming && currentRun?.config.taskMode === "deep_research",
   );
   const activeAuthoritativePlanRun = (
     isCurrentConversationStreaming
@@ -1368,7 +1369,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
         <KnowledgeBaseComposerControl
           selectedIds={hasHydrated ? selectedKnowledgeBaseIds : []}
           onChange={handleKnowledgeBaseIdsChange}
-          disabled={isComposerBlocked || isStreaming}
+          disabled={isComposerBlocked || isCurrentConversationStreaming}
           enabled={hasHydrated && isAuthenticated}
           scopeKey={authIdentity}
           refreshKey={knowledgeSelectionScope}
