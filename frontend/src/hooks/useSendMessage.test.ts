@@ -19,7 +19,7 @@ import modelsReducer, {
   setSelectedModel,
   updateModels,
 } from '@/redux/slices/modelsSlice';
-import streamReducer, { startStream } from '@/redux/slices/streamSlice';
+import streamReducer, { appendTextDelta, startStream } from '@/redux/slices/streamSlice';
 import trajectoryReducer, {
   materializeTrajectoryLiveEvents,
 } from '@/redux/slices/trajectorySlice';
@@ -690,6 +690,118 @@ describe('useSendMessage', () => {
     expect(store.getState().conversation.byId['existing-conv'].knowledge_base_ids).toEqual([
       'kb-existing',
     ]);
+  });
+
+  it('丢掉全局流槽位后不再写槽位状态（#74 跨会话内容串入）', async () => {
+    // 全局流槽位只装一条流。A 仍在生成时 B 的恢复流接管槽位，A 的 delta 会继续写进去，
+    // 表现为 A 的回答出现在 B 的界面上（dev 复验 R2 截图）。
+    const store = createStore();
+    store.dispatch(upsertConversation({
+      id: 'conv-a',
+      title: 'A',
+      model_id: 'model-1',
+      messages: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }));
+    let slotAfterTakeover: any = null;
+    sendMessageStreamMock.mockImplementation(
+      async (_payload: any, callbacks: StreamCallbacks) => {
+        callbacks.onReady({ messageId: 'assistant-1', conversationId: 'conv-a' });
+        callbacks.onAnswering({ block_id: 'blk-a', delta: 'A 的正文' });
+        // B 的恢复流接管槽位
+        store.dispatch(startStream({ conversationId: 'conv-b', messageId: 'msg-b' }));
+        callbacks.onAnswering({ block_id: 'blk-a2', delta: 'A 丢槽位之后的正文' });
+        callbacks.onReasoning({ block_id: 'blk-a3', delta: 'A 丢槽位之后的思考' });
+        // 在收尾清理之前取样，断言的是"写没写进去"，不是最终残留
+        slotAfterTakeover = store.getState().stream;
+      }
+    );
+
+    const { result } = renderHook(() => useSendMessage(), {
+      wrapper: createWrapper(store),
+    });
+    await act(async () => {
+      await result.current.sendMessage('A 的问题', { conversationId: 'conv-a' });
+    });
+
+    expect(slotAfterTakeover.messageId).toBe('msg-b');
+    expect(slotAfterTakeover.textBlocks['blk-a2']).toBeUndefined();
+    expect(slotAfterTakeover.thinkingBlocks['blk-a3']).toBeUndefined();
+    expect(slotAfterTakeover.blockOrder).not.toContain('blk-a2');
+  });
+
+  it('丢掉槽位后不拿别人的正文覆盖自己的消息（反向串入）', async () => {
+    // doCompleteStream 读整个槽位组装 final blocks。丢了槽位还照读，
+    // 就会把 B 的正文写进 A 的消息里。
+    const store = createStore();
+    store.dispatch(upsertConversation({
+      id: 'conv-a',
+      title: 'A',
+      model_id: 'model-1',
+      messages: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }));
+    sendMessageStreamMock.mockImplementation(
+      async (_payload: any, callbacks: StreamCallbacks) => {
+        callbacks.onReady({ messageId: 'assistant-1', conversationId: 'conv-a' });
+        callbacks.onAnswering({ block_id: 'blk-a', delta: 'A 的正文' });
+        store.dispatch(startStream({ conversationId: 'conv-b', messageId: 'msg-b' }));
+        store.dispatch(appendTextDelta({ blockId: 'blk-b', delta: 'B 的正文' }));
+        callbacks.onDone({ messageId: 'assistant-1', conversationId: 'conv-a' });
+      }
+    );
+
+    const { result } = renderHook(() => useSendMessage(), {
+      wrapper: createWrapper(store),
+    });
+    await act(async () => {
+      await result.current.sendMessage('A 的问题', { conversationId: 'conv-a' });
+    });
+    // doCompleteStream 由打字机回调触发，不推就不会执行，断言会变成空跑
+    await act(async () => {
+      tickIntervals(3);
+    });
+
+    const serialized = JSON.stringify(
+      store.getState().conversation.byId['conv-a']?.messages ?? [],
+    );
+    expect(serialized).not.toContain('B 的正文');
+  });
+
+  it('丢掉槽位不影响本会话自身状态（标题仍要更新）', async () => {
+    // 归属判据只能管流槽位。A 丢了显示槽位，但 A 自己的会话标题、推荐问题、
+    // 列表刷新照样要走完，否则比原来的缺陷更糟。
+    const store = createStore();
+    store.dispatch(upsertConversation({
+      id: 'conv-a',
+      title: '旧标题',
+      model_id: 'model-1',
+      messages: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }));
+    sendMessageStreamMock.mockImplementation(
+      async (_payload: any, callbacks: StreamCallbacks) => {
+        callbacks.onReady({ messageId: 'assistant-1', conversationId: 'conv-a' });
+        store.dispatch(startStream({ conversationId: 'conv-b', messageId: 'msg-b' }));
+        callbacks.onConversationTitleUpdated?.({
+          conversation_id: 'conv-a',
+          title: '新标题',
+        } as any);
+        callbacks.onDone({ messageId: 'assistant-1', conversationId: 'conv-a' });
+      }
+    );
+
+    const { result } = renderHook(() => useSendMessage(), {
+      wrapper: createWrapper(store),
+    });
+    await act(async () => {
+      await result.current.sendMessage('A 的问题', { conversationId: 'conv-a' });
+    });
+
+    expect(store.getState().conversation.byId['conv-a']?.title).toBe('新标题');
   });
 
   it('materializes a draft conversation and migrates the active stream', async () => {

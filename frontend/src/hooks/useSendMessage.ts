@@ -33,6 +33,7 @@ import {
   finalizeRun,
   migrateStreamConversation,
   selectFullStreamContentBlocks,
+  ownsStreamSlot,
   selectStreamContentBlocks,
   setStreamError,
   setStreamStatus,
@@ -637,6 +638,13 @@ export function useSendMessage(activeConversationId?: string | null) {
         isSessionCurrent()
       );
 
+      // 只用于流槽位状态。丢了槽位仍要写完本会话自身的标题、推荐问题与列表刷新，
+      // 所以不能把它并进 isActiveSendCurrent。
+      const ownsSlot = () => ownsStreamSlot(
+        (store.getState() as { stream: import('@/redux/slices/streamSlice').StreamState }).stream,
+        assistantMessageIdRef.current,
+      );
+
       const tempConvId = isDraft && !options.conversationId ? uuidv4() : options.conversationId!;
       const retryConversation = options.retryUserMessageId
         ? currentState.conversation.byId[tempConvId]
@@ -881,20 +889,24 @@ export function useSendMessage(activeConversationId?: string | null) {
           : rawFinalBlocks;
         const hasThinking = finalBlocks.some(b => b.type === 'thinking');
 
+        // 槽位已经属于别人时，这里读到的是别人的正文，写下去就是把 B 的回答塞进 A 的消息。
+        // 本轮内容在对方 startStream 时已被清掉，没有正确值可写，只能不覆盖：
+        // 服务端那份仍然正确，随后的会话快照刷新会补上。
+        const ownsSlotOnComplete = ownsSlot();
         dispatch(
           updateMessage({
             conversationId: finalConvId,
             messageId: assistantMessageId,
             patch: {
-              content: finalBlocks,
+              ...(ownsSlotOnComplete ? { content: finalBlocks } : {}),
               model_id: enabledModel.id,
               timestamp: Date.now(),
               // usage：当前 done 事件不再携带；agent 模式由后续 GET conversation 拉取覆盖
-              isReasoningVisible: hasThinking ? false : undefined,
+              isReasoningVisible: hasThinking && ownsSlotOnComplete ? false : undefined,
             },
           })
         );
-        if (hasFormalTextContent(rawFinalBlocks)) {
+        if (ownsSlotOnComplete && hasFormalTextContent(rawFinalBlocks)) {
           dispatch(requestSuggestedQuestionsObservation({
             conversationId: finalConvId,
             messageIds: [
@@ -947,7 +959,7 @@ export function useSendMessage(activeConversationId?: string | null) {
             },
 
             onAnswering: (payload) => {
-              if (!isActiveSendCurrent() || !activeConvIdRef.current) return;
+              if (!isActiveSendCurrent() || !activeConvIdRef.current || !ownsSlot()) return;
               // 收到第一个 text delta 且还在推理阶段 → 标记推理结束
               const streamState = (store.getState() as { stream: import('@/redux/slices/streamSlice').StreamState }).stream;
               if (streamState.isStreamingReasoning) {
@@ -966,7 +978,7 @@ export function useSendMessage(activeConversationId?: string | null) {
             },
 
             onReasoning: (payload) => {
-              if (!isActiveSendCurrent() || !activeConvIdRef.current) return;
+              if (!isActiveSendCurrent() || !activeConvIdRef.current || !ownsSlot()) return;
               dispatch(appendThinkingDelta({
                 blockId: payload.block_id,
                 delta: payload.delta,
@@ -978,7 +990,7 @@ export function useSendMessage(activeConversationId?: string | null) {
             ...createAgentStreamEventHandlers({
               dispatch,
               trajectoryDispatch: dispatch,
-              isActive: () => Boolean(activeConvIdRef.current) && isActiveSendCurrent(),
+              isActive: () => Boolean(activeConvIdRef.current) && isActiveSendCurrent() && ownsSlot(),
               // 优先本地 placeholder（streaming 期 message.id 是它），ref 为 null 时兜底用后端 ID。
               resolveMessageId: ev => assistantMessageIdRef.current ?? ev.message_id,
               setServerMessageId: messageId => {
@@ -1057,7 +1069,9 @@ export function useSendMessage(activeConversationId?: string | null) {
               if (isInterruptedStreamSignal(payload)) return;
               const readableMessage = normalizeSendErrorMessage(message);
               dispatch(setGlobalError(readableMessage));
-              dispatch(setStreamError({ message: readableMessage, code: payload?.code, data: payload?.data }));
+              if (ownsSlot()) {
+                dispatch(setStreamError({ message: readableMessage, code: payload?.code, data: payload?.data }));
+              }
             },
           };
 

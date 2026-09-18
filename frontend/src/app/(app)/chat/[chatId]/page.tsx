@@ -43,6 +43,7 @@ import {
   completeThinkingPhase,
   endStream,
   selectFullStreamContentBlocks,
+  ownsStreamSlot,
   setStreamStatus,
   startStream,
 } from '@/redux/slices/streamSlice';
@@ -302,6 +303,11 @@ export default function ChatPage() {
     reconnectControllerRef.current = controller;
     // 外层 catch 够不到 try 内的 messageId，但 endStream 需要归属：在这里记住本次恢复的那条消息。
     let recoveredMessageId: string | null = null;
+    // 恢复流同样可能在中途被别的流接管槽位；接管后写入或读取槽位都会串到对方头上。
+    const ownsRecoverySlot = () => ownsStreamSlot(
+      (store.getState() as { stream: StreamState }).stream,
+      recoveredMessageId,
+    );
     const checkAndReconnect = async () => {
       try {
         // 直接查后端流状态，由后端 meta 决定是否重连
@@ -388,7 +394,8 @@ export default function ChatPage() {
             return;
           }
           const streamState = (store.getState() as { stream: StreamState }).stream;
-          const partialBlocks = selectFullStreamContentBlocks(streamState);
+          // 槽位已属于别人时读到的是对方的正文，写下去就是串入本会话的消息。
+          const partialBlocks = ownsRecoverySlot() ? selectFullStreamContentBlocks(streamState) : [];
           if (messageId && partialBlocks.length > 0) {
             dispatch(updateMessage({
               conversationId: chatId,
@@ -435,7 +442,7 @@ export default function ChatPage() {
           ...createAgentStreamEventHandlers({
             dispatch,
             trajectoryDispatch: dispatch,
-            isActive: () => !cancelled,
+            isActive: () => !cancelled && ownsRecoverySlot(),
             resolveMessageId: () => messageId,
             resolveConversationId: () => chatId,
             resolveTrajectoryConversationId: () => chatId,
@@ -478,7 +485,7 @@ export default function ChatPage() {
             flushBufferedRecoveryActions();
             reachedTerminalState = true;
             const streamState = (store.getState() as { stream: StreamState }).stream;
-            const rawBlocks = selectFullStreamContentBlocks(streamState);
+            const rawBlocks = ownsRecoverySlot() ? selectFullStreamContentBlocks(streamState) : [];
             const blocks = shouldRecoverReasoningOnlyFinalBlocks({
               runStatus: streamState.currentRun?.status,
               messageMatches: true,

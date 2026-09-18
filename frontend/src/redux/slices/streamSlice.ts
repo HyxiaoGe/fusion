@@ -958,6 +958,22 @@ export function selectStreamContentBlocks(state: StreamState): ContentBlock[] {
 }
 
 // 完整版 selector（不截断），用于流结束时写入最终消息
+/** 全局流槽位同一时刻只装一条流；判断这条流现在是不是槽位的属主。
+ *
+ * 槽位空闲（messageId 为 null）时一律放行，保持与 endStream / initRun 归属判据一致：
+ * 只拦"槽位已经属于别人"，不拦"还没人占"。
+ *
+ * 用 messageId 而不是 conversationId：messageId 在 startStream 后不再被任何 reducer
+ * 改动，conversationId 还会因草稿会话转正被 migrateStreamConversation 迁移；且同一会话
+ * 连续两轮也要能区分。
+ *
+ * 只用于流槽位状态（正文/思考 delta、run timeline、流状态与错误）。会话自身的状态——
+ * 标题、推荐问题、会话列表刷新、全局错误——不受槽位归属影响，丢了槽位也要照常走完。
+ */
+export function ownsStreamSlot(state: StreamState, messageId: string | null): boolean {
+  return state.messageId === null || state.messageId === messageId;
+}
+
 export function selectFullStreamContentBlocks(state: StreamState): ContentBlock[] {
   const blocks: ContentBlock[] = [...state.staticBlocks];
 
