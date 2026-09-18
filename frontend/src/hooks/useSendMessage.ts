@@ -216,6 +216,8 @@ export function useSendMessage(activeConversationId?: string | null) {
     (state) => state.conversation.conversationListEpoch
   );
   const abortControllerRef = useRef<AbortController | null>(null);
+  // 跨会话拒绝提示同一时刻只保留一条，连按不叠加。
+  const crossStreamToastIdRef = useRef<string>('');
   const stopInFlightPromiseRef = useRef<Promise<void> | null>(null);
   const activeConvIdRef = useRef<string | null>(null);
   const userMessageIdRef = useRef<string | null>(null);
@@ -506,7 +508,10 @@ export function useSendMessage(activeConversationId?: string | null) {
         store.getState().stream.isStreaming && !abortControllerRef.current,
       );
       if (streamIsOwnedByAnotherComposer) {
-        toast.warning('另一个对话正在生成，请等它结束后再发送');
+        // 连按会叠加出多条相同提示（dev 复验实测 4 条）。先撤掉上一条再弹，
+        // 保证同一时刻只有一条，同时每次按键都仍有反馈、计时重新开始。
+        if (crossStreamToastIdRef.current) toast.dismiss(crossStreamToastIdRef.current);
+        crossStreamToastIdRef.current = toast.warning('另一个对话正在生成，请等它结束后再发送');
         options.onRejectedBeforeSend?.();
         return;
       }

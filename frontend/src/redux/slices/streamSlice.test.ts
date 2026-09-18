@@ -1694,6 +1694,35 @@ describe('streamSlice — agent run timeline', () => {
     expect(s.messageId).toBe('msg-b');
   });
 
+  it('上一轮迟到的 initRun 不得覆盖新一轮的 currentRun（#74 复验 R3）', () => {
+    // dev 复验：放行上一轮被扣住的响应后，旧 run 的 initRun 把 currentRun 顶掉，
+    // 新一轮仍在生成却显示成 completed（14:17:29.856 currentRun 变回旧 run）。
+    // 旧的"不同 runId 允许重建"是单 currentRun 设计的默认，但不能跨流生效。
+    let s = reducer(initial(), startStream({ conversationId: 'conv-a', messageId: 'msg-new' }));
+    s = reducer(s, initRun({
+      runId: 'run-new', messageId: 'msg-new', config: baseConfig, sequence: 0,
+    }));
+
+    s = reducer(s, initRun({
+      runId: 'run-old', messageId: 'msg-old', config: baseConfig, sequence: 0,
+    }));
+
+    expect(s.currentRun?.runId).toBe('run-new');
+  });
+
+  it('同一条流内不同 runId 仍可重建 currentRun', () => {
+    // 归属相符时保持原有的单 currentRun 语义，不因为上面的守卫改变正常行为。
+    let s = reducer(initial(), startStream({ conversationId: 'conv-a', messageId: 'msg-a' }));
+    s = reducer(s, initRun({
+      runId: 'run-1', messageId: 'msg-a', config: baseConfig, sequence: 0,
+    }));
+    s = reducer(s, initRun({
+      runId: 'run-2', messageId: 'msg-a', config: baseConfig, sequence: 0,
+    }));
+
+    expect(s.currentRun?.runId).toBe('run-2');
+  });
+
   it('同一会话里上一轮的结束回调不得清掉新一轮的流', () => {
     // 只比会话 ID 挡不住这种：两轮同属 conv-a，靠 messageId 区分。
     let s = reducer(initial(), startStream({ conversationId: 'conv-a', messageId: 'msg-1' }));

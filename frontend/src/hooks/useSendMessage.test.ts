@@ -3,7 +3,10 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
 
-const { toastWarningMock } = vi.hoisted(() => ({ toastWarningMock: vi.fn() }));
+const { toastWarningMock, toastDismissMock } = vi.hoisted(() => ({
+  toastWarningMock: vi.fn(),
+  toastDismissMock: vi.fn(),
+}));
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import authReducer, { logout } from '@/redux/slices/authSlice';
@@ -69,7 +72,13 @@ vi.mock('@/lib/api/title', () => ({
 }));
 
 vi.mock('@/components/ui/toast', () => ({
-  toast: { warning: toastWarningMock, info: vi.fn(), success: vi.fn(), error: vi.fn() },
+  toast: {
+    warning: toastWarningMock,
+    dismiss: toastDismissMock,
+    info: vi.fn(),
+    success: vi.fn(),
+    error: vi.fn(),
+  },
 }));
 
 vi.mock('uuid', () => ({
@@ -246,6 +255,8 @@ function knowledgeEvidenceBlock(status: 'success' | 'empty') {
 describe('useSendMessage', () => {
   beforeEach(() => {
     sessionStorage.clear();
+    toastWarningMock.mockReset();
+    toastDismissMock.mockReset();
     sendMessageStreamMock.mockReset();
     getChatCapabilitiesMock.mockReset();
     getChatCapabilitiesMock.mockResolvedValue({
@@ -589,6 +600,27 @@ describe('useSendMessage', () => {
     // 别人的流状态不受影响
     expect(store.getState().stream.isStreaming).toBe(true);
     expect(store.getState().stream.conversationId).toBe('other-conv');
+  });
+
+  it('连续被拒绝时不叠加提示，先撤上一条再弹（#74 复验 R1）', async () => {
+    // dev 复验实测连按叠出 4 条相同 toast。每次仍要有反馈，但同一时刻只保留一条。
+    const store = createStore();
+    store.dispatch(startStream({ conversationId: 'other-conv', messageId: 'other-msg' }));
+    toastWarningMock.mockReturnValueOnce('toast-1').mockReturnValueOnce('toast-2');
+
+    const { result } = renderHook(() => useSendMessage(), {
+      wrapper: createWrapper(store),
+    });
+
+    await act(async () => {
+      await result.current.sendMessage('第一次', { conversationId: 'existing-conv' });
+      await result.current.sendMessage('第二次', { conversationId: 'existing-conv' });
+    });
+
+    expect(toastWarningMock).toHaveBeenCalledTimes(2);
+    // 第一次没有可撤的旧提示，第二次撤掉第一条
+    expect(toastDismissMock).toHaveBeenCalledTimes(1);
+    expect(toastDismissMock).toHaveBeenCalledWith('toast-1');
   });
 
   it('服务端拒绝知识库选择变更时回滚到发送前会话快照', async () => {

@@ -388,8 +388,12 @@ const streamSlice = createSlice({
       }>
     ) {
       const { runId, messageId, serverMessageId, config, sequence } = action.payload;
+      // 归属校验：单 currentRun 是同一条流内的设计，不能跨流生效。上一轮迟到的 initRun
+      // 会把新一轮的 currentRun 顶掉，新一轮仍在生成却显示成已完成（dev 复验 14:17:29.856）。
+      // 与 endStream 同一套判据，理由见那里。
+      if (state.messageId !== null && state.messageId !== messageId) return;
       // 跨重连幂等：同 runId 且 sequence 已应用 → noop（防重放清空已建 timeline）
-      // 不同 runId 仍允许重建（新 run 覆盖旧 run timeline，spec §6.2 单 currentRun 设计）
+      // 同一条流内不同 runId 仍允许重建（新 run 覆盖旧 run timeline，spec §6.2 单 currentRun 设计）
       if (
         state.currentRun &&
         state.currentRun.runId === runId &&
