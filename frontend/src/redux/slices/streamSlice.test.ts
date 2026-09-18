@@ -1680,6 +1680,41 @@ describe('streamSlice — agent run timeline', () => {
     expect(s.textBlocks).toEqual({});
   });
 
+  it('迟到的结束回调不得清掉已经属于别人的流（#74 跨会话）', () => {
+    // 会话 A 的流结束回调晚到时，全局槽位可能已经被会话 B 的恢复流占用。
+    // endStream 无条件清空，B 就会在仍在接收时提前变成空闲：停止键消失、
+    // 界面退回"正在准备回答"，而正文还在路上（dev 验收 12:29:05 → 12:29:37）。
+    let s = reducer(initial(), startStream({ conversationId: 'conv-a', messageId: 'msg-a' }));
+    s = reducer(s, startStream({ conversationId: 'conv-b', messageId: 'msg-b' }));
+
+    s = reducer(s, endStream({ messageId: 'msg-a' }));
+
+    expect(s.isStreaming).toBe(true);
+    expect(s.conversationId).toBe('conv-b');
+    expect(s.messageId).toBe('msg-b');
+  });
+
+  it('同一会话里上一轮的结束回调不得清掉新一轮的流', () => {
+    // 只比会话 ID 挡不住这种：两轮同属 conv-a，靠 messageId 区分。
+    let s = reducer(initial(), startStream({ conversationId: 'conv-a', messageId: 'msg-1' }));
+    s = reducer(s, startStream({ conversationId: 'conv-a', messageId: 'msg-2' }));
+
+    s = reducer(s, endStream({ messageId: 'msg-1' }));
+
+    expect(s.isStreaming).toBe(true);
+    expect(s.messageId).toBe('msg-2');
+  });
+
+  it('归属相符时照常结束，不带归属时无条件结束（登出、切会话清理）', () => {
+    let s = reducer(initial(), startStream({ conversationId: 'conv-a', messageId: 'msg-a' }));
+    s = reducer(s, endStream({ messageId: 'msg-a' }));
+    expect(s.isStreaming).toBe(false);
+
+    s = reducer(s, startStream({ conversationId: 'conv-b', messageId: 'msg-b' }));
+    s = reducer(s, endStream());
+    expect(s.isStreaming).toBe(false);
+  });
+
   it('startStream 清空 currentRun（新轮发送不复用旧 timeline）', () => {
     let s = reducer(initial(), initRun({
       runId: 'r1', messageId: 'm1', config: baseConfig, sequence: 0,

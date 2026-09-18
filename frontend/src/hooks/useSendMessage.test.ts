@@ -2,6 +2,8 @@ import React from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
+
+const { toastWarningMock } = vi.hoisted(() => ({ toastWarningMock: vi.fn() }));
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import authReducer, { logout } from '@/redux/slices/authSlice';
@@ -14,7 +16,7 @@ import modelsReducer, {
   setSelectedModel,
   updateModels,
 } from '@/redux/slices/modelsSlice';
-import streamReducer from '@/redux/slices/streamSlice';
+import streamReducer, { startStream } from '@/redux/slices/streamSlice';
 import trajectoryReducer, {
   materializeTrajectoryLiveEvents,
 } from '@/redux/slices/trajectorySlice';
@@ -64,6 +66,10 @@ vi.mock('@/lib/api/chat', () => ({
 
 vi.mock('@/lib/api/title', () => ({
   generateChatTitle: generateChatTitleMock,
+}));
+
+vi.mock('@/components/ui/toast', () => ({
+  toast: { warning: toastWarningMock, info: vi.fn(), success: vi.fn(), error: vi.fn() },
 }));
 
 vi.mock('uuid', () => ({
@@ -557,6 +563,32 @@ describe('useSendMessage', () => {
     expect(sendMessageStreamMock).not.toHaveBeenCalled();
     expect(store.getState().conversation.byId['existing-conv'].knowledge_base_ids).toEqual(['kb-old']);
     expect(store.getState().conversation.globalError).toBe('最多只能选择 1 个知识库');
+  });
+
+  it('别的会话正在生成时拒绝发送必须有可见提示，草稿保留（#74 A3a）', async () => {
+    // 发送限制本身是对的：全局流槽位只有一个，放行会覆盖掉正在跑的那条流。
+    // 但此前拒绝是完全静默的，用户只看到"回车没反应"。
+    const store = createStore();
+    store.dispatch(startStream({ conversationId: 'other-conv', messageId: 'other-msg' }));
+    const onRejectedBeforeSend = vi.fn();
+
+    const { result } = renderHook(() => useSendMessage(), {
+      wrapper: createWrapper(store),
+    });
+
+    await act(async () => {
+      await result.current.sendMessage('在别的会话里提问', {
+        conversationId: 'existing-conv',
+        onRejectedBeforeSend,
+      });
+    });
+
+    expect(sendMessageStreamMock).not.toHaveBeenCalled();
+    expect(onRejectedBeforeSend).toHaveBeenCalledTimes(1);
+    expect(toastWarningMock).toHaveBeenCalledWith('另一个对话正在生成，请等它结束后再发送');
+    // 别人的流状态不受影响
+    expect(store.getState().stream.isStreaming).toBe(true);
+    expect(store.getState().stream.conversationId).toBe('other-conv');
   });
 
   it('服务端拒绝知识库选择变更时回滚到发送前会话快照', async () => {

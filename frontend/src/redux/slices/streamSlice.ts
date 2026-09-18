@@ -838,7 +838,16 @@ const streamSlice = createSlice({
       }
     },
 
-    endStream(state) {
+    endStream(state, action: PayloadAction<{ messageId: string | null } | undefined>) {
+      // 归属校验：全局槽位同一时刻只装一条流，而结束回调可能迟到。会话 A 的回调晚到时，
+      // 槽位可能已被会话 B 的恢复流占用；无条件清空会让 B 在仍在接收时提前变成空闲
+      // （dev 验收 12:29:05 提前 idle、12:29:37 正文才到）。同一会话的上一轮回调同理，
+      // 所以按 messageId 比对而不是 conversationId：messageId 在 startStream 后不再变更，
+      // conversationId 还会因草稿会话转正被 migrateStreamConversation 迁移。
+      // 不带归属的调用（登出、切会话清理）保持无条件清空。
+      // messageId 为 null 表示调用方这一轮还没拿到身份，退回旧的无条件语义，不引入新行为。
+      const owner = action.payload?.messageId ?? null;
+      if (owner !== null && state.messageId !== null && state.messageId !== owner) return;
       // 保留 lastError 跨流生命周期：错误卡片需要在 endStream 后继续显示，
       // 由 startStream（新一轮发送）或 clearStreamError（用户手动 dismiss）清掉
       // 保留 currentRun 跨流生命周期：AgentStepCard 在流结束后显示折叠摘要
