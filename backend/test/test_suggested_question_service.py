@@ -328,7 +328,10 @@ class SuggestedQuestionServiceTests(unittest.TestCase):
                     "tags": ["app:fusion", "phase:suggest_questions"],
                     "prompt_slug": "generate-suggested-questions",
                     "prompt_version": "code-default",
-                }
+                },
+                # 辅助调用必须关推理：reasoning token 与正文共用 max_tokens，
+                # 被吃光就只剩空正文（见 test_utility_model.DisableThinkingTests）
+                "thinking": {"type": "disabled"},
             },
         )
 
