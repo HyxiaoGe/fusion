@@ -1,0 +1,9 @@
+{
+  "name": "Fusion Monorepo",
+  "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start.sh",
+  "ports": [
+    { "name": "backend-api", "port": 8000 },
+    { "name": "frontend-web", "port": 3000 }
+  ]
+}
