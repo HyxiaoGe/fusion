@@ -74,6 +74,7 @@ import { hasFormalTextContent } from '@/lib/chat/suggestedQuestionState';
 import type { Message, ContentBlock } from '@/types/conversation';
 import type { FileAttachment } from '@/lib/utils/fileHelpers';
 import { selectAuthSessionKey } from '@/redux/selectors';
+import { toast } from '@/components/ui/toast';
 import { useTypewriter } from './useTypewriter';
 import { useRetryMessage } from './useRetryMessage';
 import type { RootState } from '@/redux/store';
@@ -401,7 +402,7 @@ export function useSendMessage(activeConversationId?: string | null) {
       if (retryTurnSnapshot?.assistant) {
         dispatch(clearCurrentRun());
       }
-      dispatch(endStream());
+      dispatch(endStream({ messageId: assistantMessageIdRef.current }));
       sendGenerationRef.current += 1;
       activeSendContextRef.current = null;
       activeConvIdRef.current = null;
@@ -498,13 +499,19 @@ export function useSendMessage(activeConversationId?: string | null) {
         return;
       }
       const sendSessionKey = preparationContext.authSessionKey;
+      // 全局流槽位同一时刻只装一条流，所以另一条流在跑时这里必须拒绝，否则会把它的状态覆盖掉。
+      // 但拒绝过去是完全静默的：草稿被放回输入框，界面没有任何变化，用户只会觉得回车没反应
+      // （dev 验收 A3a）。发送限制保留，只是必须说出来。
       const streamIsOwnedByAnotherComposer = Boolean(
         store.getState().stream.isStreaming && !abortControllerRef.current,
       );
-      if (
-        activeSendPreparations.has(sendSessionKey)
-        || streamIsOwnedByAnotherComposer
-      ) {
+      if (streamIsOwnedByAnotherComposer) {
+        toast.warning('另一个对话正在生成，请等它结束后再发送');
+        options.onRejectedBeforeSend?.();
+        return;
+      }
+      // 连续触发同一次发送（回车连按）不提示，那是重复提交而不是被别的流挡住。
+      if (activeSendPreparations.has(sendSessionKey)) {
         options.onRejectedBeforeSend?.();
         return;
       }
@@ -898,7 +905,7 @@ export function useSendMessage(activeConversationId?: string | null) {
             patch: { status: null },
           })
         );
-        dispatch(endStream());
+        dispatch(endStream({ messageId: assistantMessageIdRef.current }));
         sendGenerationRef.current += 1;
         activeSendContextRef.current = null;
         abortControllerRef.current = null;
@@ -1149,7 +1156,7 @@ export function useSendMessage(activeConversationId?: string | null) {
               patch: { status: null },
             }));
           }
-          dispatch(endStream());
+          dispatch(endStream({ messageId: assistantMessageIdRef.current }));
           sendGenerationRef.current += 1;
           activeSendContextRef.current = null;
           abortControllerRef.current = null;
@@ -1295,7 +1302,7 @@ export function useSendMessage(activeConversationId?: string | null) {
         if (shouldRestoreRetryAnswer) {
           dispatch(clearCurrentRun());
         }
-        dispatch(endStream());
+        dispatch(endStream({ messageId: assistantMessageIdRef.current }));
         sendGenerationRef.current += 1;
         activeSendContextRef.current = null;
         abortControllerRef.current = null;

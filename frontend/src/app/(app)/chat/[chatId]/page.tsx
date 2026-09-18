@@ -300,6 +300,8 @@ export default function ChatPage() {
     const controller = new AbortController();
     reconnectControllerRef.current?.abort();
     reconnectControllerRef.current = controller;
+    // 外层 catch 够不到 try 内的 messageId，但 endStream 需要归属：在这里记住本次恢复的那条消息。
+    let recoveredMessageId: string | null = null;
     const checkAndReconnect = async () => {
       try {
         // 直接查后端流状态，由后端 meta 决定是否重连
@@ -323,6 +325,7 @@ export default function ChatPage() {
         recoveryTaskIdRef.current = status.task_id ?? null;
 
         const messageId = status.message_id || '';
+        recoveredMessageId = messageId;
 
         // 有进行中的流 → 建立 SSE 重连，从头读取
         dispatch(setStreamStatus('reconnecting'));
@@ -379,7 +382,7 @@ export default function ChatPage() {
             if (insertedPlaceholder && messageId) {
               dispatch(removeMessage({ conversationId: chatId, messageId }));
             }
-            dispatch(endStream());
+            dispatch(endStream({ messageId }));
             dispatch(setStreamStatus('error'));
             retryHydration();
             return;
@@ -395,7 +398,7 @@ export default function ChatPage() {
           } else if (insertedPlaceholder && messageId) {
             dispatch(removeMessage({ conversationId: chatId, messageId }));
           }
-          dispatch(endStream());
+          dispatch(endStream({ messageId }));
           dispatch(setStreamStatus('error'));
         };
         const callbacks: StreamCallbacks = {
@@ -495,7 +498,7 @@ export default function ChatPage() {
                 }));
               }
             }
-            dispatch(endStream());
+            dispatch(endStream({ messageId }));
             dispatch(setStreamStatus('completed'));
             retryHydration();
           },
@@ -538,7 +541,7 @@ export default function ChatPage() {
       } catch (error) {
         if (isAbortError(error)) return;
         if (!cancelled) {
-          dispatch(endStream());
+          dispatch(endStream({ messageId: recoveredMessageId }));
           dispatch(setStreamStatus('error'));
         }
       } finally {
