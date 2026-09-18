@@ -496,7 +496,8 @@ export default function ModelManagementPanel() {
     setNotice(null);
     try {
       await refreshAfterVisibility();
-      setNotice("模型管理数据和模型选择器已刷新");
+      // 保留本轮刷新期间终态同步写入的具体结果，避免较晚完成的通用提示覆盖它。
+      setNotice((current) => current ?? "模型管理数据和模型选择器已刷新");
     } catch (caught: unknown) {
       if (isAdminAccessError(caught)) {
         denyAccess();

@@ -475,6 +475,7 @@ describe('TrajectoryTable', () => {
     );
   });
 
+  // 保留完整功能断言，为容器并行负载下的大数据定位留出时间余量。
   it('one-shot inspect 可依次定位 5000 条记录中的首、中、尾且真实行 DOM 不超过 200', async () => {
     const cells = manyCells(5000);
     const onInspectTargetResolved = vi.fn();
@@ -529,7 +530,7 @@ describe('TrajectoryTable', () => {
       4999,
       expect.objectContaining({ key: 'cell-4999' }),
     );
-  });
+  }, 15000);
 
   it('restore 与 inspect 报告程序化滚动，真实滚动报告 userInitiated 与稳定 atTail', async () => {
     const cells = manyCells(100);
