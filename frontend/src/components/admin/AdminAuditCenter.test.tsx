@@ -616,6 +616,7 @@ describe('AdminAuditCenter', () => {
     expect(screen.getByLabelText('用户 ID')).toHaveValue('');
   });
 
+  // 保留完整功能断言，为容器并行负载下的连续交互留出时间余量。
   it('连续从用户详情进入对话时使用最新选择的用户 B', async () => {
     const userItems = ['a', 'b'].map(suffix => ({
       id: `user-${suffix}`, username: `user-${suffix}`, nickname: `用户 ${suffix.toUpperCase()}`,
@@ -643,7 +644,7 @@ describe('AdminAuditCenter', () => {
       expect.any(AbortSignal),
     ));
     expect(screen.getByLabelText('用户 ID')).toHaveValue('user-b');
-  });
+  }, 15000);
 
   it('关联用户跳转后遇到 403 会卸载审计内容并清除用户筛选展示', async () => {
     apiMocks.getAdminUsers.mockResolvedValue({

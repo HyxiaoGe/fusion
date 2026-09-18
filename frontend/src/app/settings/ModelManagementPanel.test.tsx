@@ -735,10 +735,66 @@ describe('ModelManagementPanel', () => {
     expect(refreshModelsMock).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: '刷新' }));
 
-    await waitFor(() => expect(refreshModelsMock).toHaveBeenCalledTimes(2));
-    expect(await screen.findByRole('status')).toHaveTextContent('kimi-k3.1 已上线');
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent('kimi-k3.1 已上线');
+      expect(screen.getByRole('button', { name: '刷新' })).toBeEnabled();
+    });
     expect(sessionStorage.getItem(MODEL_MANAGEMENT_OWNED_OPERATIONS_STORAGE_KEY)).toBeNull();
   });
+
+  it.each(['手动刷新先', '终态同步先'] as const)(
+    '%s完成时，两条刷新全部完成后保留上线结果',
+    async (completionOrder) => {
+      const createCatalogRequest = () => {
+        let resolve!: (catalog: { models: never[]; providers: never[] }) => void;
+        const promise = new Promise<{ models: never[]; providers: never[] }>((done) => {
+          resolve = done;
+        });
+        return { promise, complete: () => resolve({ models: [], providers: [] }) };
+      };
+      const manualCatalog = createCatalogRequest();
+      const terminalCatalog = createCatalogRequest();
+      const operation: ModelAdmissionOperation = {
+        operation_id: 'operation-catalog-completion-order',
+        candidate_fingerprint: 'fingerprint-ready',
+        model_id: 'kimi-k3.1',
+        status: 'succeeded',
+      };
+      sessionStorage.setItem(
+        MODEL_MANAGEMENT_OWNED_OPERATIONS_STORAGE_KEY,
+        JSON.stringify([operation.operation_id]),
+      );
+      fetchModelManagementSnapshotMock.mockImplementation(async () => ({
+        ...baseSnapshot,
+        operations: [{ ...operation }],
+      }));
+      refreshModelsMock
+        .mockRejectedValueOnce(new Error('目录服务瞬时中断'))
+        .mockReturnValueOnce(manualCatalog.promise)
+        .mockReturnValueOnce(terminalCatalog.promise)
+        .mockResolvedValue({ models: [], providers: [] });
+
+      render(<ModelManagementPanel />);
+      expect(await screen.findByRole('alert')).toHaveTextContent('模型已上线，但目录刷新失败');
+      fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+      // 先让两条刷新均开始，再控制完成顺序；调用次数不作为完成信号。
+      await waitFor(() => expect(refreshModelsMock).toHaveBeenCalledTimes(3));
+      const [first, second] = completionOrder === '手动刷新先'
+        ? [manualCatalog, terminalCatalog]
+        : [terminalCatalog, manualCatalog];
+      await act(async () => { first.complete(); });
+      expect(screen.getByRole('button', { name: '刷新' })).toBeDisabled();
+      await act(async () => { second.complete(); });
+
+      await waitFor(() => expect(screen.getByRole('button', { name: '刷新' })).toBeEnabled());
+      expect(screen.getByRole('status')).toHaveTextContent('kimi-k3.1 已上线');
+      expect(sessionStorage.getItem(MODEL_MANAGEMENT_OWNED_OPERATIONS_STORAGE_KEY)).toBeNull();
+
+      fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: '刷新' })).toBeEnabled());
+      expect(screen.getByRole('status')).toHaveTextContent('模型管理数据和模型选择器已刷新');
+    },
+  );
 
   it('活动任务轮询瞬时失败后会继续轮询直到终态', async () => {
     const pendingOperation = {
