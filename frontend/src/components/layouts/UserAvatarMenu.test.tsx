@@ -2,7 +2,7 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import authReducer from '@/redux/slices/authSlice';
 import conversationReducer from '@/redux/slices/conversationSlice';
@@ -64,6 +64,22 @@ describe('UserAvatarMenu', () => {
   beforeEach(() => {
     vi.mocked(useHasMounted).mockReturnValue(true);
     pushMock.mockReset();
+    // Radix Avatar 只在 Image() onload 后挂载 <img>；jsdom 默认不会对仓库内 SVG 触发 load。
+    vi.stubGlobal(
+      'Image',
+      class {
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        referrerPolicy = '';
+        set src(_url: string) {
+          this.onload?.();
+        }
+      },
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   // #4 root fix: SSR has no localStorage, so getInitialAuthState() yields isAuthenticated=false
@@ -132,7 +148,76 @@ describe('UserAvatarMenu', () => {
       },
     });
 
-    expect(screen.getByRole('button').textContent).toContain('S');
+    expect(screen.getByRole('img', { name: 'Sean' })).toBeTruthy();
+  });
+
+  it('无头像 URL 时使用仓库内通用头像，而不是字母或 CDN', () => {
+    renderMenu({
+      isAuthenticated: true,
+      token: 'token',
+      status: 'succeeded',
+      error: null,
+      sessionResolved: true,
+      user: {
+        id: 'user-1',
+        username: '18889592303',
+        nickname: 'Sean',
+        avatar: null,
+        email: 'sean@example.com',
+        mobile: null,
+      },
+    });
+
+    const avatar = screen.getByRole('img', { name: 'Sean' });
+    expect(avatar).toHaveAttribute('src', '/assets/default-user.svg');
+    expect(avatar.getAttribute('src')).not.toMatch(/^https?:/);
+    expect(screen.getByRole('button').textContent).not.toContain('S');
+  });
+
+  it('有真实头像 URL 时仍走 proxiedAvatar', () => {
+    const raw = 'https://lh3.googleusercontent.com/a/ACg8ocK=s96-c';
+    renderMenu({
+      isAuthenticated: true,
+      token: 'token',
+      status: 'succeeded',
+      error: null,
+      sessionResolved: true,
+      user: {
+        id: 'user-1',
+        username: '18889592303',
+        nickname: 'Sean',
+        avatar: raw,
+        email: 'sean@example.com',
+        mobile: null,
+      },
+    });
+
+    expect(screen.getByRole('img', { name: 'Sean' })).toHaveAttribute(
+      'src',
+      `/api/auth/avatar?url=${encodeURIComponent(raw)}`,
+    );
+  });
+
+  it('侧栏触发按钮使用 size="icon"，避免默认 padding 把头像挤偏', () => {
+    renderMenu({
+      isAuthenticated: true,
+      token: 'token',
+      status: 'succeeded',
+      error: null,
+      sessionResolved: true,
+      user: {
+        id: 'user-1',
+        username: 'user',
+        nickname: 'Sean',
+        avatar: null,
+        email: 'sean@example.com',
+        mobile: null,
+      },
+    });
+
+    const classes = screen.getByRole('button').className.split(/\s+/);
+    expect(classes).toContain('size-9');
+    expect(classes).not.toContain('px-4');
   });
 
   it('已登录用户点击设置菜单会打开设置弹窗状态', () => {
