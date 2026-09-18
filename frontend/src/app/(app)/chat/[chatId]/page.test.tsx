@@ -337,6 +337,10 @@ vi.mock('@/redux/slices/streamSlice', () => ({
   pushStep: vi.fn((payload?: unknown) => ({ type: 'stream/pushStep', payload })),
   pushToolCall: vi.fn((payload?: unknown) => ({ type: 'stream/pushToolCall', payload })),
   selectFullStreamContentBlocks: (state: { contentBlocks?: any[] }) => state.contentBlocks ?? [],
+  // 与真实实现同语义：槽位空闲一律放行，只拦"已经属于别人"。
+  ownsStreamSlot: (state: { messageId?: string | null }, messageId: string | null) => (
+    (state.messageId ?? null) === null || state.messageId === messageId
+  ),
   setStreamStatus: vi.fn((payload?: unknown) => ({ type: 'stream/setStreamStatus', payload })),
   startStream: vi.fn((payload?: unknown) => ({ type: 'stream/startStream', payload })),
 }));

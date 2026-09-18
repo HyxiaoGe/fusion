@@ -388,8 +388,12 @@ const streamSlice = createSlice({
       }>
     ) {
       const { runId, messageId, serverMessageId, config, sequence } = action.payload;
+      // 归属校验：单 currentRun 是同一条流内的设计，不能跨流生效。上一轮迟到的 initRun
+      // 会把新一轮的 currentRun 顶掉，新一轮仍在生成却显示成已完成（dev 复验 14:17:29.856）。
+      // 与 endStream 同一套判据，理由见那里。
+      if (state.messageId !== null && state.messageId !== messageId) return;
       // 跨重连幂等：同 runId 且 sequence 已应用 → noop（防重放清空已建 timeline）
-      // 不同 runId 仍允许重建（新 run 覆盖旧 run timeline，spec §6.2 单 currentRun 设计）
+      // 同一条流内不同 runId 仍允许重建（新 run 覆盖旧 run timeline，spec §6.2 单 currentRun 设计）
       if (
         state.currentRun &&
         state.currentRun.runId === runId &&
@@ -954,6 +958,22 @@ export function selectStreamContentBlocks(state: StreamState): ContentBlock[] {
 }
 
 // 完整版 selector（不截断），用于流结束时写入最终消息
+/** 全局流槽位同一时刻只装一条流；判断这条流现在是不是槽位的属主。
+ *
+ * 槽位空闲（messageId 为 null）时一律放行，保持与 endStream / initRun 归属判据一致：
+ * 只拦"槽位已经属于别人"，不拦"还没人占"。
+ *
+ * 用 messageId 而不是 conversationId：messageId 在 startStream 后不再被任何 reducer
+ * 改动，conversationId 还会因草稿会话转正被 migrateStreamConversation 迁移；且同一会话
+ * 连续两轮也要能区分。
+ *
+ * 只用于流槽位状态（正文/思考 delta、run timeline、流状态与错误）。会话自身的状态——
+ * 标题、推荐问题、会话列表刷新、全局错误——不受槽位归属影响，丢了槽位也要照常走完。
+ */
+export function ownsStreamSlot(state: StreamState, messageId: string | null): boolean {
+  return state.messageId === null || state.messageId === messageId;
+}
+
 export function selectFullStreamContentBlocks(state: StreamState): ContentBlock[] {
   const blocks: ContentBlock[] = [...state.staticBlocks];
 

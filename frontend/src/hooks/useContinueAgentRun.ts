@@ -34,6 +34,7 @@ import {
   selectFullStreamContentBlocks,
   setStreamError,
   setStreamStatus,
+  ownsStreamSlot,
   startStream,
 } from '@/redux/slices/streamSlice';
 import type { StreamState } from '@/redux/slices/streamSlice';
@@ -282,7 +283,12 @@ export function useContinueAgentRun(deps: HookDeps = {}) {
     onAccepted?.();
 
     let terminalErrorHandled = false;
-    const isActive = () => activeContinuationRef.current?.token === token;
+    // 续跑同样占用全局流槽位；被别的流接管后继续写/读槽位会与对方串在一起。
+    const ownsSlot = () => ownsStreamSlot(
+      (store.getState() as RootStateForContinuation).stream,
+      assistantMessageId,
+    );
+    const isActive = () => activeContinuationRef.current?.token === token && ownsSlot();
     const callbacks = buildContinuationStreamCallbacks({
       conversationId,
       assistantMessageId,
@@ -331,7 +337,10 @@ export function useContinueAgentRun(deps: HookDeps = {}) {
     } catch (error) {
       if (!controller.signal.aborted) {
         const streamState = (store.getState() as RootStateForContinuation).stream;
-        const partialBlocks = selectFullStreamContentBlocks(streamState);
+        // 槽位已属于别人时读到的是对方的正文，写下去就是串进本条消息。
+        const partialBlocks = ownsStreamSlot(streamState, assistantMessageId)
+          ? selectFullStreamContentBlocks(streamState)
+          : [];
         if (partialBlocks.length > 0) {
           dispatch(updateMessage({
             conversationId,
@@ -364,7 +373,9 @@ export function useContinueAgentRun(deps: HookDeps = {}) {
     abortControllerRef.current = null;
 
     const streamState = (store.getState() as RootStateForContinuation).stream;
-    const partialBlocks = selectFullStreamContentBlocks(streamState);
+    const partialBlocks = ownsStreamSlot(streamState, active.assistantMessageId)
+      ? selectFullStreamContentBlocks(streamState)
+      : [];
     if (partialBlocks.length > 0) {
       dispatch(updateMessage({
         conversationId: active.conversationId,
