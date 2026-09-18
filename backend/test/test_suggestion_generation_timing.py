@@ -16,10 +16,15 @@ from app.services.suggested_question_service import SuggestedQuestionGenerationE
 _MARKER = "suggested_questions_generate"
 
 
-def _response(content: str, *, completion_tokens=None):
+def _response(content: str, *, completion_tokens=None, finish_reason=None):
     usage = SimpleNamespace(completion_tokens=completion_tokens) if completion_tokens is not None else None
     return SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=content))],
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(content=content),
+                finish_reason=finish_reason,
+            )
+        ],
         usage=usage,
     )
 
@@ -74,6 +79,38 @@ class SuggestionTimingLogTests(unittest.TestCase):
         lines = self._run(no_usage)
         self.assertEqual(len(lines), 1)
         self.assertIn("completion_tokens=None", lines[0])
+
+    def test_推理吃光预算导致空正文要能与解析失败区分开(self):
+        """线上成因：deepseek-chat 先产 reasoning，max_tokens 被吃满后 content 为空。
+
+        此时 finish_reason=length 且 raw_chars=0。它与"有输出但解析不出问题"的
+        处置完全不同（前者调预算或关推理，后者改提示词/解析器），日志必须能分辨，
+        否则下一次排查又要从头翻。
+        """
+
+        async def empty_after_reasoning(**_kwargs):
+            return _response("", completion_tokens=512, finish_reason="length")
+
+        lines = self._run(empty_after_reasoning, fails=True)
+        self.assertEqual(len(lines), 1)
+        self.assertIn("result=failed", lines[0])
+        self.assertIn("finish_reason=length", lines[0])
+        self.assertIn("raw_chars=0", lines[0])
+
+    def test_有输出但解析不出问题时_raw_chars_不为零(self):
+        """与上一条互为对照：同样 failed，但成因不同，日志必须看得出来。
+
+        非空却解析出 0 条的真实形态是被截断后只剩裸编号——
+        _is_valid_question_candidate 正是为过滤它而存在。
+        """
+
+        async def unparsable(**_kwargs):
+            return _response("1.\n2.\n3.", completion_tokens=8, finish_reason="length")
+
+        lines = self._run(unparsable, fails=True)
+        self.assertEqual(len(lines), 1)
+        self.assertIn("result=failed", lines[0])
+        self.assertIn("raw_chars=8", lines[0])
 
     def test_日志不含对话与问题正文(self):
         async def ok(**_kwargs):

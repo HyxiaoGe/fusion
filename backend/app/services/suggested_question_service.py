@@ -339,6 +339,11 @@ class SuggestedQuestionService:
             raw = response.choices[0].message.content or ""
             raw_chars = len(raw)
             questions = ChatUtils.parse_questions(raw)[:3]
+            if not raw.strip():
+                # 空正文与"有输出但解析不出"是两种成因，处置也不同：前者是上游没给
+                # 正文（典型是 reasoning 吃光 max_tokens，finish_reason=length），
+                # 后者是提示词或解析器与模型输出格式不匹配。合成一条会逼下一个人翻日志。
+                raise SuggestedQuestionGenerationError("模型返回空正文")
             if not questions:
                 raise SuggestedQuestionGenerationError("模型没有返回有效推荐问题")
             _log_generation("ready", started_at, response=response)

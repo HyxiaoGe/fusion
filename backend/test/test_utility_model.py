@@ -13,9 +13,10 @@ class ResolveUtilityModelTests(unittest.TestCase):
             "resolve_model",
             return_value=("litellm/deepseek-chat", "deepseek", {}),
         ) as resolve:
-            result = utility_model.resolve_utility_model("qwen-max-latest")
+            model, provider, kwargs = utility_model.resolve_utility_model("qwen-max-latest")
 
-        self.assertEqual(result, ("litellm/deepseek-chat", "deepseek", {}))
+        # 模型与 provider 原样透传；kwargs 额外带上禁用推理（见 DisableThinkingTests）
+        self.assertEqual((model, provider), ("litellm/deepseek-chat", "deepseek"))
         resolve.assert_called_once_with(utility_model.UTILITY_MODEL_ID)
 
     def test_轻量模型不可用时回退到会话模型(self):
@@ -25,9 +26,9 @@ class ResolveUtilityModelTests(unittest.TestCase):
             return ("litellm/qwen", "dashscope", {})
 
         with patch.object(utility_model.llm_manager, "resolve_model", side_effect=fake_resolve):
-            result = utility_model.resolve_utility_model("qwen-max-latest")
+            model, provider, _ = utility_model.resolve_utility_model("qwen-max-latest")
 
-        self.assertEqual(result, ("litellm/qwen", "dashscope", {}))
+        self.assertEqual((model, provider), ("litellm/qwen", "dashscope"))
 
     def test_会话模型同样不可用时向上抛出(self):
         with patch.object(
@@ -37,6 +38,62 @@ class ResolveUtilityModelTests(unittest.TestCase):
         ):
             with self.assertRaises(ValueError):
                 utility_model.resolve_utility_model("unknown-model")
+
+
+class DisableThinkingTests(unittest.TestCase):
+    """辅助调用必须关掉推理，否则 reasoning token 会吃光 max_tokens。
+
+    线上现象：deepseek-chat 先产 reasoning，512 预算被吃满后 content 为空，
+    finish_reason=length 且 raw_chars=0，推荐问题于是报「模型没有返回有效推荐问题」。
+    这条路已经撞过一次（128 → 512），继续抬预算只会撞 UTILITY_LLM_TIMEOUT。
+    """
+
+    def test_解析结果带上禁用推理(self):
+        with patch.object(
+            utility_model.llm_manager,
+            "resolve_model",
+            return_value=("litellm/deepseek-chat", "deepseek", {}),
+        ):
+            _, _, kwargs = utility_model.resolve_utility_model("qwen-max-latest")
+
+        self.assertEqual(kwargs["extra_body"]["thinking"], {"type": "disabled"})
+
+    def test_回退到会话模型时同样禁用推理(self):
+        """回退路径更需要：会话模型很可能正是慢而贵的 thinking 模型。"""
+
+        def fake_resolve(model_id):
+            if model_id == utility_model.UTILITY_MODEL_ID:
+                raise ValueError("未注册")
+            return ("litellm/qwen", "dashscope", {})
+
+        with patch.object(utility_model.llm_manager, "resolve_model", side_effect=fake_resolve):
+            _, _, kwargs = utility_model.resolve_utility_model("qwen-max-latest")
+
+        self.assertEqual(kwargs["extra_body"]["thinking"], {"type": "disabled"})
+
+    def test_不覆盖模型自带的其他_extra_body_字段(self):
+        with patch.object(
+            utility_model.llm_manager,
+            "resolve_model",
+            return_value=("litellm/x", "p", {"extra_body": {"foo": "bar"}, "temperature": 0}),
+        ):
+            _, _, kwargs = utility_model.resolve_utility_model("qwen-max-latest")
+
+        self.assertEqual(kwargs["extra_body"]["foo"], "bar")
+        self.assertEqual(kwargs["extra_body"]["thinking"], {"type": "disabled"})
+        self.assertEqual(kwargs["temperature"], 0)
+
+    def test_不改动调用方传入的原始配置(self):
+        """llm_manager 返回的可能是共享配置对象，就地改会污染其他调用方。"""
+        original = {"extra_body": {"foo": "bar"}}
+        with patch.object(
+            utility_model.llm_manager,
+            "resolve_model",
+            return_value=("litellm/x", "p", original),
+        ):
+            utility_model.resolve_utility_model("qwen-max-latest")
+
+        self.assertEqual(original, {"extra_body": {"foo": "bar"}})
 
 
 class UtilityModelSingleSourceTests(unittest.TestCase):
