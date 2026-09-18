@@ -67,6 +67,12 @@ import {
   shouldRecoverReasoningOnlyFinalBlocks,
 } from '@/lib/chat/contentBlocks';
 import { hasFormalTextContent } from '@/lib/chat/suggestedQuestionState';
+import {
+  getStreamController,
+  registerStreamController,
+  releaseStreamController,
+  updateStreamController,
+} from '@/lib/chat/streamControllerRegistry';
 import { CHAT_NEW_PATH } from '@/lib/routes/chatRoutes';
 import { deleteFile, type FileInfo } from '@/lib/api/files';
 import {
@@ -163,8 +169,6 @@ export default function ChatPage() {
   const [trajectoryComposerInset, setTrajectoryComposerInset] = useState(256);
   const trajectoryInspectSequenceRef = useRef(0);
   const reconnectControllerRef = useRef<AbortController | null>(null);
-  const recoveryStreamModeRef = useRef<'initial' | 'retry' | 'continuation' | null>(null);
-  const recoveryTaskIdRef = useRef<string | null>(null);
   const recoveryStopPendingRef = useRef<{
     controller: AbortController;
     bufferedActions: Array<() => void>;
@@ -285,7 +289,6 @@ export default function ChatPage() {
   // chatId 变化时重置
   useEffect(() => {
     reconnectAttemptedRef.current = false;
-    recoveryTaskIdRef.current = null;
   }, [chatId]);
   useEffect(() => {
     // 只拦"本会话已经在生成"。stream.isStreaming 是全局标志，属于当前正在生成的那个会话；
@@ -301,6 +304,9 @@ export default function ChatPage() {
     const controller = new AbortController();
     reconnectControllerRef.current?.abort();
     reconnectControllerRef.current = controller;
+    // 恢复流登记在本会话名下：停止时按会话查表命中它，而不是靠「ref 非空」推断。
+    // stream_mode / task_id 随后由 updateStreamController 补进同一条目。
+    registerStreamController({ conversationId: chatId, kind: 'recovery', controller });
     // 外层 catch 够不到 try 内的 messageId，但 endStream 需要归属：在这里记住本次恢复的那条消息。
     let recoveredMessageId: string | null = null;
     // 恢复流同样可能在中途被别的流接管槽位；接管后写入或读取槽位都会串到对方头上。
@@ -327,8 +333,10 @@ export default function ChatPage() {
           }
         }
         if (cancelled || !status || status.status !== 'streaming') return;
-        recoveryStreamModeRef.current = status.stream_mode ?? 'initial';
-        recoveryTaskIdRef.current = status.task_id ?? null;
+        updateStreamController(chatId, controller, {
+          streamMode: status.stream_mode ?? 'initial',
+          taskId: status.task_id ?? null,
+        });
 
         const messageId = status.message_id || '';
         recoveredMessageId = messageId;
@@ -410,7 +418,8 @@ export default function ChatPage() {
         };
         const callbacks: StreamCallbacks = {
           onReady: ({ taskId }) => {
-            recoveryTaskIdRef.current = taskId ?? recoveryTaskIdRef.current;
+            // 没带 taskId 时保留 stream-status 给的那个，别覆盖成空。
+            if (taskId) updateStreamController(chatId, controller, { taskId });
           },
           onAnswering: (payload) => {
             if (cancelled) return;
@@ -552,6 +561,7 @@ export default function ChatPage() {
           dispatch(setStreamStatus('error'));
         }
       } finally {
+        releaseStreamController(chatId, controller);
         if (reconnectControllerRef.current === controller) {
           reconnectControllerRef.current = null;
         }
@@ -564,7 +574,7 @@ export default function ChatPage() {
       if (recoveryStopPendingRef.current?.controller === controller) {
         recoveryStopPendingRef.current = null;
       }
-      recoveryStreamModeRef.current = null;
+      releaseStreamController(chatId, controller);
       controller.abort();
       if (reconnectControllerRef.current === controller) {
         reconnectControllerRef.current = null;
@@ -662,8 +672,12 @@ export default function ChatPage() {
   );
 
   const handleStopStreaming = useCallback(async () => {
-    const recoveryController = reconnectControllerRef.current;
-    if (recoveryController) {
+    // 按会话查表定位要停的那条流。此前是按「哪个 ref 非空」依次猜
+    // （恢复流 ref → 续跑 → 发送流），单会话下同时只有一条流才猜得中；
+    // 多会话并发后，在 A 点停止会停掉恰好非空的那条，也就是 B 的流。
+    const activeStream = getStreamController(chatId);
+    if (activeStream?.kind === 'recovery') {
+      const recoveryController = activeStream.controller;
       if (recoveryStopPendingRef.current?.controller === recoveryController) {
         return;
       }
@@ -687,12 +701,12 @@ export default function ChatPage() {
         dispatch(endStream());
         dispatch(setStreamStatus('error'));
         if (isRetryRecovery) {
-          recoveryStreamModeRef.current = null;
+          releaseStreamController(chatId, recoveryController);
           retryHydration();
         }
       };
       const streamState = (store.getState() as { stream: StreamState }).stream;
-      const isRetryRecovery = recoveryStreamModeRef.current === 'retry';
+      const isRetryRecovery = activeStream.streamMode === 'retry';
       const partialBlocks = isRetryRecovery ? [] : selectFullStreamContentBlocks(streamState);
       if (!isRetryRecovery && streamState.messageId && partialBlocks.length > 0) {
         dispatch(updateMessage({
@@ -702,13 +716,15 @@ export default function ChatPage() {
         }));
       }
       try {
-        const cancelled = recoveryTaskIdRef.current
+        // onReady 可能在 stream-status 之后补过 task_id，条目是整体替换的，要现取。
+        const recoveryTaskId = getStreamController(chatId)?.taskId ?? null;
+        const cancelled = recoveryTaskId
           ? await stopStream(
               chatId,
               streamState.messageId ?? undefined,
               undefined,
               partialBlocks,
-              recoveryTaskIdRef.current,
+              recoveryTaskId,
             )
           : await stopStream(
               chatId,
@@ -724,7 +740,7 @@ export default function ChatPage() {
           return;
         }
         recoveryStopPendingRef.current = null;
-        recoveryStreamModeRef.current = null;
+        releaseStreamController(chatId, recoveryController);
         recoveryController.abort();
         if (reconnectControllerRef.current === recoveryController) {
           reconnectControllerRef.current = null;
@@ -738,8 +754,10 @@ export default function ChatPage() {
       }
       return;
     }
-    if (await stopContinueAgentRun()) {
-      return;
+    // 续跑同样按会话精确停止；stopContinueAgentRun 过去靠返回 bool 表达
+    // 「这条归我管」，是个隐式协议，现在由注册表的 kind 显式决定走哪条路。
+    if (activeStream?.kind === 'continuation') {
+      if (await stopContinueAgentRun(chatId)) return;
     }
     await stopStreaming();
   }, [chatId, dispatch, retryHydration, stopContinueAgentRun, stopStreaming, store]);

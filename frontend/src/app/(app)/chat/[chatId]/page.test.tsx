@@ -17,6 +17,11 @@ import {
   CONTEXT_STATUS_PENDING_FIRST_TURN_STORAGE_KEY,
   CONTEXT_STATUS_SUPPRESSED_FIRST_TURN_STORAGE_KEY,
 } from '@/lib/chat/contextStatusPersistence';
+import {
+  getStreamController,
+  registerStreamController,
+  resetStreamControllerRegistry,
+} from '@/lib/chat/streamControllerRegistry';
 
 const {
   currentRoute,
@@ -683,6 +688,7 @@ describe('ChatPage 会话切换体验', () => {
     continueAgentRunMock.mockClear();
     stopContinueAgentRunMock.mockClear();
     stopContinueAgentRunMock.mockResolvedValue(false);
+    resetStreamControllerRegistry();
     clearQuestionsMock.mockClear();
     fetchQuestionsMock.mockClear();
     suggestedQuestionsState.questions = [];
@@ -1975,6 +1981,12 @@ describe('ChatPage 会话切换体验', () => {
     hydrationById.set('chat-a', { view: 'ready' });
     streamState.isStreaming = true;
     streamState.conversationId = 'chat-a';
+    // 「本会话正在续跑」由注册表表达：此前靠 stopContinueAgentRun 返回 true 隐式认领。
+    registerStreamController({
+      conversationId: 'chat-a',
+      kind: 'continuation',
+      controller: new AbortController(),
+    });
     stopContinueAgentRunMock.mockResolvedValue(true);
 
     render(<ChatPage />);
@@ -1987,7 +1999,38 @@ describe('ChatPage 会话切换体验', () => {
     await waitFor(() => {
       expect(stopContinueAgentRunMock).toHaveBeenCalledTimes(1);
     });
+    expect(stopContinueAgentRunMock).toHaveBeenCalledWith('chat-a');
     expect(stopStreamingMock).not.toHaveBeenCalled();
+  });
+
+  it('在 A 点停止不得碰到正在 B 跑的续跑', async () => {
+    // 续跑不随切会话清理，activeContinuationRef 会一直挂着 B 的那条。
+    // 旧实现按「哪个 ref 非空」猜，在 A 点停止会无参调用 stopContinueAgentRun，
+    // 停掉的是 B。现在按会话查表：A 名下没有流，就不该走续跑分支。
+    conversationsById.set('chat-a', createConversation('chat-a', [textMessage('message-a')]));
+    hydrationById.set('chat-a', { view: 'ready' });
+    streamState.isStreaming = true;
+    streamState.conversationId = 'chat-a';
+    const continuationOfB = new AbortController();
+    registerStreamController({
+      conversationId: 'chat-b',
+      kind: 'continuation',
+      controller: continuationOfB,
+    });
+
+    render(<ChatPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('chat-input')).toHaveAttribute('data-active-chat-id', 'chat-a');
+    });
+    fireEvent.click(screen.getByRole('button', { name: '停止生成' }));
+
+    await waitFor(() => {
+      expect(stopStreamingMock).toHaveBeenCalledTimes(1);
+    });
+    expect(stopContinueAgentRunMock).not.toHaveBeenCalled();
+    expect(getStreamController('chat-b')?.controller).toBe(continuationOfB);
+    expect(continuationOfB.signal.aborted).toBe(false);
   });
 
   it('非 continuation stream 停止时回退普通发送 stop', async () => {

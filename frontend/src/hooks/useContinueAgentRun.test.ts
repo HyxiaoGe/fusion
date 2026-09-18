@@ -372,6 +372,41 @@ describe('useContinueAgentRun', () => {
     ).toHaveLength(1);
   });
 
+  it('指定会话的 stop 不得停掉另一个会话的续跑', async () => {
+    // 续跑不随切会话清理。旧实现的 stopContinueAgentRun 不接会话参数，
+    // 在 A 点停止会把正在 B 跑的这条一并停掉。
+    const { store, dispatch } = createReducerBackedHarness();
+    // 让流挂住，续跑在 stop 之前一直是活的。
+    vi.mocked(continueAgentRunStream).mockImplementation(async (_payload, _callbacks, signal) => {
+      await new Promise<void>(resolve => signal?.addEventListener('abort', () => resolve(), { once: true }));
+    });
+
+    const { result } = renderHook(() => useContinueAgentRun({
+      dispatch: dispatch as never,
+      store: store as never,
+    }));
+
+    let continuation: Promise<void> | undefined;
+    await act(async () => {
+      continuation = result.current.continueAgentRun({
+        conversationId: 'conv-b',
+        assistantMessageId: 'msg-b',
+      });
+    });
+
+    await act(async () => {
+      expect(await result.current.stopContinueAgentRun('conv-a')).toBe(false);
+    });
+    expect(stopStream).not.toHaveBeenCalled();
+
+    await act(async () => {
+      expect(await result.current.stopContinueAgentRun('conv-b')).toBe(true);
+      await continuation;
+    });
+    expect(stopStream).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(stopStream).mock.calls[0][0]).toBe('conv-b');
+  });
+
   it('stop 能中断正在等待退避的重连且不再发起后续 GET', async () => {
     const { store, dispatch } = createReducerBackedHarness();
     vi.mocked(continueAgentRunStream).mockRejectedValueOnce(recoverableError('流异常结束'));
