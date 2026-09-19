@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAppDispatch, useAppSelector } from "@/redux/hooks";
+import { selectStreamSlot } from '@/redux/slices/streamSlice';
 import type { RootState } from "@/redux/store";
 import { selectAuthSessionKey, selectIsAuthenticated } from "@/redux/selectors";
 import { setComposerAgentMode, setReasoningEnabled } from "@/redux/slices/conversationSlice";
@@ -250,17 +251,15 @@ const ChatInput: React.FC<ChatInputProps> = ({
   )!;
   const ActiveComposerAgentModeIcon = activeComposerAgentMode.icon;
   const modelsLoadStatus = useAppSelector((state) => state.models.loadStatus);
-  const currentRun = useAppSelector((state) => state.stream.currentRun);
+  const currentRun = useAppSelector((state) => selectStreamSlot(state, activeChatId).currentRun);
   const selectContextStatus = useMemo(
     () => makeSelectConversationContextStatus(activeChatId),
     [activeChatId],
   );
   const contextStatus = useAppSelector(selectContextStatus);
-  const isCurrentConversationStreaming = useAppSelector((state) => Boolean(
-    activeChatId
-    && state.stream.isStreaming
-    && state.stream.conversationId === activeChatId
-  ));
+  const isCurrentConversationStreaming = useAppSelector(
+    (state) => selectStreamSlot(state, activeChatId).isStreaming
+  );
   const isFirstConversationTurn = useAppSelector((state) => {
     if (!activeChatId) return false;
     const messages = state.conversation.byId[activeChatId]?.messages ?? [];

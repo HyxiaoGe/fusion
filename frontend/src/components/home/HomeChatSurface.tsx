@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import HomePage from '@/components/home/HomePage';
 import { useAppDispatch, useAppSelector } from '@/redux/hooks';
+import { selectStreamSlot } from '@/redux/slices/streamSlice';
 import { selectAuthSessionKey } from '@/redux/selectors';
 import { setSelectedModel } from '@/redux/slices/modelsSlice';
 import { deleteFile, type FileInfo } from '@/lib/api/files';
@@ -123,12 +124,8 @@ export default function HomeChatSurface() {
   const displayConversation = useAppSelector((state) =>
     displayConversationId ? state.conversation.byId[displayConversationId] : undefined
   );
-  const isDisplayConversationStreaming = useAppSelector((state) =>
-    Boolean(
-      displayConversationId &&
-      state.stream.isStreaming &&
-      state.stream.conversationId === displayConversationId
-    )
+  const isDisplayConversationStreaming = useAppSelector(
+    (state) => selectStreamSlot(state, displayConversationId).isStreaming
   );
   const { sendMessage, stopStreaming } = useSendMessage();
   const {

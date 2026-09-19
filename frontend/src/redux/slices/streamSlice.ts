@@ -34,7 +34,7 @@ import {
   normalizeAgentPlanState,
 } from '@/lib/agent/planState';
 
-export interface StreamState {
+export interface StreamSlot {
   // ── 流元信息 ──
   conversationId: string | null;
   messageId: string | null;
@@ -84,7 +84,7 @@ export interface StreamState {
   pendingContextRequest: PendingAgentContextRequest | null;
 }
 
-const initialState: StreamState = {
+export const EMPTY_STREAM_SLOT: StreamSlot = {
   conversationId: null,
   messageId: null,
   staticBlocks: [],
@@ -112,6 +112,48 @@ const initialState: StreamState = {
   contextUsageInFlightMeta: null,
   pendingContextRequest: null,
 };
+
+/** 按会话索引的流槽位。
+ *
+ * 此前整个应用只有一个流槽位：`conversationId` / `isStreaming` / `messageId` /
+ * `textBlocks` 都是单份的，第二条流一开始就会覆盖第一条。后端本来就支持并发
+ * （dev 实测两个 run 重叠 20 秒、均 200、无踢流），限制完全在前端这一层。
+ *
+ * 槽位在 startStream 建立，endStream 只清空不删除——错误卡片、Agent 摘要和
+ * 上下文用量在流结束后仍要读（见 endStream 保留的那几个字段）。
+ */
+export interface StreamState {
+  byConversation: Record<string, StreamSlot>;
+}
+
+const initialState: StreamState = { byConversation: {} };
+
+/** 非流式槽位的保留上限。留尾很小（错误卡片 / run 摘要 / 用量），
+ * 但没有上限就会随浏览会话数无限增长。超出时按插入顺序淘汰最旧的非流式槽位。 */
+const MAX_RETAINED_IDLE_SLOTS = 20;
+
+function pruneIdleSlots(state: StreamState): void {
+  const idle = Object.keys(state.byConversation)
+    .filter(id => !state.byConversation[id].isStreaming);
+  const overflow = idle.length - MAX_RETAINED_IDLE_SLOTS;
+  for (let i = 0; i < overflow; i += 1) {
+    delete state.byConversation[idle[i]];
+  }
+}
+
+/** 把 reducer 限定在某个会话的槽位上：函数体照旧写 `state.xxx`，只是这个 state
+ * 现在是该会话的槽位而不是全局单槽。槽位不存在（流已结束、事件迟到）时直接丢弃。 */
+function withSlot<P extends { conversationId: string }>(
+  body: (slot: StreamSlot, action: PayloadAction<P>) => void,
+) {
+  return (state: StreamState, action: PayloadAction<P>) => {
+    // 没带会话 ID 的槽位 action 谁也不指向，直接丢弃——reducer 不该被野生 action 打挂。
+    if (!action.payload?.conversationId) return;
+    const slot = state.byConversation[action.payload.conversationId];
+    if (!slot) return;
+    body(slot, action);
+  };
+}
 
 const MAX_EVIDENCE_ITEMS = 12;
 
@@ -171,39 +213,41 @@ const streamSlice = createSlice({
       state,
       action: PayloadAction<{ conversationId: string; messageId: string; staticBlocks?: ContentBlock[] }>
     ) {
-      state.conversationId = action.payload.conversationId;
-      state.messageId = action.payload.messageId;
-      state.staticBlocks = action.payload.staticBlocks ?? [];
-      state.textBlocks = {};
-      state.thinkingBlocks = {};
-      state.blockOrder = [];
-      state.blockTypes = {};
-      state.totalTextLength = 0;
-      state.displayedTextLength = 0;
-      state.isStreaming = true;
-      state.isStreamingReasoning = false;
-      state.isThinkingPhaseComplete = false;
-      state.reasoningStartTime = null;
-      state.reasoningEndTime = undefined;
-      state.searchSources = [];
-      state.lastEntryId = '0';
-      state.streamStatus = 'streaming';
-      state.currentRun = null;
+      // 唯一建立槽位的入口。同一会话重新发送时整槽重置，语义与此前一致；
+      // 其他会话的槽位不受影响，这正是本次改造要的并发。
+      const slot: StreamSlot = { ...EMPTY_STREAM_SLOT };
+      state.byConversation[action.payload.conversationId] = slot;
+      pruneIdleSlots(state);
+      slot.conversationId = action.payload.conversationId;
+      slot.messageId = action.payload.messageId;
+      slot.staticBlocks = action.payload.staticBlocks ?? [];
+      slot.textBlocks = {};
+      slot.thinkingBlocks = {};
+      slot.blockOrder = [];
+      slot.blockTypes = {};
+      slot.totalTextLength = 0;
+      slot.displayedTextLength = 0;
+      slot.isStreaming = true;
+      slot.isStreamingReasoning = false;
+      slot.isThinkingPhaseComplete = false;
+      slot.reasoningStartTime = null;
+      slot.reasoningEndTime = undefined;
+      slot.searchSources = [];
+      slot.lastEntryId = '0';
+      slot.streamStatus = 'streaming';
+      slot.currentRun = null;
       // 新一轮发送清空上一次的错误卡片
-      state.lastError = null;
-      state.contextUsage = null;
-      state.contextUsageConversationId = action.payload.conversationId;
-      state.contextUsageMeta = null;
-      state.contextUsageInFlight = null;
-      state.contextUsageInFlightConversationId = action.payload.conversationId;
-      state.contextUsageInFlightMeta = null;
-      state.pendingContextRequest = null;
+      slot.lastError = null;
+      slot.contextUsage = null;
+      slot.contextUsageConversationId = action.payload.conversationId;
+      slot.contextUsageMeta = null;
+      slot.contextUsageInFlight = null;
+      slot.contextUsageInFlightConversationId = action.payload.conversationId;
+      slot.contextUsageInFlightMeta = null;
+      slot.pendingContextRequest = null;
     },
 
-    appendTextDelta(
-      state,
-      action: PayloadAction<{ blockId: string; delta: string; runId?: string; stepId?: string }>
-    ) {
+    appendTextDelta: withSlot((state, action: PayloadAction<{ conversationId: string } & { blockId: string; delta: string; runId?: string; stepId?: string }>) => {
       const { blockId, delta, runId, stepId } = action.payload;
       // 首次创建：注册 block type + order
       if (!state.blockTypes[blockId]) {
@@ -220,12 +264,9 @@ const streamSlice = createSlice({
       }
       state.textBlocks[blockId] = (state.textBlocks[blockId] ?? '') + delta;
       state.totalTextLength += delta.length;
-    },
+    }),
 
-    appendThinkingDelta(
-      state,
-      action: PayloadAction<{ blockId: string; delta: string; runId?: string; stepId?: string }>
-    ) {
+    appendThinkingDelta: withSlot((state, action: PayloadAction<{ conversationId: string } & { blockId: string; delta: string; runId?: string; stepId?: string }>) => {
       const { blockId, delta, runId, stepId } = action.payload;
       if (!state.blockTypes[blockId]) {
         state.blockTypes[blockId] = 'thinking';
@@ -244,12 +285,9 @@ const streamSlice = createSlice({
         }
       }
       state.thinkingBlocks[blockId] = (state.thinkingBlocks[blockId] ?? '') + delta;
-    },
+    }),
 
-    discardContentBlock(
-      state,
-      action: PayloadAction<{ runId: string; blockId: string; sequence: number }>,
-    ) {
+    discardContentBlock: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; blockId: string; sequence: number }>) => {
       const run = state.currentRun;
       const { runId, blockId, sequence } = action.payload;
       if (!run || run.runId !== runId || sequence <= run.lastSequence) return;
@@ -268,55 +306,56 @@ const streamSlice = createSlice({
       for (const step of run.steps) {
         step.contentBlockIds = step.contentBlockIds.filter(existingId => existingId !== blockId);
       }
-    },
+    }),
 
     // 打字机每 tick 推进显示长度
-    advanceTypewriter(state, action: PayloadAction<number>) {
+    advanceTypewriter: withSlot((state, action: PayloadAction<{ conversationId: string; chars: number }>) => {
       state.displayedTextLength = Math.min(
-        state.displayedTextLength + action.payload,
+        state.displayedTextLength + action.payload.chars,
         state.totalTextLength
       );
-    },
+    }),
 
-    completeThinkingPhase(state) {
+    completeThinkingPhase: withSlot<{ conversationId: string }>((state) => {
       state.isThinkingPhaseComplete = true;
       state.isStreamingReasoning = false;
       state.reasoningEndTime = Date.now();
+    }),
+
+    /** 草稿会话转正：把槽位整体迁到服务端会话 ID 下。
+     *
+     * 槽位现在以会话 ID 为键，所以迁移的是键本身——留在旧键下的槽位既查不到、
+     * 也再收不到后续事件。与 streamControllerRegistry 的 migrateStreamController 对应。
+     */
+    migrateStreamConversation(
+      state,
+      action: PayloadAction<{ from: string; to: string }>,
+    ) {
+      const { from, to } = action.payload;
+      if (from === to) return;
+      const slot = state.byConversation[from];
+      if (!slot) return;
+      delete state.byConversation[from];
+      state.byConversation[to] = slot;
+      slot.conversationId = to;
+      if (slot.contextUsageConversationId === from) {
+        slot.contextUsageConversationId = to;
+      }
+      if (slot.contextUsageInFlightConversationId === from) {
+        slot.contextUsageInFlightConversationId = to;
+      }
+      if (slot.pendingContextRequest?.conversationId === from) {
+        slot.pendingContextRequest.conversationId = to;
+      }
     },
 
-    migrateStreamConversation(state, action: PayloadAction<string>) {
-      const previousConversationId = state.conversationId;
-      state.conversationId = action.payload;
-      if (state.contextUsageConversationId === previousConversationId) {
-        state.contextUsageConversationId = action.payload;
-      }
-      if (state.contextUsageInFlightConversationId === previousConversationId) {
-        state.contextUsageInFlightConversationId = action.payload;
-      }
-      if (state.pendingContextRequest?.conversationId === previousConversationId) {
-        state.pendingContextRequest.conversationId = action.payload;
-      }
-    },
-
-    setLastEntryId(state, action: PayloadAction<string>) {
-      state.lastEntryId = action.payload;
-    },
+    setLastEntryId: withSlot((state, action: PayloadAction<{ conversationId: string; entryId: string }>) => {
+      state.lastEntryId = action.payload.entryId;
+    }),
 
     // ── Agent run timeline reducers (Task 12 / spec §6.4) ──
 
-    receiveContextRequired(
-      state,
-      action: PayloadAction<{
-        conversationId: string;
-        runId: string;
-        requestId: string;
-        contextType: AgentContextType;
-        purpose: AgentContextPurpose;
-        reason: string;
-        expiresAt: number;
-        sequence: number;
-      }>,
-    ) {
+    receiveContextRequired: withSlot((state, action: PayloadAction<{ conversationId: string } & { conversationId: string; runId: string; requestId: string; contextType: AgentContextType; purpose: AgentContextPurpose; reason: string; expiresAt: number; sequence: number; }>) => {
       const run = state.currentRun;
       const { conversationId, runId, requestId, contextType, purpose, reason, expiresAt, sequence } = action.payload;
       if (
@@ -338,16 +377,9 @@ const streamSlice = createSlice({
         sequence,
         phase: 'required',
       };
-    },
+    }),
 
-    setContextRequestPhase(
-      state,
-      action: PayloadAction<{
-        runId: string;
-        requestId: string;
-        phase: AgentContextRequestPhase;
-      }>,
-    ) {
+    setContextRequestPhase: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; requestId: string; phase: AgentContextRequestPhase; }>) => {
       const request = state.pendingContextRequest;
       if (
         !request
@@ -355,18 +387,9 @@ const streamSlice = createSlice({
         || request.requestId !== action.payload.requestId
       ) return;
       request.phase = action.payload.phase;
-    },
+    }),
 
-    receiveContextResult(
-      state,
-      action: PayloadAction<{
-        runId: string;
-        requestId: string;
-        contextType: AgentContextType;
-        status: AgentContextResultStatus;
-        sequence: number;
-      }>,
-    ) {
+    receiveContextResult: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; requestId: string; contextType: AgentContextType; status: AgentContextResultStatus; sequence: number; }>) => {
       const run = state.currentRun;
       const { runId, requestId, sequence } = action.payload;
       if (!run || run.runId !== runId || sequence <= run.lastSequence) return;
@@ -375,18 +398,9 @@ const streamSlice = createSlice({
       if (request?.runId === runId && request.requestId === requestId) {
         state.pendingContextRequest = null;
       }
-    },
+    }),
 
-    initRun(
-      state,
-      action: PayloadAction<{
-        runId: string;
-        messageId: string;
-        serverMessageId?: string;
-        config: AgentRunConfig;
-        sequence: number;
-      }>
-    ) {
+    initRun: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; messageId: string; serverMessageId?: string; config: AgentRunConfig; sequence: number; }>) => {
       const { runId, messageId, serverMessageId, config, sequence } = action.payload;
       // 归属校验：单 currentRun 是同一条流内的设计，不能跨流生效。上一轮迟到的 initRun
       // 会把新一轮的 currentRun 顶掉，新一轮仍在生成却显示成已完成（dev 复验 14:17:29.856）。
@@ -414,24 +428,18 @@ const streamSlice = createSlice({
         toolDigests: [],
         lastSequence: sequence,
       };
-    },
+    }),
 
-    updateRunProgress(
-      state,
-      action: PayloadAction<{ runId: string; sequence: number; progress: AgentProgressState }>
-    ) {
+    updateRunProgress: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; sequence: number; progress: AgentProgressState }>) => {
       const run = state.currentRun;
       const { runId, sequence, progress } = action.payload;
       if (!run || run.runId !== runId || sequence <= run.lastSequence) return;
       run.lastSequence = sequence;
       run.protocolVersion = 2;
       run.progress = progress;
-    },
+    }),
 
-    applyPlanSnapshot(
-      state,
-      action: PayloadAction<{ runId: string; sequence: number; plan: AgentPlanState }>
-    ) {
+    applyPlanSnapshot: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; sequence: number; plan: AgentPlanState }>) => {
       const run = state.currentRun;
       const { runId, sequence, plan } = action.payload;
       if (!run || run.runId !== runId || sequence <= run.lastSequence) return;
@@ -443,21 +451,9 @@ const streamSlice = createSlice({
       run.lastSequence = sequence;
       run.protocolVersion = 2;
       run.plan = normalizeAgentPlanState(plan);
-    },
+    }),
 
-    updatePlanStep(
-      state,
-      action: PayloadAction<{
-        runId: string;
-        sequence: number;
-        planId: string;
-        revision: number;
-        mode?: AgentPlanMode;
-        source?: AgentPlanSource;
-        reason?: string;
-        item: AgentPlanItem;
-      }>
-    ) {
+    updatePlanStep: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; sequence: number; planId: string; revision: number; mode?: AgentPlanMode; source?: AgentPlanSource; reason?: string; item: AgentPlanItem; }>) => {
       const run = state.currentRun;
       const { runId, sequence, planId, revision, item, mode, source, reason } = action.payload;
       if (!run || run.runId !== runId || sequence <= run.lastSequence) return;
@@ -475,12 +471,9 @@ const streamSlice = createSlice({
       if (mode !== undefined || source !== undefined || reason !== undefined) {
         Object.assign(run.plan, normalizeAgentPlanMetadata({ mode, source, reason }));
       }
-    },
+    }),
 
-    upsertToolDigest(
-      state,
-      action: PayloadAction<{ runId: string; sequence: number; digest: AgentToolDigest }>
-    ) {
+    upsertToolDigest: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; sequence: number; digest: AgentToolDigest }>) => {
       const run = state.currentRun;
       const { runId, sequence, digest } = action.payload;
       if (!run || run.runId !== runId || sequence <= run.lastSequence) return;
@@ -501,12 +494,9 @@ const streamSlice = createSlice({
       } else {
         run.toolDigests.push(digest);
       }
-    },
+    }),
 
-    upsertEvidenceItem(
-      state,
-      action: PayloadAction<{ runId: string; sequence: number; evidence: AgentEvidenceItem }>
-    ) {
+    upsertEvidenceItem: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; sequence: number; evidence: AgentEvidenceItem }>) => {
       const run = state.currentRun;
       const { runId, sequence, evidence } = action.payload;
       if (!run || run.runId !== runId || sequence <= run.lastSequence) return;
@@ -520,16 +510,9 @@ const streamSlice = createSlice({
         run.evidence.push(evidence);
       }
       run.evidence = capEvidenceItems(run.evidence);
-    },
+    }),
 
-    upsertStaticContentBlock(
-      state,
-      action: PayloadAction<{
-        runId: string;
-        sequence: number;
-        block: StructuredToolResultBlock | KnowledgeEvidenceBlock;
-      }>,
-    ) {
+    upsertStaticContentBlock: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; sequence: number; block: StructuredToolResultBlock | KnowledgeEvidenceBlock; }>) => {
       const run = state.currentRun;
       const { runId, sequence, block } = action.payload;
       if (!run || run.runId !== runId || sequence <= run.lastSequence) return;
@@ -541,12 +524,9 @@ const streamSlice = createSlice({
       } else {
         state.staticBlocks.push(block);
       }
-    },
+    }),
 
-    pushStep(
-      state,
-      action: PayloadAction<{ runId: string; stepId: string; stepNumber: number; sequence: number }>
-    ) {
+    pushStep: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; stepId: string; stepNumber: number; sequence: number }>) => {
       const run = state.currentRun;
       const { runId, stepId, stepNumber, sequence } = action.payload;
       if (!run || run.runId !== runId || sequence <= run.lastSequence) return;
@@ -560,20 +540,9 @@ const streamSlice = createSlice({
         startedAt: Date.now(),
       });
       run.totalSteps = Math.max(run.totalSteps, stepNumber);
-    },
+    }),
 
-    pushToolCall(
-      state,
-      action: PayloadAction<{
-        runId: string;
-        stepId: string;
-        toolCallId: string;
-        planItemId?: string;
-        toolName: string;
-        arguments: Record<string, unknown>;
-        sequence: number;
-      }>
-    ) {
+    pushToolCall: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; stepId: string; toolCallId: string; planItemId?: string; toolName: string; arguments: Record<string, unknown>; sequence: number; }>) => {
       const run = state.currentRun;
       const {
         runId,
@@ -597,17 +566,9 @@ const streamSlice = createSlice({
         startedAt: Date.now(),
       });
       run.totalToolCalls += 1;
-    },
+    }),
 
-    mergeToolCallDelta(
-      state,
-      action: PayloadAction<{
-        runId: string;
-        toolCallId: string;
-        delta: Record<string, unknown>;
-        sequence: number;
-      }>
-    ) {
+    mergeToolCallDelta: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; toolCallId: string; delta: Record<string, unknown>; sequence: number; }>) => {
       const run = state.currentRun;
       const { runId, toolCallId, delta, sequence } = action.payload;
       if (!run || run.runId !== runId || sequence <= run.lastSequence) return;
@@ -628,21 +589,9 @@ const streamSlice = createSlice({
           return;
         }
       }
-    },
+    }),
 
-    finalizeToolCall(
-      state,
-      action: PayloadAction<{
-        runId: string;
-        toolCallId: string;
-        planItemId?: string;
-        status: 'success' | 'failed' | 'degraded';
-        durationMs: number;
-        resultSummary?: ToolCallResultSummary;
-        error?: string | null;
-        sequence: number;
-      }>
-    ) {
+    finalizeToolCall: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; toolCallId: string; planItemId?: string; status: 'success' | 'failed' | 'degraded'; durationMs: number; resultSummary?: ToolCallResultSummary; error?: string | null; sequence: number; }>) => {
       const run = state.currentRun;
       const {
         runId,
@@ -686,17 +635,9 @@ const streamSlice = createSlice({
           return;
         }
       }
-    },
+    }),
 
-    finalizeStep(
-      state,
-      action: PayloadAction<{
-        runId: string;
-        stepId: string;
-        sequence: number;
-        toolCallCount?: number;
-      }>
-    ) {
+    finalizeStep: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; stepId: string; sequence: number; toolCallCount?: number; }>) => {
       const run = state.currentRun;
       const { runId, stepId, sequence, toolCallCount } = action.payload;
       if (!run || run.runId !== runId || sequence <= run.lastSequence) return;
@@ -720,30 +661,18 @@ const streamSlice = createSlice({
         step.status = 'completed';
         step.completedAt = Date.now();
       }
-    },
+    }),
 
-    markLimitReached(
-      state,
-      action: PayloadAction<{ runId: string; reason: LimitReachedReason; sequence: number }>
-    ) {
+    markLimitReached: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; reason: LimitReachedReason; sequence: number }>) => {
       const run = state.currentRun;
       const { runId, reason, sequence } = action.payload;
       if (!run || run.runId !== runId || sequence <= run.lastSequence) return;
       run.lastSequence = sequence;
       run.limitReachedReason = reason;
       // 不改 run.status —— spec §4.3，run_limit_reached 是信号事件，仅 run_completed 才写终态
-    },
+    }),
 
-    finalizeRun(
-      state,
-      action: PayloadAction<{
-        runId: string;
-        status: Exclude<AgentRunStatus, 'running'>;
-        failure?: { code: string; message: string };
-        reason?: string;
-        sequence: number;
-      }>
-    ) {
+    finalizeRun: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; status: Exclude<AgentRunStatus, 'running'>; failure?: { code: string; message: string }; reason?: string; sequence: number; }>) => {
       const run = state.currentRun;
       const { runId, status, failure, sequence } = action.payload;
       if (!run || run.runId !== runId || sequence <= run.lastSequence) return;
@@ -773,34 +702,23 @@ const streamSlice = createSlice({
           });
         });
       }
-    },
+    }),
 
-    setStreamStatus(state, action: PayloadAction<StreamState['streamStatus']>) {
-      state.streamStatus = action.payload;
-    },
+    setStreamStatus: withSlot((state, action: PayloadAction<{ conversationId: string; status: StreamSlot['streamStatus'] }>) => {
+      state.streamStatus = action.payload.status;
+    }),
 
-    setStreamError(
-      state,
-      action: PayloadAction<{ message: string; code?: string; data?: Record<string, unknown> }>,
-    ) {
-      state.lastError = action.payload;
-    },
+    setStreamError: withSlot((state, action: PayloadAction<{ conversationId: string } & { message: string; code?: string; data?: Record<string, unknown> }>) => {
+      // 只留错误本身：conversationId 是路由用的，不该混进错误卡片的数据里。
+      const { message, code, data } = action.payload;
+      state.lastError = { message, code, data };
+    }),
 
-    clearStreamError(state) {
+    clearStreamError: withSlot<{ conversationId: string }>((state) => {
       state.lastError = null;
-    },
+    }),
 
-    updateContextUsage(
-      state,
-      action: PayloadAction<{
-        conversationId: string;
-        usage: ContextUsage;
-        runId: string;
-        messageId: string;
-        sequence: number;
-        phase: ContextUsagePhase;
-      }>,
-    ) {
+    updateContextUsage: withSlot((state, action: PayloadAction<{ conversationId: string } & { conversationId: string; usage: ContextUsage; runId: string; messageId: string; sequence: number; phase: ContextUsagePhase; }>) => {
       const { conversationId, usage, runId, messageId, sequence, phase } = action.payload;
       if (state.conversationId !== conversationId || !state.isStreaming) return;
       if (state.currentRun && state.currentRun.runId !== runId) return;
@@ -840,9 +758,9 @@ const streamSlice = createSlice({
           state.contextUsageMeta = nextMeta;
         }
       }
-    },
+    }),
 
-    endStream(state, action: PayloadAction<{ messageId: string | null } | undefined>) {
+    endStream: withSlot((state, action: PayloadAction<{ conversationId: string; messageId?: string | null }>) => {
       // 归属校验：全局槽位同一时刻只装一条流，而结束回调可能迟到。会话 A 的回调晚到时，
       // 槽位可能已被会话 B 的恢复流占用；无条件清空会让 B 在仍在接收时提前变成空闲
       // （dev 验收 12:29:05 提前 idle、12:29:37 正文才到）。同一会话的上一轮回调同理，
@@ -850,7 +768,7 @@ const streamSlice = createSlice({
       // conversationId 还会因草稿会话转正被 migrateStreamConversation 迁移。
       // 不带归属的调用（登出、切会话清理）保持无条件清空。
       // messageId 为 null 表示调用方这一轮还没拿到身份，退回旧的无条件语义，不引入新行为。
-      const owner = action.payload?.messageId ?? null;
+      const owner = action.payload.messageId ?? null;
       if (owner !== null && state.messageId !== null && state.messageId !== owner) return;
       // 保留 lastError 跨流生命周期：错误卡片需要在 endStream 后继续显示，
       // 由 startStream（新一轮发送）或 clearStreamError（用户手动 dismiss）清掉
@@ -865,7 +783,7 @@ const streamSlice = createSlice({
       const preservedContextUsageInFlight = state.contextUsageInFlight;
       const preservedContextUsageInFlightConversationId = state.contextUsageInFlightConversationId;
       const preservedContextUsageInFlightMeta = state.contextUsageInFlightMeta;
-      Object.assign(state, initialState);
+      Object.assign(state, EMPTY_STREAM_SLOT);
       state.lastError = preservedError;
       state.currentRun = preservedRun;
       state.contextUsage = preservedContextUsage;
@@ -874,11 +792,17 @@ const streamSlice = createSlice({
       state.contextUsageInFlight = preservedContextUsageInFlight;
       state.contextUsageInFlightConversationId = preservedContextUsageInFlightConversationId;
       state.contextUsageInFlightMeta = preservedContextUsageInFlightMeta;
+    }),
+
+    /** 清空所有会话的槽位。登出等全局失效场景用；
+     *  按会话拆分后已经没有"那一条流"可以单独结束了。 */
+    resetStreamState(state) {
+      state.byConversation = {};
     },
 
-    clearCurrentRun(state) {
+    clearCurrentRun: withSlot<{ conversationId: string }>((state) => {
       state.currentRun = null;
-    },
+    }),
   },
   extraReducers: builder => {
     builder.addCase(logout, () => initialState);
@@ -886,15 +810,38 @@ const streamSlice = createSlice({
   },
 });
 
+/** 取某个会话的流槽位；没有则返回共享的空槽位。
+ *
+ * 返回的是稳定引用（EMPTY_STREAM_SLOT 本身），所以「没有流」的会话不会每次
+ * 取值都拿到新对象而触发重渲染。**空槽位不可写**，只用于读。
+ */
+export function selectStreamSlot(
+  state: { stream: StreamState },
+  conversationId: string | null | undefined,
+): StreamSlot {
+  if (!conversationId) return EMPTY_STREAM_SLOT;
+  return state.stream?.byConversation?.[conversationId] ?? EMPTY_STREAM_SLOT;
+}
+
+/** 当前正在生成的所有会话 ID。侧边栏据此为每个会话各自转圈——
+ * 此前只能显示一个，因为全局只有一个 conversationId。 */
+const EMPTY_STREAMING_CONVERSATION_IDS: string[] = [];
+
+export function selectStreamingConversationIds(state: { stream: StreamState }): string[] {
+  const byConversation = state.stream?.byConversation;
+  if (!byConversation) return EMPTY_STREAMING_CONVERSATION_IDS;
+  return Object.keys(byConversation).filter(id => byConversation[id].isStreaming);
+}
+
 // Selector：从 streamSlice 组装出当前流式 content blocks 数组
 // thinking blocks 全量返回（实时显示），text blocks 按 displayedTextLength 截断（打字机效果）
 type StreamContentBlockSelectorArgs = [
-  StreamState['staticBlocks'],
-  StreamState['textBlocks'],
-  StreamState['thinkingBlocks'],
-  StreamState['blockOrder'],
-  StreamState['blockTypes'],
-  StreamState['displayedTextLength'],
+  StreamSlot['staticBlocks'],
+  StreamSlot['textBlocks'],
+  StreamSlot['thinkingBlocks'],
+  StreamSlot['blockOrder'],
+  StreamSlot['blockTypes'],
+  StreamSlot['displayedTextLength'],
 ];
 
 const selectStreamContentBlocksFromParts = createSelector(
@@ -946,7 +893,7 @@ const selectStreamContentBlocksFromParts = createSelector(
   },
 );
 
-export function selectStreamContentBlocks(state: StreamState): ContentBlock[] {
+export function selectStreamContentBlocks(state: StreamSlot): ContentBlock[] {
   return selectStreamContentBlocksFromParts(
     state.staticBlocks,
     state.textBlocks,
@@ -970,11 +917,11 @@ export function selectStreamContentBlocks(state: StreamState): ContentBlock[] {
  * 只用于流槽位状态（正文/思考 delta、run timeline、流状态与错误）。会话自身的状态——
  * 标题、推荐问题、会话列表刷新、全局错误——不受槽位归属影响，丢了槽位也要照常走完。
  */
-export function ownsStreamSlot(state: StreamState, messageId: string | null): boolean {
+export function ownsStreamSlot(state: StreamSlot, messageId: string | null): boolean {
   return state.messageId === null || state.messageId === messageId;
 }
 
-export function selectFullStreamContentBlocks(state: StreamState): ContentBlock[] {
+export function selectFullStreamContentBlocks(state: StreamSlot): ContentBlock[] {
   const blocks: ContentBlock[] = [...state.staticBlocks];
 
   for (const blockId of state.blockOrder) {
@@ -1018,6 +965,7 @@ export const {
   markLimitReached,
   mergeToolCallDelta,
   migrateStreamConversation,
+  resetStreamState,
   pushStep,
   pushToolCall,
   setLastEntryId,

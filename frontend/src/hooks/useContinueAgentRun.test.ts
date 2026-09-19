@@ -117,7 +117,7 @@ describe('useContinueAgentRun', () => {
 
     expect(onRejectedBeforeStart).toHaveBeenCalledTimes(1);
     expect(continueAgentRunStream).not.toHaveBeenCalled();
-    expect(store.getState().stream.isStreaming).toBe(false);
+    expect(store.getState().stream.byConversation['conv-1']?.isStreaming ?? false).toBe(false);
   });
 
   it('已有 continuation 时第二次调用直接拒绝且不 abort 第一次', async () => {
@@ -269,7 +269,7 @@ describe('useContinueAgentRun', () => {
 
     expect(continueAgentRunStream).toHaveBeenCalledTimes(1);
     expect(reconnectStream).toHaveBeenCalledTimes(1);
-    expect(partialSnapshot?.stream.textBlocks.answer).toBe('补充前半段');
+    expect(partialSnapshot?.stream.byConversation['conv-1'].textBlocks.answer).toBe('补充前半段');
     expect(partialSnapshot?.conversation.byId['conv-1'].messages).toHaveLength(1);
     expect(partialSnapshot?.conversation.byId['conv-1'].messages[0].id).toBe('msg-1');
     const assistant = store.getState().conversation.byId['conv-1'].messages[0];
@@ -335,7 +335,7 @@ describe('useContinueAgentRun', () => {
     });
 
     expect(reconnectStream).not.toHaveBeenCalled();
-    expect(store.getState().stream.lastError?.message).toBe('生成已中断');
+    expect(store.getState().stream.byConversation['conv-1']?.lastError?.message).toBe('生成已中断');
   });
 
   it('结构化终态 onError 已落 code/data 后，外层 catch 不再用 message-only 覆盖', async () => {
@@ -360,7 +360,7 @@ describe('useContinueAgentRun', () => {
       });
     });
 
-    expect(store.getState().stream.lastError).toEqual({
+    expect(store.getState().stream.byConversation['conv-1']?.lastError).toEqual({
       message: '生成已中断',
       code: 'stream_interrupted',
       data: { reason: 'worker_shutdown' },
@@ -524,7 +524,8 @@ describe('useContinueAgentRun', () => {
             },
           },
         },
-        stream: streamState,
+        // 流槽位按会话索引：这个假 stream 就是 conv-1 的那条槽位。
+        stream: { byConversation: { 'conv-1': streamState } },
       }),
     };
 
@@ -1032,7 +1033,8 @@ describe('useContinueAgentRun', () => {
             },
           },
         },
-        stream: streamState,
+        // 流槽位按会话索引：这个假 stream 就是 conv-1 的那条槽位。
+        stream: { byConversation: { 'conv-1': streamState } },
       }),
     };
     let capturedCallbacks: Parameters<typeof continueAgentRunStream>[1] | null = null;

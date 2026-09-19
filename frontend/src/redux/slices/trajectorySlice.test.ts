@@ -789,6 +789,7 @@ describe('trajectorySlice', () => {
     const testStore = configureStore({ reducer: rootReducer });
     testStore.dispatch(startStream({ conversationId: 'conversation-a', messageId: 'placeholder' }));
     testStore.dispatch(initRun({
+      conversationId: 'conversation-a',
       runId: 'stream-run',
       messageId: 'placeholder',
       sequence: 0,
@@ -816,7 +817,7 @@ describe('trajectorySlice', () => {
         }),
       },
     });
-    expect(state.stream.currentRun?.runId).toBe('stream-run');
+    expect(state.stream.byConversation['conversation-a'].currentRun?.runId).toBe('stream-run');
   });
 
   it('只接受当前 run-list request 的 success 或 failure', () => {

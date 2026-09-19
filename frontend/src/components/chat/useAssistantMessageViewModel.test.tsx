@@ -3,8 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentRunState } from '@/types/agentRun';
 import type { Message, SearchSourceSummary } from '@/types/conversation';
 
+const VM_CONVERSATION_ID = 'conv-vm';
+
 const selectorState = {
   stream: {
+    byConversation: {} as Record<string, unknown>,
     messageId: null as string | null,
     staticBlocks: [] as Message['content'],
     textBlocks: {} as Record<string, string>,
@@ -22,8 +25,11 @@ const selectorState = {
   },
 };
 
+// 流槽位按会话索引：这里把扁平的假 stream 挂在 VM_CONVERSATION_ID 下。
 vi.mock('@/redux/hooks', () => ({
-  useAppSelector: (selector: (state: typeof selectorState) => unknown) => selector(selectorState),
+  useAppSelector: (selector: (state: unknown) => unknown) => selector({
+    stream: { byConversation: { [VM_CONVERSATION_ID]: selectorState.stream } },
+  }),
 }));
 
 import {
@@ -51,6 +57,7 @@ function resetSelectorState() {
 }
 
 function renderViewModel(message: Message, overrides: Partial<Parameters<typeof useAssistantMessageViewModel>[0]> = {}) {
+  overrides = { conversationId: VM_CONVERSATION_ID, ...overrides };
   return renderHook(() => useAssistantMessageViewModel({
     message,
     isStreaming: false,

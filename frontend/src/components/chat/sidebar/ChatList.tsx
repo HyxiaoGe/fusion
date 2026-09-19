@@ -2,11 +2,13 @@ import React from "react";
 import ChatItem from "./ChatItem";
 import type { ConversationListItem } from "@/hooks/useConversationList";
 
+const EMPTY_STREAMING_IDS: readonly string[] = [];
+
 interface ChatListProps {
   chats: ConversationListItem[];
   sortedAndGroupedChats: { groupLabel: string; groupChats: ConversationListItem[] }[];
   activeChatId: string | null;
-  streamingConversationId?: string | null;
+  streamingConversationIds?: readonly string[];
   modelNameById: Map<string, string>;
   isLoadingServerList: boolean;
   isLoadingMoreServer: boolean;
@@ -26,7 +28,7 @@ const ChatList: React.FC<ChatListProps> = ({
   chats,
   sortedAndGroupedChats,
   activeChatId,
-  streamingConversationId = null,
+  streamingConversationIds = EMPTY_STREAMING_IDS,
   modelNameById,
   isLoadingServerList,
   isLoadingMoreServer,
@@ -64,7 +66,7 @@ const ChatList: React.FC<ChatListProps> = ({
               key={chat.id}
               chat={chat}
               isActive={chat.id === activeChatId}
-              isStreaming={chat.id === streamingConversationId}
+              isStreaming={streamingConversationIds.includes(chat.id)}
               modelNameById={modelNameById}
               onSelectChat={handleSelectChat}
               onPrefetchChat={handlePrefetchChat}
@@ -88,7 +90,7 @@ const ChatList: React.FC<ChatListProps> = ({
                     key={chat.id}
                     chat={chat}
                     isActive={chat.id === activeChatId}
-                    isStreaming={chat.id === streamingConversationId}
+                    isStreaming={streamingConversationIds.includes(chat.id)}
                     modelNameById={modelNameById}
                     onSelectChat={handleSelectChat}
                     onPrefetchChat={handlePrefetchChat}

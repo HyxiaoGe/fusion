@@ -273,7 +273,7 @@ describe('useSuggestedQuestions', () => {
       });
       const { store, wrapper } = createWrapper([conversation('chat-a', [pending])]);
       store.dispatch(startStream({ conversationId: 'chat-a', messageId: 'assistant-live' }));
-      store.dispatch(setStreamStatus(streamStatus));
+      store.dispatch(setStreamStatus({ conversationId: 'chat-a', status: streamStatus }));
       store.dispatch(applySuggestedQuestionsPending({
         conversationId: 'chat-a',
         messageId: 'assistant-live',
@@ -305,7 +305,7 @@ describe('useSuggestedQuestions', () => {
       expect(result.current.suggestedQuestions).toEqual(['耗时五秒后的直达推荐']);
       expect(result.current.isLoadingQuestions).toBe(false);
 
-      act(() => { store.dispatch(endStream()); });
+      act(() => { store.dispatch(endStream({ conversationId: 'chat-a' })); });
       await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
       expect(loadConversationDetailMock).not.toHaveBeenCalled();
       expect(fetchSuggestedQuestionsMock).not.toHaveBeenCalled();
@@ -358,7 +358,7 @@ describe('useSuggestedQuestions', () => {
       });
       const { store, wrapper } = createWrapper([conversation('chat-a', [pending])]);
       store.dispatch(startStream({ conversationId: 'chat-a', messageId: pending.id }));
-      store.dispatch(setStreamStatus('reconnecting'));
+      store.dispatch(setStreamStatus({ conversationId: 'chat-a', status: 'reconnecting' }));
       loadConversationDetailMock.mockResolvedValue(conversation('chat-a', [ready]));
 
       const { result } = renderHook(() => useSuggestedQuestions('chat-a'), { wrapper });
@@ -366,7 +366,9 @@ describe('useSuggestedQuestions', () => {
       expect(loadConversationDetailMock).not.toHaveBeenCalled();
 
       act(() => {
-        store.dispatch(termination === 'endStream' ? endStream() : setStreamStatus(termination));
+        store.dispatch(termination === 'endStream'
+          ? endStream({ conversationId: 'chat-a' })
+          : setStreamStatus({ conversationId: 'chat-a', status: termination }));
       });
       await act(async () => { await vi.advanceTimersByTimeAsync(FIRST_POLL_MS); });
 
@@ -415,7 +417,7 @@ describe('useSuggestedQuestions', () => {
       revision: 2,
     }));
     store.dispatch(startStream({ conversationId: 'chat-a', messageId: 'server-assistant' }));
-    store.dispatch(setStreamStatus('reconnecting'));
+    store.dispatch(setStreamStatus({ conversationId: 'chat-a', status: 'reconnecting' }));
 
     const { result } = renderHook(() => useSuggestedQuestions('chat-a'), { wrapper });
     await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
@@ -445,13 +447,14 @@ describe('useSuggestedQuestions', () => {
     const { store, wrapper } = createWrapper([conversation('chat-a', [pending])]);
     store.dispatch(startStream({ conversationId: 'chat-a', messageId: 'local-assistant' }));
     store.dispatch(initRun({
+      conversationId: 'chat-a',
       runId: 'run-a',
       messageId: 'local-assistant',
       serverMessageId: 'server-assistant',
       config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300 },
       sequence: 1,
     }));
-    store.dispatch(finalizeRun({ runId: 'run-a', status: 'completed', sequence: 2 }));
+    store.dispatch(finalizeRun({ conversationId: 'chat-a', runId: 'run-a', status: 'completed', sequence: 2 }));
     loadConversationDetailMock.mockResolvedValue(conversation('chat-a', [assistantMessage(pending.id, {
       suggestedQuestions: ['封口后恢复推荐'],
       suggestedQuestionsStatus: 'ready',
@@ -463,7 +466,7 @@ describe('useSuggestedQuestions', () => {
     expect(loadConversationDetailMock).not.toHaveBeenCalled();
     expect(result.current.isLoadingQuestions).toBe(true);
 
-    act(() => { store.dispatch(endStream()); });
+    act(() => { store.dispatch(endStream({ conversationId: 'chat-a' })); });
     await act(async () => { await vi.advanceTimersByTimeAsync(FIRST_POLL_MS); });
     expect(loadConversationDetailMock).toHaveBeenCalledTimes(1);
     expect(result.current.suggestedQuestions).toEqual(['封口后恢复推荐']);

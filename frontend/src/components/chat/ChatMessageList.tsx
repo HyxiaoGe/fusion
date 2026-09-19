@@ -4,7 +4,7 @@ import type { Message } from '@/types/conversation';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '@/redux/hooks';
-import { clearStreamError } from '@/redux/slices/streamSlice';
+import { clearStreamError, selectStreamSlot } from '@/redux/slices/streamSlice';
 import LoadingIndicator from '../ui/loading-indicator';
 import { Button } from '../ui/button';
 import ChatMessage from './ChatMessage';
@@ -334,9 +334,9 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
   }, [conversationId, hasMessages, setIsAwayFromBottom, updateJumpButtonPosition]);
 
   const dispatch = useAppDispatch();
-  const streamError = useAppSelector(state => state.stream.lastError);
-  const currentRun = useAppSelector(state => state.stream.currentRun);
-  const streamMessageId = useAppSelector(state => state.stream.messageId);
+  const streamError = useAppSelector(state => selectStreamSlot(state, conversationId).lastError);
+  const currentRun = useAppSelector(state => selectStreamSlot(state, conversationId).currentRun);
+  const streamMessageId = useAppSelector(state => selectStreamSlot(state, conversationId).messageId);
   const model = useAppSelector(state => selectChatModel(state, conversationId));
   const modelId = model?.id;
   const providerId = model?.provider;
@@ -522,7 +522,7 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
           message={streamError.message}
           code={streamError.code}
           data={streamError.data}
-          onDismiss={() => dispatch(clearStreamError())}
+          onDismiss={() => conversationId && dispatch(clearStreamError({ conversationId }))}
         />
       )}
 

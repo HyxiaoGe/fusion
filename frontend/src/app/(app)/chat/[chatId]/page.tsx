@@ -44,6 +44,7 @@ import {
   endStream,
   selectFullStreamContentBlocks,
   ownsStreamSlot,
+  selectStreamSlot,
   setStreamStatus,
   startStream,
 } from '@/redux/slices/streamSlice';
@@ -169,6 +170,9 @@ export default function ChatPage() {
   const [trajectoryComposerInset, setTrajectoryComposerInset] = useState(256);
   const trajectoryInspectSequenceRef = useRef(0);
   const reconnectControllerRef = useRef<AbortController | null>(null);
+  // 切会话不再掐断恢复流，所以离开聊天页时没人收尾了：这里记住本页面还活着的
+  // 恢复流，真正卸载时统一停写并中止，避免留下无人认领的 SSE。
+  const liveRecoveryStreamsRef = useRef<Set<{ controller: AbortController; detach: () => void }>>(new Set());
   const recoveryStopPendingRef = useRef<{
     controller: AbortController;
     bufferedActions: Array<() => void>;
@@ -201,11 +205,11 @@ export default function ChatPage() {
     sessionKey: authSessionKey,
   });
   const conversationError = useAppSelector((state) => state.conversation.globalError);
-  const isStreaming = useAppSelector((state) => state.stream.isStreaming);
+  // 「正在生成」现在是每个会话各自的事实，不再是全局标志。
+  const isStreaming = useAppSelector((state) => selectStreamSlot(state, chatId).isStreaming);
   const lastReadyConversationSnapshot = useAppSelector(
     (state) => state.conversation.lastReadyConversationSnapshot
   );
-  const streamConversationId = useAppSelector((state) => state.stream.conversationId);
   const activeSurface = useAppSelector((state) => (
     selectTrajectoryViewState(state, chatId)?.activeSurface ?? 'chat'
   ));
@@ -291,11 +295,10 @@ export default function ChatPage() {
     reconnectAttemptedRef.current = false;
   }, [chatId]);
   useEffect(() => {
-    // 只拦"本会话已经在生成"。stream.isStreaming 是全局标志，属于当前正在生成的那个会话；
-    // 它又不在依赖里，渲染闭包读到的是切会话前的旧值。从正在生成的会话 A 切到 B 时，
-    // 裸用它会把 B 的未完成流检查整个跳过，且此后不会再重跑，只能整页刷新（issue #74）。
+    // 只拦"本会话已经在生成"。isStreaming 现在就是本会话槽位的字段，跨会话不再互相影响
+    // ——此前它是全局标志，从正在生成的会话 A 切到 B 会把 B 的未完成流检查整个跳过（issue #74）。
     if (!chatId || !isAuthenticated || !hydrationDone) return;
-    if (isStreaming && streamConversationId === chatId) return;
+    if (isStreaming) return;
     // 每个 chatId 只尝试一次重连，防止 stop 后重复触发
     if (reconnectAttemptedRef.current) return;
     reconnectAttemptedRef.current = true;
@@ -307,11 +310,13 @@ export default function ChatPage() {
     // 恢复流登记在本会话名下：停止时按会话查表命中它，而不是靠「ref 非空」推断。
     // stream_mode / task_id 随后由 updateStreamController 补进同一条目。
     registerStreamController({ conversationId: chatId, kind: 'recovery', controller });
+    const liveRecoveryStream = { controller, detach: () => { cancelled = true; } };
+    liveRecoveryStreamsRef.current.add(liveRecoveryStream);
     // 外层 catch 够不到 try 内的 messageId，但 endStream 需要归属：在这里记住本次恢复的那条消息。
     let recoveredMessageId: string | null = null;
-    // 恢复流同样可能在中途被别的流接管槽位；接管后写入或读取槽位都会串到对方头上。
+    // 同一会话内本会话的新一轮发送会换掉槽位；换掉后再写入或读取都会串到那一轮头上。
     const ownsRecoverySlot = () => ownsStreamSlot(
-      (store.getState() as { stream: StreamState }).stream,
+      selectStreamSlot(store.getState() as { stream: StreamState }, chatId),
       recoveredMessageId,
     );
     const checkAndReconnect = async () => {
@@ -341,9 +346,6 @@ export default function ChatPage() {
         const messageId = status.message_id || '';
         recoveredMessageId = messageId;
 
-        // 有进行中的流 → 建立 SSE 重连，从头读取
-        dispatch(setStreamStatus('reconnecting'));
-
         // 确保有 assistant 消息占位
         const conv = conversation;
         const existingAssistant = conv?.messages?.find((m) => m.role === 'assistant' && m.id === messageId);
@@ -364,6 +366,9 @@ export default function ChatPage() {
           messageId,
           ...(continuationStaticBlocks ? { staticBlocks: continuationStaticBlocks } : {}),
         }));
+        // 有进行中的流 → 建立 SSE 重连，从头读取。
+        // 必须排在 startStream 之后：槽位由它建立，之前派发的槽位 action 没有落点会被丢弃。
+        dispatch(setStreamStatus({ conversationId: chatId, status: 'reconnecting' }));
 
         let reachedTerminalState = false;
         let failureFinalized = false;
@@ -396,13 +401,13 @@ export default function ChatPage() {
             if (insertedPlaceholder && messageId) {
               dispatch(removeMessage({ conversationId: chatId, messageId }));
             }
-            dispatch(endStream({ messageId }));
-            dispatch(setStreamStatus('error'));
+            dispatch(endStream({ conversationId: chatId, messageId }));
+            dispatch(setStreamStatus({ conversationId: chatId, status: 'error' }));
             retryHydration();
             return;
           }
-          const streamState = (store.getState() as { stream: StreamState }).stream;
-          // 槽位已属于别人时读到的是对方的正文，写下去就是串入本会话的消息。
+          const streamState = selectStreamSlot(store.getState() as { stream: StreamState }, chatId);
+          // 槽位已被本会话新一轮换掉时读到的是那一轮的正文，写下去就是串入这条消息。
           const partialBlocks = ownsRecoverySlot() ? selectFullStreamContentBlocks(streamState) : [];
           if (messageId && partialBlocks.length > 0) {
             dispatch(updateMessage({
@@ -413,8 +418,8 @@ export default function ChatPage() {
           } else if (insertedPlaceholder && messageId) {
             dispatch(removeMessage({ conversationId: chatId, messageId }));
           }
-          dispatch(endStream({ messageId }));
-          dispatch(setStreamStatus('error'));
+          dispatch(endStream({ conversationId: chatId, messageId }));
+          dispatch(setStreamStatus({ conversationId: chatId, status: 'error' }));
         };
         const callbacks: StreamCallbacks = {
           onReady: ({ taskId }) => {
@@ -424,23 +429,25 @@ export default function ChatPage() {
           onAnswering: (payload) => {
             if (cancelled) return;
             dispatchOrBufferRecoveryAction(() => {
-              const streamState = (store.getState() as { stream: StreamState }).stream;
-              if (streamState.isStreamingReasoning) {
-                dispatch(completeThinkingPhase());
+              const slot = selectStreamSlot(store.getState() as { stream: StreamState }, chatId);
+              if (slot.isStreamingReasoning) {
+                dispatch(completeThinkingPhase({ conversationId: chatId }));
               }
               dispatch(appendTextDelta({
+                conversationId: chatId,
                 blockId: payload.block_id,
                 delta: payload.delta,
                 runId: payload.run_id,
                 stepId: payload.step_id,
               }));
-              dispatch(advanceTypewriter(payload.delta.length));
+              dispatch(advanceTypewriter({ conversationId: chatId, chars: payload.delta.length }));
             });
           },
           onReasoning: (payload) => {
             if (cancelled) return;
             dispatchOrBufferRecoveryAction(() => {
               dispatch(appendThinkingDelta({
+                conversationId: chatId,
                 blockId: payload.block_id,
                 delta: payload.delta,
                 runId: payload.run_id,
@@ -493,7 +500,7 @@ export default function ChatPage() {
             if (cancelled) return;
             flushBufferedRecoveryActions();
             reachedTerminalState = true;
-            const streamState = (store.getState() as { stream: StreamState }).stream;
+            const streamState = selectStreamSlot(store.getState() as { stream: StreamState }, chatId);
             const rawBlocks = ownsRecoverySlot() ? selectFullStreamContentBlocks(streamState) : [];
             const blocks = shouldRecoverReasoningOnlyFinalBlocks({
               runStatus: streamState.currentRun?.status,
@@ -514,8 +521,8 @@ export default function ChatPage() {
                 }));
               }
             }
-            dispatch(endStream({ messageId }));
-            dispatch(setStreamStatus('completed'));
+            dispatch(endStream({ conversationId: chatId, messageId }));
+            dispatch(setStreamStatus({ conversationId: chatId, status: 'completed' }));
             retryHydration();
           },
           onError: () => {
@@ -543,7 +550,7 @@ export default function ChatPage() {
             openReconnect: (lastEntryId, wrappedCallbacks, signal) => (
               reconnectStream(chatId, lastEntryId, wrappedCallbacks, signal)
             ),
-            onPhaseChange: (phase) => dispatch(setStreamStatus(phase)),
+            onPhaseChange: (phase) => dispatch(setStreamStatus({ conversationId: chatId, status: phase })),
           });
         } catch (error) {
           if (isAbortError(error) || controller.signal.aborted || cancelled) return;
@@ -557,10 +564,11 @@ export default function ChatPage() {
       } catch (error) {
         if (isAbortError(error)) return;
         if (!cancelled) {
-          dispatch(endStream({ messageId: recoveredMessageId }));
-          dispatch(setStreamStatus('error'));
+          dispatch(endStream({ conversationId: chatId, messageId: recoveredMessageId }));
+          dispatch(setStreamStatus({ conversationId: chatId, status: 'error' }));
         }
       } finally {
+        liveRecoveryStreamsRef.current.delete(liveRecoveryStream);
         releaseStreamController(chatId, controller);
         if (reconnectControllerRef.current === controller) {
           reconnectControllerRef.current = null;
@@ -570,19 +578,28 @@ export default function ChatPage() {
 
     checkAndReconnect();
     return () => {
-      cancelled = true;
-      if (recoveryStopPendingRef.current?.controller === controller) {
-        recoveryStopPendingRef.current = null;
-      }
-      releaseStreamController(chatId, controller);
-      controller.abort();
+      // 这里此前会 abort 恢复流并无条件 endStream：全局单槽时切走不清就会让
+      // isStreaming 残留为 true、挡住下一个会话的重连。槽位按会话拆开后这条清理
+      // 反而是错的——它会在用户切走的瞬间掐断本会话正在跑的生成。
+      // 现在切走什么都不做：这条流继续写自己的槽位，切回来时上面的
+      // 「本会话已经在生成」直接命中，不会重复建流。
       if (reconnectControllerRef.current === controller) {
         reconnectControllerRef.current = null;
       }
-      // 切换对话时清理流状态，否则 isStreaming 残留为 true 阻止重连
-      dispatch(endStream());
     };
   }, [chatId, isAuthenticated, hydrationDone]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 只在真正卸载时收口。依赖数组为空，切 chatId 不会触发。
+  useEffect(() => {
+    const liveRecoveryStreams = liveRecoveryStreamsRef.current;
+    return () => {
+      liveRecoveryStreams.forEach(({ controller, detach }) => {
+        detach();
+        controller.abort();
+      });
+      liveRecoveryStreams.clear();
+    };
+  }, []);
 
   const showCompletionState = useTransientCompletionState({
     isStreaming,
@@ -698,14 +715,14 @@ export default function ChatPage() {
           stopBoundary.bufferedActions.forEach((action) => action());
           return;
         }
-        dispatch(endStream());
-        dispatch(setStreamStatus('error'));
+        dispatch(endStream({ conversationId: chatId }));
+        dispatch(setStreamStatus({ conversationId: chatId, status: 'error' }));
         if (isRetryRecovery) {
           releaseStreamController(chatId, recoveryController);
           retryHydration();
         }
       };
-      const streamState = (store.getState() as { stream: StreamState }).stream;
+      const streamState = selectStreamSlot(store.getState() as { stream: StreamState }, chatId);
       const isRetryRecovery = activeStream.streamMode === 'retry';
       const partialBlocks = isRetryRecovery ? [] : selectFullStreamContentBlocks(streamState);
       if (!isRetryRecovery && streamState.messageId && partialBlocks.length > 0) {
@@ -740,13 +757,16 @@ export default function ChatPage() {
           return;
         }
         recoveryStopPendingRef.current = null;
+        liveRecoveryStreamsRef.current.forEach((live) => {
+          if (live.controller === recoveryController) liveRecoveryStreamsRef.current.delete(live);
+        });
         releaseStreamController(chatId, recoveryController);
         recoveryController.abort();
         if (reconnectControllerRef.current === recoveryController) {
           reconnectControllerRef.current = null;
         }
         clearFirstTurnContextState(chatId);
-        dispatch(endStream());
+        dispatch(endStream({ conversationId: chatId }));
         retryHydration();
       } catch (error) {
         console.warn('[chat] 停止恢复流并持久化部分内容失败', error);
@@ -971,8 +991,13 @@ export default function ChatPage() {
     ? lastReadyConversation?.chatId || null
     : chatId;
   const isHydratingWithoutContent = hydrationView === 'loading' && !shouldKeepPreviousContent;
+  // 保留上一屏内容时展示的是另一个会话，要问的是"那个会话在不在生成"，
+  // 而不是当前路由会话；槽位按会话索引后直接查它自己那一条。
+  const isDisplayConversationStreamingSlot = useAppSelector(
+    (state) => selectStreamSlot(state, displayConversationId).isStreaming
+  );
   const isDisplayConversationStreaming =
-    !isHydratingWithoutContent && isStreaming && streamConversationId === displayConversationId;
+    !isHydratingWithoutContent && isDisplayConversationStreamingSlot;
 
   const handleSurfaceChange = useCallback((surface: string) => {
     if (surface !== 'chat' && surface !== 'trajectory') return;

@@ -21,8 +21,13 @@ const { dispatchMock, submitMock, state } = vi.hoisted(() => ({
 
 vi.mock('@/redux/hooks', () => ({
   useAppDispatch: () => dispatchMock,
+  // 流槽位按会话索引：假请求挂在它自己 conversationId 的槽位下。
   useAppSelector: (selector: (value: unknown) => unknown) => selector({
-    stream: { pendingContextRequest: state.request },
+    stream: {
+      byConversation: state.request
+        ? { [state.request.conversationId]: { pendingContextRequest: state.request } }
+        : {},
+    },
   }),
 }));
 

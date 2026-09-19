@@ -11,10 +11,15 @@ vi.mock('@/redux/hooks', () => ({
 const mockUseAppSelector = useAppSelector as unknown as Mock;
 const baseConfig = { maxSteps: 8, maxToolCalls: 20, timeoutS: 300 };
 
+// 流槽位按会话索引，组件从 conversationId 指名的那条槽位取 currentRun。
+const TIMELINE_CONVERSATION_ID = 'conv-timeline';
+
 function setCurrentRun(currentRun: AgentRunState | null) {
   mockUseAppSelector.mockImplementation((
-    selector: (state: { stream: { currentRun: AgentRunState | null } }) => unknown,
-  ) => selector({ stream: { currentRun } }));
+    selector: (state: unknown) => unknown,
+  ) => selector({
+    stream: { byConversation: { [TIMELINE_CONVERSATION_ID]: { currentRun } } },
+  }));
 }
 
 function toolCall(overrides: Partial<ToolCallState> = {}): ToolCallState {
@@ -72,6 +77,7 @@ function renderTimeline(
 
   return render(
     <AgentRunTimeline
+      conversationId={TIMELINE_CONVERSATION_ID}
       assistantMessageId={props.assistantMessageId ?? 'm1'}
       onRetry={props.onRetry}
       onOpenSources={props.onOpenSources}
@@ -108,6 +114,7 @@ describe('AgentRunTimeline', () => {
 
     render(
       <AgentRunTimeline
+        conversationId={TIMELINE_CONVERSATION_ID}
         assistantMessageId="m1"
         run={undefined}
       />,

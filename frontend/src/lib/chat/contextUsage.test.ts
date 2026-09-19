@@ -109,20 +109,20 @@ describe('contextUsage', () => {
     const usageB = { status: 'trimmed', window_tokens: 2000, actual_prompt_tokens: 1500 };
     const liveA = { status: 'no_op', window_tokens: 1000, actual_prompt_tokens: 500 };
     const state = {
-      stream: {
-        isStreaming: true,
-        conversationId: 'chat-a',
-        contextUsageConversationId: 'chat-a',
-        contextUsage: liveA,
-        contextUsageMeta: {
-          runId: 'run-a', messageId: 'assistant-a', sequence: 2, phase: 'final' as const, roundIndex: 1,
-        },
-        contextUsageInFlightConversationId: 'chat-a',
-        contextUsageInFlight: liveA,
-        contextUsageInFlightMeta: {
-          runId: 'run-a', messageId: 'assistant-a', sequence: 2, phase: 'final' as const, roundIndex: 1,
-        },
-      },
+      stream: { byConversation: { 'chat-a': {
+          isStreaming: true,
+          conversationId: 'chat-a',
+          contextUsageConversationId: 'chat-a',
+          contextUsage: liveA,
+          contextUsageMeta: {
+            runId: 'run-a', messageId: 'assistant-a', sequence: 2, phase: 'final' as const, roundIndex: 1,
+          },
+          contextUsageInFlightConversationId: 'chat-a',
+          contextUsageInFlight: liveA,
+          contextUsageInFlightMeta: {
+            runId: 'run-a', messageId: 'assistant-a', sequence: 2, phase: 'final' as const, roundIndex: 1,
+          },
+        } } },
       conversation: {
         byId: {
           'chat-a': {
@@ -145,7 +145,7 @@ describe('contextUsage', () => {
 
   it('同会话新一轮开始后保留最近 confirmed actual，并标记更新中', () => {
     const state = {
-      stream: { isStreaming: true, conversationId: 'chat-a', contextUsage: null },
+      stream: { byConversation: { 'chat-a': { isStreaming: true, conversationId: 'chat-a', contextUsage: null } } },
       conversation: {
         byId: {
           'chat-a': {
@@ -175,7 +175,7 @@ describe('contextUsage', () => {
 
   it('首次没有 confirmed actual 时才显示计算中', () => {
     const state = {
-      stream: { isStreaming: true, conversationId: 'chat-a', contextUsage: null },
+      stream: { byConversation: { 'chat-a': { isStreaming: true, conversationId: 'chat-a', contextUsage: null } } },
       conversation: {
         byId: {
           'chat-a': { messages: [{ id: 'assistant-new', role: 'assistant', usage: null }] },
@@ -198,20 +198,20 @@ describe('contextUsage', () => {
       actual_prompt_tokens: null, round_index: 2,
     };
     const baseState = {
-      stream: {
-        isStreaming: true,
-        conversationId: 'chat-a',
-        contextUsageConversationId: 'chat-a',
-        contextUsage: confirmed,
-        contextUsageMeta: {
-          runId: 'run-a', messageId: 'assistant-a', sequence: 5, phase: 'final' as const, roundIndex: 1,
-        },
-        contextUsageInFlightConversationId: 'chat-a',
-        contextUsageInFlight: estimated,
-        contextUsageInFlightMeta: {
-          runId: 'run-a', messageId: 'assistant-a', sequence: 7, phase: 'estimated' as const, roundIndex: 2,
-        },
-      },
+      stream: { byConversation: { 'chat-a': {
+          isStreaming: true,
+          conversationId: 'chat-a',
+          contextUsageConversationId: 'chat-a',
+          contextUsage: confirmed,
+          contextUsageMeta: {
+            runId: 'run-a', messageId: 'assistant-a', sequence: 5, phase: 'final' as const, roundIndex: 1,
+          },
+          contextUsageInFlightConversationId: 'chat-a',
+          contextUsageInFlight: estimated,
+          contextUsageInFlightMeta: {
+            runId: 'run-a', messageId: 'assistant-a', sequence: 7, phase: 'estimated' as const, roundIndex: 2,
+          },
+        } } },
       conversation: {
         byId: { 'chat-a': { messages: [{ id: 'assistant-a', role: 'assistant', usage: null }] } },
       },
@@ -226,17 +226,17 @@ describe('contextUsage', () => {
     const finalUsage = { ...estimated, actual_prompt_tokens: 450 };
     expect(selectConversationContextStatus({
       ...baseState,
-      stream: {
-        ...baseState.stream,
-        contextUsage: finalUsage,
-        contextUsageMeta: {
-          runId: 'run-a', messageId: 'assistant-a', sequence: 8, phase: 'final' as const, roundIndex: 2,
-        },
-        contextUsageInFlight: finalUsage,
-        contextUsageInFlightMeta: {
-          runId: 'run-a', messageId: 'assistant-a', sequence: 8, phase: 'final' as const, roundIndex: 2,
-        },
-      },
+      stream: { byConversation: { 'chat-a': {
+          ...baseState.stream.byConversation['chat-a'],
+          contextUsage: finalUsage,
+          contextUsageMeta: {
+            runId: 'run-a', messageId: 'assistant-a', sequence: 8, phase: 'final' as const, roundIndex: 2,
+          },
+          contextUsageInFlight: finalUsage,
+          contextUsageInFlightMeta: {
+            runId: 'run-a', messageId: 'assistant-a', sequence: 8, phase: 'final' as const, roundIndex: 2,
+          },
+        } } },
     }, 'chat-a')).toMatchObject({
       usage: { actual_prompt_tokens: 450 },
       updating: false,
@@ -260,14 +260,14 @@ describe('contextUsage', () => {
     };
 
     expect(selectConversationContextStatus({
-      stream: {
-        ...common,
-        contextUsageInFlightConversationId: 'chat-a',
-        contextUsageInFlight: { status: 'no_op', window_tokens: 1000, actual_prompt_tokens: null, round_index: 2 },
-        contextUsageInFlightMeta: {
-          runId: 'run-a', messageId: 'assistant-a', sequence: 8, phase: 'final' as const, roundIndex: 2,
-        },
-      },
+      stream: { byConversation: { 'chat-a': {
+          ...common,
+          contextUsageInFlightConversationId: 'chat-a',
+          contextUsageInFlight: { status: 'no_op', window_tokens: 1000, actual_prompt_tokens: null, round_index: 2 },
+          contextUsageInFlightMeta: {
+            runId: 'run-a', messageId: 'assistant-a', sequence: 8, phase: 'final' as const, roundIndex: 2,
+          },
+        } } },
       conversation,
     }, 'chat-a')).toMatchObject({
       usage: { actual_prompt_tokens: 410 },
@@ -278,14 +278,14 @@ describe('contextUsage', () => {
     });
 
     expect(selectConversationContextStatus({
-      stream: {
-        ...common,
-        contextUsageInFlightConversationId: 'chat-a',
-        contextUsageInFlight: { status: 'estimator_unavailable', window_tokens: 1000, actual_prompt_tokens: null },
-        contextUsageInFlightMeta: {
-          runId: 'run-a', messageId: 'assistant-a', sequence: 9, phase: 'error' as const, roundIndex: 2,
-        },
-      },
+      stream: { byConversation: { 'chat-a': {
+          ...common,
+          contextUsageInFlightConversationId: 'chat-a',
+          contextUsageInFlight: { status: 'estimator_unavailable', window_tokens: 1000, actual_prompt_tokens: null },
+          contextUsageInFlightMeta: {
+            runId: 'run-a', messageId: 'assistant-a', sequence: 9, phase: 'error' as const, roundIndex: 2,
+          },
+        } } },
       conversation,
     }, 'chat-a')).toMatchObject({
       usage: { actual_prompt_tokens: 410 },
@@ -317,13 +317,13 @@ describe('contextUsage', () => {
     };
 
     expect(selectConversationContextStatus({
-      stream: {
-        ...baseStream,
-        contextUsageInFlight: { status: 'no_op', window_tokens: 1000, actual_prompt_tokens: null },
-        contextUsageInFlightMeta: {
-          runId: 'run-new', messageId: 'server-assistant-a', sequence: 8, phase: 'final' as const, roundIndex: 2,
-        },
-      },
+      stream: { byConversation: { 'chat-a': {
+          ...baseStream,
+          contextUsageInFlight: { status: 'no_op', window_tokens: 1000, actual_prompt_tokens: null },
+          contextUsageInFlightMeta: {
+            runId: 'run-new', messageId: 'server-assistant-a', sequence: 8, phase: 'final' as const, roundIndex: 2,
+          },
+        } } },
       conversation,
     }, 'chat-a')).toMatchObject({
       usage: { actual_prompt_tokens: 400 },
@@ -333,13 +333,13 @@ describe('contextUsage', () => {
     });
 
     expect(selectConversationContextStatus({
-      stream: {
-        ...baseStream,
-        contextUsageInFlight: { status: 'estimator_unavailable', window_tokens: 1000, actual_prompt_tokens: null },
-        contextUsageInFlightMeta: {
-          runId: 'run-new', messageId: 'server-assistant-a', sequence: 9, phase: 'error' as const, roundIndex: 2,
-        },
-      },
+      stream: { byConversation: { 'chat-a': {
+          ...baseStream,
+          contextUsageInFlight: { status: 'estimator_unavailable', window_tokens: 1000, actual_prompt_tokens: null },
+          contextUsageInFlightMeta: {
+            runId: 'run-new', messageId: 'server-assistant-a', sequence: 9, phase: 'error' as const, roundIndex: 2,
+          },
+        } } },
       conversation,
     }, 'chat-a')).toMatchObject({
       usage: { actual_prompt_tokens: 400 },
@@ -351,20 +351,20 @@ describe('contextUsage', () => {
 
   it('流结束后当前终态无 actual 时仅回退到会话最近 actual', () => {
     const state = {
-      stream: {
-        isStreaming: false,
-        contextUsageInFlightConversationId: 'chat-a',
-        contextUsageInFlight: {
-          status: 'no_op', window_tokens: 1000, actual_prompt_tokens: null, round_index: 1,
-        },
-        contextUsageInFlightMeta: {
-          runId: 'run-new', messageId: 'server-assistant-new', sequence: 8,
-          phase: 'final' as const, roundIndex: 1,
-        },
-        currentRun: {
-          runId: 'run-new', messageId: 'assistant-new', serverMessageId: 'server-assistant-new',
-        },
-      },
+      stream: { byConversation: { 'chat-a': {
+          isStreaming: false,
+          contextUsageInFlightConversationId: 'chat-a',
+          contextUsageInFlight: {
+            status: 'no_op', window_tokens: 1000, actual_prompt_tokens: null, round_index: 1,
+          },
+          contextUsageInFlightMeta: {
+            runId: 'run-new', messageId: 'server-assistant-new', sequence: 8,
+            phase: 'final' as const, roundIndex: 1,
+          },
+          currentRun: {
+            runId: 'run-new', messageId: 'assistant-new', serverMessageId: 'server-assistant-new',
+          },
+        } } },
       conversation: {
         byId: {
           'chat-a': {
@@ -389,18 +389,18 @@ describe('contextUsage', () => {
 
   it('非流式只读取最新 assistant，不向前捞取旧 context', () => {
     const state = {
-      stream: {
-        isStreaming: false,
-        conversationId: null,
-        contextUsageConversationId: 'chat-a',
-        contextUsage: { status: 'no_op', window_tokens: 1000, actual_prompt_tokens: 500 },
-        contextUsageMeta: {
-          runId: 'old-run', messageId: 'assistant-old', sequence: 3, phase: 'final' as const, roundIndex: 1,
-        },
-        currentRun: {
-          runId: 'old-run', messageId: 'assistant-old', serverMessageId: 'assistant-old',
-        },
-      },
+      stream: { byConversation: { 'chat-a': {
+          isStreaming: false,
+          conversationId: null,
+          contextUsageConversationId: 'chat-a',
+          contextUsage: { status: 'no_op', window_tokens: 1000, actual_prompt_tokens: 500 },
+          contextUsageMeta: {
+            runId: 'old-run', messageId: 'assistant-old', sequence: 3, phase: 'final' as const, roundIndex: 1,
+          },
+          currentRun: {
+            runId: 'old-run', messageId: 'assistant-old', serverMessageId: 'assistant-old',
+          },
+        } } },
       conversation: {
         byId: {
           'chat-a': {
@@ -421,15 +421,15 @@ describe('contextUsage', () => {
 
   it('最新持久化 context 优先于 retained snapshot', () => {
     const state = {
-      stream: {
-        isStreaming: false,
-        conversationId: null,
-        contextUsageConversationId: 'chat-a',
-        contextUsage: { status: 'no_op', window_tokens: 1000, actual_prompt_tokens: 500 },
-        contextUsageMeta: {
-          runId: 'run-a', messageId: 'assistant-a', sequence: 3, phase: 'final' as const, roundIndex: 1,
-        },
-      },
+      stream: { byConversation: { 'chat-a': {
+          isStreaming: false,
+          conversationId: null,
+          contextUsageConversationId: 'chat-a',
+          contextUsage: { status: 'no_op', window_tokens: 1000, actual_prompt_tokens: 500 },
+          contextUsageMeta: {
+            runId: 'run-a', messageId: 'assistant-a', sequence: 3, phase: 'final' as const, roundIndex: 1,
+          },
+        } } },
       conversation: {
         byId: {
           'chat-a': {
@@ -465,16 +465,16 @@ describe('contextUsage', () => {
     };
 
     expect(selectConversationContextStatus({
-      stream: { ...base, currentRun: null },
+      stream: { byConversation: { 'chat-a': { ...base, currentRun: null } } },
       conversation,
     }, 'chat-a')).toBeNull();
     expect(selectConversationContextStatus({
-      stream: {
-        ...base,
-        currentRun: {
-          runId: 'run-a', messageId: 'local-assistant', serverMessageId: 'server-assistant',
-        },
-      },
+      stream: { byConversation: { 'chat-a': {
+          ...base,
+          currentRun: {
+            runId: 'run-a', messageId: 'local-assistant', serverMessageId: 'server-assistant',
+          },
+        } } },
       conversation,
     }, 'chat-a')).toMatchObject({ usage: { actual_prompt_tokens: 500 } });
   });
@@ -484,7 +484,7 @@ describe('contextUsage', () => {
     ['estimator_unavailable', 'check_failed'],
   ] as const)('历史错误状态 %s 映射为明确失败语义', (status, errorKind) => {
     const state = {
-      stream: { isStreaming: false },
+      stream: { byConversation: { 'chat-a': { isStreaming: false } } },
       conversation: {
         byId: {
           'chat-a': {
@@ -506,7 +506,7 @@ describe('contextUsage', () => {
 
   it('相同会话输入未变化时复用上下文状态对象引用', () => {
     const state = {
-      stream: { isStreaming: false },
+      stream: { byConversation: { 'chat-a': { isStreaming: false } } },
       conversation: {
         byId: {
           'chat-a': {
@@ -523,9 +523,10 @@ describe('contextUsage', () => {
     const first = selector(state);
     expect(selector(state)).toBe(first);
     expect(selector({ ...state })).toBe(first);
+    // 换掉本会话的槽位对象即视为输入变化，重新计算。
     expect(selector({
       ...state,
-      stream: { ...state.stream },
+      stream: { byConversation: { 'chat-a': { ...state.stream.byConversation['chat-a'] } } },
     })).not.toBe(first);
   });
 });

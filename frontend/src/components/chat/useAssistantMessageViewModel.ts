@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 
 import { useAppSelector } from '@/redux/hooks';
-import { selectStreamContentBlocks } from '@/redux/slices/streamSlice';
+import { selectStreamContentBlocks, selectStreamSlot } from '@/redux/slices/streamSlice';
 import type { AgentRunState } from '@/types/agentRun';
 import type {
   ContentBlock,
@@ -35,6 +35,9 @@ export interface UseAssistantMessageViewModelOptions {
   isLoadingQuestions: boolean;
   suggestedQuestionsCount: number;
   currentRun?: AgentRunState | null;
+  /** 读哪个会话的流槽位。槽位按会话索引，必须说清楚是哪一条；
+   *  不传时退回 message.chatId。 */
+  conversationId?: string | null;
 }
 
 export interface AssistantMessageViewModel {
@@ -136,24 +139,29 @@ export function useAssistantMessageViewModel({
   isLoadingQuestions,
   suggestedQuestionsCount,
   currentRun,
+  conversationId,
 }: UseAssistantMessageViewModelOptions): AssistantMessageViewModel {
-  const streamingStartTime = useAppSelector(state => state.stream.reasoningStartTime);
-  const streamingEndTime = useAppSelector(state => state.stream.reasoningEndTime);
-  const isStreamingReasoning = useAppSelector(state => state.stream.isStreamingReasoning);
-  const isThinkingPhaseComplete = useAppSelector(state => state.stream.isThinkingPhaseComplete);
+  // 这条消息属于哪个会话，就读哪个会话的槽位——此前读的是全局那一份，
+  // 另一个会话在生成时会把它的推理计时和正文串到这条消息上。
+  const slotConversationId = conversationId ?? message.chatId ?? null;
+  const streamingStartTime = useAppSelector(state => selectStreamSlot(state, slotConversationId).reasoningStartTime);
+  const streamingEndTime = useAppSelector(state => selectStreamSlot(state, slotConversationId).reasoningEndTime);
+  const isStreamingReasoning = useAppSelector(state => selectStreamSlot(state, slotConversationId).isStreamingReasoning);
+  const isThinkingPhaseComplete = useAppSelector(state => selectStreamSlot(state, slotConversationId).isThinkingPhaseComplete);
 
-  const streamBlocks = useAppSelector(state =>
-    isStreaming && (state.stream.messageId === message.id || (!state.stream.messageId && isLastMessage))
-      ? selectStreamContentBlocks(state.stream)
-      : null
-  );
+  const streamBlocks = useAppSelector(state => {
+    const slot = selectStreamSlot(state, slotConversationId);
+    return isStreaming && (slot.messageId === message.id || (!slot.messageId && isLastMessage))
+      ? selectStreamContentBlocks(slot)
+      : null;
+  });
   const blocksToRender: ContentBlock[] = (isStreaming && streamBlocks)
     ? streamBlocks
     : message.content;
   const isCurrentlyStreaming = isStreaming && streamBlocks !== null;
 
-  const streamCurrentRun = useAppSelector(state => state.stream.currentRun);
-  const streamSearchSources = useAppSelector(state => state.stream.searchSources);
+  const streamCurrentRun = useAppSelector(state => selectStreamSlot(state, slotConversationId).currentRun);
+  const streamSearchSources = useAppSelector(state => selectStreamSlot(state, slotConversationId).searchSources);
   const runForMessage = currentRun ?? streamCurrentRun;
   const ownedRun = runForMessage?.messageId === message.id || runForMessage?.serverMessageId === message.id
     ? runForMessage

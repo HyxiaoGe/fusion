@@ -21,7 +21,15 @@ const {
   selectorState: {
     models: { models: [{ id: 'model-a', name: '测试模型' }] },
     theme: { mode: 'system' },
-    stream: { isStreaming: false, conversationId: null as string | null },
+    // 流槽位按会话索引：假 stream 代表"当前那条流"，挂在它自己的会话 ID 下。
+    streamState: { isStreaming: false, conversationId: null as string | null },
+    get stream() {
+      return {
+        byConversation: this.streamState.conversationId
+          ? { [this.streamState.conversationId]: this.streamState }
+          : {},
+      };
+    },
   },
   themeRuntimeState: {
     resolvedTheme: 'light' as 'light' | 'dark',
@@ -83,7 +91,7 @@ vi.mock('./sidebar/ChatList', () => ({
     containerRef,
     sentinelRef,
     searchQuery,
-    streamingConversationId,
+    streamingConversationIds,
   }: {
     chats: ConversationListItem[];
     sortedAndGroupedChats: { groupLabel: string; groupChats: ConversationListItem[] }[];
@@ -91,13 +99,13 @@ vi.mock('./sidebar/ChatList', () => ({
     containerRef: React.RefObject<HTMLDivElement | null>;
     sentinelRef?: React.RefObject<HTMLDivElement | null>;
     searchQuery?: string;
-    streamingConversationId?: string | null;
+    streamingConversationIds?: readonly string[];
   }) => {
     mockChatListProps({
       chats,
       sortedAndGroupedChats,
       searchQuery,
-      streamingConversationId,
+      streamingConversationIds,
     });
 
     return (
@@ -174,8 +182,8 @@ describe('ChatSidebar', () => {
       setRenameValue: vi.fn(),
     });
     mockChatListProps.mockClear();
-    selectorState.stream.isStreaming = false;
-    selectorState.stream.conversationId = null;
+    selectorState.streamState.isStreaming = false;
+    selectorState.streamState.conversationId = null;
     themeRuntimeState.resolvedTheme = 'light';
     themeRuntimeState.hasMounted = true;
     Element.prototype.scrollIntoView = vi.fn();
@@ -336,18 +344,18 @@ describe('ChatSidebar', () => {
     expect(screen.getByText('真实 ID 为 new 的会话')).toHaveAttribute('data-active', 'false');
   });
 
-  it('只在流式状态有效时把会话 ID 传给列表', () => {
-    selectorState.stream.isStreaming = true;
-    selectorState.stream.conversationId = 'chat-a';
+  it('把正在生成的会话 ID 列表传给列表（可以同时有多个）', () => {
+    selectorState.streamState.isStreaming = true;
+    selectorState.streamState.conversationId = 'chat-a';
 
     const { rerender } = render(<ChatSidebar onNewChat={vi.fn()} />);
 
-    expect(mockChatListProps.mock.calls.at(-1)?.[0].streamingConversationId).toBe('chat-a');
+    expect(mockChatListProps.mock.calls.at(-1)?.[0].streamingConversationIds).toEqual(['chat-a']);
 
-    selectorState.stream.isStreaming = false;
+    selectorState.streamState.isStreaming = false;
     rerender(<ChatSidebar onNewChat={vi.fn()} />);
 
-    expect(mockChatListProps.mock.calls.at(-1)?.[0].streamingConversationId).toBeNull();
+    expect(mockChatListProps.mock.calls.at(-1)?.[0].streamingConversationIds).toEqual([]);
   });
 
   it('hydration 完成前使用稳定的浅色主题按钮，挂载后再同步真实主题', () => {

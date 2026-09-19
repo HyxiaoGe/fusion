@@ -32,7 +32,9 @@ const conversationDetailInvalidationMiddleware: Middleware = (api) => (next) => 
     invalidateAllConversationFiles();
     resetKnowledgeBaseCatalogResource();
     api.dispatch(resetConversationListForAuthChange());
-    api.dispatch({ type: 'stream/endStream' });
+    // 换账号要清掉所有会话的流槽位。此前全局只有一条流，endStream 就够了；
+    // 槽位按会话拆开后没有"那一条"可以单独结束，要用全量重置。
+    api.dispatch({ type: 'stream/resetStreamState' });
     api.dispatch({ type: 'fileUpload/resetFileUploadState' });
   }
 

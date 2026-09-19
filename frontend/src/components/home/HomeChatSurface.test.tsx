@@ -84,7 +84,14 @@ vi.mock('@/redux/hooks', () => ({
         pendingConversationId: pendingConversationState.id,
         reasoningEnabled: false,
       },
-      stream: streamState,
+      // 流槽位按会话索引：假 stream 代表"当前那条流"，挂在它自己的会话 ID 下。
+      stream: {
+        get byConversation() {
+          return streamState.conversationId
+            ? { [streamState.conversationId]: streamState }
+            : {};
+        },
+      },
       fileUpload: {
         files: {},
         fileIds: {},

@@ -12,6 +12,8 @@ import ChatList from "./sidebar/ChatList";
 import { useConversationList } from "@/hooks/useConversationList";
 import { useSidebarActions } from "@/hooks/useSidebarActions";
 import { useAppSelector, useAppDispatch } from "@/redux/hooks";
+import { shallowEqual } from "react-redux";
+import { selectStreamingConversationIds } from "@/redux/slices/streamSlice";
 import { setThemeMode } from "@/redux/slices/themeSlice";
 import { useResolvedTheme } from "@/lib/hooks/useResolvedTheme";
 import { useHasMounted } from "@/hooks/useHasMounted";
@@ -60,9 +62,9 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ onNewChat, activeChatIdOverri
   const { models } = useAppSelector((state) => state.models);
   const dispatch = useAppDispatch();
   const themeMode = useAppSelector((state) => state.theme.mode);
-  const streamingConversationId = useAppSelector((state) =>
-    state.stream.isStreaming ? state.stream.conversationId : null
-  );
+  // 此前只能给出"那一个"正在生成的会话，因为全局只有一个槽位。
+  // 槽位按会话拆开后这是一组，侧边栏可以同时转多个圈。
+  const streamingConversationIds = useAppSelector(selectStreamingConversationIds, shallowEqual);
   const resolvedTheme = useResolvedTheme(themeMode);
   const hasMounted = useHasMounted();
   // SSR 无法读取 localStorage 里的主题。首个 hydration 帧固定按浅色渲染，
@@ -276,7 +278,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ onNewChat, activeChatIdOverri
         chats={displayChats}
         sortedAndGroupedChats={isSearchMode ? EMPTY_GROUPED_CONVERSATIONS : sortedAndGroupedChats}
         activeChatId={activeChatId}
-        streamingConversationId={streamingConversationId}
+        streamingConversationIds={streamingConversationIds}
         modelNameById={modelNameById}
         isLoadingServerList={isLoadingList}
         isLoadingMoreServer={isLoadingMore}

@@ -19,7 +19,28 @@ import modelsReducer, {
   setSelectedModel,
   updateModels,
 } from '@/redux/slices/modelsSlice';
-import streamReducer, { appendTextDelta, startStream } from '@/redux/slices/streamSlice';
+import streamReducer, {
+  appendTextDelta,
+  startStream,
+  EMPTY_STREAM_SLOT,
+} from '@/redux/slices/streamSlice';
+import type { StreamSlot, StreamState } from '@/redux/slices/streamSlice';
+
+/** 按会话取流槽位。 */
+function slotOf(state: { stream: StreamState }, conversationId: string): StreamSlot {
+  return state.stream.byConversation[conversationId] ?? EMPTY_STREAM_SLOT;
+}
+
+/** 绝大多数用例只有一条流。槽位按会话索引后这里取那唯一一条；
+ *  有多条时必须用 slotOf 点名，避免断言含糊。 */
+function theSlot(state: { stream: StreamState }): StreamSlot {
+  const ids = Object.keys(state.stream.byConversation);
+  if (ids.length === 0) return EMPTY_STREAM_SLOT;
+  if (ids.length > 1) {
+    throw new Error(`期望只有一条流，实际 ${ids.length} 条：${ids.join(', ')}`);
+  }
+  return state.stream.byConversation[ids[0]];
+}
 import trajectoryReducer, {
   materializeTrajectoryLiveEvents,
 } from '@/redux/slices/trajectorySlice';
@@ -576,11 +597,21 @@ describe('useSendMessage', () => {
     expect(store.getState().conversation.globalError).toBe('最多只能选择 1 个知识库');
   });
 
-  it('别的会话正在生成时拒绝发送必须有可见提示，草稿保留（#74 A3a）', async () => {
-    // 发送限制本身是对的：全局流槽位只有一个，放行会覆盖掉正在跑的那条流。
-    // 但此前拒绝是完全静默的，用户只看到"回车没反应"。
+  it('别的会话正在生成时照常发送，两条流各占各的槽位', async () => {
+    // 此前这里有一道发送互斥：全局只有一个流槽位，别的会话在跑时必须拒绝
+    // （并弹 toast 说明为什么回车没反应）。槽位按会话拆开后互斥没有存在的理由，
+    // 后端本来也支持并发（dev 实测两个 run 重叠 20 秒、均 200、无踢流）。
     const store = createStore();
+    store.dispatch(upsertConversation({
+      id: 'existing-conv',
+      title: 'Existing',
+      model_id: 'model-1',
+      messages: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }));
     store.dispatch(startStream({ conversationId: 'other-conv', messageId: 'other-msg' }));
+    sendMessageStreamMock.mockResolvedValue(undefined);
     const onRejectedBeforeSend = vi.fn();
 
     const { result } = renderHook(() => useSendMessage(), {
@@ -594,33 +625,12 @@ describe('useSendMessage', () => {
       });
     });
 
-    expect(sendMessageStreamMock).not.toHaveBeenCalled();
-    expect(onRejectedBeforeSend).toHaveBeenCalledTimes(1);
-    expect(toastWarningMock).toHaveBeenCalledWith('另一个对话正在生成，请等它结束后再发送');
-    // 别人的流状态不受影响
-    expect(store.getState().stream.isStreaming).toBe(true);
-    expect(store.getState().stream.conversationId).toBe('other-conv');
-  });
-
-  it('连续被拒绝时不叠加提示，先撤上一条再弹（#74 复验 R1）', async () => {
-    // dev 复验实测连按叠出 4 条相同 toast。每次仍要有反馈，但同一时刻只保留一条。
-    const store = createStore();
-    store.dispatch(startStream({ conversationId: 'other-conv', messageId: 'other-msg' }));
-    toastWarningMock.mockReturnValueOnce('toast-1').mockReturnValueOnce('toast-2');
-
-    const { result } = renderHook(() => useSendMessage(), {
-      wrapper: createWrapper(store),
-    });
-
-    await act(async () => {
-      await result.current.sendMessage('第一次', { conversationId: 'existing-conv' });
-      await result.current.sendMessage('第二次', { conversationId: 'existing-conv' });
-    });
-
-    expect(toastWarningMock).toHaveBeenCalledTimes(2);
-    // 第一次没有可撤的旧提示，第二次撤掉第一条
-    expect(toastDismissMock).toHaveBeenCalledTimes(1);
-    expect(toastDismissMock).toHaveBeenCalledWith('toast-1');
+    expect(onRejectedBeforeSend).not.toHaveBeenCalled();
+    expect(sendMessageStreamMock).toHaveBeenCalledTimes(1);
+    expect(toastWarningMock).not.toHaveBeenCalled();
+    // 另一条流的槽位不受影响
+    expect(slotOf(store.getState(), 'other-conv').isStreaming).toBe(true);
+    expect(slotOf(store.getState(), 'other-conv').messageId).toBe('other-msg');
   });
 
   it('服务端拒绝知识库选择变更时回滚到发送前会话快照', async () => {
@@ -692,9 +702,10 @@ describe('useSendMessage', () => {
     ]);
   });
 
-  it('丢掉全局流槽位后不再写槽位状态（#74 跨会话内容串入）', async () => {
-    // 全局流槽位只装一条流。A 仍在生成时 B 的恢复流接管槽位，A 的 delta 会继续写进去，
-    // 表现为 A 的回答出现在 B 的界面上（dev 复验 R2 截图）。
+  it('B 开流不再顶掉 A 的槽位，A 的正文继续落在自己名下（#74 跨会话内容串入）', async () => {
+    // 此前全局流槽位只装一条流：A 仍在生成时 B 的恢复流接管槽位，A 的 delta 会继续
+    // 写进去，表现为 A 的回答出现在 B 的界面上（dev 复验 R2 截图）。
+    // 槽位按会话拆开后两条流各写各的。
     const store = createStore();
     store.dispatch(upsertConversation({
       id: 'conv-a',
@@ -725,15 +736,22 @@ describe('useSendMessage', () => {
       await result.current.sendMessage('A 的问题', { conversationId: 'conv-a' });
     });
 
-    expect(slotAfterTakeover.messageId).toBe('msg-b');
-    expect(slotAfterTakeover.textBlocks['blk-a2']).toBeUndefined();
-    expect(slotAfterTakeover.thinkingBlocks['blk-a3']).toBeUndefined();
-    expect(slotAfterTakeover.blockOrder).not.toContain('blk-a2');
+    const slotA = slotAfterTakeover.byConversation['conv-a'];
+    const slotB = slotAfterTakeover.byConversation['conv-b'];
+    // A 仍是自己那条流的属主，B 开流之后的 delta 照常落在 A 名下
+    expect(slotA.messageId).not.toBe('msg-b');
+    expect(slotA.textBlocks['blk-a2']).toBe('A 丢槽位之后的正文');
+    expect(slotA.thinkingBlocks['blk-a3']).toBe('A 丢槽位之后的思考');
+    // 一个字都不该漏进 B
+    expect(slotB.messageId).toBe('msg-b');
+    expect(slotB.textBlocks['blk-a2']).toBeUndefined();
+    expect(slotB.thinkingBlocks['blk-a3']).toBeUndefined();
+    expect(slotB.blockOrder).not.toContain('blk-a2');
   });
 
-  it('丢掉槽位后不拿别人的正文覆盖自己的消息（反向串入）', async () => {
-    // doCompleteStream 读整个槽位组装 final blocks。丢了槽位还照读，
-    // 就会把 B 的正文写进 A 的消息里。
+  it('不拿别人的正文覆盖自己的消息（反向串入）', async () => {
+    // doCompleteStream 读槽位组装 final blocks。此前是全局一份，丢了槽位还照读，
+    // 就会把 B 的正文写进 A 的消息里；现在只读本会话那一份。
     const store = createStore();
     store.dispatch(upsertConversation({
       id: 'conv-a',
@@ -748,7 +766,7 @@ describe('useSendMessage', () => {
         callbacks.onReady({ messageId: 'assistant-1', conversationId: 'conv-a' });
         callbacks.onAnswering({ block_id: 'blk-a', delta: 'A 的正文' });
         store.dispatch(startStream({ conversationId: 'conv-b', messageId: 'msg-b' }));
-        store.dispatch(appendTextDelta({ blockId: 'blk-b', delta: 'B 的正文' }));
+        store.dispatch(appendTextDelta({ conversationId: 'conv-b', blockId: 'blk-b', delta: 'B 的正文' }));
         callbacks.onDone({ messageId: 'assistant-1', conversationId: 'conv-a' });
       }
     );
@@ -770,9 +788,9 @@ describe('useSendMessage', () => {
     expect(serialized).not.toContain('B 的正文');
   });
 
-  it('丢掉槽位不影响本会话自身状态（标题仍要更新）', async () => {
-    // 归属判据只能管流槽位。A 丢了显示槽位，但 A 自己的会话标题、推荐问题、
-    // 列表刷新照样要走完，否则比原来的缺陷更糟。
+  it('别的会话开流不影响本会话自身状态（标题仍要更新）', async () => {
+    // 会话自身的状态——标题、推荐问题、列表刷新——与流槽位无关，
+    // 别的会话开流不该让它们停下。
     const store = createStore();
     store.dispatch(upsertConversation({
       id: 'conv-a',
@@ -864,7 +882,7 @@ describe('useSendMessage', () => {
         ])
       );
       expect(state.conversation.conversationListDirtyIds).toEqual(['server-conv']);
-      expect(state.stream.isStreaming).toBe(false);
+      expect(theSlot(state).isStreaming).toBe(false);
     });
     expect(sessionStorage.getItem(CONTEXT_STATUS_PENDING_FIRST_TURN_STORAGE_KEY)).toBe(
       JSON.stringify(['server-conv']),
@@ -1528,7 +1546,7 @@ describe('useSendMessage', () => {
       expect(onStreamEnd).not.toHaveBeenCalled();
       expect(store.getState().conversation.byId['server-conv']).toBeUndefined();
       expect(store.getState().conversation.conversationListDirtyIds).toEqual([]);
-      expect(store.getState().stream.isStreaming).toBe(false);
+      expect(theSlot(store.getState()).isStreaming).toBe(false);
     }
   );
 
@@ -1582,7 +1600,7 @@ describe('useSendMessage', () => {
     expect(onStreamEnd).not.toHaveBeenCalled();
     expect(store.getState().conversation.globalError).toBeNull();
     expect(store.getState().conversation.conversationListDirtyIds).toEqual([]);
-    expect(store.getState().stream.lastError).toBeNull();
+    expect(theSlot(store.getState()).lastError).toBeNull();
   });
 
   it('同 session 路由 handoff unmount 后继续消费 draft ready/done', async () => {
@@ -1626,7 +1644,7 @@ describe('useSendMessage', () => {
     expect(onMaterialized).toHaveBeenCalledWith('server-conv');
     expect(onStreamEnd).toHaveBeenCalledWith('server-conv');
     expect(store.getState().conversation.byId['server-conv']).toBeDefined();
-    expect(store.getState().stream.isStreaming).toBe(false);
+    expect(theSlot(store.getState()).isStreaming).toBe(false);
   });
 
   it('auth reset 与 unmount 同批发生时中止旧 session 并拒绝迟到回调', async () => {
@@ -1898,7 +1916,7 @@ describe('useSendMessage', () => {
     expect(state.conversation.byId['temp-conv']?.messages[1]).toEqual(
       expect.objectContaining({ role: 'assistant', content: [] })
     );
-    expect(state.stream.conversationId).toBe('temp-conv');
+    expect(theSlot(state).conversationId).toBe('temp-conv');
     expect(sendMessageStreamMock).toHaveBeenCalledTimes(1);
 
     releaseStream?.();
@@ -2002,7 +2020,7 @@ describe('useSendMessage', () => {
 
     expect(store.getState().conversation.pendingConversationId).toBeNull();
     expect(store.getState().conversation.byId['temp-conv']).toBeUndefined();
-    expect(store.getState().stream.isStreaming).toBe(false);
+    expect(theSlot(store.getState()).isStreaming).toBe(false);
 
     await waitFor(() => {
       expect(stopStreamMock).toHaveBeenCalledWith(
@@ -2139,7 +2157,7 @@ describe('useSendMessage', () => {
       undefined,
       'retry-task-1',
     );
-    expect(store.getState().stream.currentRun).toBeNull();
+    expect(theSlot(store.getState()).currentRun).toBeNull();
   });
 
   it('重新生成在自动续传耗尽且权威水合失败时仍恢复原完整回答', async () => {
@@ -2439,7 +2457,7 @@ describe('useSendMessage', () => {
     });
 
     await waitFor(() => {
-      expect(store.getState().stream.isStreaming).toBe(true);
+      expect(theSlot(store.getState()).isStreaming).toBe(true);
     });
 
     await act(async () => {
@@ -2503,7 +2521,7 @@ describe('useSendMessage', () => {
 
     await waitFor(() => {
       const state = store.getState();
-      expect(state.stream.isStreaming).toBe(false);
+      expect(theSlot(state).isStreaming).toBe(false);
       expect(state.conversation.globalError).toBe('模型调用超时');
       expect(state.conversation.byId['existing-conv'].messages[0]).toEqual(
         expect.objectContaining({ role: 'user', status: null })
@@ -2731,8 +2749,8 @@ describe('useSendMessage', () => {
     // 不可恢复 → 不应尝试任何重连
     expect(reconnectStreamMock).not.toHaveBeenCalled();
     // 决定性断言：输入框不能被永久锁死
-    expect(store.getState().stream.isStreaming).toBe(false);
-    expect(store.getState().stream.streamStatus).toBe('idle');
+    expect(theSlot(store.getState()).isStreaming).toBe(false);
+    expect(theSlot(store.getState()).streamStatus).toBe('idle');
   });
 
   it('裸网络错误与可恢复错误最终都释放全局流状态', async () => {
@@ -2759,7 +2777,7 @@ describe('useSendMessage', () => {
         await result.current.sendMessage('测试', { conversationId: 'existing-conv' });
       });
 
-      expect(store.getState().stream.isStreaming, kind).toBe(false);
+      expect(theSlot(store.getState()).isStreaming, kind).toBe(false);
       reconnectStreamMock.mockReset();
     }
   });
@@ -2860,8 +2878,8 @@ describe('useSendMessage', () => {
     expect(getConversationMock).toHaveBeenCalledTimes(2);
     await waitFor(() => {
       const state = store.getState();
-      expect(state.stream.isStreaming).toBe(false);
-      expect(state.stream.currentRun?.status).toBe('interrupted');
+      expect(theSlot(state).isStreaming).toBe(false);
+      expect(theSlot(state).currentRun?.status).toBe('interrupted');
       expect(state.conversation.globalError).toBeNull();
       expect(
         state.conversation.byId['existing-conv'].messages.some(
@@ -2992,7 +3010,7 @@ describe('useSendMessage', () => {
         expect.objectContaining({ type: 'text', text: '前半段后半段' }),
       ]);
       expect(generateChatTitleMock).not.toHaveBeenCalled();
-      expect(state.stream.isStreaming).toBe(false);
+      expect(theSlot(state).isStreaming).toBe(false);
       expect(
         dispatchSpy.mock.calls
           .map(([action]) => action)
@@ -3003,8 +3021,8 @@ describe('useSendMessage', () => {
           .map(([action]) => action)
           .filter((action) => action.type === 'stream/setStreamStatus'),
       ).toEqual([
-        expect.objectContaining({ payload: 'reconnecting' }),
-        expect.objectContaining({ payload: 'streaming' }),
+        expect.objectContaining({ payload: { conversationId: 'server-conv', status: 'reconnecting' } }),
+        expect.objectContaining({ payload: { conversationId: 'server-conv', status: 'streaming' } }),
       ]);
     });
   });
@@ -3206,7 +3224,7 @@ describe('useSendMessage', () => {
       role: 'assistant',
       content: [expect.objectContaining({ type: 'text', text: '已显示内容' })],
     }));
-    expect(state.stream.lastError?.message).toContain('仍未恢复');
+    expect(theSlot(state).lastError?.message).toContain('仍未恢复');
   });
 
   it('续传再次中断时使用该次已确认的新 cursor 继续，而不是回退到旧位置', async () => {
@@ -3296,7 +3314,7 @@ describe('useSendMessage', () => {
     await waitFor(() => {
       const state = store.getState();
       expect(state.conversation.globalError).toBe(friendlyMessage);
-      expect(state.stream.lastError?.message).toBe(friendlyMessage);
+      expect(theSlot(state).lastError?.message).toBe(friendlyMessage);
       expect(state.conversation.byId['existing-conv'].messages[0]).toEqual(
         expect.objectContaining({ role: 'user', status: null })
       );
@@ -3335,14 +3353,14 @@ describe('useSendMessage', () => {
       const state = store.getState();
       expect(onMaterialized).toHaveBeenCalledWith('server-conv');
       expect(state.conversation.byId['server-conv']).toBeDefined();
-      expect(state.stream.conversationId).toBe('server-conv');
+      expect(theSlot(state).conversationId).toBe('server-conv');
     });
 
     await act(async () => { releaseStream?.(); });
     await act(async () => { tickIntervals(4); });
 
     await waitFor(() => {
-      expect(store.getState().stream.isStreaming).toBe(false);
+      expect(theSlot(store.getState()).isStreaming).toBe(false);
     });
   });
 
@@ -3381,7 +3399,7 @@ describe('useSendMessage', () => {
         config: { max_steps: 5, max_tool_calls: 10, timeout_s: 60 },
       });
       // 在流结束前快照 currentRun（doCompleteStream 会 endStream 清空）
-      runSnapshot = store.getState().stream.currentRun;
+      runSnapshot = theSlot(store.getState()).currentRun;
       await new Promise<void>((resolve) => { releaseStream = resolve; });
       callbacks.onDone({ messageId: 'assistant-1', conversationId: 'existing-conv' });
     });
@@ -3487,7 +3505,7 @@ describe('useSendMessage', () => {
         result_summary: { kind: 'web_search', count: 3, truncated: false },
         error: null,
       });
-      runSnapshot = store.getState().stream.currentRun;
+      runSnapshot = theSlot(store.getState()).currentRun;
       await new Promise<void>((resolve) => { releaseStream = resolve; });
       callbacks.onDone({ messageId: 'assistant-1', conversationId: 'existing-conv' });
     });
@@ -3599,12 +3617,12 @@ describe('useSendMessage', () => {
     });
 
     await waitFor(() => {
-      expect(store.getState().stream.isStreaming).toBe(false);
+      expect(theSlot(store.getState()).isStreaming).toBe(false);
     });
 
     // currentRun 仍保留；无论是否调用工具，完成后都只走同一条权威详情刷新。
-    expect(store.getState().stream.currentRun).not.toBeNull();
-    expect(store.getState().stream.currentRun?.totalToolCalls).toBe(0);
+    expect(theSlot(store.getState()).currentRun).not.toBeNull();
+    expect(theSlot(store.getState()).currentRun?.totalToolCalls).toBe(0);
     expect(getConversationMock).toHaveBeenCalledTimes(1);
   });
 
@@ -3692,7 +3710,7 @@ describe('useSendMessage', () => {
     });
 
     await waitFor(() => {
-      expect(store.getState().stream.isStreaming).toBe(false);
+      expect(theSlot(store.getState()).isStreaming).toBe(false);
     });
 
     const assistantMsg = store.getState().conversation.byId['existing-conv'].messages.find(
@@ -3795,10 +3813,10 @@ describe('useSendMessage', () => {
     });
 
     await waitFor(() => {
-      expect(store.getState().stream.isStreaming).toBe(false);
+      expect(theSlot(store.getState()).isStreaming).toBe(false);
     });
 
-    expect(store.getState().stream.currentRun?.status).toBe('incomplete');
+    expect(theSlot(store.getState()).currentRun?.status).toBe('incomplete');
   });
 
   it('agent run 含 tool_call：通过统一权威详情刷新补齐 DB 消息', async () => {
@@ -3934,7 +3952,7 @@ describe('useSendMessage', () => {
     await waitFor(() => {
       expect(getConversationMock).toHaveBeenCalledWith('existing-conv');
     });
-    expect(store.getState().stream.currentRun?.totalToolCalls).toBe(1);
+    expect(theSlot(store.getState()).currentRun?.totalToolCalls).toBe(1);
 
     await waitFor(() => {
       const assistantMsg = store.getState().conversation.byId['existing-conv'].messages.find(
@@ -3980,7 +3998,7 @@ describe('useSendMessage', () => {
 
     await waitFor(() => {
       const state = store.getState();
-      expect(state.stream.isStreaming).toBe(false);
+      expect(theSlot(state).isStreaming).toBe(false);
       const assistantMsg = state.conversation.byId['existing-conv'].messages.find(
         (m: any) => m.role === 'assistant'
       );
