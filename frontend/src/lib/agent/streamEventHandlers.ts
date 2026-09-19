@@ -47,6 +47,8 @@ interface AgentStreamEventHandlerOptions {
   isActive: () => boolean;
   resolveMessageId: (ev: RunStartedEvent) => string;
   setServerMessageId?: (messageId: string) => void;
+  /** 流槽位按会话索引后，每个槽位 action 都必须带会话 ID。
+   *  返回 null 表示这条流已经收尾，事件丢弃。 */
   resolveConversationId: () => string | null;
   resolveTrajectoryConversationId?: (event: TrajectoryEvent) => string | null;
 }
@@ -69,7 +71,10 @@ export function createAgentStreamEventHandlers({
     onRunStarted: ev => {
       if (!isActive()) return;
       setServerMessageId?.(ev.message_id);
+      const conversationId = resolveConversationId();
+      if (!conversationId) return;
       dispatch(initRun({
+        conversationId,
         runId: ev.run_id,
         messageId: resolveMessageId(ev),
         serverMessageId: ev.message_id,
@@ -79,7 +84,10 @@ export function createAgentStreamEventHandlers({
     },
     onStepStarted: ev => {
       if (!isActive() || !ev.step_id) return;
+      const conversationId = resolveConversationId();
+      if (!conversationId) return;
       dispatch(pushStep({
+        conversationId,
         runId: ev.run_id,
         stepId: ev.step_id,
         stepNumber: ev.step_number,
@@ -88,7 +96,10 @@ export function createAgentStreamEventHandlers({
     },
     onToolCallStarted: ev => {
       if (!isActive() || !ev.step_id || !ev.tool_call_id) return;
+      const conversationId = resolveConversationId();
+      if (!conversationId) return;
       dispatch(pushToolCall({
+        conversationId,
         runId: ev.run_id,
         stepId: ev.step_id,
         toolCallId: ev.tool_call_id,
@@ -100,7 +111,10 @@ export function createAgentStreamEventHandlers({
     },
     onToolCallDelta: ev => {
       if (!isActive() || !ev.tool_call_id) return;
+      const conversationId = resolveConversationId();
+      if (!conversationId) return;
       dispatch(mergeToolCallDelta({
+        conversationId,
         runId: ev.run_id,
         toolCallId: ev.tool_call_id,
         delta: ev.delta,
@@ -109,7 +123,10 @@ export function createAgentStreamEventHandlers({
     },
     onToolCallCompleted: ev => {
       if (!isActive() || !ev.tool_call_id) return;
+      const conversationId = resolveConversationId();
+      if (!conversationId) return;
       dispatch(finalizeToolCall({
+        conversationId,
         runId: ev.run_id,
         toolCallId: ev.tool_call_id,
         planItemId: ev.plan_item_id ?? undefined,
@@ -122,7 +139,10 @@ export function createAgentStreamEventHandlers({
     },
     onStepCompleted: ev => {
       if (!isActive() || !ev.step_id) return;
+      const conversationId = resolveConversationId();
+      if (!conversationId) return;
       dispatch(finalizeStep({
+        conversationId,
         runId: ev.run_id,
         stepId: ev.step_id,
         toolCallCount: ev.tool_call_count,
@@ -131,7 +151,10 @@ export function createAgentStreamEventHandlers({
     },
     onRunLimitReached: ev => {
       if (!isActive()) return;
+      const conversationId = resolveConversationId();
+      if (!conversationId) return;
       dispatch(markLimitReached({
+        conversationId,
         runId: ev.run_id,
         reason: ev.reason as LimitReachedReason,
         sequence: ev.sequence,
@@ -139,7 +162,10 @@ export function createAgentStreamEventHandlers({
     },
     onRunInterrupted: ev => {
       if (!isActive()) return;
+      const conversationId = resolveConversationId();
+      if (!conversationId) return;
       dispatch(finalizeRun({
+        conversationId,
         runId: ev.run_id,
         status: 'interrupted',
         reason: ev.reason,
@@ -148,7 +174,10 @@ export function createAgentStreamEventHandlers({
     },
     onRunFailed: ev => {
       if (!isActive()) return;
+      const conversationId = resolveConversationId();
+      if (!conversationId) return;
       dispatch(finalizeRun({
+        conversationId,
         runId: ev.run_id,
         status: 'failed',
         failure: { code: ev.error_code, message: ev.message },
@@ -157,7 +186,10 @@ export function createAgentStreamEventHandlers({
     },
     onRunCompleted: ev => {
       if (!isActive()) return;
+      const conversationId = resolveConversationId();
+      if (!conversationId) return;
       dispatch(finalizeRun({
+        conversationId,
         runId: ev.run_id,
         status: getRunStatusFromFinishReason(ev.finish_reason),
         sequence: ev.sequence,
@@ -165,7 +197,10 @@ export function createAgentStreamEventHandlers({
     },
     onRunProgressUpdated: ev => {
       if (!isActive()) return;
+      const conversationId = resolveConversationId();
+      if (!conversationId) return;
       dispatch(updateRunProgress({
+        conversationId,
         runId: ev.run_id,
         sequence: ev.sequence,
         progress: {
@@ -180,7 +215,10 @@ export function createAgentStreamEventHandlers({
     },
     onPlanSnapshot: ev => {
       if (!isActive()) return;
+      const conversationId = resolveConversationId();
+      if (!conversationId) return;
       dispatch(applyPlanSnapshot({
+        conversationId,
         runId: ev.run_id,
         sequence: ev.sequence,
         plan: mapWireAgentPlan(ev),
@@ -188,7 +226,10 @@ export function createAgentStreamEventHandlers({
     },
     onPlanStepUpdated: ev => {
       if (!isActive()) return;
+      const conversationId = resolveConversationId();
+      if (!conversationId) return;
       dispatch(updatePlanStep({
+        conversationId,
         runId: ev.run_id,
         sequence: ev.sequence,
         planId: ev.plan_id,
@@ -199,7 +240,10 @@ export function createAgentStreamEventHandlers({
     },
     onToolResultDigest: ev => {
       if (!isActive() || !ev.tool_call_id) return;
+      const conversationId = resolveConversationId();
+      if (!conversationId) return;
       dispatch(upsertToolDigest({
+        conversationId,
         runId: ev.run_id,
         sequence: ev.sequence,
         digest: {
@@ -219,7 +263,10 @@ export function createAgentStreamEventHandlers({
     },
     onEvidenceItemUpserted: ev => {
       if (!isActive()) return;
+      const conversationId = resolveConversationId();
+      if (!conversationId) return;
       dispatch(upsertEvidenceItem({
+        conversationId,
         runId: ev.run_id,
         sequence: ev.sequence,
         evidence: mapEvidenceItem(ev.evidence),
@@ -230,7 +277,10 @@ export function createAgentStreamEventHandlers({
       const block = normalizeContentBlock(ev.content_block ?? ev.block);
       if (!block) return;
       if (!isStructuredToolResultBlock(block) && !isKnowledgeEvidenceBlock(block)) return;
+      const conversationId = resolveConversationId();
+      if (!conversationId) return;
       dispatch(upsertStaticContentBlock({
+        conversationId,
         runId: ev.run_id,
         sequence: ev.sequence,
         block,
@@ -238,7 +288,10 @@ export function createAgentStreamEventHandlers({
     },
     onContentBlockDiscarded: ev => {
       if (!isActive() || !ev.block_id) return;
+      const conversationId = resolveConversationId();
+      if (!conversationId) return;
       dispatch(discardContentBlock({
+        conversationId,
         runId: ev.run_id,
         sequence: ev.sequence,
         blockId: ev.block_id,
@@ -261,7 +314,10 @@ export function createAgentStreamEventHandlers({
     },
     onContextResult: ev => {
       if (!isActive()) return;
+      const conversationId = resolveConversationId();
+      if (!conversationId) return;
       dispatch(receiveContextResult({
+        conversationId,
         runId: ev.run_id,
         requestId: ev.request_id,
         contextType: ev.context_type,

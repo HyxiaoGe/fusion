@@ -20,7 +20,7 @@ const selectorState = {
     },
     animatingTitleId: null,
   },
-  stream: {
+  streamSlot: {
     conversationId: 'chat-1',
     messageId: null as string | null,
     staticBlocks: [],
@@ -37,6 +37,14 @@ const selectorState = {
     // Task 13b cut over：streamSlice 用 currentRun + searchSources 替换旧扁平字段
     currentRun: null as AgentRunState | null,
     searchSources: [] as unknown[],
+  },
+  // 流槽位按会话索引：假 stream 代表"当前那条流"，挂在它自己的会话 ID 下。
+  get stream() {
+    return {
+      byConversation: this.streamSlot.conversationId
+        ? { [this.streamSlot.conversationId]: this.streamSlot }
+        : {},
+    };
   },
   settings: {},
   auth: {
@@ -56,7 +64,7 @@ function resetSelectorState() {
     },
     animatingTitleId: null,
   });
-  Object.assign(selectorState.stream, {
+  Object.assign(selectorState.streamSlot, {
     conversationId: 'chat-1',
     messageId: null,
     staticBlocks: [],
@@ -324,13 +332,13 @@ describe('ChatMessage', () => {
   });
 
   it('renders streaming assistant content from stream state instead of persisted message content', () => {
-    selectorState.stream.messageId = 'assistant-1';
-    selectorState.stream.textBlocks = { 'blk_s1': '流式正文' };
-    selectorState.stream.thinkingBlocks = {};
-    selectorState.stream.blockOrder = ['blk_s1'];
-    selectorState.stream.blockTypes = { 'blk_s1': 'text' };
-    selectorState.stream.totalTextLength = 4;
-    selectorState.stream.displayedTextLength = 4;
+    selectorState.streamSlot.messageId = 'assistant-1';
+    selectorState.streamSlot.textBlocks = { 'blk_s1': '流式正文' };
+    selectorState.streamSlot.thinkingBlocks = {};
+    selectorState.streamSlot.blockOrder = ['blk_s1'];
+    selectorState.streamSlot.blockTypes = { 'blk_s1': 'text' };
+    selectorState.streamSlot.totalTextLength = 4;
+    selectorState.streamSlot.displayedTextLength = 4;
 
     render(
       <ChatMessage
@@ -349,22 +357,22 @@ describe('ChatMessage', () => {
     expect(screen.getByText('流式正文')).toBeTruthy();
 
     // Reset stream state
-    selectorState.stream.messageId = null;
-    selectorState.stream.textBlocks = {};
-    selectorState.stream.thinkingBlocks = {};
-    selectorState.stream.blockOrder = [];
-    selectorState.stream.blockTypes = {};
-    selectorState.stream.totalTextLength = 0;
-    selectorState.stream.displayedTextLength = 0;
+    selectorState.streamSlot.messageId = null;
+    selectorState.streamSlot.textBlocks = {};
+    selectorState.streamSlot.thinkingBlocks = {};
+    selectorState.streamSlot.blockOrder = [];
+    selectorState.streamSlot.blockTypes = {};
+    selectorState.streamSlot.totalTextLength = 0;
+    selectorState.streamSlot.displayedTextLength = 0;
   });
 
   it('does not render search UI when thinking only mentions search', () => {
-    selectorState.stream.messageId = 'assistant-1';
-    selectorState.stream.textBlocks = {};
-    selectorState.stream.thinkingBlocks = { 'blk_t1': '让我搜索一下，但没有真实工具调用。' };
-    selectorState.stream.blockOrder = ['blk_t1'];
-    selectorState.stream.blockTypes = { 'blk_t1': 'thinking' };
-    selectorState.stream.currentRun = null;
+    selectorState.streamSlot.messageId = 'assistant-1';
+    selectorState.streamSlot.textBlocks = {};
+    selectorState.streamSlot.thinkingBlocks = { 'blk_t1': '让我搜索一下，但没有真实工具调用。' };
+    selectorState.streamSlot.blockOrder = ['blk_t1'];
+    selectorState.streamSlot.blockTypes = { 'blk_t1': 'thinking' };
+    selectorState.streamSlot.currentRun = null;
 
     render(
       <ChatMessage
@@ -383,19 +391,19 @@ describe('ChatMessage', () => {
     expect(screen.queryByText(/正在搜索/)).toBeNull();
     expect(screen.queryByText(/回答依据/)).toBeNull();
 
-    selectorState.stream.messageId = null;
-    selectorState.stream.thinkingBlocks = {};
-    selectorState.stream.blockOrder = [];
-    selectorState.stream.blockTypes = {};
+    selectorState.streamSlot.messageId = null;
+    selectorState.streamSlot.thinkingBlocks = {};
+    selectorState.streamSlot.blockOrder = [];
+    selectorState.streamSlot.blockTypes = {};
   });
 
   it('renders real running web_search as the main activity', () => {
-    selectorState.stream.messageId = 'assistant-1';
-    selectorState.stream.textBlocks = {};
-    selectorState.stream.thinkingBlocks = { 'blk_t1': '准备调用搜索。' };
-    selectorState.stream.blockOrder = ['blk_t1'];
-    selectorState.stream.blockTypes = { 'blk_t1': 'thinking' };
-    selectorState.stream.currentRun = {
+    selectorState.streamSlot.messageId = 'assistant-1';
+    selectorState.streamSlot.textBlocks = {};
+    selectorState.streamSlot.thinkingBlocks = { 'blk_t1': '准备调用搜索。' };
+    selectorState.streamSlot.blockOrder = ['blk_t1'];
+    selectorState.streamSlot.blockTypes = { 'blk_t1': 'thinking' };
+    selectorState.streamSlot.currentRun = {
       runId: 'run-1',
       messageId: 'assistant-1',
       status: 'running',
@@ -440,11 +448,11 @@ describe('ChatMessage', () => {
     expect(screen.getByText('正在搜索：AI 异常检测')).toBeTruthy();
     expect(screen.queryByTestId('reasoning-content')).toBeNull();
 
-    selectorState.stream.messageId = null;
-    selectorState.stream.thinkingBlocks = {};
-    selectorState.stream.blockOrder = [];
-    selectorState.stream.blockTypes = {};
-    selectorState.stream.currentRun = null;
+    selectorState.streamSlot.messageId = null;
+    selectorState.streamSlot.thinkingBlocks = {};
+    selectorState.streamSlot.blockOrder = [];
+    selectorState.streamSlot.blockTypes = {};
+    selectorState.streamSlot.currentRun = null;
   });
 
   it('刷新后的历史工具回答不重新展示思考过程', () => {
@@ -530,7 +538,7 @@ describe('ChatMessage', () => {
   });
 
   it('ignores activity issues from a run owned by another assistant message', () => {
-    selectorState.stream.currentRun = {
+    selectorState.streamSlot.currentRun = {
       runId: 'run-1',
       messageId: 'assistant-other',
       status: 'completed',
@@ -576,7 +584,7 @@ describe('ChatMessage', () => {
     expect(screen.queryByText('搜索暂不可用')).toBeNull();
     expect(screen.queryByText('已基于现有信息回答')).toBeNull();
 
-    selectorState.stream.currentRun = {
+    selectorState.streamSlot.currentRun = {
       runId: 'run-2',
       messageId: 'assistant-other',
       status: 'failed',
@@ -829,13 +837,13 @@ describe('ChatMessage', () => {
   });
 
   it('keeps reasoning visible while streaming text answer', () => {
-    selectorState.stream.messageId = 'assistant-1';
-    selectorState.stream.textBlocks = { 'blk_s1': '正在输出正文' };
-    selectorState.stream.thinkingBlocks = { 'blk_t1': '先分析上下文' };
-    selectorState.stream.blockOrder = ['blk_t1', 'blk_s1'];
-    selectorState.stream.blockTypes = { 'blk_t1': 'thinking', 'blk_s1': 'text' };
-    selectorState.stream.totalTextLength = 6;
-    selectorState.stream.displayedTextLength = 6;
+    selectorState.streamSlot.messageId = 'assistant-1';
+    selectorState.streamSlot.textBlocks = { 'blk_s1': '正在输出正文' };
+    selectorState.streamSlot.thinkingBlocks = { 'blk_t1': '先分析上下文' };
+    selectorState.streamSlot.blockOrder = ['blk_t1', 'blk_s1'];
+    selectorState.streamSlot.blockTypes = { 'blk_t1': 'thinking', 'blk_s1': 'text' };
+    selectorState.streamSlot.totalTextLength = 6;
+    selectorState.streamSlot.displayedTextLength = 6;
 
     render(
       <ChatMessage

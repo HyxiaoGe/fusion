@@ -138,6 +138,7 @@ function StreamingAssistantMessage(props: AssistantMessageProps) {
     isLoadingQuestions: props.isLoadingQuestions,
     suggestedQuestionsCount: props.suggestedQuestions.length,
     currentRun: props.agentRun,
+    conversationId: props.message.chatId ?? props.activeChatId,
   });
 
   return <AssistantMessageFrame {...props} viewModel={viewModel} />;

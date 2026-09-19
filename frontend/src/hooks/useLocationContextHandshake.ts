@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { submitAgentContextResult } from '@/lib/api/chat';
 import { useAppDispatch, useAppSelector } from '@/redux/hooks';
-import { setContextRequestPhase } from '@/redux/slices/streamSlice';
+import { selectStreamSlot, setContextRequestPhase } from '@/redux/slices/streamSlice';
 import type {
   AgentContextLocation,
   PendingAgentContextRequest,
@@ -93,7 +93,7 @@ async function getBrowserLocation(): Promise<ContextSubmission> {
 export function useLocationContextHandshake(conversationId: string | null) {
   const dispatch = useAppDispatch();
   const request = useAppSelector((state) => {
-    const pending = state.stream.pendingContextRequest;
+    const pending = selectStreamSlot(state, conversationId).pendingContextRequest;
     return pending && pending.conversationId === conversationId ? pending : null;
   });
   const requestRef = useRef(request);
@@ -118,6 +118,7 @@ export function useLocationContextHandshake(conversationId: string | null) {
     phase: PendingAgentContextRequest['phase'],
   ) => {
     dispatch(setContextRequestPhase({
+      conversationId: target.conversationId,
       runId: target.runId,
       requestId: target.requestId,
       phase,

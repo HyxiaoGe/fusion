@@ -39,6 +39,7 @@ import {
   setStreamError,
   setStreamStatus,
   ownsStreamSlot,
+  selectStreamSlot,
   startStream,
 } from '@/redux/slices/streamSlice';
 import type { StreamState } from '@/redux/slices/streamSlice';
@@ -148,6 +149,7 @@ function buildContinuationStreamCallbacks({
     onReasoning: payload => {
       if (!isActive()) return;
       dispatch(appendThinkingDelta({
+        conversationId,
         blockId: payload.block_id,
         delta: payload.delta,
         runId: payload.run_id,
@@ -156,17 +158,18 @@ function buildContinuationStreamCallbacks({
     },
     onAnswering: payload => {
       if (!isActive()) return;
-      const streamState = (store.getState() as RootStateForContinuation).stream;
-      if (streamState.isStreamingReasoning) {
-        dispatch(completeThinkingPhase());
+      const slot = selectStreamSlot(store.getState() as RootStateForContinuation, conversationId);
+      if (slot.isStreamingReasoning) {
+        dispatch(completeThinkingPhase({ conversationId }));
       }
       dispatch(appendTextDelta({
+        conversationId,
         blockId: payload.block_id,
         delta: payload.delta,
         runId: payload.run_id,
         stepId: payload.step_id,
       }));
-      dispatch(advanceTypewriter(payload.delta.length));
+      dispatch(advanceTypewriter({ conversationId, chars: payload.delta.length }));
     },
     ...createAgentStreamEventHandlers({
       dispatch,
@@ -200,7 +203,7 @@ function buildContinuationStreamCallbacks({
     onDone: () => {
       if (!isActive()) return;
       const state = store.getState() as RootStateForContinuation;
-      const streamState = state.stream;
+      const streamState = selectStreamSlot(state, conversationId);
       const rawFinalBlocks = selectFullStreamContentBlocks(streamState);
       const finalBlocks = shouldRecoverReasoningOnlyFinalBlocks({
         runStatus: streamState.currentRun?.status,
@@ -229,13 +232,13 @@ function buildContinuationStreamCallbacks({
           messageIds: [assistantMessageId],
         }));
       }
-      dispatch(endStream());
+      dispatch(endStream({ conversationId }));
       refreshContinuationMessage({ conversationId, assistantMessageId, dispatch, store });
     },
     onError: (message, payload) => {
       if (!isActive()) return;
       markTerminalErrorHandled();
-      dispatch(setStreamError({ message, code: payload?.code, data: payload?.data }));
+      dispatch(setStreamError({ conversationId, message, code: payload?.code, data: payload?.data }));
     },
   };
 }
@@ -262,7 +265,8 @@ export function useContinueAgentRun(deps: HookDeps = {}) {
     }
 
     const state = store.getState() as RootStateForContinuation;
-    if (state.stream.isStreaming || (canStart && !canStart())) {
+    // 此前拦的是"全局有流在跑"；槽位按会话拆开后，只有本会话已经在生成才该拦。
+    if (selectStreamSlot(state, conversationId).isStreaming || (canStart && !canStart())) {
       onRejectedBeforeStart?.();
       return;
     }
@@ -289,9 +293,10 @@ export function useContinueAgentRun(deps: HookDeps = {}) {
     onAccepted?.();
 
     let terminalErrorHandled = false;
-    // 续跑同样占用全局流槽位；被别的流接管后继续写/读槽位会与对方串在一起。
+    // 跨会话串槽已由按会话拆分的槽位结构消灭；这里剩下的是同一会话内
+    // 上一轮（或一次新发送）把槽位换掉后，本条续跑的迟到回调。
     const ownsSlot = () => ownsStreamSlot(
-      (store.getState() as RootStateForContinuation).stream,
+      selectStreamSlot(store.getState() as RootStateForContinuation, conversationId),
       assistantMessageId,
     );
     const isActive = () => activeContinuationRef.current?.token === token && ownsSlot();
@@ -337,13 +342,13 @@ export function useContinueAgentRun(deps: HookDeps = {}) {
         },
         onPhaseChange: phase => {
           if (!isActive()) return;
-          dispatch(setStreamStatus(phase));
+          dispatch(setStreamStatus({ conversationId, status: phase }));
         },
       });
     } catch (error) {
       if (!controller.signal.aborted) {
-        const streamState = (store.getState() as RootStateForContinuation).stream;
-        // 槽位已属于别人时读到的是对方的正文，写下去就是串进本条消息。
+        const streamState = selectStreamSlot(store.getState() as RootStateForContinuation, conversationId);
+        // 槽位已被同会话的新一轮换掉时读到的是那一轮的正文，写下去就是串进本条消息。
         const partialBlocks = ownsStreamSlot(streamState, assistantMessageId)
           ? selectFullStreamContentBlocks(streamState)
           : [];
@@ -356,10 +361,11 @@ export function useContinueAgentRun(deps: HookDeps = {}) {
         }
         if (!terminalErrorHandled) {
           dispatch(setStreamError({
+            conversationId,
             message: error instanceof Error ? error.message : '继续执行失败',
           }));
         }
-        dispatch(endStream());
+        dispatch(endStream({ conversationId }));
       }
     } finally {
       releaseStreamController(conversationId, controller);
@@ -385,7 +391,10 @@ export function useContinueAgentRun(deps: HookDeps = {}) {
     activeContinuationRef.current = null;
     abortControllerRef.current = null;
 
-    const streamState = (store.getState() as RootStateForContinuation).stream;
+    const streamState = selectStreamSlot(
+      store.getState() as RootStateForContinuation,
+      active.conversationId,
+    );
     const partialBlocks = ownsStreamSlot(streamState, active.assistantMessageId)
       ? selectFullStreamContentBlocks(streamState)
       : [];
@@ -412,7 +421,7 @@ export function useContinueAgentRun(deps: HookDeps = {}) {
     } else {
       await stopStream(active.conversationId, messageId);
     }
-    dispatch(endStream());
+    dispatch(endStream({ conversationId: active.conversationId }));
     return true;
   }, [dispatch, store]);
 

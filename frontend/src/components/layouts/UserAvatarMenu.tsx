@@ -14,7 +14,7 @@ import { openSettingsDialog } from "@/redux/slices/settingsSlice";
 import { logoutWithSso } from "@/redux/slices/authSlice";
 import { resetConversationState } from "@/redux/slices/conversationSlice";
 import { resetFileUploadState } from "@/redux/slices/fileUploadSlice";
-import { endStream } from "@/redux/slices/streamSlice";
+import { resetStreamState } from "@/redux/slices/streamSlice";
 import { Settings, LogOut, LogIn, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { LoginDialog } from "@/components/auth/LoginDialog";
@@ -54,7 +54,7 @@ export function UserAvatarMenu() {
   const handleLogout = () => {
     void dispatch(logoutWithSso());
     dispatch(resetConversationState());
-    dispatch(endStream());
+    dispatch(resetStreamState());
     dispatch(resetFileUploadState());
   };
 

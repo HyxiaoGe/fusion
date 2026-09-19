@@ -84,7 +84,7 @@ describe('conversationDetailInvalidationMiddleware', () => {
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'conversation/resetConversationListForAuthChange' })
     );
-    expect(dispatch).toHaveBeenCalledWith({ type: 'stream/endStream' });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'stream/resetStreamState' });
     expect(dispatch).toHaveBeenCalledWith({ type: 'fileUpload/resetFileUploadState' });
   });
 

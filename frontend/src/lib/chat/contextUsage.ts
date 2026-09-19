@@ -31,8 +31,8 @@ interface ContextMessageLike {
   usage?: { context?: unknown } | null;
 }
 
-interface ContextStateLike {
-  stream?: {
+/** 流槽位里与上下文用量有关的那部分（结构化子集，避免把整个 StreamSlot 拖进来）。 */
+interface ContextStreamSlotLike {
     isStreaming?: boolean;
     conversationId?: string | null;
     contextUsageConversationId?: string | null;
@@ -58,6 +58,11 @@ interface ContextStateLike {
       messageId?: string;
       serverMessageId?: string;
     } | null;
+}
+
+interface ContextStateLike {
+  stream?: {
+    byConversation?: Record<string, ContextStreamSlotLike>;
   };
   conversation?: {
     byId?: Record<string, {
@@ -178,7 +183,7 @@ function latestConfirmedUsage(
 function belongsToAssistant(
   meta: { runId?: string; messageId?: string } | null | undefined,
   latestAssistantId: string,
-  currentRun: NonNullable<ContextStateLike['stream']>['currentRun'],
+  currentRun: ContextStreamSlotLike['currentRun'],
 ): boolean {
   if (meta?.messageId === latestAssistantId) return true;
   if (!currentRun || meta?.runId !== currentRun.runId) return false;
@@ -194,19 +199,22 @@ export function selectConversationContextStatus(
 
   const messages = state.conversation?.byId?.[conversationId]?.messages ?? [];
   const latestAssistant = [...messages].reverse().find(message => message.role === 'assistant');
-  if (state.stream?.isStreaming && state.stream.conversationId === conversationId) {
-    const confirmedMatches = state.stream.contextUsageConversationId == null
-      || state.stream.contextUsageConversationId === conversationId;
-    const inFlightMatches = state.stream.contextUsageInFlightConversationId == null
-      || state.stream.contextUsageInFlightConversationId === conversationId;
-    const confirmedUsage = confirmedMatches ? actualUsage(state.stream.contextUsage) : null;
+  // 槽位按会话索引后，"这条用量是不是本会话的"由取槽位这一步就决定了，
+  // 不必再拿全局 conversationId 去比。
+  const slot = state.stream?.byConversation?.[conversationId];
+  if (slot?.isStreaming) {
+    const confirmedMatches = slot.contextUsageConversationId == null
+      || slot.contextUsageConversationId === conversationId;
+    const inFlightMatches = slot.contextUsageInFlightConversationId == null
+      || slot.contextUsageInFlightConversationId === conversationId;
+    const confirmedUsage = confirmedMatches ? actualUsage(slot.contextUsage) : null;
     const recentConfirmedUsage = confirmedUsage ?? latestConfirmedUsage(messages);
     const inFlightUsage = inFlightMatches
-      ? normalizeContextUsage(state.stream.contextUsageInFlight)
+      ? normalizeContextUsage(slot.contextUsageInFlight)
       : null;
-    const inFlightMeta = inFlightMatches ? state.stream.contextUsageInFlightMeta : null;
+    const inFlightMeta = inFlightMatches ? slot.contextUsageInFlightMeta : null;
     const phase = inFlightMeta?.phase
-      ?? (confirmedUsage && state.stream.contextUsageMeta?.phase === 'final' ? 'final' : 'estimated');
+      ?? (confirmedUsage && slot.contextUsageMeta?.phase === 'final' ? 'final' : 'estimated');
 
     if (phase === 'error' || (inFlightUsage && errorKindFromStatus(inFlightUsage.status))) {
       const errorKind = inFlightUsage
@@ -239,20 +247,20 @@ export function selectConversationContextStatus(
     return toContextStatus(null, 'estimated', true);
   }
 
-  const retainedConfirmedMatches = state.stream?.contextUsageConversationId === conversationId;
-  const retainedInFlightMatches = state.stream?.contextUsageInFlightConversationId === conversationId;
-  const currentRun = state.stream?.currentRun;
-  const inFlightMeta = retainedInFlightMatches ? state.stream?.contextUsageInFlightMeta : null;
+  const retainedConfirmedMatches = slot?.contextUsageConversationId === conversationId;
+  const retainedInFlightMatches = slot?.contextUsageInFlightConversationId === conversationId;
+  const currentRun = slot?.currentRun;
+  const inFlightMeta = retainedInFlightMatches ? slot?.contextUsageInFlightMeta : null;
   const inFlightUsage = retainedInFlightMatches
-    ? normalizeContextUsage(state.stream?.contextUsageInFlight)
+    ? normalizeContextUsage(slot?.contextUsageInFlight)
     : null;
   const latestAssistantId = latestAssistant?.id;
   const inFlightBelongs = latestAssistantId
     ? belongsToAssistant(inFlightMeta, latestAssistantId, currentRun)
     : false;
-  const confirmedUsage = retainedConfirmedMatches ? actualUsage(state.stream?.contextUsage) : null;
+  const confirmedUsage = retainedConfirmedMatches ? actualUsage(slot?.contextUsage) : null;
   const confirmedBelongs = latestAssistantId
-    ? belongsToAssistant(state.stream?.contextUsageMeta, latestAssistantId, currentRun)
+    ? belongsToAssistant(slot?.contextUsageMeta, latestAssistantId, currentRun)
     : false;
   const retainedConfirmedUsage = confirmedBelongs ? confirmedUsage : null;
   const persistedUsage = normalizeContextUsage(latestAssistant?.usage?.context);
@@ -307,13 +315,15 @@ export function makeSelectConversationContextStatus(
 ) {
   return createSelector(
     [
-      (state: ContextStateLike) => state.stream,
+      (state: ContextStateLike) => (conversationId
+        ? state.stream?.byConversation?.[conversationId]
+        : undefined),
       (state: ContextStateLike) => conversationId
         ? (state.conversation?.byId?.[conversationId]?.messages ?? EMPTY_CONTEXT_MESSAGES)
         : EMPTY_CONTEXT_MESSAGES,
     ],
-    (stream, messages) => selectConversationContextStatus({
-      stream,
+    (slot, messages) => selectConversationContextStatus({
+      stream: conversationId && slot ? { byConversation: { [conversationId]: slot } } : undefined,
       conversation: conversationId
         ? { byId: { [conversationId]: { messages } } }
         : undefined,

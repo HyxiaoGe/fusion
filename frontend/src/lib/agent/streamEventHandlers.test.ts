@@ -334,6 +334,7 @@ describe('createAgentStreamEventHandlers', () => {
     expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
       type: 'stream/finalizeStep',
       payload: {
+        conversationId: 'c1',
         runId: 'r1',
         stepId: 's1',
         toolCallCount: 1,
@@ -440,6 +441,7 @@ describe('createAgentStreamEventHandlers', () => {
     expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
       type: 'stream/discardContentBlock',
       payload: {
+        conversationId: 'c1',
         runId: 'r1',
         blockId: 'tool-preamble',
         sequence: 2,

@@ -8,8 +8,8 @@ import type { TrajectoryState } from '@/redux/slices/trajectorySlice';
 
 const { selectorState, chatMessageRenderMock, isNearBottomMock, resizeObserverState } = vi.hoisted(() => ({
   selectorState: {
-    stream: {
-      conversationId: null,
+    streamSlot: {
+      conversationId: 'chat-1',
       messageId: null as string | null,
       currentRun: null as AgentRunState | null,
       blockOrder: [] as string[],
@@ -19,6 +19,14 @@ const { selectorState, chatMessageRenderMock, isNearBottomMock, resizeObserverSt
       totalTextLength: 0,
       displayedTextLength: 0,
       lastError: null,
+    },
+    // 流槽位按会话索引：假 stream 代表"当前那条流"，挂在它自己的会话 ID 下。
+    get stream() {
+      return {
+        byConversation: this.streamSlot.conversationId
+          ? { [this.streamSlot.conversationId]: this.streamSlot }
+          : {},
+      };
     },
     conversation: {
       byId: {
@@ -111,11 +119,11 @@ import trajectoryReducer, {
 
 describe('ChatMessageList', () => {
   beforeEach(() => {
-    selectorState.stream.messageId = null;
-    selectorState.stream.currentRun = null;
-    selectorState.stream.blockOrder = [];
-    selectorState.stream.displayedTextLength = 0;
-    selectorState.stream.lastError = null;
+    selectorState.streamSlot.messageId = null;
+    selectorState.streamSlot.currentRun = null;
+    selectorState.streamSlot.blockOrder = [];
+    selectorState.streamSlot.displayedTextLength = 0;
+    selectorState.streamSlot.lastError = null;
     selectorState.trajectory = {
       authScope: '__anonymous__',
       byConversationId: {},
@@ -621,7 +629,7 @@ describe('ChatMessageList', () => {
     );
     chatMessageRenderMock.mockClear();
 
-    selectorState.stream.currentRun = {
+    selectorState.streamSlot.currentRun = {
       runId: 'run-2',
       messageId: 'assistant-2',
       status: 'running',
@@ -659,7 +667,7 @@ describe('ChatMessageList', () => {
     );
     chatMessageRenderMock.mockClear();
 
-    selectorState.stream.currentRun = {
+    selectorState.streamSlot.currentRun = {
       runId: 'run-server-2',
       messageId: 'client-temp-2',
       serverMessageId: 'server-assistant-2',
@@ -693,7 +701,7 @@ describe('ChatMessageList', () => {
       },
     ];
 
-    selectorState.stream.currentRun = {
+    selectorState.streamSlot.currentRun = {
       runId: 'run-1',
       messageId: 'assistant-1',
       status: 'running',
@@ -709,7 +717,7 @@ describe('ChatMessageList', () => {
     );
     chatMessageRenderMock.mockClear();
 
-    selectorState.stream.currentRun = {
+    selectorState.streamSlot.currentRun = {
       runId: 'run-2',
       messageId: 'assistant-2',
       status: 'running',
@@ -765,7 +773,7 @@ describe('ChatMessageList', () => {
   });
 
   it('终态 live run 不遮挡消息水合得到的权威 agent run', () => {
-    selectorState.stream.currentRun = {
+    selectorState.streamSlot.currentRun = {
       runId: 'run-server',
       messageId: 'assistant-1',
       status: 'completed',
@@ -804,7 +812,7 @@ describe('ChatMessageList', () => {
   });
 
   it('续跑产生的新 terminal currentRun 不被同消息的旧 hydrated run 遮挡', () => {
-    selectorState.stream.currentRun = {
+    selectorState.streamSlot.currentRun = {
       runId: 'run-continuation',
       messageId: 'assistant-1',
       status: 'limit_reached',
@@ -840,7 +848,7 @@ describe('ChatMessageList', () => {
   });
 
   it('同 runId 的 terminal currentRun 不被过期的 hydrated running 快照覆盖', () => {
-    selectorState.stream.currentRun = {
+    selectorState.streamSlot.currentRun = {
       runId: 'run-server',
       messageId: 'assistant-1',
       status: 'limit_reached',
@@ -880,9 +888,10 @@ describe('ChatMessageList', () => {
   });
 
   it('marks the message owning stream.messageId as streaming even when it is not last', () => {
-    selectorState.stream.messageId = 'assistant-1';
+    selectorState.streamSlot.messageId = 'assistant-1';
     render(
       <ChatMessageList
+        conversationId="chat-1"
         isStreaming
         messages={[
           {

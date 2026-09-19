@@ -72,8 +72,8 @@ export function getProtectedHydrationMessageIds(
       }
     });
   }
-  const stream = state.stream;
-  if (stream?.isStreaming && stream.conversationId === conversationId) {
+  const stream = state.stream?.byConversation?.[conversationId];
+  if (stream?.isStreaming) {
     if (stream.messageId) {
       protectedIds.add(stream.messageId);
     }

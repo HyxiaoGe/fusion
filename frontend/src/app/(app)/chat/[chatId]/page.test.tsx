@@ -342,6 +342,17 @@ vi.mock('@/redux/slices/streamSlice', () => ({
   pushStep: vi.fn((payload?: unknown) => ({ type: 'stream/pushStep', payload })),
   pushToolCall: vi.fn((payload?: unknown) => ({ type: 'stream/pushToolCall', payload })),
   selectFullStreamContentBlocks: (state: { contentBlocks?: any[] }) => state.contentBlocks ?? [],
+  // 槽位按会话索引。测试里的假 stream 仍是扁平一份，代表"当前那条流"：
+  // 只有 conversationId 相符才算这个会话的槽位，否则是空槽。
+  selectStreamSlot: (state: any, conversationId?: string | null) => {
+    const stream = state?.stream ?? {};
+    // 假 stream 点名了别的会话才算空槽；没点名的（store 侧的假流）按本会话处理。
+    if (!conversationId) return { isStreaming: false, messageId: null, contentBlocks: [] };
+    if (stream.conversationId != null && stream.conversationId !== conversationId) {
+      return { isStreaming: false, messageId: null, contentBlocks: [] };
+    }
+    return stream;
+  },
   // 与真实实现同语义：槽位空闲一律放行，只拦"已经属于别人"。
   ownsStreamSlot: (state: { messageId?: string | null }, messageId: string | null) => (
     (state.messageId ?? null) === null || state.messageId === messageId
@@ -1128,7 +1139,7 @@ describe('ChatPage 会话切换体验', () => {
     expect(reconnectStreamMock).toHaveBeenCalledTimes(3);
   });
 
-  it.each(['stop', 'switch', 'unmount'] as const)('%s 会 abort 当前恢复 GET 和重试等待', async (mode) => {
+  it.each(['stop', 'unmount'] as const)('%s 会 abort 当前恢复 GET 和重试等待', async (mode) => {
     conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
     conversationsById.set('chat-b', createConversation('chat-b', [textMessage('user-b')]));
     hydrationById.set('chat-a', { view: 'ready' });
@@ -1154,9 +1165,6 @@ describe('ChatPage 会话切换体验', () => {
 
     if (mode === 'stop') {
       fireEvent.click(screen.getByRole('button', { name: '停止生成' }));
-    } else if (mode === 'switch') {
-      currentRoute.chatId = 'chat-b';
-      view.rerender(<ChatPage />);
     } else {
       view.unmount();
     }
@@ -1164,6 +1172,72 @@ describe('ChatPage 会话切换体验', () => {
     await waitFor(() => expect(reconnectSignal?.aborted).toBe(true));
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(reconnectStreamMock).toHaveBeenCalledTimes(callsBeforeAbort);
+  });
+
+  it('恢复流的 reconnecting 状态在槽位建立之后才写', async () => {
+    // 槽位由 startStream 建立，之前派发的槽位 action 没有落点会被丢弃。
+    // 顺序写反，界面就永远看不到"重连中"。
+    conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
+    hydrationById.set('chat-a', { view: 'ready' });
+    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1' });
+    reconnectStreamMock.mockImplementation(() => new Promise(() => {}));
+
+    render(<ChatPage />);
+
+    await waitFor(() => {
+      expect(dispatchMock.mock.calls.some(([action]) => action?.type === 'stream/startStream')).toBe(true);
+    });
+
+    const types = dispatchMock.mock.calls.map(([action]) => action?.type);
+    const startIndex = types.indexOf('stream/startStream');
+    const reconnectingIndex = dispatchMock.mock.calls.findIndex(([action]) => (
+      action?.type === 'stream/setStreamStatus' && action?.payload?.status === 'reconnecting'
+    ));
+
+    expect(reconnectingIndex).toBeGreaterThan(-1);
+    expect(reconnectingIndex).toBeGreaterThan(startIndex);
+  });
+
+  it('切走不再掐断本会话正在跑的恢复流，切回来也不重复建流', async () => {
+    // 此前切会话的 effect 清理会 abort 恢复流并无条件 endStream：全局单槽时
+    // 不清就会让 isStreaming 残留、挡住下一个会话的重连。槽位按会话拆开后
+    // 这条清理反而会在用户切走的瞬间掐断本会话正在跑的生成。
+    conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
+    conversationsById.set('chat-b', createConversation('chat-b', [textMessage('user-b')]));
+    hydrationById.set('chat-a', { view: 'ready' });
+    hydrationById.set('chat-b', { view: 'ready' });
+    fetchStreamStatusMock.mockImplementation(async (chatId: string) => (
+      chatId === 'chat-a'
+        ? { status: 'streaming', message_id: 'assistant-1' }
+        : { status: 'not_found' }
+    ));
+    let reconnectSignal: AbortSignal | undefined;
+    reconnectStreamMock.mockImplementation((_chatId: string, _cursor: string, _callbacks: unknown, signal: AbortSignal) => {
+      reconnectSignal = signal;
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => {
+          reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+        }, { once: true });
+      });
+    });
+
+    const view = render(<ChatPage />);
+    await waitFor(() => expect(reconnectStreamMock).toHaveBeenCalledTimes(1));
+
+    currentRoute.chatId = 'chat-b';
+    view.rerender(<ChatPage />);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    expect(reconnectSignal?.aborted).toBe(false);
+
+    // 切回来：chat-a 的槽位仍在生成，不该再开一条 GET
+    streamState.isStreaming = true;
+    streamState.conversationId = 'chat-a';
+    currentRoute.chatId = 'chat-a';
+    view.rerender(<ChatPage />);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    expect(reconnectStreamMock).toHaveBeenCalledTimes(1);
   });
 
   it('页面切换后旧 reconnect 的迟到轨迹仍隔离写回原会话', async () => {
@@ -1193,7 +1267,9 @@ describe('ChatPage 会话切换体验', () => {
 
     currentRoute.chatId = 'chat-b';
     view.rerender(<ChatPage />);
-    await waitFor(() => expect(recoverySignal?.aborted).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    // 切走不再掐断这条恢复流，它继续往 chat-a 写；隔离靠的是事件自带的会话归属。
+    expect(recoverySignal?.aborted).toBe(false);
 
     recoveryCallbacks?.onTrajectoryEvent?.(recoveredTrajectoryEvent());
 

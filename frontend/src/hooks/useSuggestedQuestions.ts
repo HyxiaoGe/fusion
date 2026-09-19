@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from 'react-redux';
 import { useAppDispatch, useAppSelector } from '@/redux/hooks';
+import { selectStreamSlot } from '@/redux/slices/streamSlice';
 import { fetchSuggestedQuestions as fetchApi } from '@/lib/api/chat';
 import {
   invalidateConversationDetail,
@@ -64,12 +65,11 @@ export const useSuggestedQuestions = (chatId: string | null) => {
     lastAssistantMessageId && observationMessageIds?.includes(lastAssistantMessageId)
   );
   const isAwaitingStreamQuestions = useAppSelector((state) => {
-    const stream = state.stream;
+    const stream = selectStreamSlot(state, chatId);
     if (
       !chatId
       || !lastAssistantMessageId
       || persistedStatus !== 'pending'
-      || stream.conversationId !== chatId
       || (stream.streamStatus !== 'streaming' && stream.streamStatus !== 'reconnecting')
     ) {
       return false;

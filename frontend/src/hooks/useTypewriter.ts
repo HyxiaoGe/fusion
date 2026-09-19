@@ -2,7 +2,7 @@
 import { useRef, useCallback } from 'react';
 import { useAppDispatch } from '@/redux/hooks';
 import { useStore } from 'react-redux';
-import { advanceTypewriter } from '@/redux/slices/streamSlice';
+import { advanceTypewriter, selectStreamSlot } from '@/redux/slices/streamSlice';
 import type { StreamState } from '@/redux/slices/streamSlice';
 
 const TYPEWRITER_BASE_CHARS_PER_TICK = 4;
@@ -64,22 +64,24 @@ export function useTypewriter() {
     onCatchUp?.();
   }, []);
 
-  const start = useCallback((onCatchUp: () => void) => {
+  // conversationId：推进哪个会话的槽位。此前读写的是全局那一份，
+  // 两个会话同时生成时，一边的打字机会去推另一边的进度。
+  const start = useCallback((conversationId: string, onCatchUp: () => void) => {
     if (intervalRef.current !== null) return;
 
     catchUpRef.current = onCatchUp;
     intervalRef.current = setInterval(() => {
-      const streamState = (store.getState() as { stream: StreamState }).stream;
+      const streamState = selectStreamSlot(store.getState() as { stream: StreamState }, conversationId);
       const backlog = streamState.totalTextLength - streamState.displayedTextLength;
       const advance = calculateTypewriterAdvance({
         backlog,
         networkDone: networkDoneRef.current,
       });
       if (advance > 0) {
-        dispatch(advanceTypewriter(advance));
+        dispatch(advanceTypewriter({ conversationId, chars: advance }));
       }
 
-      const updated = (store.getState() as { stream: StreamState }).stream;
+      const updated = selectStreamSlot(store.getState() as { stream: StreamState }, conversationId);
       if (networkDoneRef.current && updated.displayedTextLength >= updated.totalTextLength) {
         finishCatchUp();
       }

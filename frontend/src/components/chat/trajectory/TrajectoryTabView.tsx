@@ -38,6 +38,7 @@ import {
   type TrajectoryOverviewMode,
 } from '@/lib/trajectory/trajectoryOverviewModel';
 import { useAppDispatch } from '@/redux/hooks';
+import { selectStreamSlot } from '@/redux/slices/streamSlice';
 import {
   resolveTrajectoryInspectRequest,
   selectTrajectoryConversation,
@@ -423,7 +424,7 @@ export function TrajectoryTabView({
         selectedSnapshot?.truncated || selectedReconciliation?.eventsTruncated
       ),
       reconciliationStatus: selectedReconciliation?.status ?? null,
-      hasActiveStream: state.stream.isStreaming,
+      hasActiveStream: selectStreamSlot(state, conversationId).isStreaming,
       modelAvailable: actionContext?.modelAvailable ?? false,
       knowledgeBaseStatus: actionContext?.knowledgeBaseStatus ?? 'unavailable',
       knowledgeBaseIds: actionContext?.knowledgeBaseIds ?? [],

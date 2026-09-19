@@ -1,12 +1,19 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// 流状态按会话索引，测试里固定用 CONV 这一条。
+const CONV = 'conv-tw';
 const testState = vi.hoisted(() => ({
   stream: {
-    displayedTextLength: 0,
-    totalTextLength: 0,
+    byConversation: {
+      'conv-tw': {
+        displayedTextLength: 0,
+        totalTextLength: 0,
+      } as Record<string, number>,
+    },
   },
 }));
+const testSlot = () => testState.stream.byConversation[CONV];
 const dispatchMock = vi.hoisted(() => vi.fn());
 const getStateMock = vi.hoisted(() => vi.fn(() => testState));
 
@@ -64,15 +71,15 @@ describe('calculateTypewriterAdvance', () => {
 describe('useTypewriter', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    testState.stream.displayedTextLength = 0;
-    testState.stream.totalTextLength = 0;
+    testSlot().displayedTextLength = 0;
+    testSlot().totalTextLength = 0;
     getStateMock.mockClear();
     dispatchMock.mockReset();
-    dispatchMock.mockImplementation((action: { type: string; payload: number }) => {
+    dispatchMock.mockImplementation((action: { type: string; payload: { conversationId: string; chars: number } }) => {
       if (action.type === 'stream/advanceTypewriter') {
-        testState.stream.displayedTextLength = Math.min(
-          testState.stream.displayedTextLength + action.payload,
-          testState.stream.totalTextLength,
+        testSlot().displayedTextLength = Math.min(
+          testSlot().displayedTextLength + action.payload.chars,
+          testSlot().totalTextLength,
         );
       }
       return action;
@@ -85,16 +92,16 @@ describe('useTypewriter', () => {
   });
 
   it('每个 30ms tick 最多 dispatch 一次，并在 network done 后提高追赶量', () => {
-    testState.stream.totalTextLength = 1_200;
+    testSlot().totalTextLength = 1_200;
     const { result } = renderHook(() => useTypewriter());
 
     act(() => {
-      result.current.start(vi.fn());
+      result.current.start(CONV, vi.fn());
       vi.advanceTimersByTime(30);
     });
     expect(dispatchMock).toHaveBeenCalledTimes(1);
     expect(dispatchMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ payload: 20 }),
+      expect.objectContaining({ payload: { conversationId: CONV, chars: 20 } }),
     );
 
     act(() => {
@@ -103,24 +110,24 @@ describe('useTypewriter', () => {
     });
     expect(dispatchMock).toHaveBeenCalledTimes(2);
     expect(dispatchMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ payload: 99 }),
+      expect.objectContaining({ payload: { conversationId: CONV, chars: 99 } }),
     );
   });
 
   it('追平后只调用一次首次 start 的 catchUp，并停止 interval', () => {
-    testState.stream.totalTextLength = 20;
+    testSlot().totalTextLength = 20;
     const catchUp = vi.fn();
     const ignoredCatchUp = vi.fn();
     const { result } = renderHook(() => useTypewriter());
 
     act(() => {
-      result.current.start(catchUp);
-      result.current.start(ignoredCatchUp);
+      result.current.start(CONV, catchUp);
+      result.current.start(CONV, ignoredCatchUp);
       result.current.markNetworkDone();
       vi.advanceTimersByTime(150);
     });
 
-    expect(testState.stream.displayedTextLength).toBe(20);
+    expect(testSlot().displayedTextLength).toBe(20);
     expect(dispatchMock).toHaveBeenCalledTimes(5);
     expect(catchUp).toHaveBeenCalledTimes(1);
     expect(ignoredCatchUp).not.toHaveBeenCalled();
@@ -137,7 +144,7 @@ describe('useTypewriter', () => {
     const { result } = renderHook(() => useTypewriter());
 
     act(() => {
-      result.current.start(catchUp);
+      result.current.start(CONV, catchUp);
       result.current.markNetworkDone();
       vi.advanceTimersByTime(30);
     });
@@ -147,27 +154,27 @@ describe('useTypewriter', () => {
   });
 
   it('先收到 network done 再启动时仍保留完成信号', () => {
-    testState.stream.totalTextLength = 8;
+    testSlot().totalTextLength = 8;
     const catchUp = vi.fn();
     const { result } = renderHook(() => useTypewriter());
 
     act(() => {
       result.current.markNetworkDone();
-      result.current.start(catchUp);
+      result.current.start(CONV, catchUp);
       vi.advanceTimersByTime(60);
     });
 
-    expect(testState.stream.displayedTextLength).toBe(8);
+    expect(testSlot().displayedTextLength).toBe(8);
     expect(catchUp).toHaveBeenCalledTimes(1);
   });
 
   it('stop 立即停止推进并清除 catchUp', () => {
-    testState.stream.totalTextLength = 1_000;
+    testSlot().totalTextLength = 1_000;
     const catchUp = vi.fn();
     const { result } = renderHook(() => useTypewriter());
 
     act(() => {
-      result.current.start(catchUp);
+      result.current.start(CONV, catchUp);
       vi.advanceTimersByTime(30);
       result.current.stop();
       vi.advanceTimersByTime(300);

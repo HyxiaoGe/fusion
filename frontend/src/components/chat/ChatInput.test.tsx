@@ -47,7 +47,7 @@ const {
         byId: {},
         hydrationStatus: {},
       },
-      stream: {
+      streamSlot: {
         isStreaming: false,
         conversationId: null,
         currentRun: null,
@@ -57,6 +57,14 @@ const {
         contextUsageInFlight: null,
         contextUsageInFlightMeta: null,
         contextUsageInFlightConversationId: null,
+      },
+      // 流槽位按会话索引：假 stream 代表"当前那条流"，挂在它自己的会话 ID 下。
+      get stream() {
+        return {
+          byConversation: this.streamSlot.conversationId
+            ? { [this.streamSlot.conversationId]: this.streamSlot }
+            : {},
+        };
       },
       fileUpload: {
         files: {},
@@ -297,15 +305,15 @@ describe('ChatInput', () => {
       'chat-1': 'done',
       'chat-a': 'done',
     };
-    currentState.stream.isStreaming = false;
-    currentState.stream.conversationId = null;
-    currentState.stream.currentRun = null;
-    currentState.stream.contextUsage = null;
-    currentState.stream.contextUsageMeta = null;
-    currentState.stream.contextUsageConversationId = null;
-    currentState.stream.contextUsageInFlight = null;
-    currentState.stream.contextUsageInFlightMeta = null;
-    currentState.stream.contextUsageInFlightConversationId = null;
+    currentState.streamSlot.isStreaming = false;
+    currentState.streamSlot.conversationId = null;
+    currentState.streamSlot.currentRun = null;
+    currentState.streamSlot.contextUsage = null;
+    currentState.streamSlot.contextUsageMeta = null;
+    currentState.streamSlot.contextUsageConversationId = null;
+    currentState.streamSlot.contextUsageInFlight = null;
+    currentState.streamSlot.contextUsageInFlightMeta = null;
+    currentState.streamSlot.contextUsageInFlightConversationId = null;
     currentState.fileUpload.files = {};
     currentState.fileUpload.fileIds = {};
     currentState.fileUpload.processingFiles = {};
@@ -379,20 +387,20 @@ describe('ChatInput', () => {
         }],
       },
     };
-    currentState.stream.conversationId = 'chat-a';
-    currentState.stream.isStreaming = true;
-    currentState.stream.contextUsage = {
+    currentState.streamSlot.conversationId = 'chat-a';
+    currentState.streamSlot.isStreaming = true;
+    currentState.streamSlot.contextUsage = {
       status: 'no_op',
       window_tokens: 1000,
       actual_prompt_tokens: 500,
     };
-    currentState.stream.contextUsageConversationId = 'chat-a';
-    currentState.stream.contextUsageMeta = {
+    currentState.streamSlot.contextUsageConversationId = 'chat-a';
+    currentState.streamSlot.contextUsageMeta = {
       runId: 'run-a', messageId: 'assistant-a', sequence: 2, phase: 'final', roundIndex: 1,
     };
-    currentState.stream.contextUsageInFlight = currentState.stream.contextUsage;
-    currentState.stream.contextUsageInFlightConversationId = 'chat-a';
-    currentState.stream.contextUsageInFlightMeta = currentState.stream.contextUsageMeta;
+    currentState.streamSlot.contextUsageInFlight = currentState.streamSlot.contextUsage;
+    currentState.streamSlot.contextUsageInFlightConversationId = 'chat-a';
+    currentState.streamSlot.contextUsageInFlightMeta = currentState.streamSlot.contextUsageMeta;
 
     const { rerender } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
     const statusRow = screen.getByTestId('context-status-row');
@@ -513,14 +521,14 @@ describe('ChatInput', () => {
         ],
       },
     };
-    currentState.stream.isStreaming = true;
-    currentState.stream.conversationId = 'chat-a';
-    currentState.stream.contextUsageConversationId = 'chat-a';
-    currentState.stream.contextUsage = null;
-    currentState.stream.contextUsageMeta = null;
-    currentState.stream.contextUsageInFlight = null;
-    currentState.stream.contextUsageInFlightConversationId = 'chat-a';
-    currentState.stream.contextUsageInFlightMeta = null;
+    currentState.streamSlot.isStreaming = true;
+    currentState.streamSlot.conversationId = 'chat-a';
+    currentState.streamSlot.contextUsageConversationId = 'chat-a';
+    currentState.streamSlot.contextUsage = null;
+    currentState.streamSlot.contextUsageMeta = null;
+    currentState.streamSlot.contextUsageInFlight = null;
+    currentState.streamSlot.contextUsageInFlightConversationId = 'chat-a';
+    currentState.streamSlot.contextUsageInFlightMeta = null;
 
     render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
 
@@ -541,21 +549,17 @@ describe('ChatInput', () => {
         ],
       },
     };
-    currentState.stream.isStreaming = true;
-    currentState.stream.conversationId = 'chat-first';
-    currentState.stream.contextUsageConversationId = 'chat-first';
-    currentState.stream.contextUsageInFlightConversationId = 'chat-first';
+    currentState.streamSlot.isStreaming = true;
+    currentState.streamSlot.conversationId = 'chat-first';
+    currentState.streamSlot.contextUsageConversationId = 'chat-first';
+    currentState.streamSlot.contextUsageInFlightConversationId = 'chat-first';
 
     const { rerender } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-first" />);
 
     expect(screen.getByRole('button', { name: '查看上下文状态，计算中' })).toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: '上下文状态' })).toBeNull();
 
-    currentState.stream = {
-      ...currentState.stream,
-      isStreaming: false,
-      conversationId: null,
-    };
+    Object.assign(currentState.streamSlot, { isStreaming: false, conversationId: null });
     currentState.conversation = {
       ...currentState.conversation,
       byId: {
@@ -605,19 +609,15 @@ describe('ChatInput', () => {
         ],
       },
     };
-    currentState.stream.isStreaming = true;
-    currentState.stream.conversationId = 'chat-follow-up';
-    currentState.stream.contextUsageConversationId = 'chat-follow-up';
-    currentState.stream.contextUsageInFlightConversationId = 'chat-follow-up';
+    currentState.streamSlot.isStreaming = true;
+    currentState.streamSlot.conversationId = 'chat-follow-up';
+    currentState.streamSlot.contextUsageConversationId = 'chat-follow-up';
+    currentState.streamSlot.contextUsageInFlightConversationId = 'chat-follow-up';
 
     const { rerender } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-follow-up" />);
     expect(screen.queryByRole('dialog', { name: '上下文状态' })).toBeNull();
 
-    currentState.stream = {
-      ...currentState.stream,
-      isStreaming: false,
-      conversationId: null,
-    };
+    Object.assign(currentState.streamSlot, { isStreaming: false, conversationId: null });
     currentState.conversation = {
       ...currentState.conversation,
       byId: {
@@ -1205,10 +1205,10 @@ describe('ChatInput', () => {
 
   it('深度研究运行中的停止按钮使用研究语义', () => {
     configureAuthenticatedVisionModel();
-    currentState.stream.isStreaming = true;
+    currentState.streamSlot.isStreaming = true;
     // 停止语义按会话判定，夹具必须表达"正在生成的是当前会话"（issue #74）
-    currentState.stream.conversationId = 'chat-a';
-    currentState.stream.currentRun = {
+    currentState.streamSlot.conversationId = 'chat-a';
+    currentState.streamSlot.currentRun = {
       runId: 'run-deep',
       messageId: 'assistant-1',
       status: 'running',
@@ -1238,9 +1238,9 @@ describe('ChatInput', () => {
 
   it('只在当前会话的权威模型计划运行期间把计划固定到输入框上方', () => {
     configureAuthenticatedVisionModel();
-    currentState.stream.isStreaming = true;
-    currentState.stream.conversationId = 'chat-a';
-    currentState.stream.currentRun = {
+    currentState.streamSlot.isStreaming = true;
+    currentState.streamSlot.conversationId = 'chat-a';
+    currentState.streamSlot.currentRun = {
       runId: 'run-plan',
       messageId: 'assistant-1',
       status: 'running',
@@ -1279,8 +1279,8 @@ describe('ChatInput', () => {
     })).toBeInTheDocument();
 
     for (const status of ['completed', 'failed', 'interrupted'] as const) {
-      currentState.stream.currentRun = {
-        ...currentState.stream.currentRun,
+      currentState.streamSlot.currentRun = {
+        ...currentState.streamSlot.currentRun,
         status,
       };
       rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
@@ -1292,28 +1292,28 @@ describe('ChatInput', () => {
       fireEvent.click(within(terminalPlanStatus).getByRole('button', { name: /查看计划流程/ }));
     }
 
-    currentState.stream.currentRun = {
-      ...currentState.stream.currentRun,
+    currentState.streamSlot.currentRun = {
+      ...currentState.streamSlot.currentRun,
       status: 'running',
       plan: {
-        ...currentState.stream.currentRun.plan,
+        ...currentState.streamSlot.currentRun.plan,
         source: 'observed',
       },
     };
     rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
     expect(screen.queryByTestId('composer-plan-status')).toBeNull();
 
-    currentState.stream.currentRun = {
-      ...currentState.stream.currentRun,
+    currentState.streamSlot.currentRun = {
+      ...currentState.streamSlot.currentRun,
       plan: {
-        ...currentState.stream.currentRun.plan,
+        ...currentState.streamSlot.currentRun.plan,
         source: 'model',
       },
     };
     rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-b" />);
     expect(screen.queryByTestId('composer-plan-status')).toBeNull();
 
-    currentState.stream.isStreaming = false;
+    currentState.streamSlot.isStreaming = false;
     rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
     expect(screen.queryByTestId('composer-plan-status')).toBeNull();
   });
@@ -2393,8 +2393,8 @@ describe('ChatInput', () => {
     expect(screen.getByRole('button', { name: '思考模式' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: '执行模式：计划' })).toHaveTextContent('计划');
 
-    currentState.stream.isStreaming = true;
-    currentState.stream.conversationId = 'chat-1';
+    currentState.streamSlot.isStreaming = true;
+    currentState.streamSlot.conversationId = 'chat-1';
     rerender(
       <ChatInput
         onSendMessage={onSendMessage}
@@ -3108,11 +3108,7 @@ describe('ChatInput', () => {
   it('另一个会话在生成时，Enter 与发送键不得变成停止当前会话之外的流', async () => {
     // issue #74：isStreaming 是全局标志，而 textarea 不受它约束。用户可以在会话 B
     // 打字，但按钮与 Enter 都会变成"停止"，实际停的是会话 A 的流，页面无任何提示。
-    currentState.stream = {
-      ...currentState.stream,
-      isStreaming: true,
-      conversationId: 'other-conv',
-    };
+    Object.assign(currentState.streamSlot, { isStreaming: true, conversationId: 'other-conv' });
     useAppSelectorMock.mockImplementation(selector => selector(currentState));
     reactReduxUseSelectorMock.mockImplementation(selector => selector(currentState));
 
@@ -3138,11 +3134,7 @@ describe('ChatInput', () => {
     // 同一类缺陷的另一处：知识库控件此前直接读全局 stream.isStreaming，
     // 于是别的会话一开始生成，本会话就选不了知识库；全局标志卡住时更是永久禁用。
     configureAuthenticatedVisionModel();
-    currentState.stream = {
-      ...currentState.stream,
-      isStreaming: true,
-      conversationId: 'other-conv',
-    };
+    Object.assign(currentState.streamSlot, { isStreaming: true, conversationId: 'other-conv' });
     useAppSelectorMock.mockImplementation(selector => selector(currentState));
     reactReduxUseSelectorMock.mockImplementation(selector => selector(currentState));
 

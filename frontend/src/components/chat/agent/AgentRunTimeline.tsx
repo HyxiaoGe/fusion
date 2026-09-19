@@ -1,6 +1,7 @@
 'use client';
 
 import { useAppSelector } from '@/redux/hooks';
+import { selectStreamSlot } from '@/redux/slices/streamSlice';
 import type { AgentRunState } from '@/types/agentRun';
 import { RunHeader } from './RunHeader';
 import { RunBanner } from './RunBanner';
@@ -18,8 +19,10 @@ interface AgentRunTimelineProps {
    * undefined 时 RunBanner 不显示按钮（避免 fake CTA，contract §7）。 */
   onRetry?: () => void;
   onContinue?: (previousRunId?: string) => void;
-  /** 上层已知的 run。传入 null 时不订阅全局 currentRun；undefined 按未传处理。 */
+  /** 上层已知的 run。传入 null 时不订阅槽位里的 currentRun；undefined 按未传处理。 */
   run?: AgentRunState | null;
+  /** 不传 run 时从哪个会话的流槽位取 currentRun。槽位按会话索引，必须说清楚是哪一个。 */
+  conversationId?: string | null;
   /** 对话正文已经解析出的搜索来源，用于补齐执行过程侧栏的候选列表。 */
   searchSources?: ExecutionProcessSource[];
   /** 对话正文已经解析出的搜索关键词，用于补齐历史执行过程。 */
@@ -53,6 +56,7 @@ export function AgentRunTimeline(props: AgentRunTimelineProps) {
 
   return (
     <AgentRunTimelineFromStore
+      conversationId={props.conversationId}
       assistantMessageId={props.assistantMessageId}
       onRetry={props.onRetry}
       onContinue={props.onContinue}
@@ -64,6 +68,7 @@ export function AgentRunTimeline(props: AgentRunTimelineProps) {
 }
 
 function AgentRunTimelineFromStore({
+  conversationId,
   assistantMessageId,
   onRetry,
   onContinue,
@@ -71,7 +76,7 @@ function AgentRunTimelineFromStore({
   searchQueries,
   onOpenSources,
 }: Omit<AgentRunTimelineProps, 'run'>) {
-  const run = useAppSelector(s => s.stream.currentRun);
+  const run = useAppSelector(s => selectStreamSlot(s, conversationId).currentRun);
 
   return (
     <AgentRunTimelineContent

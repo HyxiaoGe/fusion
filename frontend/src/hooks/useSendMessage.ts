@@ -72,6 +72,8 @@ import {
   moveFirstTurnContextState,
 } from '@/lib/chat/contextStatusPersistence';
 import { hasFormalTextContent } from '@/lib/chat/suggestedQuestionState';
+import type { StreamState } from '@/redux/slices/streamSlice';
+import { selectStreamSlot } from '@/redux/slices/streamSlice';
 import {
   migrateStreamController,
   registerStreamController,
@@ -80,7 +82,6 @@ import {
 import type { Message, ContentBlock } from '@/types/conversation';
 import type { FileAttachment } from '@/lib/utils/fileHelpers';
 import { selectAuthSessionKey } from '@/redux/selectors';
-import { toast } from '@/components/ui/toast';
 import { useTypewriter } from './useTypewriter';
 import { useRetryMessage } from './useRetryMessage';
 import type { RootState } from '@/redux/store';
@@ -222,8 +223,6 @@ export function useSendMessage(activeConversationId?: string | null) {
     (state) => state.conversation.conversationListEpoch
   );
   const abortControllerRef = useRef<AbortController | null>(null);
-  // 跨会话拒绝提示同一时刻只保留一条，连按不叠加。
-  const crossStreamToastIdRef = useRef<string>('');
   const stopInFlightPromiseRef = useRef<Promise<void> | null>(null);
   const activeConvIdRef = useRef<string | null>(null);
   const userMessageIdRef = useRef<string | null>(null);
@@ -281,6 +280,7 @@ export function useSendMessage(activeConversationId?: string | null) {
 
   const invalidateFrontendSend = useCallback(() => {
     sendGenerationRef.current += 1;
+    const invalidatedConversationId = activeConvIdRef.current;
     const invalidatedController = abortControllerRef.current;
     if (invalidatedController) {
       releaseStreamController(activeConvIdRef.current, invalidatedController);
@@ -297,7 +297,9 @@ export function useSendMessage(activeConversationId?: string | null) {
     assistantHasContentRef.current = false;
     activeRetryTurnSnapshotRef.current = null;
     activeSendContextRef.current = null;
-    dispatch(endStream());
+    if (invalidatedConversationId) {
+      dispatch(endStream({ conversationId: invalidatedConversationId }));
+    }
   }, [dispatch]);
 
   useEffect(() => {
@@ -323,19 +325,26 @@ export function useSendMessage(activeConversationId?: string | null) {
     };
   }, [invalidateFrontendSend, store]);
 
-  // 获取当前流式会话 ID：优先用 ref（sendMessage 设置），fallback 到 Redux（reconnect 设置）
-  const getStreamingConvId = useCallback(() => {
-    return activeConvIdRef.current
-      || (store.getState() as { stream: { conversationId: string | null } }).stream.conversationId;
-  }, [store]);
+  // 读取某个会话的流槽位。槽位按会话索引后，"当前流"不再是全局概念，
+  // 每次读都必须说清楚读的是哪个会话。
+  const getSlot = useCallback((conversationId: string | null | undefined) => (
+    selectStreamSlot(store.getState() as { stream: StreamState }, conversationId)
+  ), [store]);
 
-  const stopStreaming = useCallback((): Promise<void> => {
+  // 本次发送所属的会话。此前还会 fallback 到 Redux 里的全局 stream.conversationId
+  // （恢复流写的），现在没有"全局那一条"了：要停哪个会话由调用方显式给出。
+  const getStreamingConvId = useCallback((explicitConversationId?: string | null) => (
+    activeConvIdRef.current ?? explicitConversationId ?? null
+  ), []);
+
+  // conversationId 由调用方给出要停哪个会话；不传时用本 hook 自己那条。
+  const stopStreaming = useCallback((conversationId?: string | null): Promise<void> => {
     if (stopInFlightPromiseRef.current) {
       return stopInFlightPromiseRef.current;
     }
 
     const stopOperation = (async () => {
-      const convId = getStreamingConvId();
+      const convId = getStreamingConvId(conversationId);
       const userMsgId = userMessageIdRef.current;
       const assistantMsgId = assistantMessageIdRef.current;
       const serverMsgId = serverMessageIdRef.current;
@@ -395,10 +404,7 @@ export function useSendMessage(activeConversationId?: string | null) {
             messageId: assistantMsgId,
           }));
         } else {
-          const streamState = (
-            store.getState() as { stream: import('@/redux/slices/streamSlice').StreamState }
-          ).stream;
-          const partialBlocks = selectFullStreamContentBlocks(streamState);
+          const partialBlocks = selectFullStreamContentBlocks(getSlot(convId));
           if (partialBlocks.length > 0) {
             dispatch(updateMessage({
               conversationId: convId,
@@ -415,10 +421,12 @@ export function useSendMessage(activeConversationId?: string | null) {
       }
 
       if (convId) clearFirstTurnContextState(convId);
-      if (retryTurnSnapshot?.assistant) {
-        dispatch(clearCurrentRun());
+      if (convId && retryTurnSnapshot?.assistant) {
+        dispatch(clearCurrentRun({ conversationId: convId }));
       }
-      dispatch(endStream({ messageId: assistantMessageIdRef.current }));
+      if (convId) {
+        dispatch(endStream({ conversationId: convId, messageId: assistantMessageIdRef.current }));
+      }
       sendGenerationRef.current += 1;
       activeSendContextRef.current = null;
       activeConvIdRef.current = null;
@@ -497,7 +505,7 @@ export function useSendMessage(activeConversationId?: string | null) {
       }
     );
     return stopOperation;
-  }, [dispatch, store, getStreamingConvId, hydrateAuthoritativeConversation]);
+  }, [dispatch, store, getSlot, getStreamingConvId, hydrateAuthoritativeConversation]);
 
   const sendMessage = useCallback(
     async (content: string, options: SendMessageOptions, attachments?: FileAttachment[]) => {
@@ -515,20 +523,10 @@ export function useSendMessage(activeConversationId?: string | null) {
         return;
       }
       const sendSessionKey = preparationContext.authSessionKey;
-      // 全局流槽位同一时刻只装一条流，所以另一条流在跑时这里必须拒绝，否则会把它的状态覆盖掉。
-      // 但拒绝过去是完全静默的：草稿被放回输入框，界面没有任何变化，用户只会觉得回车没反应
-      // （dev 验收 A3a）。发送限制保留，只是必须说出来。
-      const streamIsOwnedByAnotherComposer = Boolean(
-        store.getState().stream.isStreaming && !abortControllerRef.current,
-      );
-      if (streamIsOwnedByAnotherComposer) {
-        // 连按会叠加出多条相同提示（dev 复验实测 4 条）。先撤掉上一条再弹，
-        // 保证同一时刻只有一条，同时每次按键都仍有反馈、计时重新开始。
-        if (crossStreamToastIdRef.current) toast.dismiss(crossStreamToastIdRef.current);
-        crossStreamToastIdRef.current = toast.warning('另一个对话正在生成，请等它结束后再发送');
-        options.onRejectedBeforeSend?.();
-        return;
-      }
+      // 这里此前有一道发送互斥：全局只有一个流槽位，别的会话在跑时必须拒绝，
+      // 否则新流会把它的状态覆盖掉；拒绝还要弹 toast 说明为什么回车没反应。
+      // 槽位按会话拆开后，"别的会话占着我的槽位"这个条件不再存在——各写各的，
+      // 互斥连同那条提示一起去掉。同一会话连按仍由下面的 activeSendPreparations 挡。
       // 连续触发同一次发送（回车连按）不提示，那是重复提交而不是被别的流挡住。
       if (activeSendPreparations.has(sendSessionKey)) {
         options.onRejectedBeforeSend?.();
@@ -653,8 +651,10 @@ export function useSendMessage(activeConversationId?: string | null) {
 
       // 只用于流槽位状态。丢了槽位仍要写完本会话自身的标题、推荐问题与列表刷新，
       // 所以不能把它并进 isActiveSendCurrent。
+      // 跨会话串槽已由按会话拆分的槽位结构消灭；这里剩下的是同一会话内
+      // 上一轮的迟到回调——messageId 仍是唯一能区分两轮的身份。
       const ownsSlot = () => ownsStreamSlot(
-        (store.getState() as { stream: import('@/redux/slices/streamSlice').StreamState }).stream,
+        getSlot(activeConvIdRef.current),
         assistantMessageIdRef.current,
       );
 
@@ -856,7 +856,7 @@ export function useSendMessage(activeConversationId?: string | null) {
             },
           })
         );
-        dispatch(migrateStreamConversation(incomingConvId));
+        dispatch(migrateStreamConversation({ from: tempConvId, to: incomingConvId }));
         options.onMaterialized?.(incomingConvId);
       };
 
@@ -904,7 +904,7 @@ export function useSendMessage(activeConversationId?: string | null) {
         const finalConvId = serverConvId ?? incomingConvId ?? effectiveConvId;
 
         // 从 streamSlice 组装最终 content blocks
-        const streamState = (store.getState() as { stream: import('@/redux/slices/streamSlice').StreamState }).stream;
+        const streamState = getSlot(finalConvId);
         const rawFinalBlocks = selectFullStreamContentBlocks(streamState);
         const finalBlocks = shouldRecoverReasoningOnlyFinalBlocks({
           runStatus: streamState.currentRun?.status,
@@ -947,7 +947,10 @@ export function useSendMessage(activeConversationId?: string | null) {
             patch: { status: null },
           })
         );
-        dispatch(endStream({ messageId: assistantMessageIdRef.current }));
+        dispatch(endStream({
+          conversationId: finalConvId,
+          messageId: assistantMessageIdRef.current,
+        }));
         sendGenerationRef.current += 1;
         activeSendContextRef.current = null;
         releaseSendController();
@@ -987,25 +990,29 @@ export function useSendMessage(activeConversationId?: string | null) {
             onAnswering: (payload) => {
               if (!isActiveSendCurrent() || !activeConvIdRef.current || !ownsSlot()) return;
               // 收到第一个 text delta 且还在推理阶段 → 标记推理结束
-              const streamState = (store.getState() as { stream: import('@/redux/slices/streamSlice').StreamState }).stream;
-              if (streamState.isStreamingReasoning) {
-                dispatch(completeThinkingPhase());
+              const streamConvId = activeConvIdRef.current;
+              if (getSlot(streamConvId).isStreamingReasoning) {
+                dispatch(completeThinkingPhase({ conversationId: streamConvId }));
               }
               assistantHasContentRef.current = true;
               dispatch(appendTextDelta({
+                conversationId: streamConvId,
                 blockId: payload.block_id,
                 delta: payload.delta,
                 runId: payload.run_id,
                 stepId: payload.step_id,
               }));
-              typewriterRef.current.start(() => {
-                if (donePayload && isActiveSendCurrent()) doCompleteStream(donePayload);
-              });
+              if (streamConvId) {
+                typewriterRef.current.start(streamConvId, () => {
+                  if (donePayload && isActiveSendCurrent()) doCompleteStream(donePayload);
+                });
+              }
             },
 
             onReasoning: (payload) => {
               if (!isActiveSendCurrent() || !activeConvIdRef.current || !ownsSlot()) return;
               dispatch(appendThinkingDelta({
+                conversationId: activeConvIdRef.current,
                 blockId: payload.block_id,
                 delta: payload.delta,
                 runId: payload.run_id,
@@ -1095,8 +1102,14 @@ export function useSendMessage(activeConversationId?: string | null) {
               if (isInterruptedStreamSignal(payload)) return;
               const readableMessage = normalizeSendErrorMessage(message);
               dispatch(setGlobalError(readableMessage));
-              if (ownsSlot()) {
-                dispatch(setStreamError({ message: readableMessage, code: payload?.code, data: payload?.data }));
+              const errorConvId = activeConvIdRef.current;
+              if (errorConvId && ownsSlot()) {
+                dispatch(setStreamError({
+                  conversationId: errorConvId,
+                  message: readableMessage,
+                  code: payload?.code,
+                  data: payload?.data,
+                }));
               }
             },
           };
@@ -1136,8 +1149,9 @@ export function useSendMessage(activeConversationId?: string | null) {
             );
           },
           onPhaseChange: phase => {
-            if (!isActiveSendCurrent()) return;
-            dispatch(setStreamStatus(phase));
+            const phaseConvId = activeConvIdRef.current;
+            if (!isActiveSendCurrent() || !phaseConvId) return;
+            dispatch(setStreamStatus({ conversationId: phaseConvId, status: phase }));
           },
         });
         return;
@@ -1151,11 +1165,7 @@ export function useSendMessage(activeConversationId?: string | null) {
           // 用户可能从导航后的 ChatPage 实例发起停止，原始发送实例无法共享
           // AbortController，只会收到后端持久化后的 stream_interrupted 终态。
           // 这代表“生成已停止”，不是“用户消息发送失败”。
-          const streamState = (
-            store.getState() as {
-              stream: import('@/redux/slices/streamSlice').StreamState;
-            }
-          ).stream;
+          const streamState = getSlot(effectiveConvIdOnError);
           const partialBlocks = selectFullStreamContentBlocks(streamState);
           if (isMessageRetry && retryTurnSnapshot?.user) {
             dispatch(replaceMessage({
@@ -1187,6 +1197,7 @@ export function useSendMessage(activeConversationId?: string | null) {
           if (streamState.currentRun?.status === 'running') {
             dispatch(
               finalizeRun({
+                conversationId: effectiveConvIdOnError,
                 runId: streamState.currentRun.runId,
                 status: 'interrupted',
                 reason: 'user_cancelled',
@@ -1201,7 +1212,10 @@ export function useSendMessage(activeConversationId?: string | null) {
               patch: { status: null },
             }));
           }
-          dispatch(endStream({ messageId: assistantMessageIdRef.current }));
+          dispatch(endStream({
+            conversationId: effectiveConvIdOnError,
+            messageId: assistantMessageIdRef.current,
+          }));
           sendGenerationRef.current += 1;
           activeSendContextRef.current = null;
           releaseSendController();
@@ -1273,7 +1287,7 @@ export function useSendMessage(activeConversationId?: string | null) {
 
         if (assistantHasContentRef.current && !shouldRestoreRetryAnswer) {
           // 保留已有的 stream content blocks
-          const streamState = (store.getState() as { stream: import('@/redux/slices/streamSlice').StreamState }).stream;
+          const streamState = getSlot(activeConvIdRef.current ?? tempConvId);
           const partialBlocks = reconnectRetriesExhausted
             ? selectFullStreamContentBlocks(streamState)
             : selectStreamContentBlocks(streamState);
@@ -1346,9 +1360,12 @@ export function useSendMessage(activeConversationId?: string | null) {
           dispatch(setPendingConversationId(null));
         }
         if (shouldRestoreRetryAnswer) {
-          dispatch(clearCurrentRun());
+          dispatch(clearCurrentRun({ conversationId: effectiveConvId }));
         }
-        dispatch(endStream({ messageId: assistantMessageIdRef.current }));
+        dispatch(endStream({
+          conversationId: effectiveConvId,
+          messageId: assistantMessageIdRef.current,
+        }));
         sendGenerationRef.current += 1;
         activeSendContextRef.current = null;
         releaseSendController();
@@ -1363,13 +1380,14 @@ export function useSendMessage(activeConversationId?: string | null) {
         const message = normalizeSendErrorMessage(error instanceof Error ? error.message : '发送失败，请重试');
         dispatch(setGlobalError(message));
         if (reconnectRetriesExhausted) {
-          dispatch(setStreamError({ message }));
+          dispatch(setStreamError({ conversationId: effectiveConvId, message }));
         }
       }
     },
     [
       dispatch,
       composerAgentMode,
+      getSlot,
       hydrateAuthoritativeConversation,
       reasoningEnabled,
       stopStreaming,

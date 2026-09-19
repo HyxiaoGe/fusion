@@ -36,7 +36,7 @@ describe("ChatList", () => {
       chats,
       sortedAndGroupedChats: [{ groupLabel: "今天", groupChats: chats }],
       activeChatId: "chat-a",
-      streamingConversationId: null as string | null,
+      streamingConversationIds: [] as string[],
       modelNameById: new Map([["model-a", "测试模型"]]),
       isLoadingServerList: false,
       isLoadingMoreServer: false,
@@ -70,9 +70,32 @@ describe("ChatList", () => {
   it("只把当前流式会话标记为正在输出", () => {
     const stableProps = createStableProps();
 
-    render(<ChatList {...stableProps} streamingConversationId="chat-a" />);
+    render(<ChatList {...stableProps} streamingConversationIds={['chat-a']} />);
 
     expect(mockChatItemRender).toHaveBeenCalledWith("chat-a", true);
+  });
+
+  it("多个会话同时生成时各自转圈", () => {
+    // 此前这里只能收到"那一个"正在生成的会话 ID，因为全局只有一个流槽位；
+    // 用户看到的就是同时只有一个转圈。
+    const chats: ConversationListItem[] = [
+      { id: "chat-a", title: "A", model_id: "model-a", createdAt: 1, updatedAt: 1 },
+      { id: "chat-b", title: "B", model_id: "model-a", createdAt: 2, updatedAt: 2 },
+      { id: "chat-c", title: "C", model_id: "model-a", createdAt: 3, updatedAt: 3 },
+    ];
+
+    render(
+      <ChatList
+        {...createStableProps()}
+        chats={chats}
+        sortedAndGroupedChats={[{ groupLabel: "今天", groupChats: chats }]}
+        streamingConversationIds={["chat-a", "chat-b"]}
+      />,
+    );
+
+    expect(mockChatItemRender).toHaveBeenCalledWith("chat-a", true);
+    expect(mockChatItemRender).toHaveBeenCalledWith("chat-b", true);
+    expect(mockChatItemRender).toHaveBeenCalledWith("chat-c", false);
   });
 
   it("首屏列表加载中不错误显示暂无对话记录", () => {
