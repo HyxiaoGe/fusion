@@ -92,6 +92,7 @@ vi.mock('./sidebar/ChatList', () => ({
     sentinelRef,
     searchQuery,
     streamingConversationIds,
+    handleSelectChat,
   }: {
     chats: ConversationListItem[];
     sortedAndGroupedChats: { groupLabel: string; groupChats: ConversationListItem[] }[];
@@ -100,6 +101,7 @@ vi.mock('./sidebar/ChatList', () => ({
     sentinelRef?: React.RefObject<HTMLDivElement | null>;
     searchQuery?: string;
     streamingConversationIds?: readonly string[];
+    handleSelectChat?: (id: string) => void;
   }) => {
     mockChatListProps({
       chats,
@@ -117,6 +119,11 @@ vi.mock('./sidebar/ChatList', () => ({
             data-conversation-id={chat.id}
           >
             {chat.title}
+            <button
+              type="button"
+              aria-label={`选择 ${chat.id}`}
+              onClick={() => handleSelectChat?.(chat.id)}
+            />
           </div>
         ))}
         <div ref={sentinelRef} />
@@ -342,6 +349,110 @@ describe('ChatSidebar', () => {
     render(<ChatSidebar onNewChat={vi.fn()} />);
 
     expect(screen.getByText('真实 ID 为 new 的会话')).toHaveAttribute('data-active', 'false');
+  });
+
+  function twoConversations() {
+    return [
+      {
+        id: 'chat-a',
+        title: '已激活对话',
+        model_id: 'model-a',
+        createdAt: 1_700_000_000_000,
+        updatedAt: 1_700_000_000_000,
+      },
+      {
+        id: 'chat-b',
+        title: '另一个对话',
+        model_id: 'model-a',
+        createdAt: 1_700_000_001_000,
+        updatedAt: 1_700_000_001_000,
+      },
+    ];
+  }
+
+  function itemOf(container: HTMLElement, id: string) {
+    const node = container.querySelector(`[data-conversation-id="${id}"]`);
+    if (!node) throw new Error(`找不到会话项 ${id}`);
+    return node;
+  }
+
+  it('点击对话立即跟手选中，不等路由提交', () => {
+    // 选中态此前完全由 pathname 推导。App Router 的 router.push 是 transition：
+    // 新路由段渲染完成前旧界面一直留在屏幕上，于是点下去要顿一会儿高亮才动。
+    mockUsePathname.mockReturnValue('/chat/chat-a');
+    mockUseConversationList.mockReturnValue({
+      conversations: twoConversations(),
+      isLoadingList: false,
+      isLoadingMore: false,
+      loadMore: vi.fn(),
+      pagination: null,
+      searchConversations: vi.fn(),
+      searchResults: null,
+      isSearching: false,
+      searchError: null,
+    });
+
+    const { container } = render(<ChatSidebar onNewChat={vi.fn()} />);
+    expect(itemOf(container, 'chat-a')).toHaveAttribute('data-active', 'true');
+
+    fireEvent.click(screen.getByRole('button', { name: '选择 chat-b' }));
+
+    // 路由仍停在 chat-a（push 是 mock，不改 pathname），高亮必须已经跟过去
+    expect(itemOf(container, 'chat-b')).toHaveAttribute('data-active', 'true');
+    expect(itemOf(container, 'chat-a')).toHaveAttribute('data-active', 'false');
+  });
+
+  it('路由落定后把选中态交还给路由', () => {
+    mockUsePathname.mockReturnValue('/chat/chat-a');
+    mockUseConversationList.mockReturnValue({
+      conversations: twoConversations(),
+      isLoadingList: false,
+      isLoadingMore: false,
+      loadMore: vi.fn(),
+      pagination: null,
+      searchConversations: vi.fn(),
+      searchResults: null,
+      isSearching: false,
+      searchError: null,
+    });
+
+    const { container, rerender } = render(<ChatSidebar onNewChat={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '选择 chat-b' }));
+
+    // 导航提交
+    mockUsePathname.mockReturnValue('/chat/chat-b');
+    rerender(<ChatSidebar onNewChat={vi.fn()} />);
+    expect(itemOf(container, 'chat-b')).toHaveAttribute('data-active', 'true');
+
+    // 再由别处（如浏览器后退）改变路由：必须跟着路由走，不能被点击残留卡住
+    mockUsePathname.mockReturnValue('/chat/chat-a');
+    rerender(<ChatSidebar onNewChat={vi.fn()} />);
+    expect(itemOf(container, 'chat-a')).toHaveAttribute('data-active', 'true');
+    expect(itemOf(container, 'chat-b')).toHaveAttribute('data-active', 'false');
+  });
+
+  it('点完又去了新对话页时不留下错误高亮', () => {
+    mockUsePathname.mockReturnValue('/chat/chat-a');
+    mockUseConversationList.mockReturnValue({
+      conversations: twoConversations(),
+      isLoadingList: false,
+      isLoadingMore: false,
+      loadMore: vi.fn(),
+      pagination: null,
+      searchConversations: vi.fn(),
+      searchResults: null,
+      isSearching: false,
+      searchError: null,
+    });
+
+    const { container, rerender } = render(<ChatSidebar onNewChat={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '选择 chat-b' }));
+
+    mockUsePathname.mockReturnValue('/chat/new');
+    rerender(<ChatSidebar onNewChat={vi.fn()} />);
+
+    expect(itemOf(container, 'chat-a')).toHaveAttribute('data-active', 'false');
+    expect(itemOf(container, 'chat-b')).toHaveAttribute('data-active', 'false');
   });
 
   it('把正在生成的会话 ID 列表传给列表（可以同时有多个）', () => {
