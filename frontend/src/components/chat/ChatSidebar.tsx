@@ -79,7 +79,26 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ onNewChat, activeChatIdOverri
   }, [dispatch, isDark]);
 
   const routeConversationId = getRouteConversationId(pathname);
-  const activeChatId = activeChatIdOverride === undefined ? routeConversationId : activeChatIdOverride;
+  const routeActiveChatId = activeChatIdOverride === undefined
+    ? routeConversationId
+    : activeChatIdOverride;
+  // 选中态此前完全由 pathname 推导。App Router 的 router.push 是 transition：
+  // 新路由段渲染完成前旧界面一直留在屏幕上，于是点下去要顿一会儿高亮才动。
+  // 这里把「点了哪个」与「路由到了哪个」解耦：点击当帧就把高亮给出去，
+  // 路由落定后再交还给它。内容仍按原来的节奏加载，只是不再挡着反馈。
+  const [pendingChatId, setPendingChatId] = useState<string | null>(null);
+  const activeChatId = pendingChatId ?? routeActiveChatId;
+
+  // 路由一旦落定——无论是落到刚点的那个，还是用户去了别处（新对话、后退）——
+  // 都把选中态交还给路由，避免点击残留把高亮卡在错的位置。
+  useEffect(() => {
+    setPendingChatId(null);
+  }, [routeConversationId]);
+
+  const handleSelectChat = useCallback((id: string) => {
+    setPendingChatId(id);
+    selectConversation(id);
+  }, [selectConversation]);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -283,7 +302,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ onNewChat, activeChatIdOverri
         isLoadingServerList={isLoadingList}
         isLoadingMoreServer={isLoadingMore}
         containerRef={containerRef}
-        handleSelectChat={selectConversation}
+        handleSelectChat={handleSelectChat}
         handlePrefetchChat={prefetchConversation}
         searchQuery={trimmedSearchQuery || undefined}
         sentinelRef={sentinelRef}
