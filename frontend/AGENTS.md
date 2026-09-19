@@ -1,17 +1,17 @@
-# Frontend AGENTS.md
+# 前端约定
 
-适用于 `frontend/` 的 Next.js / React / Electron 应用。聊天状态按 `SSE → Redux → 渲染 → Dexie/刷新恢复` 核对；架构与编码约定见 [docs/ARCHITECTURE_RULES.md](docs/ARCHITECTURE_RULES.md) 和 [docs/CODING_CONVENTIONS.md](docs/CODING_CONVENTIONS.md)。
+遵循[根协作约定](../AGENTS.md)，本文件补充 `frontend/` 的工程边界。
 
-<!-- guidance-contract:start -->
-## 受控协作约定
+- 沿 `SSE → Redux → 渲染 → Dexie/刷新恢复` 检查聊天行为；按需查[数据流](CHAT_UI_DATA_FLOW.md)、[架构规则](docs/ARCHITECTURE_RULES.md)和[编码约定](docs/CODING_CONVENTIONS.md)。
+- 流控制器和状态以会话、消息及当前请求身份归属，不能由全局单例或当前选中会话替代。切换会话、重试、停止和重连时，旧回调不能覆盖新状态；入口见[流控制器注册表](src/lib/chat/streamControllerRegistry.ts)。
+- 组件卸载释放它拥有的定时器、订阅和监听；不要误停仍应在后台继续的会话生成。终态和正文不仅要渲染正确，还要核对刷新恢复。
+- 沿现有认证客户端处理 token 刷新和错误，保持组件、数据访问与状态层边界；接口变更同步检查后端 schema、转换层和持久化消费者。
+- 优先即时反馈和真实内容，聊天正文是主角。对用户展示可理解的错误，内部预算、服务名和协议错误码留在诊断层。桌面 Web 优先，不默认扩展移动端范围。
 
-- 所有回复、代码注释和 Git 提交信息使用中文；提交格式为 `<type>: <中文描述>`，并保留项目要求的 `Co-Authored-By`。
-- 改动范围以 `frontend/` 为应用根；跨到 `backend/` 或根共享文件时，同时读取根导航和后端约定。
-- 遇到 bug、状态异常、CI 失败或用户可见回归时先定位根因；行为变更严格先写可失败的测试，再做最小实现。
-- AI 协作者不默认启动服务；不得自行启动 Next.js、Electron、本地 Docker 或其他 Fusion 服务，只有用户明确要求时才可启动。
-- 按改动运行测试/构建：优先运行目标 Vitest；涉及路由、跨组件协议或产物时运行生产构建及相应检查。
-- 用户可见或登录态链路只能复用既有 Chrome 标签；没有已打开且匹配的登录标签时，明确记录验收缺口，不新开浏览器目标。
-- 部署/回滚需明确确认；push、PR、合并、外部平台修改和发布是不同授权边界，任何一种授权都不得自动扩展到另一种。
-- 用户询问“下一步”时，从仓库根读取 `docs/EXECUTION_LEDGER.md`，执行 `git log --oneline -40`，搜索 `docs/implementation-plans`、`docs/specs`、存在时的 `backend/docs/MODEL_ACCEPTANCE_RUNBOOK.md`、受影响应用文档与源码；台账与当前树或历史冲突时以当前证据为准并指出待更新项。
-- 代码审查只提交当前改动引入且具有可达正确性、安全、权限、数据、兼容性或发布后果的 P0/P1；证据不足或仅属 P2/P3 加固时不阻塞。
-<!-- guidance-contract:end -->
+## 验证入口
+
+从 `frontend/` 执行目标 `npm test -- 受影响测试文件`；涉及路由、跨组件协议、依赖或构建产物时运行 `npm run build`，检查目标文件的 lint。命令以 [package.json](package.json) 为准。
+
+测试覆盖实际触发顺序，例如切换会话后旧事件到达、卸载后计时器回调、断线后的终态和刷新恢复。纯文案或样式微调无需为每个实现细节加单测；视觉结论需要页面证据。
+
+需要真实页面时遵循[验收 skill](../.agents/skills/fusion-acceptance/SKILL.md)。没有匹配的既有 Chrome 标签时保留验收缺口，继续可完成的代码检查。审查只报告当前变更引入且具有可达严重后果的 P0/P1，P2/P3 不阻塞合并。

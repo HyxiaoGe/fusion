@@ -1,93 +1,16 @@
 ---
 name: add-endpoint
-description: Add a new FastAPI API endpoint. Use when creating new REST API routes for the application.
-argument-hint: <endpoint-name>
+description: 新增或修改 Fusion FastAPI 端点，核对认证、资源归属、schema 和服务边界。
 ---
 
-# 添加新 API 端点
+# API 端点开发
 
-先用 `git rev-parse --show-toplevel` 定位 monorepo 根，并以其中的 `backend/` 为应用根。按以下步骤添加新的 FastAPI 端点，以 `{endpoint_name}` 为例。
+从 monorepo 的 `backend/` 开始，遵循[后端约定](../../../AGENTS.md)。参考同类现有端点，不为一个简单路由固定创建全套目录或空 Service。
 
-## 1. 定义 Pydantic Schema
+- 从 [main.py](../../../main.py)确认 router 前缀与中间件；在 [app/api](../../../app/api)查同类认证、响应封装和错误处理。
+- 输入输出使用 [app/schemas](../../../app/schemas) 的现有模式；业务与存储按应用分层放置。
+- 认证、管理员权限和资源归属分别检查；异步 handler 的数据库会话及服务调用遵循当前依赖，不复制未经核对的同步模板。
+- 行为测试覆盖主路径、必要的越权/无效输入与错误状态；共享接口变动检查前端类型、转换层及既有数据兼容。
+- 新 router 需要在实际应用入口注册，并用相应 API 测试验证可达性。只改 schema 或单测通过不能证明真实端点已挂载。
 
-在 `app/schemas/{endpoint_name}.py` 中定义请求/响应模型：
-
-```python
-from pydantic import BaseModel
-from typing import Optional
-
-
-class {Name}Request(BaseModel):
-    """请求模型"""
-    field: str
-
-
-class {Name}Response(BaseModel):
-    """响应模型"""
-    id: str
-    field: str
-```
-
-## 2. 创建 Service（如需业务逻辑）
-
-在 `app/services/{endpoint_name}_service.py` 中实现业务逻辑：
-
-```python
-from sqlalchemy.orm import Session
-
-
-class {Name}Service:
-    def __init__(self, db: Session):
-        self.db = db
-
-    def create(self, data: dict) -> dict:
-        # 业务逻辑
-        pass
-```
-
-## 3. 创建 Router
-
-在 `app/api/{endpoint_name}.py` 中定义路由：
-
-```python
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
-
-from app.core.security import get_current_user
-from app.db.database import get_db
-from app.db.models import User
-from app.schemas.{endpoint_name} import {Name}Request, {Name}Response
-
-router = APIRouter()
-
-
-@router.post("/", response_model={Name}Response)
-async def create_{endpoint_name}(
-    request: {Name}Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """创建{name}"""
-    pass
-```
-
-## 4. 注册路由
-
-在 `main.py` 中注册：
-
-```python
-from app.api.{endpoint_name} import router as {endpoint_name}_router
-
-app.include_router({endpoint_name}_router, prefix="/api/{endpoint_name}", tags=["{endpoint_name}"])
-```
-
-## 5. 添加测试
-
-在 `test/test_{endpoint_name}.py` 中编写测试。
-
-## 注意事项
-
-- 所有端点都需要 `get_current_user` 鉴权（除非明确公开）
-- 遵循现有的错误处理模式：`HTTPException(status_code=xxx, detail="中文描述")`
-- 代码注释使用中文
-- 参考现有路由 `app/api/chat.py` 的写法
+运行受影响 pytest 和 Ruff。真实 API 调用仅在既有授权范围内进行，是否需要页面证据由最终消费者决定。

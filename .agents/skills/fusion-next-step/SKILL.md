@@ -1,38 +1,14 @@
 ---
 name: fusion-next-step
-description: Use when the user asks Fusion “下一步”, “接下来做什么”, “还有什么优化”, “还能怎么加强”, roadmap direction, or whether to continue product/infrastructure work.
+description: 根据当前代码和执行记录评估 Fusion 路线、历史完成状态与后续工作，避免重复建设。
 ---
 
-# Fusion 下一步建议
+# Fusion 路线与状态判断
 
-这个 skill 用当前 monorepo 的台账、文档、源码与 Git 历史防止重复建议。不要依赖 Codex memory 或印象推导完成状态。
+用 `git rev-parse --show-toplevel` 定位当前 monorepo。从 `docs/EXECUTION_LEDGER.md` 查相关主题，再核对当前树和相关 `git log`；历史台账和 memory 不能替代当前证据。
 
-## 必须步骤
-
-1. 从任意工作目录取得仓库根：`REPO_ROOT=$(git rev-parse --show-toplevel)`；先读 `$REPO_ROOT/docs/EXECUTION_LEDGER.md`。
-2. 在仓库根运行并阅读 `git log --oneline -40`。问题只涉及单个应用时，额外运行 `git log --oneline -40 -- backend` 或 `git log --oneline -40 -- frontend`。
-3. 用 `rg` 搜索用户关键词，至少覆盖：
-   - `$REPO_ROOT/docs/implementation-plans`
-   - `$REPO_ROOT/docs/specs`
-   - `$REPO_ROOT/backend/docs/MODEL_ACCEPTANCE_RUNBOOK.md`（存在时）
-   - 受影响应用的文档与源码；跨应用问题同时扫描 `backend` 与 `frontend`
-4. 台账与当前 tree 或 Git 历史矛盾时，以当前 tree 与历史为准，明确指出台账待更新；不得用 memory 填补完成状态。
-5. 只输出本次证据支持的内容，固定为“已完成事实 / 不应重复建议 / 当前可考虑 / 我的建议”四段。
-
-## 禁止事项
-
-- 禁止把执行台账中已经完成的方向包装成新建议。
-- 禁止在没有检查 `git log --oneline -40` 与发现入口时建议历史方向。
-- 禁止为了显得有计划而硬凑下一步；没有高置信方向时直接说明当前没有建议。
-
-## 输出格式
-
-```markdown
-我先查了执行记录。结论：
-
-- 已完成事实：...
-- 不应重复建议：...
-- 当前可考虑：...
-
-我的建议：...
-```
+- 实施设计按需查 `docs/implementation-plans` 和 `docs/specs`，模型验收查 `backend/docs/MODEL_ACCEPTANCE_RUNBOOK.md`，其他问题查受影响应用的文档与源码。
+- 按主题、路径和近期提交缩小查询；只有信息不足才扩展历史，不固定要求每次扫描同一批文档或 40 个提交。
+- 已经完成的方向不能重新包装成新建议；用户明确返工或扩展时指出与已完成部分的区别。
+- 台账与代码、Git、CI 或运行事实冲突时说明差异。只读咨询只指出待更新项，不自行改写历史或外部状态。
+- 先回答用户当前决策，再给关键事实、价值与取舍；没有充分依据就说明尚不能推荐，不填满固定模板。

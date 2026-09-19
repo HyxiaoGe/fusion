@@ -1,17 +1,17 @@
-# Backend AGENTS.md
+# 后端约定
 
-适用于 `backend/` 的 FastAPI 应用。分层依赖保持 `API → Service → AI → Data`；具体编码约定见 [docs/CODING_CONVENTIONS.md](docs/CODING_CONVENTIONS.md)。
+遵循[根协作约定](../AGENTS.md)，本文件补充 `backend/` 的工程边界。
 
-<!-- guidance-contract:start -->
-## 受控协作约定
+- 分层依赖保持 `API → Service → AI → Data`。鉴权与资源归属沿当前依赖注入链核对，异步入口不引入阻塞 I/O。具体约定按需查[核心数据流](CHAT_CORE_DATA_FLOW.md)和[编码约定](docs/CODING_CONVENTIONS.md)。
+- 模型调用通过 LiteLLM Proxy alias；以[解析器](app/ai/llm_manager.py)和[目录](app/ai/litellm_catalog.py)为准，不重新引入本地 provider/凭据路由表。
+- 后台生成独立于 HTTP/SSE 连接。断线、主动停止、生成失败和预算耗尽是不同路径；修改时检查任务归属、终态持久化、Redis 状态与刷新恢复，避免旧请求终结新任务。
+- 工具失败应以真实结果回到模型决策上下文；来源必须有可用内容才能支撑结论。日志、服务决策和模型输出分别用 `run_id`、`llm_round_id`、`tool_call_id` 关联，不把服务兜底表述成模型成功完成。
+- Agent、流式和持久化改动，从 [stream 包入口](app/services/stream/__init__.py)、实际调用方和相应测试确认范围，不以历史文件名猜实现。
 
-- 所有回复、代码注释和 Git 提交信息使用中文；提交格式为 `<type>: <中文描述>`，并保留项目要求的 `Co-Authored-By`。
-- 改动范围以 `backend/` 为应用根；跨到 `frontend/` 或根共享文件时，同时读取根导航和前端约定。
-- 遇到 bug、日志异常、CI 失败或行为回归时先定位根因；行为变更严格先写可失败的测试，再做最小实现。
-- AI 协作者不默认启动服务；不得自行启动 Uvicorn、本地 Docker 或其他 Fusion 服务，只有用户明确要求时才可启动。
-- 按改动运行测试/构建：优先运行目标 pytest 与 Ruff；涉及共享协议、数据流或容器契约时扩大到相应检查。
-- 用户可见或登录态链路只能复用既有 Chrome 标签；没有已打开且匹配的登录标签时，明确记录验收缺口，不新开浏览器目标。
-- 部署/回滚需明确确认；push、PR、合并、外部平台修改和发布是不同授权边界，任何一种授权都不得自动扩展到另一种。
-- 用户询问“下一步”时，从仓库根读取 `docs/EXECUTION_LEDGER.md`，执行 `git log --oneline -40`，搜索 `docs/implementation-plans`、`docs/specs`、存在时的 `backend/docs/MODEL_ACCEPTANCE_RUNBOOK.md`、受影响应用文档与源码；台账与当前树或历史冲突时以当前证据为准并指出待更新项。
-- 代码审查只提交当前改动引入且具有可达正确性、安全、权限、数据、兼容性或发布后果的 P0/P1；证据不足或仅属 P2/P3 加固时不阻塞。
-<!-- guidance-contract:end -->
+## 验证入口
+
+从 `backend/` 使用项目已有 Python 环境运行目标 `python -m pytest test/受影响测试文件.py -q`、`python -m ruff check 受影响的文件` 和必要的 `python -m ruff format --check 受影响的文件`。
+
+选择能复现故障的输入、依赖失败或状态转换，修复前后对照同一行为。共享协议或生命周期改动检查相关生产者、消费方与历史数据兼容。完整 CI 收集入口见 [Linux 检查脚本](.github/scripts/linux-build-and-test.sh)，新增回归应能被实际入口收集。
+
+只调查时不创建真实会话、不消耗模型额度；已授权的真实验收遵循[验收 skill](../.agents/skills/fusion-acceptance/SKILL.md)。审查只报告当前变更引入且具有可达严重后果的 P0/P1，证据不足和 P2/P3 建议不阻塞合并。

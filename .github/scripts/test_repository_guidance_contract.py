@@ -11,14 +11,12 @@ import unittest
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-
 ROOT = Path(__file__).resolve().parents[2]
 DISCOVERY_ENTRIES = (
     "docs/EXECUTION_LEDGER.md",
     "docs/implementation-plans",
     "docs/specs",
     "backend/docs/MODEL_ACCEPTANCE_RUNBOOK.md",
-    "git log --oneline -40",
 )
 GUIDANCE_FILES = (
     ROOT / "AGENTS.md",
@@ -28,7 +26,8 @@ GUIDANCE_FILES = (
     ROOT / "frontend/AGENTS.md",
     ROOT / "frontend/CLAUDE.md",
     ROOT / "docs/EXECUTION_LEDGER.md",
-    ROOT / ".agents/skills/fusion-next-step/SKILL.md",
+    *sorted((ROOT / ".agents/skills").glob("*/SKILL.md")),
+    *sorted((ROOT / "backend/.agents/skills").glob("*/SKILL.md")),
 )
 FORBIDDEN_OLD_PATHS = (
     "/Users/sean/code/fusion/" + "fusion-api",
@@ -37,8 +36,6 @@ FORBIDDEN_OLD_PATHS = (
     "../fusion-ui",
     "docs/superpowers",
 )
-GUIDANCE_START = "<!-- guidance-contract:start -->"
-GUIDANCE_END = "<!-- guidance-contract:end -->"
 MIGRATION_MARKER = ".github/scripts/test_repository_guidance_contract.py"
 TASK5_ALLOWED_BUSINESS_PATHS = {
     "frontend/src/scripts/buildAndDeployWorkflow.test.ts",
@@ -108,15 +105,6 @@ def read(path: Path) -> str:
     if not path.is_file():
         raise AssertionError(f"缺少文件: {path.relative_to(ROOT)}")
     return path.read_text(encoding="utf-8")
-
-
-def guidance_contract(path: Path) -> str:
-    content = read(path)
-    if GUIDANCE_START not in content or GUIDANCE_END not in content:
-        raise AssertionError(f"{path.relative_to(ROOT)} 缺少 guidance-contract 标记")
-    start = content.index(GUIDANCE_START) + len(GUIDANCE_START)
-    end = content.index(GUIDANCE_END, start)
-    return content[start:end].strip()
 
 
 def git_output(*args: str) -> str:
@@ -223,7 +211,9 @@ class Task5RangeHelperTest(unittest.TestCase):
             os.environ.clear()
             os.environ.update(original_environment)
 
-    def test_current_task5_range_includes_changes_after_contract_introduction(self) -> None:
+    def test_current_task5_range_includes_changes_after_contract_introduction(
+        self,
+    ) -> None:
         base = self.commit_files("base", {"README.md": "base\n"})
         self.commit_files(
             "introduce contract",
@@ -235,7 +225,9 @@ class Task5RangeHelperTest(unittest.TestCase):
 
         self.assertIn("backend/app/out_of_scope.py", paths)
 
-    def test_future_change_skips_one_time_task5_range_after_base_contains_contract(self) -> None:
+    def test_future_change_skips_one_time_task5_range_after_base_contains_contract(
+        self,
+    ) -> None:
         base = self.commit_files(
             "base with contract",
             {".github/scripts/test_repository_guidance_contract.py": "marker\n"},
@@ -257,7 +249,9 @@ class Task5RangeHelperTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.changed_paths(GITHUB_EVENT_NAME="push", BEFORE_SHA="f" * 40)
 
-    def test_business_path_validator_allows_only_the_reviewed_frontend_contract_test(self) -> None:
+    def test_business_path_validator_allows_only_the_reviewed_frontend_contract_test(
+        self,
+    ) -> None:
         validator = globals().get("task5_business_path_violations")
         self.assertIsNotNone(validator, "缺少 Task 5 业务目录范围 validator")
         if validator is None:
@@ -283,7 +277,9 @@ class Task5RangeHelperTest(unittest.TestCase):
 
 
 class RepositoryGuidanceContractTest(unittest.TestCase):
-    def test_root_ignore_policy_covers_generated_artifacts_without_hiding_all_databases(self) -> None:
+    def test_root_ignore_policy_covers_generated_artifacts_without_hiding_all_databases(
+        self,
+    ) -> None:
         ignored = (
             ".DS_Store",
             "backend/.DS_Store",
@@ -377,14 +373,21 @@ class RepositoryGuidanceContractTest(unittest.TestCase):
             "旧文档来源目录必须移除",
         )
 
-    def test_root_agent_files_are_navigation_only(self) -> None:
-        forbidden = ("app/", "src/", "uvicorn", "npm run dev", "docker-compose", "部署", "回滚")
-        for relative in ("AGENTS.md", "CLAUDE.md"):
-            content = read(ROOT / relative)
-            for keyword in forbidden:
-                self.assertNotIn(keyword, content, f"{relative} 不应承载应用执行规则: {keyword}")
-            for target in ("backend/AGENTS.md", "frontend/AGENTS.md", "docs/EXECUTION_LEDGER.md"):
-                self.assertIn(target, content)
+    def test_root_navigation_reaches_applications_and_workflow_skills(self) -> None:
+        content = read(ROOT / "AGENTS.md")
+        targets = (
+            "backend/AGENTS.md",
+            "frontend/AGENTS.md",
+            "docs/EXECUTION_LEDGER.md",
+            ".agents/skills/fusion-change-loop/SKILL.md",
+            ".agents/skills/fusion-release-gate/SKILL.md",
+            ".agents/skills/fusion-acceptance/SKILL.md",
+            ".agents/skills/fusion-next-step/SKILL.md",
+        )
+        links = re.findall(r"(?<!!)\[[^\]]*\]\(([^)]+)\)", content)
+        for target in targets:
+            self.assertIn(target, links)
+            self.assertTrue((ROOT / target).is_file(), f"入口不存在: {target}")
 
     def test_public_readme_is_product_facing_not_agent_guidance(self) -> None:
         readme = ROOT / "README.md"
@@ -410,9 +413,7 @@ class RepositoryGuidanceContractTest(unittest.TestCase):
     def test_fusion_next_step_is_unique_and_uses_single_repo_discovery(self) -> None:
         copies = sorted(ROOT.glob("**/.agents/skills/fusion-next-step/SKILL.md"))
         self.assertEqual(copies, [ROOT / ".agents/skills/fusion-next-step/SKILL.md"])
-        actual_backend_skills = {
-            path.parent.name for path in (ROOT / "backend/.agents/skills").glob("*/SKILL.md")
-        }
+        actual_backend_skills = {path.parent.name for path in (ROOT / "backend/.agents/skills").glob("*/SKILL.md")}
         self.assertEqual(
             EXPECTED_BACKEND_SKILLS - actual_backend_skills,
             set(),
@@ -425,29 +426,27 @@ class RepositoryGuidanceContractTest(unittest.TestCase):
         for forbidden in FORBIDDEN_OLD_PATHS:
             self.assertNotIn(forbidden, content)
 
-    def test_application_agent_and_claude_contracts_are_synonymous(self) -> None:
-        required_phrases = (
-            "不默认启动服务",
-            "复用既有 Chrome 标签",
-            "先定位根因",
-            "按改动运行测试/构建",
-            "部署/回滚需明确确认",
-        ) + DISCOVERY_ENTRIES
-        for application in ("backend", "frontend"):
-            agents = ROOT / application / "AGENTS.md"
-            claude = ROOT / application / "CLAUDE.md"
-            self.assertEqual(guidance_contract(agents), guidance_contract(claude))
-            contract = guidance_contract(agents)
-            for phrase in required_phrases:
-                self.assertIn(phrase, contract, f"{application} 缺少受控约定: {phrase}")
+    def test_claude_and_application_entries_reach_canonical_guidance(self) -> None:
+        for directory in (ROOT, ROOT / "backend", ROOT / "frontend"):
+            claude = directory / "CLAUDE.md"
+            links = re.findall(r"(?<!!)\[[^\]]*\]\(([^)]+)\)", read(claude))
+            resolved = {(directory / target).resolve() for target in links}
+            self.assertIn((directory / "AGENTS.md").resolve(), resolved)
+            for target in resolved:
+                self.assertTrue(target.is_file(), f"Claude 导航断链: {target}")
+            if directory != ROOT:
+                content = read(directory / "AGENTS.md")
+                self.assertIn("(../AGENTS.md)", content)
 
     def test_discovery_entrances_are_consistent_and_have_no_old_paths(self) -> None:
         for path in GUIDANCE_FILES:
             content = read(path)
-            for entry in DISCOVERY_ENTRIES:
-                self.assertIn(entry, content, f"{path.relative_to(ROOT)} 缺少发现入口: {entry}")
             for forbidden in FORBIDDEN_OLD_PATHS:
-                self.assertNotIn(forbidden, content, f"{path.relative_to(ROOT)} 仍含旧路径: {forbidden}")
+                self.assertNotIn(
+                    forbidden,
+                    content,
+                    f"{path.relative_to(ROOT)} 仍含旧路径: {forbidden}",
+                )
 
     def test_implementation_plans_do_not_reference_old_sibling_paths(self) -> None:
         offenders: list[str] = []
@@ -485,8 +484,9 @@ class RepositoryGuidanceContractTest(unittest.TestCase):
             "frontend/CHAT_UI_DATA_FLOW.md",
         )
         offenders: list[str] = []
-        for relative in entries:
-            document = ROOT / relative
+        documents = {ROOT / relative for relative in entries} | set(GUIDANCE_FILES)
+        for document in sorted(documents):
+            relative = document.relative_to(ROOT).as_posix()
             for target in re.findall(r"(?<!!)\[[^\]]*\]\(([^)]+)\)", read(document)):
                 normalized = target.strip().strip("<>").split(maxsplit=1)[0]
                 parsed = urlsplit(normalized)
@@ -501,7 +501,11 @@ class RepositoryGuidanceContractTest(unittest.TestCase):
     def test_debug_stream_uses_only_payload_safe_stream_metadata_commands(self) -> None:
         content = read(ROOT / "backend/.agents/skills/debug-stream/SKILL.md")
         for command in ("XRANGE", "XREVRANGE", "XREAD", "XREADGROUP", "XINFO STREAM"):
-            self.assertNotRegex(content, rf"(?i)\b{command}\b", f"debug-stream 不得读取 entry body: {command}")
+            self.assertNotRegex(
+                content,
+                rf"(?i)\b{command}\b",
+                f"debug-stream 不得读取 entry body: {command}",
+            )
         self.assertIn("XLEN", content, "debug-stream 应只读取 Stream 长度元数据")
         self.assertIn("不输出 entry body", content)
 

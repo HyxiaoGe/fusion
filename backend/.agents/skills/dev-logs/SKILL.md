@@ -1,52 +1,19 @@
 ---
 name: dev-logs
-description: 查看 dev 服务器 fusion-api 日志。Use when debugging backend issues, checking errors, or tracing request flow.
-argument-hint: [conversation_id 或关键词]
-allowed-tools: Bash
+description: 按时间窗口和请求标识只读调查 Fusion dev 日志，定位服务错误或链路中断。
 ---
 
-# 查看 Dev 服务器日志
+# Dev 日志调查
 
-通过 `ssh dev` 连接开发服务器查看 fusion-api 容器日志。
+通过已有 `ssh dev` 访问，先确认目标容器及时间窗口。用户时间按 `Asia/Shanghai`，Docker 时间筛选使用带时区的 ISO 时间或明确的相对窗口。
 
-本 skill 仅用于已授权范围内的只读诊断，不重启容器、不改 dev 配置、不创建会话。所有时间窗口按 `Asia/Shanghai` 解释；容器日志不是东八区时，先明确原时区再换算。
-
-## 常用命令
-
-### 最近日志（过滤 LiteLLM 噪音）
 ```bash
-ssh dev "docker logs fusion-api 2>&1 | tail -50" | grep -v 'LiteLLM\|litellm\|backoff\|ImportError\|Module\|During\|Traceback\|File "/usr\|proxy_server\|cold_storage'
+ssh dev 'docker ps --filter name=fusion --format "{{.Names}} {{.Status}}"'
+ssh dev 'docker logs --since 15m --timestamps --tail 300 fusion-api 2>&1'
 ```
 
-### 应用级日志（只看 app logger）
-```bash
-ssh dev "docker logs fusion-api 2>&1" | grep 'app - ' | tail -30
-```
+按 conversation/message/run/round/tool 标识缩小查询，必要时扩大一个相关窗口。保留异常上下文与堆栈，不默认屏蔽 LiteLLM、ImportError、Traceback 或退避信息；只有证据证明与本次无关才排除。
 
-### 按会话 ID 过滤
-```bash
-ssh dev "docker logs fusion-api 2>&1" | grep '{conversation_id}' | grep -v OPTIONS
-```
+容器名、端口与部署位置以当前 workflow 和运行信息为准。不要读取全量日志后才截尾，也不输出凭据、用户消息正文或其他敏感内容。
 
-### 按时间范围
-```bash
-# 先把用户给出的 Asia/Shanghai 窗口换算为容器日志时区，再替换占位范围
-ssh dev "docker logs fusion-api 2>&1" | grep -E '08:1[0-9]' | grep -v 'GET /docs'
-```
-
-### 查看请求流水
-```bash
-ssh dev "docker logs fusion-api 2>&1" | grep -E 'POST /api/chat/(send|stop)|stream-status|/stream/' | tail -20
-```
-
-### 查看错误
-```bash
-ssh dev "docker logs fusion-api 2>&1" | grep -E 'ERROR|异常|失败' | tail -20
-```
-
-## 注意事项
-
-- 容器名固定为 `fusion-api`
-- API 端口映射为 8002（不是 8000）
-- 日志中 LiteLLM 的 backoff 报错是误报（缺少 litellm[proxy] 依赖），可忽略
-- 用 `ssh dev` 直连开发服务器
+日志能证明服务端发生了什么，不能替代页面表现或网络实际到达。只读调查不重启、不改配置、不创建会话；需要主动复现时沿当前授权判断，不反复申请已获得的权限。

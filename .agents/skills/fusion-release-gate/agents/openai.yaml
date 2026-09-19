@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fusion 发布交付"
+  short_description: "在已有授权范围内完成分支与 PR 交付，核对 CI 和实际部署版本"
+  default_prompt: "使用 $fusion-release-gate 完成本次已授权的 Fusion Git 与发布交付。"
