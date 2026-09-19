@@ -1,5 +1,5 @@
 // src/hooks/useTypewriter.ts
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 import { useAppDispatch } from '@/redux/hooks';
 import { useStore } from 'react-redux';
 import { advanceTypewriter, selectStreamSlot } from '@/redux/slices/streamSlice';
@@ -95,6 +95,15 @@ export function useTypewriter() {
     }
     networkDoneRef.current = false;
     catchUpRef.current = null;
+  }, []);
+
+  // 卸载时必须停表。槽位按会话拆分后切走不再 endStream，backlog 会留着，
+  // 漏掉的 interval 不再是空转——它会一直往那个会话的槽位派发。
+  useEffect(() => () => {
+    if (intervalRef.current !== null) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
   }, []);
 
   const markNetworkDone = useCallback(() => {
