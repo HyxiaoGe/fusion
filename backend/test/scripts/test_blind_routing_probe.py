@@ -1,4 +1,3 @@
-import hashlib
 import json
 import pathlib
 import re
@@ -13,6 +12,7 @@ sys.path.insert(0, str(_BACKEND_ROOT))
 
 from app.services.stream.run_capability_router import _CandidateRoute  # noqa: E402
 from scripts import blind_routing_probe as probe  # noqa: E402
+from test.test_blind_routing_fixture import _ORIGINAL_CASE_IDS  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -50,7 +50,7 @@ def test_hybrid_monitor_uses_real_route_resolver_and_classifier_seam():
 def test_rules_mode_reproduces_baseline_and_group_report(monkeypatch, tmp_path, capsys):
     # 原有 33 条继续作为脚本回归样本，新增盲测的成绩不作为 CI 门禁。
     payload = json.loads(probe.FIXTURE.read_text(encoding="utf-8"))
-    payload["cases"] = payload["cases"][:33]
+    payload["cases"] = [case for case in payload["cases"] if case["id"] in _ORIGINAL_CASE_IDS]
     fixture = tmp_path / "original_cases.json"
     fixture.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     monkeypatch.setattr(probe, "FIXTURE", fixture)
@@ -112,15 +112,6 @@ def test_default_mode_runtime_classifier_failure_blocks_all_probe_output(monkeyp
     assert "OK " not in captured.out
     assert "MISS" not in captured.out
     completion.assert_called_once()
-
-
-def test_original_blind_probe_cases_are_unchanged():
-    cases = json.loads(probe.FIXTURE.read_text(encoding="utf-8"))["cases"]
-    original_cases = json.dumps(cases[:33], ensure_ascii=False, sort_keys=True).encode()
-
-    assert (
-        hashlib.sha256(original_cases).hexdigest() == "f6038ad2b02c7f5b23f761f36bbfbcaa389a32ac8d33dade34b544eeaa030c37"
-    )
 
 
 @pytest.mark.parametrize("available_tools", [None, [], ["mcp_notion_search"]])
