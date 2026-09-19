@@ -1199,7 +1199,11 @@ class AmapProductToolHandler(BaseToolHandler):
                 )
                 return render_runtime_prompt("amap.repair", payload=repair_payload)
             if self.tool_name == AMAP_WEATHER_FORECAST:
-                failure_contract = render_runtime_prompt("amap.weather_unavailable")
+                # 覆盖范围之外与真故障对模型是两件事：前者重试不可能成功，直接换公开来源。
+                if result.data.get("error_code") == WEATHER_REGION_UNSUPPORTED_ERROR_CODE:
+                    failure_contract = render_runtime_prompt("amap.weather_region_unsupported")
+                else:
+                    failure_contract = render_runtime_prompt("amap.weather_unavailable")
             elif self.tool_name in {AMAP_LOCAL_PLACE_SEARCH, AMAP_ROUTE_COMPARE}:
                 failure_contract = render_runtime_prompt("amap.place_route_unavailable")
             else:

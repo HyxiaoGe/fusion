@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 
+from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.schemas.chat import WeatherResultsBlock
 from app.services.agent.context_broker import Geolocation
 from app.services.mcp.amap_product_tools import (
@@ -419,6 +420,57 @@ class AmapWeatherForecastTests(unittest.IsolatedAsyncioTestCase):
 
                 self.assertEqual(result.data["error_code"], "weather_region_unsupported")
                 self.assertEqual(result.error_message, AMAP_WEATHER_REGION_UNSUPPORTED_MESSAGE)
+
+    async def test_weather_failure_contract_does_not_order_a_user_facing_disclosure(self):
+        # 失败契约的职责是让模型知道内置服务没数据、别编造，不是让它向用户汇报内部
+        # 工具状态。同组的 place_route_unavailable / product_unavailable 都是这个写法，
+        # 只有天气这条要求「State honestly that no forecast was obtained」——恢复成功
+        # 时这句话还会与模型刚给出的答案自相矛盾（预报取到了，只是换了来源）。
+        contract = render_runtime_prompt("amap.weather_unavailable")
+        self.assertNotIn("State honestly", contract)
+        self.assertIn("do not fabricate", contract.lower())
+        self.assertIn("available information", contract.lower())
+
+    async def test_unsupported_region_observation_uses_its_own_contract(self):
+        # 覆盖范围之外不是故障：模型该知道重试这个工具不可能成功，直接换公开来源。
+        handler, _ = build_handler(
+            "weather_forecast",
+            {
+                "maps_geo": [mcp_payload({"geocodes": [{"city": "香港特别行政区", "adcode": "810000"}]})],
+                "maps_weather": [
+                    McpClientError(
+                        "tool_error",
+                        "MCP 工具执行失败",
+                        safe_details={"upstream_message": "API 调用失败：UNKNOWN_ERROR"},
+                    )
+                ],
+            },
+        )
+
+        result = await handler.execute(named_weather_args("香港"))
+        observation = handler.format_llm_context(result)
+
+        self.assertIn(render_runtime_prompt("amap.weather_region_unsupported"), observation)
+        self.assertNotIn(render_runtime_prompt("amap.weather_unavailable"), observation)
+        # 错误码与上游观察仍要送达，模型据此判断而不是靠揣测
+        self.assertIn("weather_region_unsupported", observation)
+        self.assertIn("UNKNOWN_ERROR", observation)
+
+    async def test_ordinary_weather_failure_keeps_the_generic_contract(self):
+        # 护栏：真故障仍走通用契约，新契约不得把普通失败一并接管
+        handler, _ = build_handler(
+            "weather_forecast",
+            {
+                "maps_geo": [mcp_payload({"geocodes": [{"city": "深圳市", "adcode": "440300"}]})],
+                "maps_weather": [McpClientError("invalid_response", "MCP 服务返回无效响应")],
+            },
+        )
+
+        result = await handler.execute(named_weather_args("深圳市"))
+        observation = handler.format_llm_context(result)
+
+        self.assertIn(render_runtime_prompt("amap.weather_unavailable"), observation)
+        self.assertNotIn(render_runtime_prompt("amap.weather_region_unsupported"), observation)
 
     async def test_weather_unsupported_region_does_not_swallow_other_error_codes(self):
         # 未覆盖地区上出现的其它错误码（超时、无效响应等）不属于覆盖范围问题，
