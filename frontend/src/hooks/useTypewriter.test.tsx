@@ -168,6 +168,26 @@ describe('useTypewriter', () => {
     expect(catchUp).toHaveBeenCalledTimes(1);
   });
 
+  it('卸载后不再派发（槽位保留 backlog 时尤其不能空转派发）', () => {
+    // 槽位按会话拆分后，切走不再 endStream，backlog 会留着。
+    // 此时 hook 卸载若不清理 interval，它会一直往那个会话的槽位派发。
+    testSlot().totalTextLength = 1_000;
+    const { result, unmount } = renderHook(() => useTypewriter());
+
+    act(() => {
+      result.current.start(CONV, vi.fn());
+      vi.advanceTimersByTime(30);
+    });
+    expect(dispatchMock).toHaveBeenCalledTimes(1);
+
+    unmount();
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(dispatchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('stop 立即停止推进并清除 catchUp', () => {
     testSlot().totalTextLength = 1_000;
     const catchUp = vi.fn();
