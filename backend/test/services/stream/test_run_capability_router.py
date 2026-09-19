@@ -3966,6 +3966,35 @@ class TestVerifiedWebVerbNeedsClaimObject:
         # 字面层返回 None 意味着进入模型语义层；这是本修复的核心：不确定就不抢答。
         assert self._literal("定价前应该验证什么") is None
 
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "设计用户访谈时，怎么核验大家是不是真的愿意付钱？",
+            "怎样验证用户是不是真的需要这个功能？",
+            "面试时如何核验候选人是不是真的会协作？",
+            "大家是不是真的愿意付钱，应该怎么验证？",
+        ],
+    )
+    def test_普通口语谓语不构成外部主张(self, message: str):
+        # 同时保护动词在前和在后的两条匹配路径，不确定时交给模型。
+        assert self._literal(message) is None
+
+    @pytest.mark.parametrize(
+        ("case_id", "expected_package"),
+        [
+            ("verify_verb-01", None),
+            ("verify_verb-02", None),
+            ("verify_verb-03", "verified_web"),
+            ("verify_verb-04", "verified_web"),
+        ],
+    )
+    def test_盲测查证动词的字面层归属(self, case_id: str, expected_package: str | None):
+        fixture = pathlib.Path(__file__).resolve().parents[2] / "fixtures" / "blind_routing_probe.json"
+        cases = json.loads(fixture.read_text(encoding="utf-8"))["cases"]
+        message = next(case["question"] for case in cases if case["id"] == case_id)
+        route = self._literal(message)
+        assert (route.package_id if route is not None else None) == expected_package
+
 
 class TestVerifyVerbHeldOutSet:
     """持出集回归：防止字面层的裸动词短路被重新放宽（issue #30 P1-A）。
