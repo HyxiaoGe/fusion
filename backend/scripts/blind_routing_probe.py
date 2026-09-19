@@ -98,11 +98,11 @@ def _new_hybrid_classifier_monitor() -> HybridClassifierMonitor:
     return HybridClassifierMonitor(classify_capability_request_with_model)
 
 
-def route(message: str, *, classifier: CapabilityClassifier):
+def route(message: str, *, classifier: CapabilityClassifier, available_tools: Sequence[str] | None = None):
     return resolve_run_capability_route(
         original_message=message,
         task_context_messages=None,
-        available_tool_names=AVAILABLE_TOOLS,
+        available_tool_names=AVAILABLE_TOOLS if available_tools is None else available_tools,
         requested_plan_mode="auto",
         task_policy=TASK_POLICY,
         capabilities={"functionCalling": True, "searchCapable": True},
@@ -155,7 +155,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     verbose_lines: list[str] = []
 
     for case in cases:
-        resolution = route(case["question"], classifier=classifier)
+        resolution = route(case["question"], classifier=classifier, available_tools=case.get("available_tools"))
         if monitor is not None and monitor.failure_error_type is not None:
             print(
                 f"无法完成混合分类器盲测：模型分类失败（{monitor.failure_error_type}）；"

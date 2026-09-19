@@ -1,4 +1,5 @@
 import hashlib
+import json
 import pathlib
 import re
 import sys
@@ -46,7 +47,14 @@ def test_hybrid_monitor_uses_real_route_resolver_and_classifier_seam():
     assert monitor.failure_error_type is None
 
 
-def test_rules_mode_reproduces_baseline_and_group_report(capsys):
+def test_rules_mode_reproduces_baseline_and_group_report(monkeypatch, tmp_path, capsys):
+    # 原有 33 条继续作为脚本回归样本，新增盲测的成绩不作为 CI 门禁。
+    payload = json.loads(probe.FIXTURE.read_text(encoding="utf-8"))
+    payload["cases"] = payload["cases"][:33]
+    fixture = tmp_path / "original_cases.json"
+    fixture.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(probe, "FIXTURE", fixture)
+
     assert probe.main(["--classifier", "rules"]) == 0
 
     output = capsys.readouterr().out
@@ -106,7 +114,30 @@ def test_default_mode_runtime_classifier_failure_blocks_all_probe_output(monkeyp
     completion.assert_called_once()
 
 
-def test_blind_probe_fixture_is_unchanged():
-    fixture_sha256 = hashlib.sha256(probe.FIXTURE.read_bytes()).hexdigest()
+def test_original_blind_probe_cases_are_unchanged():
+    cases = json.loads(probe.FIXTURE.read_text(encoding="utf-8"))["cases"]
+    original_cases = json.dumps(cases[:33], ensure_ascii=False, sort_keys=True).encode()
 
-    assert fixture_sha256 == "dcadbc917207dc8dc96a7747d0114d3f67e6d0682dc3ec59a23244471e006c7e"
+    assert (
+        hashlib.sha256(original_cases).hexdigest() == "f6038ad2b02c7f5b23f761f36bbfbcaa389a32ac8d33dade34b544eeaa030c37"
+    )
+
+
+@pytest.mark.parametrize("available_tools", [None, [], ["mcp_notion_search"]])
+def test_case_tools_reach_real_classifier_seam(monkeypatch, tmp_path, available_tools):
+    case = {"id": "工具覆盖", "question": "需要语义分类的请求", "group": "脚本测试", "acceptable_packages": ["direct"]}
+    if available_tools is not None:
+        case["available_tools"] = available_tools
+    fixture = tmp_path / "case_tools.json"
+    fixture.write_text(json.dumps({"cases": [case]}, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(probe, "FIXTURE", fixture)
+    classifier = Mock(return_value=_direct_candidate())
+    monkeypatch.setattr(probe, "classify_capability_request", classifier)
+
+    assert probe.main(["--classifier", "rules"]) == 0
+
+    classifier.assert_called_once_with(
+        message=case["question"],
+        task_context_messages=None,
+        available_tool_names=probe.AVAILABLE_TOOLS if available_tools is None else available_tools,
+    )
