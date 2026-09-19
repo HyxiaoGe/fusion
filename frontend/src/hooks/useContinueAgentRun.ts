@@ -16,6 +16,10 @@ import {
 } from '@/lib/chat/contentBlocks';
 import { buildChatFromServerConversation } from '@/lib/chat/conversationHydration';
 import {
+  registerStreamController,
+  releaseStreamController,
+} from '@/lib/chat/streamControllerRegistry';
+import {
   hasFormalTextContent,
   shouldApplySuggestedQuestionsSnapshot,
 } from '@/lib/chat/suggestedQuestionState';
@@ -269,6 +273,8 @@ export function useContinueAgentRun(deps: HookDeps = {}) {
     const controller = new AbortController();
     const token = Symbol('agent-continuation');
     abortControllerRef.current = controller;
+    // 登记到按会话索引的注册表，供停止按会话精确命中这条续跑。
+    registerStreamController({ conversationId, kind: 'continuation', controller });
     activeContinuationRef.current = {
       token,
       controller,
@@ -356,6 +362,7 @@ export function useContinueAgentRun(deps: HookDeps = {}) {
         dispatch(endStream());
       }
     } finally {
+      releaseStreamController(conversationId, controller);
       if (activeContinuationRef.current?.token === token) {
         activeContinuationRef.current = null;
         abortControllerRef.current = null;
@@ -363,12 +370,18 @@ export function useContinueAgentRun(deps: HookDeps = {}) {
     }
   }, [dispatch, store]);
 
-  const stopContinueAgentRun = useCallback(async (): Promise<boolean> => {
+  // conversationId 用于把停止精确限定在指定会话：并发多会话时，在 A 点停止不得
+  // 误停正在 B 跑的续跑。不传则沿用旧语义（停当前唯一一条）。
+  const stopContinueAgentRun = useCallback(async (conversationId?: string): Promise<boolean> => {
     const active = activeContinuationRef.current;
     if (!active) {
       return false;
     }
+    if (conversationId && active.conversationId !== conversationId) {
+      return false;
+    }
 
+    releaseStreamController(active.conversationId, active.controller);
     activeContinuationRef.current = null;
     abortControllerRef.current = null;
 

@@ -72,6 +72,11 @@ import {
   moveFirstTurnContextState,
 } from '@/lib/chat/contextStatusPersistence';
 import { hasFormalTextContent } from '@/lib/chat/suggestedQuestionState';
+import {
+  migrateStreamController,
+  registerStreamController,
+  releaseStreamController,
+} from '@/lib/chat/streamControllerRegistry';
 import type { Message, ContentBlock } from '@/types/conversation';
 import type { FileAttachment } from '@/lib/utils/fileHelpers';
 import { selectAuthSessionKey } from '@/redux/selectors';
@@ -276,7 +281,11 @@ export function useSendMessage(activeConversationId?: string | null) {
 
   const invalidateFrontendSend = useCallback(() => {
     sendGenerationRef.current += 1;
-    abortControllerRef.current?.abort();
+    const invalidatedController = abortControllerRef.current;
+    if (invalidatedController) {
+      releaseStreamController(activeConvIdRef.current, invalidatedController);
+      invalidatedController.abort();
+    }
     abortControllerRef.current = null;
     typewriterRef.current.stop();
     stopInFlightPromiseRef.current = null;
@@ -342,7 +351,11 @@ export function useSendMessage(activeConversationId?: string | null) {
 
       typewriterRef.current.stop();
 
-      abortControllerRef.current?.abort();
+      const stoppingController = abortControllerRef.current;
+      if (stoppingController) {
+        releaseStreamController(convId, stoppingController);
+        stoppingController.abort();
+      }
       abortControllerRef.current = null;
 
       if (convId && userMsgId) {
@@ -786,6 +799,16 @@ export function useSendMessage(activeConversationId?: string | null) {
 
       const controller = new AbortController();
       abortControllerRef.current = controller;
+      // 同步登记到按会话索引的注册表：停止时按会话查表，而不是按「哪个 ref 非空」猜。
+      registerStreamController({
+        conversationId: tempConvId,
+        kind: 'send',
+        controller,
+      });
+      // 注销一律带上 controller，迟到的收尾便不会注销后来者。
+      const releaseSendController = () => {
+        releaseStreamController(activeConvIdRef.current, controller);
+      };
       releaseSendPreparation();
       options.onAccepted?.();
       if (isDraft && isActiveSendCurrent()) {
@@ -810,6 +833,8 @@ export function useSendMessage(activeConversationId?: string | null) {
 
         materializedOnce = true;
         serverConvId = incomingConvId;
+        // 键必须跟着会话 ID 一起迁移，否则这条流在新 ID 下查不到、旧 ID 下永不注销。
+        migrateStreamController(activeConvIdRef.current ?? tempConvId, incomingConvId, controller);
         activeConvIdRef.current = incomingConvId;
         // 首页会在物化后重挂输入区，必须先把首轮上下文偏好迁移到服务端会话 ID。
         moveFirstTurnContextState(tempConvId, incomingConvId);
@@ -925,6 +950,7 @@ export function useSendMessage(activeConversationId?: string | null) {
         dispatch(endStream({ messageId: assistantMessageIdRef.current }));
         sendGenerationRef.current += 1;
         activeSendContextRef.current = null;
+        releaseSendController();
         abortControllerRef.current = null;
         activeConvIdRef.current = null;
         userMessageIdRef.current = null;
@@ -1178,6 +1204,7 @@ export function useSendMessage(activeConversationId?: string | null) {
           dispatch(endStream({ messageId: assistantMessageIdRef.current }));
           sendGenerationRef.current += 1;
           activeSendContextRef.current = null;
+          releaseSendController();
           abortControllerRef.current = null;
           activeConvIdRef.current = null;
           userMessageIdRef.current = null;
@@ -1324,6 +1351,7 @@ export function useSendMessage(activeConversationId?: string | null) {
         dispatch(endStream({ messageId: assistantMessageIdRef.current }));
         sendGenerationRef.current += 1;
         activeSendContextRef.current = null;
+        releaseSendController();
         abortControllerRef.current = null;
         activeConvIdRef.current = null;
         userMessageIdRef.current = null;
