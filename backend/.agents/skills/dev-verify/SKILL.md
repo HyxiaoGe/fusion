@@ -1,49 +1,21 @@
 ---
 name: dev-verify
-description: 在已授权发布完成后，核验 Fusion dev 的单仓 CI、per-app 发布台账与运行容器 digest/image ID。
-allowed-tools: Bash
+description: 只读核验 Fusion dev 的 Actions、逐应用发布台账与实际运行镜像身份。
 ---
 
-# 验证 Dev 服务器发布状态
+# Dev 运行版本核验
 
-push、PR 检查、合并和 dev 发布是不同状态。仅 push 不能证明已发布；本 skill 只在目标发布已获明确授权并实际触发后使用，执行只读核验，不修改 dev 状态。
-
-## 1. 核对单仓 Actions
+用于已发生发布的核验或用户要求的只读状态调查，无需额外取得部署权限。它不触发部署，不重启服务，也不代表业务验收已通过。
 
 ```bash
 gh run list --repo HyxiaoGe/fusion --workflow deploy-dev.yml --limit 5
-gh run view {run_id} --repo HyxiaoGe/fusion
+ssh dev 'docker ps --filter name=fusion --format "{{.Names}}: {{.Status}}"'
+ssh dev 'docker inspect fusion-api --format "{{.Image}}"'
+ssh dev 'docker inspect fusion-ui --format "{{.Image}}"'
 ```
 
-确认目标 run 对应预期 master SHA，并分别记录 API/UI job 的实际结论；一侧 skipped 不等于另一侧已发布。
+按目标 SHA 查看相应 run 的 API/UI job；使用取得的 image ID 查询 `docker image inspect` 的 RepoDigests。分别与 `~/.local/share/fusion/api/release-ledger.json`、`~/.local/share/fusion/ui/release-ledger.json` 的 current_sha、digest 和 image ID 核对，只保留所需字段。
 
-## 2. 核对容器与健康
+运行容器的 digest/image ID 是身份依据，SHA tag 是审计别名，台账是投影；不从宿主机 checkout 或容器 running 推断版本。某应用 skipped 时记录它实际运行的版本，不宣称两侧都更新。
 
-```bash
-ssh dev "docker ps --filter name=fusion --format '{{.Names}}: {{.Status}}'"
-ssh dev "curl --fail-with-body --silent --show-error http://localhost:8002/health"
-```
-
-## 3. 核对运行身份与 per-app 台账
-
-运行容器的 repository digest + image ID 是权威身份，`<sha>` tag 只作审计别名；宿主机 checkout 外的 per-app 发布台账是可恢复投影，不得反向覆盖运行证据。
-
-```bash
-ssh dev "docker inspect fusion-api --format '{{.Image}}'"
-ssh dev "docker image inspect {api_image_id} --format '{{json .RepoDigests}}'"
-ssh dev "docker inspect fusion-ui --format '{{.Image}}'"
-ssh dev "docker image inspect {ui_image_id} --format '{{json .RepoDigests}}'"
-ssh dev "python3 -m json.tool ~/.local/share/fusion/api/release-ledger.json"
-ssh dev "python3 -m json.tool ~/.local/share/fusion/ui/release-ledger.json"
-```
-
-逐应用比对台账 `current_sha`、repository digest、image ID 与实际容器。任一 digest 无法解析、台账缺失或身份不一致都必须如实报告，不能仅凭容器 `running`、健康 200 或 tag 宣称发布完成。
-
-## 4. 应用级只读状态
-
-```bash
-ssh dev "docker logs fusion-api 2>&1 | grep 'Redis' | tail -5"
-ssh dev "docker exec middleware-redis redis-cli keys 'stream:*'"
-```
-
-若要创建会话、发送消息、消耗模型额度或写 dev 状态，必须另行取得显式验收授权并使用 `dev-test-api`；本 skill 不包含这些动作。
+健康 URL 和端口从当前部署脚本确认，再核对目标应用与必要依赖。台账缺失、digest 无法解析、运行身份不一致或检查失败分别报告。创建会话、模型调用和产品路径由验收授权及 `dev-test-api` 处理。

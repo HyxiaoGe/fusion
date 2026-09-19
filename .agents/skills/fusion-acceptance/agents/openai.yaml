@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fusion 真实验收"
+  short_description: "按任务范围核验真实 API 与页面行为，清楚区分各层证据和验收缺口"
+  default_prompt: "使用 $fusion-acceptance 验证本次已授权的 Fusion 目标行为。"

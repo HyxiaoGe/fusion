@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fusion 开发闭环"
+  short_description: "按当前单仓结构定位和实现改动，完成必要验证并准确报告交付状态"
+  default_prompt: "使用 $fusion-change-loop 完成这项 Fusion 开发任务，并验证目标行为。"

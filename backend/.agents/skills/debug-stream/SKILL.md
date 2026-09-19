@@ -1,103 +1,31 @@
 ---
 name: debug-stream
-description: Debug streaming issues (stop not working, content loss, reconnect problems). Use when SSE streaming has bugs.
-allowed-tools: Bash, Read, Grep
+description: 定位 Fusion SSE 断线、停止、重连和内容恢复故障，关联后端生成与前端状态。
 ---
 
-# 调试流式输出问题
+# 流式故障定位
 
-## 安全与授权前置
+先区分后台是否仍生成、Redis 是否已有终态、客户端是否接收、页面是否应用、刷新后是否恢复。只调查时读取已有脱敏日志与状态，不创建会话、不发 stop、不触发模型调用。
 
-- 日志、Redis meta/lock 与既有会话状态查询属于只读诊断，可在当前调查授权内执行；不得输出 token、cookie、完整消息内容或其他敏感字段。
-- 访问令牌必须来自用户已授权的安全来源，注入为 `FUSION_DEV_ACCESS_TOKEN`，不得把账号、密码、client id 或 token 写入 skill、脚本、命令历史或报告，也不得回显。
-- 下方端到端步骤会创建会话、发送消息、消耗模型额度并写 dev 状态；只有用户明确授权真实 dev 验收后才能执行。未获授权时停在只读日志和既有状态证据。
+## 当前入口
 
-## 1. 检查后端日志
+| 路径 | 作用 |
+|---|---|
+| [chat_service.py](../../../app/services/chat_service.py) | 任务与上下文入口 |
+| [stream 包](../../../app/services/stream/__init__.py) | 当前公开的生成/消费入口 |
+| [runner.py](../../../app/services/stream/runner.py) | 后台生成编排 |
+| [sse_encoder.py](../../../app/services/stream/sse_encoder.py) | Redis 到 SSE 的消费与结束 |
+| [stream_state_service.py](../../../app/services/stream_state_service.py) | init、append、终态与取消 |
+| [task_manager.py](../../../app/services/task_manager.py) | 进程内任务归属与取消 |
+| [chat.py](../../../app/api/chat.py) | send、stop 与恢复端点 |
 
-```bash
-# 最近的 app 日志（过滤噪音）
-ssh dev "docker logs fusion-api 2>&1" | grep -E 'app - |POST /api/chat/(send|stop)|stream-status|/stream/' | tail -30
+前端从根 `frontend/src/lib/chat/streamControllerRegistry.ts` 和实际 Redux/事件消费方追踪；核对会话、消息和当前请求身份，避免把切换会话误判成取消生成。
 
-# 特定会话
-ssh dev "docker logs fusion-api 2>&1" | grep '{conversation_id}'
-```
+## 只读证据
 
-## 2. 检查 Redis 流状态
+- 按东八区时间窗口和 conversation/message/run 标识关联日志，保留失败原因。
+- Redis key 形状先从当前 state service 与 Lua 核对。仅查询已知目标 key 的允许字段、lock 或 `XLEN`，不扫描全部会话，不输出 entry body。
+- 对照主动停止、客户端断线、生成失败、预算结束各自的持久化和 UI 终态。服务事件顺序不能证明浏览器帧到达顺序。
+- 缺少既有 Chrome 标签不阻止源码、目标测试和只读状态调查；明确剩余客户端证据，不能声称已真实复现。
 
-```bash
-# 查看所有活跃流
-ssh dev "docker exec middleware-redis redis-cli keys 'stream:*'"
-
-# 查看特定会话的 meta
-ssh dev "docker exec middleware-redis redis-cli hgetall 'stream:meta:{conv_id}'"
-
-# 查看 lock
-ssh dev "docker exec middleware-redis redis-cli get 'stream:lock:{conv_id}'"
-
-# 只查看 Stream 条目数元数据，不输出 entry body
-ssh dev "docker exec middleware-redis redis-cli XLEN 'stream:chunks:{conv_id}'"
-```
-
-## 3. 端到端测试流程
-
-```bash
-# 发消息
-RESPONSE=$(ssh dev "timeout 3 curl -s -N \
-  -H 'Authorization: Bearer ${FUSION_DEV_ACCESS_TOKEN}' \
-  -H 'Content-Type: application/json' \
-  -X POST http://localhost:8002/api/chat/send \
-  -d '{\"model_id\":\"qwen3-235b-a22b\",\"message\":\"说一个字\",\"stream\":true}' 2>&1 || true")
-
-# 提取 IDs
-CONV_ID=$(echo "$RESPONSE" | python3 -c "import sys,json
-for l in sys.stdin:
-    if 'conversation_id' in l and 'data:' in l:
-        print(json.loads(l.split('data: ')[1])['conversation_id']); break" 2>/dev/null)
-MSG_ID=$(echo "$RESPONSE" | python3 -c "import sys,json
-for l in sys.stdin:
-    if 'data:' in l and '\"id\"' in l:
-        print(json.loads(l.split('data: ')[1])['id']); break" 2>/dev/null)
-echo "conv=$CONV_ID msg=$MSG_ID"
-
-# 检查 stream-status
-ssh dev "curl -s -H 'Authorization: Bearer ${FUSION_DEV_ACCESS_TOKEN}' \
-  'http://localhost:8002/api/chat/stream-status/$CONV_ID'"
-
-# 发 stop（带 message_id 防误杀）
-ssh dev "curl -s -H 'Authorization: Bearer ${FUSION_DEV_ACCESS_TOKEN}' \
-  -X POST 'http://localhost:8002/api/chat/stop/$CONV_ID?message_id=$MSG_ID'"
-
-# 验证 stop 后状态
-sleep 1
-ssh dev "curl -s -H 'Authorization: Bearer ${FUSION_DEV_ACCESS_TOKEN}' \
-  'http://localhost:8002/api/chat/stream-status/$CONV_ID'"
-```
-
-## 4. 常见问题排查
-
-### stop 后刷新仍继续输出
-- 检查 `stream-status` 是否返回 `cancelled`
-- 如果返回 `streaming`，说明 `cancel_stream` 没执行成功
-- 检查 `cancel_stream.lua` 是否因为 meta 状态或 message_id 不匹配而跳过
-
-### 切换对话时报"模型调用失败"
-- 检查日志中是否有"任务被踢掉"
-- 检查 `cancel_stream` 是否误杀了新一轮的流（message_id 校验问题）
-
-### 重连后内容为空
-- 检查 `init_stream` 是否在 SSE 读取器之前执行（应在 `process_message` 中同步调用）
-- 检查 Redis Stream 是否有旧轮次的残留数据
-
-### 思考内容复用
-- 检查 `init_stream` 是否正确清除了上一轮的 Stream 数据（`redis.delete(stream_chunks_key)`）
-
-## 5. 关键代码路径
-
-| 文件 | 职责 |
-|------|------|
-| `app/services/chat_service.py` | 入口：init_stream → create_task → StreamingResponse |
-| `app/services/stream_handler.py` | Part A: generate_to_redis / Part B: stream_redis_as_sse |
-| `app/services/stream_state_service.py` | Redis 操作：init/append/finalize/cancel/check_lock |
-| `app/services/task_manager.py` | 进程内任务注册与取消（注意：跨 worker 不可见） |
-| `app/core/lua/` | Lua 原子脚本：finalize_stream / cancel_stream / release_lock |
-| `app/api/chat.py` | stop 端点：cancel_task + cancel_stream 双通道 |
+获准真实验收后使用仓库 `fusion-acceptance` 和后端 `dev-test-api` 的边界。正常完成场景要实际消费到终态；主动断流只能用于对应故障场景，不能把固定短超时当正常验收成功。只操作本轮拥有的测试资源。
