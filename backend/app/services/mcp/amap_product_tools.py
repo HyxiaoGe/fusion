@@ -83,6 +83,18 @@ _MAX_REQUESTED_DEPARTURE_TIME_CHARS = 80
 _TRUNCATED = "[TRUNCATED]"
 _AMAP_COORDINATE_CONVERT_ATTEMPT = "amap_coordinate_convert"
 _ADCODE_PATTERN = re.compile(r"^\d{6}$")
+
+# 高德地理编码覆盖港澳台，天气接口不覆盖：maps_geo 能解析出 adcode，随后的
+# maps_weather 固定回 UNKNOWN_ERROR。这是稳定的覆盖范围边界，不是瞬时故障，
+# 报成「暂时不可用」会让模型以为重试或改用其它工具取同一份数据还有希望。
+# 判据按行政区划前缀给出，而不是匹配地名，并且只在 maps_weather 真的失败后
+# 才生效——高德若哪天补上覆盖，调用直接成功，这条判据自然不再触发。
+WEATHER_REGION_UNSUPPORTED_ERROR_CODE = "weather_region_unsupported"
+AMAP_WEATHER_REGION_UNSUPPORTED_MESSAGE = "高德天气服务未覆盖该地区，无法取得当地预报"
+_WEATHER_UNSUPPORTED_ADCODE_PREFIXES = ("71", "81", "82")  # 台湾、香港、澳门
+_PRODUCT_FAILURE_MESSAGES = {
+    WEATHER_REGION_UNSUPPORTED_ERROR_CODE: AMAP_WEATHER_REGION_UNSUPPORTED_MESSAGE,
+}
 _SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 _WEATHER_CACHE_MAX_AGE = timedelta(minutes=30)
 _WEATHER_CACHE_TIMEOUT_SECONDS = 0.3
@@ -730,7 +742,18 @@ class AmapProductToolHandler(BaseToolHandler):
             result = self._build_weather_result(query=query, core=cached)
             return result
 
-        weather_payload = await self._call("maps_weather", {"city": adcode}, stats)
+        try:
+            weather_payload = await self._call("maps_weather", {"city": adcode}, stats)
+        except McpClientError as error:
+            # 只改写上游业务错误。超时、无效响应等其它错误码在未覆盖地区上同样可能
+            # 是真故障，掩盖掉会让排查失去线索。
+            if error.code == "tool_error" and adcode.startswith(_WEATHER_UNSUPPORTED_ADCODE_PREFIXES):
+                raise McpClientError(
+                    WEATHER_REGION_UNSUPPORTED_ERROR_CODE,
+                    AMAP_WEATHER_REGION_UNSUPPORTED_MESSAGE,
+                    safe_details=error.safe_details,
+                ) from error
+            raise
         core = _extract_weather_core(
             weather_payload,
             expected_adcode=adcode,
@@ -1288,15 +1311,17 @@ class AmapProductToolHandler(BaseToolHandler):
         *,
         error_details: dict[str, Any] | None = None,
     ) -> ToolResult:
+        # 文案按消毒后的错误码选取，避免非法码绕过映射
+        safe_error_code = error_code if re.fullmatch(r"[a-z][a-z0-9_]{0,63}", error_code) else "internal_error"
         return ToolResult(
             status="failed",
             duration_ms=_duration_ms(started_at),
             data={
                 **self._safe_metadata(stats),
-                "error_code": error_code if re.fullmatch(r"[a-z][a-z0-9_]{0,63}", error_code) else "internal_error",
+                "error_code": safe_error_code,
                 **({"error_details": dict(error_details)} if error_details else {}),
             },
-            error_message=MCP_TOOL_UNAVAILABLE_MESSAGE,
+            error_message=_PRODUCT_FAILURE_MESSAGES.get(safe_error_code, MCP_TOOL_UNAVAILABLE_MESSAGE),
         )
 
     def _repairable_result(

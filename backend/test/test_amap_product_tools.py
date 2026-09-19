@@ -11,11 +11,13 @@ from app.services.agent.context_broker import Geolocation
 from app.services.mcp.amap_product_tools import (
     AMAP_PRODUCT_DEFINITIONS,
     AMAP_PRODUCT_REMOTE_DEPENDENCIES,
+    AMAP_WEATHER_REGION_UNSUPPORTED_MESSAGE,
     AmapProductToolHandler,
     AmapRunCoordinateConversion,
     build_amap_product_binding,
 )
 from app.services.mcp.client import McpClientError
+from app.services.mcp.server_service import MCP_TOOL_UNAVAILABLE_MESSAGE
 from app.services.stream.tool_context import ToolRuntimeContext
 from app.services.tool_handlers.base import ToolResult
 
@@ -335,10 +337,12 @@ def route_compare_args(args: dict[str, Any]) -> dict[str, Any]:
 
 class AmapWeatherForecastTests(unittest.IsolatedAsyncioTestCase):
     async def test_weather_provider_error_reaches_result_and_observation(self):
+        # 覆盖范围内的城市：上游故障原因未知，仍应保持笼统的「暂时不可用」，
+        # 不能因为新增的未覆盖地区判据而把普通故障一并改写。
         handler, _ = build_handler(
             "weather_forecast",
             {
-                "maps_geo": [mcp_payload({"geocodes": [{"city": "香港特别行政区", "adcode": "810000"}]})],
+                "maps_geo": [mcp_payload({"geocodes": [{"city": "深圳市", "adcode": "440300"}]})],
                 "maps_weather": [
                     McpClientError(
                         "tool_error",
@@ -348,14 +352,89 @@ class AmapWeatherForecastTests(unittest.IsolatedAsyncioTestCase):
                 ],
             },
         )
-        result = await handler.execute(named_weather_args("香港"))
+        result = await handler.execute(named_weather_args("深圳市"))
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.data["error_code"], "tool_error")
+        self.assertEqual(result.error_message, MCP_TOOL_UNAVAILABLE_MESSAGE)
         self.assertIn("UNKNOWN_ERROR", result.data["error_details"]["upstream_message"])
         observation = handler.format_llm_context(result)
         self.assertIn("UNKNOWN_ERROR", observation)
         self.assertIn("tool_error", observation)
         self.assertNotIn("<untrusted>", observation)
+
+    async def test_weather_unsupported_region_is_not_reported_as_temporary_failure(self):
+        # dev 取证：2026-09-07 起 12 次 weather_forecast 失败，payload 全部是香港，
+        # subcall_attempt_count 均为 2 —— maps_geo 解析出了 adcode，失败只在 maps_weather。
+        # 高德地理编码覆盖港澳台、天气接口不覆盖，笼统的「暂时不可用」会让模型以为
+        # 重试或改计划有用，而这个地区永远不会成功。
+        handler, executor = build_handler(
+            "weather_forecast",
+            {
+                "maps_geo": [mcp_payload({"geocodes": [{"city": "香港特别行政区", "adcode": "810000"}]})],
+                "maps_weather": [
+                    McpClientError(
+                        "tool_error",
+                        "MCP 工具执行失败",
+                        safe_details={"upstream_message": "API 调用失败：UNKNOWN_ERROR"},
+                    )
+                ],
+            },
+        )
+
+        result = await handler.execute(named_weather_args("香港"))
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.data["error_code"], "weather_region_unsupported")
+        self.assertEqual(result.error_message, AMAP_WEATHER_REGION_UNSUPPORTED_MESSAGE)
+        self.assertNotEqual(result.error_message, MCP_TOOL_UNAVAILABLE_MESSAGE)
+        # 上游观察仍要留在结果里，排查时不能只剩一句结论
+        self.assertIn("UNKNOWN_ERROR", result.data["error_details"]["upstream_message"])
+        # 失败归属：maps_geo 成功，只有第二跳失败
+        self.assertEqual([call[0] for call in executor.calls], ["maps_geo", "maps_weather"])
+        observation = handler.format_llm_context(result)
+        self.assertIn("weather_region_unsupported", observation)
+
+    async def test_weather_unsupported_region_covers_macao_and_taiwan(self):
+        # 判据按行政区划前缀给出，不是对「香港」这一个字符串打补丁。
+        for location, city, adcode in (
+            ("澳门", "澳门特别行政区", "820000"),
+            ("台北", "台湾省", "710000"),
+        ):
+            with self.subTest(location=location):
+                handler, _ = build_handler(
+                    "weather_forecast",
+                    {
+                        "maps_geo": [mcp_payload({"geocodes": [{"city": city, "adcode": adcode}]})],
+                        "maps_weather": [
+                            McpClientError(
+                                "tool_error",
+                                "MCP 工具执行失败",
+                                safe_details={"upstream_message": "API 调用失败：UNKNOWN_ERROR"},
+                            )
+                        ],
+                    },
+                )
+
+                result = await handler.execute(named_weather_args(location))
+
+                self.assertEqual(result.data["error_code"], "weather_region_unsupported")
+                self.assertEqual(result.error_message, AMAP_WEATHER_REGION_UNSUPPORTED_MESSAGE)
+
+    async def test_weather_unsupported_region_does_not_swallow_other_error_codes(self):
+        # 未覆盖地区上出现的其它错误码（超时、无效响应等）不属于覆盖范围问题，
+        # 必须保持原样，否则真故障会被这条新判据掩盖。
+        handler, _ = build_handler(
+            "weather_forecast",
+            {
+                "maps_geo": [mcp_payload({"geocodes": [{"city": "香港特别行政区", "adcode": "810000"}]})],
+                "maps_weather": [McpClientError("invalid_response", "MCP 服务返回无效响应")],
+            },
+        )
+
+        result = await handler.execute(named_weather_args("香港"))
+
+        self.assertEqual(result.data["error_code"], "invalid_response")
+        self.assertEqual(result.error_message, MCP_TOOL_UNAVAILABLE_MESSAGE)
 
     async def test_named_location_geocodes_then_builds_safe_block(self):
         fetched_at = datetime(2026, 7, 23, 8, tzinfo=timezone.utc)
