@@ -17,7 +17,8 @@ from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.core.config import settings
 from app.core.logger import app_logger as logger
 from app.core.prompt_snapshot import current_prompt_snapshot
-from app.services.stream.run_capability_router import _CandidateRoute, _classify_literal_layer, _extract_request_signals
+from app.services.stream.run_capability_request_signals import _extract_request_signals
+from app.services.stream.run_capability_router import _CandidateRoute, _classify_literal_layer
 from app.utils.run_capability_contract import CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES
 
 ClassifierResultCallback = Callable[[str, str | None], None]

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.services.stream.run_capability_model_classifier import classify_capability_request_with_model
-from app.services.stream.run_capability_router import _extract_request_signals
+from app.services.stream.run_capability_request_signals import _extract_request_signals
 
 _ALL_TOOLS = [
     "web_search",
