@@ -104,6 +104,19 @@ async def capture_product_answer_case(
 
 
 class ProductAnswerNoResultTests(unittest.IsolatedAsyncioTestCase):
+    def test_validator_rejects_answer_without_any_product_result_blocks(self):
+        # 钉死产品提交提前返回的前提：普通非空候选不能在没有产品结果时通过校验。
+        cases = (
+            ("empty", []),
+            ("thinking_only", [ThinkingBlock(type="thinking", thinking="正在整理本次结果。")]),
+            ("non_product_blocks", [{"type": "text", "text": "已有说明。"}, {"type": "search"}]),
+        )
+        for name, blocks in cases:
+            with self.subTest(case=name):
+                validation = validate_product_answer("可以优先考虑炭火一号。", blocks)
+                self.assertFalse(validation.is_valid)
+                self.assertEqual(validation.reason_code, "missing_product_result")
+
     async def test_disabled_repair_still_blocks_invalid_product_answer(self):
         result = await capture_product_answer_case(attempted=True, product_result=True)
         self.assertEqual(result["validation_calls"], 1)
