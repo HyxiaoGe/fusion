@@ -3301,7 +3301,7 @@ def test_serialization_only_contains_safe_protocol_fields():
 
     assert payload == {
         "schema_version": 2,
-        "router_version": "2026-09-07.1",
+        "router_version": "2026-09-20.1",
         "package_id": "mobility_intercity",
         "confidence": "medium",
         "resolution_mode": "routed",
@@ -3505,20 +3505,9 @@ def test_replaced_classifier_still_goes_through_contract_validation():
         ("今天是几月几日、星期几？", ALL_TOOLS, "date", "current_date_question"),
         ("你好", ALL_TOOLS, "direct", "direct_greeting"),
         ("你是谁？", ALL_TOOLS, "direct", "assistant_identity_question"),
-        ("请介绍一下你自己", ALL_TOOLS, "direct", "assistant_identity_question"),
         ("你是谁呀？", ALL_TOOLS, "direct", "assistant_identity_question"),
         ("你叫什么名字？", ALL_TOOLS, "direct", "assistant_identity_question"),
         ("你能做什么呢？", ALL_TOOLS, "direct", "assistant_identity_question"),
-        ("你好，请问你是谁？", ALL_TOOLS, "direct", "assistant_identity_question"),
-        ("请问一下，你是谁？", ALL_TOOLS, "direct", "assistant_identity_question"),
-        ("可以介绍一下你自己吗？", ALL_TOOLS, "direct", "assistant_identity_question"),
-        ("麻烦你介绍一下你自己", ALL_TOOLS, "direct", "assistant_identity_question"),
-        ("能介绍一下你自己吗？", ALL_TOOLS, "direct", "assistant_identity_question"),
-        ("能否介绍一下你自己？", ALL_TOOLS, "direct", "assistant_identity_question"),
-        ("可以请你介绍一下你自己吗？", ALL_TOOLS, "direct", "assistant_identity_question"),
-        ("可否告诉我你叫什么名字？", ALL_TOOLS, "direct", "assistant_identity_question"),
-        ("是否可以请介绍一下你自己？", ALL_TOOLS, "direct", "assistant_identity_question"),
-        ("能不能请问一下你是谁呀？", ALL_TOOLS, "direct", "assistant_identity_question"),
         ("计算 1 + 1", ALL_TOOLS, "direct", "simple_calculation"),
         (
             "请调用 mcp_unrelated_tool 处理这份数据",
@@ -3534,7 +3523,7 @@ def test_literal_layer_routes_deterministic_requests_without_product_or_model_cl
     package_id,
     reason_code,
 ):
-    """问候、身份、计算与已授权 MCP alias 都必须在模型前结束（issue #24）。"""
+    """问候、核心身份句、计算与已授权 MCP alias 在模型前结束；身份礼貌包装另测委派。"""
 
     decided = _classify_literal_layer(_extract_request_signals(message), available_tool_names)
     rule_route = classify_capability_request(
@@ -3832,7 +3821,7 @@ def test_identity_with_explicit_product_request_defers_to_product_or_model_class
     package_id,
     tool_names,
 ):
-    """身份短语不能在字面层截断同句中明确的外部产品任务（issue #24）。"""
+    """身份短语不截断产品任务；这里只验证合法固定模型响应，真实既有失败另作录制回放。"""
 
     literal_route = _classify_literal_layer(_extract_request_signals(message), ALL_TOOLS)
     rule_route = classify_capability_request(

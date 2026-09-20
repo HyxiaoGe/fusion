@@ -52,7 +52,7 @@ Confidence = Literal["high", "medium", "low"]
 ResolutionMode = Literal["routed", "degraded", "clarification"]
 
 SCHEMA_VERSION = 2
-ROUTER_VERSION = "2026-09-07.1"
+ROUTER_VERSION = "2026-09-20.1"
 
 _CANONICAL_EXTERNAL_TOOL_ORDER = CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER
 _CONTROL_TOOL_NAMES = CAPABILITY_CONTROL_TOOL_NAMES
@@ -89,15 +89,6 @@ _GIVEN_TEXT_TRANSFORM_RE = re.compile(
 _GREETING_RE = re.compile(
     r"^(?:(?:你?好|嗨)(?:[，,\s]*很高兴见到你)?|hi|hello|早上好|下午好|晚上好|很高兴见到你)"
     r"[呀啊！!。\s]*$",
-    re.IGNORECASE,
-)
-_IDENTITY_MODAL_PREFIXES = ("是否可以", "能不能", "能否", "可以", "可否", "能")
-_IDENTITY_MODAL_PREFIX_PATTERN = "|".join(re.escape(prefix) for prefix in _IDENTITY_MODAL_PREFIXES)
-_IDENTITY_PREFIX_RE = re.compile(
-    r"(?:你?好|您好|嗨|hi|hello|早上好|下午好|晚上好)[呀啊！!。。，,、\s]*|"
-    rf"(?:{_IDENTITY_MODAL_PREFIX_PATTERN})[，,、\s]*|"
-    r"(?:请问(?:一下)?|请告诉我|告诉我|请|麻烦)[，,、\s]*|"
-    r"你[，,、\s]*",
     re.IGNORECASE,
 )
 _IDENTITY_CORE_RE = re.compile(
@@ -541,17 +532,9 @@ class _EnglishRouteSignals:
 
 
 def _is_identity_request(message: str) -> bool:
-    """仅接受可剥离礼貌包装后仍是完整身份问句的请求。"""
+    """只短路完整身份核心句；礼貌包装与复合意图交给后续分类。"""
 
-    remaining = message.strip()
-    while remaining:
-        if _IDENTITY_CORE_RE.fullmatch(remaining):
-            return True
-        prefix = _IDENTITY_PREFIX_RE.match(remaining)
-        if prefix is None:
-            return False
-        remaining = remaining[prefix.end() :].lstrip()
-    return False
+    return _IDENTITY_CORE_RE.fullmatch(message.strip()) is not None
 
 
 def _classify_literal_layer(

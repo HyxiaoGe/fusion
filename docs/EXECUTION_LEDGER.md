@@ -11,6 +11,12 @@
 
 ## 已完成基线
 
+### 2026-09-20 产品观测成组发布与身份路由取证
+
+#105 已合入；#104/#106 经面向 master 的自动检查，通过单次 merge commit `4678e3f0` 成组合入并部署 dev，避免无产品结果早退的观测空窗。API、adapter、worker 镜像与发布台账及健康检查通过，UI skipped。观测表迁移为 `b2c7d9e4f610`；14:38（Asia/Shanghai）实测空表，首条时间未产生，不能把部署时间当新观测期起点，详见 [#102 记录](https://github.com/HyxiaoGe/fusion/issues/102#issuecomment-5748178392)。
+
+#99 当前环境实测启用 3 个 MCP server、可构建 3 个通用授权 handler，已按 not_planned 关闭并保留机制边界；历史 0/201 仅为 mcp_explicit 路由次数，不证明无人尝试。#100 历史身份原句实测与有限收窄说明见 [身份路由报告](../backend/docs/IDENTITY_ROUTING_NARROWING.md)；6 条复合请求收窄前即失败，本次未改变，不可写成历史原句全部通过。
+
 ### 2026-09-19 开发协作规则更新（本地验证）
 
 AGENTS/CLAUDE 收敛到当前单仓约定，开发与发布技能迁入仓库，新增真实验收技能并更新后端 8 个技术入口。扩展的 19 项协作检查、12 个 skill 格式检查及四个独立只读场景检查完成；不代表实际开发质量或速度提升已经验证。全局规则已备份并链接本次工作树，未推送、合并或部署。详见[更新与验证报告](reports/2026-09-19-development-guidance.md)。
