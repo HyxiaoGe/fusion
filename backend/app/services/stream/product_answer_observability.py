@@ -1,9 +1,10 @@
 """产品结果回答校验的低基数观测。
 
 `repair_unsupported_product_answer()` 会直接改写模型输出（切分句、删表格、重写标签）。
-改写是否改坏过答案在线上不可观测：校验只返回稳定 reason code，不持有模型原文，所以
-没有任何数据能证明误伤率。这里在改写默认关闭期间记录判定结果与"本应改写"的反事实，
-为后续决定是否恢复拦截提供依据。
+`PRODUCT_ANSWER_REPAIR_ENABLED=False` 只关闭这一步改写，不关闭校验或拦截：
+产品回答校验失败时仍会丢弃模型候选，交付基于结构化结果的确定性兜底。
+这里记录校验结果与"若启用则可改写"的反事实；这些低基数字段不含人工正确性判断，
+不能直接作为误伤率，也不能把改写关闭称为只观测或等待恢复拦截。
 
 只输出固定分类与计数，不记录模型原文、用户原文或任何工具返回正文。
 """
@@ -62,7 +63,7 @@ def build_product_answer_observation(
         "reason_category": resolve_reason_category(reason_code),
         "is_valid": reason_code == "ok",
         "repair_enabled": repair_enabled,
-        # 改写关闭时仍计算反事实：本应被改写的回答有多少，是恢复拦截与否的判断依据。
+        # 改写关闭时仍计算反事实；可改写不等于误伤，校验失败后的拦截始终保留。
         "repair_available": repair_available,
         "repair_applied": repair_enabled and repair_available,
         "repair_reason_code": repair_reason_code or "",

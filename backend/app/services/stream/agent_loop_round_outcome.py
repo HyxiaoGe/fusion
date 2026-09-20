@@ -684,6 +684,12 @@ async def _commit_deferred_knowledge_answer(
 async def _commit_deferred_product_answer(
     request: AgentRoundOutcomeRequest,
 ) -> AgentRoundOutcomeRequest:
+    if not has_product_result_blocks(request.state.content_blocks):
+        # 产品工具没有返回结果时无事实可校验；保留失败说明，不能假设卡片存在。
+        answer = build_product_tool_failure_answer(request.messages)
+        await _append_committed_answer(request, answer, model_output_visible=False)
+        return _with_replaced_answer(request, answer)
+
     weather_activity_answer = build_grounded_weather_activity_answer(
         request.state.content_blocks,
         messages=request.messages,

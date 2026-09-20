@@ -137,7 +137,9 @@ class ProductAnswerNoResultTests(unittest.IsolatedAsyncioTestCase):
         result = await capture_product_answer_case(attempted=True)
         self.assertEqual(result["grounded_answer_before_commit"], "")
         self.assertEqual(result["answer"], build_product_tool_failure_answer())
-        self.assertEqual(result["validation_calls"], 1)
+        self.assertEqual(result["validation_calls"], 0)
+        self.assertEqual(result["repair_calls"], 0)
+        self.assertEqual(result["observations"], [])
         self.assertFalse(result["model_output_visible"])
         self.assertNotIn("卡片", result["answer"])
         self.assertEqual(result["stored_text"], [result["answer"]])
@@ -150,12 +152,15 @@ class ProductAnswerNoResultTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("卡片", result["answer"])
         self.assertEqual(result["stored_text"], [result["answer"]])
 
-    async def test_internal_product_commit_without_results_exposes_card_assumption(self):
+    async def test_internal_product_commit_without_results_never_assumes_cards(self):
         # 内部函数防御性测试；外层在 attempted=False 时不会选择这个入口。
         result = await capture_product_answer_case(attempted=False, internal_entry=True)
         self.assertEqual(result["grounded_answer_before_commit"], "")
-        self.assertEqual(result["answer"], "已展示本次查询的结构化结果，请以卡片信息为准。")
-        self.assertEqual(result["validation_calls"], 1)
+        self.assertEqual(result["answer"], build_product_tool_failure_answer())
+        self.assertNotIn("卡片", result["answer"])
+        self.assertEqual(result["validation_calls"], 0)
+        self.assertEqual(result["repair_calls"], 0)
+        self.assertEqual(result["observations"], [])
         self.assertFalse(result["model_output_visible"])
 
 
