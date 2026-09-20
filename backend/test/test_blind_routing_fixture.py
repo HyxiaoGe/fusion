@@ -91,6 +91,9 @@ class BlindRoutingFixtureContractTests(unittest.TestCase):
                     self.assertTrue(case[field].strip())
                 ids.append(case["id"])
                 self.assertIn(case["group"], _PROBE_GROUPS)
+                if "expected_layer" in case:
+                    self.assertIsInstance(case["expected_layer"], str)
+                    self.assertIn(case["expected_layer"], {"literal", "model"})
                 packages = case["acceptable_packages"]
                 self.assertIsInstance(packages, list)
                 self.assertTrue(packages)

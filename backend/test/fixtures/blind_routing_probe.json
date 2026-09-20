@@ -45,8 +45,8 @@
     {"id": "identity-01", "question": "可以先告诉我你是谁吗？", "acceptable_packages": ["direct"], "group": "identity", "note": "询问助手身份，带情态前缀；能力包应为 direct，是否字面短路另看 telemetry。"},
     {"id": "identity-02", "question": "麻烦你介绍一下自己吧，我还没用过这个助手。", "acceptable_packages": ["direct"], "group": "identity", "note": "礼貌包装的助手自我介绍请求。"},
     {"id": "identity-03", "question": "你是哪个团队做出来的呀？", "acceptable_packages": ["direct"], "group": "identity", "note": "询问助手来源，不要求外部检索。"},
-    {"id": "identity-04", "question": "你觉得我适合做什么？", "acceptable_packages": ["direct"], "group": "identity", "note": "负例：职业建议，不是询问助手身份；direct 包相同，需结合 telemetry 核对是否错误身份短路。"},
-    {"id": "identity-05", "question": "你能告诉我怎么介绍自己才不尴尬吗？", "acceptable_packages": ["direct"], "group": "identity", "note": "负例：用户寻求自我介绍建议，不是让助手交代身份。"},
+    {"id": "identity-04", "question": "你觉得我适合做什么？", "acceptable_packages": ["direct"], "group": "identity", "expected_layer": "model", "note": "负例：职业建议，不是询问助手身份；direct 包相同，需结合 telemetry 核对是否错误身份短路。"},
+    {"id": "identity-05", "question": "你能告诉我怎么介绍自己才不尴尬吗？", "acceptable_packages": ["direct"], "group": "identity", "expected_layer": "model", "note": "负例：用户寻求自我介绍建议，不是让助手交代身份。"},
     {"id": "mcp_alias-01", "question": "这次请用 mcp_notion_search。", "available_tools": ["web_search", "url_read", "mcp_notion_search"], "acceptable_packages": ["mcp_explicit"], "group": "mcp_alias", "note": "完整的已授权工具点名指令；仅评价路由，不实际调用 MCP。"},
     {"id": "mcp_alias-02", "question": "麻烦调用一下 mcp_calendar_list_events。", "available_tools": ["web_search", "url_read", "mcp_calendar_list_events"], "acceptable_packages": ["mcp_explicit"], "group": "mcp_alias", "note": "完整的已授权工具点名指令，工具参数留给后续执行。"},
     {"id": "mcp_alias-03", "question": "用 mcp_notion_search 找一下周报，再查证里面提到的融资消息是不是真的。", "available_tools": ["web_search", "url_read", "mcp_notion_search"], "acceptable_packages": ["verified_web"], "group": "mcp_alias", "note": "复合请求有争议：人工期望按外部主张核验路由，不应只短路成 mcp_explicit；本条不评估后续是否能完成两个任务。"},
@@ -54,6 +54,7 @@
     {"id": "verify_verb-01", "question": "一个功能从试用走到正式收费，定价前应该验证什么？", "acceptable_packages": ["direct"], "group": "verify_verb", "note": "#30 P1 原句；产品决策建议，验证作普通及物动词，不是核验外部主张。"},
     {"id": "verify_verb-02", "question": "设计用户访谈时，怎么核验大家是不是真的愿意付钱？", "acceptable_packages": ["direct"], "group": "verify_verb", "note": "研究方法建议，核验对象是待开展访谈中的用户意愿，不是可联网查证的既有主张。"},
     {"id": "verify_verb-03", "question": "群里有人说喝盐水能治感冒，帮我查证一下这个说法靠谱吗？", "acceptable_packages": ["verified_web"], "group": "verify_verb", "note": "核验外部健康主张，需要有来源的证据，不能作为普通建议直接回答。"},
-    {"id": "verify_verb-04", "question": "听说欧盟已经全面禁止开源大模型了，能帮我验证一下这条消息吗？", "acceptable_packages": ["verified_web"], "group": "verify_verb", "note": "核验外部政策消息；不预设消息真伪。"}
+    {"id": "verify_verb-04", "question": "听说欧盟已经全面禁止开源大模型了，能帮我验证一下这条消息吗？", "acceptable_packages": ["verified_web"], "group": "verify_verb", "note": "核验外部政策消息；不预设消息真伪。"},
+    {"id": "verify_verb-05", "question": "网上说这家公司要裁员，帮我查证一下是不是真的", "acceptable_packages": ["verified_web"], "expected_layer": "model", "group": "verify_verb", "note": "核验外部裁员传闻；缺少可靠字面主张标记时应交给模型，不能直接判成无需查证。#103 审查补充。"}
   ]
 }
