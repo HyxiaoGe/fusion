@@ -136,7 +136,7 @@ class ProductAnswerStorageAsyncTests(unittest.IsolatedAsyncioTestCase):
                     if active == 2:
                         loop.call_soon_threadsafe(first_two_started.set)
                 try:
-                    release.wait(2)
+                    release.wait()
                     persist_product_answer_observation(payload, timestamp)
                 finally:
                     with lock:
@@ -170,7 +170,7 @@ class ProductAnswerStorageAsyncTests(unittest.IsolatedAsyncioTestCase):
 
         def write(_payload, _timestamp):
             started.set()
-            released.wait(2)
+            released.wait()
 
         with patch("app.services.stream.product_answer_observability.persist_product_answer_observation", write):
             task = asyncio.create_task(retain_product_answer_observation(observation()))
