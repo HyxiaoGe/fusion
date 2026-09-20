@@ -3980,6 +3980,17 @@ class TestVerifiedWebVerbNeedsClaimObject:
         assert self._literal(message) is None
 
     @pytest.mark.parametrize(
+        ("message", "all_network_denied"),
+        [
+            ("本次不要联网，不过帮我验证一下这个是不是真的", True),
+            ("本次不要联网，不过帮我查证一下这个说法", False),
+        ],
+    )
+    def test_否定后的重新授权仍需外部主张标记(self, message: str, all_network_denied: bool):
+        # 同一正则也用于联网否定后的重新授权，普通口语不能解除否定。
+        assert _extract_request_signals(message).all_network_denied is all_network_denied
+
+    @pytest.mark.parametrize(
         ("case_id", "expected_package"),
         [
             ("verify_verb-01", None),
