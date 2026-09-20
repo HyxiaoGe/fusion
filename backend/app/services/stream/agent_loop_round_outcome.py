@@ -31,6 +31,7 @@ from app.services.stream.llm_stream import contains_tool_protocol_residue
 from app.services.stream.product_answer_observability import (
     build_product_answer_observation,
     emit_product_answer_observation,
+    retain_product_answer_observation,
 )
 from app.services.stream.product_answer_validator import (
     repair_unsupported_product_answer,
@@ -695,6 +696,13 @@ async def _commit_deferred_product_answer(
         messages=request.messages,
     )
     if weather_activity_answer:
+        await _emit_product_answer_observation(
+            request,
+            reason_code="not_validated",
+            repaired_answer=None,
+            repair_reason_code=None,
+            observation_path="weather_activity",
+        )
         request.runtime.warning_fn(
             "产品天气活动条件使用确定性回答: "
             f"conv_id={request.runtime.conversation_id} run_id={request.runtime.run_id} "
@@ -712,6 +720,13 @@ async def _commit_deferred_product_answer(
         messages=request.messages,
     )
     if mixed_travel_answer:
+        await _emit_product_answer_observation(
+            request,
+            reason_code="not_validated",
+            repaired_answer=None,
+            repair_reason_code=None,
+            observation_path="mixed_travel",
+        )
         request.runtime.warning_fn(
             "产品混合出行比较使用确定性回答: "
             f"conv_id={request.runtime.conversation_id} run_id={request.runtime.run_id} "
@@ -729,6 +744,13 @@ async def _commit_deferred_product_answer(
         messages=request.messages,
     )
     if single_travel_comparison_answer:
+        await _emit_product_answer_observation(
+            request,
+            reason_code="not_validated",
+            repaired_answer=None,
+            repair_reason_code=None,
+            observation_path="single_travel_comparison",
+        )
         request.runtime.warning_fn(
             "产品单一出行比较使用确定性回答: "
             f"conv_id={request.runtime.conversation_id} run_id={request.runtime.run_id} "
@@ -751,7 +773,7 @@ async def _commit_deferred_product_answer(
         messages=request.messages,
     )
     if validation.is_valid:
-        _emit_product_answer_observation(
+        await _emit_product_answer_observation(
             request,
             reason_code=validation.reason_code,
             repaired_answer=None,
@@ -766,7 +788,7 @@ async def _commit_deferred_product_answer(
             request.state.content_blocks,
             messages=request.messages,
         )
-        _emit_product_answer_observation(
+        await _emit_product_answer_observation(
             request,
             reason_code=validation.reason_code,
             repaired_answer=repaired_answer,
@@ -816,26 +838,29 @@ async def _commit_deferred_product_answer(
     return _with_replaced_answer(request, answer)
 
 
-def _emit_product_answer_observation(
+async def _emit_product_answer_observation(
     request: AgentRoundOutcomeRequest,
     *,
     reason_code: str,
     repaired_answer: str | None,
     repair_reason_code: str | None,
+    observation_path: str = "validated",
 ) -> None:
-    emit_product_answer_observation(
-        build_product_answer_observation(
-            reason_code=reason_code,
-            repair_enabled=settings.PRODUCT_ANSWER_REPAIR_ENABLED,
-            repair_available=repaired_answer is not None,
-            repair_reason_code=repair_reason_code,
-            product_result_types=[
-                block_type
-                for block in request.state.content_blocks or []
-                if (block_type := (block.get("type") if isinstance(block, dict) else getattr(block, "type", None)))
-            ],
-        )
+    payload = build_product_answer_observation(
+        reason_code=reason_code,
+        repair_enabled=settings.PRODUCT_ANSWER_REPAIR_ENABLED,
+        repair_available=repaired_answer is not None,
+        repair_reason_code=repair_reason_code,
+        product_tool_attempted=request.state.product_tool_attempted,
+        observation_path=observation_path,
+        product_result_types=[
+            block_type
+            for block in request.state.content_blocks or []
+            if (block_type := (block.get("type") if isinstance(block, dict) else getattr(block, "type", None)))
+        ],
     )
+    emit_product_answer_observation(payload)
+    await retain_product_answer_observation(payload)
 
 
 def _has_product_answer_context(state: AgentLoopState) -> bool:

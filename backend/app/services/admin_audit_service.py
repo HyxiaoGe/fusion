@@ -31,12 +31,30 @@ from app.services.admin_audit_sanitizer import mask_email, sanitize_admin_value
 from app.services.agent_strategy_config import get_agent_tools_disabled_aliases
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_TOOL_NAMES
 from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_TOOL_NAMES
+from app.services.product_answer_observation_service import aggregate_product_answer_observations
 from app.services.stream.itinerary_observability import aggregate_itinerary_stability
 
 
 class AdminAuditService:
     def __init__(self, repository: AdminAuditRepository):
         self.repository = repository
+
+    def product_answer_observations(
+        self, *, start: datetime, end: datetime, admin: User, request_id: str, reason: str | None
+    ) -> dict:
+        try:
+            result = aggregate_product_answer_observations(self.repository.db, start, end)
+        except ValueError as exc:
+            raise ApiException("INVALID_PARAM", str(exc)) from exc
+        self._record(
+            admin=admin,
+            action="admin.product_answer_observations.aggregate",
+            resource_type="product_answer_observation",
+            request_id=request_id,
+            reason=reason,
+            metadata={"created_from": result["time_range"]["from"], "created_to": result["time_range"]["to_exclusive"]},
+        )
+        return result
 
     def _record(
         self,

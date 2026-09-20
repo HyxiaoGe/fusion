@@ -11,10 +11,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
 from app.core.logger import app_logger as logger
+from app.db.product_answer_observation_repository import persist_product_answer_observation
+from app.utils.time import utc_now
 
 LOG_PREFIX = "PRODUCT_ANSWER_VALIDATION"
 
@@ -38,6 +41,27 @@ _REASON_CODE_CATEGORIES: dict[str, str] = {
     "candidate_fact_mismatch": "numeric",
     "weather_fact_mismatch": "weather",
 }
+_OBSERVATION_PATHS = frozenset(
+    {"validated", "weather_activity", "mixed_travel", "single_travel_comparison", "no_product_result"}
+)
+_REPAIR_REASON_CODES = frozenset(_REASON_CODE_CATEGORIES) | {"not_repairable", "insufficient_coverage", ""}
+_BLOCK_TYPES = frozenset(
+    {
+        "text",
+        "thinking",
+        "file",
+        "search",
+        "url_read",
+        "knowledge_evidence",
+        "unsupported_result",
+        "place_results",
+        "route_results",
+        "weather_results",
+        "flight_results",
+        "train_results",
+        "itinerary_results",
+    }
+)
 
 
 def resolve_reason_category(reason_code: str) -> str:
@@ -55,20 +79,44 @@ def build_product_answer_observation(
     repair_available: bool,
     repair_reason_code: str | None,
     product_result_types: list[str],
+    product_tool_attempted: bool = False,
+    observation_path: str = "validated",
 ) -> dict[str, Any]:
     """组装一条可聚合记录；字段全部是固定分类或布尔值。"""
 
+    if observation_path not in _OBSERVATION_PATHS:
+        raise ValueError("未知产品回答观测路径")
+    validated = observation_path == "validated"
+    reason_code = (reason_code if reason_code in _REASON_CODE_CATEGORIES else "other") if validated else "not_validated"
+    repair_available = bool(repair_available) if validated else False
     return {
+        "observation_path": observation_path,
+        "validated": validated,
         "reason_code": reason_code,
-        "reason_category": resolve_reason_category(reason_code),
-        "is_valid": reason_code == "ok",
+        "reason_category": resolve_reason_category(reason_code) if validated else "not_validated",
+        "is_valid": reason_code == "ok" if validated else None,
         "repair_enabled": repair_enabled,
         # 改写关闭时仍计算反事实；可改写不等于误伤，校验失败后的拦截始终保留。
         "repair_available": repair_available,
         "repair_applied": repair_enabled and repair_available,
-        "repair_reason_code": repair_reason_code or "",
-        "product_result_types": sorted(set(product_result_types)),
+        "repair_reason_code": (repair_reason_code or "")
+        if repair_reason_code in _REPAIR_REASON_CODES or repair_reason_code is None
+        else "other",
+        "product_tool_attempted": bool(product_tool_attempted),
+        "product_result_types": sorted({value if value in _BLOCK_TYPES else "other" for value in product_result_types}),
     }
+
+
+async def retain_product_answer_observation(payload: dict[str, Any]) -> bool:
+    """等待独立事务提交，不把同步数据库 I/O 放在事件循环上。"""
+    observed_at = utc_now()
+    try:
+        await asyncio.to_thread(persist_product_answer_observation, payload, observed_at)
+        return True
+    except Exception as exc:
+        # 观测故障不能改写用户答案；聚合只代表成功留存记录，不能据此证明没有漏写。
+        logger.error("PRODUCT_ANSWER_OBSERVATION_STORE_FAILED error_type=%s", type(exc).__name__)
+        return False
 
 
 def emit_product_answer_observation(payload: dict[str, Any] | None) -> None:
