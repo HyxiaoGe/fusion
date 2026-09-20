@@ -1,0 +1,74 @@
+{
+  "description": "2026-09-20 基线4678e3f0补采的6条既有模型分类失败，仅用于协议与失败状态回放；不是业务正确性期望，也不是每次测试重新实测模型。缓存命中未确认。",
+  "baseline_commit": "4678e3f0",
+  "model": "deepseek-chat",
+  "cases": [
+    {
+      "id": "historical-compound_negative-01",
+      "question": "你是谁？再查一下明天北京天气",
+      "expected_business_packages": [
+        "weather"
+      ],
+      "recorded_response_content": "{\"package_id\":\"mixed_itinerary\",\"explicit_tool_names\":[\"weather_forecast\"]}",
+      "observed_package": "clarification_only",
+      "observed_layer": "failed",
+      "observed_error_type": "invalid_response"
+    },
+    {
+      "id": "historical-compound_negative-03",
+      "question": "介绍一下你自己，并找附近的川菜馆",
+      "expected_business_packages": [
+        "place_discovery"
+      ],
+      "recorded_response_content": "{\"package_id\": \"clarification_only\", \"explicit_tool_names\": []}",
+      "observed_package": "clarification_only",
+      "observed_layer": "model",
+      "observed_error_type": null
+    },
+    {
+      "id": "historical-compound_negative-04",
+      "question": "你好，请问你是谁？然后查北京天气",
+      "expected_business_packages": [
+        "weather"
+      ],
+      "recorded_response_content": "{\"package_id\":\"mixed_itinerary\",\"explicit_tool_names\":[\"weather_forecast\"]}",
+      "observed_package": "clarification_only",
+      "observed_layer": "failed",
+      "observed_error_type": "invalid_response"
+    },
+    {
+      "id": "historical-compound_negative-05",
+      "question": "能介绍一下你自己吗？然后查北京天气",
+      "expected_business_packages": [
+        "weather"
+      ],
+      "recorded_response_content": "{\"package_id\":\"mixed_itinerary\",\"explicit_tool_names\":[\"weather_forecast\"]}",
+      "observed_package": "clarification_only",
+      "observed_layer": "failed",
+      "observed_error_type": "invalid_response"
+    },
+    {
+      "id": "historical-compound_negative-08",
+      "question": "可否告诉我你叫什么名字？然后查北京天气",
+      "expected_business_packages": [
+        "weather"
+      ],
+      "recorded_response_content": "{\"package_id\":\"mixed_itinerary\",\"explicit_tool_names\":[\"weather_forecast\"]}",
+      "observed_package": "clarification_only",
+      "observed_layer": "failed",
+      "observed_error_type": "invalid_response"
+    },
+    {
+      "id": "historical-compound_negative-09",
+      "question": "是否可以请介绍一下你自己？然后查北京天气",
+      "expected_business_packages": [
+        "weather"
+      ],
+      "recorded_response_content": "{\"package_id\":\"mixed_itinerary\",\"explicit_tool_names\":[\"weather_forecast\"]}",
+      "observed_package": "clarification_only",
+      "observed_layer": "failed",
+      "observed_error_type": "invalid_response"
+    }
+  ],
+  "follow_up_issue": "https://github.com/HyxiaoGe/fusion/issues/107"
+}
