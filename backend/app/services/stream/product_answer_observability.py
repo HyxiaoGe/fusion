@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -23,7 +22,6 @@ from app.utils.time import utc_now
 
 LOG_PREFIX = "PRODUCT_ANSWER_VALIDATION"
 _STORE_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="product-answer-observation")
-_STORE_CAPACITY = threading.BoundedSemaphore(2)
 _STORE_WAIT_SECONDS = 1.0
 
 # reason code → 规则类别，便于聚合时按类别看误判分布。
@@ -114,22 +112,13 @@ def build_product_answer_observation(
 
 async def retain_product_answer_observation(payload: dict[str, Any]) -> bool:
     """有界等待独立事务提交，隔离数据库卡顿与产品回答交付。"""
-    capacity = _STORE_CAPACITY
-    if not capacity.acquire(blocking=False):
-        logger.error("PRODUCT_ANSWER_OBSERVATION_STORE_FAILED error_type=capacity_exhausted")
-        return False
     observed_at = utc_now()
-
-    def write() -> None:
-        try:
-            persist_product_answer_observation(payload, observed_at)
-        finally:
-            capacity.release()
-
     try:
-        future = asyncio.get_running_loop().run_in_executor(_STORE_EXECUTOR, write)
+        # 仅执行线程限为两个；已接收记录排队完成，不因第三个并发请求而丢样本。
+        future = asyncio.get_running_loop().run_in_executor(
+            _STORE_EXECUTOR, persist_product_answer_observation, payload, observed_at
+        )
     except Exception:
-        capacity.release()
         logger.error("PRODUCT_ANSWER_OBSERVATION_STORE_FAILED error_type=submit_failed")
         return False
 

@@ -13,7 +13,7 @@
 
 `all_observed_decisions` 为**已成功留存的产品回答延迟提交决策**，包括校验子集、三个短路和无结果兜底；它不是所有 Run 或全站最终回答数。此前的终止、知识库、联网恢复与工具澄清路径不在此范围，重复决策也不能当作去重的用户数。接口明确返回 `coverage.scope` 与未知的 `unobserved_count/complete`。
 
-`invalid_among_validated` 的分母是 `validated_decisions`；`invalid_among_all_observed` 的分母是上述完整留存群体。后者表示这批决策中实际出现了多少校验拒绝，**不代表其余都通过校验**。`repair_available` 只表示纯改写函数产出非 None，是可能受改写影响的上界，不能当作误伤率；没有人工标注也不能推断正确拦截和误伤。零样本的比例为 `null`，脚本不判断样本是否足够。
+`invalid_among_validated` 的分母是 `validated_decisions`；`invalid_among_all_observed` 的分母是上述完整留存群体。后者表示这批决策中实际出现了多少校验拒绝，**不代表其余都通过校验**。`repair_available` 只表示纯改写函数产出非 None，属于潜在改写候选量，不能据此估算误伤率；没有人工标注也不能推断正确拦截和误伤。零样本的比例为 `null`，脚本不判断样本是否足够。
 
 ## 取数
 
@@ -32,6 +32,6 @@ python scripts/product_answer_observation_report.py \
 
 `PRODUCT_ANSWER_OBSERVATION_STORE_FAILED error_type=...` 是独立数据库写入失败诊断，不包含异常正文或数据库凭据。该故障不会改变用户答案，失败记录不在数据库聚合分母内。应用日志仍保留同份脱敏观测，便于排障，但不是持久取数依据。
 
-写入使用独立的两个工作线程与两个准入名额，不建立无界队列，也不占用其他模型/上下文工作线程。答案最多等待 1 秒；`PRODUCT_ANSWER_OBSERVATION_STORE_PENDING error_type=wait_timeout` 表示已开始的事务还可能晚到提交，不能据此断言已丢失。超时不会取消事务或释放准入位；只有 worker 真正结束才释放，晚到结果不会重复写入或重新发送用户内容。准入满使用固定 `capacity_exhausted`，提交线程失败使用 `submit_failed`。这两个失败不会排队补写，不能把它们掩盖为正常留存。
+写入使用独立的两个工作线程，不占用其他模型/上下文工作线程。已接收记录在执行器队列中等待写入，不因两个线程正忙而丢弃第三条记录。答案最多等待 1 秒；`PRODUCT_ANSWER_OBSERVATION_STORE_PENDING error_type=wait_timeout` 表示排队或执行中的事务还可能晚到提交，不能据此断言已丢失。超时不取消已接收任务，晚到结果不会重复写入或重新发送用户内容。提交线程失败使用固定 `submit_failed`。队列在进程内：进程故障可能损失尚未提交的记录，内存排队不能称为持久成功。
 
 API 对完整性返回未知，不会因为数据库中有记录就宣称未漏写。确认故障期间的数据完整性需要额外运行证据；不能从成功记录反推缺失数量，也不能把旧日志样本补成新观测期分母。

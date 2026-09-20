@@ -6,6 +6,7 @@ import json
 import tempfile
 import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -115,45 +116,53 @@ class ProductAnswerStorageTests(unittest.TestCase):
 
 
 class ProductAnswerStorageAsyncTests(unittest.IsolatedAsyncioTestCase):
-    async def test_timeout_keeps_capacity_until_running_write_finishes_without_duplicate(self):
-        started = asyncio.Event()
-        completed = asyncio.Event()
-        release = threading.Event()
-        capacity = threading.BoundedSemaphore(1)
-        loop = asyncio.get_running_loop()
-        writes = []
-        release_capacity = capacity.release
+    async def test_three_concurrent_observations_all_commit_after_bounded_caller_wait(self):
+        with tempfile.TemporaryDirectory() as directory:
+            engine = create_engine(f"sqlite:///{Path(directory) / 'concurrent-observations.db'}")
+            ProductAnswerObservation.__table__.create(engine)
+            factory = sessionmaker(bind=engine)
+            executor = ThreadPoolExecutor(max_workers=2)
+            first_two_started = asyncio.Event()
+            release = threading.Event()
+            lock = threading.Lock()
+            loop = asyncio.get_running_loop()
+            active = maximum_active = 0
 
-        def finished():
-            release_capacity()
-            loop.call_soon_threadsafe(completed.set)
+            def write(payload, timestamp):
+                nonlocal active, maximum_active
+                with lock:
+                    active += 1
+                    maximum_active = max(maximum_active, active)
+                    if active == 2:
+                        loop.call_soon_threadsafe(first_two_started.set)
+                try:
+                    release.wait(2)
+                    persist_product_answer_observation(payload, timestamp)
+                finally:
+                    with lock:
+                        active -= 1
 
-        def write(payload, timestamp):
-            writes.append((payload, timestamp))
-            loop.call_soon_threadsafe(started.set)
-            release.wait(2)
-
-        with (
-            patch.object(observable, "persist_product_answer_observation", write),
-            patch.object(observable, "_STORE_CAPACITY", capacity),
-            patch.object(observable, "_STORE_WAIT_SECONDS", 0.02),
-            patch.object(capacity, "release", finished),
-            patch.object(observable.logger, "error") as errors,
-        ):
-            task = asyncio.create_task(retain_product_answer_observation(observation()))
             try:
-                await asyncio.wait_for(started.wait(), 1)
-                self.assertFalse(await task)
-                self.assertFalse(await retain_product_answer_observation(observation()))
-                self.assertEqual(len(writes), 1)
-                self.assertIn("wait_timeout", str(errors.call_args_list))
-                self.assertIn("capacity_exhausted", str(errors.call_args_list))
+                with (
+                    patch.object(observable, "_STORE_EXECUTOR", executor),
+                    patch.object(observable, "_STORE_WAIT_SECONDS", 0.02),
+                    patch.object(observable, "persist_product_answer_observation", write),
+                    patch("app.db.product_answer_observation_repository.SessionLocal", factory),
+                ):
+                    tasks = [asyncio.create_task(retain_product_answer_observation(observation())) for _ in range(2)]
+                    try:
+                        await asyncio.wait_for(first_two_started.wait(), 1)
+                        tasks.append(asyncio.create_task(retain_product_answer_observation(observation())))
+                        self.assertEqual(await asyncio.gather(*tasks), [False, False, False])
+                    finally:
+                        release.set()
+                        await asyncio.to_thread(executor.shutdown, wait=True)
+                with factory() as db:
+                    self.assertEqual(db.query(ProductAnswerObservation).count(), 3)
+                self.assertEqual(maximum_active, 2)
             finally:
-                release.set()
-                await asyncio.wait_for(completed.wait(), 1)
-            # 后续写入成功说明占位直到真正的 worker 完成才释放。
-            self.assertTrue(await retain_product_answer_observation(observation()))
-            self.assertEqual(len(writes), 2)
+                executor.shutdown(wait=True)
+                engine.dispose()
 
     async def test_database_work_does_not_block_event_loop_and_is_awaited(self):
         started = threading.Event()

@@ -84,5 +84,5 @@ def aggregate_product_answer_observations(db: Session, start: datetime, end: dat
             }
             for category, count in sorted(categories.items())
         },
-        "interpretation": "未校验不等于通过。repair_available 只是改写函数产出非 None 的上界，不是误伤率；本工具不判断样本是否足够。",
+        "interpretation": "未校验不等于通过。repair_available 仅表示改写函数能产出非 None，是潜在改写候选量；不能据此估算误伤率；本工具不判断样本是否足够。",
     }
