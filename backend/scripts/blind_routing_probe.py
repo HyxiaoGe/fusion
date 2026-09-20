@@ -5,6 +5,9 @@
 `resolve_run_capability_route()`，报告按类别的覆盖率。默认调用真实 LiteLLM 混合
 分类器；只有显式传入 `--classifier rules` 才使用规则基线。
 
+可选 expected_layer=literal/model 同时校验层归属；rules 中的 model 期望只验证
+字面层委派，报告为 model_deferred（未调用模型），包成绩仍取规则基线。
+
 **这不是 CI 门禁**：当前规则分类器在这份集合上远达不到 100%，把它接进 pytest 只会
 让 CI 长期红着。它是诊断基准——换分类器实现（见 issue #24）后用同一套对比，才知道
 是真的变好还是只是又拟合了一遍样本。
@@ -31,6 +34,8 @@ from app.core.config import settings  # noqa: E402
 from app.services.stream.agent_task_policy import AgentTaskPolicy  # noqa: E402
 from app.services.stream.run_capability_router import (  # noqa: E402
     CapabilityClassifier,
+    _classify_literal_layer,
+    _extract_request_signals,
     classify_capability_request,
     resolve_run_capability_route,
 )
@@ -78,8 +83,10 @@ class HybridClassifierMonitor:
     def __init__(self, classifier):
         self._classifier = classifier
         self.failure_error_type: str | None = None
+        self.layer: str | None = None
 
     def __call__(self, *, message, task_context_messages, available_tool_names):
+        self.layer = None
         return self._classifier(
             message=message,
             task_context_messages=task_context_messages,
@@ -88,8 +95,25 @@ class HybridClassifierMonitor:
         )
 
     def _record_result(self, result: str, error_type: str | None) -> None:
+        self.layer = result
         if result == "failed" and self.failure_error_type is None:
             self.failure_error_type = error_type or "unknown"
+
+
+class RulesClassifierMonitor:
+    """只检测字面层是否委派；规则基线不会执行真实模型。"""
+
+    def __init__(self):
+        self.layer: str | None = None
+
+    def __call__(self, *, message, task_context_messages, available_tool_names):
+        literal = _classify_literal_layer(_extract_request_signals(message), available_tool_names)
+        self.layer = "literal" if literal is not None else "model_deferred"
+        return classify_capability_request(
+            message=message,
+            task_context_messages=task_context_messages,
+            available_tool_names=available_tool_names,
+        )
 
 
 def _new_hybrid_classifier_monitor() -> HybridClassifierMonitor:
@@ -151,27 +175,40 @@ def main(argv: Sequence[str] | None = None) -> int:
     cases = payload["cases"]
 
     by_group: dict[str, list[bool]] = {}
-    failures: list[tuple[str, str, str, list[str]]] = []
+    failures: list[tuple[str, str, str, list[str], str]] = []
     verbose_lines: list[str] = []
 
     for case in cases:
-        resolution = route(case["question"], classifier=classifier, available_tools=case.get("available_tools"))
+        expected_layer = case.get("expected_layer")
+        rules_monitor = RulesClassifierMonitor() if args.classifier == "rules" and expected_layer is not None else None
+        resolution = route(
+            case["question"], classifier=rules_monitor or classifier, available_tools=case.get("available_tools")
+        )
         if monitor is not None and monitor.failure_error_type is not None:
             print(
-                f"无法完成混合分类器盲测：模型分类失败（{monitor.failure_error_type}）；"
-                "未输出准确率。",
+                f"无法完成混合分类器盲测：模型分类失败（{monitor.failure_error_type}）；未输出准确率。",
                 file=sys.stderr,
             )
             return 3
         acceptable = case["acceptable_packages"]
         ok = resolution.package_id in acceptable
+        layer_detail = ""
+        if expected_layer is not None:
+            layer = (rules_monitor or monitor).layer
+            layer_ok = layer == expected_layer or (expected_layer == "model" and layer == "model_deferred")
+            layer_detail = f" layer={layer or 'unknown'} expected_layer={expected_layer} layer_check={'OK' if layer_ok else 'MISS'}"
+            if layer == "model_deferred":
+                layer_detail += "（仅字面委派，未调用模型）"
+            ok = ok and layer_ok
         by_group.setdefault(case["group"], []).append(ok)
         if not ok:
-            failures.append((case["id"], case["question"], resolution.package_id, acceptable))
+            failures.append((case["id"], case["question"], resolution.package_id, acceptable, layer_detail))
         if args.verbose:
             mark = "OK " if ok else "MISS"
             tools = ",".join(resolution.external_tool_names) or "-"
-            verbose_lines.append(f"{mark} {case['id']:14} {resolution.package_id:20} [{tools}]  {case['question']}")
+            verbose_lines.append(
+                f"{mark} {case['id']:14} {resolution.package_id:20} [{tools}]  {case['question']}{layer_detail}"
+            )
 
     if args.verbose:
         print("\n".join(verbose_lines))
@@ -181,8 +218,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if failures and not args.verbose:
         print("\n未覆盖条目：")
-        for case_id, question, actual, acceptable in failures:
-            print(f"  {case_id:14} 实际={actual:20} 期望∈{acceptable}  {question}")
+        for case_id, question, actual, acceptable, layer_detail in failures:
+            print(f"  {case_id:14} 实际={actual:20} 期望∈{acceptable}  {question}{layer_detail}")
 
     # 诊断脚本，永远返回 0；覆盖率变化由人判断，不作为门禁。
     return 0
