@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from app.core.logger import app_logger as logger
@@ -20,6 +22,9 @@ from app.db.product_answer_observation_repository import persist_product_answer_
 from app.utils.time import utc_now
 
 LOG_PREFIX = "PRODUCT_ANSWER_VALIDATION"
+_STORE_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="product-answer-observation")
+_STORE_CAPACITY = threading.BoundedSemaphore(2)
+_STORE_WAIT_SECONDS = 1.0
 
 # reason code → 规则类别，便于聚合时按类别看误判分布。
 _REASON_CODE_CATEGORIES: dict[str, str] = {
@@ -108,14 +113,39 @@ def build_product_answer_observation(
 
 
 async def retain_product_answer_observation(payload: dict[str, Any]) -> bool:
-    """等待独立事务提交，不把同步数据库 I/O 放在事件循环上。"""
+    """有界等待独立事务提交，隔离数据库卡顿与产品回答交付。"""
+    capacity = _STORE_CAPACITY
+    if not capacity.acquire(blocking=False):
+        logger.error("PRODUCT_ANSWER_OBSERVATION_STORE_FAILED error_type=capacity_exhausted")
+        return False
     observed_at = utc_now()
+
+    def write() -> None:
+        try:
+            persist_product_answer_observation(payload, observed_at)
+        finally:
+            capacity.release()
+
     try:
-        await asyncio.to_thread(persist_product_answer_observation, payload, observed_at)
+        future = asyncio.get_running_loop().run_in_executor(_STORE_EXECUTOR, write)
+    except Exception:
+        capacity.release()
+        logger.error("PRODUCT_ANSWER_OBSERVATION_STORE_FAILED error_type=submit_failed")
+        return False
+
+    def completed(late_future: asyncio.Future) -> None:
+        # shield 保留已开始事务；读取晚到异常，避免泄漏错误正文到事件循环日志。
+        if not late_future.cancelled() and (error := late_future.exception()) is not None:
+            logger.error("PRODUCT_ANSWER_OBSERVATION_STORE_FAILED error_type=%s", type(error).__name__)
+
+    future.add_done_callback(completed)
+    try:
+        await asyncio.wait_for(asyncio.shield(future), timeout=_STORE_WAIT_SECONDS)
         return True
-    except Exception as exc:
-        # 观测故障不能改写用户答案；聚合只代表成功留存记录，不能据此证明没有漏写。
-        logger.error("PRODUCT_ANSWER_OBSERVATION_STORE_FAILED error_type=%s", type(exc).__name__)
+    except TimeoutError:
+        logger.error("PRODUCT_ANSWER_OBSERVATION_STORE_PENDING error_type=wait_timeout")
+        return False
+    except Exception:
         return False
 
 

@@ -686,6 +686,13 @@ async def _commit_deferred_product_answer(
     request: AgentRoundOutcomeRequest,
 ) -> AgentRoundOutcomeRequest:
     if not has_product_result_blocks(request.state.content_blocks):
+        await _emit_product_answer_observation(
+            request,
+            reason_code="not_validated",
+            repaired_answer=None,
+            repair_reason_code=None,
+            observation_path="no_product_result",
+        )
         # 产品工具没有返回结果时无事实可校验；保留失败说明，不能假设卡片存在。
         answer = build_product_tool_failure_answer(request.messages)
         await _append_committed_answer(request, answer, model_output_visible=False)

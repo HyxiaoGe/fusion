@@ -78,6 +78,9 @@ async def capture_product_answer_case(
             wraps=repair_unsupported_product_answer,
         ) as repair,
         patch("app.services.stream.agent_loop_round_outcome.emit_product_answer_observation") as observation,
+        patch(
+            "app.services.stream.agent_loop_round_outcome.retain_product_answer_observation", new_callable=AsyncMock
+        ) as retained,
     ):
         outcome = (
             await _commit_deferred_product_answer(request)
@@ -97,6 +100,7 @@ async def capture_product_answer_case(
         "validation_calls": validate.call_count,
         "repair_calls": repair.call_count,
         "observations": [call.args[0] for call in observation.call_args_list],
+        "retained_observations": [call.args[0] for call in retained.await_args_list],
         "model_output_visible": lifecycle.publish_visible_output.await_count > 0,
         "unknown_terminated": state.unknown_terminated,
         "exit": None if internal_entry else outcome.exit.value,
@@ -139,7 +143,12 @@ class ProductAnswerNoResultTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["answer"], build_product_tool_failure_answer())
         self.assertEqual(result["validation_calls"], 0)
         self.assertEqual(result["repair_calls"], 0)
-        self.assertEqual(result["observations"], [])
+        self.assertEqual(len(result["observations"]), 1)
+        self.assertEqual(result["observations"][0]["observation_path"], "no_product_result")
+        self.assertFalse(result["observations"][0]["validated"])
+        self.assertIsNone(result["observations"][0]["is_valid"])
+        self.assertEqual(result["observations"][0]["product_tool_attempted"], result["product_tool_attempted"])
+        self.assertEqual(result["retained_observations"], result["observations"])
         self.assertFalse(result["model_output_visible"])
         self.assertNotIn("卡片", result["answer"])
         self.assertEqual(result["stored_text"], [result["answer"]])
@@ -160,7 +169,12 @@ class ProductAnswerNoResultTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("卡片", result["answer"])
         self.assertEqual(result["validation_calls"], 0)
         self.assertEqual(result["repair_calls"], 0)
-        self.assertEqual(result["observations"], [])
+        self.assertEqual(len(result["observations"]), 1)
+        self.assertEqual(result["observations"][0]["observation_path"], "no_product_result")
+        self.assertFalse(result["observations"][0]["validated"])
+        self.assertIsNone(result["observations"][0]["is_valid"])
+        self.assertEqual(result["observations"][0]["product_tool_attempted"], result["product_tool_attempted"])
+        self.assertEqual(result["retained_observations"], result["observations"])
         self.assertFalse(result["model_output_visible"])
 
 

@@ -17,7 +17,7 @@ class ProductAnswerObservationPathTests(unittest.IsolatedAsyncioTestCase):
                 request = outcome.AgentRoundOutcomeRequest(
                     db=None,
                     messages=[],
-                    state=AgentLoopState(product_tool_attempted=True),
+                    state=AgentLoopState(product_tool_attempted=True, content_blocks=[{"type": "weather_results"}]),
                     runtime=_runtime(),
                     step_number=1,
                     step_context=_step_context(),

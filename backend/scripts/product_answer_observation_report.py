@@ -6,7 +6,13 @@ import os
 import sys
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        """令牌只发送至指定 API；重定向由调用者核对后重试。"""
+        return None
 
 
 def main() -> int:
@@ -26,7 +32,7 @@ def main() -> int:
     )
     request = Request(url, headers={"Authorization": f"Bearer {token}"})
     try:
-        with urlopen(request, timeout=30) as response:
+        with build_opener(_NoRedirect()).open(request, timeout=30) as response:
             result = json.load(response)
     except HTTPError as exc:
         print(f"观测查询失败：HTTP {exc.code}", file=sys.stderr)
