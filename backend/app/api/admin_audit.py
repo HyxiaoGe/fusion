@@ -21,6 +21,21 @@ def _context(request: Request, reason: str | None) -> dict:
     return {"request_id": request.state.request_id, "reason": reason}
 
 
+@router.get("/product-answer-observations")
+def product_answer_observations(
+    request: Request,
+    start: datetime = Query(..., alias="from"),
+    end: datetime = Query(..., alias="to"),
+    reason: str | None = Header(None, alias="X-Admin-Audit-Reason", max_length=300),
+    service: AdminAuditService = Depends(get_admin_audit_service),
+    auditor: User = Depends(get_conversation_auditor),
+):
+    return success(
+        data=service.product_answer_observations(start=start, end=end, admin=auditor, **_context(request, reason)),
+        request_id=request.state.request_id,
+    )
+
+
 @router.get("/users")
 def list_users(
     request: Request,

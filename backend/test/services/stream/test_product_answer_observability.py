@@ -62,6 +62,9 @@ class ProductAnswerObservabilityTests(unittest.TestCase):
         self.assertEqual(
             set(observation),
             {
+                "observation_path",
+                "validated",
+                "product_tool_attempted",
                 "reason_code",
                 "reason_category",
                 "is_valid",

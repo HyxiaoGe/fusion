@@ -1000,6 +1000,26 @@ class AgentStep(Base):
     __table_args__ = (UniqueConstraint("trace_id", "step_number", name="uq_trace_step"),)
 
 
+class ProductAnswerObservation(Base):
+    """独立留存产品回答决策，不随会话删除或日志轮转清理。"""
+
+    __tablename__ = "product_answer_observations"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    observed_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, index=True)
+    observation_path = Column(String(40), nullable=False)
+    validated = Column(Boolean, nullable=False)
+    reason_code = Column(String(64), nullable=False)
+    reason_category = Column(String(32), nullable=False)
+    is_valid = Column(Boolean, nullable=True)
+    repair_enabled = Column(Boolean, nullable=False)
+    repair_available = Column(Boolean, nullable=False)
+    repair_applied = Column(Boolean, nullable=False)
+    repair_reason_code = Column(String(64), nullable=False)
+    product_tool_attempted = Column(Boolean, nullable=False)
+    product_result_types = Column(JSON, nullable=False)
+
+
 class AdminAuditEvent(Base):
     """管理员内容审计事件，只记录安全元数据，不复制用户正文。"""
 

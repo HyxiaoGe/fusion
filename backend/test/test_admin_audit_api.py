@@ -20,6 +20,22 @@ os.environ["AUTH_SERVICE_JWKS_URL"] = "http://auth.example:8100/.well-known/jwks
 
 
 class AdminAuditApiTests(unittest.TestCase):
+    def test_product_answer_observation_aggregate_requires_auditor_and_valid_time_range(self):
+        path = "/api/admin/audit/product-answer-observations"
+        params = {"from": "2026-09-20T08:00:00+08:00", "to": "2026-09-21T08:00:00+08:00"}
+        self.current_user.is_superuser = False
+        self.assertEqual(self.client.get(path, params=params).status_code, 403)
+        self.current_user.is_superuser = True
+        response = self.client.get(path, params=params)
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()["data"]
+        self.assertEqual(payload["all_observed_decisions"], 0)
+        self.assertIsNone(payload["invalid_among_validated"]["ratio"])
+        self.assertIsNone(payload["coverage"]["complete"])
+        self.assertEqual(payload["time_range"]["from"], "2026-09-20T00:00:00+00:00")
+        self.assertEqual(self.client.get(path, params={"from": params["to"], "to": params["from"]}).status_code, 400)
+        self.assertEqual(self.client.get(path, params={"from": "not-a-date", "to": params["to"]}).status_code, 422)
+
     @classmethod
     def setUpClass(cls):
         sys.modules.pop("main", None)
