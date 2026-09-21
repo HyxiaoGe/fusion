@@ -21,12 +21,19 @@ from app.schemas.chat import (
 )
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_DEFINITIONS
 from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_DEFINITIONS
-from app.services.stream.dynamic_tool_discovery import AuthorizedToolEntry
+from app.services.stream.dynamic_tool_discovery import (
+    NETWORK_KIND_LOCAL_READONLY,
+    NETWORK_KIND_UNKNOWN_NETWORK,
+    AuthorizedToolEntry,
+    infer_network_kind,
+)
 from app.services.tool_handlers.base import BaseToolHandler, ToolResult
 
 _CHINA_TZ = timezone(timedelta(hours=8))
+EXPERIMENT_NOW = datetime(2026, 9, 22, 9, 0, tzinfo=_CHINA_TZ)
 SYNTHETIC_LIMITATION = "合成测试结果，非实时供应商数据，仅用于离线原型。"
 MCP_READONLY_ALIAS = "mcp_readonly_probe"
+MCP_NETWORK_ALIAS = "mcp_network_probe"
 
 
 class SharedFixtureBudget:
@@ -99,6 +106,7 @@ class FixtureToolHandler(BaseToolHandler):
             "web_search": self._search,
             "url_read": self._url_read,
             MCP_READONLY_ALIAS: self._mcp,
+            MCP_NETWORK_ALIAS: self._mcp,
         }.get(self._tool_name)
         if builder is None:
             return ToolResult(status="failed", data={"error_code": "unknown_fixture"}, error_message="未知假工具")
@@ -219,13 +227,13 @@ class FixtureToolHandler(BaseToolHandler):
                 data={"error_code": "empty_result", "retryable": False, "synthetic": True, "result": None},
                 error_message="合成测试：天气空结果",
             )
-        today = datetime.now(_CHINA_TZ).date()
+        today = EXPERIMENT_NOW.date()
         days = [_forecast_day(today + timedelta(days=offset), 24 + offset, 16 + offset) for offset in range(4)]
         payload = {
             "query": location,
             "resolved_location": location,
             "forecast_days": [day.model_dump() for day in days],
-            "fetched_at": datetime.now(_CHINA_TZ),
+            "fetched_at": EXPERIMENT_NOW,
             "limitations": [SYNTHETIC_LIMITATION],
             "day_count": len(days),
         }
@@ -234,8 +242,8 @@ class FixtureToolHandler(BaseToolHandler):
     def _trains(self, args: dict, scenario: str) -> ToolResult:
         origin = str(args.get("origin") or "杭州")
         destination = str(args.get("destination") or "上海")
-        departure_date = str(args.get("departure_date") or datetime.now(_CHINA_TZ).date().isoformat())
-        observed = datetime.now(_CHINA_TZ)
+        departure_date = str(args.get("departure_date") or EXPERIMENT_NOW.date().isoformat())
+        observed = EXPERIMENT_NOW
         if scenario == "error":
             return ToolResult(
                 status="failed",
@@ -404,6 +412,10 @@ def build_prototype_fixture_catalog(
             tool_name=MCP_READONLY_ALIAS,
             playback=play.get(MCP_READONLY_ALIAS),
         ),
+        MCP_NETWORK_ALIAS: FixtureToolHandler(
+            tool_name=MCP_NETWORK_ALIAS,
+            playback=play.get(MCP_NETWORK_ALIAS),
+        ),
     }
     mcp_schema = {
         "type": "function",
@@ -417,12 +429,25 @@ def build_prototype_fixture_catalog(
             },
         },
     }
+    mcp_network_schema = {
+        "type": "function",
+        "function": {
+            "name": MCP_NETWORK_ALIAS,
+            "description": "测试用途网络型 MCP 别名，未知网络属性，禁网时应失败关闭。",
+            "parameters": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {"note": {"type": "string"}},
+            },
+        },
+    }
     schemas = [
         _schema_by_name(AMAP_PRODUCT_DEFINITIONS, "weather_forecast"),
         _schema_by_name(FLYAI_TRAVEL_DEFINITIONS, "search_trains"),
         build_web_search_tool(),
         build_url_read_tool(),
         mcp_schema,
+        mcp_network_schema,
     ]
     return schemas, handlers, shared
 
@@ -440,13 +465,20 @@ def fixture_entries(
         name = schema["function"]["name"]
         if name not in wanted:
             continue
+        binding = (
+            {"alias": name, "provider": "fixture", "tool_label": "synthetic"}
+            if name in {MCP_READONLY_ALIAS, MCP_NETWORK_ALIAS}
+            else None
+        )
+        kind = NETWORK_KIND_LOCAL_READONLY if name == MCP_READONLY_ALIAS else infer_network_kind(name, binding=binding)
+        if name == MCP_NETWORK_ALIAS:
+            kind = NETWORK_KIND_UNKNOWN_NETWORK
         entries[name] = AuthorizedToolEntry(
             name=name,
             summary=str(schema["function"].get("description") or name).split("\n", 1)[0][:180],
             schema=schema,
             handler=handlers[name],
-            binding={"alias": name, "provider": "fixture", "tool_label": "synthetic"}
-            if name == MCP_READONLY_ALIAS
-            else None,
+            binding=binding,
+            network_kind=kind,
         )
     return entries

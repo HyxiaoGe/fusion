@@ -22,6 +22,7 @@ from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_loop_step_requests import build_limit_summary_step_request
 from app.services.stream.agent_round import AgentRoundResult
+from app.services.stream.dynamic_tool_discovery import TOOL_SEARCH_NAME
 from app.services.stream.product_result_answer import has_product_result_blocks
 from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
 from app.services.stream.research_evidence import (
@@ -247,15 +248,19 @@ async def _run_round(
     if runtime.task_mode != "deep_research" and runtime.plan_mode == "on":
         policy = resolve_plan_mode_tool_policy(state.plan_coordinator)
         allowed_tool_names = policy.allowed_tool_names
+        preferred_tool_name = policy.preferred_tool_name
         if runtime.tool_discovery is not None:
-            allowed_tool_names = frozenset(allowed_tool_names) | frozenset({"tool_search"})
+            allowed_tool_names = frozenset(allowed_tool_names) | frozenset({TOOL_SEARCH_NAME})
+            preferred_tool_name = None
         call_kwargs = _filter_tools_for_research_stage(
             call_kwargs,
             allowed_tool_names=allowed_tool_names,
         )
         if policy.require_tool_call:
-            if policy.preferred_tool_name is None:
-                for tool_name in policy.allowed_tool_names:
+            if preferred_tool_name is None:
+                for tool_name in allowed_tool_names:
+                    if runtime.tool_discovery is not None and tool_name == TOOL_SEARCH_NAME:
+                        continue
                     call_kwargs = _constrain_research_stage_plan_binding(
                         call_kwargs,
                         tool_name=tool_name,
@@ -263,7 +268,7 @@ async def _run_round(
                     )
             call_kwargs = _require_tool_call(
                 call_kwargs,
-                preferred_tool_name=policy.preferred_tool_name,
+                preferred_tool_name=preferred_tool_name,
                 provider=runtime.provider,
             )
     research_stage = None

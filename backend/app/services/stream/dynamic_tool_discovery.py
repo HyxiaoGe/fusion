@@ -18,7 +18,29 @@ from app.services.tool_handlers.base import BaseToolHandler, ToolResult
 
 TOOL_SEARCH_NAME = "tool_search"
 MAX_SEARCH_RESULTS = 8
-NETWORK_TOOL_NAMES = frozenset({"web_search", "url_read"})
+NETWORK_KIND_LOCAL_READONLY = "local_readonly"
+NETWORK_KIND_SEARCH = "search"
+NETWORK_KIND_URL = "url"
+NETWORK_KIND_PRODUCT_QUERY = "product_query"
+NETWORK_KIND_UNKNOWN_NETWORK = "unknown_network"
+NETWORK_KINDS_DENIED_WHEN_ALL_BLOCKED = frozenset(
+    {
+        NETWORK_KIND_SEARCH,
+        NETWORK_KIND_URL,
+        NETWORK_KIND_PRODUCT_QUERY,
+        NETWORK_KIND_UNKNOWN_NETWORK,
+    }
+)
+KNOWN_NETWORK_KINDS: dict[str, str] = {
+    "web_search": NETWORK_KIND_SEARCH,
+    "url_read": NETWORK_KIND_URL,
+    "weather_forecast": NETWORK_KIND_PRODUCT_QUERY,
+    "local_place_search": NETWORK_KIND_PRODUCT_QUERY,
+    "route_compare": NETWORK_KIND_PRODUCT_QUERY,
+    "search_flights": NETWORK_KIND_PRODUCT_QUERY,
+    "search_trains": NETWORK_KIND_PRODUCT_QUERY,
+    "mcp_readonly_probe": NETWORK_KIND_LOCAL_READONLY,
+}
 PRODUCT_EVIDENCE_TOOL_NAMES = frozenset(
     {
         "weather_forecast",
@@ -32,6 +54,19 @@ PRODUCT_EVIDENCE_TOOL_NAMES = frozenset(
 )
 _PAGE_RE = re.compile(r"^(?:list|page)(?::(\d+))?$", re.IGNORECASE)
 _UNSUPPORTED_SCENES = ("skill", "deep_research", "continuation")
+CATALOG_EVIDENCE_ADAPTER_NOTE = (
+    "requires_catalog_evidence is a conservative experiment adapter. "
+    "Authorized catalog presence does not by itself create an evidence "
+    "obligation for ordinary greeting or identity replies."
+)
+
+
+class DynamicToolDiscoveryUnsupportedError(ValueError):
+    """opt-in 发现路径明确拒绝尚未覆盖的场景，禁止静默回退旧分类。"""
+
+    def __init__(self, scene: str) -> None:
+        self.scene = scene
+        super().__init__(f"dynamic_tool_discovery does not support {scene}")
 
 
 def _tool_definition_name(tool: dict) -> str:
@@ -50,11 +85,21 @@ def resolve_discovery_network_denials(original_message: str | None) -> tuple[boo
     return web_denied, url_denied, all_denied
 
 
-def _compile_catalog_regex(pattern: str) -> re.Pattern[str]:
-    try:
-        return re.compile(pattern, re.IGNORECASE)
-    except re.error:
-        return re.compile(re.escape(pattern), re.IGNORECASE)
+def infer_network_kind(name: str, *, binding: dict[str, Any] | None = None) -> str:
+    if name in KNOWN_NETWORK_KINDS:
+        return KNOWN_NETWORK_KINDS[name]
+    if binding or name.startswith("mcp_"):
+        return NETWORK_KIND_UNKNOWN_NETWORK
+    return NETWORK_KIND_UNKNOWN_NETWORK
+
+
+def _literal_catalog_match(query: str, entry: "AuthorizedToolEntry") -> bool:
+    needle = query.casefold()
+    haystack = f"{entry.name} {entry.summary}".casefold()
+    if needle in haystack:
+        return True
+    tokens = [token for token in needle.replace(",", " ").split() if token]
+    return bool(tokens) and all(token in haystack for token in tokens)
 
 
 @dataclass(frozen=True)
@@ -64,6 +109,26 @@ class AuthorizedToolEntry:
     schema: dict[str, Any]
     handler: Any
     binding: dict[str, Any] | None = None
+    network_kind: str = NETWORK_KIND_UNKNOWN_NETWORK
+
+
+@dataclass(frozen=True)
+class DiscoveryExperimentContext:
+    """实验 Run 的显式上下文；不是能力包，不得写入 TrajectoryCapabilityResolution。"""
+
+    enabled: bool = True
+    include_current_date: bool = True
+    effective_plan_mode: str = "off"
+    network_boundary_required: bool = False
+    requires_catalog_evidence: bool = False
+    catalog_evidence_note: str = CATALOG_EVIDENCE_ADAPTER_NOTE
+    unsupported_scenes: tuple[str, ...] = _UNSUPPORTED_SCENES
+    announced_tools: tuple[str, ...] = ()
+    authorized_tool_names: tuple[str, ...] = ()
+    external_tool_names: tuple[str, ...] = ()
+    loaded_skills: tuple[Any, ...] = ()
+    skill_resolution: Any = None
+    package_id: None = None
 
 
 @dataclass
@@ -131,26 +196,18 @@ class DynamicToolDiscoverySession:
             parts = stripped[1:].split(None, 1)
             if not parts:
                 return catalog[:MAX_SEARCH_RESULTS], "list"
-            required = parts[0].lower()
-            candidates = [entry for entry in catalog if required in entry.name.lower()]
+            required = parts[0].casefold()
+            candidates = [entry for entry in catalog if required in entry.name.casefold()]
             if len(parts) > 1:
-                regex = _compile_catalog_regex(parts[1])
-                candidates.sort(
-                    key=lambda entry: len(regex.findall(f"{entry.name} {entry.summary}")),
-                    reverse=True,
-                )
+                extra = parts[1]
+                candidates = [entry for entry in candidates if _literal_catalog_match(extra, entry)]
+            if not candidates:
+                return catalog[:MAX_SEARCH_RESULTS], "list"
             return candidates[:MAX_SEARCH_RESULTS], "search"
-        regex = _compile_catalog_regex(stripped)
-        scored: list[tuple[int, AuthorizedToolEntry]] = []
-        for entry in catalog:
-            haystack = f"{entry.name} {entry.summary}"
-            if regex.search(haystack):
-                scored.append((2 if regex.search(entry.name) else 1, entry))
-        scored.sort(key=lambda item: item[0], reverse=True)
-        matched = [entry for _, entry in scored[:MAX_SEARCH_RESULTS]]
+        matched = [entry for entry in catalog if _literal_catalog_match(stripped, entry)]
         if not matched:
             return catalog[:MAX_SEARCH_RESULTS], "list"
-        return matched, "search"
+        return matched[:MAX_SEARCH_RESULTS], "search"
 
     def promote(self, names: Sequence[str]) -> list[str]:
         promoted: list[str] = []
@@ -297,7 +354,7 @@ def build_tool_search_schema() -> dict[str, Any]:
             "name": TOOL_SEARCH_NAME,
             "description": (
                 "Fetch schemas for authorized deferred tools. "
-                "Query forms: keyword, `select:name1,name2`, `+name extra`, empty/`list`/`page:N` to browse."
+                "Query forms: literal keyword, `select:name1,name2`, `+name extra`, empty/`list`/`page:N` to browse."
             ),
             "parameters": {
                 "type": "object",
@@ -305,7 +362,7 @@ def build_tool_search_schema() -> dict[str, Any]:
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Search query or select:/list/page:N",
+                        "description": "Literal search query or select:/list/page:N",
                     }
                 },
                 "required": ["query"],
@@ -343,23 +400,46 @@ def build_discovery_entries(
             summary = str(function.get("description") or name)
         else:
             summary = name
+        binding = bindings_by_alias.get(name)
         entries[name] = AuthorizedToolEntry(
             name=name,
             summary=summary.split("\n", 1)[0][:180],
             schema=schema,
             handler=handler,
-            binding=bindings_by_alias.get(name),
+            binding=binding,
+            network_kind=infer_network_kind(name, binding=binding),
         )
     return entries
 
 
-def denied_network_tool_names(original_message: str | None) -> frozenset[str]:
+def denied_network_tool_names(
+    original_message: str | None,
+    entries: Mapping[str, AuthorizedToolEntry] | None = None,
+) -> frozenset[str]:
     web_denied, url_denied, all_denied = resolve_discovery_network_denials(original_message)
+    catalog = entries or {}
     denied: set[str] = set()
-    if all_denied or web_denied:
-        denied.add("web_search")
-    if all_denied or url_denied:
-        denied.add("url_read")
+    any_network_restriction = all_denied or web_denied or url_denied
+    for name, entry in catalog.items():
+        kind = entry.network_kind
+        if kind == NETWORK_KIND_LOCAL_READONLY:
+            continue
+        if all_denied and kind in NETWORK_KINDS_DENIED_WHEN_ALL_BLOCKED:
+            denied.add(name)
+            continue
+        if web_denied and kind == NETWORK_KIND_SEARCH:
+            denied.add(name)
+            continue
+        if url_denied and kind == NETWORK_KIND_URL:
+            denied.add(name)
+            continue
+        if any_network_restriction and kind == NETWORK_KIND_UNKNOWN_NETWORK:
+            denied.add(name)
+    if not catalog:
+        if all_denied or web_denied:
+            denied.add("web_search")
+        if all_denied or url_denied:
+            denied.add("url_read")
     return frozenset(denied)
 
 
@@ -391,6 +471,7 @@ def expand_plan_allowed_tools(coordinator: Any, names: Iterable[str]) -> None:
 
 
 def discovery_requires_external_evidence(session: DynamicToolDiscoverySession | None) -> bool:
-    if session is None:
-        return False
-    return any(name in PRODUCT_EVIDENCE_TOOL_NAMES for name in session.authorized)
+    """目录含产品工具不等于当前问候任务有证据义务；默认关闭。"""
+
+    del session
+    return False

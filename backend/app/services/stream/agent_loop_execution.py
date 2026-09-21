@@ -18,6 +18,7 @@ from app.services.stream.agent_loop_request_prep import AgentLoopCallConfig
 from app.services.stream.agent_loop_run_completion import AgentLoopRunCompletionContext
 from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
+from app.services.stream.dynamic_tool_discovery import TOOL_SEARCH_NAME
 from app.services.stream.network_budget import NetworkToolBudget
 from app.services.stream.safe_fallback_response import FallbackResponseContext
 from app.services.stream.tool_executor import AgentEventCompositeWriter
@@ -141,6 +142,7 @@ def _build_execution_parts(
     )
     if discovery is not None:
         discovery.plan_coordinator = state.plan_coordinator
+        state.plan_coordinator.discovery_control_tool = TOOL_SEARCH_NAME
     return AgentLoopExecutionParts(
         run_id=run_id,
         run_start=dependencies.clock(),

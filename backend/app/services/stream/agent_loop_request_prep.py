@@ -65,7 +65,7 @@ class AgentLoopCallConfig:
     supports_function_calling: bool
     call_kwargs: dict
     announced_tools: list[str]
-    capability_resolution: RunCapabilityResolution
+    capability_resolution: RunCapabilityResolution | None
     supports_dynamic_tools: bool = False
     dynamic_tool_handlers: dict[str, Any] = field(default_factory=dict)
     tool_bindings: list[dict[str, Any]] = field(default_factory=list)
@@ -79,6 +79,7 @@ class AgentLoopCallConfig:
     prompt_bundle_snapshot: PromptBundleSnapshot | None = None
     dynamic_tool_discovery: bool = False
     tool_discovery: Any = None
+    discovery_experiment: Any = None
 
 
 def build_update_plan_tool(allowed_tool_names: list[str] | None = None) -> dict[str, Any]:
@@ -235,6 +236,7 @@ def build_agent_loop_call_config(
     skill_release_pins: tuple[SkillReleasePin, ...] | None = None,
     classify_fn: CapabilityClassifier | None = None,
     prompt_bundle_snapshot: PromptBundleSnapshot | None = None,
+    previous_run_id: str | None = None,
 ) -> AgentLoopCallConfig:
     prompt_bundle_snapshot = prompt_bundle_snapshot or freeze_runtime_prompt_bundle()
     options = options or {}
@@ -270,14 +272,20 @@ def build_agent_loop_call_config(
         name for name in dict.fromkeys(trusted_authorized_tool_names) if name not in available_tools_by_name
     )
     unavailable_tool_names = [name for name in trusted_authorized_tool_names if name not in available_tools_by_name]
-    from app.services.stream.dynamic_tool_discovery import is_dynamic_tool_discovery_enabled
+    from app.services.stream.dynamic_tool_discovery import (
+        DynamicToolDiscoveryUnsupportedError,
+        is_dynamic_tool_discovery_enabled,
+    )
 
-    if (
-        is_dynamic_tool_discovery_enabled(options)
-        and supports_function_calling
-        and task_policy.task_mode != "deep_research"
-        and skill_release_pins is None
-    ):
+    if is_dynamic_tool_discovery_enabled(options):
+        if skill_release_pins is not None:
+            raise DynamicToolDiscoveryUnsupportedError("skill")
+        if task_policy.task_mode == "deep_research":
+            raise DynamicToolDiscoveryUnsupportedError("deep_research")
+        if previous_run_id is not None or options.get("stream_mode") == "continuation":
+            raise DynamicToolDiscoveryUnsupportedError("continuation")
+        if not supports_function_calling:
+            raise DynamicToolDiscoveryUnsupportedError("function_calling_unavailable")
         return _build_discovery_call_config(
             provider=provider,
             options=options,
@@ -421,6 +429,13 @@ def build_agent_loop_call_config(
     )
 
 
+def _capability_prompt_view(call_config: AgentLoopCallConfig):
+    experiment = getattr(call_config, "discovery_experiment", None)
+    if experiment is not None:
+        return experiment
+    return call_config.capability_resolution
+
+
 def _not_selected_skill_resolution() -> RunSkillResolution:
     return RunSkillResolution(
         status="not_selected",
@@ -453,24 +468,27 @@ def _build_discovery_call_config(
     prompt_bundle_snapshot: PromptBundleSnapshot | None,
 ) -> AgentLoopCallConfig:
     from app.services.stream.dynamic_tool_discovery import (
+        CATALOG_EVIDENCE_ADAPTER_NOTE,
         TOOL_SEARCH_NAME,
+        DiscoveryExperimentContext,
         DynamicToolDiscoverySession,
         ToolSearchHandler,
         attach_session_runtime,
         build_discovery_entries,
         build_tool_search_schema,
         denied_network_tool_names,
+        resolve_discovery_network_denials,
     )
-    from app.services.stream.run_capability_router import RunCapabilityResolution
 
     plan_mode: PlanMode = "off" if knowledge_grounded else requested_plan_mode
-    denied = denied_network_tool_names(original_message)
     entries = build_discovery_entries(
         schemas_by_name=available_tools_by_name,
         handlers_by_name=provided_handlers,
         bindings=tool_bindings,
         authorized_names=authorized_tool_names or list(available_tools_by_name),
     )
+    denied = denied_network_tool_names(original_message, entries)
+    _web_denied, _url_denied, all_denied = resolve_discovery_network_denials(original_message)
     session = DynamicToolDiscoverySession(authorized=entries, denied_names=denied)
     tools = [build_tool_search_schema()]
     control_tool_names: frozenset[str] = frozenset({TOOL_SEARCH_NAME})
@@ -501,29 +519,23 @@ def _build_discovery_call_config(
         bindings=active_bindings,
         plan_mode=plan_mode,
     )
-    capability_resolution = RunCapabilityResolution(
-        schema_version=2,
-        router_version="2026-09-22.1",
-        package_id="dynamic_discovery",
-        confidence="high",
-        resolution_mode="routed",
-        reason_codes=("dynamic_tool_discovery",),
-        external_tool_names=(TOOL_SEARCH_NAME,),
-        effective_plan_mode=plan_mode,
+    experiment = DiscoveryExperimentContext(
         include_current_date=True,
-        network_boundary_required=bool(denied & {"web_search", "url_read"} and not session.catalog_names()),
+        effective_plan_mode=plan_mode,
+        network_boundary_required=all_denied,
+        requires_catalog_evidence=False,
+        catalog_evidence_note=CATALOG_EVIDENCE_ADAPTER_NOTE,
+        announced_tools=(TOOL_SEARCH_NAME,),
+        authorized_tool_names=tuple(session.catalog_names()),
+        external_tool_names=(TOOL_SEARCH_NAME,),
         skill_resolution=_not_selected_skill_resolution(),
-        loaded_skills=(),
-        requires_catalog_evidence=any(
-            name in {"weather_forecast", "search_trains", "web_search", "url_read"} for name in session.authorized
-        ),
     )
     return AgentLoopCallConfig(
         should_use_reasoning=should_use_reasoning,
         supports_function_calling=supports_function_calling,
         call_kwargs=call_kwargs,
         announced_tools=[TOOL_SEARCH_NAME],
-        capability_resolution=capability_resolution,
+        capability_resolution=None,
         supports_dynamic_tools=True,
         dynamic_tool_handlers=active_handlers,
         tool_bindings=active_bindings,
@@ -537,6 +549,7 @@ def _build_discovery_call_config(
         prompt_bundle_snapshot=prompt_bundle_snapshot,
         dynamic_tool_discovery=True,
         tool_discovery=session,
+        discovery_experiment=experiment,
     )
 
 
@@ -630,7 +643,7 @@ async def prepare_agent_loop_messages(
             yield SystemPromptSection(NO_VISION_FILE_BOUNDARY, get_no_vision_file_boundary_prompt())
         for section_id in extra_system_prompts or []:
             yield SystemPromptSection(section_id, call_config.prompt_bundle_snapshot.resolve(section_id)[0])
-        resolution = call_config.capability_resolution
+        resolution = _capability_prompt_view(call_config)
         if (
             getattr(call_config, "dynamic_tool_discovery", False)
             and getattr(call_config, "tool_discovery", None) is not None
@@ -647,7 +660,7 @@ async def prepare_agent_loop_messages(
             )
         for skill in resolution.loaded_skills:
             yield SystemPromptSection(skill.metadata.section_id, skill.content)
-        if resolution.package_id == "deep_research":
+        if getattr(resolution, "package_id", None) == "deep_research":
             yield SystemPromptSection(DEEP_RESEARCH_CONTRACT, DEEP_RESEARCH_CONTRACT_PROMPT)
         if resolution.network_boundary_required:
             yield SystemPromptSection(
@@ -657,7 +670,7 @@ async def prepare_agent_loop_messages(
 
     assembly = assemble_system_prompt(
         user_system_prompt=user_system_prompt,
-        include_current_date=call_config.capability_resolution.include_current_date,
+        include_current_date=_capability_prompt_view(call_config).include_current_date,
         sections=selected_sections,
     )
     messages = [*assembly.messages, *ensure_prompt_messages(messages)]
@@ -672,7 +685,7 @@ async def prepare_agent_loop_messages(
         prompt_assembly=assembly.metadata,
         prompt_snapshot=run_snapshot.to_storage(),
         run_prompt_snapshot=run_snapshot,
-        final_tool_names=list(call_config.capability_resolution.external_tool_names),
+        final_tool_names=list(_capability_prompt_view(call_config).external_tool_names),
     )
 
 
@@ -738,7 +751,7 @@ async def _prepare_url_context(
     call_config: AgentLoopCallConfig,
     preprocess_url_in_message_fn: Callable[..., Awaitable[tuple[Any | None, dict | None, str | None]]],
 ) -> tuple[list[PromptMessage], list[Any]]:
-    if "url_read" not in call_config.capability_resolution.external_tool_names:
+    if "url_read" not in _capability_prompt_view(call_config).external_tool_names:
         return messages, []
     initial_content_blocks = []
     url_read_block, url_context_msg, _auto_detected_url = await preprocess_url_in_message_fn(

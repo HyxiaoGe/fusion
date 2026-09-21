@@ -138,7 +138,7 @@ def has_tool_evidence(
 
 
 def requires_external_evidence(capability_resolution: RunCapabilityResolution | None) -> bool:
-    """冻结能力明确要求外部事实，或发现路径的授权目录含外部查询工具。"""
+    """冻结能力明确要求外部事实。目录可用性不是问候任务的证据义务。"""
 
     if getattr(capability_resolution, "requires_catalog_evidence", False):
         return True

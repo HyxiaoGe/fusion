@@ -42,6 +42,43 @@ LogFn = Callable[[str], None]
 TRAJECTORY_BARRIER_TIMEOUT_SECONDS = 1.0
 
 
+def _skill_resolution_object(call_config: AgentLoopCallConfig):
+    experiment = getattr(call_config, "discovery_experiment", None)
+    if experiment is not None and getattr(experiment, "skill_resolution", None) is not None:
+        return experiment.skill_resolution
+    resolution = getattr(call_config, "capability_resolution", None)
+    return getattr(resolution, "skill_resolution", None)
+
+
+def _skill_resolution_status(call_config: AgentLoopCallConfig) -> str:
+    skill_resolution = _skill_resolution_object(call_config)
+    return getattr(skill_resolution, "status", "not_selected")
+
+
+def _skill_resolution_payload(call_config: AgentLoopCallConfig) -> dict[str, Any]:
+    resolution = getattr(call_config, "capability_resolution", None)
+    if resolution is not None:
+        return serialize_capability_resolution(resolution)["skill_resolution"]
+    skill_resolution = _skill_resolution_object(call_config)
+    if skill_resolution is None:
+        return {
+            "status": "not_selected",
+            "activation_source": "capability_package",
+            "requested_skill_ids": [],
+            "skills": [],
+            "duration_ms": 0,
+            "error_code": None,
+        }
+    return {
+        "status": skill_resolution.status,
+        "activation_source": skill_resolution.activation_source,
+        "requested_skill_ids": list(skill_resolution.requested_skill_ids),
+        "skills": list(skill_resolution.skills),
+        "duration_ms": skill_resolution.duration_ms,
+        "error_code": skill_resolution.error_code,
+    }
+
+
 @dataclass(frozen=True)
 class AgentLoopLifecycleRequest:
     raw_messages: list
@@ -193,7 +230,7 @@ async def _run_success_path(
     dependencies: AgentLoopLifecycleDependencies,
 ) -> None:
     await _start_run(request=request, execution=execution, dependencies=dependencies)
-    if request.call_config.capability_resolution.skill_resolution.status != "loaded":
+    if _skill_resolution_status(request.call_config) != "loaded":
         await _emit_skills_resolved(
             request=request,
             execution=execution,
@@ -480,7 +517,7 @@ async def _emit_loaded_skills_resolved(
     execution: AgentLoopExecutionContext,
     detail_status: str,
 ) -> None:
-    if request.call_config.capability_resolution.skill_resolution.status != "loaded":
+    if _skill_resolution_status(request.call_config) != "loaded":
         return
     await _emit_skills_resolved(
         request=request,
@@ -495,7 +532,7 @@ async def _emit_skills_resolved(
     execution: AgentLoopExecutionContext,
     detail_status: str | None,
 ) -> None:
-    skill_resolution = serialize_capability_resolution(request.call_config.capability_resolution)["skill_resolution"]
+    skill_resolution = _skill_resolution_payload(request.call_config)
     await execution.emitter.skills_resolved(
         **skill_resolution,
         detail_status=detail_status,
@@ -711,10 +748,8 @@ def _run_config(limits: AgentLoopLimits, call_config: AgentLoopCallConfig | None
     if bindings:
         config["mcp_tool_bindings"] = bindings
     resolution = getattr(call_config, "capability_resolution", None)
-    if (
-        getattr(call_config, "dynamic_tool_discovery", False)
-        or getattr(resolution, "package_id", None) == "dynamic_discovery"
-    ):
+    experiment = getattr(call_config, "discovery_experiment", None)
+    if getattr(call_config, "dynamic_tool_discovery", False) or experiment is not None:
         session = getattr(call_config, "tool_discovery", None)
         config["dynamic_tool_discovery"] = {
             "enabled": True,
@@ -722,6 +757,8 @@ def _run_config(limits: AgentLoopLimits, call_config: AgentLoopCallConfig | None
             "initial_visible_tools": list(getattr(call_config, "announced_tools", []) or []),
             "unsupported_scenes": list(getattr(session, "unsupported_scenes", ())),
             "plan_tool_policy_reason": getattr(call_config, "plan_tool_policy_reason", None),
+            "catalog_evidence_note": getattr(experiment, "catalog_evidence_note", None),
+            "requires_catalog_evidence": bool(getattr(experiment, "requires_catalog_evidence", False)),
         }
         return config
     if resolution is not None:

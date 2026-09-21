@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -19,8 +20,14 @@ from app.services.stream.agent_loop_lifecycle import _run_config
 from app.services.stream.agent_loop_policy import AgentLoopLimits
 from app.services.stream.agent_loop_request_prep import build_agent_loop_call_config
 from app.services.stream.agent_round import AgentRoundResult
-from app.services.stream.dynamic_tool_discovery import TOOL_SEARCH_NAME
+from app.services.stream.dynamic_tool_discovery import (
+    TOOL_SEARCH_NAME,
+    DynamicToolDiscoveryUnsupportedError,
+)
 from app.services.stream.dynamic_tool_discovery_fixtures import (
+    EXPERIMENT_NOW,
+    MCP_NETWORK_ALIAS,
+    MCP_READONLY_ALIAS,
     SharedFixtureBudget,
     build_prototype_fixture_catalog,
 )
@@ -66,12 +73,26 @@ class ScriptedRounds:
         tools = kwargs.get("call_kwargs", {}).get("tools") or []
         names = [item["function"]["name"] for item in tools if isinstance(item, dict)]
         self.visible_tools.append(names)
+        tool_choice = kwargs.get("call_kwargs", {}).get("tool_choice")
         if not self.rounds:
             return _round_result([], "stop", frozenset(names))
         spec = self.rounds.pop(0)
         if isinstance(spec, dict) and spec.get("stop"):
             return _round_result([], "stop", frozenset(names), content=spec.get("content", "完成"))
+        _assert_script_respects_tool_choice(spec, tool_choice=tool_choice, visible=names)
         return _round_result(spec, "tool_calls", frozenset(names))
+
+
+def _assert_script_respects_tool_choice(spec, *, tool_choice, visible):
+    del visible
+    forced = None
+    if isinstance(tool_choice, dict):
+        function = tool_choice.get("function") if isinstance(tool_choice.get("function"), dict) else {}
+        forced = function.get("name")
+    for call in spec:
+        name = call.get("name")
+        if forced is not None and name != forced:
+            raise AssertionError(f"script returned {name} but tool_choice forced {forced}")
 
 
 def _round_result(tool_calls, finish_reason, announced, content=""):
@@ -299,11 +320,31 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_p04_network_denial_blocks_discovery_and_execution(self):
         config, handlers, _shared, _calls = _discovery_config(message="本次不要联网，只说杭州天气怎么查")
-        self.assertIn("web_search", config.tool_discovery.denied_names)
+        denied = config.tool_discovery.denied_names
+        for name in ("web_search", "url_read", "weather_forecast", "search_trains", MCP_NETWORK_ALIAS):
+            self.assertIn(name, denied)
+        self.assertNotIn(MCP_READONLY_ALIAS, denied)
         script = ScriptedRounds(
             [
-                [_tool_call("n1", TOOL_SEARCH_NAME, {"query": "select:web_search"})],
+                [
+                    _tool_call(
+                        "n1",
+                        TOOL_SEARCH_NAME,
+                        {"query": "select:web_search,weather_forecast,search_trains,url_read,mcp_network_probe"},
+                    )
+                ],
                 [_tool_call("n2", "web_search", {"query": "杭州天气"})],
+                [_tool_call("n3", "weather_forecast", {"location": "杭州", "location_source": "named"})],
+                [
+                    _tool_call(
+                        "n4",
+                        "search_trains",
+                        {"origin": "杭州", "destination": "上海", "departure_date": "2026-09-26"},
+                    )
+                ],
+                [_tool_call("n5", MCP_NETWORK_ALIAS, {"note": "should-deny"})],
+                [_tool_call("n6", TOOL_SEARCH_NAME, {"query": f"select:{MCP_READONLY_ALIAS}"})],
+                [_tool_call("n7", MCP_READONLY_ALIAS, {"note": "local-ok"})],
                 {"stop": True},
             ]
         )
@@ -311,6 +352,14 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
         runtime = _runtime_from_execution(execution, script=script, emitter=RecordingEmitter())
         await run_agent_loop(db=None, messages=[], state=execution.state, runtime=runtime)
         self.assertEqual(handlers["web_search"].execute_count, 0)
+        self.assertEqual(handlers["url_read"].execute_count, 0)
+        self.assertEqual(handlers["weather_forecast"].execute_count, 0)
+        self.assertEqual(handlers["search_trains"].execute_count, 0)
+        self.assertEqual(handlers[MCP_NETWORK_ALIAS].execute_count, 0)
+        self.assertEqual(handlers[MCP_READONLY_ALIAS].execute_count, 1)
+        visible = {name for names in script.visible_tools for name in names}
+        self.assertNotIn("web_search", visible)
+        self.assertNotIn("weather_forecast", visible)
         kinds = {event.get("kind") for event in config.tool_discovery.events}
         self.assertTrue({"discover_denied", "unauthorized_intercept"} & kinds)
 
@@ -464,23 +513,25 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(kind)
         self.assertEqual(handlers["search_trains"].execute_count, 1)
 
-    async def test_p09_discovery_does_not_reset_deadline_or_start_new_calls_after_limit(self):
+    async def test_p09_discovery_then_limit_does_not_start_new_product_calls(self):
         config, handlers, _shared, _calls = _discovery_config(message="杭州天气")
         execution = _execution(config, run_id="run-p09")
-        execution.state.step = 12
         run_start = execution.runtime.run_start
-        max_steps = execution.runtime.limits.max_steps
         script = ScriptedRounds(
             [
                 [_tool_call("l1", TOOL_SEARCH_NAME, {"query": "select:weather_forecast"})],
+                [_tool_call("l2", "weather_forecast", {"location": "杭州", "location_source": "named"})],
+                {"stop": True},
             ]
         )
         runtime = _runtime_from_execution(execution, script=script, emitter=RecordingEmitter())
-        object.__setattr__(runtime, "limits", AgentLoopLimits(max_steps=12, max_tool_calls=20, total_timeout_s=300))
+        object.__setattr__(runtime, "limits", AgentLoopLimits(max_steps=1, max_tool_calls=20, total_timeout_s=300))
         await run_agent_loop(db=None, messages=[], state=execution.state, runtime=runtime)
         self.assertEqual(runtime.run_start, run_start)
-        self.assertEqual(runtime.limits.max_steps, max_steps)
+        self.assertEqual(runtime.limits.max_steps, 1)
+        self.assertIn("weather_forecast", config.tool_discovery.loaded_names)
         self.assertEqual(handlers["weather_forecast"].execute_count, 0)
+        self.assertEqual(execution.state.limit_reason, "max_steps")
 
     async def test_p10_two_runs_do_not_leak_loaded_tools_or_budget(self):
         config_a, handlers_a, shared_a, _c1 = _discovery_config(message="杭州天气")
@@ -565,12 +616,253 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(seen)
         self.assertFalse(config.dynamic_tool_discovery)
 
-    def test_discovery_run_config_skips_package_dto(self):
+    def test_discovery_run_config_uses_experiment_context_not_fake_package(self):
         config, _handlers, _shared, _calls = _discovery_config(message="杭州天气")
         payload = _run_config(AgentLoopLimits(max_steps=3, max_tool_calls=5, total_timeout_s=30), config)
+        self.assertIsNone(config.capability_resolution)
         self.assertNotIn("capability_resolution", payload)
         self.assertTrue(payload["dynamic_tool_discovery"]["enabled"])
         self.assertIn("skill", payload["dynamic_tool_discovery"]["unsupported_scenes"])
+        self.assertFalse(payload["dynamic_tool_discovery"]["requires_catalog_evidence"])
+        self.assertIn("conservative experiment adapter", payload["dynamic_tool_discovery"]["catalog_evidence_note"])
+        self.assertIsNone(config.discovery_experiment.package_id)
+
+    def test_greeting_does_not_require_catalog_evidence(self):
+        config, _handlers, _shared, _calls = _discovery_config(message="早上好，你是谁？")
+        self.assertFalse(config.discovery_experiment.requires_catalog_evidence)
+        guarded, kind = resolve_no_evidence_answer(
+            "你好，我是助手。",
+            content_blocks=[],
+            messages=[{"role": "user", "content": "早上好，你是谁？"}],
+            capability_resolution=config.capability_resolution,
+        )
+        self.assertEqual(guarded, "你好，我是助手。")
+        self.assertIsNone(kind)
+
+    def test_unsupported_scenes_refuse_instead_of_silent_fallback(self):
+        from app.ai.skills.registry import SkillReleasePin
+
+        schemas, handlers, _shared = build_prototype_fixture_catalog()
+        pin = SkillReleasePin(
+            skill_id="verified-research",
+            version="1.0.0",
+            content_sha256="0" * 64,
+        )
+        with self.assertRaises(DynamicToolDiscoveryUnsupportedError) as skill_error:
+            build_agent_loop_call_config(
+                provider="openai",
+                options={"dynamic_tool_discovery": True},
+                capabilities={"functionCalling": True, "searchCapable": True, "agentTools": True},
+                additional_tools=schemas,
+                dynamic_tool_handlers=handlers,
+                authorized_tool_names=[schema["function"]["name"] for schema in schemas],
+                original_message="杭州天气",
+                skill_release_pins=(pin,),
+            )
+        self.assertEqual(skill_error.exception.scene, "skill")
+        with self.assertRaises(DynamicToolDiscoveryUnsupportedError) as research_error:
+            build_agent_loop_call_config(
+                provider="openai",
+                options={"dynamic_tool_discovery": True, "task_mode": "deep_research"},
+                capabilities={"functionCalling": True, "searchCapable": True, "agentTools": True},
+                additional_tools=schemas,
+                dynamic_tool_handlers=handlers,
+                original_message="深入研究杭州天气",
+            )
+        self.assertEqual(research_error.exception.scene, "deep_research")
+        with self.assertRaises(DynamicToolDiscoveryUnsupportedError) as continuation_error:
+            build_agent_loop_call_config(
+                provider="openai",
+                options={"dynamic_tool_discovery": True},
+                capabilities={"functionCalling": True, "searchCapable": True, "agentTools": True},
+                additional_tools=schemas,
+                dynamic_tool_handlers=handlers,
+                original_message="继续",
+                previous_run_id="run-prev",
+            )
+        self.assertEqual(continuation_error.exception.scene, "continuation")
+
+    def test_catalog_query_is_literal_not_regex(self):
+        session = _discovery_config(message="杭州天气")[0].tool_discovery
+        matched, mode = session.search("(a+)+$")
+        self.assertEqual(mode, "list")
+        self.assertTrue(matched)
+        listed, list_mode = session.search("page:0")
+        self.assertEqual(list_mode, "list")
+        self.assertTrue(listed)
+        selected, select_mode = session.search("select:weather_forecast")
+        self.assertEqual(select_mode, "select")
+        self.assertEqual([entry.name for entry in selected], ["weather_forecast"])
+        dotted, dotted_mode = session.search("weather_forecast.")
+        self.assertEqual(dotted_mode, "list")
+
+    async def test_plan_mode_tool_search_usable_before_and_after_valid_plan(self):
+        config, handlers, _shared, _calls = _discovery_config(message="杭州天气并做计划", plan_mode="on")
+        execution = _execution(config, run_id="run-r2")
+        captured_choices = []
+
+        class CapturingScript(ScriptedRounds):
+            async def __call__(self, **kwargs):
+                captured_choices.append(kwargs.get("call_kwargs", {}).get("tool_choice"))
+                return await super().__call__(**kwargs)
+
+        script = CapturingScript(
+            [
+                [_tool_call("p1", TOOL_SEARCH_NAME, {"query": "select:weather_forecast"})],
+                [
+                    _tool_call(
+                        "p2",
+                        "update_plan",
+                        {
+                            "explanation": "先查天气再查车次",
+                            "plan": [
+                                {
+                                    "id": "s1",
+                                    "step": "查询杭州天气",
+                                    "status": "in_progress",
+                                    "kind": "other",
+                                    "depends_on": [],
+                                    "planned_tools": ["weather_forecast"],
+                                },
+                                {
+                                    "id": "s2",
+                                    "step": "查询车次",
+                                    "status": "pending",
+                                    "kind": "other",
+                                    "depends_on": ["s1"],
+                                    "planned_tools": [],
+                                },
+                                {
+                                    "id": "s3",
+                                    "step": "回答",
+                                    "status": "pending",
+                                    "kind": "answer",
+                                    "depends_on": ["s2"],
+                                    "planned_tools": [],
+                                },
+                            ],
+                        },
+                    )
+                ],
+                [
+                    _tool_call(
+                        "p3",
+                        "weather_forecast",
+                        {"location": "杭州", "location_source": "named", "_plan_item_id": "s1"},
+                    )
+                ],
+                [_tool_call("p4", TOOL_SEARCH_NAME, {"query": "select:search_trains"})],
+                [
+                    _tool_call(
+                        "p5",
+                        "update_plan",
+                        {
+                            "explanation": "补上车次",
+                            "plan": [
+                                {
+                                    "id": "s1",
+                                    "step": "查询杭州天气",
+                                    "status": "completed",
+                                    "kind": "other",
+                                    "depends_on": [],
+                                    "planned_tools": ["weather_forecast"],
+                                },
+                                {
+                                    "id": "s2",
+                                    "step": "查询车次",
+                                    "status": "in_progress",
+                                    "kind": "other",
+                                    "depends_on": ["s1"],
+                                    "planned_tools": ["search_trains"],
+                                },
+                                {
+                                    "id": "s3",
+                                    "step": "回答",
+                                    "status": "pending",
+                                    "kind": "answer",
+                                    "depends_on": ["s2"],
+                                    "planned_tools": [],
+                                },
+                            ],
+                        },
+                    )
+                ],
+                [
+                    _tool_call(
+                        "p6",
+                        "search_trains",
+                        {
+                            "origin": "杭州",
+                            "destination": "上海",
+                            "departure_date": "2026-09-26",
+                            "_plan_item_id": "s2",
+                        },
+                    )
+                ],
+                {"stop": True},
+            ]
+        )
+        runtime = _runtime_from_execution(execution, script=script, emitter=RecordingEmitter())
+        await run_agent_loop(db=None, messages=[], state=execution.state, runtime=runtime)
+        self.assertNotEqual(
+            captured_choices[0],
+            {"type": "function", "function": {"name": "update_plan"}},
+        )
+        self.assertIn(captured_choices[0], ("required", "auto"))
+        self.assertGreaterEqual(handlers["weather_forecast"].execute_count, 1)
+        self.assertGreaterEqual(handlers["search_trains"].execute_count, 1)
+
+    def test_fixture_clock_is_fixed_experiment_date(self):
+        self.assertEqual(EXPERIMENT_NOW.date().isoformat(), "2026-09-22")
+
+    def test_compare_executor_fake_transport_and_budget(self):
+        import importlib.util
+        import tempfile
+        from pathlib import Path
+
+        compare_path = Path(__file__).resolve().parents[3] / "scripts" / "dynamic_tool_discovery_compare.py"
+        spec = importlib.util.spec_from_file_location("dynamic_tool_discovery_compare", compare_path)
+        compare = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = compare
+        spec.loader.exec_module(compare)
+
+        self.assertIsNone(compare.parse_budget(None))
+        self.assertIsNone(compare.parse_budget(0))
+        self.assertIsNone(compare.parse_budget(-1))
+        config = compare.build_compare_config(mode="dry-run", repeats=2, max_requests=24, output_dir=Path("/tmp/x"))
+        self.assertEqual(config["limits_per_run"]["max_tokens"], 4096)
+        self.assertEqual(config["fixed_date"], "2026-09-22")
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            self.assertEqual(compare.main(["--mode", "live"]), 2)
+            self.assertEqual(compare.main(["--mode", "live", "--max-requests", "8", "--transport", "litellm"]), 3)
+            tiny = compare.ExperimentBudget(max_requests=1)
+            executor = compare.PairingExecutor(
+                transport=compare.FakeModelTransport(tiny),
+                budget=tiny,
+                output_dir=output / "tiny",
+                cases=[{"id": "greeting", "text": "早上好，你是谁？", "expect": "x", "kind": "normal"}],
+                repeats=1,
+            )
+            tiny_summary = executor.run()
+            self.assertTrue(tiny_summary["aborted"] or tiny_summary["incomplete"])
+            budget = compare.ExperimentBudget(max_requests=8)
+            summary = compare.PairingExecutor(
+                transport=compare.FakeModelTransport(budget),
+                budget=budget,
+                output_dir=output / "full",
+                cases=[{"id": "greeting", "text": "早上好，你是谁？", "expect": "x", "kind": "normal"}],
+                repeats=1,
+            ).run()
+            self.assertEqual(summary["used_requests"], 3)
+            self.assertFalse(summary["aborted"])
+            self.assertEqual(summary["job_order"][:2], ["baseline:greeting:r0", "candidate:greeting:r0"])
+            self.assertTrue((output / "full" / "baseline-greeting-r0.json").exists())
+            self.assertTrue((output / "full" / "candidate-greeting-r0.json").exists())
+            baseline = json.loads((output / "full" / "baseline-greeting-r0.json").read_text(encoding="utf-8"))
+            self.assertEqual(baseline["phases"][0]["phase"], "classify")
+            self.assertTrue(baseline["request_hash"])
+            self.assertEqual(baseline["fixed_date"], EXPERIMENT_NOW.isoformat())
 
 
 def _fn_name(tool: dict) -> str:
