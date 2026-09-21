@@ -213,16 +213,18 @@ async def process_plan_control_calls(
             await emitter.plan_snapshot(**result.snapshot)
 
     round_failed = repairable_rejection and not accepted_control
-    if coordinator.mode == "on" and external_calls and not coordinator.has_valid_model_plan:
+    discovery_calls = [call for call in external_calls if call.get("name") == "tool_search"]
+    other_external_calls = [call for call in external_calls if call.get("name") != "tool_search"]
+    if coordinator.mode == "on" and other_external_calls and not coordinator.has_valid_model_plan:
         round_failed = True
         repair_reasons.add("plan_required")
-        for call in external_calls:
+        for call in other_external_calls:
             responses[str(call.get("id", ""))] = _response(
                 status="not_executed",
                 reason="plan_required",
                 revision=coordinator.revision,
             )
-        external_calls = []
+        external_calls = discovery_calls
 
     prepared_external_calls: list[dict] = []
     requested_item_ids: list[str | None] = []

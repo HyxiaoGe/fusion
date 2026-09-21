@@ -290,6 +290,7 @@ class RunCapabilityResolution:
     network_boundary_required: bool
     skill_resolution: RunSkillResolution | None = None
     loaded_skills: tuple[LoadedSkillSnapshot, ...] = field(default=(), repr=False, compare=False)
+    requires_catalog_evidence: bool = False
 
 
 class CapabilityClassifier(Protocol):

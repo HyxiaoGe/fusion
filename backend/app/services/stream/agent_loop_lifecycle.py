@@ -711,6 +711,19 @@ def _run_config(limits: AgentLoopLimits, call_config: AgentLoopCallConfig | None
     if bindings:
         config["mcp_tool_bindings"] = bindings
     resolution = getattr(call_config, "capability_resolution", None)
+    if (
+        getattr(call_config, "dynamic_tool_discovery", False)
+        or getattr(resolution, "package_id", None) == "dynamic_discovery"
+    ):
+        session = getattr(call_config, "tool_discovery", None)
+        config["dynamic_tool_discovery"] = {
+            "enabled": True,
+            "authorized_tool_names": list(getattr(session, "catalog_names", lambda: [])()),
+            "initial_visible_tools": list(getattr(call_config, "announced_tools", []) or []),
+            "unsupported_scenes": list(getattr(session, "unsupported_scenes", ())),
+            "plan_tool_policy_reason": getattr(call_config, "plan_tool_policy_reason", None),
+        }
+        return config
     if resolution is not None:
         resolution_payload = serialize_capability_resolution(resolution)
         TrajectoryCapabilityResolution.model_validate(

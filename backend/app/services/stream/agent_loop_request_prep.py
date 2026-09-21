@@ -77,6 +77,8 @@ class AgentLoopCallConfig:
     required_initial_tool_counts: dict[str, int] = field(default_factory=dict)
     plan_tool_policy_reason: str | None = None
     prompt_bundle_snapshot: PromptBundleSnapshot | None = None
+    dynamic_tool_discovery: bool = False
+    tool_discovery: Any = None
 
 
 def build_update_plan_tool(allowed_tool_names: list[str] | None = None) -> dict[str, Any]:
@@ -268,6 +270,33 @@ def build_agent_loop_call_config(
         name for name in dict.fromkeys(trusted_authorized_tool_names) if name not in available_tools_by_name
     )
     unavailable_tool_names = [name for name in trusted_authorized_tool_names if name not in available_tools_by_name]
+    from app.services.stream.dynamic_tool_discovery import is_dynamic_tool_discovery_enabled
+
+    if (
+        is_dynamic_tool_discovery_enabled(options)
+        and supports_function_calling
+        and task_policy.task_mode != "deep_research"
+        and skill_release_pins is None
+    ):
+        return _build_discovery_call_config(
+            provider=provider,
+            options=options,
+            capabilities=capabilities,
+            volcengine_providers=volcengine_providers,
+            should_use_reasoning=should_use_reasoning,
+            supports_function_calling=supports_function_calling,
+            supports_dynamic_tools=supports_dynamic_tools,
+            call_kwargs=call_kwargs,
+            available_tools_by_name=available_tools_by_name,
+            provided_handlers=provided_handlers,
+            tool_bindings=tool_bindings or [],
+            authorized_tool_names=trusted_authorized_tool_names,
+            original_message=original_message,
+            task_policy=task_policy,
+            knowledge_grounded=knowledge_grounded,
+            requested_plan_mode=requested_plan_mode,
+            prompt_bundle_snapshot=prompt_bundle_snapshot,
+        )
     skill_loader = None
     if skill_release_pins is not None:
 
@@ -392,6 +421,125 @@ def build_agent_loop_call_config(
     )
 
 
+def _not_selected_skill_resolution() -> RunSkillResolution:
+    return RunSkillResolution(
+        status="not_selected",
+        activation_source="capability_package",
+        requested_skill_ids=(),
+        skills=(),
+        duration_ms=0,
+        error_code=None,
+    )
+
+
+def _build_discovery_call_config(
+    *,
+    provider: str,
+    options: dict,
+    capabilities: dict,
+    volcengine_providers: set[str] | frozenset[str],
+    should_use_reasoning: bool,
+    supports_function_calling: bool,
+    supports_dynamic_tools: bool,
+    call_kwargs: dict,
+    available_tools_by_name: dict[str, dict],
+    provided_handlers: dict[str, Any],
+    tool_bindings: list[dict[str, Any]],
+    authorized_tool_names: list[str],
+    original_message: str | None,
+    task_policy: Any,
+    knowledge_grounded: bool,
+    requested_plan_mode: PlanMode,
+    prompt_bundle_snapshot: PromptBundleSnapshot | None,
+) -> AgentLoopCallConfig:
+    from app.services.stream.dynamic_tool_discovery import (
+        TOOL_SEARCH_NAME,
+        DynamicToolDiscoverySession,
+        ToolSearchHandler,
+        attach_session_runtime,
+        build_discovery_entries,
+        build_tool_search_schema,
+        denied_network_tool_names,
+    )
+    from app.services.stream.run_capability_router import RunCapabilityResolution
+
+    plan_mode: PlanMode = "off" if knowledge_grounded else requested_plan_mode
+    denied = denied_network_tool_names(original_message)
+    entries = build_discovery_entries(
+        schemas_by_name=available_tools_by_name,
+        handlers_by_name=provided_handlers,
+        bindings=tool_bindings,
+        authorized_names=authorized_tool_names or list(available_tools_by_name),
+    )
+    session = DynamicToolDiscoverySession(authorized=entries, denied_names=denied)
+    tools = [build_tool_search_schema()]
+    control_tool_names: frozenset[str] = frozenset({TOOL_SEARCH_NAME})
+    if plan_mode != "off":
+        tools.append(build_update_plan_tool([]))
+        control_tool_names = frozenset({TOOL_SEARCH_NAME, "update_plan"})
+        tools = [
+            _with_plan_item_binding(tool, required=plan_mode == "on")
+            if _tool_definition_name(tool) not in control_tool_names
+            else tool
+            for tool in tools
+        ]
+    call_kwargs = dict(call_kwargs)
+    call_kwargs["tools"] = tools
+    call_kwargs["tool_choice"] = "auto"
+    effective_provider = "volcengine" if provider in volcengine_providers else provider
+    call_kwargs = configure_reasoning_call_kwargs(
+        call_kwargs,
+        provider=effective_provider,
+        should_use_reasoning=should_use_reasoning,
+    )
+    active_handlers: dict[str, Any] = {TOOL_SEARCH_NAME: ToolSearchHandler(session)}
+    active_bindings: list[dict[str, Any]] = []
+    attach_session_runtime(
+        session,
+        call_kwargs=call_kwargs,
+        handlers=active_handlers,
+        bindings=active_bindings,
+        plan_mode=plan_mode,
+    )
+    capability_resolution = RunCapabilityResolution(
+        schema_version=2,
+        router_version="2026-09-22.1",
+        package_id="dynamic_discovery",
+        confidence="high",
+        resolution_mode="routed",
+        reason_codes=("dynamic_tool_discovery",),
+        external_tool_names=(TOOL_SEARCH_NAME,),
+        effective_plan_mode=plan_mode,
+        include_current_date=True,
+        network_boundary_required=bool(denied & {"web_search", "url_read"} and not session.catalog_names()),
+        skill_resolution=_not_selected_skill_resolution(),
+        loaded_skills=(),
+        requires_catalog_evidence=any(
+            name in {"weather_forecast", "search_trains", "web_search", "url_read"} for name in session.authorized
+        ),
+    )
+    return AgentLoopCallConfig(
+        should_use_reasoning=should_use_reasoning,
+        supports_function_calling=supports_function_calling,
+        call_kwargs=call_kwargs,
+        announced_tools=[TOOL_SEARCH_NAME],
+        capability_resolution=capability_resolution,
+        supports_dynamic_tools=True,
+        dynamic_tool_handlers=active_handlers,
+        tool_bindings=active_bindings,
+        plan_mode=plan_mode,
+        control_tool_names=control_tool_names,
+        task_mode=task_policy.task_mode,
+        network_profile=task_policy.network_profile,
+        evidence_policy="knowledge_grounded_v1" if knowledge_grounded else task_policy.evidence_policy,
+        required_initial_tool_counts={},
+        plan_tool_policy_reason="dynamic_tool_discovery_no_package_min_calls",
+        prompt_bundle_snapshot=prompt_bundle_snapshot,
+        dynamic_tool_discovery=True,
+        tool_discovery=session,
+    )
+
+
 def load_user_system_prompt(db, user_id: str) -> str | None:
     from app.db.models import User as UserModel
 
@@ -483,6 +631,11 @@ async def prepare_agent_loop_messages(
         for section_id in extra_system_prompts or []:
             yield SystemPromptSection(section_id, call_config.prompt_bundle_snapshot.resolve(section_id)[0])
         resolution = call_config.capability_resolution
+        if (
+            getattr(call_config, "dynamic_tool_discovery", False)
+            and getattr(call_config, "tool_discovery", None) is not None
+        ):
+            yield SystemPromptSection("deferred_tool_catalog", call_config.tool_discovery.catalog_prompt())
         if resolution.external_tool_names:
             yield SystemPromptSection("tool_failure_policy", render_runtime_prompt("stream.tool_failure_policy"))
         if "web_search" in resolution.external_tool_names:

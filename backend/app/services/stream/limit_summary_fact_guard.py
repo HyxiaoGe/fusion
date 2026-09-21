@@ -138,8 +138,10 @@ def has_tool_evidence(
 
 
 def requires_external_evidence(capability_resolution: RunCapabilityResolution | None) -> bool:
-    """只使用冻结能力中明确需要查询外部事实的包。"""
+    """冻结能力明确要求外部事实，或发现路径的授权目录含外部查询工具。"""
 
+    if getattr(capability_resolution, "requires_catalog_evidence", False):
+        return True
     return _get_field(capability_resolution, "package_id") in _EXTERNAL_FACT_PACKAGES
 
 

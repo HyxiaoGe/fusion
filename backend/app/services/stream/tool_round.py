@@ -412,7 +412,7 @@ def append_tool_round_messages_with_plan(
             request.messages.append(
                 _tool_message(
                     tool_call_id=tool_call["id"],
-                    content=_format_unavailable_tool_context(),
+                    content=_format_unavailable_tool_context(request, tool_call),
                 )
             )
 
@@ -1522,7 +1522,13 @@ def _format_reused_tool_context() -> str:
     )
 
 
-def _format_unavailable_tool_context() -> str:
+def _format_unavailable_tool_context(request: ToolRoundRequest | None = None, tool_call: dict | None = None) -> str:
+    session = getattr(getattr(request, "agent_state", None), "tool_discovery", None) if request is not None else None
+    name = str((tool_call or {}).get("name") or "")
+    if session is not None and name:
+        import json as _json
+
+        return _json.dumps(session.format_intercept(name), ensure_ascii=False)
     return json.dumps(
         {
             "status": "not_executed",

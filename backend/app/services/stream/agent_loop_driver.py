@@ -246,9 +246,12 @@ async def _run_round(
     )
     if runtime.task_mode != "deep_research" and runtime.plan_mode == "on":
         policy = resolve_plan_mode_tool_policy(state.plan_coordinator)
+        allowed_tool_names = policy.allowed_tool_names
+        if runtime.tool_discovery is not None:
+            allowed_tool_names = frozenset(allowed_tool_names) | frozenset({"tool_search"})
         call_kwargs = _filter_tools_for_research_stage(
             call_kwargs,
-            allowed_tool_names=policy.allowed_tool_names,
+            allowed_tool_names=allowed_tool_names,
         )
         if policy.require_tool_call:
             if policy.preferred_tool_name is None:
