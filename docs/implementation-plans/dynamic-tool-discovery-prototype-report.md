@@ -1,6 +1,6 @@
 # 动态工具发现原型交接报告
 
-日期：2026-09-22，Asia/Shanghai。Codex 审查 `b5eb6d94` 后的修复轮。未跑 live 真模型、未推送、未开 PR、未部署。
+日期：2026-09-22，Asia/Shanghai。第三轮复核后补齐 R4-A/B/C/D 反例测试与实验链路修复。发现机制与 R1–R3 保持。未跑 live 真模型、未推送、未开 PR、未部署。
 
 ## 1. 工作位置
 
@@ -10,7 +10,7 @@
 | 分支 | `cursor/dynamic-tool-discovery-c223` |
 | remote | `HyxiaoGe/fusion` |
 | base | `4c185cfca843e804143eaa5e16e2af8d804c1329` |
-| 审查 HEAD | `b5eb6d94e327c0eb60f002fe0d20423d1c204a98` |
+| 上一轮修复 HEAD | `31a863f6b3de38e19d9a7e6558125b3daf3220b2` |
 | 修复后 HEAD | 见文末 Git 节（本轮本地提交，未推送） |
 | 实际 base | 与任务书核对的 `master` 一致，未前移 |
 
@@ -44,7 +44,7 @@ cd /Users/sean/code/fusion/.worktrees/dynamic-tool-discovery-20260922/backend
 DATABASE_URL='sqlite:///:memory:' /Users/sean/code/fusion/fusion-api/.venv/bin/python -m pytest test/services/stream/test_dynamic_tool_discovery.py -q --tb=line
 ```
 
-退出码：`0`（**19 passed**）。日志：`backend/tmp/dynamic-tool-discovery/p01-p12-pytest.log`（gitignored）。
+退出码：`0`（**20 passed**）。日志：`backend/tmp/dynamic-tool-discovery/p01-p12-pytest.log`（gitignored）。
 
 相关回归（同解释器，DATABASE_URL 内存 SQLite）：
 
@@ -88,9 +88,9 @@ python scripts/dynamic_tool_discovery_compare.py --mode live --max-requests 8 --
 
 实际两臂调用链：
 
-`PairingExecutor._run_arm` → `build_agent_loop_call_config`（基线：`resolve_run_capability_route`；候选：opt-in 发现，不调分类）→ `build_agent_loop_execution` → `run_agent_loop` → 注入的 `llm_call_fn`（发送前扣全局预算）→ `transport.complete` → `handle_tool_calls_round` / fixture `execute` → 工具结果写入后续 messages。
+`PairingExecutor._run_arm` → `build_agent_loop_call_config`（基线：`classify_fn=classify_capability_request_with_model`，只在 `litellm.completion` 边界 fake；候选：opt-in 发现，不调分类）→ `prepare_agent_loop_messages`（隔离 DB/文件，固定日期 `2026-09-22`）→ `build_agent_loop_execution` → `run_agent_loop` → 注入的 `llm_call_fn`（发送前扣全局请求额度，事后累计 usage）→ `transport.complete`（`to_provider_messages` 完整 payload）→ `handle_tool_calls_round` / fixture `execute` → 工具结果写入后续 messages。
 
-R4 离线验收入口：`test_compare_pairing_uses_fusion_loop`。
+R4 离线验收入口：`test_compare_pairing_uses_fusion_loop` 与 `test_compare_r4_messages_hybrid_usage_and_proxy`。
 
 ## 5. 逐条回复审查项
 
@@ -110,18 +110,44 @@ R4 离线验收入口：`test_compare_pairing_uses_fusion_loop`。
 
 ### R4 配对执行器
 
-第二轮复核指出：此前只生成字符串、不执行工具、预算绑在 Fake 内部。现已把两臂接到真实 Fusion 装配与 Agent 循环，只替换模型传输、假产品工具和隔离存储。
+第三轮审查（`31a863f6`）确认循环已接入，但对照仍不具备有效取数条件。本轮只修实验链路，不改发现机制。
 
-- 候选天气用例：`tool_search` 执行 → 后续请求出现 `weather_forecast` schema → 假天气 handler 执行 → `day_weather` 进入后续 messages → 再回答。
-- 基线调用 `resolve_run_capability_route`；候选调用次数为 0。
-- 发现 handler 注入失败后 `task_completed` 为假，不会冒充完成。
-- 不维护预算的传输层仍受 `ExperimentBudget` 在每次 `llm_call_fn` 发送前扣减；限额 1 会中断配对。
-- `LiteLLMProxyTransport` 可与同一执行器互换；测试 mock `send_fn`；未授权真实发送时 `send_calls` 为空。
-- 六类用例同一实现；失败/空结果走 fixture playback，不按 `case_id` 直接生成最终答案。
-- 请求内容 hash 不含 arm/repeat。
-- 真实模型未执行，消耗 0。
+#### R4-A 正式消息与工具协议
 
-测试：`test_compare_pairing_uses_fusion_loop`。
+- 两臂调用 `prepare_agent_loop_messages`：隔离 `file_repo` / 用户系统提示 / `build_llm_messages`，传入用例原文；用实验时钟渲染 `current_date`，实际发送内容含 `2026-09-22`。
+- 发送序列化走 `PromptMessage.to_provider_messages()`：保留 assistant `tool_calls` 与 tool `tool_call_id`；`section_id` 只留在旁路 `first_provider_payloads.section_ids`。
+- Fake 在首轮 messages 缺少用户原文时不再按 `case_id` 伪造工具调用。
+- 请求 hash 基于实际发送 payload（messages/tools/tool_choice/max_tokens/fixed_date），不含 arm/repeat，不含凭据。
+
+脱敏样例（天气基线首轮，不含密钥）：
+
+- roles：`system, system, system, system, user`
+- user：`帮我看看杭州这周末天气怎么样`
+- 发送体含日期 `2026-09-22`，不含 `section_id`
+- 旁路 section：`app_identity`, `tool_failure_policy`, `tool_usage_contract`, `current_date`
+- 后续 tool `tool_call_id=call_weather`，assistant 带 `tool_calls`
+- 基线本轮可见工具：`web_search`, `url_read`, `weather_forecast`
+
+#### R4-B 基线 hybrid
+
+- 基线 `classify_fn` 为生产 `classify_capability_request_with_model`，不重写分类器。
+- 字面短路（如翻译用例）`classify_sends=0`；语义层（如天气/出门判断）实际调用 `litellm.completion`，先扣同一 `ExperimentBudget` 再发送。
+- 候选路径分类发送次数为 0。模型发送始终 fake。
+
+#### R4-C LiteLLM Proxy 解析
+
+- `LiteLLMProxyTransport` 经 `LLMManager.resolve_model` 组包：`model=litellm_proxy/{alias}`，带 `api_base`/`api_key`，`num_retries=0`。
+- 凭据只进发送参数，不进 `send_calls` 日志与 hash。
+- 测试 mock 真正的 `litellm.acompletion`，解析 SDK `choices/message/tool_calls/usage`。未授权真实发送时发送次数为 0。
+
+#### R4-D 完成判定与用量
+
+- `task_completed` 不再等于“有文本”。天气需实际 `weather_forecast` 执行且后续消息含 `day_weather`；无查询记 `honest_incomplete`；空班次记 `unevaluated`；传输/执行异常记 `error`。
+- 失败注入仍改真实 `tool_search.execute`，判定只看执行结果与异常，不读 `break_discovery` 开关。
+- 响应 usage 累加到 `used_tokens`；缺失标 `usage_unknown`。每次输出上限仍是 `limits_per_run.max_tokens=4096`，与实验 token 账本分开。
+- summary 的 `head` 为当前 HEAD，`base` 为 `master`；`live_real_model` 仅当显式 `FUSION_COMPARE_ALLOW_REAL_LLM=1` 且真实适配无 `send_fn`；`cache_status` 来自目录状态。
+
+测试：`test_compare_pairing_uses_fusion_loop`、`test_compare_r4_messages_hybrid_usage_and_proxy`。真模型未执行，消耗 0。P08 最后交付缺口仍单列。
 
 ### 假 package
 
@@ -166,4 +192,4 @@ DATABASE_URL='sqlite:///:memory:' /Users/sean/code/fusion/fusion-api/.venv/bin/p
 
 ## 9. Git
 
-已本地提交到 `cursor/dynamic-tool-discovery-c223`。未推送。HEAD 以工作树 `git rev-parse HEAD` 为准。
+已本地提交到 `cursor/dynamic-tool-discovery-c223`。未推送。HEAD 以工作树 `git rev-parse HEAD` 为准。本轮审查对象 `31a863f6`。

@@ -924,6 +924,221 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
             empty = json.loads((output / "six" / "candidate-empty_then_specific-r0.json").read_text(encoding="utf-8"))
             self.assertGreaterEqual(empty["handler_counts"]["search_trains"], 1)
             self.assertNotIn("empty_then_specific", empty["final_output"] or "")
+            self.assertEqual(empty["task_outcome"], "unevaluated")
+            self.assertFalse(empty["task_completed"])
+            self.assertNotEqual(six_summary["base"], six_summary["head"])
+            self.assertFalse(six_summary["live_real_model"])
+
+    async def test_compare_r4_messages_hybrid_usage_and_proxy(self):
+        import importlib.util
+        import tempfile
+        from pathlib import Path
+
+        from app.services.stream.run_capability_model_classifier import classify_capability_request_with_model
+
+        compare_path = Path(__file__).resolve().parents[3] / "scripts" / "dynamic_tool_discovery_compare.py"
+        spec = importlib.util.spec_from_file_location("dynamic_tool_discovery_compare_r4", compare_path)
+        compare = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = compare
+        spec.loader.exec_module(compare)
+
+        weather = next(case for case in compare.CASES if case["id"] == "weather_only")
+        semantic = {
+            "id": "semantic_weekend_out",
+            "text": "周末上海适合出门吗？",
+            "expect": "进入 hybrid 语义分类",
+            "kind": "normal",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            transport = compare.FakeModelTransport()
+            with patch(
+                "app.services.stream.run_capability_model_classifier.classify_capability_request_with_model",
+                wraps=classify_capability_request_with_model,
+            ) as hybrid_spy:
+                summary = await compare.PairingExecutor(
+                    transport=transport,
+                    budget=compare.ExperimentBudget(max_requests=24),
+                    output_dir=output / "pair",
+                    cases=[weather],
+                    repeats=1,
+                ).run_async()
+            self.assertGreaterEqual(hybrid_spy.call_count, 1)
+            candidate = json.loads((output / "pair" / "candidate-weather_only-r0.json").read_text(encoding="utf-8"))
+            baseline = json.loads((output / "pair" / "baseline-weather_only-r0.json").read_text(encoding="utf-8"))
+            self.assertEqual(candidate["classify_route_calls"], 0)
+            self.assertGreaterEqual(baseline["classify_route_calls"], 1)
+            returned_usage = sum(
+                int(item["response"]["input_tokens"] or 0) + int(item["response"]["output_tokens"] or 0)
+                for item in transport.calls
+            )
+            classify_tokens = sum(15 for _ in summary["spies"]["classify_sends"])
+            self.assertEqual(summary["used_tokens"], returned_usage + classify_tokens)
+            self.assertGreater(summary["used_tokens"], 0)
+            self.assertFalse(summary["usage_unknown"])
+            for arm_name, record in (("baseline", baseline), ("candidate", candidate)):
+                first = record["rounds"][0]["messages"]
+                self.assertTrue(first, msg=f"{arm_name} 首轮 messages 为空")
+                self.assertTrue(
+                    any(
+                        item.get("role") == "user" and weather["text"] in str(item.get("content") or "")
+                        for item in first
+                    )
+                )
+                joined = json.dumps(first, ensure_ascii=False)
+                self.assertIn("2026-09-22", joined)
+                sidecar = next(
+                    row
+                    for row in summary["spies"]["first_provider_payloads"]
+                    if row["arm"] == arm_name and row["case_id"] == "weather_only"
+                )
+                self.assertTrue(any(sidecar.get("section_ids") or []))
+                for item in first:
+                    self.assertNotIn("section_id", item)
+                later = [message for row in record["rounds"][1:] for message in row.get("messages") or []]
+                tool_messages = [message for message in later if message.get("role") == "tool"]
+                self.assertTrue(tool_messages, msg=f"{arm_name} 缺少 tool 回执")
+                self.assertTrue(all("tool_call_id" in message for message in tool_messages))
+                assistants = [message for message in later if message.get("role") == "assistant"]
+                self.assertTrue(any(message.get("tool_calls") for message in assistants))
+
+            semantic_budget = compare.ExperimentBudget(max_requests=16)
+            with patch(
+                "app.services.stream.run_capability_model_classifier.classify_capability_request_with_model",
+                wraps=classify_capability_request_with_model,
+            ) as semantic_hybrid:
+                semantic_summary = await compare.PairingExecutor(
+                    transport=compare.FakeModelTransport(),
+                    budget=semantic_budget,
+                    output_dir=output / "semantic",
+                    cases=[semantic],
+                    repeats=1,
+                ).run_async()
+            self.assertGreaterEqual(semantic_hybrid.call_count, 1)
+            self.assertGreaterEqual(len(semantic_summary["spies"]["classify_sends"]), 1)
+            classify_send = semantic_summary["spies"]["classify_sends"][0]
+            self.assertTrue(str(classify_send["model"]).startswith("litellm_proxy/"))
+            self.assertTrue(classify_send["user_in_payload"])
+            self.assertEqual(classify_send["num_retries"], 0)
+            self.assertGreaterEqual(semantic_budget.used_requests, 1)
+
+            literal = {
+                "id": "greeting",
+                "text": "把 See you tomorrow 翻译成中文",
+                "expect": "字面短路，不发分类模型",
+                "kind": "normal",
+            }
+            literal_summary = await compare.PairingExecutor(
+                transport=compare.FakeModelTransport(),
+                budget=compare.ExperimentBudget(max_requests=8),
+                output_dir=output / "literal",
+                cases=[literal],
+                repeats=1,
+            ).run_async()
+            self.assertEqual(literal_summary["spies"]["classify_sends"], [])
+
+            wrong = await compare.PairingExecutor(
+                transport=_WrongAnswerTransport(compare),
+                budget=compare.ExperimentBudget(max_requests=8),
+                output_dir=output / "wrong",
+                cases=[weather],
+                repeats=1,
+            ).run_async()
+            for record in [*wrong["completed"], *wrong["incomplete"]]:
+                if record["case_id"] == "weather_only":
+                    self.assertFalse(record["task_completed"])
+                    self.assertEqual(record["task_outcome"], "honest_incomplete")
+                    self.assertEqual(record["handler_counts"]["weather_forecast"], 0)
+            self.assertTrue(wrong["incomplete"])
+
+            missing_budget = compare.ExperimentBudget(max_requests=8)
+            greeting = next(case for case in compare.CASES if case["id"] == "greeting")
+            missing_summary = await compare.PairingExecutor(
+                transport=_MissingUsageTransport(compare),
+                budget=missing_budget,
+                output_dir=output / "missing-usage",
+                cases=[greeting],
+                repeats=1,
+            ).run_async()
+            self.assertEqual(
+                missing_budget.used_tokens,
+                15 * len(missing_summary["spies"]["classify_sends"]),
+            )
+            self.assertTrue(missing_summary["usage_unknown"])
+
+            captured = []
+
+            async def fake_acompletion(**kwargs):
+                captured.append(kwargs)
+                return SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            message=SimpleNamespace(
+                                content="mock",
+                                tool_calls=[
+                                    SimpleNamespace(
+                                        id="call_weather",
+                                        function=SimpleNamespace(
+                                            name="weather_forecast",
+                                            arguments='{"location":"杭州","location_source":"named"}',
+                                        ),
+                                    )
+                                ],
+                            )
+                        )
+                    ],
+                    usage=SimpleNamespace(prompt_tokens=11, completion_tokens=7),
+                )
+
+            with patch("app.ai.litellm_catalog.get_model_entry", return_value={"metadata": {}}):
+                with patch(
+                    "app.ai.litellm_catalog.get_cache_status",
+                    return_value={"availability": "available", "has_cache": True},
+                ):
+                    with patch("litellm.acompletion", side_effect=fake_acompletion):
+                        adapter = compare.LiteLLMProxyTransport(allow_real=True, alias="test-alias")
+                        parsed = await adapter.complete(
+                            compare.ModelRequest(
+                                messages=[{"role": "user", "content": weather["text"]}],
+                                tools=[],
+                                tool_choice="auto",
+                            )
+                        )
+            payload = captured[0]
+            self.assertEqual(payload["model"], "litellm_proxy/test-alias")
+            self.assertIn("api_base", payload)
+            self.assertIn("api_key", payload)
+            self.assertEqual(payload["num_retries"], 0)
+            self.assertEqual(parsed.tool_calls[0]["name"], "weather_forecast")
+            self.assertEqual(parsed.input_tokens, 11)
+            self.assertEqual(parsed.output_tokens, 7)
+            self.assertNotIn("api_key", adapter.send_calls[0])
+
+
+class _WrongAnswerTransport:
+    def __init__(self, compare):
+        self._compare = compare
+
+    def complete(self, request):
+        return self._compare.ModelResponse(
+            status="ok",
+            request_hash=self._compare.request_hash(request),
+            content="我没有查询天气，只随便说几句。",
+            input_tokens=4,
+            output_tokens=8,
+        )
+
+
+class _MissingUsageTransport:
+    def __init__(self, compare):
+        self._compare = compare
+
+    def complete(self, request):
+        return self._compare.ModelResponse(
+            status="ok",
+            request_hash=self._compare.request_hash(request),
+            content="你好，我是助手。",
+        )
 
 
 def _fn_name(tool: dict) -> str:

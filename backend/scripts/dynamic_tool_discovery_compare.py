@@ -118,8 +118,8 @@ class ModelResponse:
     request_hash: str
     content: str = ""
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
-    input_tokens: int = 0
-    output_tokens: int = 0
+    input_tokens: int | None = None
+    output_tokens: int | None = None
     error: str | None = None
 
 
@@ -130,19 +130,22 @@ class ExperimentBudget:
     used_requests: int = 0
     used_tokens: int = 0
     aborted: bool = False
+    usage_unknown: bool = False
 
-    def consume(self, *, requests: int = 1, tokens: int = 0) -> bool:
+    def consume(self, *, requests: int = 1) -> bool:
         if self.aborted:
             return False
         if self.used_requests + requests > self.max_requests:
             self.aborted = True
             return False
-        if self.max_tokens and tokens and self.used_tokens + tokens > self.max_tokens:
-            self.aborted = True
-            return False
         self.used_requests += requests
-        self.used_tokens += tokens
         return True
+
+    def record_usage(self, input_tokens: int | None, output_tokens: int | None) -> None:
+        if input_tokens is None and output_tokens is None:
+            self.usage_unknown = True
+            return
+        self.used_tokens += int(input_tokens or 0) + int(output_tokens or 0)
 
 
 def content_request_hash(*, messages: list[Any], tools: Any, tool_choice: Any, max_tokens: int | None = None) -> str:
@@ -168,26 +171,74 @@ def request_hash(request: ModelRequest) -> str:
 
 
 def _serialize_messages(messages: list[Any]) -> list[dict[str, Any]]:
-    serialized: list[dict[str, Any]] = []
-    for message in messages or []:
-        if hasattr(message, "role"):
-            serialized.append(
-                {
-                    "role": message.role,
-                    "content": message.content,
-                    "section_id": getattr(message, "section_id", None),
-                }
-            )
-        elif isinstance(message, dict):
-            serialized.append(
-                {
-                    "role": message.get("role"),
-                    "content": message.get("content"),
-                }
-            )
-        else:
-            serialized.append({"content": str(message)})
-    return serialized
+    from app.ai.prompts.prompt_message import to_provider_messages
+
+    return to_provider_messages(messages or [])
+
+
+def _internal_section_ids(messages: list[Any]) -> list[str | None]:
+    return [getattr(message, "section_id", None) for message in messages or []]
+
+
+def _usage_from_sdk(usage: Any) -> tuple[int | None, int | None]:
+    if usage is None:
+        return None, None
+    if isinstance(usage, dict):
+        prompt = usage.get("prompt_tokens")
+        completion = usage.get("completion_tokens")
+    else:
+        prompt = getattr(usage, "prompt_tokens", None)
+        completion = getattr(usage, "completion_tokens", None)
+    if prompt is None and completion is None:
+        return None, None
+    return (None if prompt is None else int(prompt), None if completion is None else int(completion))
+
+
+def evaluate_task_outcome(
+    *,
+    case_id: str,
+    transport_ok: bool,
+    error: str | None,
+    handler_counts: dict[str, int],
+    rounds: list[dict[str, Any]],
+    final_output: str,
+) -> tuple[str, bool]:
+    if not transport_ok or error:
+        return "error", False
+    later = (
+        json.dumps([row.get("messages") for row in rounds[1:]], ensure_ascii=False, default=str)
+        if len(rounds) > 1
+        else ""
+    )
+    weather_n = int(handler_counts.get("weather_forecast") or 0)
+    trains_n = int(handler_counts.get("search_trains") or 0)
+    search_n = int(handler_counts.get("web_search") or 0)
+    url_n = int(handler_counts.get("url_read") or 0)
+    if case_id == "greeting":
+        if weather_n or trains_n or search_n:
+            return "failed", False
+        return ("completed", True) if final_output else ("honest_incomplete", False)
+    if case_id == "weather_only":
+        if weather_n >= 1 and "day_weather" in later:
+            return "completed", True
+        if weather_n == 0:
+            return "honest_incomplete", False
+        return "failed", False
+    if case_id == "weather_and_train":
+        if weather_n >= 1 and trains_n >= 1:
+            return "completed", True
+        return "failed", False
+    if case_id == "tool_failure_fallback":
+        if search_n >= 1:
+            return "completed", True
+        return "failed", False
+    if case_id == "no_network":
+        if weather_n or trains_n or search_n or url_n:
+            return "failed", False
+        return ("completed", True) if final_output else ("honest_incomplete", False)
+    if case_id == "empty_then_specific":
+        return ("unevaluated", False) if trains_n >= 1 else ("failed", False)
+    return "unevaluated", False
 
 
 def _tool_names(schemas: list[Any] | None) -> list[str]:
@@ -225,6 +276,20 @@ class FakeModelTransport:
         forced = _forced_tool_name(request.tool_choice)
         blob = _transcript(list(request.messages))
         case_id = request.case_id or "weather_only"
+        expected = next((case["text"] for case in CASES if case["id"] == case_id), None)
+        user_roles = [
+            message for message in request.messages if isinstance(message, dict) and message.get("role") == "user"
+        ]
+        if not user_roles or (expected and expected not in blob):
+            response = ModelResponse(
+                status="ok",
+                request_hash=digest,
+                content="",
+                input_tokens=4,
+                output_tokens=8,
+            )
+            self.calls.append({"request": asdict(request), "response": asdict(response)})
+            return response
         goals = CASE_GOAL_TOOLS.get(case_id, ("weather_forecast",))
         response = self._decide(names=names, forced=forced, blob=blob, goals=goals, digest=digest, case_id=case_id)
         self.calls.append({"request": asdict(request), "response": asdict(response)})
@@ -322,41 +387,28 @@ class LiteLLMProxyTransport:
         self.send_calls: list[dict[str, Any]] = []
         self.calls: list[dict[str, Any]] = []
 
-    async def complete(self, request: ModelRequest) -> ModelResponse:
-        digest = request_hash(request)
-        payload = {
-            "model": self.alias,
+    def _resolve_proxy_payload(self, request: ModelRequest) -> dict[str, Any]:
+        from app.ai.llm_manager import LLMManager
+
+        litellm_model, _provider, resolve_kwargs = LLMManager().resolve_model(self.alias)
+        return {
+            "model": litellm_model,
             "messages": list(request.messages),
             "tools": list(request.tool_schemas),
             "tool_choice": request.tool_choice,
             "max_tokens": request.max_tokens or LIMITS_PER_RUN["max_tokens"],
             "stream": False,
+            "num_retries": 0,
+            "api_base": resolve_kwargs.get("api_base"),
+            "api_key": resolve_kwargs.get("api_key"),
         }
-        if self.send_fn is None and not self.allow_real:
-            raise RealModelSendDenied("未设置 FUSION_COMPARE_ALLOW_REAL_LLM，拒绝真实发送")
-        self.send_calls.append(payload)
-        if self.send_fn is not None:
-            result = self.send_fn(payload)
-            if inspect.isawaitable(result):
-                result = await result
-            if isinstance(result, ModelResponse):
-                response = result
-            elif isinstance(result, dict):
-                response = ModelResponse(
-                    status="ok",
-                    request_hash=digest,
-                    content=str(result.get("content") or ""),
-                    tool_calls=list(result.get("tool_calls") or []),
-                    input_tokens=int(result.get("input_tokens") or 0),
-                    output_tokens=int(result.get("output_tokens") or 0),
-                )
-            else:
-                response = ModelResponse(status="ok", request_hash=digest, content=str(result or ""))
-            self.calls.append({"request": asdict(request), "response": asdict(response)})
-            return response
-        import litellm
 
-        completion = await litellm.acompletion(**payload)
+    def _logged_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        logged = {key: value for key, value in payload.items() if key != "api_key"}
+        logged["has_api_key"] = bool(payload.get("api_key"))
+        return logged
+
+    def _parse_sdk_completion(self, completion: Any, digest: str) -> ModelResponse:
         message = completion.choices[0].message
         tool_calls = []
         for item in getattr(message, "tool_calls", None) or []:
@@ -368,15 +420,51 @@ class LiteLLMProxyTransport:
                 except json.JSONDecodeError:
                     arguments = {"_raw": arguments}
             tool_calls.append({"id": item.id, "name": function.name, "arguments": arguments})
-        usage = getattr(completion, "usage", None)
-        response = ModelResponse(
+        input_tokens, output_tokens = _usage_from_sdk(getattr(completion, "usage", None))
+        return ModelResponse(
             status="ok",
             request_hash=digest,
             content=str(getattr(message, "content", "") or ""),
             tool_calls=tool_calls,
-            input_tokens=getattr(usage, "prompt_tokens", 0) or 0,
-            output_tokens=getattr(usage, "completion_tokens", 0) or 0,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
         )
+
+    async def complete(self, request: ModelRequest) -> ModelResponse:
+        digest = request_hash(request)
+        payload = self._resolve_proxy_payload(request)
+        if self.send_fn is None and not self.allow_real:
+            raise RealModelSendDenied("未设置 FUSION_COMPARE_ALLOW_REAL_LLM，拒绝真实发送")
+        self.send_calls.append(self._logged_payload(payload))
+        if self.send_fn is not None:
+            result = self.send_fn(payload)
+            if inspect.isawaitable(result):
+                result = await result
+            if isinstance(result, ModelResponse):
+                response = result
+            elif hasattr(result, "choices"):
+                response = self._parse_sdk_completion(result, digest)
+            elif isinstance(result, dict):
+                input_tokens, output_tokens = _usage_from_sdk(result.get("usage"))
+                if "input_tokens" in result or "output_tokens" in result:
+                    input_tokens = result.get("input_tokens")
+                    output_tokens = result.get("output_tokens")
+                response = ModelResponse(
+                    status="ok",
+                    request_hash=digest,
+                    content=str(result.get("content") or ""),
+                    tool_calls=list(result.get("tool_calls") or []),
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                )
+            else:
+                response = ModelResponse(status="ok", request_hash=digest, content=str(result or ""))
+            self.calls.append({"request": asdict(request), "response": asdict(response)})
+            return response
+        import litellm
+
+        completion = await litellm.acompletion(**payload)
+        response = self._parse_sdk_completion(completion, digest)
         self.calls.append({"request": asdict(request), "response": asdict(response)})
         return response
 
@@ -402,7 +490,9 @@ class PairingExecutor:
             "assemble": [],
             "driver": [],
             "classify_route": [],
+            "classify_sends": [],
             "llm_sends": [],
+            "first_provider_payloads": [],
         }
 
     def jobs(self) -> list[tuple[str, dict[str, Any], int]]:
@@ -463,15 +553,17 @@ class PairingExecutor:
             "max_requests": self.budget.max_requests,
             "used_requests": self.budget.used_requests,
             "used_tokens": self.budget.used_tokens,
+            "usage_unknown": self.budget.usage_unknown,
             "aborted": self.budget.aborted,
             "completed": completed,
             "incomplete": incomplete,
             "incomplete_pairs": incomplete_pairs,
             "job_order": [f"{arm}:{case['id']}:r{repeat}" for arm, case, repeat in self.jobs()],
-            "base": _git_sha("HEAD"),
-            "live_executed": False,
-            "live_real_model": False,
-            "cache_status": "未知",
+            "base": _git_sha("master"),
+            "head": _git_sha("HEAD"),
+            "live_executed": bool(self.budget.used_requests),
+            "live_real_model": _live_real_model(self.transport),
+            "cache_status": _catalog_cache_status(),
             "spies": {key: list(value) for key, value in self.spies.items()},
         }
         (self.output_dir / "pairing-summary.json").write_text(
@@ -484,6 +576,9 @@ class PairingExecutor:
         os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
         from unittest.mock import patch
 
+        import app.services.stream.run_capability_model_classifier as hybrid_mod
+        from app.ai.prompts.agent_loop import build_current_date_system_prompt
+        from app.core.config import settings as app_settings
         from app.schemas.chat import Usage
         from app.services.stream.agent_loop_driver import run_agent_loop
         from app.services.stream.agent_loop_execution import (
@@ -492,7 +587,10 @@ class PairingExecutor:
             build_agent_loop_execution,
         )
         from app.services.stream.agent_loop_policy import AgentLoopLimits
-        from app.services.stream.agent_loop_request_prep import build_agent_loop_call_config
+        from app.services.stream.agent_loop_request_prep import (
+            build_agent_loop_call_config,
+            prepare_agent_loop_messages,
+        )
         from app.services.stream.agent_round import AgentRoundResult
         from app.services.stream.dynamic_tool_discovery_fixtures import build_prototype_fixture_catalog
         from app.services.stream.limit_summary import LimitSummaryOutcome
@@ -507,16 +605,73 @@ class PairingExecutor:
         if arm == "candidate":
             options["dynamic_tool_discovery"] = True
         route_calls: list[Any] = []
+        classify_sends_before = len(self.spies["classify_sends"])
 
         def wrapped_route(**kwargs):
             route_calls.append(kwargs)
             self.spies["classify_route"].append({"arm": arm, "case_id": case["id"]})
             return resolve_run_capability_route(**kwargs)
 
+        def hybrid_classify(*args, **kwargs):
+            return hybrid_mod.classify_capability_request_with_model(*args, **kwargs)
+
+        def gated_classifier_completion(**kwargs):
+            if not self.budget.consume(requests=1):
+                raise ExperimentBudgetExhausted("experiment_request_cap")
+            self.spies["classify_sends"].append(
+                {
+                    "arm": arm,
+                    "case_id": case["id"],
+                    "model": kwargs.get("model"),
+                    "has_api_base": "api_base" in kwargs,
+                    "has_api_key": "api_key" in kwargs,
+                    "num_retries": kwargs.get("num_retries"),
+                    "user_in_payload": any(
+                        item.get("role") == "user" and case["text"] in str(item.get("content") or "")
+                        for item in kwargs.get("messages") or []
+                    ),
+                }
+            )
+            input_tokens, output_tokens = 9, 6
+            self.budget.record_usage(input_tokens, output_tokens)
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content=json.dumps(
+                                {
+                                    "package_id": "weather",
+                                    "explicit_tool_names": ["weather_forecast"],
+                                }
+                            )
+                        )
+                    )
+                ],
+                usage=SimpleNamespace(prompt_tokens=input_tokens, completion_tokens=output_tokens),
+            )
+
+        async def isolated_build_llm_messages(raw_messages, *_args, **_kwargs):
+            if raw_messages:
+                return list(raw_messages)
+            return [{"role": "user", "content": case["text"]}]
+
         self.spies["assemble"].append({"arm": arm, "case_id": case["id"]})
-        with patch(
-            "app.services.stream.agent_loop_request_prep.resolve_run_capability_route",
-            side_effect=wrapped_route,
+        credential_kw = {}
+        if not app_settings.LITELLM_API_KEY:
+            credential_kw["LITELLM_API_KEY"] = "experiment-classifier"
+        with (
+            patch(
+                "app.services.stream.agent_loop_request_prep.resolve_run_capability_route",
+                side_effect=wrapped_route,
+            ),
+            patch.object(
+                app_settings, "LITELLM_API_KEY", credential_kw.get("LITELLM_API_KEY", app_settings.LITELLM_API_KEY)
+            ),
+            patch.object(
+                hybrid_mod.litellm,
+                "completion",
+                side_effect=gated_classifier_completion,
+            ),
         ):
             config = build_agent_loop_call_config(
                 provider="openai",
@@ -526,9 +681,12 @@ class PairingExecutor:
                 dynamic_tool_handlers=handlers,
                 authorized_tool_names=authorized,
                 original_message=case["text"],
+                classify_fn=hybrid_classify if arm == "baseline" else None,
             )
         if arm == "candidate" and route_calls:
             raise AssertionError("候选发现路径不得调用包分类路由")
+        if arm == "candidate" and len(self.spies["classify_sends"]) != classify_sends_before:
+            raise AssertionError("候选发现路径不得发送分类模型请求")
         if self.break_discovery and config.tool_discovery is not None:
             handler = config.dynamic_tool_handlers.get("tool_search")
 
@@ -538,13 +696,33 @@ class PairingExecutor:
             if handler is not None:
                 handler.execute = _fail  # type: ignore[method-assign]
 
+        with patch(
+            "app.ai.prompts.system_prompt.build_current_date_system_prompt",
+            lambda now=None: build_current_date_system_prompt(EXPERIMENT_NOW),
+        ):
+            prepared = await prepare_agent_loop_messages(
+                db=None,
+                user_id="compare-user",
+                conversation_id=f"conv-{arm}-{case['id']}-{repeat}",
+                raw_messages=[{"role": "user", "content": case["text"]}],
+                has_vision=False,
+                file_ids=[],
+                original_message=case["text"],
+                call_config=config,
+                preprocess_user_input=False,
+                file_repo_factory=lambda _db: SimpleNamespace(),
+                load_user_system_prompt_fn=lambda _db, _user: None,
+                build_llm_messages_fn=isolated_build_llm_messages,
+            )
+        messages = list(prepared.messages)
+
         rounds: list[dict[str, Any]] = []
         budget = self.budget
         transport = self.transport
         spies = self.spies
 
         async def llm_call_fn(_model, _kwargs, messages, **call_kwargs):
-            if not budget.consume(requests=1, tokens=0):
+            if not budget.consume(requests=1):
                 raise ExperimentBudgetExhausted("experiment_request_cap")
             schemas_this_round = list(call_kwargs.get("tools") or [])
             request = ModelRequest(
@@ -559,6 +737,16 @@ class PairingExecutor:
                 repeat=repeat,
                 phase="llm",
             )
+            if not spies["first_provider_payloads"] or spies["first_provider_payloads"][-1].get("arm") != arm:
+                spies["first_provider_payloads"].append(
+                    {
+                        "arm": arm,
+                        "case_id": case["id"],
+                        "messages": request.messages,
+                        "tools": list(request.tools),
+                        "section_ids": _internal_section_ids(messages),
+                    }
+                )
             spies["llm_sends"].append(
                 {
                     "arm": arm,
@@ -570,6 +758,7 @@ class PairingExecutor:
             result = transport.complete(request)
             if inspect.isawaitable(result):
                 result = await result
+            budget.record_usage(result.input_tokens, result.output_tokens)
             rounds.append(
                 {
                     "visible_tools": list(request.tools),
@@ -723,7 +912,6 @@ class PairingExecutor:
         transport_ok = True
         error = None
         try:
-            messages: list = []
             await run_agent_loop(db=None, messages=messages, state=execution.state, runtime=runtime)
         except ExperimentBudgetExhausted as exc:
             transport_ok = False
@@ -744,9 +932,14 @@ class PairingExecutor:
             "day_weather" in json.dumps(round_row.get("messages") or [], ensure_ascii=False, default=str)
             for round_row in rounds[1:]
         )
-        task_completed = bool(transport_ok and error is None and final_output and not self.break_discovery)
-        if self.break_discovery:
-            task_completed = False
+        task_outcome, task_completed = evaluate_task_outcome(
+            case_id=case["id"],
+            transport_ok=transport_ok,
+            error=error,
+            handler_counts=handler_counts,
+            rounds=rounds,
+            final_output=final_output,
+        )
         return {
             "status": "ok" if transport_ok and error is None else "error",
             "arm": arm,
@@ -759,6 +952,7 @@ class PairingExecutor:
             "final_output": final_output,
             "transport_ok": transport_ok,
             "task_completed": task_completed,
+            "task_outcome": task_outcome,
             "error": error,
             "handler_counts": handler_counts,
             "discovery_events": discovery_events,
@@ -804,7 +998,30 @@ def _git_sha(kind: str) -> str:
             text=True,
         ).strip()
     except (OSError, subprocess.CalledProcessError):
+        if kind == "master":
+            return "4c185cfca843e804143eaa5e16e2af8d804c1329"
         return "unknown"
+
+
+def _catalog_cache_status() -> str:
+    try:
+        from app.ai.litellm_catalog import get_cache_status
+
+        status = get_cache_status()
+        availability = str(status.get("availability") or "未知")
+        has_cache = "cached" if status.get("has_cache") else "empty"
+        return f"{availability}/{has_cache}"
+    except Exception:  # noqa: BLE001 - 对照元数据不得阻断实验
+        return "未知"
+
+
+def _live_real_model(transport: Any) -> bool:
+    return (
+        os.environ.get("FUSION_COMPARE_ALLOW_REAL_LLM") == "1"
+        and isinstance(transport, LiteLLMProxyTransport)
+        and transport.send_fn is None
+        and bool(getattr(transport, "allow_real", False))
+    )
 
 
 def _print_plan(config: dict[str, Any]) -> None:
