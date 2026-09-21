@@ -15,6 +15,7 @@ import json
 import os
 import subprocess
 import sys
+from contextlib import ExitStack
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -29,6 +30,11 @@ EXPERIMENT_TZ = timezone(timedelta(hours=8))
 EXPERIMENT_NOW = datetime(2026, 9, 22, 9, 0, tzinfo=EXPERIMENT_TZ)
 
 DEFAULT_OUTPUT = _BACKEND_ROOT / "tmp" / "dynamic-tool-discovery"
+COMPARISON_BASE_SHA = "4c185cfca843e804143eaa5e16e2af8d804c1329"
+OFFLINE_CLASSIFIER_FIXTURE = {
+    "package_id": "weather",
+    "explicit_tool_names": ["weather_forecast"],
+}
 LIMITS_PER_RUN = {
     "max_steps": 8,
     "max_tool_calls": 12,
@@ -142,8 +148,9 @@ class ExperimentBudget:
         return True
 
     def record_usage(self, input_tokens: int | None, output_tokens: int | None) -> None:
-        if input_tokens is None and output_tokens is None:
+        if input_tokens is None or output_tokens is None:
             self.usage_unknown = True
+        if input_tokens is None and output_tokens is None:
             return
         self.used_tokens += int(input_tokens or 0) + int(output_tokens or 0)
 
@@ -203,41 +210,11 @@ def evaluate_task_outcome(
     rounds: list[dict[str, Any]],
     final_output: str,
 ) -> tuple[str, bool]:
+    """业务结果不自动判定。次数、字段名、非空文本都不能当完成。"""
+
+    del case_id, handler_counts, rounds, final_output
     if not transport_ok or error:
         return "error", False
-    later = (
-        json.dumps([row.get("messages") for row in rounds[1:]], ensure_ascii=False, default=str)
-        if len(rounds) > 1
-        else ""
-    )
-    weather_n = int(handler_counts.get("weather_forecast") or 0)
-    trains_n = int(handler_counts.get("search_trains") or 0)
-    search_n = int(handler_counts.get("web_search") or 0)
-    url_n = int(handler_counts.get("url_read") or 0)
-    if case_id == "greeting":
-        if weather_n or trains_n or search_n:
-            return "failed", False
-        return ("completed", True) if final_output else ("honest_incomplete", False)
-    if case_id == "weather_only":
-        if weather_n >= 1 and "day_weather" in later:
-            return "completed", True
-        if weather_n == 0:
-            return "honest_incomplete", False
-        return "failed", False
-    if case_id == "weather_and_train":
-        if weather_n >= 1 and trains_n >= 1:
-            return "completed", True
-        return "failed", False
-    if case_id == "tool_failure_fallback":
-        if search_n >= 1:
-            return "completed", True
-        return "failed", False
-    if case_id == "no_network":
-        if weather_n or trains_n or search_n or url_n:
-            return "failed", False
-        return ("completed", True) if final_output else ("honest_incomplete", False)
-    if case_id == "empty_then_specific":
-        return ("unevaluated", False) if trains_n >= 1 else ("failed", False)
     return "unevaluated", False
 
 
@@ -479,6 +456,7 @@ class PairingExecutor:
         cases: list[dict[str, Any]] | None = None,
         repeats: int = 2,
         break_discovery: bool = False,
+        classify_completion_fn: Any | None = None,
     ) -> None:
         self.transport = transport
         self.budget = budget
@@ -486,6 +464,7 @@ class PairingExecutor:
         self.cases = cases or CASES
         self.repeats = repeats
         self.break_discovery = break_discovery
+        self.classify_completion_fn = classify_completion_fn
         self.spies: dict[str, list[Any]] = {
             "assemble": [],
             "driver": [],
@@ -524,7 +503,9 @@ class PairingExecutor:
                     "repeat": repeat,
                     "reason": "budget_aborted",
                     "transport_ok": False,
+                    "execution_ok": False,
                     "task_completed": False,
+                    "task_outcome": "error",
                     "final_output": None,
                 }
                 incomplete.append(record)
@@ -559,11 +540,12 @@ class PairingExecutor:
             "incomplete": incomplete,
             "incomplete_pairs": incomplete_pairs,
             "job_order": [f"{arm}:{case['id']}:r{repeat}" for arm, case, repeat in self.jobs()],
-            "base": _git_sha("master"),
+            "base": COMPARISON_BASE_SHA,
             "head": _git_sha("HEAD"),
             "live_executed": bool(self.budget.used_requests),
             "live_real_model": _live_real_model(self.transport),
-            "cache_status": _catalog_cache_status(),
+            "response_cache_status": "未知",
+            "catalog_cache_status": _catalog_cache_status(),
             "spies": {key: list(value) for key, value in self.spies.items()},
         }
         (self.output_dir / "pairing-summary.json").write_text(
@@ -615,9 +597,10 @@ class PairingExecutor:
         def hybrid_classify(*args, **kwargs):
             return hybrid_mod.classify_capability_request_with_model(*args, **kwargs)
 
-        def gated_classifier_completion(**kwargs):
-            if not self.budget.consume(requests=1):
-                raise ExperimentBudgetExhausted("experiment_request_cap")
+        sdk_completion = hybrid_mod.litellm.completion
+        live_classifier = _uses_live_classifier(self.transport)
+
+        def _note_classify_send(kwargs: dict[str, Any]) -> None:
             self.spies["classify_sends"].append(
                 {
                     "arm": arm,
@@ -632,23 +615,28 @@ class PairingExecutor:
                     ),
                 }
             )
-            input_tokens, output_tokens = 9, 6
+
+        def budgeted_live_classifier_completion(*args, **kwargs):
+            if not self.budget.consume(requests=1):
+                raise ExperimentBudgetExhausted("experiment_request_cap")
+            _note_classify_send(kwargs)
+            result = sdk_completion(*args, **kwargs)
+            input_tokens, output_tokens = _usage_from_sdk(getattr(result, "usage", None))
             self.budget.record_usage(input_tokens, output_tokens)
-            return SimpleNamespace(
-                choices=[
-                    SimpleNamespace(
-                        message=SimpleNamespace(
-                            content=json.dumps(
-                                {
-                                    "package_id": "weather",
-                                    "explicit_tool_names": ["weather_forecast"],
-                                }
-                            )
-                        )
-                    )
-                ],
-                usage=SimpleNamespace(prompt_tokens=input_tokens, completion_tokens=output_tokens),
-            )
+            return result
+
+        def offline_classifier_completion(*args, **kwargs):
+            del args
+            if not self.budget.consume(requests=1):
+                raise ExperimentBudgetExhausted("experiment_request_cap")
+            _note_classify_send(kwargs)
+            if self.classify_completion_fn is not None:
+                result = self.classify_completion_fn(kwargs)
+            else:
+                result = _offline_classifier_completion()
+            input_tokens, output_tokens = _usage_from_sdk(getattr(result, "usage", None))
+            self.budget.record_usage(input_tokens, output_tokens)
+            return result
 
         async def isolated_build_llm_messages(raw_messages, *_args, **_kwargs):
             if raw_messages:
@@ -656,33 +644,62 @@ class PairingExecutor:
             return [{"role": "user", "content": case["text"]}]
 
         self.spies["assemble"].append({"arm": arm, "case_id": case["id"]})
-        credential_kw = {}
-        if not app_settings.LITELLM_API_KEY:
-            credential_kw["LITELLM_API_KEY"] = "experiment-classifier"
-        with (
-            patch(
-                "app.services.stream.agent_loop_request_prep.resolve_run_capability_route",
-                side_effect=wrapped_route,
-            ),
-            patch.object(
-                app_settings, "LITELLM_API_KEY", credential_kw.get("LITELLM_API_KEY", app_settings.LITELLM_API_KEY)
-            ),
-            patch.object(
-                hybrid_mod.litellm,
-                "completion",
-                side_effect=gated_classifier_completion,
-            ),
-        ):
-            config = build_agent_loop_call_config(
-                provider="openai",
-                options=options,
-                capabilities={"functionCalling": True, "searchCapable": True, "agentTools": True},
-                additional_tools=schemas,
-                dynamic_tool_handlers=handlers,
-                authorized_tool_names=authorized,
-                original_message=case["text"],
-                classify_fn=hybrid_classify if arm == "baseline" else None,
-            )
+        try:
+            with ExitStack() as stack:
+                stack.enter_context(
+                    patch(
+                        "app.services.stream.agent_loop_request_prep.resolve_run_capability_route",
+                        side_effect=wrapped_route,
+                    )
+                )
+                stack.enter_context(
+                    patch.object(
+                        hybrid_mod.litellm,
+                        "completion",
+                        side_effect=budgeted_live_classifier_completion
+                        if live_classifier
+                        else offline_classifier_completion,
+                    )
+                )
+                if not live_classifier and not app_settings.LITELLM_API_KEY:
+                    stack.enter_context(patch.object(app_settings, "LITELLM_API_KEY", "experiment-classifier"))
+                config = build_agent_loop_call_config(
+                    provider="openai",
+                    options=options,
+                    capabilities={"functionCalling": True, "searchCapable": True, "agentTools": True},
+                    additional_tools=schemas,
+                    dynamic_tool_handlers=handlers,
+                    authorized_tool_names=authorized,
+                    original_message=case["text"],
+                    classify_fn=hybrid_classify if arm == "baseline" else None,
+                )
+        except ExperimentBudgetExhausted as exc:
+            return {
+                "status": "error",
+                "arm": arm,
+                "case_id": case["id"],
+                "repeat": repeat,
+                "input_hash": _case_hash(case),
+                "request_hash": None,
+                "rounds": [],
+                "phases": [],
+                "final_output": None,
+                "transport_ok": False,
+                "execution_ok": False,
+                "task_completed": False,
+                "task_outcome": "error",
+                "error": str(exc),
+                "handler_counts": {name: getattr(item, "execute_count", 0) for name, item in handlers.items()},
+                "discovery_events": [],
+                "weather_schema_seen": False,
+                "weather_result_in_later_messages": False,
+                "classify_route_calls": len(route_calls),
+                "package_id": None,
+                "dynamic_tool_discovery": arm == "candidate",
+                "fixed_date": EXPERIMENT_NOW.isoformat(),
+                "fixture_clock": EXPERIMENT_NOW.isoformat(),
+                "limits_per_run": LIMITS_PER_RUN,
+            }
         if arm == "candidate" and route_calls:
             raise AssertionError("候选发现路径不得调用包分类路由")
         if arm == "candidate" and len(self.spies["classify_sends"]) != classify_sends_before:
@@ -940,8 +957,9 @@ class PairingExecutor:
             rounds=rounds,
             final_output=final_output,
         )
+        execution_ok = bool(transport_ok and error is None)
         return {
-            "status": "ok" if transport_ok and error is None else "error",
+            "status": "ok" if execution_ok else "error",
             "arm": arm,
             "case_id": case["id"],
             "repeat": repeat,
@@ -951,6 +969,7 @@ class PairingExecutor:
             "phases": rounds,
             "final_output": final_output,
             "transport_ok": transport_ok,
+            "execution_ok": execution_ok,
             "task_completed": task_completed,
             "task_outcome": task_outcome,
             "error": error,
@@ -990,6 +1009,23 @@ def build_compare_config(*, mode: str, repeats: int, max_requests: int | None, o
     }
 
 
+def _offline_classifier_completion() -> SimpleNamespace:
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(message=SimpleNamespace(content=json.dumps(OFFLINE_CLASSIFIER_FIXTURE, ensure_ascii=False)))
+        ],
+        usage=SimpleNamespace(prompt_tokens=9, completion_tokens=6),
+    )
+
+
+def _uses_live_classifier(transport: Any) -> bool:
+    return (
+        isinstance(transport, LiteLLMProxyTransport)
+        and bool(getattr(transport, "allow_real", False))
+        and getattr(transport, "send_fn", None) is None
+    )
+
+
 def _git_sha(kind: str) -> str:
     try:
         return subprocess.check_output(
@@ -998,8 +1034,6 @@ def _git_sha(kind: str) -> str:
             text=True,
         ).strip()
     except (OSError, subprocess.CalledProcessError):
-        if kind == "master":
-            return "4c185cfca843e804143eaa5e16e2af8d804c1329"
         return "unknown"
 
 
@@ -1076,7 +1110,7 @@ def run_offline(output_dir: Path) -> int:
     summary = {
         "mode": "offline",
         "exit_code": result.returncode,
-        "base": _git_sha("HEAD"),
+        "base": COMPARISON_BASE_SHA,
         "log": str(log_path),
         "cases": [{**case, "input_hash": _case_hash(case)} for case in CASES],
         "live_executed": False,

@@ -852,7 +852,9 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
             self.assertGreaterEqual(candidate["handler_counts"]["weather_forecast"], 1)
             self.assertTrue(candidate["weather_result_in_later_messages"])
             self.assertNotIn("candidate:weather_only:discovery", candidate["final_output"])
-            self.assertTrue(candidate["task_completed"])
+            self.assertTrue(candidate["execution_ok"])
+            self.assertFalse(candidate["task_completed"])
+            self.assertEqual(candidate["task_outcome"], "unevaluated")
             first_hash = candidate["rounds"][0]["request_hash"]
             self.assertEqual(len(first_hash), 64)
             self.assertNotIn("arm", first_hash)
@@ -926,7 +928,9 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("empty_then_specific", empty["final_output"] or "")
             self.assertEqual(empty["task_outcome"], "unevaluated")
             self.assertFalse(empty["task_completed"])
+            self.assertEqual(six_summary["base"], compare.COMPARISON_BASE_SHA)
             self.assertNotEqual(six_summary["base"], six_summary["head"])
+            self.assertEqual(six_summary["response_cache_status"], "未知")
             self.assertFalse(six_summary["live_real_model"])
 
     async def test_compare_r4_messages_hybrid_usage_and_proxy(self):
@@ -1047,7 +1051,7 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
             for record in [*wrong["completed"], *wrong["incomplete"]]:
                 if record["case_id"] == "weather_only":
                     self.assertFalse(record["task_completed"])
-                    self.assertEqual(record["task_outcome"], "honest_incomplete")
+                    self.assertEqual(record["task_outcome"], "unevaluated")
                     self.assertEqual(record["handler_counts"]["weather_forecast"], 0)
             self.assertTrue(wrong["incomplete"])
 
@@ -1113,6 +1117,219 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(parsed.input_tokens, 11)
             self.assertEqual(parsed.output_tokens, 7)
             self.assertNotIn("api_key", adapter.send_calls[0])
+
+    async def test_compare_r4_classifier_sdk_boundary_and_unevaluated_business(self):
+        import importlib.util
+        import tempfile
+        from pathlib import Path
+
+        from app.core.config import settings as app_settings
+
+        compare_path = Path(__file__).resolve().parents[3] / "scripts" / "dynamic_tool_discovery_compare.py"
+        spec = importlib.util.spec_from_file_location("dynamic_tool_discovery_compare_r4b", compare_path)
+        compare = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = compare
+        spec.loader.exec_module(compare)
+
+        def sdk_route(package_id: str, tools: list[str], prompt_tokens: int, completion_tokens: int):
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content=json.dumps({"package_id": package_id, "explicit_tool_names": tools})
+                        )
+                    )
+                ],
+                usage=SimpleNamespace(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens),
+            )
+
+        train_case = {
+            "id": "semantic_train",
+            "text": "上海到杭州下周五有哪些高铁？",
+            "expect": "非天气分类应改变基线工具",
+            "kind": "normal",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            classifier_calls = []
+            main_calls = []
+
+            def mock_classifier(**kwargs):
+                classifier_calls.append(kwargs)
+                return sdk_route("train", ["search_trains"], 21, 5)
+
+            async def mock_main(**kwargs):
+                main_calls.append(kwargs)
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content="sdk-main", tool_calls=[]))],
+                    usage=SimpleNamespace(prompt_tokens=11, completion_tokens=7),
+                )
+
+            with patch.object(app_settings, "LITELLM_API_KEY", "review-test-key"):
+                with patch(
+                    "app.ai.llm_manager.LLMManager.resolve_model",
+                    return_value=(
+                        "litellm_proxy/review-alias",
+                        "openai",
+                        {"api_base": "http://mock.invalid", "api_key": "dummy"},
+                    ),
+                ):
+                    with patch("litellm.completion", side_effect=mock_classifier):
+                        with patch("litellm.acompletion", side_effect=mock_main):
+                            train_summary = await compare.PairingExecutor(
+                                transport=compare.LiteLLMProxyTransport(allow_real=True, alias="review-alias"),
+                                budget=compare.ExperimentBudget(max_requests=20),
+                                output_dir=output / "train",
+                                cases=[train_case],
+                                repeats=1,
+                            ).run_async()
+            self.assertGreaterEqual(len(classifier_calls), 1)
+            self.assertTrue(str(classifier_calls[0]["model"]).startswith("litellm_proxy/"))
+            self.assertEqual(classifier_calls[0].get("num_retries"), 0)
+            baseline = json.loads((output / "train" / "baseline-semantic_train-r0.json").read_text(encoding="utf-8"))
+            self.assertEqual(baseline["package_id"], "train")
+            first_tools = baseline["rounds"][0]["visible_tools"]
+            self.assertIn("search_trains", first_tools)
+            self.assertNotIn("weather_forecast", first_tools)
+            self.assertEqual(train_summary["used_tokens"], 21 + 5 + 11 + 7 + 11 + 7)
+            self.assertFalse(train_summary["usage_unknown"])
+
+            classifier_calls.clear()
+            main_calls.clear()
+
+            def mock_weather_classifier(**kwargs):
+                classifier_calls.append(kwargs)
+                return sdk_route("weather", ["weather_forecast"], 8, 3)
+
+            with patch.object(app_settings, "LITELLM_API_KEY", "review-test-key"):
+                with patch(
+                    "app.ai.llm_manager.LLMManager.resolve_model",
+                    return_value=(
+                        "litellm_proxy/review-alias",
+                        "openai",
+                        {"api_base": "http://mock.invalid", "api_key": "dummy"},
+                    ),
+                ):
+                    with patch("litellm.completion", side_effect=mock_weather_classifier):
+                        with patch("litellm.acompletion", side_effect=mock_main):
+                            weather_summary = await compare.PairingExecutor(
+                                transport=compare.LiteLLMProxyTransport(allow_real=True, alias="review-alias"),
+                                budget=compare.ExperimentBudget(max_requests=20),
+                                output_dir=output / "weather-sdk",
+                                cases=[train_case],
+                                repeats=1,
+                            ).run_async()
+            weather_baseline = json.loads(
+                (output / "weather-sdk" / "baseline-semantic_train-r0.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(weather_baseline["package_id"], "weather")
+            self.assertIn("weather_forecast", weather_baseline["rounds"][0]["visible_tools"])
+            self.assertNotIn("search_trains", weather_baseline["rounds"][0]["visible_tools"])
+            self.assertGreaterEqual(len(classifier_calls), 1)
+            del weather_summary
+
+            classifier_calls.clear()
+            main_calls.clear()
+            with patch.object(app_settings, "LITELLM_API_KEY", "review-test-key"):
+                with patch(
+                    "app.ai.llm_manager.LLMManager.resolve_model",
+                    return_value=(
+                        "litellm_proxy/review-alias",
+                        "openai",
+                        {"api_base": "http://mock.invalid", "api_key": "dummy"},
+                    ),
+                ):
+                    with patch("litellm.completion", side_effect=mock_classifier) as classifier_sdk:
+                        with patch("litellm.acompletion", side_effect=mock_main) as main_sdk:
+                            await compare.PairingExecutor(
+                                transport=compare.LiteLLMProxyTransport(allow_real=True, alias="review-alias"),
+                                budget=compare.ExperimentBudget(max_requests=0),
+                                output_dir=output / "no-budget",
+                                cases=[train_case],
+                                repeats=1,
+                            ).run_async()
+            self.assertEqual(classifier_sdk.call_count, 0)
+            self.assertEqual(main_sdk.call_count, 0)
+
+            classifier_calls.clear()
+            main_calls.clear()
+            with patch.object(app_settings, "LITELLM_API_KEY", ""):
+                with patch(
+                    "app.ai.llm_manager.LLMManager.resolve_model",
+                    return_value=(
+                        "litellm_proxy/review-alias",
+                        "openai",
+                        {"api_base": "http://mock.invalid", "api_key": "dummy"},
+                    ),
+                ):
+                    with patch("litellm.completion", side_effect=mock_classifier) as denied_classifier:
+                        denied = compare.LiteLLMProxyTransport(allow_real=False, alias="review-alias")
+                        await compare.PairingExecutor(
+                            transport=denied,
+                            budget=compare.ExperimentBudget(max_requests=8),
+                            output_dir=output / "no-auth",
+                            cases=[train_case],
+                            repeats=1,
+                        ).run_async()
+            self.assertEqual(denied_classifier.call_count, 0)
+            self.assertEqual(denied.send_calls, [])
+
+            failed = compare.evaluate_task_outcome(
+                case_id="weather_and_train",
+                transport_ok=True,
+                error=None,
+                handler_counts={"weather_forecast": 1, "search_trains": 1},
+                rounds=[
+                    {"messages": []},
+                    {"messages": [{"role": "tool", "content": '{"status":"failed","error":"no data"}'}]},
+                ],
+                final_output="两个工具都失败，没有查到结果。",
+            )
+            self.assertEqual(failed, ("unevaluated", False))
+            fabricated = compare.evaluate_task_outcome(
+                case_id="weather_only",
+                transport_ok=True,
+                error=None,
+                handler_counts={},
+                rounds=[],
+                final_output="杭州明天晴，最高气温28度。",
+            )
+            self.assertEqual(fabricated, ("unevaluated", False))
+            empty_answer = compare.evaluate_task_outcome(
+                case_id="weather_only",
+                transport_ok=True,
+                error=None,
+                handler_counts={"weather_forecast": 1},
+                rounds=[
+                    {"messages": []},
+                    {"messages": [{"role": "tool", "content": "day_weather"}]},
+                ],
+                final_output="",
+            )
+            self.assertEqual(empty_answer, ("unevaluated", False))
+            missing_body = compare.evaluate_task_outcome(
+                case_id="weather_only",
+                transport_ok=True,
+                error=None,
+                handler_counts={"weather_forecast": 1},
+                rounds=[{"messages": []}, {"messages": [{"role": "tool", "content": "day_weather"}]}],
+                final_output="今天心情不错。",
+            )
+            self.assertEqual(missing_body, ("unevaluated", False))
+            broken = compare.evaluate_task_outcome(
+                case_id="weather_only",
+                transport_ok=False,
+                error="experiment_request_cap",
+                handler_counts={},
+                rounds=[],
+                final_output="",
+            )
+            self.assertEqual(broken, ("error", False))
+
+            partial = compare.ExperimentBudget(max_requests=4)
+            partial.record_usage(4, None)
+            self.assertTrue(partial.usage_unknown)
+            self.assertEqual(partial.used_tokens, 4)
 
 
 class _WrongAnswerTransport:

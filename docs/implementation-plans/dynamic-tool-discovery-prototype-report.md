@@ -1,6 +1,6 @@
 # 动态工具发现原型交接报告
 
-日期：2026-09-22，Asia/Shanghai。第三轮复核后补齐 R4-A/B/C/D 反例测试与实验链路修复。发现机制与 R1–R3 保持。未跑 live 真模型、未推送、未开 PR、未部署。
+日期：2026-09-22，Asia/Shanghai。第四轮复核后修分类 SDK 贯通与业务未评估口径。消息装配、工具协议、回答模型 Proxy、R1–R3 保持。未跑 live 真模型、未推送、未开 PR、未部署。
 
 ## 1. 工作位置
 
@@ -10,7 +10,7 @@
 | 分支 | `cursor/dynamic-tool-discovery-c223` |
 | remote | `HyxiaoGe/fusion` |
 | base | `4c185cfca843e804143eaa5e16e2af8d804c1329` |
-| 上一轮修复 HEAD | `31a863f6b3de38e19d9a7e6558125b3daf3220b2` |
+| 上一轮修复 HEAD | `421f1ee06c8e8c77a00ca5026254fef188a2c84a` |
 | 修复后 HEAD | 见文末 Git 节（本轮本地提交，未推送） |
 | 实际 base | 与任务书核对的 `master` 一致，未前移 |
 
@@ -44,7 +44,7 @@ cd /Users/sean/code/fusion/.worktrees/dynamic-tool-discovery-20260922/backend
 DATABASE_URL='sqlite:///:memory:' /Users/sean/code/fusion/fusion-api/.venv/bin/python -m pytest test/services/stream/test_dynamic_tool_discovery.py -q --tb=line
 ```
 
-退出码：`0`（**20 passed**）。日志：`backend/tmp/dynamic-tool-discovery/p01-p12-pytest.log`（gitignored）。
+退出码：`0`（**21 passed**）。日志：`backend/tmp/dynamic-tool-discovery/p01-p12-pytest.log`（gitignored）。
 
 相关回归（同解释器，DATABASE_URL 内存 SQLite）：
 
@@ -88,9 +88,9 @@ python scripts/dynamic_tool_discovery_compare.py --mode live --max-requests 8 --
 
 实际两臂调用链：
 
-`PairingExecutor._run_arm` → `build_agent_loop_call_config`（基线：`classify_fn=classify_capability_request_with_model`，只在 `litellm.completion` 边界 fake；候选：opt-in 发现，不调分类）→ `prepare_agent_loop_messages`（隔离 DB/文件，固定日期 `2026-09-22`）→ `build_agent_loop_execution` → `run_agent_loop` → 注入的 `llm_call_fn`（发送前扣全局请求额度，事后累计 usage）→ `transport.complete`（`to_provider_messages` 完整 payload）→ `handle_tool_calls_round` / fixture `execute` → 工具结果写入后续 messages。
+`PairingExecutor._run_arm` → `build_agent_loop_call_config`（基线：生产 hybrid；live 分类走真实 `litellm.completion` 边界并先扣预算；fake 才用离线 fixture；候选不调分类）→ `prepare_agent_loop_messages` → `run_agent_loop` → 主模型传输。
 
-R4 离线验收入口：`test_compare_pairing_uses_fusion_loop` 与 `test_compare_r4_messages_hybrid_usage_and_proxy`。
+R4 离线验收入口：`test_compare_pairing_uses_fusion_loop`、`test_compare_r4_messages_hybrid_usage_and_proxy`、`test_compare_r4_classifier_sdk_boundary_and_unevaluated_business`。
 
 ## 5. 逐条回复审查项
 
@@ -131,8 +131,9 @@ R4 离线验收入口：`test_compare_pairing_uses_fusion_loop` 与 `test_compar
 #### R4-B 基线 hybrid
 
 - 基线 `classify_fn` 为生产 `classify_capability_request_with_model`，不重写分类器。
-- 字面短路（如翻译用例）`classify_sends=0`；语义层（如天气/出门判断）实际调用 `litellm.completion`，先扣同一 `ExperimentBudget` 再发送。
-- 候选路径分类发送次数为 0。模型发送始终 fake。
+- 字面短路不发送。语义层 live 调用真实 `litellm.completion`（测试只 mock SDK），usage 来自响应；假 weather 回复只存在离线 fixture / `classify_completion_fn`。
+- 高铁用例 SDK 返回 `train` 时基线可见工具含 `search_trains`、不含 `weather_forecast`；改回 weather 包后工具集随之变化。
+- 无预算或无分类凭据时分类与主模型发送均为 0。live 不注入假凭据。候选分类发送为 0。
 
 #### R4-C LiteLLM Proxy 解析
 
@@ -142,12 +143,12 @@ R4 离线验收入口：`test_compare_pairing_uses_fusion_loop` 与 `test_compar
 
 #### R4-D 完成判定与用量
 
-- `task_completed` 不再等于“有文本”。天气需实际 `weather_forecast` 执行且后续消息含 `day_weather`；无查询记 `honest_incomplete`；空班次记 `unevaluated`；传输/执行异常记 `error`。
-- 失败注入仍改真实 `tool_search.execute`，判定只看执行结果与异常，不读 `break_discovery` 开关。
-- 响应 usage 累加到 `used_tokens`；缺失标 `usage_unknown`。每次输出上限仍是 `limits_per_run.max_tokens=4096`，与实验 token 账本分开。
-- summary 的 `head` 为当前 HEAD，`base` 为 `master`；`live_real_model` 仅当显式 `FUSION_COMPARE_ALLOW_REAL_LLM=1` 且真实适配无 `send_fn`；`cache_status` 来自目录状态。
+- 机制状态与业务评价分开：`execution_ok` / `handler_counts` / 是否出现 `day_weather` 只作机械记录。
+- 自然语言不能可靠判定时 `task_outcome=unevaluated`（待人工评估），`task_completed=False`。不把调用次数、失败结果或虚构天气标成完成或诚实。无正则评审器。
+- 传输失败、预算耗尽、无正文不能标业务成功。
+- 响应 usage 累加；任一侧缺失即 `usage_unknown`。`base` 固定为比较基线 `4c185cfc…`，不是本地 `master` ref。`response_cache_status=未知`；目录缓存另列 `catalog_cache_status`。
 
-测试：`test_compare_pairing_uses_fusion_loop`、`test_compare_r4_messages_hybrid_usage_and_proxy`。真模型未执行，消耗 0。P08 最后交付缺口仍单列。
+测试另含 `test_compare_r4_classifier_sdk_boundary_and_unevaluated_business`。真模型未执行，消耗 0。P08 最后交付缺口仍单列。
 
 ### 假 package
 
@@ -192,4 +193,4 @@ DATABASE_URL='sqlite:///:memory:' /Users/sean/code/fusion/fusion-api/.venv/bin/p
 
 ## 9. Git
 
-已本地提交到 `cursor/dynamic-tool-discovery-c223`。未推送。HEAD 以工作树 `git rev-parse HEAD` 为准。本轮审查对象 `31a863f6`。
+本轮审查对象 `421f1ee0`。已本地提交到 `cursor/dynamic-tool-discovery-c223`。未推送。HEAD 以工作树 `git rev-parse HEAD` 为准。
