@@ -74,16 +74,23 @@ DATABASE_URL='sqlite:///:memory:' /Users/sean/code/fusion/fusion-api/.venv/bin/p
 python scripts/dynamic_tool_discovery_compare.py --mode dry-run --output-dir tmp/dynamic-tool-discovery
 python scripts/dynamic_tool_discovery_compare.py --mode live   # 无 --max-requests → 退出 2
 python scripts/dynamic_tool_discovery_compare.py --mode live --max-requests 8 --transport fake --repeats 1 --output-dir tmp/dynamic-tool-discovery/fake-live
-python scripts/dynamic_tool_discovery_compare.py --mode live --max-requests 8 --transport litellm  # 本轮拒绝真模型，退出 3
+python scripts/dynamic_tool_discovery_compare.py --mode live --max-requests 8 --transport litellm
+# 适配已实现；未设 FUSION_COMPARE_ALLOW_REAL_LLM 时真实 acompletion 发送次数为 0
 ```
 
 | 模式 | 退出码 | 证据 |
 |---|---|---|
-| dry-run | 0 | `backend/tmp/dynamic-tool-discovery/dry-run.log`；打印来自 `build_compare_config`，`max_tokens=4096`，固定日期 2026-09-22 |
-| live 缺限额 | 2 | 拒绝运行 |
-| live + fake 传输层 | 0 | `backend/tmp/dynamic-tool-discovery/fake-live/`；两臂交错、基线分类计账、预算中止、请求 hash、完整输出写盘 |
-| live + litellm | 3 | 本轮未授权真实模型 |
+| dry-run | 0 | 打印来自 `build_compare_config`，`max_tokens=4096`，固定日期 2026-09-22 |
+| live 缺限额 | 2 | 拒绝运行，发送函数不调用 |
+| live + fake 传输层 | 0 | 两臂走 `build_agent_loop_call_config` + `run_agent_loop` + `handle_tool_calls_round`；假工具 fixture |
+| live + litellm（未授权真实发送） | 3 | `LiteLLMProxyTransport` 已实现；无 `FUSION_COMPARE_ALLOW_REAL_LLM=1` 时 `send_fn`/`acompletion` 次数为 0 |
 | 真实 live | 未跑 | 消耗 0 |
+
+实际两臂调用链：
+
+`PairingExecutor._run_arm` → `build_agent_loop_call_config`（基线：`resolve_run_capability_route`；候选：opt-in 发现，不调分类）→ `build_agent_loop_execution` → `run_agent_loop` → 注入的 `llm_call_fn`（发送前扣全局预算）→ `transport.complete` → `handle_tool_calls_round` / fixture `execute` → 工具结果写入后续 messages。
+
+R4 离线验收入口：`test_compare_pairing_uses_fusion_loop`。
 
 ## 5. 逐条回复审查项
 
@@ -103,7 +110,18 @@ python scripts/dynamic_tool_discovery_compare.py --mode live --max-requests 8 --
 
 ### R4 配对执行器
 
-`PairingExecutor` + `FakeModelTransport` + `ExperimentBudget`。dry-run 打印实际配置。假传输层验证调度、预算中止、交错顺序、基线分类计账、固定日期、两臂写盘。本轮不连接真实模型。
+第二轮复核指出：此前只生成字符串、不执行工具、预算绑在 Fake 内部。现已把两臂接到真实 Fusion 装配与 Agent 循环，只替换模型传输、假产品工具和隔离存储。
+
+- 候选天气用例：`tool_search` 执行 → 后续请求出现 `weather_forecast` schema → 假天气 handler 执行 → `day_weather` 进入后续 messages → 再回答。
+- 基线调用 `resolve_run_capability_route`；候选调用次数为 0。
+- 发现 handler 注入失败后 `task_completed` 为假，不会冒充完成。
+- 不维护预算的传输层仍受 `ExperimentBudget` 在每次 `llm_call_fn` 发送前扣减；限额 1 会中断配对。
+- `LiteLLMProxyTransport` 可与同一执行器互换；测试 mock `send_fn`；未授权真实发送时 `send_calls` 为空。
+- 六类用例同一实现；失败/空结果走 fixture playback，不按 `case_id` 直接生成最终答案。
+- 请求内容 hash 不含 arm/repeat。
+- 真实模型未执行，消耗 0。
+
+测试：`test_compare_pairing_uses_fusion_loop`。
 
 ### 假 package
 

@@ -815,7 +815,7 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
     def test_fixture_clock_is_fixed_experiment_date(self):
         self.assertEqual(EXPERIMENT_NOW.date().isoformat(), "2026-09-22")
 
-    def test_compare_executor_fake_transport_and_budget(self):
+    async def test_compare_pairing_uses_fusion_loop(self):
         import importlib.util
         import tempfile
         from pathlib import Path
@@ -827,42 +827,103 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
         spec.loader.exec_module(compare)
 
         self.assertIsNone(compare.parse_budget(None))
-        self.assertIsNone(compare.parse_budget(0))
-        self.assertIsNone(compare.parse_budget(-1))
-        config = compare.build_compare_config(mode="dry-run", repeats=2, max_requests=24, output_dir=Path("/tmp/x"))
-        self.assertEqual(config["limits_per_run"]["max_tokens"], 4096)
-        self.assertEqual(config["fixed_date"], "2026-09-22")
+        self.assertEqual(compare.main(["--mode", "live"]), 2)
+        weather = next(case for case in compare.CASES if case["id"] == "weather_only")
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp)
-            self.assertEqual(compare.main(["--mode", "live"]), 2)
-            self.assertEqual(compare.main(["--mode", "live", "--max-requests", "8", "--transport", "litellm"]), 3)
+            budget = compare.ExperimentBudget(max_requests=16)
+            summary = await compare.PairingExecutor(
+                transport=compare.FakeModelTransport(),
+                budget=budget,
+                output_dir=output / "weather",
+                cases=[weather],
+                repeats=1,
+            ).run_async()
+            self.assertGreaterEqual(summary["used_requests"], 2)
+            self.assertEqual(len(summary["spies"]["assemble"]), 2)
+            self.assertEqual(len(summary["spies"]["driver"]), 2)
+            candidate = json.loads((output / "weather" / "candidate-weather_only-r0.json").read_text(encoding="utf-8"))
+            baseline = json.loads((output / "weather" / "baseline-weather_only-r0.json").read_text(encoding="utf-8"))
+            self.assertEqual(candidate["classify_route_calls"], 0)
+            self.assertGreaterEqual(baseline["classify_route_calls"], 1)
+            self.assertEqual(candidate["rounds"][0]["tool_calls"][0]["name"], "tool_search")
+            self.assertTrue(any(event.get("kind") == "promoted" for event in candidate["discovery_events"]))
+            self.assertTrue(candidate["weather_schema_seen"])
+            self.assertGreaterEqual(candidate["handler_counts"]["weather_forecast"], 1)
+            self.assertTrue(candidate["weather_result_in_later_messages"])
+            self.assertNotIn("candidate:weather_only:discovery", candidate["final_output"])
+            self.assertTrue(candidate["task_completed"])
+            first_hash = candidate["rounds"][0]["request_hash"]
+            self.assertEqual(len(first_hash), 64)
+            self.assertNotIn("arm", first_hash)
+
+            class NoBudgetTransport:
+                def complete(self, request):
+                    return compare.FakeModelTransport().complete(request)
+
             tiny = compare.ExperimentBudget(max_requests=1)
-            executor = compare.PairingExecutor(
-                transport=compare.FakeModelTransport(tiny),
+            tiny_summary = await compare.PairingExecutor(
+                transport=NoBudgetTransport(),
                 budget=tiny,
                 output_dir=output / "tiny",
-                cases=[{"id": "greeting", "text": "早上好，你是谁？", "expect": "x", "kind": "normal"}],
+                cases=[weather],
                 repeats=1,
+            ).run_async()
+            self.assertEqual(tiny.used_requests, 1)
+            self.assertTrue(tiny.aborted or tiny_summary["incomplete"])
+            self.assertTrue(tiny_summary["incomplete_pairs"])
+
+            await compare.PairingExecutor(
+                transport=compare.FakeModelTransport(),
+                budget=compare.ExperimentBudget(max_requests=16),
+                output_dir=output / "broken",
+                cases=[weather],
+                repeats=1,
+                break_discovery=True,
+            ).run_async()
+            broken_candidate = json.loads(
+                (output / "broken" / "candidate-weather_only-r0.json").read_text(encoding="utf-8")
             )
-            tiny_summary = executor.run()
-            self.assertTrue(tiny_summary["aborted"] or tiny_summary["incomplete"])
-            budget = compare.ExperimentBudget(max_requests=8)
-            summary = compare.PairingExecutor(
-                transport=compare.FakeModelTransport(budget),
-                budget=budget,
-                output_dir=output / "full",
-                cases=[{"id": "greeting", "text": "早上好，你是谁？", "expect": "x", "kind": "normal"}],
+            self.assertFalse(broken_candidate["task_completed"])
+            self.assertNotEqual(broken_candidate.get("final_output"), "完成")
+
+            send_calls = []
+
+            def mock_send(payload):
+                send_calls.append(payload)
+                return compare.ModelResponse(
+                    status="ok",
+                    request_hash="x" * 64,
+                    content="mock-litellm",
+                    tool_calls=[],
+                )
+
+            await compare.PairingExecutor(
+                transport=compare.LiteLLMProxyTransport(send_fn=mock_send),
+                budget=compare.ExperimentBudget(max_requests=8),
+                output_dir=output / "litellm",
+                cases=[next(case for case in compare.CASES if case["id"] == "greeting")],
                 repeats=1,
-            ).run()
-            self.assertEqual(summary["used_requests"], 3)
-            self.assertFalse(summary["aborted"])
-            self.assertEqual(summary["job_order"][:2], ["baseline:greeting:r0", "candidate:greeting:r0"])
-            self.assertTrue((output / "full" / "baseline-greeting-r0.json").exists())
-            self.assertTrue((output / "full" / "candidate-greeting-r0.json").exists())
-            baseline = json.loads((output / "full" / "baseline-greeting-r0.json").read_text(encoding="utf-8"))
-            self.assertEqual(baseline["phases"][0]["phase"], "classify")
-            self.assertTrue(baseline["request_hash"])
-            self.assertEqual(baseline["fixed_date"], EXPERIMENT_NOW.isoformat())
+            ).run_async()
+            self.assertTrue(send_calls)
+            self.assertEqual(send_calls[0]["max_tokens"], 4096)
+            denied = compare.LiteLLMProxyTransport(allow_real=False)
+            with self.assertRaises(compare.RealModelSendDenied):
+                await denied.complete(
+                    compare.ModelRequest(messages=[{"role": "user", "content": "hi"}], tools=[], tool_choice="auto")
+                )
+            self.assertEqual(denied.send_calls, [])
+
+            six_summary = await compare.PairingExecutor(
+                transport=compare.FakeModelTransport(),
+                budget=compare.ExperimentBudget(max_requests=80),
+                output_dir=output / "six",
+                repeats=1,
+            ).run_async()
+            self.assertEqual(len(six_summary["job_order"]), 12)
+            empty = json.loads((output / "six" / "candidate-empty_then_specific-r0.json").read_text(encoding="utf-8"))
+            self.assertGreaterEqual(empty["handler_counts"]["search_trains"], 1)
+            self.assertNotIn("empty_then_specific", empty["final_output"] or "")
 
 
 def _fn_name(tool: dict) -> str:

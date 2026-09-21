@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""动态工具发现对照入口：默认离线，dry-run 打印实际配置，live 需显式限额。
+"""动态工具发现对照入口：默认离线，dry-run 打印计划，live 需显式限额。
 
-不因环境中存在密钥就联网，不打印凭据。真实模型传输层本轮不连接；
-配对执行器用可注入的假传输层验证调度、预算与落盘。
+两臂走同一套 Fusion 装配与 Agent 循环，只替换模型传输、假产品工具和隔离存储。
+不因环境中存在密钥就联网，不打印凭据。
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
+import inspect
 import json
 import os
 import subprocess
@@ -16,6 +18,7 @@ import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Protocol
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -69,22 +72,44 @@ CASES = [
         "kind": "normal",
     },
 ]
+CASE_PLAYBACK = {
+    "tool_failure_fallback": {"weather_forecast": {"scenario": "error"}},
+    "empty_then_specific": {"search_trains": {"scenario": "empty"}},
+}
+CASE_GOAL_TOOLS = {
+    "greeting": (),
+    "weather_only": ("weather_forecast",),
+    "weather_and_train": ("weather_forecast", "search_trains"),
+    "tool_failure_fallback": ("weather_forecast", "web_search"),
+    "no_network": (),
+    "empty_then_specific": ("search_trains",),
+}
+
+
+class ExperimentBudgetExhausted(RuntimeError):
+    """全局实验请求额度用尽，尚未调用传输层。"""
+
+
+class RealModelSendDenied(RuntimeError):
+    """未显式授权真实模型发送。"""
 
 
 class ModelTransport(Protocol):
-    def complete(self, request: "ModelRequest") -> "ModelResponse": ...
+    def complete(self, request: "ModelRequest") -> Any: ...
 
 
 @dataclass(frozen=True)
 class ModelRequest:
-    arm: str
-    case_id: str
-    repeat: int
-    phase: str
     messages: list[dict[str, Any]]
     tools: list[str]
     tool_choice: Any
+    tool_schemas: list[dict[str, Any]] = field(default_factory=list)
     classify: bool = False
+    max_tokens: int | None = None
+    case_id: str | None = None
+    arm: str | None = None
+    repeat: int | None = None
+    phase: str | None = None
 
 
 @dataclass(frozen=True)
@@ -112,7 +137,7 @@ class ExperimentBudget:
         if self.used_requests + requests > self.max_requests:
             self.aborted = True
             return False
-        if self.max_tokens and self.used_tokens + tokens > self.max_tokens:
+        if self.max_tokens and tokens and self.used_tokens + tokens > self.max_tokens:
             self.aborted = True
             return False
         self.used_requests += requests
@@ -120,47 +145,237 @@ class ExperimentBudget:
         return True
 
 
-def request_hash(request: ModelRequest) -> str:
+def content_request_hash(*, messages: list[Any], tools: Any, tool_choice: Any, max_tokens: int | None = None) -> str:
     payload = {
-        "arm": request.arm,
-        "case_id": request.case_id,
-        "repeat": request.repeat,
-        "phase": request.phase,
-        "messages": request.messages,
-        "tools": request.tools,
-        "tool_choice": request.tool_choice,
-        "classify": request.classify,
+        "messages": messages,
+        "tools": tools,
+        "tool_choice": tool_choice,
+        "max_tokens": max_tokens,
         "fixed_date": EXPERIMENT_NOW.date().isoformat(),
     }
     return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
 
 
-class FakeModelTransport:
-    """假传输层：扣预算、记请求 hash，不连接真实模型。"""
+def request_hash(request: ModelRequest) -> str:
+    """真实请求内容 hash，不含 arm/repeat 等实验元数据。"""
 
-    def __init__(self, budget: ExperimentBudget) -> None:
-        self.budget = budget
+    return content_request_hash(
+        messages=list(request.messages),
+        tools=list(request.tool_schemas or request.tools),
+        tool_choice=request.tool_choice,
+        max_tokens=request.max_tokens,
+    )
+
+
+def _serialize_messages(messages: list[Any]) -> list[dict[str, Any]]:
+    serialized: list[dict[str, Any]] = []
+    for message in messages or []:
+        if hasattr(message, "role"):
+            serialized.append(
+                {
+                    "role": message.role,
+                    "content": message.content,
+                    "section_id": getattr(message, "section_id", None),
+                }
+            )
+        elif isinstance(message, dict):
+            serialized.append(
+                {
+                    "role": message.get("role"),
+                    "content": message.get("content"),
+                }
+            )
+        else:
+            serialized.append({"content": str(message)})
+    return serialized
+
+
+def _tool_names(schemas: list[Any] | None) -> list[str]:
+    names: list[str] = []
+    for tool in schemas or []:
+        function = tool.get("function") if isinstance(tool, dict) else None
+        name = function.get("name") if isinstance(function, dict) else None
+        if name:
+            names.append(str(name))
+    return names
+
+
+def _forced_tool_name(tool_choice: Any) -> str | None:
+    if isinstance(tool_choice, dict):
+        function = tool_choice.get("function") if isinstance(tool_choice.get("function"), dict) else {}
+        name = function.get("name")
+        return str(name) if name else None
+    return None
+
+
+def _transcript(messages: list[dict[str, Any]]) -> str:
+    return json.dumps(messages, ensure_ascii=False, default=str)
+
+
+class FakeModelTransport:
+    """按可见 schema 与工具回执生成可执行调用序列，不连接真实模型，不自行扣预算。"""
+
+    def __init__(self, budget: ExperimentBudget | None = None) -> None:
+        del budget
         self.calls: list[dict[str, Any]] = []
 
     def complete(self, request: ModelRequest) -> ModelResponse:
         digest = request_hash(request)
-        tokens = 8 if request.classify else 16
-        if not self.budget.consume(requests=1, tokens=tokens):
-            response = ModelResponse(status="budget_aborted", request_hash=digest, error="experiment_request_cap")
+        names = set(request.tools)
+        forced = _forced_tool_name(request.tool_choice)
+        blob = _transcript(list(request.messages))
+        case_id = request.case_id or "weather_only"
+        goals = CASE_GOAL_TOOLS.get(case_id, ("weather_forecast",))
+        response = self._decide(names=names, forced=forced, blob=blob, goals=goals, digest=digest, case_id=case_id)
+        self.calls.append({"request": asdict(request), "response": asdict(response)})
+        return response
+
+    def _decide(
+        self,
+        *,
+        names: set[str],
+        forced: str | None,
+        blob: str,
+        goals: tuple[str, ...],
+        digest: str,
+        case_id: str,
+    ) -> ModelResponse:
+        def emit(tool_name: str, arguments: dict[str, Any], call_id: str) -> ModelResponse:
+            if forced is not None and tool_name != forced:
+                return ModelResponse(status="ok", request_hash=digest, content="无法在当前工具选择下调用其他工具")
+            if tool_name not in names:
+                return ModelResponse(status="ok", request_hash=digest, content="目标工具本轮不可见")
+            return ModelResponse(
+                status="ok",
+                request_hash=digest,
+                tool_calls=[{"id": call_id, "name": tool_name, "arguments": arguments}],
+                input_tokens=4,
+                output_tokens=8,
+            )
+
+        if case_id == "greeting":
+            return ModelResponse(
+                status="ok",
+                request_hash=digest,
+                content="你好，我是助手。",
+                input_tokens=4,
+                output_tokens=8,
+            )
+        if case_id == "no_network" and "tool_search" in names and "web_search" not in names:
+            if "tool_search" not in blob:
+                return emit("tool_search", {"query": "select:web_search,weather_forecast"}, "discover_denied")
+            return ModelResponse(
+                status="ok",
+                request_hash=digest,
+                content="按你的要求，这次不联网查询。",
+                input_tokens=4,
+                output_tokens=8,
+            )
+        pending = [name for name in goals if name not in names]
+        if pending and "tool_search" in names:
+            query = "select:" + ",".join(pending)
+            return emit("tool_search", {"query": query}, f"discover_{pending[0]}")
+        if "weather_forecast" in goals and "weather_forecast" in names and "day_weather" not in blob:
+            return emit(
+                "weather_forecast",
+                {"location": "杭州", "location_source": "named"},
+                "call_weather",
+            )
+        if (
+            "search_trains" in goals
+            and "search_trains" in names
+            and "syn-g7301" not in blob
+            and "无合成班次" not in blob
+        ):
+            destination = "empty" if case_id == "empty_then_specific" else "上海"
+            return emit(
+                "search_trains",
+                {"origin": "杭州", "destination": destination, "departure_date": "2026-09-26"},
+                "call_trains",
+            )
+        if "web_search" in goals and "web_search" in names and "杭州周末天气（合成）" not in blob:
+            if "weather_unavailable" in blob or "forecast_days" in blob or "weather_forecast" in blob:
+                return emit("web_search", {"query": "杭州天气"}, "call_search")
+        snippet = blob[-240:] if blob else ""
+        return ModelResponse(
+            status="ok",
+            request_hash=digest,
+            content="已根据工具结果作答。" + snippet[:80],
+            input_tokens=4,
+            output_tokens=8,
+        )
+
+
+class LiteLLMProxyTransport:
+    """LiteLLM Proxy alias 适配。默认不发送；测试可注入 send_fn。"""
+
+    def __init__(
+        self,
+        *,
+        send_fn: Any | None = None,
+        allow_real: bool = False,
+        alias: str | None = None,
+    ) -> None:
+        self.send_fn = send_fn
+        self.allow_real = allow_real
+        self.alias = alias or os.environ.get("FUSION_COMPARE_MODEL_ALIAS", "fusion-main")
+        self.send_calls: list[dict[str, Any]] = []
+        self.calls: list[dict[str, Any]] = []
+
+    async def complete(self, request: ModelRequest) -> ModelResponse:
+        digest = request_hash(request)
+        payload = {
+            "model": self.alias,
+            "messages": list(request.messages),
+            "tools": list(request.tool_schemas),
+            "tool_choice": request.tool_choice,
+            "max_tokens": request.max_tokens or LIMITS_PER_RUN["max_tokens"],
+            "stream": False,
+        }
+        if self.send_fn is None and not self.allow_real:
+            raise RealModelSendDenied("未设置 FUSION_COMPARE_ALLOW_REAL_LLM，拒绝真实发送")
+        self.send_calls.append(payload)
+        if self.send_fn is not None:
+            result = self.send_fn(payload)
+            if inspect.isawaitable(result):
+                result = await result
+            if isinstance(result, ModelResponse):
+                response = result
+            elif isinstance(result, dict):
+                response = ModelResponse(
+                    status="ok",
+                    request_hash=digest,
+                    content=str(result.get("content") or ""),
+                    tool_calls=list(result.get("tool_calls") or []),
+                    input_tokens=int(result.get("input_tokens") or 0),
+                    output_tokens=int(result.get("output_tokens") or 0),
+                )
+            else:
+                response = ModelResponse(status="ok", request_hash=digest, content=str(result or ""))
             self.calls.append({"request": asdict(request), "response": asdict(response)})
             return response
-        if request.classify:
-            content = json.dumps({"package_id": "direct", "arm": "baseline"}, ensure_ascii=False)
-        elif request.arm == "candidate":
-            content = f"candidate:{request.case_id}:discovery"
-        else:
-            content = f"baseline:{request.case_id}:package"
+        import litellm
+
+        completion = await litellm.acompletion(**payload)
+        message = completion.choices[0].message
+        tool_calls = []
+        for item in getattr(message, "tool_calls", None) or []:
+            function = item.function
+            arguments = function.arguments
+            if isinstance(arguments, str):
+                try:
+                    arguments = json.loads(arguments)
+                except json.JSONDecodeError:
+                    arguments = {"_raw": arguments}
+            tool_calls.append({"id": item.id, "name": function.name, "arguments": arguments})
+        usage = getattr(completion, "usage", None)
         response = ModelResponse(
             status="ok",
             request_hash=digest,
-            content=content,
-            input_tokens=tokens // 2,
-            output_tokens=tokens - tokens // 2,
+            content=str(getattr(message, "content", "") or ""),
+            tool_calls=tool_calls,
+            input_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+            output_tokens=getattr(usage, "completion_tokens", 0) or 0,
         )
         self.calls.append({"request": asdict(request), "response": asdict(response)})
         return response
@@ -170,17 +385,25 @@ class PairingExecutor:
     def __init__(
         self,
         *,
-        transport: FakeModelTransport,
+        transport: Any,
         budget: ExperimentBudget,
         output_dir: Path,
         cases: list[dict[str, Any]] | None = None,
         repeats: int = 2,
+        break_discovery: bool = False,
     ) -> None:
         self.transport = transport
         self.budget = budget
         self.output_dir = output_dir
         self.cases = cases or CASES
         self.repeats = repeats
+        self.break_discovery = break_discovery
+        self.spies: dict[str, list[Any]] = {
+            "assemble": [],
+            "driver": [],
+            "classify_route": [],
+            "llm_sends": [],
+        }
 
     def jobs(self) -> list[tuple[str, dict[str, Any], int]]:
         ordered: list[tuple[str, dict[str, Any], int]] = []
@@ -191,23 +414,49 @@ class PairingExecutor:
         return ordered
 
     def run(self) -> dict[str, Any]:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(self.run_async())
+        raise RuntimeError("事件循环已在运行时请调用 PairingExecutor.run_async()")
+
+    async def run_async(self) -> dict[str, Any]:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         completed: list[dict[str, Any]] = []
         incomplete: list[dict[str, Any]] = []
+        pair_status: dict[tuple[str, int], dict[str, str]] = {}
         for arm, case, repeat in self.jobs():
             if self.budget.aborted:
-                incomplete.append({"arm": arm, "case_id": case["id"], "repeat": repeat, "reason": "budget_aborted"})
+                record = {
+                    "status": "budget_aborted",
+                    "arm": arm,
+                    "case_id": case["id"],
+                    "repeat": repeat,
+                    "reason": "budget_aborted",
+                    "transport_ok": False,
+                    "task_completed": False,
+                    "final_output": None,
+                }
+                incomplete.append(record)
+                pair_status.setdefault((case["id"], repeat), {})[arm] = "incomplete"
                 continue
-            record = self._run_arm(arm=arm, case=case, repeat=repeat)
+            record = await self._run_arm(arm=arm, case=case, repeat=repeat)
             path = self.output_dir / f"{arm}-{case['id']}-r{repeat}.json"
             path.write_text(json.dumps(record, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
             record["output_path"] = str(path)
-            if record.get("status") == "ok":
+            if record.get("status") == "ok" and record.get("task_completed"):
                 completed.append(record)
+                pair_status.setdefault((case["id"], repeat), {})[arm] = "complete"
             else:
                 incomplete.append(record)
+                pair_status.setdefault((case["id"], repeat), {})[arm] = "incomplete"
+        incomplete_pairs = [
+            {"case_id": case_id, "repeat": repeat, "arms": arms}
+            for (case_id, repeat), arms in pair_status.items()
+            if set(arms.values()) != {"complete"} or len(arms) < 2
+        ]
         summary = {
-            "mode": "live-fake-transport",
+            "mode": "paired-fusion-loop",
             "fixed_date": EXPERIMENT_NOW.date().isoformat(),
             "timezone": "Asia/Shanghai",
             "limits_per_run": LIMITS_PER_RUN,
@@ -217,11 +466,13 @@ class PairingExecutor:
             "aborted": self.budget.aborted,
             "completed": completed,
             "incomplete": incomplete,
+            "incomplete_pairs": incomplete_pairs,
             "job_order": [f"{arm}:{case['id']}:r{repeat}" for arm, case, repeat in self.jobs()],
             "base": _git_sha("HEAD"),
             "live_executed": False,
             "live_real_model": False,
             "cache_status": "未知",
+            "spies": {key: list(value) for key, value in self.spies.items()},
         }
         (self.output_dir / "pairing-summary.json").write_text(
             json.dumps(summary, ensure_ascii=False, indent=2, default=str),
@@ -229,54 +480,301 @@ class PairingExecutor:
         )
         return summary
 
-    def _run_arm(self, *, arm: str, case: dict[str, Any], repeat: int) -> dict[str, Any]:
-        phases: list[dict[str, Any]] = []
-        if arm == "baseline":
-            classify_request = ModelRequest(
-                arm=arm,
-                case_id=case["id"],
-                repeat=repeat,
-                phase="classify",
-                messages=[{"role": "user", "content": case["text"]}],
-                tools=[],
-                tool_choice=None,
-                classify=True,
+    async def _run_arm(self, *, arm: str, case: dict[str, Any], repeat: int) -> dict[str, Any]:
+        os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
+        from unittest.mock import patch
+
+        from app.schemas.chat import Usage
+        from app.services.stream.agent_loop_driver import run_agent_loop
+        from app.services.stream.agent_loop_execution import (
+            AgentLoopDependencies,
+            AgentLoopExecutionRequest,
+            build_agent_loop_execution,
+        )
+        from app.services.stream.agent_loop_policy import AgentLoopLimits
+        from app.services.stream.agent_loop_request_prep import build_agent_loop_call_config
+        from app.services.stream.agent_round import AgentRoundResult
+        from app.services.stream.dynamic_tool_discovery_fixtures import build_prototype_fixture_catalog
+        from app.services.stream.limit_summary import LimitSummaryOutcome
+        from app.services.stream.run_capability_router import resolve_run_capability_route
+        from app.services.stream.step_lifecycle import AgentStepContext
+        from app.services.stream.tool_execution_result import ToolExecutionRecord
+        from app.services.stream.tool_round import handle_tool_calls_round
+
+        schemas, handlers, _shared = build_prototype_fixture_catalog(playback=CASE_PLAYBACK.get(case["id"]))
+        authorized = [schema["function"]["name"] for schema in schemas]
+        options: dict[str, Any] = {"max_tokens": LIMITS_PER_RUN["max_tokens"], "plan_mode": "off"}
+        if arm == "candidate":
+            options["dynamic_tool_discovery"] = True
+        route_calls: list[Any] = []
+
+        def wrapped_route(**kwargs):
+            route_calls.append(kwargs)
+            self.spies["classify_route"].append({"arm": arm, "case_id": case["id"]})
+            return resolve_run_capability_route(**kwargs)
+
+        self.spies["assemble"].append({"arm": arm, "case_id": case["id"]})
+        with patch(
+            "app.services.stream.agent_loop_request_prep.resolve_run_capability_route",
+            side_effect=wrapped_route,
+        ):
+            config = build_agent_loop_call_config(
+                provider="openai",
+                options=options,
+                capabilities={"functionCalling": True, "searchCapable": True, "agentTools": True},
+                additional_tools=schemas,
+                dynamic_tool_handlers=handlers,
+                authorized_tool_names=authorized,
+                original_message=case["text"],
             )
-            classify_response = self.transport.complete(classify_request)
-            phases.append({"phase": "classify", **asdict(classify_response)})
-            if classify_response.status != "ok":
-                return {
-                    "status": classify_response.status,
+        if arm == "candidate" and route_calls:
+            raise AssertionError("候选发现路径不得调用包分类路由")
+        if self.break_discovery and config.tool_discovery is not None:
+            handler = config.dynamic_tool_handlers.get("tool_search")
+
+            async def _fail(_args):
+                raise RuntimeError("injected discovery failure")
+
+            if handler is not None:
+                handler.execute = _fail  # type: ignore[method-assign]
+
+        rounds: list[dict[str, Any]] = []
+        budget = self.budget
+        transport = self.transport
+        spies = self.spies
+
+        async def llm_call_fn(_model, _kwargs, messages, **call_kwargs):
+            if not budget.consume(requests=1, tokens=0):
+                raise ExperimentBudgetExhausted("experiment_request_cap")
+            schemas_this_round = list(call_kwargs.get("tools") or [])
+            request = ModelRequest(
+                messages=_serialize_messages(messages),
+                tools=_tool_names(schemas_this_round),
+                tool_choice=call_kwargs.get("tool_choice"),
+                tool_schemas=schemas_this_round,
+                classify=False,
+                max_tokens=call_kwargs.get("max_tokens") or LIMITS_PER_RUN["max_tokens"],
+                case_id=case["id"],
+                arm=arm,
+                repeat=repeat,
+                phase="llm",
+            )
+            spies["llm_sends"].append(
+                {
                     "arm": arm,
                     "case_id": case["id"],
-                    "repeat": repeat,
-                    "input_hash": _case_hash(case),
-                    "phases": phases,
-                    "final_output": None,
+                    "tools": list(request.tools),
+                    "request_hash": request_hash(request),
                 }
-        main_request = ModelRequest(
-            arm=arm,
-            case_id=case["id"],
-            repeat=repeat,
-            phase="main",
-            messages=[{"role": "user", "content": case["text"]}],
-            tools=["tool_search"] if arm == "candidate" else ["web_search"],
-            tool_choice="auto",
+            )
+            result = transport.complete(request)
+            if inspect.isawaitable(result):
+                result = await result
+            rounds.append(
+                {
+                    "visible_tools": list(request.tools),
+                    "tool_choice": request.tool_choice,
+                    "request_hash": result.request_hash,
+                    "tool_calls": result.tool_calls,
+                    "content": result.content,
+                    "messages": request.messages,
+                }
+            )
+            return result
+
+        async def run_round_fn(**kwargs):
+            tools = kwargs.get("call_kwargs", {}).get("tools") or []
+            names = _tool_names(tools)
+            response = await llm_call_fn(
+                kwargs.get("litellm_model"),
+                kwargs.get("litellm_kwargs") or {},
+                kwargs.get("messages") or [],
+                **(kwargs.get("call_kwargs") or {}),
+            )
+            if response.status != "ok":
+                raise RuntimeError(response.error or response.status)
+            finish = "tool_calls" if response.tool_calls else "stop"
+            return AgentRoundResult(
+                reasoning_buf="",
+                content_buf=response.content,
+                tool_calls=response.tool_calls,
+                finish_reason=finish,
+                accumulated_usage=Usage(
+                    input_tokens=response.input_tokens,
+                    output_tokens=response.output_tokens,
+                ),
+                announced_tool_names=frozenset(names),
+            )
+
+        async def start_step(**kwargs):
+            step_number = kwargs["step_number"]
+            return AgentStepContext(
+                step_id=f"step-{step_number}",
+                step_number=step_number,
+                started_at=0.0,
+                thinking_block_id=f"th-{step_number}",
+                text_block_id=f"tx-{step_number}",
+            )
+
+        async def complete_step(**_kwargs):
+            return None
+
+        async def execute_tools(tool_calls, conversation_id, user_id, model_id, provider, **kwargs):
+            del conversation_id, user_id, model_id, provider
+            records = []
+            bound = kwargs.get("tool_handlers") or config.dynamic_tool_handlers or handlers
+            for tool_call in tool_calls or []:
+                handler = bound[tool_call["name"]]
+                args = tool_call.get("arguments") or {}
+                if isinstance(args, str):
+                    args = json.loads(args)
+                result = await handler.execute(args)
+                records.append(
+                    ToolExecutionRecord(
+                        tool_call=tool_call,
+                        result=result,
+                        handler=handler,
+                        block_id=f"blk-{tool_call['id']}",
+                        log_id=f"log-{tool_call['id']}",
+                    )
+                )
+            return records
+
+        async def limit_summary(**_kwargs):
+            return LimitSummaryOutcome(
+                accumulated_usage=Usage(input_tokens=0, output_tokens=0),
+                context=None,
+                incomplete=False,
+            )
+
+        class RecordingEmitter:
+            def __init__(self) -> None:
+                self.product_blocks: list[object] = []
+                self.tool_events: list[tuple[str, str]] = []
+
+            async def content_block_upserted(self, **kwargs):
+                self.product_blocks.append(kwargs.get("content_block"))
+
+            async def tool_call_started(self, **kwargs):
+                self.tool_events.append(("started", str(kwargs.get("tool_name"))))
+
+            async def tool_call_completed(self, **kwargs):
+                self.tool_events.append(("completed", str(kwargs.get("tool_name"))))
+
+            def __getattr__(self, name: str):
+                async def _noop(**_kwargs):
+                    return None
+
+                return _noop
+
+        execution = build_agent_loop_execution(
+            request=AgentLoopExecutionRequest(
+                db=None,
+                conversation_id=f"conv-{arm}-{case['id']}-{repeat}",
+                user_id="compare-user",
+                model_id="fusion-main",
+                litellm_model="openai/fusion-main",
+                litellm_kwargs={},
+                provider="openai",
+                assistant_message_id=f"msg-{arm}-{repeat}",
+                task_id=f"task-{arm}-{repeat}",
+                call_config=config,
+                trace_id=f"run-{arm}-{case['id']}-r{repeat}",
+                original_message=case["text"],
+            ),
+            limits=AgentLoopLimits(
+                max_steps=LIMITS_PER_RUN["max_steps"],
+                max_tool_calls=LIMITS_PER_RUN["max_tool_calls"],
+                total_timeout_s=300,
+            ),
+            dependencies=AgentLoopDependencies(
+                session_cache=SimpleNamespace(
+                    write_step_started=lambda **_k: asyncio.sleep(0),
+                    write_step_completed=lambda **_k: asyncio.sleep(0),
+                ),
+                redis_writer=object(),
+                start_step_fn=start_step,
+                complete_step_fn=complete_step,
+                run_round_fn=run_round_fn,
+                handle_tool_calls_round_fn=handle_tool_calls_round,
+                run_limit_summary_step_fn=limit_summary,
+                llm_call_fn=llm_call_fn,
+                stream_round_fn=_unused_stream,
+                execute_tools_fn=execute_tools,
+                persist_message_fn=lambda *_a, **_k: None,
+                log_round_summary_fn=lambda **_k: None,
+                warning_fn=lambda _m: None,
+                clock=lambda: 1.0,
+            ),
         )
-        main_response = self.transport.complete(main_request)
-        phases.append({"phase": "main", **asdict(main_response)})
+        emitter = RecordingEmitter()
+        runtime = execution.runtime
+        object.__setattr__(runtime, "run_round_fn", run_round_fn)
+        object.__setattr__(runtime, "handle_tool_calls_round_fn", handle_tool_calls_round)
+        object.__setattr__(runtime, "execute_tools_fn", execute_tools)
+        object.__setattr__(runtime, "llm_call_fn", llm_call_fn)
+        object.__setattr__(runtime, "start_step_fn", start_step)
+        object.__setattr__(runtime, "complete_step_fn", complete_step)
+        object.__setattr__(runtime, "persist_message_fn", lambda *_a, **_k: None)
+        object.__setattr__(runtime, "run_limit_summary_step_fn", limit_summary)
+        object.__setattr__(runtime, "tool_discovery", execution.state.tool_discovery)
+        object.__setattr__(runtime, "emitter", emitter)
+        self.spies["driver"].append({"arm": arm, "case_id": case["id"]})
+        transport_ok = True
+        error = None
+        try:
+            messages: list = []
+            await run_agent_loop(db=None, messages=messages, state=execution.state, runtime=runtime)
+        except ExperimentBudgetExhausted as exc:
+            transport_ok = False
+            error = str(exc)
+        except RealModelSendDenied as exc:
+            transport_ok = False
+            error = str(exc)
+        except Exception as exc:  # noqa: BLE001 - 对照记录需要保留失败形态
+            transport_ok = False
+            error = f"{type(exc).__name__}: {exc}"
+        handler_counts = {name: getattr(item, "execute_count", 0) for name, item in handlers.items()}
+        discovery_events = list(getattr(config.tool_discovery, "events", []) or [])
+        final_output = ""
+        if rounds:
+            final_output = str(rounds[-1].get("content") or "")
+        weather_schema_seen = any("weather_forecast" in (round_row.get("visible_tools") or []) for round_row in rounds)
+        result_in_messages = any(
+            "day_weather" in json.dumps(round_row.get("messages") or [], ensure_ascii=False, default=str)
+            for round_row in rounds[1:]
+        )
+        task_completed = bool(transport_ok and error is None and final_output and not self.break_discovery)
+        if self.break_discovery:
+            task_completed = False
         return {
-            "status": main_response.status,
+            "status": "ok" if transport_ok and error is None else "error",
             "arm": arm,
             "case_id": case["id"],
             "repeat": repeat,
             "input_hash": _case_hash(case),
-            "request_hash": main_response.request_hash,
-            "phases": phases,
-            "final_output": main_response.content,
+            "request_hash": rounds[-1]["request_hash"] if rounds else None,
+            "rounds": rounds,
+            "phases": rounds,
+            "final_output": final_output,
+            "transport_ok": transport_ok,
+            "task_completed": task_completed,
+            "error": error,
+            "handler_counts": handler_counts,
+            "discovery_events": discovery_events,
+            "weather_schema_seen": weather_schema_seen,
+            "weather_result_in_later_messages": result_in_messages,
+            "classify_route_calls": len(route_calls),
+            "package_id": getattr(config.capability_resolution, "package_id", None),
+            "dynamic_tool_discovery": bool(config.dynamic_tool_discovery),
             "fixed_date": EXPERIMENT_NOW.isoformat(),
             "fixture_clock": EXPERIMENT_NOW.isoformat(),
+            "limits_per_run": LIMITS_PER_RUN,
         }
+
+
+async def _unused_stream(*_args, **_kwargs):
+    raise AssertionError("配对路径应通过注入的 run_round_fn / llm_call_fn，不走真实 stream")
 
 
 def build_compare_config(*, mode: str, repeats: int, max_requests: int | None, output_dir: Path) -> dict[str, Any]:
@@ -341,6 +839,7 @@ def run_offline(output_dir: Path) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
     env["PYTHONPATH"] = str(_BACKEND_ROOT)
+    env.setdefault("DATABASE_URL", "sqlite:///:memory:")
     result = subprocess.run(
         [
             sys.executable,
@@ -378,20 +877,6 @@ def run_offline(output_dir: Path) -> int:
     return result.returncode
 
 
-def run_fake_live(*, max_requests: int, repeats: int, output_dir: Path) -> int:
-    budget = ExperimentBudget(max_requests=max_requests)
-    transport = FakeModelTransport(budget)
-    summary = PairingExecutor(
-        transport=transport,
-        budget=budget,
-        output_dir=output_dir / "pairing",
-        repeats=repeats,
-    ).run()
-    print(json.dumps({"used_requests": summary["used_requests"], "aborted": summary["aborted"]}, ensure_ascii=False))
-    print(f"pairing_summary={output_dir / 'pairing' / 'pairing-summary.json'}")
-    return 0
-
-
 def parse_budget(value: int | None) -> int | None:
     if value is None:
         return None
@@ -424,14 +909,41 @@ def main(argv: list[str] | None = None) -> int:
         print("dry-run 完成：未调用模型、未消耗额度；以上来自实际对照配置")
         return 0
     if args.mode == "live":
-        budget = parse_budget(args.max_requests)
-        if budget is None:
+        budget_value = parse_budget(args.max_requests)
+        if budget_value is None:
             print("live 缺显式 --max-requests 限额，拒绝运行")
             return 2
-        if args.transport != "fake":
-            print("live 未执行：本轮未授权连接真实模型传输层")
+        budget = ExperimentBudget(max_requests=budget_value)
+        allow_real = os.environ.get("FUSION_COMPARE_ALLOW_REAL_LLM") == "1"
+        if args.transport == "litellm":
+            transport = LiteLLMProxyTransport(allow_real=allow_real)
+        else:
+            transport = FakeModelTransport()
+        try:
+            summary = PairingExecutor(
+                transport=transport,
+                budget=budget,
+                output_dir=args.output_dir / "pairing",
+                repeats=args.repeats,
+            ).run()
+        except RealModelSendDenied:
+            print("live LiteLLM 适配已实现，但未授权真实发送；send=0")
             return 3
-        return run_fake_live(max_requests=budget, repeats=args.repeats, output_dir=args.output_dir)
+        print(
+            json.dumps(
+                {
+                    "used_requests": summary["used_requests"],
+                    "aborted": summary["aborted"],
+                    "incomplete_pairs": len(summary.get("incomplete_pairs") or []),
+                },
+                ensure_ascii=False,
+            )
+        )
+        print(f"pairing_summary={args.output_dir / 'pairing' / 'pairing-summary.json'}")
+        if args.transport == "litellm" and not allow_real and not summary.get("completed"):
+            print("live LiteLLM 未真实联网；可用注入 send_fn 验证同一执行器")
+            return 3
+        return 0
     return run_offline(args.output_dir)
 
 
