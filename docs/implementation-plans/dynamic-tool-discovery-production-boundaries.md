@@ -23,14 +23,14 @@
 - **已有承载**：正常 stop → `handle_agent_round_outcome` → `_commit_deferred_answer`（产品 validator / grounded / 无证据守卫）。触顶 → `run_limit_summary_step` + `_guard_no_evidence_answer`（`defer_output=True`）。工具失败恢复 → 现有 tool_issue / recovery_evidence。P08 离线矩阵见 `dynamic-tool-discovery-p08-report.md`。
 - **未验证或缺口**：自然语言未被守卫覆盖的具体事实；天气 fixture 日期缺口下的“正确说覆盖不足”依赖 grounded/validator 而非通用理解；忠实转述可不带 synthetic limitations。
 - **下一步最小工作**：真实供应商结果块上复跑 P08 矩阵；核对 empty success 块的卡片展示。
-- **验收**：不安全候选从未出现在 `append_chunk(..., answering)` 与终态 `content_blocks` 文本；问候与用户数字不被误拦。
+- **验收**：不安全候选从未出现在 `append_chunk(..., answering|reasoning)`、终态 `content_blocks` 文本/思考，以及 `persist_message` 读回；问候与用户数字不被误拦。
 - **回退**：`PRODUCT_ANSWER_REPAIR_ENABLED` 默认 False 未改；关发现 opt-in 回到包路径 defer 规则。
 
 ## 持久化与事件
 
 - **已有承载**：过程 checkpoint `tool_round.persist_tool_round_checkpoint` → `persist_message`（`persistence.py`）。终态 `agent_loop_run_completion.persist_run_message` → `finalize_completed_run` → `run_finalizer.complete_agent_run`（`run_completed` + session status）。轨迹 `_run_config` 在发现路径写 `dynamic_tool_discovery` 而不写假 package（`agent_loop_lifecycle.py`）。
-- **未验证或缺口**：Redis SSE 恢复、历史快照读回、部分写入 CAS 与发现工具变化的组合。P08 测试用内存 store + 捕获 `append_chunk`，不写真实 Redis/DB。
-- **下一步最小工作**：对照现有 `test_persistence.py` / `test_reliable_termination_persistence.py`，加一条发现路径终态块含 weather/train 的落库形状。
+- **未验证或缺口**：Redis SSE 恢复、历史快照读回、部分写入 CAS 与发现工具变化的组合。已有隔离 SQLite：`test_p08_finalize_completed_run_persists_safe_blocks` 走 `finalize_completed_run`+生产 `persist_message` 并新 Session 读回；不是 Redis/PostgreSQL 生产库。
+- **下一步最小工作**：再补一条含 weather/train 产品块的终态落库形状。
 - **验收**：终态事件 `finish_reason`/`session_status` 与保存文本一致；旧 Run 不被新请求续写。
 - **回退**：发现字段仅出现在启用时的 run config；旧会话无该键。
 

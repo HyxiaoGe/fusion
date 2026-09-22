@@ -6,8 +6,11 @@ import asyncio
 import json
 import sys
 import unittest
+from contextlib import ExitStack
+from dataclasses import replace
+from functools import partial
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.schemas.chat import Usage, WeatherResultsBlock
 from app.services.stream.agent_loop_driver import run_agent_loop
@@ -19,8 +22,8 @@ from app.services.stream.agent_loop_execution import (
 from app.services.stream.agent_loop_lifecycle import _run_config
 from app.services.stream.agent_loop_policy import AgentLoopLimits, map_run_terminal_state
 from app.services.stream.agent_loop_request_prep import build_agent_loop_call_config
-from app.services.stream.agent_loop_run_completion import persist_run_message
-from app.services.stream.agent_round import AgentRoundResult
+from app.services.stream.agent_loop_run_completion import finalize_completed_run, persist_run_message
+from app.services.stream.agent_round import AgentRoundResult, run_agent_round
 from app.services.stream.dynamic_tool_discovery import (
     TOOL_SEARCH_NAME,
     DynamicToolDiscoveryUnsupportedError,
@@ -35,6 +38,8 @@ from app.services.stream.dynamic_tool_discovery_fixtures import (
 )
 from app.services.stream.limit_summary import LimitSummaryOutcome, run_limit_summary_step
 from app.services.stream.limit_summary_fact_guard import NO_EVIDENCE_ANSWER_TEXT, resolve_no_evidence_answer
+from app.services.stream.llm_stream import stream_round
+from app.services.stream.persistence import persist_message
 from app.services.stream.run_finalizer import complete_agent_run
 from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream.tool_execution_result import ToolExecutionRecord
@@ -218,21 +223,32 @@ def _runtime_from_execution(execution, *, script, emitter):
     return runtime
 
 
-def _execution(config, *, run_id="run-discovery"):
+def _execution(
+    config,
+    *,
+    run_id="run-discovery",
+    db=None,
+    persist_message_fn=None,
+    assistant_message_sequence=None,
+    conversation_id="conv-d",
+    assistant_message_id="msg-d",
+):
+    persist = persist_message_fn if persist_message_fn is not None else (lambda *_a, **_k: None)
     return build_agent_loop_execution(
         request=AgentLoopExecutionRequest(
-            db=None,
-            conversation_id="conv-d",
+            db=db,
+            conversation_id=conversation_id,
             user_id="user-d",
             model_id="gpt-4",
             litellm_model="openai/gpt-4",
             litellm_kwargs={},
             provider="openai",
-            assistant_message_id="msg-d",
+            assistant_message_id=assistant_message_id,
             task_id="task-d",
             call_config=config,
             trace_id=run_id,
             original_message="查一下杭州周末天气，再找上海过去的高铁。",
+            assistant_message_sequence=assistant_message_sequence,
         ),
         limits=AgentLoopLimits(max_steps=12, max_tool_calls=20, total_timeout_s=300),
         dependencies=AgentLoopDependencies(
@@ -250,7 +266,7 @@ def _execution(config, *, run_id="run-discovery"):
             llm_call_fn=_unused,
             stream_round_fn=_unused,
             execute_tools_fn=_execute_fixtures,
-            persist_message_fn=lambda *_a, **_k: None,
+            persist_message_fn=persist,
             log_round_summary_fn=lambda **_k: None,
             warning_fn=lambda _m: None,
             clock=lambda: 1.0,
@@ -293,6 +309,130 @@ def _text_from_blocks(blocks) -> str:
 
 def _answering_texts(chunks: list[dict]) -> list[str]:
     return [str(item.get("content") or "") for item in chunks if item.get("type") == "answering"]
+
+
+UNSAFE_FABRICATED_FACTS = "杭州明天最高 28 度，坐 G7301，二等座 73 元。"
+
+
+def _chunk_visible_text(chunks: list[dict]) -> str:
+    return "\n".join(str(item.get("content") or "") for item in chunks)
+
+
+def _block_dump_text(blocks) -> str:
+    parts: list[str] = []
+    for block in blocks or []:
+        if isinstance(block, dict):
+            parts.append(str(block.get("text") or ""))
+            parts.append(str(block.get("thinking") or ""))
+            continue
+        parts.append(str(getattr(block, "text", "") or ""))
+        parts.append(str(getattr(block, "thinking", "") or ""))
+    return "\n".join(parts)
+
+
+def _message_protocol_reasoning(messages: list) -> str:
+    parts: list[str] = []
+    for message in messages:
+        if isinstance(message, dict):
+            parts.append(str(message.get("reasoning_content") or ""))
+            continue
+        fields = dict(getattr(message, "provider_fields", {}) or {})
+        parts.append(str(fields.get("reasoning_content") or message.get("reasoning_content") or ""))
+    return "\n".join(parts)
+
+
+def _delta_chunk(*, reasoning=None, content=None, finish_reason=None, tool_call=None, usage=None):
+    delta = SimpleNamespace(content=content, reasoning_content=reasoning)
+    if tool_call is not None:
+        delta.tool_calls = [
+            SimpleNamespace(
+                index=0,
+                id=tool_call["id"],
+                function=SimpleNamespace(name=tool_call["name"], arguments=tool_call["arguments"]),
+            )
+        ]
+    return SimpleNamespace(choices=[SimpleNamespace(delta=delta, finish_reason=finish_reason)], usage=usage)
+
+
+class TokenScript:
+    def __init__(self, rounds: list[list]):
+        self.rounds = [list(round_chunks) for round_chunks in rounds]
+        self.calls = 0
+
+    async def __call__(self, *_args, **_kwargs):
+        self.calls += 1
+        chunks = self.rounds.pop(0)
+
+        async def tokens():
+            for chunk in chunks:
+                yield chunk
+
+        return tokens()
+
+
+class FormalRoundCapture:
+    def __init__(self, llm_call):
+        self.llm_call = llm_call
+        self.flags: list[dict] = []
+        self.protocol_reasoning: list[str] = []
+
+    async def __call__(self, **kwargs):
+        self.flags.append(
+            {
+                "defer_output": kwargs.get("defer_output"),
+                "allow_deferred_reasoning_output": kwargs.get(
+                    "allow_deferred_reasoning_output",
+                    "未传，生产默认 True",
+                ),
+                "should_use_reasoning": kwargs.get("should_use_reasoning"),
+            }
+        )
+        kwargs["llm_call_fn"] = self.llm_call
+        kwargs["stream_round_fn"] = partial(stream_round, reasoning_transport_mode="delta")
+        result = await run_agent_round(**kwargs)
+        self.protocol_reasoning.append(str(result.protocol_reasoning_buf or ""))
+        return result
+
+
+def _enable_reasoning(config):
+    object.__setattr__(config, "should_use_reasoning", True)
+    return config
+
+
+async def _offline_prepare_context(**kwargs):
+    from app.services.chat.context_manager import ContextPlan
+
+    return ContextPlan(
+        messages=kwargs["messages"],
+        status="no_op_fast_path",
+        context_window_tokens=128000,
+        context_window_source="offline",
+        context_window_status="known",
+    )
+
+
+def _formal_stream_patches(capture_chunk):
+    observation = MagicMock()
+    observation.finish_success = AsyncMock()
+    observation.finish_error = AsyncMock()
+    observation.wrap_response.side_effect = lambda response: response
+    stack = ExitStack()
+    stack.enter_context(patch("app.services.stream.agent_round.prepare_context", side_effect=_offline_prepare_context))
+    stack.enter_context(
+        patch("app.services.stream.limit_summary.prepare_context", side_effect=_offline_prepare_context)
+    )
+    stack.enter_context(
+        patch("app.services.stream.agent_round._create_agent_round_observation", return_value=observation)
+    )
+    stack.enter_context(
+        patch("app.services.stream.limit_summary.create_llm_round_observation", return_value=observation)
+    )
+    stack.enter_context(patch("app.services.stream.agent_round.litellm_health.record_success"))
+    stack.enter_context(patch("app.services.stream.llm_stream.append_chunk", side_effect=capture_chunk))
+    stack.enter_context(patch("app.services.stream.llm_stream.check_lock_owner", new=AsyncMock(return_value=True)))
+    stack.enter_context(patch("app.services.stream.agent_loop_round_outcome.append_chunk", side_effect=capture_chunk))
+    stack.enter_context(patch("app.services.stream.limit_summary.append_chunk", side_effect=capture_chunk))
+    return stack
 
 
 async def _run_delivery(
@@ -366,6 +506,91 @@ async def _run_delivery(
         chunks=chunks,
         outcome=outcome,
         terminal=terminal,
+    )
+
+
+async def _run_formal_delivery(
+    *,
+    config,
+    token_rounds: list[list],
+    run_id: str,
+    messages: list,
+    persist_message_fn=None,
+    db=None,
+    assistant_message_sequence=None,
+    use_real_summary: bool = False,
+    limits: AgentLoopLimits | None = None,
+    finalize: bool = False,
+):
+    _enable_reasoning(config)
+    llm = TokenScript(token_rounds)
+    script = FormalRoundCapture(llm)
+    store = persist_message_fn if persist_message_fn is not None else _PersistStore()
+    execution = _execution(
+        config,
+        run_id=run_id,
+        db=db,
+        persist_message_fn=store,
+        assistant_message_sequence=assistant_message_sequence,
+    )
+    emitter = RecordingEmitter()
+    chunks: list[dict] = []
+
+    async def capture_chunk(conversation_id, chunk_type, content, block_id, **kwargs):
+        chunks.append(
+            {
+                "conversation_id": conversation_id,
+                "type": chunk_type,
+                "content": content,
+                "block_id": block_id,
+                **kwargs,
+            }
+        )
+
+    runtime = _runtime_from_execution(execution, script=script, emitter=emitter)
+    object.__setattr__(runtime, "persist_message_fn", store)
+    object.__setattr__(runtime, "should_use_reasoning", True)
+    object.__setattr__(runtime, "llm_call_fn", llm)
+    object.__setattr__(runtime, "stream_round_fn", partial(stream_round, reasoning_transport_mode="delta"))
+    if limits is not None:
+        object.__setattr__(runtime, "limits", limits)
+    if use_real_summary:
+        object.__setattr__(runtime, "run_limit_summary_step_fn", run_limit_summary_step)
+    with _formal_stream_patches(capture_chunk):
+        outcome = await run_agent_loop(db=db, messages=messages, state=execution.state, runtime=runtime)
+        terminal = map_run_terminal_state(
+            unknown_terminated=execution.state.unknown_terminated,
+            limit_reason=execution.state.limit_reason,
+        )
+        if finalize:
+            await finalize_completed_run(
+                context=replace(execution.completion_context, emitter=emitter),
+                terminal_state=terminal,
+                persist_message_fn=store,
+                complete_agent_run_fn=complete_agent_run,
+                finalize_stream_fn=AsyncMock(),
+            )
+        else:
+            persist_run_message(context=execution.completion_context, persist_message_fn=store)
+            await complete_agent_run(
+                emitter=emitter,
+                session_cache=runtime.session_cache,
+                stats=execution.state.run_stats(execution.run_id),
+                duration_ms_factory=execution.completion_context.duration_ms_factory,
+                session_status=terminal.session_status,
+                finish_reason=terminal.run_finish_reason,
+                limit_reason=execution.state.limit_reason,
+            )
+    return SimpleNamespace(
+        execution=execution,
+        runtime=runtime,
+        script=script,
+        emitter=emitter,
+        store=store,
+        chunks=chunks,
+        outcome=outcome,
+        terminal=terminal,
+        messages=messages,
     )
 
 
@@ -834,6 +1059,201 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("十点", saved)
         self.assertIn("十二点", saved)
         self.assertNotEqual(saved, NO_EVIDENCE_ANSWER_TEXT)
+
+    def _assert_no_fabricated_facts(self, *parts: str):
+        visible = "\n".join(parts)
+        self.assertNotIn("G7301", visible)
+        self.assertNotIn("28 度", visible)
+        self.assertNotIn("73 元", visible)
+
+    async def test_p08_formal_stream_holds_unverified_reasoning(self):
+        config, handlers, _shared, _calls = _discovery_config(message="查杭州明天天气和上海到杭州高铁")
+        delivered = await _run_formal_delivery(
+            config=config,
+            token_rounds=[
+                [
+                    _delta_chunk(reasoning=UNSAFE_FABRICATED_FACTS),
+                    _delta_chunk(content=UNSAFE_FABRICATED_FACTS, finish_reason="stop"),
+                ]
+            ],
+            run_id="run-p08-formal-stop",
+            messages=[{"role": "user", "content": "查杭州明天天气和上海到杭州高铁"}],
+        )
+        self.assertTrue(delivered.script.flags)
+        self.assertTrue(all(flag["defer_output"] is True for flag in delivered.script.flags))
+        self.assertTrue(all(flag["allow_deferred_reasoning_output"] is False for flag in delivered.script.flags))
+        self.assertTrue(all(flag["should_use_reasoning"] is True for flag in delivered.script.flags))
+        self.assertFalse(any(item["type"] == "reasoning" for item in delivered.chunks))
+        answering = _answering_texts(delivered.chunks)
+        self.assertEqual(answering, [NO_EVIDENCE_ANSWER_TEXT])
+        saved = _text_from_blocks(delivered.store.saves[-1])
+        self.assertEqual(saved, NO_EVIDENCE_ANSWER_TEXT)
+        self._assert_no_fabricated_facts(
+            _chunk_visible_text(delivered.chunks),
+            saved,
+            _block_dump_text(delivered.execution.state.content_blocks),
+        )
+        self.assertIn(UNSAFE_FABRICATED_FACTS, "\n".join(delivered.script.protocol_reasoning))
+        self.assertEqual(handlers["weather_forecast"].execute_count, 0)
+        self.assertIn("run_completed", delivered.emitter.calls)
+
+    async def test_p08_formal_stream_tool_round_keeps_protocol_reasoning(self):
+        config, handlers, _shared, _calls = _discovery_config(message="杭州明天天气")
+        messages = [{"role": "user", "content": "杭州明天天气"}]
+        delivered = await _run_formal_delivery(
+            config=config,
+            token_rounds=[
+                [
+                    _delta_chunk(reasoning=UNSAFE_FABRICATED_FACTS),
+                    _delta_chunk(
+                        tool_call={
+                            "id": "s1",
+                            "name": TOOL_SEARCH_NAME,
+                            "arguments": '{"query":"select:weather_forecast"}',
+                        },
+                        finish_reason="tool_calls",
+                    ),
+                ],
+                [
+                    _delta_chunk(reasoning="根据工具结果作答，不编造 28 度。"),
+                    _delta_chunk(
+                        tool_call={
+                            "id": "w1",
+                            "name": "weather_forecast",
+                            "arguments": '{"location":"杭州","location_source":"named"}',
+                        },
+                        finish_reason="tool_calls",
+                    ),
+                ],
+                [
+                    _delta_chunk(reasoning="杭州 9 月 22 日最高 24 度。"),
+                    _delta_chunk(content="杭州 9 月 22 日最高 24 度。", finish_reason="stop"),
+                ],
+            ],
+            run_id="run-p08-formal-tools",
+            messages=messages,
+        )
+        self.assertTrue(all(flag["allow_deferred_reasoning_output"] is False for flag in delivered.script.flags))
+        self.assertFalse(any(item["type"] == "reasoning" for item in delivered.chunks))
+        self.assertIn(UNSAFE_FABRICATED_FACTS, delivered.script.protocol_reasoning[0])
+        self.assertIn(UNSAFE_FABRICATED_FACTS, _message_protocol_reasoning(messages))
+        saved = _text_from_blocks(delivered.store.saves[-1])
+        self._assert_no_fabricated_facts(_chunk_visible_text(delivered.chunks), saved)
+        self.assertEqual(handlers["weather_forecast"].execute_count, 1)
+        self.assertIn("24", saved)
+        self.assertNotEqual(saved, NO_EVIDENCE_ANSWER_TEXT)
+        thinking = [block for block in delivered.store.saves[-1] if getattr(block, "type", None) == "thinking"]
+        self.assertEqual(thinking, [])
+
+    async def test_p08_formal_stream_greeting_is_not_blanked(self):
+        config, _handlers, _shared, _calls = _discovery_config(message="早上好，你是谁？")
+        delivered = await _run_formal_delivery(
+            config=config,
+            token_rounds=[
+                [
+                    _delta_chunk(reasoning="用户在打招呼，直接自我介绍。"),
+                    _delta_chunk(content="你好，我是助手。", finish_reason="stop"),
+                ]
+            ],
+            run_id="run-p08-formal-greeting",
+            messages=[{"role": "user", "content": "早上好，你是谁？"}],
+        )
+        self.assertEqual(_answering_texts(delivered.chunks)[-1], "你好，我是助手。")
+        self.assertEqual(_text_from_blocks(delivered.store.saves[-1]), "你好，我是助手。")
+        self.assertFalse(any(item["type"] == "reasoning" for item in delivered.chunks))
+
+    async def test_p08_formal_stream_limit_summary_holds_reasoning(self):
+        config, handlers, _shared, _calls = _discovery_config(message="杭州天气")
+        delivered = await _run_formal_delivery(
+            config=config,
+            token_rounds=[
+                [
+                    _delta_chunk(reasoning=UNSAFE_FABRICATED_FACTS),
+                    _delta_chunk(
+                        tool_call={
+                            "id": "l1",
+                            "name": TOOL_SEARCH_NAME,
+                            "arguments": '{"query":"select:weather_forecast"}',
+                        },
+                        finish_reason="tool_calls",
+                    ),
+                ],
+                [
+                    _delta_chunk(reasoning=UNSAFE_FABRICATED_FACTS),
+                    _delta_chunk(content="杭州明天 28 度，适合出门。", finish_reason="stop"),
+                ],
+            ],
+            run_id="run-p08-formal-limit",
+            messages=[{"role": "user", "content": "杭州天气"}],
+            use_real_summary=True,
+            limits=AgentLoopLimits(max_steps=1, max_tool_calls=20, total_timeout_s=300),
+        )
+        saved = _text_from_blocks(delivered.store.saves[-1])
+        self._assert_no_fabricated_facts(_chunk_visible_text(delivered.chunks), saved)
+        self.assertFalse(any(item["type"] == "reasoning" for item in delivered.chunks))
+        self.assertEqual(saved, NO_EVIDENCE_ANSWER_TEXT)
+        self.assertEqual(handlers["weather_forecast"].execute_count, 0)
+        self.assertEqual(delivered.terminal.session_status, "limit_reached")
+
+    async def test_p08_finalize_completed_run_persists_safe_blocks(self):
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import Session
+
+        from app.db.database import Base
+        from app.db.models import Conversation, Message, User
+
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine, tables=[User.__table__, Conversation.__table__, Message.__table__])
+        with Session(engine) as seed:
+            seed.add(User(id="user-d", username="p08-persist"))
+            seed.add(Conversation(id="conv-d", user_id="user-d", title="P08 持久化", model_id="gpt-4"))
+            seed.add(
+                Message(
+                    id="user-d-msg",
+                    conversation_id="conv-d",
+                    role="user",
+                    content=[{"type": "text", "text": "查杭州明天天气"}],
+                    sequence=1,
+                )
+            )
+            seed.commit()
+        try:
+            with Session(engine) as db:
+                config, _handlers, _shared, _calls = _discovery_config(message="查杭州明天天气")
+                delivered = await _run_formal_delivery(
+                    config=config,
+                    token_rounds=[
+                        [
+                            _delta_chunk(reasoning=UNSAFE_FABRICATED_FACTS),
+                            _delta_chunk(content=UNSAFE_FABRICATED_FACTS, finish_reason="stop"),
+                        ]
+                    ],
+                    run_id="run-p08-persist",
+                    messages=[{"role": "user", "content": "查杭州明天天气"}],
+                    persist_message_fn=persist_message,
+                    db=db,
+                    assistant_message_sequence=2,
+                    finalize=True,
+                )
+                passed_blocks = delivered.execution.state.content_blocks
+                self.assertEqual(_text_from_blocks(passed_blocks), NO_EVIDENCE_ANSWER_TEXT)
+                self._assert_no_fabricated_facts(_block_dump_text(passed_blocks), _chunk_visible_text(delivered.chunks))
+                self.assertIn("run_completed", delivered.emitter.calls)
+                completed = next(kwargs for name, kwargs in delivered.emitter.sequence if name == "run_completed")
+                self.assertEqual(completed.get("finish_reason"), delivered.terminal.run_finish_reason)
+            with Session(engine) as read_db:
+                stored = read_db.get(Message, "msg-d")
+                self.assertIsNotNone(stored)
+                stored_text = _block_dump_text(stored.content)
+                self.assertEqual(
+                    [block.get("type") for block in stored.content],
+                    ["text"],
+                )
+                self.assertEqual(stored_text.strip(), NO_EVIDENCE_ANSWER_TEXT)
+                self._assert_no_fabricated_facts(stored_text)
+                self.assertNotEqual(stored.content, passed_blocks)
+        finally:
+            engine.dispose()
 
     async def test_p09_discovery_then_limit_does_not_start_new_product_calls(self):
         config, handlers, _shared, _calls = _discovery_config(message="杭州天气")

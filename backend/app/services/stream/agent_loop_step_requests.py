@@ -123,4 +123,5 @@ def build_limit_summary_step_request(
         capability_resolution=runtime.capability_resolution,
         recovery_evidence=state.recovery_evidence,
         fallback_response_context=runtime.fallback_response_context,
+        tool_discovery=runtime.tool_discovery,
     )

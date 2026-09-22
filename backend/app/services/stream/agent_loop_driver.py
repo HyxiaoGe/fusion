@@ -366,7 +366,7 @@ async def _run_round(
     )
     if should_defer_output and _accepts_keyword(runtime.run_round_fn, "defer_output"):
         run_round_kwargs["defer_output"] = True
-    if runtime.evidence_policy == "knowledge_grounded_v1" and _accepts_keyword(
+    if (runtime.evidence_policy == "knowledge_grounded_v1" or runtime.tool_discovery is not None) and _accepts_keyword(
         runtime.run_round_fn, "allow_deferred_reasoning_output"
     ):
         run_round_kwargs["allow_deferred_reasoning_output"] = False
