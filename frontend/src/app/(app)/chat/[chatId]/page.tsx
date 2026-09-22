@@ -42,12 +42,16 @@ import {
   appendThinkingDelta,
   completeThinkingPhase,
   endStream,
+  finalizeRun,
+  setRunStopConfirmation,
+  setStreamError,
   selectFullStreamContentBlocks,
   ownsStreamSlot,
   selectStreamSlot,
   setStreamStatus,
   startStream,
 } from '@/redux/slices/streamSlice';
+import type { AgentRunState } from '@/types/agentRun';
 import type { StreamState } from '@/redux/slices/streamSlice';
 import { fetchStreamStatus } from '@/lib/api/streamStatus';
 import { reconnectStream, stopStream, type StreamCallbacks } from '@/lib/api/chat';
@@ -178,9 +182,29 @@ export default function ChatPage() {
     bufferedActions: Array<() => void>;
     streamTerminated: boolean;
   } | null>(null);
+  const confirmedRecoveryStopsRef = useRef(new Map<string, {
+    conversationId: string;
+    sessionKey: string | null;
+    run: AgentRunState;
+  }>());
   const isAuthenticated = useAppSelector(selectIsAuthenticated);
   const authSessionKey = useAppSelector(selectAuthSessionKey);
   const { conversation, hydrationView, hydrationError, retryHydration } = useConversation(chatId);
+  // /stop 确认可能先于详情落库。仅修正同一消息、同一 run 的旧 running 快照。
+  useEffect(() => {
+    for (const message of conversation?.messages ?? []) {
+      const confirmed = confirmedRecoveryStopsRef.current.get(message.id);
+      if (!confirmed || confirmed.conversationId !== chatId || confirmed.sessionKey !== authSessionKey) continue;
+      if (message.agent_run?.runId !== confirmed.run.runId || message.agent_run.status !== 'running') continue;
+      const slot = selectStreamSlot(store.getState() as { stream: StreamState }, chatId);
+      if (slot.isStreaming && slot.messageId === message.id && slot.currentRun?.runId !== confirmed.run.runId) continue;
+      dispatch(updateMessage({
+        conversationId: chatId,
+        messageId: message.id,
+        patch: { agent_run: confirmed.run },
+      }));
+    }
+  }, [authSessionKey, chatId, conversation?.messages, dispatch, store]);
   const [composerKnowledgeSelection, setComposerKnowledgeSelection] = useState<{
     chatId: string;
     ids: string[];
@@ -698,6 +722,35 @@ export default function ChatPage() {
       if (recoveryStopPendingRef.current?.controller === recoveryController) {
         return;
       }
+      const streamState = selectStreamSlot(store.getState() as { stream: StreamState }, chatId);
+      const stoppedMessageId = streamState.messageId;
+      const stoppedRunId = streamState.currentRun?.runId;
+      const stillOwnsStoppedStream = () => {
+        const slot = selectStreamSlot(store.getState() as { stream: StreamState }, chatId);
+        const currentController = getStreamController(chatId)?.controller;
+        // SSE 可能先收到终态并释放注册表，/stop 响应随后才到；仍按原消息核对。
+        return (currentController === recoveryController || (!currentController && Boolean(stoppedMessageId) && slot.messageId === stoppedMessageId))
+          && ownsStreamSlot(slot, stoppedMessageId)
+          && (!stoppedRunId || slot.currentRun?.runId === stoppedRunId);
+      };
+      const recoveryTaskId = activeStream.taskId ?? null;
+      if (!recoveryTaskId) {
+        const run = streamState.currentRun;
+        if (run?.status === 'running') {
+          dispatch(setRunStopConfirmation({
+            conversationId: chatId,
+            runId: run.runId,
+            confirmation: { status: 'unconfirmed', requestedAt: Date.now() },
+          }));
+          const pendingRun = selectStreamSlot(store.getState() as { stream: StreamState }, chatId).currentRun;
+          if (stoppedMessageId && pendingRun?.runId === run.runId) {
+            dispatch(updateMessage({ conversationId: chatId, messageId: stoppedMessageId, patch: { agent_run: pendingRun } }));
+          }
+        } else {
+          dispatch(setStreamError({ conversationId: chatId, code: 'stop_unconfirmed', message: '尚未确认停止结果，请稍后重试停止。' }));
+        }
+        return;
+      }
       const stopBoundary = {
         controller: recoveryController,
         bufferedActions: [] as Array<() => void>,
@@ -707,6 +760,7 @@ export default function ChatPage() {
       const handleRecoveryStopNotApplied = () => {
         if (recoveryStopPendingRef.current !== stopBoundary) return;
         recoveryStopPendingRef.current = null;
+        if (!stillOwnsStoppedStream()) return;
         if (
           reconnectControllerRef.current === recoveryController &&
           !recoveryController.signal.aborted &&
@@ -715,14 +769,13 @@ export default function ChatPage() {
           stopBoundary.bufferedActions.forEach((action) => action());
           return;
         }
-        dispatch(endStream({ conversationId: chatId }));
+        dispatch(endStream({ conversationId: chatId, messageId: stoppedMessageId }));
         dispatch(setStreamStatus({ conversationId: chatId, status: 'error' }));
         if (isRetryRecovery) {
           releaseStreamController(chatId, recoveryController);
           retryHydration();
         }
       };
-      const streamState = selectStreamSlot(store.getState() as { stream: StreamState }, chatId);
       const isRetryRecovery = activeStream.streamMode === 'retry';
       const partialBlocks = isRetryRecovery ? [] : selectFullStreamContentBlocks(streamState);
       if (!isRetryRecovery && streamState.messageId && partialBlocks.length > 0) {
@@ -733,22 +786,13 @@ export default function ChatPage() {
         }));
       }
       try {
-        // onReady 可能在 stream-status 之后补过 task_id，条目是整体替换的，要现取。
-        const recoveryTaskId = getStreamController(chatId)?.taskId ?? null;
-        const cancelled = recoveryTaskId
-          ? await stopStream(
-              chatId,
-              streamState.messageId ?? undefined,
-              undefined,
-              partialBlocks,
-              recoveryTaskId,
-            )
-          : await stopStream(
-              chatId,
-              streamState.messageId ?? undefined,
-              undefined,
-              partialBlocks,
-            );
+        const cancelled = await stopStream(
+          chatId,
+          stoppedMessageId ?? undefined,
+          undefined,
+          partialBlocks,
+          recoveryTaskId,
+        );
         if (!cancelled) {
           handleRecoveryStopNotApplied();
           return;
@@ -757,17 +801,34 @@ export default function ChatPage() {
           return;
         }
         recoveryStopPendingRef.current = null;
+        const stillOwned = stillOwnsStoppedStream();
+        if (stillOwned) {
+          const run = selectStreamSlot(store.getState() as { stream: StreamState }, chatId).currentRun;
+          if (!isRetryRecovery && stoppedRunId && run?.runId === stoppedRunId && run.status === 'running') {
+            dispatch(finalizeRun({ conversationId: chatId, runId: stoppedRunId, status: 'interrupted', reason: 'user_cancelled', sequence: run.lastSequence + 1 }));
+            const finalized = selectStreamSlot(store.getState() as { stream: StreamState }, chatId).currentRun;
+            if (stoppedMessageId && finalized?.runId === stoppedRunId && finalized.status === 'interrupted') {
+              confirmedRecoveryStopsRef.current.set(stoppedMessageId, { conversationId: chatId, sessionKey: authSessionKey, run: finalized });
+              dispatch(updateMessage({ conversationId: chatId, messageId: stoppedMessageId, patch: { agent_run: finalized } }));
+            }
+          }
+        }
         liveRecoveryStreamsRef.current.forEach((live) => {
-          if (live.controller === recoveryController) liveRecoveryStreamsRef.current.delete(live);
+          if (live.controller === recoveryController) {
+            live.detach();
+            liveRecoveryStreamsRef.current.delete(live);
+          }
         });
         releaseStreamController(chatId, recoveryController);
         recoveryController.abort();
         if (reconnectControllerRef.current === recoveryController) {
           reconnectControllerRef.current = null;
         }
-        clearFirstTurnContextState(chatId);
-        dispatch(endStream({ conversationId: chatId }));
-        retryHydration();
+        if (stillOwned) {
+          clearFirstTurnContextState(chatId);
+          dispatch(endStream({ conversationId: chatId, messageId: stoppedMessageId }));
+          if (latestChatIdRef.current === chatId) retryHydration();
+        }
       } catch (error) {
         console.warn('[chat] 停止恢复流并持久化部分内容失败', error);
         handleRecoveryStopNotApplied();
@@ -780,7 +841,7 @@ export default function ChatPage() {
       if (await stopContinueAgentRun(chatId)) return;
     }
     await stopStreaming(chatId);
-  }, [chatId, dispatch, retryHydration, stopContinueAgentRun, stopStreaming, store]);
+  }, [authSessionKey, chatId, dispatch, retryHydration, stopContinueAgentRun, stopStreaming, store]);
 
   const handleClearChat = () => {
     if (!chatId) return;

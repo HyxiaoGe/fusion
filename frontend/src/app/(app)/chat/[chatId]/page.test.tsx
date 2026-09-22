@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AgentRunState } from '@/types/agentRun';
 import type { ContentBlock, Conversation, Message } from '@/types/conversation';
 import type { StreamCallbacks } from '@/lib/api/chat';
 import type { NormalizedTrajectoryEvent } from '@/lib/trajectory/normalizeTrajectoryEvent';
@@ -75,6 +76,7 @@ const {
     messageId: null as string | null,
     isStreamingReasoning: false,
     contentBlocks: [] as any[],
+    currentRun: null as AgentRunState | null,
   },
   transientCompletionState: {
     visible: false,
@@ -333,6 +335,8 @@ vi.mock('@/redux/slices/streamSlice', () => ({
   appendThinkingDelta: vi.fn((payload?: unknown) => ({ type: 'stream/appendThinkingDelta', payload })),
   completeThinkingPhase: vi.fn((payload?: unknown) => ({ type: 'stream/completeThinkingPhase', payload })),
   endStream: vi.fn((payload?: unknown) => ({ type: 'stream/endStream', payload })),
+  setRunStopConfirmation: vi.fn((payload?: unknown) => ({ type: 'stream/setRunStopConfirmation', payload })),
+  setStreamError: vi.fn((payload?: unknown) => ({ type: 'stream/setStreamError', payload })),
   finalizeRun: vi.fn((payload?: unknown) => ({ type: 'stream/finalizeRun', payload })),
   finalizeStep: vi.fn((payload?: unknown) => ({ type: 'stream/finalizeStep', payload })),
   finalizeToolCall: vi.fn((payload?: unknown) => ({ type: 'stream/finalizeToolCall', payload })),
@@ -711,6 +715,7 @@ describe('ChatPage 会话切换体验', () => {
     storeStreamState.messageId = null;
     storeStreamState.isStreamingReasoning = false;
     storeStreamState.contentBlocks = [];
+    storeStreamState.currentRun = null;
     lastReadyConversationSnapshotState.value = null;
     transientCompletionState.visible = false;
     useConversationFilesState.files = [];
@@ -1146,7 +1151,7 @@ describe('ChatPage 会话切换体验', () => {
     hydrationById.set('chat-b', { view: 'ready' });
     fetchStreamStatusMock.mockImplementation(async (chatId) => (
       chatId === 'chat-a'
-        ? { status: 'streaming', message_id: 'assistant-1' }
+        ? { status: 'streaming', message_id: 'assistant-1', task_id: 'task-1' }
         : { status: 'not_found' }
     ));
     let reconnectSignal: AbortSignal | undefined;
@@ -1179,7 +1184,7 @@ describe('ChatPage 会话切换体验', () => {
     // 顺序写反，界面就永远看不到"重连中"。
     conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
     hydrationById.set('chat-a', { view: 'ready' });
-    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1' });
+    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1', task_id: 'task-1' });
     reconnectStreamMock.mockImplementation(() => new Promise(() => {}));
 
     render(<ChatPage />);
@@ -1208,7 +1213,7 @@ describe('ChatPage 会话切换体验', () => {
     hydrationById.set('chat-b', { view: 'ready' });
     fetchStreamStatusMock.mockImplementation(async (chatId: string) => (
       chatId === 'chat-a'
-        ? { status: 'streaming', message_id: 'assistant-1' }
+        ? { status: 'streaming', message_id: 'assistant-1', task_id: 'task-1' }
         : { status: 'not_found' }
     ));
     let reconnectSignal: AbortSignal | undefined;
@@ -1247,7 +1252,7 @@ describe('ChatPage 会话切换体验', () => {
     hydrationById.set('chat-b', { view: 'ready' });
     fetchStreamStatusMock.mockImplementation(async (chatId) => (
       chatId === 'chat-a'
-        ? { status: 'streaming', message_id: 'assistant-1' }
+        ? { status: 'streaming', message_id: 'assistant-1', task_id: 'task-1' }
         : { status: 'not_found' }
     ));
     let recoveryCallbacks: StreamCallbacks | undefined;
@@ -1284,7 +1289,7 @@ describe('ChatPage 会话切换体验', () => {
   it('停止生成会 abort 已进入的重试等待', async () => {
     conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
     hydrationById.set('chat-a', { view: 'ready' });
-    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1' });
+    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1', task_id: 'task-1' });
     reconnectStreamMock.mockRejectedValue(Object.assign(new Error('temporary eof'), { recoverable: true }));
 
     render(<ChatPage />);
@@ -1299,7 +1304,7 @@ describe('ChatPage 会话切换体验', () => {
     const partialBlocks = [{ type: 'text', id: 'answer-1', text: '部分回答' }];
     conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
     hydrationById.set('chat-a', { view: 'ready' });
-    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1' });
+    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1', task_id: 'task-1' });
     storeStreamState.isStreaming = true;
     storeStreamState.conversationId = 'chat-a';
     storeStreamState.messageId = 'assistant-1';
@@ -1335,6 +1340,7 @@ describe('ChatPage 会话切换体验', () => {
       'assistant-1',
       undefined,
       partialBlocks,
+      'task-1',
     ));
     recoveryCallbacks.onAnswering({ block_id: 'late-answer', delta: '等待期正文' });
     recoveryCallbacks.onReasoning({ block_id: 'late-thinking', delta: '等待期推理' });
@@ -1368,10 +1374,96 @@ describe('ChatPage 会话切换体验', () => {
     expect(sessionStorage.getItem(CONTEXT_STATUS_SUPPRESSED_FIRST_TURN_STORAGE_KEY)).toBeNull();
   });
 
-  it('preparing/tool 阶段无正文时仍以空 partial 数组执行 atomic stop', async () => {
+  it('恢复停止确认立即终结原 run，迟到 running 详情不覆盖中断', async () => {
+    const run: AgentRunState = {
+      runId: 'run-1', messageId: 'assistant-1', status: 'running',
+      config: { maxSteps: 4, maxToolCalls: 8, timeoutS: 120 },
+      totalSteps: 1, totalToolCalls: 0, steps: [], lastSequence: 3,
+    };
+    conversationsById.set('chat-a', createConversation('chat-a', [
+      textMessage('user-1'), { ...textMessage('assistant-1'), role: 'assistant', agent_run: run },
+    ]));
+    hydrationById.set('chat-a', { view: 'ready' });
+    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1', task_id: 'task-1' });
+    Object.assign(storeStreamState, { isStreaming: true, conversationId: 'chat-a', messageId: 'assistant-1', currentRun: run });
+    const originalDispatch = dispatchMock.getMockImplementation()!;
+    dispatchMock.mockImplementation((action) => {
+      if (action.type === 'stream/finalizeRun') {
+        storeStreamState.currentRun = { ...run, status: action.payload.status, lastSequence: action.payload.sequence };
+      }
+      return originalDispatch(action);
+    });
+    reconnectStreamMock.mockImplementation(() => new Promise(() => {}));
+    const view = render(<ChatPage />);
+    await waitFor(() => expect(reconnectStreamMock).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: '停止生成' }));
+    await waitFor(() => expect(dispatchMock).toHaveBeenCalledWith({
+      type: 'stream/finalizeRun', payload: { conversationId: 'chat-a', runId: 'run-1', status: 'interrupted', reason: 'user_cancelled', sequence: 4 },
+    }));
+    expect(dispatchMock).toHaveBeenCalledWith({ type: 'stream/endStream', payload: { conversationId: 'chat-a', messageId: 'assistant-1' } });
+    dispatchMock.mockClear();
+    conversationsById.set('chat-a', createConversation('chat-a', [
+      { ...textMessage('assistant-1'), role: 'assistant', agent_run: { ...run } },
+    ]));
+    view.rerender(<ChatPage />);
+    await waitFor(() => expect(dispatchMock).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'conversation/updateMessage', payload: expect.objectContaining({ messageId: 'assistant-1', patch: { agent_run: expect.objectContaining({ runId: 'run-1', status: 'interrupted' }) } }),
+    })));
+    // 同一消息发起续跑后，其新 run 不得被旧的停止确认改回中断。
+    dispatchMock.mockClear();
+    const nextRun = { ...run, runId: 'run-2' };
+    storeStreamState.currentRun = nextRun;
+    conversationsById.set('chat-a', createConversation('chat-a', [
+      { ...textMessage('assistant-1'), role: 'assistant', agent_run: nextRun },
+    ]));
+    view.rerender(<ChatPage />);
+    expect(dispatchMock.mock.calls.some(([action]) => action.type === 'conversation/updateMessage')).toBe(false);
+  });
+
+  it('恢复停止迟到确认不能结束同会话新 controller 或新 run', async () => {
+    conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
+    hydrationById.set('chat-a', { view: 'ready' });
+    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1', task_id: 'task-1' });
+    Object.assign(storeStreamState, { isStreaming: true, conversationId: 'chat-a', messageId: 'assistant-1' });
+    reconnectStreamMock.mockImplementation(() => new Promise(() => {}));
+    let releaseStop!: (value: boolean) => void;
+    stopRecoveredStreamMock.mockImplementationOnce(() => new Promise<boolean>((resolve) => { releaseStop = resolve; }));
+    render(<ChatPage />);
+    await waitFor(() => expect(reconnectStreamMock).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: '停止生成' }));
+    await waitFor(() => expect(stopRecoveredStreamMock).toHaveBeenCalledTimes(1));
+    const nextController = new AbortController();
+    registerStreamController({ conversationId: 'chat-a', kind: 'send', controller: nextController, taskId: 'task-2' });
+    storeStreamState.messageId = 'assistant-2';
+    dispatchMock.mockClear();
+    releaseStop(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(dispatchMock.mock.calls.some(([action]) => ['stream/endStream', 'stream/finalizeRun', 'stream/setStreamStatus'].includes(action.type))).toBe(false);
+    expect(getStreamController('chat-a')?.controller).toBe(nextController);
+    expect(nextController.signal.aborted).toBe(false);
+  });
+
+  it('恢复流没有 task_id 时保留接收并提示停止未确认，不发送会话级停止', async () => {
     conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
     hydrationById.set('chat-a', { view: 'ready' });
     fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1' });
+    Object.assign(storeStreamState, { isStreaming: true, conversationId: 'chat-a', messageId: 'assistant-1' });
+    reconnectStreamMock.mockImplementation(() => new Promise(() => {}));
+    render(<ChatPage />);
+    await waitFor(() => expect(reconnectStreamMock).toHaveBeenCalledTimes(1));
+    const controller = getStreamController('chat-a')?.controller;
+    fireEvent.click(screen.getByRole('button', { name: '停止生成' }));
+    await waitFor(() => expect(dispatchMock).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'stream/setStreamError', payload: expect.objectContaining({ code: 'stop_unconfirmed' }),
+    })));
+    expect(stopRecoveredStreamMock).not.toHaveBeenCalled();
+    expect(controller?.signal.aborted).toBe(false);
+  });
+
+  it('preparing/tool 阶段无正文时仍以空 partial 数组执行 atomic stop', async () => {
+    conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
+    hydrationById.set('chat-a', { view: 'ready' });
+    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1', task_id: 'task-1' });
     storeStreamState.isStreaming = true;
     storeStreamState.conversationId = 'chat-a';
     storeStreamState.messageId = 'assistant-1';
@@ -1397,6 +1489,7 @@ describe('ChatPage 会话切换体验', () => {
       'assistant-1',
       undefined,
       [],
+      'task-1',
     ));
     await waitFor(() => expect(recoverySignal?.aborted).toBe(true));
     expect(dispatchMock.mock.calls.some(([action]) => action?.type === 'stream/endStream')).toBe(true);
@@ -1407,7 +1500,7 @@ describe('ChatPage 会话切换体验', () => {
     const partialBlocks = [{ type: 'text', id: 'answer-1', text: '较短的本地部分回答' }];
     conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
     hydrationById.set('chat-a', { view: 'ready' });
-    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1' });
+    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1', task_id: 'task-1' });
     storeStreamState.isStreaming = true;
     storeStreamState.conversationId = 'chat-a';
     storeStreamState.messageId = 'assistant-1';
@@ -1450,7 +1543,7 @@ describe('ChatPage 会话切换体验', () => {
     const partialBlocks = [{ type: 'text', id: 'answer-1', text: '部分回答' }];
     conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
     hydrationById.set('chat-a', { view: 'ready' });
-    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1' });
+    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1', task_id: 'task-1' });
     storeStreamState.isStreaming = true;
     storeStreamState.conversationId = 'chat-a';
     storeStreamState.messageId = 'assistant-1';
@@ -1500,7 +1593,7 @@ describe('ChatPage 会话切换体验', () => {
     const partialBlocks = [{ type: 'text', id: 'answer-1', text: '点击时快照' }];
     conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
     hydrationById.set('chat-a', { view: 'ready' });
-    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1' });
+    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1', task_id: 'task-1' });
     storeStreamState.isStreaming = true;
     storeStreamState.conversationId = 'chat-a';
     storeStreamState.messageId = 'assistant-1';
@@ -1541,7 +1634,7 @@ describe('ChatPage 会话切换体验', () => {
     const partialBlocks = [{ type: 'text', id: 'answer-1', text: '点击时快照' }];
     conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
     hydrationById.set('chat-a', { view: 'ready' });
-    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1' });
+    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1', task_id: 'task-1' });
     storeStreamState.isStreaming = true;
     storeStreamState.conversationId = 'chat-a';
     storeStreamState.messageId = 'assistant-1';

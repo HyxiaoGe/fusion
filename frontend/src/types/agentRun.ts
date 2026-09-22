@@ -188,6 +188,8 @@ export interface AgentRunConfig {
 }
 
 export interface AgentRunState {
+  /** 本地停止确认状态，不是服务端运行终态；后续权威终态会清除。 */
+  stopConfirmation?: { status: 'pending' | 'unconfirmed'; requestedAt: number };
   runId: string;
   protocolVersion?: number;
   /** FE 当前渲染期 message.id；useSendMessage 路径是本地 placeholder，

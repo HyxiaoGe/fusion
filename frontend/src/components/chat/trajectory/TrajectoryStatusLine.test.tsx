@@ -43,6 +43,18 @@ function summary(overrides: Partial<TrajectoryRunSummary> = {}): TrajectoryRunSu
 describe('TrajectoryStatusLine', () => {
   afterEach(() => vi.useRealTimers());
 
+  it.each(['pending', 'unconfirmed'] as const)('停止%s时不冒充运行中或已中断，也不继续计时', (status) => {
+    vi.useFakeTimers();
+    const stopped = run({status: 'running', stopConfirmation: {status, requestedAt: 2000}});
+    render(<TrajectoryStatusLine run={stopped} trajectoryStatus="recording" />);
+    expect(screen.queryByText('Agent 运行中')).not.toBeInTheDocument();
+    expect(screen.queryByText('Agent 已中断')).not.toBeInTheDocument();
+    expect(screen.getByText(status === 'pending' ? 'Agent 正在确认停止' : 'Agent 停止结果未确认')).toBeInTheDocument();
+    expect(screen.getByText('耗时未知')).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(3000));
+    expect(screen.getByText('耗时未知')).toBeInTheDocument();
+  });
+
   it('历史消息没有步骤时使用同一运行的服务端耗时，摘要补齐后更新', () => {
     const historicalRun = run({ steps: [] });
     const view = render(<TrajectoryStatusLine run={historicalRun} trajectoryStatus="complete" />);

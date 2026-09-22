@@ -123,13 +123,14 @@ export function TrajectoryStatusLine({ run, runSummary, trajectoryStatus, onInsp
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    if (run.status !== 'running') return;
+    if (run.status !== 'running' || run.stopConfirmation) return;
     setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
-  }, [run.status]);
+  }, [run.status, run.stopConfirmation]);
 
-  const duration = formatTrajectoryDuration(runDuration(run, now, runSummary)) ?? '未知';
+  const stopConfirmation = run.status === 'running' ? run.stopConfirmation : undefined;
+  const duration = stopConfirmation ? '未知' : formatTrajectoryDuration(runDuration(run, now, runSummary)) ?? '未知';
   const issue = useMemo(() => highestPriorityIssue(run), [run]);
   const statusTreatment = RUN_STATUS_TREATMENT[run.status];
 
@@ -145,7 +146,7 @@ export function TrajectoryStatusLine({ run, runSummary, trajectoryStatus, onInsp
           aria-hidden="true"
           className={cn('h-1.5 w-1.5 shrink-0 rounded-full', DOT_CLASS[run.status])}
         />
-        Agent {statusTreatment.label}
+        Agent {stopConfirmation ? (stopConfirmation.status === 'pending' ? '正在确认停止' : '停止结果未确认') : statusTreatment.label}
       </span>
       <span
         aria-label={duration === '未知' ? 'Agent 运行耗时未知' : `Agent 运行耗时 ${duration}`}

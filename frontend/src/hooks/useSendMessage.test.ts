@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import authReducer, { logout } from '@/redux/slices/authSlice';
 import conversationReducer, {
   appendMessage,
+  updateMessage,
   setComposerAgentMode,
   setHydrationStatus,
 } from '@/redux/slices/conversationSlice';
@@ -65,6 +66,7 @@ const {
   getChatCapabilitiesMock,
   reconnectStreamMock,
   stopStreamMock,
+  getTrajectorySnapshotMock,
   getConversationMock,
   generateChatTitleMock,
   uuidMock,
@@ -73,6 +75,7 @@ const {
   getChatCapabilitiesMock: vi.fn(),
   reconnectStreamMock: vi.fn(),
   stopStreamMock: vi.fn(),
+  getTrajectorySnapshotMock: vi.fn(),
   getConversationMock: vi.fn(),
   generateChatTitleMock: vi.fn(),
   uuidMock: vi.fn(),
@@ -88,6 +91,8 @@ vi.mock('@/lib/api/chat', () => ({
   // 必须在 mock 里也提供 stub，避免「No "stopStream" export」错误
   stopStream: stopStreamMock,
 }));
+
+vi.mock('@/lib/api/trajectory', () => ({ getTrajectorySnapshot: getTrajectorySnapshotMock }));
 
 vi.mock('@/lib/api/title', () => ({
   generateChatTitle: generateChatTitleMock,
@@ -287,6 +292,8 @@ describe('useSendMessage', () => {
       message_retry_v1: true,
     });
     reconnectStreamMock.mockReset();
+    getTrajectorySnapshotMock.mockReset();
+    getTrajectorySnapshotMock.mockRejectedValue(new Error('状态暂不可用'));
     stopStreamMock.mockReset();
     stopStreamMock.mockResolvedValue(undefined);
     getConversationMock.mockReset();
@@ -3016,8 +3023,164 @@ describe('useSendMessage', () => {
     });
 
     expect(theSlot(store.getState()).currentRun?.status).toBe('running');
+    expect(theSlot(store.getState()).currentRun?.stopConfirmation?.status).toBe('unconfirmed');
+    expect(getTrajectorySnapshotMock).toHaveBeenCalledWith('existing-conv', 'run-1', expect.any(AbortSignal));
     expect(getConversationMock).not.toHaveBeenCalled();
     expect(store.getState().conversation.globalError).toBeNull();
+  });
+
+  it('停止核实收到其他run的终态不能误认成取消成功', async () => {
+    const store = createStore();
+    store.dispatch(upsertConversation({
+      id: 'existing-conv',
+      title: 'Existing',
+      model_id: 'model-1',
+      messages: [],
+      createdAt: 1,
+      updatedAt: 2,
+    }));
+    stopStreamMock.mockResolvedValue(false);
+    getTrajectorySnapshotMock.mockResolvedValue({run:{run_id:'run-other',message_id:'server-assistant',status:'interrupted'}});
+    sendMessageStreamMock.mockImplementationOnce(async (_payload: unknown, callbacks: StreamCallbacks) => {
+      callbacks.onReady({ messageId: 'server-assistant', conversationId: 'existing-conv', taskId: 'task-1' });
+      callbacks.onRunStarted?.(startedRun('run-1', 'server-assistant'));
+      await new Promise<void>(() => {});
+    });
+
+    const { result } = renderHook(() => useSendMessage(), { wrapper: createWrapper(store) });
+    await act(async () => {
+      void result.current.sendMessage('hello', { conversationId: 'existing-conv' });
+    });
+    await waitFor(() => expect(theSlot(store.getState()).currentRun?.runId).toBe('run-1'));
+    await act(async () => {
+      await result.current.stopStreaming();
+    });
+
+    expect(theSlot(store.getState()).currentRun?.status).toBe('running');
+    expect(theSlot(store.getState()).currentRun?.stopConfirmation?.status).toBe('unconfirmed');
+    expect(getTrajectorySnapshotMock).toHaveBeenCalledWith('existing-conv', 'run-1', expect.any(AbortSignal));
+    expect(getConversationMock).not.toHaveBeenCalled();
+    expect(store.getState().conversation.globalError).toBeNull();
+  });
+
+  it.each(['interrupted', 'completed', 'failed'] as const)('停止请求超时后按原运行查询真实终态 %s', async (status) => {
+    const store = createStore();
+    store.dispatch(upsertConversation({
+      id: 'existing-conv',
+      title: 'Existing',
+      model_id: 'model-1',
+      messages: [],
+      createdAt: 1,
+      updatedAt: 2,
+    }));
+    stopStreamMock.mockImplementationOnce((_conv, _msg, signal) => new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true });
+    }));
+    getTrajectorySnapshotMock.mockResolvedValue({run: {run_id:'run-1', message_id:'server-assistant', status}});
+    sendMessageStreamMock.mockImplementationOnce(async (_payload: unknown, callbacks: StreamCallbacks) => {
+      callbacks.onReady({ messageId: 'server-assistant', conversationId: 'existing-conv', taskId: 'task-1' });
+      callbacks.onRunStarted?.(startedRun('run-1', 'server-assistant'));
+      await new Promise<void>(() => {});
+    });
+
+    const { result } = renderHook(() => useSendMessage(), { wrapper: createWrapper(store) });
+    await act(async () => {
+      void result.current.sendMessage('hello', { conversationId: 'existing-conv' });
+    });
+    await waitFor(() => expect(theSlot(store.getState()).currentRun?.runId).toBe('run-1'));
+    await act(async () => {
+      await result.current.stopStreaming();
+    });
+
+    expect(theSlot(store.getState()).currentRun?.status).toBe(status);
+    expect(theSlot(store.getState()).currentRun?.stopConfirmation).toBeUndefined();
+    expect(getTrajectorySnapshotMock).toHaveBeenCalledWith('existing-conv', 'run-1', expect.any(AbortSignal));
+    expect(store.getState().conversation.byId['existing-conv'].messages.find((m: Message) => m.role === 'assistant')?.agent_run?.status).toBe(status);
+  });
+
+  it('停止核实的迟到终态只更新旧消息、不结束下一轮', async () => {
+    const store = createStore();
+    store.dispatch(upsertConversation({
+      id: 'existing-conv',
+      title: 'Existing',
+      model_id: 'model-1',
+      messages: [],
+      createdAt: 1,
+      updatedAt: 2,
+    }));
+    stopStreamMock.mockResolvedValue(false);
+    let resolveSnapshot: (value: unknown) => void = () => {};
+    getTrajectorySnapshotMock.mockImplementationOnce(() => new Promise(resolve => {resolveSnapshot=resolve;}));
+    sendMessageStreamMock.mockImplementationOnce(async (_payload: unknown, callbacks: StreamCallbacks) => {
+      callbacks.onReady({ messageId: 'server-assistant', conversationId: 'existing-conv', taskId: 'task-1' });
+      callbacks.onRunStarted?.(startedRun('run-1', 'server-assistant'));
+      await new Promise<void>(() => {});
+    });
+
+    const { result } = renderHook(() => useSendMessage(), { wrapper: createWrapper(store) });
+    await act(async () => {
+      void result.current.sendMessage('hello', { conversationId: 'existing-conv' });
+    });
+    await waitFor(() => expect(theSlot(store.getState()).currentRun?.runId).toBe('run-1'));
+    let stopping: Promise<void> | undefined;
+    await act(async () => { stopping = result.current.stopStreaming(); });
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 250)); });
+    expect(getTrajectorySnapshotMock).toHaveBeenCalled();
+    sendMessageStreamMock.mockImplementationOnce(async (_payload: unknown, callbacks: StreamCallbacks) => {
+      callbacks.onReady({messageId:'server-assistant-2',conversationId:'existing-conv',taskId:'task-2'});
+      callbacks.onRunStarted?.(startedRun('run-2','server-assistant-2'));
+      await new Promise<void>(() => {});
+    });
+    const nextSender = renderHook(() => useSendMessage(), {wrapper: createWrapper(store)});
+    await act(async () => {void nextSender.result.current.sendMessage('下一轮', {conversationId:'existing-conv'});});
+    await waitFor(() => expect(theSlot(store.getState()).currentRun?.runId).toBe('run-2'));
+    await act(async () => {
+      resolveSnapshot({run:{run_id:'run-1',message_id:'server-assistant',status:'interrupted'}});
+      await stopping;
+    });
+    expect(theSlot(store.getState()).isStreaming).toBe(true);
+    expect(theSlot(store.getState()).currentRun?.status).toBe('running');
+    expect(theSlot(store.getState()).currentRun?.stopConfirmation).toBeUndefined();
+    expect(store.getState().conversation.byId['existing-conv'].messages.find((m: Message) => m.agent_run?.runId === 'run-1')?.agent_run?.status).toBe('interrupted');
+    expect(stopStreamMock.mock.calls.every(call => call[4] === 'task-1')).toBe(true);
+  });
+
+  it('停止核实失败不能把已水合的真实终态降回未确认', async () => {
+    const store = createStore();
+    store.dispatch(upsertConversation({
+      id: 'existing-conv',
+      title: 'Existing',
+      model_id: 'model-1',
+      messages: [],
+      createdAt: 1,
+      updatedAt: 2,
+    }));
+    stopStreamMock.mockResolvedValue(false);
+    let resolveSnapshot: (value: unknown) => void = () => {};
+    getTrajectorySnapshotMock.mockImplementationOnce(() => new Promise(resolve => {resolveSnapshot=resolve;}));
+    sendMessageStreamMock.mockImplementationOnce(async (_payload: unknown, callbacks: StreamCallbacks) => {
+      callbacks.onReady({ messageId: 'server-assistant', conversationId: 'existing-conv', taskId: 'task-1' });
+      callbacks.onRunStarted?.(startedRun('run-1', 'server-assistant'));
+      await new Promise<void>(() => {});
+    });
+
+    const { result } = renderHook(() => useSendMessage(), { wrapper: createWrapper(store) });
+    await act(async () => {
+      void result.current.sendMessage('hello', { conversationId: 'existing-conv' });
+    });
+    await waitFor(() => expect(theSlot(store.getState()).currentRun?.runId).toBe('run-1'));
+    let stopping: Promise<void> | undefined;
+    await act(async () => { stopping = result.current.stopStreaming(); });
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 250)); });
+    expect(getTrajectorySnapshotMock).toHaveBeenCalled();
+    const original = store.getState().conversation.byId['existing-conv'].messages.find((m: Message) => m.role === 'assistant');
+    store.dispatch(updateMessage({conversationId:'existing-conv',messageId:original.id,patch:{agent_run:{...original.agent_run,status:'completed'}}}));
+    await act(async () => {
+      resolveSnapshot({run:{run_id:'other-run',message_id:'other-message',status:'running'}});
+      await stopping;
+    });
+    expect(theSlot(store.getState()).currentRun?.status).toBe('completed');
+    expect(store.getState().conversation.byId['existing-conv'].messages.find((m: Message) => m.agent_run?.runId === 'run-1')?.agent_run?.status).toBe('completed');
   });
 
   it('旧运行的迟到详情和终态事件不能结束或覆盖下一轮', async () => {

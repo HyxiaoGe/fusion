@@ -31,6 +31,7 @@ import {
   completeThinkingPhase,
   endStream,
   finalizeRun,
+  setRunStopConfirmation,
   migrateStreamConversation,
   selectFullStreamContentBlocks,
   ownsStreamSlot,
@@ -45,6 +46,8 @@ import {
   reconnectStream,
   sendMessageStream,
 } from '@/lib/api/chat';
+import { getTrajectorySnapshot } from '@/lib/api/trajectory';
+import type { AgentRunState, AgentRunStatus } from '@/types/agentRun';
 import type { StreamCallbacks } from '@/lib/api/chat';
 import { runResumableStream } from '@/lib/api/resumableStream';
 import { createAgentStreamEventHandlers } from '@/lib/agent/streamEventHandlers';
@@ -443,6 +446,33 @@ export function useSendMessage(activeConversationId?: string | null) {
         }
       }
 
+      const stopRequestedAt = Date.now();
+      const stoppedRunSnapshot = teardownConvId ? getSlot(teardownConvId).currentRun : null;
+      const originalMessageId = assistantMsgId ?? stoppedSlotMessageId ?? remoteMsgId;
+      const isStopSessionCurrent = () => Boolean(stopSessionContext
+        && isSendSessionCurrent(store.getState(), stopSessionContext));
+      const writeStoppedMessageRun = (run: AgentRunState) => {
+        if (!teardownConvId || !originalMessageId || !isStopSessionCurrent()) return;
+        const slot = getSlot(teardownConvId);
+        if (slot.isStreaming && slot.messageId === originalMessageId && slot.currentRun?.runId !== run.runId) return;
+        const message = store.getState().conversation.byId[teardownConvId]?.messages.find(item => item.id === originalMessageId);
+        if (!message || (message.agent_run && message.agent_run.runId !== run.runId)) return;
+        if (run.status === 'running' && (
+          (message.agent_run && message.agent_run.status !== 'running')
+          || (slot.currentRun?.runId === run.runId && slot.currentRun.status !== 'running')
+        )) return;
+        dispatch(updateMessage({conversationId: teardownConvId, messageId: originalMessageId, patch: {agent_run: run}}));
+      };
+      const markStopConfirmation = (status: 'pending' | 'unconfirmed') => {
+        if (!teardownConvId || !effectiveStoppedRunId || retryTurnSnapshot || !isStopSessionCurrent()) return;
+        const confirmation = { status, requestedAt: stopRequestedAt };
+        dispatch(setRunStopConfirmation({conversationId: teardownConvId, runId: effectiveStoppedRunId, confirmation}));
+        if (stoppedRunSnapshot?.runId === effectiveStoppedRunId && stoppedRunSnapshot.status === 'running') {
+          writeStoppedMessageRun({...stoppedRunSnapshot, stopConfirmation: confirmation});
+        }
+      };
+      markStopConfirmation('pending');
+
       if (stoppingController) {
         releaseStreamController(teardownConvId, stoppingController);
         releaseStreamController(convId, stoppingController);
@@ -565,6 +595,46 @@ export function useSendMessage(activeConversationId?: string | null) {
         clearTimeout(stopTimeout);
       }
 
+      // HTTP 超时只表示未收到确认。独立查询原 run，绝不把会话的最新运行
+      // 或另一个 message 的终态当作这次停止结果；整个核实过程有独立上限。
+      let terminalStatus: Exclude<AgentRunStatus, 'running'> | null = stopConfirmed ? 'interrupted' : null;
+      if (!terminalStatus && remoteConvId && effectiveStoppedRunId && isStopSessionCurrent()) {
+        const verification = new AbortController();
+        const deadline = setTimeout(() => verification.abort(), 5000);
+        try {
+          for (let attempt = 0; attempt < 2 && isStopSessionCurrent(); attempt += 1) {
+            if (attempt) await waitForStopRetry(INTERRUPTED_HYDRATION_RETRY_MS, verification.signal);
+            const snapshot = await getTrajectorySnapshot(remoteConvId, effectiveStoppedRunId, verification.signal);
+            const summary = snapshot.run;
+            if (summary.run_id !== effectiveStoppedRunId || (remoteMsgId && summary.message_id !== remoteMsgId)) break;
+            const observed = (['interrupted', 'completed', 'failed', 'incomplete', 'limit_reached'] as const).find(status => status === summary.status);
+            if (observed) { terminalStatus = observed; break; }
+          }
+        } catch {
+          // 查不到不等于仍在运行，更不等于已取消；下面保留明确的未确认状态。
+        } finally {
+          clearTimeout(deadline);
+        }
+      }
+      if (!isStopSessionCurrent()) return;
+      if (!terminalStatus && teardownConvId && effectiveStoppedRunId) {
+        const knownRun = store.getState().conversation.byId[teardownConvId]?.messages.find(message =>
+          (message.id === originalMessageId || message.id === remoteMsgId)
+          && message.agent_run?.runId === effectiveStoppedRunId
+          && message.agent_run.status !== 'running',
+        )?.agent_run;
+        if (knownRun && knownRun.status !== 'running') terminalStatus = knownRun.status;
+      }
+      if (!terminalStatus) {
+        markStopConfirmation('unconfirmed');
+        if (!effectiveStoppedRunId && teardownConvId) {
+          const slot = getSlot(teardownConvId);
+          if (!slot.isStreaming && (!slot.messageId || slot.messageId === originalMessageId)) {
+            dispatch(setStreamError({conversationId: teardownConvId, code: 'stop_unconfirmed', message: '已停止接收回答，但未确认后台是否停止。请刷新会话核实。'}));
+          }
+        }
+      }
+
       const stateConvId = teardownConvId ?? convId;
       const hydrationAnchorIds = new Set(
         [userMsgId, assistantMsgId, serverMsgId, remoteMsgId, stoppedSlotMessageId].filter(
@@ -579,7 +649,7 @@ export function useSendMessage(activeConversationId?: string | null) {
         || slotAfterStop.messageId === stoppedSlotMessageId
         || slotAfterStop.messageId === remoteMsgId;
       if (
-        stopConfirmed
+        terminalStatus
         && stateConvId
         && effectiveStoppedRunId
         && !retryTurnSnapshot
@@ -590,12 +660,12 @@ export function useSendMessage(activeConversationId?: string | null) {
         dispatch(finalizeRun({
           conversationId: stateConvId,
           runId: effectiveStoppedRunId,
-          status: 'interrupted',
-          reason: 'user_cancelled',
+          status: terminalStatus,
+          reason: terminalStatus === 'interrupted' ? 'user_cancelled' : undefined,
           sequence: runAfterStop.lastSequence + 1,
         }));
         const finalized = getSlot(stateConvId).currentRun;
-        if (finalized?.runId === effectiveStoppedRunId && finalized.status === 'interrupted') {
+        if (finalized?.runId === effectiveStoppedRunId && finalized.status === terminalStatus) {
           interruptedFallback = finalized;
           const localMessageId = assistantMsgId ?? stoppedSlotMessageId ?? remoteMsgId;
           if (localMessageId) {
@@ -606,6 +676,13 @@ export function useSendMessage(activeConversationId?: string | null) {
             }));
           }
         }
+      }
+
+      if (terminalStatus && !interruptedFallback && !retryTurnSnapshot && stoppedRunSnapshot?.runId === effectiveStoppedRunId) {
+        const finished: AgentRunState = {...stoppedRunSnapshot, status: terminalStatus};
+        delete finished.stopConfirmation;
+        interruptedFallback = finished;
+        writeStoppedMessageRun(finished);
       }
 
       const reapplyInterruptedIfSnapshotStillRunning = () => {
@@ -632,7 +709,7 @@ export function useSendMessage(activeConversationId?: string | null) {
                 ...interruptedFallback,
                 messageId: message.id,
                 serverMessageId: message.id,
-                status: 'interrupted',
+                status: interruptedFallback.status,
               },
             },
           }));

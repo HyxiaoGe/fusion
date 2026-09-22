@@ -395,6 +395,29 @@ describe('AssistantResponseStack', () => {
     expect(screen.queryByTestId('stack-activity')).not.toBeInTheDocument();
   });
 
+  it('停止结果未确认时不展示正在准备回答占位', () => {
+    render(
+      <AssistantResponseStack
+        reasoning={{
+          shouldRender: false,
+          content: '正在核验问题边界',
+          isVisible: true,
+          isStreaming: true,
+          onToggle: vi.fn(),
+        }}
+        activity={activity({ kind: 'waiting', hasText: false })}
+        agentRun={{...agentRun, status:'running', stopConfirmation:{status:'unconfirmed',requestedAt:1}}}
+        answerEvidence={null}
+        onSourceClick={vi.fn()}
+        onOpenSources={vi.fn()}
+        markdown={{ content: '', sources: [] }}
+        showStreamingCursor={false}
+      />,
+    );
+
+    expect(screen.queryByTestId('stack-activity')).not.toBeInTheDocument();
+  });
+
   it('移除消息内联执行过程后，仍把结构化工具结果放在 Markdown 正文之前', () => {
     const structuredResult: PlaceResultsBlock = {
       type: 'place_results',
