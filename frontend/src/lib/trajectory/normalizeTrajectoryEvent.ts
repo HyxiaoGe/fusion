@@ -546,7 +546,20 @@ function sanitizePayload(eventType: string, source: Record<string, unknown>): Re
     else if (LIST_FIELDS.has(field)) payload[field] = boundedList(source[field]);
     else payload[field] = sanitizeScalar(source[field]);
   }
+  if (eventType === 'run_started' && readDynamicToolDiscoveryEnabled(source)) {
+    payload.dynamic_tool_discovery_enabled = true;
+  }
   return payload;
+}
+
+/** 只保留显式开启标记。授权目录不是已加载或已执行的工具，不能进入轨迹。 */
+function readDynamicToolDiscoveryEnabled(source: Record<string, unknown>): boolean {
+  if (source.dynamic_tool_discovery_enabled === true) return true;
+  const config = source.config;
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return false;
+  const discovery = (config as Record<string, unknown>).dynamic_tool_discovery;
+  if (!discovery || typeof discovery !== 'object' || Array.isArray(discovery)) return false;
+  return (discovery as Record<string, unknown>).enabled === true;
 }
 
 function hasValidEnvelope(

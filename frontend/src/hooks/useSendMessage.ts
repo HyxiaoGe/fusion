@@ -75,9 +75,13 @@ import { hasFormalTextContent } from '@/lib/chat/suggestedQuestionState';
 import type { StreamState } from '@/redux/slices/streamSlice';
 import { selectStreamSlot } from '@/redux/slices/streamSlice';
 import {
+  findStreamController,
+  getStreamController,
   migrateStreamController,
   registerStreamController,
   releaseStreamController,
+  updateStreamController,
+  waitForStreamIdentity,
 } from '@/lib/chat/streamControllerRegistry';
 import type { Message, ContentBlock } from '@/types/conversation';
 import type { FileAttachment } from '@/lib/utils/fileHelpers';
@@ -147,6 +151,21 @@ function isSendSessionCurrent(state: RootState, context: SendSessionContext): bo
     selectAuthSessionKey(state) === context.authSessionKey &&
     state.conversation.conversationListEpoch === context.conversationEpoch
   );
+}
+
+/** 停止后的水合只负责刷新被停的那一轮。其后已经出现的新消息必须留下。 */
+function messageIdsAfterAnchor(
+  state: RootState,
+  conversationId: string,
+  anchorIds: ReadonlySet<string>,
+): string[] {
+  const messages = state.conversation.byId[conversationId]?.messages ?? [];
+  let anchorIndex = -1;
+  messages.forEach((message, index) => {
+    if (anchorIds.has(message.id)) anchorIndex = index;
+  });
+  if (anchorIndex < 0) return [];
+  return messages.slice(anchorIndex + 1).map((message) => message.id);
 }
 
 function stopAbortError(): Error {
@@ -241,7 +260,11 @@ export function useSendMessage(activeConversationId?: string | null) {
   const sendBoundaryRef = useRef({ authSessionKey, conversationEpoch });
 
   const hydrateAuthoritativeConversation = useCallback(
-    async (conversationId: string, isSessionCurrent: () => boolean) => {
+    async (
+      conversationId: string,
+      isSessionCurrent: () => boolean,
+      options?: { extraPreserveMessageIds?: (state: RootState) => string[] },
+    ) => {
       if (!isSessionCurrent()) return;
 
       // SSE 完成后必须绕过发送前可能已挂起的详情请求，以“完成时”的本地消息
@@ -258,13 +281,17 @@ export function useSendMessage(activeConversationId?: string | null) {
         const serverConversation = await request;
         if (!isSessionCurrent()) return;
         const state = store.getState();
+        const preserveMessageIds = new Set(getProtectedHydrationMessageIds(
+          state,
+          conversationId,
+          requestMetadata,
+        ));
+        for (const messageId of options?.extraPreserveMessageIds?.(state) ?? []) {
+          preserveMessageIds.add(messageId);
+        }
         dispatch(mergeHydratedConversation({
           conversation: serverConversation,
-          preserveMessageIds: getProtectedHydrationMessageIds(
-            state,
-            conversationId,
-            requestMetadata,
-          ),
+          preserveMessageIds: [...preserveMessageIds],
           requestMetadata,
         }));
       } catch (error) {
@@ -345,12 +372,20 @@ export function useSendMessage(activeConversationId?: string | null) {
 
     const stopOperation = (async () => {
       const convId = getStreamingConvId(conversationId);
+      const registeredStream = convId ? getStreamController(convId) : null;
       const userMsgId = userMessageIdRef.current;
       const assistantMsgId = assistantMessageIdRef.current;
-      const serverMsgId = serverMessageIdRef.current;
-      const serverTaskId = serverTaskIdRef.current;
+      // 跨 hook/页面停止时本实例 ref 为空，必须在释放注册表前固定原运行身份。
+      const serverMsgId = serverMessageIdRef.current || registeredStream?.messageId || null;
+      const serverTaskId = serverTaskIdRef.current || registeredStream?.taskId || null;
       const retryTurnSnapshot = activeRetryTurnSnapshotRef.current;
-      const stopSessionContext = activeSendContextRef.current;
+      const stopSessionContext = activeSendContextRef.current
+        ?? captureSendSessionContext(store.getState(), sendGenerationRef.current);
+      const slotAtStop = convId ? getSlot(convId) : null;
+      const stoppedRunId = slotAtStop?.currentRun?.status === 'running'
+        ? slotAtStop.currentRun.runId
+        : null;
+      const stoppedSlotMessageId = slotAtStop?.messageId ?? null;
       const pendingConversationId = (
         store.getState() as { conversation: { pendingConversationId: string | null } }
       ).conversation.pendingConversationId;
@@ -360,14 +395,64 @@ export function useSendMessage(activeConversationId?: string | null) {
 
       typewriterRef.current.stop();
 
-      const stoppingController = abortControllerRef.current;
+      const stoppingController = abortControllerRef.current
+        ?? registeredStream?.controller
+        ?? null;
+
+      // 无身份时先等原发送写出 task_id。此时不能 abort SSE，也不能抬升
+      // generation：那会毁掉唯一能拿到身份的通道，随后只能发出会话级宽停止。
+      let remoteTaskId = serverTaskId;
+      let remoteMsgId = serverMsgId;
+      let remoteConvId = convId;
+      const stopController = new AbortController();
+      const stopTimeout = setTimeout(
+        () => stopController.abort(),
+        STOP_OPERATION_TIMEOUT_MS,
+      );
+      if (!remoteTaskId && stoppingController) {
+        try {
+          const identity = await waitForStreamIdentity(
+            stoppingController,
+            stopController.signal,
+          );
+          if (identity?.taskId) {
+            remoteTaskId = identity.taskId;
+            remoteMsgId = identity.messageId || remoteMsgId;
+            remoteConvId = identity.conversationId || remoteConvId;
+          }
+        } catch (error) {
+          if (!stopController.signal.aborted) {
+            console.warn('等待停止身份失败，已改为本地停止', error);
+          }
+        }
+      }
+      const teardownConvId = (
+        stoppingController
+          ? findStreamController(stoppingController)?.conversationId
+          : null
+      ) ?? remoteConvId ?? convId;
+      let effectiveStoppedRunId = stoppedRunId;
+      if (!effectiveStoppedRunId && teardownConvId) {
+        const slotNow = getSlot(teardownConvId);
+        const stillOriginal = !slotNow.messageId
+          || slotNow.messageId === assistantMsgId
+          || slotNow.messageId === stoppedSlotMessageId
+          || slotNow.messageId === remoteMsgId;
+        if (stillOriginal && slotNow.currentRun?.status === 'running') {
+          effectiveStoppedRunId = slotNow.currentRun.runId;
+        }
+      }
+
       if (stoppingController) {
+        releaseStreamController(teardownConvId, stoppingController);
         releaseStreamController(convId, stoppingController);
         stoppingController.abort();
       }
-      abortControllerRef.current = null;
+      if (abortControllerRef.current === stoppingController) {
+        abortControllerRef.current = null;
+      }
 
-      if (convId && userMsgId) {
+      if (teardownConvId && userMsgId) {
         if (
           retryTurnSnapshot?.conversationId === convId
           && retryTurnSnapshot.user.id === userMsgId
@@ -413,6 +498,15 @@ export function useSendMessage(activeConversationId?: string | null) {
             }));
           }
         }
+      } else if (convId && stoppedSlotMessageId && !retryTurnSnapshot) {
+        const partialBlocks = selectFullStreamContentBlocks(getSlot(convId));
+        if (partialBlocks.length > 0) {
+          dispatch(updateMessage({
+            conversationId: convId,
+            messageId: stoppedSlotMessageId,
+            patch: { content: partialBlocks },
+          }));
+        }
       }
 
       if (shouldDiscardPendingDraft && convId) {
@@ -424,8 +518,11 @@ export function useSendMessage(activeConversationId?: string | null) {
       if (convId && retryTurnSnapshot?.assistant) {
         dispatch(clearCurrentRun({ conversationId: convId }));
       }
-      if (convId) {
-        dispatch(endStream({ conversationId: convId, messageId: assistantMessageIdRef.current }));
+      if (teardownConvId) {
+        dispatch(endStream({
+          conversationId: teardownConvId,
+          messageId: assistantMsgId ?? stoppedSlotMessageId,
+        }));
       }
       sendGenerationRef.current += 1;
       activeSendContextRef.current = null;
@@ -437,57 +534,132 @@ export function useSendMessage(activeConversationId?: string | null) {
       assistantHasContentRef.current = false;
       activeRetryTurnSnapshotRef.current = null;
 
-      // 本地先完成停止；远端按真实服务端 message_id 精确取消。
-      // run_started 尚未到达时不传 placeholder，允许 Redis 按 conversation 跨 worker 取消。
-      if (convId) {
-        const stopController = new AbortController();
-        const stopTimeout = setTimeout(
-          () => stopController.abort(),
-          STOP_OPERATION_TIMEOUT_MS
-        );
-        try {
+      // 远端只按已解析的原 task_id 取消。没有身份就不发请求：
+      // 在途的会话级停止会在下一轮启动后误杀新任务。
+      let stopConfirmed = false;
+      try {
+        if (remoteConvId && remoteTaskId) {
           const { stopStream } = await import('@/lib/api/chat');
-          let cancelled = serverTaskId
-            ? await stopStream(
-                convId,
-                serverMsgId || undefined,
-                stopController.signal,
-                undefined,
-                serverTaskId,
-              )
-            : await stopStream(
-                convId,
-                serverMsgId || undefined,
-                stopController.signal,
-              );
-          if (!serverMsgId) {
+          const requestRemoteStop = () => stopStream(
+            remoteConvId,
+            remoteMsgId || undefined,
+            stopController.signal,
+            undefined,
+            remoteTaskId,
+          );
+          let cancelled = await requestRemoteStop();
+          if (!cancelled) {
             for (const delayMs of STOP_BEFORE_READY_RETRY_DELAYS_MS) {
-              if (cancelled) break;
+              if (cancelled || stopController.signal.aborted) break;
               await waitForStopRetry(delayMs, stopController.signal);
-              cancelled = serverTaskId
-                ? await stopStream(
-                    convId,
-                    undefined,
-                    stopController.signal,
-                    undefined,
-                    serverTaskId,
-                  )
-                : await stopStream(convId, undefined, stopController.signal);
+              cancelled = await requestRemoteStop();
             }
           }
-        } catch (error) {
-          if (!stopController.signal.aborted) {
-            console.warn('停止后台生成失败，已完成本地停止', error);
+          stopConfirmed = cancelled === true;
+        }
+      } catch (error) {
+        if (!stopController.signal.aborted) {
+          console.warn('停止后台生成失败，已完成本地停止', error);
+        }
+      } finally {
+        clearTimeout(stopTimeout);
+      }
+
+      const stateConvId = teardownConvId ?? convId;
+      const hydrationAnchorIds = new Set(
+        [userMsgId, assistantMsgId, serverMsgId, remoteMsgId, stoppedSlotMessageId].filter(
+          (messageId): messageId is string => Boolean(messageId),
+        ),
+      );
+      let interruptedFallback: ReturnType<typeof getSlot>['currentRun'] = null;
+      const slotAfterStop = stateConvId ? getSlot(stateConvId) : null;
+      const runAfterStop = slotAfterStop?.currentRun ?? null;
+      const slotStillOwnsStoppedRun = !slotAfterStop?.messageId
+        || slotAfterStop.messageId === assistantMsgId
+        || slotAfterStop.messageId === stoppedSlotMessageId
+        || slotAfterStop.messageId === remoteMsgId;
+      if (
+        stopConfirmed
+        && stateConvId
+        && effectiveStoppedRunId
+        && !retryTurnSnapshot
+        && runAfterStop?.runId === effectiveStoppedRunId
+        && runAfterStop.status === 'running'
+        && slotStillOwnsStoppedRun
+      ) {
+        dispatch(finalizeRun({
+          conversationId: stateConvId,
+          runId: effectiveStoppedRunId,
+          status: 'interrupted',
+          reason: 'user_cancelled',
+          sequence: runAfterStop.lastSequence + 1,
+        }));
+        const finalized = getSlot(stateConvId).currentRun;
+        if (finalized?.runId === effectiveStoppedRunId && finalized.status === 'interrupted') {
+          interruptedFallback = finalized;
+          const localMessageId = assistantMsgId ?? stoppedSlotMessageId ?? remoteMsgId;
+          if (localMessageId) {
+            dispatch(updateMessage({
+              conversationId: stateConvId,
+              messageId: localMessageId,
+              patch: { agent_run: finalized },
+            }));
           }
-        } finally {
-          clearTimeout(stopTimeout);
         }
       }
-      if (convId && retryTurnSnapshot?.user && stopSessionContext) {
-        await hydrateAuthoritativeConversation(
-          convId,
-          () => isSendSessionCurrent(store.getState(), stopSessionContext),
+
+      const reapplyInterruptedIfSnapshotStillRunning = () => {
+        if (!stateConvId || !effectiveStoppedRunId || !interruptedFallback) return false;
+        const messages = store.getState().conversation.byId[stateConvId]?.messages ?? [];
+        let stillRunning = false;
+        for (const message of messages) {
+          const agentRun = message.agent_run;
+          if (!agentRun || agentRun.runId !== effectiveStoppedRunId || agentRun.status !== 'running') continue;
+          const slot = getSlot(stateConvId);
+          if (
+            slot.isStreaming
+            && slot.messageId === message.id
+            && slot.currentRun?.runId !== effectiveStoppedRunId
+          ) {
+            continue;
+          }
+          stillRunning = true;
+          dispatch(updateMessage({
+            conversationId: stateConvId,
+            messageId: message.id,
+            patch: {
+              agent_run: {
+                ...interruptedFallback,
+                messageId: message.id,
+                serverMessageId: message.id,
+                status: 'interrupted',
+              },
+            },
+          }));
+        }
+        return stillRunning;
+      };
+
+      if (stateConvId && stopSessionContext && (retryTurnSnapshot?.user || interruptedFallback)) {
+        const sessionCurrent = () => isSendSessionCurrent(store.getState(), stopSessionContext);
+        const preserveLaterMessages = (state: RootState) => (
+          messageIdsAfterAnchor(state, stateConvId, hydrationAnchorIds)
         );
+        await hydrateAuthoritativeConversation(stateConvId, sessionCurrent, {
+          extraPreserveMessageIds: preserveLaterMessages,
+        });
+        // /stop 先完成取消，Agent run 落成 interrupted 可能晚一拍。
+        // 第一次详情若仍是 running，不能把它写回页面；只再取一次权威快照。
+        if (reapplyInterruptedIfSnapshotStillRunning()) {
+          setTimeout(() => {
+            if (!sessionCurrent()) return;
+            void hydrateAuthoritativeConversation(stateConvId, sessionCurrent, {
+              extraPreserveMessageIds: preserveLaterMessages,
+            }).then(() => {
+              reapplyInterruptedIfSnapshotStillRunning();
+            });
+          }, INTERRUPTED_HYDRATION_RETRY_MS);
+        }
       }
     })();
 
@@ -973,6 +1145,21 @@ export function useSendMessage(activeConversationId?: string | null) {
         }
       };
 
+      const rememberRemoteStopIdentity = (
+        messageId?: string | null,
+        taskId?: string | null,
+      ) => {
+        if (!isActiveSendCurrent()) return;
+        if (messageId) serverMessageIdRef.current = messageId;
+        if (taskId) serverTaskIdRef.current = taskId;
+        const conversationId = activeConvIdRef.current;
+        if (!conversationId) return;
+        updateStreamController(conversationId, controller, {
+          ...(messageId ? { messageId } : {}),
+          ...(taskId ? { taskId } : {}),
+        });
+      };
+
       const streamCallbacks: StreamCallbacks = {
             onReady: ({
               messageId: incomingMessageId,
@@ -985,6 +1172,7 @@ export function useSendMessage(activeConversationId?: string | null) {
               serverMessageIdRef.current = incomingMessageId;
               serverTaskIdRef.current = incomingTaskId ?? null;
               materializeIfNeeded(incomingConvId);
+              rememberRemoteStopIdentity(incomingMessageId, incomingTaskId ?? null);
             },
 
             onAnswering: (payload) => {
@@ -1027,9 +1215,7 @@ export function useSendMessage(activeConversationId?: string | null) {
               // 优先本地 placeholder（streaming 期 message.id 是它），ref 为 null 时兜底用后端 ID。
               resolveMessageId: ev => assistantMessageIdRef.current ?? ev.message_id,
               setServerMessageId: messageId => {
-                if (isActiveSendCurrent()) {
-                  serverMessageIdRef.current = messageId;
-                }
+                rememberRemoteStopIdentity(messageId);
               },
               resolveConversationId: () => activeConvIdRef.current,
               resolveTrajectoryConversationId: event => {
@@ -1157,7 +1343,23 @@ export function useSendMessage(activeConversationId?: string | null) {
         return;
       } catch (error) {
         typewriterRef.current.stop();
-        if (controller.signal.aborted || !isActiveSendCurrent()) return;
+        if (controller.signal.aborted || !isActiveSendCurrent()) {
+          // 另一处页面中止了这条流时，本实例的 generation 可能还没作废。
+          // 先作废再返回，迟到的 run 事件不能落到下一轮。
+          if (controller.signal.aborted && isActiveSendCurrent()) {
+            sendGenerationRef.current += 1;
+            activeSendContextRef.current = null;
+            activeConvIdRef.current = null;
+            userMessageIdRef.current = null;
+            assistantMessageIdRef.current = null;
+            serverMessageIdRef.current = null;
+            serverTaskIdRef.current = null;
+            assistantHasContentRef.current = false;
+            activeRetryTurnSnapshotRef.current = null;
+            abortControllerRef.current = null;
+          }
+          return;
+        }
 
         const effectiveConvIdOnError = activeConvIdRef.current ?? tempConvId;
         if (isInterruptedStreamSignal(error)) {
@@ -1205,6 +1407,52 @@ export function useSendMessage(activeConversationId?: string | null) {
               })
             );
           }
+          const interruptedRun = getSlot(effectiveConvIdOnError).currentRun;
+          if (interruptedRun?.status === 'interrupted') {
+            dispatch(updateMessage({
+              conversationId: effectiveConvIdOnError,
+              messageId: assistantMessageId,
+              patch: { agent_run: interruptedRun },
+            }));
+          }
+          const interruptedHydrationAnchorIds = new Set(
+            [userMessageId, assistantMessageId, serverMessageIdRef.current].filter(
+              (messageId): messageId is string => Boolean(messageId),
+            ),
+          );
+          const preserveMessagesAfterStoppedTurn = (state: RootState) => (
+            messageIdsAfterAnchor(state, effectiveConvIdOnError, interruptedHydrationAnchorIds)
+          );
+          const reapplyInterruptedSnapshot = () => {
+            if (interruptedRun?.status !== 'interrupted') return;
+            const messages = store.getState().conversation.byId[effectiveConvIdOnError]?.messages ?? [];
+            for (const message of messages) {
+              const agentRun = message.agent_run;
+              if (
+                !agentRun
+                || agentRun.runId !== interruptedRun.runId
+                || agentRun.status !== 'running'
+              ) continue;
+              const slot = getSlot(effectiveConvIdOnError);
+              if (
+                slot.isStreaming
+                && slot.messageId === message.id
+                && slot.currentRun?.runId !== interruptedRun.runId
+              ) continue;
+              dispatch(updateMessage({
+                conversationId: effectiveConvIdOnError,
+                messageId: message.id,
+                patch: {
+                  agent_run: {
+                    ...interruptedRun,
+                    messageId: message.id,
+                    serverMessageId: message.id,
+                    status: 'interrupted',
+                  },
+                },
+              }));
+            }
+          };
           if (!isMessageRetry || !retryTurnSnapshot?.user) {
             dispatch(updateMessage({
               conversationId: effectiveConvIdOnError,
@@ -1230,8 +1478,11 @@ export function useSendMessage(activeConversationId?: string | null) {
           dispatch(requestConversationListRefresh(effectiveConvIdOnError));
           void hydrateAuthoritativeConversation(
             effectiveConvIdOnError,
-            isSessionCurrent
-          );
+            isSessionCurrent,
+            { extraPreserveMessageIds: preserveMessagesAfterStoppedTurn },
+          ).then(() => {
+            if (isSessionCurrent()) reapplyInterruptedSnapshot();
+          });
           // /stop 先完成跨 worker 的 Redis CAS，再由被取消任务异步把
           // Agent run 落为 interrupted。第一次详情读取可能恰好读到 running；
           // 短暂等待后再取一次，避免必须刷新页面才能看到“计划已停止”。
@@ -1239,8 +1490,11 @@ export function useSendMessage(activeConversationId?: string | null) {
             if (!isSessionCurrent()) return;
             void hydrateAuthoritativeConversation(
               effectiveConvIdOnError,
-              isSessionCurrent
-            );
+              isSessionCurrent,
+              { extraPreserveMessageIds: preserveMessagesAfterStoppedTurn },
+            ).then(() => {
+              if (isSessionCurrent()) reapplyInterruptedSnapshot();
+            });
           }, INTERRUPTED_HYDRATION_RETRY_MS);
           return;
         }

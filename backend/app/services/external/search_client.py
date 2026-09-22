@@ -20,7 +20,7 @@ async def search_web(
 ) -> List[SearchSource]:
     """
     调用 search-service 执行网络搜索。
-    返回 SearchSource 列表；失败时返回空列表（不阻断对话）。
+    返回 SearchSource 列表；失败交由工具 handler 转换为结构化失败，不能冒充空结果。
     """
     try:
         payload = {
@@ -61,9 +61,10 @@ async def search_web(
             )
             for r in data.get("results", [])
         ]
-    except Exception as e:
-        logger.error(f"搜索服务调用失败: {e}")
-        return []
+    except Exception as exc:
+        # 上游异常可能没有文本或含请求凭据，只记录类型，保留失败给现有 handler 处理。
+        logger.warning("搜索服务调用失败: error_type=%s", type(exc).__name__)
+        raise
 
 
 def _freshness_from_recency_days(recency_days: int | None) -> str | None:

@@ -27,11 +27,87 @@ export interface StreamControllerEntry {
   controller: AbortController;
   /** 仅恢复流有值。 */
   streamMode?: RecoveryStreamMode | null;
-  /** 仅恢复流有值；停止时需要带给后端。 */
+  /** 服务端任务 ID。发送流在 onReady 写入；恢复流在 stream-status / onReady 写入。 */
   taskId?: string | null;
+  /** 服务端 assistant message ID。不要写入本地 placeholder。 */
+  messageId?: string | null;
 }
 
 const registry = new Map<string, StreamControllerEntry>();
+
+export interface StreamStopIdentity {
+  conversationId: string;
+  messageId: string | null;
+  taskId: string;
+}
+
+type IdentityWaiter = {
+  controller: AbortController;
+  resolve: (identity: StreamStopIdentity | null) => void;
+};
+
+const identityWaiters = new Set<IdentityWaiter>();
+
+function readStopIdentity(controller: AbortController): StreamStopIdentity | null {
+  const current = findStreamController(controller);
+  if (!current?.taskId) return null;
+  return {
+    conversationId: current.conversationId,
+    messageId: current.messageId ?? null,
+    taskId: current.taskId,
+  };
+}
+
+function settleIdentityWaiters(
+  controller: AbortController,
+  identity: StreamStopIdentity | null,
+): void {
+  for (const waiter of [...identityWaiters]) {
+    if (waiter.controller !== controller) continue;
+    identityWaiters.delete(waiter);
+    waiter.resolve(identity);
+  }
+}
+
+/** 按控制器查找仍登记的条目。草稿转正后键会变，停止等待必须跟控制器而不是会话 ID。 */
+export function findStreamController(
+  controller: AbortController,
+): StreamControllerEntry | null {
+  for (const entry of registry.values()) {
+    if (entry.controller === controller) return entry;
+  }
+  return null;
+}
+
+/**
+ * 等待原发送流写出服务端 task 身份。条目被换掉、注销或超时则返回 null，
+ * 绝不把后来者的身份交给旧停止请求。
+ */
+export function waitForStreamIdentity(
+  controller: AbortController,
+  signal?: AbortSignal,
+): Promise<StreamStopIdentity | null> {
+  const immediate = readStopIdentity(controller);
+  if (immediate) return Promise.resolve(immediate);
+  if (!findStreamController(controller)) return Promise.resolve(null);
+  if (signal?.aborted) return Promise.resolve(readStopIdentity(controller));
+
+  return new Promise((resolve) => {
+    const waiter: IdentityWaiter = {
+      controller,
+      resolve: (identity) => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve(identity);
+      },
+    };
+    const onAbort = () => {
+      identityWaiters.delete(waiter);
+      resolve(readStopIdentity(controller));
+    };
+    identityWaiters.add(waiter);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
 
 /** 登记一条流。同一会话同时只会有一条，重复登记按新的覆盖。
  *
@@ -39,7 +115,11 @@ const registry = new Map<string, StreamControllerEntry>();
  * 注册表只记录「现在谁在跑」。
  */
 export function registerStreamController(entry: StreamControllerEntry): void {
+  const previous = registry.get(entry.conversationId);
   registry.set(entry.conversationId, entry);
+  if (previous && previous.controller !== entry.controller) {
+    settleIdentityWaiters(previous.controller, null);
+  }
 }
 
 export function getStreamController(conversationId: string | null | undefined): StreamControllerEntry | null {
@@ -47,15 +127,23 @@ export function getStreamController(conversationId: string | null | undefined): 
   return registry.get(conversationId) ?? null;
 }
 
-/** 补充恢复流在 stream-status 之后才知道的元数据。条目已被换掉时不写入。 */
+/** 补充 stream-status / onReady 之后才知道的停止身份。条目已被换掉时不写入。 */
 export function updateStreamController(
   conversationId: string,
   controller: AbortController,
-  patch: Partial<Pick<StreamControllerEntry, 'streamMode' | 'taskId'>>,
+  patch: Partial<Pick<StreamControllerEntry, 'streamMode' | 'taskId' | 'messageId'>>,
 ): void {
   const current = registry.get(conversationId);
   if (!current || current.controller !== controller) return;
-  registry.set(conversationId, { ...current, ...patch });
+  const next = { ...current, ...patch };
+  registry.set(conversationId, next);
+  if (next.taskId) {
+    settleIdentityWaiters(controller, {
+      conversationId: next.conversationId,
+      messageId: next.messageId ?? null,
+      taskId: next.taskId,
+    });
+  }
 }
 
 /** 注销。**只在 controller 相符时生效**——迟到的收尾不得注销后来者。
@@ -73,6 +161,7 @@ export function releaseStreamController(
   const current = registry.get(conversationId);
   if (!current || current.controller !== controller) return false;
   registry.delete(conversationId);
+  settleIdentityWaiters(controller, null);
   return true;
 }
 
@@ -109,10 +198,15 @@ export function abortStreamController(
   if (!current) return null;
   registry.delete(conversationId);
   current.controller.abort();
+  settleIdentityWaiters(current.controller, null);
   return current;
 }
 
 /** 仅测试与登出等全局失效场景使用。 */
 export function resetStreamControllerRegistry(): void {
+  for (const waiter of [...identityWaiters]) {
+    identityWaiters.delete(waiter);
+    waiter.resolve(null);
+  }
   registry.clear();
 }

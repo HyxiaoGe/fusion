@@ -246,6 +246,143 @@ describe('TrajectoryCellProjection', () => {
     });
   });
 
+  it.each([
+    ['实时事件携带发现标志', false],
+    ['账本事件携带发现标志（当前后端 run_started 白名单并不产出此字段）', true],
+  ])('%s 在能力路由为空时显示动态工具发现，且不把授权目录当成已执行工具', async (_label, history) => {
+    await i18n.changeLanguage('zh-CN');
+    const summary = runSummary('discovery-run', { capability_resolution: null });
+    const started = event('discovery-run', 0, 'run_started', {
+      payload: {
+        tools: ['web_search'],
+        capability_resolution: null,
+        dynamic_tool_discovery_enabled: true,
+      },
+    });
+    const snapshot = {
+      snapshotRequestId: 'discovery-snapshot',
+      run: summary,
+      spans: [],
+      completeness: {
+        status: 'complete' as const,
+        degraded_reason: null,
+        event_count: 1,
+        expected_last_sequence: 0,
+        loaded_event_count: 1,
+        first_sequence: 0,
+        last_sequence: 0,
+      },
+      truncated: false,
+      durableLastSequence: history ? 0 : null,
+      events: history ? [started] : [],
+    };
+    const projection = projectTrajectoryCells(input({
+      runs: [summary],
+      runSummariesById: { 'discovery-run': summary },
+      selectedRunId: 'discovery-run',
+      snapshotsByRunId: { 'discovery-run': snapshot },
+      liveEventsByRunId: { 'discovery-run': history ? [] : [started] },
+    }));
+    const runCell = projection.unassociatedCells.find(cell => cell.type === 'run');
+
+    expect(runCell).toMatchObject({
+      type: 'run',
+      capabilityResolution: null,
+      dynamicToolDiscovery: true,
+    });
+    expect(buildTrajectoryNodeDetailModel(runCell!, null).summaryFields).toEqual([
+      { label: '能力路由', value: '动态工具发现' },
+    ]);
+    expect(JSON.stringify(buildTrajectoryNodeDetailModel(runCell!, null).summaryFields)).not.toContain('web_search');
+  });
+
+  it('持久化会话里的发现开关在快照事件没有该字段时仍然生效', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const summary = runSummary('discovery-message', {
+      capability_resolution: null,
+      message_id: 'assistant-discovery',
+      turn_message_id: 'user-discovery',
+    });
+    const projection = projectTrajectoryCells(input({
+      messages: [
+        message('user-discovery', 'user'),
+        message('assistant-discovery', 'assistant', {
+          runId: 'discovery-message',
+          messageId: 'assistant-discovery',
+          status: 'interrupted',
+          config: {
+            maxSteps: 8,
+            maxToolCalls: 20,
+            timeoutS: 300,
+            dynamicToolDiscovery: true,
+          },
+          totalSteps: 1,
+          totalToolCalls: 0,
+          steps: [],
+          lastSequence: 1,
+        }),
+      ],
+      runs: [summary],
+      runSummariesById: { 'discovery-message': summary },
+      selectedRunId: 'discovery-message',
+    }));
+    const runCell = [...projection.cells, ...projection.unassociatedCells]
+      .find(cell => cell.type === 'run');
+
+    expect(buildTrajectoryNodeDetailModel(runCell!, null).summaryFields).toEqual([
+      { label: '能力路由', value: '动态工具发现' },
+    ]);
+  });
+
+  it('当前后端账本的纯历史快照没有发现标志时仍显示未记录能力路由', async () => {
+    await i18n.changeLanguage('zh-CN');
+    // 贴合实际 wire：run_started 白名单丢弃 config，TrajectoryRunSummary 也没有
+    // dynamic_tool_discovery_enabled。同消息更早的尝试若只剩这条账本快照，
+    // 前端无法从历史事件恢复发现标志；补齐需要后端契约，本次不扩大实施边界。
+    const summary = runSummary('ledger-run', { capability_resolution: null });
+    const started = event('ledger-run', 0, 'run_started', {
+      payload: {
+        tools: ['web_search'],
+        capability_resolution: null,
+      },
+    });
+    const snapshot = {
+      snapshotRequestId: 'ledger-snapshot',
+      run: summary,
+      spans: [],
+      completeness: {
+        status: 'complete' as const,
+        degraded_reason: null,
+        event_count: 1,
+        expected_last_sequence: 0,
+        loaded_event_count: 1,
+        first_sequence: 0,
+        last_sequence: 0,
+      },
+      truncated: false,
+      durableLastSequence: 0,
+      events: [started],
+    };
+    const projection = projectTrajectoryCells(input({
+      runs: [summary],
+      runSummariesById: { 'ledger-run': summary },
+      selectedRunId: 'ledger-run',
+      snapshotsByRunId: { 'ledger-run': snapshot },
+      liveEventsByRunId: { 'ledger-run': [] },
+    }));
+    const runCell = projection.unassociatedCells.find(cell => cell.type === 'run');
+
+    expect(runCell).toMatchObject({
+      type: 'run',
+      capabilityResolution: null,
+      dynamicToolDiscovery: false,
+    });
+    expect(buildTrajectoryNodeDetailModel(runCell!, null).summaryFields).toEqual([
+      { label: '能力路由', value: '该历史运行未记录能力路由' },
+    ]);
+    expect(JSON.stringify(buildTrajectoryNodeDetailModel(runCell!, null).summaryFields)).not.toContain('web_search');
+  });
+
   it('同一会话的两个 Run 分别保留自己的能力包与初始工具', () => {
     const weather = runSummary('weather-run', {
       capability_resolution: capabilityResolution('weather', 'weather_forecast'),

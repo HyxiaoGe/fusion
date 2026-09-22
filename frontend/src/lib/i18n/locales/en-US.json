@@ -501,6 +501,7 @@
     "capabilityResolution": {
       "title": "Capability routing",
       "notRecorded": "Capability routing was not recorded for this historical run",
+      "dynamicToolDiscovery": "Dynamic tool discovery",
       "package": "Capability package",
       "confidence": "Confidence",
       "resolutionMode": "Routing result",

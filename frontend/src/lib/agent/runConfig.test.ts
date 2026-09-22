@@ -35,6 +35,24 @@ describe('normalizeAgentRunConfig', () => {
     });
   });
 
+  it('只在显式 enabled 时保留动态发现，不拷贝授权目录', () => {
+    expect(normalizeAgentRunConfig({
+      dynamic_tool_discovery: {
+        enabled: true,
+        authorized_tool_names: ['weather_forecast'],
+      },
+    })).toMatchObject({ dynamicToolDiscovery: true });
+    expect(JSON.stringify(normalizeAgentRunConfig({
+      dynamic_tool_discovery: {
+        enabled: true,
+        authorized_tool_names: ['weather_forecast'],
+      },
+    }))).not.toContain('weather_forecast');
+    expect(normalizeAgentRunConfig({
+      dynamic_tool_discovery: { enabled: false },
+    }).dynamicToolDiscovery).toBeUndefined();
+  });
+
   it('保留严格知识库 evidence policy，不归一成 standard', () => {
     expect(normalizeAgentRunConfig({
       max_steps: 1,
