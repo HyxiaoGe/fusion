@@ -26,6 +26,11 @@ from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_loop_step_requests import build_tool_round_request
 from app.services.stream.agent_round import AgentRoundResult
+from app.services.stream.limit_summary_fact_guard import (
+    emit_fact_guard_observation,
+    has_tool_evidence,
+    resolve_no_evidence_answer,
+)
 from app.services.stream.llm_round_lifecycle import round_tool_names
 from app.services.stream.llm_stream import contains_tool_protocol_residue
 from app.services.stream.product_answer_observability import (
@@ -598,13 +603,7 @@ async def _commit_deferred_answer(
         return request
 
     if _is_web_recovery_answer(request):
-        answer = request.round_result.content_buf.strip()
-        rejected = await _reject_protocol_residue(request, answer)
-        if rejected is not None:
-            await _append_committed_answer(request, rejected, output_reason="protocol_residue")
-            return _with_replaced_answer(request, rejected)
-        await _append_committed_answer(request, answer, model_output_visible=True)
-        return _with_replaced_answer(request, answer)
+        return await _commit_deferred_plain_answer(request, model_output_visible=True)
 
     if (
         request.state.tool_issue_names
@@ -620,14 +619,7 @@ async def _commit_deferred_answer(
         return _with_replaced_answer(request, answer)
 
     if request.runtime.task_mode == "deep_research" or not _has_product_answer_context(request.state):
-        answer = request.round_result.content_buf.strip()
-        rejected = await _reject_protocol_residue(request, answer)
-        if rejected is not None:
-            await _append_committed_answer(request, rejected, output_reason="protocol_residue")
-            return _with_replaced_answer(request, rejected)
-        if answer:
-            await _append_committed_answer(request, answer, model_output_visible=True)
-        return _with_replaced_answer(request, answer)
+        return await _commit_deferred_plain_answer(request, model_output_visible=True)
 
     return await _commit_deferred_product_answer(request)
 
@@ -780,6 +772,27 @@ async def _commit_deferred_product_answer(
         messages=request.messages,
     )
     if validation.is_valid:
+        if not has_tool_evidence(
+            request.state.content_blocks,
+            capability_resolution=request.runtime.capability_resolution,
+            recovery_evidence=request.state.recovery_evidence,
+        ):
+            guarded, fact_kind = await _replace_unsupported_dynamic_facts(request, candidate)
+            if fact_kind is not None:
+                await _emit_product_answer_observation(
+                    request,
+                    reason_code=validation.reason_code,
+                    repaired_answer=None,
+                    repair_reason_code=None,
+                    observation_path="no_usable_evidence",
+                )
+                await _append_committed_answer(
+                    request,
+                    guarded,
+                    model_output_visible=False,
+                    output_reason="no_evidence",
+                )
+                return _with_replaced_answer(request, guarded)
         await _emit_product_answer_observation(
             request,
             reason_code=validation.reason_code,
@@ -868,6 +881,62 @@ async def _emit_product_answer_observation(
     )
     emit_product_answer_observation(payload)
     await retain_product_answer_observation(payload)
+
+
+async def _replace_unsupported_dynamic_facts(
+    request: AgentRoundOutcomeRequest,
+    answer: str,
+) -> tuple[str, str | None]:
+    guarded, fact_kind = resolve_no_evidence_answer(
+        answer,
+        content_blocks=request.state.content_blocks,
+        messages=request.messages,
+        capability_resolution=request.runtime.capability_resolution,
+        recovery_evidence=request.state.recovery_evidence,
+    )
+    if fact_kind is None:
+        return answer, None
+    emit_fact_guard_observation(
+        fact_kind=fact_kind,
+        summary_finish_reason=str(request.round_result.finish_reason or "stop"),
+        task_mode=request.runtime.task_mode,
+    )
+    request.runtime.warning_fn(
+        "最终回答缺少所需有效证据，已替换为诚实答复: "
+        f"conv_id={request.runtime.conversation_id} run_id={request.runtime.run_id} "
+        f"fact_kind={fact_kind}"
+    )
+    fallback = await render_safe_fallback(
+        "no_evidence",
+        context=request.runtime.fallback_response_context,
+        model_id=request.runtime.model_id,
+        timeout_s=0,
+    )
+    return fallback, fact_kind
+
+
+async def _commit_deferred_plain_answer(
+    request: AgentRoundOutcomeRequest,
+    *,
+    model_output_visible: bool,
+) -> AgentRoundOutcomeRequest:
+    answer = request.round_result.content_buf.strip()
+    rejected = await _reject_protocol_residue(request, answer)
+    if rejected is not None:
+        await _append_committed_answer(request, rejected, output_reason="protocol_residue")
+        return _with_replaced_answer(request, rejected)
+    guarded, fact_kind = await _replace_unsupported_dynamic_facts(request, answer)
+    if fact_kind is not None:
+        await _append_committed_answer(
+            request,
+            guarded,
+            model_output_visible=False,
+            output_reason="no_evidence",
+        )
+        return _with_replaced_answer(request, guarded)
+    if answer:
+        await _append_committed_answer(request, answer, model_output_visible=model_output_visible)
+    return _with_replaced_answer(request, answer)
 
 
 def _has_product_answer_context(state: AgentLoopState) -> bool:

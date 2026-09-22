@@ -16,3 +16,4 @@ __pycache__/
 # 运行日志；数据库仅忽略已确认的本地运行产物，避免隐藏测试夹具
 *.log
 /backend/fusion-test.db
+/backend/tmp/dynamic-tool-discovery/

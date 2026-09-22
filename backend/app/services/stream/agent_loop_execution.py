@@ -18,6 +18,7 @@ from app.services.stream.agent_loop_request_prep import AgentLoopCallConfig
 from app.services.stream.agent_loop_run_completion import AgentLoopRunCompletionContext
 from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
+from app.services.stream.dynamic_tool_discovery import TOOL_SEARCH_NAME
 from app.services.stream.network_budget import NetworkToolBudget
 from app.services.stream.safe_fallback_response import FallbackResponseContext
 from app.services.stream.tool_executor import AgentEventCompositeWriter
@@ -127,17 +128,25 @@ def _build_execution_parts(
         task_id=request.task_id,
         redis_writer=event_writer,
     )
+    discovery = getattr(request.call_config, "tool_discovery", None)
+    state = AgentLoopState(
+        plan_coordinator=PlanCoordinator(
+            run_id=run_id,
+            mode=getattr(request.call_config, "plan_mode", "auto"),
+            allowed_tool_names=frozenset(
+                name for name in getattr(request.call_config, "announced_tools", []) if name != "tool_search"
+            ),
+            required_initial_tool_counts=dict(getattr(request.call_config, "required_initial_tool_counts", {})),
+        ),
+        tool_discovery=discovery,
+    )
+    if discovery is not None:
+        discovery.plan_coordinator = state.plan_coordinator
+        state.plan_coordinator.discovery_control_tool = TOOL_SEARCH_NAME
     return AgentLoopExecutionParts(
         run_id=run_id,
         run_start=dependencies.clock(),
-        state=AgentLoopState(
-            plan_coordinator=PlanCoordinator(
-                run_id=run_id,
-                mode=getattr(request.call_config, "plan_mode", "auto"),
-                allowed_tool_names=frozenset(getattr(request.call_config, "announced_tools", [])),
-                required_initial_tool_counts=dict(getattr(request.call_config, "required_initial_tool_counts", {})),
-            )
-        ),
+        state=state,
         network_budget=NetworkToolBudget(
             profile=getattr(request.call_config, "network_profile", "standard"),
             require_distinct_read_urls=(
@@ -228,6 +237,7 @@ def build_agent_loop_runtime(
             original_message=request.original_message,
             preferred_locale=request.response_language,
         ),
+        tool_discovery=getattr(request.call_config, "tool_discovery", None),
     )
 
 

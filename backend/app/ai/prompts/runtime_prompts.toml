@@ -453,3 +453,8 @@ protocol_error = """لم أتمكن هذه المرة من تقديم إجابة
 tool_failure = """यह खोज अभी पूरी नहीं हुई है। उपयोगी परिणाम या उत्तर की पुष्टि के लिए पर्याप्त स्रोत नहीं मिले, इसलिए फ़िलहाल कोई विश्वसनीय निष्कर्ष नहीं दिया जा सकता।"""
 no_evidence = """ज़रूरी खोज पूरी नहीं हो सकी, इसलिए अभी कोई विश्वसनीय निष्कर्ष नहीं दिया जा सकता। कृपया बाद में फिर कोशिश करें या ऐसी जानकारी दें जिसकी पुष्टि की जा सके।"""
 protocol_error = """इस बार विश्वसनीय अंतिम उत्तर तैयार नहीं हो सका। कृपया बाद में फिर कोशिश करें।"""
+
+[dynamic_tool_discovery]
+catalog_preamble = """You can discover authorized tools with `tool_search`.
+Only names listed below are in this run's authorized catalog.
+Call `tool_search` before using a deferred tool; unmatched queries list the catalog."""

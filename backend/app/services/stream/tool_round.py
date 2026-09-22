@@ -38,6 +38,7 @@ from app.services.source_evidence_ledger import (
     stable_web_evidence_id,
 )
 from app.services.stream.agent_loop_state import AgentLoopState, ProductToolOutcome
+from app.services.stream.dynamic_tool_discovery import TOOL_SEARCH_NAME
 from app.services.stream.itinerary_observability import build_itinerary_tool_observation
 from app.services.stream.itinerary_result_composer import compose_itinerary_result
 from app.services.stream.llm_round_lifecycle import round_tool_names
@@ -412,7 +413,7 @@ def append_tool_round_messages_with_plan(
             request.messages.append(
                 _tool_message(
                     tool_call_id=tool_call["id"],
-                    content=_format_unavailable_tool_context(),
+                    content=_format_unavailable_tool_context(request, tool_call),
                 )
             )
 
@@ -663,6 +664,11 @@ async def handle_tool_calls_round(*, request: ToolRoundRequest) -> ToolRoundOutc
         emitter=request.emitter,
         required_recovery_tool_name=(
             request.agent_state.required_plan_repair_tool if request.agent_state is not None else None
+        ),
+        discovery_control_tool=(
+            TOOL_SEARCH_NAME
+            if request.agent_state is not None and getattr(request.agent_state, "tool_discovery", None) is not None
+            else None
         ),
     )
     announced_tool_calls, unavailable_external_calls = _partition_tool_calls_by_announcement(
@@ -1522,7 +1528,13 @@ def _format_reused_tool_context() -> str:
     )
 
 
-def _format_unavailable_tool_context() -> str:
+def _format_unavailable_tool_context(request: ToolRoundRequest | None = None, tool_call: dict | None = None) -> str:
+    session = getattr(getattr(request, "agent_state", None), "tool_discovery", None) if request is not None else None
+    name = str((tool_call or {}).get("name") or "")
+    if session is not None and name:
+        import json as _json
+
+        return _json.dumps(session.format_intercept(name), ensure_ascii=False)
     return json.dumps(
         {
             "status": "not_executed",

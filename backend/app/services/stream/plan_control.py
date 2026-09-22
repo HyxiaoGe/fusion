@@ -156,11 +156,13 @@ async def process_plan_control_calls(
     coordinator: PlanCoordinator,
     emitter: Any,
     required_recovery_tool_name: str | None = None,
+    discovery_control_tool: str | None = None,
 ) -> PlanControlResult:
     """先应用控制调用，再决定同轮外部调用；回执只含安全状态码。"""
 
     control_calls = [call for call in tool_calls if call.get("name") == UPDATE_PLAN_TOOL_NAME]
     external_calls = [call for call in tool_calls if call.get("name") != UPDATE_PLAN_TOOL_NAME]
+    discovery_control = discovery_control_tool or getattr(coordinator, "discovery_control_tool", None)
     responses: dict[str, str] = {}
     accepted_control = False
     repairable_rejection = False
@@ -213,16 +215,20 @@ async def process_plan_control_calls(
             await emitter.plan_snapshot(**result.snapshot)
 
     round_failed = repairable_rejection and not accepted_control
-    if coordinator.mode == "on" and external_calls and not coordinator.has_valid_model_plan:
+    discovery_calls = [call for call in external_calls if discovery_control and call.get("name") == discovery_control]
+    other_external_calls = [
+        call for call in external_calls if not (discovery_control and call.get("name") == discovery_control)
+    ]
+    if coordinator.mode == "on" and other_external_calls and not coordinator.has_valid_model_plan:
         round_failed = True
         repair_reasons.add("plan_required")
-        for call in external_calls:
+        for call in other_external_calls:
             responses[str(call.get("id", ""))] = _response(
                 status="not_executed",
                 reason="plan_required",
                 revision=coordinator.revision,
             )
-        external_calls = []
+        external_calls = discovery_calls
 
     prepared_external_calls: list[dict] = []
     requested_item_ids: list[str | None] = []
@@ -251,6 +257,9 @@ async def process_plan_control_calls(
             server_recovery_item_id = coordinator.sole_server_recovery_item_id_for_tool(str(call.get("name", "")))
         if server_recovery_item_id is not None:
             plan_item_id = server_recovery_item_id
+        if discovery_control and call.get("name") == discovery_control:
+            executable_external_calls.append(call)
+            continue
         missing_required_binding = (
             coordinator.mode == "on"
             and coordinator.has_valid_model_plan

@@ -207,6 +207,7 @@ class AgentLoopCallConfigInputs:
     authorized_tool_names: list[str]
     should_load_dynamic_tool_metadata: bool
     skill_release_pins: Any | None
+    previous_run_id: str | None = None
 
 
 def prepare_agent_loop_call_config_inputs(
@@ -265,6 +266,7 @@ def prepare_agent_loop_call_config_inputs(
         authorized_tool_names=authorized_tool_names,
         should_load_dynamic_tool_metadata=should_load_dynamic_tool_metadata,
         skill_release_pins=skill_release_pins,
+        previous_run_id=run_input.previous_run_id,
     )
 
 
@@ -308,6 +310,11 @@ def build_agent_loop_call_config_from_inputs(
         **(
             {"skill_release_pins": inputs.skill_release_pins}
             if inputs.skill_release_pins is not None and _accepts_keyword(build_call_config_fn, "skill_release_pins")
+            else {}
+        ),
+        **(
+            {"previous_run_id": inputs.previous_run_id}
+            if inputs.previous_run_id is not None and _accepts_keyword(build_call_config_fn, "previous_run_id")
             else {}
         ),
     )

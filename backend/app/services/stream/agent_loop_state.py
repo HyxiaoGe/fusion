@@ -75,6 +75,7 @@ class AgentLoopState:
     successful_tool_names: set[str] = field(default_factory=set)
     tool_recovery_prompted: bool = False
     recovery_evidence: RecoveryEvidenceWorkset = field(default_factory=RecoveryEvidenceWorkset)
+    tool_discovery: Any = None
 
     def record_tool_outcome(self, tool_name: str, status: str) -> None:
         """累计各类执行结果；一次成功不能抹掉其他调用的失败或降级。"""

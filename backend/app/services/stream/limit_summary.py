@@ -136,6 +136,7 @@ class LimitSummaryStepRequest:
     capability_resolution: RunCapabilityResolution | None = None
     recovery_evidence: RecoveryEvidenceWorkset | None = None
     fallback_response_context: FallbackResponseContext | None = None
+    tool_discovery: Any = None
 
 
 def _is_standard_plan_synthesis(request: LimitSummaryStepRequest) -> bool:
@@ -161,6 +162,10 @@ def _streams_standard_plan_synthesis(request: LimitSummaryStepRequest) -> bool:
         capability_resolution=request.capability_resolution,
         recovery_evidence=request.recovery_evidence,
     )
+
+
+def _holds_unverified_summary_reasoning(request: LimitSummaryStepRequest) -> bool:
+    return request.tool_discovery is not None
 
 
 def _should_defer_summary_output(request: LimitSummaryStepRequest) -> bool:
@@ -414,6 +419,7 @@ async def call_limit_summary_round(
             request.should_use_reasoning
             and _should_defer_summary_output(request)
             and request.evidence_policy != "knowledge_grounded_v1"
+            and not _holds_unverified_summary_reasoning(request)
             and _accepts_keyword(request.stream_round_fn, "allow_deferred_reasoning_output")
         ):
             stream_kwargs["allow_deferred_reasoning_output"] = True
@@ -1107,7 +1113,7 @@ async def _commit_limit_summary_result(
     thinking_block_id: str,
     text_block_id: str,
 ) -> bool:
-    if round_result.reasoning_buf:
+    if round_result.reasoning_buf and not _holds_unverified_summary_reasoning(request):
         request.content_blocks.append(
             ThinkingBlock(
                 type="thinking",
