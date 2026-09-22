@@ -874,6 +874,7 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(tiny.used_requests, 1)
             self.assertTrue(tiny.aborted or tiny_summary["incomplete"])
             self.assertTrue(tiny_summary["incomplete_pairs"])
+            self.assertFalse(tiny_summary["mechanical_pair_complete"])
 
             await compare.PairingExecutor(
                 transport=compare.FakeModelTransport(),
@@ -932,6 +933,12 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotEqual(six_summary["base"], six_summary["head"])
             self.assertEqual(six_summary["response_cache_status"], "未知")
             self.assertFalse(six_summary["live_real_model"])
+            self.assertTrue(six_summary["mechanical_pair_complete"])
+            self.assertEqual(six_summary["mechanical_incomplete_pairs"], [])
+            self.assertGreaterEqual(six_summary["sdk_attempts"], six_summary["sdk_responses"])
+            later = [message for row in candidate["rounds"][1:] for message in row.get("messages") or []]
+            assistants = [message for message in later if message.get("role") == "assistant"]
+            self.assertTrue(any(message.get("reasoning_content") for message in assistants))
 
     async def test_compare_r4_messages_hybrid_usage_and_proxy(self):
         import importlib.util
@@ -1114,6 +1121,8 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("api_key", payload)
             self.assertEqual(payload["num_retries"], 0)
             self.assertEqual(parsed.tool_calls[0]["name"], "weather_forecast")
+            self.assertIsInstance(parsed.tool_calls[0]["arguments"], str)
+            self.assertEqual(json.loads(parsed.tool_calls[0]["arguments"])["location"], "杭州")
             self.assertEqual(parsed.input_tokens, 11)
             self.assertEqual(parsed.output_tokens, 7)
             self.assertNotIn("api_key", adapter.send_calls[0])
@@ -1330,6 +1339,228 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
             partial.record_usage(4, None)
             self.assertTrue(partial.usage_unknown)
             self.assertEqual(partial.used_tokens, 4)
+
+    async def test_compare_http_protocol_keeps_string_tool_arguments(self):
+        import importlib.util
+        import os
+        import tempfile
+        import threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        from pathlib import Path
+
+        from app.core.config import settings as app_settings
+
+        compare_path = Path(__file__).resolve().parents[3] / "scripts" / "dynamic_tool_discovery_compare.py"
+        spec = importlib.util.spec_from_file_location("dynamic_tool_discovery_compare_http", compare_path)
+        compare = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = compare
+        spec.loader.exec_module(compare)
+
+        weather = next(case for case in compare.CASES if case["id"] == "weather_only")
+        tool_call_id = "call_00_Ihhd1DmKmp8XSVeJbB4W6295"
+        first_arguments = '{"location": "杭州", "location_source": "named"}'
+        first_reasoning = "用户问杭州周末天气，需要调用 weather_forecast。"
+        first_choice = {
+            "index": 0,
+            "finish_reason": "tool_calls",
+            "message": {
+                "role": "assistant",
+                "content": "我来查一下杭州这个周末的天气。",
+                "tool_calls": [
+                    {
+                        "id": tool_call_id,
+                        "type": "function",
+                        "index": 0,
+                        "function": {"name": "weather_forecast", "arguments": first_arguments},
+                    }
+                ],
+                "reasoning_content": first_reasoning,
+            },
+        }
+        os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
+
+        def _start_server(mode: str) -> tuple[HTTPServer, list[dict], threading.Thread]:
+            captured: list[dict] = []
+
+            class Handler(BaseHTTPRequestHandler):
+                def log_message(self, *_args):
+                    return
+
+                def do_POST(self):
+                    raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                    request = json.loads(raw.decode("utf-8") or "{}")
+                    captured.append(request)
+                    if mode == "always_400":
+                        body = json.dumps(
+                            {
+                                "error": {
+                                    "message": "forced invalid_request_error",
+                                    "type": "invalid_request_error",
+                                    "code": "invalid_request_error",
+                                }
+                            }
+                        ).encode()
+                        self.send_response(400)
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", str(len(body)))
+                        self.end_headers()
+                        self.wfile.write(body)
+                        return
+                    if mode == "malformed":
+                        body = json.dumps(
+                            {"id": "malformed", "object": "chat.completion", "created": 1, "model": "offline"}
+                        ).encode()
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", str(len(body)))
+                        self.end_headers()
+                        self.wfile.write(body)
+                        return
+                    malformed = any(
+                        not isinstance((tool.get("function") or {}).get("arguments"), str)
+                        for message in request.get("messages") or []
+                        for tool in message.get("tool_calls") or []
+                    )
+                    if malformed:
+                        body = json.dumps(
+                            {
+                                "error": {
+                                    "message": "tool_calls.function.arguments must be a string",
+                                    "type": "invalid_request_error",
+                                    "code": "invalid_request_error",
+                                }
+                            }
+                        ).encode()
+                        self.send_response(400)
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", str(len(body)))
+                        self.end_headers()
+                        self.wfile.write(body)
+                        return
+                    has_tool_history = any(message.get("tool_calls") for message in request.get("messages") or [])
+                    if has_tool_history:
+                        response = {
+                            "id": "offline-second",
+                            "object": "chat.completion",
+                            "created": 1,
+                            "model": "offline",
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "finish_reason": "stop",
+                                    "message": {
+                                        "role": "assistant",
+                                        "content": "杭州周末有雨。",
+                                        "reasoning_content": "已根据工具结果作答。",
+                                    },
+                                }
+                            ],
+                            "usage": {"prompt_tokens": 9, "completion_tokens": 4, "total_tokens": 13},
+                        }
+                    else:
+                        response = {
+                            "id": "offline-first",
+                            "object": "chat.completion",
+                            "created": 1,
+                            "model": "offline",
+                            "choices": [first_choice],
+                            "usage": {"prompt_tokens": 20, "completion_tokens": 10, "total_tokens": 30},
+                        }
+                    body = json.dumps(response).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+
+            server = HTTPServer(("127.0.0.1", 0), Handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            return server, captured, thread
+
+        def mock_classifier(**_kwargs):
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content=json.dumps({"package_id": "weather", "explicit_tool_names": ["weather_forecast"]})
+                        )
+                    )
+                ],
+                usage=SimpleNamespace(prompt_tokens=8, completion_tokens=3),
+            )
+
+        async def _run_baseline(output: Path, mode: str) -> tuple[dict, dict, list[dict]]:
+            server, captured, _thread = _start_server(mode)
+            try:
+                with patch.object(app_settings, "LITELLM_API_KEY", "review-test-key"):
+                    with patch(
+                        "app.ai.llm_manager.LLMManager.resolve_model",
+                        return_value=(
+                            "litellm_proxy/offline",
+                            "openai",
+                            {"api_base": f"http://127.0.0.1:{server.server_port}", "api_key": "offline-dummy"},
+                        ),
+                    ):
+                        with patch("litellm.completion", side_effect=mock_classifier):
+                            with patch(
+                                "app.ai.litellm_catalog.get_model_entry",
+                                return_value={"metadata": {}},
+                            ):
+                                executor = compare.PairingExecutor(
+                                    transport=compare.LiteLLMProxyTransport(allow_real=True, alias="offline"),
+                                    budget=compare.ExperimentBudget(max_requests=8),
+                                    output_dir=output,
+                                    cases=[weather],
+                                    repeats=1,
+                                )
+                                summary = await executor.run_async()
+                record = json.loads((output / "baseline-weather_only-r0.json").read_text(encoding="utf-8"))
+                return summary, record, captured
+            finally:
+                server.shutdown()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            summary, record, captured = await _run_baseline(output / "ok", "strict")
+            self.assertTrue(record["execution_ok"], record.get("error"))
+            self.assertIsNone(record.get("error"))
+            self.assertEqual(record["final_output"], "杭州周末有雨。")
+            second = next(
+                request
+                for request in captured
+                if any(message.get("tool_calls") for message in request.get("messages") or [])
+            )
+            history_assistants = [message for message in second.get("messages") or [] if message.get("tool_calls")]
+            self.assertTrue(history_assistants)
+            tool_calls = history_assistants[0]["tool_calls"]
+            self.assertEqual(tool_calls[0]["id"], tool_call_id)
+            self.assertIsInstance(tool_calls[0]["function"]["arguments"], str)
+            self.assertEqual(json.loads(tool_calls[0]["function"]["arguments"]), json.loads(first_arguments))
+            self.assertEqual(history_assistants[0].get("reasoning_content"), first_reasoning)
+            tool_messages = [message for message in second.get("messages") or [] if message.get("role") == "tool"]
+            self.assertTrue(tool_messages)
+            self.assertEqual(tool_messages[0].get("tool_call_id"), tool_call_id)
+            self.assertGreaterEqual(record["handler_counts"]["weather_forecast"], 1)
+            self.assertEqual(summary["sdk_attempts"], summary["sdk_responses"])
+            self.assertFalse(summary["usage_unknown"])
+
+            bad_summary, bad_record, _bad_captured = await _run_baseline(output / "http400", "always_400")
+            self.assertFalse(bad_record["execution_ok"])
+            self.assertEqual(bad_record["task_outcome"], "error")
+            self.assertIsNone(bad_record["final_output"])
+            self.assertTrue(bad_record.get("error"))
+            self.assertNotIn("api_key", str(bad_record.get("error") or "").lower())
+            self.assertTrue(bad_summary["usage_unknown"])
+            self.assertGreater(bad_summary["sdk_attempts"], bad_summary["sdk_responses"])
+
+            malformed_summary, malformed_record, _malformed_captured = await _run_baseline(output / "malformed", "malformed")
+            self.assertFalse(malformed_record["execution_ok"])
+            self.assertEqual(malformed_record["task_outcome"], "error")
+            self.assertIsNone(malformed_record["final_output"])
+            self.assertNotIn("我来查一下杭州这个周末的天气。", str(malformed_record.get("final_output")))
+            self.assertTrue(malformed_summary["usage_unknown"])
+            self.assertGreaterEqual(malformed_summary["sdk_attempts"], 1)
 
 
 class _WrongAnswerTransport:

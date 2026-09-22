@@ -1,6 +1,6 @@
 # 动态工具发现原型交接报告
 
-日期：2026-09-22，Asia/Shanghai。第四轮复核后修分类 SDK 贯通与业务未评估口径。消息装配、工具协议、回答模型 Proxy、R1–R3 保持。未跑 live 真模型、未推送、未开 PR、未部署。
+日期：2026-09-22，Asia/Shanghai。第五轮按实测报告修对照适配器工具参数协议与严格 HTTP 回归。未跑新 live 真模型、未推送、未开 PR、未部署。生产 `build_assistant_tool_message` 未改。
 
 ## 1. 工作位置
 
@@ -10,7 +10,7 @@
 | 分支 | `cursor/dynamic-tool-discovery-c223` |
 | remote | `HyxiaoGe/fusion` |
 | base | `4c185cfca843e804143eaa5e16e2af8d804c1329` |
-| 上一轮修复 HEAD | `421f1ee06c8e8c77a00ca5026254fef188a2c84a` |
+| 上一轮修复 HEAD | `6c92c97c1e53810cf856611277ff6bc4a03077c1` |
 | 修复后 HEAD | 见文末 Git 节（本轮本地提交，未推送） |
 | 实际 base | 与任务书核对的 `master` 一致，未前移 |
 
@@ -44,7 +44,7 @@ cd /Users/sean/code/fusion/.worktrees/dynamic-tool-discovery-20260922/backend
 DATABASE_URL='sqlite:///:memory:' /Users/sean/code/fusion/fusion-api/.venv/bin/python -m pytest test/services/stream/test_dynamic_tool_discovery.py -q --tb=line
 ```
 
-退出码：`0`（**21 passed**）。日志：`backend/tmp/dynamic-tool-discovery/p01-p12-pytest.log`（gitignored）。
+退出码：`0`（**22 passed**）。日志：`backend/tmp/dynamic-tool-discovery/p01-p12-pytest.log`（gitignored）。新增 `test_compare_http_protocol_keeps_string_tool_arguments`。
 
 相关回归（同解释器，DATABASE_URL 内存 SQLite）：
 
@@ -193,4 +193,43 @@ DATABASE_URL='sqlite:///:memory:' /Users/sean/code/fusion/fusion-api/.venv/bin/p
 
 ## 9. Git
 
-本轮审查对象 `421f1ee0`。已本地提交到 `cursor/dynamic-tool-discovery-c223`。未推送。HEAD 以工作树 `git rev-parse HEAD` 为准。
+见文末本轮 Git 节。未推送。HEAD 以工作树 `git rev-parse HEAD` 为准。
+
+## 10. 实测协议修复（2026-09-22）
+
+依据 `/Users/sean/code/fusion/dynamic-tool-live-20260922/REPORT.md` 与 `CURSOR_FIX_PROMPT.md`。12 Run / 26 次 SDK 尝试已结束，本轮不追加采样、不跑真模型。
+
+### 工具历史合同
+
+`LiteLLMProxyTransport._parse_sdk_completion` 不再把 `function.arguments` `json.loads` 成 dict。协议层保持 JSON 字符串；handler 执行才用 `_handler_tool_arguments` 解析。非法 JSON 抛 `invalid_tool_arguments`，不改造成 `_raw`。Fake 发射同样写字符串。生产 `tool_round.build_assistant_tool_message` 仍原样回填，因此适配器必须交字符串。
+
+两臂 `options["use_reasoning"]=True`，走现有 `protocol_reasoning_buf` / `should_use_reasoning`。真实天气响应里的 `reasoning_content` 会写回后续 assistant 历史。未另做思考通道。
+
+### 严格 HTTP 回归
+
+`test_compare_http_protocol_keeps_string_tool_arguments` 对本机 HTTP 替身跑正式 `litellm.acompletion`（不 mock 返回对象作为协议证明）：
+
+1. 首轮返回录制形状：`arguments` 为 JSON 字符串，含 `reasoning_content`。
+2. Fusion 循环执行假天气工具后，第二轮 HTTP JSON 中 `tool_calls[].function.arguments` 仍是字符串，可解析为原参数；`tool_call_id` 对齐。
+3. 第二轮 assistant 历史含 `reasoning_content`。
+4. 替身拒绝对象型 arguments（400）。修复后第二轮完成并给出最终回答。
+5. 强制 HTTP 400、无 `choices` 的畸形 200：`execution_ok=False`，`task_outcome=error`，`final_output is None`（不用工具前导文本），`usage_unknown=True`，错误正文脱敏不含凭据。
+
+此前 mock `acompletion` 对象测试仍保留，但不能覆盖此反例。
+
+### 结果口径
+
+- 失败请求无 usage：`record_usage(None, None)` → `usage_unknown=True`，不记零。
+- `sdk_attempts` / `sdk_responses` 分开；异常不补 0 tokens。
+- `mechanical_pair_complete` / `mechanical_incomplete_pairs` 看两臂 `execution_ok`。业务 `unevaluated` 仍进 `incomplete_pairs`，不能把待评估说成没跑。
+- 禁网基线 direct 无日期、候选有日期：上下文合同差异，不作同上下文优劣。未改生产 direct 路由。
+- 天气 fixture 覆盖 9 月 22—25 日，用户问 26—27 日：覆盖不足。完成一次调用 ≠ 查到周末。
+- 线上 `NoneType ... choices` 与对象参数的精确因果仍未钉死。严格 HTTP 回放/本回归给出的是清晰 400。不把推断写成已证实。
+
+未改正则、分类、动态发现产品逻辑、P08 最后交付守卫。未改 #107/#109。
+
+相关回归：`test_tool_round.py` + `test_agent_loop_execution.py` **54 passed**。
+
+## 11. Git
+
+本轮审查对象 `6c92c97c`。已本地提交到 `cursor/dynamic-tool-discovery-c223`。未推送。HEAD 以工作树 `git rev-parse HEAD` 为准。

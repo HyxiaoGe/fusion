@@ -126,7 +126,10 @@ class ModelResponse:
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     input_tokens: int | None = None
     output_tokens: int | None = None
+    reasoning_content: str = ""
     error: str | None = None
+    transport_status: int | None = None
+    transport_error: str | None = None
 
 
 @dataclass
@@ -137,6 +140,8 @@ class ExperimentBudget:
     used_tokens: int = 0
     aborted: bool = False
     usage_unknown: bool = False
+    sdk_attempts: int = 0
+    sdk_responses: int = 0
 
     def consume(self, *, requests: int = 1) -> bool:
         if self.aborted:
@@ -146,6 +151,12 @@ class ExperimentBudget:
             return False
         self.used_requests += requests
         return True
+
+    def mark_sdk_attempt(self) -> None:
+        self.sdk_attempts += 1
+
+    def mark_sdk_response(self) -> None:
+        self.sdk_responses += 1
 
     def record_usage(self, input_tokens: int | None, output_tokens: int | None) -> None:
         if input_tokens is None or output_tokens is None:
@@ -187,6 +198,41 @@ def _internal_section_ids(messages: list[Any]) -> list[str | None]:
     return [getattr(message, "section_id", None) for message in messages or []]
 
 
+def _protocol_tool_arguments(arguments: Any) -> str:
+    if isinstance(arguments, str):
+        return arguments
+    return json.dumps(arguments, ensure_ascii=False)
+
+
+def _protocol_tool_calls(tool_calls: list[Any] | None) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for item in tool_calls or []:
+        if not isinstance(item, dict):
+            continue
+        normalized.append(
+            {
+                "id": item.get("id"),
+                "name": item.get("name"),
+                "arguments": _protocol_tool_arguments(item.get("arguments")),
+            }
+        )
+    return normalized
+
+
+def _handler_tool_arguments(arguments: Any) -> dict[str, Any]:
+    if isinstance(arguments, dict):
+        return arguments
+    if not isinstance(arguments, str):
+        raise ValueError("invalid_tool_arguments")
+    try:
+        parsed = json.loads(arguments)
+    except json.JSONDecodeError as exc:
+        raise ValueError("invalid_tool_arguments") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("invalid_tool_arguments")
+    return parsed
+
+
 def _usage_from_sdk(usage: Any) -> tuple[int | None, int | None]:
     if usage is None:
         return None, None
@@ -199,6 +245,15 @@ def _usage_from_sdk(usage: Any) -> tuple[int | None, int | None]:
     if prompt is None and completion is None:
         return None, None
     return (None if prompt is None else int(prompt), None if completion is None else int(completion))
+
+
+def _redact_transport_error(exc: BaseException) -> str:
+    body = str(getattr(exc, "message", None) or exc)
+    name = type(exc).__name__
+    lowered = body.lower()
+    if "api_key" in lowered or "api-key" in lowered:
+        return f"{name}: redacted"
+    return f"{name}: {body[:300]}"
 
 
 def evaluate_task_outcome(
@@ -290,9 +345,10 @@ class FakeModelTransport:
             return ModelResponse(
                 status="ok",
                 request_hash=digest,
-                tool_calls=[{"id": call_id, "name": tool_name, "arguments": arguments}],
+                tool_calls=[{"id": call_id, "name": tool_name, "arguments": json.dumps(arguments, ensure_ascii=False)}],
                 input_tokens=4,
                 output_tokens=8,
+                reasoning_content=f"需要调用 {tool_name}",
             )
 
         if case_id == "greeting":
@@ -386,16 +442,24 @@ class LiteLLMProxyTransport:
         return logged
 
     def _parse_sdk_completion(self, completion: Any, digest: str) -> ModelResponse:
-        message = completion.choices[0].message
+        if completion is None:
+            return ModelResponse(
+                status="error",
+                request_hash=digest,
+                error="malformed_sdk_response",
+            )
+        choices = getattr(completion, "choices", None)
+        if not choices:
+            return ModelResponse(
+                status="error",
+                request_hash=digest,
+                error="malformed_sdk_response",
+            )
+        message = choices[0].message
         tool_calls = []
         for item in getattr(message, "tool_calls", None) or []:
             function = item.function
-            arguments = function.arguments
-            if isinstance(arguments, str):
-                try:
-                    arguments = json.loads(arguments)
-                except json.JSONDecodeError:
-                    arguments = {"_raw": arguments}
+            arguments = _protocol_tool_arguments(function.arguments)
             tool_calls.append({"id": item.id, "name": function.name, "arguments": arguments})
         input_tokens, output_tokens = _usage_from_sdk(getattr(completion, "usage", None))
         return ModelResponse(
@@ -405,6 +469,7 @@ class LiteLLMProxyTransport:
             tool_calls=tool_calls,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            reasoning_content=str(getattr(message, "reasoning_content", "") or ""),
         )
 
     async def complete(self, request: ModelRequest) -> ModelResponse:
@@ -430,9 +495,10 @@ class LiteLLMProxyTransport:
                     status="ok",
                     request_hash=digest,
                     content=str(result.get("content") or ""),
-                    tool_calls=list(result.get("tool_calls") or []),
+                    tool_calls=_protocol_tool_calls(list(result.get("tool_calls") or [])),
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
+                    reasoning_content=str(result.get("reasoning_content") or ""),
                 )
             else:
                 response = ModelResponse(status="ok", request_hash=digest, content=str(result or ""))
@@ -440,7 +506,19 @@ class LiteLLMProxyTransport:
             return response
         import litellm
 
-        completion = await litellm.acompletion(**payload)
+        try:
+            completion = await litellm.acompletion(**payload)
+        except Exception as exc:  # noqa: BLE001 - 对照需保留传输失败形态
+            status = getattr(exc, "status_code", None)
+            response = ModelResponse(
+                status="error",
+                request_hash=digest,
+                error=_redact_transport_error(exc),
+                transport_status=int(status) if isinstance(status, int) else None,
+                transport_error=type(exc).__name__,
+            )
+            self.calls.append({"request": asdict(request), "response": asdict(response)})
+            return response
         response = self._parse_sdk_completion(completion, digest)
         self.calls.append({"request": asdict(request), "response": asdict(response)})
         return response
@@ -494,6 +572,7 @@ class PairingExecutor:
         completed: list[dict[str, Any]] = []
         incomplete: list[dict[str, Any]] = []
         pair_status: dict[tuple[str, int], dict[str, str]] = {}
+        mechanical: dict[tuple[str, int], dict[str, bool]] = {}
         for arm, case, repeat in self.jobs():
             if self.budget.aborted:
                 record = {
@@ -510,11 +589,13 @@ class PairingExecutor:
                 }
                 incomplete.append(record)
                 pair_status.setdefault((case["id"], repeat), {})[arm] = "incomplete"
+                mechanical.setdefault((case["id"], repeat), {})[arm] = False
                 continue
             record = await self._run_arm(arm=arm, case=case, repeat=repeat)
             path = self.output_dir / f"{arm}-{case['id']}-r{repeat}.json"
             path.write_text(json.dumps(record, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
             record["output_path"] = str(path)
+            mechanical.setdefault((case["id"], repeat), {})[arm] = bool(record.get("execution_ok"))
             if record.get("status") == "ok" and record.get("task_completed"):
                 completed.append(record)
                 pair_status.setdefault((case["id"], repeat), {})[arm] = "complete"
@@ -526,6 +607,11 @@ class PairingExecutor:
             for (case_id, repeat), arms in pair_status.items()
             if set(arms.values()) != {"complete"} or len(arms) < 2
         ]
+        mechanical_incomplete_pairs = [
+            {"case_id": case_id, "repeat": repeat, "arms": arms}
+            for (case_id, repeat), arms in mechanical.items()
+            if len(arms) < 2 or not all(arms.values())
+        ]
         summary = {
             "mode": "paired-fusion-loop",
             "fixed_date": EXPERIMENT_NOW.date().isoformat(),
@@ -535,10 +621,14 @@ class PairingExecutor:
             "used_requests": self.budget.used_requests,
             "used_tokens": self.budget.used_tokens,
             "usage_unknown": self.budget.usage_unknown,
+            "sdk_attempts": self.budget.sdk_attempts,
+            "sdk_responses": self.budget.sdk_responses,
             "aborted": self.budget.aborted,
             "completed": completed,
             "incomplete": incomplete,
             "incomplete_pairs": incomplete_pairs,
+            "mechanical_pair_complete": not mechanical_incomplete_pairs and bool(mechanical),
+            "mechanical_incomplete_pairs": mechanical_incomplete_pairs,
             "job_order": [f"{arm}:{case['id']}:r{repeat}" for arm, case, repeat in self.jobs()],
             "base": COMPARISON_BASE_SHA,
             "head": _git_sha("HEAD"),
@@ -583,7 +673,11 @@ class PairingExecutor:
 
         schemas, handlers, _shared = build_prototype_fixture_catalog(playback=CASE_PLAYBACK.get(case["id"]))
         authorized = [schema["function"]["name"] for schema in schemas]
-        options: dict[str, Any] = {"max_tokens": LIMITS_PER_RUN["max_tokens"], "plan_mode": "off"}
+        options: dict[str, Any] = {
+            "max_tokens": LIMITS_PER_RUN["max_tokens"],
+            "plan_mode": "off",
+            "use_reasoning": True,
+        }
         if arm == "candidate":
             options["dynamic_tool_discovery"] = True
         route_calls: list[Any] = []
@@ -620,7 +714,13 @@ class PairingExecutor:
             if not self.budget.consume(requests=1):
                 raise ExperimentBudgetExhausted("experiment_request_cap")
             _note_classify_send(kwargs)
-            result = sdk_completion(*args, **kwargs)
+            self.budget.mark_sdk_attempt()
+            try:
+                result = sdk_completion(*args, **kwargs)
+            except Exception:
+                self.budget.record_usage(None, None)
+                raise
+            self.budget.mark_sdk_response()
             input_tokens, output_tokens = _usage_from_sdk(getattr(result, "usage", None))
             self.budget.record_usage(input_tokens, output_tokens)
             return result
@@ -630,10 +730,12 @@ class PairingExecutor:
             if not self.budget.consume(requests=1):
                 raise ExperimentBudgetExhausted("experiment_request_cap")
             _note_classify_send(kwargs)
+            self.budget.mark_sdk_attempt()
             if self.classify_completion_fn is not None:
                 result = self.classify_completion_fn(kwargs)
             else:
                 result = _offline_classifier_completion()
+            self.budget.mark_sdk_response()
             input_tokens, output_tokens = _usage_from_sdk(getattr(result, "usage", None))
             self.budget.record_usage(input_tokens, output_tokens)
             return result
@@ -772,9 +874,16 @@ class PairingExecutor:
                     "request_hash": request_hash(request),
                 }
             )
-            result = transport.complete(request)
-            if inspect.isawaitable(result):
-                result = await result
+            budget.mark_sdk_attempt()
+            try:
+                result = transport.complete(request)
+                if inspect.isawaitable(result):
+                    result = await result
+            except Exception:
+                budget.record_usage(None, None)
+                raise
+            if result.status == "ok":
+                budget.mark_sdk_response()
             budget.record_usage(result.input_tokens, result.output_tokens)
             rounds.append(
                 {
@@ -783,6 +892,11 @@ class PairingExecutor:
                     "request_hash": result.request_hash,
                     "tool_calls": result.tool_calls,
                     "content": result.content,
+                    "reasoning_content": result.reasoning_content,
+                    "status": result.status,
+                    "error": result.error,
+                    "transport_status": result.transport_status,
+                    "transport_error": result.transport_error,
                     "messages": request.messages,
                 }
             )
@@ -801,7 +915,7 @@ class PairingExecutor:
                 raise RuntimeError(response.error or response.status)
             finish = "tool_calls" if response.tool_calls else "stop"
             return AgentRoundResult(
-                reasoning_buf="",
+                reasoning_buf=response.reasoning_content if config.should_use_reasoning else "",
                 content_buf=response.content,
                 tool_calls=response.tool_calls,
                 finish_reason=finish,
@@ -809,6 +923,7 @@ class PairingExecutor:
                     input_tokens=response.input_tokens,
                     output_tokens=response.output_tokens,
                 ),
+                protocol_reasoning_buf=response.reasoning_content if config.should_use_reasoning else None,
                 announced_tool_names=frozenset(names),
             )
 
@@ -831,9 +946,7 @@ class PairingExecutor:
             bound = kwargs.get("tool_handlers") or config.dynamic_tool_handlers or handlers
             for tool_call in tool_calls or []:
                 handler = bound[tool_call["name"]]
-                args = tool_call.get("arguments") or {}
-                if isinstance(args, str):
-                    args = json.loads(args)
+                args = _handler_tool_arguments(tool_call.get("arguments") or {})
                 result = await handler.execute(args)
                 records.append(
                     ToolExecutionRecord(
@@ -941,9 +1054,11 @@ class PairingExecutor:
             error = f"{type(exc).__name__}: {exc}"
         handler_counts = {name: getattr(item, "execute_count", 0) for name, item in handlers.items()}
         discovery_events = list(getattr(config.tool_discovery, "events", []) or [])
-        final_output = ""
-        if rounds:
-            final_output = str(rounds[-1].get("content") or "")
+        final_output = None
+        if transport_ok and error is None and rounds:
+            last = rounds[-1]
+            if not last.get("tool_calls"):
+                final_output = str(last.get("content") or "")
         weather_schema_seen = any("weather_forecast" in (round_row.get("visible_tools") or []) for round_row in rounds)
         result_in_messages = any(
             "day_weather" in json.dumps(round_row.get("messages") or [], ensure_ascii=False, default=str)
