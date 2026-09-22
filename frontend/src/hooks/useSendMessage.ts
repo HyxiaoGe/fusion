@@ -79,6 +79,7 @@ import {
   migrateStreamController,
   registerStreamController,
   releaseStreamController,
+  updateStreamController,
 } from '@/lib/chat/streamControllerRegistry';
 import type { Message, ContentBlock } from '@/types/conversation';
 import type { FileAttachment } from '@/lib/utils/fileHelpers';
@@ -369,10 +370,12 @@ export function useSendMessage(activeConversationId?: string | null) {
 
     const stopOperation = (async () => {
       const convId = getStreamingConvId(conversationId);
+      const registeredStream = convId ? getStreamController(convId) : null;
       const userMsgId = userMessageIdRef.current;
       const assistantMsgId = assistantMessageIdRef.current;
-      const serverMsgId = serverMessageIdRef.current;
-      const serverTaskId = serverTaskIdRef.current;
+      // 跨 hook/页面停止时本实例 ref 为空，必须在释放注册表前固定原运行身份。
+      const serverMsgId = serverMessageIdRef.current || registeredStream?.messageId || null;
+      const serverTaskId = serverTaskIdRef.current || registeredStream?.taskId || null;
       const retryTurnSnapshot = activeRetryTurnSnapshotRef.current;
       const stopSessionContext = activeSendContextRef.current
         ?? captureSendSessionContext(store.getState(), sendGenerationRef.current);
@@ -391,7 +394,7 @@ export function useSendMessage(activeConversationId?: string | null) {
       typewriterRef.current.stop();
 
       const stoppingController = abortControllerRef.current
-        ?? getStreamController(convId)?.controller
+        ?? registeredStream?.controller
         ?? null;
       if (stoppingController) {
         releaseStreamController(convId, stoppingController);
@@ -483,8 +486,8 @@ export function useSendMessage(activeConversationId?: string | null) {
       assistantHasContentRef.current = false;
       activeRetryTurnSnapshotRef.current = null;
 
-      // 本地先完成停止；远端按真实服务端 message_id 精确取消。
-      // run_started 尚未到达时不传 placeholder，允许 Redis 按 conversation 跨 worker 取消。
+      // 本地先完成停止；远端按发起时固定的服务端身份取消，不随新实例/新一轮改写。
+      // 首次 ready 前没有身份时仍可按会话取消并有限重试；新运行出现后禁止会话级宽停止。
       let stopConfirmed = false;
       if (convId) {
         const stopController = new AbortController();
@@ -492,34 +495,33 @@ export function useSendMessage(activeConversationId?: string | null) {
           () => stopController.abort(),
           STOP_OPERATION_TIMEOUT_MS
         );
+        const replacementRunStarted = () => {
+          const current = getStreamController(convId);
+          return Boolean(current && current.controller !== stoppingController);
+        };
         try {
           const { stopStream } = await import('@/lib/api/chat');
-          let cancelled = serverTaskId
-            ? await stopStream(
+          const requestRemoteStop = async (messageId?: string) => {
+            if (serverTaskId) {
+              return stopStream(
                 convId,
-                serverMsgId || undefined,
+                messageId,
                 stopController.signal,
                 undefined,
                 serverTaskId,
-              )
-            : await stopStream(
-                convId,
-                serverMsgId || undefined,
-                stopController.signal,
               );
+            }
+            if (replacementRunStarted()) {
+              return false;
+            }
+            return stopStream(convId, messageId, stopController.signal);
+          };
+          let cancelled = await requestRemoteStop(serverMsgId || undefined);
           if (!serverMsgId) {
             for (const delayMs of STOP_BEFORE_READY_RETRY_DELAYS_MS) {
               if (cancelled) break;
               await waitForStopRetry(delayMs, stopController.signal);
-              cancelled = serverTaskId
-                ? await stopStream(
-                    convId,
-                    undefined,
-                    stopController.signal,
-                    undefined,
-                    serverTaskId,
-                  )
-                : await stopStream(convId, undefined, stopController.signal);
+              cancelled = await requestRemoteStop(undefined);
             }
           }
           stopConfirmed = cancelled === true;
@@ -1110,6 +1112,21 @@ export function useSendMessage(activeConversationId?: string | null) {
         }
       };
 
+      const rememberRemoteStopIdentity = (
+        messageId?: string | null,
+        taskId?: string | null,
+      ) => {
+        if (!isActiveSendCurrent()) return;
+        if (messageId) serverMessageIdRef.current = messageId;
+        if (taskId) serverTaskIdRef.current = taskId;
+        const conversationId = activeConvIdRef.current;
+        if (!conversationId) return;
+        updateStreamController(conversationId, controller, {
+          ...(messageId ? { messageId } : {}),
+          ...(taskId ? { taskId } : {}),
+        });
+      };
+
       const streamCallbacks: StreamCallbacks = {
             onReady: ({
               messageId: incomingMessageId,
@@ -1122,6 +1139,7 @@ export function useSendMessage(activeConversationId?: string | null) {
               serverMessageIdRef.current = incomingMessageId;
               serverTaskIdRef.current = incomingTaskId ?? null;
               materializeIfNeeded(incomingConvId);
+              rememberRemoteStopIdentity(incomingMessageId, incomingTaskId ?? null);
             },
 
             onAnswering: (payload) => {
@@ -1164,9 +1182,7 @@ export function useSendMessage(activeConversationId?: string | null) {
               // 优先本地 placeholder（streaming 期 message.id 是它），ref 为 null 时兜底用后端 ID。
               resolveMessageId: ev => assistantMessageIdRef.current ?? ev.message_id,
               setServerMessageId: messageId => {
-                if (isActiveSendCurrent()) {
-                  serverMessageIdRef.current = messageId;
-                }
+                rememberRemoteStopIdentity(messageId);
               },
               resolveConversationId: () => activeConvIdRef.current,
               resolveTrajectoryConversationId: event => {

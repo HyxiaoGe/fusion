@@ -117,4 +117,28 @@ describe('streamControllerRegistry', () => {
 
     expect(getStreamController('conv-a')?.taskId).toBeUndefined();
   });
+
+  it('发送流可补齐服务端 message/task 身份，供其他 hook 停止时读取', () => {
+    const send = entry('conv-a', 'send');
+    registerStreamController(send);
+    updateStreamController('conv-a', send.controller, {
+      messageId: 'server-assistant',
+      taskId: 'task-1',
+    });
+
+    expect(getStreamController('conv-a')).toMatchObject({
+      messageId: 'server-assistant',
+      taskId: 'task-1',
+    });
+
+    const next = entry('conv-a', 'send');
+    registerStreamController(next);
+    updateStreamController('conv-a', send.controller, {
+      messageId: 'stale-assistant',
+      taskId: 'stale-task',
+    });
+
+    expect(getStreamController('conv-a')?.messageId).toBeUndefined();
+    expect(getStreamController('conv-a')?.taskId).toBeUndefined();
+  });
 });

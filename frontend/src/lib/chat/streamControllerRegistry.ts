@@ -27,8 +27,10 @@ export interface StreamControllerEntry {
   controller: AbortController;
   /** 仅恢复流有值。 */
   streamMode?: RecoveryStreamMode | null;
-  /** 仅恢复流有值；停止时需要带给后端。 */
+  /** 服务端任务 ID。发送流在 onReady 写入；恢复流在 stream-status / onReady 写入。 */
   taskId?: string | null;
+  /** 服务端 assistant message ID。不要写入本地 placeholder。 */
+  messageId?: string | null;
 }
 
 const registry = new Map<string, StreamControllerEntry>();
@@ -47,11 +49,11 @@ export function getStreamController(conversationId: string | null | undefined): 
   return registry.get(conversationId) ?? null;
 }
 
-/** 补充恢复流在 stream-status 之后才知道的元数据。条目已被换掉时不写入。 */
+/** 补充 stream-status / onReady 之后才知道的停止身份。条目已被换掉时不写入。 */
 export function updateStreamController(
   conversationId: string,
   controller: AbortController,
-  patch: Partial<Pick<StreamControllerEntry, 'streamMode' | 'taskId'>>,
+  patch: Partial<Pick<StreamControllerEntry, 'streamMode' | 'taskId' | 'messageId'>>,
 ): void {
   const current = registry.get(conversationId);
   if (!current || current.controller !== controller) return;

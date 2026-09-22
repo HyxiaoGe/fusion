@@ -58,6 +58,7 @@ import {
   CONTEXT_STATUS_PENDING_FIRST_TURN_STORAGE_KEY,
   CONTEXT_STATUS_SUPPRESSED_FIRST_TURN_STORAGE_KEY,
 } from '@/lib/chat/contextStatusPersistence';
+import { resetStreamControllerRegistry } from '@/lib/chat/streamControllerRegistry';
 
 const {
   sendMessageStreamMock,
@@ -321,6 +322,7 @@ describe('useSendMessage', () => {
 
   afterEach(() => {
     sessionStorage.clear();
+    resetStreamControllerRegistry();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -3140,6 +3142,192 @@ describe('useSendMessage', () => {
     expect(theSlot(store.getState()).currentRun?.runId).toBe('run-2');
     expect(theSlot(store.getState()).currentRun?.status).toBe('running');
     expect(theSlot(store.getState()).isStreaming).toBe(true);
+  });
+
+  it('跨 hook 停止成功时远端请求绑定原 message/task 身份', async () => {
+    const store = createStore();
+    store.dispatch(upsertConversation({
+      id: 'existing-conv',
+      title: 'Existing',
+      model_id: 'model-1',
+      messages: [],
+      createdAt: 1,
+      updatedAt: 2,
+    }));
+    stopStreamMock.mockResolvedValueOnce(true);
+    sendMessageStreamMock.mockImplementationOnce(async (_payload: unknown, callbacks: StreamCallbacks, signal) => {
+      callbacks.onReady({
+        messageId: 'server-assistant',
+        conversationId: 'existing-conv',
+        taskId: 'task-1',
+      });
+      callbacks.onRunStarted?.(startedRun('run-1', 'server-assistant'));
+      await new Promise<void>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new DOMException('abort', 'AbortError')));
+      });
+    });
+
+    const owner = renderHook(() => useSendMessage(), { wrapper: createWrapper(store) });
+    await act(async () => {
+      void owner.result.current.sendMessage('hello', { conversationId: 'existing-conv' });
+    });
+    await waitFor(() => expect(theSlot(store.getState()).currentRun?.runId).toBe('run-1'));
+
+    const stopper = renderHook(() => useSendMessage('existing-conv'), {
+      wrapper: createWrapper(store),
+    });
+    await act(async () => {
+      await stopper.result.current.stopStreaming('existing-conv');
+    });
+
+    expect(stopStreamMock.mock.calls.map((call) => [call[0], call[1], call[4]])).toEqual([
+      ['existing-conv', 'server-assistant', 'task-1'],
+    ]);
+    expect(theSlot(store.getState()).currentRun?.runId).toBe('run-1');
+    expect(theSlot(store.getState()).currentRun?.status).toBe('interrupted');
+    expect(theSlot(store.getState()).isStreaming).toBe(false);
+  });
+
+  it('跨 hook 停止挂起后换页再发新一轮，旧停止重试不能按会话取消下一轮', async () => {
+    const store = createStore();
+    store.dispatch(upsertConversation({
+      id: 'existing-conv',
+      title: 'Existing',
+      model_id: 'model-1',
+      messages: [],
+      createdAt: 1,
+      updatedAt: 2,
+    }));
+    let firstStopRelease: ((cancelled: boolean) => void) | undefined;
+    let firstCallbacks: StreamCallbacks | undefined;
+    const live = {
+      runId: 'run-1',
+      messageId: 'server-assistant',
+      taskId: 'task-1',
+    };
+    const cancelledRunIds: string[] = [];
+    stopStreamMock.mockImplementationOnce(() => new Promise<boolean>((resolve) => {
+      firstStopRelease = resolve;
+    }));
+    stopStreamMock.mockImplementation(async (_conv, messageId, _signal, _partial, taskId) => {
+      // 无 body 的旧协议会按会话取消当前本地任务；有 task_id 则必须命中原任务。
+      if (!taskId) {
+        cancelledRunIds.push(live.runId);
+        return true;
+      }
+      if (taskId !== live.taskId) return false;
+      cancelledRunIds.push(live.runId);
+      return true;
+    });
+    sendMessageStreamMock
+      .mockImplementationOnce(async (_payload: unknown, callbacks: StreamCallbacks, signal) => {
+        firstCallbacks = callbacks;
+        callbacks.onReady({
+          messageId: 'server-assistant',
+          conversationId: 'existing-conv',
+          taskId: 'task-1',
+        });
+        callbacks.onRunStarted?.(startedRun('run-1', 'server-assistant'));
+        await new Promise<void>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new DOMException('abort', 'AbortError')));
+        });
+      })
+      .mockImplementationOnce(async (_payload: unknown, callbacks: StreamCallbacks) => {
+        live.runId = 'run-2';
+        live.messageId = 'server-assistant-2';
+        live.taskId = 'task-2';
+        callbacks.onReady({
+          messageId: 'server-assistant-2',
+          conversationId: 'existing-conv',
+          taskId: 'task-2',
+        });
+        callbacks.onRunStarted?.(startedRun('run-2', 'server-assistant-2', 1));
+        await new Promise<void>(() => {});
+      });
+
+    const owner = renderHook(() => useSendMessage(), { wrapper: createWrapper(store) });
+    await act(async () => {
+      void owner.result.current.sendMessage('first', { conversationId: 'existing-conv' });
+    });
+    await waitFor(() => expect(theSlot(store.getState()).currentRun?.runId).toBe('run-1'));
+
+    const stopper = renderHook(() => useSendMessage('existing-conv'), {
+      wrapper: createWrapper(store),
+    });
+    let stopping: Promise<void> | undefined;
+    await act(async () => {
+      stopping = stopper.result.current.stopStreaming('existing-conv');
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(stopStreamMock).toHaveBeenCalledTimes(1));
+    expect(stopStreamMock.mock.calls[0]?.slice(0, 2).concat(stopStreamMock.mock.calls[0]?.[4])).toEqual([
+      'existing-conv',
+      'server-assistant',
+      'task-1',
+    ]);
+
+    stopper.unmount();
+    const nextPage = renderHook(() => useSendMessage('existing-conv'), {
+      wrapper: createWrapper(store),
+    });
+    await act(async () => {
+      void nextPage.result.current.sendMessage('next', { conversationId: 'existing-conv' });
+    });
+    await waitFor(() => expect(theSlot(store.getState()).currentRun?.runId).toBe('run-2'));
+
+    await act(async () => {
+      firstStopRelease?.(false);
+      await stopping;
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+
+    expect(cancelledRunIds).not.toContain('run-2');
+    expect(stopStreamMock.mock.calls.map((call) => [call[0], call[1], call[4]])).toEqual(
+      expect.arrayContaining([['existing-conv', 'server-assistant', 'task-1']]),
+    );
+    for (const call of stopStreamMock.mock.calls) {
+      expect(call[0]).toBe('existing-conv');
+      expect(call[1]).toBe('server-assistant');
+      expect(call[4]).toBe('task-1');
+    }
+
+    firstCallbacks?.onRunCompleted?.({
+      type: 'run_completed',
+      run_id: 'run-1',
+      parent_run_id: null,
+      step_id: null,
+      parent_step_id: null,
+      tool_call_id: null,
+      sequence: 9,
+      trace_id: 'run-1',
+      ts: Date.now(),
+      total_steps: 1,
+      total_tool_calls: 0,
+      finish_reason: 'stop',
+    });
+    firstCallbacks?.onRunInterrupted?.({
+      type: 'run_interrupted',
+      run_id: 'run-1',
+      parent_run_id: null,
+      step_id: null,
+      parent_step_id: null,
+      tool_call_id: null,
+      sequence: 10,
+      trace_id: 'run-1',
+      ts: Date.now(),
+      reason: 'user_cancelled',
+    });
+
+    expect(theSlot(store.getState()).currentRun?.runId).toBe('run-2');
+    expect(theSlot(store.getState()).currentRun?.status).toBe('running');
+    expect(theSlot(store.getState()).isStreaming).toBe(true);
+    expect(
+      store.getState().conversation.byId['existing-conv'].messages.filter(
+        (message: Message) => message.role === 'user',
+      ).length,
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it('兼容旧停止协议的 stream_error + 用户中止，不闪现错误态', async () => {
