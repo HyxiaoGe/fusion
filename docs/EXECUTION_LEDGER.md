@@ -291,3 +291,9 @@ AGENTS/CLAUDE 收敛到当前单仓约定，开发与发布技能迁入仓库，
 - 后端相关 26 文件 `491 passed、155 subtests passed`；最后辅助模型预算调整后定点 `24 passed、15 subtests passed`。前端相关 `177 passed`、生产构建通过；Ruff、目标 ESLint、架构和 diff 检查通过。独立 tsc 的 25 条错误与未修改基线相同；独立交叉审查无遗留可达 P0/P1。
 - 当前授权到提交、推送、创建 PR 与 CI；不包含合并、部署或关闭 issue。真实推荐事件送达、语言选择准确率与 #57 回答质量仍需目标环境验收，不能由本地测试替代。详见 [修复与验证记录](reports/backend/2026-09-16-issue-closure-fixes.md)。
 - 已创建 PR #72。首轮前端 CI 通过，后端 3187 项 unittest 的唯一错误来自提示词捕获夹具未断言新的推荐生成异常；补齐异常类型与原始原因断言后，本地相关五文件 45 passed，Ruff 与格式检查通过，等待补充提交的远端全量 CI。
+# 2026-09-22 动态工具发现：dev 发布准备
+
+- PR #111：默认关闭的发现路径，显式请求 option 开启；不是账号灰度门禁。工具仍限服务端授权目录，普通请求保留包分类；共享无证据交付守卫覆盖部分旧路径 deferred 回答。
+- P08 reasoning 修复独立离线复核通过：13 条 P08、118 条相关回归；正式 stream 捕获不安全输出未泄露，SQLite 新 Session 读回只有安全 text，内部协议 reasoning 保留。假工具和真实模型配对试验不等于真实供应商验收。
+- 首轮 API CI：unittest 运行 3266 条、OK（跳过 1 条）；额外 pytest 835 通过、1 失败，定位为发现目录模型指令内嵌 Python。已按原文移入 runtime_prompts.toml，未豁免检查；本地模板与发现回归 46 passed。部署需修复后的 PR required gate 通过。
+- 真实 HTTP/SSE、供应商、Redis 恢复、取消刷新仍未完成；最终 PR/部署 run 与镜像身份见 PR #111 及部署机发布台账。本条不提前宣称已部署或完整验收。

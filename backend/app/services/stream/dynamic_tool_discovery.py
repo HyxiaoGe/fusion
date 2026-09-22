@@ -13,6 +13,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.services.stream.run_capability_request_signals import _resolve_network_scope
 from app.services.tool_handlers.base import BaseToolHandler, ToolResult
 
@@ -151,12 +152,8 @@ class DynamicToolDiscoverySession:
         return [name for name in self.authorized if name not in self.denied_names]
 
     def catalog_prompt(self) -> str:
-        lines = [
-            "You can discover authorized tools with `tool_search`.",
-            "Only names listed below are in this run's authorized catalog.",
-            "Call `tool_search` before using a deferred tool; unmatched queries list the catalog.",
-            "<available-authorized-tools>",
-        ]
+        lines = render_runtime_prompt("dynamic_tool_discovery.catalog_preamble").splitlines()
+        lines.append("<available-authorized-tools>")
         for name in self.catalog_names():
             entry = self.authorized[name]
             lines.append(f"- {name}: {entry.summary}")
