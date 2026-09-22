@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentRunState } from '@/types/agentRun';
 import type { ContentBlock, Conversation, Message } from '@/types/conversation';
@@ -54,6 +54,7 @@ const {
   fetchStreamStatusMock,
   reconnectStreamMock,
   stopRecoveredStreamMock,
+  getStopSnapshotMock,
   getChatCapabilitiesMock,
 } = vi.hoisted(() => ({
   currentRoute: { chatId: 'chat-a' },
@@ -85,6 +86,7 @@ const {
   fetchStreamStatusMock: vi.fn(),
   reconnectStreamMock: vi.fn(),
   stopRecoveredStreamMock: vi.fn(),
+  getStopSnapshotMock: vi.fn(),
   getChatCapabilitiesMock: vi.fn(),
   dispatchMock: vi.fn(),
   routerPushMock: vi.fn(),
@@ -110,6 +112,8 @@ const {
   },
   deleteFileMock: vi.fn(),
 }));
+
+vi.mock('@/lib/api/trajectory', () => ({ getTrajectorySnapshot: getStopSnapshotMock }));
 
 vi.mock('next/navigation', () => ({
   useParams: () => ({ chatId: currentRoute.chatId }),
@@ -728,6 +732,8 @@ describe('ChatPage 会话切换体验', () => {
     fetchStreamStatusMock.mockReset();
     fetchStreamStatusMock.mockResolvedValue({ status: 'not_found' });
     reconnectStreamMock.mockReset();
+    getStopSnapshotMock.mockReset();
+    getStopSnapshotMock.mockRejectedValue(new Error("未取到轨迹"));
     stopRecoveredStreamMock.mockReset();
     stopRecoveredStreamMock.mockResolvedValue(true);
     getChatCapabilitiesMock.mockReset();
@@ -1338,7 +1344,7 @@ describe('ChatPage 会话切换体验', () => {
     await waitFor(() => expect(stopRecoveredStreamMock).toHaveBeenCalledWith(
       'chat-a',
       'assistant-1',
-      undefined,
+      expect.any(AbortSignal),
       partialBlocks,
       'task-1',
     ));
@@ -1443,6 +1449,73 @@ describe('ChatPage 会话切换体验', () => {
     expect(nextController.signal.aborted).toBe(false);
   });
 
+  it.each(['interrupted', 'completed', 'failed', 'unconfirmed', 'mismatch', 'new-run', 'unmount'])('恢复停止无限等待：%s 有界收口且不误伤新运行', async (scenario) => {
+    const run: AgentRunState = {
+      runId: 'run-1', messageId: 'assistant-1', status: 'running',
+      config: { maxSteps: 4, maxToolCalls: 8, timeoutS: 120 },
+      totalSteps: 1, totalToolCalls: 0, steps: [], lastSequence: 3,
+    };
+    conversationsById.set('chat-a', createConversation('chat-a', [
+      textMessage('user-1'), { ...textMessage('assistant-1'), role: 'assistant', agent_run: run },
+    ]));
+    hydrationById.set('chat-a', { view: 'ready' });
+    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1', task_id: 'task-1' });
+    Object.assign(storeStreamState, { isStreaming: true, conversationId: 'chat-a', messageId: 'assistant-1', currentRun: run });
+    const originalDispatch = dispatchMock.getMockImplementation()!;
+    dispatchMock.mockImplementation((action) => {
+      if (action.type === 'stream/finalizeRun') {
+        storeStreamState.currentRun = { ...run, status: action.payload.status, lastSequence: action.payload.sequence };
+      }
+      return originalDispatch(action);
+    });
+    reconnectStreamMock.mockImplementation(() => new Promise(() => {}));
+    let releaseStop!: (value: boolean) => void;
+    stopRecoveredStreamMock.mockImplementation(() => new Promise<boolean>(resolve => { releaseStop = resolve; }));
+    if (scenario === 'unconfirmed') getStopSnapshotMock.mockImplementation(() => new Promise(() => {}));
+    else getStopSnapshotMock.mockResolvedValue({ run: { run_id: 'run-1', message_id: scenario === 'mismatch' ? 'another-message' : 'assistant-1', status: scenario === 'mismatch' ? 'interrupted' : scenario } });
+    const view = render(<ChatPage />);
+    await waitFor(() => expect(reconnectStreamMock).toHaveBeenCalledTimes(1));
+    const oldController = getStreamController('chat-a')!.controller;
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByRole('button', { name: '停止生成' }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      let nextController: AbortController | undefined;
+      if (scenario === 'new-run') {
+        nextController = new AbortController();
+        registerStreamController({ conversationId: 'chat-a', kind: 'send', controller: nextController, taskId: 'task-2' });
+        storeStreamState.messageId = 'assistant-2';
+        storeStreamState.currentRun = { ...run, runId: 'run-2', messageId: 'assistant-2' };
+      }
+      if (scenario === 'unmount') view.unmount();
+      await act(async () => { await vi.advanceTimersByTimeAsync(5600); });
+      expect(stopRecoveredStreamMock.mock.calls[0][2]).toBeInstanceOf(AbortSignal);
+      expect(stopRecoveredStreamMock.mock.calls[0][2].aborted).toBe(true);
+      if (scenario === 'new-run' || scenario === 'unmount') {
+        expect(dispatchMock.mock.calls.some(([action]) => ['stream/endStream', 'stream/finalizeRun'].includes(action.type))).toBe(false);
+        expect(getStopSnapshotMock).not.toHaveBeenCalled();
+        if (nextController) expect(nextController.signal.aborted).toBe(false);
+      } else {
+        expect(getStopSnapshotMock).toHaveBeenCalledWith('chat-a', 'run-1', expect.any(AbortSignal));
+        expect(oldController.signal.aborted).toBe(true);
+        expect(dispatchMock).toHaveBeenCalledWith({ type: 'stream/endStream', payload: { conversationId: 'chat-a', messageId: 'assistant-1' } });
+        if (scenario === 'unconfirmed' || scenario === 'mismatch') {
+          expect(dispatchMock.mock.calls.some(([action]) => action.type === 'stream/finalizeRun')).toBe(false);
+          expect(dispatchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'conversation/updateMessage', payload: expect.objectContaining({ messageId: 'assistant-1', patch: { agent_run: expect.objectContaining({ status: 'running', stopConfirmation: expect.objectContaining({ status: 'unconfirmed' }) }) } }) }));
+        } else {
+          expect(dispatchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'stream/finalizeRun', payload: expect.objectContaining({ runId: 'run-1', status: scenario }) }));
+        }
+      }
+      // 不响应 abort 的底层 promise 随后返回，也不能再改页面或新一轮。
+      const callsAfterTimeout = dispatchMock.mock.calls.length;
+      await act(async () => { releaseStop(true); await vi.advanceTimersByTimeAsync(0); });
+      expect(dispatchMock.mock.calls.length).toBe(callsAfterTimeout);
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+    }
+  });
+
   it('恢复流没有 task_id 时保留接收并提示停止未确认，不发送会话级停止', async () => {
     conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
     hydrationById.set('chat-a', { view: 'ready' });
@@ -1487,7 +1560,7 @@ describe('ChatPage 会话切换体验', () => {
     await waitFor(() => expect(stopRecoveredStreamMock).toHaveBeenCalledWith(
       'chat-a',
       'assistant-1',
-      undefined,
+      expect.any(AbortSignal),
       [],
       'task-1',
     ));
