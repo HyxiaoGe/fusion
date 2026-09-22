@@ -7,7 +7,7 @@ import json
 import sys
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from app.schemas.chat import Usage, WeatherResultsBlock
 from app.services.stream.agent_loop_driver import run_agent_loop
@@ -17,8 +17,9 @@ from app.services.stream.agent_loop_execution import (
     build_agent_loop_execution,
 )
 from app.services.stream.agent_loop_lifecycle import _run_config
-from app.services.stream.agent_loop_policy import AgentLoopLimits
+from app.services.stream.agent_loop_policy import AgentLoopLimits, map_run_terminal_state
 from app.services.stream.agent_loop_request_prep import build_agent_loop_call_config
+from app.services.stream.agent_loop_run_completion import persist_run_message
 from app.services.stream.agent_round import AgentRoundResult
 from app.services.stream.dynamic_tool_discovery import (
     TOOL_SEARCH_NAME,
@@ -28,11 +29,13 @@ from app.services.stream.dynamic_tool_discovery_fixtures import (
     EXPERIMENT_NOW,
     MCP_NETWORK_ALIAS,
     MCP_READONLY_ALIAS,
+    SYNTHETIC_LIMITATION,
     SharedFixtureBudget,
     build_prototype_fixture_catalog,
 )
-from app.services.stream.limit_summary import LimitSummaryOutcome
+from app.services.stream.limit_summary import LimitSummaryOutcome, run_limit_summary_step
 from app.services.stream.limit_summary_fact_guard import NO_EVIDENCE_ANSWER_TEXT, resolve_no_evidence_answer
+from app.services.stream.run_finalizer import complete_agent_run
 from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream.tool_execution_result import ToolExecutionRecord
 from app.services.stream.tool_round import handle_tool_calls_round
@@ -43,6 +46,7 @@ class RecordingEmitter:
         self.product_blocks: list[object] = []
         self.tool_events: list[tuple[str, str]] = []
         self.calls: list[str] = []
+        self.sequence: list[tuple[str, dict]] = []
 
     async def content_block_upserted(self, **kwargs):
         self.product_blocks.append(kwargs.get("content_block"))
@@ -53,6 +57,14 @@ class RecordingEmitter:
 
     async def tool_call_completed(self, **kwargs):
         self.tool_events.append(("completed", str(kwargs.get("tool_name"))))
+
+    async def run_completed(self, **kwargs):
+        self.sequence.append(("run_completed", dict(kwargs)))
+        self.calls.append("run_completed")
+
+    async def run_failed(self, **kwargs):
+        self.sequence.append(("run_failed", dict(kwargs)))
+        self.calls.append("run_failed")
 
     async def plan_snapshot(self, **kwargs):
         self.calls.append("plan_snapshot")
@@ -68,19 +80,29 @@ class ScriptedRounds:
     def __init__(self, rounds: list[list[dict] | dict]):
         self.rounds = list(rounds)
         self.visible_tools: list[list[str]] = []
+        self.defer_output_flags: list[bool] = []
 
     async def __call__(self, **kwargs):
         tools = kwargs.get("call_kwargs", {}).get("tools") or []
         names = [item["function"]["name"] for item in tools if isinstance(item, dict)]
         self.visible_tools.append(names)
+        deferred = bool(kwargs.get("defer_output"))
+        self.defer_output_flags.append(deferred)
         tool_choice = kwargs.get("call_kwargs", {}).get("tool_choice")
         if not self.rounds:
-            return _round_result([], "stop", frozenset(names))
+            return _round_result([], "stop", frozenset(names), output_deferred=deferred)
         spec = self.rounds.pop(0)
         if isinstance(spec, dict) and spec.get("stop"):
-            return _round_result([], "stop", frozenset(names), content=spec.get("content", "完成"))
+            return _round_result(
+                [],
+                "stop",
+                frozenset(names),
+                content=spec.get("content", "完成"),
+                output_deferred=deferred,
+                protocol_reasoning_buf=spec.get("protocol_reasoning_buf"),
+            )
         _assert_script_respects_tool_choice(spec, tool_choice=tool_choice, visible=names)
-        return _round_result(spec, "tool_calls", frozenset(names))
+        return _round_result(spec, "tool_calls", frozenset(names), output_deferred=deferred)
 
 
 def _assert_script_respects_tool_choice(spec, *, tool_choice, visible):
@@ -95,7 +117,9 @@ def _assert_script_respects_tool_choice(spec, *, tool_choice, visible):
             raise AssertionError(f"script returned {name} but tool_choice forced {forced}")
 
 
-def _round_result(tool_calls, finish_reason, announced, content=""):
+def _round_result(
+    tool_calls, finish_reason, announced, content="", *, output_deferred=False, protocol_reasoning_buf=None
+):
     return AgentRoundResult(
         reasoning_buf="",
         content_buf=content,
@@ -103,6 +127,8 @@ def _round_result(tool_calls, finish_reason, announced, content=""):
         finish_reason=finish_reason,
         accumulated_usage=Usage(input_tokens=1, output_tokens=1),
         announced_tool_names=announced,
+        output_deferred=output_deferred,
+        protocol_reasoning_buf=protocol_reasoning_buf,
     )
 
 
@@ -213,6 +239,7 @@ def _execution(config, *, run_id="run-discovery"):
             session_cache=SimpleNamespace(
                 write_step_started=lambda **_k: asyncio.sleep(0),
                 write_step_completed=lambda **_k: asyncio.sleep(0),
+                write_session_status=lambda **_k: asyncio.sleep(0),
             ),
             redis_writer=object(),
             start_step_fn=_start_step,
@@ -243,7 +270,118 @@ async def _unused(**_kwargs):
     raise AssertionError("不应调用这个依赖")
 
 
+class _PersistStore:
+    def __init__(self) -> None:
+        self.saves: list[list] = []
+
+    def __call__(self, *args, **kwargs):
+        blocks = args[4] if len(args) > 4 else kwargs.get("content_blocks")
+        self.saves.append(list(blocks or []))
+        return True
+
+
+def _text_from_blocks(blocks) -> str:
+    parts: list[str] = []
+    for block in blocks or []:
+        block_type = getattr(block, "type", None)
+        if block_type == "text":
+            parts.append(str(getattr(block, "text", "") or ""))
+        elif block_type == "thinking":
+            parts.append(str(getattr(block, "thinking", "") or ""))
+    return "\n".join(parts)
+
+
+def _answering_texts(chunks: list[dict]) -> list[str]:
+    return [str(item.get("content") or "") for item in chunks if item.get("type") == "answering"]
+
+
+async def _run_delivery(
+    *,
+    config,
+    script,
+    run_id: str,
+    messages: list,
+    use_real_summary: bool = False,
+    summary_content: str = "",
+    limits: AgentLoopLimits | None = None,
+):
+    execution = _execution(config, run_id=run_id)
+    emitter = RecordingEmitter()
+    store = _PersistStore()
+    chunks: list[dict] = []
+
+    async def capture_chunk(conversation_id, chunk_type, content, block_id, **kwargs):
+        chunks.append(
+            {
+                "conversation_id": conversation_id,
+                "type": chunk_type,
+                "content": content,
+                "block_id": block_id,
+                **kwargs,
+            }
+        )
+
+    runtime = _runtime_from_execution(execution, script=script, emitter=emitter)
+    object.__setattr__(runtime, "persist_message_fn", store)
+    if limits is not None:
+        object.__setattr__(runtime, "limits", limits)
+    if use_real_summary:
+
+        async def fake_llm(*_args, **_kwargs):
+            return SimpleNamespace()
+
+        async def fake_stream(*_args, **kwargs):
+            if kwargs.get("defer_output") is False:
+                raise AssertionError("limit_summary 不得在守卫前流式发出")
+            return "", summary_content, [], "stop", Usage(input_tokens=1, output_tokens=1)
+
+        object.__setattr__(runtime, "run_limit_summary_step_fn", run_limit_summary_step)
+        object.__setattr__(runtime, "llm_call_fn", fake_llm)
+        object.__setattr__(runtime, "stream_round_fn", fake_stream)
+    with (
+        patch("app.services.stream.agent_loop_round_outcome.append_chunk", side_effect=capture_chunk),
+        patch("app.services.stream.limit_summary.append_chunk", side_effect=capture_chunk),
+    ):
+        outcome = await run_agent_loop(db=None, messages=messages, state=execution.state, runtime=runtime)
+        persist_run_message(context=execution.completion_context, persist_message_fn=store)
+        terminal = map_run_terminal_state(
+            unknown_terminated=execution.state.unknown_terminated,
+            limit_reason=execution.state.limit_reason,
+        )
+        await complete_agent_run(
+            emitter=emitter,
+            session_cache=runtime.session_cache,
+            stats=execution.state.run_stats(execution.run_id),
+            duration_ms_factory=execution.completion_context.duration_ms_factory,
+            session_status=terminal.session_status,
+            finish_reason=terminal.run_finish_reason,
+            limit_reason=execution.state.limit_reason,
+        )
+    return SimpleNamespace(
+        execution=execution,
+        runtime=runtime,
+        script=script,
+        emitter=emitter,
+        store=store,
+        chunks=chunks,
+        outcome=outcome,
+        terminal=terminal,
+    )
+
+
 class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self._chunk_patches = [
+            patch("app.services.stream.agent_loop_round_outcome.append_chunk", new=AsyncMock()),
+            patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()),
+        ]
+        for item in self._chunk_patches:
+            item.start()
+
+    async def asyncTearDown(self):
+        for item in reversed(self._chunk_patches):
+            item.stop()
+
     async def test_p01_discover_weather_then_trains_without_classifier(self):
         config, handlers, _shared, classifier_calls = _discovery_config(
             message="查一下杭州周末天气，再找上海过去的高铁。"
@@ -476,42 +614,226 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(handlers["weather_forecast"].execute_count, 1)
 
     async def test_p08_empty_error_and_url_without_body_are_not_evidence(self):
-        config, handlers, _shared, _calls = _discovery_config(
-            message="空结果也要具体班次",
-            playback={
-                "search_trains": {"scenario": "empty"},
-                "url_read": {"scenario": "url_empty"},
-                "web_search": {"scenario": "empty"},
+        unsafe = "G7301 二等座 73 元，大约 1 小时"
+        rounds = [
+            [_tool_call("e1", TOOL_SEARCH_NAME, {"query": "select:search_trains,url_read,web_search"})],
+            [
+                _tool_call(
+                    "e2",
+                    "search_trains",
+                    {"origin": "杭州", "destination": "empty", "departure_date": "2026-09-26"},
+                )
+            ],
+            [_tool_call("e3", "web_search", {"query": "empty"})],
+            [_tool_call("e4", "url_read", {"url": "https://example.test/nobody"})],
+            {
+                "stop": True,
+                "content": unsafe,
+                "protocol_reasoning_buf": "内部推理提到 G7301 但不得对用户可见",
             },
+        ]
+        for repair_enabled in (False, True):
+            with self.subTest(repair_enabled=repair_enabled):
+                config, handlers, _shared, _calls = _discovery_config(
+                    message="空结果也要具体班次",
+                    playback={
+                        "search_trains": {"scenario": "empty"},
+                        "url_read": {"scenario": "url_empty"},
+                        "web_search": {"scenario": "empty"},
+                    },
+                )
+                with patch(
+                    "app.services.stream.agent_loop_round_outcome.settings.PRODUCT_ANSWER_REPAIR_ENABLED",
+                    repair_enabled,
+                ):
+                    delivered = await _run_delivery(
+                        config=config,
+                        script=ScriptedRounds(list(rounds)),
+                        run_id=f"run-p08-{repair_enabled}",
+                        messages=[{"role": "user", "content": "空结果也要具体班次"}],
+                    )
+                answering = _answering_texts(delivered.chunks)
+                saved = _text_from_blocks(delivered.store.saves[-1] if delivered.store.saves else [])
+                visible = "\n".join([*answering, saved])
+                self.assertTrue(all(delivered.script.defer_output_flags))
+                self.assertTrue(answering)
+                self.assertNotIn("G7301", visible)
+                self.assertNotIn("73 元", visible)
+                self.assertEqual(answering[-1], saved)
+                self.assertIn("run_completed", delivered.emitter.calls)
+                self.assertEqual(handlers["search_trains"].execute_count, 1)
+
+    async def test_p08_zero_tools_fabricated_facts_are_not_streamed(self):
+        unsafe = "杭州到上海坐 G7301，二等座 73 元，大约 1 小时，明天 28 度。"
+        config, handlers, _shared, _calls = _discovery_config(message="帮我看看杭州到上海怎么走，顺便说明天气")
+        script = ScriptedRounds([{"stop": True, "content": unsafe, "protocol_reasoning_buf": "不要把 G7301 流出去"}])
+        delivered = await _run_delivery(
+            config=config,
+            script=script,
+            run_id="run-p08-zero",
+            messages=[{"role": "user", "content": "帮我看看杭州到上海怎么走，顺便说明天气"}],
+        )
+        answering = _answering_texts(delivered.chunks)
+        saved = _text_from_blocks(delivered.store.saves[-1])
+        self.assertTrue(script.defer_output_flags)
+        self.assertTrue(all(flag is True for flag in script.defer_output_flags))
+        self.assertEqual(answering, [saved])
+        self.assertNotIn("G7301", saved)
+        self.assertNotIn("28 度", saved)
+        self.assertEqual(saved, NO_EVIDENCE_ANSWER_TEXT)
+        self.assertEqual(handlers["weather_forecast"].execute_count, 0)
+        self.assertEqual(handlers["search_trains"].execute_count, 0)
+        self.assertIn("run_completed", delivered.emitter.calls)
+
+    async def test_p08_discovered_but_not_executed_is_not_evidence(self):
+        unsafe = "我已经查到了，杭州明天晴，最高 28 度。"
+        config, handlers, _shared, _calls = _discovery_config(message="杭州明天天气")
+        script = ScriptedRounds(
+            [
+                [_tool_call("d1", TOOL_SEARCH_NAME, {"query": "select:weather_forecast"})],
+                {"stop": True, "content": unsafe},
+            ]
+        )
+        delivered = await _run_delivery(
+            config=config,
+            script=script,
+            run_id="run-p08-discovered",
+            messages=[{"role": "user", "content": "杭州明天天气"}],
+        )
+        saved = _text_from_blocks(delivered.store.saves[-1])
+        self.assertEqual(handlers["weather_forecast"].execute_count, 0)
+        self.assertIn("weather_forecast", config.tool_discovery.loaded_names)
+        self.assertNotIn("28 度", saved)
+        self.assertNotIn("28 度", "\n".join(_answering_texts(delivered.chunks)))
+        self.assertEqual(saved, NO_EVIDENCE_ANSWER_TEXT)
+
+    async def test_p08_failed_weather_does_not_deliver_forecast(self):
+        unsafe = "杭州明天晴，28 度，适合出门。"
+        config, handlers, _shared, _calls = _discovery_config(
+            message="杭州明天天气",
+            playback={"weather_forecast": {"scenario": "error"}},
         )
         script = ScriptedRounds(
             [
-                [_tool_call("e1", TOOL_SEARCH_NAME, {"query": "select:search_trains,url_read,web_search"})],
-                [
-                    _tool_call(
-                        "e2",
-                        "search_trains",
-                        {"origin": "杭州", "destination": "empty", "departure_date": "2026-09-26"},
-                    )
-                ],
-                [_tool_call("e3", "web_search", {"query": "empty"})],
-                [_tool_call("e4", "url_read", {"url": "https://example.test/nobody"})],
-                {"stop": True, "content": "G7301 二等座 73 元，大约 1 小时"},
+                [_tool_call("f1", TOOL_SEARCH_NAME, {"query": "select:weather_forecast"})],
+                [_tool_call("f2", "weather_forecast", {"location": "杭州-error", "location_source": "named"})],
+                {"stop": True, "content": unsafe},
             ]
         )
-        execution = _execution(config, run_id="run-p08")
-        runtime = _runtime_from_execution(execution, script=script, emitter=RecordingEmitter())
-        await run_agent_loop(db=None, messages=[], state=execution.state, runtime=runtime)
-        guarded, kind = resolve_no_evidence_answer(
-            "G7301 二等座 73 元，大约 1 小时",
-            content_blocks=execution.state.content_blocks,
-            messages=[{"role": "user", "content": "空结果也要具体班次"}],
-            capability_resolution=config.capability_resolution,
-            recovery_evidence=execution.state.recovery_evidence,
+        delivered = await _run_delivery(
+            config=config,
+            script=script,
+            run_id="run-p08-failed-weather",
+            messages=[{"role": "user", "content": "杭州明天天气"}],
         )
-        self.assertEqual(guarded, NO_EVIDENCE_ANSWER_TEXT)
-        self.assertIsNotNone(kind)
+        visible = "\n".join([*_answering_texts(delivered.chunks), _text_from_blocks(delivered.store.saves[-1])])
+        self.assertEqual(handlers["weather_forecast"].execute_count, 1)
+        self.assertNotIn("28 度", visible)
+        self.assertTrue(
+            delivered.execution.state.unknown_terminated or "未取得" in visible or visible == NO_EVIDENCE_ANSWER_TEXT
+        )
+
+    async def test_p08_mixed_train_valid_weather_gap_keeps_train_only(self):
+        mixed = "可以坐 G7301。9 月 26 日杭州晴，28 度。"
+        config, handlers, _shared, _calls = _discovery_config(message="杭州到上海高铁，再看 26 日天气")
+        script = ScriptedRounds(
+            [
+                [_tool_call("m1", TOOL_SEARCH_NAME, {"query": "select:search_trains,weather_forecast"})],
+                [
+                    _tool_call(
+                        "m2",
+                        "search_trains",
+                        {"origin": "杭州", "destination": "上海", "departure_date": "2026-09-26"},
+                    )
+                ],
+                [_tool_call("m3", "weather_forecast", {"location": "杭州", "location_source": "named"})],
+                {"stop": True, "content": mixed},
+            ]
+        )
+        delivered = await _run_delivery(
+            config=config,
+            script=script,
+            run_id="run-p08-mixed",
+            messages=[{"role": "user", "content": "杭州到上海高铁，再看 26 日天气"}],
+        )
+        saved = _text_from_blocks(delivered.store.saves[-1])
+        answering = _answering_texts(delivered.chunks)
+        self.assertEqual(answering[-1], saved)
         self.assertEqual(handlers["search_trains"].execute_count, 1)
+        self.assertEqual(handlers["weather_forecast"].execute_count, 1)
+        self.assertIn("G7301", saved)
+        self.assertNotIn("28 度", saved)
+        self.assertTrue("26" not in saved or "不覆盖" in saved or "22" in saved or SYNTHETIC_LIMITATION in saved)
+
+    async def test_p08_limit_summary_without_evidence_is_guarded(self):
+        config, handlers, _shared, _calls = _discovery_config(message="杭州天气")
+        script = ScriptedRounds(
+            [
+                [_tool_call("l1", TOOL_SEARCH_NAME, {"query": "select:weather_forecast"})],
+            ]
+        )
+        delivered = await _run_delivery(
+            config=config,
+            script=script,
+            run_id="run-p08-limit",
+            messages=[{"role": "user", "content": "杭州天气"}],
+            use_real_summary=True,
+            summary_content="杭州明天 28 度，适合出门。",
+            limits=AgentLoopLimits(max_steps=1, max_tool_calls=20, total_timeout_s=300),
+        )
+        saved = _text_from_blocks(delivered.store.saves[-1])
+        visible = "\n".join(_answering_texts(delivered.chunks))
+        self.assertEqual(handlers["weather_forecast"].execute_count, 0)
+        self.assertEqual(delivered.runtime.run_start, delivered.execution.runtime.run_start)
+        self.assertNotIn("28 度", saved)
+        self.assertNotIn("28 度", visible)
+        self.assertEqual(saved, NO_EVIDENCE_ANSWER_TEXT)
+        self.assertEqual(delivered.terminal.session_status, "limit_reached")
+
+    async def test_p08_faithful_weather_result_is_delivered(self):
+        faithful = "杭州 9 月 22 日最高 24 度。"
+        config, handlers, _shared, _calls = _discovery_config(message="杭州今天天气")
+        script = ScriptedRounds(
+            [
+                [_tool_call("w1", TOOL_SEARCH_NAME, {"query": "select:weather_forecast"})],
+                [_tool_call("w2", "weather_forecast", {"location": "杭州", "location_source": "named"})],
+                {"stop": True, "content": faithful},
+            ]
+        )
+        delivered = await _run_delivery(
+            config=config,
+            script=script,
+            run_id="run-p08-faithful",
+            messages=[{"role": "user", "content": "杭州今天天气"}],
+        )
+        saved = _text_from_blocks(delivered.store.saves[-1])
+        self.assertEqual(handlers["weather_forecast"].execute_count, 1)
+        self.assertNotEqual(saved, NO_EVIDENCE_ANSWER_TEXT)
+        self.assertIn("24", saved)
+        self.assertEqual(_answering_texts(delivered.chunks)[-1], saved)
+
+    async def test_p08_greeting_and_user_numbers_are_not_blocked(self):
+        config, _handlers, _shared, _calls = _discovery_config(message="早上好，你是谁？")
+        greeting = await _run_delivery(
+            config=config,
+            script=ScriptedRounds([{"stop": True, "content": "你好，我是助手。"}]),
+            run_id="run-p08-greeting",
+            messages=[{"role": "user", "content": "早上好，你是谁？"}],
+        )
+        self.assertEqual(_text_from_blocks(greeting.store.saves[-1]), "你好，我是助手。")
+        self.assertFalse(config.discovery_experiment.requires_catalog_evidence)
+
+        rewrite_config, _h, _s, _c = _discovery_config(message="我十点要到机场，把提醒改成十二点")
+        rewrite = await _run_delivery(
+            config=rewrite_config,
+            script=ScriptedRounds([{"stop": True, "content": "好的，按你说的从十点改到十二点。"}]),
+            run_id="run-p08-user-numbers",
+            messages=[{"role": "user", "content": "我十点要到机场，把提醒改成十二点"}],
+        )
+        saved = _text_from_blocks(rewrite.store.saves[-1])
+        self.assertIn("十点", saved)
+        self.assertIn("十二点", saved)
+        self.assertNotEqual(saved, NO_EVIDENCE_ANSWER_TEXT)
 
     async def test_p09_discovery_then_limit_does_not_start_new_product_calls(self):
         config, handlers, _shared, _calls = _discovery_config(message="杭州天气")
@@ -1554,7 +1876,9 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(bad_summary["usage_unknown"])
             self.assertGreater(bad_summary["sdk_attempts"], bad_summary["sdk_responses"])
 
-            malformed_summary, malformed_record, _malformed_captured = await _run_baseline(output / "malformed", "malformed")
+            malformed_summary, malformed_record, _malformed_captured = await _run_baseline(
+                output / "malformed", "malformed"
+            )
             self.assertFalse(malformed_record["execution_ok"])
             self.assertEqual(malformed_record["task_outcome"], "error")
             self.assertIsNone(malformed_record["final_output"])

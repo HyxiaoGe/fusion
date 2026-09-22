@@ -362,6 +362,7 @@ async def _run_round(
         or state.plan_coordinator.has_valid_model_plan
         or runtime.task_mode == "deep_research"
         or runtime.evidence_policy == "knowledge_grounded_v1"
+        or runtime.tool_discovery is not None
     )
     if should_defer_output and _accepts_keyword(runtime.run_round_fn, "defer_output"):
         run_round_kwargs["defer_output"] = True

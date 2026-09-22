@@ -44,7 +44,7 @@ cd /Users/sean/code/fusion/.worktrees/dynamic-tool-discovery-20260922/backend
 DATABASE_URL='sqlite:///:memory:' /Users/sean/code/fusion/fusion-api/.venv/bin/python -m pytest test/services/stream/test_dynamic_tool_discovery.py -q --tb=line
 ```
 
-退出码：`0`（**22 passed**）。日志：`backend/tmp/dynamic-tool-discovery/p01-p12-pytest.log`（gitignored）。新增 `test_compare_http_protocol_keeps_string_tool_arguments`。
+退出码：`0`（**29 passed**）。日志：`backend/tmp/dynamic-tool-discovery/p01-p12-pytest.log`（gitignored）。P08 改为真实交付路径；HTTP 协议测试仍在。
 
 相关回归（同解释器，DATABASE_URL 内存 SQLite）：
 
@@ -60,13 +60,13 @@ DATABASE_URL='sqlite:///:memory:' /Users/sean/code/fusion/fusion-api/.venv/bin/p
 | P05 | 通过 | `test_p05_idempotent_discover_and_shared_budget` | 幂等；共享预算不重建 |
 | P06 | 通过 | `test_p06_failure_stays_in_context_and_allows_alternative` | 失败可发现替代工具 |
 | P07 | 通过 | `test_p07_plan_enum_and_allow_set_stay_aligned` 与 `test_plan_mode_tool_search_usable_before_and_after_valid_plan` | 计划前后均可发现；产品执行仍需计划绑定 |
-| P08 | 部分通过 | `test_p08_empty_error_and_url_without_body_are_not_evidence` | 证据账本拦截合成班次。**未覆盖**：最后交付/`product_answer_validator` 阻断（按任务不重写该文件） |
+| P08 | 通过（交付路径） | `test_p08_*` | 延期输出 + 无证据/产品守卫；事件、落盘、`run_completed` 对齐。限制见 `dynamic-tool-discovery-p08-report.md` |
 | P09 | 通过 | `test_p09_discovery_then_limit_does_not_start_new_product_calls` | 先发现再 `max_steps=1` 触顶，天气未执行；不重置 `run_start` |
 | P10 | 通过 | `test_p10_two_runs_do_not_leak_loaded_tools_or_budget` | Run 隔离 |
 | P11 | 通过 | `test_p11_product_events_and_failed_tool_does_not_emit_success_block` | 事件合同 |
 | P12 | 通过 | `test_p12_default_path_still_classifies` | 默认路径仍分类 |
 
-禁止用总 passed 数掩盖：P08 最后交付阻断仍未覆盖。
+禁止用总 passed 数掩盖：P08 已补交付路径，但自然语言未被现有守卫覆盖的事实、真实 SSE/供应商仍未验证。
 
 ## 4. 对照脚本
 
