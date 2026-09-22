@@ -479,13 +479,24 @@ def _build_discovery_call_config(
         denied_network_tool_names,
         resolve_discovery_network_denials,
     )
+    from app.services.tool_handlers import get_handler
 
     plan_mode: PlanMode = "off" if knowledge_grounded else requested_plan_mode
+    discovery_handlers = dict(provided_handlers)
+    # 内置工具的 schema 已经通过模型能力过滤；生产入口仅额外传入 MCP/产品工具的 handler。
+    builtin_names = [name for name in ("web_search", "url_read") if name in available_tools_by_name]
+    for name in builtin_names:
+        if name not in discovery_handlers:
+            handler = get_handler(name)
+            if handler is not None:
+                discovery_handlers[name] = handler
+    # MCP 授权名单不包含内置工具，合并时只补入上述已通过能力过滤的两个名称。
+    discovery_names = list(dict.fromkeys([*(authorized_tool_names or available_tools_by_name), *builtin_names]))
     entries = build_discovery_entries(
         schemas_by_name=available_tools_by_name,
-        handlers_by_name=provided_handlers,
+        handlers_by_name=discovery_handlers,
         bindings=tool_bindings,
-        authorized_names=authorized_tool_names or list(available_tools_by_name),
+        authorized_names=discovery_names,
     )
     denied = denied_network_tool_names(original_message, entries)
     _web_denied, _url_denied, all_denied = resolve_discovery_network_denials(original_message)
