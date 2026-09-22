@@ -63,7 +63,8 @@ function AssistantResponseStack({
   showStreamingCursor,
 }: AssistantResponseStackProps) {
   const showReasoning = reasoning.shouldRender;
-  const showActivityStatus = activity.kind !== 'waiting' || !showReasoning;
+  const stopAwaitingConfirmation = agentRun?.status === 'running' && Boolean(agentRun.stopConfirmation);
+  const showActivityStatus = !stopAwaitingConfirmation && (activity.kind !== 'waiting' || !showReasoning);
 
   return (
     <div

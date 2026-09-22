@@ -11,6 +11,16 @@
 
 ## 已完成基线
 
+### 2026-09-22 停止确认二次修复（本地完成）
+
+针对 #113 发布后的两条真实失败路径，修复恢复确认后的原run即时终态、普通停止超时后按原run核实与未确认提示，并封住恢复流缺task时的会话级取消。相关359项及追加后的发送hook87项、触及文件lint与构建通过，独立审查未见新增可达P0/P1；尚不代表新版本真实页面验收通过。详见[本轮报告](reports/2026-09-22-stop-confirmation.md)。
+
+### 2026-09-22 停止状态与搜索故障修复发布（页面验收仍有缺口）
+
+PR [#113](https://github.com/HyxiaoGe/fusion/pull/113) 已合并为 `755d481d`；PR/主干 CI 与 dev 发布全部成功，22:23:54（Asia/Shanghai）确认 API/UI 镜像和台账匹配。没有切换默认动态发现。
+
+发布后真实 Chrome 验收：动态发现轨迹文案可见；停止后下一轮问候正常完成。但恢复流停止返回 cancelled=true、DB interrupted 后，页面仍运行中，直到详情刷新才纠正；普通发送停止请求489ms被中止，DB已interrupted但页面同样需刷新。不能写“停止体验验收通过”。早停无任务身份时只停止本地接收的限制也实测出现。两条文档检索只执行 tool_search、没有真正搜索/读取，不计联网成功或供应商故障复现。所有验收run已终态。详细本地证据：`/Users/sean/code/fusion/release-stop-search-20260922/REPORT.md`。
+
 ### 2026-09-20 产品观测成组发布与身份路由取证
 
 #105 已合入；#104/#106 经面向 master 的自动检查，通过单次 merge commit `4678e3f0` 成组合入并部署 dev，避免无产品结果早退的观测空窗。API、adapter、worker 镜像与发布台账及健康检查通过，UI skipped。观测表迁移为 `b2c7d9e4f610`；14:38（Asia/Shanghai）实测空表，首条时间未产生，不能把部署时间当新观测期起点，详见 [#102 记录](https://github.com/HyxiaoGe/fusion/issues/102#issuecomment-5748178392)。

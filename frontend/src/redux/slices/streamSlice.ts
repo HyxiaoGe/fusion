@@ -672,12 +672,23 @@ const streamSlice = createSlice({
       // 不改 run.status —— spec §4.3，run_limit_reached 是信号事件，仅 run_completed 才写终态
     }),
 
+    setRunStopConfirmation: withSlot((state, action: PayloadAction<{
+      conversationId: string;
+      runId: string;
+      confirmation: NonNullable<AgentRunState['stopConfirmation']>;
+    }>) => {
+      const run = state.currentRun;
+      if (run?.runId !== action.payload.runId || run.status !== 'running') return;
+      run.stopConfirmation = action.payload.confirmation;
+    }),
+
     finalizeRun: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; status: Exclude<AgentRunStatus, 'running'>; failure?: { code: string; message: string }; reason?: string; sequence: number; }>) => {
       const run = state.currentRun;
       const { runId, status, failure, sequence } = action.payload;
       if (!run || run.runId !== runId || sequence <= run.lastSequence) return;
       run.lastSequence = sequence;
       run.status = status;
+      delete run.stopConfirmation;
       if (failure) run.failure = failure;
       if (state.pendingContextRequest?.runId === runId) {
         state.pendingContextRequest = null;
@@ -959,6 +970,7 @@ export const {
   discardContentBlock,
   endStream,
   finalizeRun,
+  setRunStopConfirmation,
   finalizeStep,
   finalizeToolCall,
   initRun,
