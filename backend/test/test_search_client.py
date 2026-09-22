@@ -1,10 +1,49 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 
 
 class SearchClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_http_failures_reach_handler_without_becoming_empty_results(self):
+        from app.services.tool_handlers.web_search import WebSearchHandler
+
+        request = httpx.Request("POST", "https://search.example/search?token=private-marker")
+        failures = [
+            httpx.ReadTimeout("private-marker", request=request),
+            httpx.ConnectError("private-marker", request=request),
+            httpx.HTTPStatusError("private-marker", request=request, response=httpx.Response(503, request=request)),
+        ]
+        for failure in failures:
+            with self.subTest(error_type=type(failure).__name__):
+                client = AsyncMock()
+                client.post.side_effect = failure
+                with (
+                    patch("app.services.external.search_client.httpx.AsyncClient") as factory,
+                    patch("app.services.external.search_client.logger") as logger,
+                ):
+                    factory.return_value.__aenter__.return_value = client
+                    result = await WebSearchHandler().execute({"query": "公开测试问题"})
+                self.assertEqual(result.status, "failed")
+                self.assertEqual(result.data["error_code"], "search_unavailable")
+                self.assertTrue(result.data["retryable"])
+                self.assertNotIn("private-marker", str(logger.mock_calls))
+                self.assertNotIn("private-marker", str(result))
+
+    async def test_successful_empty_search_remains_empty_result(self):
+        from app.services.tool_handlers.web_search import WebSearchHandler
+
+        client = AsyncMock()
+        client.post.return_value = httpx.Response(
+            200, json={"results": []}, request=httpx.Request("POST", "https://search.example/search")
+        )
+        with patch("app.services.external.search_client.httpx.AsyncClient") as factory:
+            factory.return_value.__aenter__.return_value = client
+            result = await WebSearchHandler().execute({"query": "公开测试问题"})
+        self.assertEqual(result.status, "degraded")
+        self.assertEqual(result.error_message, "搜索返回空结果")
+        self.assertNotIn("error_code", result.data)
+
     async def test_search_web_propagates_provider_metadata_to_sources(self):
         from app.services.external.search_client import search_web
 
