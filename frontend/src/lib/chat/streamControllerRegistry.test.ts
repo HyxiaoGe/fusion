@@ -8,6 +8,7 @@ import {
   releaseStreamController,
   resetStreamControllerRegistry,
   updateStreamController,
+  waitForStreamIdentity,
 } from './streamControllerRegistry';
 
 function entry(conversationId: string, kind: 'send' | 'recovery' | 'continuation' = 'send') {
@@ -140,5 +141,62 @@ describe('streamControllerRegistry', () => {
 
     expect(getStreamController('conv-a')?.messageId).toBeUndefined();
     expect(getStreamController('conv-a')?.taskId).toBeUndefined();
+  });
+
+  it('等待原控制器写出身份，不把后来者的 taskId 交给旧停止', async () => {
+    const send = entry('conv-a', 'send');
+    registerStreamController(send);
+    const pending = waitForStreamIdentity(send.controller);
+
+    updateStreamController('conv-a', send.controller, {
+      messageId: 'server-assistant',
+      taskId: 'task-1',
+    });
+
+    await expect(pending).resolves.toEqual({
+      conversationId: 'conv-a',
+      messageId: 'server-assistant',
+      taskId: 'task-1',
+    });
+  });
+
+  it('草稿转正后仍按原控制器等到身份', async () => {
+    const send = entry('temp-conv', 'send');
+    registerStreamController(send);
+    const pending = waitForStreamIdentity(send.controller);
+
+    expect(migrateStreamController('temp-conv', 'server-conv', send.controller)).toBe(true);
+    updateStreamController('server-conv', send.controller, {
+      messageId: 'server-assistant',
+      taskId: 'task-1',
+    });
+
+    await expect(pending).resolves.toEqual({
+      conversationId: 'server-conv',
+      messageId: 'server-assistant',
+      taskId: 'task-1',
+    });
+  });
+
+  it('条目被换掉时旧等待得到 null，而不是新运行身份', async () => {
+    const first = entry('conv-a', 'send');
+    registerStreamController(first);
+    const pending = waitForStreamIdentity(first.controller);
+
+    const next = entry('conv-a', 'send');
+    registerStreamController(next);
+    updateStreamController('conv-a', next.controller, { taskId: 'task-2' });
+
+    await expect(pending).resolves.toBeNull();
+    expect(getStreamController('conv-a')?.taskId).toBe('task-2');
+  });
+
+  it('超时信号让等待结束，且不会永久挂起', async () => {
+    const send = entry('conv-a', 'send');
+    registerStreamController(send);
+    const timeout = new AbortController();
+    const pending = waitForStreamIdentity(send.controller, timeout.signal);
+    timeout.abort();
+    await expect(pending).resolves.toBeNull();
   });
 });
