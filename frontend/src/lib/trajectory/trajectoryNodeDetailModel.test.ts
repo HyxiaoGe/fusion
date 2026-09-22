@@ -166,6 +166,35 @@ describe('buildTrajectoryNodeDetailModel', () => {
     ]);
   });
 
+  it('动态发现运行显示发现标记，而不是历史缺字段', async () => {
+    await i18n.changeLanguage('en-US');
+    const run: Extract<TrajectoryCell, { type: 'run' }> = {
+      ...baseCell(),
+      key: 'run:run-discovery',
+      type: 'run',
+      summarySource: 'run-summary',
+      attemptIndex: 1,
+      runStatus: 'interrupted',
+      totalSteps: 1,
+      totalToolCalls: 0,
+      startedAt: '2026-09-22T00:00:00.000Z',
+      endedAt: '2026-09-22T00:00:01.100Z',
+      isSelected: true,
+      isHydrated: true,
+      association: 'explicit',
+      trajectoryBadge: { status: 'complete', source: 'run-summary', reason: null },
+      capabilityResolution: null,
+      dynamicToolDiscovery: true,
+      records: [],
+      spans: [],
+      liveTail: [],
+    };
+
+    expect(buildTrajectoryNodeDetailModel(run, null).summaryFields).toEqual([
+      { label: 'Capability routing', value: 'Dynamic tool discovery' },
+    ]);
+  });
+
   it.each([
     { attemptIndex: 1, expected: 1, expectedMode: 'ordinal' },
     { attemptIndex: 2, expected: 2, expectedMode: 'ordinal' },

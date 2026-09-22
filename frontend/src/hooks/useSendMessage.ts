@@ -75,6 +75,7 @@ import { hasFormalTextContent } from '@/lib/chat/suggestedQuestionState';
 import type { StreamState } from '@/redux/slices/streamSlice';
 import { selectStreamSlot } from '@/redux/slices/streamSlice';
 import {
+  getStreamController,
   migrateStreamController,
   registerStreamController,
   releaseStreamController,
@@ -147,6 +148,21 @@ function isSendSessionCurrent(state: RootState, context: SendSessionContext): bo
     selectAuthSessionKey(state) === context.authSessionKey &&
     state.conversation.conversationListEpoch === context.conversationEpoch
   );
+}
+
+/** 停止后的水合只负责刷新被停的那一轮。其后已经出现的新消息必须留下。 */
+function messageIdsAfterAnchor(
+  state: RootState,
+  conversationId: string,
+  anchorIds: ReadonlySet<string>,
+): string[] {
+  const messages = state.conversation.byId[conversationId]?.messages ?? [];
+  let anchorIndex = -1;
+  messages.forEach((message, index) => {
+    if (anchorIds.has(message.id)) anchorIndex = index;
+  });
+  if (anchorIndex < 0) return [];
+  return messages.slice(anchorIndex + 1).map((message) => message.id);
 }
 
 function stopAbortError(): Error {
@@ -241,7 +257,11 @@ export function useSendMessage(activeConversationId?: string | null) {
   const sendBoundaryRef = useRef({ authSessionKey, conversationEpoch });
 
   const hydrateAuthoritativeConversation = useCallback(
-    async (conversationId: string, isSessionCurrent: () => boolean) => {
+    async (
+      conversationId: string,
+      isSessionCurrent: () => boolean,
+      options?: { extraPreserveMessageIds?: (state: RootState) => string[] },
+    ) => {
       if (!isSessionCurrent()) return;
 
       // SSE 完成后必须绕过发送前可能已挂起的详情请求，以“完成时”的本地消息
@@ -258,13 +278,17 @@ export function useSendMessage(activeConversationId?: string | null) {
         const serverConversation = await request;
         if (!isSessionCurrent()) return;
         const state = store.getState();
+        const preserveMessageIds = new Set(getProtectedHydrationMessageIds(
+          state,
+          conversationId,
+          requestMetadata,
+        ));
+        for (const messageId of options?.extraPreserveMessageIds?.(state) ?? []) {
+          preserveMessageIds.add(messageId);
+        }
         dispatch(mergeHydratedConversation({
           conversation: serverConversation,
-          preserveMessageIds: getProtectedHydrationMessageIds(
-            state,
-            conversationId,
-            requestMetadata,
-          ),
+          preserveMessageIds: [...preserveMessageIds],
           requestMetadata,
         }));
       } catch (error) {
@@ -350,7 +374,13 @@ export function useSendMessage(activeConversationId?: string | null) {
       const serverMsgId = serverMessageIdRef.current;
       const serverTaskId = serverTaskIdRef.current;
       const retryTurnSnapshot = activeRetryTurnSnapshotRef.current;
-      const stopSessionContext = activeSendContextRef.current;
+      const stopSessionContext = activeSendContextRef.current
+        ?? captureSendSessionContext(store.getState(), sendGenerationRef.current);
+      const slotAtStop = convId ? getSlot(convId) : null;
+      const stoppedRunId = slotAtStop?.currentRun?.status === 'running'
+        ? slotAtStop.currentRun.runId
+        : null;
+      const stoppedSlotMessageId = slotAtStop?.messageId ?? null;
       const pendingConversationId = (
         store.getState() as { conversation: { pendingConversationId: string | null } }
       ).conversation.pendingConversationId;
@@ -360,12 +390,16 @@ export function useSendMessage(activeConversationId?: string | null) {
 
       typewriterRef.current.stop();
 
-      const stoppingController = abortControllerRef.current;
+      const stoppingController = abortControllerRef.current
+        ?? getStreamController(convId)?.controller
+        ?? null;
       if (stoppingController) {
         releaseStreamController(convId, stoppingController);
         stoppingController.abort();
       }
-      abortControllerRef.current = null;
+      if (abortControllerRef.current === stoppingController) {
+        abortControllerRef.current = null;
+      }
 
       if (convId && userMsgId) {
         if (
@@ -413,6 +447,15 @@ export function useSendMessage(activeConversationId?: string | null) {
             }));
           }
         }
+      } else if (convId && stoppedSlotMessageId && !retryTurnSnapshot) {
+        const partialBlocks = selectFullStreamContentBlocks(getSlot(convId));
+        if (partialBlocks.length > 0) {
+          dispatch(updateMessage({
+            conversationId: convId,
+            messageId: stoppedSlotMessageId,
+            patch: { content: partialBlocks },
+          }));
+        }
       }
 
       if (shouldDiscardPendingDraft && convId) {
@@ -425,7 +468,10 @@ export function useSendMessage(activeConversationId?: string | null) {
         dispatch(clearCurrentRun({ conversationId: convId }));
       }
       if (convId) {
-        dispatch(endStream({ conversationId: convId, messageId: assistantMessageIdRef.current }));
+        dispatch(endStream({
+          conversationId: convId,
+          messageId: assistantMsgId ?? stoppedSlotMessageId,
+        }));
       }
       sendGenerationRef.current += 1;
       activeSendContextRef.current = null;
@@ -439,6 +485,7 @@ export function useSendMessage(activeConversationId?: string | null) {
 
       // 本地先完成停止；远端按真实服务端 message_id 精确取消。
       // run_started 尚未到达时不传 placeholder，允许 Redis 按 conversation 跨 worker 取消。
+      let stopConfirmed = false;
       if (convId) {
         const stopController = new AbortController();
         const stopTimeout = setTimeout(
@@ -475,6 +522,7 @@ export function useSendMessage(activeConversationId?: string | null) {
                 : await stopStream(convId, undefined, stopController.signal);
             }
           }
+          stopConfirmed = cancelled === true;
         } catch (error) {
           if (!stopController.signal.aborted) {
             console.warn('停止后台生成失败，已完成本地停止', error);
@@ -483,11 +531,100 @@ export function useSendMessage(activeConversationId?: string | null) {
           clearTimeout(stopTimeout);
         }
       }
-      if (convId && retryTurnSnapshot?.user && stopSessionContext) {
-        await hydrateAuthoritativeConversation(
-          convId,
-          () => isSendSessionCurrent(store.getState(), stopSessionContext),
+
+      const hydrationAnchorIds = new Set(
+        [userMsgId, assistantMsgId, serverMsgId, stoppedSlotMessageId].filter(
+          (messageId): messageId is string => Boolean(messageId),
+        ),
+      );
+      let interruptedFallback: ReturnType<typeof getSlot>['currentRun'] = null;
+      const slotAfterStop = convId ? getSlot(convId) : null;
+      const runAfterStop = slotAfterStop?.currentRun ?? null;
+      const slotStillOwnsStoppedRun = !slotAfterStop?.messageId
+        || slotAfterStop.messageId === assistantMsgId
+        || slotAfterStop.messageId === stoppedSlotMessageId;
+      if (
+        stopConfirmed
+        && convId
+        && stoppedRunId
+        && !retryTurnSnapshot
+        && runAfterStop?.runId === stoppedRunId
+        && runAfterStop.status === 'running'
+        && slotStillOwnsStoppedRun
+      ) {
+        dispatch(finalizeRun({
+          conversationId: convId,
+          runId: stoppedRunId,
+          status: 'interrupted',
+          reason: 'user_cancelled',
+          sequence: runAfterStop.lastSequence + 1,
+        }));
+        const finalized = getSlot(convId).currentRun;
+        if (finalized?.runId === stoppedRunId && finalized.status === 'interrupted') {
+          interruptedFallback = finalized;
+          const localMessageId = assistantMsgId ?? stoppedSlotMessageId;
+          if (localMessageId) {
+            dispatch(updateMessage({
+              conversationId: convId,
+              messageId: localMessageId,
+              patch: { agent_run: finalized },
+            }));
+          }
+        }
+      }
+
+      const reapplyInterruptedIfSnapshotStillRunning = () => {
+        if (!convId || !stoppedRunId || !interruptedFallback) return false;
+        const messages = store.getState().conversation.byId[convId]?.messages ?? [];
+        let stillRunning = false;
+        for (const message of messages) {
+          const agentRun = message.agent_run;
+          if (!agentRun || agentRun.runId !== stoppedRunId || agentRun.status !== 'running') continue;
+          const slot = getSlot(convId);
+          if (
+            slot.isStreaming
+            && slot.messageId === message.id
+            && slot.currentRun?.runId !== stoppedRunId
+          ) {
+            continue;
+          }
+          stillRunning = true;
+          dispatch(updateMessage({
+            conversationId: convId,
+            messageId: message.id,
+            patch: {
+              agent_run: {
+                ...interruptedFallback,
+                messageId: message.id,
+                serverMessageId: message.id,
+                status: 'interrupted',
+              },
+            },
+          }));
+        }
+        return stillRunning;
+      };
+
+      if (convId && stopSessionContext && (retryTurnSnapshot?.user || interruptedFallback)) {
+        const sessionCurrent = () => isSendSessionCurrent(store.getState(), stopSessionContext);
+        const preserveLaterMessages = (state: RootState) => (
+          messageIdsAfterAnchor(state, convId, hydrationAnchorIds)
         );
+        await hydrateAuthoritativeConversation(convId, sessionCurrent, {
+          extraPreserveMessageIds: preserveLaterMessages,
+        });
+        // /stop 先完成取消，Agent run 落成 interrupted 可能晚一拍。
+        // 第一次详情若仍是 running，不能把它写回页面；只再取一次权威快照。
+        if (reapplyInterruptedIfSnapshotStillRunning()) {
+          setTimeout(() => {
+            if (!sessionCurrent()) return;
+            void hydrateAuthoritativeConversation(convId, sessionCurrent, {
+              extraPreserveMessageIds: preserveLaterMessages,
+            }).then(() => {
+              reapplyInterruptedIfSnapshotStillRunning();
+            });
+          }, INTERRUPTED_HYDRATION_RETRY_MS);
+        }
       }
     })();
 
@@ -1157,7 +1294,23 @@ export function useSendMessage(activeConversationId?: string | null) {
         return;
       } catch (error) {
         typewriterRef.current.stop();
-        if (controller.signal.aborted || !isActiveSendCurrent()) return;
+        if (controller.signal.aborted || !isActiveSendCurrent()) {
+          // 另一处页面中止了这条流时，本实例的 generation 可能还没作废。
+          // 先作废再返回，迟到的 run 事件不能落到下一轮。
+          if (controller.signal.aborted && isActiveSendCurrent()) {
+            sendGenerationRef.current += 1;
+            activeSendContextRef.current = null;
+            activeConvIdRef.current = null;
+            userMessageIdRef.current = null;
+            assistantMessageIdRef.current = null;
+            serverMessageIdRef.current = null;
+            serverTaskIdRef.current = null;
+            assistantHasContentRef.current = false;
+            activeRetryTurnSnapshotRef.current = null;
+            abortControllerRef.current = null;
+          }
+          return;
+        }
 
         const effectiveConvIdOnError = activeConvIdRef.current ?? tempConvId;
         if (isInterruptedStreamSignal(error)) {
@@ -1205,6 +1358,52 @@ export function useSendMessage(activeConversationId?: string | null) {
               })
             );
           }
+          const interruptedRun = getSlot(effectiveConvIdOnError).currentRun;
+          if (interruptedRun?.status === 'interrupted') {
+            dispatch(updateMessage({
+              conversationId: effectiveConvIdOnError,
+              messageId: assistantMessageId,
+              patch: { agent_run: interruptedRun },
+            }));
+          }
+          const interruptedHydrationAnchorIds = new Set(
+            [userMessageId, assistantMessageId, serverMessageIdRef.current].filter(
+              (messageId): messageId is string => Boolean(messageId),
+            ),
+          );
+          const preserveMessagesAfterStoppedTurn = (state: RootState) => (
+            messageIdsAfterAnchor(state, effectiveConvIdOnError, interruptedHydrationAnchorIds)
+          );
+          const reapplyInterruptedSnapshot = () => {
+            if (interruptedRun?.status !== 'interrupted') return;
+            const messages = store.getState().conversation.byId[effectiveConvIdOnError]?.messages ?? [];
+            for (const message of messages) {
+              const agentRun = message.agent_run;
+              if (
+                !agentRun
+                || agentRun.runId !== interruptedRun.runId
+                || agentRun.status !== 'running'
+              ) continue;
+              const slot = getSlot(effectiveConvIdOnError);
+              if (
+                slot.isStreaming
+                && slot.messageId === message.id
+                && slot.currentRun?.runId !== interruptedRun.runId
+              ) continue;
+              dispatch(updateMessage({
+                conversationId: effectiveConvIdOnError,
+                messageId: message.id,
+                patch: {
+                  agent_run: {
+                    ...interruptedRun,
+                    messageId: message.id,
+                    serverMessageId: message.id,
+                    status: 'interrupted',
+                  },
+                },
+              }));
+            }
+          };
           if (!isMessageRetry || !retryTurnSnapshot?.user) {
             dispatch(updateMessage({
               conversationId: effectiveConvIdOnError,
@@ -1230,8 +1429,11 @@ export function useSendMessage(activeConversationId?: string | null) {
           dispatch(requestConversationListRefresh(effectiveConvIdOnError));
           void hydrateAuthoritativeConversation(
             effectiveConvIdOnError,
-            isSessionCurrent
-          );
+            isSessionCurrent,
+            { extraPreserveMessageIds: preserveMessagesAfterStoppedTurn },
+          ).then(() => {
+            if (isSessionCurrent()) reapplyInterruptedSnapshot();
+          });
           // /stop 先完成跨 worker 的 Redis CAS，再由被取消任务异步把
           // Agent run 落为 interrupted。第一次详情读取可能恰好读到 running；
           // 短暂等待后再取一次，避免必须刷新页面才能看到“计划已停止”。
@@ -1239,8 +1441,11 @@ export function useSendMessage(activeConversationId?: string | null) {
             if (!isSessionCurrent()) return;
             void hydrateAuthoritativeConversation(
               effectiveConvIdOnError,
-              isSessionCurrent
-            );
+              isSessionCurrent,
+              { extraPreserveMessageIds: preserveMessagesAfterStoppedTurn },
+            ).then(() => {
+              if (isSessionCurrent()) reapplyInterruptedSnapshot();
+            });
           }, INTERRUPTED_HYDRATION_RETRY_MS);
           return;
         }

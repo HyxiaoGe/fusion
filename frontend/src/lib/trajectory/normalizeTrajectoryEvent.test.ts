@@ -92,6 +92,70 @@ describe('normalizeTrajectoryEvent', () => {
     expect(durable).toEqual(live);
   });
 
+  it('实时 config 与历史布尔都只保留动态发现已开启，并丢弃授权目录', () => {
+    const catalog = ['weather_forecast', 'web_search'];
+    const live = normalizeSseTrajectoryEvent({
+      type: 'run_started',
+      schema_version: 1,
+      run_id: 'run-discovery',
+      parent_run_id: null,
+      step_id: null,
+      parent_step_id: null,
+      tool_call_id: null,
+      sequence: 0,
+      trace_id: 'trace-discovery',
+      ts: Date.parse(timestamp) / 1000,
+      tools: [],
+      capability_resolution: null,
+      config: {
+        dynamic_tool_discovery: {
+          enabled: true,
+          authorized_tool_names: catalog,
+        },
+      },
+    });
+    const durable = normalizeTrajectoryRecord('run-discovery', {
+      sequence: 0,
+      event_type: 'run_started',
+      schema_version: 1,
+      timestamp,
+      step_id: null,
+      tool_call_id: null,
+      parent_step_id: null,
+      trace_id: 'trace-discovery',
+      payload: {
+        type: 'run_started',
+        run_id: 'run-discovery',
+        dynamic_tool_discovery_enabled: true,
+        config: {
+          dynamic_tool_discovery: {
+            enabled: true,
+            authorized_tool_names: catalog,
+          },
+        },
+      },
+    });
+
+    expect(live?.payload.dynamic_tool_discovery_enabled).toBe(true);
+    expect(durable?.payload.dynamic_tool_discovery_enabled).toBe(true);
+    expect(JSON.stringify(live?.payload)).not.toContain('authorized_tool_names');
+    expect(JSON.stringify(live?.payload)).not.toContain('weather_forecast');
+    expect(JSON.stringify(durable?.payload)).not.toContain('weather_forecast');
+    expect(normalizeSseTrajectoryEvent({
+      type: 'run_started',
+      schema_version: 1,
+      run_id: 'run-off',
+      parent_run_id: null,
+      step_id: null,
+      parent_step_id: null,
+      tool_call_id: null,
+      sequence: 0,
+      trace_id: 'trace-off',
+      ts: Date.parse(timestamp) / 1000,
+      config: { dynamic_tool_discovery: { enabled: false, authorized_tool_names: catalog } },
+    })?.payload.dynamic_tool_discovery_enabled).toBeUndefined();
+  });
+
   it('实时与历史 run_started 安全保留 schema v2 Skill 终态，且旧 v1 继续可读', () => {
     const live = normalizeSseTrajectoryEvent({
       type: 'run_started',

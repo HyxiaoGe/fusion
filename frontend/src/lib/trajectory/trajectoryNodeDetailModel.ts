@@ -256,7 +256,9 @@ function cellSummaryFields(
     if (!resolution) {
       return [{
         label: translate('trajectory.capabilityResolution.title'),
-        value: translate('trajectory.capabilityResolution.notRecorded'),
+        value: translate(cell.dynamicToolDiscovery
+          ? 'trajectory.capabilityResolution.dynamicToolDiscovery'
+          : 'trajectory.capabilityResolution.notRecorded'),
       }];
     }
     const toolNames = resolution.external_tool_names.length > 0

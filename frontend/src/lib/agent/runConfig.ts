@@ -8,6 +8,7 @@ interface WireRunConfig {
   task_mode?: unknown;
   network_profile?: unknown;
   evidence_policy?: unknown;
+  dynamic_tool_discovery?: unknown;
 }
 
 function nonNegativeNumber(value: unknown): number {
@@ -20,6 +21,14 @@ export function normalizeAgentRunConfig(config: WireRunConfig | null | undefined
     ? source.plan_mode
     : 'auto';
   const taskMode = source.task_mode === 'deep_research' ? 'deep_research' : 'standard';
+
+  const discovery = source.dynamic_tool_discovery;
+  const dynamicToolDiscovery = Boolean(
+    discovery
+    && typeof discovery === 'object'
+    && !Array.isArray(discovery)
+    && (discovery as { enabled?: unknown }).enabled === true
+  );
 
   return {
     maxSteps: nonNegativeNumber(source.max_steps),
@@ -35,5 +44,6 @@ export function normalizeAgentRunConfig(config: WireRunConfig | null | undefined
       : source.evidence_policy === 'deep_research_v1' || taskMode === 'deep_research'
         ? 'deep_research_v1'
         : 'standard',
+    ...(dynamicToolDiscovery ? { dynamicToolDiscovery: true } : {}),
   };
 }

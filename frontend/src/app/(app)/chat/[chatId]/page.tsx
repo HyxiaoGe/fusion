@@ -779,7 +779,7 @@ export default function ChatPage() {
     if (activeStream?.kind === 'continuation') {
       if (await stopContinueAgentRun(chatId)) return;
     }
-    await stopStreaming();
+    await stopStreaming(chatId);
   }, [chatId, dispatch, retryHydration, stopContinueAgentRun, stopStreaming, store]);
 
   const handleClearChat = () => {

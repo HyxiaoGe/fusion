@@ -501,6 +501,7 @@
     "capabilityResolution": {
       "title": "能力路由",
       "notRecorded": "该历史运行未记录能力路由",
+      "dynamicToolDiscovery": "动态工具发现",
       "package": "能力包",
       "confidence": "置信度",
       "resolutionMode": "路由结果",
