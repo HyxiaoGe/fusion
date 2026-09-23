@@ -352,6 +352,6 @@ AGENTS/CLAUDE 收敛到当前单仓约定，开发与发布技能迁入仓库，
 
 ## 2026-09-23 #128 合并与 Issue #129 否定词边界（待发布验收）
 
-- 用户转述 Claude Code 审查结论后，#128 的 PR 描述已明确其仅扩充“官方文档”来源信号、`requires_catalog_evidence` 仍为 false；PR API/UI/安全与必需检查全绿。#128 已合并为 `e1f3c7f5`；#127 主问题仍开放，不能由该补口推断切换条件已满足。主干 CI 与 dev 发布运行需另核最终结果及镜像身份。
+- 用户转述 Claude Code 审查结论后，#128 的 PR 描述已明确其仅扩充“官方文档”来源信号、`requires_catalog_evidence` 仍为 false；PR API/UI/安全与必需检查全绿。#128 已合并为 `e1f3c7f5`；主干 CI `35880005394`、dev 发布 `35880006479` 成功。只读核对 API/UI 台账 `current_sha=e1f3c7f5`，API/worker 运行 image ID `sha256:ae5f7fcc8977c6d3356160ae13efefc4147859c8adac5ab784f31feec6cfced0`、UI 运行 image ID `sha256:54d9db201af08e4f4d6d652ea553acb4d0ef8a0a8704e7f2402611a59ca5cee1` 均与台账一致。#127 主问题仍开放，不能由部署身份推断查证页面或切换条件已通过。
 - #129 基线独立复现 11 条“分别／个别／特别／区别”等普通词触发撤权，两路径同受影响。候选修复收窄裸「别」和工具名禁用的跨词匹配，真否定继续硬约束；新增目标测试首批修前 77 failed、10 passed，补带 URL 路由断言后修后 92 passed。原 33 条 rules 盲测修前后均 14/33，完整 47 条均 18/47 且逐条输出无变化。
 - 候选尚未发布，旧路径与发现路径“分别打开两个真实 URL”的页面成功读页待验；详细分类、正反例与逐条盲测输出见[报告](reports/backend/2026-09-23-issue129-negation-boundary-regression.md)。
