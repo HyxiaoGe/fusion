@@ -169,7 +169,7 @@ describe('AdminAuditCenter', () => {
     fireEvent.click(screen.getByRole('button', { name: '查看模型详情 model-a' }));
     expect(navigationMocks.push).toHaveBeenLastCalledWith('/admin?tab=models&model_id=model-a', { scroll: false });
     const detail = await screen.findByLabelText('模型详情 model-a');
-    fireEvent.click(within(detail).getByRole('button', { name: '查看该模型的对话' }));
+    fireEvent.click(await within(detail).findByRole('button', { name: '查看该模型的对话' }));
     expect(navigationMocks.push).toHaveBeenLastCalledWith('/admin?tab=conversations&model_id=model-a', { scroll: false });
     expect(await screen.findByRole('combobox', { name: '模型筛选' })).toHaveTextContent('model-a');
     expect(apiMocks.getAdminConversations).toHaveBeenCalledWith(expect.objectContaining({ model_id: 'model-a' }), expect.any(AbortSignal));
