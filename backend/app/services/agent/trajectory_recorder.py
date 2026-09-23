@@ -19,7 +19,11 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 from app.core.logger import app_logger
 from app.db.models import AgentEvent, RunTrajectoryMeta
-from app.services.agent.trajectory_payload import UnsupportedTrajectoryEventError, build_trajectory_payload
+from app.services.agent.trajectory_payload import (
+    UnsupportedTrajectoryEventError,
+    build_trajectory_payload,
+    is_cancellation_terminal_event,
+)
 
 TRAJECTORY_MAX_WORKERS = 4
 TRAJECTORY_WAIT_TIMEOUT_SECONDS = 0.25
@@ -145,8 +149,15 @@ class TrajectoryRecorder:
     ) -> None:
         if conversation_id != self.conversation_id or chunk_type != "agent_event":
             return
-        if not self._try_admit_record():
+        # 超时 latch 只说明某次等待未在上限内返回；该写入仍可能稍后提交。
+        # 中断终态是 stop 冻结 Redis 后的唯一取消事实，封口前继续接纳，但不得因此改判 complete。
+        cancellation_terminal = is_cancellation_terminal_event(payload)
+        if not self._try_admit_record(allow_after_degrade=cancellation_terminal):
             return
+        if cancellation_terminal and self.degraded_reason is not None:
+            self._logger.warning(
+                f"轨迹账本在降级后继续写入中断终态: run_id={self.run_id}, event_type={payload.get('type')}"
+            )
         try:
             try:
                 stored_payload = build_trajectory_payload(payload)
@@ -200,12 +211,20 @@ class TrajectoryRecorder:
                 )
             return True
 
-    def _try_admit_record(self) -> bool:
+    def _try_admit_record(self, *, allow_after_degrade: bool = False) -> bool:
         with self._state_lock:
-            if self._finalize_started or self._degraded_reason is not None:
+            if self._finalize_started or self._latch_sealed:
+                return False
+            if self._degraded_reason is not None and not allow_after_degrade:
                 return False
             self._active_records += 1
             return True
+
+    def _note_recorder_timeout(self, stage: str) -> None:
+        """保留 recorder_timeout 原因，并写明是哪一段等待超时。"""
+
+        self._mark_degraded("recorder_timeout")
+        self._logger.warning(f"轨迹账本等待超时: run_id={self.run_id}, stage={stage}")
 
     def _finish_record(self) -> None:
         waiters: list[tuple[asyncio.AbstractEventLoop, asyncio.Future[None]]] = []
@@ -276,11 +295,11 @@ class TrajectoryRecorder:
             )
         except asyncio.CancelledError:
             self._mark_degraded("recorder_cancelled")
-            self._consume_late(future)
+            self._consume_late(future, stage="event_wait")
             raise
         except asyncio.TimeoutError:
-            self._mark_degraded("recorder_timeout")
-            self._consume_late(future)
+            self._note_recorder_timeout("event_wait")
+            self._consume_late(future, stage="event_wait")
             return None
         except Exception as error:  # noqa: BLE001 — auxiliary sink 必须 fail-open
             self._mark_degraded("write_failed")
@@ -321,19 +340,19 @@ class TrajectoryRecorder:
         except asyncio.CancelledError:
             self._mark_degraded("recorder_cancelled")
             handshake.acknowledgement.set()
-            self._consume_late(assessment_future)
-            self._consume_late(worker_future)
+            self._consume_late(assessment_future, stage="finalize_assessment")
+            self._consume_late(worker_future, stage="finalize_assessment")
             raise
         except asyncio.TimeoutError:
-            self._mark_degraded("recorder_timeout")
+            self._note_recorder_timeout("finalize_assessment")
             handshake.acknowledgement.set()
-            self._consume_late(assessment_future)
-            self._consume_late(worker_future)
+            self._consume_late(assessment_future, stage="finalize_assessment")
+            self._consume_late(worker_future, stage="finalize_assessment")
             return
         except Exception as error:  # noqa: BLE001 — auxiliary sink 必须 fail-open
             self._mark_degraded("write_failed")
             handshake.acknowledgement.set()
-            self._consume_late(worker_future)
+            self._consume_late(worker_future, stage="finalize_assessment")
             self._log_failure("轨迹账本 finalize 失败", error)
             return
 
@@ -357,15 +376,16 @@ class TrajectoryRecorder:
                 expected_last_sequence=expected_last_sequence,
                 terminal_intent_id=handshake.terminal_intent_id,
             )
-            self._consume_late(worker_future)
+            self._consume_late(worker_future, stage="finalize_terminal")
             raise
         except asyncio.TimeoutError:
+            self._note_recorder_timeout("finalize_terminal")
             self._force_terminal_failure_latch(
                 "recorder_timeout",
                 expected_last_sequence=expected_last_sequence,
                 terminal_intent_id=handshake.terminal_intent_id,
             )
-            self._consume_late(worker_future)
+            self._consume_late(worker_future, stage="finalize_terminal")
             return
         except Exception as error:  # noqa: BLE001 — auxiliary sink 必须 fail-open
             self._log_failure("轨迹账本终态写入失败", error)
@@ -400,7 +420,7 @@ class TrajectoryRecorder:
         )
         acknowledged = handshake.acknowledgement.wait(timeout=TRAJECTORY_WAIT_TIMEOUT_SECONDS)
         if not acknowledged:
-            self._mark_degraded("recorder_timeout")
+            self._note_recorder_timeout("finalize_ack")
 
         latched_reason = self._seal_latch_for_terminal_decision()
         if not intent_persisted:
@@ -557,13 +577,19 @@ class TrajectoryRecorder:
         except RuntimeError:
             return
 
-    @staticmethod
-    def _consume_late(future: asyncio.Future[Any]) -> None:
+    def _consume_late(self, future: asyncio.Future[Any], *, stage: str) -> None:
+        logger = self._logger
+        run_id = self.run_id
+
         def _consume(done: asyncio.Future[Any]) -> None:
             try:
-                done.exception()
+                error = done.exception()
             except BaseException:
                 return
+            if error is not None:
+                logger.warning(
+                    f"轨迹账本迟到写入失败: run_id={run_id}, stage={stage}, error_type={type(error).__name__}"
+                )
 
         future.add_done_callback(_consume)
 

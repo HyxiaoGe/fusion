@@ -29,6 +29,7 @@ class _RecordingInner:
         self.timeline: list[tuple[str, int]] = []
         self._degraded_reason: str | None = None
         self._pending_terminal_reconciliation: object | None = None
+        self.timeout_stages: list[str] = []
 
     @property
     def degraded_reason(self) -> str | None:
@@ -45,6 +46,10 @@ class _RecordingInner:
         if self._degraded_reason is None:
             self._degraded_reason = reason
         return True
+
+    def _note_recorder_timeout(self, stage: str) -> None:
+        self.timeout_stages.append(stage)
+        self._mark_degraded("recorder_timeout")
 
     async def record_chunk(
         self,
@@ -166,6 +171,7 @@ class QueuedTrajectoryRecorderTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0)
 
         self.assertEqual(inner.degraded_reason, "recorder_timeout")
+        self.assertEqual(inner.timeout_stages, ["queue_flush"])
         self.assertEqual(inner.finalize_calls, [0])
         self.assertEqual(
             [task for task in asyncio.all_tasks() - tasks_before if not task.done()],
