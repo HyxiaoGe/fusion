@@ -1393,6 +1393,10 @@ describe('ChatPage 会话切换体验', () => {
     hydrationById.set('chat-a', { view: 'ready' });
     fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1', task_id: 'task-1' });
     Object.assign(storeStreamState, { isStreaming: true, conversationId: 'chat-a', messageId: 'assistant-1', currentRun: run });
+    saveStopOutcomeNotice({
+      authIdentity: 'user-a', conversationId: 'chat-a', runId: 'run-1',
+      messageId: 'assistant-1', requestedAt: Date.now(), terminalStatus: null,
+    });
     const originalDispatch = dispatchMock.getMockImplementation()!;
     dispatchMock.mockImplementation((action) => {
       if (action.type === 'stream/finalizeRun') {
@@ -1403,11 +1407,14 @@ describe('ChatPage 会话切换体验', () => {
     reconnectStreamMock.mockImplementation(() => new Promise(() => {}));
     const view = render(<ChatPage />);
     await waitFor(() => expect(reconnectStreamMock).toHaveBeenCalledTimes(1));
+    expect(screen.getByText('停止结果仍未确认，后台可能仍在运行。请稍后查看轨迹核实。')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '停止生成' }));
     await waitFor(() => expect(dispatchMock).toHaveBeenCalledWith({
       type: 'stream/finalizeRun', payload: { conversationId: 'chat-a', runId: 'run-1', status: 'interrupted', reason: 'user_cancelled', sequence: 4 },
     }));
     expect(dispatchMock).toHaveBeenCalledWith({ type: 'stream/endStream', payload: { conversationId: 'chat-a', messageId: 'assistant-1' } });
+    await waitFor(() => expect(screen.queryByText('停止结果仍未确认，后台可能仍在运行。请稍后查看轨迹核实。')).not.toBeInTheDocument());
+    expect(readStopOutcomeNotice('chat-a', 'user-a')).toBeNull();
     dispatchMock.mockClear();
     conversationsById.set('chat-a', createConversation('chat-a', [
       { ...textMessage('assistant-1'), role: 'assistant', agent_run: { ...run } },
