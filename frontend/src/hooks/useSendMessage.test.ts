@@ -1,5 +1,6 @@
 import React from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { readStopOutcomeNotice } from '@/lib/chat/stopOutcomeNotice';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
 
@@ -3024,6 +3025,9 @@ describe('useSendMessage', () => {
 
     expect(theSlot(store.getState()).currentRun?.status).toBe('running');
     expect(theSlot(store.getState()).currentRun?.stopConfirmation?.status).toBe('unconfirmed');
+    expect(readStopOutcomeNotice('existing-conv', 'user-a')).toMatchObject({
+      runId: 'run-1', messageId: 'server-assistant', terminalStatus: null,
+    });
     expect(getTrajectorySnapshotMock).toHaveBeenCalledWith('existing-conv', 'run-1', expect.any(AbortSignal));
     expect(getConversationMock).not.toHaveBeenCalled();
     expect(store.getState().conversation.globalError).toBeNull();

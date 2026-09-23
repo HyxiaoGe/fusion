@@ -54,6 +54,12 @@ import {
 import type { AgentRunState, AgentRunStatus } from '@/types/agentRun';
 import type { StreamState } from '@/redux/slices/streamSlice';
 import { verifyStoppedRun, withStopDeadline } from '@/lib/chat/stopVerification';
+import {
+  clearStopOutcomeNotice,
+  readStopOutcomeNotice,
+  saveStopOutcomeNotice,
+  type StopOutcomeNotice,
+} from '@/lib/chat/stopOutcomeNotice';
 import { fetchStreamStatus } from '@/lib/api/streamStatus';
 import { reconnectStream, stopStream, type StreamCallbacks } from '@/lib/api/chat';
 import { runResumableStream } from '@/lib/api/resumableStream';
@@ -95,6 +101,14 @@ const CHAT_EMPTY_STATE = {
 const EMPTY_CONVERSATION_ATTACHMENTS: ConversationComposerAttachment[] = [];
 const STREAM_STATUS_MAX_ATTEMPTS = 3;
 const STREAM_STATUS_RETRY_BASE_DELAY_MS = 50;
+
+const STOP_OUTCOME_LABELS: Record<Exclude<AgentRunStatus, 'running'>, string> = {
+  interrupted: '原运行现已中断',
+  completed: '原运行现已完成',
+  failed: '原运行已失败',
+  incomplete: '原运行未完整完成',
+  limit_reached: '原运行已达到限制',
+};
 
 function isAbortError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { name?: string }).name === 'AbortError';
@@ -192,7 +206,30 @@ export default function ChatPage() {
   const authSessionKey = useAppSelector(selectAuthSessionKey);
   const latestAuthSessionKeyRef = useRef(authSessionKey);
   latestAuthSessionKeyRef.current = authSessionKey;
+  const [stopOutcomeNotice, setStopOutcomeNotice] = useState<StopOutcomeNotice | null>(null);
   const { conversation, hydrationView, hydrationError, retryHydration } = useConversation(chatId);
+  useEffect(() => {
+    const notice = readStopOutcomeNotice(chatId, authSessionKey);
+    setStopOutcomeNotice(notice);
+    if (!notice || notice.terminalStatus) return;
+    const controller = new AbortController();
+    void verifyStoppedRun(
+      chatId,
+      notice.runId,
+      notice.messageId,
+      () => !controller.signal.aborted && latestChatIdRef.current === chatId
+        && latestAuthSessionKeyRef.current === authSessionKey,
+      controller.signal,
+    ).then((terminalStatus) => {
+      if (!terminalStatus || controller.signal.aborted) return;
+      const current = readStopOutcomeNotice(chatId, authSessionKey);
+      if (current?.runId !== notice.runId) return;
+      const resolved = { ...current, terminalStatus };
+      saveStopOutcomeNotice(resolved);
+      setStopOutcomeNotice(resolved);
+    });
+    return () => controller.abort();
+  }, [authSessionKey, chatId]);
   // /stop 确认可能先于详情落库。仅修正同一消息、同一 run 的旧 running 快照。
   useEffect(() => {
     for (const message of conversation?.messages ?? []) {
@@ -791,6 +828,16 @@ export default function ChatPage() {
       }
       const markConfirmation = (status: 'pending' | 'unconfirmed') => {
         if (!stillOwnsStoppedStream()) return;
+        if (status === 'unconfirmed' && authSessionKey && stoppedRunId) {
+          saveStopOutcomeNotice({
+            authIdentity: authSessionKey,
+            conversationId: chatId,
+            runId: stoppedRunId,
+            messageId: stoppedMessageId,
+            requestedAt: Date.now(),
+            terminalStatus: null,
+          });
+        }
         const run = selectStreamSlot(store.getState() as { stream: StreamState }, chatId).currentRun;
         if (run?.status === 'running' && run.runId === stoppedRunId && !isRetryRecovery) {
           const confirmation = { status, requestedAt: Date.now() };
@@ -834,6 +881,7 @@ export default function ChatPage() {
         recoveryStopPendingRef.current = null;
         const stillOwned = stillOwnsStoppedStream();
         if (stillOwned) {
+          if (terminalStatus && stoppedRunId) clearStopOutcomeNotice(chatId, stoppedRunId);
           const run = selectStreamSlot(store.getState() as { stream: StreamState }, chatId).currentRun;
           if (terminalStatus && !isRetryRecovery && stoppedRunId && run?.runId === stoppedRunId && run.status === 'running') {
             dispatch(finalizeRun({ conversationId: chatId, runId: stoppedRunId, status: terminalStatus, reason: terminalStatus === 'interrupted' ? 'user_cancelled' : undefined, sequence: run.lastSequence + 1 }));
@@ -1088,6 +1136,8 @@ export default function ChatPage() {
     ? lastReadyConversation?.chatId || null
     : chatId;
   const isHydratingWithoutContent = hydrationView === 'loading' && !shouldKeepPreviousContent;
+  const visibleStopOutcomeNotice = stopOutcomeNotice?.conversationId === chatId
+    && stopOutcomeNotice.authIdentity === authSessionKey ? stopOutcomeNotice : null;
   // 保留上一屏内容时展示的是另一个会话，要问的是"那个会话在不在生成"，
   // 而不是当前路由会话；槽位按会话索引后直接查它自己那一条。
   const isDisplayConversationStreamingSlot = useAppSelector(
@@ -1165,6 +1215,25 @@ export default function ChatPage() {
                 <TabsTrigger value="trajectory">轨迹</TabsTrigger>
               </TabsList>
             </div>
+            {visibleStopOutcomeNotice ? (
+              <div role="status" className="mx-4 mt-3 flex items-start justify-between gap-3 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+                <span>
+                  {visibleStopOutcomeNotice.terminalStatus
+                    ? `${STOP_OUTCOME_LABELS[visibleStopOutcomeNotice.terminalStatus]}；先前停止请求未得到确认。`
+                    : '停止结果仍未确认，后台可能仍在运行。请稍后查看轨迹核实。'}
+                </span>
+                <button
+                  type="button"
+                  className="shrink-0 underline underline-offset-2"
+                  onClick={() => {
+                    clearStopOutcomeNotice(chatId, visibleStopOutcomeNotice.runId);
+                    setStopOutcomeNotice(null);
+                  }}
+                >
+                  关闭提示
+                </button>
+              </div>
+            ) : null}
 
             <TabsContent
               value="chat"
