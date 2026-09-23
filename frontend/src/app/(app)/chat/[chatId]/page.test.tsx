@@ -1434,6 +1434,48 @@ describe('ChatPage 会话切换体验', () => {
     expect(dispatchMock.mock.calls.some(([action]) => action.type === 'conversation/updateMessage')).toBe(false);
   });
 
+  it('恢复流先结束时仍按原 Run 接收停止确认并即时清除提示', async () => {
+    const run: AgentRunState = {
+      runId: 'run-1', messageId: 'assistant-1', status: 'running',
+      config: { maxSteps: 4, maxToolCalls: 8, timeoutS: 120 },
+      totalSteps: 1, totalToolCalls: 0, steps: [], lastSequence: 3,
+    };
+    conversationsById.set('chat-a', createConversation('chat-a', [
+      textMessage('user-1'), { ...textMessage('assistant-1'), role: 'assistant', agent_run: run },
+    ]));
+    hydrationById.set('chat-a', { view: 'ready' });
+    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1', task_id: 'task-1' });
+    Object.assign(storeStreamState, { isStreaming: true, conversationId: 'chat-a', messageId: 'assistant-1', currentRun: run });
+    saveStopOutcomeNotice({
+      authIdentity: 'user-a', conversationId: 'chat-a', runId: 'run-1',
+      messageId: 'assistant-1', requestedAt: Date.now(), terminalStatus: null,
+    });
+    let recoveryCallbacks: any;
+    reconnectStreamMock.mockImplementation((_chatId, _cursor, callbacks) => {
+      recoveryCallbacks = callbacks;
+      return new Promise(() => {});
+    });
+    let releaseStop!: (cancelled: boolean) => void;
+    stopRecoveredStreamMock.mockImplementationOnce(() => new Promise<boolean>(resolve => { releaseStop = resolve; }));
+
+    render(<ChatPage />);
+    await waitFor(() => expect(reconnectStreamMock).toHaveBeenCalledTimes(1));
+    expect(screen.getByText('停止结果仍未确认，后台可能仍在运行。请稍后查看轨迹核实。')).toBeInTheDocument();
+    const controller = getStreamController('chat-a')!.controller;
+    fireEvent.click(screen.getByRole('button', { name: '停止生成' }));
+    await waitFor(() => expect(stopRecoveredStreamMock).toHaveBeenCalledTimes(1));
+    recoveryCallbacks.onError('用户中止', { code: 'stream_interrupted' });
+    controller.abort();
+    releaseStop(true);
+
+    await waitFor(() => expect(readStopOutcomeNotice('chat-a', 'user-a')).toBeNull());
+    expect(screen.queryByText('停止结果仍未确认，后台可能仍在运行。请稍后查看轨迹核实。')).not.toBeInTheDocument();
+    expect(dispatchMock).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'stream/finalizeRun', payload: expect.objectContaining({ conversationId: 'chat-a', runId: 'run-1', status: 'interrupted' }),
+    }));
+    expect(dispatchMock).toHaveBeenCalledWith({ type: 'stream/endStream', payload: { conversationId: 'chat-a', messageId: 'assistant-1' } });
+  });
+
   it('恢复停止迟到确认不能结束同会话新 controller 或新 run', async () => {
     conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
     hydrationById.set('chat-a', { view: 'ready' });
