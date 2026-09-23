@@ -64,7 +64,7 @@ _VERIFY_OBJECT_WINDOW = r"[^。！？!?；;]{0,14}?"
 
 
 _VERIFIED_SOURCE_RE = re.compile(
-    r"官方(?:公告|原文|资料|来源)|一手来源|可靠来源|权威来源|"
+    r"官方(?:公告|原文|文档|资料|来源)|一手来源|可靠来源|权威来源|"
     rf"{_AMBIGUOUS_VERIFY_VERB}{_VERIFY_OBJECT_WINDOW}{_EXTERNAL_CLAIM_OBJECT}|"
     rf"{_EXTERNAL_CLAIM_OBJECT}{_VERIFY_OBJECT_WINDOW}{_AMBIGUOUS_VERIFY_VERB}|"
     r"只依据(?:该|这个)页面|"

@@ -1133,6 +1133,64 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
                     self.assertNotIn("消息属实", saved)
                     self.assertNotIn("[99]", saved)
 
+    async def test_issue127_original_document_request_rejects_invented_reads(self):
+        message = (
+            "请核验 PostgreSQL 18 官方文档中 COMMIT 与 ROLLBACK 对事务修改的作用。"
+            "请打开原文再回答，分别附上来源链接；如果原文读取失败，请明确说明。"
+        )
+        config, _handlers, _shared, _calls = _discovery_config(message=message)
+        self.assertEqual(config.evidence_policy, "verified_web_v1")
+        invented = "我尝试直接打开 COMMIT 与 ROLLBACK 两个页面，但这两次抓取都没有返回内容。"
+        delivered = await _run_delivery(
+            config=config,
+            script=ScriptedRounds([{"stop": True, "content": invented}]),
+            run_id="run-issue127-invented-reads",
+            messages=[{"role": "user", "content": message}],
+        )
+        saved = _text_from_blocks(delivered.store.saves[-1])
+        self.assertNotIn("两次抓取", saved)
+        self.assertEqual(delivered.emitter.tool_events, [])
+
+    async def test_issue127_only_read_bodies_can_support_document_citations(self):
+        message = "请核验 PostgreSQL 官方文档中的两篇原文。请打开两个页面并分别附上来源链接。"
+        cases = (
+            ("partial_good", "COMMIT 已读。[1] ROLLBACK 未读到正文。", True),
+            ("partial_bad", "COMMIT 已读。[1] ROLLBACK 原文也已核验。[2]", False),
+            ("all_good", "COMMIT 已读。[1] ROLLBACK 已读。[2]", True),
+        )
+        for label, candidate, should_pass in cases:
+            with self.subTest(label=label):
+                second_url = (
+                    "https://example.test/rollback" if label == "all_good" else "https://example.test/rollback-empty"
+                )
+                config, _handlers, _shared, _calls = _discovery_config(message=message)
+                self.assertEqual(config.evidence_policy, "verified_web_v1")
+                delivered = await _run_delivery(
+                    config=config,
+                    script=ScriptedRounds(
+                        [
+                            [_tool_call("s1", TOOL_SEARCH_NAME, {"query": "select:url_read"})],
+                            [
+                                _tool_call("r1", "url_read", {"url": "https://example.test/commit"}),
+                                _tool_call("r2", "url_read", {"url": second_url}),
+                            ],
+                            {"stop": True, "content": candidate},
+                        ]
+                    ),
+                    run_id=f"run-issue127-{label}",
+                    messages=[{"role": "user", "content": message}],
+                )
+                saved = _text_from_blocks(delivered.store.saves[-1])
+                self.assertEqual(len(delivered.execution.state.research_workset.attempted_read_urls), 2)
+                self.assertEqual(
+                    len([block for block in delivered.execution.state.content_blocks if block.type == "url_read"]),
+                    2,
+                )
+                if should_pass:
+                    self.assertEqual(saved, candidate)
+                else:
+                    self.assertNotIn("ROLLBACK 原文也已核验", saved)
+
     async def test_verified_source_limit_summary_is_guarded(self):
         message = "请核验这条消息，给出可靠来源"
         config, _handlers, _shared, _calls = _discovery_config(message=message)
