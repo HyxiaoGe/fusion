@@ -13,6 +13,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session as SqlAlchemySession
 from sqlalchemy.orm import sessionmaker
 
+from app.core.logger import app_logger
 from app.db.database import Base
 from app.db.models import AgentEvent, AgentSession, RunTrajectoryMeta
 from app.services.agent.emitter import AgentEventEmitter
@@ -92,6 +93,14 @@ class FailingSubmitExecutor(concurrent.futures.Executor):
         raise RuntimeError("executor 已关闭")
 
 
+class _ListLogger:
+    def __init__(self) -> None:
+        self.warnings: list[str] = []
+
+    def warning(self, message: str, *args) -> None:
+        self.warnings.append(message % args if args else message)
+
+
 class RecorderDatabaseTests(unittest.IsolatedAsyncioTestCase):
     async def test_stopped_stream_keeps_cancelled_round_provenance_and_complete_ledger(self):
         await self._assert_stopped_stream_ledger(visible=True)
@@ -169,6 +178,129 @@ class RecorderDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(drafts), 1)
         self.assertEqual(drafts[0].content_text, "已经展示的回答" if visible else "")
 
+    async def test_ownership_loss_during_slow_write_persists_cancellation_tail_as_degraded(self):
+        """超过内部等待的写入会先打上 recorder_timeout；停止后的尾事件仍须落库且不能标 complete。"""
+        entered = threading.Event()
+        release = threading.Event()
+        slow_finished = threading.Event()
+        call_index = 0
+        call_lock = threading.Lock()
+        logger = _ListLogger()
+        semaphore = threading.BoundedSemaphore(4)
+
+        def controlled_worker(operation):
+            nonlocal call_index
+            with call_lock:
+                call_index += 1
+                current = call_index
+            try:
+                if current == 2:
+                    entered.set()
+                    if not release.wait(timeout=5):
+                        raise TimeoutError("慢写入未被释放")
+                return operation()
+            finally:
+                if current == 2:
+                    slow_finished.set()
+
+        ownership_error = StreamOwnershipLostError("流已被停止接口冻结")
+
+        class RedisWriter:
+            stopped = False
+
+            async def append_chunk(self, _conversation_id, _task_id, _chunk_type, payload):
+                if self.stopped:
+                    raise ownership_error
+
+        redis_writer = RedisWriter()
+        recorder = QueuedTrajectoryRecorder(
+            self._recorder(worker=controlled_worker, semaphore=semaphore, logger=logger)
+        )
+        emitter = AgentEventEmitter(
+            run_id="run-1",
+            trace_id="trace-1",
+            conversation_id="conv-1",
+            task_id="task-1",
+            redis_writer=AgentEventCompositeWriter(redis_writer=redis_writer, trajectory_recorder=recorder),
+        )
+        await emitter.run_started(message_id="msg-1", model="gpt-4", tools=[], config={})
+        await self._wait_run_event_count("run-1", 1)
+        await emitter.step_started(step_number=1)
+        self.assertTrue(await asyncio.to_thread(entered.wait, 1))
+        await emitter.run_limit_reached(reason="timeout")
+        redis_writer.stopped = True
+        with self.assertRaises(StreamOwnershipLostError) as raised:
+            await emitter.llm_round_cancelled(llm_round_id="round-1", reason="user_cancelled")
+        self.assertIs(raised.exception, ownership_error)
+        await self._wait_until(lambda: recorder.degraded_reason == "recorder_timeout")
+        with self.assertRaises(StreamOwnershipLostError) as raised:
+            await emitter.run_interrupted(reason="user_cancelled")
+        self.assertIs(raised.exception, ownership_error)
+        release.set()
+        try:
+            await recorder.finalize(await emitter.seal_and_get_last_sequence())
+        finally:
+            release.set()
+            await asyncio.to_thread(slow_finished.wait, 1)
+
+        with self.Session() as db:
+            rows = db.query(AgentEvent).filter_by(run_id="run-1").order_by(AgentEvent.sequence).all()
+            self.assertEqual(
+                [row.event_type for row in rows],
+                ["run_started", "step_started", "llm_round_cancelled", "run_interrupted"],
+            )
+            self.assertEqual([row.sequence for row in rows], [0, 1, 3, 4])
+            meta = db.get(RunTrajectoryMeta, "run-1")
+            self.assertEqual(meta.trajectory_status, "degraded")
+            self.assertEqual(meta.degraded_reason, "recorder_timeout")
+            self.assertEqual(meta.expected_last_sequence, 4)
+            self.assertIsNone(meta.finalized_at)
+        self.assertTrue(any("stage=event_wait" in message for message in logger.warnings))
+        self.assertTrue(await asyncio.to_thread(slow_finished.wait, 1))
+        _assert_all_permits_available(self, semaphore)
+
+        with self.Session() as db:
+            db.add(
+                AgentSession(
+                    id="run-2",
+                    conversation_id="conv-1",
+                    message_id="msg-2",
+                    user_id="user-1",
+                    model_id="gpt-4",
+                    provider="openai",
+                    status="running",
+                )
+            )
+            db.commit()
+        next_recorder = self._recorder(run_id="run-2", semaphore=semaphore)
+        await next_recorder.record_chunk("conv-1", "agent_event", _event(0, run_id="run-2"))
+        await next_recorder.finalize(0)
+        with self.Session() as db:
+            self.assertEqual(
+                [
+                    row.event_type
+                    for row in db.query(AgentEvent).filter_by(run_id="run-1").order_by(AgentEvent.sequence)
+                ],
+                ["run_started", "step_started", "llm_round_cancelled", "run_interrupted"],
+            )
+            next_meta = db.get(RunTrajectoryMeta, "run-2")
+            self.assertEqual(next_meta.trajectory_status, "complete")
+            self.assertEqual(db.query(AgentEvent).filter_by(run_id="run-2").count(), 1)
+
+    async def _wait_run_event_count(self, run_id: str, count: int) -> None:
+        def ready() -> bool:
+            with self.Session() as db:
+                return db.query(AgentEvent).filter_by(run_id=run_id).count() >= count
+
+        await self._wait_until(ready, message=f"{run_id} 事件数未达到 {count}")
+
+    async def _wait_until(self, predicate, message: str = "条件未在时限内成立") -> None:
+        for _ in range(200):
+            if predicate():
+                return
+            await asyncio.sleep(0.01)
+        self.fail(message)
+
     async def test_prompt_metadata_and_effective_request_fingerprint_survive_database_reload(self):
         recorder = self._recorder()
         await recorder.record_chunk(
@@ -242,17 +374,27 @@ class RecorderDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.engine.dispose()
         self.temp_dir.cleanup()
 
-    def _recorder(self, *, session_factory=None, worker=None, semaphore=None) -> TrajectoryRecorder:
+    def _recorder(
+        self,
+        *,
+        session_factory=None,
+        worker=None,
+        semaphore=None,
+        logger=None,
+        run_id: str = "run-1",
+        message_id: str = "msg-1",
+    ) -> TrajectoryRecorder:
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
         self.executors.append(executor)
         return TrajectoryRecorder(
-            run_id="run-1",
+            run_id=run_id,
             conversation_id="conv-1",
-            message_id="msg-1",
+            message_id=message_id,
             session_factory=session_factory or self.Session,
             executor=executor,
             semaphore=semaphore or threading.BoundedSemaphore(4),
             worker=worker,
+            logger=logger or app_logger,
         )
 
     async def test_uses_independent_short_sessions_and_counts_duplicate_sequence_once(self):

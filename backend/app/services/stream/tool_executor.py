@@ -20,6 +20,7 @@ import backoff
 from app.core.logger import app_logger as logger
 from app.services.agent.emitter import AgentEventEmitter
 from app.services.agent.progress_digest import build_evidence_items, build_tool_result_digest
+from app.services.agent.trajectory_payload import is_cancellation_terminal_event
 from app.services.mcp.tool_contract import (
     MAX_TOOL_ARGUMENT_JSON_BYTES,
     validate_tool_argument_resource_limits,
@@ -254,12 +255,11 @@ class AgentEventCompositeWriter:
             await self.redis_writer.append_chunk(conversation_id, task_id, chunk_type, payload)
         except StreamOwnershipLostError:
             # stop 先冻结实时流；仅保留真实取消事实到该 Run 账本，不能恢复写入权或更新 progress。
-            cancellation_terminal = payload.get("type") in {
-                "run_interrupted",
-                "llm_round_cancelled",
-                "retrieval_cancelled",
-            } or (payload.get("type") == "tool_attempt_completed" and payload.get("status") == "cancelled")
-            if chunk_type == "agent_event" and cancellation_terminal and self.trajectory_recorder is not None:
+            if (
+                chunk_type == "agent_event"
+                and is_cancellation_terminal_event(payload)
+                and self.trajectory_recorder is not None
+            ):
                 try:
                     await self.trajectory_recorder.record_chunk(conversation_id, chunk_type, payload)
                 except BaseException as error:  # 辅助记录失败不得替换原所有权异常或取消流程。

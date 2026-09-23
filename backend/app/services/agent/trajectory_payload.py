@@ -19,6 +19,13 @@ from app.utils.run_capability_contract import CAPABILITY_CONTROL_TOOL_NAMES
 
 MAX_LEDGER_TEXT_LENGTH = 512
 MAX_LEDGER_LIST_ITEMS = 50
+_CANCELLATION_TERMINAL_EVENT_TYPES = frozenset(
+    {
+        "run_interrupted",
+        "llm_round_cancelled",
+        "retrieval_cancelled",
+    }
+)
 
 _COMMON_FIELDS = frozenset(
     {
@@ -86,9 +93,7 @@ _EVENT_FIELDS: dict[str, frozenset[str]] = {
     # 刻意不含 title：与 questions 同理，生成内容的真相源是会话行。
     "conversation_title_updated": frozenset({"protocol_version", "conversation_id", "duration_ms"}),
     # 刻意不含 questions：账本只记元数据，生成内容的真相源是消息行。
-    "suggested_questions_ready": frozenset(
-        {"protocol_version", "message_id", "revision", "status", "duration_ms"}
-    ),
+    "suggested_questions_ready": frozenset({"protocol_version", "message_id", "revision", "status", "duration_ms"}),
     "run_progress_updated": frozenset(
         {
             "protocol_version",
@@ -394,6 +399,15 @@ _SPECIAL_SANITIZERS: dict[str, Callable[[Any], Any]] = {
     "tools": _sanitize_external_tool_names,
     "tool_names": _sanitize_round_tool_names,
 }
+
+
+def is_cancellation_terminal_event(payload: Mapping[str, Any]) -> bool:
+    """停止冻结 Redis 后仍须落入该 Run 账本的取消事实。"""
+
+    event_type = payload.get("type")
+    if event_type in _CANCELLATION_TERMINAL_EVENT_TYPES:
+        return True
+    return event_type == "tool_attempt_completed" and payload.get("status") == "cancelled"
 
 
 def build_trajectory_payload(payload: Mapping[str, Any]) -> dict[str, Any]:

@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Mapping
 from typing import Any
 
+from app.services.agent.trajectory_payload import is_cancellation_terminal_event
 from app.services.agent.trajectory_recorder import (
     TrajectoryRecorder,
     TrajectoryTerminalReconciliation,
@@ -78,7 +79,11 @@ class QueuedTrajectoryRecorder:
     ) -> None:
         if conversation_id != self.conversation_id or chunk_type != "agent_event":
             return
-        if self._closed or self._inner.degraded_latch(self.run_id):
+        if self._closed:
+            return
+        # 降级 latch 丢弃的是尚未确认的后续普通事件。中断终态已经过 Redis 所有权丢失旁路，
+        # 若在这里丢弃，停止后的账本会缺 llm_round_cancelled / run_interrupted。
+        if self._inner.degraded_latch(self.run_id) and not is_cancellation_terminal_event(payload):
             return
         try:
             self._queue.put_nowait((conversation_id, chunk_type, payload))
@@ -112,7 +117,7 @@ class QueuedTrajectoryRecorder:
                 await self._cancel_background(flush_task)
                 cancelled_error = error
             except TimeoutError:
-                self._inner._mark_degraded("recorder_timeout")
+                self._inner._note_recorder_timeout("queue_flush")
                 await self._cancel_background(flush_task)
             except Exception as error:  # noqa: BLE001 — auxiliary sink 必须 fail-open
                 self._worker_error = self._worker_error or error
@@ -138,7 +143,7 @@ class QueuedTrajectoryRecorder:
                 if item is None:
                     return
                 conversation_id, chunk_type, payload = item
-                if self._inner.degraded_latch(self.run_id):
+                if self._inner.degraded_latch(self.run_id) and not is_cancellation_terminal_event(payload):
                     continue
                 try:
                     await self._inner.record_chunk(conversation_id, chunk_type, payload)
