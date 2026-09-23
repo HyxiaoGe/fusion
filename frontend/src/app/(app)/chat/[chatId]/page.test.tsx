@@ -23,6 +23,7 @@ import {
   registerStreamController,
   resetStreamControllerRegistry,
 } from '@/lib/chat/streamControllerRegistry';
+import { readStopOutcomeNotice, saveStopOutcomeNotice } from '@/lib/chat/stopOutcomeNotice';
 
 const {
   currentRoute,
@@ -1502,6 +1503,7 @@ describe('ChatPage 会话切换体验', () => {
         if (scenario === 'unconfirmed' || scenario === 'mismatch') {
           expect(dispatchMock.mock.calls.some(([action]) => action.type === 'stream/finalizeRun')).toBe(false);
           expect(dispatchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'conversation/updateMessage', payload: expect.objectContaining({ messageId: 'assistant-1', patch: { agent_run: expect.objectContaining({ status: 'running', stopConfirmation: expect.objectContaining({ status: 'unconfirmed' }) }) } }) }));
+          expect(readStopOutcomeNotice('chat-a', 'user-a')).toMatchObject({ runId: 'run-1', terminalStatus: null });
         } else {
           expect(dispatchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'stream/finalizeRun', payload: expect.objectContaining({ runId: 'run-1', status: scenario }) }));
         }
@@ -1514,6 +1516,64 @@ describe('ChatPage 会话切换体验', () => {
       view.unmount();
       vi.useRealTimers();
     }
+  });
+
+  it('刷新后原 assistant 未落库时仍显示停止结果，并只按原 Run 核实', async () => {
+    conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
+    hydrationById.set('chat-a', { view: 'ready' });
+    saveStopOutcomeNotice({
+      authIdentity: 'user-a', conversationId: 'chat-a', runId: 'run-1',
+      messageId: 'assistant-1', requestedAt: Date.now(), terminalStatus: null,
+    });
+    getStopSnapshotMock.mockResolvedValue({ run: {
+      run_id: 'run-1', message_id: 'assistant-1', status: 'interrupted',
+    } });
+
+    const firstView = render(<ChatPage />);
+    await waitFor(() => expect(screen.getByText('原运行现已中断；先前停止请求未得到确认。')).toBeInTheDocument());
+    expect(getStopSnapshotMock).toHaveBeenCalledWith('chat-a', 'run-1', expect.any(AbortSignal));
+    expect(readStopOutcomeNotice('chat-a', 'user-a')?.terminalStatus).toBe('interrupted');
+    firstView.unmount();
+
+    render(<ChatPage />);
+    expect(screen.getByText('原运行现已中断；先前停止请求未得到确认。')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '关闭提示' }));
+    expect(readStopOutcomeNotice('chat-a', 'user-a')).toBeNull();
+  });
+
+  it('刷新后查不到原 Run 终态时保留未确认提示', async () => {
+    conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
+    hydrationById.set('chat-a', { view: 'ready' });
+    saveStopOutcomeNotice({
+      authIdentity: 'user-a', conversationId: 'chat-a', runId: 'run-1',
+      messageId: 'assistant-1', requestedAt: Date.now(), terminalStatus: null,
+    });
+    getStopSnapshotMock.mockResolvedValue({ run: {
+      run_id: 'another-run', message_id: 'assistant-1', status: 'interrupted',
+    } });
+
+    render(<ChatPage />);
+    expect(await screen.findByText('停止结果仍未确认，后台可能仍在运行。请稍后查看轨迹核实。')).toBeInTheDocument();
+    await waitFor(() => expect(getStopSnapshotMock).toHaveBeenCalledWith('chat-a', 'run-1', expect.any(AbortSignal)));
+    expect(readStopOutcomeNotice('chat-a', 'user-a')?.terminalStatus).toBeNull();
+  });
+
+  it('切换会话时旧停止提示不闪现在新会话', async () => {
+    conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
+    conversationsById.set('chat-b', createConversation('chat-b', [textMessage('user-2')]));
+    hydrationById.set('chat-a', { view: 'ready' });
+    hydrationById.set('chat-b', { view: 'ready' });
+    saveStopOutcomeNotice({
+      authIdentity: 'user-a', conversationId: 'chat-a', runId: 'run-1',
+      messageId: 'assistant-1', requestedAt: Date.now(), terminalStatus: 'interrupted',
+    });
+
+    const view = render(<ChatPage />);
+    expect(await screen.findByText('原运行现已中断；先前停止请求未得到确认。')).toBeInTheDocument();
+    currentRoute.chatId = 'chat-b';
+    view.rerender(<ChatPage />);
+    expect(screen.queryByText('原运行现已中断；先前停止请求未得到确认。')).not.toBeInTheDocument();
+    expect(readStopOutcomeNotice('chat-a', 'user-a')).not.toBeNull();
   });
 
   it('恢复流没有 task_id 时保留接收并提示停止未确认，不发送会话级停止', async () => {

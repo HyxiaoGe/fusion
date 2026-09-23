@@ -47,6 +47,7 @@ import {
   sendMessageStream,
 } from '@/lib/api/chat';
 import { verifyStoppedRun } from '@/lib/chat/stopVerification';
+import { clearStopOutcomeNotice, saveStopOutcomeNotice } from '@/lib/chat/stopOutcomeNotice';
 import type { AgentRunState, AgentRunStatus } from '@/types/agentRun';
 import type { StreamCallbacks } from '@/lib/api/chat';
 import { runResumableStream } from '@/lib/api/resumableStream';
@@ -466,6 +467,16 @@ export function useSendMessage(activeConversationId?: string | null) {
       const markStopConfirmation = (status: 'pending' | 'unconfirmed') => {
         if (!teardownConvId || !effectiveStoppedRunId || retryTurnSnapshot || !isStopSessionCurrent()) return;
         const confirmation = { status, requestedAt: stopRequestedAt };
+        if (status === 'unconfirmed' && stopSessionContext) {
+          saveStopOutcomeNotice({
+            authIdentity: stopSessionContext.authSessionKey,
+            conversationId: teardownConvId,
+            runId: effectiveStoppedRunId,
+            messageId: remoteMsgId ?? null,
+            requestedAt: stopRequestedAt,
+            terminalStatus: null,
+          });
+        }
         dispatch(setRunStopConfirmation({conversationId: teardownConvId, runId: effectiveStoppedRunId, confirmation}));
         if (stoppedRunSnapshot?.runId === effectiveStoppedRunId && stoppedRunSnapshot.status === 'running') {
           writeStoppedMessageRun({...stoppedRunSnapshot, stopConfirmation: confirmation});
@@ -618,6 +629,8 @@ export function useSendMessage(activeConversationId?: string | null) {
             dispatch(setStreamError({conversationId: teardownConvId, code: 'stop_unconfirmed', message: '已停止接收回答，但未确认后台是否停止。请刷新会话核实。'}));
           }
         }
+      } else if (teardownConvId && effectiveStoppedRunId) {
+        clearStopOutcomeNotice(teardownConvId, effectiveStoppedRunId);
       }
 
       const stateConvId = teardownConvId ?? convId;
