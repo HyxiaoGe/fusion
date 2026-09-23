@@ -59,6 +59,7 @@ from app.services.stream.research_evidence import (
     ResearchEvidenceWorkset,
     build_research_repair_prompt,
     validate_research_completion,
+    validate_verified_web_completion,
 )
 from app.services.stream.safe_fallback_response import default_safe_fallback, render_safe_fallback
 from app.services.stream.tool_recovery_evidence import RecoveryEvidenceWorkset
@@ -157,6 +158,8 @@ def _streams_standard_plan_synthesis(request: LimitSummaryStepRequest) -> bool:
     否则未经查证的班次与票价已经发出，事后再拦也收不回来（issue #31）。
     """
 
+    if request.evidence_policy == "verified_web_v1":
+        return False
     return _is_standard_plan_synthesis(request) and has_tool_evidence(
         request.content_blocks,
         capability_resolution=request.capability_resolution,
@@ -193,6 +196,7 @@ def append_limit_summary_prompt(
     *,
     summary_finish_reason: str = "limit_summary",
     task_mode: str = "standard",
+    evidence_policy: str = "standard",
     content_blocks: list | None = None,
     capability_resolution: RunCapabilityResolution | None = None,
     recovery_evidence: RecoveryEvidenceWorkset | None = None,
@@ -215,6 +219,8 @@ def append_limit_summary_prompt(
         section_id = LIMIT_SUMMARY
     if task_mode == "deep_research" and section_id != RESEARCH_EVIDENCE_SUMMARY:
         prompt = f"{prompt}\n\n{RESEARCH_EVIDENCE_SUMMARY_PROMPT}"
+    if evidence_policy == "verified_web_v1":
+        prompt = f"{prompt}\n\n{render_runtime_prompt('stream.verified_web_summary')}"
     # 一次工具证据都没有时，"基于已收集的信息"指向空集；补上诚实下限，避免用参数记忆补齐。
     if (
         content_blocks is not None
@@ -987,6 +993,7 @@ async def run_limit_summary_step(
         request.messages,
         summary_finish_reason=request.summary_finish_reason,
         task_mode=request.task_mode,
+        evidence_policy=request.evidence_policy,
         content_blocks=request.content_blocks,
         capability_resolution=request.capability_resolution,
         recovery_evidence=request.recovery_evidence,
@@ -1082,6 +1089,22 @@ async def _guard_no_evidence_answer(
 ) -> tuple[str, str | None]:
     """按冻结能力和有效证据守住总结边界，并留下可聚合的观测。"""
 
+    if request.evidence_policy == "verified_web_v1":
+        validation = validate_verified_web_completion(
+            request.research_workset or ResearchEvidenceWorkset(),
+            request.recovery_evidence or RecoveryEvidenceWorkset(),
+            answer,
+        )
+        if not validation.is_valid:
+            if request.warning_fn is not None:
+                request.warning_fn(
+                    "查证总结缺少已读正文或有效引用，已替换为诚实答复: "
+                    f"conv_id={request.conversation_id} run_id={request.run_id} "
+                    f"reason={validation.reason}"
+                )
+            return await _safe_summary_fallback(request, "no_evidence"), "verified_web"
+        return answer, None
+
     guarded, fact_kind = resolve_no_evidence_answer(
         answer,
         content_blocks=request.content_blocks,
@@ -1156,6 +1179,7 @@ async def _commit_limit_summary_result(
     elif request.summary_finish_reason == "plan_synthesis":
         has_answer = bool(round_result.content_buf.strip())
         has_streamed_content = _streams_standard_plan_synthesis(request) and has_answer
+        unsupported_fact_kind = None
         incomplete = (
             round_result.finish_reason
             in {
@@ -1202,6 +1226,16 @@ async def _commit_limit_summary_result(
                 await _finish_summary_round_lifecycle(round_result, model_output_visible=True)
         if answer:
             request.content_blocks.append(TextBlock(type="text", id=text_block_id, text=answer))
+        if (
+            request.evidence_policy == "verified_web_v1"
+            and unsupported_fact_kind is None
+            and request.research_workset is not None
+        ):
+            await _emit_deep_summary_used_evidence(
+                request=request,
+                answer_text=answer,
+                workset=request.research_workset,
+            )
         return incomplete
     else:
         answer = round_result.content_buf.strip()
@@ -1237,6 +1271,16 @@ async def _commit_limit_summary_result(
             content_buf=answer,
             text_block_id=text_block_id,
         )
+        if (
+            request.evidence_policy == "verified_web_v1"
+            and unsupported_fact_kind is None
+            and request.research_workset is not None
+        ):
+            await _emit_deep_summary_used_evidence(
+                request=request,
+                answer_text=answer,
+                workset=request.research_workset,
+            )
         return incomplete
 
 

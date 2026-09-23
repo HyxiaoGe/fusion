@@ -278,6 +278,12 @@ class _RequestSignals:
     fresh_web_request: bool
 
 
+def requires_verified_source_evidence(message: str) -> bool:
+    """复用现有请求信号，只声明来源核验义务，不选择工具或能力包。"""
+
+    return _extract_request_signals(message).verified_web_request
+
+
 def _extract_request_signals(message: str) -> _RequestSignals:
     original_transform_request = bool(_TRANSFORM_RE.search(message))
     control_message = _mask_quoted_literals(message)

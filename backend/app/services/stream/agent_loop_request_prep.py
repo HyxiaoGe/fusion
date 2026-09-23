@@ -24,6 +24,7 @@ from app.ai.prompts.section_ids import (
     NO_TOOL_NETWORK_BOUNDARY,
     NO_VISION_FILE_BOUNDARY,
     TOOL_USAGE_CONTRACT,
+    VERIFIED_WEB_EVIDENCE,
 )
 from app.ai.prompts.system_prompt import SystemPromptSection, assemble_system_prompt
 from app.ai.skills.registry import RunSkillResolution, SkillReleasePin, load_skills_for_package
@@ -47,6 +48,7 @@ from app.services.stream.agent_plan_tool_policy import (
 from app.services.stream.agent_task_policy import resolve_agent_task_policy
 from app.services.stream.persistence import preprocess_url_in_message
 from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
+from app.services.stream.run_capability_request_signals import requires_verified_source_evidence
 from app.services.stream.run_capability_router import (
     CapabilityClassifier,
     RunCapabilityResolution,
@@ -554,7 +556,13 @@ def _build_discovery_call_config(
         control_tool_names=control_tool_names,
         task_mode=task_policy.task_mode,
         network_profile=task_policy.network_profile,
-        evidence_policy="knowledge_grounded_v1" if knowledge_grounded else task_policy.evidence_policy,
+        evidence_policy=(
+            "knowledge_grounded_v1"
+            if knowledge_grounded
+            else "verified_web_v1"
+            if requires_verified_source_evidence(original_message or "")
+            else task_policy.evidence_policy
+        ),
         required_initial_tool_counts={},
         plan_tool_policy_reason="dynamic_tool_discovery_no_package_min_calls",
         prompt_bundle_snapshot=prompt_bundle_snapshot,
@@ -664,6 +672,8 @@ async def prepare_agent_loop_messages(
             yield SystemPromptSection("tool_failure_policy", render_runtime_prompt("stream.tool_failure_policy"))
         if "web_search" in resolution.external_tool_names:
             yield SystemPromptSection(TOOL_USAGE_CONTRACT, get_tool_usage_contract_prompt())
+        if call_config.evidence_policy == "verified_web_v1":
+            yield SystemPromptSection(VERIFIED_WEB_EVIDENCE, render_runtime_prompt("stream.verified_web_evidence"))
         if resolution.effective_plan_mode != "off":
             yield SystemPromptSection(
                 AGENT_PLAN_CONTROL,

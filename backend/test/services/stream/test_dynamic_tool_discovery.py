@@ -1060,6 +1060,129 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("十二点", saved)
         self.assertNotEqual(saved, NO_EVIDENCE_ANSWER_TEXT)
 
+    async def test_verified_source_request_needs_read_body_and_matching_citation(self):
+        message = "请核验这条消息，给出可靠来源"
+        cases = (
+            ("no_tool", [], "消息属实。[1]", False),
+            (
+                "search_only",
+                [
+                    [_tool_call("v1", TOOL_SEARCH_NAME, {"query": "select:web_search"})],
+                    [_tool_call("v2", "web_search", {"query": "消息"})],
+                ],
+                "消息属实。[1]",
+                False,
+            ),
+            (
+                "empty_read",
+                [
+                    [_tool_call("v1", TOOL_SEARCH_NAME, {"query": "select:web_search,url_read"})],
+                    [_tool_call("v2", "web_search", {"query": "消息"})],
+                    [_tool_call("v3", "url_read", {"url": "https://example.test/hangzhou-weather"})],
+                ],
+                "消息属实。[1]",
+                False,
+            ),
+            (
+                "wrong_citation",
+                [
+                    [_tool_call("v1", TOOL_SEARCH_NAME, {"query": "select:web_search,url_read"})],
+                    [_tool_call("v2", "web_search", {"query": "消息"})],
+                    [_tool_call("v3", "url_read", {"url": "https://example.test/hangzhou-weather"})],
+                ],
+                "消息属实。[2] [99]",
+                False,
+            ),
+            (
+                "valid",
+                [
+                    [_tool_call("v1", TOOL_SEARCH_NAME, {"query": "select:web_search,url_read"})],
+                    [_tool_call("v2", "web_search", {"query": "消息"})],
+                    [_tool_call("v3", "url_read", {"url": "https://example.test/hangzhou-weather"})],
+                ],
+                "合成正文已读取。[1]",
+                True,
+            ),
+        )
+        for label, tool_rounds, candidate, should_pass in cases:
+            with self.subTest(label=label):
+                playback = {"url_read": {"scenario": "empty"}} if label == "empty_read" else None
+                config, _handlers, _shared, classifier_calls = _discovery_config(message=message, playback=playback)
+                self.assertEqual(classifier_calls, [])
+                self.assertEqual(config.evidence_policy, "verified_web_v1")
+                self.assertFalse(config.discovery_experiment.requires_catalog_evidence)
+                delivered = await _run_delivery(
+                    config=config,
+                    script=ScriptedRounds([*tool_rounds, {"stop": True, "content": candidate}]),
+                    run_id=f"run-verified-{label}",
+                    messages=[{"role": "user", "content": message}],
+                )
+                saved = _text_from_blocks(delivered.store.saves[-1])
+                self.assertEqual(_answering_texts(delivered.chunks)[-1], saved)
+                if should_pass:
+                    self.assertEqual(
+                        saved,
+                        candidate,
+                        (
+                            delivered.execution.state.research_workset.sources,
+                            delivered.execution.state.research_workset.successful_read_urls,
+                            delivered.execution.state.recovery_evidence.source_keys,
+                        ),
+                    )
+                else:
+                    self.assertNotIn("消息属实", saved)
+                    self.assertNotIn("[99]", saved)
+
+    async def test_verified_source_limit_summary_is_guarded(self):
+        message = "请核验这条消息，给出可靠来源"
+        config, _handlers, _shared, _calls = _discovery_config(message=message)
+        delivered = await _run_delivery(
+            config=config,
+            script=ScriptedRounds(
+                [
+                    [_tool_call("s1", TOOL_SEARCH_NAME, {"query": "select:web_search"})],
+                    [_tool_call("s2", "web_search", {"query": "消息"})],
+                ]
+            ),
+            run_id="run-verified-summary",
+            messages=[{"role": "user", "content": message}],
+            use_real_summary=True,
+            summary_content="消息属实。[1]",
+            limits=AgentLoopLimits(max_steps=2, max_tool_calls=20, total_timeout_s=300),
+        )
+        saved = _text_from_blocks(delivered.store.saves[-1])
+        self.assertEqual(_answering_texts(delivered.chunks)[-1], saved)
+        self.assertNotIn("消息属实", saved)
+
+    async def test_verified_source_limit_summary_accepts_read_citation(self):
+        message = "请核验这条消息，给出可靠来源"
+        config, _handlers, _shared, _calls = _discovery_config(message=message)
+        candidate = "合成正文已读取。[1]"
+        delivered = await _run_delivery(
+            config=config,
+            script=ScriptedRounds(
+                [
+                    [_tool_call("s1", TOOL_SEARCH_NAME, {"query": "select:web_search,url_read"})],
+                    [_tool_call("s2", "web_search", {"query": "消息"})],
+                    [_tool_call("s3", "url_read", {"url": "https://example.test/hangzhou-weather"})],
+                ]
+            ),
+            run_id="run-verified-summary-read",
+            messages=[{"role": "user", "content": message}],
+            use_real_summary=True,
+            summary_content=candidate,
+            limits=AgentLoopLimits(max_steps=3, max_tool_calls=20, total_timeout_s=300),
+        )
+        self.assertEqual(_text_from_blocks(delivered.store.saves[-1]), candidate)
+        self.assertEqual(_answering_texts(delivered.chunks)[-1], candidate)
+        self.assertIn("evidence_item_upserted", delivered.emitter.calls)
+
+    def test_verified_source_signal_does_not_cover_general_verification(self):
+        for message in ("早上好", "帮我验证这个数学假设", "请交叉验证这个模型的准确率"):
+            with self.subTest(message=message):
+                config, _handlers, _shared, _calls = _discovery_config(message=message)
+                self.assertEqual(config.evidence_policy, "standard")
+
     def _assert_no_fabricated_facts(self, *parts: str):
         visible = "\n".join(parts)
         self.assertNotIn("G7301", visible)
