@@ -238,12 +238,16 @@ def remove_conflicting_tool_usage_contract(
     *,
     task_mode: str = "standard",
     final_synthesis: bool = False,
+    preserve_web_tool_context: bool = False,
 ) -> None:
     """收尾总结移除会继续诱发工具协议的旧契约与事务历史。"""
 
     del final_synthesis  # 终局总结统一清理控制契约，不再按结束原因分叉。
     normalized = ensure_prompt_messages(messages)
-    strip_tool_transactions = task_mode == "deep_research" or _only_recoverable_tool_transactions(messages)
+    # 查证总结要保留已格式化的读页正文，并保持 assistant/tool 消息成对。
+    strip_tool_transactions = task_mode == "deep_research" or (
+        not preserve_web_tool_context and _only_recoverable_tool_transactions(messages)
+    )
     filtered: list[PromptMessage] = []
     for message in normalized:
         role = message.role
@@ -988,6 +992,10 @@ async def run_limit_summary_step(
         request.messages,
         task_mode=request.task_mode,
         final_synthesis=True,
+        preserve_web_tool_context=(
+            request.evidence_policy == "verified_web_v1"
+            or getattr(request.capability_resolution, "package_id", None) == "verified_web"
+        ),
     )
     append_limit_summary_prompt(
         request.messages,

@@ -524,6 +524,87 @@ class LimitSummaryHelpersTests(unittest.TestCase):
 
 
 class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
+    async def test_verified_web_summary_keeps_read_body_for_final_model(self):
+        read_body = "[1] <web_context>## Description\nCOMMIT commits the current transaction.</web_context>"
+        for evidence_policy, capability_resolution in (
+            ("standard", SimpleNamespace(package_id="verified_web")),
+            ("verified_web_v1", None),
+        ):
+            with self.subTest(evidence_policy=evidence_policy):
+                messages = [
+                    PromptMessage(role="system", content="先调用网页工具", section_id="skill:verified_research"),
+                    PromptMessage(role="user", content="请核验 COMMIT 的说明"),
+                    PromptMessage(
+                        role="assistant",
+                        content="",
+                        provider_fields={
+                            "tool_calls": [
+                                {
+                                    "id": "call-read",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "url_read",
+                                        "arguments": '{"url":"https://example.com/commit"}',
+                                    },
+                                }
+                            ]
+                        },
+                    ),
+                    PromptMessage(role="tool", content=read_body, provider_fields={"tool_call_id": "call-read"}),
+                ]
+                request = LimitSummaryStepRequest(
+                    conversation_id="conv-verified",
+                    task_id="task-verified",
+                    run_id="run-verified",
+                    step_number=2,
+                    model_id="gpt-4",
+                    provider="openai",
+                    litellm_model="openai/gpt-4",
+                    litellm_kwargs={},
+                    messages=messages,
+                    should_use_reasoning=False,
+                    content_blocks=[],
+                    call_kwargs={},
+                    accumulated_usage=Usage(input_tokens=0, output_tokens=0),
+                    emitter=AsyncMock(),
+                    session_cache=object(),
+                    total_timeout_s=300,
+                    run_start=100.0,
+                    start_step_fn=AsyncMock(),
+                    complete_step_fn=AsyncMock(),
+                    llm_call_fn=AsyncMock(),
+                    stream_round_fn=AsyncMock(),
+                    log_round_summary_fn=lambda **_kwargs: None,
+                    clock=lambda: 120.0,
+                    evidence_policy=evidence_policy,
+                    capability_resolution=capability_resolution,
+                )
+                summary_context = SimpleNamespace(thinking_block_id="thinking", text_block_id="text")
+                round_result = limit_summary_module.LimitSummaryRoundResult(
+                    reasoning_buf="", content_buf="", usage_data=None
+                )
+                with (
+                    patch.object(
+                        limit_summary_module, "start_limit_summary_step", new=AsyncMock(return_value=summary_context)
+                    ),
+                    patch.object(
+                        limit_summary_module, "run_summary_round_with_timeout", new=AsyncMock(return_value=round_result)
+                    ),
+                    patch.object(
+                        limit_summary_module, "_commit_limit_summary_result", new=AsyncMock(return_value=False)
+                    ),
+                    patch.object(limit_summary_module, "_finish_summary_round_lifecycle", new=AsyncMock()),
+                    patch.object(limit_summary_module, "complete_limit_summary_step", new=AsyncMock()),
+                ):
+                    await run_limit_summary_step(request=request)
+
+                self.assertIn(read_body, [message.content for message in request.messages])
+                self.assertEqual(
+                    [message.get("tool_call_id") for message in request.messages if message.role == "tool"],
+                    ["call-read"],
+                )
+                self.assertNotIn("先调用网页工具", [message.content for message in request.messages])
+
     @staticmethod
     def _deferred_commit_request() -> LimitSummaryStepRequest:
         return LimitSummaryStepRequest(
