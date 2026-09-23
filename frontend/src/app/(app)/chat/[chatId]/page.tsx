@@ -881,7 +881,11 @@ export default function ChatPage() {
         recoveryStopPendingRef.current = null;
         const stillOwned = stillOwnsStoppedStream();
         if (stillOwned) {
-          if (terminalStatus && stoppedRunId) clearStopOutcomeNotice(chatId, stoppedRunId);
+          if (terminalStatus && stoppedRunId) {
+            clearStopOutcomeNotice(chatId, stoppedRunId);
+            setStopOutcomeNotice(current => current?.conversationId === chatId && current.runId === stoppedRunId
+              ? null : current);
+          }
           const run = selectStreamSlot(store.getState() as { stream: StreamState }, chatId).currentRun;
           if (terminalStatus && !isRetryRecovery && stoppedRunId && run?.runId === stoppedRunId && run.status === 'running') {
             dispatch(finalizeRun({ conversationId: chatId, runId: stoppedRunId, status: terminalStatus, reason: terminalStatus === 'interrupted' ? 'user_cancelled' : undefined, sequence: run.lastSequence + 1 }));
