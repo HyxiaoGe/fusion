@@ -46,7 +46,7 @@ import {
   reconnectStream,
   sendMessageStream,
 } from '@/lib/api/chat';
-import { getTrajectorySnapshot } from '@/lib/api/trajectory';
+import { verifyStoppedRun } from '@/lib/chat/stopVerification';
 import type { AgentRunState, AgentRunStatus } from '@/types/agentRun';
 import type { StreamCallbacks } from '@/lib/api/chat';
 import { runResumableStream } from '@/lib/api/resumableStream';
@@ -599,22 +599,7 @@ export function useSendMessage(activeConversationId?: string | null) {
       // 或另一个 message 的终态当作这次停止结果；整个核实过程有独立上限。
       let terminalStatus: Exclude<AgentRunStatus, 'running'> | null = stopConfirmed ? 'interrupted' : null;
       if (!terminalStatus && remoteConvId && effectiveStoppedRunId && isStopSessionCurrent()) {
-        const verification = new AbortController();
-        const deadline = setTimeout(() => verification.abort(), 5000);
-        try {
-          for (let attempt = 0; attempt < 2 && isStopSessionCurrent(); attempt += 1) {
-            if (attempt) await waitForStopRetry(INTERRUPTED_HYDRATION_RETRY_MS, verification.signal);
-            const snapshot = await getTrajectorySnapshot(remoteConvId, effectiveStoppedRunId, verification.signal);
-            const summary = snapshot.run;
-            if (summary.run_id !== effectiveStoppedRunId || (remoteMsgId && summary.message_id !== remoteMsgId)) break;
-            const observed = (['interrupted', 'completed', 'failed', 'incomplete', 'limit_reached'] as const).find(status => status === summary.status);
-            if (observed) { terminalStatus = observed; break; }
-          }
-        } catch {
-          // 查不到不等于仍在运行，更不等于已取消；下面保留明确的未确认状态。
-        } finally {
-          clearTimeout(deadline);
-        }
+        terminalStatus = await verifyStoppedRun(remoteConvId, effectiveStoppedRunId, remoteMsgId, isStopSessionCurrent);
       }
       if (!isStopSessionCurrent()) return;
       if (!terminalStatus && teardownConvId && effectiveStoppedRunId) {
