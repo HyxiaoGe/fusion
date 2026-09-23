@@ -4,6 +4,7 @@ import pytest
 
 from app.services.stream import run_capability_request_signals as signals
 from app.services.stream.dynamic_tool_discovery import resolve_discovery_network_denials
+from app.services.stream.run_capability_router import _classify_literal_layer
 
 _COMPOUNDS = ("分别", "个别", "特别", "区别", "差别", "性别", "级别", "辨别", "识别")
 _ACTIONS = ("打开", "读取", "阅读", "访问", "浏览", "搜索")
@@ -82,6 +83,15 @@ def test_every_denial_pattern_has_a_word_boundary(pattern, ordinary: str, prohib
 
 def test_search_object_retains_the_compound_word() -> None:
     assert "分别" in signals._extract_web_request_object("分别搜索这两个关键词")
+
+
+def test_explicit_urls_keep_the_legacy_reader_and_discovery_authorization() -> None:
+    message = "请分别打开 https://example.com/ 和 https://httpbin.org/html，并分别说明页面内容。"
+    request = signals._extract_request_signals(message)
+    route = _classify_literal_layer(request, ["web_search", "url_read"])
+    assert route is not None and route.package_id == "url_read"
+    assert request.url_read_request is True
+    assert resolve_discovery_network_denials(message) == (False, False, False)
 
 
 @pytest.mark.parametrize(
