@@ -117,13 +117,34 @@ _POSITIVE_WEB_SEARCH_ACTION_RE = re.compile(
 )
 
 
+# 只在句首、分隔符后或封闭的祈使前缀后，把「别」识别为命令否定。
+_STANDALONE_BIE = (
+    r"(?:^|(?<=\W)|(?<=[你您请先可就也我但])|"
+    r"(?<=千万)|(?<=最好)|(?<=还是)|(?<=暂时)|"
+    r"(?<=我们)|(?<=咱们)|(?<=你们)|(?<=大家)|(?<=麻烦)|"
+    r"(?<=这次)|(?<=本次)|(?<=现在)|(?<=暂且)|(?<=帮我)|"
+    r"(?<=能不能)|(?<=可不可以)|(?<=拜托)|(?<=务必)|(?<=尽量)|"
+    r"(?<=不过)|(?<=但是))别"
+)
+_CHINESE_NEGATION_PREFIX = rf"(?:不要|不用|无需|不需要|不必|{_STANDALONE_BIE}|请勿|禁止|严禁|不得|不可)"
+# 工具名分支保留原有否定词范围，避免边界修复顺带扩大硬禁用。
+_CHINESE_TOOL_NEGATION_PREFIX = rf"(?:不要|不用|{_STANDALONE_BIE}|请勿|禁止|严禁|不得|不可)"
+_CHINESE_TOOL_DENIAL_ACTION = (
+    r"(?:再|再次|去|进行)?\s*"
+    r"(?:(?:在|于)(?:本次|此次|这次|当前|本轮|这个)?"
+    r"(?:任务|请求|回答|回复|对话|轮次)?(?:中|里|内)?|"
+    r"(?:让|使)(?:模型|助手|系统)|把|将)?\s*"
+    r"(?:调用|使用|用|运行|执行|启用|选用)?\s*"
+)
+
+
 _NEGATED_ALL_NETWORK_RE = re.compile(
-    r"(?:不要|不用|无需|不需要|不必|别|请勿|禁止|严禁|不得|不可)(?:再)?\s*"
+    rf"{_CHINESE_NEGATION_PREFIX}(?:再)?\s*"
     r"(?:在|于)\s*(?:本次|此次|当前|目前|这个|该|本轮|这次|本条|这条|本|整个)"
     r"(?:请求|任务|问题|对话|轮次|消息|回答|回复|答复|响应|查询)"
     r"(?:中|里|内|范围内|期间)?\s*"
     r"(?:联网|上网|互联网|使用网络|用网络|接入网络|访问(?:互联网|网络)|连接(?:互联网|网络))|"
-    r"(?:不要|不用|无需|不需要|不必|别|请勿|禁止|严禁|不得|不可)(?:再|去|进行|使用)?\s*"
+    rf"{_CHINESE_NEGATION_PREFIX}(?:再|去|进行|使用)?\s*"
     r"(?:联网|上网|互联网|使用网络|用网络|接入网络|访问(?:互联网|网络)|连接(?:互联网|网络))"
     r"(?!\s*(?:搜索|检索|查))|"
     r"(?:在|处于)?不联网(?:的情况下|时)?|"
@@ -151,11 +172,11 @@ _NEGATED_ALL_NETWORK_RE = re.compile(
 
 
 _NEGATED_WEB_SEARCH_RE = re.compile(
-    r"(?:不要|不用|无需|不需要|不必|别|请勿|禁止|严禁|不得|不可)(?:再|去|进行|使用)?\s*"
+    rf"{_CHINESE_NEGATION_PREFIX}(?:再|去|进行|使用)?\s*"
     r"(?:联网|上网|网上)\s*(?:搜索|检索|查询|查找|查)|"
-    r"(?:不要|不用|无需|不需要|不必|别|请勿|禁止|严禁|不得|不可)(?:再|去|进行|使用)?\s*"
+    rf"{_CHINESE_NEGATION_PREFIX}(?:再|去|进行|使用)?\s*"
     r"(?:搜索|检索|查找|查(?!询|找))|"
-    r"(?:不要|不用|无需|不需要|不必|别|请勿|禁止|严禁|不得|不可)(?:再|去|进行|使用)?\s*"
+    rf"{_CHINESE_NEGATION_PREFIX}(?:再|去|进行|使用)?\s*"
     r"查询|"
     r"\b(?:do not|don['’]t|dont|never|without)\s+"
     r"(?:search(?:ing)?(?: the)? web|look(?:ing)? up|find(?:ing)? online|"
@@ -170,7 +191,7 @@ _NEGATED_WEB_SEARCH_RE = re.compile(
 
 
 _NEGATED_URL_READ_RE = re.compile(
-    r"(?:不要|不用|无需|不需要|不必|别|请勿|禁止|严禁|不得|不可)(?:再|去|进行|使用)?\s*"
+    rf"{_CHINESE_NEGATION_PREFIX}(?:再|去|进行|使用)?\s*"
     r"(?:打开|读取|阅读|访问|浏览)(?:网页|网站|页面|链接|url)?|"
     r"\b(?:do not|don['’]t|dont|never|without)\s+"
     r"(?:open(?:ing)?|read(?:ing)?|access(?:ing)?|brows(?:e|ing))\b|"
@@ -181,7 +202,7 @@ _NEGATED_URL_READ_RE = re.compile(
 
 
 _NEGATED_VERIFIED_WEB_RE = re.compile(
-    r"(?:不要|不用|无需|不需要|不必|别|请勿|禁止|严禁|不得|不可)(?:再|去|进行)?\s*"
+    rf"{_CHINESE_NEGATION_PREFIX}(?:再|去|进行)?\s*"
     r"(?:查证|核验|验证|交叉验证)[^，,。；;]*|"
     r"\b(?:do not|don['’]t|dont|never|without)\s+"
     r"(?:verify|verifying|fact[- ]check(?:ing)?|cross[- ]check(?:ing)?)\b[^,.;!?]*|"
@@ -212,7 +233,7 @@ _IN_DOCUMENT_SEARCH_RE = re.compile(
 
 
 _NEGATED_WEB_TOOL_NAME_RE = re.compile(
-    r"(?:不要|不用|别|请勿|禁止|严禁|不得|不可).{0,16}?\bweb_search\b|"
+    rf"{_CHINESE_TOOL_NEGATION_PREFIX}{_CHINESE_TOOL_DENIAL_ACTION}\bweb_search\b|"
     r"\b(?:do not|don['’]t|dont|never)\s+(?:call|use|invoke|run|execute)\s+"
     r"(?:the\s+)?(?:tool\s+)?web_search\b(?:\s+tool\b)?|"
     r"\b(?:without|avoid(?:ing)?|refrain\s+from|skip(?:ping)?)\s+"
@@ -223,7 +244,7 @@ _NEGATED_WEB_TOOL_NAME_RE = re.compile(
 
 
 _NEGATED_URL_TOOL_NAME_RE = re.compile(
-    r"(?:不要|不用|别|请勿|禁止|严禁|不得|不可).{0,16}?\burl_read\b|"
+    rf"{_CHINESE_TOOL_NEGATION_PREFIX}{_CHINESE_TOOL_DENIAL_ACTION}\burl_read\b|"
     r"\b(?:do not|don['’]t|dont|never)\s+(?:call|use|invoke|run|execute)\s+"
     r"(?:the\s+)?(?:tool\s+)?url_read\b(?:\s+tool\b)?|"
     r"\b(?:without|avoid(?:ing)?|refrain\s+from|skip(?:ping)?)\s+"
@@ -560,7 +581,7 @@ def _extract_web_request_object(clause: str) -> str:
     )
     normalized = re.sub(r"(?:调用|使用|运行|执行)\s*(?:web_search|url_read)", " ", normalized)
     normalized = re.sub(
-        r"(?:不要|不用|无需|不需要|不必|别|请勿|禁止|严禁|不得|不可|请|帮我|要|再|随后)",
+        rf"(?:{_CHINESE_NEGATION_PREFIX}|请|帮我|要|再|随后)",
         " ",
         normalized,
     )
