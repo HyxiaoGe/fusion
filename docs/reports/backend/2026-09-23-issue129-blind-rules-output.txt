@@ -1,0 +1,63 @@
+MISS travel-01      clarification_only   [-]  周末想去趟苏州，从上海出发怎么最方便？
+MISS travel-02      clarification_only   [-]  我在望京，晚上要去国贸吃饭，打车还是地铁快
+MISS travel-03      clarification_only   [-]  下周三去成都出差，帮我看看机票
+MISS travel-04      clarification_only   [-]  元旦想带孩子去哈尔滨看冰灯，从广州过去怎么走比较好
+MISS travel-05      clarification_only   [-]  明天早上八点前得到浦东机场，我住在莘庄
+MISS travel-06      clarification_only   [-]  杭州东站到西湖打车大概多久
+OK  travel-07      clarification_only   [-]  从公司到家开车要多久
+OK  travel-08      clarification_only   [-]  去趟三亚
+MISS travel-09      clarification_only   [-]  北京到天津城际多少钱
+MISS travel-10      clarification_only   [-]  我想知道从深圳北到香港西九龙的高铁班次
+MISS weather-01     clarification_only   [-]  明天要不要带伞
+MISS weather-02     clarification_only   [-]  这周末杭州冷不冷，要穿羽绒服吗
+MISS weather-03     clarification_only   [-]  上海今天空气质量怎么样
+OK  place-01       place_discovery      [web_search,url_read,local_place_search]  附近有什么好吃的川菜馆
+MISS place-02       clarification_only   [-]  帮我找个安静点能办公的咖啡店
+OK  direct-01      direct               [-]  你好呀
+MISS direct-02      clarification_only   [-]  你是什么模型
+OK  direct-03      direct               [-]  为什么天是蓝的
+MISS direct-04      clarification_only   [-]  1 加到 100 等于多少
+OK  transform-01   transform            [-]  帮我把这句话翻译成英文：今天心情不错
+MISS transform-02   clarification_only   [-]  把下面这段改得正式一点：兄弟这活儿我干不了
+MISS web-01         clarification_only   [-]  最近 OpenAI 有什么新动静
+OK  web-02         url_read             [web_search,url_read]  帮我看看 https://example.com/post 这篇讲了啥
+MISS web-03         clarification_only   [-]  今天股市怎么样
+MISS web-04         clarification_only   [-]  2026 年了，现在最好的开源大模型是哪个
+OK  abstract-01    clarification_only   [-]  我们产品从内测到公测怎么推进比较稳
+OK  abstract-02    clarification_only   [-]  从校招生到独当一面一般要多久
+OK  abstract-03    clarification_only   [-]  怎么从月活十万做到一百万
+OK  abstract-04    clarification_only   [-]  从想法到上线中间有哪些坑
+OK  abstract-05    clarification_only   [-]  公司从 A 轮到 B 轮一般要准备什么
+MISS boundary-01    clarification_only   [-]  北京和上海哪个更适合年轻人发展
+OK  boundary-02    transform            [-]  帮我把「从北京到上海」翻译成日语
+OK  boundary-03    direct               [-]  介绍一下杭州这座城市
+MISS identity-01    clarification_only   [-]  可以先告诉我你是谁吗？
+MISS identity-02    clarification_only   [-]  麻烦你介绍一下自己吧，我还没用过这个助手。
+MISS identity-03    clarification_only   [-]  你是哪个团队做出来的呀？
+MISS identity-04    clarification_only   [-]  你觉得我适合做什么？ layer=model_deferred expected_layer=model layer_check=OK（仅字面委派，未调用模型）
+MISS identity-05    clarification_only   [-]  你能告诉我怎么介绍自己才不尴尬吗？ layer=model_deferred expected_layer=model layer_check=OK（仅字面委派，未调用模型）
+MISS mcp_alias-01   clarification_only   [-]  这次请用 mcp_notion_search。
+MISS mcp_alias-02   clarification_only   [-]  麻烦调用一下 mcp_calendar_list_events。
+OK  mcp_alias-03   verified_web         [web_search,url_read]  用 mcp_notion_search 找一下周报，再查证里面提到的融资消息是不是真的。
+OK  mcp_alias-04   weather              [web_search,url_read,weather_forecast]  先调用 mcp_calendar_list_events，然后查一下明天杭州会不会下雨。
+MISS verify_verb-01 clarification_only   [-]  一个功能从试用走到正式收费，定价前应该验证什么？
+MISS verify_verb-02 clarification_only   [-]  设计用户访谈时，怎么核验大家是不是真的愿意付钱？
+OK  verify_verb-03 verified_web         [web_search,url_read]  群里有人说喝盐水能治感冒，帮我查证一下这个说法靠谱吗？
+OK  verify_verb-04 verified_web         [web_search,url_read]  听说欧盟已经全面禁止开源大模型了，能帮我验证一下这条消息吗？
+MISS verify_verb-05 clarification_only   [-]  网上说这家公司要裁员，帮我查证一下是不是真的 layer=model_deferred expected_layer=model layer_check=OK（仅字面委派，未调用模型）
+
+类别               通过     总数      覆盖率
+------------------------------------
+abstract          5      5     100%
+boundary          2      3      67%
+direct            2      4      50%
+identity          0      5       0%
+mcp_alias         2      4      50%
+place             1      2      50%
+transform         1      2      50%
+travel            2     10      20%
+verify_verb       2      5      40%
+weather           0      3       0%
+web               1      4      25%
+------------------------------------
+合计               18     47      38%
