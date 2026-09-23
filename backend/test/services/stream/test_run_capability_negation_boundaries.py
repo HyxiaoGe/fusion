@@ -7,6 +7,26 @@ from app.services.stream.dynamic_tool_discovery import resolve_discovery_network
 from app.services.stream.run_capability_router import _classify_literal_layer
 
 _COMPOUNDS = ("分别", "个别", "特别", "区别", "差别", "性别", "级别", "辨别", "识别")
+_X_BIE_COMPOUNDS = (
+    "组别",
+    "职别",
+    "届别",
+    "派别",
+    "界别",
+    "科别",
+    "班别",
+    "岗别",
+    "系别",
+    "行别",
+    "列别",
+    "层别",
+    "栏别",
+    "批别",
+    "款别",
+    "段别",
+    "院别",
+    "户别",
+)
 _ACTIONS = ("打开", "读取", "阅读", "访问", "浏览", "搜索")
 _DENIALS = (
     ("别打开那个链接", (False, True, False)),
@@ -21,6 +41,17 @@ _DENIALS = (
     ("请勿在本次任务中调用 url_read", (False, True, False)),
     ("禁止让模型调用 web_search", (True, False, False)),
     ("严禁再次使用 url_read", (False, True, False)),
+    ("你别打开这个网页", (False, True, False)),
+    ("千万别搜索", (True, False, False)),
+    ("最好别访问那个站点", (False, True, False)),
+    ("请别读取网页", (False, True, False)),
+    ("先别联网", (True, True, True)),
+    ("就别查了", (True, False, False)),
+    ("我们别打开这个网页", (False, True, False)),
+    ("大家别搜索", (True, False, False)),
+    ("麻烦别访问这个站点", (False, True, False)),
+    ("这次别联网", (True, True, True)),
+    ("请帮我别读取网页", (False, True, False)),
 )
 
 
@@ -28,6 +59,16 @@ _DENIALS = (
 @pytest.mark.parametrize("action", _ACTIONS)
 def test_common_compound_words_do_not_revoke_network_tools(compound: str, action: str) -> None:
     message = f"请{compound}{action}这两项"
+    request = signals._extract_request_signals(message)
+    expected = (False, False, False)
+    assert (request.web_search_denied, request.url_read_denied, request.all_network_denied) == expected
+    assert resolve_discovery_network_denials(message) == expected
+
+
+@pytest.mark.parametrize("compound", _X_BIE_COMPOUNDS)
+@pytest.mark.parametrize("action", _ACTIONS)
+def test_unlisted_x_bie_compounds_do_not_revoke_network_tools(compound: str, action: str) -> None:
+    message = f"请按{compound}{action}这两项"
     request = signals._extract_request_signals(message)
     expected = (False, False, False)
     assert (request.web_search_denied, request.url_read_denied, request.all_network_denied) == expected
@@ -50,6 +91,12 @@ def test_common_compound_words_do_not_revoke_network_tools(compound: str, action
         "特别搜索最新消息",
         "请逐一打开这两个链接",
         "请依次阅读这两页",
+        "请按组别搜索这两个班级",
+        "请按职别查询人员名单",
+        "请按届别搜索校友",
+        "请按派别打开这两个页面",
+        "按界别访问对应页面",
+        "请按科别搜索资料",
     ),
 )
 def test_issue_examples_keep_both_paths_authorized(message: str) -> None:
@@ -63,6 +110,49 @@ def test_explicit_network_denials_still_apply_to_both_paths(message: str, expect
     request = signals._extract_request_signals(message)
     assert (request.web_search_denied, request.url_read_denied, request.all_network_denied) == expected
     assert resolve_discovery_network_denials(message) == expected
+
+
+@pytest.mark.parametrize(
+    "message",
+    (
+        "别搜索",
+        "请，别搜索",
+        "请 别搜索",
+        "你别搜索",
+        "您别搜索",
+        "请别搜索",
+        "先别搜索",
+        "千万别搜索",
+        "最好别搜索",
+        "可别搜索",
+        "就别搜索",
+        "也别搜索",
+        "还是别搜索",
+        "暂时别搜索",
+        "我们别搜索",
+        "咱们别搜索",
+        "你们别搜索",
+        "大家别搜索",
+        "麻烦别搜索",
+        "这次别搜索",
+        "本次别搜索",
+        "现在别搜索",
+        "暂且别搜索",
+        "请帮我别搜索",
+        "能不能别搜索",
+        "可不可以别搜索",
+        "拜托别搜索",
+        "务必别搜索",
+        "尽量别搜索",
+        "但别搜索",
+        "不过别搜索",
+        "但是别搜索",
+    ),
+)
+def test_standalone_bie_whitelist_preserves_explicit_search_denial(message: str) -> None:
+    request = signals._extract_request_signals(message)
+    assert request.web_search_denied is True
+    assert resolve_discovery_network_denials(message)[0] is True
 
 
 @pytest.mark.parametrize(
