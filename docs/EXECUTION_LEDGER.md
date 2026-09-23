@@ -343,3 +343,9 @@ AGENTS/CLAUDE 收敛到当前单仓约定，开发与发布技能迁入仓库，
 - 更正上轮工具账本口径：原查询只覆盖完成侧事件；重新读取原 PostgreSQL Run 的全部 69 条连续事件，只有一次 `web_search` 的 started，没有 `url_read` started。最终回答原文称两次抓取无内容，确认这条工具事实自述与事件不符。
 - 同一 dev、同一登录态 Chrome 标签重复两次 403 读页：目标 `url_read` 两次均 started 且降级，回答均准确描述目标失败及辅助搜索／首页读取；没有在这 2 次复现虚构调用。同一 PostgreSQL 原句成对走显式动态发现和普通旧路径，各 1 次，两者均实际读取 COMMIT／ROLLBACK 原文并给出来源回答。
 - 发现路径这次的 `requires_catalog_evidence=false`、`evidence_policy=standard`；代码也把实验适配器的该标志固定为 false。因此配对成功不能证明门禁能阻止工具事实编造，更不能据此切换默认入口。没有修改产品代码或阈值。详见[第二轮回归报告](reports/backend/2026-09-23-second-round-tool-claim-regression.md)。
+
+## 2026-09-23 Issue #127 来源证据补口与配对回归（待发布）
+
+- 代码定位：发现路径的 `requires_catalog_evidence` 仍固定为 false；既有 `verified_web_v1` 可用实际 `url_read` 正文和引用约束交付，但“官方文档”未触发该策略。本地只扩充该明确来源信号，并加入原 PostgreSQL 编造反例、部分成功及全成功测试；不改默认入口、旧 Skill 或产品答案校验器。
+- 同一 dev 的完整 `agent_events` 与页面配对：两条 `.invalid` 全失败、COMMIT 成功加另一页失败两组，发现与旧路径均有对应 started／完成事件，未对失败页给原文结论；旧路径另复现 COMMIT 未 started 却宣称两页均已直接读取。全成功目标页只取得单臂成功，另一臂遇到真实抓取降级；补测还有一次模型生成错误，因此尚无两臂全成功且来源映射清楚的配对证明。
+- #107 原句同轮配对：发现路径天气工具成功但漏答身份，旧路径答身份却未调用天气工具且误写“北京 7 月”；#107 不关闭。本分支尚未合并或部署，真实样本运行的是旧代码。逐 Run、序号、页面原文、失败分类和本地检查见[详细报告](reports/backend/2026-09-23-issue127-source-evidence-regression.md)。
