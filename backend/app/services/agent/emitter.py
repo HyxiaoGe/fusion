@@ -9,6 +9,8 @@ from typing import Any, Protocol
 
 from app.services.agent import events as ev
 from app.services.agent.sanitizer import cap_and_truncate, sanitize_arguments
+from app.services.agent.trajectory_payload import is_cancellation_terminal_event
+from app.services.stream_state_service import StreamOwnershipLostError
 
 # Sentinel 用于 _envelope 区分"未传 step_id（用 current）"vs"显式传 None"
 _USE_CURRENT_STEP = object()
@@ -83,7 +85,13 @@ class AgentEventEmitter:
             if max_payload_bytes is not None and len(event.model_dump_json().encode("utf-8")) > max_payload_bytes:
                 raise ValueError("agent_event 超过允许的体积上限")
             self._sequence += 1
-            await self._writer.append_chunk(self._conv_id, self._task_id, "agent_event", payload)
+            try:
+                await self._writer.append_chunk(self._conv_id, self._task_id, "agent_event", payload)
+            except StreamOwnershipLostError:
+                # Redis 明确拒绝了普通事件；取消终态可能已由账本旁路保存，须保留其序号。
+                if not is_cancellation_terminal_event(payload):
+                    self._sequence -= 1
+                raise
 
     async def seal_and_get_last_sequence(self) -> int:
         """封口当前 emitter，并返回最后已预留的序号。"""
