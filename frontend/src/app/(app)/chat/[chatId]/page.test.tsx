@@ -1476,6 +1476,70 @@ describe('ChatPage 会话切换体验', () => {
     expect(dispatchMock).toHaveBeenCalledWith({ type: 'stream/endStream', payload: { conversationId: 'chat-a', messageId: 'assistant-1' } });
   });
 
+  it.each(['interrupted', 'unconfirmed'] as const)('恢复流先结束且停止 HTTP 超时：%s 仍收口原 Run', async (outcome) => {
+    const run: AgentRunState = {
+      runId: 'run-1', messageId: 'assistant-1', status: 'running',
+      config: { maxSteps: 4, maxToolCalls: 8, timeoutS: 120 },
+      totalSteps: 1, totalToolCalls: 0, steps: [], lastSequence: 3,
+    };
+    conversationsById.set('chat-a', createConversation('chat-a', [
+      textMessage('user-1'), { ...textMessage('assistant-1'), role: 'assistant', agent_run: run },
+    ]));
+    hydrationById.set('chat-a', { view: 'ready' });
+    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1', task_id: 'task-1' });
+    Object.assign(storeStreamState, { isStreaming: true, conversationId: 'chat-a', messageId: 'assistant-1', currentRun: run });
+    saveStopOutcomeNotice({
+      authIdentity: 'user-a', conversationId: 'chat-a', runId: 'run-1',
+      messageId: 'assistant-1', requestedAt: Date.now(), terminalStatus: null,
+    });
+    getStopSnapshotMock.mockResolvedValue({ run: { run_id: 'run-1', message_id: 'assistant-1', status: 'running' } });
+    let recoveryCallbacks: any;
+    reconnectStreamMock.mockImplementation((_chatId, _cursor, callbacks) => {
+      recoveryCallbacks = callbacks;
+      return new Promise(() => {});
+    });
+    stopRecoveredStreamMock.mockImplementationOnce(() => new Promise(() => {}));
+
+    const view = render(<ChatPage />);
+    await waitFor(() => expect(reconnectStreamMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(getStopSnapshotMock).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('停止结果仍未确认，后台可能仍在运行。请稍后查看轨迹核实。')).toBeInTheDocument();
+    if (outcome === 'interrupted') {
+      getStopSnapshotMock.mockResolvedValue({ run: { run_id: 'run-1', message_id: 'assistant-1', status: 'interrupted' } });
+    } else {
+      getStopSnapshotMock.mockImplementation(() => new Promise(() => {}));
+    }
+    const controller = getStreamController('chat-a')!.controller;
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByRole('button', { name: '停止生成' }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      recoveryCallbacks.onError('用户中止', { code: 'stream_interrupted' });
+      controller.abort();
+      await act(async () => { await vi.advanceTimersByTimeAsync(5600); });
+
+      expect(stopRecoveredStreamMock.mock.calls[0][2].aborted).toBe(true);
+      expect(getStopSnapshotMock).toHaveBeenCalledWith('chat-a', 'run-1', expect.any(AbortSignal));
+      expect(dispatchMock).toHaveBeenCalledWith({ type: 'stream/endStream', payload: { conversationId: 'chat-a', messageId: 'assistant-1' } });
+      if (outcome === 'interrupted') {
+        expect(readStopOutcomeNotice('chat-a', 'user-a')).toBeNull();
+        expect(screen.queryByText('停止结果仍未确认，后台可能仍在运行。请稍后查看轨迹核实。')).not.toBeInTheDocument();
+        expect(dispatchMock).toHaveBeenCalledWith(expect.objectContaining({
+          type: 'stream/finalizeRun', payload: expect.objectContaining({ conversationId: 'chat-a', runId: 'run-1', status: 'interrupted' }),
+        }));
+      } else {
+        expect(readStopOutcomeNotice('chat-a', 'user-a')).toMatchObject({ runId: 'run-1', terminalStatus: null });
+        expect(dispatchMock).toHaveBeenCalledWith(expect.objectContaining({
+          type: 'stream/setRunStopConfirmation', payload: expect.objectContaining({ conversationId: 'chat-a', runId: 'run-1', confirmation: expect.objectContaining({ status: 'unconfirmed' }) }),
+        }));
+        expect(dispatchMock.mock.calls.some(([action]) => action.type === 'stream/finalizeRun')).toBe(false);
+      }
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+    }
+  });
+
   it('恢复停止迟到确认不能结束同会话新 controller 或新 run', async () => {
     conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
     hydrationById.set('chat-a', { view: 'ready' });
