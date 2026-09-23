@@ -337,3 +337,9 @@ AGENTS/CLAUDE 收敛到当前单仓约定，开发与发布技能迁入仓库，
 - #126 合并为 `6256541a`，master CI `35857965977` 成功；dev 发布 `35857966351` 首次 UI 烟测受登录弹层阻挡并回滚，重跑失败作业后 API/UI 发布成功。API/UI 台账和运行镜像身份与该合并提交一致，API 健康接口 200。
 - 复用现有登录态 Chrome 标签完成 5 次自然语言请求、4 个会话。直接回答与上下文续问两条 Run 完成；PostgreSQL 查证为部分完成；Python 文档显式 URL 查证完成但未读到目标小节完整正文；停止 Run 最终中断。5 条 Run 轨迹均 `complete` 且序号连续，停止尾事件 `llm_round_cancelled`/#110、`run_interrupted`/#111 相邻，刷新后仍显示已中断、轨迹完整。
 - 首次停止点击没有服务端 POST 记录，页面显示“停止结果未确认”且后台继续运行；刷新后第二次停止 POST 200 才真正中断。PostgreSQL 回答声称两次原文抓取失败，但事件只有 `web_search`、无 `url_read`。因此 PR #126 的轨迹缺口目标通过，整轮功能回归不能判为全绿。详细样本与界限见[发布后首轮功能回归报告](reports/backend/2026-09-23-postmerge-functional-regression.md)。
+
+## 2026-09-23 第二轮工具事实与动态发现配对回归
+
+- 更正上轮工具账本口径：原查询只覆盖完成侧事件；重新读取原 PostgreSQL Run 的全部 69 条连续事件，只有一次 `web_search` 的 started，没有 `url_read` started。最终回答原文称两次抓取无内容，确认这条工具事实自述与事件不符。
+- 同一 dev、同一登录态 Chrome 标签重复两次 403 读页：目标 `url_read` 两次均 started 且降级，回答均准确描述目标失败及辅助搜索／首页读取；没有在这 2 次复现虚构调用。同一 PostgreSQL 原句成对走显式动态发现和普通旧路径，各 1 次，两者均实际读取 COMMIT／ROLLBACK 原文并给出来源回答。
+- 发现路径这次的 `requires_catalog_evidence=false`、`evidence_policy=standard`；代码也把实验适配器的该标志固定为 false。因此配对成功不能证明门禁能阻止工具事实编造，更不能据此切换默认入口。没有修改产品代码或阈值。详见[第二轮回归报告](reports/backend/2026-09-23-second-round-tool-claim-regression.md)。
