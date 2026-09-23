@@ -151,6 +151,12 @@ class RecorderDatabaseTests(unittest.IsolatedAsyncioTestCase):
             lifecycle.record_output(disposition="emitted", source="model", reason="streamed", block_id="text-1")
         redis_writer.stopped = True
         try:
+            with self.assertRaises(StreamOwnershipLostError):
+                await emitter.plan_snapshot(
+                    plan_id="plan-run-1",
+                    revision=1,
+                    items=[{"id": "answer", "title": "回答", "status": "running", "kind": "answer"}],
+                )
             with self.assertRaises(StreamOwnershipLostError) as raised:
                 await lifecycle.finish_cancelled(reason="user_cancelled")
             self.assertIs(raised.exception, ownership_error)

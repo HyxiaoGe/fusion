@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from app.services.agent.emitter import AgentEventEmitter
 from app.services.agent.events import StepStarted
+from app.services.stream_state_service import StreamOwnershipLostError
 
 CAPABILITY_RESOLUTION = {
     "schema_version": 1,
@@ -638,6 +639,31 @@ class EmitterEnvelopeTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.CancelledError):
             await em.step_started(step_number=1)
         await em.step_started(step_number=2)
+
+        payloads = [call.args[3] for call in writer.append_chunk.call_args_list]
+        self.assertEqual([payload["sequence"] for payload in payloads], [0, 1])
+
+    async def test_ownership_loss_does_not_leave_gap_before_interrupt_terminal(self):
+        writer = AsyncMock()
+        writer.append_chunk.side_effect = [StreamOwnershipLostError("external stop"), None]
+        em = AgentEventEmitter(run_id="r1", trace_id="r1", conversation_id="c1", task_id="task-1", redis_writer=writer)
+
+        with self.assertRaises(StreamOwnershipLostError):
+            await em.step_started(step_number=1)
+        await em.run_interrupted(reason="user_cancelled")
+
+        payloads = [call.args[3] for call in writer.append_chunk.call_args_list]
+        self.assertEqual([payload["sequence"] for payload in payloads], [0, 0])
+        self.assertEqual(await em.seal_and_get_last_sequence(), 0)
+
+    async def test_ownership_loss_on_bypassed_interrupt_keeps_sequence(self):
+        writer = AsyncMock()
+        writer.append_chunk.side_effect = [StreamOwnershipLostError("external stop"), None]
+        em = AgentEventEmitter(run_id="r1", trace_id="r1", conversation_id="c1", task_id="task-1", redis_writer=writer)
+
+        with self.assertRaises(StreamOwnershipLostError):
+            await em.run_interrupted(reason="user_cancelled")
+        await em.run_interrupted(reason="user_cancelled")
 
         payloads = [call.args[3] for call in writer.append_chunk.call_args_list]
         self.assertEqual([payload["sequence"] for payload in payloads], [0, 1])
