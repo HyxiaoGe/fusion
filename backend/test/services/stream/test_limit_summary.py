@@ -227,6 +227,20 @@ class LimitSummaryHelpersTests(unittest.TestCase):
         self.assertIn("Use only citation numbers listed in the research evidence workset", content)
         self.assertNotIn("reached the tool-call limit", content)
 
+    def test_verified_web_summary_keeps_citation_rule_without_tool_control(self):
+        messages = [
+            PromptMessage(
+                role="system",
+                content="发现并调用网页工具",
+                section_id="verified_web_evidence",
+            )
+        ]
+        remove_conflicting_tool_usage_contract(messages)
+        append_limit_summary_prompt(messages, evidence_policy="verified_web_v1")
+
+        self.assertNotIn("发现并调用网页工具", "\n".join(message.content for message in messages))
+        self.assertIn("Cite each source with its existing number", messages[-1].content)
+
     def test_build_limit_summary_call_kwargs_copies_and_removes_tool_controls(self):
         tools = [{"function": {"name": "web_search"}}]
         call_kwargs = {

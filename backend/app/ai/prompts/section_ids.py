@@ -4,6 +4,7 @@ APP_IDENTITY = "app_identity"
 CURRENT_DATE = "current_date"
 USER_PREFERENCES = "user_preferences"
 TOOL_USAGE_CONTRACT = "tool_usage_contract"
+VERIFIED_WEB_EVIDENCE = "verified_web_evidence"
 AGENT_PLAN_CONTROL = "agent_plan_control"
 DEEP_RESEARCH_CONTRACT = "deep_research_contract"
 NO_TOOL_NETWORK_BOUNDARY = "no_tool_network_boundary"
@@ -29,6 +30,7 @@ SUMMARY_TOOL_PROTOCOL_RETRY = "summary_tool_protocol_retry"
 TERMINAL_CONTROL_SECTION_IDS = frozenset(
     {
         TOOL_USAGE_CONTRACT,
+        VERIFIED_WEB_EVIDENCE,
         AGENT_PLAN_CONTROL,
         PLAN_REQUIRED_REPAIR,
         PLAN_EXECUTION_REPAIR,

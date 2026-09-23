@@ -11,6 +11,7 @@ from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.services.security.url_policy import MAX_URL_LENGTH
 from app.services.source_context import UntrustedSourceContext, format_untrusted_source_context
 from app.services.source_evidence_ledger import canonicalize_evidence_url, stable_web_evidence_id
+from app.services.stream.tool_recovery_evidence import RecoveryEvidenceWorkset
 
 MAX_RESEARCH_SOURCES = 12
 MAX_RESEARCH_REPAIRS = 2
@@ -224,6 +225,28 @@ def validate_research_completion(
         return ResearchCompletionResult(False, "missing_citation")
     if not citations.issubset(workset.valid_citation_indexes):
         return ResearchCompletionResult(False, "invalid_citation")
+    return ResearchCompletionResult(True)
+
+
+def validate_verified_web_completion(
+    workset: ResearchEvidenceWorkset,
+    recovery_evidence: RecoveryEvidenceWorkset,
+    answer_text: str,
+) -> ResearchCompletionResult:
+    """查证回答只接受本 run 实际读到正文的来源编号。"""
+
+    read_indexes = {
+        source.citation_index
+        for source in workset.sources.values()
+        if source.url_key in workset.successful_read_urls and recovery_evidence.has_source("url_read", source.url)
+    }
+    if not read_indexes:
+        return ResearchCompletionResult(False, "missing_read_body")
+    citations = {int(match.group(1) or match.group(2)) for match in _CITATION_PATTERN.finditer(answer_text or "")}
+    if not citations:
+        return ResearchCompletionResult(False, "missing_citation")
+    if not citations.issubset(read_indexes):
+        return ResearchCompletionResult(False, "unread_citation")
     return ResearchCompletionResult(True)
 
 

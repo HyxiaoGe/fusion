@@ -120,6 +120,30 @@ class FinalAnswerEvidenceTests(unittest.TestCase):
 
         self.assertEqual(evidence, [])
 
+    def test_verified_web_marks_only_explicitly_cited_read_source(self):
+        blocks = [
+            UrlBlock(
+                type="url_read",
+                url=f"https://example.com/{index}",
+                source_refs=[
+                    SourceReference(
+                        kind="url_read",
+                        url=f"https://example.com/{index}",
+                        evidence_id=f"ev-{index}",
+                        citation_index=index,
+                    )
+                ],
+            )
+            for index in (1, 2)
+        ]
+        evidence = build_used_final_answer_evidence(
+            content_blocks=blocks,
+            answer_text="只引用第一篇[1]，第二篇未用于结论。",
+            evidence_policy="verified_web_v1",
+            allowed_citation_indexes={1},
+        )
+        self.assertEqual([item["id"] for item in evidence], ["ev-1"])
+
     def test_marks_numbered_markdown_citation_as_used(self):
         from app.services.final_answer_evidence import build_used_final_answer_evidence
 

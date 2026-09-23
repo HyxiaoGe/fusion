@@ -54,7 +54,7 @@ def build_used_final_answer_evidence(
     if not all_sources:
         return []
 
-    if evidence_policy == "deep_research_v1":
+    if evidence_policy in {"deep_research_v1", "verified_web_v1"}:
         allowed = set(allowed_citation_indexes or ())
         used = _sources_from_allowed_explicit_citations(
             normalized_answer,

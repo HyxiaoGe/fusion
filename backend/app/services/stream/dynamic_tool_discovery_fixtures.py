@@ -10,6 +10,7 @@ from app.ai.tools import build_url_read_tool, build_web_search_tool
 from app.schemas.chat import (
     SearchBlock,
     SearchSourceSummary,
+    SourceReference,
     StructuredResultAttribution,
     TrainOption,
     TrainResultsBlock,
@@ -166,16 +167,42 @@ class FixtureToolHandler(BaseToolHandler):
                 query=str(result.data.get("query") or ""),
                 sources=sources,
                 source_count=len(sources),
+                source_refs=[
+                    SourceReference(
+                        kind="search",
+                        title=source.title,
+                        url=source.url,
+                        status=result.status,
+                        tool_call_log_id=log_id,
+                    )
+                    for source in sources
+                ],
                 tool_call_log_id=log_id,
             )
         if self._tool_name == "url_read":
+            url = str(result.data.get("url") or "")
+            source_refs = (
+                [
+                    SourceReference(
+                        kind="url_read",
+                        title=str(result.data.get("title") or ""),
+                        url=url,
+                        status=result.status,
+                        tool_call_log_id=log_id,
+                    )
+                ]
+                if url and result.status == "success"
+                else []
+            )
             return UrlBlock(
                 type="url_read",
                 id=block_id,
                 status=result.status,
-                url=str(result.data.get("url") or ""),
+                url=url,
                 title=result.data.get("title"),
                 tool_call_log_id=log_id,
+                source_count=len(source_refs),
+                source_refs=source_refs,
             )
         return None
 

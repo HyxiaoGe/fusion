@@ -384,15 +384,19 @@ def configure_research_state(
     content_blocks: list[Any],
     allow_read_success: bool = True,
 ) -> None:
-    if getattr(call_config, "task_mode", "standard") != "deep_research":
+    if (
+        getattr(call_config, "task_mode", "standard") != "deep_research"
+        and getattr(call_config, "evidence_policy", "standard") != "verified_web_v1"
+    ):
         return
-    state.configure_research_mode(network_required=True)
-    state.plan_coordinator.configure_initial_tool_requirements(
-        {
-            "web_search": 1,
-            "url_read": 2,
-        }
-    )
+    if getattr(call_config, "task_mode", "standard") == "deep_research":
+        state.configure_research_mode(network_required=True)
+        state.plan_coordinator.configure_initial_tool_requirements(
+            {
+                "web_search": 1,
+                "url_read": 2,
+            }
+        )
     research_blocks = [
         block
         for block in content_blocks

@@ -55,6 +55,7 @@ from app.services.stream.product_result_answer import (
 from app.services.stream.research_evidence import (
     build_research_repair_prompt,
     validate_research_completion,
+    validate_verified_web_completion,
 )
 from app.services.stream.round_completion import append_round_content_blocks, complete_text_response_step
 from app.services.stream.safe_fallback_response import default_safe_fallback, render_safe_fallback
@@ -585,6 +586,8 @@ async def _commit_deferred_answer(
 ) -> AgentRoundOutcomeRequest:
     if request.runtime.evidence_policy == "knowledge_grounded_v1":
         return await _commit_deferred_knowledge_answer(request)
+    if request.runtime.evidence_policy == "verified_web_v1":
+        return await _commit_deferred_verified_web_answer(request)
 
     if request.terminal and request.state.limit_reason is not None:
         return await _commit_terminal_product_answer(request)
@@ -622,6 +625,32 @@ async def _commit_deferred_answer(
         return await _commit_deferred_plain_answer(request, model_output_visible=True)
 
     return await _commit_deferred_product_answer(request)
+
+
+async def _commit_deferred_verified_web_answer(
+    request: AgentRoundOutcomeRequest,
+) -> AgentRoundOutcomeRequest:
+    answer = request.round_result.content_buf.strip()
+    rejected = await _reject_protocol_residue(request, answer)
+    if rejected is not None:
+        await _append_committed_answer(request, rejected, output_reason="protocol_residue")
+        return _with_replaced_answer(request, rejected)
+    validation = validate_verified_web_completion(
+        request.state.research_workset,
+        request.state.recovery_evidence,
+        answer,
+    )
+    if not validation.is_valid:
+        request.runtime.warning_fn(
+            "查证回答缺少已读正文或有效引用，已替换为诚实答复: "
+            f"conv_id={request.runtime.conversation_id} run_id={request.runtime.run_id} "
+            f"reason={validation.reason}"
+        )
+        answer = await _safe_round_fallback(request, "no_evidence")
+        await _append_committed_answer(request, answer, output_reason="verified_web_guard")
+        return _with_replaced_answer(request, answer)
+    await _append_committed_answer(request, answer, model_output_visible=True)
+    return _with_replaced_answer(request, answer)
 
 
 async def _commit_terminal_product_answer(request: AgentRoundOutcomeRequest) -> AgentRoundOutcomeRequest:

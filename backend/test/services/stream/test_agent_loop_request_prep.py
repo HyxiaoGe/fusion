@@ -754,6 +754,36 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("[Verified-research plan rules]", verified_system_text)
         self.assertNotIn("# Verified Research", simple_system_text)
 
+    async def test_discovery_verified_web_prompt_follows_independent_policy(self):
+        async def build_llm_messages_fn(*_args, **_kwargs):
+            return [{"role": "user", "content": "请核验这条消息，给出可靠来源"}]
+
+        config = build_agent_loop_call_config(
+            provider="openai",
+            options={"dynamic_tool_discovery": True},
+            capabilities={"functionCalling": True, "searchCapable": True, "agentTools": True},
+            original_message="请核验这条消息，给出可靠来源",
+        )
+        prepared = await prepare_agent_loop_messages(
+            db=object(),
+            user_id="user-1",
+            raw_messages=[],
+            has_vision=False,
+            file_ids=None,
+            original_message="请核验这条消息，给出可靠来源",
+            call_config=config,
+            file_repo_factory=lambda _db: object(),
+            load_user_system_prompt_fn=lambda _db, _user_id: None,
+            build_llm_messages_fn=build_llm_messages_fn,
+            preprocess_user_input=False,
+        )
+        system_text = "\n".join(
+            str(message.get("content", "")) for message in prepared.messages if message.get("role") == "system"
+        )
+        self.assertEqual(config.evidence_policy, "verified_web_v1")
+        self.assertIn("Read the original page body", system_text)
+        self.assertNotIn("# Verified Research", system_text)
+
     def test_deep_research_forces_plan_mode_and_records_task_policy(self):
         config = build_agent_loop_call_config(
             provider="openai",
