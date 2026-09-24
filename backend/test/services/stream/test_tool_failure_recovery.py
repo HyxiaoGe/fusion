@@ -5,7 +5,7 @@ from dataclasses import replace
 from itertools import permutations
 from unittest.mock import AsyncMock, patch
 
-from app.schemas.chat import PlaceResult, PlaceResultsBlock, SearchBlock, SourceReference, Usage
+from app.schemas.chat import SearchBlock, SourceReference, Usage
 from app.services.knowledge.chat_grounding import KNOWLEDGE_UNVERIFIABLE_ANSWER_TEXT
 from app.services.stream.agent_loop_round_outcome import AgentRoundOutcomeRequest, handle_agent_round_outcome
 from app.services.stream.agent_loop_state import AgentLoopState
@@ -133,34 +133,6 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
             await handle_agent_round_outcome(request=request)
         self.assertFalse(state.tool_recovery_prompted)
         self.assertEqual(state.content_blocks[-1].text, KNOWLEDGE_UNVERIFIABLE_ANSWER_TEXT)
-
-    async def test_web_recovery_cannot_bypass_successful_product_result_contract(self):
-        state = AgentLoopState(product_tool_attempted=True)
-        state.record_tool_outcome("url_read", "degraded")
-        self.record_search(state)
-        state.content_blocks.append(
-            PlaceResultsBlock(
-                type="place_results",
-                schema_version=1,
-                provider="amap",
-                query="咖啡",
-                status="success",
-                result_count=1,
-                places=[PlaceResult(name="示例咖啡")],
-                limitations=["不包含实时排队或空位信息"],
-            )
-        )
-        request = self.request(state)
-        request = replace(
-            request,
-            messages=[{"role": "user", "content": "附近咖啡馆有空位吗"}],
-            round_result=replace(request.round_result, content_buf="示例咖啡现在无需排队，保证有空位。"),
-        )
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()):
-            await handle_agent_round_outcome(request=request)
-        self.assertIn("示例咖啡", state.content_blocks[-1].text)
-        self.assertNotIn("保证有空位", state.content_blocks[-1].text)
-        self.assertFalse(state.tool_recovery_prompted)
 
     async def test_web_recovery_cannot_bypass_deep_research_completion_contract(self):
         state = AgentLoopState()

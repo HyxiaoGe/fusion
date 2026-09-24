@@ -38,10 +38,7 @@ from app.services.stream.product_answer_observability import (
     emit_product_answer_observation,
     retain_product_answer_observation,
 )
-from app.services.stream.product_answer_validator import (
-    repair_unsupported_product_answer,
-    validate_product_answer,
-)
+from app.services.stream.product_answer_validator import validate_product_answer
 from app.services.stream.product_result_answer import (
     build_grounded_mixed_travel_answer,
     build_grounded_product_answer,
@@ -831,52 +828,27 @@ async def _commit_deferred_product_answer(
         answer = candidate
         model_output_visible = True
     else:
-        # 改写默认关闭时仍计算反事实：repair 是纯函数，只用来记录"本应被改写"的比例。
-        repaired_answer, repair_reason_code = repair_unsupported_product_answer(
-            candidate,
-            request.state.content_blocks,
-            messages=request.messages,
-        )
+        # 分句改写层已随散文解析判据一并删除（#71）：校验不通过直接走确定性兜底。
         await _emit_product_answer_observation(
             request,
             reason_code=validation.reason_code,
-            repaired_answer=repaired_answer,
-            repair_reason_code=repair_reason_code,
+            repaired_answer=None,
+            repair_reason_code=None,
         )
-        if not settings.PRODUCT_ANSWER_REPAIR_ENABLED:
-            repaired_answer = None
-        if repaired_answer is not None:
-            request.runtime.warning_fn(
-                "产品结果模型回答含越界分句，已安全修整: "
-                f"conv_id={request.runtime.conversation_id} run_id={request.runtime.run_id} "
-                f"step={request.step_number} reason_code={validation.reason_code}"
-            )
-            answer = repaired_answer
-            model_output_visible = True
-        else:
-            request.runtime.warning_fn(
-                "产品结果模型回答校验未通过，使用确定性兜底: "
-                f"conv_id={request.runtime.conversation_id} run_id={request.runtime.run_id} "
-                f"step={request.step_number} reason_code={validation.reason_code} "
-                f"repair_reason_code={repair_reason_code}"
-            )
-            answer = build_grounded_product_answer(
-                request.state.content_blocks,
-                messages=request.messages,
-            )
-            if answer and settings.PRODUCT_ANSWER_REPAIR_ENABLED:
-                completed_answer, _ = repair_unsupported_product_answer(
-                    answer,
-                    request.state.content_blocks,
-                    messages=request.messages,
-                )
-                if completed_answer is not None:
-                    answer = completed_answer
-            if not answer and request.state.product_tool_attempted:
-                answer = build_product_tool_failure_answer(request.messages)
-            if not answer:
-                answer = "已展示本次查询的结构化结果，请以卡片信息为准。"
-            model_output_visible = False
+        request.runtime.warning_fn(
+            "产品结果模型回答校验未通过，使用确定性兜底: "
+            f"conv_id={request.runtime.conversation_id} run_id={request.runtime.run_id} "
+            f"step={request.step_number} reason_code={validation.reason_code}"
+        )
+        answer = build_grounded_product_answer(
+            request.state.content_blocks,
+            messages=request.messages,
+        )
+        if not answer and request.state.product_tool_attempted:
+            answer = build_product_tool_failure_answer(request.messages)
+        if not answer:
+            answer = "已展示本次查询的结构化结果，请以卡片信息为准。"
+        model_output_visible = False
     answer = neutralize_product_provider_mentions(answer, request.state.content_blocks)
     if answer:
         await _append_committed_answer(

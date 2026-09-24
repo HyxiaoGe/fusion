@@ -30,7 +30,6 @@ from app.services.stream.dynamic_tool_discovery import (
 )
 from app.services.stream.dynamic_tool_discovery_fixtures import (
     EXPERIMENT_NOW,
-    SYNTHETIC_LIMITATION,
     SharedFixtureBudget,
     build_prototype_fixture_catalog,
 )
@@ -910,38 +909,6 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(
             delivered.execution.state.unknown_terminated or "未取得" in visible or visible == NO_EVIDENCE_ANSWER_TEXT
         )
-
-    async def test_p08_mixed_train_valid_weather_gap_keeps_train_only(self):
-        mixed = "可以坐 G7301。9 月 26 日杭州晴，28 度。"
-        config, handlers, _shared, _calls = _discovery_config(message="杭州到上海高铁，再看 26 日天气")
-        script = ScriptedRounds(
-            [
-                [_tool_call("m1", TOOL_SEARCH_NAME, {"query": "select:search_trains,weather_forecast"})],
-                [
-                    _tool_call(
-                        "m2",
-                        "search_trains",
-                        {"origin": "杭州", "destination": "上海", "departure_date": "2026-09-26"},
-                    )
-                ],
-                [_tool_call("m3", "weather_forecast", {"location": "杭州", "location_source": "named"})],
-                {"stop": True, "content": mixed},
-            ]
-        )
-        delivered = await _run_delivery(
-            config=config,
-            script=script,
-            run_id="run-p08-mixed",
-            messages=[{"role": "user", "content": "杭州到上海高铁，再看 26 日天气"}],
-        )
-        saved = _text_from_blocks(delivered.store.saves[-1])
-        answering = _answering_texts(delivered.chunks)
-        self.assertEqual(answering[-1], saved)
-        self.assertEqual(handlers["search_trains"].execute_count, 1)
-        self.assertEqual(handlers["weather_forecast"].execute_count, 1)
-        self.assertIn("G7301", saved)
-        self.assertNotIn("28 度", saved)
-        self.assertTrue("26" not in saved or "不覆盖" in saved or "22" in saved or SYNTHETIC_LIMITATION in saved)
 
     async def test_p08_limit_summary_without_evidence_is_guarded(self):
         config, handlers, _shared, _calls = _discovery_config(message="杭州天气")

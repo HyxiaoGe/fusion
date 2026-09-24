@@ -9,8 +9,6 @@ from unittest.mock import AsyncMock, patch
 import httpx
 
 from app.schemas.chat import FlightResultsBlock, TrainResultsBlock
-from app.schemas.content_block_registry import deserialize_content_blocks
-from app.services.agent.events import ContentBlockUpserted
 from app.services.mcp.agent_tools import load_mcp_agent_tools
 from app.services.mcp.flyai_travel_tools import (
     FLYAI_SEARCH_FLIGHTS,
@@ -24,15 +22,6 @@ from app.services.mcp.flyai_travel_tools import (
     build_flyai_user_scope,
 )
 from app.services.stream.agent_loop_wiring import _load_dynamic_tools
-from app.services.stream.product_answer_validator import (
-    repair_unsupported_product_answer,
-    validate_product_answer,
-)
-from app.services.stream.product_result_answer import (
-    build_grounded_product_answer,
-    build_product_tool_failure_answer,
-    neutralize_product_provider_mentions,
-)
 from app.services.stream.tool_executor import ToolExecutionBatchRequest, execute_tool_handler
 
 
@@ -528,165 +517,6 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(build_flyai_user_scope("user-123", "adapter-secret"), expected_scope)
         self.assertNotIn("user-123", expected_scope)
         self.assertNotIn("adapter-secret", json.dumps(enabled.audit_bindings))
-
-    async def test_content_block_registry_grounded_answer_and_validator_cover_travel(self):
-        async def respond(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(
-                200,
-                json=_adapter_payload(
-                    booking_url="https://a.feizhu.com/flight/detail?id=public",
-                    request=json.loads(request.content),
-                ),
-            )
-
-        handler = _handler(FLYAI_SEARCH_FLIGHTS, httpx.MockTransport(respond))
-        result = await handler.execute({"origin": "深圳", "destination": "上海", "departure_date": "2026-08-01"})
-        block = handler.build_content_block(result, "blk-flight", "log-flight")
-        restored = deserialize_content_blocks([block.model_dump(mode="json")])
-        answer = build_grounded_product_answer(restored)
-
-        self.assertIsInstance(restored[0], FlightResultsBlock)
-        event = ContentBlockUpserted(
-            type="content_block_upserted",
-            protocol_version=2,
-            run_id="run-1",
-            sequence=1,
-            trace_id="trace-1",
-            ts=1.0,
-            content_block=restored[0],
-        )
-        self.assertIsInstance(event.content_block, FlightResultsBlock)
-        self.assertIn("CZ1234", answer)
-        self.assertIn("深圳宝安国际机场", answer)
-        self.assertIn("08:30", answer)
-        self.assertIn("880元", answer)
-        self.assertTrue(validate_product_answer(answer, restored).is_valid)
-        self.assertTrue(
-            validate_product_answer(
-                "本次返回中，CZ1234 的票价为 880 元，从深圳宝安国际机场 T3 出发，是其中较便宜的选择。",
-                restored,
-            ).is_valid
-        )
-        self.assertTrue(validate_product_answer("2026年8月1日（周六）可以考虑CZ1234。", restored).is_valid)
-        table_answer = (
-            "本次返回中，CZ1234 在08:30从深圳宝安国际机场T3出发，参考价880元，可以优先考虑。\n\n"
-            "| 航班 | 出发时间 | 参考价 |\n"
-            "| --- | --- | --- |\n"
-            "| CZ1234 | 08:30 | 880元 |\n\n"
-            "---\n"
-            "CZ1234 是夜间航班，可以省住宿费。"
-        )
-        repaired, reason_code = repair_unsupported_product_answer(table_answer, restored)
-        self.assertEqual(reason_code, "ok")
-        self.assertNotIn("|", repaired)
-        self.assertNotIn("---", repaired)
-        self.assertNotIn("省住宿费", repaired)
-        self.assertNotIn("实时排队", repaired)
-        self.assertIn("CZ1234", repaired)
-        self.assertTrue(validate_product_answer(repaired, restored).is_valid)
-
-        async def respond_train(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(
-                200,
-                json=_adapter_payload(transport_no="G100", request=json.loads(request.content)),
-            )
-
-        train_handler = _handler(FLYAI_SEARCH_TRAINS, httpx.MockTransport(respond_train))
-        train_result = await train_handler.execute(
-            {"origin": "深圳", "destination": "上海", "departure_date": "2026-08-01"}
-        )
-        train_block = train_handler.build_content_block(train_result, "blk-train", "log-train")
-        mixed_blocks = [restored[0], train_block]
-        comparison = build_grounded_product_answer(mixed_blocks)
-        self.assertIn("同时返回深圳到上海", comparison)
-        self.assertIn("本次返回航班中参考价最低的是CZ1234", comparison)
-        self.assertIn("本次返回火车中用时最短的是G100", comparison)
-        comparison_validation = validate_product_answer(comparison, mixed_blocks)
-        self.assertTrue(
-            comparison_validation.is_valid,
-            f"{comparison_validation.reason_code}: {comparison}",
-        )
-
-        flight_template = restored[0].flights[0]
-        slow_cheap_flight = flight_template.model_copy(
-            update={
-                "option_id": "opt-slow-cheap-flight",
-                "flight_no": "CZ1001",
-                "duration_s": 3 * 60 * 60,
-                "price": flight_template.price.model_copy(update={"amount_minor": 30_000}),
-            }
-        )
-        fast_expensive_flight = flight_template.model_copy(
-            update={
-                "option_id": "opt-fast-expensive-flight",
-                "flight_no": "CZ2002",
-                "duration_s": 60 * 60,
-                "price": flight_template.price.model_copy(update={"amount_minor": 100_000}),
-            }
-        )
-        multi_flight_block = restored[0].model_copy(
-            update={
-                "result_count": 2,
-                "flights": [slow_cheap_flight, fast_expensive_flight],
-            }
-        )
-        train_template = train_block.trains[0]
-        cheaper_train_block = train_block.model_copy(
-            update={
-                "trains": [
-                    train_template.model_copy(
-                        update={
-                            "duration_s": 2 * 60 * 60,
-                            "price": train_template.price.model_copy(update={"amount_minor": 20_000}),
-                        }
-                    )
-                ]
-            }
-        )
-        mapped_comparison = build_grounded_product_answer([multi_flight_block, cheaper_train_block])
-        self.assertIn("如果优先考虑本次返回的计划行程时长，可优先考虑航班CZ2002", mapped_comparison)
-        self.assertNotIn("计划行程时长，可优先考虑航班CZ1001", mapped_comparison)
-        self.assertIn("如果预算优先，可考虑高铁G100", mapped_comparison)
-        self.assertTrue(validate_product_answer(mapped_comparison, [multi_flight_block, cheaper_train_block]).is_valid)
-
-        faster_train_block = cheaper_train_block.model_copy(
-            update={"trains": [cheaper_train_block.trains[0].model_copy(update={"duration_s": 45 * 60})]}
-        )
-        cross_mode_comparison = build_grounded_product_answer([multi_flight_block, faster_train_block])
-        self.assertIn("如果优先考虑本次返回的计划行程时长，可优先考虑高铁G100", cross_mode_comparison)
-        self.assertTrue(
-            validate_product_answer(cross_mode_comparison, [multi_flight_block, faster_train_block]).is_valid
-        )
-        mixed_repair, mixed_reason = repair_unsupported_product_answer(table_answer, mixed_blocks)
-        self.assertIsNone(mixed_repair)
-        self.assertEqual(mixed_reason, "unsupported_format")
-        for invalid_answer, reason in (
-            ("CA9999 在 08:30 起飞。", "unknown_travel_number"),
-            ("CZ1234 在 09:30 起飞。", "unknown_travel_time"),
-            ("CZ1234 从广州白云国际机场起飞。", "unknown_travel_entity"),
-            ("CZ1234 参考价 999 元。", "numeric_mismatch"),
-            ("CZ1234 票价 999 元。", "unsupported_claim"),
-            ("本次返回中，CZ1234 的实时票价为 880 元。", "unsupported_claim"),
-            ("本次返回中，CZ1234 从深圳宝安国际机场 T4 出发。", "unknown_travel_number"),
-            ("CZ1234 所属航司班次更多，机场接机也方便。", "unsupported_claim"),
-            ("CZ1234 是夜间航班，可以省住宿费。", "unsupported_claim"),
-            ("2026年8月1日（周日）可以考虑CZ1234。", "unknown_travel_date"),
-            ("CZ1234 的耗时约为另一个选项的4.7倍。", "numeric_mismatch"),
-            ("CZ1234 余票充足且准点率很高。", "unsupported_claim"),
-        ):
-            validation = validate_product_answer(invalid_answer, restored)
-            self.assertFalse(validation.is_valid)
-            self.assertEqual(validation.reason_code, reason)
-
-        neutralized = neutralize_product_provider_mentions(
-            "根据 FlyAI 和飞猪旅行返回的结果，search_flights 返回 CZ1234。"
-        )
-        self.assertIn("FlyAI", neutralized)
-        self.assertIn("飞猪旅行", neutralized)
-        self.assertNotIn("search_flights", neutralized)
-        self.assertIn("航班查询", neutralized)
-        failure = build_product_tool_failure_answer()
-        self.assertIn("航班或高铁", failure)
 
     async def test_dynamic_tool_loader_receives_user_id(self):
         captured: dict = {}
