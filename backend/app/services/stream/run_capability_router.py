@@ -242,6 +242,7 @@ class RunCapabilityResolution:
     effective_plan_mode: PlanMode
     include_current_date: bool
     network_boundary_required: bool
+    denied_product_tool_names: frozenset[str] = field(default_factory=frozenset)
     skill_resolution: RunSkillResolution | None = None
     loaded_skills: tuple[LoadedSkillSnapshot, ...] = field(default=(), repr=False, compare=False)
     requires_catalog_evidence: bool = False
@@ -291,6 +292,7 @@ def resolve_run_capability_route(
     """根据受信运行态与当前用户消息解析最小能力包。"""
 
     message = _normalize_message(original_message)
+    denied_product_tool_names = _resolve_denied_product_tool_names(_extract_request_signals(message))
     skill_loader = load_skills_fn or load_skills_for_package
     classify = classify_fn or classify_capability_request
     function_calling = capabilities.get("functionCalling") is True
@@ -328,6 +330,7 @@ def resolve_run_capability_route(
                 function_calling=function_calling,
                 tools_disabled=True,
                 network_boundary_required=bool(blocked_tool_names),
+                denied_product_tool_names=denied_product_tool_names,
             ),
             load_skills_fn=skill_loader,
         )
@@ -350,6 +353,15 @@ def resolve_run_capability_route(
         candidate.package_id,
         (),
     )
+    requested_tools = tuple(name for name in requested_tools if name not in denied_product_tool_names)
+    if not requested_tools and (candidate.explicit_tool_names or _PACKAGE_TOOLS.get(candidate.package_id, ())):
+        candidate = _CandidateRoute(
+            package_id="clarification_only",
+            confidence="low",
+            reason_codes=("insufficient_capability_signal",),
+            include_current_date=False,
+            resolution_mode="clarification",
+        )
     unavailable_tools = frozenset(unavailable_tool_names or ())
     requires_search = any(name in {"web_search", "url_read"} for name in requested_tools)
     needs_external_capability = bool(requested_tools)
@@ -378,6 +390,7 @@ def resolve_run_capability_route(
                 function_calling=function_calling,
                 tools_disabled=True,
                 network_boundary_required=True,
+                denied_product_tool_names=denied_product_tool_names,
             ),
             load_skills_fn=skill_loader,
         )
@@ -389,6 +402,7 @@ def resolve_run_capability_route(
         requested_plan_mode=requested_plan_mode,
         function_calling=function_calling,
         tools_disabled=tools_disabled,
+        denied_product_tool_names=denied_product_tool_names,
     )
     if candidate.package_id == "deep_research" and not frozenset(requested_tools).issubset(
         resolution.external_tool_names
@@ -407,6 +421,7 @@ def resolve_run_capability_route(
                 function_calling=function_calling,
                 tools_disabled=True,
                 network_boundary_required=True,
+                denied_product_tool_names=denied_product_tool_names,
             ),
             load_skills_fn=skill_loader,
         )
@@ -425,6 +440,7 @@ def resolve_run_capability_route(
                 function_calling=function_calling,
                 tools_disabled=True,
                 network_boundary_required=True,
+                denied_product_tool_names=denied_product_tool_names,
             ),
             load_skills_fn=skill_loader,
         )
@@ -676,12 +692,29 @@ class _ProductToolRequests:
     denied_requests: frozenset[str]
 
 
+def _resolve_denied_product_tool_names(request: _RequestSignals) -> frozenset[str]:
+    """独立解析产品工具禁用，供规则与模型候选共同使用。"""
+
+    return frozenset(
+        tool_name
+        for tool_name in (
+            "weather_forecast",
+            "local_place_search",
+            "route_compare",
+            "search_flights",
+            "search_trains",
+        )
+        if _is_product_tool_finally_denied(request.control_message, tool_name)
+    )
+
+
 def _resolve_product_tool_requests(
     request: _RequestSignals,
     signals: ProductCapabilitySignals,
     english: _EnglishRouteSignals,
+    denied_product_requests: frozenset[str],
 ) -> _ProductToolRequests:
-    """解析用户对每个产品工具的正向与否定表达，得到最终成立的集合。"""
+    """仅按既有产品意图判据选出本次实际成立的工具。"""
 
     routing_message = request.routing_message
     control_message = request.control_message
@@ -754,7 +787,7 @@ def _resolve_product_tool_requests(
             or _has_final_positive_product_tool_directive(control_message, "local_place_search")
         )
     )
-    denied_product_requests = {
+    active_denials = {
         tool_name
         for requested, tool_name in (
             (weather_requested, "weather_forecast"),
@@ -763,15 +796,15 @@ def _resolve_product_tool_requests(
             (flight_requested, "search_flights"),
             (train_requested, "search_trains"),
         )
-        if requested and _is_product_tool_finally_denied(control_message, tool_name)
+        if requested and tool_name in denied_product_requests
     }
-    if _is_product_tool_finally_denied(control_message, "route_compare"):
-        denied_product_requests.add("route_compare")
-    explicit_route = explicit_route_requested and "route_compare" not in denied_product_requests
-    flight = flight_requested and "search_flights" not in denied_product_requests
-    train = train_requested and "search_trains" not in denied_product_requests
-    weather = weather_requested and "weather_forecast" not in denied_product_requests
-    place = place_requested and "local_place_search" not in denied_product_requests
+    if "route_compare" in denied_product_requests:
+        active_denials.add("route_compare")
+    explicit_route = explicit_route_requested and "route_compare" not in active_denials
+    flight = flight_requested and "search_flights" not in active_denials
+    train = train_requested and "search_trains" not in active_denials
+    weather = weather_requested and "weather_forecast" not in active_denials
+    place = place_requested and "local_place_search" not in active_denials
     if all_network_denied:
         intercity_relation = False
     return _ProductToolRequests(
@@ -781,7 +814,7 @@ def _resolve_product_tool_requests(
         weather=weather,
         place=place,
         intercity_relation=intercity_relation,
-        denied_requests=frozenset(denied_product_requests),
+        denied_requests=frozenset(active_denials),
     )
 
 
@@ -794,7 +827,12 @@ def _classify_product_layer(
 
     include_current_date = request.include_current_date
     english_route_mode_directive_present = english.mode_directive_present
-    requests = _resolve_product_tool_requests(request, signals, english)
+    requests = _resolve_product_tool_requests(
+        request,
+        signals,
+        english,
+        _resolve_denied_product_tool_names(request),
+    )
     explicit_route = requests.explicit_route
     flight = requests.flight
     train = requests.train
@@ -999,6 +1037,7 @@ def _resolution(
     tools_disabled: bool,
     network_boundary_required: bool = False,
     allow_recovery_tools: bool = False,
+    denied_product_tool_names: frozenset[str] = frozenset(),
 ) -> RunCapabilityResolution:
     requested_tools = candidate.explicit_tool_names or _PACKAGE_TOOLS.get(candidate.package_id, ())
     if allow_recovery_tools and candidate.package_id in CAPABILITY_RECOVERY_PACKAGES:
@@ -1007,7 +1046,7 @@ def _resolution(
     tools = tuple(
         name
         for name in _canonicalize_tool_names(requested_tools)
-        if name in available and name not in _CONTROL_TOOL_NAMES
+        if name in available and name not in _CONTROL_TOOL_NAMES and name not in denied_product_tool_names
     )
     reason_codes = tuple(code for code in candidate.reason_codes if code in _REASON_CODES)
     if reason_codes != candidate.reason_codes:
@@ -1028,6 +1067,7 @@ def _resolution(
         ),
         include_current_date=candidate.include_current_date,
         network_boundary_required=network_boundary_required,
+        denied_product_tool_names=denied_product_tool_names,
     )
 
 
@@ -1053,6 +1093,7 @@ def _validated_resolution(
             effective_plan_mode="off",
             include_current_date=resolution.include_current_date,
             network_boundary_required=True,
+            denied_product_tool_names=resolution.denied_product_tool_names,
             skill_resolution=skill_resolution,
             loaded_skills=(),
         )
@@ -1187,11 +1228,35 @@ def _is_product_tool_finally_denied(message: str, tool_name: str) -> bool:
 
 
 def _natural_product_tool_directives(message: str, tool_name: str) -> list[tuple[int, bool]]:
-    return [
+    directives = [
         (match.start(), not _is_natural_product_match_negated(message, match.start()))
         for pattern in _product_tool_positive_patterns(tool_name)
         for match in pattern.finditer(message)
     ]
+    if any(allowed for _position, allowed in directives) and _ends_with_product_query_cancellation(message):
+        directives.append((len(message) - 1, False))
+    return directives
+
+
+def _ends_with_product_query_cancellation(message: str) -> bool:
+    """末句省略领域词时，只撤回本句前已明确请求的产品查询。"""
+
+    boundaries = list(_PRODUCT_DIRECTIVE_BOUNDARY_RE.finditer(message))
+    clause = message[boundaries[-1].end() if boundaries else 0 :].strip()
+    for prefix in ("算了", "那就", "那", "就"):
+        if clause.startswith(prefix):
+            clause = clause[len(prefix) :].strip()
+            break
+    for negative in ("不要", "不用", "请勿", "禁止", "不得", "不可", "别"):
+        if not clause.startswith(negative):
+            continue
+        action = clause[len(negative) :].removeprefix("再")
+        return any(
+            action == verb + suffix
+            for verb in ("查询", "搜索", "查看", "预订", "购买", "查", "找", "看", "订", "买")
+            for suffix in ("", "了", "吧", "啦")
+        )
+    return False
 
 
 def _final_reauthorized_natural_product_clause(message: str, tool_name: str) -> str | None:
