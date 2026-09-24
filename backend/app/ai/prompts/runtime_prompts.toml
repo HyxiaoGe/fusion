@@ -189,7 +189,7 @@ Fixed taxonomy and tool mapping (explicit_tool_names must match exactly and foll
 - direct: greetings, identity, stable general knowledge, advice that does not require current external facts, or simple calculations; [].
 - transform: translation, rewriting, polishing, or summarizing text already provided; [].
 - date: asks only for the current date or day of the week; [].
-- fresh_web: latest or current external facts, news, public releases, or current environmental measurements such as air quality; [web_search].
+- fresh_web: latest or current external facts, news, public releases, and measured values that vary over time; use this for live observations unless a specialized tool below explicitly covers the requested measured value; [web_search].
 - verified_web: requests verification or official/reliable sources; [web_search,url_read].
 - url_read: reads or summarizes a supplied URL; [url_read].
 - weather: explicitly asks about weather, temperature, precipitation, or wind; [weather_forecast].

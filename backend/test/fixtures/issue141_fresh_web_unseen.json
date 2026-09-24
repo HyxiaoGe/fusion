@@ -1,0 +1,20 @@
+{
+  "description": "#141 类别级提示词的未列举客观量测请求；同环境真实模型配对使用，不修改原 47 条盲测。",
+  "cases": [
+    {
+      "id": "measurement-uv",
+      "question": "现在厦门的紫外线指数是多少？",
+      "acceptable_packages": ["fresh_web"]
+    },
+    {
+      "id": "measurement-pollen",
+      "question": "今天北京的花粉浓度是多少？",
+      "acceptable_packages": ["fresh_web"]
+    },
+    {
+      "id": "measurement-water",
+      "question": "今天杭州钱塘江的水质监测结果是什么？",
+      "acceptable_packages": ["fresh_web"]
+    }
+  ]
+}
