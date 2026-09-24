@@ -98,6 +98,90 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         ]
         assert config.capability_resolution.package_id == "direct"
 
+    def test_model_product_package_obeys_independent_tool_denials(self):
+        tools = [*AMAP_PRODUCT_DEFINITIONS, *FLYAI_TRAVEL_DEFINITIONS]
+        names = [tool["function"]["name"] for tool in tools]
+        cases = (
+            ("不要查航班，帮我看看高铁", {"search_flights"}, False),
+            ("不要调用 search_flights，帮我看看高铁", {"search_flights"}, False),
+            ("别查航班，算了还是查一下航班吧", set(), True),
+            ("查一下航班，算了别查航班了", {"search_flights"}, False),
+            ("查一下航班，算了别查了", {"search_flights"}, False),
+        )
+        for message, denied, flight_allowed in cases:
+            with self.subTest(message=message):
+                classifier_calls = []
+
+                def classify(**kwargs):
+                    classifier_calls.append(kwargs["message"])
+                    return _CandidateRoute("travel_air_rail", "high", ("air_rail_comparison",), True)
+
+                config = build_agent_loop_call_config(
+                    provider="deepseek",
+                    options={},
+                    capabilities={"functionCalling": True, "searchCapable": True, "agentTools": True},
+                    additional_tools=tools,
+                    dynamic_tool_handlers={name: object() for name in names},
+                    original_message=message,
+                    classify_fn=classify,
+                )
+
+                self.assertEqual(classifier_calls, [message])
+                resolution = config.capability_resolution
+                self.assertEqual(resolution.denied_product_tool_names, denied)
+                self.assertEqual("search_flights" in resolution.external_tool_names, flight_allowed)
+                self.assertIn("search_trains", resolution.external_tool_names)
+                self.assertEqual(
+                    "search_flights" in config.announced_tools,
+                    flight_allowed,
+                )
+
+    def test_denied_product_tool_does_not_trigger_missing_schema_degradation(self):
+        train_tool = next(tool for tool in FLYAI_TRAVEL_DEFINITIONS if tool["function"]["name"] == "search_trains")
+        config = build_agent_loop_call_config(
+            provider="deepseek",
+            options={},
+            capabilities={"functionCalling": True, "searchCapable": True, "agentTools": True},
+            additional_tools=[train_tool],
+            dynamic_tool_handlers={"search_trains": object()},
+            authorized_tool_names=["search_flights"],
+            original_message="不要查航班，帮我看看高铁",
+            classify_fn=lambda **_: _CandidateRoute("travel_air_rail", "high", ("air_rail_comparison",), True),
+        )
+
+        self.assertEqual(config.capability_resolution.package_id, "travel_air_rail")
+        self.assertEqual(
+            config.capability_resolution.external_tool_names,
+            ("web_search", "url_read", "search_trains"),
+        )
+
+    def test_model_package_with_only_denied_product_tool_clarifies(self):
+        flight_tool = next(tool for tool in FLYAI_TRAVEL_DEFINITIONS if tool["function"]["name"] == "search_flights")
+        config = build_agent_loop_call_config(
+            provider="deepseek",
+            options={},
+            capabilities={"functionCalling": True, "searchCapable": True, "agentTools": True},
+            additional_tools=[flight_tool],
+            dynamic_tool_handlers={"search_flights": object()},
+            original_message="不要查航班",
+            classify_fn=lambda **_: _CandidateRoute("flight", "high", ("explicit_flight_request",), True),
+        )
+
+        self.assertEqual(config.capability_resolution.package_id, "clarification_only")
+        self.assertEqual(config.capability_resolution.denied_product_tool_names, {"search_flights"})
+        self.assertEqual(config.capability_resolution.external_tool_names, ())
+
+    def test_unspecified_cancellation_requires_prior_product_request(self):
+        config = build_agent_loop_call_config(
+            provider="deepseek",
+            options={},
+            capabilities={"functionCalling": True, "searchCapable": True, "agentTools": True},
+            original_message="算了别查了",
+            classify_fn=lambda **_: _CandidateRoute("direct", "high", ("stable_knowledge_question",), False),
+        )
+
+        self.assertEqual(config.capability_resolution.denied_product_tool_names, set())
+
     def test_continuation_with_frozen_skill_fails_closed_when_current_route_drops_skill(self):
         current = build_agent_loop_call_config(
             provider="openai",

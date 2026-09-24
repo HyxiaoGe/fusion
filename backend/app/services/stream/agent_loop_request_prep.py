@@ -347,6 +347,7 @@ def build_agent_loop_call_config(
             effective_plan_mode="off",
             include_current_date=capability_resolution.include_current_date,
             network_boundary_required=True,
+            denied_product_tool_names=capability_resolution.denied_product_tool_names,
             skill_resolution=RunSkillResolution(
                 status="load_failed",
                 activation_source="capability_package",
