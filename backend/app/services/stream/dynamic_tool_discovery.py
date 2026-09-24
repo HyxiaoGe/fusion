@@ -14,7 +14,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
-from app.services.stream.run_capability_request_signals import _resolve_network_scope
 from app.services.tool_handlers.base import BaseToolHandler, ToolResult
 
 TOOL_SEARCH_NAME = "tool_search"
@@ -80,10 +79,14 @@ def is_dynamic_tool_discovery_enabled(options: Mapping[str, Any] | None) -> bool
 
 
 def resolve_discovery_network_denials(original_message: str | None) -> tuple[bool, bool, bool]:
-    """复用现有否定信号解析，不重写自然语言授权规则。"""
+    """自然语言网络否定解析已删除（#132 第二步）。
 
-    _routing, web_denied, url_denied, all_denied = _resolve_network_scope(original_message or "")
-    return web_denied, url_denied, all_denied
+    该层此前用正则在请求文本里找否定词，双向都会出错：#129 把「请分别打开这两个
+    链接」误判为禁用，而「还是别搜了」这类真否定一直漏拦。它从来不是保证，只是
+    被当成保证使用的近似。禁用改由模型判定，执行仍在工具边界按集合裁剪。
+    """
+
+    return False, False, False
 
 
 def infer_network_kind(name: str, *, binding: dict[str, Any] | None = None) -> str:

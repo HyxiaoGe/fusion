@@ -17,8 +17,7 @@ from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.core.config import settings
 from app.core.logger import app_logger as logger
 from app.core.prompt_snapshot import current_prompt_snapshot
-from app.services.stream.run_capability_request_signals import _extract_request_signals
-from app.services.stream.run_capability_router import _CandidateRoute, _classify_literal_layer
+from app.services.stream.run_capability_router import _CandidateRoute
 from app.utils.run_capability_contract import CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES
 
 ClassifierResultCallback = Callable[[str, str | None], None]
@@ -222,18 +221,7 @@ def classify_capability_request_with_model(
             observation_gate=deadline_gate,
         )
     context_messages = conversation_messages if conversation_messages is not None else task_context_messages
-    request = _extract_request_signals(message)
-    literal_route = _classify_literal_layer(request, tools)
-    if literal_route is not None:
-        _record_result(
-            "literal",
-            literal_route.package_id,
-            started_at,
-            result_callback=result_callback,
-            observation_gate=deadline_gate,
-        )
-        return literal_route
-
+    # 字面层短路已删除（#132）：不再在模型之前按正则预选能力包。
     limits = _effective_classifier_limits()
     if limits is None:
         return _fail_closed(
@@ -309,9 +297,11 @@ def classify_capability_request_with_model(
         response = litellm.completion(**completion_kwargs)
         route = _parse_model_route(
             response,
-            request.all_network_denied,
+            # 网络授权否定层已删除（#132 第二步）：不再在选包前按正则判断用户是否禁用网络。
+            False,
             tools,
-            include_current_date=request.include_current_date,
+            # 日期判据已删除（#132）：不再判断“要不要给今天日期”，一律注入。
+            include_current_date=True,
         )
     except (Exception, ValidationError, ValueError, TypeError) as exc:
         if _deadline_expired(deadline_event, deadline_gate):

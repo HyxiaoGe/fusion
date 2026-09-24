@@ -48,7 +48,6 @@ from app.services.stream.agent_plan_tool_policy import (
 from app.services.stream.agent_task_policy import resolve_agent_task_policy
 from app.services.stream.persistence import preprocess_url_in_message
 from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
-from app.services.stream.run_capability_request_signals import requires_verified_source_evidence
 from app.services.stream.run_capability_router import (
     CapabilityClassifier,
     RunCapabilityResolution,
@@ -558,11 +557,8 @@ def _build_discovery_call_config(
         task_mode=task_policy.task_mode,
         network_profile=task_policy.network_profile,
         evidence_policy=(
-            "knowledge_grounded_v1"
-            if knowledge_grounded
-            else "verified_web_v1"
-            if requires_verified_source_evidence(original_message or "")
-            else task_policy.evidence_policy
+            # 按请求文本用正则选证据策略已删除（#132）；改为按实际工具结果判定，见 #127。
+            "knowledge_grounded_v1" if knowledge_grounded else task_policy.evidence_policy
         ),
         required_initial_tool_counts={},
         plan_tool_policy_reason="dynamic_tool_discovery_no_package_min_calls",
