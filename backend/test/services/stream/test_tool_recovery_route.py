@@ -62,6 +62,8 @@ class RecoveryRouteTests(unittest.TestCase):
             capabilities={"functionCalling": True, "searchCapable": True},
             tools_disabled=False,
             knowledge_grounded=False,
+            # 选包判据已删除（#132）：能力包由模型决定，这里声明模型选 weather。
+            classify_fn=lambda **_: _CandidateRoute("weather", "high", ("explicit_weather_request",), True),
         )
         assert route.package_id == "weather"
         assert route.external_tool_names == ("weather_forecast",)
@@ -75,6 +77,7 @@ class RecoveryRouteTests(unittest.TestCase):
             original_message="香港三天天气",
             additional_tools=[weather],
             dynamic_tool_handlers={"weather_forecast": lambda _: None},
+            classify_fn=lambda **_: _CandidateRoute("weather", "high", ("explicit_weather_request",), True),
         )
         assert set(config.announced_tools) == {"weather_forecast", "web_search", "url_read"}
         assert {tool["function"]["name"] for tool in config.call_kwargs["tools"]} == {
@@ -155,7 +158,13 @@ class RecoveryPromptTests(unittest.IsolatedAsyncioTestCase):
         async def messages(*args, **kwargs):
             return [{"role": "user", "content": "查询"}]
 
+        # 选包判据已删除（#132）：按原句声明模型会选什么，本测试验证选定包之后的恢复提示。
+        packages = {
+            "香港三天天气": ("weather", ("explicit_weather_request",)),
+            "核验 OpenAI 最新公告，给出官方原文和交叉来源": ("verified_web", ("verified_source_request",)),
+        }
         for message in ("香港三天天气", "核验 OpenAI 最新公告，给出官方原文和交叉来源"):
+            package_id, reason_codes = packages[message]
             config = build_agent_loop_call_config(
                 provider="openai",
                 options={"plan_mode": "off"},
@@ -163,6 +172,7 @@ class RecoveryPromptTests(unittest.IsolatedAsyncioTestCase):
                 original_message=message,
                 additional_tools=AMAP_PRODUCT_DEFINITIONS,
                 dynamic_tool_handlers={tool["function"]["name"]: lambda _: None for tool in AMAP_PRODUCT_DEFINITIONS},
+                classify_fn=lambda _p=package_id, _r=reason_codes, **_: _CandidateRoute(_p, "high", _r, True),
             )
             prepared = await prepare_agent_loop_messages(
                 db=object(),

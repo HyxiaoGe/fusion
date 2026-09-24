@@ -320,13 +320,25 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
 
         production_wiring = runner._agent_loop_wiring_dependencies
 
+        # 选包判据已整体删除（#132）：router 不再从文本推断能力包，按原句声明模型会
+        # 选什么，等价于以前字面层的结果。本套测试验证的是选定包之后的流式行为。
+        _model_packages = {
+            "请搜索 OpenAI 今天发布的最新消息": ("fresh_web", ("fresh_external_fact",), True),
+            "OpenAI 今天发布了什么？阅读官方公告后总结": ("verified_web", ("verified_source_request",), True),
+            "总结 https://example.com，只依据该页面": ("url_read", ("explicit_url_read",), False),
+            "请阅读 https://example.com/a": ("url_read", ("explicit_url_read",), False),
+            "查天气": ("weather", ("explicit_weather_request",), True),
+        }
+
         def _contract_wiring():
             dependencies = production_wiring()
-            if original_message != "请搜索 OpenAI 今天发布的最新消息":
+            entry = _model_packages.get(original_message)
+            if entry is None:
                 return dependencies
+            package_id, reason_codes, include_current_date = entry
 
             def classify(**_kwargs):
-                return _CandidateRoute("fresh_web", "high", ("fresh_external_fact",), True)
+                return _CandidateRoute(package_id, "high", reason_codes, include_current_date)
 
             return replace(
                 dependencies,

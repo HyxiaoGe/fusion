@@ -34,8 +34,6 @@ from app.core.config import settings  # noqa: E402
 from app.services.stream.agent_task_policy import AgentTaskPolicy  # noqa: E402
 from app.services.stream.run_capability_router import (  # noqa: E402
     CapabilityClassifier,
-    _classify_literal_layer,
-    _extract_request_signals,
     classify_capability_request,
     resolve_run_capability_route,
 )
@@ -101,14 +99,17 @@ class HybridClassifierMonitor:
 
 
 class RulesClassifierMonitor:
-    """只检测字面层是否委派；规则基线不会执行真实模型。"""
+    """字面层已删除（#132）：规则基线现在只剩 fail-closed 落点，不做语义预选。
+
+    保留这个入口是为了让 --classifier rules 仍可运行并显示「无模型时会发生什么」，
+    它不再是一条可用于评分的基线。
+    """
 
     def __init__(self):
         self.layer: str | None = None
 
     def __call__(self, *, message, task_context_messages, available_tool_names):
-        literal = _classify_literal_layer(_extract_request_signals(message), available_tool_names)
-        self.layer = "literal" if literal is not None else "model_deferred"
+        self.layer = "model_deferred"
         return classify_capability_request(
             message=message,
             task_context_messages=task_context_messages,

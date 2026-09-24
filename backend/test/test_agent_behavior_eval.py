@@ -672,63 +672,39 @@ class RunCapabilityBehaviorEvalIntegrationTests(unittest.IsolatedAsyncioTestCase
         async def build_messages(*_args, **_kwargs):
             return []
 
-        delegated_fixture_ids = {
-            "run-route-adversarial-colon-latest-translation",
-            "run-route-adversarial-disabled-fresh-web",
-            "run-route-adversarial-en-latest-news-translation",
-            "run-route-adversarial-en-official-literal-translation",
-            "run-route-adversarial-english-fresh-web",
-            "run-route-adversarial-english-transform",
-            "run-route-adversarial-leading-quote-latest-translation",
-            "run-route-adversarial-negated-web-search",
-            "run-route-adversarial-phrase-official-translation",
-            "run-route-adversarial-quoted-internet-negation-translation",
-            "run-route-adversarial-quoted-route-explanation",
-            "run-route-adversarial-quoted-web-negation-rewrite",
-            "run-route-adversarial-review-p1-10",
-            "run-route-adversarial-review-p1-23",
-            "run-route-adversarial-review-p1-35",
-            "run-route-adversarial-review-p1-36",
-            "run-route-adversarial-single-quoted-latest-translation",
-            "run-route-adversarial-topic-switch-current-translation",
-            "run-route-adversarial-trailing-web-negation",
-            "run-route-adversarial-unquoted-words-transform",
-            "run-route-adversarial-zh-four-words-transform",
-            "run-route-adversarial-zh-latest-news-translation",
-            "run-route-adversarial-zh-official-literal-translation",
-            "run-route-main-current-date",
-            "run-route-main-fresh-fact",
-            "run-route-main-identity",
-            "run-route-main-places-in-translation",
-            "run-route-main-rewrite",
-            "run-route-main-simple-calculation",
-            "run-route-main-translation",
-        }
-
         for sample in samples:
             with self.subTest(sample_id=sample["id"]):
-                # 这组样本验证选定能力包后的工具、提示词和计划信封；
-                # 删除字面判据后，模型层候选在无模型凭据的测试中显式注入。
+                # 本组样本验证「选定能力包之后」的工具、提示词与计划信封。
+                # 选包判据已整体删除（#132），router 不再从文本推断包，因此这里对
+                # 每条样本都显式注入模型候选——本测试不再、也不应验证选包本身。
                 expected_package = sample["expected_package_id"]
-                classify_fn = None
-                if sample["id"] in delegated_fixture_ids:
-                    model_package = "fresh_web" if expected_package == "tools_unavailable" else expected_package
-                    reason_codes = (
-                        ("fresh_external_fact",)
-                        if expected_package == "tools_unavailable"
-                        else tuple(sample["required_capability_reason_codes"])
-                    )
-                    model_candidate = _CandidateRoute(
-                        model_package,
-                        "high",
-                        reason_codes,
-                        "current_date" in sample["expected_prompt_section_ids"],
-                    )
+                model_package = "fresh_web" if expected_package == "tools_unavailable" else expected_package
+                reason_codes = (
+                    ("fresh_external_fact",)
+                    if expected_package == "tools_unavailable"
+                    else tuple(sample["required_capability_reason_codes"])
+                )
+                # 置信度与 resolution_mode 由能力契约按包固定（run_capability_contract），
+                # 这里照契约取值，不是测试自选。
+                model_confidence = {
+                    "clarification_only": "low",
+                    "mobility_intercity": "medium",
+                }.get(model_package, "high")
+                model_candidate = _CandidateRoute(
+                    model_package,
+                    model_confidence,
+                    reason_codes,
+                    "current_date" in sample["expected_prompt_section_ids"],
+                    resolution_mode=("clarification" if model_package == "clarification_only" else "routed"),
+                    # 多工具包与 mcp_explicit 要求候选自带工具集合，模型输出的正是这个。
+                    # 取 fixture 声明的期望工具，不让 router 再从文本推断。
+                    explicit_tool_names=tuple(sample["expected_announced_tools"]) or None,
+                )
 
-                    def classify_from_fixture(**_kwargs):
-                        return model_candidate
+                def classify_from_fixture(_candidate=model_candidate, **_kwargs):
+                    return _candidate
 
-                    classify_fn = classify_from_fixture
+                classify_fn = classify_from_fixture
                 options = sample.get("options", {})
                 capabilities = sample.get(
                     "capabilities",

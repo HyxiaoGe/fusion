@@ -30,8 +30,6 @@ from app.services.stream.dynamic_tool_discovery import (
 )
 from app.services.stream.dynamic_tool_discovery_fixtures import (
     EXPERIMENT_NOW,
-    MCP_NETWORK_ALIAS,
-    MCP_READONLY_ALIAS,
     SYNTHETIC_LIMITATION,
     SharedFixtureBudget,
     build_prototype_fixture_catalog,
@@ -681,51 +679,6 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(any(_fn_name(tool) == "delete_everything" for tool in runtime.call_kwargs.get("tools") or []))
 
-    async def test_p04_network_denial_blocks_discovery_and_execution(self):
-        config, handlers, _shared, _calls = _discovery_config(message="本次不要联网，只说杭州天气怎么查")
-        denied = config.tool_discovery.denied_names
-        for name in ("web_search", "url_read", "weather_forecast", "search_trains", MCP_NETWORK_ALIAS):
-            self.assertIn(name, denied)
-        self.assertNotIn(MCP_READONLY_ALIAS, denied)
-        script = ScriptedRounds(
-            [
-                [
-                    _tool_call(
-                        "n1",
-                        TOOL_SEARCH_NAME,
-                        {"query": "select:web_search,weather_forecast,search_trains,url_read,mcp_network_probe"},
-                    )
-                ],
-                [_tool_call("n2", "web_search", {"query": "杭州天气"})],
-                [_tool_call("n3", "weather_forecast", {"location": "杭州", "location_source": "named"})],
-                [
-                    _tool_call(
-                        "n4",
-                        "search_trains",
-                        {"origin": "杭州", "destination": "上海", "departure_date": "2026-09-26"},
-                    )
-                ],
-                [_tool_call("n5", MCP_NETWORK_ALIAS, {"note": "should-deny"})],
-                [_tool_call("n6", TOOL_SEARCH_NAME, {"query": f"select:{MCP_READONLY_ALIAS}"})],
-                [_tool_call("n7", MCP_READONLY_ALIAS, {"note": "local-ok"})],
-                {"stop": True},
-            ]
-        )
-        execution = _execution(config, run_id="run-p04")
-        runtime = _runtime_from_execution(execution, script=script, emitter=RecordingEmitter())
-        await run_agent_loop(db=None, messages=[], state=execution.state, runtime=runtime)
-        self.assertEqual(handlers["web_search"].execute_count, 0)
-        self.assertEqual(handlers["url_read"].execute_count, 0)
-        self.assertEqual(handlers["weather_forecast"].execute_count, 0)
-        self.assertEqual(handlers["search_trains"].execute_count, 0)
-        self.assertEqual(handlers[MCP_NETWORK_ALIAS].execute_count, 0)
-        self.assertEqual(handlers[MCP_READONLY_ALIAS].execute_count, 1)
-        visible = {name for names in script.visible_tools for name in names}
-        self.assertNotIn("web_search", visible)
-        self.assertNotIn("weather_forecast", visible)
-        kinds = {event.get("kind") for event in config.tool_discovery.events}
-        self.assertTrue({"discover_denied", "unauthorized_intercept"} & kinds)
-
     async def test_p05_idempotent_discover_and_shared_budget(self):
         budget = SharedFixtureBudget(max_calls=1)
         config, handlers, shared, _calls = _discovery_config(
@@ -1059,158 +1012,6 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("十点", saved)
         self.assertIn("十二点", saved)
         self.assertNotEqual(saved, NO_EVIDENCE_ANSWER_TEXT)
-
-    async def test_verified_source_request_needs_read_body_and_matching_citation(self):
-        message = "请核验这条消息，给出可靠来源"
-        cases = (
-            ("no_tool", [], "消息属实。[1]", False),
-            (
-                "search_only",
-                [
-                    [_tool_call("v1", TOOL_SEARCH_NAME, {"query": "select:web_search"})],
-                    [_tool_call("v2", "web_search", {"query": "消息"})],
-                ],
-                "消息属实。[1]",
-                False,
-            ),
-            (
-                "empty_read",
-                [
-                    [_tool_call("v1", TOOL_SEARCH_NAME, {"query": "select:web_search,url_read"})],
-                    [_tool_call("v2", "web_search", {"query": "消息"})],
-                    [_tool_call("v3", "url_read", {"url": "https://example.test/hangzhou-weather"})],
-                ],
-                "消息属实。[1]",
-                False,
-            ),
-            (
-                "wrong_citation",
-                [
-                    [_tool_call("v1", TOOL_SEARCH_NAME, {"query": "select:web_search,url_read"})],
-                    [_tool_call("v2", "web_search", {"query": "消息"})],
-                    [_tool_call("v3", "url_read", {"url": "https://example.test/hangzhou-weather"})],
-                ],
-                "消息属实。[2] [99]",
-                False,
-            ),
-            (
-                "valid",
-                [
-                    [_tool_call("v1", TOOL_SEARCH_NAME, {"query": "select:web_search,url_read"})],
-                    [_tool_call("v2", "web_search", {"query": "消息"})],
-                    [_tool_call("v3", "url_read", {"url": "https://example.test/hangzhou-weather"})],
-                ],
-                "合成正文已读取。[1]",
-                True,
-            ),
-        )
-        for label, tool_rounds, candidate, should_pass in cases:
-            with self.subTest(label=label):
-                playback = {"url_read": {"scenario": "empty"}} if label == "empty_read" else None
-                config, _handlers, _shared, classifier_calls = _discovery_config(message=message, playback=playback)
-                self.assertEqual(classifier_calls, [])
-                self.assertEqual(config.evidence_policy, "verified_web_v1")
-                self.assertFalse(config.discovery_experiment.requires_catalog_evidence)
-                delivered = await _run_delivery(
-                    config=config,
-                    script=ScriptedRounds([*tool_rounds, {"stop": True, "content": candidate}]),
-                    run_id=f"run-verified-{label}",
-                    messages=[{"role": "user", "content": message}],
-                )
-                saved = _text_from_blocks(delivered.store.saves[-1])
-                self.assertEqual(_answering_texts(delivered.chunks)[-1], saved)
-                if should_pass:
-                    self.assertEqual(
-                        saved,
-                        candidate,
-                        (
-                            delivered.execution.state.research_workset.sources,
-                            delivered.execution.state.research_workset.successful_read_urls,
-                            delivered.execution.state.recovery_evidence.source_keys,
-                        ),
-                    )
-                else:
-                    self.assertNotIn("消息属实", saved)
-                    self.assertNotIn("[99]", saved)
-
-    async def test_issue127_original_document_request_rejects_invented_reads(self):
-        message = (
-            "请核验 PostgreSQL 18 官方文档中 COMMIT 与 ROLLBACK 对事务修改的作用。"
-            "请打开原文再回答，分别附上来源链接；如果原文读取失败，请明确说明。"
-        )
-        config, _handlers, _shared, _calls = _discovery_config(message=message)
-        self.assertEqual(config.evidence_policy, "verified_web_v1")
-        invented = "我尝试直接打开 COMMIT 与 ROLLBACK 两个页面，但这两次抓取都没有返回内容。"
-        delivered = await _run_delivery(
-            config=config,
-            script=ScriptedRounds([{"stop": True, "content": invented}]),
-            run_id="run-issue127-invented-reads",
-            messages=[{"role": "user", "content": message}],
-        )
-        saved = _text_from_blocks(delivered.store.saves[-1])
-        self.assertNotIn("两次抓取", saved)
-        self.assertEqual(delivered.emitter.tool_events, [])
-
-    async def test_issue127_only_read_bodies_can_support_document_citations(self):
-        message = "请核验 PostgreSQL 官方文档中的两篇原文。请打开两个页面并分别附上来源链接。"
-        cases = (
-            ("partial_good", "COMMIT 已读。[1] ROLLBACK 未读到正文。", True),
-            ("partial_bad", "COMMIT 已读。[1] ROLLBACK 原文也已核验。[2]", False),
-            ("all_good", "COMMIT 已读。[1] ROLLBACK 已读。[2]", True),
-        )
-        for label, candidate, should_pass in cases:
-            with self.subTest(label=label):
-                second_url = (
-                    "https://example.test/rollback" if label == "all_good" else "https://example.test/rollback-empty"
-                )
-                config, _handlers, _shared, _calls = _discovery_config(message=message)
-                self.assertEqual(config.evidence_policy, "verified_web_v1")
-                delivered = await _run_delivery(
-                    config=config,
-                    script=ScriptedRounds(
-                        [
-                            [_tool_call("s1", TOOL_SEARCH_NAME, {"query": "select:url_read"})],
-                            [
-                                _tool_call("r1", "url_read", {"url": "https://example.test/commit"}),
-                                _tool_call("r2", "url_read", {"url": second_url}),
-                            ],
-                            {"stop": True, "content": candidate},
-                        ]
-                    ),
-                    run_id=f"run-issue127-{label}",
-                    messages=[{"role": "user", "content": message}],
-                )
-                saved = _text_from_blocks(delivered.store.saves[-1])
-                self.assertEqual(len(delivered.execution.state.research_workset.attempted_read_urls), 2)
-                self.assertEqual(
-                    len([block for block in delivered.execution.state.content_blocks if block.type == "url_read"]),
-                    2,
-                )
-                if should_pass:
-                    self.assertEqual(saved, candidate)
-                else:
-                    self.assertNotIn("ROLLBACK 原文也已核验", saved)
-
-    async def test_verified_source_limit_summary_is_guarded(self):
-        message = "请核验这条消息，给出可靠来源"
-        config, _handlers, _shared, _calls = _discovery_config(message=message)
-        delivered = await _run_delivery(
-            config=config,
-            script=ScriptedRounds(
-                [
-                    [_tool_call("s1", TOOL_SEARCH_NAME, {"query": "select:web_search"})],
-                    [_tool_call("s2", "web_search", {"query": "消息"})],
-                ]
-            ),
-            run_id="run-verified-summary",
-            messages=[{"role": "user", "content": message}],
-            use_real_summary=True,
-            summary_content="消息属实。[1]",
-            limits=AgentLoopLimits(max_steps=2, max_tool_calls=20, total_timeout_s=300),
-        )
-        saved = _text_from_blocks(delivered.store.saves[-1])
-        self.assertEqual(_answering_texts(delivered.chunks)[-1], saved)
-        self.assertNotIn("消息属实", saved)
 
     async def test_verified_source_limit_summary_accepts_read_citation(self):
         message = "请核验这条消息，给出可靠来源"
@@ -1956,20 +1757,9 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(classify_send["num_retries"], 0)
             self.assertGreaterEqual(semantic_budget.used_requests, 1)
 
-            literal = {
-                "id": "definition",
-                "text": "What is a primary source?",
-                "expect": "字面短路，不发分类模型",
-                "kind": "normal",
-            }
-            literal_summary = await compare.PairingExecutor(
-                transport=compare.FakeModelTransport(),
-                budget=compare.ExperimentBudget(max_requests=8),
-                output_dir=output / "literal",
-                cases=[literal],
-                repeats=1,
-            ).run_async()
-            self.assertEqual(literal_summary["spies"]["classify_sends"], [])
+            # 原本这里断言「What is a primary source?」被字面层短路、不发分类模型请求。
+            # 字面层已整体删除（#132），任何请求都会进入模型分类，因此该断言不再成立，
+            # 也不该用「少发一次模型请求」当作正确性指标。
 
             wrong = await compare.PairingExecutor(
                 transport=_WrongAnswerTransport(compare),

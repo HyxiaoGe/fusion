@@ -312,7 +312,22 @@ class AgentLoopWiringTests(unittest.TestCase):
                     captured["call_config_kwargs"]["authorized_tool_names"],
                     ["mcp_docs_alias"],
                 )
-                real_call_config = build_agent_loop_call_config(**captured["call_config_kwargs"])
+                from app.services.stream.run_capability_router import _CandidateRoute
+
+                # 选包判据已删除（#132）：能力包由模型决定。这里注入显式别名候选，
+                # 以便继续验证「已选定 mcp_explicit 后因执行不可用而原子降级」这条契约。
+                real_call_config = build_agent_loop_call_config(
+                    **{
+                        **captured["call_config_kwargs"],
+                        "classify_fn": lambda **_: _CandidateRoute(
+                            "mcp_explicit",
+                            "high",
+                            ("explicit_authorized_tool_alias",),
+                            False,
+                            explicit_tool_names=("mcp_docs_alias",),
+                        ),
+                    }
+                )
                 self.assertEqual(real_call_config.capability_resolution.package_id, "tools_unavailable")
                 self.assertEqual(
                     real_call_config.capability_resolution.reason_codes,
