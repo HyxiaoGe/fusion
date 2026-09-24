@@ -12,6 +12,7 @@ import threading
 import time
 import unittest
 from contextlib import ExitStack
+from dataclasses import replace
 from functools import partial
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -313,7 +314,29 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
         execute_tools_result: _execute_tools_parallel 的返回值
         patch_extra: 额外 context manager 列表
         """
+        from app.services.stream import runner
+        from app.services.stream.agent_loop_request_prep import build_agent_loop_call_config
+        from app.services.stream.run_capability_router import _CandidateRoute
+
+        production_wiring = runner._agent_loop_wiring_dependencies
+
+        def _contract_wiring():
+            dependencies = production_wiring()
+            if original_message != "请搜索 OpenAI 今天发布的最新消息":
+                return dependencies
+
+            def classify(**_kwargs):
+                return _CandidateRoute("fresh_web", "high", ("fresh_external_fact",), True)
+
+            return replace(
+                dependencies,
+                build_call_config_fn=partial(build_agent_loop_call_config, classify_fn=classify),
+            )
+
         with ExitStack() as stack:
+            stack.enter_context(
+                patch("app.services.stream.runner._agent_loop_wiring_dependencies", side_effect=_contract_wiring)
+            )
             stack.enter_context(
                 patch(
                     "app.services.stream.runner.stream_round",

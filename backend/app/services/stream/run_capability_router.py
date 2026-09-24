@@ -19,12 +19,9 @@ from app.services.stream.agent_plan_tool_policy import (
 )
 from app.services.stream.agent_task_policy import AgentTaskPolicy
 from app.services.stream.run_capability_request_signals import (
-    _EXPLICIT_HISTORICAL_TIME_RE,
     _POSITIVE_URL_TOOL_NAME_RE,
     _POSITIVE_WEB_SEARCH_ACTION_RE,
     _POSITIVE_WEB_TOOL_NAME_RE,
-    _RELATIVE_DATE_RE,
-    _SENTENCE_BOUNDARY_RE,
     _URL_RE,
     _extract_directive_scope,
     _extract_request_signals,
@@ -57,49 +54,9 @@ ROUTER_VERSION = "2026-09-20.1"
 _CANONICAL_EXTERNAL_TOOL_ORDER = CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER
 _CONTROL_TOOL_NAMES = CAPABILITY_CONTROL_TOOL_NAMES
 
-_CURRENT_DATE_ONLY_RE = re.compile(
-    r"^(?:请问|请告诉我|帮我看下|帮我看看)?(?:今天|现在)"
-    r"(?:是)?(?:几月几日|几号|星期几|周几|日期|什么日子)"
-    r"(?:[、，,和及](?:星期几|周几|几月几日|几号|日期))?[？?。！!]*$|"
-    r"^(?:(?:what(?:'s| is) )?(?:today(?:'s)? date|the date today)|"
-    r"what day is it today)\??$",
-    re.IGNORECASE,
-)
-_CURRENT_EXTERNAL_QUERY_RE = re.compile(
-    r"(?:^|请|帮我|替我)(?:查|查询)|"
-    r"(?:今天|今日|明天|后天|昨天|当前|现在)(?:请|帮我|替我)?(?:查|查询)|"
-    r"多少|是否|吗[？?]?$"
-)
-_QUOTED_LITERAL_TRANSFORM_RE = re.compile(
-    r"(?:翻译|译成|改写|重写|润色|\b(?:translate|rewrite|rephrase|proofread|polish))"
-    r"(?:\s+(?:the\s+)?(?:phrase|text|words?))?\s*:?[：]?\s*"
-    r"(?:“[^”]{1,240}”|‘[^’]{1,240}’|\"[^\"]{1,240}\"|'[^']{1,240}')|"
-    r"(?:“[^”]{1,240}”|‘[^’]{1,240}’|\"[^\"]{1,240}\"|'[^']{1,240}')\s*"
-    r"(?:翻译|译成|改写|重写|润色|\b(?:translate|rewrite|rephrase|proofread|polish))",
-    re.IGNORECASE,
-)
-_GIVEN_TEXT_TRANSFORM_RE = re.compile(
-    r"(?:把|将)(?:这|以下|上述|给定|已给|后面).{1,240}"
-    r"(?:翻译|译成|改写|重写|润色|概括|摘要|总结)|"
-    r"\b(?:translate|rewrite|rephrase|proofread|polish)\s+"
-    r"(?:this|that|the following|(?:the\s+)?(?:words?|phrase))\b|"
-    r"(?:把|将).{1,120}这(?:一|两|三|四|五|几)个字.{0,24}(?:翻译|译成|改写|重写)",
-    re.IGNORECASE,
-)
 _GREETING_RE = re.compile(
     r"^(?:(?:你?好|嗨)(?:[，,\s]*很高兴见到你)?|hi|hello|早上好|下午好|晚上好|很高兴见到你)"
     r"[呀啊！!。\s]*$",
-    re.IGNORECASE,
-)
-_IDENTITY_CORE_RE = re.compile(
-    r"(?:你是谁|你叫什么(?:名字)?|介绍一下你自己|你能做什么)"
-    r"(?:呀|呢|啊|嘛|吧)?(?:吗)?[？?。！!\s]*",
-    re.IGNORECASE,
-)
-_STABLE_KNOWLEDGE_RE = re.compile(
-    r"^(?:为什么|为何|什么是|解释(?:一下)?|介绍一下|讲讲|"
-    r"why\b|what (?:is|are|does)\b|how (?:does|do|is|are|can)\b|explain\b)|"
-    r"^(?!从.{1,64}(?:到|至)).{1,80}(?:是什么|原理是什么|怎么工作)[？?]?$",
     re.IGNORECASE,
 )
 _NOUN_DEFINITION_RE = re.compile(
@@ -148,9 +105,6 @@ _DEFINITIONAL_KNOWLEDGE_RE = re.compile(
     r"(?:什么是|为什么|为何).+|"
     r"解释(?:一下)?.*(?:区别|含义|意思|概念|原理))",
     re.IGNORECASE,
-)
-_SIMPLE_CALC_RE = re.compile(
-    r"^(?:请)?(?:计算|算一下|算算)?\s*[\d\s()+\-*/.%]+(?:等于多少|是多少)?[？?]?$", re.IGNORECASE
 )
 _EN_PRODUCT_SEQUENCE_ACTION = (
     r"(?:do not|don['’]t|dont|never|not|avoid|without|find|search|show|book|compare|"
@@ -532,23 +486,15 @@ class _EnglishRouteSignals:
     intercity_route: bool
 
 
-def _is_identity_request(message: str) -> bool:
-    """只短路完整身份核心句；礼貌包装与复合意图交给后续分类。"""
-
-    return _IDENTITY_CORE_RE.fullmatch(message.strip()) is not None
-
-
 def _classify_literal_layer(
     request: _RequestSignals,
     available_tool_names: list[str] | None = None,
 ) -> _CandidateRoute | None:
     """只处理靠字面就能判定的能力包；判不出来返回 None 交给下一层。"""
 
-    message = request.message
     routing_message = request.routing_message
     web_search_denied = request.web_search_denied
     url_read_denied = request.url_read_denied
-    original_transform_request = request.original_transform_request
     explicit_web_search_request = request.explicit_web_search_request
     url_read_request = request.url_read_request
     verified_web_request = request.verified_web_request
@@ -562,9 +508,6 @@ def _classify_literal_layer(
             ("stable_knowledge_question",),
             False,
         )
-
-    if _CURRENT_DATE_ONLY_RE.search(routing_message):
-        return _CandidateRoute("date", "high", ("current_date_question",), True)
 
     if (
         url_read_request
@@ -586,34 +529,6 @@ def _classify_literal_layer(
             "high",
             ("verified_source_request",),
             True,
-        )
-    if not web_search_denied and explicit_web_search_request and original_transform_request:
-        return _CandidateRoute(
-            "fresh_web",
-            "high",
-            ("fresh_external_fact",),
-            True,
-        )
-    if original_transform_request and _has_explicit_given_text(message):
-        return _CandidateRoute(
-            "transform",
-            "high",
-            ("text_transform_request",),
-            False,
-        )
-    if not web_search_denied and fresh_web_request:
-        return _CandidateRoute(
-            "fresh_web",
-            "high",
-            ("fresh_external_fact",),
-            True,
-        )
-    if original_transform_request:
-        return _CandidateRoute(
-            "transform",
-            "high",
-            ("text_transform_request",),
-            False,
         )
     denied_search_request = web_search_denied and bool(
         verified_web_request or fresh_web_request or explicit_web_search_request
@@ -642,15 +557,6 @@ def _classify_literal_layer(
         )
     if _GREETING_RE.search(routing_message):
         return _CandidateRoute("direct", "high", ("direct_greeting",), False)
-    if _is_identity_request(routing_message):
-        return _CandidateRoute(
-            "direct",
-            "high",
-            ("assistant_identity_question",),
-            False,
-        )
-    if _SIMPLE_CALC_RE.search(routing_message):
-        return _CandidateRoute("direct", "high", ("simple_calculation",), False)
     return None
 
 
@@ -1014,7 +920,6 @@ def _classify_residual_layer(
 ) -> _CandidateRoute:
     """所有正向信号都不成立时的兜底；判不出能力族一律要求澄清。"""
 
-    routing_message = request.routing_message
     web_search_denied = request.web_search_denied
     explicit_web_search_request = request.explicit_web_search_request
     english_relation = english.relation
@@ -1044,21 +949,6 @@ def _classify_residual_layer(
             True,
         )
 
-    if not web_search_denied and _has_current_external_query_request(routing_message):
-        return _CandidateRoute(
-            "fresh_web",
-            "high",
-            ("fresh_external_fact",),
-            True,
-        )
-
-    if _STABLE_KNOWLEDGE_RE.search(routing_message):
-        return _CandidateRoute(
-            "direct",
-            "high",
-            ("stable_knowledge_question",),
-            False,
-        )
     return _CandidateRoute(
         "clarification_only",
         "low",
@@ -1477,10 +1367,6 @@ def _product_tool_positive_patterns(tool_name: str) -> tuple[re.Pattern[str], ..
     return ()
 
 
-def _has_explicit_given_text(message: str) -> bool:
-    return bool(_QUOTED_LITERAL_TRANSFORM_RE.search(message) or _GIVEN_TEXT_TRANSFORM_RE.search(message))
-
-
 def _is_definitional_knowledge_request(message: str) -> bool:
     noun_definition = _NOUN_DEFINITION_RE.fullmatch(message)
     noun_definition_tail = noun_definition.group("tail").rstrip("?.!") if noun_definition else ""
@@ -1507,15 +1393,6 @@ def _is_definitional_knowledge_request(message: str) -> bool:
         or _POSITIVE_WEB_TOOL_NAME_RE.search(message)
         or _POSITIVE_URL_TOOL_NAME_RE.search(message)
     )
-
-
-def _has_current_external_query_request(message: str) -> bool:
-    for sentence in _SENTENCE_BOUNDARY_RE.split(message):
-        if _EXPLICIT_HISTORICAL_TIME_RE.search(sentence):
-            continue
-        if _RELATIVE_DATE_RE.search(sentence) and _CURRENT_EXTERNAL_QUERY_RE.search(sentence):
-            return True
-    return False
 
 
 def _extract_english_route_relation(message: str) -> tuple[str, str] | None:

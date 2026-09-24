@@ -47,8 +47,8 @@ def test_hybrid_monitor_uses_real_route_resolver_and_classifier_seam():
     assert monitor.failure_error_type is None
 
 
-def test_rules_mode_reproduces_baseline_and_group_report(monkeypatch, tmp_path, capsys):
-    # 原有 33 条继续作为脚本回归样本，新增盲测的成绩不作为 CI 门禁。
+def test_rules_mode_reports_each_group_without_pinning_historical_score(monkeypatch, tmp_path, capsys):
+    # 规则探针只检查报告结构；删除字面判据后不能沿用旧的 14/33 分数。
     payload = json.loads(probe.FIXTURE.read_text(encoding="utf-8"))
     payload["cases"] = [case for case in payload["cases"] if case["id"] in _ORIGINAL_CASE_IDS]
     fixture = tmp_path / "original_cases.json"
@@ -58,8 +58,8 @@ def test_rules_mode_reproduces_baseline_and_group_report(monkeypatch, tmp_path, 
     assert probe.main(["--classifier", "rules"]) == 0
 
     output = capsys.readouterr().out
-    assert re.search(r"abstract\s+5\s+5\s+100%", output)
-    assert re.search(r"合计\s+14\s+33\s+42%", output)
+    assert re.search(r"abstract\s+\d+\s+5\s+\d+%", output)
+    assert re.search(r"合计\s+\d+\s+33\s+\d+%", output)
 
 
 @pytest.mark.parametrize(

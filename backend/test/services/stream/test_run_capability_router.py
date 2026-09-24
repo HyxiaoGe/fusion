@@ -62,6 +62,7 @@ def _resolve(
     tools_disabled: bool = False,
     knowledge_grounded: bool = False,
     load_skills_fn=None,
+    classify_fn=None,
 ) -> RunCapabilityResolution:
     return resolve_run_capability_route(
         original_message=message,
@@ -73,7 +74,26 @@ def _resolve(
         tools_disabled=tools_disabled,
         knowledge_grounded=knowledge_grounded,
         load_skills_fn=load_skills_fn,
+        classify_fn=classify_fn,
     )
+
+
+def _resolve_verified_with_model_fallback(message: str, **kwargs) -> RunCapabilityResolution:
+    literal = _classify_literal_layer(_extract_request_signals(message), ALL_TOOLS)
+    if literal is not None:
+        assert literal.package_id == "verified_web"
+        return _resolve(message, **kwargs)
+    candidate = _CandidateRoute("verified_web", "high", ("verified_source_request",), True)
+    return _resolve(message, classify_fn=lambda **_: candidate, **kwargs)
+
+
+def _resolve_direct_with_model_fallback(message: str) -> RunCapabilityResolution:
+    literal = _classify_literal_layer(_extract_request_signals(message), ALL_TOOLS)
+    if literal is not None:
+        assert literal.package_id == "direct"
+        return _resolve(message)
+    candidate = _CandidateRoute("direct", "high", ("stable_knowledge_question",), False)
+    return _resolve(message, classify_fn=lambda **_: candidate)
 
 
 @pytest.mark.parametrize(
@@ -490,7 +510,28 @@ def test_route_matrix(
     expected_confidence,
     expected_reason_codes,
 ):
-    route = _resolve(message)
+    deleted_literal_messages = {
+        "把 See you tomorrow 翻译成中文",
+        "把北京到上海翻译成英文",
+        "今天是几月几日、星期几？",
+        "今天上海证券交易所开市吗？",
+        "今天 OpenAI 有什么新发布？请简单说明。",
+        "Translate this into Chinese: See you tomorrow.",
+        "What is today's date?",
+        "What day is it today?",
+        "What is the latest OpenAI release?",
+    }
+    if message in deleted_literal_messages:
+        assert _classify_literal_layer(_extract_request_signals(message), ALL_TOOLS) is None
+        candidate = _CandidateRoute(
+            expected_package,
+            expected_confidence,
+            expected_reason_codes,
+            expected_include_date,
+        )
+        route = _resolve(message, classify_fn=lambda **_kwargs: candidate)
+    else:
+        route = _resolve(message)
 
     assert route.package_id == expected_package
     assert route.external_tool_names == expected_tools
@@ -525,8 +566,8 @@ def test_historical_new_release_phrasing_does_not_force_fresh_web(message):
     assert route.include_current_date is False
 
 
-def test_current_new_release_phrasing_keeps_verified_web_priority():
-    route = _resolve("今天 OpenAI 有什么新发布？请阅读官方原文并交叉核验")
+def test_current_new_release_phrasing_can_use_model_selected_verified_web():
+    route = _resolve_verified_with_model_fallback("今天 OpenAI 有什么新发布？请阅读官方原文并交叉核验")
 
     assert route.package_id == "verified_web"
     assert route.external_tool_names == ("web_search", "url_read")
@@ -540,15 +581,14 @@ def test_current_new_release_phrasing_respects_network_denial():
     assert route.external_tool_names == ()
 
 
-def test_quoted_current_new_release_phrasing_remains_transform():
-    route = _resolve("把“今天 OpenAI 有什么新发布”翻译成英文")
-
-    assert route.package_id == "transform"
-    assert route.external_tool_names == ()
+def test_quoted_current_new_release_phrasing_delegates_to_model():
+    message = "把“今天 OpenAI 有什么新发布”翻译成英文"
+    assert _classify_literal_layer(_extract_request_signals(message), ALL_TOOLS) is None
 
 
 def test_current_new_release_phrasing_degrades_when_tools_are_disabled():
-    route = _resolve("今天 OpenAI 有什么新发布？", tools_disabled=True)
+    candidate = _CandidateRoute("fresh_web", "high", ("fresh_external_fact",), True)
+    route = _resolve("今天 OpenAI 有什么新发布？", tools_disabled=True, classify_fn=lambda **_: candidate)
 
     assert route.package_id == "tools_unavailable"
     assert route.external_tool_names == ()
@@ -568,11 +608,8 @@ def test_current_new_release_phrasing_degrades_when_tools_are_disabled():
     ],
 )
 def test_english_stable_knowledge_does_not_trigger_external_tools(message):
-    route = _resolve(message)
-
-    assert route.package_id == "direct"
-    assert route.external_tool_names == ()
-    assert route.reason_codes == ("stable_knowledge_question",)
+    # 已删除页内/直答等字面判据，这类请求交给模型判断。
+    assert _classify_literal_layer(_extract_request_signals(message), ALL_TOOLS) is None
 
 
 def test_english_place_value_request_does_not_trigger_place_discovery():
@@ -582,11 +619,9 @@ def test_english_place_value_request_does_not_trigger_place_discovery():
     assert route.external_tool_names == ()
 
 
-def test_chinese_search_algorithm_noun_does_not_trigger_web_search():
-    route = _resolve("搜索算法的时间复杂度是什么？")
-
-    assert route.package_id == "direct"
-    assert route.external_tool_names == ()
+def test_chinese_search_algorithm_noun_delegates_to_model():
+    message = "搜索算法的时间复杂度是什么？"
+    assert _classify_literal_layer(_extract_request_signals(message), ALL_TOOLS) is None
 
 
 @pytest.mark.parametrize(
@@ -947,17 +982,21 @@ def test_later_denial_for_a_different_object_does_not_cancel_allowed_work(
 
 
 def test_scoped_internet_denial_does_not_block_later_verified_request():
-    route = _resolve("Don't use the internet for old docs; verify the latest official OpenAI announcement")
+    message = "Don't use the internet for old docs; verify the latest official OpenAI announcement"
+    request = _extract_request_signals(message)
+    assert not request.web_search_denied
+    assert not request.url_read_denied
+    route = _resolve_verified_with_model_fallback(message)
 
     assert route.package_id == "verified_web"
     assert route.external_tool_names == ("web_search", "url_read")
 
 
-def test_trailing_network_negation_keeps_stable_knowledge_direct():
-    route = _resolve("解释二分查找，不要联网搜索。")
-
-    assert route.package_id == "direct"
-    assert route.external_tool_names == ()
+def test_trailing_network_negation_keeps_authorization_when_direct_answer_delegates():
+    message = "解释二分查找，不要联网搜索。"
+    request = _extract_request_signals(message)
+    assert request.web_search_denied is True
+    assert _classify_literal_layer(request, ALL_TOOLS) is None
 
 
 @pytest.mark.parametrize(
@@ -1032,11 +1071,8 @@ def test_scoped_network_negation_does_not_disable_other_explicit_capability(
     ],
 )
 def test_given_text_with_external_source_words_stays_local_transform(message):
-    route = _resolve(message)
-
-    assert route.package_id == "transform"
-    assert route.external_tool_names == ()
-    assert route.include_current_date is False
+    # 已删除页内/直答等字面判据，这类请求交给模型判断。
+    assert _classify_literal_layer(_extract_request_signals(message), ALL_TOOLS) is None
 
 
 @pytest.mark.parametrize(
@@ -1049,8 +1085,10 @@ def test_given_text_with_external_source_words_stays_local_transform(message):
     ],
 )
 def test_quoted_literals_do_not_activate_external_or_route_capabilities(message):
-    route = _resolve(message)
-
+    literal = _classify_literal_layer(_extract_request_signals(message), ALL_TOOLS)
+    assert literal is None or literal.package_id == "direct"
+    candidate = _CandidateRoute("direct", "high", ("stable_knowledge_question",), False)
+    route = _resolve(message, classify_fn=lambda **_: candidate)
     assert route.package_id == "direct"
     assert route.external_tool_names == ()
 
@@ -1063,7 +1101,7 @@ def test_quoted_literals_do_not_activate_external_or_route_capabilities(message)
     ],
 )
 def test_unprovided_external_announcement_translation_keeps_verified_tools(message):
-    route = _resolve(message)
+    route = _resolve_verified_with_model_fallback(message)
 
     assert route.package_id == "verified_web"
     assert route.external_tool_names == ("web_search", "url_read")
@@ -1121,7 +1159,10 @@ def test_transform_literal_and_explicit_external_actions_use_correct_precedence(
     expected_package,
     expected_tools,
 ):
-    route = _resolve(message)
+    if expected_package == "transform":
+        assert _classify_literal_layer(_extract_request_signals(message), ALL_TOOLS) is None
+        return
+    route = _resolve_verified_with_model_fallback(message) if expected_package == "verified_web" else _resolve(message)
 
     assert route.package_id == expected_package
     assert route.external_tool_names == expected_tools
@@ -1368,7 +1409,7 @@ def test_external_source_and_multi_capability_requests_do_not_silently_drop_tool
     expected_package,
     expected_tools,
 ):
-    route = _resolve(message)
+    route = _resolve_verified_with_model_fallback(message) if expected_package == "verified_web" else _resolve(message)
 
     assert route.package_id == expected_package
     assert route.external_tool_names == expected_tools
@@ -1430,7 +1471,9 @@ def test_deep_research_has_fixed_tools_and_forces_plan_on():
     ],
 )
 def test_tool_degradation_uses_network_boundary(message, kwargs, expected_reason):
-    route = _resolve(message, **kwargs)
+    candidate = _CandidateRoute("fresh_web", "high", ("fresh_external_fact",), True)
+    classify_fn = (lambda **_: candidate) if "OpenAI 新闻" in message else None
+    route = _resolve(message, classify_fn=classify_fn, **kwargs)
 
     assert route.package_id == "tools_unavailable"
     assert route.external_tool_names == ()
@@ -1442,11 +1485,13 @@ def test_tool_degradation_uses_network_boundary(message, kwargs, expected_reason
 
 
 def test_knowledge_grounded_marks_blocked_fresh_request_with_date_and_boundary():
+    candidate = _CandidateRoute("fresh_web", "high", ("fresh_external_fact",), True)
     route = _resolve(
         "查一下最新的 OpenAI 新闻",
         knowledge_grounded=True,
         tools_disabled=True,
         requested_plan_mode="on",
+        classify_fn=lambda **_: candidate,
     )
 
     assert route.package_id == "knowledge_grounded"
@@ -1486,7 +1531,8 @@ def test_deep_research_requires_complete_search_and_read_tool_set(available_tool
 
 
 def test_explicit_plan_mode_overrides_package_auto_policy():
-    forced_on = _resolve("你好", requested_plan_mode="on")
+    candidate = _CandidateRoute("direct", "high", ("stable_knowledge_question",), False)
+    forced_on = _resolve("你好", requested_plan_mode="on", classify_fn=lambda **_: candidate)
     forced_off = _resolve(
         "从上海虹桥站到外滩怎么坐公共交通？",
         requested_plan_mode="off",
@@ -1515,6 +1561,7 @@ def test_adjacent_route_result_enables_elliptical_route_followup():
 
 
 def test_topic_switch_does_not_inherit_old_route_capability():
+    candidate = _CandidateRoute("transform", "high", ("text_transform_request",), False)
     route = _resolve(
         "把 See you tomorrow 翻译成中文",
         task_context_messages=[
@@ -1524,6 +1571,7 @@ def test_topic_switch_does_not_inherit_old_route_capability():
             {"role": "assistant", "content": [{"type": "text", "text": "Python 3.14 的变化如下。"}]},
             {"role": "user", "content": "把 See you tomorrow 翻译成中文"},
         ],
+        classify_fn=lambda **_: candidate,
     )
 
     assert route.package_id == "transform"
@@ -1759,16 +1807,13 @@ def test_mixed_itinerary_keeps_only_three_travel_tools():
     assert route.reason_codes == ("mixed_itinerary_request",)
 
 
-def test_summary_of_provided_text_stays_transform():
-    route = _resolve("摘要以下内容：天空通常看起来是蓝色的。")
-
-    assert route.package_id == "transform"
-    assert route.external_tool_names == ()
-    assert route.include_current_date is False
+def test_summary_of_provided_text_delegates_to_model():
+    message = "摘要以下内容：天空通常看起来是蓝色的。"
+    assert _classify_literal_layer(_extract_request_signals(message), ALL_TOOLS) is None
 
 
 def test_summary_of_fresh_official_announcement_uses_verified_web():
-    route = _resolve("摘要 OpenAI 今天发布的官方公告")
+    route = _resolve_verified_with_model_fallback("摘要 OpenAI 今天发布的官方公告")
 
     assert route.package_id == "verified_web"
     assert route.external_tool_names == ("web_search", "url_read")
@@ -1783,8 +1828,8 @@ def test_summary_of_fresh_official_announcement_uses_verified_web():
         "请核验 2026-09-10 上海到北京航班并阅读官方原文",
     ],
 )
-def test_verified_request_has_priority_over_product_keywords(message):
-    route = _resolve(message)
+def test_model_can_select_verified_request_over_product_keywords(message):
+    route = _resolve_verified_with_model_fallback(message)
 
     assert route.package_id == "verified_web"
     assert route.external_tool_names == ("web_search", "url_read")
@@ -1955,7 +2000,10 @@ def test_same_clause_denial_for_other_object_keeps_authorized_work(
     ],
 )
 def test_scoped_web_or_url_denial_can_be_reauthorized_by_verified_request(message):
-    route = _resolve(message)
+    request = _extract_request_signals(message)
+    assert not request.web_search_denied
+    assert not request.url_read_denied
+    route = _resolve_verified_with_model_fallback(message)
 
     assert route.package_id == "verified_web"
     assert route.external_tool_names == ("web_search", "url_read")
@@ -2880,8 +2928,8 @@ def test_scoped_tool_denial_for_same_object_cancels_prior_request(message):
         "What is a current price?",
     ],
 )
-def test_source_definition_questions_remain_direct(message):
-    route = _resolve(message)
+def test_source_definition_questions_delegate_to_model(message):
+    route = _resolve_direct_with_model_fallback(message)
 
     assert route.package_id == "direct"
     assert route.external_tool_names == ()
@@ -2907,7 +2955,12 @@ def test_real_time_queries_with_definition_prefix_still_use_external_capabilitie
     expected_package,
     expected_tools,
 ):
-    route = _resolve(message)
+    if expected_package == "fresh_web":
+        assert _classify_literal_layer(_extract_request_signals(message), ALL_TOOLS) is None
+        candidate = _CandidateRoute("fresh_web", "high", ("fresh_external_fact",), True)
+        route = _resolve(message, classify_fn=lambda **_: candidate)
+    else:
+        route = _resolve_verified_with_model_fallback(message)
 
     assert route.package_id == expected_package
     assert route.external_tool_names == expected_tools
@@ -2923,8 +2976,8 @@ def test_real_time_queries_with_definition_prefix_still_use_external_capabilitie
         "What is a primary source, in simple terms?",
     ],
 )
-def test_definition_questions_with_domain_or_explanation_qualifiers_remain_direct(message):
-    route = _resolve(message)
+def test_definition_questions_with_domain_or_explanation_qualifiers_delegate_to_model(message):
+    route = _resolve_direct_with_model_fallback(message)
 
     assert route.package_id == "direct"
     assert route.external_tool_names == ()
@@ -2950,7 +3003,12 @@ def test_definition_domain_tail_cannot_absorb_a_following_external_query(
     expected_package,
     expected_tools,
 ):
-    route = _resolve(message)
+    if expected_package == "fresh_web":
+        assert _classify_literal_layer(_extract_request_signals(message), ALL_TOOLS) is None
+        candidate = _CandidateRoute("fresh_web", "high", ("fresh_external_fact",), True)
+        route = _resolve(message, classify_fn=lambda **_: candidate)
+    else:
+        route = _resolve_verified_with_model_fallback(message)
 
     assert route.package_id == expected_package
     assert route.external_tool_names == expected_tools
@@ -3004,7 +3062,7 @@ def test_definition_qualifiers_distinguish_explanation_from_real_product_query(
     expected_package,
     expected_tools,
 ):
-    route = _resolve(message)
+    route = _resolve_direct_with_model_fallback(message) if expected_package == "direct" else _resolve(message)
 
     assert route.package_id == expected_package
     assert route.external_tool_names == expected_tools
@@ -3047,10 +3105,8 @@ def test_final_natural_reauthorization_accepts_common_sequence_markers(message):
     ],
 )
 def test_definition_noun_type_cannot_absorb_news_or_asset_queries(message):
-    route = _resolve(message)
-
-    assert route.package_id == "fresh_web"
-    assert route.external_tool_names == ("web_search", "url_read")
+    # 已删除页内/直答等字面判据，这类请求交给模型判断。
+    assert _classify_literal_layer(_extract_request_signals(message), ALL_TOOLS) is None
 
 
 @pytest.mark.parametrize(
@@ -3324,7 +3380,7 @@ def test_serialization_only_contains_safe_protocol_fields():
 
 
 def test_verified_web_route_freezes_versioned_skill_before_run_start():
-    route = _resolve("OpenAI 今天发布了什么？请阅读官方原文并交叉核验")
+    route = _resolve_verified_with_model_fallback("OpenAI 今天发布了什么？请阅读官方原文并交叉核验")
 
     assert route.schema_version == 2
     assert route.package_id == "verified_web"
@@ -3374,7 +3430,7 @@ def test_verified_web_skill_load_failure_fails_closed_without_tools_or_body():
             loaded_skills=(),
         )
 
-    route = _resolve(
+    route = _resolve_verified_with_model_fallback(
         "核验 OpenAI 最新公告，给出官方原文和交叉来源",
         load_skills_fn=fail_loader,
     )
@@ -3500,54 +3556,54 @@ def test_replaced_classifier_still_goes_through_contract_validation():
 
 
 @pytest.mark.parametrize(
-    ("message", "available_tool_names", "package_id", "reason_code"),
+    ("message", "package_id"),
     [
-        ("今天是几月几日、星期几？", ALL_TOOLS, "date", "current_date_question"),
-        ("你好", ALL_TOOLS, "direct", "direct_greeting"),
-        ("你是谁？", ALL_TOOLS, "direct", "assistant_identity_question"),
-        ("你是谁呀？", ALL_TOOLS, "direct", "assistant_identity_question"),
-        ("你叫什么名字？", ALL_TOOLS, "direct", "assistant_identity_question"),
-        ("你能做什么呢？", ALL_TOOLS, "direct", "assistant_identity_question"),
-        ("计算 1 + 1", ALL_TOOLS, "direct", "simple_calculation"),
-        (
-            "请调用 mcp_unrelated_tool 处理这份数据",
-            ["mcp_unrelated_tool", "web_search", "url_read"],
-            "mcp_explicit",
-            "explicit_authorized_tool_alias",
-        ),
+        ("今天是几月几日、星期几？", "date"),
+        ("你是谁？", "direct"),
+        ("你是谁呀？", "direct"),
+        ("你叫什么名字？", "direct"),
+        ("你能做什么呢？", "direct"),
+        ("计算 1 + 1", "direct"),
+        ("把 See you tomorrow 翻译成中文", "transform"),
     ],
 )
-def test_literal_layer_routes_deterministic_requests_without_product_or_model_classification(
-    message,
-    available_tool_names,
-    package_id,
-    reason_code,
-):
-    """问候、核心身份句、计算与已授权 MCP alias 在模型前结束；身份礼貌包装另测委派。"""
-
-    decided = _classify_literal_layer(_extract_request_signals(message), available_tool_names)
-    rule_route = classify_capability_request(
-        message=message,
-        task_context_messages=[{"role": "user", "content": "原始上下文"}],
-        available_tool_names=available_tool_names,
-    )
-
-    assert decided is not None
-    assert decided.package_id == package_id
-    assert decided.reason_codes == (reason_code,)
-    assert rule_route == decided
-
+def test_removed_direct_answer_literals_delegate_to_model(message, package_id):
     from app.services.stream.run_capability_model_classifier import classify_capability_request_with_model
 
-    with patch("app.services.stream.run_capability_model_classifier.litellm.completion") as completion:
-        model_route = classify_capability_request_with_model(
-            message=message,
-            available_tool_names=available_tool_names,
-            task_context_messages=[{"role": "user", "content": "原始上下文"}],
-        )
+    assert _classify_literal_layer(_extract_request_signals(message), ALL_TOOLS) is None
+    response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(content=json.dumps({"package_id": package_id, "explicit_tool_names": []}))
+            )
+        ]
+    )
+    with (
+        patch("app.services.stream.run_capability_model_classifier.settings.LITELLM_API_KEY", "test-key"),
+        patch(
+            "app.services.stream.run_capability_model_classifier.litellm.completion", return_value=response
+        ) as completion,
+    ):
+        route = classify_capability_request_with_model(message, ALL_TOOLS)
+    assert route.package_id == package_id
+    completion.assert_called_once()
 
-    assert model_route == decided
-    completion.assert_not_called()
+
+def test_greeting_keeps_literal_route():
+    decided = _classify_literal_layer(_extract_request_signals("你好呀"), ALL_TOOLS)
+    assert decided is not None
+    assert decided.package_id == "direct"
+    assert decided.reason_codes == ("direct_greeting",)
+
+
+def test_explicit_authorized_mcp_alias_still_short_circuits():
+    message = "请调用 mcp_unrelated_tool 处理这份数据"
+    decided = _classify_literal_layer(
+        _extract_request_signals(message), ["mcp_unrelated_tool", "web_search", "url_read"]
+    )
+    assert decided is not None
+    assert decided.package_id == "mcp_explicit"
+    assert decided.explicit_tool_names == ("mcp_unrelated_tool",)
 
 
 def test_literal_layer_defers_non_literal_requests():

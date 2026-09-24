@@ -64,15 +64,18 @@ def _assert_clarification(candidate) -> None:
     assert candidate.explicit_tool_names is None
 
 
-def test_literal_hit_returns_without_model_call() -> None:
-    with patch("app.services.stream.run_capability_model_classifier.litellm.completion") as completion:
+def test_removed_transform_literal_delegates_to_model() -> None:
+    with patch(
+        "app.services.stream.run_capability_model_classifier.litellm.completion",
+        return_value=_completion_response("transform"),
+    ) as completion:
         candidate = classify_capability_request_with_model(
             "把 See you tomorrow 翻译成中文",
             ALL_TOOLS,
         )
 
     assert candidate.package_id == "transform"
-    completion.assert_not_called()
+    completion.assert_called_once()
 
 
 def test_model_call_is_single_bounded_and_maps_weather() -> None:
@@ -136,7 +139,9 @@ def test_only_most_recent_complete_turn_is_sent_to_model() -> None:
     assert "不完整轮次" not in rendered_context
 
 
-def test_context_is_dropped_before_current_message_when_input_budget_is_exceeded(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_context_is_dropped_before_current_message_when_input_budget_is_exceeded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(
         "app.services.stream.run_capability_model_classifier.settings.RUN_CAPABILITY_CLASSIFIER_MAX_INPUT_TOKENS",
         100,
@@ -205,18 +210,18 @@ def test_model_failures_and_invalid_output_fail_closed_without_retry(response_or
     completion.assert_called_once()
 
 
-def test_result_callback_observes_literal_model_and_fail_closed_results() -> None:
+def test_result_callback_observes_delegated_model_and_fail_closed_results() -> None:
     events = []
 
-    literal = classify_capability_request_with_model(
-        "把 See you tomorrow 翻译成中文",
-        ALL_TOOLS,
-        result_callback=lambda result, error_type: events.append((result, error_type)),
-    )
     with patch(
         "app.services.stream.run_capability_model_classifier.litellm.completion",
-        return_value=_completion_response("direct"),
+        side_effect=[_completion_response("transform"), _completion_response("direct")],
     ):
+        transform = classify_capability_request_with_model(
+            "把 See you tomorrow 翻译成中文",
+            ALL_TOOLS,
+            result_callback=lambda result, error_type: events.append((result, error_type)),
+        )
         model = classify_capability_request_with_model(
             "需要语义判断的请求",
             ALL_TOOLS,
@@ -232,10 +237,10 @@ def test_result_callback_observes_literal_model_and_fail_closed_results() -> Non
             result_callback=lambda result, error_type: events.append((result, error_type)),
         )
 
-    assert literal.package_id == "transform"
+    assert transform.package_id == "transform"
     assert model.package_id == "direct"
     _assert_clarification(failed)
-    assert events == [("literal", None), ("model", None), ("failed", "timeout")]
+    assert events == [("model", None), ("model", None), ("failed", "timeout")]
 
 
 def test_deadline_signal_turns_late_model_result_into_failed_observation() -> None:
@@ -248,10 +253,13 @@ def test_deadline_signal_turns_late_model_result_into_failed_observation() -> No
         deadline_event.set()
         return _completion_response("weather", ["weather_forecast"])
 
-    with patch(
-        "app.services.stream.run_capability_model_classifier.litellm.completion",
-        side_effect=_late_completion,
-    ) as completion, patch("app.services.stream.run_capability_model_classifier.logger.info") as log_info:
+    with (
+        patch(
+            "app.services.stream.run_capability_model_classifier.litellm.completion",
+            side_effect=_late_completion,
+        ) as completion,
+        patch("app.services.stream.run_capability_model_classifier.logger.info") as log_info,
+    ):
         candidate = classify_capability_request_with_model(
             "需要语义判断的请求",
             ALL_TOOLS,
@@ -543,9 +551,7 @@ def test_system_prompt_defines_taxonomy_tool_mapping_order_and_negative_boundari
 
 
 def test_missing_explicit_tool_names_is_rejected() -> None:
-    response = SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content='{"package_id":"direct"}'))]
-    )
+    response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"package_id":"direct"}'))])
 
     with pytest.raises(ValidationError):
         _parse_model_route(response, False, ALL_TOOLS, include_current_date=False)
@@ -753,7 +759,13 @@ def test_standard_package_is_not_rejected_when_runtime_tool_definitions_are_empt
     ("tools_disabled", "knowledge_grounded", "capabilities", "expected_package", "expected_reason"),
     [
         (True, False, {"functionCalling": True, "searchCapable": True}, "tools_unavailable", "tools_disabled"),
-        (False, False, {"functionCalling": False, "searchCapable": True}, "tools_unavailable", "function_calling_unavailable"),
+        (
+            False,
+            False,
+            {"functionCalling": False, "searchCapable": True},
+            "tools_unavailable",
+            "function_calling_unavailable",
+        ),
         (True, True, {"functionCalling": True, "searchCapable": True}, "knowledge_grounded", "knowledge_grounded_mode"),
     ],
     ids=["disable-tools", "no-function-calling", "knowledge-grounded"],
