@@ -116,6 +116,48 @@ def test_model_output_maps_mixed_itinerary_in_canonical_tool_order() -> None:
     assert candidate.include_current_date is True
 
 
+def test_model_can_select_exact_authorized_mcp_alias() -> None:
+    alias = "mcp_notion_search"
+    with patch(
+        "app.services.stream.run_capability_model_classifier.litellm.completion",
+        return_value=_completion_response("mcp_explicit", [alias]),
+    ) as completion:
+        candidate = classify_capability_request_with_model("这次请用 mcp_notion_search。", [*ALL_TOOLS, alias])
+
+    assert candidate.package_id == "mcp_explicit"
+    assert candidate.explicit_tool_names == (alias,)
+    assert candidate.reason_codes == ("explicit_authorized_tool_alias",)
+    assert candidate.include_current_date is False
+    assert alias in completion.call_args.kwargs["messages"][0]["content"]
+
+
+@pytest.mark.parametrize(
+    "tool_names",
+    [[], ["mcp_other_search"], ["web_search", "url_read"]],
+)
+def test_model_mcp_alias_not_authorized_fails_closed(tool_names: list[str]) -> None:
+    with patch(
+        "app.services.stream.run_capability_model_classifier.litellm.completion",
+        return_value=_completion_response("mcp_explicit", ["mcp_notion_search"]),
+    ):
+        candidate = classify_capability_request_with_model("这次请用 mcp_notion_search。", tool_names)
+
+    _assert_clarification(candidate)
+
+
+@pytest.mark.parametrize("names", [[], ["mcp_notion_search", "mcp_other_search"]])
+def test_model_mcp_alias_requires_exactly_one_name(names: list[str]) -> None:
+    with patch(
+        "app.services.stream.run_capability_model_classifier.litellm.completion",
+        return_value=_completion_response("mcp_explicit", names),
+    ):
+        candidate = classify_capability_request_with_model(
+            "这次请用 mcp_notion_search。", [*ALL_TOOLS, "mcp_notion_search", "mcp_other_search"]
+        )
+
+    _assert_clarification(candidate)
+
+
 def test_only_most_recent_complete_turn_is_sent_to_model() -> None:
     conversation_messages = [
         {"role": "user", "content": "过早的用户消息"},
@@ -543,11 +585,26 @@ def test_system_prompt_defines_taxonomy_tool_mapping_order_and_negative_boundari
     assert "Never choose deep_research" in prompt
     assert "When networking is globally disabled, choose no external tools" in prompt
     assert "standard package must represent the capability the request actually needs" in prompt
-    assert "available_tool_names is used only to authorize exact MCP literals" in prompt
+    assert "mcp_explicit: the user explicitly names one authorized MCP alias" in prompt
+    assert "The authorized MCP list appended below contains exact aliases" in prompt
+    assert "Authorized MCP aliases for this request: []" in prompt
     assert "organizations, careers, products, or funding stages" in prompt
     assert "Do not choose fresh_web merely because a stage name appears" in prompt
     assert "route capability requires both a locatable origin and destination" in prompt
     assert "only a destination is provided" in prompt
+
+
+def test_classifier_prompt_lists_only_structurally_valid_authorized_mcp_aliases() -> None:
+    messages = _build_messages(
+        "这次请用 mcp_notion_search。",
+        ["web_search", "mcp_notion_search", "mcp_notion_search", "mcp_invalid.name"],
+        None,
+        token_counter_fn=lambda **_kwargs: 1,
+    )
+
+    assert messages is not None
+    assert 'Authorized MCP aliases for this request: ["mcp_notion_search"]' in messages[0]["content"]
+    assert "mcp_invalid.name" not in messages[0]["content"]
 
 
 def test_missing_explicit_tool_names_is_rejected() -> None:

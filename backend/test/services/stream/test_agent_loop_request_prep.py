@@ -47,7 +47,7 @@ def _model_candidate(package_id: str, *, include_current_date: bool | None = Non
         # 与模型路径一致：日期标志按包取自 _ROUTE_DETAILS，不由测试自选。
         from app.services.stream.run_capability_model_classifier import _ROUTE_DETAILS
 
-        # mcp_explicit 不在模型可选包内，_ROUTE_DETAILS 没有它，按不注入日期处理。
+        # MCP 包由模型返回，并按 _ROUTE_DETAILS 保持不注入日期。
         details = _ROUTE_DETAILS.get(package_id)
         include_current_date = bool(details[2]) if details else False
     return _CandidateRoute(

@@ -189,7 +189,7 @@ Fixed taxonomy and tool mapping (explicit_tool_names must match exactly and foll
 - direct: greetings, identity, stable general knowledge, advice that does not require current external facts, or simple calculations; [].
 - transform: translation, rewriting, polishing, or summarizing text already provided; [].
 - date: asks only for the current date or day of the week; [].
-- fresh_web: latest or current external facts, news, or public releases; [web_search].
+- fresh_web: latest or current external facts, news, public releases, or current environmental measurements such as air quality; [web_search].
 - verified_web: requests verification or official/reliable sources; [web_search,url_read].
 - url_read: reads or summarizes a supplied URL; [url_read].
 - weather: explicitly asks about weather, temperature, precipitation, or wind; [weather_forecast].
@@ -200,13 +200,15 @@ Fixed taxonomy and tool mapping (explicit_tool_names must match exactly and foll
 - travel_air_rail: compares flights and trains only; [search_flights,search_trains].
 - mobility_intercity: supplies intercity origin and destination but leaves the transport mode unspecified; [route_compare,search_flights,search_trains].
 - mixed_itinerary: combines 2 to 3 distinct product families chosen from weather, places, routes, flights, and trains, but is not merely flights plus trains.
+- mcp_explicit: the user explicitly names one authorized MCP alias and no other standard package is needed; [the exact named alias from the authorized MCP list below]. Never invent an alias or select one that is absent from that list.
 - clarification_only: the required capability is unclear, key entities are missing, the request conflicts with these rules, or no category fits; [].
 Important boundaries:
 - Evolution, preparation, or advice about organizations, careers, products, or funding stages is stable consultation and belongs to direct; choose clarification_only only when information is insufficient. Do not choose fresh_web merely because a stage name appears. Use external tools only when current external facts are actually required.
 - A route capability requires both a locatable origin and destination. Choose clarification_only when only a destination is provided or the request uses unresolved relative references such as office or home.
+- For a request that names an MCP alias and also asks to verify a claim, choose verified_web; for one that also asks for weather, choose weather. These standard packages retain priority over mcp_explicit when the request combines tasks. The selected package describes the primary capability, not completion of every task.
 Canonical order is web_search,url_read,weather_forecast,local_place_search,route_compare,search_flights,search_trains.
 The standard package must represent the capability the request actually needs. Do not switch to clarification_only merely because current definitions or available_tool_names omit a standard product tool; a later resolver handles actual availability, disabled tools, missing function calling, and knowledge-grounded degradation.
-available_tool_names is used only to authorize exact MCP literals before this call and is not evidence that standard package tools are available. Never choose deep_research, knowledge_grounded, tools_unavailable, or mcp_explicit. When networking is globally disabled, choose no external tools. If the package and tools do not match, or the classification is uncertain, choose clarification_only."""
+The authorized MCP list appended below contains exact aliases available for model selection; it is not evidence that standard package tools are available. Never choose deep_research, knowledge_grounded, or tools_unavailable. When networking is globally disabled, choose no external tools. If the package and tools do not match, or the classification is uncertain, choose clarification_only."""
 
 [stream]
 verified_web_evidence = """The user requests source verification. Discover and use the authorized web tools needed for this request. Read the original page body before treating a search result as verified evidence. In the final answer cite the source number shown with the read page, such as [1], beside the claim it supports. Search snippets, a URL alone, or a successful tool status without page content do not verify a claim. If no usable page body can be read, say the claim could not be verified; do not guess or cite an unread source."""
