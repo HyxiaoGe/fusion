@@ -575,6 +575,11 @@ def test_system_prompt_defines_taxonomy_tool_mapping_order_and_negative_boundari
     assert messages is not None
     prompt = messages[0]["content"]
     assert "fresh_web: latest or current external facts" in prompt
+    assert "measured values that vary over time" in prompt
+    assert "such as air quality" not in prompt
+    assert all(
+        term not in prompt.lower() for term in ("紫外线", "花粉", "水质", "ultraviolet", "pollen", "water quality")
+    )
     assert "verified_web: requests verification or official/reliable sources" in prompt
     assert "url_read: reads or summarizes a supplied URL" in prompt
     assert "mobility_route: explicitly asks for a local route" in prompt
