@@ -18,7 +18,7 @@ from app.core.config import settings
 from app.core.logger import app_logger as logger
 from app.core.prompt_snapshot import current_prompt_snapshot
 from app.services.stream.run_capability_router import _CandidateRoute
-from app.utils.run_capability_contract import CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES
+from app.utils.run_capability_contract import CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES, is_authorized_mcp_tool_alias
 
 ClassifierResultCallback = Callable[[str, str | None], None]
 
@@ -38,6 +38,7 @@ _MODEL_PACKAGE_IDS = frozenset(
         "travel_air_rail",
         "mobility_intercity",
         "mixed_itinerary",
+        "mcp_explicit",
         "clarification_only",
     }
 )
@@ -72,6 +73,7 @@ _ROUTE_DETAILS = {
     "travel_air_rail": ("high", ("air_rail_comparison",), True, "routed"),
     "mobility_intercity": ("medium", ("origin_destination_relation", "intercity_locations"), True, "routed"),
     "mixed_itinerary": ("high", ("mixed_itinerary_request",), True, "routed"),
+    "mcp_explicit": ("high", ("explicit_authorized_tool_alias",), False, "routed"),
     "clarification_only": ("low", ("insufficient_capability_signal",), False, "clarification"),
 }
 
@@ -200,7 +202,7 @@ def classify_capability_request_with_model(
     deadline_gate: ClassifierDeadlineGate | None = None,
     suppress_deadline_observation: bool = False,
 ) -> _CandidateRoute:
-    """先处理可确定的字面请求，再以一次结构化模型调用分类其余请求。"""
+    """以一次结构化模型调用分类请求，并在服务端校验工具授权。"""
 
     started_at = perf_counter()
     if deadline_gate is not None:
@@ -356,11 +358,14 @@ def _build_messages(
         return None
     current_message = str(message)
     history = _most_recent_complete_turn(conversation_messages, context_turns=effective_limits.context_turns)
+    authorized_mcp_aliases = sorted({name for name in available_tools if is_authorized_mcp_tool_alias(name)})
     system_message = {
         "role": "system",
-        "content": current_prompt_snapshot().classifier_prompt
-        if current_prompt_snapshot() is not None
-        else _system_prompt(),
+        "content": (
+            current_prompt_snapshot().classifier_prompt if current_prompt_snapshot() is not None else _system_prompt()
+        )
+        + "\nAuthorized MCP aliases for this request: "
+        + json.dumps(authorized_mcp_aliases, ensure_ascii=True, separators=(",", ":")),
     }
     messages = [system_message, *history, {"role": "user", "content": current_message}]
     if not _can_begin_blocking_work(deadline_event, deadline_gate):
@@ -511,8 +516,14 @@ def _parse_model_route(
     if package_id not in _MODEL_PACKAGE_IDS:
         return None
     explicit_tools = tuple(parsed.explicit_tool_names)
-    allowed_tools = CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES[package_id]
-    if package_id == "mixed_itinerary":
+    if package_id == "mcp_explicit":
+        if (
+            len(explicit_tools) != 1
+            or not is_authorized_mcp_tool_alias(explicit_tools[0])
+            or explicit_tools[0] not in _available_tools
+        ):
+            return None
+    elif package_id == "mixed_itinerary":
         if (
             not 2 <= len(explicit_tools) <= 3
             or len(set(explicit_tools)) != len(explicit_tools)
@@ -520,7 +531,7 @@ def _parse_model_route(
             or set(explicit_tools) == {"search_flights", "search_trains"}
         ):
             return None
-    elif explicit_tools != allowed_tools:
+    elif explicit_tools != CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES[package_id]:
         return None
     if all_network_denied and explicit_tools:
         return None
@@ -528,7 +539,11 @@ def _parse_model_route(
     resolved_include_current_date = fixed_include_current_date
     if package_id == "mobility_route":
         resolved_include_current_date = include_current_date
-    canonical_tools = tuple(name for name in _CANONICAL_TOOL_ORDER if name in explicit_tools)
+    canonical_tools = (
+        explicit_tools
+        if package_id == "mcp_explicit"
+        else tuple(name for name in _CANONICAL_TOOL_ORDER if name in explicit_tools)
+    )
     return _CandidateRoute(
         package_id=package_id,
         confidence=confidence,
