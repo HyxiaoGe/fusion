@@ -1,6 +1,7 @@
 """agent-loop 跨模块契约测试。"""
 
 import json
+import re
 import unittest
 from contextlib import ExitStack
 from dataclasses import dataclass, field, replace
@@ -167,8 +168,27 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
         production_wiring = runner._agent_loop_wiring_dependencies
 
         def _contract_classifier(*, message, **kwargs):
+            # 选包判据已整体删除（#132），router 不再从文本推断能力包。本套测试验证
+            # 工具与终态契约，所以按原句声明模型会选什么，等价于以前字面层的结果。
             if message.casefold() in {"今天 OpenAI 发布了什么？".casefold(), "今天查询深圳聚餐趋势".casefold()}:
                 return _CandidateRoute("fresh_web", "high", ("fresh_external_fact",), True)
+            alias_match = re.search(r"\bmcp_[0-9a-z_]+", message)
+            if alias_match:
+                return _CandidateRoute(
+                    "mcp_explicit",
+                    "high",
+                    ("explicit_authorized_tool_alias",),
+                    False,
+                    explicit_tool_names=(alias_match.group(0),),
+                )
+            if "天气" in message:
+                return _CandidateRoute("weather", "high", ("explicit_weather_request",), True)
+            if "附近" in message:
+                return _CandidateRoute("place_discovery", "high", ("explicit_place_discovery",), False)
+            if "怎么走" in message:
+                return _CandidateRoute("mobility_route", "high", ("explicit_route_task",), True)
+            if "交叉核实来源" in message or "阅读官方公告" in message:
+                return _CandidateRoute("verified_web", "high", ("verified_source_request",), True)
             return classify_capability_request(message=message, **kwargs)
 
         def _rule_classifier_wiring():

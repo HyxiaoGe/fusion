@@ -54,7 +54,7 @@ from app.services.stream.agent_loop_run_completion import (
     write_fallback_run_error,
 )
 from app.services.stream.research_evidence import validate_research_completion
-from app.services.stream.run_capability_router import RunCapabilityResolution
+from app.services.stream.run_capability_router import RunCapabilityResolution, _CandidateRoute
 from app.services.stream.run_finalizer import interrupt_agent_run
 from app.services.stream.tool_executor import AgentEventCompositeWriter
 from app.services.stream_state_service import StreamOwnershipLostError, StreamWriteTerminalError
@@ -170,6 +170,8 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             options={"plan_mode": "on"},
             capabilities={"functionCalling": True, "searchCapable": True},
             original_message=message,
+            # 选包判据已删除（#132）：能力包由模型决定，这里按原句声明模型会选什么。
+            classify_fn=lambda **_: _CandidateRoute("verified_web", "high", ("verified_source_request",), True),
         )
         loaded_skill = call_config.capability_resolution.loaded_skills[0]
         assembly = assemble_system_prompt(
@@ -753,6 +755,8 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             options={"plan_mode": "on"},
             capabilities={"functionCalling": True, "searchCapable": True},
             original_message=message,
+            # 选包判据已删除（#132）：能力包由模型决定，这里按原句声明模型会选什么。
+            classify_fn=lambda **_: _CandidateRoute("verified_web", "high", ("verified_source_request",), True),
         )
         resolution = base.capability_resolution
         metadata = resolution.skill_resolution.skills[0]

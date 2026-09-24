@@ -77,31 +77,18 @@ class BlindRoutingLayerTests(unittest.TestCase):
         self.assertIn("layer=unknown expected_layer=model layer_check=MISS", output)
         self.assertRegex(output, r"合计\s+2\s+3")
 
-    def test_rules_distinguishes_literal_from_delegation_without_model_calls(self):
-        cases = [
-            self._case(id="字面命中", question="你好呀", expected_layer="literal"),
-            self._case(id="需要委派", expected_layer="model"),
-            self._case(id="错误期望", question="你好呀", expected_layer="model"),
-        ]
-        with patch("app.services.stream.run_capability_model_classifier.litellm.completion") as completion:
-            output = self._run(cases, "--classifier", "rules", "--verbose")
-        completion.assert_not_called()
-        self.assertIn("layer=literal expected_layer=literal layer_check=OK", output)
-        self.assertIn("layer=model_deferred expected_layer=model layer_check=OK（仅字面委派，未调用模型）", output)
-        self.assertIn("layer=literal expected_layer=model layer_check=MISS", output)
-        self.assertNotIn("layer=model expected_layer", output)
-
     def test_missing_expected_layer_preserves_package_only_scoring_and_output(self):
         with patch.object(probe, "RulesClassifierMonitor") as monitor:
             output = self._run([self._case(question="你好呀")], "--classifier", "rules", "--verbose")
         monitor.assert_not_called()
-        self.assertIn("OK ", output)
+        # 规则路径不再做语义预选，任何原句都落到 clarification_only 的 fail-closed 落点。
+        self.assertIn("MISS", output)
         self.assertNotIn("layer=", output)
-        self.assertRegex(output, r"合计\s+1\s+1")
+        self.assertRegex(output, r"合计\s+0\s+1")
 
     def test_layer_match_does_not_hide_incorrect_package(self):
         output = self._run(
-            [self._case(question="你好呀", expected_layer="literal", acceptable_packages=["verified_web"])],
+            [self._case(question="你好呀", expected_layer="model", acceptable_packages=["verified_web"])],
             "--classifier",
             "rules",
             "--verbose",
