@@ -458,17 +458,6 @@ def test_deadline_gate_logs_elapsed_duration_from_gate_creation() -> None:
     assert log_info.call_args.args[3] == 25
 
 
-def test_global_network_denial_cannot_be_promoted_by_model() -> None:
-    with patch(
-        "app.services.stream.run_capability_model_classifier.litellm.completion",
-        return_value=_completion_response("fresh_web", ["web_search"]),
-    ) as completion:
-        candidate = classify_capability_request_with_model("请完全离线回答，不要联网搜索今天的新闻", ALL_TOOLS)
-
-    _assert_clarification(candidate)
-    completion.assert_called_once()
-
-
 def test_classifier_log_does_not_contain_raw_message() -> None:
     raw_message = "不要记录的秘密请求内容"
     with (
@@ -611,7 +600,7 @@ def test_missing_explicit_tool_names_is_rejected() -> None:
     response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"package_id":"direct"}'))])
 
     with pytest.raises(ValidationError):
-        _parse_model_route(response, False, ALL_TOOLS, include_current_date=False)
+        _parse_model_route(response, ALL_TOOLS, include_current_date=False)
 
 
 @pytest.mark.parametrize(
@@ -635,7 +624,6 @@ def test_mixed_itinerary_requires_two_or_three_product_families_except_air_rail_
 ) -> None:
     result = _parse_model_route(
         _completion_response("mixed_itinerary", list(tools)),
-        False,
         ALL_TOOLS,
         include_current_date=False,
     )
@@ -691,7 +679,6 @@ def test_model_package_mapping_preserves_reason_codes_and_date_semantics(
 ) -> None:
     result = _parse_model_route(
         _completion_response(package_id, list(tools)),
-        False,
         ALL_TOOLS,
         include_current_date=request_has_relative_date,
     )
@@ -805,7 +792,7 @@ def test_litellm_timeout_is_reported_as_timeout() -> None:
 def test_standard_package_is_not_rejected_when_runtime_tool_definitions_are_empty() -> None:
     response = _completion_response("weather", ["weather_forecast"])
 
-    route = _parse_model_route(response, False, [], include_current_date=True)
+    route = _parse_model_route(response, [], include_current_date=True)
 
     assert route is not None
     assert route.package_id == "weather"
