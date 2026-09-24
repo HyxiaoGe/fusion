@@ -81,13 +81,6 @@ def test_builtin_without_registered_handler_stays_unavailable(monkeypatch):
     assert _config().tool_discovery.catalog_names() == []
 
 
-def test_network_denial_blocks_builtin_activation():
-    config = _config(original_message="本次不要联网，也不要调用任何外部工具。只改写这句话。")
-    assert config.tool_discovery.catalog_names() == []
-    assert config.tool_discovery.promote(["web_search", "url_read"]) == []
-    assert set(config.dynamic_tool_handlers) == {"tool_search"}
-
-
 @pytest.mark.parametrize(
     "overrides",
     [

@@ -299,8 +299,6 @@ def classify_capability_request_with_model(
         response = litellm.completion(**completion_kwargs)
         route = _parse_model_route(
             response,
-            # 网络授权否定层已删除（#132 第二步）：不再在选包前按正则判断用户是否禁用网络。
-            False,
             tools,
             # 日期判据已删除（#132）：不再判断“要不要给今天日期”，一律注入。
             include_current_date=True,
@@ -506,7 +504,6 @@ def _positive_capped_int(value: object, upper_bound: int) -> int | None:
 
 def _parse_model_route(
     response: object,
-    all_network_denied: bool,
     _available_tools: list[str],
     *,
     include_current_date: bool,
@@ -532,8 +529,6 @@ def _parse_model_route(
         ):
             return None
     elif explicit_tools != CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES[package_id]:
-        return None
-    if all_network_denied and explicit_tools:
         return None
     confidence, reason_codes, fixed_include_current_date, resolution_mode = _ROUTE_DETAILS[package_id]
     resolved_include_current_date = fixed_include_current_date
