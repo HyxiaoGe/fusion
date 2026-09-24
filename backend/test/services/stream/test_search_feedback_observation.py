@@ -14,6 +14,7 @@ from app.services.runtime_config_defaults import DEFAULT_AGENT_STRATEGY_CONFIG
 from app.services.search_read_planner import build_search_read_plan, format_search_read_plan_guidance
 from app.services.source_candidate_ranker import SearchResultForRanking
 from app.services.stream.network_budget import NetworkToolBudget
+from app.services.stream.run_capability_router import _CandidateRoute
 from app.services.tool_handlers.base import ToolResult
 from app.services.tool_handlers.url_read import UrlReadHandler
 from app.services.tool_handlers.web_search import WebSearchHandler
@@ -302,6 +303,7 @@ async def test_real_loop_keeps_cross_batch_numbers_and_executes_repeated_query()
             dynamic_tool_set=SimpleNamespace(definitions=[], handlers=handlers, audit_bindings=[]),
             capabilities={"functionCalling": True, "agentTools": True, "searchCapable": True},
             user_message="请联网搜索并阅读原文，核对甲项目新增设施的数量，并区分其他项目。",
+            classifier_candidate=_CandidateRoute("verified_web", "high", ("verified_source_request",), True),
         )
     observations = [message["content"] for message in outcome.llm_calls[-1]["messages"] if message["role"] == "tool"]
     assert provider_queries == ["核对甲项目设施数量", "核对甲项目设施数量"]

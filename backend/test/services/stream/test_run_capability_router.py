@@ -95,8 +95,7 @@ def test_current_new_release_phrasing_degrades_when_tools_are_disabled():
 )
 def test_tool_degradation_uses_network_boundary(message, kwargs, expected_reason):
     candidate = _CandidateRoute("fresh_web", "high", ("fresh_external_fact",), True)
-    classify_fn = (lambda **_: candidate) if "OpenAI 新闻" in message else None
-    route = _resolve(message, classify_fn=classify_fn, **kwargs)
+    route = _resolve(message, classify_fn=lambda **_: candidate, **kwargs)
 
     assert route.package_id == "tools_unavailable"
     assert route.external_tool_names == ()
@@ -131,6 +130,7 @@ def test_explicit_plan_mode_overrides_package_auto_policy():
     forced_off = _resolve(
         "从上海虹桥站到外滩怎么坐公共交通？",
         requested_plan_mode="off",
+        classify_fn=lambda **_: _CandidateRoute("mobility_route", "high", ("explicit_route_task",), True),
     )
 
     assert forced_on.package_id == "direct"

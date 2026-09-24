@@ -55,6 +55,7 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
         options=None,
         dynamic_tool_set=None,
         user_message="hi",
+        classifier_candidate=None,
     ) -> AgentLoopContractResult:
         result = AgentLoopContractResult()
         self.last_result = result
@@ -170,6 +171,8 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
         def _contract_classifier(*, message, **kwargs):
             # 选包判据已整体删除（#132），router 不再从文本推断能力包。本套测试验证
             # 工具与终态契约，所以按原句声明模型会选什么，等价于以前字面层的结果。
+            if classifier_candidate is not None:
+                return classifier_candidate
             if message.casefold() in {"今天 OpenAI 发布了什么？".casefold(), "今天查询深圳聚餐趋势".casefold()}:
                 return _CandidateRoute("fresh_web", "high", ("fresh_external_fact",), True)
             alias_match = re.search(r"\bmcp_[0-9a-z_]+", message)
