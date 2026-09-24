@@ -640,17 +640,31 @@ def _messages_with_research_workset(
     if runtime.task_mode != "deep_research":
         if not terminal_summary:
             return normalized
+        # 普通请求此前只注入来源正文，不注入读取状态清单，模型的上下文里没有任何一处
+        # 说明「本轮实际读到了什么」。它只能从散落在各轮的工具结果自己拼，拼不出来就
+        # 填一段合理的叙述——#127 的三个确证样本都是这个形态（声称读了从未发起的读页）。
+        # 这里把已有的状态清单一并注入：read_success / read_failed / candidate 逐条列出。
+        workset_prompt = build_research_workset_prompt(
+            state.research_workset,
+            include_candidates=True,
+        )
         untrusted_messages = build_research_untrusted_context_messages(
             state.research_workset,
             include_candidates=True,
         )
-        if not untrusted_messages:
+        if not workset_prompt and not untrusted_messages:
             return normalized
+        normalized = [message for message in normalized if message.section_id != RESEARCH_EVIDENCE_WORKSET]
         insert_at = 0
         while insert_at < len(normalized) and normalized[insert_at].role == "system":
             insert_at += 1
         return [
             *normalized[:insert_at],
+            *(
+                [PromptMessage(role="system", content=workset_prompt, section_id=RESEARCH_EVIDENCE_WORKSET)]
+                if workset_prompt
+                else []
+            ),
             *untrusted_messages,
             *normalized[insert_at:],
         ]
