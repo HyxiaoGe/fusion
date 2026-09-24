@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -254,8 +255,11 @@ def build_research_workset_prompt(
     workset: ResearchEvidenceWorkset,
     *,
     include_candidates: bool = True,
+    unattempted_request_count: int = 0,
 ) -> str:
-    if not workset.sources:
+    # 未发起读取的目标必须能单独把清单撑起来：#127 的首个样本就是 url_read 一次都
+    # 没发起，此时 sources 为空，早退会让模型完全看不到「有目标没读」这个事实。
+    if not workset.sources and unattempted_request_count <= 0:
         return ""
     lines = [render_runtime_prompt("research.workset_header")]
     for source in sorted(
@@ -274,9 +278,32 @@ def build_research_workset_prompt(
         )
         retry_policy = " retry=forbidden" if is_failed else ""
         lines.append(f"[{source.citation_index}] evidence_id={evidence_id} status={source_status}{retry_policy}")
-    if len(lines) == 1:
+    if len(lines) == 1 and unattempted_request_count <= 0:
         lines.append(render_runtime_prompt("research.workset_empty"))
+    if unattempted_request_count > 0:
+        # 只给数量，不回显 URL：用户原文属外部输入，不提升进 system；
+        # 数量已足以让「两个都读到了」这类陈述与上下文直接冲突。
+        lines.append(render_runtime_prompt("research.workset_unattempted", count=unattempted_request_count))
     return "\n".join(lines)
+
+
+def count_unattempted_requested_urls(
+    workset: ResearchEvidenceWorkset,
+    requested_urls: Iterable[str],
+) -> int:
+    """本轮用户请求里既未读成功、也未发起过读取的 URL 数量。
+
+    #127 的三个确证样本共同点是某个目标从未发起 url_read，因此它不会进入 workset，
+    模型看到的状态清单是一份不完整的事实。这里补上缺口的规模。
+    """
+
+    touched = workset.successful_read_urls | workset.attempted_read_urls
+    unattempted = {
+        canonicalize_evidence_url(url)
+        for url in requested_urls
+        if url and canonicalize_evidence_url(url) not in touched
+    }
+    return len(unattempted)
 
 
 def build_research_untrusted_context_messages(

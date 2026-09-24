@@ -267,6 +267,7 @@ stage_synthesis = """[Deep-research stage control] Enough sources have been read
 workset_header = """[Research evidence workset for this round]
 This message contains only server-generated citation-control state. The answer may cite only numbers marked read_success; candidate numbers must not be cited."""
 workset_empty = """No successfully read source is currently available for a formal citation."""
+workset_unattempted = """{{ count }} URL(s) in the user's request were never fetched in this run: no read was attempted for them. Do not state or imply that they were opened, read, or that fetching them returned nothing. If the answer cannot cover them, say plainly that they were not read."""
 bounded_summary = """Bounded summary: {{ summary }}"""
 key_findings = """Key findings: {{ findings }}"""
 identity_only = """Only source identity was restored; source content was not persisted and must be read again before citation."""

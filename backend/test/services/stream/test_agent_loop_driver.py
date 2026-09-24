@@ -207,9 +207,15 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("a finer period such as morning or afternoon", system_text)
         self.assertIn("give a conditional conclusion", system_text)
         self.assertIn("Do not judge whether temperature or wind is suitable, acceptable, or comfortable", system_text)
-        self.assertIn("do not claim that weather will affect the activity experience, road conditions, or safety", system_text)
-        self.assertIn("without directly rating the activity as suitable, unsuitable, recommended, or not recommended", system_text)
-        self.assertIn("State only returned facts, time-granularity limits, and whether the user's condition is met", system_text)
+        self.assertIn(
+            "do not claim that weather will affect the activity experience, road conditions, or safety", system_text
+        )
+        self.assertIn(
+            "without directly rating the activity as suitable, unsuitable, recommended, or not recommended", system_text
+        )
+        self.assertIn(
+            "State only returned facts, time-granularity limits, and whether the user's condition is met", system_text
+        )
         self.assertEqual(
             [message.section_id for message in captured[0]["messages"]].count(PRODUCT_RESULT_ROUND),
             1,
@@ -260,7 +266,10 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("omit neither type", system_text)
         self.assertIn("Do not use Markdown tables", system_text)
         self.assertIn("Compare only reference prices and scheduled service durations", system_text)
-        self.assertIn("Do not compare total door-to-door time, connection convenience, check-in, security screening, or waiting", system_text)
+        self.assertIn(
+            "Do not compare total door-to-door time, connection convenience, check-in, security screening, or waiting",
+            system_text,
+        )
         self.assertIn("Do not omit trains even when an itinerary card displays only flights", system_text)
         self.assertIn("overall conclusion, flight summary, train summary, and factual limits", system_text)
 
@@ -3127,3 +3136,152 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OrdinaryRunWorksetContextTests(unittest.IsolatedAsyncioTestCase):
+    """普通请求（非深度研究）的终结总结也要看到实际读取状态。
+
+    #127 的三个确证样本都是同一形态：模型声称读了从未发起读页的 URL。此前普通请求
+    的上下文里只注入来源正文，没有任何一处逐条说明「本轮哪些读成功、哪些失败」，
+    模型只能从散落各轮的工具结果自己拼，拼不出来就填一段合理的叙述。
+    """
+
+    def _state_with_one_read(self) -> AgentLoopState:
+        state = AgentLoopState(plan_coordinator=PlanCoordinator(run_id="run-ordinary", mode="off"))
+        state.record_research_content_blocks(
+            [
+                UrlBlock(
+                    type="url_read",
+                    url="https://example.test/read-ok",
+                    title="已读到的页面",
+                    source_refs=[
+                        SourceReference(
+                            kind="url_read",
+                            title="已读到的页面",
+                            url="https://example.test/read-ok",
+                            evidence_id="ev-ok",
+                            citation_index=1,
+                        )
+                    ],
+                    source_count=1,
+                )
+            ],
+            summaries={"ev-ok": ("正文片段", ["正文片段"])},
+        )
+        return state
+
+    async def test_terminal_summary_injects_actual_read_status_for_ordinary_run(self):
+        from app.services.stream.agent_loop_driver import _messages_with_research_workset
+
+        state = self._state_with_one_read()
+        messages = _messages_with_research_workset(
+            [{"role": "user", "content": "请分别打开这两个链接"}],
+            state=state,
+            runtime=_runtime(task_mode="standard", plan_mode="off"),
+            include_candidates=True,
+            terminal_summary=True,
+        )
+
+        system_contents = [message.content for message in messages if message.role == "system"]
+        self.assertTrue(
+            any("status=read_success" in content for content in system_contents),
+            msg="普通请求的终结总结必须逐条给出实际读取状态",
+        )
+        self.assertEqual(
+            [message.section_id for message in messages].count(RESEARCH_EVIDENCE_WORKSET),
+            1,
+            msg="读取状态清单只应注入一次",
+        )
+
+    async def test_non_terminal_round_keeps_context_unchanged(self):
+        from app.services.stream.agent_loop_driver import _messages_with_research_workset
+
+        state = self._state_with_one_read()
+        original = [{"role": "user", "content": "请分别打开这两个链接"}]
+        messages = _messages_with_research_workset(
+            original,
+            state=state,
+            runtime=_runtime(task_mode="standard", plan_mode="off"),
+            include_candidates=True,
+            terminal_summary=False,
+        )
+
+        self.assertNotIn(RESEARCH_EVIDENCE_WORKSET, [message.section_id for message in messages])
+
+    async def test_empty_workset_does_not_add_sections(self):
+        from app.services.stream.agent_loop_driver import _messages_with_research_workset
+
+        state = AgentLoopState(plan_coordinator=PlanCoordinator(run_id="run-empty", mode="off"))
+        messages = _messages_with_research_workset(
+            [{"role": "user", "content": "你好"}],
+            state=state,
+            runtime=_runtime(task_mode="standard", plan_mode="off"),
+            include_candidates=True,
+            terminal_summary=True,
+        )
+
+        self.assertNotIn(RESEARCH_EVIDENCE_WORKSET, [message.section_id for message in messages])
+
+    async def test_terminal_summary_reports_requested_urls_that_were_never_fetched(self):
+        """只读了一个、用户给了两个时，上下文必须说明有目标未发起读取。
+
+        #127 三个样本的共同点：某个目标从未发起 url_read，因此不会进入 workset。
+        只列「读到了什么」仍是一份不完整的事实，模型照样可以声称两页都读到。
+        """
+        from app.services.stream.agent_loop_driver import _messages_with_research_workset
+
+        state = self._state_with_one_read()
+        messages = _messages_with_research_workset(
+            [
+                {
+                    "role": "user",
+                    "content": "请分别打开 https://example.test/read-ok 和 https://example.test/never-tried",
+                }
+            ],
+            state=state,
+            runtime=_runtime(task_mode="standard", plan_mode="off"),
+            include_candidates=True,
+            terminal_summary=True,
+        )
+
+        system_contents = [message.content for message in messages if message.role == "system"]
+        self.assertTrue(
+            any("never fetched" in content for content in system_contents),
+            msg="未发起读取的目标数量必须出现在上下文里",
+        )
+        self.assertTrue(any("1 URL(s)" in content for content in system_contents))
+        self.assertFalse(
+            any("never-tried" in content for content in system_contents),
+            msg="用户原文属外部输入，不得回显进 system",
+        )
+
+    async def test_zero_read_request_still_reports_unattempted_targets(self):
+        """一次读页都没发起时也要说明——这正是 #127 首个样本的形态。"""
+        from app.services.stream.agent_loop_driver import _messages_with_research_workset
+
+        state = AgentLoopState(plan_coordinator=PlanCoordinator(run_id="run-none", mode="off"))
+        messages = _messages_with_research_workset(
+            [{"role": "user", "content": "请打开 https://example.test/a 和 https://example.test/b"}],
+            state=state,
+            runtime=_runtime(task_mode="standard", plan_mode="off"),
+            include_candidates=True,
+            terminal_summary=True,
+        )
+
+        system_contents = [message.content for message in messages if message.role == "system"]
+        self.assertTrue(any("2 URL(s)" in content for content in system_contents))
+
+    async def test_all_requested_urls_read_adds_no_unattempted_notice(self):
+        from app.services.stream.agent_loop_driver import _messages_with_research_workset
+
+        state = self._state_with_one_read()
+        messages = _messages_with_research_workset(
+            [{"role": "user", "content": "请打开 https://example.test/read-ok"}],
+            state=state,
+            runtime=_runtime(task_mode="standard", plan_mode="off"),
+            include_candidates=True,
+            terminal_summary=True,
+        )
+
+        system_contents = [message.content for message in messages if message.role == "system"]
+        self.assertFalse(any("never fetched" in content for content in system_contents))
