@@ -1957,8 +1957,8 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
             self.assertGreaterEqual(semantic_budget.used_requests, 1)
 
             literal = {
-                "id": "greeting",
-                "text": "把 See you tomorrow 翻译成中文",
+                "id": "definition",
+                "text": "What is a primary source?",
                 "expect": "字面短路，不发分类模型",
                 "kind": "normal",
             }

@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from app.schemas.chat import PlaceResult, PlaceResultsBlock, SearchBlock
 from app.services.stream import StreamHandler
 from app.services.stream.agent_loop_request_prep import build_agent_loop_call_config
-from app.services.stream.run_capability_router import classify_capability_request
+from app.services.stream.run_capability_router import _CandidateRoute, classify_capability_request
 from app.services.stream.tool_execution_result import ToolExecutionRecord
 from app.services.tool_handlers.base import ToolResult
 from app.utils.prompt_fingerprint import fingerprint_system_messages
@@ -166,12 +166,17 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
 
         production_wiring = runner._agent_loop_wiring_dependencies
 
+        def _contract_classifier(*, message, **kwargs):
+            if message.casefold() in {"今天 OpenAI 发布了什么？".casefold(), "今天查询深圳聚餐趋势".casefold()}:
+                return _CandidateRoute("fresh_web", "high", ("fresh_external_fact",), True)
+            return classify_capability_request(message=message, **kwargs)
+
         def _rule_classifier_wiring():
             return replace(
                 production_wiring(),
                 build_call_config_fn=partial(
                     build_agent_loop_call_config,
-                    classify_fn=classify_capability_request,
+                    classify_fn=_contract_classifier,
                 ),
             )
 

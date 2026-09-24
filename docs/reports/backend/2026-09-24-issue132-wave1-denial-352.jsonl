@@ -1,0 +1,352 @@
+{"message": "不要联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "不要上网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "不要使用网络", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "不要访问互联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "不要搜索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "不要检索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "不要查找", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "不要查询", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "不要打开网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "不要读取网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "不要阅读网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "不要访问网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "不要浏览网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "不要查证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "不要核验消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "不要验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "不要交叉验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "不要调用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "不要使用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "不要调用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "不要使用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "不要浏览网站", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请不要联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "请不要上网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "请不要使用网络", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "请不要访问互联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "请不要搜索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请不要检索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请不要查找", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请不要查询", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请不要打开网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请不要读取网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请不要阅读网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请不要访问网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请不要浏览网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请不要查证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请不要核验消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请不要验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请不要交叉验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请不要调用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请不要使用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请不要调用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请不要使用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请不要浏览网站", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "别联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "别上网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "别使用网络", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "别访问互联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "别搜索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "别检索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "别查找", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "别查询", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "别打开网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "别读取网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "别阅读网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "别访问网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "别浏览网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "别查证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "别核验消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "别验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "别交叉验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "别调用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "别使用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "别调用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "别使用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "别浏览网站", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请别联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "请别上网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "请别使用网络", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "请别访问互联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "请别搜索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请别检索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请别查找", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请别查询", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请别打开网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请别读取网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请别阅读网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请别访问网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请别浏览网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请别查证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请别核验消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请别验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请别交叉验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请别调用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请别使用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请别调用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请别使用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请别浏览网站", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "你别联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "你别上网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "你别使用网络", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "你别访问互联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "你别搜索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "你别检索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "你别查找", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "你别查询", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "你别打开网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "你别读取网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "你别阅读网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "你别访问网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "你别浏览网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "你别查证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "你别核验消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "你别验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "你别交叉验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "你别调用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "你别使用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "你别调用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "你别使用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "你别浏览网站", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "先别联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "先别上网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "先别使用网络", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "先别访问互联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "先别搜索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "先别检索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "先别查找", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "先别查询", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "先别打开网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "先别读取网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "先别阅读网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "先别访问网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "先别浏览网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "先别查证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "先别核验消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "先别验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "先别交叉验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "先别调用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "先别使用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "先别调用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "先别使用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "先别浏览网站", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "千万别联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "千万别上网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "千万别使用网络", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "千万别访问互联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "千万别搜索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "千万别检索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "千万别查找", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "千万别查询", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "千万别打开网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "千万别读取网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "千万别阅读网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "千万别访问网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "千万别浏览网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "千万别查证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "千万别核验消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "千万别验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "千万别交叉验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "千万别调用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "千万别使用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "千万别调用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "千万别使用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "千万别浏览网站", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "最好别联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "最好别上网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "最好别使用网络", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "最好别访问互联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "最好别搜索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "最好别检索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "最好别查找", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "最好别查询", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "最好别打开网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "最好别读取网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "最好别阅读网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "最好别访问网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "最好别浏览网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "最好别查证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "最好别核验消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "最好别验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "最好别交叉验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "最好别调用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "最好别使用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "最好别调用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "最好别使用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "最好别浏览网站", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "就别联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "就别上网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "就别使用网络", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "就别访问互联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "就别搜索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "就别检索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "就别查找", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "就别查询", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "就别打开网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "就别读取网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "就别阅读网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "就别访问网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "就别浏览网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "就别查证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "就别核验消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "就别验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "就别交叉验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "就别调用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "就别使用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "就别调用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "就别使用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "就别浏览网站", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "我们别联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "我们别上网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "我们别使用网络", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "我们别访问互联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "我们别搜索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "我们别检索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "我们别查找", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "我们别查询", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "我们别打开网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "我们别读取网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "我们别阅读网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "我们别访问网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "我们别浏览网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "我们别查证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "我们别核验消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "我们别验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "我们别交叉验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "我们别调用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "我们别使用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "我们别调用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "我们别使用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "我们别浏览网站", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "大家别联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "大家别上网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "大家别使用网络", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "大家别访问互联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "大家别搜索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "大家别检索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "大家别查找", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "大家别查询", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "大家别打开网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "大家别读取网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "大家别阅读网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "大家别访问网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "大家别浏览网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "大家别查证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "大家别核验消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "大家别验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "大家别交叉验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "大家别调用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "大家别使用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "大家别调用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "大家别使用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "大家别浏览网站", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "麻烦别联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "麻烦别上网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "麻烦别使用网络", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "麻烦别访问互联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "麻烦别搜索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "麻烦别检索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "麻烦别查找", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "麻烦别查询", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "麻烦别打开网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "麻烦别读取网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "麻烦别阅读网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "麻烦别访问网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "麻烦别浏览网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "麻烦别查证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "麻烦别核验消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "麻烦别验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "麻烦别交叉验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "麻烦别调用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "麻烦别使用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "麻烦别调用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "麻烦别使用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "麻烦别浏览网站", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "这次别联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "这次别上网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "这次别使用网络", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "这次别访问互联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "这次别搜索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "这次别检索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "这次别查找", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "这次别查询", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "这次别打开网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "这次别读取网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "这次别阅读网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "这次别访问网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "这次别浏览网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "这次别查证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "这次别核验消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "这次别验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "这次别交叉验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "这次别调用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "这次别使用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "这次别调用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "这次别使用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "这次别浏览网站", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请勿联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "请勿上网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "请勿使用网络", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "请勿访问互联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "请勿搜索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请勿检索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请勿查找", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请勿查询", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请勿打开网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请勿读取网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请勿阅读网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请勿访问网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请勿浏览网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请勿查证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请勿核验消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请勿验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请勿交叉验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请勿调用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请勿使用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "请勿调用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请勿使用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "请勿浏览网站", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "禁止联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "禁止上网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "禁止使用网络", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "禁止访问互联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "禁止搜索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "禁止检索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "禁止查找", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "禁止查询", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "禁止打开网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "禁止读取网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "禁止阅读网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "禁止访问网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "禁止浏览网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "禁止查证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "禁止核验消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "禁止验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "禁止交叉验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "禁止调用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "禁止使用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "禁止调用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "禁止使用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "禁止浏览网站", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "严禁联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "严禁上网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "严禁使用网络", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "严禁访问互联网", "legacy": [true, true, true], "discovery": [true, true, true]}
+{"message": "严禁搜索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "严禁检索", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "严禁查找", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "严禁查询", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "严禁打开网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "严禁读取网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "严禁阅读网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "严禁访问网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "严禁浏览网页", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "严禁查证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "严禁核验消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "严禁验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "严禁交叉验证消息", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "严禁调用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "严禁使用 web_search", "legacy": [true, false, false], "discovery": [true, false, false]}
+{"message": "严禁调用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "严禁使用 url_read", "legacy": [false, true, false], "discovery": [false, true, false]}
+{"message": "严禁浏览网站", "legacy": [false, true, false], "discovery": [false, true, false]}

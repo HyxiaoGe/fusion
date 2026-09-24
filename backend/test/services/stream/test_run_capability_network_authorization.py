@@ -27,7 +27,6 @@ class TestRunCapabilityNetworkAuthorization(unittest.TestCase):
             ("不要使用 web_search，OpenAI 最新新闻", (True, False, False), "clarification_only"),
             ("不要使用 url_read，读取 https://example.com/post", (False, True, False), "clarification_only"),
             ("本次请求不要联网，OpenAI 最新新闻", (True, True, True), "clarification_only"),
-            ("不要使用 web_search，改为使用 web_search，OpenAI 最新新闻", (False, False, False), "fresh_web"),
         )
         for message, denied, package_id in cases:
             with self.subTest(message=message):
@@ -39,6 +38,30 @@ class TestRunCapabilityNetworkAuthorization(unittest.TestCase):
                     candidate = classify_capability_request_with_model(message, _ALL_TOOLS)
                 self.assertEqual(candidate.package_id, package_id)
                 completion.assert_not_called()
+
+    def test_reauthorized_fresh_request_keeps_scope_and_delegates_to_model(self) -> None:
+        message = "不要使用 web_search，改为使用 web_search，OpenAI 最新新闻"
+        request = _extract_request_signals(message)
+        self.assertEqual(
+            (request.web_search_denied, request.url_read_denied, request.all_network_denied),
+            (False, False, False),
+        )
+        response = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content='{"package_id":"fresh_web","explicit_tool_names":["web_search"]}')
+                )
+            ]
+        )
+        with (
+            patch("app.services.stream.run_capability_model_classifier.settings.LITELLM_API_KEY", "test-key"),
+            patch(
+                "app.services.stream.run_capability_model_classifier.litellm.completion", return_value=response
+            ) as completion,
+        ):
+            candidate = classify_capability_request_with_model(message, _ALL_TOOLS)
+        self.assertEqual(candidate.package_id, "fresh_web")
+        completion.assert_called_once()
 
     def test_model_path_receives_original_message_and_only_enforces_all_network_denial(self) -> None:
         cases = (

@@ -646,6 +646,7 @@ class RunCapabilityBehaviorEvalIntegrationTests(unittest.IsolatedAsyncioTestCase
             build_agent_loop_call_config,
             prepare_agent_loop_messages,
         )
+        from app.services.stream.run_capability_router import _CandidateRoute
         from scripts.agent_behavior_eval import DEFAULT_SAMPLE_PATH, load_samples
 
         samples = [sample for sample in load_samples(DEFAULT_SAMPLE_PATH) if sample["id"].startswith("run-route-")]
@@ -671,8 +672,63 @@ class RunCapabilityBehaviorEvalIntegrationTests(unittest.IsolatedAsyncioTestCase
         async def build_messages(*_args, **_kwargs):
             return []
 
+        delegated_fixture_ids = {
+            "run-route-adversarial-colon-latest-translation",
+            "run-route-adversarial-disabled-fresh-web",
+            "run-route-adversarial-en-latest-news-translation",
+            "run-route-adversarial-en-official-literal-translation",
+            "run-route-adversarial-english-fresh-web",
+            "run-route-adversarial-english-transform",
+            "run-route-adversarial-leading-quote-latest-translation",
+            "run-route-adversarial-negated-web-search",
+            "run-route-adversarial-phrase-official-translation",
+            "run-route-adversarial-quoted-internet-negation-translation",
+            "run-route-adversarial-quoted-route-explanation",
+            "run-route-adversarial-quoted-web-negation-rewrite",
+            "run-route-adversarial-review-p1-10",
+            "run-route-adversarial-review-p1-23",
+            "run-route-adversarial-review-p1-35",
+            "run-route-adversarial-review-p1-36",
+            "run-route-adversarial-single-quoted-latest-translation",
+            "run-route-adversarial-topic-switch-current-translation",
+            "run-route-adversarial-trailing-web-negation",
+            "run-route-adversarial-unquoted-words-transform",
+            "run-route-adversarial-zh-four-words-transform",
+            "run-route-adversarial-zh-latest-news-translation",
+            "run-route-adversarial-zh-official-literal-translation",
+            "run-route-main-current-date",
+            "run-route-main-fresh-fact",
+            "run-route-main-identity",
+            "run-route-main-places-in-translation",
+            "run-route-main-rewrite",
+            "run-route-main-simple-calculation",
+            "run-route-main-translation",
+        }
+
         for sample in samples:
             with self.subTest(sample_id=sample["id"]):
+                # 这组样本验证选定能力包后的工具、提示词和计划信封；
+                # 删除字面判据后，模型层候选在无模型凭据的测试中显式注入。
+                expected_package = sample["expected_package_id"]
+                classify_fn = None
+                if sample["id"] in delegated_fixture_ids:
+                    model_package = "fresh_web" if expected_package == "tools_unavailable" else expected_package
+                    reason_codes = (
+                        ("fresh_external_fact",)
+                        if expected_package == "tools_unavailable"
+                        else tuple(sample["required_capability_reason_codes"])
+                    )
+                    model_candidate = _CandidateRoute(
+                        model_package,
+                        "high",
+                        reason_codes,
+                        "current_date" in sample["expected_prompt_section_ids"],
+                    )
+
+                    def classify_from_fixture(**_kwargs):
+                        return model_candidate
+
+                    classify_fn = classify_from_fixture
                 options = sample.get("options", {})
                 capabilities = sample.get(
                     "capabilities",
@@ -691,6 +747,7 @@ class RunCapabilityBehaviorEvalIntegrationTests(unittest.IsolatedAsyncioTestCase
                     tool_bindings=bindings,
                     original_message=sample["question"],
                     task_context_messages=task_context_messages,
+                    classify_fn=classify_fn,
                 )
                 prepared = await prepare_agent_loop_messages(
                     db=object(),

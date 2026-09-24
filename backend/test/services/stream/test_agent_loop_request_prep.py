@@ -27,6 +27,25 @@ class FakeFileRepository:
         return {"doc-1": "文档正文"}
 
 
+def _classifier_for_removed_literal(message: str):
+    """旧字面选包已删除的样本，用确定模型候选验证后续信封。"""
+
+    candidates = {
+        "你好": _CandidateRoute("direct", "high", ("direct_greeting",), False),
+        "今天上海证券交易所开市吗？": _CandidateRoute("fresh_web", "high", ("fresh_external_fact",), True),
+        "查一下今天最新的 OpenAI 新闻": _CandidateRoute("fresh_web", "high", ("fresh_external_fact",), True),
+        "OpenAI 最近发布了什么模型？": _CandidateRoute("fresh_web", "high", ("fresh_external_fact",), True),
+    }
+    candidate = candidates.get(message)
+    if candidate is None:
+        return None
+
+    def classify(**_kwargs):
+        return candidate
+
+    return classify
+
+
 class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
     def test_build_call_config_defaults_to_rule_classifier(self):
         with patch(
@@ -256,6 +275,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                     options=options,
                     capabilities={"functionCalling": True, "searchCapable": True},
                     original_message=message,
+                    classify_fn=_classifier_for_removed_literal(message),
                 )
                 prepared = await prepare_agent_loop_messages(
                     db=object(),
@@ -286,6 +306,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             dynamic_tool_handlers={name: object() for name in tool_names},
             tool_bindings=bindings,
             original_message="你好",
+            classify_fn=_classifier_for_removed_literal("你好"),
         )
 
         prepared = await prepare_agent_loop_messages(
@@ -410,6 +431,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                     dynamic_tool_handlers=handlers,
                     tool_bindings=bindings,
                     original_message=message,
+                    classify_fn=_classifier_for_removed_literal(message),
                 )
                 prepared = await prepare_agent_loop_messages(
                     db=object(),
@@ -509,6 +531,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                         "deepThinking": True,
                     },
                     original_message=message,
+                    classify_fn=_classifier_for_removed_literal(message),
                 )
 
                 self.assertEqual(config.announced_tools, expected_tools)
@@ -687,11 +710,13 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status_schema["enum"], ["pending", "in_progress"])
 
     def test_standard_verified_research_constrains_first_plan_to_search_and_reads(self):
+        # #132 第一波：来源请求由模型选包，计划门禁仍按最终包挂载。
         config = build_agent_loop_call_config(
             provider="openai",
             options={"plan_mode": "on"},
             capabilities={"functionCalling": True, "searchCapable": True},
             original_message="请联网调研韩国股市，梳理主要争议并给出可靠来源。",
+            classify_fn=lambda **_: _CandidateRoute("verified_web", "high", ("verified_source_request",), True),
         )
 
         self.assertEqual(config.announced_tools, ["web_search", "url_read"])
@@ -834,6 +859,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             options={"plan_mode": "off"},
             capabilities={"functionCalling": True, "searchCapable": True},
             original_message="今天上海证券交易所开市吗？",
+            classify_fn=_classifier_for_removed_literal("今天上海证券交易所开市吗？"),
         )
 
         model_tool_names = [tool["function"]["name"] for tool in config.call_kwargs["tools"]]
@@ -849,6 +875,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             options={"plan_mode": "on"},
             capabilities={"functionCalling": True, "searchCapable": True},
             original_message="今天上海证券交易所开市吗？",
+            classify_fn=_classifier_for_removed_literal("今天上海证券交易所开市吗？"),
         )
 
         tools = {tool["function"]["name"]: tool for tool in config.call_kwargs["tools"]}
@@ -910,6 +937,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                     options={"plan_mode": "on"},
                     capabilities={"functionCalling": True, "searchCapable": True},
                     original_message=message,
+                    classify_fn=_classifier_for_removed_literal(message),
                 )
 
                 update_plan = next(
@@ -1041,6 +1069,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             options={"plan_mode": "off"},
             capabilities={"functionCalling": True, "searchCapable": True, "deepThinking": True},
             original_message="今天上海证券交易所开市吗？",
+            classify_fn=_classifier_for_removed_literal("今天上海证券交易所开市吗？"),
         )
 
         self.assertTrue(config.should_use_reasoning)
@@ -1143,6 +1172,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             options={"plan_mode": "off"},
             capabilities={"functionCalling": True, "agentTools": False, "searchCapable": True},
             original_message="今天上海证券交易所开市吗？",
+            classify_fn=_classifier_for_removed_literal("今天上海证券交易所开市吗？"),
         )
 
         self.assertTrue(config.supports_function_calling)
@@ -1402,6 +1432,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 options={},
                 capabilities={"functionCalling": True, "agentTools": False},
                 original_message="OpenAI 最近发布了什么模型？",
+                classify_fn=_classifier_for_removed_literal("OpenAI 最近发布了什么模型？"),
             ),
             file_repo_factory=lambda _db: object(),
             load_user_system_prompt_fn=lambda _db, _user_id: None,

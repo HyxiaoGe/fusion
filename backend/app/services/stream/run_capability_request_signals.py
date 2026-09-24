@@ -5,15 +5,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-_TRANSFORM_RE = re.compile(
-    r"翻译|译成|改写|重写|润色|措辞|"
-    r"(?:概括|摘要|总结)(?:这|以下|上述|给定|已给|后面|内容|文本|[:：])|"
-    r"(?:对|将|把)(?:这|以下|上述|给定|已给|后面).{0,24}(?:概括|摘要|总结)|"
-    r"\b(?:translate|rewrite|rephrase|proofread|polish)\b",
-    re.IGNORECASE,
-)
-
-
 _RELATIVE_DATE_RE = re.compile(
     r"今天|今日|明天|后天|昨天|本周|下周|这个月|本月|下个月|当前|现在|"
     r"\b(?:today|tomorrow|yesterday|this week|next week|this month|next month|currently|now)\b",
@@ -291,7 +282,6 @@ class _RequestSignals:
     url_read_denied: bool
     all_network_denied: bool
     include_current_date: bool
-    original_transform_request: bool
     explicit_web_search_request: bool
     url_read_request: bool
     verified_web_request: bool
@@ -306,7 +296,6 @@ def requires_verified_source_evidence(message: str) -> bool:
 
 
 def _extract_request_signals(message: str) -> _RequestSignals:
-    original_transform_request = bool(_TRANSFORM_RE.search(message))
     control_message = _mask_quoted_literals(message)
     routing_message, web_search_denied, url_read_denied, all_network_denied = _resolve_network_scope(control_message)
     external_signal_message = _URL_RE.sub(" ", routing_message)
@@ -333,7 +322,6 @@ def _extract_request_signals(message: str) -> _RequestSignals:
         url_read_denied=url_read_denied,
         all_network_denied=all_network_denied,
         include_current_date=include_current_date,
-        original_transform_request=original_transform_request,
         explicit_web_search_request=explicit_web_search_request,
         url_read_request=url_read_request,
         verified_web_request=verified_web_request,
