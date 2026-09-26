@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from app.utils.user_visible_content import sanitize_internal_tool_names
@@ -52,6 +52,10 @@ def build_grounded_product_answer(
 ) -> str:
     """只读取产品结果块的已校验字段，不复用模型生成的自由文本。"""
     product_blocks = [block for block in content_blocks if _value(block, "type") in _PRODUCT_RESULT_TYPES]
+    if len(product_blocks) == 1 and _value(product_blocks[0], "type") == "weather_results":
+        outside_range_answer = _build_weather_outside_range_answer(product_blocks[0])
+        if outside_range_answer:
+            return outside_range_answer
     itinerary = next(
         (block for block in reversed(product_blocks) if _value(block, "type") == "itinerary_results"),
         None,
@@ -415,6 +419,49 @@ def _build_weather_answer(block: Any) -> str:
     if not summaries:
         return ""
     return f"{location}天气预报：{'；'.join(summaries)}。{_limitations_sentence(block)}"
+
+
+def _build_weather_outside_range_answer(block: Any) -> str:
+    """模型答案不可交付时，按工具调用中已确定的目标日期说明覆盖缺口。"""
+
+    requested = _value(block, "requested_date")
+    if isinstance(requested, datetime):
+        requested = requested.date()
+    elif isinstance(requested, str):
+        try:
+            requested = date.fromisoformat(requested)
+        except ValueError:
+            return ""
+    if not isinstance(requested, date):
+        return ""
+    forecast_dates: list[date] = []
+    for day in _value(block, "forecast_days") or []:
+        raw_date = _value(day, "date")
+        try:
+            parsed = raw_date.date() if isinstance(raw_date, datetime) else date.fromisoformat(str(raw_date)[:10])
+        except (TypeError, ValueError):
+            continue
+        forecast_dates.append(parsed)
+    if not forecast_dates:
+        return ""
+    first_day, last_day = min(forecast_dates), max(forecast_dates)
+    if len(set(forecast_dates)) != (last_day - first_day).days + 1:
+        return ""
+    if requested in forecast_dates:
+        return ""
+    if first_day.year == last_day.year:
+        covered = f"{first_day.month}月{first_day.day}日至{last_day.month}月{last_day.day}日"
+    else:
+        covered = f"{first_day.isoformat()}至{last_day.isoformat()}"
+    requested_label = (
+        f"{requested.month}月{requested.day}日" if requested.year == first_day.year else requested.isoformat()
+    )
+    location = _value(block, "resolved_location") or "该行政区"
+    return (
+        f"当前预报只覆盖{covered}。"
+        f"{requested_label}不在当前预报覆盖范围内。"
+        f"本次结果无法确认{location}该日的天气，请临近日期再查询。"
+    )
 
 
 def _format_weather_day_summary(day: Any) -> str:

@@ -172,14 +172,16 @@ class AmapProductDefinitionTests(unittest.TestCase):
         self.assertIn("local transfer after a combined itinerary", route_description)
         self.assertIn("Call this tool once for the selected service only", route_description)
         self.assertIn("do not guess an airport or station", route_description)
-        self.assertEqual(set(weather_schema["properties"]), {"location", "location_source"})
+        self.assertEqual(set(weather_schema["properties"]), {"location", "location_source", "requested_date"})
         self.assertFalse(weather_schema["additionalProperties"])
+        self.assertEqual(weather_schema["properties"]["requested_date"]["format"], "date")
         weather_description = definitions["weather_forecast"]["function"]["description"]
         self.assertIn("complete place text", weather_description)
         self.assertIn("do not add a city the user did not provide", weather_description)
         self.assertIn("combined itinerary also requests destination weather", weather_description)
         self.assertIn("call this tool first", weather_description)
         self.assertIn("If it fails or cannot cover", weather_description)
+        self.assertIn("Omit requested_date for negated", weather_description)
         self.assertEqual(
             AMAP_PRODUCT_REMOTE_DEPENDENCIES["weather_forecast"],
             frozenset({"maps_geo", "maps_regeocode", "maps_weather"}),
@@ -232,6 +234,14 @@ class AmapProductDefinitionTests(unittest.TestCase):
                 )
 
         weather_handler, _ = build_handler("weather_forecast", {})
+        self.assertEqual(
+            weather_handler.validate_arguments({**named_weather_args("深圳市"), "requested_date": "2026-10-20"}),
+            [],
+        )
+        self.assertEqual(
+            weather_handler.validate_arguments({**named_weather_args("深圳市"), "requested_date": "2026-02-30"}),
+            [{"field": "request", "code": "invalid_arguments"}],
+        )
         self.assertEqual(
             weather_handler.validate_arguments(
                 {
@@ -503,12 +513,13 @@ class AmapWeatherForecastTests(unittest.IsolatedAsyncioTestCase):
             now=lambda: fetched_at,
         )
 
-        result = await handler.execute(named_weather_args("深圳市"))
+        result = await handler.execute({**named_weather_args("深圳市"), "requested_date": "2026-10-20"})
 
         self.assertEqual(result.status, "success")
         self.assertEqual([call[0] for call in executor.calls], ["maps_geo", "maps_weather"])
         self.assertEqual(executor.calls[1][2], {"city": "440300"})
         self.assertEqual(result.data["result"]["day_count"], 4)
+        self.assertEqual(result.data["result"]["requested_date"], "2026-10-20")
         self.assertEqual(
             datetime.fromisoformat(result.data["result"]["fetched_at"].replace("Z", "+00:00")),
             fetched_at,
@@ -521,6 +532,7 @@ class AmapWeatherForecastTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(block, WeatherResultsBlock)
         self.assertEqual(block.query, "深圳市")
         self.assertEqual(block.resolved_location, "深圳市")
+        self.assertEqual(block.requested_date.isoformat(), "2026-10-20")
         self.assertEqual(block.forecast_days[0].high_c, 32)
         public_payload = json.dumps(result.data["result"], ensure_ascii=False)
         self.assertNotIn("440300", public_payload)

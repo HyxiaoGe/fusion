@@ -388,6 +388,30 @@ class ProductResultAnswerTests(unittest.TestCase):
         validation = validate_product_answer(answer, [block], messages=messages)
         self.assertTrue(validation.is_valid, validation.reason_code)
 
+    def test_weather_fallback_answers_explicit_date_outside_forecast(self):
+        block = _weather_result("weather-outside-range")
+        block["requested_date"] = "2026-08-20"
+        messages = [{"role": "user", "content": "请查 2026年8月20日上海市天气，那天会下雨吗？"}]
+
+        answer = build_grounded_product_answer([block], messages=messages)
+
+        self.assertIn("当前预报只覆盖7月31日至8月3日", answer)
+        self.assertIn("8月20日不在当前预报覆盖范围内", answer)
+        self.assertIn("无法确认上海市该日的天气", answer)
+        self.assertNotIn("白天多云", answer)
+        validation = validate_product_answer(answer, [block], messages=messages)
+        self.assertTrue(validation.is_valid, validation.reason_code)
+
+    def test_weather_fallback_does_not_promote_negated_date_to_target(self):
+        block = _weather_result("weather-future-days")
+        messages = [{"role": "user", "content": "不要查8月20日，帮我看上海未来几天的天气"}]
+
+        answer = build_grounded_product_answer([block], messages=messages)
+
+        self.assertIn("上海市天气预报", answer)
+        self.assertIn("8月1日", answer)
+        self.assertNotIn("8月20日", answer)
+
     def test_geolocation_failure_answer_is_product_neutral(self):
         answer = build_product_tool_failure_answer(
             [
