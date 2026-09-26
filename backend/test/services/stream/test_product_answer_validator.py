@@ -428,6 +428,8 @@ class ProductAnswerValidatorTests(unittest.TestCase):
         cases = (
             (actual_answer, True),
             ("明天深圳市的预报是北风1—5级。", False),
+            ("全天风向偏北，风力1‑3级。", True),
+            ("全天风向偏北，风力1‑5级。", False),
             ("明天深圳市的预报高低温是26℃/33℃。", False),
             ("明天深圳市上午是否下雨无法确认。", True),
             ("明天深圳市上午是否下雨无法在这种时间粒度上确认。", True),
