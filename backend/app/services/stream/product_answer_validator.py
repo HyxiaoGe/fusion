@@ -26,11 +26,10 @@ _PRODUCT_RESULT_TYPES = {
     "itinerary_results",
 }
 _RISK_TERM_RE = re.compile(
-    r"排队|空位|预约|停车|拥堵|堵车|路况|候车|票价|免费|实时|人均|"
+    r"排队|空位|预约|停车|拥堵|堵车|路况|候车|免费|实时|人均|"
     r"准点|坡度|自行车道|共享单车|等待|"
     r"余票|有票|售罄|延误|取消|退改签|退票|改签|行李|登机口|检票口|站台"
 )
-_TRAVEL_GROUNDED_PRICE_TERM_RE = re.compile(r"票价")
 _TRAVEL_UNSUPPORTED_CLAIM_RE = re.compile(
     r"余票|有票|售罄|准点|延误|取消|退改签|退票|改签|行李|登机口|检票口|站台|"
     r"(?:航班|班次)(?:也)?(?:更多|较多|很多|多)|省(?:下)?住宿费|节省住宿(?:费|成本)"
@@ -39,10 +38,11 @@ _COST_TERM_RE = re.compile(r"费用|成本|过路费")
 _LIMITATION_CUE_RE = re.compile(
     r"未(?:提供|返回|包含|显示)|无法(?:确认|判断)|不能(?:确认|判断)|不代表|不等于|"
     r"未按.{0,20}(?:实时)?(?:路况|班次).{0,8}(?:计算|查询)|"
-    r"不(?:包含|提供|返回|显示)|"
+    r"不(?:含|包含|提供|返回|显示)|"
     r"需(?:要)?(?:另行|提前|自行)?(?:确认|核实|查询)|建议.{0,12}(?:确认|核实|查询)|不确定"
 )
 _CLAUSE_SPLIT_RE = re.compile(r"[，,。！？!?；;\n]+")
+_ASSERTION_SPLIT_RE = re.compile(r"(?:不过|然而|并且|而且|同时|但是|但|且|并|[（(])")
 _GENERIC_PLACE_RELATION_RE = re.compile(
     r"(?:两家|两处|二者|彼此|互相).{0,12}(?:步行|相距|距离|车程|驾车|骑行)|"
     r"(?:步行|相距|距离|车程|驾车|骑行).{0,12}(?:两家|两处|二者|彼此|互相)"
@@ -104,7 +104,6 @@ _TRANSIT_TOTAL_DISTANCE_RE = re.compile(
 )
 _DIFFERENCE_CUE_RE = re.compile(r"相差|差(?:了)?|快(?:了)?|慢(?:了)?|多(?:了)?|少(?:了)?|节省|缩短|增加")
 _SAME_SCOPE_DIFFERENCE_RE = re.compile(r"两个?方案|两种方案|两条路线|主方案|备选|替代方案")
-_RETURNED_SCOPE_RE = re.compile(r"本次|此次|返回|候选|所列|卡片|这些|其中|上述|结果中")
 _MARKDOWN_TABLE_SEPARATOR_RE = re.compile(
     r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$",
     re.MULTILINE,
@@ -122,6 +121,14 @@ _TRAVEL_STATION_MENTION_RE = re.compile(
 _CLOCK_TIME_RE = re.compile(r"(?<!\d)(?:[01]\d|2[0-3]):[0-5]\d(?!\d)")
 _TRAVEL_WEEKDAY_RE = re.compile(r"(?:星期|周)(?P<day>[一二三四五六日天])")
 _TRAVEL_MULTIPLIER_RE = re.compile(r"(?<!\d)\d+(?:\.\d+)?\s*倍")
+_TRAVEL_PRICE_AMOUNT_RE = re.compile(
+    r"(?:票价|参考价|[¥￥])\s*(?:约为|大约为|约|为|是|[:：])?\s*(?P<value>\d+(?:\.\d+)?)"
+)
+_TRAVEL_PRICE_RANKING_RE = re.compile(r"(?:票价|参考价).{0,4}(?P<rank>最低|最便宜|最高|最贵)")
+_TRAVEL_PRICE_COMPARISON_RE = re.compile(
+    rf"(?P<left>{_TRAVEL_NUMBER_RE.pattern})\s*(?:的)?(?:票价|参考价)\s*比\s*"
+    rf"(?P<right>{_TRAVEL_NUMBER_RE.pattern})\s*(?P<claim>更便宜|更低|更贵|更高)"
+)
 _TRAVEL_FACT_SENTENCE_RE = re.compile(r"[。！？!?；;\n]+")
 _TRAVEL_DIRECTION_RE = re.compile(r"去程|返程|回程")
 _TRAVEL_TOTAL_CLAIM_RE = re.compile(r"(?:合计|总计|总时长|总票价|总费用)[^，,]*")
@@ -323,6 +330,7 @@ class _WeatherDayFacts:
 
 @dataclass(frozen=True)
 class _TravelCandidateFacts:
+    kind: str
     direction: str
     number: str
     identifiers: frozenset[str]
@@ -391,7 +399,9 @@ def validate_product_answer(
         return ProductAnswerValidation(False, "unknown_place")
     if _has_numeric_mismatch(normalized_answer, facts, user_text):
         return ProductAnswerValidation(False, "numeric_mismatch")
-    if facts.has_travel_results and _has_travel_candidate_mismatch(normalized_answer, facts.travel_candidates):
+    if facts.has_travel_results and _has_travel_candidate_mismatch(
+        normalized_answer, facts.travel_candidates, user_text
+    ):
         return ProductAnswerValidation(False, "candidate_fact_mismatch")
     if _has_route_comparison_mismatch(normalized_answer, facts):
         return ProductAnswerValidation(False, "numeric_mismatch")
@@ -730,6 +740,7 @@ def _build_fact_index(blocks: list[Any]) -> _FactIndex:
                 if isinstance(number, str) and number.strip():
                     travel_candidates.append(
                         _TravelCandidateFacts(
+                            kind=block_type,
                             direction=direction,
                             number=number.strip().upper(),
                             identifiers=frozenset(candidate_identifiers),
@@ -1384,6 +1395,14 @@ def _has_unsupported_claim(answer: str, facts: _FactIndex) -> bool:
 
 
 def _unsupported_clause_reason(clause: str, facts: _FactIndex) -> str | None:
+    for assertion in _ASSERTION_SPLIT_RE.split(clause):
+        reason = _unsupported_assertion_reason(assertion, facts)
+        if reason is not None:
+            return reason
+    return None
+
+
+def _unsupported_assertion_reason(clause: str, facts: _FactIndex) -> str | None:
     if _TRANSIT_TOTAL_DISTANCE_RE.search(clause):
         return "transit_total_distance"
     if (
@@ -1392,13 +1411,8 @@ def _unsupported_clause_reason(clause: str, facts: _FactIndex) -> str | None:
         and not _LIMITATION_CUE_RE.search(clause)
     ):
         return "travel"
-    risk_terms = _RISK_TERM_RE.findall(clause)
-    if facts.has_weather_results:
-        risk_terms = [term for term in risk_terms if term not in {"天气", "雨天"}]
-    if risk_terms and not _LIMITATION_CUE_RE.search(clause):
-        non_price_terms = [term for term in risk_terms if not _TRAVEL_GROUNDED_PRICE_TERM_RE.fullmatch(term)]
-        if non_price_terms or not _is_supported_travel_price_claim(clause, facts):
-            return "realtime"
+    if _RISK_TERM_RE.search(clause) and not _LIMITATION_CUE_RE.search(clause):
+        return "realtime"
     if _COST_TERM_RE.search(clause) and not _LIMITATION_CUE_RE.search(clause):
         if "过路费" in clause:
             category = "toll_yuan"
@@ -1419,16 +1433,6 @@ def _has_supported_money_value(clause: str, allowed_money: set[float]) -> bool:
         if _matches_allowed(float(match.group("value")), allowed_money, category="money_yuan"):
             return True
     return False
-
-
-def _is_supported_travel_price_claim(clause: str, facts: _FactIndex) -> bool:
-    """只放行带真实返回金额且明确限定在本次候选内的价格描述。"""
-
-    if not facts.has_travel_results or not facts.numeric_values["money_yuan"]:
-        return False
-    return bool(
-        _has_supported_money_value(clause, facts.numeric_values["money_yuan"]) or _RETURNED_SCOPE_RE.search(clause)
-    )
 
 
 def _has_unreturned_place_relation(answer: str, facts: _FactIndex) -> bool:
@@ -1513,6 +1517,7 @@ def _has_unknown_travel_weekday(
 def _has_travel_candidate_mismatch(
     answer: str,
     candidates: list[_TravelCandidateFacts],
+    user_text: str,
 ) -> bool:
     """同一语义句中的班次、方向、时长、价格、站点和时间必须属于同一候选。"""
 
@@ -1532,6 +1537,8 @@ def _has_travel_candidate_mismatch(
         number_matches = [
             match for match in _TRAVEL_NUMBER_RE.finditer(sentence) if match.group(0).upper() in candidate_numbers
         ]
+        if _has_travel_price_comparison_mismatch(sentence, candidates):
+            return True
         if number_matches:
             for index, match in enumerate(number_matches):
                 local_direction = _travel_direction_for_number(
@@ -1553,16 +1560,70 @@ def _has_travel_candidate_mismatch(
                     and (local_direction is None or candidate.direction == local_direction)
                 ]
                 if not scoped or (
-                    _travel_claim_fact_count(claim) and not _travel_claim_matches_candidate(claim, scoped)
+                    _travel_price_ranking_mismatch(
+                        claim,
+                        scoped,
+                        [
+                            candidate
+                            for candidate in candidates
+                            if local_direction is None or candidate.direction == local_direction
+                        ],
+                    )
+                    or (
+                        _travel_claim_fact_count(claim, user_text)
+                        and not _travel_claim_matches_candidate(claim, scoped, user_text)
+                    )
                 ):
                     return True
             continue
 
-        fact_count = _travel_claim_fact_count(sentence)
+        fact_count = _travel_claim_fact_count(sentence, user_text)
+        scoped = [candidate for candidate in candidates if direction is None or candidate.direction == direction]
+        if _TRAVEL_PRICE_RANKING_RE.search(sentence) and any(candidate.price_yuan is None for candidate in scoped):
+            return True
         if fact_count < 2 and not (direction is not None and fact_count):
             continue
-        scoped = [candidate for candidate in candidates if direction is None or candidate.direction == direction]
-        if not _travel_claim_matches_candidate(sentence, scoped):
+        if not _travel_claim_matches_candidate(sentence, scoped, user_text):
+            return True
+    return False
+
+
+def _travel_price_ranking_mismatch(
+    claim: str,
+    scoped: list[_TravelCandidateFacts],
+    peers: list[_TravelCandidateFacts],
+) -> bool:
+    ranking = _TRAVEL_PRICE_RANKING_RE.search(claim)
+    if ranking is None:
+        return False
+    prefix = claim[: ranking.start()]
+    if "航班中" in prefix:
+        peers = [candidate for candidate in peers if candidate.kind == "flight_results"]
+    elif "火车中" in prefix or "高铁中" in prefix or "车次中" in prefix:
+        peers = [candidate for candidate in peers if candidate.kind == "train_results"]
+    if not peers or any(candidate.price_yuan is None for candidate in peers):
+        return True
+    prices = [candidate.price_yuan for candidate in peers if candidate.price_yuan is not None]
+    target = min(prices) if ranking.group("rank") in {"最低", "最便宜"} else max(prices)
+    return not any(
+        candidate.price_yuan is not None and abs(candidate.price_yuan - target) <= 0.05 for candidate in scoped
+    )
+
+
+def _has_travel_price_comparison_mismatch(sentence: str, candidates: list[_TravelCandidateFacts]) -> bool:
+    for match in _TRAVEL_PRICE_COMPARISON_RE.finditer(sentence):
+        left_prices = [
+            candidate.price_yuan for candidate in candidates if candidate.number == match.group("left").upper()
+        ]
+        right_prices = [
+            candidate.price_yuan for candidate in candidates if candidate.number == match.group("right").upper()
+        ]
+        if len(left_prices) != 1 or len(right_prices) != 1 or left_prices[0] is None or right_prices[0] is None:
+            return True
+        left_price, right_price = left_prices[0], right_prices[0]
+        if match.group("claim") in {"更便宜", "更低"} and not left_price < right_price:
+            return True
+        if match.group("claim") in {"更贵", "更高"} and not left_price > right_price:
             return True
     return False
 
@@ -1587,25 +1648,40 @@ def _travel_direction_for_number(
     return "outbound" if directions[-1].group(0) == "去程" else "return"
 
 
-def _travel_claim_fact_count(sentence: str) -> int:
+def _travel_claim_fact_count(sentence: str, user_text: str) -> int:
     return sum(
         (
             bool(_travel_claimed_durations(sentence)),
-            any(match.group("unit") == "元" for match in _NUMBER_UNIT_RE.finditer(sentence)),
+            bool(_travel_price_values(sentence, user_text)) or bool(_TRAVEL_PRICE_RANKING_RE.search(sentence)),
             bool(_CLOCK_TIME_RE.search(sentence)),
             bool(_TRAVEL_STATION_MENTION_RE.search(sentence)),
         )
     )
 
 
+def _travel_price_values(claim: str, user_text: str) -> set[float]:
+    returned_values = {
+        float(match.group("value"))
+        for match in _NUMBER_UNIT_RE.finditer(claim)
+        if match.group("unit") == "元"
+        and not _is_user_money_constraint(claim, match.group(0), user_text, match.start())
+    }
+    returned_values.update(
+        float(match.group("value"))
+        for match in _TRAVEL_PRICE_AMOUNT_RE.finditer(claim)
+        if not _is_user_money_constraint(claim, match.group(0), user_text, match.start())
+    )
+    return returned_values
+
+
 def _travel_claim_matches_candidate(
     claim: str,
     candidates: list[_TravelCandidateFacts],
+    user_text: str,
 ) -> bool:
     duration_values = _travel_claimed_durations(claim)
-    price_values = {
-        float(match.group("value")) for match in _NUMBER_UNIT_RE.finditer(claim) if match.group("unit") == "元"
-    }
+    price_values = _travel_price_values(claim, user_text)
+    price_ranking = bool(_TRAVEL_PRICE_RANKING_RE.search(claim))
     clock_times = {match.group(0) for match in _CLOCK_TIME_RE.finditer(claim)}
     station_names = {
         _canonical_travel_station(match.group("name")) for match in _TRAVEL_STATION_MENTION_RE.finditer(claim)
@@ -1625,6 +1701,7 @@ def _travel_claim_matches_candidate(
                 and all(abs(value - candidate.price_yuan) <= 0.05 for value in price_values)
             )
         )
+        and (not price_ranking or candidate.price_yuan is not None)
         and clock_times <= candidate.clock_times
         and station_names <= candidate.station_names
         for candidate in candidates
@@ -1743,6 +1820,13 @@ def _has_numeric_mismatch(answer: str, facts: _FactIndex, user_text: str) -> boo
     for clause in _CLAUSE_SPLIT_RE.split(answer):
         if facts.has_travel_results and _TRAVEL_MULTIPLIER_RE.search(clause):
             return True
+        if facts.has_travel_results:
+            for match in _TRAVEL_PRICE_AMOUNT_RE.finditer(clause):
+                if _is_user_money_constraint(clause, match.group(0), user_text, match.start()):
+                    continue
+                allowed = _allowed_numeric_values(facts, "money_yuan", clause, match.start())
+                if not _matches_allowed(float(match.group("value")), allowed, category="money_yuan"):
+                    return True
         compound_spans: list[tuple[int, int]] = []
         for match in _HOUR_MINUTE_RE.finditer(clause):
             compound_spans.append(match.span())
@@ -1767,7 +1851,7 @@ def _has_numeric_mismatch(answer: str, facts: _FactIndex, user_text: str) -> boo
                 category = _distance_category(clause)
             elif unit == "元":
                 category = "money_yuan"
-                if _is_user_money_constraint(clause, match.group(0), user_text):
+                if _is_user_money_constraint(clause, match.group(0), user_text, match.start()):
                     continue
             elif unit == "次":
                 category = "transfers"
@@ -1915,10 +1999,19 @@ def _nearest_route_mode(clause: str, number_position: int) -> str | None:
     return mode if distance <= 16 else None
 
 
-def _is_user_money_constraint(clause: str, raw_value: str, user_text: str) -> bool:
-    if not user_text or not _USER_MONEY_CONSTRAINT_RE.search(clause):
+def _is_user_money_constraint(clause: str, raw_value: str, user_text: str, number_position: int) -> bool:
+    if not user_text:
         return False
-    return re.sub(r"\s+", "", raw_value) in re.sub(r"\s+", "", user_text)
+    if re.sub(r"\s+", "", raw_value) not in re.sub(r"\s+", "", user_text):
+        return False
+    prefix = clause[:number_position]
+    budget_mentions = list(_USER_MONEY_CONSTRAINT_RE.finditer(prefix))
+    if not budget_mentions:
+        return False
+    budget_start = budget_mentions[-1].start()
+    if number_position - budget_start > 14:
+        return False
+    return max(prefix.rfind("票价"), prefix.rfind("参考价")) < budget_start
 
 
 def _latest_user_text(messages: list[dict] | None) -> str:

@@ -665,7 +665,7 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
             ("CZ1234 在 09:30 起飞。", "unknown_travel_time"),
             ("CZ1234 从广州白云国际机场起飞。", "unknown_travel_entity"),
             ("CZ1234 参考价 999 元。", "numeric_mismatch"),
-            ("CZ1234 票价 999 元。", "unsupported_claim"),
+            ("CZ1234 票价 999 元。", "numeric_mismatch"),
             ("本次返回中，CZ1234 的实时票价为 880 元。", "unsupported_claim"),
             ("本次返回中，CZ1234 从深圳宝安国际机场 T4 出发。", "unknown_travel_number"),
             ("CZ1234 所属航司班次更多，机场接机也方便。", "unsupported_claim"),
