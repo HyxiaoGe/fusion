@@ -165,6 +165,14 @@ _WEATHER_WIND_DIRECTION_RE = re.compile(r"风向\s*(?P<direction>东南|东北|�
 _WEATHER_FACT_CUE_RE = re.compile(r"气温|温度|最高|最低|雨|雪|雷|多云|阴|晴|雾|霾|风|防晒|保暖|加衣|雨具")
 _WEATHER_DATE_TOKEN_PATTERN = r"(?:\d{4}-\d{2}-\d{2}|\d{1,2}月\d{1,2}日)"
 _WEATHER_DATE_RANGE_PATTERN = rf"{_WEATHER_DATE_TOKEN_PATTERN}(?:\s*(?:至|到|~|～|—)\s*{_WEATHER_DATE_TOKEN_PATTERN})?"
+_WEATHER_NEGATIVE_DATE_CLAIM_RE = re.compile(
+    rf"(?:未覆盖|不覆盖|没有覆盖|未返回|不返回|没有返回|没返回|未包含|不包含|没有包含|没包含|"
+    rf"未提供|不提供|没有提供|没提供|暂无|暂时没有|没有)"
+    rf"(?P<uncovered>{_WEATHER_DATE_RANGE_PATTERN})"
+)
+_WEATHER_POSITIVE_DATE_CLAIM_RE = re.compile(
+    rf"(?:只|仅)(?:返回|包含|提供|有|覆盖)(?P<covered>{_WEATHER_DATE_RANGE_PATTERN})"
+)
 _WEATHER_COVERAGE_RETRY_SUFFIX_PATTERN = (
     r"(?:，?(?:建议|请)?(?:临近(?:出发|行程|目标)?日期(?:后|时)?|稍后|届时)"
     r"(?:再|重新)?(?:查询|重试|查看|核实)(?:天气|预报)?)?"
@@ -184,8 +192,8 @@ _WEATHER_RETURNED_RANGE_LIMITATION_RE = re.compile(
     rf"{_WEATHER_COVERAGE_RETRY_SUFFIX_PATTERN}"
 )
 _WEATHER_RETURNED_RANGE_RE = re.compile(
-    rf"(?:当前|本次|现有)?(?:天气)?预报(?:只|仅)(?:返回|包含|提供|有)"
-    rf"(?P<covered>{_WEATHER_DATE_RANGE_PATTERN})(?:的)?数据"
+    rf"(?:当前|本次|现有)?(?:天气)?预报(?:只|仅)(?:返回|包含|提供|有|覆盖)"
+    rf"(?P<covered>{_WEATHER_DATE_RANGE_PATTERN})(?:(?:的)?数据)?"
     rf"{_WEATHER_COVERAGE_RETRY_SUFFIX_PATTERN}"
 )
 _WEATHER_NOT_RETURNED_RANGE_RE = re.compile(
@@ -214,13 +222,6 @@ _WEATHER_COVERAGE_NEGATIVE_RES = (
         rf"(?P<uncovered>{_WEATHER_DATE_RANGE_PATTERN})(?:的)?(?:天气)?预报(?:暂)?(?:未覆盖|不覆盖)"
         rf"{_WEATHER_COVERAGE_RETRY_SUFFIX_PATTERN}"
     ),
-)
-_WEATHER_COVERAGE_CUE_RE = re.compile(
-    r"覆盖范围|未覆盖|不覆盖|没有覆盖|超出.{0,8}预报|超过.{0,8}预报|"
-    r"(?:只|仅)(?:返回|包含|提供|有)|"
-    r"暂无|暂时没有|没有返回|没有包含|没有提供|未返回|未包含|未提供|不返回|不包含|不提供|"
-    r"没返回|没包含|没提供|"
-    rf"没有{_WEATHER_DATE_RANGE_PATTERN}(?:的)?数据"
 )
 _WEATHER_SENTENCE_SPLIT_RE = re.compile(r"[。！？!?；;\n]+")
 _WEATHER_COMPACT_RANGE_RE = re.compile(
@@ -1018,34 +1019,52 @@ def _validate_weather_coverage_sentence(
 
     normalized = re.sub(r"\s+", "", sentence).replace(",", "，").strip("，。！？!?；;")
     allowed_dates = {day.date for day in days}
+    for match in _WEATHER_NEGATIVE_DATE_CLAIM_RE.finditer(normalized):
+        claimed_missing = _parse_weather_date_range(match.group("uncovered"), days)
+        if claimed_missing is None or not claimed_missing.isdisjoint(allowed_dates):
+            return False
+    for match in _WEATHER_POSITIVE_DATE_CLAIM_RE.finditer(normalized):
+        claimed_range = _parse_weather_date_range(match.group("covered"), days)
+        if claimed_range is None or claimed_range != allowed_dates:
+            return False
     for pattern in (_WEATHER_COVERAGE_POSITIVE_NEGATIVE_RE, _WEATHER_RETURNED_RANGE_LIMITATION_RE):
-        match = pattern.fullmatch(normalized)
+        match = pattern.match(normalized)
         if match is None:
             continue
         covered_dates = _parse_weather_date_range(match.group("covered"), days)
         uncovered_dates = _parse_weather_date_range(match.group("uncovered"), days)
-        return (
+        valid = (
             covered_dates is not None
             and uncovered_dates is not None
             and covered_dates == allowed_dates
             and uncovered_dates.isdisjoint(allowed_dates)
         )
-    match = _WEATHER_RETURNED_RANGE_RE.fullmatch(normalized)
+        if not valid:
+            return False
+        return True if match.end() == len(normalized) else None
+    match = _WEATHER_RETURNED_RANGE_RE.match(normalized)
     if match is not None:
         covered_dates = _parse_weather_date_range(match.group("covered"), days)
-        return covered_dates is not None and covered_dates == allowed_dates
-    match = _WEATHER_NOT_RETURNED_RANGE_RE.fullmatch(normalized)
+        valid = covered_dates is not None and covered_dates == allowed_dates
+        if not valid:
+            return False
+        return True if match.end() == len(normalized) else None
+    match = _WEATHER_NOT_RETURNED_RANGE_RE.match(normalized)
     if match is not None:
         uncovered_dates = _parse_weather_date_range(match.group("uncovered"), days)
-        return uncovered_dates is not None and uncovered_dates.isdisjoint(allowed_dates)
+        valid = uncovered_dates is not None and uncovered_dates.isdisjoint(allowed_dates)
+        if not valid:
+            return False
+        return True if match.end() == len(normalized) else None
     for pattern in _WEATHER_COVERAGE_NEGATIVE_RES:
-        match = pattern.fullmatch(normalized)
+        match = pattern.match(normalized)
         if match is None:
             continue
         uncovered_dates = _parse_weather_date_range(match.group("uncovered"), days)
-        return uncovered_dates is not None and uncovered_dates.isdisjoint(allowed_dates)
-    if _WEATHER_COVERAGE_CUE_RE.search(normalized) and re.search(_WEATHER_DATE_TOKEN_PATTERN, normalized):
-        return False
+        valid = uncovered_dates is not None and uncovered_dates.isdisjoint(allowed_dates)
+        if not valid:
+            return False
+        return True if match.end() == len(normalized) else None
     return None
 
 

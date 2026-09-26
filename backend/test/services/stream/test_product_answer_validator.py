@@ -546,6 +546,14 @@ class ProductAnswerValidatorTests(unittest.TestCase):
             ("本次天气预报只提供7月23日数据。", False, "weather_fact_mismatch"),
             ("本次天气预报只返回7月23日至7月24日的数据。", True, "ok"),
             ("当前预报未返回8月2日数据。", True, "ok"),
+            ("8 月 2 日超出了逐日预报窗口，无法确认当天是否下雨。", True, "ok"),
+            ("当前预报未覆盖7月24日，因此暂不分析。", False, "weather_fact_mismatch"),
+            ("本次预报只返回7月23日，因此暂不分析。", False, "weather_fact_mismatch"),
+            ("当前预报只覆盖7月23日，因此暂不分析。", False, "weather_fact_mismatch"),
+            ("根据结果，当前预报未覆盖7月24日。", False, "weather_fact_mismatch"),
+            ("本次预报只返回7月23日至7月24日，但未返回7月24日。", False, "weather_fact_mismatch"),
+            ("当前预报没返回7月24日。", False, "weather_fact_mismatch"),
+            ("当前预报暂无7月24日。", False, "weather_fact_mismatch"),
         )
 
         for answer, expected, reason in cases:
