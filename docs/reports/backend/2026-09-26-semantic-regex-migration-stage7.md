@@ -14,5 +14,7 @@
 
 ## 发布与真实验收
 
-- PR/CI、dev 运行版本、同句真实 API 和预报范围外日期的模型回答：待执行。
+- PR [#154](https://github.com/HyxiaoGe/fusion/pull/154) 必需门禁全绿，合并为 `0d469aced65f45fba59050b25c60a1a554a9dfe5`；master CI [36218445039](https://github.com/HyxiaoGe/fusion/actions/runs/36218445039) 和 dev 工作流 [36218445273](https://github.com/HyxiaoGe/fusion/actions/runs/36218445273) 均成功。API/UI 发布台账 SHA 与合并提交相同，API、worker、adapter、UI 运行镜像 ID 与各自台账一致。
+- 同句真实 API run `8640a8181cf54afd8f38677f168d28f7`、conversation `72f57383-db44-413a-9af5-2e4c08c2095e`：HTTP 200、SSE 正常结束，`weather_forecast` 成功，模型最终直接回答 9 月 27 日深圳市白天/夜间多云、最高 33℃/最低 26℃，并明确无法确认上午不下雨；末轮本地校验 `ok`，未再退回四日兜底。模型还补充了“可能出现局地短时降水”等未获字段直接支持的可能性说明，不能把单次通过当作全量天气语义正确。
+- 范围外日期 run `96b827f07d3b486d85d6419787f4dc3c`、conversation `739276b2-87ff-4865-9feb-7eaf9872c76e`：`weather_forecast` 与三次搜索成功、一次 URL 读取降级。模型候选正确说 10 月 20 日无法确认，但旧覆盖句泛化规则将“超出了逐日预报窗口”误判为 `weather_fact_mismatch`；同一候选还加入了未返回的历史平均气温，触发 `unsupported_claim`。最终被兜底成 9 月 26—29 日四日预报，未回答目标日期。第八阶段补修覆盖误拦和模型范围外回答约束。
 - 原有 Chrome 登录态中尚无可绑定的 Fusion 标签；页面路径待验。API 请求、部署身份和页面分别记录，不以本地重放或 API 结果代替页面验收。
