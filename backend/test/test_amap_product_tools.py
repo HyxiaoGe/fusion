@@ -1379,7 +1379,7 @@ class AmapLocalPlaceSearchTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(result.data["error_code"], "invalid_arguments")
                 self.assertEqual(executor.calls, [])
 
-    async def test_near_search_normalizes_whitespace_separated_keywords_only_for_amap_arguments(self):
+    async def test_near_search_preserves_whitespace_query_for_amap_arguments(self):
         original_query = "烤肉 火锅 烧烤 餐厅 桌球馆"
         handler, executor = build_handler(
             "local_place_search",
@@ -1394,7 +1394,7 @@ class AmapLocalPlaceSearchTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result.status, "success")
-        self.assertEqual(executor.calls[1][2]["keywords"], "烤肉|火锅|烧烤|餐厅|桌球馆")
+        self.assertEqual(executor.calls[1][2]["keywords"], original_query)
         self.assertEqual(result.data["result"]["query"], original_query)
 
     async def test_city_text_search_normalizes_comma_and_ideographic_delimiters_only_for_amap_arguments(self):
@@ -1426,6 +1426,8 @@ class AmapLocalPlaceSearchTests(unittest.IsolatedAsyncioTestCase):
             "烤肉|火锅|烧烤",
             "烤肉",
             "适合三人聚餐的烤肉店",
+            "南山区 烤肉店",
+            "桌球馆 台球",
             "coffee shop",
             "hot pot",
         )

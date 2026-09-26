@@ -1405,19 +1405,11 @@ def _new_weather_repair_id() -> str:
 
 
 def _normalize_amap_search_keywords(query: str) -> str:
-    """仅为高德下游参数把显式关键词列表转换为 OR 语法。"""
+    """仅把显式标点分隔的备选词转换为高德 OR 语法，保留空格短语。"""
     if "|" in query:
         return query
-    if re.search(r"[,，、]", query):
-        keywords = [item.strip() for item in re.split(r"[,，、]+", query) if item.strip()]
-        return "|".join(dict.fromkeys(keywords)) if len(keywords) > 1 else query
-    if not re.search(r"\s", query):
-        return query
-    keywords = [item for item in re.split(r"\s+", query) if item]
-    cjk_keyword_count = sum(bool(re.search(r"[\u3400-\u4dbf\u4e00-\u9fff]", item)) for item in keywords)
-    if len(keywords) < 2 or cjk_keyword_count < 2:
-        return query
-    return "|".join(dict.fromkeys(keywords))
+    keywords = [item.strip() for item in query.replace("，", ",").replace("、", ",").split(",") if item.strip()]
+    return "|".join(dict.fromkeys(keywords)) if len(keywords) > 1 else query
 
 
 def _validate_local_args(args: Any) -> dict[str, Any]:

@@ -213,6 +213,59 @@ def _travel_candidate_blocks() -> list[dict]:
 
 
 class ProductAnswerValidatorTests(unittest.TestCase):
+    def test_returned_price_comparison_and_absent_inventory_note_are_kept(self):
+        answer = "本次返回中 ZH1002 参考价500元。虽然票价最低，仍需结合行程安排。本次结果不含余票、准点率或退改签信息。"
+
+        self.assertTrue(validate_product_answer(answer, _travel_candidate_blocks()).is_valid)
+
+    def test_travel_price_claim_must_use_returned_candidate_price(self):
+        blocks = _travel_candidate_blocks()
+        blocks[0]["flights"][1]["price"] = None
+        cases = (
+            ("ZH1002 票价最低。", "candidate_fact_mismatch"),
+            ("ZH1002 票价600。", "candidate_fact_mismatch"),
+            ("ZH1002 票价598。", "numeric_mismatch"),
+            ("ZH1002 ¥598。", "numeric_mismatch"),
+            ("ZH1001 票价598。", "numeric_mismatch"),
+            ("ZH1001 ¥598。", "numeric_mismatch"),
+            ("ZH1001 票价600。", "ok"),
+        )
+
+        for answer, expected_reason in cases:
+            with self.subTest(answer=answer):
+                validation = validate_product_answer(answer, blocks)
+                self.assertEqual(validation.is_valid, expected_reason == "ok")
+                self.assertEqual(validation.reason_code, expected_reason)
+
+    def test_travel_price_ranking_and_comparison_use_returned_amounts(self):
+        cases = (
+            ("ZH1001 票价最低。", False),
+            ("ZH1002 票价最低。", True),
+            ("ZH1002 票价最高。", False),
+            ("ZH1001 票价比 ZH1002 更便宜。", False),
+            ("ZH1002 票价比 ZH1001 更便宜。", True),
+            ("ZH1001 票价约为598。", False),
+        )
+
+        for answer, expected in cases:
+            with self.subTest(answer=answer):
+                validation = validate_product_answer(answer, _travel_candidate_blocks())
+                self.assertEqual(validation.is_valid, expected)
+
+    def test_user_budget_with_yuan_symbol_is_not_travel_price(self):
+        cases = (
+            ("我的预算¥1000，ZH1001参考价600元。", True),
+            ("预算¥1000内的 ZH1001 票价¥1000。", False),
+        )
+        for answer, expected in cases:
+            with self.subTest(answer=answer):
+                validation = validate_product_answer(
+                    answer,
+                    _travel_candidate_blocks(),
+                    messages=[{"role": "user", "content": "我的预算¥1000，查深圳到上海航班。"}],
+                )
+                self.assertEqual(validation.is_valid, expected)
+
     def test_unreturned_airport_after_choice_verb_is_rejected(self):
         blocks = _travel_candidate_blocks()
         blocks[0]["flights"] = [blocks[0]["flights"][1]]
@@ -779,6 +832,18 @@ class ProductAnswerValidatorTests(unittest.TestCase):
 
         self.assertFalse(validation.is_valid)
         self.assertEqual(validation.reason_code, "unsupported_claim")
+
+    def test_limitation_cue_does_not_mask_positive_claim_within_same_clause(self):
+        for answer in (
+            "这趟车准点率高且不含余票信息。",
+            "本次结果不含余票信息但这趟车准点率高。",
+            "这趟车准点率高并不含余票信息。",
+            "这趟车准点率高（不含余票信息）。",
+        ):
+            with self.subTest(answer=answer):
+                validation = validate_product_answer(answer, _travel_candidate_blocks())
+                self.assertFalse(validation.is_valid)
+                self.assertEqual(validation.reason_code, "unsupported_claim")
 
     def test_weak_uncertainty_language_does_not_turn_realtime_claim_into_fact(self):
         validation = validate_product_answer(
