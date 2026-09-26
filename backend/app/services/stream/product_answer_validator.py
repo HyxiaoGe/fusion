@@ -171,10 +171,10 @@ _WEATHER_LOCATION_RE = re.compile(
 )
 _WEATHER_WIND_RE = re.compile(
     r"(?P<direction>东南|东北|西南|西北|东|南|西|北)?风(?:力)?"
-    r"(?P<power>[≤＜<≥＞>]?\s*\d+(?:\s*[-~至]\s*\d+)?)?\s*级?"
+    r"(?P<power>[≤＜<≥＞>]?\s*\d+(?:\s*[-~～—–－至]\s*\d+)?)?\s*级?"
 )
 _WEATHER_WIND_DIRECTION_RE = re.compile(r"风向\s*(?P<direction>东南|东北|西南|西北|东|南|西|北)")
-_WEATHER_WIND_DESCRIPTION_RE = re.compile(r"微风|轻风|和风|强风")
+_WEATHER_WIND_DESCRIPTION_RE = re.compile(r"微风|轻风|和风(?!力|向|速)|强风")
 _WEATHER_FACT_CUE_RE = re.compile(r"气温|温度|最高|最低|雨|雪|雷|多云|阴|晴|雾|霾|风|防晒|保暖|加衣|雨具")
 _WEATHER_DATE_TOKEN_PATTERN = r"(?:\d{4}-\d{2}-\d{2}|\d{1,2}月\d{1,2}日)"
 _WEATHER_DATE_RANGE_PATTERN = rf"{_WEATHER_DATE_TOKEN_PATTERN}(?:\s*(?:至|到|~|～|—)\s*{_WEATHER_DATE_TOKEN_PATTERN})?"
@@ -1001,6 +1001,8 @@ def _weather_claim_reason(answer: str, facts: _FactIndex) -> str | None:
                 return "weather_fact_mismatch"
         for match in _WEATHER_CONDITION_RE.finditer(sentence):
             condition = match.group(0)
+            if _weather_condition_is_uncertain_question(sentence, match.start(), match.end()):
+                continue
             period = _weather_period_before(sentence, match.start())
             claim_days = _weather_scoped_days(sentence, facts.weather_days, position=match.start()) or scoped_days
             allowed_conditions = _allowed_weather_conditions(claim_days, period)
@@ -1031,7 +1033,7 @@ def _weather_claim_reason(answer: str, facts: _FactIndex) -> str | None:
                 return "weather_fact_mismatch"
         for match in _WEATHER_WIND_RE.finditer(sentence):
             direction = match.group("direction")
-            power = re.sub(r"\s+", "", match.group("power") or "")
+            power = _normalize_weather_wind_power(match.group("power") or "")
             if not direction and not power:
                 continue
             claim_days = _weather_scoped_days(sentence, facts.weather_days, position=match.start()) or scoped_days
@@ -1039,7 +1041,7 @@ def _weather_claim_reason(answer: str, facts: _FactIndex) -> str | None:
             allowed_winds = _allowed_weather_winds(claim_days, period)
             if not any(
                 (not direction or direction == allowed_direction)
-                and (not power or power == re.sub(r"\s+|级", "", allowed_power or ""))
+                and (not power or power == _normalize_weather_wind_power(allowed_power or ""))
                 for allowed_direction, allowed_power in allowed_winds
             ):
                 return "weather_fact_mismatch"
@@ -1259,12 +1261,42 @@ def _is_weather_dry_condition_claim(claim: str) -> bool:
 
 
 def _weather_temperature_kind_before(sentence: str, position: int) -> str | None:
-    prefix = sentence[max(0, position - 8) : position]
+    prefix = sentence[max(0, position - 12) : position]
+    high_low_position = prefix.rfind("高低温")
+    if high_low_position >= 0:
+        explicit_high = max(prefix.rfind("最高"), prefix.rfind("高温"))
+        explicit_low = prefix.rfind("最低")
+        if max(explicit_high, explicit_low) >= high_low_position + len("高低温"):
+            return "high" if explicit_high > explicit_low else "low"
+        return "low" if _WEATHER_TEMPERATURE_RE.search(prefix[high_low_position + 3 :]) else "high"
     high_position = max(prefix.rfind("最高"), prefix.rfind("高温"))
     low_position = max(prefix.rfind("最低"), prefix.rfind("低温"))
     if max(high_position, low_position) < 0:
         return None
     return "high" if high_position > low_position else "low"
+
+
+def _weather_condition_is_uncertain_question(sentence: str, start: int, end: int) -> bool:
+    clause_start = max(
+        (
+            position + len(mark)
+            for mark in ("，", ",", "。", "；", ";", "：", ":", "但", "不过", "然而")
+            if (position := sentence.rfind(mark, 0, start)) >= 0
+        ),
+        default=0,
+    )
+    before = sentence[clause_start:start]
+    if not any(cue in before for cue in ("是否", "能否", "会不会", "能不能")) or _LIMITATION_CUE_RE.search(before):
+        return False
+    after = sentence[end:].strip()
+    if not after:
+        return True
+    after = after.lstrip("，,：:").strip()
+    return bool(re.match(r"(?:目前|当前)?(?:无法|不能).{0,16}(?:确认|判断)|不确定", after))
+
+
+def _normalize_weather_wind_power(value: str) -> str:
+    return re.sub(r"\s+|级", "", value).translate(str.maketrans("~～—–－至", "------"))
 
 
 def _allowed_weather_temperatures(days: list[_WeatherDayFacts], kind: str | None) -> set[float]:
