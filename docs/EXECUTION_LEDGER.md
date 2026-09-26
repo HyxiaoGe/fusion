@@ -401,6 +401,6 @@ AGENTS/CLAUDE 收敛到当前单仓约定，开发与发布技能迁入仓库，
 
 - 第八阶段的真实模型候选未通过产品事实校验，既有兜底未回答范围外目标日期。天气工具现可接收模型判定的单个明确 `requested_date`，天气结果块随本轮保存该日期；失败兜底仅比较结构化目标日期与返回日期集合。曾从用户原文提取日期的初稿因否定意图反例撤回。旧结果、未传日期和多产品块保留原兜底。完整 unittest 3256 项通过、2 项跳过，额外 CI pytest 241 项通过；独立复审未发现可达 P0/P1。PR [#156](https://github.com/HyxiaoGe/fusion/pull/156) 合并为 `b1e2e091`，PR/master CI 成功。dev 工作流 `36220741977` 首次 UI 镜像构建遇 Docker Hub EOF，失败 job 重跑后整体成功，API/UI 运行 SHA/镜像 ID 与台账一致。范围外真实 API run `0a6f7028208442a4852ad058a02b3669` 交付正确兜底，轨迹 `source=server, reason=product_guard`，不能算模型直答。否定日期工具未传 `requested_date`。原有骑行请求模型候选被风力分隔符误拦，第十阶段继续修复；页面待验。见[阶段九报告](reports/backend/2026-09-26-semantic-regex-migration-stage9.md)。
 
-## 2026-09-26 语义正则迁移第十阶段（本地补修待发布）
+## 2026-09-27 语义正则迁移第十阶段（已发布，页面待验）
 
-- 原有骑行请求真实模型候选因 `风力1‑3级` 中的非断行连字符被误拦，最终退回四日摘要。风力范围解析只增加该数值分隔符并归一化；实际候选本地重放由 `weather_fact_mismatch` 转为 `ok`，错误风力 `1‑5级` 仍被拒绝。完整 unittest 3256 项通过、2 项跳过，额外 CI pytest 241 项通过；独立复审未发现新增可达 P0/P1。PR/CI、dev 同句 API 与页面待验。见[阶段十报告](reports/backend/2026-09-26-semantic-regex-migration-stage10.md)。
+- 原有骑行请求真实模型候选因 `风力1‑3级` 中的非断行连字符被误拦，最终退回四日摘要。风力范围解析只增加该数值分隔符并归一化；实际候选本地重放由 `weather_fact_mismatch` 转为 `ok`，错误风力 `1‑5级` 仍被拒绝。完整 unittest 3256 项通过、2 项跳过，额外 CI pytest 241 项通过；独立复审未发现新增可达 P0/P1。PR [#157](https://github.com/HyxiaoGe/fusion/pull/157) 合并为 `4d9eb243`，PR CI 全绿；master CI `36274820517` 首次有一项轨迹记录等待超时，失败 job 重跑后全绿，超时根因未确认。dev 工作流 `36274820845` 成功，API/UI 台账、当前 SHA 与运行镜像 ID 一致。原有骑行请求同句真实 API run `4d4e68712a9e4b66b2330ca669e99e50` 由模型直接说明上午降雨无法从逐日预报确认；范围外日期 run `746f62d3e36340a2a2f5eaf3dcab37b6` 正确交付服务端事实兜底。原有 Chrome 没有已登录 Fusion 标签，页面待验。见[阶段十报告](reports/backend/2026-09-26-semantic-regex-migration-stage10.md)。

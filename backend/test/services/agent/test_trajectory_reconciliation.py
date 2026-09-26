@@ -237,6 +237,8 @@ class TrajectoryReconciliationTests(unittest.TestCase):
         self.assertEqual(stale.pending_degraded, 1)
         self.assertEqual(stale.meta_missing_degraded, 1)
 
+    # 验证补写与终结状态的胜出关系，给 CI 线程调度留出余量。
+    @patch("app.services.agent.trajectory_recorder.TRAJECTORY_WAIT_TIMEOUT_SECONDS", 2)
     def test_fresh_terminal_grace_allows_late_first_write_and_finalize_to_win(self):
         self._add_run("late-recorder", terminal_at=self.now)
         self._add_meta("late-recorder", updated_at=self.now)
