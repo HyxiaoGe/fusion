@@ -375,15 +375,12 @@ class ProductAnswerValidatorTests(unittest.TestCase):
                 if not expected:
                     self.assertEqual(validation.reason_code, "candidate_fact_mismatch")
 
-    def test_weather_facts_are_validated_with_day_scope_and_temperature_units(self):
+    def test_weather_numeric_facts_are_validated_with_day_scope_and_temperature_units(self):
         cases = (
             ("周四白天多云、夜间阵雨，最高32℃、最低27摄氏度。", True, "ok"),
             ("周五白天雷阵雨，最高31度、最低26℃。", True, "ok"),
             ("周五最高32℃。", False, "weather_fact_mismatch"),
-            ("周四白天晴，最高32℃。", False, "weather_fact_mismatch"),
-            ("周五夜间阵雨。", False, "weather_fact_mismatch"),
             ("周四最高31℃，周五最高32℃。", False, "weather_fact_mismatch"),
-            ("周四白天雷阵雨，周五白天多云。", False, "weather_fact_mismatch"),
         )
 
         for answer, expected, reason in cases:
@@ -397,14 +394,13 @@ class ProductAnswerValidatorTests(unittest.TestCase):
             ("南山区的天气，按行政区预报为：周四白天多云。", True),
             ("上午降水情况无法确认。", True),
             ("福田区行政区预报：周四白天多云。", False),
-            ("周四上午是否下雨：是。", False),
         )
         for answer, expected in cases:
             with self.subTest(answer=answer):
                 validation = validate_product_answer(answer, [_weather_block()])
                 self.assertEqual(validation.is_valid, expected)
 
-    def test_weather_real_answer_accepts_returned_facts_and_keeps_contradictions_blocked(self):
+    def test_weather_real_answer_accepts_prose_and_blocks_numeric_contradictions(self):
         block = _weather_block()
         block.resolved_location = "深圳市"
         block.day_count = 2
@@ -442,12 +438,6 @@ class ProductAnswerValidatorTests(unittest.TestCase):
                 "并明确没有返回降雨信息，因此无法确认上午是否下雨。",
                 True,
             ),
-            ("明天深圳市上午是否下雨：是。", False),
-            ("明天深圳市会下雨，但上午是否下雨无法确认。", False),
-            ("9月27日上午是否下雨：会下雨但无法确认。", False),
-            ("9月27日上午是否下雨无法确认但会下雨。", False),
-            ("9月27日因此无法确认上午是否下雨，但会下雨。", False),
-            ("9月27日上午是否下雨但会下雨。", False),
             ("9月27日高低温33℃/26℃最高26℃。", False),
             ("明天深圳市的气温和风力未单独返回。", True),
         )
@@ -455,14 +445,22 @@ class ProductAnswerValidatorTests(unittest.TestCase):
             with self.subTest(answer=answer):
                 self.assertEqual(validate_product_answer(answer, [block]).is_valid, expected)
 
-    def test_weather_realtime_claims_reject_positive_but_allow_explicit_limits(self):
+    def test_weather_unreturned_numbers_are_checked_and_descriptions_are_model_owned(self):
         cases = (
             ("当前温度是30℃，湿度80%。", False),
             ("降雨概率为70%，已发布暴雨预警。", False),
-            ("空气质量良好，湿度较高，降雨概率较低。", False),
-            ("周五路面积水明显。", False),
+            ("周五天气预警等级3级。", False),
+            ("周五预警3级。", False),
+            ("周五积水深度20厘米。", False),
+            ("周五路面积水20厘米。", False),
+            ("周五降水量为0毫米。", False),
+            ("后天降水0毫米。", False),
+            ("后天雨量0毫米。", False),
+            ("空气质量良好，湿度较高，降雨概率较低。", True),
+            ("周五路面积水明显。", True),
             ("本次只取得天气预报，未返回实时温度、湿度、空气质量或预警。", True),
-            ("未返回湿度，但空气质量良好。", False),
+            ("本次天气预报没有湿度数据。", True),
+            ("未返回湿度，但空气质量良好。", True),
             ("未返回湿度，但降雨概率70%。", False),
             ("周五有雷阵雨，建议携带雨具。", True),
         )
@@ -505,7 +503,7 @@ class ProductAnswerValidatorTests(unittest.TestCase):
             messages=messages,
         )
 
-        # 本地校验仍验证句中的日期、天气、温度；活动推断交给模型提示词及验收语料。
+        # 本地校验核对日期和数值；天气条件与活动推断交给模型提示词及验收语料。
         self.assertTrue(validation.is_valid, validation.reason_code)
         self.assertIsNone(repaired)
         self.assertEqual(reason_code, "not_repairable")
@@ -524,7 +522,7 @@ class ProductAnswerValidatorTests(unittest.TestCase):
             ("当前天气预报未覆盖8月2日，但预计晴。", False, "weather_fact_mismatch"),
             ("当前天气预报未覆盖8月2日，预计无雨。", False, "weather_fact_mismatch"),
             ("当前天气预报未覆盖8月2日，届时不会降雨。", False, "weather_fact_mismatch"),
-            ("当前天气预报未覆盖8月2日，届时降水为0。", False, "weather_fact_mismatch"),
+            ("当前天气预报未覆盖8月2日，届时降水为0。", False, "unsupported_claim"),
             ("当前天气预报未覆盖8月2日，最高气温35。", False, "weather_fact_mismatch"),
             ("当前天气预报未覆盖8月2日，建议携带雨具。", False, "weather_fact_mismatch"),
             ("当前天气预报未覆盖8月2日，建议穿外套。", False, "weather_fact_mismatch"),
@@ -569,36 +567,22 @@ class ProductAnswerValidatorTests(unittest.TestCase):
         cases = (
             ("今天白天多云，最高32℃。", True),
             ("明天白天雷阵雨，最高31℃。", True),
-            ("明天白天多云。", False),
             ("明天最高32℃。", False),
-            ("明天无雨。", False),
-            ("明天不会下雨。", False),
-            ("明天不下雨。", False),
-            ("明天没有雨。", False),
-            ("明天不会有雨。", False),
-            ("明天没有降水。", False),
-            ("明天无降水。", False),
-            ("明天不会有降水。", False),
             ("明天最高气温32。", False),
             ("明天气温最高32。", False),
             ("明天最高32。", False),
             ("明天风力8级。", False),
-            ("明天微风。", False),
             ("明天风向西北。", False),
             ("明天建议穿外套。", True),
             ("明天建议加衣。", True),
             ("明天注意保暖。", True),
-            ("今晚多云。", False),
-            ("明晚阵雨。", False),
-            ("今早雷阵雨。", False),
-            ("明早多云。", False),
-            ("今天早上阵雨。", False),
-            ("今天上午阵雨。", False),
-            ("明天下午多云。", False),
             ("明天平均气温31。", False),
             ("明天体感温度31。", False),
             ("明天白天南风≤3级。", False),
-            ("后天建议携带雨具。", False),
+            ("后天建议携带雨具。", True),
+            ("后天建议带伞。", True),
+            ("后天风雨情况暂无法确认。", True),
+            ("后天去公园看风景，天气仍需临近再查。", True),
             ("周三白天南风≤3级。", False),
         )
 
@@ -606,10 +590,7 @@ class ProductAnswerValidatorTests(unittest.TestCase):
             with self.subTest(answer=answer):
                 self.assertEqual(validate_product_answer(answer, [_weather_block()]).is_valid, expected)
 
-        four_day_cases = (
-            ("大后天白天晴。", False),
-            ("明后天最高30℃。", False),
-        )
+        four_day_cases = (("明后天最高30℃。", False),)
         for answer, expected in four_day_cases:
             with self.subTest(answer=answer):
                 self.assertEqual(
@@ -664,7 +645,7 @@ class ProductAnswerValidatorTests(unittest.TestCase):
                 "7月30日（周四）：白天小雨，夜间转晴，气温29~39℃，东北风1-3级。",
                 True,
             ),
-            ("7月29日杭州多云，28–38℃，30日白天晴，29–39℃。", False),
+            ("7月29日杭州多云，28–38℃，30日白天晴，29–39℃。", True),
             ("7月29日杭州多云，31日白天小雨。", False),
             ("杭州7月29-31日天气情况。", False),
             ("30日白天小雨，29–39℃。", False),
@@ -694,7 +675,7 @@ class ProductAnswerValidatorTests(unittest.TestCase):
         self.assertNotIn("排队", fallback)
         self.assertNotIn("停车", fallback)
 
-    def test_weather_location_wind_general_conditions_and_calendar_must_be_grounded(self):
+    def test_weather_location_wind_calendar_are_checked_and_conditions_are_model_owned(self):
         cases = (
             ("福田区周四白天多云。", False),
             ("福田区的周五白天雷阵雨。", False),
@@ -706,14 +687,14 @@ class ProductAnswerValidatorTests(unittest.TestCase):
             ("周四白天西北风8级。", False),
             ("周四有雨。", True),
             ("周四会下雨。", True),
-            ("周四白天有雨。", False),
-            ("周四白天会下雨。", False),
+            ("周四白天有雨。", True),
+            ("周四白天会下雨。", True),
             ("周四夜间有雨。", True),
             ("7月23日（周五）白天多云。", False),
             ("7月30日（周五）白天多云。", False),
             ("2026-07-30周五白天多云。", False),
             ("7月24日（周五）白天雷阵雨。", True),
-            ("预警等级较高。", False),
+            ("预警等级较高。", True),
             ("本次预报未返回天气预警。", True),
             ("天气预报按行政区提供。", True),
             ("地点只解析到行政区级预报。", True),
@@ -746,11 +727,11 @@ class ProductAnswerValidatorTests(unittest.TestCase):
         self.assertTrue(no_wind.is_valid)
         self.assertTrue(has_wind.is_valid)
 
-    def test_weekend_scope_cannot_borrow_weekday_weather_facts(self):
+    def test_weekend_temperature_scope_cannot_borrow_weekday_facts(self):
         cases = (
             ("周末最高30℃。", True),
             ("周末最高32℃。", False),
-            ("周末有阵雨。", False),
+            ("周末有阵雨。", True),
         )
 
         for answer, expected in cases:
