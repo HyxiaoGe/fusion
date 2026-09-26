@@ -18,7 +18,11 @@ from app.ai.prompts.section_ids import (
 from app.services.agent.plan_coordinator import PlanCoordinator
 from app.services.stream.agent_loop_outcome import AgentLoopExit, AgentLoopOutcome
 from app.services.stream.agent_loop_policy import check_agent_loop_limit
-from app.services.stream.agent_loop_round_outcome import AgentRoundOutcomeRequest, handle_agent_round_outcome
+from app.services.stream.agent_loop_round_outcome import (
+    AgentRoundOutcomeRequest,
+    handle_agent_round_outcome,
+    requires_product_result_guard,
+)
 from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_loop_step_requests import build_limit_summary_step_request
@@ -365,6 +369,7 @@ async def _run_round(
         or runtime.task_mode == "deep_research"
         or runtime.evidence_policy == "knowledge_grounded_v1"
         or runtime.tool_discovery is not None
+        or requires_product_result_guard(runtime)
     )
     if should_defer_output and _accepts_keyword(runtime.run_round_fn, "defer_output"):
         run_round_kwargs["defer_output"] = True

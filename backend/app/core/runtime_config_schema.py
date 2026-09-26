@@ -94,10 +94,6 @@ def _validate_agent_strategy(payload: dict[str, Any], issues: list[str]) -> None
         if not isinstance(aliases, list) or not all(isinstance(alias, str) for alias in aliases):
             issues.append("model_runtime.agent_tools_disabled_aliases 必须是字符串数组")
 
-    search = payload.get("search")
-    if isinstance(search, dict):
-        _require_dict(search, "intent_keywords", issues, prefix="search")
-
     network = payload.get("network")
     if isinstance(network, dict):
         _require_positive_int(network, "max_search_calls", issues, prefix="network")

@@ -192,7 +192,6 @@ class NetworkToolBudgetTests(unittest.TestCase):
                         },
                         "budgets_by_intent": {},
                         "followup_budgets_by_name": {},
-                        "intent_keywords": {},
                         "thresholds": {
                             "similar_followup": 0.55,
                             "duplicate_search": 0.82,
@@ -223,16 +222,16 @@ class NetworkToolBudgetTests(unittest.TestCase):
         self.assertEqual(args["context_source_limit"], 10)
         self.assertEqual(args["search_budget"], "standard")
 
-    def test_web_search_infers_official_source_budget_from_query(self):
+    def test_web_search_without_model_intent_keeps_standard_budget(self):
         budget = NetworkToolBudget()
 
         args, degraded = budget.prepare_web_search_args({"query": "OpenAI GPT-5.6 Sol 2026年6月 官方公告"})
 
         self.assertIsNone(degraded)
-        self.assertEqual(args["intent"], "official_source")
+        self.assertNotIn("intent", args)
         self.assertEqual(args["count"], 10)
         self.assertEqual(args["context_source_limit"], 10)
-        self.assertEqual(args["search_budget"], "official_source")
+        self.assertEqual(args["search_budget"], "standard")
 
     def test_initial_search_records_budget_decision(self):
         budget = NetworkToolBudget()
@@ -253,10 +252,10 @@ class NetworkToolBudgetTests(unittest.TestCase):
         budget = NetworkToolBudget()
 
         _first_args, first_degraded = budget.prepare_web_search_args(
-            {"query": "OpenAI GPT-5.6 Sol official announcement June 2026"}
+            {"query": "OpenAI GPT-5.6 Sol official announcement June 2026", "intent": "official_source"}
         )
         second_args, second_degraded = budget.prepare_web_search_args(
-            {"query": "OpenAI GPT-5.6 Sol 2026年6月 官方公告"}
+            {"query": "OpenAI GPT-5.6 Sol 2026年6月 官方公告", "intent": "official_source"}
         )
 
         self.assertIsNone(first_degraded)
@@ -424,21 +423,25 @@ class NetworkToolBudgetTests(unittest.TestCase):
         self.assertEqual(args["budget_decision"]["action"], "execute")
         self.assertEqual(budget.web_search_calls, 1)
 
-    def test_chinese_year_query_infers_freshness_intent(self):
+    def test_chinese_year_query_without_model_intent_keeps_standard_budget(self):
         budget = NetworkToolBudget()
 
         args, degraded = budget.prepare_web_search_args({"query": "SpaceX 估值 上市 2026年"})
 
         self.assertIsNone(degraded)
-        self.assertEqual(args["intent"], "freshness")
+        self.assertNotIn("intent", args)
         self.assertEqual(args["count"], 10)
-        self.assertEqual(args["search_budget"], "freshness")
+        self.assertEqual(args["search_budget"], "standard")
 
     def test_second_similar_chinese_year_query_keeps_full_budget(self):
         budget = NetworkToolBudget()
 
-        first_args, first_degraded = budget.prepare_web_search_args({"query": "SpaceX 估值 上市 2026年"})
-        second_args, second_degraded = budget.prepare_web_search_args({"query": "SpaceX IPO 估值 2026 最新"})
+        first_args, first_degraded = budget.prepare_web_search_args(
+            {"query": "SpaceX 估值 上市 2026年", "intent": "freshness"}
+        )
+        second_args, second_degraded = budget.prepare_web_search_args(
+            {"query": "SpaceX IPO 估值 2026 最新", "intent": "freshness"}
+        )
 
         self.assertIsNone(first_degraded)
         self.assertIsNone(second_degraded)
@@ -451,10 +454,10 @@ class NetworkToolBudgetTests(unittest.TestCase):
         budget = NetworkToolBudget()
 
         first_args, first_degraded = budget.prepare_web_search_args(
-            {"query": "OpenAI GPT-5.6 Sol official announcement June 2026"}
+            {"query": "OpenAI GPT-5.6 Sol official announcement June 2026", "intent": "official_source"}
         )
         second_args, second_degraded = budget.prepare_web_search_args(
-            {"query": "OpenAI GPT-5.6 Sol 2026年6月 官方公告"}
+            {"query": "OpenAI GPT-5.6 Sol 2026年6月 官方公告", "intent": "official_source"}
         )
 
         self.assertIsNone(first_degraded)
@@ -471,10 +474,10 @@ class NetworkToolBudgetTests(unittest.TestCase):
         budget = NetworkToolBudget()
 
         official_args, official_degraded = budget.prepare_web_search_args(
-            {"query": "OpenAI GPT-5.6 Sol official announcement June 2026"}
+            {"query": "OpenAI GPT-5.6 Sol official announcement June 2026", "intent": "official_source"}
         )
         media_args, media_degraded = budget.prepare_web_search_args(
-            {"query": "OpenAI GPT-5.6 Sol TechCrunch Reuters 权威媒体报道"}
+            {"query": "OpenAI GPT-5.6 Sol TechCrunch Reuters 权威媒体报道", "intent": "comparison"}
         )
 
         self.assertIsNone(official_degraded)
@@ -489,8 +492,12 @@ class NetworkToolBudgetTests(unittest.TestCase):
         self.enterContext(_low_network_budget())
         budget = NetworkToolBudget()
 
-        first_args, first_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026年产品更新 最新发布"})
-        second_args, second_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026年最新新闻 媒体报道"})
+        first_args, first_degraded = budget.prepare_web_search_args(
+            {"query": "OpenAI 2026年产品更新 最新发布", "intent": "official_source"}
+        )
+        second_args, second_degraded = budget.prepare_web_search_args(
+            {"query": "OpenAI 2026年最新新闻 媒体报道", "intent": "comparison"}
+        )
         third_args, third_degraded = budget.prepare_web_search_args({"query": "OpenAI GPT-5.6 Sol 预览 2026年6月"})
 
         self.assertIsNone(first_degraded)
@@ -507,9 +514,13 @@ class NetworkToolBudgetTests(unittest.TestCase):
         self.enterContext(_low_network_budget())
         budget = NetworkToolBudget()
 
-        first_args, first_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026年 深入调研 技术报告"})
+        first_args, first_degraded = budget.prepare_web_search_args(
+            {"query": "OpenAI 2026年 深入调研 技术报告", "intent": "deep_research"}
+        )
         second_args, second_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026年 官方公告"})
-        third_args, third_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026年 权威媒体报道"})
+        third_args, third_degraded = budget.prepare_web_search_args(
+            {"query": "OpenAI 2026年 权威媒体报道", "intent": "comparison"}
+        )
         fourth_args, fourth_degraded = budget.prepare_web_search_args({"query": "OpenAI GPT-5.6 Sol 预览 2026年6月"})
 
         self.assertIsNone(first_degraded)

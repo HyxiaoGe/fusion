@@ -94,25 +94,20 @@ class IdentityCompoundDelegationTests(unittest.TestCase):
         for case in self.cases:
             with self.subTest(case=case["id"]):
                 # 响应内容与本条断言无关，用一个合法的最简包。
-                self._classify(case["question"], '{"package_id":"direct","explicit_tool_names":[]}')
+                self._classify(
+                    case["question"],
+                    '{"package_id":"direct","explicit_tool_names":[],"network_policy":"allow","denied_tool_names":[]}',
+                )
 
-    def test_recorded_responses_replay_to_the_recorded_outcome(self) -> None:
-        """回放 2026-09-20 记录的原始响应，结果应与当时观测到的一致。
-
-        五条天气句的记录响应是单工具 `mixed_itinerary`，不满足 2–3 个工具的契约，
-        因此解析拒绝、记 `invalid_response`、fail-closed 到 `clarification_only`。
-        川菜馆那条记录响应本身就是 `clarification_only`，解析通过但不是业务期望。
-
-        这条测试锁的是契约行为，不是「这六条应该失败」。模型改答对之后，
-        回放旧响应仍然应当得到旧结果——那是同一份契约对同一份输入的判定。
-        """
+    def test_recorded_two_field_responses_fail_closed_under_new_contract(self) -> None:
+        """保留 2026-09-20 原始响应；旧两字段格式在当前四字段契约下拒绝。"""
 
         for case in self.cases:
             with self.subTest(case=case["id"]):
                 candidate, observed = self._classify(case["question"], case["recorded_response_content"])
 
-                self.assertEqual(candidate.package_id, case["observed_package"])
-                self.assertEqual(observed, [(case["observed_layer"], case["observed_error_type"])])
+                self.assertEqual(candidate.package_id, "clarification_only")
+                self.assertEqual(observed, [("failed", "validation_error")])
 
     def test_expected_business_packages_are_reachable_through_the_contract(self) -> None:
         """模型若按业务期望作答，当前契约必须放行。
@@ -130,7 +125,14 @@ class IdentityCompoundDelegationTests(unittest.TestCase):
 
                 candidate, observed = self._classify(
                     case["question"],
-                    json.dumps({"package_id": package_id, "explicit_tool_names": tools}),
+                    json.dumps(
+                        {
+                            "package_id": package_id,
+                            "explicit_tool_names": tools,
+                            "network_policy": "allow",
+                            "denied_tool_names": [],
+                        }
+                    ),
                 )
 
                 self.assertEqual(candidate.package_id, package_id)

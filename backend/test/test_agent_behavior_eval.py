@@ -699,6 +699,26 @@ class RunCapabilityBehaviorEvalIntegrationTests(unittest.IsolatedAsyncioTestCase
                     # 多工具包与 mcp_explicit 要求候选自带工具集合，模型输出的正是这个。
                     # 取 fixture 声明的期望工具，不让 router 再从文本推断。
                     explicit_tool_names=tuple(sample["expected_announced_tools"]) or None,
+                    # 这里只测选包后的信封；跨产品包由模拟模型从已公告产品工具中选首个必用项。
+                    required_primary_tool_name=(
+                        next(
+                            (
+                                name
+                                for name in sample["expected_announced_tools"]
+                                if name
+                                in {
+                                    "weather_forecast",
+                                    "local_place_search",
+                                    "route_compare",
+                                    "search_flights",
+                                    "search_trains",
+                                }
+                            ),
+                            None,
+                        )
+                        if model_package in {"mobility_intercity", "mixed_itinerary"}
+                        else None
+                    ),
                 )
 
                 def classify_from_fixture(_candidate=model_candidate, **_kwargs):

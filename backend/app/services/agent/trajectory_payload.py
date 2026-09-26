@@ -339,6 +339,8 @@ _CAPABILITY_RESOLUTION_FIELDS = (
     "effective_plan_mode",
     "include_current_date",
     "network_boundary_required",
+    "denied_product_tool_names",
+    "required_primary_tool_name",
     "bundle_fingerprint",
     "skill_resolution",
 )

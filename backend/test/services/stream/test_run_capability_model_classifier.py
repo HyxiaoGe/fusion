@@ -39,21 +39,25 @@ def _classifier_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.services.stream.run_capability_model_classifier.settings.LITELLM_API_KEY", "test-key")
 
 
-def _completion_response(package_id: str, explicit_tool_names: list[str] | None = None) -> SimpleNamespace:
-    return SimpleNamespace(
-        choices=[
-            SimpleNamespace(
-                message=SimpleNamespace(
-                    content=json.dumps(
-                        {
-                            "package_id": package_id,
-                            "explicit_tool_names": explicit_tool_names or [],
-                        }
-                    )
-                )
-            )
-        ]
-    )
+def _completion_response(
+    package_id: str,
+    explicit_tool_names: list[str] | None = None,
+    *,
+    network_policy: str = "allow",
+    denied_tool_names: list[str] | None = None,
+    required_primary_tool_name: str | None = None,
+) -> SimpleNamespace:
+    if required_primary_tool_name is None and package_id in {"mobility_intercity", "mixed_itinerary"}:
+        required_primary_tool_name = (explicit_tool_names or ["route_compare"])[0]
+    payload = {
+        "package_id": package_id,
+        "explicit_tool_names": explicit_tool_names or [],
+        "network_policy": network_policy,
+        "denied_tool_names": denied_tool_names or [],
+    }
+    if required_primary_tool_name is not None:
+        payload["required_primary_tool_name"] = required_primary_tool_name
+    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(payload)))])
 
 
 def _assert_clarification(candidate) -> None:
@@ -88,6 +92,8 @@ def test_model_call_is_single_bounded_and_maps_weather() -> None:
     assert candidate.package_id == "weather"
     assert candidate.explicit_tool_names == ("weather_forecast",)
     assert candidate.include_current_date is True
+    assert candidate.network_policy == "allow"
+    assert candidate.denied_tool_names == ()
     completion.assert_called_once()
     kwargs = completion.call_args.kwargs
     assert kwargs["model"] == "litellm_proxy/deepseek-chat"
@@ -99,6 +105,35 @@ def test_model_call_is_single_bounded_and_maps_weather() -> None:
     assert kwargs["response_format"] == {"type": "json_object"}
     assert kwargs["api_base"]
     assert kwargs["extra_body"]["metadata"]["tags"] == ["app:fusion", "phase:run_capability_classifier"]
+
+
+def test_model_output_carries_tool_denials_without_another_call() -> None:
+    with patch(
+        "app.services.stream.run_capability_model_classifier.litellm.completion",
+        return_value=_completion_response(
+            "weather",
+            ["weather_forecast"],
+            network_policy="no_web_search",
+            denied_tool_names=["url_read"],
+        ),
+    ) as completion:
+        candidate = classify_capability_request_with_model("查上海天气，但别搜索也别打开网页", ALL_TOOLS)
+
+    assert candidate.package_id == "weather"
+    assert candidate.network_policy == "no_web_search"
+    assert candidate.denied_tool_names == ("url_read",)
+    completion.assert_called_once()
+
+
+@pytest.mark.parametrize("denied", [["mcp_unrelated_tool"], ["tool_search"], ["weather_forecast", "weather_forecast"]])
+def test_invalid_model_denial_fails_closed(denied: list[str]) -> None:
+    with patch(
+        "app.services.stream.run_capability_model_classifier.litellm.completion",
+        return_value=_completion_response("weather", ["weather_forecast"], denied_tool_names=denied),
+    ):
+        candidate = classify_capability_request_with_model("查上海天气", ALL_TOOLS)
+
+    _assert_clarification(candidate)
 
 
 def test_model_output_maps_mixed_itinerary_in_canonical_tool_order() -> None:
@@ -113,7 +148,26 @@ def test_model_output_maps_mixed_itinerary_in_canonical_tool_order() -> None:
 
     assert candidate.package_id == "mixed_itinerary"
     assert candidate.explicit_tool_names == ("weather_forecast", "route_compare", "search_flights")
+    assert candidate.required_primary_tool_name == "search_flights"
     assert candidate.include_current_date is True
+
+
+@pytest.mark.parametrize(
+    ("primary", "denied"),
+    [(None, []), ("web_search", [])],
+)
+def test_multi_product_route_requires_usable_primary_tool(primary: str | None, denied: list[str]) -> None:
+    payload = {
+        "package_id": "mobility_intercity",
+        "explicit_tool_names": ["route_compare", "search_flights", "search_trains"],
+        "network_policy": "allow",
+        "denied_tool_names": denied,
+    }
+    if primary is not None:
+        payload["required_primary_tool_name"] = primary
+    response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(payload)))])
+
+    assert _parse_model_route(response, ALL_TOOLS, include_current_date=True) is None
 
 
 def test_model_can_select_exact_authorized_mcp_alias() -> None:
@@ -553,6 +607,43 @@ def test_orm_content_blocks_keep_only_latest_complete_user_assistant_turn() -> N
     ]
 
 
+def test_route_result_only_history_anchors_adjacent_comparison_without_raw_result_dump() -> None:
+    history = [
+        {"role": "user", "content": [{"type": "text", "text": "从北京站到故宫怎么走"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "route_results",
+                    "origin": {"label": "北京站", "city": "北京"},
+                    "destination": {"label": "故宫", "city": "北京"},
+                    "routes": [
+                        {"mode": "transit", "duration_s": 1800, "transfers": 1, "summary": "不要送入分类器"},
+                        {"mode": "driving", "duration_s": 2400},
+                    ],
+                    "provider": "amap",
+                    "tool_call_log_id": "private-log-id",
+                }
+            ],
+        },
+        {"role": "user", "content": [{"type": "text", "text": "哪个更合适？"}]},
+    ]
+
+    turn = _most_recent_complete_turn(history)
+
+    assert len(turn) == 2
+    assert turn[0]["content"] == "从北京站到故宫怎么走"
+    assert '"origin":"北京站（北京）"' in turn[1]["content"]
+    assert '"destination":"故宫（北京）"' in turn[1]["content"]
+    assert '"mode":"transit"' in turn[1]["content"]
+    assert "private-log-id" not in turn[1]["content"]
+    assert "不要送入分类器" not in turn[1]["content"]
+
+    messages = _build_messages("哪个更合适？", ALL_TOOLS, history, token_counter_fn=lambda **_: 1)
+    assert messages is not None
+    assert messages[1:3] == turn
+
+
 def test_system_prompt_defines_taxonomy_tool_mapping_order_and_negative_boundaries() -> None:
     messages = _build_messages(
         "当前消息",
@@ -574,10 +665,12 @@ def test_system_prompt_defines_taxonomy_tool_mapping_order_and_negative_boundari
     assert "mobility_route: explicitly asks for a local route" in prompt
     assert "mobility_intercity: supplies intercity origin and destination" in prompt
     assert "travel_air_rail: compares flights and trains only" in prompt
-    assert "mixed_itinerary: combines 2 to 3 distinct product families" in prompt
+    assert "mixed_itinerary: combines exactly 2 to 3 indispensable product tools" in prompt
+    assert "prior_route_results summary" in prompt
     assert "canonical order" in prompt
     assert "Never choose deep_research" in prompt
-    assert "When networking is globally disabled, choose no external tools" in prompt
+    assert "Trusted global tool-disable settings are enforced by the server" in prompt
+    assert "network_policy and denied_tool_names" in prompt
     assert "standard package must represent the capability the request actually needs" in prompt
     assert "mcp_explicit: the user explicitly names one authorized MCP alias" in prompt
     assert "The authorized MCP list appended below contains exact aliases" in prompt
@@ -603,6 +696,15 @@ def test_classifier_prompt_lists_only_structurally_valid_authorized_mcp_aliases(
 
 def test_missing_explicit_tool_names_is_rejected() -> None:
     response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"package_id":"direct"}'))])
+
+    with pytest.raises(ValidationError):
+        _parse_model_route(response, ALL_TOOLS, include_current_date=False)
+
+
+def test_missing_constraint_fields_are_rejected() -> None:
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content='{"package_id":"direct","explicit_tool_names":[]}'))]
+    )
 
     with pytest.raises(ValidationError):
         _parse_model_route(response, ALL_TOOLS, include_current_date=False)

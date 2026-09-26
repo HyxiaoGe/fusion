@@ -42,7 +42,6 @@ from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_TOOL_NAMES
 from app.services.prompt_snapshot_service import freeze_runtime_prompt_bundle, with_call_config_prompt_snapshot
 from app.services.stream.agent_plan_tool_policy import (
     AgentPlanToolPolicy,
-    resolve_agent_plan_tool_policy,
     resolve_product_package_plan_policy,
 )
 from app.services.stream.agent_task_policy import resolve_agent_task_policy
@@ -373,15 +372,23 @@ def build_agent_loop_call_config(
         )
     elif capability_resolution.package_id == "verified_web":
         plan_tool_policy = AgentPlanToolPolicy()
+    elif capability_resolution.package_id in {"mobility_intercity", "mixed_itinerary"}:
+        primary_name = capability_resolution.required_primary_tool_name
+        if primary_name is None or primary_name not in external_tool_names:
+            raise ValueError("跨产品能力包缺少已公告的主工具")
+        plan_tool_policy = AgentPlanToolPolicy(
+            required_initial_tool_counts={primary_name: 1},
+            allowed_tool_names=frozenset(external_tool_names),
+            reason=f"capability_primary:{capability_resolution.package_id}",
+        )
     else:
-        # 产品包直接消费已冻结的分类结果，不再用正则从原文二次推导出行意图（issue #30）。
-        plan_tool_policy = resolve_product_package_plan_policy(
-            package_id=capability_resolution.package_id,
-            announced_tool_names=external_tool_names,
-        ) or resolve_agent_plan_tool_policy(
-            original_message=original_message,
-            announced_tool_names=external_tool_names,
-            task_context_messages=task_context_messages,
+        # 计划门禁只消费已冻结的能力包，不从原文二次推断意图。
+        plan_tool_policy = (
+            resolve_product_package_plan_policy(
+                package_id=capability_resolution.package_id,
+                announced_tool_names=external_tool_names,
+            )
+            or AgentPlanToolPolicy()
         )
     control_tool_names: frozenset[str] = frozenset()
     if plan_mode != "off":
@@ -478,8 +485,6 @@ def _build_discovery_call_config(
         attach_session_runtime,
         build_discovery_entries,
         build_tool_search_schema,
-        denied_network_tool_names,
-        resolve_discovery_network_denials,
     )
     from app.services.tool_handlers import get_handler
 
@@ -500,9 +505,8 @@ def _build_discovery_call_config(
         bindings=tool_bindings,
         authorized_names=discovery_names,
     )
-    denied = denied_network_tool_names(original_message, entries)
-    _web_denied, _url_denied, all_denied = resolve_discovery_network_denials(original_message)
-    session = DynamicToolDiscoverySession(authorized=entries, denied_names=denied)
+    # 首个 tool_search 调用声明并冻结约束；此前只公开发现控制工具。
+    session = DynamicToolDiscoverySession(authorized=entries)
     tools = [build_tool_search_schema()]
     control_tool_names: frozenset[str] = frozenset({TOOL_SEARCH_NAME})
     if plan_mode != "off":
@@ -535,7 +539,7 @@ def _build_discovery_call_config(
     experiment = DiscoveryExperimentContext(
         include_current_date=True,
         effective_plan_mode=plan_mode,
-        network_boundary_required=all_denied,
+        network_boundary_required=False,
         requires_catalog_evidence=False,
         catalog_evidence_note=CATALOG_EVIDENCE_ADAPTER_NOTE,
         announced_tools=(TOOL_SEARCH_NAME,),

@@ -34,6 +34,8 @@ COMPARISON_BASE_SHA = "4c185cfca843e804143eaa5e16e2af8d804c1329"
 OFFLINE_CLASSIFIER_FIXTURE = {
     "package_id": "weather",
     "explicit_tool_names": ["weather_forecast"],
+    "network_policy": "allow",
+    "denied_tool_names": [],
 }
 LIMITS_PER_RUN = {
     "max_steps": 8,
@@ -361,7 +363,15 @@ class FakeModelTransport:
             )
         if case_id == "no_network" and "tool_search" in names and "web_search" not in names:
             if "tool_search" not in blob:
-                return emit("tool_search", {"query": "select:web_search,weather_forecast"}, "discover_denied")
+                return emit(
+                    "tool_search",
+                    {
+                        "query": "select:web_search,weather_forecast",
+                        "network_policy": "no_network",
+                        "denied_tool_names": [],
+                    },
+                    "discover_denied",
+                )
             return ModelResponse(
                 status="ok",
                 request_hash=digest,
@@ -372,7 +382,11 @@ class FakeModelTransport:
         pending = [name for name in goals if name not in names]
         if pending and "tool_search" in names:
             query = "select:" + ",".join(pending)
-            return emit("tool_search", {"query": query}, f"discover_{pending[0]}")
+            return emit(
+                "tool_search",
+                {"query": query, "network_policy": "allow", "denied_tool_names": []},
+                f"discover_{pending[0]}",
+            )
         if "weather_forecast" in goals and "weather_forecast" in names and "day_weather" not in blob:
             return emit(
                 "weather_forecast",

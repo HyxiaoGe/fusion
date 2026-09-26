@@ -27,6 +27,8 @@ from app.services.stream.agent_round import AgentRoundResult, run_agent_round
 from app.services.stream.dynamic_tool_discovery import (
     TOOL_SEARCH_NAME,
     DynamicToolDiscoveryUnsupportedError,
+    ToolSearchHandler,
+    build_tool_search_schema,
 )
 from app.services.stream.dynamic_tool_discovery_fixtures import (
     EXPERIMENT_NOW,
@@ -136,6 +138,8 @@ def _round_result(
 
 
 def _tool_call(call_id: str, name: str, arguments: dict) -> dict:
+    if name == TOOL_SEARCH_NAME:
+        arguments = {"network_policy": "allow", "denied_tool_names": [], **arguments}
     return {"id": call_id, "name": name, "arguments": arguments}
 
 
@@ -1091,7 +1095,7 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
                         tool_call={
                             "id": "s1",
                             "name": TOOL_SEARCH_NAME,
-                            "arguments": '{"query":"select:weather_forecast"}',
+                            "arguments": '{"query":"select:weather_forecast","network_policy":"allow","denied_tool_names":[]}',
                         },
                         finish_reason="tool_calls",
                     ),
@@ -1155,7 +1159,7 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
                         tool_call={
                             "id": "l1",
                             "name": TOOL_SEARCH_NAME,
-                            "arguments": '{"query":"select:weather_forecast"}',
+                            "arguments": '{"query":"select:weather_forecast","network_policy":"allow","denied_tool_names":[]}',
                         },
                         finish_reason="tool_calls",
                     ),
@@ -1419,6 +1423,59 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([entry.name for entry in selected], ["weather_forecast"])
         dotted, dotted_mode = session.search("weather_forecast.")
         self.assertEqual(dotted_mode, "list")
+
+    async def test_first_tool_search_requires_structured_network_declaration(self):
+        config, _handlers, _shared, _calls = _discovery_config(message="还是别搜了，查天气")
+        session = config.tool_discovery
+        schema = build_tool_search_schema()["function"]["parameters"]
+        self.assertEqual(
+            set(schema["required"]),
+            {"query", "network_policy", "denied_tool_names"},
+        )
+        self.assertIn("do not claim current external facts from memory", session.catalog_prompt())
+
+        missing = await ToolSearchHandler(session).execute({"query": "select:weather_forecast"})
+        self.assertEqual(missing.status, "failed")
+        self.assertFalse(session.loaded_names - {TOOL_SEARCH_NAME})
+
+        declared = await ToolSearchHandler(session).execute(
+            {
+                "query": "select:weather_forecast",
+                "network_policy": "no_web_search",
+                "denied_tool_names": ["url_read"],
+            }
+        )
+        self.assertEqual(declared.status, "success")
+        self.assertEqual(session.loaded_names - {TOOL_SEARCH_NAME}, {"weather_forecast"})
+        self.assertIn("web_search", session.denied_names)
+        self.assertIn("url_read", session.denied_names)
+        self.assertEqual(session.promote(["web_search"]), [])
+        self.assertEqual(session.format_intercept("web_search")["reason"], "tool_not_authorized")
+
+        widened = await ToolSearchHandler(session).execute(
+            {"query": "select:web_search", "network_policy": "allow", "denied_tool_names": []}
+        )
+        self.assertEqual(widened.status, "failed")
+        self.assertNotIn("web_search", session.loaded_names)
+
+        for malformed_policy in ([], {}):
+            malformed = await ToolSearchHandler(session).execute(
+                {"query": "list", "network_policy": malformed_policy, "denied_tool_names": []}
+            )
+            self.assertEqual(malformed.status, "failed")
+
+    async def test_no_network_declaration_keeps_local_readonly_and_denies_unknown_mcp(self):
+        config, _handlers, _shared, _calls = _discovery_config(message="本次别联网")
+        session = config.tool_discovery
+        declared = await ToolSearchHandler(session).execute(
+            {"query": "list", "network_policy": "no_network", "denied_tool_names": []}
+        )
+
+        self.assertEqual(declared.status, "success")
+        self.assertIn("mcp_readonly_probe", session.catalog_names())
+        self.assertNotIn("web_search", session.catalog_names())
+        self.assertNotIn("weather_forecast", session.catalog_names())
+        self.assertFalse(session.loaded_names - {TOOL_SEARCH_NAME})
 
     async def test_plan_mode_tool_search_usable_before_and_after_valid_plan(self):
         config, handlers, _shared, _calls = _discovery_config(message="杭州天气并做计划", plan_mode="on")
@@ -1858,7 +1915,14 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
                 choices=[
                     SimpleNamespace(
                         message=SimpleNamespace(
-                            content=json.dumps({"package_id": package_id, "explicit_tool_names": tools})
+                            content=json.dumps(
+                                {
+                                    "package_id": package_id,
+                                    "explicit_tool_names": tools,
+                                    "network_policy": "allow",
+                                    "denied_tool_names": [],
+                                }
+                            )
                         )
                     )
                 ],
@@ -2196,7 +2260,14 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
                 choices=[
                     SimpleNamespace(
                         message=SimpleNamespace(
-                            content=json.dumps({"package_id": "weather", "explicit_tool_names": ["weather_forecast"]})
+                            content=json.dumps(
+                                {
+                                    "package_id": "weather",
+                                    "explicit_tool_names": ["weather_forecast"],
+                                    "network_policy": "allow",
+                                    "denied_tool_names": [],
+                                }
+                            )
                         )
                     )
                 ],

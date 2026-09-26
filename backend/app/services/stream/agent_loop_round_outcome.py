@@ -68,6 +68,15 @@ PLAN_REQUIRED_RETRY_PROMPT = render_runtime_prompt("stream.plan_required_retry")
 PLAN_EXECUTION_REQUIRED_RETRY_PROMPT = render_runtime_prompt("stream.plan_execution_required_retry")
 
 
+def requires_product_result_guard(runtime: AgentLoopRuntime) -> bool:
+    """已公告产品工具的请求必须经过结构化结果边界。"""
+
+    resolution = runtime.capability_resolution
+    if resolution is None:
+        return False
+    return bool(set(resolution.external_tool_names).intersection(AMAP_PRODUCT_TOOL_NAMES | FLYAI_TRAVEL_TOOL_NAMES))
+
+
 @dataclass(frozen=True)
 class AgentRoundOutcomeRequest:
     db: object
@@ -620,6 +629,9 @@ async def _commit_deferred_answer(
         answer = await _safe_round_fallback(request, "tool_failure")
         await _append_committed_answer(request, answer)
         return _with_replaced_answer(request, answer)
+
+    if requires_product_result_guard(request.runtime) and not _has_product_answer_context(request.state):
+        return await _commit_deferred_product_answer(request)
 
     if request.runtime.task_mode == "deep_research" or not _has_product_answer_context(request.state):
         return await _commit_deferred_plain_answer(request, model_output_visible=True)

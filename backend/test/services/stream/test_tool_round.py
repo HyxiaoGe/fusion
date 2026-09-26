@@ -40,45 +40,62 @@ class FutureRegisteredResultBlock(BaseModel):
     schema_version: Literal[1]
 
 
-class ExplicitTrainCategoryTests(unittest.TestCase):
-    def test_explicit_high_speed_request_overrides_model_arguments(self):
-        tool_calls = [
-            {
-                "id": "tc-train-price",
-                "name": "search_trains",
-                "arguments": '{"origin":"北京","destination":"上海","train_category":"all"}',
-            },
-            {
-                "id": "tc-train-duration",
-                "name": "search_trains",
-                "arguments": {"origin": "北京", "destination": "上海"},
-            },
-        ]
-
-        resolved = tool_round_module._apply_explicit_train_category(
-            tool_calls,
-            messages=[{"role": "user", "content": "请查北京到上海的高铁，比较最便宜和最快"}],
-        )
-
-        self.assertEqual(
-            resolved[0]["arguments"],
-            '{"origin":"北京","destination":"上海","train_category":"high_speed"}',
-        )
-        self.assertEqual(resolved[1]["arguments"]["train_category"], "high_speed")
-        self.assertEqual(tool_calls[0]["arguments"], '{"origin":"北京","destination":"上海","train_category":"all"}')
-
-    def test_broad_train_request_does_not_force_high_speed_category(self):
-        tool_calls = [{"id": "tc-train", "name": "search_trains", "arguments": {"origin": "北京"}}]
-
-        resolved = tool_round_module._apply_explicit_train_category(
-            tool_calls,
-            messages=[{"role": "user", "content": "高铁和普通火车都查一下"}],
-        )
-
-        self.assertEqual(resolved, tool_calls)
-
-
 class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
+    async def test_train_call_preserves_model_category_before_execution(self):
+        tool_call = {
+            "id": "tc-train",
+            "name": "search_trains",
+            "arguments": '{"origin":"北京","destination":"上海","train_category":"all"}',
+        }
+        handler = Mock()
+        handler.format_llm_context.return_value = "查询完成"
+        handler.build_content_block.return_value = None
+        execute_tools_fn = AsyncMock(
+            return_value=[
+                ToolExecutionRecord(
+                    tool_call=tool_call,
+                    result=ToolResult(status="success"),
+                    handler=handler,
+                    block_id="blk-train",
+                    log_id="log-train",
+                )
+            ]
+        )
+        request = tool_round_module.ToolRoundRequest(
+            db="db",
+            assistant_message_id="msg-train",
+            conversation_id="conv-train",
+            user_id="user-1",
+            model_id="gpt-4",
+            provider="openai",
+            content_blocks=[],
+            messages=[{"role": "user", "content": "查北京到上海的高铁"}],
+            tool_calls=[tool_call],
+            reasoning_buf="",
+            should_use_reasoning=False,
+            step_context=AgentStepContext(
+                step_id="step-1",
+                step_number=1,
+                started_at=1.0,
+                thinking_block_id="blk-thinking",
+                text_block_id="blk-text",
+            ),
+            step_number=1,
+            run_id="run-1",
+            emitter=AsyncMock(),
+            session_cache=object(),
+            network_budget=object(),
+            call_kwargs={},
+            persist_message_fn=Mock(),
+            execute_tools_fn=execute_tools_fn,
+            complete_step_fn=AsyncMock(),
+        )
+
+        await handle_tool_calls_round(request=request)
+
+        executed_calls = execute_tools_fn.await_args.args[0]
+        self.assertEqual(executed_calls[0]["arguments"], tool_call["arguments"])
+
     async def test_deferred_plan_control_round_persists_visible_reasoning_but_returns_raw_to_model(self):
         update_call = {
             "id": "tc-plan",

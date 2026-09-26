@@ -18,16 +18,12 @@ class AgentStrategyConfigTests(unittest.TestCase):
 
         config, meta = get_agent_strategy_config(
             override={
-                "search": {
-                    "intent_keywords": {
-                        "quick_fact": ["总数"],
-                    }
-                }
+                "network": {"max_search_calls": 12},
             }
         )
 
-        self.assertEqual(config["search"]["intent_keywords"]["quick_fact"], ["总数"])
-        self.assertIn("official_source", config["search"]["intent_keywords"])
+        self.assertEqual(config["network"]["max_search_calls"], 12)
+        self.assertIn("max_url_read_calls", config["network"])
         self.assertEqual(meta["source"], "override")
 
 

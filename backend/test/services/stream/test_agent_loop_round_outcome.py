@@ -25,6 +25,7 @@ from app.services.stream.agent_loop_policy import AgentLoopLimits
 from app.services.stream.agent_loop_round_outcome import (
     PLAN_REQUIRED_RETRY_PROMPT,
     AgentRoundOutcomeRequest,
+    _commit_deferred_answer,
     handle_agent_round_outcome,
 )
 from app.services.stream.agent_loop_runtime import AgentLoopRuntime
@@ -123,6 +124,44 @@ def _synthesis_state(*, run_id: str, step_id: str, **state_kwargs) -> AgentLoopS
 
 
 class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_zero_product_tool_calls_cannot_commit_model_facts_in_auto_or_off_mode(self):
+        for plan_mode in ("auto", "off"):
+            with self.subTest(plan_mode=plan_mode):
+                request = AgentRoundOutcomeRequest(
+                    db="db",
+                    messages=[{"role": "user", "content": "帮我比较北京到上海的交通"}],
+                    state=AgentLoopState(plan_coordinator=PlanCoordinator(run_id="run-zero-product", mode=plan_mode)),
+                    runtime=_runtime(
+                        plan_mode=plan_mode,
+                        capability_resolution=SimpleNamespace(external_tool_names=("route_compare", "search_trains")),
+                    ),
+                    step_number=1,
+                    step_context=_step_context("step-zero-product"),
+                    round_result=AgentRoundResult(
+                        reasoning_buf="",
+                        content_buf="北京到上海坐高铁 4 小时。",
+                        tool_calls=[],
+                        finish_reason="stop",
+                        accumulated_usage=Usage(input_tokens=1, output_tokens=1),
+                        output_deferred=True,
+                    ),
+                )
+
+                with (
+                    patch(
+                        "app.services.stream.agent_loop_round_outcome._append_committed_answer", new_callable=AsyncMock
+                    ) as append,
+                    patch(
+                        "app.services.stream.agent_loop_round_outcome._emit_product_answer_observation",
+                        new_callable=AsyncMock,
+                    ),
+                ):
+                    committed = await _commit_deferred_answer(request)
+
+                self.assertNotIn("4 小时", committed.round_result.content_buf)
+                self.assertIn("未取得", committed.round_result.content_buf)
+                append.assert_awaited_once()
+
     @staticmethod
     def _deferred_lifecycle_request(lifecycle) -> AgentRoundOutcomeRequest:
         return AgentRoundOutcomeRequest(

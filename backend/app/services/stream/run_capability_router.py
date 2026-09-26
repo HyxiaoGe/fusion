@@ -14,6 +14,10 @@ from app.ai.skills.registry import (
 )
 from app.services.agent.plan_coordinator import PlanMode
 from app.services.stream.agent_task_policy import AgentTaskPolicy
+from app.services.stream.dynamic_tool_discovery import (
+    infer_network_kind,
+    network_kind_is_denied,
+)
 from app.utils.run_capability_contract import (
     CAPABILITY_AUTO_PLAN_PACKAGES,
     CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER,
@@ -26,6 +30,7 @@ from app.utils.run_capability_contract import (
 )
 
 Confidence = Literal["high", "medium", "low"]
+NetworkPolicy = Literal["allow", "no_web_search", "no_url_read", "no_network"]
 
 
 ResolutionMode = Literal["routed", "degraded", "clarification"]
@@ -34,7 +39,7 @@ ResolutionMode = Literal["routed", "degraded", "clarification"]
 SCHEMA_VERSION = 2
 
 
-ROUTER_VERSION = "2026-09-20.1"
+ROUTER_VERSION = "2026-09-26.1"
 
 
 _CANONICAL_EXTERNAL_TOOL_ORDER = CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER
@@ -65,6 +70,7 @@ class RunCapabilityResolution:
     include_current_date: bool
     network_boundary_required: bool
     denied_product_tool_names: frozenset[str] = field(default_factory=frozenset)
+    required_primary_tool_name: str | None = None
     skill_resolution: RunSkillResolution | None = None
     loaded_skills: tuple[LoadedSkillSnapshot, ...] = field(default=(), repr=False, compare=False)
     requires_catalog_evidence: bool = False
@@ -95,6 +101,9 @@ class _CandidateRoute:
     include_current_date: bool
     resolution_mode: ResolutionMode = "routed"
     explicit_tool_names: tuple[str, ...] | None = None
+    network_policy: NetworkPolicy = "allow"
+    denied_tool_names: tuple[str, ...] = ()
+    required_primary_tool_name: str | None = None
 
 
 def resolve_run_capability_route(
@@ -114,8 +123,6 @@ def resolve_run_capability_route(
     """根据受信运行态与当前用户消息解析最小能力包。"""
 
     message = _normalize_message(original_message)
-    # 产品工具否定集合改由模型输出；执行仍在工具边界按集合裁剪（见 #132 第二步）。
-    denied_product_tool_names: frozenset[str] = frozenset()
     skill_loader = load_skills_fn or load_skills_for_package
     classify = classify_fn or classify_capability_request
     function_calling = capabilities.get("functionCalling") is True
@@ -140,6 +147,7 @@ def resolve_run_capability_route(
             blocked_candidate.package_id,
             (),
         )
+        denied_product_tool_names = _resolve_denied_tool_names(blocked_candidate, available_tool_names)
         return _validated_resolution(
             _resolution(
                 candidate=_CandidateRoute(
@@ -172,24 +180,35 @@ def resolve_run_capability_route(
             available_tool_names=available_tool_names,
         )
 
-    requested_tools = candidate.explicit_tool_names or _PACKAGE_TOOLS.get(
+    denied_product_tool_names = _resolve_denied_tool_names(candidate, available_tool_names)
+
+    package_requested_tools = candidate.explicit_tool_names or _PACKAGE_TOOLS.get(
         candidate.package_id,
         (),
     )
-    requested_tools = tuple(name for name in requested_tools if name not in denied_product_tool_names)
-    if not requested_tools and (candidate.explicit_tool_names or _PACKAGE_TOOLS.get(candidate.package_id, ())):
-        candidate = _CandidateRoute(
-            package_id="clarification_only",
-            confidence="low",
-            reason_codes=("insufficient_capability_signal",),
-            include_current_date=False,
-            resolution_mode="clarification",
-        )
+    requested_tools = tuple(name for name in package_requested_tools if name not in denied_product_tool_names)
+    all_primary_denied = not requested_tools and bool(package_requested_tools)
     unavailable_tools = frozenset(unavailable_tool_names or ())
+    available_tools = frozenset(available_tool_names) - unavailable_tools
+    primary_name = candidate.required_primary_tool_name
+    requires_chosen_primary = candidate.package_id in {"mobility_intercity", "mixed_itinerary"}
+    missing_required_package_tool = candidate.package_id in {"verified_web", "travel_air_rail"} and any(
+        name not in requested_tools or name not in available_tools for name in package_requested_tools
+    )
+    invalid_chosen_primary = (
+        requires_chosen_primary
+        and (
+            primary_name not in package_requested_tools
+            or primary_name not in requested_tools
+            or primary_name not in available_tools
+        )
+    ) or (not requires_chosen_primary and primary_name is not None)
     requires_search = any(name in {"web_search", "url_read"} for name in requested_tools)
     needs_external_capability = bool(requested_tools)
     degraded_reason: str | None = None
-    if needs_external_capability and tools_disabled:
+    if all_primary_denied or missing_required_package_tool or invalid_chosen_primary:
+        degraded_reason = "required_tools_unavailable"
+    elif needs_external_capability and tools_disabled:
         degraded_reason = "tools_disabled"
     elif needs_external_capability and not function_calling:
         degraded_reason = "function_calling_unavailable"
@@ -287,6 +306,8 @@ def serialize_capability_resolution(resolution: RunCapabilityResolution) -> dict
         "effective_plan_mode": resolution.effective_plan_mode,
         "include_current_date": resolution.include_current_date,
         "network_boundary_required": resolution.network_boundary_required,
+        "denied_product_tool_names": sorted(resolution.denied_product_tool_names),
+        "required_primary_tool_name": resolution.required_primary_tool_name,
         "skill_resolution": {
             "status": skill_resolution.status,
             "activation_source": skill_resolution.activation_source,
@@ -370,7 +391,22 @@ def _resolution(
         include_current_date=candidate.include_current_date,
         network_boundary_required=network_boundary_required,
         denied_product_tool_names=denied_product_tool_names,
+        required_primary_tool_name=candidate.required_primary_tool_name,
     )
+
+
+def _resolve_denied_tool_names(candidate: _CandidateRoute, available_tool_names: list[str]) -> frozenset[str]:
+    """把模型给出的禁止意图收敛到本次可用工具，并覆盖联网替代工具。"""
+
+    available = frozenset(name for name in available_tool_names if isinstance(name, str) and name)
+    denied = set(candidate.denied_tool_names)
+    if candidate.network_policy == "allow":
+        return frozenset(denied)
+    for name in available:
+        kind = infer_network_kind(name)
+        if network_kind_is_denied(kind, candidate.network_policy):
+            denied.add(name)
+    return frozenset(denied)
 
 
 def _validated_resolution(
@@ -416,6 +452,11 @@ def _validated_resolution(
         network_boundary_required=resolution.network_boundary_required,
         skill_resolution=resolution.skill_resolution,
     )
+    if resolution.package_id in {"mobility_intercity", "mixed_itinerary"}:
+        if resolution.required_primary_tool_name not in resolution.external_tool_names:
+            raise ValueError("跨产品能力包缺少可执行的主工具")
+    elif resolution.required_primary_tool_name is not None:
+        raise ValueError("非跨产品能力包不得携带主工具门禁")
     return resolution
 
 

@@ -1,5 +1,6 @@
 import unittest
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from app.ai.prompts.section_ids import PRODUCT_RESULT_ROUND, RESEARCH_EVIDENCE_WORKSET
@@ -164,6 +165,43 @@ def _planned_research_state(
 
 
 class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
+    async def test_product_package_without_tool_attempt_defers_model_answer_in_auto_and_off_modes(self):
+        for plan_mode in ("auto", "off"):
+            with self.subTest(plan_mode=plan_mode):
+                observed = []
+
+                async def run_round_fn(**kwargs):
+                    observed.append(kwargs.get("defer_output"))
+                    return AgentRoundResult(
+                        reasoning_buf="",
+                        content_buf="北京到上海坐高铁 4 小时。",
+                        tool_calls=[],
+                        finish_reason="stop",
+                        accumulated_usage=Usage(input_tokens=1, output_tokens=1),
+                        output_deferred=bool(kwargs.get("defer_output")),
+                    )
+
+                await _run_round(
+                    messages=[{"role": "user", "content": "规划北京到上海的交通"}],
+                    state=AgentLoopState(plan_coordinator=PlanCoordinator(run_id="run-no-product", mode=plan_mode)),
+                    runtime=_runtime(
+                        plan_mode=plan_mode,
+                        capability_resolution=SimpleNamespace(external_tool_names=("route_compare", "search_trains")),
+                        call_kwargs={"tools": [_tool_definition("route_compare"), _tool_definition("search_trains")]},
+                        run_round_fn=run_round_fn,
+                    ),
+                    step_number=1,
+                    step_context=AgentStepContext(
+                        step_id="step-no-product",
+                        step_number=1,
+                        started_at=1.0,
+                        thinking_block_id="thinking-no-product",
+                        text_block_id="text-no-product",
+                    ),
+                )
+
+                self.assertEqual(observed, [True])
+
     async def test_weather_result_adds_temporary_round_constraint_without_mutating_run_messages(self):
         captured = []
 

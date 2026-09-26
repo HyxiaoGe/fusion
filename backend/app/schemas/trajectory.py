@@ -156,6 +156,8 @@ class TrajectoryCapabilityResolution(BaseModel):
     effective_plan_mode: Literal["auto", "on", "off"]
     include_current_date: bool
     network_boundary_required: bool
+    denied_product_tool_names: list[str] | None = Field(default=None, max_length=512)
+    required_primary_tool_name: str | None = None
     bundle_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     skill_resolution: TrajectorySkillResolution | None = None
 
@@ -177,6 +179,10 @@ class TrajectoryCapabilityResolution(BaseModel):
     def _validate_package_semantics(self) -> TrajectoryCapabilityResolution:
         if self.schema_version == 1 and self.skill_resolution is not None:
             raise ValueError("schema v1 不得携带 Skill 解析状态")
+        if self.schema_version == 1 and (
+            self.denied_product_tool_names is not None or self.required_primary_tool_name is not None
+        ):
+            raise ValueError("schema v1 不得携带模型工具约束")
         if self.schema_version == 2 and self.skill_resolution is None:
             raise ValueError("schema v2 必须携带 Skill 解析状态")
         validate_capability_resolution_semantics(
@@ -190,6 +196,20 @@ class TrajectoryCapabilityResolution(BaseModel):
             network_boundary_required=self.network_boundary_required,
             skill_resolution=self.skill_resolution,
         )
+        if self.denied_product_tool_names is not None:
+            denied = self.denied_product_tool_names
+            if len(denied) != len(set(denied)):
+                raise ValueError("能力路由禁用工具不得重复")
+            self._validate_tool_names(denied)
+            if set(denied).intersection(self.external_tool_names):
+                raise ValueError("能力路由禁用工具不得同时公告")
+        if self.required_primary_tool_name is not None:
+            if self.package_id not in {"mobility_intercity", "mixed_itinerary"}:
+                raise ValueError("非跨产品能力包不得指定主工具")
+            if self.required_primary_tool_name not in self.external_tool_names:
+                raise ValueError("跨产品主工具必须已公告")
+            if self.required_primary_tool_name in (self.denied_product_tool_names or []):
+                raise ValueError("跨产品主工具不得被禁用")
         return self
 
     @model_serializer(mode="wrap")
@@ -197,6 +217,10 @@ class TrajectoryCapabilityResolution(BaseModel):
         serialized = handler(self)
         if self.schema_version == 1:
             serialized.pop("skill_resolution", None)
+        if "denied_product_tool_names" not in self.model_fields_set:
+            serialized.pop("denied_product_tool_names", None)
+        if "required_primary_tool_name" not in self.model_fields_set:
+            serialized.pop("required_primary_tool_name", None)
         return serialized
 
 
