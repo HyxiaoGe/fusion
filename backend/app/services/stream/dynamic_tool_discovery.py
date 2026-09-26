@@ -23,14 +23,6 @@ NETWORK_KIND_SEARCH = "search"
 NETWORK_KIND_URL = "url"
 NETWORK_KIND_PRODUCT_QUERY = "product_query"
 NETWORK_KIND_UNKNOWN_NETWORK = "unknown_network"
-NETWORK_KINDS_DENIED_WHEN_ALL_BLOCKED = frozenset(
-    {
-        NETWORK_KIND_SEARCH,
-        NETWORK_KIND_URL,
-        NETWORK_KIND_PRODUCT_QUERY,
-        NETWORK_KIND_UNKNOWN_NETWORK,
-    }
-)
 KNOWN_NETWORK_KINDS: dict[str, str] = {
     "web_search": NETWORK_KIND_SEARCH,
     "url_read": NETWORK_KIND_URL,
@@ -54,6 +46,7 @@ PRODUCT_EVIDENCE_TOOL_NAMES = frozenset(
 )
 _PAGE_RE = re.compile(r"^(?:list|page)(?::(\d+))?$", re.IGNORECASE)
 _UNSUPPORTED_SCENES = ("skill", "deep_research", "continuation")
+NETWORK_POLICIES = frozenset({"allow", "no_web_search", "no_url_read", "no_network"})
 CATALOG_EVIDENCE_ADAPTER_NOTE = (
     "requires_catalog_evidence is a conservative experiment adapter. "
     "Authorized catalog presence does not by itself create an evidence "
@@ -78,23 +71,24 @@ def is_dynamic_tool_discovery_enabled(options: Mapping[str, Any] | None) -> bool
     return bool(options) and options.get("dynamic_tool_discovery") is True
 
 
-def resolve_discovery_network_denials(original_message: str | None) -> tuple[bool, bool, bool]:
-    """自然语言网络否定解析已删除（#132 第二步）。
-
-    该层此前用正则在请求文本里找否定词，双向都会出错：#129 把「请分别打开这两个
-    链接」误判为禁用，而「还是别搜了」这类真否定一直漏拦。它从来不是保证，只是
-    被当成保证使用的近似。禁用改由模型判定，执行仍在工具边界按集合裁剪。
-    """
-
-    return False, False, False
-
-
 def infer_network_kind(name: str, *, binding: dict[str, Any] | None = None) -> str:
     if name in KNOWN_NETWORK_KINDS:
         return KNOWN_NETWORK_KINDS[name]
     if binding or name.startswith("mcp_"):
         return NETWORK_KIND_UNKNOWN_NETWORK
     return NETWORK_KIND_UNKNOWN_NETWORK
+
+
+def network_kind_is_denied(kind: str, network_policy: str) -> bool:
+    """未知网络工具在限制联网能力时按保守边界处理。"""
+
+    if network_policy == "no_network":
+        return kind != NETWORK_KIND_LOCAL_READONLY
+    if network_policy == "no_web_search":
+        return kind in {NETWORK_KIND_SEARCH, NETWORK_KIND_UNKNOWN_NETWORK}
+    if network_policy == "no_url_read":
+        return kind in {NETWORK_KIND_URL, NETWORK_KIND_UNKNOWN_NETWORK}
+    return False
 
 
 def _literal_catalog_match(query: str, entry: "AuthorizedToolEntry") -> bool:
@@ -141,6 +135,8 @@ class DynamicToolDiscoverySession:
 
     authorized: dict[str, AuthorizedToolEntry]
     denied_names: frozenset[str] = field(default_factory=frozenset)
+    declared_network_policy: str | None = None
+    declared_denied_tool_names: frozenset[str] | None = None
     loaded_names: set[str] = field(default_factory=set)
     events: list[dict[str, Any]] = field(default_factory=list)
     unsupported_scenes: tuple[str, ...] = _UNSUPPORTED_SCENES
@@ -165,6 +161,36 @@ class DynamicToolDiscoverySession:
 
     def record(self, **event: Any) -> None:
         self.events.append(dict(event))
+
+    def apply_declared_constraints(self, network_policy: object, denied_tool_names: object) -> bool:
+        """首次发现必须声明约束；后续调用不得放宽或修改已冻结的目录。"""
+
+        if (
+            not isinstance(network_policy, str)
+            or network_policy not in NETWORK_POLICIES
+            or not isinstance(denied_tool_names, list)
+        ):
+            return False
+        if (
+            len(denied_tool_names) > 8
+            or any(not isinstance(name, str) or name not in self.authorized for name in denied_tool_names)
+            or len(set(denied_tool_names)) != len(denied_tool_names)
+        ):
+            return False
+        declared_names = frozenset(denied_tool_names)
+        if self.declared_network_policy is not None:
+            return network_policy == self.declared_network_policy and declared_names == self.declared_denied_tool_names
+        self.declared_network_policy = network_policy
+        self.declared_denied_tool_names = declared_names
+        self.denied_names = frozenset(
+            name
+            for name, entry in self.authorized.items()
+            if name in declared_names or network_kind_is_denied(entry.network_kind, network_policy)
+        )
+        self.record(
+            kind="tool_constraints_declared", network_policy=network_policy, denied_names=sorted(self.denied_names)
+        )
+        return True
 
     def is_authorized(self, name: str) -> bool:
         return name in self.authorized and name not in self.denied_names
@@ -312,6 +338,17 @@ class ToolSearchHandler(BaseToolHandler):
         return "tool_search"
 
     async def execute(self, args: dict) -> ToolResult:
+        if not isinstance(args, dict):
+            args = {}
+        if not self._session.apply_declared_constraints(args.get("network_policy"), args.get("denied_tool_names")):
+            self._session.record(kind="tool_constraints_invalid")
+            return ToolResult(
+                status="failed",
+                data={
+                    "reason": "invalid_tool_constraints",
+                    "message": "Declare valid, unchanged network_policy and denied_tool_names before discovery.",
+                },
+            )
         query = str(args.get("query") or "")
         matched, mode = self._session.search(query)
         if mode in {"search", "select"}:
@@ -323,6 +360,7 @@ class ToolSearchHandler(BaseToolHandler):
                 "matched_names": [entry.name for entry in matched],
                 "promoted_names": promoted,
                 "schemas": schemas,
+                "network_policy": self._session.declared_network_policy,
             }
         else:
             listing = [{"name": entry.name, "summary": entry.summary} for entry in matched]
@@ -331,6 +369,7 @@ class ToolSearchHandler(BaseToolHandler):
                 "query": query,
                 "catalog": listing,
                 "message": "No exclusive match; listing the current authorized catalog.",
+                "network_policy": self._session.declared_network_policy,
             }
             self._session.record(kind="catalog_listed", query=query, count=len(listing))
         return ToolResult(status="success", data=data)
@@ -354,6 +393,7 @@ def build_tool_search_schema() -> dict[str, Any]:
             "name": TOOL_SEARCH_NAME,
             "description": (
                 "Fetch schemas for authorized deferred tools. "
+                "On the first call declare current-request tool restrictions; repeat the same declaration on later calls. "
                 "Query forms: literal keyword, `select:name1,name2`, `+name extra`, empty/`list`/`page:N` to browse."
             ),
             "parameters": {
@@ -363,9 +403,20 @@ def build_tool_search_schema() -> dict[str, Any]:
                     "query": {
                         "type": "string",
                         "description": "Literal search query or select:/list/page:N",
-                    }
+                    },
+                    "network_policy": {
+                        "type": "string",
+                        "enum": ["allow", "no_web_search", "no_url_read", "no_network"],
+                        "description": "Scope of the current user's prohibition; no_network denies every external network tool.",
+                    },
+                    "denied_tool_names": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "maxItems": 8,
+                        "description": "Exact authorized tool names explicitly prohibited for this request; [] if none.",
+                    },
                 },
-                "required": ["query"],
+                "required": ["query", "network_policy", "denied_tool_names"],
             },
         },
     }
@@ -410,37 +461,6 @@ def build_discovery_entries(
             network_kind=infer_network_kind(name, binding=binding),
         )
     return entries
-
-
-def denied_network_tool_names(
-    original_message: str | None,
-    entries: Mapping[str, AuthorizedToolEntry] | None = None,
-) -> frozenset[str]:
-    web_denied, url_denied, all_denied = resolve_discovery_network_denials(original_message)
-    catalog = entries or {}
-    denied: set[str] = set()
-    any_network_restriction = all_denied or web_denied or url_denied
-    for name, entry in catalog.items():
-        kind = entry.network_kind
-        if kind == NETWORK_KIND_LOCAL_READONLY:
-            continue
-        if all_denied and kind in NETWORK_KINDS_DENIED_WHEN_ALL_BLOCKED:
-            denied.add(name)
-            continue
-        if web_denied and kind == NETWORK_KIND_SEARCH:
-            denied.add(name)
-            continue
-        if url_denied and kind == NETWORK_KIND_URL:
-            denied.add(name)
-            continue
-        if any_network_restriction and kind == NETWORK_KIND_UNKNOWN_NETWORK:
-            denied.add(name)
-    if not catalog:
-        if all_denied or web_denied:
-            denied.add("web_search")
-        if all_denied or url_denied:
-            denied.add("url_read")
-    return frozenset(denied)
 
 
 def attach_session_runtime(

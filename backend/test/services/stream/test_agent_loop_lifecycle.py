@@ -621,6 +621,8 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 "effective_plan_mode": "off",
                 "include_current_date": True,
                 "network_boundary_required": False,
+                "denied_product_tool_names": [],
+                "required_primary_tool_name": None,
                 "skill_resolution": {
                     "status": "not_selected",
                     "activation_source": "capability_package",
@@ -657,6 +659,8 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             "effective_plan_mode": "off",
             "include_current_date": True,
             "network_boundary_required": False,
+            "denied_product_tool_names": [],
+            "required_primary_tool_name": None,
             "skill_resolution": {
                 "status": "not_selected",
                 "activation_source": "capability_package",
@@ -747,6 +751,56 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
         )["capability_resolution"]["bundle_fingerprint"]
 
         self.assertEqual(len({baseline, with_date, with_boundary}), 3)
+
+    def test_bundle_fingerprint_covers_denied_and_required_primary_tools(self):
+        base = self._call_config()
+        baseline = _run_config(self._limits(), base)["capability_resolution"]["bundle_fingerprint"]
+        denied = _run_config(
+            self._limits(),
+            SimpleNamespace(
+                **{
+                    **base.__dict__,
+                    "capability_resolution": replace(
+                        base.capability_resolution,
+                        denied_product_tool_names=frozenset({"url_read"}),
+                    ),
+                }
+            ),
+        )["capability_resolution"]
+        self.assertEqual(denied["denied_product_tool_names"], ["url_read"])
+        self.assertNotEqual(baseline, denied["bundle_fingerprint"])
+
+        route = self._call_config()
+        route.announced_tools = ["route_compare", "search_trains"]
+        route.capability_resolution = RunCapabilityResolution(
+            schema_version=2,
+            router_version="2026-08-31.1",
+            package_id="mobility_intercity",
+            confidence="medium",
+            resolution_mode="routed",
+            reason_codes=("origin_destination_relation", "intercity_locations"),
+            external_tool_names=("route_compare", "search_trains"),
+            effective_plan_mode="auto",
+            include_current_date=True,
+            network_boundary_required=False,
+            required_primary_tool_name="route_compare",
+            skill_resolution=self._not_selected_skill_resolution(),
+        )
+        first = _run_config(self._limits(), route)["capability_resolution"]
+        alternate = _run_config(
+            self._limits(),
+            SimpleNamespace(
+                **{
+                    **route.__dict__,
+                    "capability_resolution": replace(
+                        route.capability_resolution,
+                        required_primary_tool_name="search_trains",
+                    ),
+                }
+            ),
+        )["capability_resolution"]
+        self.assertEqual(first["required_primary_tool_name"], "route_compare")
+        self.assertNotEqual(first["bundle_fingerprint"], alternate["bundle_fingerprint"])
 
     def test_bundle_fingerprint_covers_loaded_skill_version_and_content_hash(self):
         message = "核验 OpenAI 最新公告，给出官方原文和交叉来源"

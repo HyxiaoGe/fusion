@@ -947,7 +947,16 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
             completion_side_effect=SimpleNamespace(
                 choices=[
                     SimpleNamespace(
-                        message=SimpleNamespace(content=json.dumps({"package_id": "direct", "explicit_tool_names": []}))
+                        message=SimpleNamespace(
+                            content=json.dumps(
+                                {
+                                    "package_id": "direct",
+                                    "explicit_tool_names": [],
+                                    "network_policy": "allow",
+                                    "denied_tool_names": [],
+                                }
+                            )
+                        )
                     )
                 ]
             )
@@ -976,7 +985,7 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
         )
         lifecycle_call = SimpleNamespace(request=object(), execution=object(), dependencies=object())
         main_thread_id = threading.get_ident()
-        original_plan_policy = agent_loop_request_prep.resolve_agent_plan_tool_policy
+        original_plan_policy = agent_loop_request_prep.resolve_product_package_plan_policy
 
         def _stall_worker_plan_policy(**kwargs):
             if threading.get_ident() != main_thread_id:
@@ -1004,7 +1013,7 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
                 side_effect=completion_side_effect,
             ) as completion,
             patch(
-                "app.services.stream.agent_loop_request_prep.resolve_agent_plan_tool_policy",
+                "app.services.stream.agent_loop_request_prep.resolve_product_package_plan_policy",
                 side_effect=_stall_worker_plan_policy,
             ),
             patch("app.services.stream.run_capability_model_classifier.logger.info") as log_info,

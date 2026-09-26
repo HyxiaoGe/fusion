@@ -34,6 +34,7 @@ class RecoveryRouteTests(unittest.TestCase):
                     (reason,),
                     package not in {"place_discovery", "url_read", "mcp_explicit"},
                     explicit_tool_names=primary,
+                    required_primary_tool_name=primary[0] if package == "mixed_itinerary" else None,
                 )
                 route = resolve_run_capability_route(
                     original_message="查询当前信息",

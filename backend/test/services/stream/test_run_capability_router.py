@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import pytest
 
+from app.schemas.trajectory import TrajectoryCapabilityResolution
 from app.services.stream.agent_task_policy import AgentTaskPolicy
 from app.services.stream.run_capability_router import (
     RunCapabilityResolution,
     _CandidateRoute,
     resolve_run_capability_route,
+    serialize_capability_resolution,
 )
 
 ALL_TOOLS = [
@@ -67,6 +69,121 @@ def _resolve(
 def test_current_new_release_phrasing_degrades_when_tools_are_disabled():
     candidate = _CandidateRoute("fresh_web", "high", ("fresh_external_fact",), True)
     route = _resolve("今天 OpenAI 有什么新发布？", tools_disabled=True, classify_fn=lambda **_: candidate)
+
+    assert route.package_id == "tools_unavailable"
+    assert route.external_tool_names == ()
+    assert route.network_boundary_required is True
+
+
+def test_model_denials_remove_recovery_tools_without_dropping_requested_product_tool():
+    candidate = _CandidateRoute(
+        "weather",
+        "high",
+        ("explicit_weather_request",),
+        True,
+        network_policy="no_web_search",
+        denied_tool_names=("url_read",),
+    )
+    route = _resolve("查上海天气，但别搜索也别打开网页", classify_fn=lambda **_: candidate)
+
+    assert route.package_id == "weather"
+    assert route.external_tool_names == ("weather_forecast",)
+    assert route.denied_product_tool_names == frozenset({"web_search", "url_read", "mcp_unrelated_tool"})
+    snapshot = serialize_capability_resolution(route)
+    assert snapshot["denied_product_tool_names"] == ["mcp_unrelated_tool", "url_read", "web_search"]
+    TrajectoryCapabilityResolution.model_validate({**snapshot, "bundle_fingerprint": "sha256:" + "0" * 64})
+
+
+def test_model_denial_of_required_tool_closes_tool_path():
+    candidate = _CandidateRoute(
+        "train",
+        "high",
+        ("explicit_train_request",),
+        True,
+        denied_tool_names=("search_trains",),
+    )
+    route = _resolve("查北京到上海高铁，但不要调用 search_trains", classify_fn=lambda **_: candidate)
+
+    assert route.package_id == "tools_unavailable"
+    assert route.external_tool_names == ()
+    assert route.network_boundary_required is True
+
+
+def test_whole_request_network_denial_blocks_product_and_recovery_tools():
+    candidate = _CandidateRoute(
+        "weather",
+        "high",
+        ("explicit_weather_request",),
+        True,
+        network_policy="no_network",
+    )
+    route = _resolve("本次不要联网，查明天上海天气", classify_fn=lambda **_: candidate)
+
+    assert route.package_id == "tools_unavailable"
+    assert route.external_tool_names == ()
+    assert route.network_boundary_required is True
+    assert {"web_search", "url_read", "weather_forecast", "mcp_unrelated_tool"}.issubset(
+        route.denied_product_tool_names
+    )
+
+
+@pytest.mark.parametrize(
+    ("package_id", "reason_code", "denied_tool_name"),
+    [
+        ("verified_web", "verified_source_request", "web_search"),
+        ("verified_web", "verified_source_request", "url_read"),
+        ("travel_air_rail", "air_rail_comparison", "search_flights"),
+        ("travel_air_rail", "air_rail_comparison", "search_trains"),
+    ],
+)
+def test_comparison_and_verification_packages_degrade_when_one_required_tool_is_denied(
+    package_id: str, reason_code: str, denied_tool_name: str
+) -> None:
+    candidate = _CandidateRoute(package_id, "high", (reason_code,), True, denied_tool_names=(denied_tool_name,))
+
+    route = _resolve("执行任务，但不要使用其中一个必需工具", classify_fn=lambda **_: candidate)
+
+    assert route.package_id == "tools_unavailable"
+    assert route.external_tool_names == ()
+    assert route.effective_plan_mode == "off"
+    assert route.network_boundary_required is True
+    assert route.reason_codes == ("required_tools_unavailable",)
+
+
+@pytest.mark.parametrize("package_id", ["mobility_intercity", "mixed_itinerary"])
+def test_multi_product_route_freezes_one_primary_tool(package_id: str) -> None:
+    reason_code = "intercity_locations" if package_id == "mobility_intercity" else "mixed_itinerary_request"
+    explicit_tool_names = ("route_compare", "search_flights") if package_id == "mixed_itinerary" else None
+    candidate = _CandidateRoute(
+        package_id,
+        "medium" if package_id == "mobility_intercity" else "high",
+        ("origin_destination_relation", reason_code) if package_id == "mobility_intercity" else (reason_code,),
+        True,
+        explicit_tool_names=explicit_tool_names,
+        required_primary_tool_name="route_compare",
+    )
+
+    route = _resolve("规划跨城出行", classify_fn=lambda **_: candidate)
+
+    assert route.package_id == package_id
+    assert route.required_primary_tool_name == "route_compare"
+    assert route.effective_plan_mode == "auto"
+    snapshot = serialize_capability_resolution(route)
+    assert snapshot["required_primary_tool_name"] == "route_compare"
+    assert snapshot["denied_product_tool_names"] == []
+
+
+def test_multi_product_route_without_usable_primary_tool_degrades() -> None:
+    candidate = _CandidateRoute(
+        "mobility_intercity",
+        "medium",
+        ("origin_destination_relation", "intercity_locations"),
+        True,
+        required_primary_tool_name="route_compare",
+        denied_tool_names=("route_compare",),
+    )
+
+    route = _resolve("规划跨城出行", classify_fn=lambda **_: candidate)
 
     assert route.package_id == "tools_unavailable"
     assert route.external_tool_names == ()

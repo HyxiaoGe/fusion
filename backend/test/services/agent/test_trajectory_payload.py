@@ -512,6 +512,49 @@ def _assert_text_and_lists_are_bounded_and_secret_like_error_text_is_redacted():
 
 
 class TrajectoryPayloadTests(unittest.TestCase):
+    def test_new_route_constraints_are_retained_while_old_snapshots_remain_readable(self):
+        resolution = {
+            **CAPABILITY_RESOLUTION,
+            "schema_version": 2,
+            "package_id": "mobility_intercity",
+            "confidence": "medium",
+            "reason_codes": ["origin_destination_relation", "intercity_locations"],
+            "external_tool_names": ["route_compare", "search_flights"],
+            "effective_plan_mode": "auto",
+            "required_primary_tool_name": "route_compare",
+            "denied_product_tool_names": ["url_read", "web_search"],
+            "skill_resolution": {
+                "status": "not_selected",
+                "activation_source": "capability_package",
+                "requested_skill_ids": [],
+                "skills": [],
+                "duration_ms": 0,
+                "error_code": None,
+            },
+        }
+        payload = build_trajectory_payload(
+            {
+                **COMMON,
+                "type": "run_started",
+                **EVENT_FIELDS["run_started"],
+                "tools": ["route_compare", "search_flights"],
+                "capability_resolution": resolution,
+            }
+        )
+
+        self.assertEqual(payload["capability_resolution"]["required_primary_tool_name"], "route_compare")
+        self.assertEqual(payload["capability_resolution"]["denied_product_tool_names"], ["url_read", "web_search"])
+        self.assertNotIn(
+            "required_primary_tool_name",
+            build_trajectory_payload(
+                {
+                    **COMMON,
+                    "type": "run_started",
+                    **EVENT_FIELDS["run_started"],
+                }
+            )["capability_resolution"],
+        )
+
     def test_run_started_persists_only_explicit_safe_capability_resolution(self):
         payload = build_trajectory_payload(
             {

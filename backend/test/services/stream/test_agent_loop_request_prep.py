@@ -27,7 +27,13 @@ class FakeFileRepository:
         return {"doc-1": "文档正文"}
 
 
-def _model_candidate(package_id: str, *, include_current_date: bool | None = None, explicit_tool_names=None):
+def _model_candidate(
+    package_id: str,
+    *,
+    include_current_date: bool | None = None,
+    explicit_tool_names=None,
+    required_primary_tool_name: str | None = None,
+):
     """构造一个符合能力契约的模型候选。
 
     选包判据已整体删除（#132），router 不再从文本推断能力包。模型选了什么现在是
@@ -50,6 +56,8 @@ def _model_candidate(package_id: str, *, include_current_date: bool | None = Non
         # MCP 包由模型返回，并按 _ROUTE_DETAILS 保持不注入日期。
         details = _ROUTE_DETAILS.get(package_id)
         include_current_date = bool(details[2]) if details else False
+    if required_primary_tool_name is None and package_id in {"mobility_intercity", "mixed_itinerary"}:
+        required_primary_tool_name = (explicit_tool_names or ("route_compare",))[0]
     return _CandidateRoute(
         package_id,
         confidence,
@@ -57,6 +65,7 @@ def _model_candidate(package_id: str, *, include_current_date: bool | None = Non
         include_current_date,
         resolution_mode=_PACKAGE_RESOLUTION_MODE[package_id],
         explicit_tool_names=explicit_tool_names,
+        required_primary_tool_name=required_primary_tool_name,
     )
 
 
@@ -100,6 +109,47 @@ def _classifier_for(package_id: str, **kwargs):
 
 
 class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
+    def test_multi_product_primary_is_required_in_first_plan_when_plan_is_on(self):
+        for package_id, explicit_tools in (
+            ("mobility_intercity", None),
+            ("mixed_itinerary", ("route_compare", "search_flights")),
+        ):
+            with self.subTest(package_id=package_id):
+                config = build_agent_loop_call_config(
+                    provider="openai",
+                    options={"plan_mode": "on"},
+                    capabilities={"functionCalling": True, "searchCapable": True},
+                    additional_tools=[*AMAP_PRODUCT_DEFINITIONS, *FLYAI_TRAVEL_DEFINITIONS],
+                    dynamic_tool_handlers={
+                        tool["function"]["name"]: object()
+                        for tool in [*AMAP_PRODUCT_DEFINITIONS, *FLYAI_TRAVEL_DEFINITIONS]
+                    },
+                    original_message="规划跨城出行",
+                    classify_fn=_classifier_for(package_id, explicit_tool_names=explicit_tools),
+                )
+
+                self.assertEqual(config.required_initial_tool_counts, {"route_compare": 1})
+                self.assertEqual(config.plan_tool_policy_reason, f"capability_primary:{package_id}")
+
+    def test_verified_web_with_one_denied_required_tool_has_no_impossible_plan(self):
+        config = build_agent_loop_call_config(
+            provider="openai",
+            options={"plan_mode": "on"},
+            capabilities={"functionCalling": True, "searchCapable": True},
+            original_message="核验公告，但别搜索网页",
+            classify_fn=lambda **_: _CandidateRoute(
+                "verified_web",
+                "high",
+                ("verified_source_request",),
+                True,
+                denied_tool_names=("web_search",),
+            ),
+        )
+
+        self.assertEqual(config.capability_resolution.package_id, "tools_unavailable")
+        self.assertEqual(config.required_initial_tool_counts, {})
+        self.assertEqual(config.announced_tools, [])
+
     def test_build_call_config_defaults_to_rule_classifier(self):
         with patch(
             "app.services.stream.agent_loop_request_prep.resolve_run_capability_route",
@@ -611,7 +661,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn("route_compare", config.announced_tools)
-        self.assertIsNone(config.plan_tool_policy_reason)
+        self.assertEqual(config.plan_tool_policy_reason, "capability_primary:mobility_intercity")
 
     async def test_io_failure_is_not_an_assembly_failure(self):
         from unittest.mock import patch

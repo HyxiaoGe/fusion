@@ -8,6 +8,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from math import isfinite
 from time import perf_counter
+from typing import Literal
 
 import litellm
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -83,6 +84,9 @@ class _ModelRouteResponse(BaseModel):
 
     package_id: str
     explicit_tool_names: list[str] = Field()
+    network_policy: Literal["allow", "no_web_search", "no_url_read", "no_network"]
+    denied_tool_names: list[str] = Field(max_length=8)
+    required_primary_tool_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -426,13 +430,60 @@ def _project_text_content(content: object) -> str | None:
     if not isinstance(content, Sequence):
         return None
     text_blocks = []
+    route_result_seen = False
     for block in content:
-        if not isinstance(block, Mapping) or block.get("type") != "text":
+        if not isinstance(block, Mapping):
             continue
-        text = block.get("text")
-        if isinstance(text, str):
-            text_blocks.append(text)
+        if block.get("type") == "text":
+            text = block.get("text")
+            if isinstance(text, str):
+                text_blocks.append(text)
+        elif block.get("type") == "route_results" and not route_result_seen:
+            summary = _project_route_result_context(block)
+            if summary is not None:
+                text_blocks.append(summary)
+                route_result_seen = True
     return "\n".join(text_blocks) if text_blocks else None
+
+
+def _project_route_result_context(block: Mapping) -> str | None:
+    """只投影最近路线结果里可用于指代消解的安全展示字段。"""
+
+    origin = _project_route_endpoint(block.get("origin"))
+    destination = _project_route_endpoint(block.get("destination"))
+    routes = block.get("routes")
+    if origin is None or destination is None or not isinstance(routes, list):
+        return None
+    projected_routes = []
+    for route in routes[:3]:
+        if not isinstance(route, Mapping) or route.get("mode") not in {"driving", "transit", "walking", "bicycling"}:
+            continue
+        projected = {"mode": route["mode"]}
+        for field_name in ("duration_s", "distance_m", "transfers"):
+            value = route.get(field_name)
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                projected[field_name] = value
+        projected_routes.append(projected)
+    if not projected_routes:
+        return None
+    return json.dumps(
+        {"prior_route_results": {"origin": origin, "destination": destination, "routes": projected_routes}},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def _project_route_endpoint(value: object) -> str | None:
+    if not isinstance(value, Mapping):
+        return None
+    label = value.get("label")
+    if not isinstance(label, str) or not label.strip():
+        return None
+    city = value.get("city")
+    rendered_label = label.strip()[:120]
+    if isinstance(city, str) and city.strip():
+        return f"{rendered_label}（{city.strip()[:40]}）"
+    return rendered_label
 
 
 def _within_input_budget(
@@ -513,6 +564,14 @@ def _parse_model_route(
     if package_id not in _MODEL_PACKAGE_IDS:
         return None
     explicit_tools = tuple(parsed.explicit_tool_names)
+    denied_tools = tuple(parsed.denied_tool_names)
+    if len(set(denied_tools)) != len(denied_tools):
+        return None
+    allowed_denials = frozenset(_CANONICAL_TOOL_ORDER) | frozenset(
+        name for name in _available_tools if is_authorized_mcp_tool_alias(name)
+    )
+    if not set(denied_tools).issubset(allowed_denials):
+        return None
     if package_id == "mcp_explicit":
         if (
             len(explicit_tools) != 1
@@ -530,6 +589,11 @@ def _parse_model_route(
             return None
     elif explicit_tools != CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES[package_id]:
         return None
+    if package_id in {"mobility_intercity", "mixed_itinerary"}:
+        if parsed.required_primary_tool_name not in explicit_tools:
+            return None
+    elif parsed.required_primary_tool_name is not None:
+        return None
     confidence, reason_codes, fixed_include_current_date, resolution_mode = _ROUTE_DETAILS[package_id]
     resolved_include_current_date = fixed_include_current_date
     if package_id == "mobility_route":
@@ -546,6 +610,9 @@ def _parse_model_route(
         include_current_date=resolved_include_current_date,
         resolution_mode=resolution_mode,
         explicit_tool_names=canonical_tools or None,
+        network_policy=parsed.network_policy,
+        denied_tool_names=denied_tools,
+        required_primary_tool_name=parsed.required_primary_tool_name,
     )
 
 
