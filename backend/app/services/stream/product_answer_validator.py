@@ -137,18 +137,10 @@ _TRAVEL_TOTAL_CLAIM_RE = re.compile(r"(?:合计|总计|总时长|总票价|总�
 _WEATHER_UNSUPPORTED_METRIC_RE = re.compile(
     r"(?:当前|现在|实时).{0,10}(?:温度|气温|湿度|AQI|空气质量|降雨概率|预警)|"
     r"(?:温度|气温|湿度|AQI|空气质量|降雨概率|预警).{0,10}(?:当前|现在|实时)|"
-    r"(?:湿度|AQI|空气质量|降雨概率).{0,8}(?:为|是|达到|约)?\s*\d|"
+    r"(?:湿度|AQI|空气质量|降雨概率|降水|雨量|预警|积水).{0,8}(?:为|是|达到|约)?\s*\d|"
     r"(?:发布|存在|有).{0,6}(?:天气)?预警|"
     r"(?:平均|体感)(?:气温|温度)",
     re.IGNORECASE,
-)
-_WEATHER_UNSUPPORTED_CAPABILITY_RE = re.compile(r"湿度|AQI|空气质量|降雨概率|预警|积水", re.IGNORECASE)
-_WEATHER_CONDITION_RE = re.compile(
-    r"不会有降水|不会有雨|没有降水|无降水|不会下雨|不下雨|没有雨|没雨|不会降雨|不降雨|"
-    r"降水(?:量)?(?:为|是)?0(?:毫米|mm)?|无雨|有降水|会降水|"
-    r"会下雨|会下雪|有雨|下雨|有雪|下雪|雷阵雨|雨夹雪|暴雨|大雨|中雨|小雨|阵雨|雷雨|"
-    r"大雪|中雪|小雪|阵雪|"
-    r"多云|阴天|阴|晴天|晴|雾|霾|大风|台风|雨天"
 )
 _WEATHER_TEMPERATURE_RE = re.compile(
     r"(?P<value>-?\d+(?:\.\d+)?)\s*(?:℃|°\s*C|摄氏度|度)",
@@ -160,10 +152,6 @@ _WEATHER_TEMPERATURE_NO_UNIT_RE = re.compile(
     r"(?P<value>-?\d+(?:\.\d+)?)(?![\d.]|\s*(?:℃|°\s*C|摄氏度|度))",
     re.IGNORECASE,
 )
-_WEATHER_ADVICE_RE = re.compile(
-    r"带伞|携带雨具|雨具|防风|防晒|加衣|保暖|穿.{0,6}(?:外套|衣|鞋)|着装|"
-    r"减少.{0,6}步行|避免.{0,6}步行"
-)
 _WEATHER_LOCATION_RE = re.compile(
     r"(?P<name>[\u4e00-\u9fff]{2,12}(?:省|市|区|县|旗))"
     r"(?=(?:的)?(?:未来(?:几天|[一二三四五六七八九十0-9]+天)?)?"
@@ -174,7 +162,6 @@ _WEATHER_WIND_RE = re.compile(
     r"(?P<power>[≤＜<≥＞>]?\s*\d+(?:\s*[-~～—–－至]\s*\d+)?)?\s*级?"
 )
 _WEATHER_WIND_DIRECTION_RE = re.compile(r"风向\s*(?P<direction>东南|东北|西南|西北|东|南|西|北)")
-_WEATHER_WIND_DESCRIPTION_RE = re.compile(r"微风|轻风|和风(?!力|向|速)|强风")
 _WEATHER_FACT_CUE_RE = re.compile(r"气温|温度|最高|最低|雨|雪|雷|多云|阴|晴|雾|霾|风|防晒|保暖|加衣|雨具")
 _WEATHER_DATE_TOKEN_PATTERN = r"(?:\d{4}-\d{2}-\d{2}|\d{1,2}月\d{1,2}日)"
 _WEATHER_DATE_RANGE_PATTERN = rf"{_WEATHER_DATE_TOKEN_PATTERN}(?:\s*(?:至|到|~|～|—)\s*{_WEATHER_DATE_TOKEN_PATTERN})?"
@@ -946,10 +933,9 @@ def _weather_claim_reason(answer: str, facts: _FactIndex) -> str | None:
         if not sentence.strip():
             continue
         for capability_clause in re.split(r"(?:但是|不过|然而|但)", sentence):
-            if (
-                _WEATHER_UNSUPPORTED_METRIC_RE.search(capability_clause)
-                or _WEATHER_UNSUPPORTED_CAPABILITY_RE.search(capability_clause)
-            ) and not _LIMITATION_CUE_RE.search(capability_clause):
+            if _WEATHER_UNSUPPORTED_METRIC_RE.search(capability_clause) and not _LIMITATION_CUE_RE.search(
+                capability_clause
+            ):
                 return "unsupported_claim"
         coverage_validation = _validate_weather_coverage_sentence(sentence, facts.weather_days)
         if coverage_validation is False:
@@ -962,12 +948,10 @@ def _weather_claim_reason(answer: str, facts: _FactIndex) -> str | None:
             return "weather_fact_mismatch"
         scoped_days = _weather_scoped_days(sentence, facts.weather_days)
         has_parsed_weather_fact = bool(
-            _WEATHER_CONDITION_RE.search(sentence)
-            or _WEATHER_TEMPERATURE_RE.search(sentence)
+            _WEATHER_TEMPERATURE_RE.search(sentence)
             or _WEATHER_TEMPERATURE_NO_UNIT_RE.search(sentence)
             or _has_parsed_weather_wind(sentence)
             or _WEATHER_WIND_DIRECTION_RE.search(sentence)
-            or _WEATHER_ADVICE_RE.search(sentence)
         )
         if has_parsed_weather_fact and (
             _weather_has_unresolved_relative_day(sentence, facts.weather_days) or "明后天" in sentence
@@ -977,18 +961,6 @@ def _weather_claim_reason(answer: str, facts: _FactIndex) -> str | None:
             return "weather_fact_mismatch"
         if not scoped_days:
             scoped_days = facts.weather_days
-        for match in _WEATHER_WIND_DESCRIPTION_RE.finditer(sentence):
-            if not any(
-                match.group(0) in value
-                for day in scoped_days
-                for value in (
-                    day.day_weather,
-                    day.night_weather,
-                    day.day_wind_power or "",
-                    day.night_wind_power or "",
-                )
-            ):
-                return "weather_fact_mismatch"
         allowed_locations = {_compact_text(value) for value in facts.weather_locations}
         for match in _WEATHER_LOCATION_RE.finditer(sentence):
             location = match.group("name")
@@ -998,23 +970,6 @@ def _weather_claim_reason(answer: str, facts: _FactIndex) -> str | None:
             if not any(
                 compact_location in allowed or allowed in compact_location for allowed in allowed_locations if allowed
             ):
-                return "weather_fact_mismatch"
-        for match in _WEATHER_CONDITION_RE.finditer(sentence):
-            condition = match.group(0)
-            if _weather_condition_is_uncertain_question(sentence, match.start(), match.end()):
-                continue
-            period = _weather_period_before(sentence, match.start())
-            claim_days = _weather_scoped_days(sentence, facts.weather_days, position=match.start()) or scoped_days
-            allowed_conditions = _allowed_weather_conditions(claim_days, period)
-            if _is_weather_dry_condition_claim(condition):
-                matches_condition = bool(allowed_conditions) and all(
-                    _weather_condition_matches(condition, allowed) for allowed in allowed_conditions
-                )
-            else:
-                matches_condition = any(
-                    _weather_condition_matches(condition, allowed) for allowed in allowed_conditions
-                )
-            if not matches_condition:
                 return "weather_fact_mismatch"
         for match in _WEATHER_TEMPERATURE_RE.finditer(sentence):
             value = float(match.group("value"))
@@ -1220,46 +1175,6 @@ def _weather_period_before(sentence: str, position: int) -> str | None:
     return "day" if day_position > night_position else "night"
 
 
-def _allowed_weather_conditions(days: list[_WeatherDayFacts], period: str | None) -> set[str]:
-    if period == "day":
-        return {day.day_weather for day in days}
-    if period == "night":
-        return {day.night_weather for day in days}
-    return {value for day in days for value in (day.day_weather, day.night_weather)}
-
-
-def _weather_condition_matches(claim: str, allowed: str) -> bool:
-    if _is_weather_dry_condition_claim(claim):
-        return "雨" not in allowed
-    if claim in {"有降水", "会降水"}:
-        return "雨" in allowed or "雪" in allowed
-    if claim == "雨天":
-        return "雨" in allowed
-    if claim in {"有雨", "下雨", "会下雨"}:
-        return "雨" in allowed
-    if claim in {"有雪", "下雪", "会下雪"}:
-        return "雪" in allowed
-    normalized_claim = claim.removesuffix("天")
-    normalized_allowed = allowed.removesuffix("天")
-    return normalized_claim == normalized_allowed or normalized_claim in normalized_allowed
-
-
-def _is_weather_dry_condition_claim(claim: str) -> bool:
-    return claim in {
-        "不会有降水",
-        "不会有雨",
-        "没有降水",
-        "无降水",
-        "不会下雨",
-        "不下雨",
-        "没有雨",
-        "没雨",
-        "不会降雨",
-        "不降雨",
-        "无雨",
-    } or claim.startswith("降水")
-
-
 def _weather_temperature_kind_before(sentence: str, position: int) -> str | None:
     prefix = sentence[max(0, position - 12) : position]
     high_low_position = prefix.rfind("高低温")
@@ -1274,29 +1189,6 @@ def _weather_temperature_kind_before(sentence: str, position: int) -> str | None
     if max(high_position, low_position) < 0:
         return None
     return "high" if high_position > low_position else "low"
-
-
-def _weather_condition_is_uncertain_question(sentence: str, start: int, end: int) -> bool:
-    clause_start = max(
-        (
-            position + len(mark)
-            for mark in ("，", ",", "。", "；", ";", "：", ":", "但", "不过", "然而")
-            if (position := sentence.rfind(mark, 0, start)) >= 0
-        ),
-        default=0,
-    )
-    before = sentence[clause_start:start]
-    cue_position, cue = max(
-        ((before.rfind(cue), cue) for cue in ("是否", "能否", "会不会", "能不能")),
-        key=lambda item: item[0],
-    )
-    if cue_position < 0 or _LIMITATION_CUE_RE.search(before[cue_position + len(cue) :]):
-        return False
-    after = sentence[end:].strip()
-    if not after:
-        return True
-    after = after.lstrip("，,：:").strip()
-    return bool(re.match(r"(?:目前|当前)?(?:无法|不能).{0,16}(?:确认|判断)|不确定", after))
 
 
 def _normalize_weather_wind_power(value: str) -> str:
