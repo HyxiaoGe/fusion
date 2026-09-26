@@ -103,6 +103,7 @@ _TRANSIT_TOTAL_DISTANCE_RE = re.compile(
     r"(?:公交|地铁|公共交通|轨道交通).{0,12}(?:全程|总距离).{0,12}\d+(?:\.\d+)?\s*(?:公里|米)"
 )
 _DIFFERENCE_CUE_RE = re.compile(r"相差|差(?:了)?|快(?:了)?|慢(?:了)?|多(?:了)?|少(?:了)?|节省|缩短|增加")
+_POSTFIX_DIFFERENCE_RE = re.compile(r"\d+(?:\.\d+)?\s*(?:元|分钟|公里|米)\s*(?:差价|差额|差距|之差)")
 _SAME_SCOPE_DIFFERENCE_RE = re.compile(r"两个?方案|两种方案|两条路线|主方案|备选|替代方案")
 _MARKDOWN_TABLE_SEPARATOR_RE = re.compile(
     r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$",
@@ -115,7 +116,8 @@ _TRAVEL_NUMBER_RE = re.compile(
     re.IGNORECASE,
 )
 _TRAVEL_STATION_MENTION_RE = re.compile(
-    r"(?:到达|抵达|前往|从|到|在|由|(?:可选|选择|推荐)(?:从|到|在|由)?)"
+    r"(?:(?:出发站|到达站)(?:均)?为|到达(?!站(?:均)?为)|抵达|前往|从|"
+    r"到(?!达站(?:均)?为|站(?:均)?为)|在|由|(?:可选|选择|推荐)(?:从|到|在|由)?)"
     r"(?P<name>[\u4e00-\u9fffA-Za-z0-9·（）()]{2,32}?(?:国际机场|机场|火车站|高铁站|站))"
 )
 _CLOCK_TIME_RE = re.compile(r"(?<!\d)(?:[01]\d|2[0-3]):[0-5]\d(?!\d)")
@@ -990,7 +992,7 @@ def _weather_claim_reason(answer: str, facts: _FactIndex) -> str | None:
         allowed_locations = {_compact_text(value) for value in facts.weather_locations}
         for match in _WEATHER_LOCATION_RE.finditer(sentence):
             location = match.group("name")
-            if location in {"行政区"}:
+            if location in {"行政区", "按行政区"}:
                 continue
             compact_location = _compact_text(location)
             if not any(
@@ -1957,7 +1959,9 @@ def _allowed_numeric_values(
     clause: str,
     number_position: int,
 ) -> set[float]:
-    if _DIFFERENCE_CUE_RE.search(clause):
+    if any(
+        match.start() <= number_position for match in _DIFFERENCE_CUE_RE.finditer(clause)
+    ) or _POSTFIX_DIFFERENCE_RE.match(clause, number_position):
         return _allowed_difference_values(facts, category, clause)
     place = _nearest_place(clause, number_position, facts.place_numeric_values)
     if place is not None:

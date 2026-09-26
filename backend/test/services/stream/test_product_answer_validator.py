@@ -252,6 +252,26 @@ class ProductAnswerValidatorTests(unittest.TestCase):
                 validation = validate_product_answer(answer, _travel_candidate_blocks())
                 self.assertEqual(validation.is_valid, expected)
 
+    def test_travel_station_labels_and_later_comparison_do_not_hide_returned_facts(self):
+        cases = (
+            "ZH1001出发站为深圳宝安国际机场、到达站为上海虹桥国际机场。",
+            "ZH1001约120分钟参考价600元比ZH1002略快但略贵。",
+        )
+        for answer in cases:
+            with self.subTest(answer=answer):
+                validation = validate_product_answer(answer, _travel_candidate_blocks())
+                self.assertTrue(validation.is_valid, validation.reason_code)
+
+    def test_travel_postfixed_difference_is_checked_as_difference(self):
+        cases = (
+            ("本次航班票价有100元差价。", False),
+            ("本次航班票价有600元差价。", False),
+        )
+        for answer, expected in cases:
+            with self.subTest(answer=answer):
+                validation = validate_product_answer(answer, _travel_candidate_blocks())
+                self.assertEqual(validation.is_valid, expected)
+
     def test_user_budget_with_yuan_symbol_is_not_travel_price(self):
         cases = (
             ("我的预算¥1000，ZH1001参考价600元。", True),
@@ -371,6 +391,18 @@ class ProductAnswerValidatorTests(unittest.TestCase):
                 validation = validate_product_answer(answer, [_weather_block()])
                 self.assertEqual(validation.is_valid, expected)
                 self.assertEqual(validation.reason_code, reason)
+
+    def test_weather_administrative_scope_and_uncertainty_are_not_positive_facts(self):
+        cases = (
+            ("南山区的天气，按行政区预报为：周四白天多云。", True),
+            ("上午降水情况无法确认。", True),
+            ("福田区行政区预报：周四白天多云。", False),
+            ("周四上午是否下雨：是。", False),
+        )
+        for answer, expected in cases:
+            with self.subTest(answer=answer):
+                validation = validate_product_answer(answer, [_weather_block()])
+                self.assertEqual(validation.is_valid, expected)
 
     def test_weather_realtime_claims_reject_positive_but_allow_explicit_limits(self):
         cases = (

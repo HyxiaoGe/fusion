@@ -242,7 +242,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("[Product-result synthesis contract for this round]", system_text)
         self.assertIn("do not infer road conditions, safety, or comfort", system_text)
-        self.assertIn("a finer period such as morning or afternoon", system_text)
+        self.assertIn("morning precipitation cannot be confirmed", system_text)
         self.assertIn("give a conditional conclusion", system_text)
         self.assertIn("Do not judge whether temperature or wind is suitable, acceptable, or comfortable", system_text)
         self.assertIn(
