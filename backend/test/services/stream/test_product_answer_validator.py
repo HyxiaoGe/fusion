@@ -213,6 +213,19 @@ def _travel_candidate_blocks() -> list[dict]:
 
 
 class ProductAnswerValidatorTests(unittest.TestCase):
+    def test_unreturned_airport_after_choice_verb_is_rejected(self):
+        blocks = _travel_candidate_blocks()
+        blocks[0]["flights"] = [blocks[0]["flights"][1]]
+        blocks[0]["status"] = "success"
+        blocks = [blocks[0]]
+
+        self.assertTrue(validate_product_answer("可选上海浦东国际机场。", blocks).is_valid)
+        self.assertTrue(validate_product_answer("推荐从上海浦东国际机场出发。", blocks).is_valid)
+        self.assertTrue(validate_product_answer("可选到上海浦东国际机场。", blocks).is_valid)
+        validation = validate_product_answer("可选虹桥机场。", blocks)
+        self.assertFalse(validation.is_valid)
+        self.assertEqual(validation.reason_code, "unknown_travel_entity")
+
     def test_travel_facts_must_belong_to_same_candidate_and_direction(self):
         cases = (
             ("去程ZH1001约120分钟，参考价600元。", True),
@@ -337,7 +350,7 @@ class ProductAnswerValidatorTests(unittest.TestCase):
 
         self.assertTrue(validation.is_valid, validation.reason_code)
 
-    def test_weather_activity_inference_is_rejected_and_safe_condition_is_retained(self):
+    def test_weather_activity_inference_is_left_to_the_model(self):
         answer = (
             "7月24日（周五）南山区白天预报有雷阵雨，如果你的条件是希望上午骑行时避开降雨，"
             "本次预报不满足这一条件。"
@@ -356,19 +369,10 @@ class ProductAnswerValidatorTests(unittest.TestCase):
             messages=messages,
         )
 
-        self.assertFalse(validation.is_valid)
-        self.assertEqual(validation.reason_code, "unsupported_claim")
-        self.assertEqual(reason_code, "ok")
-        self.assertIsNotNone(repaired)
-        self.assertIn("本次预报不满足这一条件", repaired)
-        self.assertIn("无法确认上午与下午的细分差异", repaired)
-        self.assertNotIn("大概率会淋雨", repaired)
-        self.assertNotIn("室内骑行", repaired)
-        self.assertNotIn("改期", repaired)
-        self.assertNotIn("存在被淋雨的可能", repaired)
-        self.assertNotIn("调整到晚上活动", repaired)
-        self.assertNotIn("天气条件相对更宽松", repaired)
-        self.assertTrue(validate_product_answer(repaired, [_weather_block()], messages=messages).is_valid)
+        # 本地校验仍验证句中的日期、天气、温度；活动推断交给模型提示词及验收语料。
+        self.assertTrue(validation.is_valid, validation.reason_code)
+        self.assertIsNone(repaired)
+        self.assertEqual(reason_code, "not_repairable")
 
     def test_weather_forecast_coverage_limits_allow_unknown_dates_without_allowing_claims(self):
         cases = (
@@ -445,9 +449,9 @@ class ProductAnswerValidatorTests(unittest.TestCase):
             ("明天风力8级。", False),
             ("明天微风。", False),
             ("明天风向西北。", False),
-            ("明天建议穿外套。", False),
-            ("明天建议加衣。", False),
-            ("明天注意保暖。", False),
+            ("明天建议穿外套。", True),
+            ("明天建议加衣。", True),
+            ("明天注意保暖。", True),
             ("今晚多云。", False),
             ("明晚阵雨。", False),
             ("今早雷阵雨。", False),
@@ -538,10 +542,8 @@ class ProductAnswerValidatorTests(unittest.TestCase):
             "杭州7月29-30日天气情况：7月29日全天多云，气温28~38℃；"
             "7月30日白天小雨、夜间转晴，气温29~39℃。两日体感闷热，注意防晒。"
         )
-        self.assertEqual(
-            validate_product_answer(unsafe_advice, [block]).reason_code,
-            "unsupported_claim",
-        )
+        # 防晒建议及体感判断由既有产品结果模型轮次处理，数值和日期继续由本地校验。
+        self.assertTrue(validate_product_answer(unsafe_advice, [block]).is_valid)
 
     def test_weather_unsupported_claim_skips_generic_repair_and_uses_grounded_fallback(self):
         answer = "周五白天雷阵雨。当前温度30℃。"
@@ -586,7 +588,7 @@ class ProductAnswerValidatorTests(unittest.TestCase):
             with self.subTest(answer=answer):
                 self.assertEqual(validate_product_answer(answer, [_weather_block()]).is_valid, expected)
 
-    def test_weather_cannot_infer_route_choice_or_no_travel_impact(self):
+    def test_weather_route_choice_semantics_are_left_to_the_model(self):
         cases = (
             "天气不会影响出行。",
             "周四雨天建议优先驾车。",
@@ -596,17 +598,16 @@ class ProductAnswerValidatorTests(unittest.TestCase):
         for answer in cases:
             with self.subTest(answer=answer):
                 validation = validate_product_answer(answer, [_weather_block(), _route_block()])
-                self.assertFalse(validation.is_valid)
-                self.assertEqual(validation.reason_code, "unsupported_claim")
+                self.assertTrue(validation.is_valid, validation.reason_code)
 
-    def test_wind_advice_requires_returned_strong_wind(self):
+    def test_wind_advice_semantics_are_left_to_the_model(self):
         no_wind = validate_product_answer("周四建议做好防风措施。", [_weather_block()])
         windy_payload = _weather_block().model_dump(mode="python")
         windy_payload["forecast_days"][0]["day_weather"] = "大风"
         windy = WeatherResultsBlock.model_validate(windy_payload)
         has_wind = validate_product_answer("周四白天有大风，建议做好防风措施。", [windy])
 
-        self.assertFalse(no_wind.is_valid)
+        self.assertTrue(no_wind.is_valid)
         self.assertTrue(has_wind.is_valid)
 
     def test_weekend_scope_cannot_borrow_weekday_weather_facts(self):
@@ -741,7 +742,7 @@ class ProductAnswerValidatorTests(unittest.TestCase):
         self.assertFalse(punctuation_validation.is_valid)
         self.assertEqual(punctuation_validation.reason_code, "empty_answer")
 
-    def test_markdown_repair_drops_unsafe_whole_sentence_instead_of_leaving_fragment(self):
+    def test_markdown_repair_keeps_model_semantic_prose(self):
         answer = (
             "## 方案概览\n"
             "### 路线明细\n"
@@ -757,8 +758,8 @@ class ProductAnswerValidatorTests(unittest.TestCase):
 
         self.assertEqual(reason_code, "ok")
         self.assertNotIn("路线明细", repaired)
-        self.assertNotIn("最终推荐", repaired)
-        self.assertNotIn("更舒适", repaired)
+        self.assertIn("最终推荐", repaired)
+        self.assertIn("更舒适", repaired)
         self.assertIn("驾车约14分钟，公交约32分钟", repaired)
 
     def test_high_confidence_unsupported_claim_falls_back(self):
@@ -1004,37 +1005,37 @@ class ProductAnswerValidatorTests(unittest.TestCase):
         self.assertFalse(validation.is_valid)
         self.assertEqual(validation.reason_code, "unsupported_place_relation")
 
-    def test_address_similarity_cannot_be_inferred_as_walkable_proximity(self):
+    def test_place_relation_fact_guard_and_model_proximity_boundary(self):
         cases = (
-            "炭火一号和金杆桌球地址临近，吃完走几步就到。",
-            "炭火一号到金杆桌球步行即达。",
-            "两家距离也很近，溜达过去很方便。",
-            "两家都在东边老村附近，地址非常接近。",
-            "先吃完再到隔壁片区打桌球。",
-            "这是就近组合，两个点最近，地址相近。",
-            "两家地址的区域重叠度高。",
+            ("炭火一号和金杆桌球地址临近，吃完走几步就到。", True),
+            ("炭火一号到金杆桌球步行即达。", False),
+            ("两家距离也很近，溜达过去很方便。", False),
+            ("两家都在东边老村附近，地址非常接近。", True),
+            ("先吃完再到隔壁片区打桌球。", True),
+            ("这是就近组合，两个点最近，地址相近。", True),
+            ("两家地址的区域重叠度高。", True),
         )
 
-        for answer in cases:
+        for answer, expected in cases:
             with self.subTest(answer=answer):
                 validation = validate_product_answer(answer, [_two_place_block()])
-                self.assertFalse(validation.is_valid)
-                self.assertEqual(validation.reason_code, "unsupported_place_relation")
+                self.assertEqual(validation.is_valid, expected)
+                if not expected:
+                    self.assertEqual(validation.reason_code, "unsupported_place_relation")
 
-    def test_repair_removes_unreturned_place_proximity_and_keeps_place_facts(self):
-        answer = "炭火一号评分4.7分。两家地址临近，吃完走几步就到。金杆桌球评分4.1分。"
+    def test_repair_removes_explicit_unreturned_place_relation_and_keeps_place_facts(self):
+        answer = "炭火一号评分4.7分。两家步行五分钟。金杆桌球评分4.1分。"
 
         repaired, reason_code = repair_unsupported_product_answer(answer, [_two_place_block()])
 
         self.assertEqual(reason_code, "ok")
         self.assertIn("炭火一号评分4.7分", repaired)
         self.assertIn("金杆桌球评分4.1分", repaired)
-        self.assertNotIn("地址临近", repaired)
-        self.assertNotIn("走几步", repaired)
+        self.assertNotIn("步行五分钟", repaired)
         self.assertIn("地点之间的距离和步行时间", repaired)
         self.assertTrue(validate_product_answer(repaired, [_two_place_block()]).is_valid)
 
-    def test_place_experience_and_name_inference_are_not_treated_as_returned_facts(self):
+    def test_place_experience_and_name_inference_are_left_to_the_model(self):
         cases = (
             "吃完转场很方便。",
             "吃完随时去打桌球。",
@@ -1046,21 +1047,18 @@ class ProductAnswerValidatorTests(unittest.TestCase):
 
         for answer in cases:
             with self.subTest(answer=answer):
-                self.assertFalse(validate_product_answer(answer, [_two_place_block()]).is_valid)
+                self.assertTrue(validate_product_answer(answer, [_two_place_block()]).is_valid)
 
-    def test_place_repair_keeps_grounded_entities_and_drops_unscoped_experience_prose(self):
+    def test_place_repair_does_not_rewrite_model_semantic_prose(self):
         answer = "炭火一号评分4.7分。吃完转场很方便。金杆桌球评分4.1分。适合爱吃鲜肉的朋友。"
 
         repaired, reason_code = repair_unsupported_product_answer(answer, [_two_place_block()])
 
-        self.assertEqual(reason_code, "ok")
-        self.assertIn("炭火一号评分4.7分", repaired)
-        self.assertIn("金杆桌球评分4.1分", repaired)
-        self.assertNotIn("转场很方便", repaired)
-        self.assertNotIn("爱吃鲜肉", repaired)
-        self.assertTrue(validate_product_answer(repaired, [_two_place_block()]).is_valid)
+        self.assertIsNone(repaired)
+        self.assertEqual(reason_code, "not_repairable")
+        self.assertTrue(validate_product_answer(answer, [_two_place_block()]).is_valid)
 
-    def test_place_relation_request_requires_explicit_missing_route_caveat(self):
+    def test_place_relation_request_semantics_are_left_to_the_model(self):
         messages = [
             {
                 "role": "user",
@@ -1076,16 +1074,13 @@ class ProductAnswerValidatorTests(unittest.TestCase):
             messages=messages,
         )
 
-        self.assertFalse(validation.is_valid)
-        self.assertEqual(validation.reason_code, "missing_place_relation_caveat")
-        self.assertEqual(reason_code, "ok")
-        self.assertIn("地点之间的距离和步行时间", repaired)
-        self.assertIn("另行查询路线", repaired)
-        self.assertTrue(validate_product_answer(repaired, [_two_place_block()], messages=messages).is_valid)
+        self.assertTrue(validation.is_valid)
+        self.assertIsNone(repaired)
+        self.assertEqual(reason_code, "not_repairable")
 
-    def test_place_superlative_requires_scope_to_returned_candidates(self):
+    def test_place_superlative_scope_is_left_to_the_model(self):
         cases = (
-            ("炭火一号评分4.7分，评分最高。", False),
+            ("炭火一号评分4.7分，评分最高。", True),
             ("炭火一号评分4.7分，为本次返回候选中的最高评分。", True),
         )
 

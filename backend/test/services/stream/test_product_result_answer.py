@@ -13,7 +13,6 @@ from app.schemas.chat import (
 )
 from app.services.stream.product_answer_validator import validate_product_answer
 from app.services.stream.product_result_answer import (
-    build_grounded_mixed_travel_answer,
     build_grounded_product_answer,
     build_product_tool_failure_answer,
     build_tool_repair_clarification,
@@ -23,7 +22,7 @@ from app.services.stream.product_result_answer import (
 
 
 class ProductResultAnswerTests(unittest.TestCase):
-    def test_mixed_travel_deterministic_answer_requires_same_route_and_date(self):
+    def test_mixed_travel_fallback_compares_only_same_route_and_date(self):
         flight = _travel_block(
             block_type="flight_results",
             block_id="flight-out",
@@ -51,12 +50,15 @@ class ProductResultAnswerTests(unittest.TestCase):
             "departure_date": "2026-08-30",
         }
 
-        answer = build_grounded_mixed_travel_answer([flight, same_day_train])
+        answer = build_grounded_product_answer([flight, same_day_train])
 
         self.assertIn("同时返回北京到上海", answer)
         self.assertIn("MU5101", answer)
         self.assertIn("G1", answer)
-        self.assertEqual(build_grounded_mixed_travel_answer([flight, other_day_train]), "")
+        other_day_answer = build_grounded_product_answer([flight, other_day_train])
+        self.assertIn("MU5101", other_day_answer)
+        self.assertIn("G1", other_day_answer)
+        self.assertNotIn("同时返回北京到上海", other_day_answer)
 
     def test_fallback_keeps_both_directions_when_more_than_four_product_blocks_exist(self):
         blocks = [
@@ -321,7 +323,7 @@ class ProductResultAnswerTests(unittest.TestCase):
         validation = validate_product_answer(answer, blocks)
         self.assertTrue(validation.is_valid, validation.reason_code)
 
-    def test_weather_fallback_uses_only_forecast_fields_and_safe_advice(self):
+    def test_weather_fallback_uses_only_forecast_fields(self):
         block = WeatherResultsBlock(
             type="weather_results",
             schema_version=1,
@@ -360,13 +362,13 @@ class ProductResultAnswerTests(unittest.TestCase):
         self.assertIn("南山区天气预报", answer)
         self.assertIn("7月23日（周四）白天多云、夜间阵雨，27–32℃", answer)
         self.assertIn("7月24日（周五）白天雷阵雨、夜间多云，26–31℃", answer)
-        self.assertIn("建议携带雨具", answer)
+        self.assertNotIn("建议携带雨具", answer)
         self.assertTrue(validate_product_answer(answer, [block]).is_valid)
         self.assertNotIn("高德", answer)
         for unsupported in ("湿度", "空气质量", "降雨概率", "预警"):
             self.assertNotIn(unsupported, answer)
 
-    def test_weather_fallback_answers_requested_activity_condition_without_inference(self):
+    def test_weather_fallback_does_not_interpret_activity_request(self):
         block = _weather_result("weather-activity")
         messages = [
             {
@@ -378,13 +380,11 @@ class ProductResultAnswerTests(unittest.TestCase):
         answer = build_grounded_product_answer([block], messages=messages)
 
         self.assertIn("8月2日（周日）白天阵雨", answer)
-        self.assertNotIn("8月1日", answer)
-        self.assertNotIn("8月3日", answer)
-        self.assertIn("只有白天和夜间粒度，无法确认上午这一细分时段", answer)
-        self.assertIn("如果你的条件是上午骑行时避开降水", answer)
-        self.assertIn("不满足这一条件", answer)
+        self.assertIn("8月1日", answer)
+        self.assertIn("8月3日", answer)
+        self.assertNotIn("只有白天和夜间粒度", answer)
+        self.assertNotIn("骑行", answer)
         self.assertNotIn("建议", answer)
-        self.assertNotIn("适合骑行", answer)
         validation = validate_product_answer(answer, [block], messages=messages)
         self.assertTrue(validation.is_valid, validation.reason_code)
 
@@ -537,8 +537,8 @@ class ProductResultAnswerTests(unittest.TestCase):
         self.assertIn("公交约 39 分钟、换乘 1 次", answer)
         self.assertNotIn("8.9 公里", answer)
         self.assertIn("步行约 208 分钟、16 公里", answer)
-        self.assertIn("如果优先考虑本次返回的用时，建议选择驾车", answer)
-        self.assertIn("如果更倾向公共交通，可选择公交方案", answer)
+        self.assertNotIn("建议选择", answer)
+        self.assertNotIn("可选择公交", answer)
         self.assertNotIn("高德", answer)
         for unsupported in ("停车", "路况", "候车", "费用", "拥堵"):
             self.assertNotIn(unsupported, answer)

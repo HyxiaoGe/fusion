@@ -32,7 +32,6 @@ _REASON_CODE_CATEGORIES: dict[str, str] = {
     "missing_product_result": "shape",
     "unsupported_claim": "risk_term",
     "unsupported_place_relation": "relation",
-    "missing_place_relation_caveat": "relation",
     "unknown_line": "unknown_entity",
     "unknown_route_entity": "unknown_entity",
     "unknown_travel_number": "unknown_entity",
@@ -44,8 +43,9 @@ _REASON_CODE_CATEGORIES: dict[str, str] = {
     "candidate_fact_mismatch": "numeric",
     "weather_fact_mismatch": "weather",
 }
+# 旧路径仅供历史观测记录与统计测试读取；新请求统一走 validated。
 _OBSERVATION_PATHS = frozenset(
-    {"validated", "weather_activity", "mixed_travel", "single_travel_comparison", "no_product_result"}
+    {"validated", "no_product_result", "no_usable_evidence", "weather_activity", "mixed_travel", "single_travel_comparison"}
 )
 _REPAIR_REASON_CODES = frozenset(_REASON_CODE_CATEGORIES) | {"not_repairable", "insufficient_coverage", ""}
 _BLOCK_TYPES = frozenset(
