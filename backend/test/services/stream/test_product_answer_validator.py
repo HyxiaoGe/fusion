@@ -404,6 +404,51 @@ class ProductAnswerValidatorTests(unittest.TestCase):
                 validation = validate_product_answer(answer, [_weather_block()])
                 self.assertEqual(validation.is_valid, expected)
 
+    def test_weather_real_answer_accepts_returned_facts_and_keeps_contradictions_blocked(self):
+        block = _weather_block()
+        block.resolved_location = "深圳市"
+        block.day_count = 2
+        block.forecast_days = [
+            WeatherForecastDay(
+                date=date(2026, 9, day),
+                weekday=weekday,
+                day_weather="多云",
+                night_weather="多云",
+                high_c=33,
+                low_c=26,
+                day_wind_direction="北",
+                day_wind_power="1-3",
+                night_wind_direction="北",
+                night_wind_power="1-3",
+            )
+            for day, weekday in ((26, 6), (27, 7))
+        ]
+        actual_answer = (
+            "明天（9月27日）深圳市的预报是白天多云、夜间多云，最高33℃、最低26℃，北风1—3级。"
+            "这份预报只按白天和夜间两个时段给出结论，并没有单列上午时段，所以上午是否下雨无法确认。"
+            "返回的高低温是33℃/26℃，风力为北风1—3级；这些是全天层面的数值，"
+            "上午的具体气温和风力同样未单独返回。"
+        )
+        cases = (
+            (actual_answer, True),
+            ("明天深圳市的预报是北风1—5级。", False),
+            ("明天深圳市的预报高低温是26℃/33℃。", False),
+            ("明天深圳市上午是否下雨无法确认。", True),
+            ("明天深圳市上午是否下雨无法在这种时间粒度上确认。", True),
+            ("9月27日上午是否下雨，无法确认。", True),
+            ("9月27日上午是否下雨？目前无法确认。", True),
+            ("明天深圳市上午是否下雨：是。", False),
+            ("明天深圳市会下雨，但上午是否下雨无法确认。", False),
+            ("9月27日上午是否下雨：会下雨但无法确认。", False),
+            ("9月27日上午是否下雨无法确认但会下雨。", False),
+            ("9月27日上午是否下雨但会下雨。", False),
+            ("9月27日高低温33℃/26℃最高26℃。", False),
+            ("明天深圳市的气温和风力未单独返回。", True),
+        )
+        for answer, expected in cases:
+            with self.subTest(answer=answer):
+                self.assertEqual(validate_product_answer(answer, [block]).is_valid, expected)
+
     def test_weather_realtime_claims_reject_positive_but_allow_explicit_limits(self):
         cases = (
             ("当前温度是30℃，湿度80%。", False),
