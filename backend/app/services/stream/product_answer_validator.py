@@ -159,7 +159,7 @@ _WEATHER_LOCATION_RE = re.compile(
 )
 _WEATHER_WIND_RE = re.compile(
     r"(?P<direction>东南|东北|西南|西北|东|南|西|北)?风(?:力)?"
-    r"(?P<power>[≤＜<≥＞>]?\s*\d+(?:\s*[-~～—–－至]\s*\d+)?)?\s*级?"
+    r"(?P<power>[≤＜<≥＞>]?\s*\d+(?:\s*[-~～—–－至‑]\s*\d+)?)?\s*级?"
 )
 _WEATHER_WIND_DIRECTION_RE = re.compile(r"风向\s*(?P<direction>东南|东北|西南|西北|东|南|西|北)")
 _WEATHER_FACT_CUE_RE = re.compile(r"气温|温度|最高|最低|雨|雪|雷|多云|阴|晴|雾|霾|风|防晒|保暖|加衣|雨具")
@@ -1211,7 +1211,7 @@ def _weather_temperature_kind_before(sentence: str, position: int) -> str | None
 
 
 def _normalize_weather_wind_power(value: str) -> str:
-    return re.sub(r"\s+|级", "", value).translate(str.maketrans("~～—–－至", "------"))
+    return re.sub(r"\s+|级", "", value).translate(str.maketrans("~～—–－至‑", "-------"))
 
 
 def _allowed_weather_temperatures(days: list[_WeatherDayFacts], kind: str | None) -> set[float]:
