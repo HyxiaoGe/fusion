@@ -45,7 +45,14 @@ _REASON_CODE_CATEGORIES: dict[str, str] = {
 }
 # 旧路径仅供历史观测记录与统计测试读取；新请求统一走 validated。
 _OBSERVATION_PATHS = frozenset(
-    {"validated", "no_product_result", "no_usable_evidence", "weather_activity", "mixed_travel", "single_travel_comparison"}
+    {
+        "validated",
+        "no_product_result",
+        "no_usable_evidence",
+        "weather_activity",
+        "mixed_travel",
+        "single_travel_comparison",
+    }
 )
 _REPAIR_REASON_CODES = frozenset(_REASON_CODE_CATEGORIES) | {"not_repairable", "insufficient_coverage", ""}
 _BLOCK_TYPES = frozenset(

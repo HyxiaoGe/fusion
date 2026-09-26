@@ -29,6 +29,8 @@ _TRANSIT_TYPE_LABELS = {
     "mixed": "公交与地铁",
     "public_transit": "公共交通",
 }
+
+
 def neutralize_product_provider_mentions(answer: str, content_blocks: list[Any] | None = None) -> str:
     """兼容既有调用，只净化内部工具标识，保留品牌、实体和来源原文。
 
