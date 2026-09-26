@@ -12,7 +12,9 @@
 - “高低温”成对数值按高、低温核对；后面另有明确“最高”时以该标签为准，错误的“最高26℃”仍拒绝。排除“和风力”误匹配。
 - 第四阶段原始模型候选与持久化结果在本地新校验器重放，得到 `is_valid=True, reason_code=ok`。这只证明该候选不再被误拦，真实 API 效果必须在 dev 部署后核对。
 
-## 验证与待核
+## 验证与 dev 复验
 
 - 天气校验器 73 项测试通过；完整 3254 项 unittest 通过、2 项跳过，CI 额外 241 项 pytest 通过；架构、本次改动文件的 Ruff 与格式、差异检查通过。独立复审发现的三类反例已修复。本地 Ruff 全仓检查在未改动的 `test/test_product_answer_observation_storage.py` 导入顺序报错；本次改动文件检查通过，远端 CI 仍需独立核对。
-- PR 必需检查、dev 发布台账及运行镜像、同句天气真实 API 和原有 Chrome 登录页面待核。
+- PR [#152](https://github.com/HyxiaoGe/fusion/pull/152) 后端、前端和 Fusion 必需门禁全绿，合并为 `94ebb25adb0b29f5c64b74629a38d3571dd7fc81`；dev 工作流 [36216010145](https://github.com/HyxiaoGe/fusion/actions/runs/36216010145) 的 API 部署步骤成功，API 台账当前 SHA、digest 和运行 API/worker image ID 对应一致，容器无重启；UI 部署仍在进行。
+- 同句真实 API run `c87c9b82f6f5465b998c671ce82cdf1f`：HTTP 200、SSE 完成、`weather_forecast` 成功，模型候选写明“因此无法确认上午是否下雨”，却再次被 `weather_fact_mismatch` 退回多日预报兜底。此次原因是校验器把疑问词之前的“无法确认”误判为疑问词之后已免责，导致“下雨”又被当作肯定事实。候选温度、风力与返回数据吻合；本轮事实已进入第六阶段补修。
+- 原有 Chrome 登录页面仍待验。远端 CI 通过只能证明门禁，本轮 API 结果未通过回答验收。

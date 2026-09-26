@@ -1286,7 +1286,11 @@ def _weather_condition_is_uncertain_question(sentence: str, start: int, end: int
         default=0,
     )
     before = sentence[clause_start:start]
-    if not any(cue in before for cue in ("是否", "能否", "会不会", "能不能")) or _LIMITATION_CUE_RE.search(before):
+    cue_position, cue = max(
+        ((before.rfind(cue), cue) for cue in ("是否", "能否", "会不会", "能不能")),
+        key=lambda item: item[0],
+    )
+    if cue_position < 0 or _LIMITATION_CUE_RE.search(before[cue_position + len(cue) :]):
         return False
     after = sentence[end:].strip()
     if not after:
