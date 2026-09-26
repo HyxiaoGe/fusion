@@ -458,6 +458,7 @@ class WeatherResultsBlock(BaseModel):
     status: Literal["success", "degraded"]
     query: str = Field(min_length=1, max_length=120)
     resolved_location: str = Field(min_length=1, max_length=120)
+    requested_date: Optional[CalendarDate] = None
     day_count: int = Field(ge=1, le=4)
     forecast_days: List[WeatherForecastDay] = Field(min_length=1, max_length=4)
     fetched_at: datetime

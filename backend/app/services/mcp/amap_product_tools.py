@@ -209,6 +209,11 @@ AMAP_PRODUCT_DEFINITIONS = [
                         "type": "string",
                         "enum": ["named", "current_location"],
                     },
+                    "requested_date": {
+                        "type": "string",
+                        "format": "date",
+                        "description": render_runtime_prompt("amap.requested_weather_date"),
+                    },
                 },
                 "required": ["location", "location_source"],
                 "additionalProperties": False,
@@ -681,6 +686,7 @@ class AmapProductToolHandler(BaseToolHandler):
         normalized = _validate_weather_args(args)
         query = normalized["location"]
         source = normalized["location_source"]
+        requested_date = normalized.get("requested_date")
         resolved_hint: str | None = None
 
         if source == "current_location":
@@ -739,7 +745,7 @@ class AmapProductToolHandler(BaseToolHandler):
 
         cached = await self._read_weather_cache(adcode)
         if cached is not None:
-            result = self._build_weather_result(query=query, core=cached)
+            result = self._build_weather_result(query=query, core=cached, requested_date=requested_date)
             return result
 
         try:
@@ -763,7 +769,7 @@ class AmapProductToolHandler(BaseToolHandler):
         if core is None:
             raise McpClientError("invalid_response", MCP_TOOL_UNAVAILABLE_MESSAGE)
         await self._write_weather_cache(adcode, core)
-        return self._build_weather_result(query=query, core=core)
+        return self._build_weather_result(query=query, core=core, requested_date=requested_date)
 
     def _weather_now(self) -> datetime:
         value = self.now()
@@ -799,7 +805,13 @@ class AmapProductToolHandler(BaseToolHandler):
         except Exception as error:  # noqa: BLE001 — 缓存故障不能影响真实天气结果
             logger.warning("天气缓存写入失败，已旁路: adcode=%s error=%s", adcode, type(error).__name__)
 
-    def _build_weather_result(self, *, query: str, core: dict[str, Any]) -> ToolResult:
+    def _build_weather_result(
+        self,
+        *,
+        query: str,
+        core: dict[str, Any],
+        requested_date: str | None,
+    ) -> ToolResult:
         day_count = len(core["forecast_days"])
         public_query = core["resolved_location"] if _ADCODE_PATTERN.fullmatch(query) else query
         product_result = {
@@ -810,6 +822,8 @@ class AmapProductToolHandler(BaseToolHandler):
             "fetched_at": core["fetched_at"],
             "limitations": core["limitations"],
         }
+        if requested_date:
+            product_result["requested_date"] = requested_date
         return ToolResult(
             status="success" if day_count == 4 else "degraded",
             data={"result": _bound_result(product_result)},
@@ -1134,6 +1148,7 @@ class AmapProductToolHandler(BaseToolHandler):
                     status=result.status,
                     query=query,
                     resolved_location=resolved_location,
+                    requested_date=product_result.get("requested_date"),
                     day_count=len(days),
                     forecast_days=days,
                     fetched_at=product_result.get("fetched_at"),
@@ -1496,7 +1511,7 @@ def _validate_route_args(args: Any) -> dict[str, Any]:
 
 
 def _validate_weather_args(args: Any) -> dict[str, Any]:
-    source = _validate_closed_object(args, {"location", "location_source"})
+    source = _validate_closed_object(args, {"location", "location_source", "requested_date"})
     location = _required_text(source, "location", 120)
     if _COORDINATE_PATTERN.fullmatch(location) or _ADCODE_PATTERN.fullmatch(location):
         raise _InvalidArguments
@@ -1507,9 +1522,19 @@ def _validate_weather_args(args: Any) -> dict[str, Any]:
         location = "当前位置"
     elif location_source == "current_location" or location in {"current_location", "当前位置"}:
         raise _InvalidArguments
+    requested_date = source.get("requested_date")
+    if requested_date is not None:
+        if not isinstance(requested_date, str):
+            raise _InvalidArguments
+        try:
+            if CalendarDate.fromisoformat(requested_date).isoformat() != requested_date:
+                raise _InvalidArguments
+        except ValueError as error:
+            raise _InvalidArguments from error
     return {
         "location": location,
         "location_source": location_source,
+        **({"requested_date": requested_date} if requested_date else {}),
     }
 
 
