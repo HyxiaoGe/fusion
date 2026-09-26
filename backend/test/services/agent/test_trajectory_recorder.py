@@ -307,6 +307,8 @@ class RecorderDatabaseTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.01)
         self.fail(message)
 
+    # 验证元数据落库，给 CI 线程调度留出余量。
+    @patch("app.services.agent.trajectory_recorder.TRAJECTORY_WAIT_TIMEOUT_SECONDS", 2)
     async def test_prompt_metadata_and_effective_request_fingerprint_survive_database_reload(self):
         recorder = self._recorder()
         await recorder.record_chunk(
