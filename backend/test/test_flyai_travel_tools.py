@@ -644,16 +644,16 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
             }
         )
         mapped_comparison = build_grounded_product_answer([multi_flight_block, cheaper_train_block])
-        self.assertIn("如果优先考虑本次返回的计划行程时长，可优先考虑航班CZ2002", mapped_comparison)
-        self.assertNotIn("计划行程时长，可优先考虑航班CZ1001", mapped_comparison)
-        self.assertIn("如果预算优先，可考虑高铁G100", mapped_comparison)
+        self.assertIn("计划行程时长最短的是航班CZ2002", mapped_comparison)
+        self.assertNotIn("计划行程时长最短的是航班CZ1001", mapped_comparison)
+        self.assertIn("参考价最低的是高铁G100", mapped_comparison)
         self.assertTrue(validate_product_answer(mapped_comparison, [multi_flight_block, cheaper_train_block]).is_valid)
 
         faster_train_block = cheaper_train_block.model_copy(
             update={"trains": [cheaper_train_block.trains[0].model_copy(update={"duration_s": 45 * 60})]}
         )
         cross_mode_comparison = build_grounded_product_answer([multi_flight_block, faster_train_block])
-        self.assertIn("如果优先考虑本次返回的计划行程时长，可优先考虑高铁G100", cross_mode_comparison)
+        self.assertIn("计划行程时长最短的是高铁G100", cross_mode_comparison)
         self.assertTrue(
             validate_product_answer(cross_mode_comparison, [multi_flight_block, faster_train_block]).is_valid
         )

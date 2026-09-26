@@ -1893,7 +1893,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         complete_step_fn.assert_awaited_once()
 
     @patch("app.services.stream.agent_loop_round_outcome.settings.PRODUCT_ANSWER_REPAIR_ENABLED", True)
-    async def test_grounded_fallback_completes_place_relation_caveat_when_repair_is_enabled(self):
+    async def test_grounded_fallback_omits_unsupported_place_relation_when_repair_is_enabled(self):
         state = AgentLoopState()
         state.mark_current_step("step-product-fallback-caveat")
         state.content_blocks.extend(
@@ -1952,8 +1952,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("炭火一号", emitted_answer)
         self.assertIn("金杆桌球", emitted_answer)
         self.assertNotIn("火星烤肉店", emitted_answer)
-        self.assertIn("地点之间的距离和步行时间", emitted_answer)
-        self.assertIn("另行查询路线", emitted_answer)
+        self.assertNotIn("步行即达", emitted_answer)
 
     @patch("app.services.stream.agent_loop_round_outcome.settings.PRODUCT_ANSWER_REPAIR_ENABLED", True)
     async def test_deferred_product_answer_repairs_unsafe_clause_when_repair_is_enabled(self):
@@ -2118,7 +2117,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(observation["product_result_types"], ["route_results"])
         self.assertNotIn("高峰期可能拥堵", json.dumps(observation, ensure_ascii=False))
 
-    async def test_deferred_weather_activity_answer_is_always_deterministic(self):
+    async def test_deferred_weather_answer_uses_validated_model_candidate(self):
         state = AgentLoopState()
         state.mark_current_step("step-weather-activity-repair")
         state.content_blocks.append(
@@ -2146,10 +2145,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         )
         model_answer = (
             "7月24日（周五）南山区白天雷阵雨、夜间多云，26–31℃。"
-            "如果你的条件是上午骑行时避开降雨，本次预报不满足这一条件。"
-            "本次预报只有白天和夜间粒度，无法确认上午这一细分时段。"
-            "从避雨角度看这一天的白天时段存在被淋雨的可能。"
-            "夜间转为多云，如果你计划调整到晚上活动，天气条件相对更宽松一些。"
+            "本次预报只有白天和夜间粒度，无法确认上午是否下雨，也不能据此判断上午骑行能否避雨。"
         )
         append_chunk = AsyncMock()
         warnings: list[str] = []
@@ -2176,22 +2172,18 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(outcome.exit, AgentLoopExit.COMPLETED)
         emitted_answer = append_chunk.await_args.args[2]
-        self.assertIn("不满足这一条件", emitted_answer)
-        self.assertIn("只有白天和夜间粒度，无法确认上午这一细分时段", emitted_answer)
-        self.assertNotIn("存在被淋雨的可能", emitted_answer)
-        self.assertNotIn("调整到晚上活动", emitted_answer)
-        self.assertNotIn("天气条件相对更宽松", emitted_answer)
+        self.assertEqual(emitted_answer, model_answer)
         self.assertEqual(state.content_blocks[-1].text, emitted_answer)
-        self.assertEqual(len(warnings), 1)
-        self.assertIn("天气活动条件使用确定性回答", warnings[0])
+        self.assertEqual(warnings, [])
 
-    async def test_deferred_mixed_travel_answer_is_always_deterministic(self):
+    async def test_deferred_mixed_travel_answer_uses_validated_model_candidate(self):
         state = AgentLoopState()
         state.mark_current_step("step-mixed-travel-answer")
         state.content_blocks.extend(
             [
                 {
                     "type": "flight_results",
+                    "status": "success",
                     "id": "flight-out",
                     "origin": "北京",
                     "destination": "上海",
@@ -2210,6 +2202,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
                 },
                 {
                     "type": "train_results",
+                    "status": "success",
                     "id": "train-out",
                     "origin": "北京",
                     "destination": "上海",
@@ -2228,7 +2221,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
                 },
             ]
         )
-        model_answer = "航班都优于高铁。若希望落地更接近市区，可选虹桥机场。G1 是兼顾早到与耗时的选择。"
+        model_answer = "本次返回候选中，G1 参考价 661 元低于 MU5101 的 760 元；MU5101 计划用时比 G1 短。"
         append_chunk = AsyncMock()
         warnings: list[str] = []
 
@@ -2254,22 +2247,17 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(outcome.exit, AgentLoopExit.COMPLETED)
         emitted_answer = append_chunk.await_args.args[2]
-        self.assertIn("同时返回北京到上海", emitted_answer)
-        self.assertIn("MU5101", emitted_answer)
-        self.assertIn("G1", emitted_answer)
-        self.assertNotIn("都优于", emitted_answer)
-        self.assertNotIn("更接近市区", emitted_answer)
-        self.assertNotIn("兼顾早到", emitted_answer)
+        self.assertEqual(emitted_answer, model_answer)
         self.assertEqual(state.content_blocks[-1].text, emitted_answer)
-        self.assertEqual(len(warnings), 1)
-        self.assertIn("混合出行比较使用确定性回答", warnings[0])
+        self.assertEqual(warnings, [])
 
-    async def test_deferred_single_train_comparison_is_always_deterministic(self):
+    async def test_deferred_single_train_comparison_uses_validated_model_candidate(self):
         state = AgentLoopState()
         state.mark_current_step("step-single-train-comparison")
         state.content_blocks.append(
             {
                 "type": "train_results",
+                "status": "success",
                 "id": "train-out",
                 "origin": "北京",
                 "destination": "上海",
@@ -2291,6 +2279,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         )
         append_chunk = AsyncMock()
         warnings: list[str] = []
+        model_answer = "本次返回候选中，G737 参考价 598 元最低，G37 计划用时 4 小时 43 分钟最短。"
 
         with patch("app.services.stream.agent_loop_round_outcome.append_chunk", append_chunk):
             outcome = await handle_agent_round_outcome(
@@ -2308,7 +2297,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
                     step_context=_step_context("step-single-train-comparison"),
                     round_result=AgentRoundResult(
                         reasoning_buf="",
-                        content_buf="G737 最省事，G37 兼顾价格和时间。",
+                        content_buf=model_answer,
                         tool_calls=[],
                         finish_reason="stop",
                         accumulated_usage=Usage(input_tokens=2, output_tokens=10),
@@ -2319,13 +2308,9 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(outcome.exit, AgentLoopExit.COMPLETED)
         emitted_answer = append_chunk.await_args.args[2]
-        self.assertIn("参考价最低的是G737", emitted_answer)
-        self.assertIn("计划行程时长最短的是G37", emitted_answer)
-        self.assertNotIn("最省事", emitted_answer)
-        self.assertNotIn("兼顾", emitted_answer)
+        self.assertEqual(emitted_answer, model_answer)
         self.assertEqual(state.content_blocks[-1].text, emitted_answer)
-        self.assertEqual(len(warnings), 1)
-        self.assertIn("单一出行比较使用确定性回答", warnings[0])
+        self.assertEqual(warnings, [])
 
     async def test_final_answer_evidence_does_not_swallow_stream_write_unavailable(self):
         from app.services.stream_state_service import StreamWriteUnavailableError

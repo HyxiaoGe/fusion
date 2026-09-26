@@ -1,0 +1,113 @@
+{
+  "description": "产品结果语义边界的固定模型验收语料；示例回答是应避免的输出，不能把本地提示词检查当成模型准确率验证。",
+  "cases": [
+    {
+      "id": "place_proximity_and_experience",
+      "user_text": "找一家烤肉店，吃完去打桌球，不想走太远。",
+      "content_blocks": [
+        {
+          "type": "place_results",
+          "places": [
+            {"name": "炭火一号", "rating": 4.7, "reference_cost_yuan": 88},
+            {"name": "金杆桌球", "rating": 4.1}
+          ]
+        }
+      ],
+      "forbidden_examples": [
+        "炭火一号和金杆桌球地址临近，吃完走几步就到。",
+        "两家都在东边老村附近，地址非常接近。",
+        "先吃完再到隔壁片区打桌球。",
+        "这是就近组合，两个点最近，地址相近。",
+        "两家地址的区域重叠度高。",
+        "吃完转场很方便。",
+        "这两个地点很顺路，也很好找好走。",
+        "眼镜哥鲜货烧烤适合爱吃鲜肉的朋友。"
+      ],
+      "expected_boundary": "说明本次没有返回地点间路线或步行距离，无法确认两地远近；不要从名称和地址推断体验或适合人群。",
+      "prompt_fragments": ["cannot establish it", "ease of moving between places", "explicitly state"]
+    },
+    {
+      "id": "place_ranking_scope",
+      "user_text": "这些店哪家评分最高？",
+      "content_blocks": [
+        {
+          "type": "place_results",
+          "places": [
+            {"name": "炭火一号", "rating": 4.7},
+            {"name": "金杆桌球", "rating": 4.1}
+          ]
+        }
+      ],
+      "forbidden_examples": ["炭火一号评分4.7分，评分最高。"],
+      "expected_boundary": "只能说炭火一号在本次返回候选中评分最高。",
+      "prompt_fragments": ["within the returned candidates", "citywide or general claim"]
+    },
+    {
+      "id": "route_comfort_and_realtime",
+      "user_text": "比较驾车和公交通勤，哪个更合适？",
+      "content_blocks": [
+        {
+          "type": "route_results",
+          "routes": [
+            {"mode": "driving", "duration_s": 840, "distance_m": 6200},
+            {"mode": "transit", "duration_s": 1920, "walking_distance_m": 420}
+          ]
+        }
+      ],
+      "forbidden_examples": [
+        "若重视用时，驾车更舒适。",
+        "早高峰骑行更灵活，也不用掐点赶车。",
+        "公交更安全，也不会拥挤。"
+      ],
+      "expected_boundary": "只比较返回的时间、距离及换乘字段；舒适、安全、等候和灵活性无法由该结果确认。",
+      "prompt_fragments": ["comfort, safety, waiting, or flexibility", "real-time traffic conditions"]
+    },
+    {
+      "id": "weather_activity_and_advice",
+      "user_text": "7月24日南山区天气怎么样，适合上午骑行吗？",
+      "content_blocks": [
+        {
+          "type": "weather_results",
+          "resolved_location": "南山区",
+          "forecast_days": [
+            {"date": "2026-07-24", "weekday": 5, "day_weather": "雷阵雨", "night_weather": "多云", "high_c": 31, "low_c": 26}
+          ]
+        }
+      ],
+      "forbidden_examples": [
+        "户外骑行大概率会淋雨，建议优先考虑室内骑行或改期。",
+        "夜间转为多云，天气条件相对更宽松一些。",
+        "周五白天雷阵雨，建议穿外套并注意保暖。",
+        "周五有雨，推荐乘地铁。",
+        "天气不会影响出行。"
+      ],
+      "expected_boundary": "陈述预报和昼夜粒度；按用户避雨条件作有限结论，不推断实际淋雨、活动适宜性、装备或路线。",
+      "prompt_fragments": ["conditional conclusion", "Do not predict whether the user will get wet", "route changes"]
+    },
+    {
+      "id": "travel_convenience_and_sampling",
+      "user_text": "比较这个航班和火车的出行选择。",
+      "content_blocks": [
+        {
+          "type": "flight_results",
+          "flights": [
+            {"flight_no": "CZ1234", "duration_s": 7200, "price": {"amount_minor": 88000}}
+          ]
+        },
+        {
+          "type": "train_results",
+          "trains": [
+            {"train_no": "G100", "duration_s": 10800, "price": {"amount_minor": 60000}}
+          ]
+        }
+      ],
+      "forbidden_examples": [
+        "CZ1234 所在机场接机也方便。",
+        "从机场到市区很近。",
+        "转乘这趟航班会更方便。"
+      ],
+      "expected_boundary": "只比较返回候选的参考价和计划时长，不推断机场接驳或航司总体班次。",
+      "prompt_fragments": ["airport access convenience", "overall service frequency", "reference prices and scheduled service durations"]
+    }
+  ]
+}

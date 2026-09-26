@@ -232,7 +232,7 @@ class OutputProvenanceTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(lifecycle.content_text, candidate)
 
     async def test_product_repair_and_fallback_are_server_output(self):
-        for mode in ("repair", "fallback", "weather", "mixed", "single", "pending"):
+        for mode in ("repair", "fallback", "pending"):
             with self.subTest(mode=mode):
                 lifecycle = await self._lifecycle()
                 lifecycle.record_detail(reasoning_text="", content_text="模型候选")
@@ -257,18 +257,6 @@ class OutputProvenanceTests(unittest.IsolatedAsyncioTestCase):
                 with (
                     patch(prefix + "append_chunk", new=AsyncMock()) as append,
                     patch(prefix + "complete_text_response_step", new=AsyncMock()),
-                    patch(
-                        prefix + "build_grounded_weather_activity_answer",
-                        return_value="天气改写" if mode == "weather" else "",
-                    ),
-                    patch(
-                        prefix + "build_grounded_mixed_travel_answer",
-                        return_value="混合改写" if mode == "mixed" else "",
-                    ),
-                    patch(
-                        prefix + "build_grounded_single_travel_comparison_answer",
-                        return_value="单一改写" if mode == "single" else "",
-                    ),
                     patch(
                         prefix + "build_tool_repair_clarification", return_value="待补参数" if mode == "pending" else ""
                     ),

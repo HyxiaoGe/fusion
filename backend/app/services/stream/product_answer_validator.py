@@ -27,16 +27,13 @@ _PRODUCT_RESULT_TYPES = {
 }
 _RISK_TERM_RE = re.compile(
     r"排队|空位|预约|停车|拥堵|堵车|路况|候车|票价|免费|实时|人均|"
-    r"准点|稳定|靠谱|拥挤|安全|舒适|坡度|自行车道|共享单车|省钱|便宜|实惠|性价比|"
-    r"等待|灵活|掐点|翻倍|早高峰|晚高峰|高峰期|雨天|天气|"
+    r"准点|坡度|自行车道|共享单车|等待|"
     r"余票|有票|售罄|延误|取消|退改签|退票|改签|行李|登机口|检票口|站台"
 )
-_TRAVEL_GROUNDED_PRICE_TERM_RE = re.compile(r"票价|省钱|便宜|实惠")
+_TRAVEL_GROUNDED_PRICE_TERM_RE = re.compile(r"票价")
 _TRAVEL_UNSUPPORTED_CLAIM_RE = re.compile(
     r"余票|有票|售罄|准点|延误|取消|退改签|退票|改签|行李|登机口|检票口|站台|"
-    r"(?:航班|班次)(?:也)?(?:更多|较多|很多|多)|接机(?:也)?方便|"
-    r"(?:机场|车站).{0,8}(?:交通|接驳|打车|接机).{0,6}(?:方便|便利)|"
-    r"离(?:市区|目的地).{0,8}(?:近|远)|省(?:下)?住宿费|节省住宿(?:费|成本)"
+    r"(?:航班|班次)(?:也)?(?:更多|较多|很多|多)|省(?:下)?住宿费|节省住宿(?:费|成本)"
 )
 _COST_TERM_RE = re.compile(r"费用|成本|过路费")
 _LIMITATION_CUE_RE = re.compile(
@@ -49,31 +46,6 @@ _CLAUSE_SPLIT_RE = re.compile(r"[，,。！？!?；;\n]+")
 _GENERIC_PLACE_RELATION_RE = re.compile(
     r"(?:两家|两处|二者|彼此|互相).{0,12}(?:步行|相距|距离|车程|驾车|骑行)|"
     r"(?:步行|相距|距离|车程|驾车|骑行).{0,12}(?:两家|两处|二者|彼此|互相)"
-)
-_PLACE_PROXIMITY_RE = re.compile(
-    r"(?:地址|位置|两地|两家|二者|彼此)?(?:相邻|临近)|"
-    r"(?:地址|位置).{0,6}(?:相近|接近|靠近|很近)|"
-    r"(?:两家|两地|二者|彼此|两个?地点).{0,16}(?:附近|接近|靠近|很近)|"
-    r"(?:两家|两地|二者|彼此).{0,6}都在.{0,12}附近|"
-    r"距离(?:也)?(?:很|较|比较|不算)?近|离得(?:很|较|比较)?近|"
-    r"(?:步行|走路).{0,8}(?:超近|即达|可达|很近|几步)|"
-    r"(?:吃完|走|步行).{0,12}(?:走几步|几步就到|溜达过去|步行即达)|"
-    r"溜达.{0,8}(?:过去|到|方便)|隔壁(?:片区|区域|街区|附近)?|"
-    r"就近|(?:两个?|两处|两地|两家).{0,8}(?:点|地点)?最?近|区域重叠度.{0,3}高"
-)
-_PLACE_UNGROUNDED_EXPERIENCE_RE = re.compile(
-    r"转场.{0,8}(?:方便|轻松)|(?:吃完|饭后).{0,12}(?:随时|顺路|方便|直接|轻松)|"
-    r"顺路|好找(?:好走)?|好走|靠近|节奏.{0,8}自由"
-)
-_PLACE_NAME_INFERENCE_RE = re.compile(r"适合.{0,12}(?:爱吃|喜欢|偏好)")
-_USER_PLACE_RELATION_REQUEST_RE = re.compile(
-    r"不想.{0,8}(?:走|离).{0,6}远|走太远|步行|就近|"
-    r"(?:组合|搭配).{0,16}(?:地点|店|桌球|台球)|"
-    r"吃完.{0,16}(?:桌球|台球|下一家|另一家)"
-)
-_PLACE_RELATION_CAVEAT_RE = re.compile(
-    r"(?:距离|步行|走路|远近).{0,24}(?:未返回|无法确认|不能确认|另行查询|建议.{0,8}(?:导航|查询))|"
-    r"(?:未返回|无法确认|不能确认).{0,24}(?:距离|步行|走路|远近)"
 )
 _RELATION_TERM_RE = re.compile(r"步行|相距|距离|车程|驾车|骑行")
 _LINE_RE = re.compile(
@@ -132,10 +104,6 @@ _TRANSIT_TOTAL_DISTANCE_RE = re.compile(
 )
 _DIFFERENCE_CUE_RE = re.compile(r"相差|差(?:了)?|快(?:了)?|慢(?:了)?|多(?:了)?|少(?:了)?|节省|缩短|增加")
 _SAME_SCOPE_DIFFERENCE_RE = re.compile(r"两个?方案|两种方案|两条路线|主方案|备选|替代方案")
-_UNSCOPED_SUPERLATIVE_RE = re.compile(
-    r"(?:评分|消费|价格|距离|用时).{0,6}(?:最高|最低|最短|最长|最近|最远|最便宜)|"
-    r"(?:最高|最低|最短|最长|最近|最远|最便宜).{0,6}(?:评分|消费|价格|距离|用时)"
-)
 _RETURNED_SCOPE_RE = re.compile(r"本次|此次|返回|候选|所列|卡片|这些|其中|上述|结果中")
 _MARKDOWN_TABLE_SEPARATOR_RE = re.compile(
     r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$",
@@ -148,7 +116,7 @@ _TRAVEL_NUMBER_RE = re.compile(
     re.IGNORECASE,
 )
 _TRAVEL_STATION_MENTION_RE = re.compile(
-    r"(?:到达|抵达|前往|从|到|在|由)"
+    r"(?:到达|抵达|前往|从|到|在|由|(?:可选|选择|推荐)(?:从|到|在|由)?)"
     r"(?P<name>[\u4e00-\u9fffA-Za-z0-9·（）()]{2,32}?(?:国际机场|机场|火车站|高铁站|站))"
 )
 _CLOCK_TIME_RE = re.compile(r"(?<!\d)(?:[01]\d|2[0-3]):[0-5]\d(?!\d)")
@@ -187,7 +155,6 @@ _WEATHER_ADVICE_RE = re.compile(
     r"带伞|携带雨具|雨具|防风|防晒|加衣|保暖|穿.{0,6}(?:外套|衣|鞋)|着装|"
     r"减少.{0,6}步行|避免.{0,6}步行"
 )
-_WEATHER_HAZARD_RE = re.compile(r"雨|雪|雷|大风|台风")
 _WEATHER_LOCATION_RE = re.compile(
     r"(?P<name>[\u4e00-\u9fff]{2,12}(?:省|市|区|县|旗))"
     r"(?=(?:的)?(?:未来(?:几天|[一二三四五六七八九十0-9]+天)?)?"
@@ -198,26 +165,8 @@ _WEATHER_WIND_RE = re.compile(
     r"(?P<power>[≤＜<≥＞>]?\s*\d+(?:\s*[-~至]\s*\d+)?)?\s*级?"
 )
 _WEATHER_WIND_DIRECTION_RE = re.compile(r"风向\s*(?P<direction>东南|东北|西南|西北|东|南|西|北)")
+_WEATHER_WIND_DESCRIPTION_RE = re.compile(r"微风|轻风|和风|强风")
 _WEATHER_FACT_CUE_RE = re.compile(r"气温|温度|最高|最低|雨|雪|雷|多云|阴|晴|雾|霾|风|防晒|保暖|加衣|雨具")
-_WEATHER_UNSUPPORTED_IMPACT_RE = re.compile(
-    r"(?:天气|雨天|有雨|下雨|会下雨|有雪|下雪|会下雪).{0,12}(?:不会|不|无)?影响"
-    r"(?:出行|行程|通勤|路线)|"
-    r"(?:天气|雨天|有雨|下雨|会下雨|有雪|下雪|会下雪).{0,20}(?:建议|推荐|优先).{0,12}"
-    r"(?:驾车|开车|自驾|公交|地铁|公共交通|步行|骑行)"
-)
-_WEATHER_ACTIVITY_PATTERN = r"(?:户外(?:活动|运动)?|活动|骑行|骑车|自行车|跑步|慢跑|徒步|登山|爬山|露营|运动|出游|游玩)"
-_WEATHER_ACTIVITY_INFERENCE_RE = re.compile(
-    rf"{_WEATHER_ACTIVITY_PATTERN}.{{0,16}}"
-    r"(?:适合|不适合|推荐|不推荐|建议|不建议|大概率|容易|可能).{0,8}"
-    r"(?:淋雨|中暑|受凉|危险|安全|舒适|体验)?|"
-    r"(?:适合|不适合|推荐|不推荐|建议|不建议|宜|不宜)"
-    rf".{{0,16}}{_WEATHER_ACTIVITY_PATTERN}|"
-    r"(?:建议|推荐|优先|考虑|改期|取消|转为|调整)"
-    rf".{{0,20}}(?:{_WEATHER_ACTIVITY_PATTERN}|室内|改期|取消)|"
-    r"(?:存在|有|可能|容易|大概率).{0,10}(?:被)?淋雨|"
-    r"(?:被)?淋雨.{0,10}(?:可能|风险)|"
-    r"天气条件.{0,10}(?:相对|更).{0,8}(?:宽松|合适|适合|友好)"
-)
 _WEATHER_DATE_TOKEN_PATTERN = r"(?:\d{4}-\d{2}-\d{2}|\d{1,2}月\d{1,2}日)"
 _WEATHER_DATE_RANGE_PATTERN = rf"{_WEATHER_DATE_TOKEN_PATTERN}(?:\s*(?:至|到|~|～|—)\s*{_WEATHER_DATE_TOKEN_PATTERN})?"
 _WEATHER_COVERAGE_RETRY_SUFFIX_PATTERN = (
@@ -315,8 +264,6 @@ _SAFE_CAVEATS = {
     "cost": "未返回的费用信息，本次查询结果无法确认，建议以实际信息为准。",
     "numeric": "未返回的时间、距离和费用信息，本次查询结果无法确认，请以卡片数值为准。",
     "relation": "地点之间的距离和步行时间本次查询结果无法确认，如需组合出行建议应另行查询路线。",
-    "attribute": "口味、适合人群和转场体验等未返回属性，本次查询结果无法确认。",
-    "scope": "最高、最低等排序只代表本次返回候选，不能扩展为区域整体结论。",
     "transit_total_distance": "公共交通全程距离本次查询结果无法确认，请以卡片已展示的步行距离和线路信息为准。",
     "travel": "余票、准点率、退改签、行李、登机口、检票口、站台及机场接驳便利度等信息本次查询未返回，预订和出发前请另行核实。",
 }
@@ -390,7 +337,6 @@ def validate_product_answer(
     content_blocks: list[Any],
     *,
     messages: list[dict] | None = None,
-    _enforce_completeness: bool = True,
 ) -> ProductAnswerValidation:
     """验证高置信硬事实；无法可靠判断的自然语言交给前置事实边界约束。"""
 
@@ -449,12 +395,6 @@ def validate_product_answer(
         return ProductAnswerValidation(False, "candidate_fact_mismatch")
     if _has_route_comparison_mismatch(normalized_answer, facts):
         return ProductAnswerValidation(False, "numeric_mismatch")
-    if (
-        _enforce_completeness
-        and _needs_place_relation_caveat(user_text, facts)
-        and not _PLACE_RELATION_CAVEAT_RE.search(normalized_answer)
-    ):
-        return ProductAnswerValidation(False, "missing_place_relation_caveat")
     return ProductAnswerValidation(True, "ok")
 
 
@@ -483,34 +423,14 @@ def repair_unsupported_product_answer(
     kept_units: list[str] = []
     safe_text_length = 0
     caveat_codes: set[str] = set()
-    activity_inference_removed = False
-    user_text = _latest_user_text(messages)
-    if _needs_place_relation_caveat(user_text, facts) and not _PLACE_RELATION_CAVEAT_RE.search(answer):
-        caveat_codes.add("relation")
     for unit in _iter_repair_units(answer):
-        validation = validate_product_answer(
-            unit,
-            content_blocks,
-            messages=messages,
-            _enforce_completeness=False,
-        )
+        validation = validate_product_answer(unit, content_blocks, messages=messages)
         if validation.is_valid:
             kept_units.append(unit)
             safe_text_length += len(re.sub(r"\s+", "", unit))
             continue
         weather_reason = _weather_claim_reason(unit, facts)
         if weather_reason is not None:
-            if weather_reason == "unsupported_claim" and _has_weather_activity_inference(unit):
-                activity_inference_removed = True
-                salvaged = _salvage_safe_subclauses(
-                    unit,
-                    content_blocks,
-                    facts,
-                    messages=messages,
-                )
-                kept_units.extend(salvaged)
-                safe_text_length += sum(len(re.sub(r"\s+", "", item)) for item in salvaged)
-                continue
             return None, weather_reason
         if validation.reason_code == "unsupported_claim":
             if format_rewritten:
@@ -559,9 +479,7 @@ def repair_unsupported_product_answer(
         if format_rewritten and validation.reason_code.startswith("unknown_travel_"):
             continue
         return None, validation.reason_code
-    if safe_text_length < 8 or (
-        not caveat_codes and not label_rewritten and not format_rewritten and not activity_inference_removed
-    ):
+    if safe_text_length < 8 or (not caveat_codes and not label_rewritten and not format_rewritten):
         return None, "not_repairable"
     repaired = "\n".join(_normalize_repaired_unit(unit) for unit in kept_units)
     repaired = _drop_empty_markdown_sections(repaired)
@@ -638,12 +556,7 @@ def _salvage_safe_subclauses(
             continue
         if not _is_independent_repair_clause(clause):
             continue
-        validation = validate_product_answer(
-            clause,
-            content_blocks,
-            messages=messages,
-            _enforce_completeness=False,
-        )
+        validation = validate_product_answer(clause, content_blocks, messages=messages)
         if not validation.is_valid:
             continue
         has_number = _HOUR_MINUTE_RE.search(clause) or _NUMBER_UNIT_RE.search(clause)
@@ -669,12 +582,6 @@ def _has_safe_place_repair_scope(clause: str, facts: _FactIndex) -> bool:
     if _LIMITATION_CUE_RE.search(clause) or _USER_MONEY_CONSTRAINT_RE.search(clause):
         return True
     return bool(re.search(r"高德|本次|此次|返回|候选|卡片", clause))
-
-
-def _needs_place_relation_caveat(user_text: str, facts: _FactIndex) -> bool:
-    return bool(
-        facts.has_place_results and not facts.route_endpoint_pairs and _USER_PLACE_RELATION_REQUEST_RE.search(user_text)
-    )
 
 
 def _has_explicit_numeric_scope(clause: str, facts: _FactIndex) -> bool:
@@ -1031,10 +938,6 @@ def _weather_claim_reason(answer: str, facts: _FactIndex) -> str | None:
                 or _WEATHER_UNSUPPORTED_CAPABILITY_RE.search(capability_clause)
             ) and not _LIMITATION_CUE_RE.search(capability_clause):
                 return "unsupported_claim"
-        if _WEATHER_UNSUPPORTED_IMPACT_RE.search(sentence):
-            return "unsupported_claim"
-        if _has_weather_activity_inference(sentence):
-            return "unsupported_claim"
         coverage_validation = _validate_weather_coverage_sentence(sentence, facts.weather_days)
         if coverage_validation is False:
             return "weather_fact_mismatch"
@@ -1053,22 +956,26 @@ def _weather_claim_reason(answer: str, facts: _FactIndex) -> str | None:
             or _WEATHER_WIND_DIRECTION_RE.search(sentence)
             or _WEATHER_ADVICE_RE.search(sentence)
         )
-        has_weather_fact = has_parsed_weather_fact or bool(_WEATHER_FACT_CUE_RE.search(sentence))
-        if has_weather_fact and (
+        if has_parsed_weather_fact and (
             _weather_has_unresolved_relative_day(sentence, facts.weather_days) or "明后天" in sentence
         ):
             return "weather_fact_mismatch"
-        if has_weather_fact and _WEATHER_EXPLICIT_DAY_RE.search(sentence) and not scoped_days:
-            return "weather_fact_mismatch"
-        if (
-            has_weather_fact
-            and not has_parsed_weather_fact
-            and _WEATHER_EXPLICIT_DAY_RE.search(sentence)
-            and not _LIMITATION_CUE_RE.search(sentence)
-        ):
+        if has_parsed_weather_fact and _WEATHER_EXPLICIT_DAY_RE.search(sentence) and not scoped_days:
             return "weather_fact_mismatch"
         if not scoped_days:
             scoped_days = facts.weather_days
+        for match in _WEATHER_WIND_DESCRIPTION_RE.finditer(sentence):
+            if not any(
+                match.group(0) in value
+                for day in scoped_days
+                for value in (
+                    day.day_weather,
+                    day.night_weather,
+                    day.day_wind_power or "",
+                    day.night_wind_power or "",
+                )
+            ):
+                return "weather_fact_mismatch"
         allowed_locations = {_compact_text(value) for value in facts.weather_locations}
         for match in _WEATHER_LOCATION_RE.finditer(sentence):
             location = match.group("name")
@@ -1130,26 +1037,7 @@ def _weather_claim_reason(answer: str, facts: _FactIndex) -> str | None:
             allowed_winds = _allowed_weather_winds(claim_days, period)
             if not any(direction == allowed_direction for allowed_direction, _ in allowed_winds):
                 return "weather_fact_mismatch"
-        if _WEATHER_ADVICE_RE.search(sentence):
-            if re.search(r"防晒|加衣|保暖|穿.{0,6}(?:外套|衣|鞋)|着装", sentence):
-                return "unsupported_claim"
-            conditions = {value for day in scoped_days for value in (day.day_weather, day.night_weather)}
-            if "防风" in sentence:
-                supported = any(re.search(r"大风|台风", value) for value in conditions)
-            elif re.search(r"带伞|携带雨具|雨具", sentence):
-                supported = any(re.search(r"雨|雪|雷", value) for value in conditions)
-            else:
-                supported = any(_WEATHER_HAZARD_RE.search(value) for value in conditions)
-            if not supported:
-                return "unsupported_claim"
     return None
-
-
-def _has_weather_activity_inference(text: str) -> bool:
-    return any(
-        _WEATHER_ACTIVITY_INFERENCE_RE.search(clause) and not _LIMITATION_CUE_RE.search(clause)
-        for clause in _CLAUSE_SPLIT_RE.split(text)
-    )
 
 
 def _validate_weather_coverage_sentence(
@@ -1498,12 +1386,6 @@ def _has_unsupported_claim(answer: str, facts: _FactIndex) -> bool:
 def _unsupported_clause_reason(clause: str, facts: _FactIndex) -> str | None:
     if _TRANSIT_TOTAL_DISTANCE_RE.search(clause):
         return "transit_total_distance"
-    if facts.has_place_results and _PLACE_UNGROUNDED_EXPERIENCE_RE.search(clause):
-        return "relation"
-    if facts.has_place_results and _PLACE_NAME_INFERENCE_RE.search(clause):
-        return "attribute"
-    if _UNSCOPED_SUPERLATIVE_RE.search(clause) and not _RETURNED_SCOPE_RE.search(clause):
-        return "scope"
     if (
         facts.has_travel_results
         and _TRAVEL_UNSUPPORTED_CLAIM_RE.search(clause)
@@ -1552,8 +1434,6 @@ def _is_supported_travel_price_claim(clause: str, facts: _FactIndex) -> bool:
 def _has_unreturned_place_relation(answer: str, facts: _FactIndex) -> bool:
     compact_entities = {_compact_text(name) for name in facts.entity_names}
     for clause in _CLAUSE_SPLIT_RE.split(answer):
-        if facts.has_place_results and _PLACE_PROXIMITY_RE.search(clause):
-            return True
         if facts.has_place_results and _GENERIC_PLACE_RELATION_RE.search(clause):
             return True
         if not _RELATION_TERM_RE.search(clause):

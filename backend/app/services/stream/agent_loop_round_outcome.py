@@ -43,10 +43,7 @@ from app.services.stream.product_answer_validator import (
     validate_product_answer,
 )
 from app.services.stream.product_result_answer import (
-    build_grounded_mixed_travel_answer,
     build_grounded_product_answer,
-    build_grounded_single_travel_comparison_answer,
-    build_grounded_weather_activity_answer,
     build_product_tool_failure_answer,
     build_tool_repair_clarification,
     has_product_result_blocks,
@@ -728,78 +725,6 @@ async def _commit_deferred_product_answer(
         )
         # 产品工具没有返回结果时无事实可校验；保留失败说明，不能假设卡片存在。
         answer = build_product_tool_failure_answer(request.messages)
-        await _append_committed_answer(request, answer, model_output_visible=False)
-        return _with_replaced_answer(request, answer)
-
-    weather_activity_answer = build_grounded_weather_activity_answer(
-        request.state.content_blocks,
-        messages=request.messages,
-    )
-    if weather_activity_answer:
-        await _emit_product_answer_observation(
-            request,
-            reason_code="not_validated",
-            repaired_answer=None,
-            repair_reason_code=None,
-            observation_path="weather_activity",
-        )
-        request.runtime.warning_fn(
-            "产品天气活动条件使用确定性回答: "
-            f"conv_id={request.runtime.conversation_id} run_id={request.runtime.run_id} "
-            f"step={request.step_number}"
-        )
-        answer = neutralize_product_provider_mentions(
-            weather_activity_answer,
-            request.state.content_blocks,
-        )
-        await _append_committed_answer(request, answer, model_output_visible=False)
-        return _with_replaced_answer(request, answer)
-
-    mixed_travel_answer = build_grounded_mixed_travel_answer(
-        request.state.content_blocks,
-        messages=request.messages,
-    )
-    if mixed_travel_answer:
-        await _emit_product_answer_observation(
-            request,
-            reason_code="not_validated",
-            repaired_answer=None,
-            repair_reason_code=None,
-            observation_path="mixed_travel",
-        )
-        request.runtime.warning_fn(
-            "产品混合出行比较使用确定性回答: "
-            f"conv_id={request.runtime.conversation_id} run_id={request.runtime.run_id} "
-            f"step={request.step_number}"
-        )
-        answer = neutralize_product_provider_mentions(
-            mixed_travel_answer,
-            request.state.content_blocks,
-        )
-        await _append_committed_answer(request, answer, model_output_visible=False)
-        return _with_replaced_answer(request, answer)
-
-    single_travel_comparison_answer = build_grounded_single_travel_comparison_answer(
-        request.state.content_blocks,
-        messages=request.messages,
-    )
-    if single_travel_comparison_answer:
-        await _emit_product_answer_observation(
-            request,
-            reason_code="not_validated",
-            repaired_answer=None,
-            repair_reason_code=None,
-            observation_path="single_travel_comparison",
-        )
-        request.runtime.warning_fn(
-            "产品单一出行比较使用确定性回答: "
-            f"conv_id={request.runtime.conversation_id} run_id={request.runtime.run_id} "
-            f"step={request.step_number}"
-        )
-        answer = neutralize_product_provider_mentions(
-            single_travel_comparison_answer,
-            request.state.content_blocks,
-        )
         await _append_committed_answer(request, answer, model_output_visible=False)
         return _with_replaced_answer(request, answer)
 
