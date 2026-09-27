@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal, Protocol
@@ -489,6 +488,8 @@ def _canonicalize_tool_names(tool_names: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def _normalize_message(value: str | None) -> str:
+    """分类器是模型，原样保留大小写与换行；小写折叠是字面匹配时代的遗留，会改变模型判断。"""
+
     if not isinstance(value, str):
         return ""
-    return re.sub(r"\s+", " ", value).strip().lower()
+    return value.strip()
