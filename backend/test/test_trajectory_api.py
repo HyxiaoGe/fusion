@@ -434,10 +434,18 @@ class TrajectoryApiTests(unittest.TestCase):
         snapshot = build_tool_observation_snapshot(
             "实际反馈 [8] token=private-secret " + "业务正文" * 40000, step_number=2
         )
-        with patch("app.services.agent_logger.SessionLocal", self.Session):
+        with (
+            patch("app.services.agent_logger.SessionLocal", self.Session),
+            patch("app.services.agent_logger.ATTACH_OBSERVATION_SLOW_SECONDS", -1),
+            patch("app.services.agent_logger.logger") as logger,
+        ):
             attach_tool_observation(
                 log_id=row.id, run_id="run-observation", tool_call_id="call-run-observation", observation=snapshot
             )
+        slow_log = logger.warning.call_args.args[0]
+        self.assertIn("工具模型反馈写入偏慢: run_id=run-observation", slow_log)
+        self.assertIn("fetch_ms=", slow_log)
+        self.assertNotIn("实际反馈", slow_log)
         for _ in range(2):
             self.db.expire_all()
             response = self.client.get(

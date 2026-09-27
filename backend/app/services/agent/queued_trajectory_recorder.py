@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Mapping
 from typing import Any
 
+from app.core.logger import app_logger
 from app.services.agent.trajectory_payload import is_cancellation_terminal_event
 from app.services.agent.trajectory_recorder import (
     TrajectoryRecorder,
@@ -89,6 +90,7 @@ class QueuedTrajectoryRecorder:
             self._queue.put_nowait((conversation_id, chunk_type, payload))
         except asyncio.QueueFull:
             self._inner._mark_degraded("admission_full")
+            app_logger.warning(f"轨迹账本事件队列已满: run_id={self.run_id}, size={self._queue.maxsize}")
             return
         if self._consumer_task is None:
             self._consumer_task = asyncio.create_task(

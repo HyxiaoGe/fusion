@@ -26,6 +26,7 @@ from app.services.agent.trajectory_recorder import (
     TrajectoryRecorder,
     _FinalizeHandshake,
     create_trajectory_session_factory,
+    describe_slot_holders,
 )
 from app.services.stream.llm_round_lifecycle import LLMRoundLifecycle
 from app.services.stream.tool_executor import AgentEventCompositeWriter
@@ -1696,16 +1697,74 @@ class RecorderDatabaseTests(unittest.IsolatedAsyncioTestCase):
 
 
 class RecorderConcurrencyTests(unittest.IsolatedAsyncioTestCase):
-    def _recorder(self, *, executor, semaphore, worker=None) -> TrajectoryRecorder:
+    def _recorder(self, *, executor, semaphore, worker=None, run_id="run-1", logger=None) -> TrajectoryRecorder:
         return TrajectoryRecorder(
-            run_id="run-1",
+            run_id=run_id,
             conversation_id="conv-1",
             message_id="msg-1",
             session_factory=Mock(side_effect=AssertionError("并发测试不得访问数据库")),
             executor=executor,
             semaphore=semaphore,
             worker=worker or (lambda operation: operation()),
+            logger=logger or app_logger,
         )
+
+    async def test_admission_full_logs_queued_slot_holders_until_worker_releases(self):
+        semaphore = threading.BoundedSemaphore(1)
+        executor = ManualExecutor()
+        holder = self._recorder(executor=executor, semaphore=semaphore, run_id="run-holder-0001")
+        await holder.record_chunk("conv-1", "agent_event", _event(0, run_id="run-holder-0001"))
+        self.assertEqual(holder.degraded_reason, "recorder_timeout")
+
+        logger = _ListLogger()
+        rejected = self._recorder(executor=Mock(), semaphore=semaphore, run_id="run-rejected", logger=logger)
+        await rejected.record_chunk("conv-1", "agent_event", _event(0, run_id="run-rejected"))
+
+        self.assertEqual(rejected.degraded_reason, "admission_full")
+        admission_logs = [message for message in logger.warnings if "轨迹账本准入已满" in message]
+        self.assertEqual(len(admission_logs), 1)
+        self.assertIn("run_id=run-rejected", admission_logs[0])
+        self.assertIn("label=event:step_started", admission_logs[0])
+        self.assertIn("holders=1 [event:step_started@run-hold:", admission_logs[0])
+        self.assertIn(":queued]", admission_logs[0])
+        self.assertIn("app_pool=", admission_logs[0])
+
+        executor.run_next()
+        await asyncio.sleep(0)
+        self.assertEqual(describe_slot_holders(semaphore), [])
+        self.assertTrue(semaphore.acquire(blocking=False))
+        semaphore.release()
+
+    async def test_admission_full_names_running_auxiliary_holder(self):
+        semaphore = threading.BoundedSemaphore(1)
+        started = threading.Event()
+        release_worker = threading.Event()
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        self.addCleanup(executor.shutdown, wait=True)
+        self.addCleanup(release_worker.set)
+        holder = self._recorder(executor=executor, semaphore=semaphore, run_id="run-observer")
+
+        def blocked_write():
+            started.set()
+            release_worker.wait(timeout=2)
+
+        auxiliary = asyncio.create_task(holder.write_auxiliary(blocked_write, label="tool_observation"))
+        self.assertTrue(await asyncio.to_thread(started.wait, 1))
+
+        logger = _ListLogger()
+        rejected = self._recorder(executor=Mock(), semaphore=semaphore, run_id="run-rejected", logger=logger)
+        await rejected.record_chunk("conv-1", "agent_event", _event(0, run_id="run-rejected"))
+
+        self.assertEqual(rejected.degraded_reason, "admission_full")
+        self.assertRegex(logger.warnings[-1], r"holders=1 \[tool_observation@run-obse:\d+ms:running:\d+ms\]")
+
+        release_worker.set()
+        await auxiliary
+        for _ in range(100):
+            if not describe_slot_holders(semaphore):
+                break
+            await asyncio.sleep(0.01)
+        self.assertEqual(describe_slot_holders(semaphore), [])
 
     async def test_full_admission_fails_open_without_submitting(self):
         semaphore = threading.BoundedSemaphore(4)

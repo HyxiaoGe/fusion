@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import threading
+import time
 from collections.abc import Callable, Mapping
 from concurrent.futures import Executor, ThreadPoolExecutor
 from dataclasses import dataclass
@@ -37,6 +39,7 @@ _EXECUTOR = ThreadPoolExecutor(max_workers=TRAJECTORY_MAX_WORKERS, thread_name_p
 _ADMISSION_SEMAPHORE = threading.BoundedSemaphore(TRAJECTORY_MAX_WORKERS)
 _DEFAULT_FACTORY_LOCK = threading.Lock()
 _DEFAULT_SESSION_FACTORY: Callable[[], Any] | None = None
+_DEFAULT_SESSION_ENGINE: Any = None
 
 _T = TypeVar("_T")
 
@@ -58,6 +61,82 @@ class TrajectoryTerminalReconciliation:
     terminal_intent_id: str
     target_status: str
     degraded_reason: str | None
+
+
+@dataclass
+class _SlotHolder:
+    """准入名额占用者；只含固定类别、ID 与时间，用于 admission_full 诊断。"""
+
+    label: str
+    run_id: str
+    semaphore: Any
+    acquired_at: float
+    started_at: float | None = None
+
+
+_SLOT_HOLDERS: dict[int, _SlotHolder] = {}
+_SLOT_HOLDERS_LOCK = threading.Lock()
+_SLOT_TOKENS = itertools.count(1)
+
+
+def _register_slot_holder(*, label: str, run_id: str, semaphore: Any) -> int:
+    token = next(_SLOT_TOKENS)
+    with _SLOT_HOLDERS_LOCK:
+        _SLOT_HOLDERS[token] = _SlotHolder(
+            label=label, run_id=run_id, semaphore=semaphore, acquired_at=time.monotonic()
+        )
+    return token
+
+
+def _mark_slot_holder_started(token: int | None) -> None:
+    if token is None:
+        return
+    with _SLOT_HOLDERS_LOCK:
+        holder = _SLOT_HOLDERS.get(token)
+        if holder is not None:
+            holder.started_at = time.monotonic()
+
+
+def _unregister_slot_holder(token: int | None) -> None:
+    if token is None:
+        return
+    with _SLOT_HOLDERS_LOCK:
+        _SLOT_HOLDERS.pop(token, None)
+
+
+def describe_slot_holders(semaphore: Any) -> list[str]:
+    """按占用先后描述同一准入信号量的持有者：label@run_id 前缀:占用时长:阶段。"""
+    now = time.monotonic()
+    with _SLOT_HOLDERS_LOCK:
+        holders = [holder for holder in _SLOT_HOLDERS.values() if holder.semaphore is semaphore]
+    holders.sort(key=lambda holder: holder.acquired_at)
+    descriptions = []
+    for holder in holders:
+        age_ms = int((now - holder.acquired_at) * 1000)
+        if holder.started_at is None:
+            phase = "queued"
+        else:
+            phase = f"running:{int((now - holder.started_at) * 1000)}ms"
+        descriptions.append(f"{holder.label}@{holder.run_id[:8]}:{age_ms}ms:{phase}")
+    return descriptions
+
+
+def _describe_pool_status() -> str:
+    """应用通用连接池与账本专用连接池的即时状态；诊断失败不影响主流程。"""
+    parts = []
+    try:
+        from app.db.database import engine as app_engine
+
+        parts.append(f"app_pool=[{app_engine.pool.status()}]")
+    except Exception as error:  # noqa: BLE001 — 诊断只读
+        parts.append(f"app_pool=unavailable:{type(error).__name__}")
+    ledger_engine = _DEFAULT_SESSION_ENGINE
+    if ledger_engine is not None:
+        try:
+            parts.append(f"ledger_pool=[{ledger_engine.pool.status()}]")
+        except Exception as error:  # noqa: BLE001 — 诊断只读
+            parts.append(f"ledger_pool=unavailable:{type(error).__name__}")
+    return " ".join(parts)
 
 
 @dataclass(frozen=True)
@@ -83,11 +162,13 @@ def create_trajectory_session_factory(database_url: str) -> Callable[[], Any]:
 
 
 def _new_default_session() -> Any:
-    global _DEFAULT_SESSION_FACTORY
+    global _DEFAULT_SESSION_FACTORY, _DEFAULT_SESSION_ENGINE
     if _DEFAULT_SESSION_FACTORY is None:
         with _DEFAULT_FACTORY_LOCK:
             if _DEFAULT_SESSION_FACTORY is None:
-                _DEFAULT_SESSION_FACTORY = create_trajectory_session_factory(str(settings.DATABASE_URL))
+                factory = create_trajectory_session_factory(str(settings.DATABASE_URL))
+                _DEFAULT_SESSION_ENGINE = factory.kw.get("bind")
+                _DEFAULT_SESSION_FACTORY = factory
     return _DEFAULT_SESSION_FACTORY()
 
 
@@ -168,7 +249,10 @@ class TrajectoryRecorder:
                 self._mark_degraded("invalid_event")
                 return
 
-            await self._run_isolated(lambda: self._write_event(stored_payload))
+            await self._run_isolated(
+                lambda: self._write_event(stored_payload),
+                label=f"event:{stored_payload.get('type')}",
+            )
         finally:
             self._finish_record()
 
@@ -270,19 +354,29 @@ class TrajectoryRecorder:
             self._latch_sealed = True
             return self._degraded_reason
 
-    async def write_auxiliary(self, operation: Callable[[], _T]) -> _T | None:
+    async def write_auxiliary(self, operation: Callable[[], _T], *, label: str = "auxiliary") -> _T | None:
         """复用账本专用线程和准入上限；真实 worker 结束前不释放容量。"""
-        return await self._run_isolated(operation)
+        return await self._run_isolated(operation, label=label)
 
-    async def _run_isolated(self, operation: Callable[[], _T]) -> _T | None:
+    def _reject_admission(self, label: str) -> None:
+        self._mark_degraded("admission_full")
+        holders = describe_slot_holders(self._semaphore)
+        self._logger.warning(
+            f"轨迹账本准入已满: run_id={self.run_id}, label={label}, "
+            f"holders={len(holders)} [{', '.join(holders)}] {_describe_pool_status()}"
+        )
+
+    async def _run_isolated(self, operation: Callable[[], _T], *, label: str = "auxiliary") -> _T | None:
         if not self._semaphore.acquire(blocking=False):
-            self._mark_degraded("admission_full")
+            self._reject_admission(label)
             return None
 
+        token = _register_slot_holder(label=label, run_id=self.run_id, semaphore=self._semaphore)
         loop = asyncio.get_running_loop()
         try:
-            future = loop.run_in_executor(self._executor, self._worker_entry, operation)
+            future = loop.run_in_executor(self._executor, self._worker_entry, operation, token)
         except Exception as error:  # noqa: BLE001 — auxiliary sink 必须 fail-open
+            _unregister_slot_holder(token)
             self._semaphore.release()
             self._mark_degraded("write_failed")
             self._log_failure("提交账本 worker 失败", error)
@@ -308,7 +402,7 @@ class TrajectoryRecorder:
 
     async def _run_finalize_isolated(self, expected_last_sequence: int) -> None:
         if not self._semaphore.acquire(blocking=False):
-            self._mark_degraded("admission_full")
+            self._reject_admission("finalize")
             return None
 
         loop = asyncio.get_running_loop()
@@ -319,13 +413,16 @@ class TrajectoryRecorder:
             expected_last_sequence=expected_last_sequence,
             terminal_intent_id=str(uuid4()),
         )
+        token = _register_slot_holder(label="finalize", run_id=self.run_id, semaphore=self._semaphore)
         try:
             worker_future = loop.run_in_executor(
                 self._executor,
                 self._worker_entry,
                 lambda: self._finalize_with_handshake(handshake),
+                token,
             )
         except Exception as error:  # noqa: BLE001 — auxiliary sink 必须 fail-open
+            _unregister_slot_holder(token)
             self._semaphore.release()
             assessment_future.cancel()
             self._mark_degraded("write_failed")
@@ -390,10 +487,12 @@ class TrajectoryRecorder:
         except Exception as error:  # noqa: BLE001 — auxiliary sink 必须 fail-open
             self._log_failure("轨迹账本终态写入失败", error)
 
-    def _worker_entry(self, operation: Callable[[], _T]) -> _T:
+    def _worker_entry(self, operation: Callable[[], _T], token: int | None = None) -> _T:
+        _mark_slot_holder_started(token)
         try:
             return self._worker(operation)
         finally:
+            _unregister_slot_holder(token)
             self._semaphore.release()
 
     def _finalize_with_handshake(self, handshake: _FinalizeHandshake) -> str:
