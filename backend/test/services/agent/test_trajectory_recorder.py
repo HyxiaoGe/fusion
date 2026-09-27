@@ -1159,6 +1159,8 @@ class RecorderDatabaseTests(unittest.IsolatedAsyncioTestCase):
             [context for context in loop_errors if "never retrieved" in context.get("message", "").lower()]
         )
 
+    # 验证 commit 响应丢失后的对账，不验证等待超时；给 CI 线程调度留出余量（#142）。
+    @patch("app.services.agent.trajectory_recorder.TRAJECTORY_WAIT_TIMEOUT_SECONDS", 2)
     async def test_terminal_commit_response_loss_reconciles_complete_without_false_latch(self):
         commit_persisted = threading.Event()
         factory_calls = 0

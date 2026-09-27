@@ -1323,6 +1323,8 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
         execution.emitter.seal_and_get_last_sequence.assert_awaited_once_with()
         execution.trajectory_recorder.finalize.assert_awaited_once_with(3)
 
+    # 验证终态矩阵，不验证等待超时；真实 SQLite 账本给 CI 线程调度留出余量（#142）。
+    @patch("app.services.agent.trajectory_recorder.TRAJECTORY_WAIT_TIMEOUT_SECONDS", 2)
     async def test_completed_persist_superseded_real_ledger_terminal_matrix(self):
         scenarios = (
             ("accepted", None, None, True, "complete"),
