@@ -154,12 +154,14 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
         request = replace(
             request,
             messages=[{"role": "user", "content": "附近咖啡馆有空位吗"}],
-            round_result=replace(request.round_result, content_buf="示例咖啡门口坐地铁全程约12公里。"),
+            round_result=replace(
+                request.round_result, content_buf="| 店名 | 距离 |\n| --- | --- |\n| 示例咖啡 | 约12公里 |"
+            ),
         )
         with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()):
             await handle_agent_round_outcome(request=request)
         self.assertIn("示例咖啡", state.content_blocks[-1].text)
-        self.assertNotIn("全程约12公里", state.content_blocks[-1].text)
+        self.assertNotIn("| --- |", state.content_blocks[-1].text)
         self.assertFalse(state.tool_recovery_prompted)
 
     async def test_web_recovery_cannot_bypass_deep_research_completion_contract(self):

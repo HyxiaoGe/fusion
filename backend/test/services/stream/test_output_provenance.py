@@ -231,8 +231,8 @@ class OutputProvenanceTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(provenance["source"], source)
                 self.assertEqual(lifecycle.content_text, candidate)
 
-    async def test_product_repair_and_fallback_are_server_output(self):
-        for mode in ("repair", "fallback", "pending"):
+    async def test_product_fallback_is_server_output(self):
+        for mode in ("fallback", "pending"):
             with self.subTest(mode=mode):
                 lifecycle = await self._lifecycle()
                 lifecycle.record_detail(reasoning_text="", content_text="模型候选")
@@ -264,13 +264,8 @@ class OutputProvenanceTests(unittest.IsolatedAsyncioTestCase):
                         prefix + "validate_product_answer",
                         return_value=SimpleNamespace(is_valid=False, reason_code="test"),
                     ),
-                    patch(
-                        prefix + "repair_unsupported_product_answer",
-                        return_value=("修整回答", "test") if mode == "repair" else (None, "test"),
-                    ),
                     patch(prefix + "build_grounded_product_answer", return_value="确定性回答"),
                     patch(prefix + "_emit_product_answer_observation"),
-                    patch(prefix + "settings.PRODUCT_ANSWER_REPAIR_ENABLED", True),
                 ):
                     await handle_agent_round_outcome(request=request)
                 provenance = lifecycle.emitter.llm_round_completed.call_args.kwargs["output_provenance"]

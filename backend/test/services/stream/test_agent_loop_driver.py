@@ -2313,7 +2313,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
                 )
             return AgentRoundResult(
                 reasoning_buf="模型可能生成未验证组合距离",
-                content_buf="模型自由文本：示例咖啡到示例桌球馆步行五分钟。",
+                content_buf="| 起点 | 终点 |\n| --- | --- |\n| 示例咖啡 | 示例桌球馆 |",
                 tool_calls=[],
                 finish_reason="stop",
                 accumulated_usage=Usage(input_tokens=7, output_tokens=9),
@@ -2364,7 +2364,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
         grounded_answer = append_chunk.await_args.args[2]
         self.assertIn("示例咖啡", grounded_answer)
         self.assertIn("示例桌球馆", grounded_answer)
-        self.assertNotIn("步行五分钟", grounded_answer)
+        self.assertNotIn("| --- |", grounded_answer)
         self.assertEqual(state.total_tool_calls, 2)
         self.assertEqual(state.accumulated_usage, Usage(input_tokens=7, output_tokens=9))
         self.assertEqual(

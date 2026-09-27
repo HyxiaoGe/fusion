@@ -1012,10 +1012,6 @@ class ProductAnswerObservation(Base):
     reason_code = Column(String(64), nullable=False)
     reason_category = Column(String(32), nullable=False)
     is_valid = Column(Boolean, nullable=True)
-    repair_enabled = Column(Boolean, nullable=False)
-    repair_available = Column(Boolean, nullable=False)
-    repair_applied = Column(Boolean, nullable=False)
-    repair_reason_code = Column(String(64), nullable=False)
     product_tool_attempted = Column(Boolean, nullable=False)
     product_result_types = Column(JSON, nullable=False)
 

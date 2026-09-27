@@ -14,7 +14,7 @@ from app.services.stream.agent_loop_round_outcome import (
 )
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_round import AgentRoundResult
-from app.services.stream.product_answer_validator import repair_unsupported_product_answer, validate_product_answer
+from app.services.stream.product_answer_validator import validate_product_answer
 from app.services.stream.product_result_answer import build_grounded_product_answer, build_product_tool_failure_answer
 from test.services.stream.test_agent_loop_round_outcome import _runtime, _step_context
 
@@ -46,7 +46,7 @@ async def capture_product_answer_case(
     if pending_repair:
         state.pending_tool_repairs["repair-protocol"] = {"required_fields": [], "retryable": False}
     state.mark_current_step("step-no-result")
-    candidate = "可以优先考虑炭火一号。从这里坐地铁全程约12公里。"
+    candidate = "| 店名 | 距离 |\n| --- | --- |\n| 炭火一号 | 约12公里 |"
     lifecycle = AsyncMock()
     lifecycle.record_output = Mock()
     request = AgentRoundOutcomeRequest(
@@ -68,15 +68,10 @@ async def capture_product_answer_case(
     )
     grounded_answer_before_commit = build_grounded_product_answer(state.content_blocks, messages=request.messages)
     with (
-        patch("app.services.stream.agent_loop_round_outcome.settings.PRODUCT_ANSWER_REPAIR_ENABLED", False),
         patch("app.services.stream.agent_loop_round_outcome.append_chunk", new_callable=AsyncMock) as append,
         patch(
             "app.services.stream.agent_loop_round_outcome.validate_product_answer", wraps=validate_product_answer
         ) as validate,
-        patch(
-            "app.services.stream.agent_loop_round_outcome.repair_unsupported_product_answer",
-            wraps=repair_unsupported_product_answer,
-        ) as repair,
         patch("app.services.stream.agent_loop_round_outcome.emit_product_answer_observation") as observation,
         patch(
             "app.services.stream.agent_loop_round_outcome.retain_product_answer_observation", new_callable=AsyncMock
@@ -98,7 +93,6 @@ async def capture_product_answer_case(
         "answer": append.await_args.args[2],
         "stored_text": [block.text for block in state.content_blocks if getattr(block, "type", None) == "text"],
         "validation_calls": validate.call_count,
-        "repair_calls": repair.call_count,
         "observations": [call.args[0] for call in observation.call_args_list],
         "retained_observations": [call.args[0] for call in retained.await_args_list],
         "model_output_visible": lifecycle.publish_visible_output.await_count > 0,
@@ -121,22 +115,20 @@ class ProductAnswerNoResultTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(validation.is_valid)
                 self.assertEqual(validation.reason_code, "missing_product_result")
 
-    async def test_disabled_repair_still_blocks_invalid_product_answer(self):
+    async def test_invalid_product_answer_uses_grounded_fallback(self):
         result = await capture_product_answer_case(attempted=True, product_result=True)
         self.assertEqual(result["validation_calls"], 1)
-        self.assertEqual(result["repair_calls"], 1)
-        self.assertFalse(result["observations"][0]["repair_enabled"])
         self.assertFalse(result["observations"][0]["is_valid"])
+        self.assertEqual(result["observations"][0]["reason_code"], "unsupported_format")
         self.assertFalse(result["model_output_visible"])
         self.assertNotEqual(result["answer"], result["candidate"])
-        self.assertNotIn("全程约12公里", result["answer"])
+        self.assertNotIn("| --- |", result["answer"])
         self.assertEqual(result["stored_text"], [result["answer"]])
 
     async def test_thinking_only_without_product_attempt_stays_on_ordinary_path(self):
         result = await capture_product_answer_case(attempted=False)
         self.assertEqual(result["answer"], result["candidate"])
         self.assertEqual(result["validation_calls"], 0)
-        self.assertEqual(result["repair_calls"], 0)
         self.assertTrue(result["model_output_visible"])
         self.assertEqual(result["stored_text"], [result["candidate"]])
         self.assertFalse(result["unknown_terminated"])
@@ -145,7 +137,6 @@ class ProductAnswerNoResultTests(unittest.IsolatedAsyncioTestCase):
         result = await capture_product_answer_case(attempted=False, pending_repair=True)
         self.assertEqual(result["answer"], "当前查询还缺少必要信息，请补充更明确的条件后重试；信息确认前不会猜测结果。")
         self.assertEqual(result["validation_calls"], 0)
-        self.assertEqual(result["repair_calls"], 0)
         self.assertFalse(result["model_output_visible"])
         self.assertNotIn("卡片", result["answer"])
         self.assertEqual(result["stored_text"], [result["answer"]])
@@ -155,7 +146,6 @@ class ProductAnswerNoResultTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["grounded_answer_before_commit"], "")
         self.assertEqual(result["answer"], build_product_tool_failure_answer())
         self.assertEqual(result["validation_calls"], 0)
-        self.assertEqual(result["repair_calls"], 0)
         self.assertEqual(len(result["observations"]), 1)
         self.assertEqual(result["observations"][0]["observation_path"], "no_product_result")
         self.assertFalse(result["observations"][0]["validated"])
@@ -181,7 +171,6 @@ class ProductAnswerNoResultTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["answer"], build_product_tool_failure_answer())
         self.assertNotIn("卡片", result["answer"])
         self.assertEqual(result["validation_calls"], 0)
-        self.assertEqual(result["repair_calls"], 0)
         self.assertEqual(len(result["observations"]), 1)
         self.assertEqual(result["observations"][0]["observation_path"], "no_product_result")
         self.assertFalse(result["observations"][0]["validated"])

@@ -432,10 +432,6 @@ class Settings(BaseSettings):
     # 主动探测的结论，放久了不能再当作当前状态（issue #32）。
     MCP_PROBE_FRESHNESS_TTL_SECONDS: int = int(os.getenv("MCP_PROBE_FRESHNESS_TTL_SECONDS", "3600"))
 
-    # 产品结果回答的正则改写默认关闭：改写会直接切分句、删表格、重写标签，误伤在线上
-    # 不可观测。观测期内只记录判定与"本应改写"的反事实，依据真实误判率再决定是否恢复。
-    PRODUCT_ANSWER_REPAIR_ENABLED: bool = os.getenv("PRODUCT_ANSWER_REPAIR_ENABLED", "false").lower() == "true"
-
     # FlyAI 出行产品工具通过私有 HTTP 适配器访问，不在 API 容器执行第三方 CLI。
     ENABLE_FLYAI_TRAVEL_TOOLS: bool = os.getenv("ENABLE_FLYAI_TRAVEL_TOOLS", "false").lower() == "true"
     FLYAI_ADAPTER_BASE_URL: str = os.getenv("FLYAI_ADAPTER_BASE_URL", "")
