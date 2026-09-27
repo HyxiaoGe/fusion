@@ -676,6 +676,9 @@ def test_system_prompt_defines_taxonomy_tool_mapping_order_and_negative_boundari
     assert "mcp_explicit: an authorized MCP tool listed below is the best fit" in prompt
     assert "The user does not need to mention the service or the alias" in prompt
     assert "prefer mcp_explicit over direct, fresh_web, and verified_web" in prompt
+    assert "Usage versus concept" in prompt
+    assert "capitalization and phrasing never change this decision" in prompt
+    assert "Choose direct for conceptual or general explanations" in prompt
     assert "Product packages (weather, place_discovery" in prompt
     assert "The authorized MCP list appended below contains exact aliases" in prompt
     assert "Authorized MCP tools for this request: []" in prompt
