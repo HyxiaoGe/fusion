@@ -93,13 +93,15 @@ def test_tool_definitions_are_english():
         _assert_schema_descriptions_are_english(value, path=f"tool_definition[{index}]")
 
     mcp_definition = build_agent_tool_definition(
-        SimpleNamespace(id="server-1", name="中文服务名", endpoint_url="https://mcp.context7.com/mcp"),
+        # 服务名是管理员配置的数据，会进入描述；这里只校验模板文本为英文。
+        SimpleNamespace(id="server-1", name="Docs service", endpoint_url="https://mcp.context7.com/mcp"),
         {
             "name": "resolve-library-id",
             "input_schema": {"type": "object", "properties": {}},
         },
     )
     _assert_schema_descriptions_are_english(mcp_definition, path="mcp_tool_definition")
+    assert "Docs service / resolve-library-id" in mcp_definition["function"]["description"]
 
 
 def test_dynamic_research_and_tool_context_instructions_are_english():

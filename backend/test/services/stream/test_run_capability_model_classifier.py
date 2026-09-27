@@ -22,6 +22,7 @@ from app.services.stream.run_capability_model_classifier import (
     classify_capability_request_with_model,
 )
 from app.services.stream.run_capability_router import resolve_run_capability_route
+from app.utils.run_capability_contract import McpRouteTool
 
 ALL_TOOLS = [
     "web_search",
@@ -672,9 +673,12 @@ def test_system_prompt_defines_taxonomy_tool_mapping_order_and_negative_boundari
     assert "Trusted global tool-disable settings are enforced by the server" in prompt
     assert "network_policy and denied_tool_names" in prompt
     assert "standard package must represent the capability the request actually needs" in prompt
-    assert "mcp_explicit: the user explicitly names one authorized MCP alias" in prompt
+    assert "mcp_explicit: an authorized MCP tool listed below is the best fit" in prompt
+    assert "The user does not need to mention the service or the alias" in prompt
+    assert "prefer mcp_explicit over direct, fresh_web, and verified_web" in prompt
+    assert "Product packages (weather, place_discovery" in prompt
     assert "The authorized MCP list appended below contains exact aliases" in prompt
-    assert "Authorized MCP aliases for this request: []" in prompt
+    assert "Authorized MCP tools for this request: []" in prompt
     assert "organizations, careers, products, or funding stages" in prompt
     assert "Do not choose fresh_web merely because a stage name appears" in prompt
     assert "route capability requires both a locatable origin and destination" in prompt
@@ -690,8 +694,43 @@ def test_classifier_prompt_lists_only_structurally_valid_authorized_mcp_aliases(
     )
 
     assert messages is not None
-    assert 'Authorized MCP aliases for this request: ["mcp_notion_search"]' in messages[0]["content"]
+    assert 'Authorized MCP tools for this request: [{"alias":"mcp_notion_search"}]' in messages[0]["content"]
     assert "mcp_invalid.name" not in messages[0]["content"]
+
+
+def test_classifier_prompt_labels_callable_mcp_tools_with_admin_configured_names() -> None:
+    messages = _build_messages(
+        "Azure Functions 的默认超时是多少？",
+        ["web_search", "mcp_learn_search", "mcp_unlabeled"],
+        None,
+        mcp_tool_catalog=(McpRouteTool("mcp_learn_search", "server-learn", "Microsoft Learn 官方文档 / docs_search"),),
+        token_counter_fn=lambda **_kwargs: 1,
+    )
+
+    assert messages is not None
+    assert (
+        'Authorized MCP tools for this request: [{"alias":"mcp_learn_search",'
+        '"service_tool":"Microsoft Learn 官方文档 / docs_search"},{"alias":"mcp_unlabeled"}]'
+    ) in messages[0]["content"]
+
+
+def test_model_selecting_one_mcp_tool_announces_same_service_tools_only() -> None:
+    catalog = (
+        McpRouteTool("mcp_c7_resolve", "server-c7", "Context7 / resolve-library-id"),
+        McpRouteTool("mcp_c7_query", "server-c7", "Context7 / query-docs"),
+        McpRouteTool("mcp_learn_search", "server-learn", "Microsoft Learn / docs_search"),
+    )
+    tools = [*ALL_TOOLS, "mcp_c7_resolve", "mcp_c7_query", "mcp_learn_search"]
+    with patch(
+        "app.services.stream.run_capability_model_classifier.litellm.completion",
+        return_value=_completion_response("mcp_explicit", ["mcp_c7_query"]),
+    ):
+        candidate = classify_capability_request_with_model(
+            "FastAPI 的依赖注入怎么写？", tools, mcp_tool_catalog=catalog
+        )
+
+    assert candidate.package_id == "mcp_explicit"
+    assert candidate.explicit_tool_names == ("mcp_c7_query", "mcp_c7_resolve")
 
 
 def test_missing_explicit_tool_names_is_rejected() -> None:

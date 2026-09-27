@@ -650,6 +650,34 @@ class TrajectoryPayloadTests(unittest.TestCase):
                 if "update_plan" in invalid_resolution["external_tool_names"]:
                     self.assertEqual(payload["tools"], [])
 
+    def test_run_started_keeps_same_service_mcp_aliases_up_to_limit(self):
+        for aliases, kept in (
+            (["mcp_c7_query", "mcp_c7_resolve"], True),
+            (["mcp_a", "mcp_b", "mcp_c", "mcp_d"], False),
+        ):
+            with self.subTest(aliases=aliases):
+                resolution = {
+                    **CAPABILITY_RESOLUTION,
+                    "package_id": "mcp_explicit",
+                    "reason_codes": ["explicit_authorized_tool_alias"],
+                    "external_tool_names": aliases,
+                    "include_current_date": False,
+                }
+                payload = build_trajectory_payload(
+                    {
+                        **COMMON,
+                        "type": "run_started",
+                        **EVENT_FIELDS["run_started"],
+                        "tools": aliases,
+                        "capability_resolution": resolution,
+                    }
+                )
+
+                if kept:
+                    self.assertEqual(payload["capability_resolution"]["external_tool_names"], aliases)
+                else:
+                    self.assertIsNone(payload["capability_resolution"])
+
     def test_run_started_drops_reversed_fixed_package_resolution_but_keeps_canonical_partial(self):
         reversed_resolution = {
             **CAPABILITY_RESOLUTION,

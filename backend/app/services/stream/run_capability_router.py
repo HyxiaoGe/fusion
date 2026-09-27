@@ -26,6 +26,7 @@ from app.utils.run_capability_contract import (
     CAPABILITY_REASON_CODES,
     CAPABILITY_RECOVERY_PACKAGES,
     CAPABILITY_RECOVERY_TOOL_NAMES,
+    McpRouteTool,
     validate_capability_resolution_semantics,
 )
 
@@ -90,6 +91,7 @@ class CapabilityClassifier(Protocol):
         message: str,
         task_context_messages: list[object] | None,
         available_tool_names: list[str],
+        mcp_tool_catalog: tuple[McpRouteTool, ...] = (),
     ) -> "_CandidateRoute": ...
 
 
@@ -119,12 +121,15 @@ def resolve_run_capability_route(
     unavailable_tool_names: list[str] | None = None,
     load_skills_fn: Callable[..., Any] | None = None,
     classify_fn: CapabilityClassifier | None = None,
+    mcp_tool_catalog: tuple[McpRouteTool, ...] = (),
 ) -> RunCapabilityResolution:
     """根据受信运行态与当前用户消息解析最小能力包。"""
 
     message = _normalize_message(original_message)
     skill_loader = load_skills_fn or load_skills_for_package
     classify = classify_fn or classify_capability_request
+    # 只在有可调用 MCP 工具时传目录，保持不认识该参数的分类器可用。
+    catalog_kwargs = {"mcp_tool_catalog": mcp_tool_catalog} if mcp_tool_catalog else {}
     function_calling = capabilities.get("functionCalling") is True
     search_capable = capabilities.get("searchCapable") is True
 
@@ -141,6 +146,7 @@ def resolve_run_capability_route(
                 message=message,
                 task_context_messages=task_context_messages,
                 available_tool_names=available_tool_names,
+                **catalog_kwargs,
             )
         )
         blocked_tool_names = blocked_candidate.explicit_tool_names or _PACKAGE_TOOLS.get(
@@ -178,6 +184,7 @@ def resolve_run_capability_route(
             message=message,
             task_context_messages=task_context_messages,
             available_tool_names=available_tool_names,
+            **catalog_kwargs,
         )
 
     denied_product_tool_names = _resolve_denied_tool_names(candidate, available_tool_names)

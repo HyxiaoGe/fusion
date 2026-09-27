@@ -80,12 +80,14 @@ def build_agent_tool_definition(row: Any, snapshot: Mapping[str, Any]) -> dict[s
     product_guidance = endpoint_tool_guidance(str(row.endpoint_url), snapshot["name"])
     schema_override = endpoint_tool_schema_override(str(row.endpoint_url), snapshot["name"])
     purpose = render_runtime_prompt("mcp.purpose")
+    # 服务名与工具名来自管理员配置，远端自述仍不进入模型可见描述。
+    identity = render_runtime_prompt("mcp.identity", tool_label=build_tool_label(row.name, snapshot["name"]))
     trust_boundary = render_runtime_prompt("mcp.trust_boundary")
     return {
         "type": "function",
         "function": {
             "name": alias,
-            "description": f"{purpose}{trust_boundary}{product_guidance}",
+            "description": f"{purpose}{identity}{trust_boundary}{product_guidance}",
             "parameters": sanitize_tool_schema_for_model(
                 schema_override if schema_override is not None else snapshot["input_schema"]
             ),
