@@ -18,6 +18,7 @@ from app.services.agent.trajectory_reconciliation import (
     build_reconciliation_candidate_query,
     classify_missing_trajectory_meta,
     reconcile_trajectory_batch,
+    reconcile_trajectory_best_effort,
     resolve_ledger_watermark,
     resolve_run_trajectory_status,
     resolve_trajectory_status_from_rows,
@@ -25,6 +26,17 @@ from app.services.agent.trajectory_reconciliation import (
 from app.services.agent.trajectory_recorder import TrajectoryRecorder
 
 _DEFAULT_TERMINAL_AT = object()
+
+
+class _WarningLogger:
+    def __init__(self) -> None:
+        self.warnings: list[str] = []
+
+    def warning(self, message: str) -> None:
+        self.warnings.append(message)
+
+    def error(self, message: str) -> None:
+        raise AssertionError(message)
 
 
 class TrajectoryReconciliationTests(unittest.TestCase):
@@ -385,6 +397,47 @@ class TrajectoryReconciliationTests(unittest.TestCase):
         self.assertIsNone(complete.degraded_reason)
         self.assertEqual(self._meta("missing-expected").degraded_reason, "expected_sequence_missing")
         self.assertEqual(self._meta("sequence-hole").degraded_reason, "sequence_mismatch")
+
+    def test_orphaned_running_run_is_interrupted_then_its_trajectory_converges(self):
+        # 部署重启会杀掉进行中的 run；超过两倍硬性时限仍为 running 的只能是遗留行。
+        self._add_run("orphaned", status="running", created_at=self.now - timedelta(hours=2))
+        self._add_meta("orphaned", updated_at=self.now - timedelta(hours=2))
+        self._add_events("orphaned", [0, 1])
+        self._add_run("in-flight", status="running", created_at=self.now - timedelta(minutes=20))
+        self._add_meta("in-flight", updated_at=self.now - timedelta(minutes=5))
+
+        first = reconcile_trajectory_batch(session_factory=self.Session, now=self.now)
+
+        self.assertEqual(first.orphaned_runs_interrupted, 1)
+        with self.Session() as db:
+            orphaned = db.get(AgentSession, "orphaned")
+            self.assertEqual(orphaned.status, "interrupted")
+            self.assertEqual(orphaned.terminal_at, self.now.replace(tzinfo=None))
+            self.assertEqual(orphaned.error_message, "运行进程已退出，未写入终态")
+            self.assertEqual(db.get(AgentSession, "in-flight").status, "running")
+        # 刚写入的终态仍需等满 grace，避免与迟到的 finalize 竞态。
+        self.assertEqual(self._meta("orphaned").trajectory_status, "recording")
+
+        second = reconcile_trajectory_batch(
+            session_factory=self.Session,
+            now=self.now + DEFAULT_RECONCILIATION_STALE_GRACE + timedelta(seconds=1),
+        )
+
+        self.assertEqual(second.orphaned_runs_interrupted, 0)
+        self.assertEqual(second.recording_degraded, 1)
+        meta = self._meta("orphaned")
+        self.assertEqual(meta.trajectory_status, "degraded")
+        self.assertEqual(meta.degraded_reason, "expected_sequence_missing")
+        self.assertEqual(self._meta("in-flight").trajectory_status, "recording")
+
+    def test_orphan_logging_reports_interrupted_count(self):
+        self._add_run("orphaned", status="running", created_at=datetime.now(UTC) - timedelta(hours=2))
+        logger = _WarningLogger()
+
+        result = asyncio.run(reconcile_trajectory_best_effort(session_factory=self.Session, logger=logger))
+
+        self.assertEqual(result.orphaned_runs_interrupted, 1)
+        self.assertEqual(logger.warnings, ["已中断进程退出后遗留的 running run: count=1"])
 
     def test_running_business_run_is_never_reconciled(self):
         self._add_run("still-running", status="running")
