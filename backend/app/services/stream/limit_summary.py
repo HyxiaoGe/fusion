@@ -1116,9 +1116,9 @@ async def _guard_no_evidence_answer(
     guarded, fact_kind = resolve_no_evidence_answer(
         answer,
         content_blocks=request.content_blocks,
-        messages=request.messages,
         capability_resolution=request.capability_resolution,
         recovery_evidence=request.recovery_evidence,
+        tool_discovery=request.tool_discovery,
     )
     if fact_kind is None:
         return guarded, None

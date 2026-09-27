@@ -732,6 +732,7 @@ async def _commit_deferred_product_answer(
             request.state.content_blocks,
             capability_resolution=request.runtime.capability_resolution,
             recovery_evidence=request.state.recovery_evidence,
+            tool_discovery=request.runtime.tool_discovery,
         ):
             guarded, fact_kind = await _replace_unsupported_dynamic_facts(request, candidate)
             if fact_kind is not None:
@@ -803,9 +804,9 @@ async def _replace_unsupported_dynamic_facts(
     guarded, fact_kind = resolve_no_evidence_answer(
         answer,
         content_blocks=request.state.content_blocks,
-        messages=request.messages,
         capability_resolution=request.runtime.capability_resolution,
         recovery_evidence=request.state.recovery_evidence,
+        tool_discovery=request.runtime.tool_discovery,
     )
     if fact_kind is None:
         return answer, None

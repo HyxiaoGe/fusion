@@ -8,18 +8,19 @@
 直接返回 `missing_product_result`，而触顶路径根本没有接入它。
 
 这里只处理整个 run 没有有效工具证据的边界。冻结能力明确要求外部事实时，无论模型
-使用数字、中文数字还是纯文字，都不能把查询失败改写成成功结论。普通改写和稳定知识
-任务不受该边界约束；没有能力快照的旧调用仍保留动态数值守卫。
+使用数字、中文数字还是纯文字，都不能把查询失败改写成成功结论。动态发现路径没有
+能力快照，以本轮经 tool_search 实际加载的外部工具作为同一事实需求。其余任务直接
+放行，不在服务端用正则解析回答里的价格、车次、时长或气温。
 """
 
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from app.core.logger import app_logger as logger
+from app.services.stream.dynamic_tool_discovery import discovery_requires_external_evidence
 from app.services.stream.safe_fallback_response import default_safe_fallback
 from app.services.stream.tool_recovery_evidence import RecoveryEvidenceWorkset, has_recovery_evidence
 from app.utils.run_capability_contract import CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES
@@ -29,7 +30,7 @@ if TYPE_CHECKING:
 
 LOG_PREFIX = "LIMIT_SUMMARY_FACT_GUARD"
 
-# 本模块同样拦截气温等非出行数值，文案不能只点名出行领域的班次、价格或时长
+# 外部事实能力包同样覆盖天气等非出行任务，文案不能只点名出行领域的班次、价格或时长
 # （真实验收 Run 8139d99f：天气问题收口时出现了出行文案）。
 NO_EVIDENCE_ANSWER_TEXT = default_safe_fallback("no_evidence")
 
@@ -37,7 +38,6 @@ NO_EVIDENCE_ANSWER_TEXT = default_safe_fallback("no_evidence")
 _EXTERNAL_FACT_PACKAGES = frozenset(
     package for package, tools in CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES.items() if tools
 )
-_CONTEXT_ONLY_PACKAGES = frozenset({"direct", "transform", "date"})
 _PRODUCT_EVIDENCE_FIELDS = {
     "place_results": ("places", ("name", "address")),
     "route_results": ("routes", ("duration_s", "distance_m", "summary", "legs")),
@@ -45,26 +45,6 @@ _PRODUCT_EVIDENCE_FIELDS = {
     "flight_results": ("flights", ("flight_no",)),
     "train_results": ("trains", ("train_no",)),
 }
-
-# 只收具体到可被用户当作查询结果的动态数值，不收泛化建议里的数字。
-_DYNAMIC_FACT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    # 票价/金额：300元、¥300、300块、300 元左右
-    ("price", re.compile(r"(?:[¥￥]\s*\d+(?:\.\d+)?)|(?:\d+(?:\.\d+)?\s*(?:元|块|人民币|rmb))", re.IGNORECASE)),
-    # 车次/航班号：G1234、D23、CZ3456、MU5678
-    # 车次字母是铁路封闭集合，航司二字码固定 3-4 位数字，不做开放式字母匹配。
-    # G/S 同时是国家高速与省道编号（G4 高速），排在道路后缀前的不算车次。
-    (
-        "vehicle_number",
-        re.compile(r"\b(?:[GDCZTKYSLP]\d{1,4}|[A-Z]{2}\d{3,4})\b(?!\s*(?:高速|国道|省道|公路|线|路))"),
-    ),
-    # 行程时长：5小时、4.5 小时、50分钟、3个半小时
-    ("duration", re.compile(r"\d+(?:\.\d+)?\s*(?:个)?(?:半)?\s*(?:小时|分钟|h\b|min\b)", re.IGNORECASE)),
-    # 气温：18度、18℃、-2°C；天气工具不可用时同样会被参数记忆补齐。
-    ("temperature", re.compile(r"-?\d+(?:\.\d+)?\s*(?:度|℃|°C)", re.IGNORECASE)),
-)
-
-# 去掉数字与单位后用于比对"是否用户自己说过"的归一化。
-_NORMALIZE_RE = re.compile(r"[\s,，]")
 
 
 def _get_field(value: Any, name: str, default: Any = None) -> Any:
@@ -123,6 +103,7 @@ def has_tool_evidence(
     *,
     capability_resolution: RunCapabilityResolution | None = None,
     recovery_evidence: RecoveryEvidenceWorkset | None = None,
+    tool_discovery: Any = None,
 ) -> bool:
     """本次 run 是否留下了成功且实质可用的来源/产品数据。"""
 
@@ -133,72 +114,44 @@ def has_tool_evidence(
         or _has_prefetched_page(content_blocks, recovery_evidence)
     ):
         return True
-    external_only = requires_external_evidence(capability_resolution)
+    external_only = requires_external_evidence(capability_resolution, tool_discovery=tool_discovery)
     return any(_is_usable_evidence(block, external_only=external_only) for block in content_blocks or [])
 
 
-def requires_external_evidence(capability_resolution: RunCapabilityResolution | None) -> bool:
-    """冻结能力明确要求外部事实。目录可用性不是问候任务的证据义务。"""
+def requires_external_evidence(
+    capability_resolution: RunCapabilityResolution | None,
+    *,
+    tool_discovery: Any = None,
+) -> bool:
+    """冻结能力或动态发现已加载的工具明确要求外部事实。目录可用性不是问候任务的证据义务。"""
 
     if getattr(capability_resolution, "requires_catalog_evidence", False):
         return True
-    return _get_field(capability_resolution, "package_id") in _EXTERNAL_FACT_PACKAGES
-
-
-def _conversation_text(messages: list[dict] | None) -> str:
-    """只取用户输入；模型自己上一轮说过的话不能作为事实支撑。"""
-
-    parts: list[str] = []
-    for message in messages or []:
-        if not isinstance(message, Mapping) or message.get("role") != "user":
-            continue
-        content = message.get("content")
-        if isinstance(content, str):
-            parts.append(content)
-        elif isinstance(content, list):
-            parts.extend(item.get("text", "") for item in content if isinstance(item, dict))
-    return _NORMALIZE_RE.sub("", "\n".join(parts)).lower()
-
-
-def unsupported_dynamic_fact_kind(answer: str, *, messages: list[dict] | None = None) -> str | None:
-    """返回首个无上下文支撑的动态事实类别；没有则返回 None。
-
-    用户自己说过的数值（"我十点要到机场"）算上下文支撑，不计入。
-    """
-
-    if not isinstance(answer, str) or not answer.strip():
-        return None
-    supported_text = _conversation_text(messages)
-    for kind, pattern in _DYNAMIC_FACT_PATTERNS:
-        for match in pattern.finditer(answer):
-            if _NORMALIZE_RE.sub("", match.group(0)).lower() not in supported_text:
-                return kind
-    return None
+    if _get_field(capability_resolution, "package_id") in _EXTERNAL_FACT_PACKAGES:
+        return True
+    return discovery_requires_external_evidence(tool_discovery)
 
 
 def resolve_no_evidence_answer(
     answer: str,
     *,
     content_blocks: list[Any] | None,
-    messages: list[dict] | None = None,
     capability_resolution: RunCapabilityResolution | None = None,
     recovery_evidence: RecoveryEvidenceWorkset | None = None,
+    tool_discovery: Any = None,
 ) -> tuple[str, str | None]:
     """按冻结事实需求拦住无证据总结；返回 (最终答案, 触发类别)。"""
 
     if has_tool_evidence(
-        content_blocks, capability_resolution=capability_resolution, recovery_evidence=recovery_evidence
+        content_blocks,
+        capability_resolution=capability_resolution,
+        recovery_evidence=recovery_evidence,
+        tool_discovery=tool_discovery,
     ):
         return answer, None
-    package_id = _get_field(capability_resolution, "package_id")
-    if requires_external_evidence(capability_resolution):
+    if requires_external_evidence(capability_resolution, tool_discovery=tool_discovery):
         return NO_EVIDENCE_ANSWER_TEXT, "required_external_evidence"
-    if package_id in _CONTEXT_ONLY_PACKAGES:
-        return answer, None
-    kind = unsupported_dynamic_fact_kind(answer, messages=messages)
-    if kind is None:
-        return answer, None
-    return NO_EVIDENCE_ANSWER_TEXT, kind
+    return answer, None
 
 
 def emit_fact_guard_observation(*, fact_kind: str, summary_finish_reason: str, task_mode: str) -> None:

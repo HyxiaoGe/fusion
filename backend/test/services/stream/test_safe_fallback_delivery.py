@@ -9,6 +9,7 @@ from app.services.stream.agent_loop_round_outcome import AgentRoundOutcomeReques
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_round import AgentRoundResult
 from app.services.stream.limit_summary import run_limit_summary_step
+from app.services.stream.run_capability_router import RunCapabilityResolution
 from app.services.stream.safe_fallback_response import FallbackResponseContext
 from test.services.stream import test_limit_summary as summary_fixtures
 from test.services.stream.test_agent_loop_round_outcome import _runtime, _step_context
@@ -61,6 +62,18 @@ class SafeFallbackDeliveryTests(unittest.IsolatedAsyncioTestCase):
                 request = replace(
                     request,
                     summary_finish_reason=finish_reason,
+                    capability_resolution=RunCapabilityResolution(
+                        schema_version=1,
+                        router_version="test",
+                        package_id="mobility_intercity",
+                        confidence="high",
+                        resolution_mode="routed",
+                        reason_codes=(),
+                        external_tool_names=("search_trains",),
+                        effective_plan_mode="off",
+                        include_current_date=False,
+                        network_boundary_required=False,
+                    ),
                     fallback_response_context=FallbackResponseContext("请查询班次，用日语回答。", "ja"),
                 )
                 with (

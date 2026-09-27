@@ -491,7 +491,14 @@ def expand_plan_allowed_tools(coordinator: Any, names: Iterable[str]) -> None:
 
 
 def discovery_requires_external_evidence(session: DynamicToolDiscoverySession | None) -> bool:
-    """目录含产品工具不等于当前问候任务有证据义务；默认关闭。"""
+    """本轮已加载外部事实工具时，回答必须有该类工具的有效证据。
 
-    del session
-    return False
+    目录含产品工具不等于当前问候任务有证据义务；只有模型经 tool_search 实际加载了
+    外部工具，才说明它认定本轮需要外部事实。
+    """
+
+    from app.utils.run_capability_contract import CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES
+
+    loaded = getattr(session, "loaded_names", None) or ()
+    external = frozenset().union(*CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES.values())
+    return any(name in external for name in loaded)
