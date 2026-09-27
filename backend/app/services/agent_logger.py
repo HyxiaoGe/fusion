@@ -9,6 +9,7 @@ Agent 日志写入服务 — 异步记录工具调用、Agent 步骤与会话
 所有函数均使用独立 DB Session，失败时静默处理不阻塞主流程。
 """
 
+import time
 import uuid as _uuid
 from typing import Optional
 
@@ -16,6 +17,8 @@ from app.core.logger import app_logger as logger
 from app.db.database import SessionLocal
 from app.db.models import AgentSession, AgentStep, ToolCallLog
 from app.utils.time import utc_now
+
+ATTACH_OBSERVATION_SLOW_SECONDS = 0.3
 
 
 async def log_tool_call(
@@ -161,9 +164,18 @@ def attach_tool_observation(
     observation: dict,
 ) -> None:
     """初始日志完成后按精确关联更新元数据，原业务详情保持不变。"""
+    started = time.monotonic()
     with SessionLocal() as db:
         row = db.get(ToolCallLog, log_id)
+        fetched = time.monotonic()
         if row is None or row.trace_id != run_id or row.tool_call_id != tool_call_id:
             raise ValueError("工具反馈缺少精确日志关联")
         row.extra_metadata = {**(row.extra_metadata or {}), "tool_observation": observation}
         db.commit()
+    finished = time.monotonic()
+    # 该写入占用轨迹账本准入名额；慢写入会挤掉同进程的事件写入（admission_full 诊断）。
+    if finished - started > ATTACH_OBSERVATION_SLOW_SECONDS:
+        logger.warning(
+            f"工具模型反馈写入偏慢: run_id={run_id}, log_id={log_id}, "
+            f"fetch_ms={int((fetched - started) * 1000)}, commit_ms={int((finished - fetched) * 1000)}"
+        )

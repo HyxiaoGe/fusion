@@ -440,7 +440,8 @@ async def _persist_observation_after_log(
                 run_id=run_id,
                 tool_call_id=tool_call_id,
                 observation=snapshot,
-            )
+            ),
+            label="tool_observation",
         )
         if recorder.degraded_reason is not None:
             logger.warning("工具模型反馈写入未确认: reason=%s", recorder.degraded_reason)
