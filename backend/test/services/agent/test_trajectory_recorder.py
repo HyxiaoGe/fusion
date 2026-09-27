@@ -3,6 +3,7 @@ import concurrent.futures
 import gc
 import tempfile
 import threading
+import time
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1730,6 +1731,57 @@ class RecorderConcurrencyTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(writes, [0])
         self.assertIsNone(recorder.degraded_reason)
+
+    async def test_event_wait_timeout_logs_label_holders_and_late_completion(self):
+        semaphore = threading.BoundedSemaphore(2)
+        started = threading.Event()
+        release_worker = threading.Event()
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+        self.addCleanup(executor.shutdown, wait=True)
+        self.addCleanup(release_worker.set)
+        logger = _ListLogger()
+        recorder = self._recorder(executor=executor, semaphore=semaphore, run_id="run-slow-0001", logger=logger)
+
+        def blocked_write(_payload):
+            started.set()
+            release_worker.wait(timeout=2)
+
+        recorder._write_event = blocked_write
+        await recorder.record_chunk("conv-1", "agent_event", _event(0, run_id="run-slow-0001"))
+
+        self.assertEqual(recorder.degraded_reason, "recorder_timeout")
+        timeout_logs = [message for message in logger.warnings if "轨迹账本等待超时" in message]
+        self.assertEqual(len(timeout_logs), 1)
+        self.assertIn("stage=event_wait, label=event:step_started", timeout_logs[0])
+        self.assertRegex(timeout_logs[0], r"holders=1 \[event:step_started@run-slow:\d+ms:running:\d+ms\]")
+        self.assertIn("app_pool=", timeout_logs[0])
+
+        release_worker.set()
+        for _ in range(100):
+            if any("轨迹账本迟到写入完成" in message for message in logger.warnings):
+                break
+            await asyncio.sleep(0.01)
+        late_logs = [message for message in logger.warnings if "轨迹账本迟到写入完成" in message]
+        self.assertEqual(len(late_logs), 1)
+        self.assertRegex(late_logs[0], r"stage=event_wait, label=event:step_started, late_ms=\d+")
+
+    def test_slow_event_write_logs_segment_durations(self):
+        logger = _ListLogger()
+        recorder = self._recorder(executor=Mock(), semaphore=threading.BoundedSemaphore(1), logger=logger)
+        now = time.monotonic()
+
+        recorder._log_slow_event_write("step_started", now - 0.05, [("meta", now - 0.04)])
+        self.assertEqual(logger.warnings, [])
+
+        started = now - 0.5
+        recorder._log_slow_event_write(
+            "step_started",
+            started,
+            [("meta", started + 0.3), ("event", started + 0.35), ("commit", started + 0.4)],
+        )
+        self.assertEqual(len(logger.warnings), 1)
+        self.assertIn("event_type=step_started", logger.warnings[0])
+        self.assertRegex(logger.warnings[0], r"total_ms=\d+, meta_ms=(299|300), event_ms=(49|50), commit_ms=(49|50)$")
 
     async def test_admission_full_logs_queued_slot_holders_until_worker_releases(self):
         semaphore = threading.BoundedSemaphore(1)

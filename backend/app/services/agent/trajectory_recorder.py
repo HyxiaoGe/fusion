@@ -32,6 +32,8 @@ TRAJECTORY_WAIT_TIMEOUT_SECONDS = 0.25
 # 名额被其他 run 瞬时占满属于正常并发，等名额释放再写；等满上限仍拿不到才算过载降级。
 TRAJECTORY_ADMISSION_WAIT_SECONDS = 1.0
 TRAJECTORY_ADMISSION_POLL_SECONDS = 0.005
+# 单次事件写入超过该时长时记录分段耗时，用于定位 recorder_timeout 慢在哪一段。
+TRAJECTORY_SLOW_WRITE_SECONDS = 0.2
 TRAJECTORY_STATEMENT_TIMEOUT_MS = 200
 TRAJECTORY_LOCK_TIMEOUT_MS = 100
 TRAJECTORY_CONNECT_TIMEOUT_SECONDS = 1
@@ -309,11 +311,16 @@ class TrajectoryRecorder:
             self._active_records += 1
             return True
 
-    def _note_recorder_timeout(self, stage: str) -> None:
-        """保留 recorder_timeout 原因，并写明是哪一段等待超时。"""
+    def _note_recorder_timeout(self, stage: str, *, label: str | None = None) -> None:
+        """保留 recorder_timeout 原因，写明超时阶段、写入类别与当刻名额持有者和连接池状态。"""
 
         self._mark_degraded("recorder_timeout")
-        self._logger.warning(f"轨迹账本等待超时: run_id={self.run_id}, stage={stage}")
+        holders = describe_slot_holders(self._semaphore)
+        label_part = f", label={label}" if label is not None else ""
+        self._logger.warning(
+            f"轨迹账本等待超时: run_id={self.run_id}, stage={stage}{label_part}, "
+            f"holders={len(holders)} [{', '.join(holders)}] {_describe_pool_status()}"
+        )
 
     def _finish_record(self) -> None:
         waiters: list[tuple[asyncio.AbstractEventLoop, asyncio.Future[None]]] = []
@@ -410,8 +417,8 @@ class TrajectoryRecorder:
             self._consume_late(future, stage="event_wait")
             raise
         except asyncio.TimeoutError:
-            self._note_recorder_timeout("event_wait")
-            self._consume_late(future, stage="event_wait")
+            self._note_recorder_timeout("event_wait", label=label)
+            self._consume_late(future, stage="event_wait", label=label)
             return None
         except Exception as error:  # noqa: BLE001 — auxiliary sink 必须 fail-open
             self._mark_degraded("write_failed")
@@ -693,9 +700,10 @@ class TrajectoryRecorder:
         except RuntimeError:
             return
 
-    def _consume_late(self, future: asyncio.Future[Any], *, stage: str) -> None:
+    def _consume_late(self, future: asyncio.Future[Any], *, stage: str, label: str | None = None) -> None:
         logger = self._logger
         run_id = self.run_id
+        abandoned_at = time.monotonic()
 
         def _consume(done: asyncio.Future[Any]) -> None:
             try:
@@ -706,15 +714,25 @@ class TrajectoryRecorder:
                 logger.warning(
                     f"轨迹账本迟到写入失败: run_id={run_id}, stage={stage}, error_type={type(error).__name__}"
                 )
+            elif label is not None:
+                # 超时后写入仍在跑；记录它最终又晚了多久，区分「略超上限」与「长时间卡住」。
+                late_ms = int((time.monotonic() - abandoned_at) * 1000)
+                logger.warning(
+                    f"轨迹账本迟到写入完成: run_id={run_id}, stage={stage}, label={label}, late_ms={late_ms}"
+                )
 
         future.add_done_callback(_consume)
 
     def _write_event(self, payload: Mapping[str, Any]) -> None:
         event_ts = datetime.fromtimestamp(float(payload["ts"]), tz=UTC)
         now = datetime.now(UTC)
+        started = time.monotonic()
+        marks: list[tuple[str, float]] = []
         session = self._session_factory()
         try:
+            # 首条语句会触发连接签出，meta 段包含等连接/建连的耗时。
             self._insert_meta_if_missing(session, now=now)
+            marks.append(("meta", time.monotonic()))
             event_statement = self._insert_do_nothing(
                 session,
                 AgentEvent,
@@ -736,6 +754,7 @@ class TrajectoryRecorder:
                 conflict_columns=("run_id", "sequence"),
             )
             inserted = session.execute(event_statement).rowcount == 1
+            marks.append(("event", time.monotonic()))
             if inserted:
                 session.execute(
                     update(RunTrajectoryMeta)
@@ -747,12 +766,29 @@ class TrajectoryRecorder:
                         updated_at=now,
                     )
                 )
+                marks.append(("count", time.monotonic()))
             session.commit()
+            marks.append(("commit", time.monotonic()))
         except BaseException:
             session.rollback()
             raise
         finally:
             session.close()
+            self._log_slow_event_write(str(payload.get("type")), started, marks)
+
+    def _log_slow_event_write(self, event_type: str, started: float, marks: list[tuple[str, float]]) -> None:
+        total = time.monotonic() - started
+        if total < TRAJECTORY_SLOW_WRITE_SECONDS:
+            return
+        segments = []
+        previous = started
+        for name, moment in marks:
+            segments.append(f"{name}_ms={int((moment - previous) * 1000)}")
+            previous = moment
+        self._logger.warning(
+            f"轨迹账本事件写入偏慢: run_id={self.run_id}, event_type={event_type}, "
+            f"total_ms={int(total * 1000)}, {', '.join(segments)}"
+        )
 
     def _persist_terminal_intent_transaction(
         self,
