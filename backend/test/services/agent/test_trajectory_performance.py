@@ -124,10 +124,13 @@ class TrajectoryPerformanceGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(max_workers, 4)
         self.assertEqual(max_sessions, 4)
         self.assertLessEqual(opened_sessions, 4)
-        self.assertEqual(sum(recorder.degraded_reason == "admission_full" for recorder in recorders), 8)
+        # 名额外的 8 个 run 在等名额，不因并发被判降级。
+        self.assertEqual(sum(recorder.degraded_reason == "admission_full" for recorder in recorders), 0)
 
         release.set()
         await asyncio.gather(*tasks)
+        self.assertEqual(max_workers, 4)
+        self.assertEqual([recorder.degraded_reason for recorder in recorders], [None] * 12)
         permits = [semaphore.acquire(blocking=False) for _ in range(5)]
         self.assertEqual(permits, [True, True, True, True, False])
         for _ in range(4):
