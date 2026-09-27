@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 from app.services.search_budget import MAX_CONTEXT_SOURCES
 from app.services.source_evidence_ledger import canonicalize_evidence_url
+from app.utils.run_capability_contract import is_authorized_mcp_tool_alias
 
 _URL_PATTERN = re.compile(r"https?://[^\s\])}>\"'，。；、]+", re.IGNORECASE)
 
@@ -18,6 +19,8 @@ class RecoveryEvidenceWorkset:
     """只登记本轮运行实际获取到非空内容的来源身份，不复制网页正文。"""
 
     source_keys: set[tuple[str, str]] = field(default_factory=set)
+    # MCP 返回内容不落结果块，只按工具身份登记本轮实际取得了非空结果。
+    mcp_tool_names: set[str] = field(default_factory=set)
 
     def record_result(self, tool_name: str, result: Any) -> None:
         if _value(result, "status") != "success":
@@ -32,6 +35,8 @@ class RecoveryEvidenceWorkset:
                     self._record("search", _value(source, "url"))
         elif tool_name == "url_read" and _has_content(data.get("content")):
             self._record("url_read", data.get("url"))
+        elif is_authorized_mcp_tool_alias(tool_name) and data.get("payload") not in (None, "", [], {}):
+            self.mcp_tool_names.add(tool_name)
 
     def record_prefetched_page(self, raw_url: Any) -> None:
         """自动预读成功时正文已注入模型上下文，与本轮工具读页等价。

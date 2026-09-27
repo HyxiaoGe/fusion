@@ -361,3 +361,85 @@ class TestDiscoveryEvidenceRequirement:
             "你好。",
             None,
         )
+
+
+class TestMcpEvidence:
+    """MCP 结果不落结果块：按工具身份登记成功取得的非空结果，失败与空结果不算证据。"""
+
+    _ALIAS = "mcp_fare_lookup"
+
+    @staticmethod
+    def _mcp_capability() -> RunCapabilityResolution:
+        return RunCapabilityResolution(
+            schema_version=1,
+            router_version="test",
+            package_id="mcp_explicit",
+            confidence="high",
+            resolution_mode="routed",
+            reason_codes=("explicit_authorized_tool_alias",),
+            external_tool_names=("mcp_fare_lookup",),
+            effective_plan_mode="off",
+            include_current_date=False,
+            network_boundary_required=False,
+        )
+
+    def _evidence(self, result: ToolResult, tool_name: str | None = None) -> RecoveryEvidenceWorkset:
+        evidence = RecoveryEvidenceWorkset()
+        evidence.record_result(tool_name or self._ALIAS, result)
+        return evidence
+
+    @pytest.mark.parametrize(
+        "result",
+        [
+            ToolResult(status="failed", data={"error_code": "server_unavailable"}),
+            ToolResult(status="success", data={"payload": {}}),
+            ToolResult(status="success", data={"payload": None}),
+        ],
+    )
+    def test_显式MCP失败或空结果后触顶收口(self, result):
+        answer, kind = resolve_no_evidence_answer(
+            "票价 300 元。",
+            content_blocks=[],
+            capability_resolution=self._mcp_capability(),
+            recovery_evidence=self._evidence(result),
+        )
+        assert (answer, kind) == (NO_EVIDENCE_ANSWER_TEXT, "required_external_evidence")
+
+    def test_显式MCP成功时带数字的回答原样交付(self):
+        result = ToolResult(status="success", data={"payload": {"fare_yuan": 300}})
+        assert resolve_no_evidence_answer(
+            "票价 300 元。",
+            content_blocks=[],
+            capability_resolution=self._mcp_capability(),
+            recovery_evidence=self._evidence(result),
+        ) == ("票价 300 元。", None)
+
+    def test_非MCP工具名的payload不登记(self):
+        evidence = self._evidence(
+            ToolResult(status="success", data={"payload": {"x": 1}}), tool_name="weather_forecast"
+        )
+        assert evidence.mcp_tool_names == set()
+
+    def test_动态发现加载MCP失败后收口(self):
+        from types import SimpleNamespace
+
+        session = SimpleNamespace(loaded_names={"tool_search", self._ALIAS})
+        answer, kind = resolve_no_evidence_answer(
+            "票价 300 元。",
+            content_blocks=[],
+            recovery_evidence=self._evidence(ToolResult(status="failed", data={})),
+            tool_discovery=session,
+        )
+        assert (answer, kind) == (NO_EVIDENCE_ANSWER_TEXT, "required_external_evidence")
+
+    def test_动态发现MCP成功时原样交付(self):
+        from types import SimpleNamespace
+
+        session = SimpleNamespace(loaded_names={"tool_search", self._ALIAS})
+        result = ToolResult(status="success", data={"payload": {"fare_yuan": 300}})
+        assert resolve_no_evidence_answer(
+            "票价 300 元。",
+            content_blocks=[],
+            recovery_evidence=self._evidence(result),
+            tool_discovery=session,
+        ) == ("票价 300 元。", None)

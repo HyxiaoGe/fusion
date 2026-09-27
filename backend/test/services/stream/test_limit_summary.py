@@ -2814,6 +2814,59 @@ class LimitSummaryNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("No tool result was obtained", summary_prompt)
 
 
+class McpExplicitLimitSummaryTests(unittest.IsolatedAsyncioTestCase):
+    """显式 MCP 能力：工具失败后触顶不能交付未经查询的事实，成功结果照常交付。"""
+
+    _ANSWER = "票价 300 元，08:15 发车。"
+
+    @staticmethod
+    def _resolution() -> RunCapabilityResolution:
+        return RunCapabilityResolution(
+            schema_version=1,
+            router_version="test",
+            package_id="mcp_explicit",
+            confidence="high",
+            resolution_mode="routed",
+            reason_codes=("explicit_authorized_tool_alias",),
+            external_tool_names=("mcp_fare_lookup",),
+            effective_plan_mode="off",
+            include_current_date=False,
+            network_boundary_required=False,
+        )
+
+    async def _run(self, mcp_result: ToolResult):
+        evidence = RecoveryEvidenceWorkset()
+        evidence.record_result("mcp_fare_lookup", mcp_result)
+        request, prepare = LimitSummaryNoEvidenceFactBoundaryTests()._standard_request(
+            answer=self._ANSWER,
+            content_blocks=[],
+            user_message="用 mcp_fare_lookup 查一下票价",
+        )
+        request = replace(request, capability_resolution=self._resolution(), recovery_evidence=evidence)
+        with (
+            patch("app.services.stream.limit_summary.prepare_context", new=prepare),
+            patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append,
+        ):
+            outcome = await run_limit_summary_step(request=request)
+        return request, append, outcome
+
+    async def test_MCP失败后触顶换成诚实答复(self):
+        request, append, outcome = await self._run(
+            ToolResult(status="failed", data={"error_code": "server_unavailable"})
+        )
+
+        self.assertEqual(append.await_args.args[2], NO_EVIDENCE_ANSWER_TEXT)
+        self.assertEqual(request.content_blocks[-1].text, NO_EVIDENCE_ANSWER_TEXT)
+        self.assertTrue(outcome.incomplete)
+
+    async def test_MCP成功后触顶原样交付(self):
+        request, append, outcome = await self._run(ToolResult(status="success", data={"payload": {"fare_yuan": 300}}))
+
+        self.assertEqual(append.await_args.args[2], self._ANSWER)
+        self.assertEqual(request.content_blocks[-1].text, self._ANSWER)
+        self.assertFalse(outcome.incomplete)
+
+
 class PlanSynthesisNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase):
     """plan_synthesis 与触顶总结同属"零工具证据"终态（issue #30 P1-B / #31）。
 
