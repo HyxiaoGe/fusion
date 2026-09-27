@@ -1697,7 +1697,9 @@ class RecorderDatabaseTests(unittest.IsolatedAsyncioTestCase):
 
 
 class RecorderConcurrencyTests(unittest.IsolatedAsyncioTestCase):
-    def _recorder(self, *, executor, semaphore, worker=None, run_id="run-1", logger=None) -> TrajectoryRecorder:
+    def _recorder(
+        self, *, executor, semaphore, worker=None, run_id="run-1", logger=None, admission_wait_seconds=1.0
+    ) -> TrajectoryRecorder:
         return TrajectoryRecorder(
             run_id=run_id,
             conversation_id="conv-1",
@@ -1707,7 +1709,27 @@ class RecorderConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             semaphore=semaphore,
             worker=worker or (lambda operation: operation()),
             logger=logger or app_logger,
+            admission_wait_seconds=admission_wait_seconds,
         )
+
+    async def test_admission_waits_for_released_slot_instead_of_degrading(self):
+        # 其他 run 瞬时占满名额是正常并发，等名额释放后照常写入，不得判 admission_full。
+        semaphore = threading.BoundedSemaphore(1)
+        self.assertTrue(semaphore.acquire(blocking=False))
+        writes: list[int] = []
+        recorder = self._recorder(executor=concurrent.futures.ThreadPoolExecutor(max_workers=1), semaphore=semaphore)
+        recorder._write_event = lambda payload: writes.append(payload["sequence"])
+
+        pending = asyncio.create_task(recorder.record_chunk("conv-1", "agent_event", _event(0)))
+        await asyncio.sleep(0.05)
+        self.assertFalse(pending.done())
+        self.assertEqual(writes, [])
+
+        semaphore.release()
+        await asyncio.wait_for(pending, timeout=1)
+
+        self.assertEqual(writes, [0])
+        self.assertIsNone(recorder.degraded_reason)
 
     async def test_admission_full_logs_queued_slot_holders_until_worker_releases(self):
         semaphore = threading.BoundedSemaphore(1)
@@ -1717,7 +1739,9 @@ class RecorderConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(holder.degraded_reason, "recorder_timeout")
 
         logger = _ListLogger()
-        rejected = self._recorder(executor=Mock(), semaphore=semaphore, run_id="run-rejected", logger=logger)
+        rejected = self._recorder(
+            executor=Mock(), semaphore=semaphore, run_id="run-rejected", logger=logger, admission_wait_seconds=0
+        )
         await rejected.record_chunk("conv-1", "agent_event", _event(0, run_id="run-rejected"))
 
         self.assertEqual(rejected.degraded_reason, "admission_full")
@@ -1752,7 +1776,9 @@ class RecorderConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await asyncio.to_thread(started.wait, 1))
 
         logger = _ListLogger()
-        rejected = self._recorder(executor=Mock(), semaphore=semaphore, run_id="run-rejected", logger=logger)
+        rejected = self._recorder(
+            executor=Mock(), semaphore=semaphore, run_id="run-rejected", logger=logger, admission_wait_seconds=0
+        )
         await rejected.record_chunk("conv-1", "agent_event", _event(0, run_id="run-rejected"))
 
         self.assertEqual(rejected.degraded_reason, "admission_full")
@@ -1771,7 +1797,7 @@ class RecorderConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         for _ in range(4):
             self.assertTrue(semaphore.acquire(blocking=False))
         executor = Mock()
-        recorder = self._recorder(executor=executor, semaphore=semaphore)
+        recorder = self._recorder(executor=executor, semaphore=semaphore, admission_wait_seconds=0.05)
 
         await recorder.record_chunk("conv-1", "agent_event", _event(0))
 

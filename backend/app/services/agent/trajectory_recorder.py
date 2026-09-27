@@ -29,6 +29,9 @@ from app.services.agent.trajectory_payload import (
 
 TRAJECTORY_MAX_WORKERS = 4
 TRAJECTORY_WAIT_TIMEOUT_SECONDS = 0.25
+# 名额被其他 run 瞬时占满属于正常并发，等名额释放再写；等满上限仍拿不到才算过载降级。
+TRAJECTORY_ADMISSION_WAIT_SECONDS = 1.0
+TRAJECTORY_ADMISSION_POLL_SECONDS = 0.005
 TRAJECTORY_STATEMENT_TIMEOUT_MS = 200
 TRAJECTORY_LOCK_TIMEOUT_MS = 100
 TRAJECTORY_CONNECT_TIMEOUT_SECONDS = 1
@@ -190,6 +193,7 @@ class TrajectoryRecorder:
         semaphore: threading.BoundedSemaphore = _ADMISSION_SEMAPHORE,
         worker: Callable[[Callable[[], Any]], Any] | None = None,
         logger: Any = app_logger,
+        admission_wait_seconds: float = TRAJECTORY_ADMISSION_WAIT_SECONDS,
     ) -> None:
         self.run_id = run_id
         self.conversation_id = conversation_id
@@ -199,6 +203,7 @@ class TrajectoryRecorder:
         self._semaphore = semaphore
         self._worker = worker or _execute_operation
         self._logger = logger
+        self._admission_wait_seconds = admission_wait_seconds
         self._state_lock = threading.Lock()
         self._degraded_reason: str | None = None
         self._finalize_started = False
@@ -358,6 +363,20 @@ class TrajectoryRecorder:
         """复用账本专用线程和准入上限；真实 worker 结束前不释放容量。"""
         return await self._run_isolated(operation, label=label)
 
+    async def _acquire_admission(self, label: str) -> bool:
+        """在事件循环里轮询名额，不占线程；超过等待上限才判 admission_full。"""
+        deadline = time.monotonic() + self._admission_wait_seconds
+        try:
+            while not self._semaphore.acquire(blocking=False):
+                if time.monotonic() >= deadline:
+                    self._reject_admission(label)
+                    return False
+                await asyncio.sleep(TRAJECTORY_ADMISSION_POLL_SECONDS)
+        except asyncio.CancelledError:
+            self._mark_degraded("recorder_cancelled")
+            raise
+        return True
+
     def _reject_admission(self, label: str) -> None:
         self._mark_degraded("admission_full")
         holders = describe_slot_holders(self._semaphore)
@@ -367,8 +386,7 @@ class TrajectoryRecorder:
         )
 
     async def _run_isolated(self, operation: Callable[[], _T], *, label: str = "auxiliary") -> _T | None:
-        if not self._semaphore.acquire(blocking=False):
-            self._reject_admission(label)
+        if not await self._acquire_admission(label):
             return None
 
         token = _register_slot_holder(label=label, run_id=self.run_id, semaphore=self._semaphore)
@@ -401,8 +419,7 @@ class TrajectoryRecorder:
             return None
 
     async def _run_finalize_isolated(self, expected_last_sequence: int) -> None:
-        if not self._semaphore.acquire(blocking=False):
-            self._reject_admission("finalize")
+        if not await self._acquire_admission("finalize"):
             return None
 
         loop = asyncio.get_running_loop()
