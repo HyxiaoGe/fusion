@@ -7,6 +7,7 @@ from app.services.stream import agent_loop_round_outcome as outcome
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_round import AgentRoundResult
 from app.services.stream.product_answer_validator import ProductAnswerValidation
+from app.services.stream.run_capability_router import RunCapabilityResolution
 from test.services.stream.test_agent_loop_round_outcome import _runtime, _step_context
 
 
@@ -67,7 +68,20 @@ class ProductAnswerObservationPathTests(unittest.IsolatedAsyncioTestCase):
                     }
                 ],
             ),
-            runtime=_runtime(),
+            runtime=_runtime(
+                capability_resolution=RunCapabilityResolution(
+                    schema_version=1,
+                    router_version="test",
+                    package_id="mobility_intercity",
+                    confidence="high",
+                    resolution_mode="routed",
+                    reason_codes=(),
+                    external_tool_names=("search_trains",),
+                    effective_plan_mode="off",
+                    include_current_date=False,
+                    network_boundary_required=False,
+                )
+            ),
             step_number=1,
             step_context=_step_context(),
             round_result=AgentRoundResult(

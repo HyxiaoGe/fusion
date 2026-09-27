@@ -2738,20 +2738,17 @@ class LimitSummaryNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase):
             await run_limit_summary_step(request=request)
         return request, append_chunk
 
-    async def test_零工具证据时具体班次价格时长被替换为诚实答复(self):
-        fabricated = (
+    async def test_没有能力快照时不按回答措辞改写(self):
+        """事实需求只来自冻结能力（见下方冻结外部事实能力用例），不用正则解析回答里的班次价格时长。"""
+        answer = (
             "从武汉到桂林，高铁直达大约 5 小时，二等座 280 元左右；"
             "飞机 CZ3456 全程 1.5 小时，价格区间 600-900 元；自驾约 8 小时。"
         )
 
-        request, append_chunk = await self._run(answer=fabricated, content_blocks=[])
+        request, append_chunk = await self._run(answer=answer, content_blocks=[])
 
-        emitted = append_chunk.await_args.args[2]
-        self.assertNotIn("280", emitted)
-        self.assertNotIn("CZ3456", emitted)
-        self.assertNotIn("5 小时", emitted)
-        self.assertEqual(emitted, NO_EVIDENCE_ANSWER_TEXT)
-        self.assertEqual(request.content_blocks[-1].text, NO_EVIDENCE_ANSWER_TEXT)
+        self.assertEqual(append_chunk.await_args.args[2], answer)
+        self.assertEqual(request.content_blocks[-1].text, answer)
 
     async def test_有工具证据时原答复原样保留(self):
         answer = "高铁直达大约 5 小时，二等座 280 元左右。"
@@ -2895,21 +2892,19 @@ class PlanSynthesisNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase)
             outcome = await run_limit_summary_step(request=request)
         return request, append_chunk, outcome, stream_kwargs
 
-    async def test_零证据的计划综合改走缓存输出且伪造事实不会发出(self):
+    async def test_零证据的计划综合改走缓存输出且不按措辞改写(self):
         request, append_chunk, outcome, stream_kwargs = await self._run(
             answer=self._FABRICATED,
             content_blocks=[],
         )
 
-        # 关键断言：正文没有流式直发，用户侧只收到门禁替换后的诚实答复。
+        # 零证据时仍走缓存输出，让冻结能力的事实边界能在送达前生效；
+        # 没有能力快照时不用正则解析正文，原样交付。
         self.assertTrue(stream_kwargs[0]["defer_output"])
         append_chunk.assert_awaited_once()
-        emitted = append_chunk.await_args.args[2]
-        self.assertEqual(emitted, NO_EVIDENCE_ANSWER_TEXT)
-        self.assertNotIn("280", emitted)
-        self.assertNotIn("G1234", emitted)
-        self.assertEqual(request.content_blocks[-1].text, NO_EVIDENCE_ANSWER_TEXT)
-        self.assertTrue(outcome.incomplete)
+        self.assertEqual(append_chunk.await_args.args[2], self._FABRICATED)
+        self.assertEqual(request.content_blocks[-1].text, self._FABRICATED)
+        self.assertFalse(outcome.incomplete)
 
     async def test_零证据但诚实的计划综合原文完整送达(self):
         honest = "这次没能取到实时班次，高铁和飞机都是常见选择，建议到购票平台确认。"

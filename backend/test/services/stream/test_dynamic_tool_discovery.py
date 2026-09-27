@@ -838,7 +838,8 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("run_completed", delivered.emitter.calls)
         self.assertEqual(handlers["search_trains"].execute_count, 1)
 
-    async def test_p08_zero_tools_fabricated_facts_are_not_streamed(self):
+    async def test_p08_zero_tools_answer_is_not_parsed_for_facts(self):
+        """一个工具都没加载时没有结构化事实需求，不用正则从回答里找班次、价格、气温。"""
         unsafe = "杭州到上海坐 G7301，二等座 73 元，大约 1 小时，明天 28 度。"
         config, handlers, _shared, _calls = _discovery_config(message="帮我看看杭州到上海怎么走，顺便说明天气")
         script = ScriptedRounds([{"stop": True, "content": unsafe, "protocol_reasoning_buf": "不要把 G7301 流出去"}])
@@ -853,9 +854,7 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(script.defer_output_flags)
         self.assertTrue(all(flag is True for flag in script.defer_output_flags))
         self.assertEqual(answering, [saved])
-        self.assertNotIn("G7301", saved)
-        self.assertNotIn("28 度", saved)
-        self.assertEqual(saved, NO_EVIDENCE_ANSWER_TEXT)
+        self.assertEqual(saved, unsafe)
         self.assertEqual(handlers["weather_forecast"].execute_count, 0)
         self.assertEqual(handlers["search_trains"].execute_count, 0)
         self.assertIn("run_completed", delivered.emitter.calls)
@@ -1031,15 +1030,11 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(flag["allow_deferred_reasoning_output"] is False for flag in delivered.script.flags))
         self.assertTrue(all(flag["should_use_reasoning"] is True for flag in delivered.script.flags))
         self.assertFalse(any(item["type"] == "reasoning" for item in delivered.chunks))
+        # 零工具时没有事实需求，正文按模型回答交付；推理仍只留在协议内。
         answering = _answering_texts(delivered.chunks)
-        self.assertEqual(answering, [NO_EVIDENCE_ANSWER_TEXT])
+        self.assertEqual(answering, [UNSAFE_FABRICATED_FACTS])
         saved = _text_from_blocks(delivered.store.saves[-1])
-        self.assertEqual(saved, NO_EVIDENCE_ANSWER_TEXT)
-        self._assert_no_fabricated_facts(
-            _chunk_visible_text(delivered.chunks),
-            saved,
-            _block_dump_text(delivered.execution.state.content_blocks),
-        )
+        self.assertEqual(saved, UNSAFE_FABRICATED_FACTS)
         self.assertIn(UNSAFE_FABRICATED_FACTS, "\n".join(delivered.script.protocol_reasoning))
         self.assertEqual(handlers["weather_forecast"].execute_count, 0)
         self.assertIn("run_completed", delivered.emitter.calls)
@@ -1183,8 +1178,8 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
                     finalize=True,
                 )
                 passed_blocks = delivered.execution.state.content_blocks
-                self.assertEqual(_text_from_blocks(passed_blocks), NO_EVIDENCE_ANSWER_TEXT)
-                self._assert_no_fabricated_facts(_block_dump_text(passed_blocks), _chunk_visible_text(delivered.chunks))
+                self.assertEqual(_text_from_blocks(passed_blocks), UNSAFE_FABRICATED_FACTS)
+                self.assertFalse(any(item["type"] == "reasoning" for item in delivered.chunks))
                 self.assertIn("run_completed", delivered.emitter.calls)
                 completed = next(kwargs for name, kwargs in delivered.emitter.sequence if name == "run_completed")
                 self.assertEqual(completed.get("finish_reason"), delivered.terminal.run_finish_reason)
@@ -1196,8 +1191,7 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
                     [block.get("type") for block in stored.content],
                     ["text"],
                 )
-                self.assertEqual(stored_text.strip(), NO_EVIDENCE_ANSWER_TEXT)
-                self._assert_no_fabricated_facts(stored_text)
+                self.assertEqual(stored_text.strip(), UNSAFE_FABRICATED_FACTS)
                 self.assertNotEqual(stored.content, passed_blocks)
         finally:
             engine.dispose()
@@ -1322,7 +1316,6 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
         guarded, kind = resolve_no_evidence_answer(
             "你好，我是助手。",
             content_blocks=[],
-            messages=[{"role": "user", "content": "早上好，你是谁？"}],
             capability_resolution=config.capability_resolution,
         )
         self.assertEqual(guarded, "你好，我是助手。")

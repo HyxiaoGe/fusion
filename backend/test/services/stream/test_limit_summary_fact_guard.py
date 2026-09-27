@@ -13,7 +13,6 @@ from app.services.stream.limit_summary_fact_guard import (
     NO_EVIDENCE_ANSWER_TEXT,
     has_tool_evidence,
     resolve_no_evidence_answer,
-    unsupported_dynamic_fact_kind,
 )
 from app.services.stream.run_capability_router import RunCapabilityResolution
 from app.services.stream.tool_recovery_evidence import RecoveryEvidenceWorkset, has_recovery_evidence
@@ -89,55 +88,21 @@ class TestHasToolEvidence:
         assert has_tool_evidence([block]) is True
 
 
-class TestUnsupportedDynamicFact:
-    @pytest.mark.parametrize(
-        ("answer", "kind"),
-        [
-            ("二等座 280 元左右", "price"),
-            ("票价 ¥300", "price"),
-            ("高铁直达大约 5 小时", "duration"),
-            ("车程 50 分钟", "duration"),
-            ("可以坐 G1234 次列车", "vehicle_number"),
-            ("航班 CZ3456 上午出发", "vehicle_number"),
-        ],
-    )
-    def test_具体动态数值被识别(self, answer: str, kind: str):
-        assert unsupported_dynamic_fact_kind(answer) == kind
-
-    @pytest.mark.parametrize(
-        "answer",
-        [
-            "本次没能查到具体的班次和票价，建议稍后重试。",
-            "国庆期间人比较多，建议错峰出行并提前规划。",
-            "高铁和飞机都可以，具体班次要以购票平台为准。",
-            "",
-        ],
-    )
-    def test_不含具体数值的回答不触发(self, answer: str):
-        assert unsupported_dynamic_fact_kind(answer) is None
-
-    def test_用户自己说过的数值算上下文支撑(self):
-        messages = [{"role": "user", "content": "我预算 300 元以内，路上别超过 5 小时"}]
-        assert unsupported_dynamic_fact_kind("控制在 300 元、5 小时以内是可行的", messages=messages) is None
-
-    def test_模型自己上一轮说的不算支撑(self):
-        messages = [{"role": "assistant", "content": "大约 5 小时"}]
-        assert unsupported_dynamic_fact_kind("大约 5 小时", messages=messages) == "duration"
-
-
 class TestResolveNoEvidenceAnswer:
-    def test_零工具证据时拦下伪造的班次价格时长(self):
-        answer, kind = resolve_no_evidence_answer(_FABRICATED_ANSWER, content_blocks=[])
-        assert kind is not None
-        assert answer == NO_EVIDENCE_ANSWER_TEXT
+    @pytest.mark.parametrize("candidate", [_FABRICATED_ANSWER, "明天香港 26 度，适合散步。", "可以坐 G1234 次列车。"])
+    def test_没有能力快照时不解析回答措辞(self, candidate):
+        """边界只看冻结能力与工具证据，不用正则从回答里找价格、车次、时长、气温。"""
+        assert resolve_no_evidence_answer(candidate, content_blocks=[]) == (candidate, None)
 
     def test_收口文案不点名出行领域(self):
-        """本模块同样拦截气温，天气问题不该收到班次/价格/时长的文案。
+        """天气同属外部事实能力，不该收到班次/价格/时长的文案。
 
         真实验收 Run 8139d99f：天气请求收口时出现了出行文案。
         """
-        answer, kind = resolve_no_evidence_answer("明天香港 26 度，适合散步。", content_blocks=[])
-        assert kind == "temperature"
+        answer, kind = resolve_no_evidence_answer(
+            "明天香港 26 度，适合散步。", content_blocks=[], capability_resolution=_capability("weather")
+        )
+        assert kind == "required_external_evidence"
         assert answer == NO_EVIDENCE_ANSWER_TEXT
         for travel_word in ("班次", "价格", "时长", "票价", "车次"):
             assert travel_word not in NO_EVIDENCE_ANSWER_TEXT
@@ -323,39 +288,6 @@ class TestPrefetchedPageEvidence:
         )
 
 
-class TestFactGuardBoundaries:
-    """自查发现的两处边界：道路编号不是车次；天气数值同属无证据动态事实。"""
-
-    @pytest.mark.parametrize(
-        "answer",
-        [
-            "这条路线主要走 G4 高速",
-            "从 G42 高速转 S1 省道",
-            "沿 G107 国道往南",
-        ],
-    )
-    def test_公路编号不被当成车次(self, answer: str):
-        assert unsupported_dynamic_fact_kind(answer) is None
-
-    @pytest.mark.parametrize(
-        "answer",
-        ["可以坐 G1234 次列车", "推荐 G4 次列车", "航班 MU5678 上午起飞"],
-    )
-    def test_车次航班号仍被识别(self, answer: str):
-        assert unsupported_dynamic_fact_kind(answer) == "vehicle_number"
-
-    @pytest.mark.parametrize(
-        "answer",
-        ["明天南京最高 18 度，最低 9 度", "白天气温 25℃", "夜里可能到 -2°C"],
-    )
-    def test_无证据的气温被识别(self, answer: str):
-        assert unsupported_dynamic_fact_kind(answer) == "temperature"
-
-    def test_用户自述的气温算上下文支撑(self):
-        messages = [{"role": "user", "content": "我这边现在 18 度，需要穿外套吗"}]
-        assert unsupported_dynamic_fact_kind("18 度确实该加件外套", messages=messages) is None
-
-
 @pytest.mark.parametrize("query", ["", "武汉到桂林最新车次"])
 @pytest.mark.parametrize("description", ["", "https://example.com/timetable", "车次八点十五出发。"])
 def test_真实搜索处理器只有实际正文可通过总结守卫(query, description):
@@ -407,3 +339,25 @@ def test_真实网页处理器成功标记与URL不能代替正文(content):
         assert has_tool_evidence([block]) is False
     assert has_tool_evidence([block], recovery_evidence=evidence) is usable
     assert has_tool_evidence([block]) is False
+
+
+class TestDiscoveryEvidenceRequirement:
+    """动态发现没有能力快照，以本轮实际加载的外部工具作为事实需求。"""
+
+    @staticmethod
+    def _session(*names: str):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(loaded_names={"tool_search", *names})
+
+    def test_加载外部工具后零证据收口(self):
+        answer, kind = resolve_no_evidence_answer(
+            "杭州明天 28 度。", content_blocks=[], tool_discovery=self._session("weather_forecast")
+        )
+        assert (answer, kind) == (NO_EVIDENCE_ANSWER_TEXT, "required_external_evidence")
+
+    def test_只加载目录检索不构成事实需求(self):
+        assert resolve_no_evidence_answer("你好。", content_blocks=[], tool_discovery=self._session()) == (
+            "你好。",
+            None,
+        )
