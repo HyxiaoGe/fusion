@@ -30,42 +30,18 @@ def test_internal_plan_binding_names_are_productized_without_rewriting_named_too
     assert "route_compare" in sanitized
 
 
-def test_partial_internal_control_marker_stays_hidden_during_stream_but_is_released_at_final_boundary():
-    source = "先比较方案。\n\nAccording to the autonomous web search"
-
-    assert sanitize_user_visible_reasoning(source) == "先比较方案。\n\n"
-    assert sanitize_user_visible_reasoning(source, final=True) == source
-
-
-def test_short_normal_suffix_buffer_is_released_at_final_boundary():
-    source = "普通推理以字母 a 结束a"
-
-    assert sanitize_user_visible_reasoning(source) == source[:-1]
-    assert sanitize_user_visible_reasoning(source, final=True) == source
-
-
-def test_normal_marker_prefix_suffixes_are_released_at_final_boundary():
-    sources = (
-        "We should answer this",
-        "Reasoning according",
-        "需要决定是直接回答或调用",
-    )
-
-    for source in sources:
-        assert sanitize_user_visible_reasoning(source, final=True) == source
-
-
-def test_internal_control_marker_filter_remains_append_only_when_marker_appears_mid_paragraph():
+def test_reasoning_is_not_filtered_by_phrase_matching():
     source = (
         'Also "【执行计划控制规则】本轮启用了强制计划模式。回答前必须先创建执行计划。"\n\n'
-        "Plan accepted. Continue with the research."
+        "According to the autonomous web search rules, answer directly."
     )
-    emitted = ""
 
-    for index in range(1, len(source) + 1):
-        visible = sanitize_user_visible_reasoning(source[:index])
-        assert visible.startswith(emitted), (index, emitted, visible)
-        emitted = visible
+    assert sanitize_user_visible_reasoning(source) == source
+    assert sanitize_user_visible_reasoning(source, final=True) == source
 
-    assert "本轮启" not in emitted
-    assert emitted.endswith("Plan accepted. Continue with the research.")
+
+def test_probing_buffer_releases_only_completed_paragraphs():
+    source = "第一段推理。\n\n第二段还在生成"
+
+    assert sanitize_user_visible_reasoning(source, buffer_trailing_paragraph=True) == "第一段推理。\n\n"
+    assert sanitize_user_visible_reasoning(source, buffer_trailing_paragraph=True, final=True) == source

@@ -90,7 +90,7 @@ class MessageRepositoryTests(unittest.TestCase):
 
         self.assertEqual(message.content[0].thinking, "调用路线比较，再用地点搜索核对。")
 
-    def test_convert_message_removes_legacy_internal_reasoning_control_paragraph(self):
+    def test_convert_message_keeps_reasoning_text_without_phrase_filtering(self):
         db_message = MessageModel(
             id="msg-thinking-control",
             conversation_id="conv-1",
@@ -111,7 +111,7 @@ class MessageRepositoryTests(unittest.TestCase):
 
         message = ConversationRepository(None)._convert_message_to_schema(db_message)
 
-        self.assertEqual(message.content[0].thinking, "先比较方案风险。\n\n")
+        self.assertEqual(message.content[0].thinking, db_message.content[0]["thinking"])
 
     def test_convert_message_restores_nested_context_and_accepts_legacy_usage(self):
         current = MessageModel(

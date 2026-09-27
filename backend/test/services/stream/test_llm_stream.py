@@ -1029,7 +1029,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcome.reasoning_buf, "先核对公开资料。")
         self.assertIn("DSML", outcome.raw_reasoning_buf)
 
-    async def test_reasoning_hides_split_internal_control_instructions_but_keeps_raw(self):
+    async def test_reasoning_is_not_filtered_by_phrase_matching(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-deferred-control-instructions",
             task_id="task-deferred-control-instructions",
@@ -1085,11 +1085,9 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
             "According to the autonomous web search rules: this should not be searched. "
             "本轮启用了强制计划模式，必须先创建执行计划。"
         )
-        self.assertEqual(outcome.reasoning_buf, "先比较两种授权方案的风险和成本。\n\n")
+        self.assertEqual(outcome.reasoning_buf, raw_reasoning)
         self.assertEqual(outcome.raw_reasoning_buf, raw_reasoning)
         self.assertEqual(emitted_reasoning, outcome.reasoning_buf)
-        self.assertNotIn("autonomous web search", emitted_reasoning)
-        self.assertNotIn("强制计划模式", emitted_reasoning)
 
     async def test_consume_stream_round_keeps_reasoning_raw_in_protocol_but_redacts_visible_copies(self):
         request = llm_stream_module.LLMStreamRequest(
