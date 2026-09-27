@@ -497,8 +497,8 @@ def discovery_requires_external_evidence(session: DynamicToolDiscoverySession | 
     外部工具，才说明它认定本轮需要外部事实。
     """
 
-    from app.utils.run_capability_contract import CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES
+    from app.utils.run_capability_contract import CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES, is_authorized_mcp_tool_alias
 
     loaded = getattr(session, "loaded_names", None) or ()
     external = frozenset().union(*CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES.values())
-    return any(name in external for name in loaded)
+    return any(name in external or is_authorized_mcp_tool_alias(name) for name in loaded)

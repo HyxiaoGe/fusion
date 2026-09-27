@@ -112,6 +112,7 @@ def has_tool_evidence(
     if recovery_evidence is not None and (
         has_recovery_evidence(content_blocks or [], evidence=recovery_evidence)
         or _has_prefetched_page(content_blocks, recovery_evidence)
+        or recovery_evidence.mcp_tool_names
     ):
         return True
     external_only = requires_external_evidence(capability_resolution, tool_discovery=tool_discovery)
@@ -128,6 +129,9 @@ def requires_external_evidence(
     if getattr(capability_resolution, "requires_catalog_evidence", False):
         return True
     if _get_field(capability_resolution, "package_id") in _EXTERNAL_FACT_PACKAGES:
+        return True
+    # 显式 MCP 能力包的外部工具是授权别名，不在内置能力包工具表里。
+    if _get_field(capability_resolution, "package_id") == "mcp_explicit":
         return True
     return discovery_requires_external_evidence(tool_discovery)
 
