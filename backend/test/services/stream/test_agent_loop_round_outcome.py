@@ -1865,7 +1865,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
                     step_context=step_context,
                     round_result=AgentRoundResult(
                         reasoning_buf="",
-                        content_buf="方便停车，也不会排队。",
+                        content_buf="从这里坐地铁全程约12公里。",
                         tool_calls=[],
                         finish_reason="stop",
                         accumulated_usage=Usage(input_tokens=2, output_tokens=3),
@@ -1880,16 +1880,15 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("本次查询返回 1 个", emitted_answer)
         self.assertNotIn("高德", emitted_answer)
         self.assertIn("不包含实时排队或空位信息", emitted_answer)
-        self.assertNotIn("停车", emitted_answer)
-        self.assertNotIn("不会排队", emitted_answer)
+        self.assertNotIn("全程约12公里", emitted_answer)
         self.assertEqual(state.content_blocks[-1].text, emitted_answer)
         self.assertEqual([block.type for block in state.content_blocks], ["place_results", "text"])
         self.assertEqual(len(warnings), 1)
         self.assertIn("reason_code=unsupported_claim", warnings[0])
-        self.assertNotIn("停车", warnings[0])
+        self.assertNotIn("全程", warnings[0])
         llm_lifecycle.publish_visible_output.assert_not_awaited()
         llm_lifecycle.finish_success.assert_awaited_once_with(output_visible=False)
-        self.assertNotIn("排队", warnings[0])
+        self.assertNotIn("12公里", warnings[0])
         complete_step_fn.assert_awaited_once()
 
     @patch("app.services.stream.agent_loop_round_outcome.settings.PRODUCT_ANSWER_REPAIR_ENABLED", True)
@@ -1972,7 +1971,9 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
                 ],
             )
         )
-        model_answer = "结论：驾车约14分钟，是本次用时最短的方案。高峰期可能拥堵。地铁约32分钟，适合能接受换乘的情况。"
+        model_answer = (
+            "结论：驾车约14分钟，是本次用时最短的方案。地铁全程约12公里。地铁约32分钟，适合能接受换乘的情况。"
+        )
         append_chunk = AsyncMock()
         warnings: list[str] = []
 
@@ -2000,7 +2001,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         emitted_answer = append_chunk.await_args.args[2]
         self.assertIn("驾车约14分钟", emitted_answer)
         self.assertIn("地铁约32分钟", emitted_answer)
-        self.assertNotIn("高峰期可能拥堵", emitted_answer)
+        self.assertNotIn("地铁全程约12公里", emitted_answer)
         self.assertIn("本次查询结果无法确认", emitted_answer)
         self.assertNotIn("高德", emitted_answer)
         self.assertEqual(state.content_blocks[-1].text, emitted_answer)
@@ -2026,7 +2027,9 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
                 ],
             )
         )
-        model_answer = "结论：驾车约14分钟，是本次用时最短的方案。高峰期可能拥堵。地铁约32分钟，适合能接受换乘的情况。"
+        model_answer = (
+            "结论：驾车约14分钟，是本次用时最短的方案。地铁全程约12公里。地铁约32分钟，适合能接受换乘的情况。"
+        )
         append_chunk = AsyncMock()
         warnings: list[str] = []
 
@@ -2053,7 +2056,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcome.exit, AgentLoopExit.COMPLETED)
         emitted_answer = append_chunk.await_args.args[2]
         # 关键：模型原句既没有被展示，也没有被切成半句展示。
-        self.assertNotIn("高峰期可能拥堵", emitted_answer)
+        self.assertNotIn("地铁全程约12公里", emitted_answer)
         self.assertNotIn("适合能接受换乘的情况", emitted_answer)
         self.assertEqual(len(warnings), 1)
         self.assertIn("使用确定性兜底", warnings[0])
@@ -2097,7 +2100,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
                     round_result=AgentRoundResult(
                         reasoning_buf="",
                         content_buf=(
-                            "结论：驾车约14分钟，是本次用时最短的方案。高峰期可能拥堵。"
+                            "结论：驾车约14分钟，是本次用时最短的方案。地铁全程约12公里。"
                             "地铁约32分钟，适合能接受换乘的情况。"
                         ),
                         tool_calls=[],
@@ -2115,7 +2118,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(observation["repair_available"])
         self.assertFalse(observation["repair_applied"])
         self.assertEqual(observation["product_result_types"], ["route_results"])
-        self.assertNotIn("高峰期可能拥堵", json.dumps(observation, ensure_ascii=False))
+        self.assertNotIn("地铁全程约12公里", json.dumps(observation, ensure_ascii=False))
 
     async def test_deferred_weather_answer_uses_validated_model_candidate(self):
         state = AgentLoopState()
