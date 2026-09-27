@@ -46,7 +46,7 @@ async def capture_product_answer_case(
     if pending_repair:
         state.pending_tool_repairs["repair-protocol"] = {"required_fields": [], "retryable": False}
     state.mark_current_step("step-no-result")
-    candidate = "可以优先考虑炭火一号。这里停车方便。"
+    candidate = "可以优先考虑炭火一号。从这里坐地铁全程约12公里。"
     lifecycle = AsyncMock()
     lifecycle.record_output = Mock()
     request = AgentRoundOutcomeRequest(
@@ -129,7 +129,7 @@ class ProductAnswerNoResultTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["observations"][0]["is_valid"])
         self.assertFalse(result["model_output_visible"])
         self.assertNotEqual(result["answer"], result["candidate"])
-        self.assertNotIn("停车方便", result["answer"])
+        self.assertNotIn("全程约12公里", result["answer"])
         self.assertEqual(result["stored_text"], [result["answer"]])
 
     async def test_thinking_only_without_product_attempt_stays_on_ordinary_path(self):

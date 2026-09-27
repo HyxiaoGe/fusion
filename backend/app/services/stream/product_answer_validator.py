@@ -25,16 +25,6 @@ _PRODUCT_RESULT_TYPES = {
     "train_results",
     "itinerary_results",
 }
-_RISK_TERM_RE = re.compile(
-    r"排队|空位|预约|停车|拥堵|堵车|路况|候车|免费|实时|人均|"
-    r"准点|坡度|自行车道|共享单车|等待|"
-    r"余票|有票|售罄|延误|取消|退改签|退票|改签|行李|登机口|检票口|站台"
-)
-_TRAVEL_UNSUPPORTED_CLAIM_RE = re.compile(
-    r"余票|有票|售罄|准点|延误|取消|退改签|退票|改签|行李|登机口|检票口|站台|"
-    r"(?:航班|班次)(?:也)?(?:更多|较多|很多|多)|省(?:下)?住宿费|节省住宿(?:费|成本)"
-)
-_COST_TERM_RE = re.compile(r"费用|成本|过路费")
 _LIMITATION_CUE_RE = re.compile(
     r"未(?:提供|返回|包含|显示)|无法(?:确认|判断)|不能(?:确认|判断)|不代表|不等于|"
     r"未按.{0,20}(?:实时)?(?:路况|班次).{0,8}(?:计算|查询)|"
@@ -43,10 +33,6 @@ _LIMITATION_CUE_RE = re.compile(
 )
 _CLAUSE_SPLIT_RE = re.compile(r"[，,。！？!?；;\n]+")
 _ASSERTION_SPLIT_RE = re.compile(r"(?:不过|然而|并且|而且|同时|但是|但|且|并|[（(])")
-_GENERIC_PLACE_RELATION_RE = re.compile(
-    r"(?:两家|两处|二者|彼此|互相).{0,12}(?:步行|相距|距离|车程|驾车|骑行)|"
-    r"(?:步行|相距|距离|车程|驾车|骑行).{0,12}(?:两家|两处|二者|彼此|互相)"
-)
 _RELATION_TERM_RE = re.compile(r"步行|相距|距离|车程|驾车|骑行")
 _LINE_RE = re.compile(
     r"(?:地铁|轨道交通)?\s*(?:\d+|[一二三四五六七八九十百]+)\s*号线|"
@@ -257,12 +243,9 @@ _REPAIR_DANGLING_PREDICATE_RE = re.compile(r"^(?:是|为|属于)(?:非常|很|�
 _MARKDOWN_HORIZONTAL_RULE_RE = re.compile(r"^\s*(?:-{3,}|\*{3,}|_{3,})\s*$")
 _SEMANTIC_TEXT_RE = re.compile(r"[\u4e00-\u9fffA-Za-z0-9]")
 _SAFE_CAVEATS = {
-    "realtime": "实时排队、空位、预约、停车、拥堵、候车和票价等未返回信息，本次查询结果无法确认，建议出发前核实。",
-    "cost": "未返回的费用信息，本次查询结果无法确认，建议以实际信息为准。",
     "numeric": "未返回的时间、距离和费用信息，本次查询结果无法确认，请以卡片数值为准。",
     "relation": "地点之间的距离和步行时间本次查询结果无法确认，如需组合出行建议应另行查询路线。",
     "transit_total_distance": "公共交通全程距离本次查询结果无法确认，请以卡片已展示的步行距离和线路信息为准。",
-    "travel": "余票、准点率、退改签、行李、登机口、检票口、站台及机场接驳便利度等信息本次查询未返回，预订和出发前请另行核实。",
 }
 
 
@@ -440,7 +423,7 @@ def repair_unsupported_product_answer(
                 for clause in _CLAUSE_SPLIT_RE.split(unit)
                 if (reason := _unsupported_clause_reason(clause, facts)) is not None
             }
-            caveat_codes.update(reasons or {"realtime"})
+            caveat_codes.update(reasons)
             salvaged = _salvage_safe_subclauses(
                 unit,
                 content_blocks,
@@ -1352,43 +1335,16 @@ def _unsupported_clause_reason(clause: str, facts: _FactIndex) -> str | None:
 
 
 def _unsupported_assertion_reason(clause: str, facts: _FactIndex) -> str | None:
+    # 只核对契约里不存在的字段：公交结果没有全程距离。未返回的实时状态、余票、费用等
+    # 由工具结果的 limitations 与使用约束提示词前置约束，不再按关键词加免责措辞判定。
     if _TRANSIT_TOTAL_DISTANCE_RE.search(clause):
         return "transit_total_distance"
-    if (
-        facts.has_travel_results
-        and _TRAVEL_UNSUPPORTED_CLAIM_RE.search(clause)
-        and not _LIMITATION_CUE_RE.search(clause)
-    ):
-        return "travel"
-    if _RISK_TERM_RE.search(clause) and not _LIMITATION_CUE_RE.search(clause):
-        return "realtime"
-    if _COST_TERM_RE.search(clause) and not _LIMITATION_CUE_RE.search(clause):
-        if "过路费" in clause:
-            category = "toll_yuan"
-        elif "参考消费" in clause:
-            category = "reference_cost_yuan"
-        else:
-            return "cost"
-        allowed_money = _allowed_numeric_values(facts, category, clause, len(clause))
-        if not _has_supported_money_value(clause, allowed_money):
-            return "cost"
     return None
-
-
-def _has_supported_money_value(clause: str, allowed_money: set[float]) -> bool:
-    for match in _NUMBER_UNIT_RE.finditer(clause):
-        if match.group("unit") != "元":
-            continue
-        if _matches_allowed(float(match.group("value")), allowed_money, category="money_yuan"):
-            return True
-    return False
 
 
 def _has_unreturned_place_relation(answer: str, facts: _FactIndex) -> bool:
     compact_entities = {_compact_text(name) for name in facts.entity_names}
     for clause in _CLAUSE_SPLIT_RE.split(answer):
-        if facts.has_place_results and _GENERIC_PLACE_RELATION_RE.search(clause):
-            return True
         if not _RELATION_TERM_RE.search(clause):
             continue
         compact_clause = _compact_text(clause)

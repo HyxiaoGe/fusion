@@ -565,7 +565,7 @@ class ProductAnswerValidatorTests(unittest.TestCase):
                 self.assertEqual(validation.reason_code, reason)
 
     def test_weather_forecast_coverage_limit_is_retained_by_repair(self):
-        answer = "周五白天雷阵雨，最高31℃。当前预报未覆盖8月2日至8月4日。实时排队很少。"
+        answer = "周五白天雷阵雨，最高31℃。当前预报未覆盖8月2日至8月4日。地铁全程约12公里。"
 
         repaired, reason = repair_unsupported_product_answer(answer, [_weather_block()])
 
@@ -889,67 +889,6 @@ class ProductAnswerValidatorTests(unittest.TestCase):
         self.assertIn("更舒适", repaired)
         self.assertIn("驾车约14分钟，公交约32分钟", repaired)
 
-    def test_high_confidence_unsupported_claim_falls_back(self):
-        validation = validate_product_answer(
-            "炭火一号停车肯定方便，也不用排队，现场一定有空位。",
-            [_place_block()],
-        )
-
-        self.assertFalse(validation.is_valid)
-        self.assertEqual(validation.reason_code, "unsupported_claim")
-
-    def test_limitation_cue_does_not_mask_unsupported_claim_in_another_clause(self):
-        validation = validate_product_answer(
-            "实时排队无法确认，但停车肯定方便。",
-            [_place_block()],
-        )
-
-        self.assertFalse(validation.is_valid)
-        self.assertEqual(validation.reason_code, "unsupported_claim")
-
-    def test_limitation_cue_does_not_mask_positive_claim_within_same_clause(self):
-        for answer in (
-            "这趟车准点率高且不含余票信息。",
-            "本次结果不含余票信息但这趟车准点率高。",
-            "这趟车准点率高并不含余票信息。",
-            "这趟车准点率高（不含余票信息）。",
-        ):
-            with self.subTest(answer=answer):
-                validation = validate_product_answer(answer, _travel_candidate_blocks())
-                self.assertFalse(validation.is_valid)
-                self.assertEqual(validation.reason_code, "unsupported_claim")
-
-    def test_weak_uncertainty_language_does_not_turn_realtime_claim_into_fact(self):
-        validation = validate_product_answer(
-            "炭火一号通常不用排队，现场一般有空位。",
-            [_place_block()],
-        )
-
-        self.assertFalse(validation.is_valid)
-        self.assertEqual(validation.reason_code, "unsupported_claim")
-
-    def test_unreturned_route_quality_claims_are_not_kept(self):
-        answer = "地铁准点率高，早高峰最稳定，骑行更省钱也更安全，开车更舒适。"
-
-        validation = validate_product_answer(answer, [_route_block()])
-
-        self.assertFalse(validation.is_valid)
-        self.assertEqual(validation.reason_code, "unsupported_claim")
-
-    def test_unreturned_waiting_and_flexibility_claims_are_not_kept(self):
-        answer = "骑行比地铁少进出站和换乘等待，时间更灵活，也不用掐点赶车。"
-
-        validation = validate_product_answer(answer, [_route_block()])
-
-        self.assertFalse(validation.is_valid)
-        self.assertEqual(validation.reason_code, "unsupported_claim")
-
-    def test_route_result_cannot_be_described_as_realtime_data(self):
-        validation = validate_product_answer("高德返回了实时路线数据。", [_route_block()])
-
-        self.assertFalse(validation.is_valid)
-        self.assertEqual(validation.reason_code, "unsupported_claim")
-
     def test_requested_departure_time_non_realtime_boundary_is_retained(self):
         answer = "用户指定的出发时间为“工作日早上 8:30”，本次结果未按该时刻的实时路况或班次计算。"
 
@@ -972,23 +911,21 @@ class ProductAnswerValidatorTests(unittest.TestCase):
         self.assertTrue(validate_product_answer(repaired, [_route_block()]).is_valid)
 
     def test_repair_salvages_explicitly_scoped_facts_from_mixed_unsafe_sentence(self):
-        answer = "根据高德返回的实时路线数据，驾车约14分钟，公共交通约32分钟，实时拥堵较轻。"
+        answer = "根据高德返回的实时路线数据，驾车约14分钟，公共交通约32分钟，地铁全程约12公里。"
 
         repaired, reason_code = repair_unsupported_product_answer(answer, [_route_block()])
 
         self.assertEqual(reason_code, "ok")
         self.assertIn("驾车约14分钟", repaired)
         self.assertIn("公共交通约32分钟", repaired)
-        self.assertNotIn("实时拥堵较轻", repaired)
+        self.assertNotIn("全程约12公里", repaired)
         self.assertNotRegex(repaired, r"14分钟[^。\n]{0,30}32分钟")
         self.assertTrue(validate_product_answer(repaired, [_route_block()]).is_valid)
 
     def test_repair_drops_source_only_and_dangling_predicate_clauses(self):
         route = _route_block()
         route.routes.append(RouteOption(mode="bicycling", duration_s=1200, distance_m=5000))
-        answer = (
-            "根据本次查询结果，驾车约14分钟，骑行约20分钟、5公里，是非常适合骑行的通勤距离，停车方便，地铁约32分钟。"
-        )
+        answer = "根据本次查询结果，驾车约14分钟，骑行约20分钟、5公里，是非常适合骑行的通勤距离，公交全程约12公里，地铁约32分钟。"
 
         repaired, reason_code = repair_unsupported_product_answer(answer, [route])
 
@@ -998,11 +935,11 @@ class ProductAnswerValidatorTests(unittest.TestCase):
         self.assertIn("地铁约32分钟", repaired)
         self.assertNotIn("根据本次查询结果。", repaired)
         self.assertNotIn("是非常适合", repaired)
-        self.assertNotIn("停车方便", repaired)
+        self.assertNotIn("全程约12公里", repaired)
         self.assertTrue(validate_product_answer(repaired, [route]).is_valid)
 
     def test_repairs_only_unsupported_clause_and_keeps_grounded_model_prose(self):
-        answer = "结论：驾车约14分钟，是本次用时最短的方案。高峰期可能拥堵。地铁约32分钟，适合能接受1次换乘的情况。"
+        answer = "结论：驾车约14分钟，是本次用时最短的方案。地铁全程约12公里。地铁约32分钟，适合能接受1次换乘的情况。"
 
         repaired, reason_code = repair_unsupported_product_answer(answer, [_route_block()])
 
@@ -1010,14 +947,34 @@ class ProductAnswerValidatorTests(unittest.TestCase):
         self.assertEqual(reason_code, "ok")
         self.assertIn("驾车约14分钟", repaired)
         self.assertIn("地铁约32分钟", repaired)
-        self.assertNotIn("高峰期可能拥堵", repaired)
+        self.assertNotIn("全程约12公里", repaired)
         self.assertIn("本次查询结果无法确认", repaired)
         self.assertNotIn("高德", repaired)
         self.assertTrue(validate_product_answer(repaired, [_route_block()]).is_valid)
 
+    def test_unreturned_status_wording_is_left_to_result_limitations(self):
+        # 这些说法原先靠「出现关键词且没写免责措辞」拦截；关键词表对换说法无效，现由
+        # 工具结果的 limitations 与使用约束提示词（amap.final_answer / local_usage /
+        # route_usage、flyai.fact_boundary）前置约束，校验器只核对可比对的结构化事实。
+        cases = (
+            ("炭火一号停车肯定方便，也不用排队，现场一定有空位。", [_place_block()]),
+            ("实时排队无法确认，但停车肯定方便。", [_place_block()]),
+            ("炭火一号通常不用排队，现场一般有空位。", [_place_block()]),
+            ("模型自由文本：两家店步行五分钟。", [_place_block()]),
+            ("地铁准点率高，早高峰最稳定，骑行更省钱也更安全，开车更舒适。", [_route_block()]),
+            ("骑行比地铁少进出站和换乘等待，时间更灵活，也不用掐点赶车。", [_route_block()]),
+            ("高德返回了实时路线数据。", [_route_block()]),
+            ("这趟车准点率高且不含余票信息。", _travel_candidate_blocks()),
+            ("本次结果不含余票信息但这趟车准点率高。", _travel_candidate_blocks()),
+        )
+
+        for answer, blocks in cases:
+            with self.subTest(answer=answer):
+                self.assertTrue(validate_product_answer(answer, blocks).is_valid)
+
     def test_hard_fact_error_is_not_repaired(self):
         repaired, reason_code = repair_unsupported_product_answer(
-            "结论：驾车约20分钟。高峰期可能拥堵。",
+            "结论：驾车约20分钟。地铁全程约12公里。",
             [_route_block()],
         )
 
@@ -1055,19 +1012,19 @@ class ProductAnswerValidatorTests(unittest.TestCase):
         self.assertTrue(validate_product_answer(repaired, [_route_block()]).is_valid)
 
     def test_repair_salvages_second_route_fact_before_coverage_check(self):
-        answer = "自驾全程约6.2公里，耗时约14分钟。公共交通最优选择。地铁约32分钟，准点稳定又省钱。"
+        answer = "自驾全程约6.2公里，耗时约14分钟。公共交通最优选择。地铁约32分钟，骑行约25分钟。"
 
         repaired, reason_code = repair_unsupported_product_answer(answer, [_route_block()])
 
         self.assertEqual(reason_code, "ok")
         self.assertIn("自驾全程约6.2公里", repaired)
         self.assertIn("地铁约32分钟", repaired)
-        self.assertNotIn("准点稳定又省钱", repaired)
+        self.assertNotIn("骑行约25分钟", repaired)
         self.assertTrue(validate_product_answer(repaired, [_route_block()]).is_valid)
 
     def test_repair_falls_back_when_multiple_routes_shrink_to_one_grounded_mode(self):
         repaired, reason_code = repair_unsupported_product_answer(
-            "自驾约14分钟。地铁准点稳定又省钱。",
+            "自驾约14分钟。地铁全程约12公里。",
             [_route_block()],
         )
 
@@ -1078,7 +1035,7 @@ class ProductAnswerValidatorTests(unittest.TestCase):
         cases = (
             ("驾车方案有5元过路费。", True),
             ("公交票价5元。", False),
-            ("驾车费用更低。", False),
+            ("驾车费用更低。", True),  # 无金额的费用比较交给提示词约束
             ("公交有5元过路费。", False),
             ("过路费88元。", False),
         )
@@ -1135,20 +1092,11 @@ class ProductAnswerValidatorTests(unittest.TestCase):
 
         self.assertTrue(validation.is_valid)
 
-    def test_unreturned_relation_between_place_results_falls_back(self):
-        validation = validate_product_answer(
-            "模型自由文本：两家店步行五分钟。",
-            [_place_block()],
-        )
-
-        self.assertFalse(validation.is_valid)
-        self.assertEqual(validation.reason_code, "unsupported_place_relation")
-
     def test_place_relation_fact_guard_and_model_proximity_boundary(self):
         cases = (
             ("炭火一号和金杆桌球地址临近，吃完走几步就到。", True),
             ("炭火一号到金杆桌球步行即达。", False),
-            ("两家距离也很近，溜达过去很方便。", False),
+            ("两家距离也很近，溜达过去很方便。", True),  # 未点名地点的泛指关系交给提示词约束
             ("两家都在东边老村附近，地址非常接近。", True),
             ("先吃完再到隔壁片区打桌球。", True),
             ("这是就近组合，两个点最近，地址相近。", True),
@@ -1163,7 +1111,7 @@ class ProductAnswerValidatorTests(unittest.TestCase):
                     self.assertEqual(validation.reason_code, "unsupported_place_relation")
 
     def test_repair_removes_explicit_unreturned_place_relation_and_keeps_place_facts(self):
-        answer = "炭火一号评分4.7分。两家步行五分钟。金杆桌球评分4.1分。"
+        answer = "炭火一号评分4.7分。炭火一号到金杆桌球步行五分钟。金杆桌球评分4.1分。"
 
         repaired, reason_code = repair_unsupported_product_answer(answer, [_two_place_block()])
 

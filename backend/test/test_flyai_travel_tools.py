@@ -574,13 +574,13 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
             "| --- | --- | --- |\n"
             "| CZ1234 | 08:30 | 880元 |\n\n"
             "---\n"
-            "CZ1234 是夜间航班，可以省住宿费。"
+            "CZ1234 另有 999 元的参考价。"
         )
         repaired, reason_code = repair_unsupported_product_answer(table_answer, restored)
         self.assertEqual(reason_code, "ok")
         self.assertNotIn("|", repaired)
         self.assertNotIn("---", repaired)
-        self.assertNotIn("省住宿费", repaired)
+        self.assertNotIn("999", repaired)
         self.assertNotIn("实时排队", repaired)
         self.assertIn("CZ1234", repaired)
         self.assertTrue(validate_product_answer(repaired, restored).is_valid)
@@ -666,17 +666,22 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
             ("CZ1234 从广州白云国际机场起飞。", "unknown_travel_entity"),
             ("CZ1234 参考价 999 元。", "numeric_mismatch"),
             ("CZ1234 票价 999 元。", "numeric_mismatch"),
-            ("本次返回中，CZ1234 的实时票价为 880 元。", "unsupported_claim"),
             ("本次返回中，CZ1234 从深圳宝安国际机场 T4 出发。", "unknown_travel_number"),
-            ("CZ1234 所属航司班次更多，机场接机也方便。", "unsupported_claim"),
-            ("CZ1234 是夜间航班，可以省住宿费。", "unsupported_claim"),
             ("2026年8月1日（周日）可以考虑CZ1234。", "unknown_travel_date"),
             ("CZ1234 的耗时约为另一个选项的4.7倍。", "numeric_mismatch"),
-            ("CZ1234 余票充足且准点率很高。", "unsupported_claim"),
         ):
             validation = validate_product_answer(invalid_answer, restored)
             self.assertFalse(validation.is_valid)
             self.assertEqual(validation.reason_code, reason)
+        # 未返回的实时状态与推断收益由 limitations 和 flyai.fact_boundary 前置约束，
+        # 校验器不再按关键词拦截；可比对的车次、时刻、票价仍由上面的事实核对负责。
+        for prompt_bounded_answer in (
+            "本次返回中，CZ1234 的实时票价为 880 元。",
+            "CZ1234 所属航司班次更多，机场接机也方便。",
+            "CZ1234 是夜间航班，可以省住宿费。",
+            "CZ1234 余票充足且准点率很高。",
+        ):
+            self.assertTrue(validate_product_answer(prompt_bounded_answer, restored).is_valid)
 
         neutralized = neutralize_product_provider_mentions(
             "根据 FlyAI 和飞猪旅行返回的结果，search_flights 返回 CZ1234。"

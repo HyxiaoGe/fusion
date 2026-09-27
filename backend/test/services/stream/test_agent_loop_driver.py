@@ -2313,7 +2313,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
                 )
             return AgentRoundResult(
                 reasoning_buf="模型可能生成未验证组合距离",
-                content_buf="模型自由文本：两家店步行五分钟。",
+                content_buf="模型自由文本：示例咖啡到示例桌球馆步行五分钟。",
                 tool_calls=[],
                 finish_reason="stop",
                 accumulated_usage=Usage(input_tokens=7, output_tokens=9),
