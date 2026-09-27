@@ -8,16 +8,20 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
+from app.core.config import settings
 from app.core.logger import app_logger
 from app.db.models import AgentEvent, AgentSession, RunTrajectoryMeta, TrajectoryLedgerSettings
 from app.schemas.trajectory import UserTrajectoryMetaRow
 
 DEFAULT_RECONCILIATION_BATCH_SIZE = 100
 DEFAULT_RECONCILIATION_STALE_GRACE = timedelta(seconds=60)
+# 单次 run 受 AGENT_TOTAL_TIMEOUT 硬性限时；创建超过两倍时限仍为 running，说明所属进程已退出（如部署重启）。
+DEFAULT_ORPHANED_RUN_AFTER = timedelta(seconds=settings.AGENT_TOTAL_TIMEOUT * 2)
+ORPHANED_RUN_ERROR_MESSAGE = "运行进程已退出，未写入终态"
 TERMINAL_OUTCOME_UNKNOWN_REASON = "terminal_outcome_unknown"
 
 _SAFE_DEGRADED_REASONS = frozenset(
@@ -61,6 +65,7 @@ class TrajectoryReconciliationResult:
     recording_degraded: int = 0
     legacy_not_recorded: int = 0
     meta_missing_degraded: int = 0
+    orphaned_runs_interrupted: int = 0
 
 
 def _aware_utc(value: datetime) -> datetime:
@@ -309,14 +314,22 @@ def reconcile_trajectory_batch(
     now: datetime | None = None,
     batch_size: int = DEFAULT_RECONCILIATION_BATCH_SIZE,
     stale_grace: timedelta = DEFAULT_RECONCILIATION_STALE_GRACE,
+    orphaned_after: timedelta = DEFAULT_ORPHANED_RUN_AFTER,
 ) -> TrajectoryReconciliationResult:
     """在一个短事务中幂等收敛一批终态 run。"""
     if batch_size <= 0:
         raise ValueError("batch_size 必须大于 0")
     if stale_grace < timedelta(0):
         raise ValueError("stale_grace 不能为负数")
+    if orphaned_after <= timedelta(0):
+        raise ValueError("orphaned_after 必须大于 0")
     reconciled_at = _aware_utc(now or datetime.now(UTC))
     stale_before = reconciled_at - stale_grace
+    orphaned_interrupted = _interrupt_orphaned_runs(
+        session_factory=session_factory,
+        now=reconciled_at,
+        created_before=reconciled_at - orphaned_after,
+    )
     counters = {
         "pending_degraded": 0,
         "recording_completed": 0,
@@ -387,8 +400,34 @@ def reconcile_trajectory_batch(
 
     return TrajectoryReconciliationResult(
         processed=sum(counters.values()),
+        orphaned_runs_interrupted=orphaned_interrupted,
         **counters,
     )
+
+
+def _interrupt_orphaned_runs(*, session_factory: Callable[[], Any], now: datetime, created_before: datetime) -> int:
+    """把所属进程已退出的 running run 标为 interrupted，之后按普通终态 run 收敛轨迹。"""
+    session = session_factory()
+    try:
+        result = session.execute(
+            update(AgentSession)
+            .where(AgentSession.status == "running")
+            .where(AgentSession.created_at <= created_before)
+            .values(
+                status="interrupted",
+                terminal_at=now,
+                limit_reason=None,
+                error_message=ORPHANED_RUN_ERROR_MESSAGE,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        session.commit()
+        return int(result.rowcount or 0)
+    except BaseException:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 
 async def reconcile_trajectory_best_effort(
@@ -402,10 +441,13 @@ async def reconcile_trajectory_best_effort(
 
         session_factory = SessionLocal
     try:
-        return await asyncio.to_thread(
+        result = await asyncio.to_thread(
             reconcile_trajectory_batch,
             session_factory=session_factory,
         )
     except Exception:  # noqa: BLE001 — scheduler 辅助任务必须 fail-open
         logger.error("轨迹账本协调任务失败")
         return TrajectoryReconciliationResult()
+    if result.orphaned_runs_interrupted:
+        logger.warning(f"已中断进程退出后遗留的 running run: count={result.orphaned_runs_interrupted}")
+    return result
