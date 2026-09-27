@@ -1,4 +1,4 @@
-"""能力包计划门禁的单元覆盖；由 CI 的 unittest discover 收集。"""
+"""能力包计划门禁的单元覆盖；由 CI 的 pytest 收集。"""
 
 import unittest
 

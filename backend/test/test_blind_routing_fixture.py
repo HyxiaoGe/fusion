@@ -62,7 +62,7 @@ _PROBE_GROUPS = frozenset(
 
 
 class BlindRoutingFixtureContractTests(unittest.TestCase):
-    """只校验 fixture 结构和旧数据，通过 unittest discover 进入现有 CI。"""
+    """只校验 fixture 结构和旧数据，随 CI 的 pytest 全量收集运行。"""
 
     def test_original_blind_probe_cases_are_unchanged(self):
         payload = json.loads(_FIXTURE.read_text(encoding="utf-8"))

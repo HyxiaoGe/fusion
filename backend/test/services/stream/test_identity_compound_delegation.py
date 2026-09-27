@@ -9,8 +9,7 @@
 能力包在当前契约下是否可达。真实模型对这六条的分类要在 dev 容器按 #107 的验收口径成对取数，
 不由本文件断言。
 
-写成 `unittest.TestCase` 是有意的：CI 的后端测试主体是 `unittest discover`，它只收集
-`TestCase` 子类，顶层 pytest 函数一条都不收（见 #143）。用 TestCase 才能让这六条真的在 CI 里跑。
+CI 以 pytest 收集整个 test/ 目录（#143），TestCase 与顶层函数都会运行。
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 """测试 package 入口 — 统一设 env fallback。
 
-unittest discover 加载 test/ 下任何模块前都会先 import 本文件，
+pytest（及 unittest discover）加载 test/ 下任何模块前都会先 import 本文件，
 这里 setdefault 所有 app/core/config.py::Settings 必填字段，让单个 test 文件
 不用关心 env 设置（Docker 容器跑 prod 时 env 已经齐全，setdefault 不会覆盖）。
 
