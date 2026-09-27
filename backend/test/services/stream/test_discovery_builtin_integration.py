@@ -20,6 +20,10 @@ def _config(**kwargs):
     return build_agent_loop_call_config(**params)
 
 
+# 首次发现必须声明网络约束，后续调用保持不变（#148）。
+_DECLARED_CONSTRAINTS = {"network_policy": "allow", "denied_tool_names": []}
+
+
 def _schema(name):
     return {"type": "function", "function": {"name": name, "parameters": {"type": "object"}}}
 
@@ -40,9 +44,9 @@ def test_production_builtins_can_be_discovered_and_loaded(with_mcp):
     assert set(session.catalog_names()) == expected
     assert [tool["function"]["name"] for tool in config.call_kwargs["tools"]] == ["tool_search"]
     discovery = config.dynamic_tool_handlers["tool_search"]
-    asyncio.run(discovery.execute({"query": "list"}))
+    asyncio.run(discovery.execute({"query": "list", **_DECLARED_CONSTRAINTS}))
     assert session.loaded_names == {"tool_search"}
-    asyncio.run(discovery.execute({"query": "select:web_search,url_read"}))
+    asyncio.run(discovery.execute({"query": "select:web_search,url_read", **_DECLARED_CONSTRAINTS}))
     assert session.loaded_names == {"tool_search", "web_search", "url_read"}
     assert {tool["function"]["name"] for tool in config.call_kwargs["tools"]} == {
         "tool_search",

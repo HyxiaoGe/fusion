@@ -70,7 +70,7 @@ class DeployAuthConfigTests(unittest.TestCase):
 
     def test_ci_runs_tests_with_process_timeout_and_verbose_output(self):
         self.assertIn(
-            "timeout 270s python -u -m unittest discover -s test -t . -v",
+            "timeout 420s python -u -m pytest -v -p no:cacheprovider test",
             self.ci_build_script,
         )
 

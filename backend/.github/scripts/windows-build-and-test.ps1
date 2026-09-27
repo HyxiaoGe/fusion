@@ -38,7 +38,7 @@ try {
         --mount "type=bind,source=$monorepoRoot\.github,target=/.github,readonly" `
         --mount "type=bind,source=$monorepoRoot\ops,target=/ops,readonly" `
         --mount "type=bind,source=$normalizedLinuxScript,target=/app/.github/scripts/linux-build-and-test.sh,readonly" `
-        $image sh -lc "timeout 300s python -m pip install --default-timeout=30 --no-cache-dir -r requirements-ci.txt && python scripts/check_architecture.py && ruff check . && timeout 420s python -m pytest -q -p no:cacheprovider test"
+        $image sh -lc "timeout 300s python -m pip install --default-timeout=30 --no-cache-dir -r requirements-ci.txt && python scripts/check_architecture.py && ruff check . && timeout 420s python -u -m pytest -v -p no:cacheprovider test"
     $testExitCode = $LASTEXITCODE
 } finally {
     if ($null -ne $normalizedLinuxScript) {

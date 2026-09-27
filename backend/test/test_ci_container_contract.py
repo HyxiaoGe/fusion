@@ -57,7 +57,7 @@ class CIContainerContractTest(unittest.TestCase):
         for script in ("linux-build-and-test.sh", "windows-build-and-test.ps1"):
             content = (ROOT / ".github/scripts" / script).read_text(encoding="utf-8")
             with self.subTest(script=script):
-                self.assertIn('python -m pytest -q -p no:cacheprovider test"', content)
+                self.assertIn('python -u -m pytest -v -p no:cacheprovider test"', content)
                 self.assertNotIn("unittest discover", content)
 
     def test_development_dependencies_cover_runtime_and_ci(self) -> None:
@@ -130,7 +130,7 @@ class CIContainerContractTest(unittest.TestCase):
             )
             self.assertIn("python scripts/check_architecture.py", build_script)
             self.assertIn("ruff check .", build_script)
-            self.assertIn("python -m pytest -q -p no:cacheprovider test", build_script)
+            self.assertIn("python -u -m pytest -v -p no:cacheprovider test", build_script)
 
         self.assertIn(
             '--mount "type=bind,source=${app_root}/README.md,target=/app/README.md,readonly"',
