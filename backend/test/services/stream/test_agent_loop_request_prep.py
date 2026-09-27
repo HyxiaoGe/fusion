@@ -1307,6 +1307,48 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(config.dynamic_tool_handlers["mcp_microsoft_docs_a1b2c3d4"], handler)
         self.assertEqual(config.tool_bindings, [binding])
 
+    def test_classifier_receives_labeled_catalog_and_same_service_mcp_tools_are_announced(self):
+        def tool(name):
+            return {"type": "function", "function": {"name": name, "parameters": {"type": "object"}}}
+
+        names = ("mcp_c7_resolve", "mcp_c7_query", "mcp_learn_search")
+        bindings = [
+            {"alias": "mcp_c7_resolve", "server_id": "server-c7", "tool_label": "Context7 / resolve-library-id"},
+            {"alias": "mcp_c7_query", "server_id": "server-c7", "tool_label": "Context7 / query-docs"},
+            {"alias": "mcp_learn_search", "server_id": "server-learn", "tool_label": "Microsoft Learn / docs_search"},
+            {"alias": "mcp_not_loaded", "server_id": "server-x", "tool_label": "Unloaded / tool"},
+            {"alias": "local_place_search", "server_id": "amap-1", "tool_label": "高德 / local_place_search"},
+        ]
+        seen = {}
+        candidate = _model_candidate("mcp_explicit", explicit_tool_names=("mcp_c7_query", "mcp_c7_resolve"))
+
+        def classify(**kwargs):
+            seen.update(kwargs)
+            return candidate
+
+        config = build_agent_loop_call_config(
+            provider="openai",
+            options={"plan_mode": "off"},
+            capabilities={"functionCalling": True, "agentTools": True, "searchCapable": False},
+            additional_tools=[tool(name) for name in (*names, "local_place_search")],
+            dynamic_tool_handlers={name: object() for name in (*names, "local_place_search")},
+            tool_bindings=bindings,
+            original_message="FastAPI 的依赖注入怎么写？",
+            classify_fn=classify,
+        )
+
+        self.assertEqual(
+            [(entry.alias, entry.service_id, entry.label) for entry in seen["mcp_tool_catalog"]],
+            [
+                ("mcp_c7_resolve", "server-c7", "Context7 / resolve-library-id"),
+                ("mcp_c7_query", "server-c7", "Context7 / query-docs"),
+                ("mcp_learn_search", "server-learn", "Microsoft Learn / docs_search"),
+            ],
+        )
+        self.assertEqual(config.capability_resolution.package_id, "mcp_explicit")
+        self.assertEqual(config.announced_tools, ["mcp_c7_query", "mcp_c7_resolve"])
+        self.assertEqual([binding["alias"] for binding in config.tool_bindings], ["mcp_c7_query", "mcp_c7_resolve"])
+
     def test_build_call_config_injects_stable_amap_product_tool_without_false_network_boundary(self):
         product_tool = {
             "type": "function",

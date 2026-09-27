@@ -52,6 +52,7 @@ from app.services.stream.run_capability_router import (
     RunCapabilityResolution,
     resolve_run_capability_route,
 )
+from app.utils.run_capability_contract import McpRouteTool, is_authorized_mcp_tool_alias
 
 VOLCENGINE_PROVIDERS = {"volcengine"}
 MAX_CONTROLLED_OUTPUT_TOKENS = 4096
@@ -171,6 +172,31 @@ def _tool_definition_name(tool: dict) -> str:
     return str(function.get("name", "")) if isinstance(function, dict) else ""
 
 
+def _mcp_route_catalog(
+    tool_bindings: list[dict[str, Any]],
+    available_tools_by_name: dict[str, dict],
+) -> tuple[McpRouteTool, ...]:
+    """只把本轮真实可调用的 MCP 别名交给分类器，标签取管理员配置的服务名与工具名。"""
+
+    catalog: dict[str, McpRouteTool] = {}
+    for binding in tool_bindings:
+        if not isinstance(binding, dict):
+            continue
+        alias = binding.get("alias")
+        service_id = binding.get("server_id")
+        label = binding.get("tool_label")
+        if (
+            is_authorized_mcp_tool_alias(alias)
+            and alias in available_tools_by_name
+            and isinstance(service_id, str)
+            and service_id
+            and isinstance(label, str)
+            and label
+        ):
+            catalog.setdefault(alias, McpRouteTool(alias=alias, service_id=service_id, label=label))
+    return tuple(catalog.values())
+
+
 def _with_plan_item_binding(tool: dict, *, required: bool) -> dict:
     """给外部工具增加仅供 Agent Loop 消费的计划项关联字段。"""
 
@@ -272,6 +298,7 @@ def build_agent_loop_call_config(
         name for name in dict.fromkeys(trusted_authorized_tool_names) if name not in available_tools_by_name
     )
     unavailable_tool_names = [name for name in trusted_authorized_tool_names if name not in available_tools_by_name]
+    mcp_tool_catalog = _mcp_route_catalog(tool_bindings or [], available_tools_by_name)
     from app.services.stream.dynamic_tool_discovery import (
         DynamicToolDiscoveryUnsupportedError,
         is_dynamic_tool_discovery_enabled,
@@ -328,6 +355,7 @@ def build_agent_loop_call_config(
             unavailable_tool_names=unavailable_tool_names,
             load_skills_fn=skill_loader,
             classify_fn=classify_fn,
+            mcp_tool_catalog=mcp_tool_catalog,
         )
     if (
         skill_release_pins

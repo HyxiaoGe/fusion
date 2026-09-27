@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from types import MappingProxyType
 
 CAPABILITY_CONTROL_TOOL_NAMES = frozenset({"update_plan"})
@@ -50,6 +51,17 @@ CAPABILITY_RECOVERY_PACKAGES = frozenset(
     package for package, names in CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES.items() if names
 ) | {"mcp_explicit"}
 CAPABILITY_MAX_EXTERNAL_TOOLS = 5
+# 同一 MCP 服务的授权工具一起公告，例如 Context7 需要先解析库 ID 再查文档。
+CAPABILITY_MAX_MCP_ALIASES = 3
+
+
+@dataclass(frozen=True)
+class McpRouteTool:
+    """供分类器按任务内容选择 MCP 服务的可信目录项；label 只来自管理员配置。"""
+
+    alias: str
+    service_id: str
+    label: str
 
 
 CAPABILITY_AUTO_PLAN_PACKAGES = frozenset(
@@ -182,8 +194,10 @@ def validate_capability_resolution_semantics(
 
     if package_id == "mcp_explicit":
         aliases = tuple(name for name in tool_names if name not in CAPABILITY_RECOVERY_TOOL_NAMES)
-        if len(aliases) != 1 or not is_authorized_mcp_tool_alias(aliases[0]):
-            raise ValueError("显式 MCP 能力包必须包含一个 mcp_ 授权别名，可附加联网替代工具")
+        if not 1 <= len(aliases) <= CAPABILITY_MAX_MCP_ALIASES or not all(
+            is_authorized_mcp_tool_alias(alias) for alias in aliases
+        ):
+            raise ValueError("MCP 能力包必须包含一到三个 mcp_ 授权别名，可附加联网替代工具")
         expected = tuple(name for name in CAPABILITY_RECOVERY_TOOL_NAMES if name in tool_names) + aliases
         if tool_names != expected:
             raise ValueError("能力包外部工具必须使用 canonical order")

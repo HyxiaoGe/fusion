@@ -19,7 +19,12 @@ from app.core.config import settings
 from app.core.logger import app_logger as logger
 from app.core.prompt_snapshot import current_prompt_snapshot
 from app.services.stream.run_capability_router import _CandidateRoute
-from app.utils.run_capability_contract import CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES, is_authorized_mcp_tool_alias
+from app.utils.run_capability_contract import (
+    CAPABILITY_MAX_MCP_ALIASES,
+    CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES,
+    McpRouteTool,
+    is_authorized_mcp_tool_alias,
+)
 
 ClassifierResultCallback = Callable[[str, str | None], None]
 
@@ -205,6 +210,7 @@ def classify_capability_request_with_model(
     deadline_event: threading.Event | None = None,
     deadline_gate: ClassifierDeadlineGate | None = None,
     suppress_deadline_observation: bool = False,
+    mcp_tool_catalog: tuple[McpRouteTool, ...] = (),
 ) -> _CandidateRoute:
     """以一次结构化模型调用分类请求，并在服务端校验工具授权。"""
 
@@ -248,6 +254,7 @@ def classify_capability_request_with_model(
         message,
         tools,
         context_messages,
+        mcp_tool_catalog=mcp_tool_catalog,
         token_counter_fn=token_counter_fn,
         limits=limits,
         deadline_event=deadline_event,
@@ -304,6 +311,7 @@ def classify_capability_request_with_model(
         route = _parse_model_route(
             response,
             tools,
+            mcp_tool_catalog=mcp_tool_catalog,
             # 日期判据已删除（#132）：不再判断“要不要给今天日期”，一律注入。
             include_current_date=True,
         )
@@ -350,6 +358,7 @@ def _build_messages(
     available_tools: list[str],
     conversation_messages: list[object] | None,
     *,
+    mcp_tool_catalog: tuple[McpRouteTool, ...] = (),
     token_counter_fn: Callable[..., int] | None = None,
     limits: _ClassifierLimits | None = None,
     deadline_event: threading.Event | None = None,
@@ -360,14 +369,18 @@ def _build_messages(
         return None
     current_message = str(message)
     history = _most_recent_complete_turn(conversation_messages, context_turns=effective_limits.context_turns)
-    authorized_mcp_aliases = sorted({name for name in available_tools if is_authorized_mcp_tool_alias(name)})
+    labels = {entry.alias: entry.label for entry in mcp_tool_catalog}
+    authorized_mcp_tools = [
+        {"alias": name, "service_tool": labels[name]} if name in labels else {"alias": name}
+        for name in sorted({name for name in available_tools if is_authorized_mcp_tool_alias(name)})
+    ]
     system_message = {
         "role": "system",
         "content": (
             current_prompt_snapshot().classifier_prompt if current_prompt_snapshot() is not None else _system_prompt()
         )
-        + "\nAuthorized MCP aliases for this request: "
-        + json.dumps(authorized_mcp_aliases, ensure_ascii=True, separators=(",", ":")),
+        + "\nAuthorized MCP tools for this request: "
+        + json.dumps(authorized_mcp_tools, ensure_ascii=False, separators=(",", ":")),
     }
     messages = [system_message, *history, {"role": "user", "content": current_message}]
     if not _can_begin_blocking_work(deadline_event, deadline_gate):
@@ -557,6 +570,7 @@ def _parse_model_route(
     response: object,
     _available_tools: list[str],
     *,
+    mcp_tool_catalog: tuple[McpRouteTool, ...] = (),
     include_current_date: bool,
 ) -> _CandidateRoute | None:
     parsed = _ModelRouteResponse.model_validate_json(_response_content(response))
@@ -599,7 +613,7 @@ def _parse_model_route(
     if package_id == "mobility_route":
         resolved_include_current_date = include_current_date
     canonical_tools = (
-        explicit_tools
+        _same_service_aliases(explicit_tools[0], _available_tools, mcp_tool_catalog)
         if package_id == "mcp_explicit"
         else tuple(name for name in _CANONICAL_TOOL_ORDER if name in explicit_tools)
     )
@@ -614,6 +628,24 @@ def _parse_model_route(
         denied_tool_names=denied_tools,
         required_primary_tool_name=parsed.required_primary_tool_name,
     )
+
+
+def _same_service_aliases(
+    chosen: str,
+    available_tools: list[str],
+    mcp_tool_catalog: tuple[McpRouteTool, ...],
+) -> tuple[str, ...]:
+    """同一服务的授权工具一起公告，所选工具排在最前。"""
+
+    service_id = next((entry.service_id for entry in mcp_tool_catalog if entry.alias == chosen), None)
+    if service_id is None:
+        return (chosen,)
+    siblings = [
+        entry.alias
+        for entry in mcp_tool_catalog
+        if entry.service_id == service_id and entry.alias != chosen and entry.alias in available_tools
+    ]
+    return (chosen, *siblings)[:CAPABILITY_MAX_MCP_ALIASES]
 
 
 def _response_content(response: object) -> str:
