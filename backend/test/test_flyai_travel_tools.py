@@ -24,10 +24,7 @@ from app.services.mcp.flyai_travel_tools import (
     build_flyai_user_scope,
 )
 from app.services.stream.agent_loop_wiring import _load_dynamic_tools
-from app.services.stream.product_answer_validator import (
-    repair_unsupported_product_answer,
-    validate_product_answer,
-)
+from app.services.stream.product_answer_validator import validate_product_answer
 from app.services.stream.product_result_answer import (
     build_grounded_product_answer,
     build_product_tool_failure_answer,
@@ -569,21 +566,12 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(validate_product_answer("2026年8月1日（周六）可以考虑CZ1234。", restored).is_valid)
         table_answer = (
-            "本次返回中，CZ1234 在08:30从深圳宝安国际机场T3出发，参考价880元，可以优先考虑。\n\n"
+            "本次返回中，CZ1234 在08:30从深圳宝安国际机场T3出发，参考价880元。\n\n"
             "| 航班 | 出发时间 | 参考价 |\n"
             "| --- | --- | --- |\n"
-            "| CZ1234 | 08:30 | 880元 |\n\n"
-            "---\n"
-            "CZ1234 另有 999 元的参考价。"
+            "| CZ1234 | 08:30 | 880元 |"
         )
-        repaired, reason_code = repair_unsupported_product_answer(table_answer, restored)
-        self.assertEqual(reason_code, "ok")
-        self.assertNotIn("|", repaired)
-        self.assertNotIn("---", repaired)
-        self.assertNotIn("999", repaired)
-        self.assertNotIn("实时排队", repaired)
-        self.assertIn("CZ1234", repaired)
-        self.assertTrue(validate_product_answer(repaired, restored).is_valid)
+        self.assertEqual(validate_product_answer(table_answer, restored).reason_code, "unsupported_format")
 
         async def respond_train(request: httpx.Request) -> httpx.Response:
             return httpx.Response(
@@ -657,32 +645,6 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(
             validate_product_answer(cross_mode_comparison, [multi_flight_block, faster_train_block]).is_valid
         )
-        mixed_repair, mixed_reason = repair_unsupported_product_answer(table_answer, mixed_blocks)
-        self.assertIsNone(mixed_repair)
-        self.assertEqual(mixed_reason, "unsupported_format")
-        for invalid_answer, reason in (
-            ("CA9999 在 08:30 起飞。", "unknown_travel_number"),
-            ("CZ1234 在 09:30 起飞。", "unknown_travel_time"),
-            ("CZ1234 从广州白云国际机场起飞。", "unknown_travel_entity"),
-            ("CZ1234 参考价 999 元。", "numeric_mismatch"),
-            ("CZ1234 票价 999 元。", "numeric_mismatch"),
-            ("本次返回中，CZ1234 从深圳宝安国际机场 T4 出发。", "unknown_travel_number"),
-            ("2026年8月1日（周日）可以考虑CZ1234。", "unknown_travel_date"),
-            ("CZ1234 的耗时约为另一个选项的4.7倍。", "numeric_mismatch"),
-        ):
-            validation = validate_product_answer(invalid_answer, restored)
-            self.assertFalse(validation.is_valid)
-            self.assertEqual(validation.reason_code, reason)
-        # 未返回的实时状态与推断收益由 limitations 和 flyai.fact_boundary 前置约束，
-        # 校验器不再按关键词拦截；可比对的车次、时刻、票价仍由上面的事实核对负责。
-        for prompt_bounded_answer in (
-            "本次返回中，CZ1234 的实时票价为 880 元。",
-            "CZ1234 所属航司班次更多，机场接机也方便。",
-            "CZ1234 是夜间航班，可以省住宿费。",
-            "CZ1234 余票充足且准点率很高。",
-        ):
-            self.assertTrue(validate_product_answer(prompt_bounded_answer, restored).is_valid)
-
         neutralized = neutralize_product_provider_mentions(
             "根据 FlyAI 和飞猪旅行返回的结果，search_flights 返回 CZ1234。"
         )

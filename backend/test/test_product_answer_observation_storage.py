@@ -29,14 +29,18 @@ from app.services.stream.product_answer_observability import (
 def observation(**overrides):
     fields = dict(
         reason_code="ok",
-        repair_enabled=False,
-        repair_available=False,
-        repair_reason_code=None,
         product_result_types=["weather_results"],
         product_tool_attempted=True,
     )
     fields.update(overrides)
     return build_product_answer_observation(**fields)
+
+
+def _load_migration(path):
+    spec = importlib.util.spec_from_file_location(Path(path).stem, Path(path))
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    return migration
 
 
 class ProductAnswerStorageTests(unittest.TestCase):
@@ -54,7 +58,7 @@ class ProductAnswerStorageTests(unittest.TestCase):
     def test_records_survive_new_sessions_with_half_open_time_range_and_distinct_denominators(self):
         rows = [
             (self.start - timedelta(seconds=1), observation()),
-            (self.start, observation(reason_code="unsupported_claim", repair_available=True)),
+            (self.start, observation(reason_code="unsupported_format")),
             (self.start + timedelta(seconds=1), observation()),
             (self.start + timedelta(seconds=2), observation(observation_path="weather_activity")),
             (self.start + timedelta(seconds=3), observation(observation_path="mixed_travel")),
@@ -72,23 +76,25 @@ class ProductAnswerStorageTests(unittest.TestCase):
         self.assertEqual(result["not_validated_decisions"], 3)
         self.assertEqual(result["invalid_among_validated"]["ratio"], 0.5)
         self.assertEqual(result["invalid_among_all_observed"]["ratio"], 0.2)
-        self.assertEqual(result["repair_available_among_validated"]["ratio"], 0.5)
-        self.assertEqual(result["reason_code"], {"ok": 1, "unsupported_claim": 1})
-        self.assertEqual(result["by_category"]["risk_term"]["repair_available"]["ratio"], 1)
+        self.assertEqual(result["reason_code"], {"ok": 1, "unsupported_format": 1})
+        self.assertEqual(result["by_category"]["shape"]["invalid"]["ratio"], 1)
         self.assertEqual(result["retained_range"]["first"], self.start.isoformat())
         self.assertIsNone(result["coverage"]["complete"])
         self.assertFalse(ProductAnswerObservation.__table__.foreign_keys)
 
     def test_migration_creates_empty_independent_storage(self):
-        migration_path = Path("alembic/versions/b2c7d9e4f610_add_product_answer_observations.py")
-        spec = importlib.util.spec_from_file_location("product_observation_migration", migration_path)
-        migration = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(migration)
+        migrations = [
+            _load_migration("alembic/versions/b2c7d9e4f610_add_product_answer_observations.py"),
+            _load_migration("alembic/versions/c4e8a2f1d935_drop_product_answer_repair_columns.py"),
+        ]
         migration_engine = create_engine("sqlite://")
         try:
             with migration_engine.begin() as connection:
-                with patch.object(migration, "op", Operations(MigrationContext.configure(connection))):
-                    migration.upgrade()
+                for migration in migrations:
+                    with patch.object(migration, "op", Operations(MigrationContext.configure(connection))):
+                        migration.upgrade()
+                columns = {column["name"] for column in inspect(connection).get_columns("product_answer_observations")}
+                self.assertEqual(columns, set(ProductAnswerObservation.__table__.columns.keys()))
                 self.assertFalse(inspect(connection).get_foreign_keys("product_answer_observations"))
                 self.assertIn(
                     "ix_product_answer_observations_observed_at",
@@ -108,10 +114,9 @@ class ProductAnswerStorageTests(unittest.TestCase):
 
     def test_builder_does_not_persist_unknown_free_text(self):
         secret = "用户或工具正文 token=private"
-        payload = observation(reason_code=secret, repair_reason_code=secret, product_result_types=[secret, "thinking"])
+        payload = observation(reason_code=secret, product_result_types=[secret, "thinking"])
         self.assertNotIn(secret, json.dumps(payload, ensure_ascii=False))
         self.assertEqual(payload["reason_code"], "other")
-        self.assertEqual(payload["repair_reason_code"], "other")
         self.assertEqual(payload["product_result_types"], ["other", "thinking"])
 
 

@@ -25,7 +25,6 @@ def query_product_answer_observations(db: Session, start: datetime, end: datetim
         model.reason_code,
         model.reason_category,
         model.is_valid,
-        model.repair_available,
         model.product_tool_attempted,
     )
     predicates = (model.observed_at >= start, model.observed_at < end)

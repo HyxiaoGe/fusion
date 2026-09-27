@@ -17,7 +17,7 @@
 
 `all_observed_decisions` 为**已成功留存的产品回答延迟提交决策**，包括校验子集、三个短路和无结果兜底；它不是所有 Run 或全站最终回答数。此前的终止、知识库、联网恢复与工具澄清路径不在此范围，重复决策也不能当作去重的用户数。接口明确返回 `coverage.scope` 与未知的 `unobserved_count/complete`。
 
-`invalid_among_validated` 的分母是 `validated_decisions`；`invalid_among_all_observed` 的分母是上述完整留存群体。后者表示这批决策中实际出现了多少校验拒绝，**不代表其余都通过校验**。`repair_available` 只表示纯改写函数产出非 None，属于潜在改写候选量，不能据此估算误伤率；没有人工标注也不能推断正确拦截和误伤。零样本的比例为 `null`，脚本不判断样本是否足够。
+`invalid_among_validated` 的分母是 `validated_decisions`；`invalid_among_all_observed` 的分母是上述完整留存群体。后者表示这批决策中实际出现了多少校验拒绝，**不代表其余都通过校验**。validator 只检查回答形态（空回答、Markdown 表格、缺少产品结果块），拒绝率不反映回答内容是否越界。2026-09-27 起正则改写层与 `repair_*` 字段已移除，此前记录的这些列随迁移 `c4e8a2f1d935` 一并删除。零样本的比例为 `null`，脚本不判断样本是否足够。
 
 ## 取数
 

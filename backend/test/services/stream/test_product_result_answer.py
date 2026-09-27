@@ -154,12 +154,6 @@ class ProductResultAnswerTests(unittest.TestCase):
         self.assertNotIn("7月31日", answer)
         validation = validate_product_answer(answer, [*source_blocks, itinerary])
         self.assertTrue(validation.is_valid, validation.reason_code)
-        invalid_travel_weekday = validate_product_answer(
-            f"{answer}\n\n返程周日出发。",
-            [*source_blocks, itinerary],
-        )
-        self.assertFalse(invalid_travel_weekday.is_valid)
-        self.assertEqual(invalid_travel_weekday.reason_code, "unknown_travel_date")
 
     def test_itinerary_fallback_keeps_referenced_local_route(self):
         source_blocks = [
@@ -385,7 +379,7 @@ class ProductResultAnswerTests(unittest.TestCase):
         self.assertNotIn("只有白天和夜间粒度", answer)
         self.assertNotIn("骑行", answer)
         self.assertNotIn("建议", answer)
-        validation = validate_product_answer(answer, [block], messages=messages)
+        validation = validate_product_answer(answer, [block])
         self.assertTrue(validation.is_valid, validation.reason_code)
 
     def test_weather_fallback_answers_explicit_date_outside_forecast(self):
@@ -399,7 +393,7 @@ class ProductResultAnswerTests(unittest.TestCase):
         self.assertIn("8月20日不在当前预报覆盖范围内", answer)
         self.assertIn("无法确认上海市该日的天气", answer)
         self.assertNotIn("白天多云", answer)
-        validation = validate_product_answer(answer, [block], messages=messages)
+        validation = validate_product_answer(answer, [block])
         self.assertTrue(validation.is_valid, validation.reason_code)
 
     def test_weather_fallback_does_not_promote_negated_date_to_target(self):

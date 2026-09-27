@@ -11,7 +11,6 @@ from app.ai.prompts.section_ids import (
     PLAN_REQUIRED_REPAIR,
     RESEARCH_COMPLETION_REPAIR,
 )
-from app.core.config import settings
 from app.core.logger import app_logger as logger
 from app.schemas.chat import KnowledgeEvidenceBlock, ThinkingBlock
 from app.services.final_answer_evidence import build_used_final_answer_evidence
@@ -38,10 +37,7 @@ from app.services.stream.product_answer_observability import (
     emit_product_answer_observation,
     retain_product_answer_observation,
 )
-from app.services.stream.product_answer_validator import (
-    repair_unsupported_product_answer,
-    validate_product_answer,
-)
+from app.services.stream.product_answer_validator import validate_product_answer
 from app.services.stream.product_result_answer import (
     build_grounded_product_answer,
     build_product_tool_failure_answer,
@@ -719,8 +715,6 @@ async def _commit_deferred_product_answer(
         await _emit_product_answer_observation(
             request,
             reason_code="not_validated",
-            repaired_answer=None,
-            repair_reason_code=None,
             observation_path="no_product_result",
         )
         # 产品工具没有返回结果时无事实可校验；保留失败说明，不能假设卡片存在。
@@ -732,11 +726,7 @@ async def _commit_deferred_product_answer(
         request.round_result.content_buf.strip(),
         request.state.content_blocks,
     )
-    validation = validate_product_answer(
-        candidate,
-        request.state.content_blocks,
-        messages=request.messages,
-    )
+    validation = validate_product_answer(candidate, request.state.content_blocks)
     if validation.is_valid:
         if not has_tool_evidence(
             request.state.content_blocks,
@@ -748,8 +738,6 @@ async def _commit_deferred_product_answer(
                 await _emit_product_answer_observation(
                     request,
                     reason_code=validation.reason_code,
-                    repaired_answer=None,
-                    repair_reason_code=None,
                     observation_path="no_usable_evidence",
                 )
                 await _append_committed_answer(
@@ -759,61 +747,25 @@ async def _commit_deferred_product_answer(
                     output_reason="no_evidence",
                 )
                 return _with_replaced_answer(request, guarded)
-        await _emit_product_answer_observation(
-            request,
-            reason_code=validation.reason_code,
-            repaired_answer=None,
-            repair_reason_code=None,
-        )
+        await _emit_product_answer_observation(request, reason_code=validation.reason_code)
         answer = candidate
         model_output_visible = True
     else:
-        # 改写默认关闭时仍计算反事实：repair 是纯函数，只用来记录"本应被改写"的比例。
-        repaired_answer, repair_reason_code = repair_unsupported_product_answer(
-            candidate,
+        await _emit_product_answer_observation(request, reason_code=validation.reason_code)
+        request.runtime.warning_fn(
+            "产品结果模型回答校验未通过，使用确定性兜底: "
+            f"conv_id={request.runtime.conversation_id} run_id={request.runtime.run_id} "
+            f"step={request.step_number} reason_code={validation.reason_code}"
+        )
+        answer = build_grounded_product_answer(
             request.state.content_blocks,
             messages=request.messages,
         )
-        await _emit_product_answer_observation(
-            request,
-            reason_code=validation.reason_code,
-            repaired_answer=repaired_answer,
-            repair_reason_code=repair_reason_code,
-        )
-        if not settings.PRODUCT_ANSWER_REPAIR_ENABLED:
-            repaired_answer = None
-        if repaired_answer is not None:
-            request.runtime.warning_fn(
-                "产品结果模型回答含越界分句，已安全修整: "
-                f"conv_id={request.runtime.conversation_id} run_id={request.runtime.run_id} "
-                f"step={request.step_number} reason_code={validation.reason_code}"
-            )
-            answer = repaired_answer
-            model_output_visible = True
-        else:
-            request.runtime.warning_fn(
-                "产品结果模型回答校验未通过，使用确定性兜底: "
-                f"conv_id={request.runtime.conversation_id} run_id={request.runtime.run_id} "
-                f"step={request.step_number} reason_code={validation.reason_code} "
-                f"repair_reason_code={repair_reason_code}"
-            )
-            answer = build_grounded_product_answer(
-                request.state.content_blocks,
-                messages=request.messages,
-            )
-            if answer and settings.PRODUCT_ANSWER_REPAIR_ENABLED:
-                completed_answer, _ = repair_unsupported_product_answer(
-                    answer,
-                    request.state.content_blocks,
-                    messages=request.messages,
-                )
-                if completed_answer is not None:
-                    answer = completed_answer
-            if not answer and request.state.product_tool_attempted:
-                answer = build_product_tool_failure_answer(request.messages)
-            if not answer:
-                answer = "已展示本次查询的结构化结果，请以卡片信息为准。"
-            model_output_visible = False
+        if not answer and request.state.product_tool_attempted:
+            answer = build_product_tool_failure_answer(request.messages)
+        if not answer:
+            answer = "已展示本次查询的结构化结果，请以卡片信息为准。"
+        model_output_visible = False
     answer = neutralize_product_provider_mentions(answer, request.state.content_blocks)
     if answer:
         await _append_committed_answer(
@@ -828,15 +780,10 @@ async def _emit_product_answer_observation(
     request: AgentRoundOutcomeRequest,
     *,
     reason_code: str,
-    repaired_answer: str | None,
-    repair_reason_code: str | None,
     observation_path: str = "validated",
 ) -> None:
     payload = build_product_answer_observation(
         reason_code=reason_code,
-        repair_enabled=settings.PRODUCT_ANSWER_REPAIR_ENABLED,
-        repair_available=repaired_answer is not None,
-        repair_reason_code=repair_reason_code,
         product_tool_attempted=request.state.product_tool_attempted,
         observation_path=observation_path,
         product_result_types=[

@@ -30,13 +30,12 @@ def _fraction(numerator: int, denominator: int) -> dict:
 def aggregate_product_answer_observations(db: Session, start: datetime, end: datetime) -> dict:
     start, end = observation_time_range(start, end)
     groups, (first, last) = query_product_answer_observations(db, start, end)
-    total = validated_count = invalid_count = repair_count = attempted_count = 0
+    total = validated_count = invalid_count = attempted_count = 0
     reasons: Counter = Counter()
     categories: Counter = Counter()
     paths: Counter = Counter()
     category_invalid: Counter = Counter()
-    category_repair: Counter = Counter()
-    for path, validated, code, category, valid, repair, attempted, count in groups:
+    for path, validated, code, category, valid, attempted, count in groups:
         total += count
         paths[path] += count
         attempted_count += count if attempted else 0
@@ -46,9 +45,7 @@ def aggregate_product_answer_observations(db: Session, start: datetime, end: dat
         reasons[code] += count
         categories[category] += count
         invalid_count += count if not valid else 0
-        repair_count += count if repair else 0
         category_invalid[category] += count if not valid else 0
-        category_repair[category] += count if repair else 0
     return {
         "time_range": {
             "from": start.isoformat(),
@@ -73,16 +70,13 @@ def aggregate_product_answer_observations(db: Session, start: datetime, end: dat
         "reason_code": dict(sorted(reasons.items())),
         "reason_category": dict(sorted(categories.items())),
         "invalid_among_validated": _fraction(invalid_count, validated_count),
-        "repair_available_among_validated": _fraction(repair_count, validated_count),
         "invalid_among_all_observed": _fraction(invalid_count, total),
-        "repair_available_among_all_observed": _fraction(repair_count, total),
         "by_category": {
             category: {
                 "validated_decisions": count,
                 "invalid": _fraction(category_invalid[category], count),
-                "repair_available": _fraction(category_repair[category], count),
             }
             for category, count in sorted(categories.items())
         },
-        "interpretation": "未校验不等于通过。repair_available 仅表示改写函数能产出非 None，是潜在改写候选量；不能据此估算误伤率；本工具不判断样本是否足够。",
+        "interpretation": "未校验不等于通过；本工具不判断样本是否足够。",
     }
