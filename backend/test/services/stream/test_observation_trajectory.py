@@ -298,7 +298,9 @@ async def test_blocked_observation_database_isolated_from_default_executor_and_k
     import threading
     from concurrent.futures import ThreadPoolExecutor
 
-    from app.services.agent.trajectory_recorder import TRAJECTORY_MAX_WORKERS
+    from app.services.agent.trajectory_recorder import _ADMISSION_SEMAPHORE, TRAJECTORY_MAX_WORKERS
+
+    OBSERVATION_WRITE_MAX_WORKERS = tool_round.OBSERVATION_WRITE_MAX_WORKERS
 
     loop = asyncio.get_running_loop()
     unrelated_workers = ThreadPoolExecutor(max_workers=2, thread_name_prefix="business-test")
@@ -312,7 +314,7 @@ async def test_blocked_observation_database_isolated_from_default_executor_and_k
         started.append(kwargs["tool_call_id"])
         release.wait(10)
         finished.append(kwargs["tool_call_id"])
-        if len(finished) == TRAJECTORY_MAX_WORKERS:
+        if len(finished) == OBSERVATION_WRITE_MAX_WORKERS:
             loop.call_soon_threadsafe(all_writes_finished.set)
 
     async def completed_initial_log():
@@ -321,7 +323,7 @@ async def test_blocked_observation_database_isolated_from_default_executor_and_k
     async def send_batch(prefix):
         records = []
         observations = {}
-        for index in range(TRAJECTORY_MAX_WORKERS):
+        for index in range(OBSERVATION_WRITE_MAX_WORKERS):
             record = _record()
             record.tool_call["id"] = f"{prefix}-{index}"
             record.result.trajectory_log_task = asyncio.create_task(completed_initial_log())
@@ -338,8 +340,16 @@ async def test_blocked_observation_database_isolated_from_default_executor_and_k
             assert not release.is_set()
             await send_batch("second")
             await asyncio.wait_for(asyncio.gather(*list(tool_round._PENDING_OBSERVATION_WRITES)), timeout=1)
-            assert len(started) == TRAJECTORY_MAX_WORKERS
+            assert len(started) == OBSERVATION_WRITE_MAX_WORKERS
             assert finished == []
+            # 反馈补写占满自身名额时，轨迹账本名额必须全部可用，事件写入不被挤成 admission_full。
+            acquired = [_ADMISSION_SEMAPHORE.acquire(blocking=False) for _ in range(TRAJECTORY_MAX_WORKERS)]
+            try:
+                assert all(acquired)
+            finally:
+                for ok in acquired:
+                    if ok:
+                        _ADMISSION_SEMAPHORE.release()
             release.set()
             await asyncio.wait_for(all_writes_finished.wait(), timeout=2)
     finally:
