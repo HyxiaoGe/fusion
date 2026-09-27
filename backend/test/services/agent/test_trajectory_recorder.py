@@ -186,8 +186,8 @@ class RecorderDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(drafts), 1)
         self.assertEqual(drafts[0].content_text, "已经展示的回答" if visible else "")
 
-    async def test_ownership_loss_during_slow_write_persists_cancellation_tail_as_degraded(self):
-        """超过内部等待的写入会先打上 recorder_timeout；停止后的尾事件仍须落库且不能标 complete。"""
+    async def test_ownership_loss_during_slow_write_persists_full_tail_as_complete(self):
+        """停止时恰有慢写入：事件按序等真实结果写完，停止前后的事件与取消尾事件全部落库。"""
         entered = threading.Event()
         release = threading.Event()
         slow_finished = threading.Event()
@@ -240,9 +240,9 @@ class RecorderDatabaseTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(StreamOwnershipLostError) as raised:
             await emitter.llm_round_cancelled(llm_round_id="round-1", reason="user_cancelled")
         self.assertIs(raised.exception, ownership_error)
-        await self._wait_until(lambda: recorder.degraded_reason == "recorder_timeout")
         with self.assertRaises(StreamOwnershipLostError) as raised:
             await emitter.run_interrupted(reason="user_cancelled")
+        self.assertIsNone(recorder.degraded_reason)
         self.assertIs(raised.exception, ownership_error)
         release.set()
         try:
@@ -255,15 +255,15 @@ class RecorderDatabaseTests(unittest.IsolatedAsyncioTestCase):
             rows = db.query(AgentEvent).filter_by(run_id="run-1").order_by(AgentEvent.sequence).all()
             self.assertEqual(
                 [row.event_type for row in rows],
-                ["run_started", "step_started", "llm_round_cancelled", "run_interrupted"],
+                ["run_started", "step_started", "run_limit_reached", "llm_round_cancelled", "run_interrupted"],
             )
-            self.assertEqual([row.sequence for row in rows], [0, 1, 3, 4])
+            self.assertEqual([row.sequence for row in rows], [0, 1, 2, 3, 4])
             meta = db.get(RunTrajectoryMeta, "run-1")
-            self.assertEqual(meta.trajectory_status, "degraded")
-            self.assertEqual(meta.degraded_reason, "recorder_timeout")
+            self.assertEqual(meta.trajectory_status, "complete")
+            self.assertIsNone(meta.degraded_reason)
             self.assertEqual(meta.expected_last_sequence, 4)
-            self.assertIsNone(meta.finalized_at)
-        self.assertTrue(any("stage=event_wait" in message for message in logger.warnings))
+            self.assertIsNotNone(meta.finalized_at)
+        self.assertFalse(any("轨迹账本等待超时" in message for message in logger.warnings))
         self.assertTrue(await asyncio.to_thread(slow_finished.wait, 1))
         _assert_all_permits_available(self, semaphore)
 
@@ -289,7 +289,7 @@ class RecorderDatabaseTests(unittest.IsolatedAsyncioTestCase):
                     row.event_type
                     for row in db.query(AgentEvent).filter_by(run_id="run-1").order_by(AgentEvent.sequence)
                 ],
-                ["run_started", "step_started", "llm_round_cancelled", "run_interrupted"],
+                ["run_started", "step_started", "run_limit_reached", "llm_round_cancelled", "run_interrupted"],
             )
             next_meta = db.get(RunTrajectoryMeta, "run-2")
             self.assertEqual(next_meta.trajectory_status, "complete")
@@ -887,7 +887,8 @@ class RecorderDatabaseTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(meta.degraded_reason, "unsupported_event_type")
             self.assertIsNone(meta.finalized_at)
 
-    async def test_late_last_event_success_never_clears_latch_or_completes_run(self):
+    async def test_slow_last_event_success_waits_for_result_and_completes_run(self):
+        # 事件在后台消费者上写入：慢但成功不应判 recorder_timeout，轨迹应完整。
         first_call = True
         late_started = threading.Event()
         allow_late_commit = threading.Event()
@@ -909,19 +910,23 @@ class RecorderDatabaseTests(unittest.IsolatedAsyncioTestCase):
 
         late_task = asyncio.create_task(recorder.record_chunk("conv-1", "agent_event", _event(1)))
         self.assertTrue(await asyncio.to_thread(late_started.wait, 1))
-        await late_task
-        self.assertEqual(recorder.degraded_reason, "recorder_timeout")
+        # 超过原 0.25s 等待上限仍在写入中，调用方继续等待而不是降级。
+        await asyncio.sleep(0.35)
+        self.assertFalse(late_task.done())
+        self.assertIsNone(recorder.degraded_reason)
         allow_late_commit.set()
-        self.assertTrue(await asyncio.to_thread(late_finished.wait, 1))
+        await asyncio.wait_for(late_task, timeout=2)
+        self.assertTrue(late_finished.is_set())
+        self.assertIsNone(recorder.degraded_reason)
 
         await recorder.finalize(1)
 
         with self.Session() as db:
             self.assertEqual(db.query(AgentEvent).filter_by(run_id="run-1").count(), 2)
             meta = db.get(RunTrajectoryMeta, "run-1")
-            self.assertEqual(meta.trajectory_status, "degraded")
-            self.assertEqual(meta.degraded_reason, "recorder_timeout")
-            self.assertIsNone(meta.finalized_at)
+            self.assertEqual(meta.trajectory_status, "complete")
+            self.assertIsNone(meta.degraded_reason)
+            self.assertIsNotNone(meta.finalized_at)
 
     async def test_finalize_timeout_late_complete_is_corrected_to_degraded(self):
         finalize_started = threading.Event()
@@ -1742,18 +1747,19 @@ class RecorderConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         logger = _ListLogger()
         recorder = self._recorder(executor=executor, semaphore=semaphore, run_id="run-slow-0001", logger=logger)
 
-        def blocked_write(_payload):
+        def blocked_write():
             started.set()
             release_worker.wait(timeout=2)
 
-        recorder._write_event = blocked_write
-        await recorder.record_chunk("conv-1", "agent_event", _event(0, run_id="run-slow-0001"))
+        # 事件写入已改为等待真实结果；保留等待上限的只有 auxiliary 写入。
+        await recorder.write_auxiliary(blocked_write, label="tool_observation")
 
+        self.assertTrue(started.is_set())
         self.assertEqual(recorder.degraded_reason, "recorder_timeout")
         timeout_logs = [message for message in logger.warnings if "轨迹账本等待超时" in message]
         self.assertEqual(len(timeout_logs), 1)
-        self.assertIn("stage=event_wait, label=event:step_started", timeout_logs[0])
-        self.assertRegex(timeout_logs[0], r"holders=1 \[event:step_started@run-slow:\d+ms:running:\d+ms\]")
+        self.assertIn("stage=event_wait, label=tool_observation", timeout_logs[0])
+        self.assertRegex(timeout_logs[0], r"holders=1 \[tool_observation@run-slow:\d+ms:running:\d+ms\]")
         self.assertIn("app_pool=", timeout_logs[0])
 
         release_worker.set()
@@ -1763,7 +1769,7 @@ class RecorderConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.01)
         late_logs = [message for message in logger.warnings if "轨迹账本迟到写入完成" in message]
         self.assertEqual(len(late_logs), 1)
-        self.assertRegex(late_logs[0], r"stage=event_wait, label=event:step_started, late_ms=\d+")
+        self.assertRegex(late_logs[0], r"stage=event_wait, label=tool_observation, late_ms=\d+")
 
     def test_slow_event_write_logs_segment_durations(self):
         logger = _ListLogger()
@@ -1786,9 +1792,13 @@ class RecorderConcurrencyTests(unittest.IsolatedAsyncioTestCase):
     async def test_admission_full_logs_queued_slot_holders_until_worker_releases(self):
         semaphore = threading.BoundedSemaphore(1)
         executor = ManualExecutor()
-        holder = self._recorder(executor=executor, semaphore=semaphore, run_id="run-holder-0001")
-        await holder.record_chunk("conv-1", "agent_event", _event(0, run_id="run-holder-0001"))
-        self.assertEqual(holder.degraded_reason, "recorder_timeout")
+        holder = self._recorder(
+            executor=executor, semaphore=semaphore, worker=lambda _operation: None, run_id="run-holder-0001"
+        )
+        holder_task = asyncio.create_task(
+            holder.record_chunk("conv-1", "agent_event", _event(0, run_id="run-holder-0001"))
+        )
+        self.assertTrue(await asyncio.to_thread(executor.submitted.wait, 1))
 
         logger = _ListLogger()
         rejected = self._recorder(
@@ -1806,7 +1816,8 @@ class RecorderConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("app_pool=", admission_logs[0])
 
         executor.run_next()
-        await asyncio.sleep(0)
+        await asyncio.wait_for(holder_task, timeout=1)
+        self.assertIsNone(holder.degraded_reason)
         self.assertEqual(describe_slot_holders(semaphore), [])
         self.assertTrue(semaphore.acquire(blocking=False))
         semaphore.release()
@@ -1893,7 +1904,7 @@ class RecorderConcurrencyTests(unittest.IsolatedAsyncioTestCase):
 
         recorder = self._recorder(executor=executor, semaphore=semaphore, worker=worker)
 
-        await recorder.record_chunk("conv-1", "agent_event", _event(0))
+        await recorder.write_auxiliary(lambda: None)
 
         self.assertEqual(recorder.degraded_reason, "recorder_timeout")
         self.assertEqual(executor.pending_count, 1)
