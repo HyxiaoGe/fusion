@@ -684,6 +684,8 @@ def test_system_prompt_defines_taxonomy_tool_mapping_order_and_negative_boundari
     assert "Authorized MCP tools for this request: []" in prompt
     assert "organizations, careers, products, or funding stages" in prompt
     assert "Do not choose fresh_web merely because a stage name appears" in prompt
+    assert "never make a request compound" in prompt
+    assert "classify by that task alone as if they were absent" in prompt
     assert "route capability requires both a locatable origin and destination" in prompt
     assert "only a destination is provided" in prompt
 
