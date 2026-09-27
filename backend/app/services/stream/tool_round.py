@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 import time
 from collections.abc import Awaitable, Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -419,6 +421,14 @@ def append_tool_round_messages_with_plan(
 # 单进程补写有界；每批只等待 50ms，慢日志交给后台等待，30s 后记录失败。
 _PENDING_OBSERVATION_WRITES: set[asyncio.Task] = set()
 _MAX_PENDING_OBSERVATION_WRITES = 128
+# 反馈写的是 tool_call_logs，不属于轨迹账本，因此用独立线程与名额：与账本共享时，
+# 并行工具同时完成的几次补写会瞬间占满账本名额，同 run 的事件写入被拒成 admission_full，
+# 此后整段轨迹全部丢失（dev 复现：4 个 tool_observation 各仅占 0-4ms 就挤掉 evidence 事件）。
+OBSERVATION_WRITE_MAX_WORKERS = 4
+_OBSERVATION_EXECUTOR = ThreadPoolExecutor(
+    max_workers=OBSERVATION_WRITE_MAX_WORKERS, thread_name_prefix="tool-observation"
+)
+_OBSERVATION_SEMAPHORE = threading.BoundedSemaphore(OBSERVATION_WRITE_MAX_WORKERS)
 
 
 async def _persist_observation_after_log(
@@ -433,7 +443,13 @@ async def _persist_observation_after_log(
 ) -> None:
     try:
         await asyncio.wait_for(asyncio.shield(pending_log), timeout=30.0)
-        recorder = TrajectoryRecorder(run_id=run_id, conversation_id=conversation_id, message_id=message_id)
+        recorder = TrajectoryRecorder(
+            run_id=run_id,
+            conversation_id=conversation_id,
+            message_id=message_id,
+            executor=_OBSERVATION_EXECUTOR,
+            semaphore=_OBSERVATION_SEMAPHORE,
+        )
         await recorder.write_auxiliary(
             lambda: attach_tool_observation(
                 log_id=log_id,
