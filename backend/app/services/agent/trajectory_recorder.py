@@ -256,9 +256,12 @@ class TrajectoryRecorder:
                 self._mark_degraded("invalid_event")
                 return
 
+            # 事件由每个 run 的后台消费者顺序写入，不在用户可见路径上：等真实写库结果，
+            # 慢但成功不算降级；写入本身受语句/锁/建连超时约束，整体由队列 flush 上限兜底。
             await self._run_isolated(
                 lambda: self._write_event(stored_payload),
                 label=f"event:{stored_payload.get('type')}",
+                wait_timeout=None,
             )
         finally:
             self._finish_record()
@@ -392,7 +395,13 @@ class TrajectoryRecorder:
             f"holders={len(holders)} [{', '.join(holders)}] {_describe_pool_status()}"
         )
 
-    async def _run_isolated(self, operation: Callable[[], _T], *, label: str = "auxiliary") -> _T | None:
+    async def _run_isolated(
+        self,
+        operation: Callable[[], _T],
+        *,
+        label: str = "auxiliary",
+        wait_timeout: float | None = TRAJECTORY_WAIT_TIMEOUT_SECONDS,
+    ) -> _T | None:
         if not await self._acquire_admission(label):
             return None
 
@@ -408,9 +417,11 @@ class TrajectoryRecorder:
             return None
 
         try:
+            if wait_timeout is None:
+                return await asyncio.shield(future)
             return await asyncio.wait_for(
                 asyncio.shield(future),
-                timeout=TRAJECTORY_WAIT_TIMEOUT_SECONDS,
+                timeout=wait_timeout,
             )
         except asyncio.CancelledError:
             self._mark_degraded("recorder_cancelled")
