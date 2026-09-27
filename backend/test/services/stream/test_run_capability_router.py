@@ -66,6 +66,18 @@ def _resolve(
     )
 
 
+def test_classifier_receives_original_case_and_line_breaks():
+    seen = {}
+
+    def classify(**kwargs):
+        seen.update(kwargs)
+        return _CandidateRoute("direct", "high", ("stable_knowledge_question",), False)
+
+    _resolve("  FastAPI 里依赖注入怎么写？\n给个例子  ", classify_fn=classify)
+
+    assert seen["message"] == "FastAPI 里依赖注入怎么写？\n给个例子"
+
+
 def test_current_new_release_phrasing_degrades_when_tools_are_disabled():
     candidate = _CandidateRoute("fresh_web", "high", ("fresh_external_fact",), True)
     route = _resolve("今天 OpenAI 有什么新发布？", tools_disabled=True, classify_fn=lambda **_: candidate)
