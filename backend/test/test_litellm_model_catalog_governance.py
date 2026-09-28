@@ -28,7 +28,7 @@ class ModelCatalogGovernanceTests(unittest.TestCase):
         create_actions = [action for action in plan.actions if action.action == "create"]
         self.assertEqual(
             [action.model_name for action in create_actions],
-            ["mimo-v2.5-pro", "mimo-v2.5-pro-ultraspeed"],
+            ["mimo-v2.5-pro"],
         )
         payload = create_actions[0].payload
         self.assertEqual(payload["model_name"], "mimo-v2.5-pro")
@@ -49,18 +49,27 @@ class ModelCatalogGovernanceTests(unittest.TestCase):
                     "metadata": {"provider_key": "xiaomi", "source": "fusion-governance"},
                 },
             },
+        ]
+
+        plan = catalog.build_governance_plan(entries, {"XIAOMI_API_KEY": "sk-xiaomi"})
+
+        self.assertFalse([action for action in plan.actions if action.action == "create"])
+
+    def test_plan_deletes_unsupported_ultraspeed(self):
+        entries = [
             {
                 "model_name": "mimo-v2.5-pro-ultraspeed",
                 "model_info": {
                     "id": "uuid-new-fast",
                     "metadata": {"provider_key": "xiaomi", "source": "fusion-governance"},
                 },
-            },
+            }
         ]
 
         plan = catalog.build_governance_plan(entries, {"XIAOMI_API_KEY": "sk-xiaomi"})
 
-        self.assertFalse([action for action in plan.actions if action.action == "create"])
+        delete_actions = [action for action in plan.actions if action.action == "delete"]
+        self.assertEqual([action.model_uuid for action in delete_actions], ["uuid-new-fast"])
 
     def test_missing_xiaomi_key_is_clear_when_registration_needed(self):
         with self.assertRaisesRegex(RuntimeError, "XIAOMI_API_KEY"):
@@ -95,6 +104,7 @@ class ModelCatalogGovernanceTests(unittest.TestCase):
             "deepseek-chat",
             "mimo-v2-flash",
             "mimo-v2-pro",
+            "mimo-v2.5-pro-ultraspeed",
             "qwen-max-latest",
         ]
 
@@ -106,7 +116,6 @@ class ModelCatalogGovernanceTests(unittest.TestCase):
                 "deepseek-chat",
                 "qwen-max-latest",
                 "mimo-v2.5-pro",
-                "mimo-v2.5-pro-ultraspeed",
             ],
         )
 
