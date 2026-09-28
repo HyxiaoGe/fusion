@@ -118,6 +118,9 @@ def extract_db_models(entries: Sequence[Mapping[str, Any]]) -> list[dict[str, An
 def extract_fusion_model_ids(fusion_models: Sequence[Mapping[str, Any]]) -> list[str]:
     ids: list[str] = []
     for model in fusion_models:
+        # 虚拟模型（如「自动选择」）每轮转发到真实模型，LiteLLM 里本来就没有条目
+        if model.get("virtual") is True:
+            continue
         model_id = str(model.get("modelId") or "")
         if model_id:
             ids.append(model_id)

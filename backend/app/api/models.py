@@ -118,6 +118,8 @@ def _build_auto_card(cards: List[Dict[str, Any]], controls: ModelCatalogControlR
     capability_keys = (usable[0]["capabilities"] if usable else {}).keys()
     card = {
         "modelId": AUTO_MODEL_ID,
+        # 虚拟模型：LiteLLM 里没有对应条目，目录巡检据此跳过
+        "virtual": True,
         "name": "自动选择",
         "provider": AUTO_MODEL_ID,
         "provider_display": "自动",
