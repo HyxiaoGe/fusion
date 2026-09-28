@@ -254,7 +254,7 @@ class LiteLLMGovernanceCycleTests(unittest.TestCase):
             self.assertEqual(plans[fingerprint]["run_id"], pointer["run_id"])
             self.assertEqual(plans[fingerprint]["allowlist_plan"]["add"], ["kimi-k3"])
 
-    def test_provider_failure_does_not_advance_latest_success_pointer(self):
+    def test_all_providers_failing_does_not_advance_latest_success_pointer(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             output_dir = Path(temp_dir)
             previous = {"run_id": "previous"}
@@ -267,6 +267,50 @@ class LiteLLMGovernanceCycleTests(unittest.TestCase):
                 json.loads((output_dir / "latest-success.json").read_text(encoding="utf-8")),
                 previous,
             )
+
+    def test_single_provider_failure_degrades_only_that_provider(self):
+        report = candidate_report()
+        report["providers"]["google"] = {
+            "status": "error",
+            "error": {"code": "upstream_request_failed"},
+            "report": {"new": [], "existing": [], "removed": [{"model_id": "gemini-3.6-flash"}], "unknown": []},
+        }
+        report["summary"] = {"providers_total": 2, "providers_ok": 1, "providers_failed": 1}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir)
+
+            summary = self._run(output_dir, report)
+
+            self.assertEqual(summary["status"], "success")
+            self.assertEqual(summary["degraded_providers"], ["google"])
+            self.assertEqual(summary["issues"], [{"provider_key": "google", "code": "upstream_request_failed"}])
+            self.assertEqual(summary["preflight_required"], 1)
+            pointer = json.loads((output_dir / "latest-success.json").read_text(encoding="utf-8"))
+            queue = json.loads((output_dir / pointer["run_path"] / "candidate-queue.json").read_text(encoding="utf-8"))
+            self.assertEqual([item["provider_key"] for item in queue], ["moonshot"])
+            self.assertFalse((output_dir / "latest-failure.json").exists())
+            self.assertEqual(summary["retirement_review"], 0)
+
+    def test_invalid_acceptance_still_fails_when_another_provider_is_degraded(self):
+        report = candidate_report()
+        report["providers"]["google"] = {"status": "error", "error": {"code": "upstream_request_failed"}}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._run(root / "baseline", report)
+            baseline_pointer = json.loads((root / "baseline" / "latest-success.json").read_text(encoding="utf-8"))
+            baseline_queue = json.loads(
+                (root / "baseline" / baseline_pointer["run_path"] / "candidate-queue.json").read_text(encoding="utf-8")
+            )
+            acceptance_dir = root / "acceptance"
+            acceptance_dir.mkdir()
+            (acceptance_dir / f"{baseline_queue[0]['candidate_fingerprint']}.json").write_text(
+                "{invalid", encoding="utf-8"
+            )
+
+            summary = self._run(root / "reports", report, acceptance_dir=acceptance_dir)
+
+            self.assertEqual(summary["status"], "failed")
+            self.assertFalse((root / "reports" / "latest-success.json").exists())
 
     def test_cost_fetch_exception_is_persisted_without_advancing_success(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -100,7 +100,10 @@ def _retirement_records(report: Mapping[str, Any]) -> list[dict[str, Any]]:
     if not _is_mapping(providers):
         return records
     for provider_key, provider_result in providers.items():
-        provider_report = provider_result.get("report") if _is_mapping(provider_result) else None
+        # 失败厂商的下架判断不可信，且整轮可能按降级成功发布，不能让它进入退役复核。
+        if not _is_mapping(provider_result) or provider_result.get("status") != "ok":
+            continue
+        provider_report = provider_result.get("report")
         removed = provider_report.get("removed") if _is_mapping(provider_report) else None
         if not isinstance(removed, list):
             continue
@@ -263,6 +266,24 @@ def _provider_issues(candidate_report: Mapping[str, Any]) -> list[dict[str, str]
     return issues
 
 
+def _degraded_providers(
+    candidate_report: Mapping[str, Any],
+    provider_issues: Sequence[Mapping[str, str]],
+) -> list[str]:
+    """单厂商上游失败只降级该厂商；至少一个厂商成功时其余厂商的快照仍然有效。
+
+    失败厂商不产出候选也不产出退役记录，因此不会影响其他厂商的准入判断。
+    全部厂商失败或厂商清单缺失仍整轮失败。
+    """
+    providers = candidate_report.get("providers")
+    if not _is_mapping(providers):
+        return []
+    ok_providers = [key for key, result in providers.items() if _is_mapping(result) and result.get("status") == "ok"]
+    if not ok_providers:
+        return []
+    return sorted({issue["provider_key"] for issue in provider_issues if issue.get("provider_key") in providers})
+
+
 def run_governance_cycle(
     *,
     registry: Mapping[str, Any],
@@ -309,7 +330,12 @@ def run_governance_cycle(
         retirement_review = _retirement_records(enriched_report)
         provider_issues = _provider_issues(candidate_report)
         issues = [*provider_issues, *cycle_issues]
-        status = "success" if not issues else "failed"
+        degraded_providers = _degraded_providers(candidate_report, provider_issues)
+        blocking_issues = [
+            *(issue for issue in provider_issues if issue["provider_key"] not in degraded_providers),
+            *cycle_issues,
+        ]
+        status = "success" if not blocking_issues else "failed"
         summary = {
             "schema_version": 1,
             "run_id": run_id,
@@ -326,6 +352,7 @@ def run_governance_cycle(
             "admission_ready": sum(item["state"] == "admission_ready" for item in queue),
             "retirement_review": len(retirement_review),
             "candidate_preflight_status": (enriched_report.get("candidate_preflight") or {}).get("status"),
+            "degraded_providers": degraded_providers,
             "issues": issues,
         }
         artifacts = {
