@@ -43,8 +43,8 @@ class CapabilityPackageSpec:
     # 允许的置信度；首项是分类器选中本包时使用的置信度。
     confidence_options: tuple[str, ...] = ("high",)
     resolution_mode: str = "routed"
-    # None 表示随路由上下文变化，契约不校验。
-    include_current_date: bool | None = False
+    # 当前日期一律注入（#132）；None 表示随路由上下文变化，契约不校验。
+    include_current_date: bool | None = True
     network_boundary_required: bool | None = False
     plan_modes: frozenset[str] = _ON_OFF_PLAN_MODES
     # 模型分类器可直接返回本包；否则只能由服务端模式或降级路径产生。
@@ -196,7 +196,7 @@ CAPABILITY_PACKAGES: Mapping[str, CapabilityPackageSpec] = MappingProxyType(
             tools=(),
             reason_code_options=(("explicit_authorized_tool_alias",),),
             include_current_date=None,
-            model_include_current_date=False,
+            model_include_current_date=True,
             mcp_aliases=True,
         ),
     }
@@ -249,11 +249,15 @@ def validate_capability_resolution_semantics(
     reason_codes: Sequence[str],
     external_tool_names: Sequence[str],
     effective_plan_mode: str,
-    include_current_date: bool,
+    include_current_date: bool | None,
     network_boundary_required: bool,
     skill_resolution: object | None = None,
 ) -> None:
-    """拒绝无法由能力路由器产生的工具与固定包语义组合。"""
+    """拒绝无法由能力路由器产生的工具与固定包语义组合。
+
+    include_current_date 传 None 时不校验日期语义：历史 Run 曾按包决定是否注入日期，
+    持久化值不能按现行契约回溯判错。
+    """
 
     tool_names = tuple(external_tool_names)
     if CAPABILITY_CONTROL_TOOL_NAMES.intersection(tool_names):
@@ -299,7 +303,11 @@ def validate_capability_resolution_semantics(
     if effective_plan_mode not in spec.plan_modes:
         raise ValueError("能力包与有效计划模式不匹配")
 
-    if spec.include_current_date is not None and include_current_date is not spec.include_current_date:
+    if (
+        include_current_date is not None
+        and spec.include_current_date is not None
+        and include_current_date is not spec.include_current_date
+    ):
         raise ValueError("能力包与当前日期上下文语义不匹配")
 
     if spec.network_boundary_required is not None and network_boundary_required is not spec.network_boundary_required:

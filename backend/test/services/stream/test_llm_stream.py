@@ -2484,7 +2484,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(result, response)
         self.assertEqual(
             call.await_args.kwargs["extra_body"],
-            {"metadata": {"tags": ["app:fusion", "phase:chat_stream"]}},
+            {"metadata": {"tags": ["app:fusion", "phase:chat_stream"]}, "cache": {"no-cache": True, "no-store": True}},
         )
 
     async def test_visible_output_callback_runs_after_redis_append_for_each_kind(self):

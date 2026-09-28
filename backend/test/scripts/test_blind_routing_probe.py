@@ -27,7 +27,7 @@ def _direct_candidate() -> _CandidateRoute:
         package_id="direct",
         confidence="high",
         reason_codes=("stable_knowledge_question",),
-        include_current_date=False,
+        include_current_date=True,
     )
 
 

@@ -67,6 +67,8 @@ def _assert_clarification(candidate) -> None:
     assert candidate.reason_codes == ("insufficient_capability_signal",)
     assert candidate.resolution_mode == "clarification"
     assert candidate.explicit_tool_names is None
+    # 分类失败也要带今天日期，否则模型会拿训练截止时间当“今天”作答。
+    assert candidate.include_current_date is True
 
 
 def test_removed_transform_literal_delegates_to_model() -> None:
@@ -182,7 +184,7 @@ def test_model_can_select_exact_authorized_mcp_alias() -> None:
     assert candidate.package_id == "mcp_explicit"
     assert candidate.explicit_tool_names == (alias,)
     assert candidate.reason_codes == ("explicit_authorized_tool_alias",)
-    assert candidate.include_current_date is False
+    assert candidate.include_current_date is True
     assert alias in completion.call_args.kwargs["messages"][0]["content"]
 
 
@@ -809,14 +811,14 @@ def test_mixed_itinerary_requires_two_or_three_product_families_except_air_rail_
         "expected_include_date",
     ),
     [
-        ("direct", (), False, ("stable_knowledge_question",), False),
-        ("transform", (), False, ("text_transform_request",), False),
+        ("direct", (), False, ("stable_knowledge_question",), True),
+        ("transform", (), False, ("text_transform_request",), True),
         ("date", (), False, ("current_date_question",), True),
         ("fresh_web", ("web_search",), False, ("fresh_external_fact",), True),
         ("verified_web", ("web_search", "url_read"), False, ("verified_source_request",), True),
-        ("url_read", ("url_read",), False, ("explicit_url_read",), False),
+        ("url_read", ("url_read",), False, ("explicit_url_read",), True),
         ("weather", ("weather_forecast",), False, ("explicit_weather_request",), True),
-        ("place_discovery", ("local_place_search",), False, ("explicit_place_discovery",), False),
+        ("place_discovery", ("local_place_search",), False, ("explicit_place_discovery",), True),
         ("mobility_route", ("route_compare",), False, ("explicit_route_task",), False),
         ("mobility_route", ("route_compare",), True, ("explicit_route_task",), True),
         ("flight", ("search_flights",), False, ("explicit_flight_request",), True),
@@ -836,7 +838,7 @@ def test_mixed_itinerary_requires_two_or_three_product_families_except_air_rail_
             ("mixed_itinerary_request",),
             True,
         ),
-        ("clarification_only", (), False, ("insufficient_capability_signal",), False),
+        ("clarification_only", (), False, ("insufficient_capability_signal",), True),
     ],
 )
 def test_model_package_mapping_preserves_reason_codes_and_date_semantics(

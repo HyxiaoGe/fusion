@@ -181,13 +181,13 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
                     "mcp_explicit",
                     "high",
                     ("explicit_authorized_tool_alias",),
-                    False,
+                    True,
                     explicit_tool_names=(alias_match.group(0),),
                 )
             if "天气" in message:
                 return _CandidateRoute("weather", "high", ("explicit_weather_request",), True)
             if "附近" in message:
-                return _CandidateRoute("place_discovery", "high", ("explicit_place_discovery",), False)
+                return _CandidateRoute("place_discovery", "high", ("explicit_place_discovery",), True)
             if "怎么走" in message:
                 return _CandidateRoute("mobility_route", "high", ("explicit_route_task",), True)
             if "交叉核实来源" in message or "阅读官方公告" in message:
@@ -1187,7 +1187,7 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
         prompt_event = next(event for event in result.events if event["type"] == "system_prompt_prepared")
         self.assertEqual(prompt_event["status"], "ready")
         self.assertIsNone(prompt_event["step_id"])
-        self.assertNotIn("current_date", prompt_event["section_ids"])
+        self.assertIn("current_date", prompt_event["section_ids"])
         self.assertIn("app_identity", prompt_event["section_ids"])
         round_started = next(event for event in result.events if event["type"] == "llm_round_started")
         self.assertEqual(

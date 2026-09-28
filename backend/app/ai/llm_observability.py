@@ -52,4 +52,6 @@ def merge_openai_extra_body(
         if isinstance(value, str) and value:
             metadata[key] = value
     merged["metadata"] = metadata
+    # 代理开着响应缓存：同一 prompt 会原样复用上次输出，一次坏的分类结果能连续命中数分钟。
+    merged["cache"] = {"no-cache": True, "no-store": True}
     return merged

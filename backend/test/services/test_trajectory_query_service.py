@@ -292,7 +292,6 @@ class TrajectoryQueryServiceTests(unittest.TestCase):
                 "include_current_date": False,
             },
             {**CAPABILITY_RESOLUTION, "effective_plan_mode": "auto"},
-            {**CAPABILITY_RESOLUTION, "include_current_date": False},
             {**CAPABILITY_RESOLUTION, "network_boundary_required": True},
             {
                 **CAPABILITY_RESOLUTION,

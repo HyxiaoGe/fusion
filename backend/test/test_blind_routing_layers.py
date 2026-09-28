@@ -13,7 +13,7 @@ from scripts import blind_routing_probe as probe
 
 
 def _direct_candidate():
-    return _CandidateRoute("direct", "high", ("stable_knowledge_question",), False)
+    return _CandidateRoute("direct", "high", ("stable_knowledge_question",), True)
 
 
 class BlindRoutingLayerTests(unittest.TestCase):

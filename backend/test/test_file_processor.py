@@ -154,6 +154,7 @@ class FileProcessorTests(unittest.IsolatedAsyncioTestCase):
             {
                 "trace": "keep",
                 "metadata": {"tags": ["app:fusion", "phase:file_processing"]},
+                "cache": {"no-cache": True, "no-store": True},
             },
         )
         self.assertEqual(

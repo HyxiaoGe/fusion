@@ -187,7 +187,7 @@ def _classify_deadline_fallback(**_kwargs) -> _CandidateRoute:
         package_id="clarification_only",
         confidence="low",
         reason_codes=("insufficient_capability_signal",),
-        include_current_date=False,
+        include_current_date=True,
         resolution_mode="clarification",
     )
 

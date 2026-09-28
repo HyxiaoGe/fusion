@@ -1182,7 +1182,10 @@ class ChatServiceTests(unittest.TestCase):
         self.assertEqual(sent_messages[2]["content"], "OpenAI 最近发布了什么模型？")
         self.assertEqual(
             mock_litellm.acompletion.await_args.kwargs["extra_body"],
-            {"metadata": {"tags": ["app:fusion", "phase:chat_non_stream"]}},
+            {
+                "metadata": {"tags": ["app:fusion", "phase:chat_non_stream"]},
+                "cache": {"no-cache": True, "no-store": True},
+            },
         )
         persisted_messages = [call.args[0] for call in service.conversation_service.create_message.call_args_list]
         self.assertEqual([message.sequence for message in persisted_messages], [1])
@@ -1971,6 +1974,7 @@ class ChatServiceTests(unittest.TestCase):
                 # 辅助调用必须关推理：reasoning token 与正文共用 max_tokens，
                 # 被吃光就只剩空正文（见 test_utility_model.DisableThinkingTests）
                 "thinking": {"type": "disabled"},
+                "cache": {"no-cache": True, "no-store": True},
             },
         )
         service.conversation_service.repo.update_title.assert_called_once_with("conv-1", "Fusion Chat")

@@ -352,7 +352,7 @@ def classify_capability_request(
         "clarification_only",
         "low",
         ("insufficient_capability_signal",),
-        False,
+        True,
         resolution_mode="clarification",
     )
 

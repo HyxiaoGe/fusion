@@ -1285,7 +1285,7 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
                 package_id="direct",
                 confidence="high",
                 reason_codes=("stable_knowledge_question",),
-                include_current_date=False,
+                include_current_date=True,
             )
 
         config = build_agent_loop_call_config(
