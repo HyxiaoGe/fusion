@@ -865,12 +865,17 @@ def load_mcp_authorized_tool_aliases(
     *,
     repository_factory: Callable[[Any], McpServerRepository] = McpServerRepository,
 ) -> list[str]:
-    """只读投影启用服务的合法授权别名，不构建可执行工具或模型 schema。"""
+    """只读投影启用服务的合法授权别名，不构建可执行工具或模型 schema。
+
+    官方高德服务只以产品工具形式暴露（见 load_mcp_agent_tools），原始别名在任何 run
+    都不可调用，不计入授权别名，否则会无谓占用分类器的输入预算。
+    """
 
     rows = sorted(repository_factory(db).list_enabled(), key=lambda row: str(row.id))
     return [
         build_agent_tool_alias(str(row.id), snapshot["name"])
         for row in rows
+        if not is_official_amap_endpoint(str(row.endpoint_url))
         for snapshot in _iter_authorized_snapshots(row)
     ]
 

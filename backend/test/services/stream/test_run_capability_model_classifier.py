@@ -552,15 +552,33 @@ def test_token_counter_uses_classifier_model_family() -> None:
 
 
 def test_token_counter_failure_fails_closed_without_model_call() -> None:
+    results: list[tuple[str, str | None]] = []
     with patch("app.services.stream.run_capability_model_classifier.litellm.completion") as completion:
         candidate = classify_capability_request_with_model(
             "需要语义判断的请求",
             ALL_TOOLS,
             token_counter_fn=Mock(side_effect=RuntimeError("tokenizer unavailable")),
+            result_callback=lambda result, error_type: results.append((result, error_type)),
         )
 
     _assert_clarification(candidate)
     completion.assert_not_called()
+    assert results == [("failed", "token_count_failed")]
+
+
+def test_over_budget_reports_input_budget_exceeded() -> None:
+    results: list[tuple[str, str | None]] = []
+    with patch("app.services.stream.run_capability_model_classifier.litellm.completion") as completion:
+        candidate = classify_capability_request_with_model(
+            "需要语义判断的请求",
+            ALL_TOOLS,
+            token_counter_fn=Mock(return_value=2001),
+            result_callback=lambda result, error_type: results.append((result, error_type)),
+        )
+
+    _assert_clarification(candidate)
+    completion.assert_not_called()
+    assert results == [("failed", "input_budget_exceeded")]
 
 
 def test_token_budget_drops_history_before_rejecting_current_message() -> None:
@@ -998,3 +1016,70 @@ def test_model_product_capability_is_degraded_by_existing_resolver_when_tools_ar
     assert resolution.reason_codes == (expected_reason,)
     assert resolution.include_current_date is True
     assert resolution.network_boundary_required is True
+
+
+@pytest.mark.parametrize(
+    ("package_id", "tools", "primary", "expected_package", "expected_tools", "expected_primary"),
+    [
+        # 兜底网页工具由服务端附加，模型列出时只剥离，不判为冲突。
+        ("flight", ["web_search", "search_flights"], None, "flight", ("search_flights",), None),
+        (
+            "mixed_itinerary",
+            ["web_search", "url_read", "local_place_search", "route_compare"],
+            "local_place_search",
+            "mixed_itinerary",
+            ("local_place_search", "route_compare"),
+            "local_place_search",
+        ),
+        # 剥离后只剩一个产品工具时，归到该工具的单产品包。
+        ("mixed_itinerary", ["web_search", "search_flights"], "search_flights", "flight", ("search_flights",), None),
+        (
+            "mixed_itinerary",
+            ["web_search", "url_read", "local_place_search"],
+            "web_search",
+            "place_discovery",
+            ("local_place_search",),
+            None,
+        ),
+    ],
+)
+def test_recovery_web_tools_listed_in_product_packages_are_stripped(
+    package_id: str,
+    tools: list[str],
+    primary: str | None,
+    expected_package: str,
+    expected_tools: tuple[str, ...],
+    expected_primary: str | None,
+) -> None:
+    result = _parse_model_route(
+        _completion_response(package_id, tools, required_primary_tool_name=primary),
+        ALL_TOOLS,
+        include_current_date=False,
+    )
+
+    assert result is not None
+    assert result.package_id == expected_package
+    assert result.explicit_tool_names == expected_tools
+    assert result.required_primary_tool_name == expected_primary
+
+
+@pytest.mark.parametrize(
+    ("package_id", "tools", "primary"),
+    [
+        # 网页包本身的工具不剥离；无外部工具的包列出网页工具仍是冲突。
+        ("direct", ["web_search"], None),
+        ("fresh_web", ["web_search", "url_read"], None),
+        # 剥离后仍有多个产品工具却缺少主工具，不猜测主工具。
+        ("mixed_itinerary", ["web_search", "local_place_search", "route_compare"], "web_search"),
+    ],
+)
+def test_recovery_tool_normalization_keeps_other_mismatches_invalid(
+    package_id: str, tools: list[str], primary: str | None
+) -> None:
+    result = _parse_model_route(
+        _completion_response(package_id, tools, required_primary_tool_name=primary),
+        ALL_TOOLS,
+        include_current_date=False,
+    )
+
+    assert result is None
