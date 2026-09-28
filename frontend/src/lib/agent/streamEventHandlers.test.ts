@@ -83,7 +83,7 @@ describe('createAgentStreamEventHandlers', () => {
     });
 
     expect(setServerMessageId).toHaveBeenCalledWith('m1');
-    expect(dispatch).toHaveBeenCalledTimes(2);
+    expect(dispatch).toHaveBeenCalledTimes(3);
     expect(dispatch.mock.calls[0][0]).toMatchObject({
       type: 'stream/initRun',
       payload: {
@@ -102,7 +102,12 @@ describe('createAgentStreamEventHandlers', () => {
         sequence: 0,
       },
     });
+    // 本轮实际模型写回消息，供「自动选择」会话的回答头部展示
     expect(dispatch.mock.calls[1][0]).toMatchObject({
+      type: 'conversation/updateMessage',
+      payload: { conversationId: 'c1', messageId: 'm1', patch: { model_id: 'gpt' } },
+    });
+    expect(dispatch.mock.calls[2][0]).toMatchObject({
       type: 'stream/updateRunProgress',
       payload: {
         runId: 'r1',

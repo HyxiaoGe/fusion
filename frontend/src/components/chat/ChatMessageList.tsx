@@ -338,12 +338,14 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
   const streamError = useAppSelector(state => selectStreamSlot(state, conversationId).lastError);
   const currentRun = useAppSelector(state => selectStreamSlot(state, conversationId).currentRun);
   const streamMessageId = useAppSelector(state => selectStreamSlot(state, conversationId).messageId);
-  const model = useAppSelector(state => selectChatModel(state, conversationId));
+  const chatModel = useAppSelector(state => selectChatModel(state, conversationId));
+  const models = useAppSelector(state => state.models.models);
+  const modelById = useMemo(() => new Map(models.map((item) => [item.id, item])), [models]);
+  // 会话绑定模型已下线时，服务端每轮改走自动选择，头部兜底展示「自动选择」而不是「AI助手」。
+  const model = chatModel ?? modelById.get(AUTO_MODEL_ID) ?? null;
   const modelId = model?.id;
   const providerId = model?.provider;
   const modelName = model?.name ?? 'AI助手';
-  const models = useAppSelector(state => state.models.models);
-  const modelById = useMemo(() => new Map(models.map((item) => [item.id, item])), [models]);
   const trajectoryServerRuns = useAppSelector(state => (
     conversationId
       ? state.trajectory.byConversationId[conversationId]?.runs ?? EMPTY_TRAJECTORY_RUNS

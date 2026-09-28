@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useAppDispatch, useAppSelector } from '@/redux/hooks';
 import { useStore } from 'react-redux';
+import { AUTO_MODEL_ID } from '@/lib/config/modelConfig';
 // localStorage 标记已移除，完全依赖后端 stream-status 判断是否重连
 import {
   applySuggestedQuestionsPending,
@@ -1165,13 +1166,16 @@ export function useSendMessage(activeConversationId?: string | null) {
         // 本轮内容在对方 startStream 时已被清掉，没有正确值可写，只能不覆盖：
         // 服务端那份仍然正确，随后的会话快照刷新会补上。
         const ownsSlotOnComplete = ownsSlot();
+        // run_started 已写回本轮实际模型时保留它，不用请求时的「自动选择」覆盖。
+        const runModelId = store.getState().conversation.byId[finalConvId]?.messages
+          ?.find((item) => item.id === assistantMessageId)?.model_id;
         dispatch(
           updateMessage({
             conversationId: finalConvId,
             messageId: assistantMessageId,
             patch: {
               ...(ownsSlotOnComplete ? { content: finalBlocks } : {}),
-              model_id: enabledModel.id,
+              model_id: runModelId && runModelId !== AUTO_MODEL_ID ? runModelId : enabledModel.id,
               timestamp: Date.now(),
               // usage：当前 done 事件不再携带；agent 模式由后续 GET conversation 拉取覆盖
               isReasoningVisible: hasThinking && ownsSlotOnComplete ? false : undefined,
