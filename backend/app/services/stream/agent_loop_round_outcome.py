@@ -270,7 +270,6 @@ async def _repair_tool_failure_stop(request: AgentRoundOutcomeRequest) -> None:
             available_tools=", ".join(sorted(_recovery_alternatives(request))),
         ),
     )
-    request.state.clear_current_step()
 
 
 def _requires_deep_synthesis_protocol_summary(request: AgentRoundOutcomeRequest) -> bool:
@@ -304,7 +303,6 @@ async def _complete_deep_synthesis_protocol_round(
         max_tool_calls=request.runtime.limits.max_tool_calls,
         clock=request.runtime.clock,
     )
-    request.state.clear_current_step()
     return AgentLoopOutcome(
         exit=AgentLoopExit.SUMMARY_REQUIRED,
         summary_finish_reason="research_evidence_repair_exhausted",
@@ -332,7 +330,6 @@ async def _complete_tool_protocol_error_round(
         max_tool_calls=request.runtime.limits.max_tool_calls,
         clock=request.runtime.clock,
     )
-    request.state.clear_current_step()
     if _has_product_answer_context(request.state):
         return AgentLoopOutcome(exit=AgentLoopExit.PRODUCT_RESULT_READY)
     summary_finish_reason = (
@@ -380,7 +377,6 @@ async def _complete_round_before_plan_synthesis(request: AgentRoundOutcomeReques
         max_tool_calls=request.runtime.limits.max_tool_calls,
         clock=request.runtime.clock,
     )
-    request.state.clear_current_step()
 
 
 async def _repair_incomplete_execution(request: AgentRoundOutcomeRequest) -> None:
@@ -410,7 +406,6 @@ async def _repair_incomplete_execution(request: AgentRoundOutcomeRequest) -> Non
         section_id=PLAN_EXECUTION_REPAIR,
         content=f"{PLAN_EXECUTION_REQUIRED_RETRY_PROMPT}\nPending steps: {pending_summary}",
     )
-    request.state.clear_current_step()
 
 
 def _requires_research_completion_repair(request: AgentRoundOutcomeRequest) -> bool:
@@ -445,7 +440,6 @@ async def _repair_research_completion(
         section_id=RESEARCH_COMPLETION_REPAIR,
         content=build_research_repair_prompt(result.reason, request.state.research_workset),
     )
-    request.state.clear_current_step()
     if request.state.record_research_repair():
         return AgentLoopOutcome(
             exit=AgentLoopExit.SUMMARY_REQUIRED,
@@ -473,7 +467,6 @@ async def _complete_plan_required_round(request: AgentRoundOutcomeRequest) -> No
         section_id=PLAN_REQUIRED_REPAIR,
         content=PLAN_REQUIRED_RETRY_PROMPT,
     )
-    request.state.clear_current_step()
 
 
 def _replace_system_message(
@@ -580,7 +573,6 @@ async def _complete_text_round(request: AgentRoundOutcomeRequest) -> None:
         max_tool_calls=request.runtime.limits.max_tool_calls,
         clock=request.runtime.clock,
     )
-    request.state.clear_current_step()
 
 
 async def _commit_deferred_answer(
@@ -963,7 +955,6 @@ async def _complete_empty_round_before_summary(request: AgentRoundOutcomeRequest
         max_tool_calls=request.runtime.limits.max_tool_calls,
         clock=request.runtime.clock,
     )
-    request.state.clear_current_step()
 
 
 async def _handle_tool_calls_round(request: AgentRoundOutcomeRequest) -> AgentLoopOutcome | None:
@@ -993,12 +984,10 @@ async def _handle_tool_calls_round(request: AgentRoundOutcomeRequest) -> AgentLo
             )
         )
         if outcome.control_repair_exhausted:
-            request.state.clear_current_step()
             return AgentLoopOutcome(
                 exit=AgentLoopExit.SUMMARY_REQUIRED,
                 summary_finish_reason="plan_repair_exhausted",
             )
-    request.state.clear_current_step()
     if _requires_user_input(request.state):
         return AgentLoopOutcome(exit=AgentLoopExit.PRODUCT_RESULT_READY)
     if isinstance(outcome, ToolRoundOutcome) and outcome.product_result_count > 0:

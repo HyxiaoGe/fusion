@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from inspect import Parameter, signature
 
 from app.ai.prompts.product_results import build_product_result_round_prompt
@@ -49,6 +49,7 @@ async def run_agent_loop(
     state: AgentLoopState,
     runtime: AgentLoopRuntime,
 ) -> AgentLoopOutcome:
+    runtime = replace(runtime, complete_step_fn=state.bind_step_completion(runtime.complete_step_fn))
     while True:
         if await _stop_if_limit_reached(state=state, runtime=runtime):
             break
@@ -629,7 +630,6 @@ async def _run_limit_summary(
         state.mark_unknown_terminated()
     if summary_finish_reason == "plan_repair_exhausted":
         state.mark_unknown_terminated()
-    state.clear_current_step()
 
 
 def _messages_with_research_workset(

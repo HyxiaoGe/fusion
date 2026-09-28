@@ -1,6 +1,7 @@
 import asyncio
 import json
 import unittest
+from dataclasses import replace
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
@@ -26,13 +27,34 @@ from app.services.stream.agent_loop_round_outcome import (
     PLAN_REQUIRED_RETRY_PROMPT,
     AgentRoundOutcomeRequest,
     _commit_deferred_answer,
-    handle_agent_round_outcome,
+)
+from app.services.stream.agent_loop_round_outcome import (
+    handle_agent_round_outcome as _handle_round_outcome_unbound,
 )
 from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_round import AgentRoundResult
 from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream.tool_round import ToolRoundOutcome
+
+
+async def handle_agent_round_outcome(*, request: AgentRoundOutcomeRequest):
+    """按 run_agent_loop 的真实接线绑定 step 完成，current_step_id 只随 step 完成释放。"""
+    runtime = replace(
+        request.runtime,
+        complete_step_fn=request.state.bind_step_completion(request.runtime.complete_step_fn),
+    )
+    return await _handle_round_outcome_unbound(request=replace(request, runtime=runtime))
+
+
+async def _complete_step_noop(**_kwargs):
+    return 0
+
+
+async def _complete_tool_round_step(kwargs):
+    """模拟真实工具回合：返回前完成本 step。"""
+    request = kwargs["request"]
+    await request.complete_step_fn(context=request.step_context)
 
 
 async def _unused_async(**_kwargs):
@@ -660,6 +682,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         tool_call = {"id": "tc-place", "name": "local_place_search", "arguments": '{"query":"咖啡"}'}
 
         async def handle_tool_calls_round_fn(**kwargs):
+            await _complete_tool_round_step(kwargs)
             request = kwargs["request"]
             request.on_tools_executed(1)
             return ToolRoundOutcome(
@@ -674,7 +697,9 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
                 db="db",
                 messages=[{"role": "user", "content": "咖啡店和附近桌球"}],
                 state=state,
-                runtime=_runtime(handle_tool_calls_round_fn=handle_tool_calls_round_fn),
+                runtime=_runtime(
+                    complete_step_fn=_complete_step_noop, handle_tool_calls_round_fn=handle_tool_calls_round_fn
+                ),
                 step_number=1,
                 step_context=_step_context("step-product-tool"),
                 round_result=AgentRoundResult(
@@ -730,6 +755,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         state.mark_current_step("step-weather-ambiguous")
 
         async def handle_tool_calls_round_fn(**kwargs):
+            await _complete_tool_round_step(kwargs)
             request = kwargs["request"]
             request.on_tools_executed(1)
             request.agent_state.pending_tool_repairs["repair-weather"] = {
@@ -748,7 +774,9 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
                 db="db",
                 messages=[{"role": "user", "content": "南山区明天天气如何？"}],
                 state=state,
-                runtime=_runtime(handle_tool_calls_round_fn=handle_tool_calls_round_fn),
+                runtime=_runtime(
+                    complete_step_fn=_complete_step_noop, handle_tool_calls_round_fn=handle_tool_calls_round_fn
+                ),
                 step_number=1,
                 step_context=_step_context("step-weather-ambiguous"),
                 round_result=AgentRoundResult(
@@ -1293,7 +1321,8 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         state = AgentLoopState(plan_coordinator=coordinator)
         state.mark_current_step("step-unannounced-control")
 
-        async def handle_tool_calls_round_fn(**_kwargs):
+        async def handle_tool_calls_round_fn(**kwargs):
+            await _complete_tool_round_step(kwargs)
             return ToolRoundOutcome(
                 tool_call_count=0,
                 tool_names=[],
@@ -1306,6 +1335,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
                 messages=[{"role": "user", "content": "整理已有检索结果"}],
                 state=state,
                 runtime=_runtime(
+                    complete_step_fn=_complete_step_noop,
                     handle_tool_calls_round_fn=handle_tool_calls_round_fn,
                     plan_mode="on",
                 ),
@@ -1374,7 +1404,8 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         state.configure_research_mode(network_required=True)
         state.mark_current_step("step-deep-unannounced-control")
 
-        async def handle_tool_calls_round_fn(**_kwargs):
+        async def handle_tool_calls_round_fn(**kwargs):
+            await _complete_tool_round_step(kwargs)
             return ToolRoundOutcome(
                 tool_call_count=0,
                 tool_names=[],
@@ -1387,6 +1418,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
                 messages=[{"role": "user", "content": "深入调研监管要求"}],
                 state=state,
                 runtime=_runtime(
+                    complete_step_fn=_complete_step_noop,
                     handle_tool_calls_round_fn=handle_tool_calls_round_fn,
                     plan_mode="on",
                     task_mode="deep_research",
@@ -1444,7 +1476,8 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         )
         state.mark_current_step("step-product-unannounced-control")
 
-        async def handle_tool_calls_round_fn(**_kwargs):
+        async def handle_tool_calls_round_fn(**kwargs):
+            await _complete_tool_round_step(kwargs)
             return ToolRoundOutcome(
                 tool_call_count=0,
                 tool_names=[],
@@ -1457,6 +1490,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
                 messages=[{"role": "user", "content": "推荐附近地点"}],
                 state=state,
                 runtime=_runtime(
+                    complete_step_fn=_complete_step_noop,
                     handle_tool_calls_round_fn=handle_tool_calls_round_fn,
                     plan_mode="on",
                 ),
@@ -1520,7 +1554,8 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         )
         state.mark_current_step("step-pending-product-unannounced-control")
 
-        async def handle_tool_calls_round_fn(**_kwargs):
+        async def handle_tool_calls_round_fn(**kwargs):
+            await _complete_tool_round_step(kwargs)
             return ToolRoundOutcome(
                 tool_call_count=0,
                 tool_names=[],
@@ -1533,6 +1568,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
                 messages=[{"role": "user", "content": "结合地点和天气给出推荐"}],
                 state=state,
                 runtime=_runtime(
+                    complete_step_fn=_complete_step_noop,
                     handle_tool_calls_round_fn=handle_tool_calls_round_fn,
                     plan_mode="on",
                 ),
@@ -2298,6 +2334,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         step_context = _step_context("step-tool")
 
         async def handle_tool_calls_round_fn(**kwargs):
+            await _complete_tool_round_step(kwargs)
             tool_requests.append(kwargs["request"])
             kwargs["request"].on_tools_executed(len(kwargs["request"].tool_calls))
 
@@ -2306,7 +2343,9 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
                 db="db",
                 messages=messages,
                 state=state,
-                runtime=_runtime(handle_tool_calls_round_fn=handle_tool_calls_round_fn),
+                runtime=_runtime(
+                    complete_step_fn=_complete_step_noop, handle_tool_calls_round_fn=handle_tool_calls_round_fn
+                ),
                 step_number=1,
                 step_context=step_context,
                 round_result=AgentRoundResult(

@@ -6,7 +6,7 @@ from app.schemas.chat import ContextUsage, TextBlock, Usage
 from app.services.stream.agent_loop_state import AgentLoopState
 
 
-class AgentLoopStateTests(unittest.TestCase):
+class AgentLoopStateTests(unittest.IsolatedAsyncioTestCase):
     def test_tool_outcomes_accumulate_without_order_sensitive_failure_erasure(self):
         for statuses in permutations(("success", "degraded", "failed")):
             with self.subTest(statuses=statuses):
@@ -47,13 +47,56 @@ class AgentLoopStateTests(unittest.TestCase):
         self.assertEqual(state.next_step_number(), 1)
         state.mark_current_step("step-1")
         state.record_executed_tool_calls(2)
-        state.clear_current_step()
 
         self.assertEqual(state.step, 1)
         self.assertEqual(state.total_tool_calls, 2)
-        self.assertEqual(state.current_step_id, None)
+        self.assertEqual(state.current_step_id, "step-1")
         self.assertEqual(state.run_stats("run-1").total_steps, 1)
         self.assertEqual(state.run_stats("run-1").total_tool_calls, 2)
+
+    async def test_bound_step_completion_releases_current_step_only_after_success(self):
+        state = AgentLoopState()
+        calls = []
+
+        async def complete_step(**kwargs):
+            calls.append(kwargs["context"].step_id)
+            return 7
+
+        complete = state.bind_step_completion(complete_step)
+        state.mark_current_step("step-1")
+
+        result = await complete(context=SimpleNamespace(step_id="step-1"), tool_call_count=0)
+
+        self.assertEqual(result, 7)
+        self.assertEqual(calls, ["step-1"])
+        self.assertIsNone(state.current_step_id)
+
+    async def test_bound_step_completion_keeps_newer_step(self):
+        state = AgentLoopState()
+
+        async def complete_step(**kwargs):
+            return None
+
+        complete = state.bind_step_completion(complete_step)
+        state.mark_current_step("step-2")
+
+        await complete(context=SimpleNamespace(step_id="step-1"))
+
+        self.assertEqual(state.current_step_id, "step-2")
+
+    async def test_failed_step_completion_keeps_step_for_terminal_cleanup(self):
+        state = AgentLoopState()
+
+        async def complete_step(**kwargs):
+            raise RuntimeError("write failed")
+
+        complete = state.bind_step_completion(complete_step)
+        state.mark_current_step("step-1")
+
+        with self.assertRaises(RuntimeError):
+            await complete(context=SimpleNamespace(step_id="step-1"))
+
+        self.assertEqual(state.current_step_id, "step-1")
 
     def test_two_consecutive_no_progress_search_results_request_summary_across_rounds(self):
         state = AgentLoopState()
