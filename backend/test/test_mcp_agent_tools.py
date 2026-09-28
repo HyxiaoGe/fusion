@@ -384,6 +384,23 @@ class McpAgentToolCatalogTests(unittest.TestCase):
         )
         self.assertLessEqual(total_bytes, limits.max_definition_bytes)
 
+    def test_authorized_alias_projection_skips_official_amap_raw_tools(self):
+        amap_row = build_row(
+            id="server-amap",
+            provider="amap",
+            endpoint_url="https://mcp.amap.com/mcp",
+            allowed_tools=["maps_geo"],
+            discovered_tools=[{"name": "maps_geo", "description": "地理编码", "input_schema": {"type": "object"}}],
+        )
+        docs_row = build_row(
+            allowed_tools=["query_docs"],
+            discovered_tools=[{"name": "query_docs", "description": "查文档", "input_schema": {"type": "object"}}],
+        )
+
+        aliases = load_authorized_aliases([amap_row, docs_row])
+
+        self.assertEqual(aliases, [build_agent_tool_alias(str(docs_row.id), "query_docs")])
+
     def test_amap_catalog_hides_products_when_dependencies_are_incomplete(self):
         row = build_row(
             provider="amap",

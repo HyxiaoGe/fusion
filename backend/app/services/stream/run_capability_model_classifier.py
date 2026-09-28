@@ -24,6 +24,7 @@ from app.utils.run_capability_contract import (
     CAPABILITY_MAX_MCP_ALIASES,
     CAPABILITY_MODEL_PACKAGE_IDS,
     CAPABILITY_PACKAGES,
+    CAPABILITY_RECOVERY_TOOL_NAMES,
     McpRouteTool,
     is_authorized_mcp_tool_alias,
 )
@@ -202,16 +203,32 @@ def classify_capability_request_with_model(
             observation_gate=deadline_gate,
         )
 
-    model_messages = _build_messages(
-        message,
-        tools,
-        context_messages,
-        mcp_tool_catalog=mcp_tool_catalog,
-        token_counter_fn=token_counter_fn,
-        limits=limits,
-        deadline_event=deadline_event,
-        deadline_gate=deadline_gate,
-    )
+    try:
+        model_messages = _build_messages(
+            message,
+            tools,
+            context_messages,
+            mcp_tool_catalog=mcp_tool_catalog,
+            token_counter_fn=token_counter_fn,
+            limits=limits,
+            deadline_event=deadline_event,
+            deadline_gate=deadline_gate,
+        )
+    except _TokenCountUnavailable as exc:
+        if _deadline_expired(deadline_event, deadline_gate):
+            return _deadline_fail_closed(
+                started_at,
+                result_callback=result_callback,
+                observation_gate=deadline_gate,
+                suppress_observation=suppress_deadline_observation,
+            )
+        logger.warning("run_capability_classifier token 计数不可用 cause=%s", exc)
+        return _fail_closed(
+            "token_count_failed",
+            started_at,
+            result_callback=result_callback,
+            observation_gate=deadline_gate,
+        )
     if _deadline_expired(deadline_event, deadline_gate):
         return _deadline_fail_closed(
             started_at,
@@ -451,22 +468,28 @@ def _project_route_endpoint(value: object) -> str | None:
     return rendered_label
 
 
+class _TokenCountUnavailable(Exception):
+    """token 计数不可用；与真实超预算区分，便于观测。"""
+
+
 def _within_input_budget(
     messages: Sequence[Mapping[str, str]],
     token_counter_fn: Callable[..., int] | None,
     max_input_tokens: int,
 ) -> bool:
+    tokenizer_model = _token_counter_model()
+    if tokenizer_model is None:
+        raise _TokenCountUnavailable("tokenizer_model_missing")
     try:
-        tokenizer_model = _token_counter_model()
-        if tokenizer_model is None:
-            return False
         token_count = (token_counter_fn or litellm.token_counter)(
             model=tokenizer_model,
             messages=list(messages),
         )
-    except Exception:
-        return False
-    return isinstance(token_count, int) and not isinstance(token_count, bool) and token_count <= max_input_tokens
+    except Exception as exc:
+        raise _TokenCountUnavailable(type(exc).__name__) from exc
+    if not isinstance(token_count, int) or isinstance(token_count, bool):
+        raise _TokenCountUnavailable("invalid_token_count")
+    return token_count <= max_input_tokens
 
 
 def _token_counter_model() -> str | None:
@@ -518,6 +541,13 @@ def _positive_capped_int(value: object, upper_bound: int) -> int | None:
     return min(value, upper_bound)
 
 
+_SINGLE_PRODUCT_PACKAGE_BY_TOOL = {
+    spec.tools[0]: package_id
+    for package_id, spec in CAPABILITY_PACKAGES.items()
+    if spec.model_selectable and spec.is_product_package and len(spec.tools) == 1 and not spec.requires_primary_tool
+}
+
+
 def _parse_model_route(
     response: object,
     _available_tools: list[str],
@@ -531,6 +561,22 @@ def _parse_model_route(
         return None
     spec = CAPABILITY_PACKAGES[package_id]
     explicit_tools = tuple(parsed.explicit_tool_names)
+    required_primary_tool_name = parsed.required_primary_tool_name
+    dropped_recovery_tools = False
+    if spec.has_external_tools and not set(spec.tools).intersection(CAPABILITY_RECOVERY_TOOL_NAMES):
+        # 兜底网页工具由服务端自动附加，模型把它们列进产品包或 MCP 包只是冗余，不是冲突。
+        product_tools = tuple(name for name in explicit_tools if name not in CAPABILITY_RECOVERY_TOOL_NAMES)
+        dropped_recovery_tools = product_tools != explicit_tools
+        explicit_tools = product_tools
+        if required_primary_tool_name in CAPABILITY_RECOVERY_TOOL_NAMES:
+            required_primary_tool_name = None
+    if package_id == "mixed_itinerary" and dropped_recovery_tools and len(explicit_tools) == 1:
+        # 模型把网页兜底当成了组合的一员；去掉后只剩一个产品工具，按注册表归到其单产品包。
+        single_package_id = _SINGLE_PRODUCT_PACKAGE_BY_TOOL.get(explicit_tools[0])
+        if single_package_id is not None and required_primary_tool_name in (None, explicit_tools[0]):
+            package_id = single_package_id
+            spec = CAPABILITY_PACKAGES[package_id]
+            required_primary_tool_name = None
     denied_tools = tuple(parsed.denied_tool_names)
     if len(set(denied_tools)) != len(denied_tools):
         return None
@@ -557,9 +603,9 @@ def _parse_model_route(
     elif explicit_tools != spec.tools:
         return None
     if spec.requires_primary_tool:
-        if parsed.required_primary_tool_name not in explicit_tools:
+        if required_primary_tool_name not in explicit_tools:
             return None
-    elif parsed.required_primary_tool_name is not None:
+    elif required_primary_tool_name is not None:
         return None
     canonical_tools = (
         _same_service_aliases(explicit_tools[0], _available_tools, mcp_tool_catalog)
@@ -575,7 +621,7 @@ def _parse_model_route(
         explicit_tool_names=canonical_tools or None,
         network_policy=parsed.network_policy,
         denied_tool_names=denied_tools,
-        required_primary_tool_name=parsed.required_primary_tool_name,
+        required_primary_tool_name=required_primary_tool_name,
     )
 
 
