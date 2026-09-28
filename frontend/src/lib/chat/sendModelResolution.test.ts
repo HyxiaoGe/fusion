@@ -70,6 +70,47 @@ describe('resolveSendModel 的 selectable/routable 边界', () => {
     });
   });
 
+  it('已有对话绑定模型已下线时改用「自动选择」并记录原模型', () => {
+    const state = createState() as any;
+    state.conversation.byId['chat-1'].model_id = 'retired-model';
+    state.models.models.unshift({
+      id: 'auto',
+      name: '自动选择',
+      provider: 'auto',
+      temperature: 0.7,
+      capabilities: {},
+      enabled: true,
+      selectable: true,
+      routable: true,
+    });
+
+    expect(resolveSendModel(state, 'chat-1')).toEqual({
+      status: 'ready',
+      model: expect.objectContaining({ id: 'auto' }),
+      fallbackFromModelId: 'retired-model',
+    });
+  });
+
+  it('尚无用户消息的上传占位会话不走自动兜底', () => {
+    const state = createState() as any;
+    state.conversation.byId['chat-1'].model_id = 'retired-model';
+    state.conversation.byId['chat-1'].messages = [];
+    state.models.models.unshift({
+      id: 'auto',
+      name: '自动选择',
+      provider: 'auto',
+      temperature: 0.7,
+      capabilities: {},
+      enabled: true,
+      selectable: true,
+      routable: true,
+    });
+
+    expect(resolveSendModel(state, 'chat-1')).toEqual({
+      status: 'conversation_model_unavailable',
+    });
+  });
+
   it('已有对话绑定模型 routable=false 时阻止发送', () => {
     const state = createState() as any;
     state.models.models[0].routable = false;

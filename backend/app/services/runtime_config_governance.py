@@ -26,6 +26,7 @@ from app.db.models import RuntimeConfigEntry
 from app.schemas.response import ApiException
 from app.services.runtime_config_defaults import (
     DEFAULT_AGENT_STRATEGY_CONFIG,
+    DEFAULT_AUTO_MODEL_CONFIG,
     DEFAULT_MODEL_PRESENTATION_CONFIG,
 )
 
@@ -214,6 +215,7 @@ def get_runtime_config_defaults() -> dict[tuple[str, str], dict[str, Any]]:
     defaults: dict[tuple[str, str], dict[str, Any]] = {
         ("agent_strategy", "default"): DEFAULT_AGENT_STRATEGY_CONFIG,
         ("model_presentation", "default"): DEFAULT_MODEL_PRESENTATION_CONFIG,
+        ("model_routing", "auto"): DEFAULT_AUTO_MODEL_CONFIG,
     }
     return defaults
 

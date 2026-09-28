@@ -89,8 +89,19 @@ class RuntimeConfigGovernanceTests(unittest.TestCase):
         effective_keys = {(item["namespace"], item["key"]) for item in snapshot["effective"]}
         self.assertEqual(
             effective_keys,
-            {("agent_strategy", "default"), ("model_presentation", "default")},
+            {("agent_strategy", "default"), ("model_presentation", "default"), ("model_routing", "auto")},
         )
+
+    def test_auto_model_routing_rejects_empty_or_self_referencing_candidates(self):
+        from app.services.runtime_config_governance import validate_runtime_config_candidate
+
+        self.assertTrue(
+            validate_runtime_config_candidate("model_routing", "auto", {"candidates": ["deepseek-chat"]})["valid"]
+        )
+        for candidates in ([], ["auto"], [""], "deepseek-chat"):
+            with self.subTest(candidates=candidates):
+                result = validate_runtime_config_candidate("model_routing", "auto", {"candidates": candidates})
+                self.assertFalse(result["valid"])
 
     def test_create_runtime_config_entry_creates_inactive_version(self):
         from app.services.runtime_config_governance import create_runtime_config_entry

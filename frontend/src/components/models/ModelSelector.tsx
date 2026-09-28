@@ -8,6 +8,7 @@ import { updateConversationModel } from "@/redux/slices/conversationSlice";
 import { getPreferredModelId, isModelVisibleInSelector } from "@/lib/models/modelPreference";
 import { getRecentModels, addRecentModel } from "@/lib/models/recentModels";
 import { getRouteConversationId } from "@/lib/routes/chatRoutes";
+import { AUTO_MODEL_ID } from "@/lib/config/modelConfig";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import ModelSelectorTrigger from "./ModelSelectorTrigger";
 import ModelSelectorPanel from "./ModelSelectorPanel";
@@ -60,14 +61,22 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     || activeChatModelId
     || (activeChatId ? null : getPreferredModelId(models, selectedModelId));
 
+  const autoModel = useMemo(
+    () => models.find((m) => m.id === AUTO_MODEL_ID && isModelVisibleInSelector(m)) ?? null,
+    [models],
+  );
+
+  // 已有对话的绑定模型已下线时，服务端每轮改走自动选择，这里同步展示「自动选择」。
   const currentModel = useMemo(
-    () => models.find((m) => m.id === currentModelId) ?? null,
-    [models, currentModelId],
+    () => models.find((m) => m.id === currentModelId)
+      ?? (activeChatId && hasMessages && currentModelId ? autoModel : null),
+    [models, currentModelId, activeChatId, hasMessages, autoModel],
   );
 
   const modelsByProvider = useMemo(
     () =>
       [...providers]
+        .filter((provider) => provider.id !== AUTO_MODEL_ID)
         .sort((a, b) => a.order - b.order)
         .map((provider) => ({
           ...provider,
@@ -174,6 +183,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
           className="p-0 w-[calc(100vw-32px)] sm:w-[480px] max-h-[420px] overflow-y-auto"
         >
           <ModelSelectorPanel
+            autoModel={autoModel}
             modelsByProvider={modelsByProvider}
             selectedModelId={currentModelId}
             recentModelIds={recentModelIds}

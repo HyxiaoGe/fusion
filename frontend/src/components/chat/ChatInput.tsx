@@ -289,6 +289,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
     const resolution = resolveSendModel(state, effectiveChatId ?? null);
     return resolution.status === 'ready' ? resolution.model : null;
   });
+  const retiredConversationModelId = useAppSelector((state) => {
+    const resolution = resolveSendModel(state, effectiveChatId ?? null);
+    return resolution.status === 'ready' ? resolution.fallbackFromModelId ?? null : null;
+  });
   // 模型列表在浏览器挂载后异步写入 Redux；客户端导航时 Store 可能已有模型，而服务端仍为空。
   // 水合首帧先保持无能力的中性状态，避免按钮属性和文案因两端 Store 快照不同而失配。
   const isModelCatalogLoadFailed = hasHydrated
@@ -1613,6 +1617,13 @@ const ChatInput: React.FC<ChatInputProps> = ({
       ) : isCurrentModelUnavailable ? (
         <div className="rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
           当前会话绑定的模型已不可用。请新建会话后切换到可用模型再继续聊天。
+        </div>
+      ) : hasHydrated && retiredConversationModelId ? (
+        <div
+          data-testid="retired-model-notice"
+          className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+        >
+          原模型 {retiredConversationModelId} 已下线，本对话已改为自动选择可用模型继续。
         </div>
       ) : null}
 

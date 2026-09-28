@@ -48,6 +48,38 @@ const models: ModelInfo[] = [
 ];
 
 describe('ModelSelectorPanel', () => {
+  it('「自动选择」固定置顶展示当前会用的模型，点击后选中 auto', () => {
+    const onSelect = vi.fn();
+    const autoModel: ModelInfo = {
+      id: 'auto',
+      name: '自动选择',
+      provider: 'auto',
+      temperature: 0.7,
+      enabled: true,
+      capabilities: {},
+      autoResolvedModelName: 'Search Model',
+    };
+    render(
+      <ModelSelectorPanel
+        autoModel={autoModel}
+        modelsByProvider={[{ ...provider, models }]}
+        selectedModelId="plain-model"
+        recentModelIds={['auto', 'plain-model']}
+        allModels={[autoModel, ...models]}
+        activeProvider="provider-a"
+        onSelect={onSelect}
+        onProviderChange={vi.fn()}
+      />,
+    );
+
+    const autoCard = screen.getByTestId('model-selector-auto');
+    expect(autoCard.textContent).toContain('当前使用 Search Model');
+    autoCard.click();
+    expect(onSelect).toHaveBeenCalledWith('auto');
+    // 最近使用里不再重复出现自动选择
+    expect(screen.getAllByText('自动选择')).toHaveLength(1);
+  });
+
   it('最近使用入口排除不可路由模型', () => {
     const unroutable = {
       ...models[0],

@@ -19,6 +19,7 @@ from app.db.model_catalog_control_repository import ModelCatalogControlRepositor
 from app.db.models import ModelCatalogControl
 from app.schemas.response import success
 from app.services.agent_strategy_config import get_agent_tools_disabled_aliases
+from app.services.auto_model import AUTO_MODEL_ID, get_auto_model_candidates, pick_auto_model
 from app.services.model_presentation import build_model_capability_presentation
 
 router = APIRouter()
@@ -102,6 +103,47 @@ def _entry_to_card(
     return card
 
 
+def _build_auto_card(cards: List[Dict[str, Any]], controls: ModelCatalogControlRepository) -> Dict[str, Any]:
+    """虚拟的「自动选择」卡片：能力取优先级候选里可用模型的并集，因为每轮会按需挑具备该能力的模型。"""
+    picked = pick_auto_model(controls)
+    cards_by_id = {card["modelId"]: card for card in cards}
+    usable = [
+        cards_by_id[model_id]
+        for model_id in [*get_auto_model_candidates(), picked]
+        if model_id in cards_by_id
+        and cards_by_id[model_id]["selectable"]
+        and cards_by_id[model_id]["health"].get("status") != "unhealthy"
+    ]
+    default_card = cards_by_id.get(picked) if picked else None
+    capability_keys = (usable[0]["capabilities"] if usable else {}).keys()
+    card = {
+        "modelId": AUTO_MODEL_ID,
+        "name": "自动选择",
+        "provider": AUTO_MODEL_ID,
+        "provider_display": "自动",
+        "knowledgeCutoff": None,
+        "contextWindowTokens": default_card["contextWindowTokens"] if default_card else None,
+        "maxOutputTokens": default_card["maxOutputTokens"] if default_card else None,
+        "capabilities": {key: any(item["capabilities"].get(key) for item in usable) for key in capability_keys},
+        "pricing": {"input": 0.0, "output": 0.0, "unit": "USD"},
+        "enabled": True,
+        "selectable": True,
+        "routable": True,
+        "health": (
+            {"status": "healthy", "error": None, "checked_at": None}
+            if picked
+            else {"status": "unhealthy", "error": "当前没有可用模型", "checked_at": None}
+        ),
+        "description": "按管理员配置的优先级，每轮自动选择当前可用的模型；带图片时优先选能读图的模型",
+        "cost_tier": "low",
+        "recommended_for": [],
+        "autoResolvedModelId": picked,
+        "autoResolvedModelName": default_card["name"] if default_card else None,
+    }
+    card["capabilityPresentation"] = build_model_capability_presentation(card)
+    return card
+
+
 def _collect_providers(cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """从 cards 里反向归纳 providers 列表（供前端做筛选下拉）。"""
     seen: Dict[str, Dict[str, Any]] = {}
@@ -142,6 +184,7 @@ def get_models(
     controls_by_model = controls.get_by_model_ids(db_aliases)
     # 只展示 db_model=true 的别名，避免把 LiteLLM 自身的 wildcard 路由暴露给前端
     cards = [_entry_to_card(alias, catalog[alias], controls_by_model.get(alias)) for alias in db_aliases]
+    auto_card = _build_auto_card(cards, controls)
 
     if provider:
         cards = [c for c in cards if c["provider"] == provider]
@@ -153,6 +196,10 @@ def get_models(
 
     # 默认按 (cost_tier, modelId) 排序，picker 看着稳定
     cards.sort(key=lambda c: (_COST_TIER_ORDER.get(c["cost_tier"], 5), c["modelId"]))
+    # 「自动选择」固定排第一，前端取第一个可用模型作为新会话默认值
+    if not provider or provider == AUTO_MODEL_ID:
+        if enabled is not False and (not capability or auto_card["capabilities"].get(capability)):
+            cards.insert(0, auto_card)
 
     return success(
         data={"models": cards, "providers": _collect_providers(cards)},
@@ -167,6 +214,12 @@ def get_model(
     controls: ModelCatalogControlRepository = Depends(get_model_catalog_control_repository),
 ):
     """按 alias 查单个模型详情。"""
+    if model_id == AUTO_MODEL_ID:
+        catalog = litellm_catalog.list_aliases()
+        db_aliases = [alias for alias, entry in catalog.items() if entry.get("db_model")]
+        controls_by_model = controls.get_by_model_ids(db_aliases)
+        cards = [_entry_to_card(alias, catalog[alias], controls_by_model.get(alias)) for alias in db_aliases]
+        return success(data=_build_auto_card(cards, controls), request_id=request.state.request_id)
     entry = litellm_catalog.get_model_entry(model_id)
     if not entry or not entry.get("db_model"):
         from app.schemas.response import ApiException

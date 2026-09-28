@@ -3,6 +3,9 @@ import { API_CONFIG } from '../config';
 
 const API_BASE_URL = API_CONFIG.BASE_URL
 
+// 服务端虚拟模型：每轮按管理员配置的优先级挑一个可用模型
+export const AUTO_MODEL_ID = 'auto';
+
 export interface ModelCapability {
   imageGen?: boolean; // 图像生成
   deepThinking?: boolean; // 深度思考
@@ -69,6 +72,8 @@ export interface ApiModelData {
   health?: ModelHealth;
   description?: string;
   capabilityPresentation?: ModelCapabilityPresentation;
+  autoResolvedModelId?: string | null;
+  autoResolvedModelName?: string | null;
 }
 
 // API响应接口
@@ -93,6 +98,7 @@ export interface ModelInfo {
   health?: ModelHealth; // 健康探测结果，unhealthy 时选择器灰显
   description?: string; // 模型简要描述，用于悬停提示
   capabilityPresentation?: ModelCapabilityPresentation; // 后端派生的能力展示配置
+  autoResolvedModelName?: string | null; // 仅「自动选择」：不带附加需求时当前会用的模型
 }
 
 export interface ProviderInfo {
@@ -118,6 +124,7 @@ export const convertApiModelToModelInfo = (apiModel: ApiModelData): ModelInfo =>
     health: apiModel.health,
     description: apiModel.description,
     capabilityPresentation: apiModel.capabilityPresentation,
+    autoResolvedModelName: apiModel.autoResolvedModelName ?? null,
   };
 };
 

@@ -25,6 +25,7 @@ interface ProviderGroup extends ProviderInfo {
 }
 
 interface ModelSelectorPanelProps {
+  autoModel?: ModelInfo | null;
   modelsByProvider: ProviderGroup[];
   selectedModelId: string | null;
   recentModelIds: string[];
@@ -217,10 +218,61 @@ const ModelCard = memo(
 );
 ModelCard.displayName = "ModelCard";
 
+/* ---------- AutoModelCard ---------- */
+
+const AutoModelCard = memo(
+  ({
+    model,
+    isSelected,
+    onSelect,
+  }: {
+    model: ModelInfo;
+    isSelected: boolean;
+    onSelect: () => void;
+  }) => {
+    const unhealthy = isUnhealthy(model);
+    return (
+      <div className="px-2.5 pt-2.5">
+        <button
+          data-testid="model-selector-auto"
+          onClick={() => !unhealthy && onSelect()}
+          disabled={unhealthy}
+          className={cn(
+            "flex w-full items-center gap-2.5 rounded-lg border p-2.5 text-left transition-colors duration-100",
+            unhealthy
+              ? "border-border/40 bg-muted/20 opacity-55 cursor-not-allowed"
+              : isSelected
+                ? "bg-primary/5 border-primary/40"
+                : "border-border/60 hover:bg-accent hover:border-border",
+          )}
+        >
+          <ProviderIcon providerId={model.provider} size={22} className="rounded-md" />
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className={cn("text-sm", isSelected ? "font-semibold" : "font-medium")}>
+              {model.name}
+              <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">推荐</span>
+            </span>
+            <span className="truncate text-[11px] text-muted-foreground">
+              {unhealthy
+                ? healthTooltip(model)
+                : model.autoResolvedModelName
+                  ? `按可用性自动挑选，当前使用 ${model.autoResolvedModelName}`
+                  : "按可用性自动挑选模型"}
+            </span>
+          </span>
+          {isSelected && <Check size={14} className="shrink-0 text-primary" />}
+        </button>
+      </div>
+    );
+  },
+);
+AutoModelCard.displayName = "AutoModelCard";
+
 /* ---------- ModelSelectorPanel ---------- */
 
 const ModelSelectorPanel = memo(
   ({
+    autoModel = null,
     modelsByProvider,
     selectedModelId,
     recentModelIds,
@@ -235,8 +287,15 @@ const ModelSelectorPanel = memo(
     return (
       <TooltipProvider delayDuration={150}>
         <div>
+          {autoModel && (
+            <AutoModelCard
+              model={autoModel}
+              isSelected={autoModel.id === selectedModelId}
+              onSelect={() => onSelect(autoModel.id)}
+            />
+          )}
           <RecentModels
-            modelIds={recentModelIds}
+            modelIds={recentModelIds.filter((id) => id !== autoModel?.id)}
             allModels={allModels}
             selectedModelId={selectedModelId}
             onSelect={onSelect}

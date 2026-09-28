@@ -38,6 +38,8 @@ def validate_runtime_config_payload(
         _validate_agent_strategy(payload, issues)
     elif namespace == "model_presentation" and key == "default":
         _validate_model_presentation(payload, issues)
+    elif namespace == "model_routing" and key == "auto":
+        _validate_auto_model_routing(payload, issues)
 
     return RuntimeConfigValidationResult(valid=not issues, issues=issues)
 
@@ -123,6 +125,17 @@ def _validate_model_presentation(payload: dict[str, Any], issues: list[str]) -> 
     if isinstance(copy_section, dict):
         for field in ("base_reason", "network_tooltip", "no_network_tooltip"):
             _require_non_empty_string(copy_section, field, issues, prefix="copy")
+
+
+def _validate_auto_model_routing(payload: dict[str, Any], issues: list[str]) -> None:
+    candidates = payload.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        issues.append("candidates 必须是非空数组")
+        return
+    if not all(isinstance(item, str) and item for item in candidates):
+        issues.append("candidates 必须是非空字符串数组")
+    elif "auto" in candidates:
+        issues.append("candidates 不能包含 auto")
 
 
 def _require_dict(payload: dict[str, Any], field: str, issues: list[str], *, prefix: str = "") -> None:

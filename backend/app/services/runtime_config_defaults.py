@@ -46,6 +46,12 @@ DEFAULT_MODEL_PRESENTATION_CONFIG = {
 }
 
 
+# 自动选择模型的优先级：按顺序取第一个已注册、可调度、健康的模型
+DEFAULT_AUTO_MODEL_CONFIG = {
+    "candidates": ["mimo-v2.6-pro", "deepseek-chat", "qwen3.8-max"],
+}
+
+
 DEFAULT_HOME_PROMPT_CATALOG = {
     "items": [
         {
