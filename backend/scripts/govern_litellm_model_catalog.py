@@ -22,7 +22,8 @@ XIAOMI_API_KEY_ENV = "XIAOMI_API_KEY"
 LITELLM_VIRTUAL_KEY_ENV = "LITELLM_VIRTUAL_KEY"
 XIAOMI_API_BASE = "https://api.xiaomimimo.com/v1"
 
-DEPRECATED_MODELS = {"mimo-v2-flash", "mimo-v2-pro"}
+# ultraspeed 上游已返回 400 Unsupported model，2026-09-28 下线
+DEPRECATED_MODELS = {"mimo-v2-flash", "mimo-v2-pro", "mimo-v2.5-pro-ultraspeed"}
 
 TARGET_MODELS: tuple[dict[str, Any], ...] = (
     {
@@ -33,15 +34,6 @@ TARGET_MODELS: tuple[dict[str, Any], ...] = (
         "pricing": {"input": 1.0, "output": 3.0, "unit": "USD"},
         "knowledge_cutoff": "2026-05",
         "recommended_for": ["agent", "coding", "long_context"],
-    },
-    {
-        "model_name": "mimo-v2.5-pro-ultraspeed",
-        "display_name": "MiMo V2.5 Pro UltraSpeed",
-        "description": "小米 MiMo V2.5 Pro 高速版，适合低延迟对话和 Agent 调用",
-        "cost_tier": "mid",
-        "pricing": {"input": 1.0, "output": 3.0, "unit": "USD"},
-        "knowledge_cutoff": "2026-05",
-        "recommended_for": ["fast_response", "agent"],
     },
 )
 
