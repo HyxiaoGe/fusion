@@ -36,6 +36,7 @@ import {
 } from '@/lib/agent/planState';
 import { normalizeAgentRunConfig } from '@/lib/agent/runConfig';
 import { mergeLiveTrajectoryEvent } from '@/redux/slices/trajectorySlice';
+import { updateMessage } from '@/redux/slices/conversationSlice';
 
 type DispatchLike = (action: unknown) => unknown;
 type RunStartedEvent = Parameters<NonNullable<StreamCallbacks['onRunStarted']>>[0];
@@ -73,14 +74,19 @@ export function createAgentStreamEventHandlers({
       setServerMessageId?.(ev.message_id);
       const conversationId = resolveConversationId();
       if (!conversationId) return;
+      const messageId = resolveMessageId(ev);
       dispatch(initRun({
         conversationId,
         runId: ev.run_id,
-        messageId: resolveMessageId(ev),
+        messageId,
         serverMessageId: ev.message_id,
         config: normalizeAgentRunConfig(ev.config),
         sequence: ev.sequence,
       }));
+      // 自动选择或模型下线兜底时，本轮实际模型只有服务端知道，写回消息供回答头部展示。
+      if (typeof ev.model === 'string' && ev.model) {
+        dispatch(updateMessage({ conversationId, messageId, patch: { model_id: ev.model } }));
+      }
     },
     onStepStarted: ev => {
       if (!isActive() || !ev.step_id) return;
