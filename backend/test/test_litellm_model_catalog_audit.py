@@ -55,6 +55,16 @@ class ModelCatalogAuditTests(unittest.TestCase):
         self.assertEqual(report.issues[0].severity, "error")
         self.assertEqual(report.issues[0].model_name, "ghost-model")
 
+    def test_virtual_fusion_model_is_not_expected_in_litellm(self):
+        report = audit.audit_catalog(
+            litellm_entries=[litellm_entry("deepseek-chat")],
+            fusion_models=[{"modelId": "auto", "virtual": True}, {"modelId": "deepseek-chat"}],
+            key_models=["deepseek-chat"],
+        )
+
+        self.assertEqual(report.issues, [])
+        self.assertEqual(report.summary["fusion_models"], 1)
+
     def test_key_missing_db_model_is_error_and_sync_adds_it(self):
         report = audit.audit_catalog(
             litellm_entries=[litellm_entry("deepseek-chat"), litellm_entry("mimo-v2.5-pro")],

@@ -88,6 +88,7 @@ class AutoModelCardTests(unittest.TestCase):
 
         self.assertEqual(card["modelId"], "auto")
         self.assertEqual(card["provider"], "auto")
+        self.assertIs(card["virtual"], True)
         self.assertTrue(card["capabilities"]["vision"])
         self.assertEqual(card["autoResolvedModelId"], "deepseek-chat")
         self.assertEqual(card["health"]["status"], "healthy")
