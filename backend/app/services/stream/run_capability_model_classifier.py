@@ -20,68 +20,20 @@ from app.core.logger import app_logger as logger
 from app.core.prompt_snapshot import current_prompt_snapshot
 from app.services.stream.run_capability_router import _CandidateRoute
 from app.utils.run_capability_contract import (
+    CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER,
     CAPABILITY_MAX_MCP_ALIASES,
-    CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES,
+    CAPABILITY_MODEL_PACKAGE_IDS,
+    CAPABILITY_PACKAGES,
     McpRouteTool,
     is_authorized_mcp_tool_alias,
 )
 
 ClassifierResultCallback = Callable[[str, str | None], None]
 
-_MODEL_PACKAGE_IDS = frozenset(
-    {
-        "direct",
-        "transform",
-        "date",
-        "fresh_web",
-        "verified_web",
-        "url_read",
-        "weather",
-        "place_discovery",
-        "mobility_route",
-        "flight",
-        "train",
-        "travel_air_rail",
-        "mobility_intercity",
-        "mixed_itinerary",
-        "mcp_explicit",
-        "clarification_only",
-    }
-)
-_MIXED_ITINERARY_TOOLS = frozenset(
-    {"weather_forecast", "local_place_search", "route_compare", "search_flights", "search_trains"}
-)
-_CANONICAL_TOOL_ORDER = (
-    "web_search",
-    "url_read",
-    "weather_forecast",
-    "local_place_search",
-    "route_compare",
-    "search_flights",
-    "search_trains",
-)
 _HARD_TIMEOUT_SECONDS = 1.5
 _HARD_MAX_INPUT_TOKENS = 2000
 _HARD_MAX_OUTPUT_TOKENS = 128
 _HARD_CONTEXT_TURNS = 1
-_ROUTE_DETAILS = {
-    "direct": ("high", ("stable_knowledge_question",), False, "routed"),
-    "transform": ("high", ("text_transform_request",), False, "routed"),
-    "date": ("high", ("current_date_question",), True, "routed"),
-    "fresh_web": ("high", ("fresh_external_fact",), True, "routed"),
-    "verified_web": ("high", ("verified_source_request",), True, "routed"),
-    "url_read": ("high", ("explicit_url_read",), False, "routed"),
-    "weather": ("high", ("explicit_weather_request",), True, "routed"),
-    "place_discovery": ("high", ("explicit_place_discovery",), False, "routed"),
-    "mobility_route": ("high", ("explicit_route_task",), False, "routed"),
-    "flight": ("high", ("explicit_flight_request",), True, "routed"),
-    "train": ("high", ("explicit_train_request",), True, "routed"),
-    "travel_air_rail": ("high", ("air_rail_comparison",), True, "routed"),
-    "mobility_intercity": ("medium", ("origin_destination_relation", "intercity_locations"), True, "routed"),
-    "mixed_itinerary": ("high", ("mixed_itinerary_request",), True, "routed"),
-    "mcp_explicit": ("high", ("explicit_authorized_tool_alias",), False, "routed"),
-    "clarification_only": ("low", ("insufficient_capability_signal",), False, "clarification"),
-}
 
 
 class _ModelRouteResponse(BaseModel):
@@ -575,18 +527,19 @@ def _parse_model_route(
 ) -> _CandidateRoute | None:
     parsed = _ModelRouteResponse.model_validate_json(_response_content(response))
     package_id = parsed.package_id
-    if package_id not in _MODEL_PACKAGE_IDS:
+    if package_id not in CAPABILITY_MODEL_PACKAGE_IDS:
         return None
+    spec = CAPABILITY_PACKAGES[package_id]
     explicit_tools = tuple(parsed.explicit_tool_names)
     denied_tools = tuple(parsed.denied_tool_names)
     if len(set(denied_tools)) != len(denied_tools):
         return None
-    allowed_denials = frozenset(_CANONICAL_TOOL_ORDER) | frozenset(
+    allowed_denials = frozenset(CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER) | frozenset(
         name for name in _available_tools if is_authorized_mcp_tool_alias(name)
     )
     if not set(denied_tools).issubset(allowed_denials):
         return None
-    if package_id == "mcp_explicit":
+    if spec.mcp_aliases:
         if (
             len(explicit_tools) != 1
             or not is_authorized_mcp_tool_alias(explicit_tools[0])
@@ -597,32 +550,28 @@ def _parse_model_route(
         if (
             not 2 <= len(explicit_tools) <= 3
             or len(set(explicit_tools)) != len(explicit_tools)
-            or not set(explicit_tools).issubset(_MIXED_ITINERARY_TOOLS)
+            or not set(explicit_tools).issubset(spec.tools)
             or set(explicit_tools) == {"search_flights", "search_trains"}
         ):
             return None
-    elif explicit_tools != CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES[package_id]:
+    elif explicit_tools != spec.tools:
         return None
-    if package_id in {"mobility_intercity", "mixed_itinerary"}:
+    if spec.requires_primary_tool:
         if parsed.required_primary_tool_name not in explicit_tools:
             return None
     elif parsed.required_primary_tool_name is not None:
         return None
-    confidence, reason_codes, fixed_include_current_date, resolution_mode = _ROUTE_DETAILS[package_id]
-    resolved_include_current_date = fixed_include_current_date
-    if package_id == "mobility_route":
-        resolved_include_current_date = include_current_date
     canonical_tools = (
         _same_service_aliases(explicit_tools[0], _available_tools, mcp_tool_catalog)
-        if package_id == "mcp_explicit"
-        else tuple(name for name in _CANONICAL_TOOL_ORDER if name in explicit_tools)
+        if spec.mcp_aliases
+        else tuple(name for name in CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER if name in explicit_tools)
     )
     return _CandidateRoute(
         package_id=package_id,
-        confidence=confidence,
-        reason_codes=reason_codes,
-        include_current_date=resolved_include_current_date,
-        resolution_mode=resolution_mode,
+        confidence=spec.confidence_options[0],
+        reason_codes=spec.reason_code_options[0],
+        include_current_date=spec.route_include_current_date(include_current_date),
+        resolution_mode=spec.resolution_mode,
         explicit_tool_names=canonical_tools or None,
         network_policy=parsed.network_policy,
         denied_tool_names=denied_tools,

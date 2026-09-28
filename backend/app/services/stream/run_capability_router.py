@@ -18,10 +18,10 @@ from app.services.stream.dynamic_tool_discovery import (
     network_kind_is_denied,
 )
 from app.utils.run_capability_contract import (
-    CAPABILITY_AUTO_PLAN_PACKAGES,
     CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER,
     CAPABILITY_CONTROL_TOOL_NAMES,
     CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES,
+    CAPABILITY_PACKAGES,
     CAPABILITY_REASON_CODES,
     CAPABILITY_RECOVERY_PACKAGES,
     CAPABILITY_RECOVERY_TOOL_NAMES,
@@ -49,9 +49,6 @@ _CONTROL_TOOL_NAMES = CAPABILITY_CONTROL_TOOL_NAMES
 
 
 _PACKAGE_TOOLS = CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES
-
-
-_AUTO_PLAN_PACKAGES = CAPABILITY_AUTO_PLAN_PACKAGES
 
 
 _REASON_CODES = CAPABILITY_REASON_CODES
@@ -197,9 +194,12 @@ def resolve_run_capability_route(
     unavailable_tools = frozenset(unavailable_tool_names or ())
     available_tools = frozenset(available_tool_names) - unavailable_tools
     primary_name = candidate.required_primary_tool_name
-    requires_chosen_primary = candidate.package_id in {"mobility_intercity", "mixed_itinerary"}
-    missing_required_package_tool = candidate.package_id in {"verified_web", "travel_air_rail"} and any(
-        name not in requested_tools or name not in available_tools for name in package_requested_tools
+    candidate_spec = CAPABILITY_PACKAGES.get(candidate.package_id)
+    requires_chosen_primary = candidate_spec is not None and candidate_spec.requires_primary_tool
+    missing_required_package_tool = (
+        candidate_spec is not None
+        and candidate_spec.requires_all_tools
+        and any(name not in requested_tools or name not in available_tools for name in package_requested_tools)
     )
     invalid_chosen_primary = (
         requires_chosen_primary
@@ -458,7 +458,7 @@ def _validated_resolution(
         network_boundary_required=resolution.network_boundary_required,
         skill_resolution=resolution.skill_resolution,
     )
-    if resolution.package_id in {"mobility_intercity", "mixed_itinerary"}:
+    if CAPABILITY_PACKAGES[resolution.package_id].requires_primary_tool:
         if resolution.required_primary_tool_name not in resolution.external_tool_names:
             raise ValueError("跨产品能力包缺少可执行的主工具")
     elif resolution.required_primary_tool_name is not None:
@@ -475,11 +475,15 @@ def _effective_plan_mode(
 ) -> PlanMode:
     if not function_calling or tools_disabled:
         return "off"
-    if package_id == "deep_research":
+    spec = CAPABILITY_PACKAGES.get(package_id)
+    # 未知能力包在随后的契约校验中拒绝，这里只需给出不越权的计划模式。
+    plan_modes = spec.plan_modes if spec is not None else frozenset({"on", "off"})
+    if "off" not in plan_modes:
+        # 必须开启计划的包（deep_research）不受请求的计划模式影响。
         return "on"
     if requested_plan_mode in {"on", "off"}:
         return requested_plan_mode
-    return "auto" if package_id in _AUTO_PLAN_PACKAGES else "off"
+    return "auto" if "auto" in plan_modes else "off"
 
 
 def _canonicalize_tool_names(tool_names: tuple[str, ...]) -> tuple[str, ...]:

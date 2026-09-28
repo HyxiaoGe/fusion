@@ -4,15 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from app.services.mcp.amap_product_tools import (
-    AMAP_LOCAL_PLACE_SEARCH,
-    AMAP_ROUTE_COMPARE,
-    AMAP_WEATHER_FORECAST,
-)
-from app.services.mcp.flyai_travel_tools import (
-    FLYAI_SEARCH_FLIGHTS,
-    FLYAI_SEARCH_TRAINS,
-)
+from app.utils.run_capability_contract import CAPABILITY_PACKAGES
 
 
 @dataclass(frozen=True)
@@ -24,15 +16,12 @@ class AgentPlanToolPolicy:
     reason: str | None = None
 
 
-# 这些能力包的主工具由模型分类结果确定。出行跨城和混合行程没有单一主工具，
-# 因此只公开候选工具，不对计划强制指定调用。
+# 单产品能力包的全部工具都要在首个计划中调用。出行跨城和混合行程没有单一主工具，
+# 由分类结果指定主工具，不在这里强制。
 _PRODUCT_PACKAGE_REQUIRED_TOOLS: dict[str, tuple[str, ...]] = {
-    "weather": (AMAP_WEATHER_FORECAST,),
-    "place_discovery": (AMAP_LOCAL_PLACE_SEARCH,),
-    "mobility_route": (AMAP_ROUTE_COMPARE,),
-    "flight": (FLYAI_SEARCH_FLIGHTS,),
-    "train": (FLYAI_SEARCH_TRAINS,),
-    "travel_air_rail": (FLYAI_SEARCH_FLIGHTS, FLYAI_SEARCH_TRAINS),
+    package_id: spec.tools
+    for package_id, spec in CAPABILITY_PACKAGES.items()
+    if spec.is_product_package and not spec.requires_primary_tool
 }
 
 

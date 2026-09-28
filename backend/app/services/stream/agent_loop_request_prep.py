@@ -52,7 +52,11 @@ from app.services.stream.run_capability_router import (
     RunCapabilityResolution,
     resolve_run_capability_route,
 )
-from app.utils.run_capability_contract import McpRouteTool, is_authorized_mcp_tool_alias
+from app.utils.run_capability_contract import (
+    CAPABILITY_PRIMARY_TOOL_PACKAGES,
+    McpRouteTool,
+    is_authorized_mcp_tool_alias,
+)
 
 VOLCENGINE_PROVIDERS = {"volcengine"}
 MAX_CONTROLLED_OUTPUT_TOKENS = 4096
@@ -400,7 +404,7 @@ def build_agent_loop_call_config(
         )
     elif capability_resolution.package_id == "verified_web":
         plan_tool_policy = AgentPlanToolPolicy()
-    elif capability_resolution.package_id in {"mobility_intercity", "mixed_itinerary"}:
+    elif capability_resolution.package_id in CAPABILITY_PRIMARY_TOOL_PACKAGES:
         primary_name = capability_resolution.required_primary_tool_name
         if primary_name is None or primary_name not in external_tool_names:
             raise ValueError("跨产品能力包缺少已公告的主工具")

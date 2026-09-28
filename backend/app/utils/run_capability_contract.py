@@ -17,42 +17,210 @@ CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER = (
     "search_flights",
     "search_trains",
 )
-CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES = MappingProxyType(
-    {
-        "direct": (),
-        "transform": (),
-        "date": (),
-        "fresh_web": ("web_search",),
-        "verified_web": ("web_search", "url_read"),
-        "url_read": ("url_read",),
-        "weather": ("weather_forecast",),
-        "place_discovery": ("local_place_search",),
-        "mobility_route": ("route_compare",),
-        "flight": ("search_flights",),
-        "train": ("search_trains",),
-        "travel_air_rail": ("search_flights", "search_trains"),
-        "mobility_intercity": ("route_compare", "search_flights", "search_trains"),
-        "mixed_itinerary": (
-            "weather_forecast",
-            "local_place_search",
-            "route_compare",
-            "search_flights",
-            "search_trains",
-        ),
-        "deep_research": ("web_search", "url_read"),
-        "knowledge_grounded": (),
-        "tools_unavailable": (),
-        "clarification_only": (),
-    }
-)
 # 联网工具只是外部任务的可选替代，不参与主能力可用性和初始调用门禁。
 CAPABILITY_RECOVERY_TOOL_NAMES = ("web_search", "url_read")
-CAPABILITY_RECOVERY_PACKAGES = frozenset(
-    package for package, names in CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES.items() if names
-) | {"mcp_explicit"}
 CAPABILITY_MAX_EXTERNAL_TOOLS = 5
 # 同一 MCP 服务的授权工具一起公告，例如 Context7 需要先解析库 ID 再查文档。
 CAPABILITY_MAX_MCP_ALIASES = 3
+
+_ON_OFF_PLAN_MODES = frozenset({"on", "off"})
+_AUTO_PLAN_MODES = frozenset({"auto", "on", "off"})
+
+
+@dataclass(frozen=True)
+class CapabilityPackageSpec:
+    """单个能力包的全部静态语义；路由器、分类器、契约校验与计划门禁都从这里派生。
+
+    新增能力包：在 CAPABILITY_PACKAGES 登记一项，同步 schemas/trajectory.py 的 Literal
+    与分类器 Prompt（test_capability_package_registry 校验两者）；前端对未知包原样
+    展示，按需补 i18n 文案即可。
+    """
+
+    # 固定公告的外部工具（canonical order）；mcp_explicit 为空，运行时由授权别名决定。
+    tools: tuple[str, ...]
+    # 允许的原因码组合；首项是分类器选中本包时使用的组合。
+    reason_code_options: tuple[tuple[str, ...], ...]
+    # 允许的置信度；首项是分类器选中本包时使用的置信度。
+    confidence_options: tuple[str, ...] = ("high",)
+    resolution_mode: str = "routed"
+    # None 表示随路由上下文变化，契约不校验。
+    include_current_date: bool | None = False
+    network_boundary_required: bool | None = False
+    plan_modes: frozenset[str] = _ON_OFF_PLAN_MODES
+    # 模型分类器可直接返回本包；否则只能由服务端模式或降级路径产生。
+    model_selectable: bool = True
+    # include_current_date 可变时，分类器选中本包的日期标志；None 表示沿用调用方传入值。
+    model_include_current_date: bool | None = None
+    # 公告工具来自本 Run 授权的 MCP 别名，而非固定工具集。
+    mcp_aliases: bool = False
+    # 由分类器指定一个必须先调用的主工具（跨产品包没有单一主工具）。
+    requires_primary_tool: bool = False
+    # 固定工具任一不可用即降级，不允许只公告部分工具。
+    requires_all_tools: bool = False
+
+    @property
+    def has_external_tools(self) -> bool:
+        return bool(self.tools) or self.mcp_aliases
+
+    @property
+    def is_product_package(self) -> bool:
+        """公告的全部是产品工具（非联网替代），计划门禁要求先调用这些工具。"""
+
+        return bool(self.tools) and not set(self.tools).intersection(CAPABILITY_RECOVERY_TOOL_NAMES)
+
+    def route_include_current_date(self, requested: bool) -> bool:
+        if self.include_current_date is not None:
+            return self.include_current_date
+        if self.model_include_current_date is not None:
+            return self.model_include_current_date
+        return requested
+
+
+CAPABILITY_PACKAGES: Mapping[str, CapabilityPackageSpec] = MappingProxyType(
+    {
+        "direct": CapabilityPackageSpec(
+            tools=(),
+            reason_code_options=(
+                ("stable_knowledge_question",),
+                ("direct_greeting",),
+                ("assistant_identity_question",),
+                ("simple_calculation",),
+            ),
+        ),
+        "transform": CapabilityPackageSpec(tools=(), reason_code_options=(("text_transform_request",),)),
+        "date": CapabilityPackageSpec(
+            tools=(),
+            reason_code_options=(("current_date_question",),),
+            include_current_date=True,
+        ),
+        "fresh_web": CapabilityPackageSpec(
+            tools=("web_search",),
+            reason_code_options=(("fresh_external_fact",),),
+            include_current_date=True,
+        ),
+        "verified_web": CapabilityPackageSpec(
+            tools=("web_search", "url_read"),
+            reason_code_options=(("verified_source_request",),),
+            include_current_date=True,
+            plan_modes=_AUTO_PLAN_MODES,
+            requires_all_tools=True,
+        ),
+        "url_read": CapabilityPackageSpec(tools=("url_read",), reason_code_options=(("explicit_url_read",),)),
+        "weather": CapabilityPackageSpec(
+            tools=("weather_forecast",),
+            reason_code_options=(("explicit_weather_request",),),
+            include_current_date=True,
+        ),
+        "place_discovery": CapabilityPackageSpec(
+            tools=("local_place_search",),
+            reason_code_options=(("explicit_place_discovery",),),
+        ),
+        "mobility_route": CapabilityPackageSpec(
+            tools=("route_compare",),
+            reason_code_options=(("explicit_route_task",), ("adjacent_route_followup",)),
+            # 端点未收录、仅凭专名形状放行时以 medium 公开路线工具，不进入强制调用契约。
+            confidence_options=("high", "medium"),
+            include_current_date=None,
+            plan_modes=_AUTO_PLAN_MODES,
+        ),
+        "flight": CapabilityPackageSpec(
+            tools=("search_flights",),
+            reason_code_options=(("explicit_flight_request",),),
+            include_current_date=True,
+        ),
+        "train": CapabilityPackageSpec(
+            tools=("search_trains",),
+            reason_code_options=(("explicit_train_request",),),
+            include_current_date=True,
+        ),
+        "travel_air_rail": CapabilityPackageSpec(
+            tools=("search_flights", "search_trains"),
+            reason_code_options=(("air_rail_comparison",),),
+            include_current_date=True,
+            plan_modes=_AUTO_PLAN_MODES,
+            requires_all_tools=True,
+        ),
+        "mobility_intercity": CapabilityPackageSpec(
+            tools=("route_compare", "search_flights", "search_trains"),
+            reason_code_options=(("origin_destination_relation", "intercity_locations"),),
+            confidence_options=("medium",),
+            include_current_date=True,
+            plan_modes=_AUTO_PLAN_MODES,
+            requires_primary_tool=True,
+        ),
+        "mixed_itinerary": CapabilityPackageSpec(
+            tools=("weather_forecast", "local_place_search", "route_compare", "search_flights", "search_trains"),
+            reason_code_options=(("mixed_itinerary_request",),),
+            include_current_date=True,
+            plan_modes=_AUTO_PLAN_MODES,
+            requires_primary_tool=True,
+        ),
+        "deep_research": CapabilityPackageSpec(
+            tools=("web_search", "url_read"),
+            reason_code_options=(("deep_research_mode",),),
+            include_current_date=True,
+            plan_modes=frozenset({"on"}),
+            model_selectable=False,
+        ),
+        "knowledge_grounded": CapabilityPackageSpec(
+            tools=(),
+            reason_code_options=(("knowledge_grounded_mode",),),
+            include_current_date=None,
+            network_boundary_required=None,
+            plan_modes=frozenset({"off"}),
+            model_selectable=False,
+        ),
+        "tools_unavailable": CapabilityPackageSpec(
+            tools=(),
+            reason_code_options=(
+                ("tools_disabled",),
+                ("function_calling_unavailable",),
+                ("search_capability_unavailable",),
+                ("required_tools_unavailable",),
+                ("required_skill_unavailable",),
+            ),
+            confidence_options=("high", "medium"),
+            resolution_mode="degraded",
+            include_current_date=None,
+            network_boundary_required=True,
+            plan_modes=frozenset({"off"}),
+            model_selectable=False,
+        ),
+        "clarification_only": CapabilityPackageSpec(
+            tools=(),
+            reason_code_options=(("insufficient_capability_signal",),),
+            confidence_options=("low",),
+            resolution_mode="clarification",
+        ),
+        "mcp_explicit": CapabilityPackageSpec(
+            tools=(),
+            reason_code_options=(("explicit_authorized_tool_alias",),),
+            include_current_date=None,
+            model_include_current_date=False,
+            mcp_aliases=True,
+        ),
+    }
+)
+
+# 以下均为注册表的派生视图，保留原名供既有调用方使用。
+CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES = MappingProxyType(
+    {package_id: spec.tools for package_id, spec in CAPABILITY_PACKAGES.items() if not spec.mcp_aliases}
+)
+CAPABILITY_RECOVERY_PACKAGES = frozenset(
+    package_id for package_id, spec in CAPABILITY_PACKAGES.items() if spec.has_external_tools
+)
+CAPABILITY_MODEL_PACKAGE_IDS = frozenset(
+    package_id for package_id, spec in CAPABILITY_PACKAGES.items() if spec.model_selectable
+)
+CAPABILITY_PRIMARY_TOOL_PACKAGES = frozenset(
+    package_id for package_id, spec in CAPABILITY_PACKAGES.items() if spec.requires_primary_tool
+)
+CAPABILITY_REASON_CODES = frozenset(
+    reason_code
+    for spec in CAPABILITY_PACKAGES.values()
+    for option in spec.reason_code_options
+    for reason_code in option
+)
 
 
 @dataclass(frozen=True)
@@ -64,102 +232,7 @@ class McpRouteTool:
     label: str
 
 
-CAPABILITY_AUTO_PLAN_PACKAGES = frozenset(
-    {"verified_web", "mobility_route", "travel_air_rail", "mobility_intercity", "mixed_itinerary"}
-)
-
 _MCP_TOOL_ALIAS_RE = re.compile(r"mcp_[A-Za-z0-9_-]+")
-_ZERO_EXTERNAL_TOOL_PACKAGES = frozenset(
-    {"direct", "transform", "date", "knowledge_grounded", "tools_unavailable", "clarification_only"}
-)
-_FIXED_INCLUDE_CURRENT_DATE = MappingProxyType(
-    {
-        "direct": False,
-        "transform": False,
-        "date": True,
-        "fresh_web": True,
-        "verified_web": True,
-        "url_read": False,
-        "weather": True,
-        "place_discovery": False,
-        "flight": True,
-        "train": True,
-        "travel_air_rail": True,
-        "mobility_intercity": True,
-        "mixed_itinerary": True,
-        "deep_research": True,
-        "clarification_only": False,
-    }
-)
-_FIXED_NETWORK_BOUNDARY = MappingProxyType(
-    {
-        **{package_id: False for package_id in CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES},
-        "mcp_explicit": False,
-        "tools_unavailable": True,
-    }
-)
-_VARIABLE_NETWORK_BOUNDARY_PACKAGES = frozenset({"knowledge_grounded"})
-_PACKAGE_REASON_CODE_OPTIONS = MappingProxyType(
-    {
-        "direct": frozenset(
-            {
-                ("direct_greeting",),
-                ("assistant_identity_question",),
-                ("stable_knowledge_question",),
-                ("simple_calculation",),
-            }
-        ),
-        "transform": frozenset({("text_transform_request",)}),
-        "date": frozenset({("current_date_question",)}),
-        "fresh_web": frozenset({("fresh_external_fact",)}),
-        "verified_web": frozenset({("verified_source_request",)}),
-        "url_read": frozenset({("explicit_url_read",)}),
-        "weather": frozenset({("explicit_weather_request",)}),
-        "place_discovery": frozenset({("explicit_place_discovery",)}),
-        "mobility_route": frozenset({("explicit_route_task",), ("adjacent_route_followup",)}),
-        "flight": frozenset({("explicit_flight_request",)}),
-        "train": frozenset({("explicit_train_request",)}),
-        "travel_air_rail": frozenset({("air_rail_comparison",)}),
-        "mobility_intercity": frozenset({("origin_destination_relation", "intercity_locations")}),
-        "mixed_itinerary": frozenset({("mixed_itinerary_request",)}),
-        "deep_research": frozenset({("deep_research_mode",)}),
-        "knowledge_grounded": frozenset({("knowledge_grounded_mode",)}),
-        "tools_unavailable": frozenset(
-            {
-                ("tools_disabled",),
-                ("function_calling_unavailable",),
-                ("search_capability_unavailable",),
-                ("required_tools_unavailable",),
-                ("required_skill_unavailable",),
-            }
-        ),
-        "clarification_only": frozenset({("insufficient_capability_signal",)}),
-        "mcp_explicit": frozenset({("explicit_authorized_tool_alias",)}),
-    }
-)
-CAPABILITY_REASON_CODES = frozenset(
-    reason_code
-    for reason_code_options in _PACKAGE_REASON_CODE_OPTIONS.values()
-    for option in reason_code_options
-    for reason_code in option
-)
-_PACKAGE_CONFIDENCE_OPTIONS = MappingProxyType(
-    {
-        **{package_id: frozenset({"high"}) for package_id in _PACKAGE_REASON_CODE_OPTIONS},
-        "mobility_intercity": frozenset({"medium"}),
-        # 端点未收录、仅凭专名形状放行时以 medium 公开路线工具，不进入强制调用契约。
-        "mobility_route": frozenset({"high", "medium"}),
-        "tools_unavailable": frozenset({"high", "medium"}),
-        "clarification_only": frozenset({"low"}),
-    }
-)
-_PACKAGE_RESOLUTION_MODE = MappingProxyType(
-    {
-        **{package_id: "routed" for package_id in _PACKAGE_REASON_CODE_OPTIONS},
-        "tools_unavailable": "degraded",
-        "clarification_only": "clarification",
-    }
-)
 
 
 def is_authorized_mcp_tool_alias(value: object) -> bool:
@@ -192,7 +265,10 @@ def validate_capability_resolution_semantics(
     if len(primary_tool_names) > 3:
         raise ValueError("能力路由最多三个主工具和两个联网替代工具")
 
-    if package_id == "mcp_explicit":
+    spec = CAPABILITY_PACKAGES.get(package_id)
+    if spec is None:
+        raise ValueError("能力路由包含未知能力包")
+    if spec.mcp_aliases:
         aliases = tuple(name for name in tool_names if name not in CAPABILITY_RECOVERY_TOOL_NAMES)
         if not 1 <= len(aliases) <= CAPABILITY_MAX_MCP_ALIASES or not all(
             is_authorized_mcp_tool_alias(alias) for alias in aliases
@@ -202,15 +278,13 @@ def validate_capability_resolution_semantics(
         if tool_names != expected:
             raise ValueError("能力包外部工具必须使用 canonical order")
     else:
-        allowed_tool_names = CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES.get(package_id)
-        if allowed_tool_names is None:
-            raise ValueError("能力路由包含未知能力包")
-        if package_id in CAPABILITY_RECOVERY_PACKAGES:
+        allowed_tool_names = spec.tools
+        if spec.has_external_tools:
             combined = frozenset((*allowed_tool_names, *CAPABILITY_RECOVERY_TOOL_NAMES))
             allowed_tool_names = tuple(name for name in CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER if name in combined)
         actual_tool_names = frozenset(tool_names)
         allowed_tool_name_set = frozenset(allowed_tool_names)
-        if package_id in _ZERO_EXTERNAL_TOOL_PACKAGES and actual_tool_names:
+        if not spec.has_external_tools and actual_tool_names:
             raise ValueError("零外部工具能力包不得公告工具")
         if allowed_tool_name_set and not actual_tool_names:
             raise ValueError("外部工具能力包不得缺少全部工具")
@@ -222,36 +296,22 @@ def validate_capability_resolution_semantics(
         if package_id == "deep_research" and actual_tool_names != allowed_tool_name_set:
             raise ValueError("Deep Research 必须公告完整搜索与读取工具集合")
 
-    if package_id == "deep_research":
-        allowed_plan_modes = frozenset({"on"})
-    elif package_id in {"knowledge_grounded", "tools_unavailable"}:
-        allowed_plan_modes = frozenset({"off"})
-    elif package_id in CAPABILITY_AUTO_PLAN_PACKAGES:
-        allowed_plan_modes = frozenset({"auto", "on", "off"})
-    else:
-        allowed_plan_modes = frozenset({"on", "off"})
-    if effective_plan_mode not in allowed_plan_modes:
+    if effective_plan_mode not in spec.plan_modes:
         raise ValueError("能力包与有效计划模式不匹配")
 
-    fixed_include_current_date = _FIXED_INCLUDE_CURRENT_DATE.get(package_id)
-    if fixed_include_current_date is not None and include_current_date is not fixed_include_current_date:
+    if spec.include_current_date is not None and include_current_date is not spec.include_current_date:
         raise ValueError("能力包与当前日期上下文语义不匹配")
 
-    if package_id not in _VARIABLE_NETWORK_BOUNDARY_PACKAGES:
-        fixed_network_boundary = _FIXED_NETWORK_BOUNDARY.get(package_id)
-        if fixed_network_boundary is None or network_boundary_required is not fixed_network_boundary:
-            raise ValueError("能力包与网络边界语义不匹配")
+    if spec.network_boundary_required is not None and network_boundary_required is not spec.network_boundary_required:
+        raise ValueError("能力包与网络边界语义不匹配")
 
-    allowed_reason_codes = _PACKAGE_REASON_CODE_OPTIONS.get(package_id)
-    if allowed_reason_codes is None or tuple(reason_codes) not in allowed_reason_codes:
+    if tuple(reason_codes) not in spec.reason_code_options:
         raise ValueError("能力包与路由原因码不匹配")
 
-    allowed_confidences = _PACKAGE_CONFIDENCE_OPTIONS.get(package_id)
-    if allowed_confidences is None or confidence not in allowed_confidences:
+    if confidence not in spec.confidence_options:
         raise ValueError("能力包与路由置信度不匹配")
 
-    expected_resolution_mode = _PACKAGE_RESOLUTION_MODE.get(package_id)
-    if expected_resolution_mode is None or resolution_mode != expected_resolution_mode:
+    if resolution_mode != spec.resolution_mode:
         raise ValueError("能力包与 resolution mode 不匹配")
 
     if skill_resolution is None:
