@@ -41,6 +41,7 @@ import {
   appendTextDelta,
   appendThinkingDelta,
   completeThinkingPhase,
+  clearCurrentRun,
   endStream,
   finalizeRun,
   setRunStopConfirmation,
@@ -360,10 +361,16 @@ export default function ChatPage() {
     reconnectAttemptedRef.current = false;
   }, [chatId]);
   useEffect(() => {
-    // 只拦"本会话已经在生成"。isStreaming 现在就是本会话槽位的字段，跨会话不再互相影响
-    // ——此前它是全局标志，从正在生成的会话 A 切到 B 会把 B 的未完成流检查整个跳过（issue #74）。
     if (!chatId || !isAuthenticated || !hydrationDone) return;
-    if (isStreaming) return;
+    // 「在生成」以注册表为准：本会话有未中止的 controller 才不重复建流。
+    // 槽位在 Redux 里，页面卸载后仍残留：切走时恢复流随页面被 abort、或发送流收尾所依赖的
+    // 打字机随页面卸载，槽位都会停在 isStreaming 却再没人推进，此前切回来只看它就一直卡住。
+    // 这种残留照常查 stream-status：还在跑就从头续流，已结束就收掉槽位重新拉取。
+    const liveStream = getStreamController(chatId);
+    if (liveStream && !liveStream.controller.signal.aborted) return;
+    const slotAtMount = selectStreamSlot(store.getState() as { stream: StreamState }, chatId);
+    const staleSlot = slotAtMount.isStreaming;
+    const staleSlotMessageId = slotAtMount.messageId;
     // 每个 chatId 只尝试一次重连，防止 stop 后重复触发
     if (reconnectAttemptedRef.current) return;
     reconnectAttemptedRef.current = true;
@@ -402,7 +409,17 @@ export default function ChatPage() {
             await waitForStreamStatusRetry(STREAM_STATUS_RETRY_BASE_DELAY_MS * attempt, controller.signal);
           }
         }
-        if (cancelled || !status || status.status !== 'streaming') return;
+        if (cancelled || !status) return;
+        if (status.status !== 'streaming') {
+          // 服务端已结束而本地还停在生成中：收掉残留槽位（running 的 currentRun 会盖过
+          // 持久化的 run），再拉一次会话拿最终回答。
+          if (staleSlot) {
+            dispatch(endStream({ conversationId: chatId, messageId: staleSlotMessageId }));
+            dispatch(clearCurrentRun({ conversationId: chatId }));
+            retryHydration();
+          }
+          return;
+        }
         updateStreamController(chatId, controller, {
           streamMode: status.stream_mode ?? 'initial',
           taskId: status.task_id ?? null,

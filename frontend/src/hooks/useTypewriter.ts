@@ -99,12 +99,19 @@ export function useTypewriter() {
 
   // 卸载时必须停表。槽位按会话拆分后切走不再 endStream，backlog 会留着，
   // 漏掉的 interval 不再是空转——它会一直往那个会话的槽位派发。
+  // 网络已结束、只差动画没播完时卸载，就没人再触发收尾了（发送流的完成挂在这里），
+  // 直接收尾：写入消息的是完整正文，不依赖已显示的长度。网络未结束时保留回调，
+  // 之后 markNetworkDone 见 interval 已停会直接收尾。
   useEffect(() => () => {
+    if (networkDoneRef.current && catchUpRef.current !== null) {
+      finishCatchUp();
+      return;
+    }
     if (intervalRef.current !== null) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
-  }, []);
+  }, [finishCatchUp]);
 
   const markNetworkDone = useCallback(() => {
     networkDoneRef.current = true;
