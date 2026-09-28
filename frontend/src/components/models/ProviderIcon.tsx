@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
 import React, { useState } from 'react';
+import { Sparkles } from 'lucide-react';
 
 interface ProviderIconProps {
   providerId: string;
@@ -28,7 +29,13 @@ const ProviderIcon: React.FC<ProviderIconProps> = ({
       )}
       style={{ width: size, height: size }}
     >
-      {hasKnownIcon && !imageFailed ? (
+      {normalizedProviderId === 'auto' ? (
+        <Sparkles
+          aria-label="自动选择"
+          className="text-primary"
+          style={{ width: Math.round(size * 0.7), height: Math.round(size * 0.7) }}
+        />
+      ) : hasKnownIcon && !imageFailed ? (
         <Image
           src={iconPath}
           alt={`${providerId} icon`}

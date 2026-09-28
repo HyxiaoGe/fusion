@@ -1,8 +1,9 @@
 import type { RootState } from '@/redux/store';
 import type { Model } from '@/redux/slices/modelsSlice';
+import { AUTO_MODEL_ID } from '@/lib/config/modelConfig';
 
 export type SendModelResolution =
-  | { status: 'ready'; model: Model }
+  | { status: 'ready'; model: Model; fallbackFromModelId?: string }
   | { status: 'conversation_not_ready' }
   | { status: 'conversation_model_unavailable' }
   | { status: 'no_enabled_model' };
@@ -42,8 +43,15 @@ export function resolveSendModel(
         )
       ),
     );
-    return conversationModel
-      ? { status: 'ready', model: conversationModel }
+    if (conversationModel) {
+      return { status: 'ready', model: conversationModel };
+    }
+    // 已有对话的绑定模型下线后，服务端会每轮改走自动选择，前端同步按「自动选择」放行。
+    const autoModel = hasUserTurn
+      ? state.models.models.find((model) => model.id === AUTO_MODEL_ID && isModelAvailableForSending(model))
+      : undefined;
+    return autoModel
+      ? { status: 'ready', model: autoModel, fallbackFromModelId: conversationModelId }
       : { status: 'conversation_model_unavailable' };
   }
 

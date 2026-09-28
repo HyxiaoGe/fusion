@@ -1,7 +1,7 @@
 # app/services/chat_service.py
 import asyncio
 import uuid as uuid_mod
-from typing import Any, Dict, List, Mapping, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import litellm
 from fastapi.responses import StreamingResponse
@@ -40,6 +40,7 @@ from app.services.agent.session_cache import (
     validate_latest_previous_run_candidate,
 )
 from app.services.agent_strategy_config import get_agent_tools_disabled_aliases
+from app.services.auto_model import AUTO_MODEL_ID, ModelResolution, is_model_registered, pick_auto_model
 from app.services.chat.context_manager import (
     ContextBudgetExceededError,
     ContextEstimationUnavailableError,
@@ -172,6 +173,45 @@ class ChatService:
         self.model_control_repository = ModelCatalogControlRepository(db)
         self.stream_handler = StreamHandler()
         self.suggested_question_service = SuggestedQuestionService(db)
+
+    def _resolve_turn_model(
+        self,
+        bound_model_id: str,
+        *,
+        is_new_conversation: bool,
+        require_vision: bool = False,
+    ) -> ModelResolution:
+        """把会话绑定解析成本轮实际调用的模型。
+
+        绑定 auto 时按优先级挑；已有会话的绑定模型下线或被禁止调度时同样改走自动选择，
+        不再让历史会话卡死。新会话显式选了不可用模型仍直接报错，由用户重新选择。
+        """
+        if bound_model_id == AUTO_MODEL_ID:
+            return ModelResolution(model_id=self._pick_auto_model_or_raise(require_vision=require_vision))
+
+        control = self.model_control_repository.get(bound_model_id)
+        registered = is_model_registered(bound_model_id)
+        routable = control is None or getattr(control, "routable", True) is not False
+        if is_new_conversation:
+            if not registered:
+                raise ApiException.service_unavailable("当前模型尚未注册", code=ErrorCode.MODEL_UNAVAILABLE)
+            if not routable:
+                raise ApiException.service_unavailable("当前模型暂不可调用", code=ErrorCode.MODEL_UNAVAILABLE)
+            if control is not None and getattr(control, "selectable", True) is False:
+                raise ApiException.service_unavailable("当前模型不可用于新会话", code=ErrorCode.MODEL_UNAVAILABLE)
+            return ModelResolution(model_id=bound_model_id)
+        if registered and routable:
+            return ModelResolution(model_id=bound_model_id)
+        return ModelResolution(
+            model_id=self._pick_auto_model_or_raise(require_vision=require_vision),
+            fallback_from=bound_model_id,
+        )
+
+    def _pick_auto_model_or_raise(self, *, require_vision: bool) -> str:
+        picked = pick_auto_model(self.model_control_repository, require_vision=require_vision)
+        if picked is None:
+            raise ApiException.service_unavailable("当前没有可用模型", code=ErrorCode.MODEL_UNAVAILABLE)
+        return picked
 
     def _validate_message_files(self, file_ids: List[str], user_id: str, conversation_id: str) -> List[Any]:
         """校验本次消息引用的文件，并按传入顺序返回文件记录。"""
@@ -367,26 +407,24 @@ class ChatService:
                 )
 
         # 已有会话的模型绑定由服务端持久记录决定，忽略客户端覆盖；新会话才接受请求模型。
-        effective_model_id = existing_conversation.model_id if existing_conversation is not None else model_id
-        catalog_entry = litellm_catalog.get_model_entry(effective_model_id)
-        if not isinstance(catalog_entry, Mapping) or not catalog_entry.get("db_model"):
-            catalog_status = litellm_catalog.get_cache_status()
-            if catalog_status.get("availability") == "available" or catalog_status.get("has_cache"):
-                raise ApiException.service_unavailable("当前模型尚未注册", code=ErrorCode.MODEL_UNAVAILABLE)
-        control = self.model_control_repository.get(effective_model_id)
-        if control is not None and getattr(control, "routable", True) is False:
-            raise ApiException.service_unavailable("当前模型暂不可调用", code=ErrorCode.MODEL_UNAVAILABLE)
+        bound_model_id = existing_conversation.model_id if existing_conversation is not None else model_id
         existing_messages = getattr(existing_conversation, "messages", None)
         is_upload_placeholder = (
             existing_conversation is not None and isinstance(existing_messages, list) and not existing_messages
         )
-        if (
-            (existing_conversation is None or is_upload_placeholder)
-            and control is not None
-            and getattr(control, "selectable", True) is False
-        ):
-            raise ApiException.service_unavailable("当前模型不可用于新会话", code=ErrorCode.MODEL_UNAVAILABLE)
-        model_id = effective_model_id
+        model_resolution = self._resolve_turn_model(
+            bound_model_id,
+            is_new_conversation=existing_conversation is None or is_upload_placeholder,
+            require_vision=any(is_image_file(file_id, self.file_repo) for file_id in file_ids or []),
+        )
+        model_id = model_resolution.model_id
+        if model_resolution.fallback_from is not None:
+            logger.info(
+                "会话绑定模型已不可用，本轮自动改用: conv_id=%s, bound=%s, model=%s",
+                conversation_id,
+                model_resolution.fallback_from,
+                model_id,
+            )
 
         effective_knowledge_base_ids = list(
             knowledge_base_ids
@@ -431,8 +469,9 @@ class ChatService:
         if existing_conversation is not None:
             conversation, is_new_conversation = existing_conversation, False
         else:
+            # 会话记录用户选择的绑定（可能是 auto），本轮实际模型写在消息上。
             conversation, is_new_conversation = self._get_or_create_conversation(
-                conversation_id, user_id, model_id, message
+                conversation_id, user_id, bound_model_id, message
             )
 
         # 新建会话、选择替换与就绪校验必须先于消息序号预留和消息写入，并共享同一事务。
@@ -723,7 +762,7 @@ class ChatService:
         if meta and meta.get("status") == "streaming":
             raise ApiException.conflict("当前会话已有回答正在生成，请结束后再继续")
 
-        model_id = conversation.model_id
+        model_id = self._resolve_turn_model(conversation.model_id, is_new_conversation=False).model_id
         litellm_model, provider, litellm_kwargs = llm_manager.resolve_model(model_id)
         capabilities = _get_model_capabilities(model_id)
         has_vision = capabilities.get("vision", False)

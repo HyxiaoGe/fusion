@@ -13,6 +13,7 @@ import ChatLoadingSurface from './ChatLoadingSurface';
 import { isNearBottom } from '@/lib/chat/scrollBehavior';
 import type { AgentRunState } from '@/types/agentRun';
 import { selectChatModel } from '@/redux/selectors';
+import { AUTO_MODEL_ID } from '@/lib/config/modelConfig';
 import { useRenderProbe } from '@/lib/debug/perfProbe';
 import type { TrajectoryBadgeStatus } from '@/lib/trajectory/TrajectoryCellProjection';
 import { deriveTrajectoryBadgeStatusByMessageId } from '@/lib/trajectory/trajectoryBadgeProjection';
@@ -341,6 +342,8 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
   const modelId = model?.id;
   const providerId = model?.provider;
   const modelName = model?.name ?? 'AI助手';
+  const models = useAppSelector(state => state.models.models);
+  const modelById = useMemo(() => new Map(models.map((item) => [item.id, item])), [models]);
   const trajectoryServerRuns = useAppSelector(state => (
     conversationId
       ? state.trajectory.byConversationId[conversationId]?.runs ?? EMPTY_TRAJECTORY_RUNS
@@ -490,6 +493,11 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
       <div className="flex-1" />
       {messages.map((message, index) => {
         const prevMessage = index > 0 ? messages[index - 1] : null;
+        // 自动选择或模型下线兜底时，每条回答的实际模型记在消息上，优先按消息展示。
+        const messageModel = message.role === 'assistant' && message.model_id
+          ? modelById.get(message.model_id)
+          : undefined;
+        const rowModel = messageModel && messageModel.id !== AUTO_MODEL_ID ? messageModel : null;
         return (
           <ChatMessageRow
             key={message.id}
@@ -501,9 +509,9 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
             onRetry={retryableMessageIds.has(message.id) ? onRetry : undefined}
             onEdit={onEdit}
             conversationId={conversationId}
-            modelId={modelId}
-            providerId={providerId}
-            modelName={modelName}
+            modelId={rowModel?.id ?? modelId}
+            providerId={rowModel?.provider ?? providerId}
+            modelName={rowModel?.name ?? modelName}
             currentRun={currentRun}
             trajectoryStatus={trajectoryStatusByMessageId.get(message.id) ?? 'unknown'}
             onInspectTrajectory={onInspectTrajectory}

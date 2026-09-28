@@ -464,18 +464,26 @@ class ChatServiceTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "MODEL_UNAVAILABLE")
         resolve_model.assert_not_called()
 
-    def test_existing_conversation_rejects_non_routable_model(self):
+    def _existing_conversation_service(self, bound_model_id, control=None):
         service = ChatService(MagicMock())
         service.conversation_service = MagicMock()
         service.conversation_service.get_conversation.return_value = SimpleNamespace(
             id="conv-1",
-            model_id="disabled/model",
+            model_id=bound_model_id,
+            messages=[SimpleNamespace(id="user-0", role="user")],
         )
         service.model_control_repository = MagicMock()
-        service.model_control_repository.get.return_value = SimpleNamespace(selectable=True, routable=False)
+        service.model_control_repository.get.return_value = control
+        return service
+
+    def _run_until_model_resolved(self, service, *, file_ids=None):
+        """跑到 resolve_model 即中断，返回本轮实际调用的模型。"""
         with (
-            patch("app.services.chat_service.llm_manager.resolve_model") as resolve_model,
-            self.assertRaises(ApiException) as raised,
+            patch(
+                "app.services.chat_service.llm_manager.resolve_model",
+                side_effect=RuntimeError("stop after resolve"),
+            ) as resolve_model,
+            self.assertRaises(RuntimeError),
         ):
             asyncio.run(
                 service.process_message(
@@ -483,10 +491,83 @@ class ChatServiceTests(unittest.TestCase):
                     message="继续对话",
                     user_id="user-1",
                     conversation_id="conv-1",
+                    file_ids=file_ids,
+                )
+            )
+        resolve_model.assert_called_once()
+        return resolve_model.call_args.args[0]
+
+    def test_existing_conversation_with_non_routable_model_falls_back_to_auto(self):
+        service = self._existing_conversation_service(
+            "disabled/model",
+            SimpleNamespace(selectable=True, routable=False),
+        )
+        with patch("app.services.chat_service.pick_auto_model", return_value="deepseek-chat") as pick:
+            self.assertEqual(self._run_until_model_resolved(service), "deepseek-chat")
+        pick.assert_called_once_with(service.model_control_repository, require_vision=False)
+
+    def test_existing_conversation_with_unregistered_model_falls_back_to_auto(self):
+        service = self._existing_conversation_service("retired/model")
+        with (
+            patch(
+                "app.services.chat_service.litellm_catalog.get_model_entry",
+                side_effect=lambda model_id: None if model_id == "retired/model" else {"db_model": True},
+            ),
+            patch(
+                "app.services.chat_service.litellm_catalog.get_cache_status",
+                return_value={"availability": "available", "has_cache": True},
+            ),
+            patch("app.services.chat_service.pick_auto_model", return_value="mimo-v2.6-pro"),
+        ):
+            self.assertEqual(self._run_until_model_resolved(service), "mimo-v2.6-pro")
+
+    def test_auto_conversation_picks_model_each_turn_and_requires_vision_for_images(self):
+        service = self._existing_conversation_service("auto")
+        service._validate_message_files = MagicMock(return_value=[])
+        with (
+            patch("app.services.chat_service.is_image_file", return_value=True),
+            patch("app.services.chat_service.pick_auto_model", return_value="vision/model") as pick,
+        ):
+            self.assertEqual(self._run_until_model_resolved(service, file_ids=["img-1"]), "vision/model")
+        pick.assert_called_once_with(service.model_control_repository, require_vision=True)
+
+    def test_auto_without_any_usable_model_is_model_unavailable(self):
+        service = self._existing_conversation_service("auto")
+        with (
+            patch("app.services.chat_service.pick_auto_model", return_value=None),
+            patch("app.services.chat_service.llm_manager.resolve_model") as resolve_model,
+            self.assertRaises(ApiException) as raised,
+        ):
+            asyncio.run(
+                service.process_message(
+                    model_id="auto",
+                    message="继续对话",
+                    user_id="user-1",
+                    conversation_id="conv-1",
                 )
             )
         self.assertEqual(raised.exception.code, "MODEL_UNAVAILABLE")
         resolve_model.assert_not_called()
+
+    def test_new_auto_conversation_binds_auto_and_calls_picked_model(self):
+        service = ChatService(MagicMock())
+        service.model_control_repository = MagicMock()
+        service._get_or_create_conversation = MagicMock(side_effect=RuntimeError("stop after create"))
+        with (
+            patch("app.services.chat_service.pick_auto_model", return_value="deepseek-chat"),
+            patch(
+                "app.services.chat_service.llm_manager.resolve_model",
+                return_value=("litellm_proxy/deepseek-chat", "deepseek", {}),
+            ) as resolve_model,
+            patch(
+                "app.services.chat_service.litellm_catalog.get_capabilities",
+                return_value={"functionCalling": True, "searchCapable": True},
+            ),
+            self.assertRaises(RuntimeError),
+        ):
+            asyncio.run(service.process_message(model_id="auto", message="新会话", user_id="user-1"))
+        resolve_model.assert_called_once_with("deepseek-chat")
+        self.assertEqual(service._get_or_create_conversation.call_args.args[2], "auto")
 
     def test_stop_guard_init_failure_returns_explicit_retryable_message(self):
         with self.assertRaises(ApiException) as raised:
