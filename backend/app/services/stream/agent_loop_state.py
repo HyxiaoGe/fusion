@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -99,8 +100,19 @@ class AgentLoopState:
     def mark_current_step(self, step_id: str) -> None:
         self.current_step_id = step_id
 
-    def clear_current_step(self) -> None:
-        self.current_step_id = None
+    def bind_step_completion(self, complete_step_fn: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
+        """step 完成写入成功后立即释放 current_step_id，清理跟随完成动作而不是各分支约定。
+
+        完成写入抛异常时保留 step id，让终态收尾把它标成 interrupted/failed。
+        """
+
+        async def complete_step(*, context: Any, **kwargs: Any) -> Any:
+            result = await complete_step_fn(context=context, **kwargs)
+            if self.current_step_id == getattr(context, "step_id", None):
+                self.current_step_id = None
+            return result
+
+        return complete_step
 
     def record_executed_tool_calls(self, tool_call_count: int) -> None:
         self.total_tool_calls += tool_call_count

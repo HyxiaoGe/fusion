@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from dataclasses import dataclass, field
 from types import SimpleNamespace
@@ -36,6 +37,10 @@ async def _unused_async(**_kwargs):
 
 def _unused_sync(*_args, **_kwargs):
     raise AssertionError("不应调用这个依赖")
+
+
+async def _complete_step_noop(**_kwargs):
+    return 0
 
 
 def _runtime(**overrides):
@@ -2793,6 +2798,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
             request = kwargs["request"]
             request.content_blocks.append(TextBlock(type="text", id="summary-text", text="总结回答"))
             request.on_step_started("summary-step")
+            await request.complete_step_fn(context=SimpleNamespace(step_id="summary-step"))
             return LimitSummaryOutcome(accumulated_usage=Usage(input_tokens=11, output_tokens=13))
 
         outcome = await run_agent_loop(
@@ -2800,6 +2806,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
             messages=[{"role": "user", "content": "hi"}],
             state=state,
             runtime=_runtime(
+                complete_step_fn=_complete_step_noop,
                 emitter=emitter,
                 run_limit_summary_step_fn=run_limit_summary_step_fn,
                 clock=lambda: 1.0,
@@ -2869,6 +2876,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
         async def run_limit_summary_step_fn(**kwargs):
             summary_calls.append(kwargs)
             kwargs["request"].on_step_started("summary-timeout-step")
+            await kwargs["request"].complete_step_fn(context=SimpleNamespace(step_id="summary-timeout-step"))
             return LimitSummaryOutcome(accumulated_usage=Usage(input_tokens=1, output_tokens=1))
 
         outcome = await run_agent_loop(
@@ -2876,6 +2884,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
             messages=[{"role": "user", "content": "hi"}],
             state=state,
             runtime=_runtime(
+                complete_step_fn=_complete_step_noop,
                 emitter=emitter,
                 limits=AgentLoopLimits(max_steps=8, max_tool_calls=20, total_timeout_s=30),
                 run_limit_summary_step_fn=run_limit_summary_step_fn,
@@ -3041,6 +3050,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
             request = kwargs["request"]
             request.content_blocks.append(TextBlock(type="text", id="summary-text", text="总结回答"))
             request.on_step_started("summary-step")
+            await request.complete_step_fn(context=SimpleNamespace(step_id="summary-step"))
             return LimitSummaryOutcome(accumulated_usage=Usage(input_tokens=9, output_tokens=13))
 
         outcome = await run_agent_loop(
@@ -3058,7 +3068,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(outcome.exit, AgentLoopExit.COMPLETED)
         self.assertEqual(started_steps, [1, 2])
-        self.assertEqual(completed_steps, ["step-2"])
+        self.assertEqual(completed_steps, ["step-2", "summary-step"])
         self.assertEqual(len(summary_calls), 1)
         self.assertEqual(summary_calls[0].step_number, 3)
         self.assertEqual(state.finish_reason, "empty_answer_summary")
@@ -3170,6 +3180,56 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.current_step_id, "step-cancelled")
         self.assertEqual(persist_calls, [])
         self.assertFalse(state.terminal_emitted)
+
+    async def test_cancel_between_steps_does_not_leave_completed_step_as_current(self):
+        """step 完成即释放 current_step_id；下一步开始前被取消时，终态收尾不会误标已完成的 step。"""
+        state = AgentLoopState()
+        completed_steps: list[str] = []
+
+        async def start_step_fn(**kwargs):
+            if kwargs["step_number"] > 1:
+                raise asyncio.CancelledError
+            context = AgentStepContext(
+                step_id="step-1",
+                step_number=1,
+                started_at=kwargs["clock"](),
+                thinking_block_id="step-1-thinking",
+                text_block_id="step-1-text",
+            )
+            kwargs["on_step_started"](context.step_id)
+            return context
+
+        async def complete_step_fn(**kwargs):
+            completed_steps.append(kwargs["context"].step_id)
+
+        async def run_round_fn(**_kwargs):
+            return AgentRoundResult(
+                reasoning_buf="",
+                content_buf="",
+                tool_calls=[{"id": "call-1", "name": "web_search", "arguments": "{}"}],
+                finish_reason="tool_calls",
+                accumulated_usage=Usage(input_tokens=1, output_tokens=1),
+            )
+
+        async def handle_tool_calls_round_fn(*, request):
+            await request.complete_step_fn(context=request.step_context)
+            return ToolRoundOutcome(tool_call_count=1, tool_names=["web_search"])
+
+        with self.assertRaises(asyncio.CancelledError):
+            await run_agent_loop(
+                db="db",
+                messages=[{"role": "user", "content": "hi"}],
+                state=state,
+                runtime=_runtime(
+                    start_step_fn=start_step_fn,
+                    complete_step_fn=complete_step_fn,
+                    run_round_fn=run_round_fn,
+                    handle_tool_calls_round_fn=handle_tool_calls_round_fn,
+                ),
+            )
+
+        self.assertEqual(completed_steps, ["step-1"])
+        self.assertIsNone(state.current_step_id)
 
 
 if __name__ == "__main__":
