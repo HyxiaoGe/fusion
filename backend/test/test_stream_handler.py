@@ -325,8 +325,8 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
         _model_packages = {
             "请搜索 OpenAI 今天发布的最新消息": ("fresh_web", ("fresh_external_fact",), True),
             "OpenAI 今天发布了什么？阅读官方公告后总结": ("verified_web", ("verified_source_request",), True),
-            "总结 https://example.com，只依据该页面": ("url_read", ("explicit_url_read",), False),
-            "请阅读 https://example.com/a": ("url_read", ("explicit_url_read",), False),
+            "总结 https://example.com，只依据该页面": ("url_read", ("explicit_url_read",), True),
+            "请阅读 https://example.com/a": ("url_read", ("explicit_url_read",), True),
             "查天气": ("weather", ("explicit_weather_request",), True),
         }
 
@@ -419,7 +419,7 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(prompt_event["step_id"])
         self.assertEqual(
             prompt_event["section_ids"],
-            ["app_identity", "visible_response_language"],
+            ["app_identity", "current_date", "visible_response_language"],
         )
         self.assertRegex(prompt_event["fingerprint"], r"^[0-9a-f]{64}$")
         self.assertGreater(prompt_event["char_count"], 0)

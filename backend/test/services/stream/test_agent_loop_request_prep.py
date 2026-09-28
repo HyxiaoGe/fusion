@@ -66,19 +66,19 @@ def _model_candidate(
 # 只用于验证「选定包之后」的工具与提示词信封。tools_unavailable 由 _resolution
 # 依据 options/capabilities 自行降级，所以这里声明降级前的包。
 _REMOVED_LITERAL_PACKAGES = {
-    "你好": ("direct", False),
+    "你好": ("direct", True),
     "今天上海证券交易所开市吗？": ("fresh_web", True),
     "查一下今天最新的 OpenAI 新闻": ("fresh_web", True),
     "OpenAI 最近发布了什么模型？": ("fresh_web", True),
     "我现在在北京，我想去上海，你可以帮我吗": ("mobility_intercity", True),
-    "总结 https://example.com/report，只依据该页面": ("url_read", False),
+    "总结 https://example.com/report，只依据该页面": ("url_read", True),
     "OpenAI 今天发布了什么？阅读官方公告后总结": ("verified_web", True),
     "明天上海天气怎样？": ("weather", True),
     "查今天上海天气": ("weather", True),
     "核验 OpenAI 最新公告，给出官方原文和交叉来源": ("verified_web", True),
     "请核验这条消息，给出可靠来源": ("verified_web", True),
-    "搜索民治附近的咖啡店": ("place_discovery", False),
-    "请阅读 https://example.com/a": ("url_read", False),
+    "搜索民治附近的咖啡店": ("place_discovery", True),
+    "请阅读 https://example.com/a": ("url_read", True),
 }
 
 
@@ -169,7 +169,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                     "available_tool_names": available_tool_names,
                 }
             )
-            return _CandidateRoute("direct", "high", ("direct_greeting",), False)
+            return _CandidateRoute("direct", "high", ("direct_greeting",), True)
 
         with patch(
             "app.services.stream.agent_loop_request_prep.resolve_run_capability_route",
@@ -349,7 +349,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_assembly_sections_follow_actual_capabilities_and_modes(self):
         for message, options, expected in [
-            ("你好", {}, ["app_identity"]),
+            ("你好", {}, ["app_identity", "current_date"]),
             (
                 "今天上海证券交易所开市吗？",
                 {"plan_mode": "on"},
@@ -405,7 +405,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             dynamic_tool_handlers={name: object() for name in tool_names},
             tool_bindings=bindings,
             original_message="你好",
-            classify_fn=_classifier_for("direct", include_current_date=False),
+            classify_fn=_classifier_for("direct", include_current_date=True),
         )
 
         prepared = await prepare_agent_loop_messages(
@@ -426,7 +426,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(config.tool_bindings, [])
         self.assertEqual(config.announced_tools, [])
         self.assertEqual(prepared.final_tool_names, [])
-        self.assertEqual(prepared.prompt_assembly["section_ids"], ["app_identity"])
+        self.assertEqual(prepared.prompt_assembly["section_ids"], ["app_identity", "current_date"])
         self.assertEqual(config.capability_resolution.package_id, "direct")
 
     async def test_route_resolution_atomically_materializes_tools_and_prompt_sections(self):
@@ -458,7 +458,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 {"functionCalling": True, "searchCapable": True, "agentTools": True},
                 "url_read",
                 ["web_search", "url_read"],
-                ["app_identity", "tool_failure_policy", "tool_usage_contract"],
+                ["app_identity", "tool_failure_policy", "tool_usage_contract", "current_date"],
             ),
             (
                 "OpenAI 今天发布了什么？阅读官方公告后总结",
@@ -488,7 +488,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 {"functionCalling": True, "searchCapable": True, "agentTools": True},
                 "direct",
                 [],
-                ["app_identity", "agent_plan_control"],
+                ["app_identity", "agent_plan_control", "current_date"],
             ),
             (
                 "查一下今天最新的 OpenAI 新闻",
@@ -1485,7 +1485,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(prepared.final_tool_names, [])
                 self.assertEqual(
                     prepared.prompt_assembly["section_ids"],
-                    ["app_identity", "no_tool_network_boundary"],
+                    ["app_identity", "no_tool_network_boundary", "current_date"],
                 )
 
         unauthorized = build_agent_loop_call_config(
@@ -1616,12 +1616,13 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             [message["role"] for message in prepared.messages],
-            ["system", "system", "user"],
+            ["system", "system", "system", "user"],
         )
         self.assertIn("[No image-understanding capability]", prepared.messages[1]["content"])
         self.assertIn("cannot read or understand image attachments", prepared.messages[1]["content"])
         self.assertIn("Do not guess its contents", prepared.messages[1]["content"])
-        self.assertEqual(prepared.messages[2]["content"], "这张图里有什么？")
+        self.assertIn("[Current date]", prepared.messages[2]["content"])
+        self.assertEqual(prepared.messages[3]["content"], "这张图里有什么？")
 
     async def test_prepare_messages_builds_llm_input_files_url_context_and_tool_contract(self):
         file_repo = FakeFileRepository()
@@ -1702,8 +1703,8 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIsNone(build_calls[0]["user_system_prompt"])
-        self.assertIn("user's personalization preferences", prepared.messages[4]["content"])
-        self.assertIn("用户偏好", prepared.messages[4]["content"])
+        self.assertIn("user's personalization preferences", prepared.messages[5]["content"])
+        self.assertIn("用户偏好", prepared.messages[5]["content"])
         self.assertIs(build_calls[0]["repo"], file_repo)
         self.assertEqual(build_calls[0]["user_id"], "user-1")
         self.assertIsNone(build_calls[0]["conversation_id"])
@@ -1713,12 +1714,12 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(prepared.final_tool_names, ["web_search", "url_read"])
         self.assertEqual(
             [message["role"] for message in prepared.messages],
-            ["system", "system", "system", "system", "system", "user", "user"],
+            ["system", "system", "system", "system", "system", "system", "user", "user"],
         )
         self.assertIn("[Fusion identity consistency]", prepared.messages[0]["content"])
         self.assertIn("[No image-understanding capability]", prepared.messages[1]["content"])
-        self.assertIn("<web_context>", prepared.messages[5]["content"])
-        self.assertIn("文档正文", prepared.messages[6]["content"])
+        self.assertIn("<web_context>", prepared.messages[6]["content"])
+        self.assertIn("文档正文", prepared.messages[7]["content"])
         self.assertEqual(call_config.announced_tools, ["web_search", "url_read"])
 
     def test_tool_usage_contract_uses_centralized_prompt(self):
@@ -1828,12 +1829,12 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(prepared.initial_content_blocks, [])
         self.assertIn("Continue the previous response", prepared.messages[1].content)
-        self.assertEqual(prepared.messages[2]["role"], "user")
+        self.assertEqual(prepared.messages[3]["role"], "user")
         self.assertEqual(
-            [message.section_id for message in prepared.messages[:2]],
-            ["app_identity", "continuation_system"],
+            [message.section_id for message in prepared.messages[:3]],
+            ["app_identity", "continuation_system", "current_date"],
         )
-        self.assertTrue(all(message.section_id is None for message in prepared.messages[2:]))
+        self.assertTrue(all(message.section_id is None for message in prepared.messages[3:]))
 
     async def test_prepare_messages_passes_conversation_scope_to_builder(self):
         build_calls = []

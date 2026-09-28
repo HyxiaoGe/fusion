@@ -682,7 +682,7 @@ def _fail_closed(
         package_id="clarification_only",
         confidence="low",
         reason_codes=("insufficient_capability_signal",),
-        include_current_date=False,
+        include_current_date=True,
         resolution_mode="clarification",
     )
 
@@ -705,7 +705,7 @@ def _deadline_fail_closed(
         package_id="clarification_only",
         confidence="low",
         reason_codes=("insufficient_capability_signal",),
-        include_current_date=False,
+        include_current_date=True,
         resolution_mode="clarification",
     )
 

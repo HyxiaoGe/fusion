@@ -32,7 +32,7 @@ class RecoveryRouteTests(unittest.TestCase):
                     package,
                     "high",
                     (reason,),
-                    package not in {"place_discovery", "url_read", "mcp_explicit"},
+                    True,
                     explicit_tool_names=primary,
                     required_primary_tool_name=primary[0] if package == "mixed_itinerary" else None,
                 )

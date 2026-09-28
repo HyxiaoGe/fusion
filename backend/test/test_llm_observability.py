@@ -28,9 +28,16 @@ class LLMObservabilityTests(unittest.TestCase):
             {
                 "thinking": {"type": "disabled"},
                 "metadata": {"tags": ["app:fusion", "phase:file_processing"]},
+                "cache": {"no-cache": True, "no-store": True},
             },
         )
         self.assertEqual(extra_body, {"thinking": {"type": "disabled"}})
+
+    def test_every_call_bypasses_proxy_response_cache(self):
+        # 代理开着响应缓存；一次坏的分类输出曾被原样复用数分钟，所有模型都拿到同一个错路由。
+        merged = merge_litellm_kwargs("run_capability_classifier", {})
+
+        self.assertEqual(merged["extra_body"]["cache"], {"no-cache": True, "no-store": True})
 
     def test_merge_litellm_kwargs_sends_tags_through_extra_body(self):
         kwargs = {
@@ -52,6 +59,7 @@ class LLMObservabilityTests(unittest.TestCase):
                     "existing": "keep",
                     "tags": ["app:fusion", "phase:chat_stream"],
                 },
+                "cache": {"no-cache": True, "no-store": True},
             },
         )
         self.assertNotIn("metadata", merged)

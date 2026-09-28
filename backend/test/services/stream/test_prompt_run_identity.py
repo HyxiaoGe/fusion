@@ -85,7 +85,7 @@ async def test_classifier_observes_committed_identity_and_pre_lifecycle_error_te
             row = db.get(AgentSession, "r1")
             assert row is not None, "分类前必须已经原子创建 Run"
             seen.append(row.run_config["prompt_bundle"])
-        return _CandidateRoute("direct", "high", ("stable_knowledge_question",), False)
+        return _CandidateRoute("direct", "high", ("stable_knowledge_question",), True)
 
     dependencies = replace(
         runner._agent_loop_wiring_dependencies(),

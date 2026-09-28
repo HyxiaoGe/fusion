@@ -185,7 +185,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -205,7 +206,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -224,7 +226,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -243,7 +246,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -262,7 +266,8 @@
     "expected_package_id": "transform",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -281,7 +286,8 @@
     "expected_package_id": "transform",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -403,7 +409,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -428,7 +435,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -454,7 +462,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -642,7 +651,8 @@
     "expected_package_id": "knowledge_grounded",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -664,7 +674,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -683,7 +694,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -702,7 +714,8 @@
     "expected_package_id": "transform",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -721,7 +734,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -747,7 +761,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -767,7 +782,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -869,7 +885,8 @@
     "expected_package_id": "transform",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -904,7 +921,8 @@
     "expected_package_id": "transform",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1036,7 +1054,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1118,7 +1137,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1145,7 +1165,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1172,7 +1193,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1228,7 +1250,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1363,7 +1386,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1384,7 +1408,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -1405,7 +1430,8 @@
     "expected_package_id": "transform",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1426,7 +1452,8 @@
     "expected_package_id": "transform",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1509,7 +1536,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1530,7 +1558,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1552,7 +1581,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -1573,7 +1603,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -1599,7 +1630,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1624,7 +1656,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1670,7 +1703,8 @@
     "expected_package_id": "transform",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1691,7 +1725,8 @@
     "expected_package_id": "transform",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1719,7 +1754,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1746,7 +1782,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1851,7 +1888,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1872,7 +1910,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -1893,7 +1932,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -1914,7 +1954,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -1935,7 +1976,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -1956,7 +1998,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -1982,7 +2025,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2007,7 +2051,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2032,7 +2077,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2078,7 +2124,8 @@
     "expected_package_id": "transform",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2099,7 +2146,8 @@
     "expected_package_id": "transform",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2120,7 +2168,8 @@
     "expected_package_id": "transform",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2141,7 +2190,8 @@
     "expected_package_id": "transform",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2162,7 +2212,8 @@
     "expected_package_id": "transform",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2183,7 +2234,8 @@
     "expected_package_id": "transform",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2345,7 +2397,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2366,7 +2419,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -2387,7 +2441,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -2408,7 +2463,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -2429,7 +2485,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -2554,7 +2611,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -2575,7 +2633,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -2596,7 +2655,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -2617,7 +2677,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -2638,7 +2699,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -2659,7 +2721,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2680,7 +2743,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2701,7 +2765,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2722,7 +2787,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2748,7 +2814,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2773,7 +2840,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2798,7 +2866,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2877,7 +2946,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2897,7 +2967,8 @@
     "expected_package_id": "transform",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2918,7 +2989,8 @@
     "expected_package_id": "transform",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2946,7 +3018,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -2973,7 +3046,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -3000,7 +3074,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -3027,7 +3102,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -3134,7 +3210,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -3155,7 +3232,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -3292,7 +3370,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -3339,7 +3418,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -3360,7 +3440,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -3381,7 +3462,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -3408,7 +3490,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -3428,7 +3511,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -3539,7 +3623,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -3559,7 +3644,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -3580,7 +3666,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -3606,7 +3693,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -3631,7 +3719,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -3657,7 +3746,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -3819,7 +3909,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -3867,7 +3958,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -3887,7 +3979,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -3907,7 +4000,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -3927,7 +4021,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -3947,7 +4042,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -3967,7 +4063,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -3987,7 +4084,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -4012,7 +4110,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -4037,7 +4136,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -4062,7 +4162,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -4087,7 +4188,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -4224,7 +4326,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -4251,7 +4354,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -4278,7 +4382,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -4437,7 +4542,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -4569,7 +4675,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -4589,7 +4696,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -4716,7 +4824,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -4736,7 +4845,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -4756,7 +4866,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -4776,7 +4887,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -4796,7 +4908,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -4816,7 +4929,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -4836,7 +4950,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -4856,7 +4971,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -4876,7 +4992,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -4896,7 +5013,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -4979,7 +5097,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -5118,7 +5237,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -5138,7 +5258,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5191,7 +5312,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -5211,7 +5333,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5231,7 +5354,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5251,7 +5375,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5276,7 +5401,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -5322,7 +5448,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5342,7 +5469,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5362,7 +5490,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5382,7 +5511,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5409,7 +5539,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -5429,7 +5560,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5449,7 +5581,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5469,7 +5602,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5494,7 +5628,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -5519,7 +5654,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -5539,7 +5675,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5559,7 +5696,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5579,7 +5717,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5599,7 +5738,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5619,7 +5759,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5639,7 +5780,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5659,7 +5801,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5679,7 +5822,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5699,7 +5843,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5719,7 +5864,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5739,7 +5885,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5759,7 +5906,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5779,7 +5927,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -5890,7 +6039,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -5917,7 +6067,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -6025,7 +6176,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -6079,7 +6231,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -6105,7 +6258,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -6182,7 +6336,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -6202,7 +6357,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -6222,7 +6378,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -6242,7 +6399,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -6262,7 +6420,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -6282,7 +6441,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -6302,7 +6462,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -6436,7 +6597,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -6456,7 +6618,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -6476,7 +6639,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -6501,7 +6665,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -6526,7 +6691,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -6572,7 +6738,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -6592,7 +6759,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -6612,7 +6780,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -6637,7 +6806,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -6662,7 +6832,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -6687,7 +6858,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -6707,7 +6879,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -6727,7 +6900,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -6839,7 +7013,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -6866,7 +7041,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -6893,7 +7069,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -6913,7 +7090,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -6933,7 +7111,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -6953,7 +7132,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -6973,7 +7153,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -6993,7 +7174,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -7013,7 +7195,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -7033,7 +7216,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -7053,7 +7237,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -7188,7 +7373,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -7213,7 +7399,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -7238,7 +7425,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -7265,7 +7453,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -7292,7 +7481,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -7584,7 +7774,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -7604,7 +7795,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -7629,7 +7821,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -7654,7 +7847,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -7674,7 +7868,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -7694,7 +7889,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -7714,7 +7910,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -7734,7 +7931,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -7754,7 +7952,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -7774,7 +7973,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -7794,7 +7994,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -7814,7 +8015,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -7834,7 +8036,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -7854,7 +8057,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -7874,7 +8078,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -7894,7 +8099,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -7914,7 +8120,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -7934,7 +8141,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -7954,7 +8162,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -7974,7 +8183,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -7994,7 +8204,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -8014,7 +8225,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -8034,7 +8246,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -8054,7 +8267,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -8074,7 +8288,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -8094,7 +8309,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -8114,7 +8330,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -8134,7 +8351,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -8154,7 +8372,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -8174,7 +8393,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -8194,7 +8414,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -8219,7 +8440,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -8244,7 +8466,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -8269,7 +8492,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -8294,7 +8518,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -8319,7 +8544,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -8451,7 +8677,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -8471,7 +8698,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -8491,7 +8719,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -8511,7 +8740,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -8531,7 +8761,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -8551,7 +8782,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -8571,7 +8803,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -8591,7 +8824,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -8611,7 +8845,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -8631,7 +8866,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -8651,7 +8887,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -8671,7 +8908,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -8691,7 +8929,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -8711,7 +8950,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -8731,7 +8971,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -8893,7 +9134,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -8920,7 +9162,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -8947,7 +9190,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -9318,7 +9562,8 @@
     "capability_eval_group": "adversarial",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
@@ -9338,7 +9583,8 @@
     "capability_eval_group": "adversarial",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
@@ -9358,7 +9604,8 @@
     "capability_eval_group": "adversarial",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
@@ -9378,7 +9625,8 @@
     "capability_eval_group": "adversarial",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
@@ -9398,7 +9646,8 @@
     "capability_eval_group": "adversarial",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
@@ -9418,7 +9667,8 @@
     "capability_eval_group": "adversarial",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
@@ -9438,7 +9688,8 @@
     "capability_eval_group": "adversarial",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
@@ -9458,7 +9709,8 @@
     "capability_eval_group": "adversarial",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
@@ -9535,7 +9787,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -9555,7 +9808,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -9575,7 +9829,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -9595,7 +9850,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -9615,7 +9871,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -9635,7 +9892,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -9655,7 +9913,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -9675,7 +9934,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -9695,7 +9955,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -9715,7 +9976,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -9735,7 +9997,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -9755,7 +10018,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -9860,7 +10124,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -9907,7 +10172,8 @@
     "expected_package_id": "direct",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -9954,7 +10220,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -9974,7 +10241,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -9994,7 +10262,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -10118,7 +10387,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -10138,7 +10408,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -10158,7 +10429,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -10178,7 +10450,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -10198,7 +10471,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -10218,7 +10492,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -10238,7 +10513,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -10258,7 +10534,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -10332,7 +10609,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -10352,7 +10630,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -10426,7 +10705,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -10446,7 +10726,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -10574,7 +10855,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -10594,7 +10876,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -10614,7 +10897,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -10634,7 +10918,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -10762,7 +11047,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -10782,7 +11068,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -10802,7 +11089,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -10822,7 +11110,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -10842,7 +11131,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -10862,7 +11152,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -10889,7 +11180,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -10916,7 +11208,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -10996,7 +11289,8 @@
     "expected_prompt_section_ids": [
       "app_identity",
       "tool_failure_policy",
-      "tool_usage_contract"
+      "tool_usage_contract",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -11016,7 +11310,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11036,7 +11331,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11056,7 +11352,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11076,7 +11373,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11096,7 +11394,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11196,7 +11495,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11216,7 +11516,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11243,7 +11544,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -11270,7 +11572,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -11290,7 +11593,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11310,7 +11614,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11337,7 +11642,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -11364,7 +11670,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -11384,7 +11691,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11404,7 +11712,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11424,7 +11733,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11444,7 +11754,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11464,7 +11775,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11484,7 +11796,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11504,7 +11817,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11524,7 +11838,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11544,7 +11859,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11616,7 +11932,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11636,7 +11953,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11656,7 +11974,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11676,7 +11995,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11696,7 +12016,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11716,7 +12037,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11736,7 +12058,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11756,7 +12079,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -11933,7 +12257,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -11989,7 +12314,8 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control"
+      "agent_plan_control",
+      "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
@@ -12008,7 +12334,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [
@@ -12027,7 +12354,8 @@
     "expected_package_id": "clarification_only",
     "expected_announced_tools": [],
     "expected_prompt_section_ids": [
-      "app_identity"
+      "app_identity",
+      "current_date"
     ],
     "expected_resolution_mode": "clarification",
     "required_capability_reason_codes": [

@@ -193,7 +193,8 @@ class TrajectoryCapabilityResolution(BaseModel):
             reason_codes=self.reason_codes,
             external_tool_names=self.external_tool_names,
             effective_plan_mode=self.effective_plan_mode,
-            include_current_date=self.include_current_date,
+            # 当前日期已改为一律注入，历史 Run 的 False 仍是当时的真实记录，不回溯校验。
+            include_current_date=None,
             network_boundary_required=self.network_boundary_required,
             skill_resolution=self.skill_resolution,
         )

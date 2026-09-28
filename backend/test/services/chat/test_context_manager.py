@@ -308,7 +308,7 @@ class ContextManagerTests(unittest.IsolatedAsyncioTestCase):
                 capabilities={"functionCalling": True, "searchCapable": True},
                 original_message="总结 https://example.com",
                 # 预读只在能力包公告 url_read 时发生；#132 后由模型分类决定，这里固定分类结果。
-                classify_fn=lambda **_kwargs: _CandidateRoute("url_read", "high", ("explicit_url_read",), False),
+                classify_fn=lambda **_kwargs: _CandidateRoute("url_read", "high", ("explicit_url_read",), True),
             ),
             preprocess_url_in_message_fn=preprocess_url,
         )

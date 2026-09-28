@@ -7,6 +7,7 @@ from app.services.stream.agent_task_policy import AgentTaskPolicy
 from app.services.stream.run_capability_router import (
     RunCapabilityResolution,
     _CandidateRoute,
+    classify_capability_request,
     resolve_run_capability_route,
     serialize_capability_resolution,
 )
@@ -66,12 +67,25 @@ def _resolve(
     )
 
 
+def test_new_routes_always_carry_current_date():
+    # 当前日期一律注入（#132）：新路由漏掉日期直接判为契约违规，而不是静默让模型按训练截止时间作答。
+    with pytest.raises(ValueError, match="当前日期"):
+        _resolve(
+            "你好",
+            classify_fn=lambda **_kwargs: _CandidateRoute("direct", "high", ("direct_greeting",), False),
+        )
+
+    fallback = _resolve("你好", classify_fn=classify_capability_request)
+    assert fallback.package_id == "clarification_only"
+    assert fallback.include_current_date is True
+
+
 def test_classifier_receives_original_case_and_line_breaks():
     seen = {}
 
     def classify(**kwargs):
         seen.update(kwargs)
-        return _CandidateRoute("direct", "high", ("stable_knowledge_question",), False)
+        return _CandidateRoute("direct", "high", ("stable_knowledge_question",), True)
 
     _resolve("  FastAPI 里依赖注入怎么写？\n给个例子  ", classify_fn=classify)
 
@@ -254,7 +268,7 @@ def test_knowledge_grounded_marks_blocked_fresh_request_with_date_and_boundary()
 
 
 def test_explicit_plan_mode_overrides_package_auto_policy():
-    candidate = _CandidateRoute("direct", "high", ("stable_knowledge_question",), False)
+    candidate = _CandidateRoute("direct", "high", ("stable_knowledge_question",), True)
     forced_on = _resolve("你好", requested_plan_mode="on", classify_fn=lambda **_: candidate)
     forced_off = _resolve(
         "从上海虹桥站到外滩怎么坐公共交通？",
@@ -269,7 +283,7 @@ def test_explicit_plan_mode_overrides_package_auto_policy():
 
 
 def test_topic_switch_does_not_inherit_old_route_capability():
-    candidate = _CandidateRoute("transform", "high", ("text_transform_request",), False)
+    candidate = _CandidateRoute("transform", "high", ("text_transform_request",), True)
     route = _resolve(
         "把 See you tomorrow 翻译成中文",
         task_context_messages=[

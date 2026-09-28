@@ -694,7 +694,8 @@ class RunCapabilityBehaviorEvalIntegrationTests(unittest.IsolatedAsyncioTestCase
                     model_package,
                     model_confidence,
                     reason_codes,
-                    "current_date" in sample["expected_prompt_section_ids"],
+                    # 当前日期一律注入（#132），不随能力包变化。
+                    True,
                     resolution_mode=("clarification" if model_package == "clarification_only" else "routed"),
                     # 多工具包与 mcp_explicit 要求候选自带工具集合，模型输出的正是这个。
                     # 取 fixture 声明的期望工具，不让 router 再从文本推断。
