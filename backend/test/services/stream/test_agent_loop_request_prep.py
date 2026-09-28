@@ -41,29 +41,22 @@ def _model_candidate(
     不由测试自选。
     """
 
-    from app.utils.run_capability_contract import (
-        _PACKAGE_CONFIDENCE_OPTIONS,
-        _PACKAGE_REASON_CODE_OPTIONS,
-        _PACKAGE_RESOLUTION_MODE,
-    )
+    from app.utils.run_capability_contract import CAPABILITY_PACKAGES
 
-    reason_codes = sorted(_PACKAGE_REASON_CODE_OPTIONS[package_id])[0]
-    confidence = sorted(_PACKAGE_CONFIDENCE_OPTIONS[package_id])[0]
+    spec = CAPABILITY_PACKAGES[package_id]
+    reason_codes = sorted(spec.reason_code_options)[0]
+    confidence = sorted(spec.confidence_options)[0]
     if include_current_date is None:
-        # 与模型路径一致：日期标志按包取自 _ROUTE_DETAILS，不由测试自选。
-        from app.services.stream.run_capability_model_classifier import _ROUTE_DETAILS
-
-        # MCP 包由模型返回，并按 _ROUTE_DETAILS 保持不注入日期。
-        details = _ROUTE_DETAILS.get(package_id)
-        include_current_date = bool(details[2]) if details else False
-    if required_primary_tool_name is None and package_id in {"mobility_intercity", "mixed_itinerary"}:
+        # 日期标志按包取自能力包注册表，不由测试自选；可变日期的包与非模型包取 False。
+        include_current_date = spec.route_include_current_date(False) if spec.model_selectable else False
+    if required_primary_tool_name is None and spec.requires_primary_tool:
         required_primary_tool_name = (explicit_tool_names or ("route_compare",))[0]
     return _CandidateRoute(
         package_id,
         confidence,
         reason_codes,
         include_current_date,
-        resolution_mode=_PACKAGE_RESOLUTION_MODE[package_id],
+        resolution_mode=spec.resolution_mode,
         explicit_tool_names=explicit_tool_names,
         required_primary_tool_name=required_primary_tool_name,
     )

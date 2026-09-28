@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serial
 from app.utils.run_capability_contract import (
     CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER,
     CAPABILITY_CONTROL_TOOL_NAMES,
+    CAPABILITY_PRIMARY_TOOL_PACKAGES,
     validate_capability_resolution_semantics,
 )
 
@@ -204,7 +205,7 @@ class TrajectoryCapabilityResolution(BaseModel):
             if set(denied).intersection(self.external_tool_names):
                 raise ValueError("能力路由禁用工具不得同时公告")
         if self.required_primary_tool_name is not None:
-            if self.package_id not in {"mobility_intercity", "mixed_itinerary"}:
+            if self.package_id not in CAPABILITY_PRIMARY_TOOL_PACKAGES:
                 raise ValueError("非跨产品能力包不得指定主工具")
             if self.required_primary_tool_name not in self.external_tool_names:
                 raise ValueError("跨产品主工具必须已公告")
