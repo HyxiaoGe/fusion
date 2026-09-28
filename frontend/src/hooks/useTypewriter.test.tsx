@@ -188,6 +188,46 @@ describe('useTypewriter', () => {
     expect(dispatchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('网络已结束、动画没播完时卸载，直接收尾且不再派发', () => {
+    // 发送流的完成挂在 catchUp 上。此前卸载只停表，catchUp 永远不触发，
+    // 切走再切回来页面停在半截回答、光标一直闪。
+    testSlot().totalTextLength = 1_000;
+    const catchUp = vi.fn();
+    const { result, unmount } = renderHook(() => useTypewriter());
+
+    act(() => {
+      result.current.start(CONV, catchUp);
+      result.current.markNetworkDone();
+      vi.advanceTimersByTime(30);
+    });
+    expect(catchUp).not.toHaveBeenCalled();
+    const dispatched = dispatchMock.mock.calls.length;
+
+    unmount();
+    expect(catchUp).toHaveBeenCalledTimes(1);
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(dispatchMock).toHaveBeenCalledTimes(dispatched);
+    expect(catchUp).toHaveBeenCalledTimes(1);
+  });
+
+  it('网络未结束时卸载不收尾，之后 network done 直接收尾', () => {
+    testSlot().totalTextLength = 1_000;
+    const catchUp = vi.fn();
+    const { result, unmount } = renderHook(() => useTypewriter());
+
+    act(() => {
+      result.current.start(CONV, catchUp);
+      vi.advanceTimersByTime(30);
+    });
+    unmount();
+    expect(catchUp).not.toHaveBeenCalled();
+
+    result.current.markNetworkDone();
+    expect(catchUp).toHaveBeenCalledTimes(1);
+  });
+
   it('stop 立即停止推进并清除 catchUp', () => {
     testSlot().totalTextLength = 1_000;
     const catchUp = vi.fn();

@@ -339,6 +339,7 @@ vi.mock('@/redux/slices/streamSlice', () => ({
   appendTextDelta: vi.fn((payload?: unknown) => ({ type: 'stream/appendTextDelta', payload })),
   appendThinkingDelta: vi.fn((payload?: unknown) => ({ type: 'stream/appendThinkingDelta', payload })),
   completeThinkingPhase: vi.fn((payload?: unknown) => ({ type: 'stream/completeThinkingPhase', payload })),
+  clearCurrentRun: vi.fn((payload?: unknown) => ({ type: 'stream/clearCurrentRun', payload })),
   endStream: vi.fn((payload?: unknown) => ({ type: 'stream/endStream', payload })),
   setRunStopConfirmation: vi.fn((payload?: unknown) => ({ type: 'stream/setRunStopConfirmation', payload })),
   setStreamError: vi.fn((payload?: unknown) => ({ type: 'stream/setStreamError', payload })),
@@ -1017,6 +1018,7 @@ describe('ChatPage 会话切换体验', () => {
     storeStreamState.isStreaming = true;
     storeStreamState.conversationId = 'chat-a';
     storeStreamState.messageId = 'assistant-1';
+    registerStreamController({ conversationId: 'chat-a', kind: 'send', controller: new AbortController() });
     fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1' });
 
     render(<ChatPage />);
@@ -1024,6 +1026,79 @@ describe('ChatPage 会话切换体验', () => {
     await new Promise((resolve) => setTimeout(resolve, 120));
     expect(fetchStreamStatusMock).not.toHaveBeenCalled();
     expect(reconnectStreamMock).not.toHaveBeenCalled();
+  });
+
+  it('槽位残留生成中但已没有流在驱动时，切回来重新从头续流', async () => {
+    // 切走时页面卸载，恢复流被 abort 并注销，槽位却仍是 isStreaming。
+    // 此前切回来只看 isStreaming 就跳过，页面停在「正在整理答复」直到整页刷新。
+    conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
+    hydrationById.set('chat-a', { view: 'ready' });
+    streamState.isStreaming = true;
+    streamState.conversationId = 'chat-a';
+    storeStreamState.isStreaming = true;
+    storeStreamState.conversationId = 'chat-a';
+    storeStreamState.messageId = 'assistant-1';
+    fetchStreamStatusMock.mockResolvedValue({ status: 'streaming', message_id: 'assistant-1' });
+    reconnectStreamMock.mockImplementation(async (_chatId, _cursor, callbacks) => {
+      callbacks.onDone();
+      return { entryId: '9-0' };
+    });
+
+    render(<ChatPage />);
+
+    await waitFor(() => expect(reconnectStreamMock).toHaveBeenCalledTimes(1));
+    expect(reconnectStreamMock.mock.calls[0][0]).toBe('chat-a');
+    expect(reconnectStreamMock.mock.calls[0][1]).toBe('0');
+  });
+
+  it('已中止的 controller 不算在生成：残留槽位仍会检查流状态', async () => {
+    conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
+    hydrationById.set('chat-a', { view: 'ready' });
+    storeStreamState.isStreaming = true;
+    storeStreamState.conversationId = 'chat-a';
+    storeStreamState.messageId = 'assistant-1';
+    const aborted = new AbortController();
+    aborted.abort();
+    registerStreamController({ conversationId: 'chat-a', kind: 'recovery', controller: aborted });
+
+    render(<ChatPage />);
+
+    await waitFor(() => expect(fetchStreamStatusMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('服务端已结束而本地槽位残留生成中时，收掉槽位并重新拉取会话', async () => {
+    conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
+    hydrationById.set('chat-a', { view: 'ready' });
+    storeStreamState.isStreaming = true;
+    storeStreamState.conversationId = 'chat-a';
+    storeStreamState.messageId = 'assistant-1';
+    fetchStreamStatusMock.mockResolvedValue({ status: 'not_found' });
+
+    render(<ChatPage />);
+
+    await waitFor(() => expect(retryHydrationMock).toHaveBeenCalledTimes(1));
+    expect(dispatchMock).toHaveBeenCalledWith({
+      type: 'stream/endStream',
+      payload: { conversationId: 'chat-a', messageId: 'assistant-1' },
+    });
+    expect(dispatchMock).toHaveBeenCalledWith({
+      type: 'stream/clearCurrentRun',
+      payload: { conversationId: 'chat-a' },
+    });
+    expect(reconnectStreamMock).not.toHaveBeenCalled();
+  });
+
+  it('没有残留槽位且服务端无进行中的流时，不做多余收尾', async () => {
+    conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
+    hydrationById.set('chat-a', { view: 'ready' });
+    fetchStreamStatusMock.mockResolvedValue({ status: 'not_found' });
+
+    render(<ChatPage />);
+
+    await waitFor(() => expect(fetchStreamStatusMock).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(retryHydrationMock).not.toHaveBeenCalled();
+    expect(dispatchMock.mock.calls.some(([action]) => action?.type === 'stream/clearCurrentRun')).toBe(false);
   });
 
   it('恢复流把推荐 pending 事件绑定到当前 assistant', async () => {
