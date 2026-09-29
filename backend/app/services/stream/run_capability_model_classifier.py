@@ -35,10 +35,22 @@ _HARD_TIMEOUT_SECONDS = 1.5
 _HARD_MAX_INPUT_TOKENS = 2000
 _HARD_MAX_OUTPUT_TOKENS = 128
 _HARD_CONTEXT_TURNS = 1
+# 分类器总时限（含一次修正重试），Runner 的 call-config 硬 deadline 与此一致。
+CLASSIFIER_TOTAL_DEADLINE_SECONDS = 3.0
+# 首次输出不合契约时最多再修正一次。
+_MAX_MODEL_ATTEMPTS = 2
+# 给 deadline 之后的组装步骤留余量，剩余预算不足就不再重试。
+_REPAIR_RETRY_MARGIN_SECONDS = 0.3
+_REPAIR_RETRY_MIN_SECONDS = 0.5
+_INVALID_ROUTE_FEEDBACK = (
+    "上一次输出的能力包与工具组合不符合系统说明中的规则（能力包不存在、工具不属于该包、"
+    "工具不可用或禁用列表不合法）。请重新按系统说明判断，只输出一个 JSON 对象。"
+)
 
 
 class _ModelRouteResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # 模型偶尔会把 response_format 的 {"type": "json_object"} 抄进输出；决定路由的字段仍逐项校验，无关字段忽略。
+    model_config = ConfigDict(extra="ignore")
 
     package_id: str
     explicit_tool_names: list[str] = Field()
@@ -244,30 +256,69 @@ def classify_capability_request_with_model(
             observation_gate=deadline_gate,
         )
 
-    try:
-        completion_kwargs = {
-            "model": f"litellm_proxy/{settings.RUN_CAPABILITY_CLASSIFIER_MODEL}",
-            "messages": model_messages,
-            "timeout": limits.timeout_seconds,
-            "num_retries": 0,
-            "max_tokens": limits.max_output_tokens,
-            "temperature": 0,
-            "reasoning_effort": "none",
-            "response_format": {"type": "json_object"},
-            **merge_litellm_kwargs(
-                "run_capability_classifier",
-                {
-                    "api_key": settings.LITELLM_API_KEY,
-                    "api_base": settings.LITELLM_PROXY_URL,
-                },
-            ),
-        }
-        if deadline_gate is not None and not deadline_gate.try_begin_model_call():
-            return _deadline_fail_closed(
+    completion_kwargs = {
+        "model": f"litellm_proxy/{settings.RUN_CAPABILITY_CLASSIFIER_MODEL}",
+        "timeout": limits.timeout_seconds,
+        "num_retries": 0,
+        "max_tokens": limits.max_output_tokens,
+        "temperature": 0,
+        "reasoning_effort": "none",
+        "response_format": {"type": "json_object"},
+        **merge_litellm_kwargs(
+            "run_capability_classifier",
+            {
+                "api_key": settings.LITELLM_API_KEY,
+                "api_base": settings.LITELLM_PROXY_URL,
+            },
+        ),
+    }
+    attempt_messages = model_messages
+    for attempt in range(_MAX_MODEL_ATTEMPTS):
+        content: str | None = None
+        route: _CandidateRoute | None = None
+        try:
+            if deadline_gate is not None and not deadline_gate.try_begin_model_call():
+                return _deadline_fail_closed(
+                    started_at,
+                    result_callback=result_callback,
+                    observation_gate=deadline_gate,
+                    suppress_observation=suppress_deadline_observation,
+                )
+            if _deadline_expired(deadline_event, deadline_gate):
+                return _deadline_fail_closed(
+                    started_at,
+                    result_callback=result_callback,
+                    observation_gate=deadline_gate,
+                    suppress_observation=suppress_deadline_observation,
+                )
+            response = litellm.completion(**{**completion_kwargs, "messages": attempt_messages})
+            content = _response_content(response)
+            route = _parse_model_route(
+                response,
+                tools,
+                mcp_tool_catalog=mcp_tool_catalog,
+                # 日期判据已删除（#132）：不再判断“要不要给今天日期”，一律注入。
+                include_current_date=True,
+            )
+            error_type = None if route is not None else "invalid_response"
+            feedback = None if route is not None else _INVALID_ROUTE_FEEDBACK
+        except ValidationError as exc:
+            error_type = "validation_error"
+            feedback = _validation_feedback(exc)
+        except (Exception, ValueError, TypeError) as exc:
+            if _deadline_expired(deadline_event, deadline_gate):
+                return _deadline_fail_closed(
+                    started_at,
+                    result_callback=result_callback,
+                    observation_gate=deadline_gate,
+                    suppress_observation=suppress_deadline_observation,
+                )
+            # 调用本身失败（超时/代理不可用）不是输出问题，回传错误也修不好，直接 fail-closed。
+            return _fail_closed(
+                _error_type(exc),
                 started_at,
                 result_callback=result_callback,
                 observation_gate=deadline_gate,
-                suppress_observation=suppress_deadline_observation,
             )
         if _deadline_expired(deadline_event, deadline_gate):
             return _deadline_fail_closed(
@@ -276,50 +327,32 @@ def classify_capability_request_with_model(
                 observation_gate=deadline_gate,
                 suppress_observation=suppress_deadline_observation,
             )
-        response = litellm.completion(**completion_kwargs)
-        route = _parse_model_route(
-            response,
-            tools,
-            mcp_tool_catalog=mcp_tool_catalog,
-            # 日期判据已删除（#132）：不再判断“要不要给今天日期”，一律注入。
-            include_current_date=True,
-        )
-    except (Exception, ValidationError, ValueError, TypeError) as exc:
-        if _deadline_expired(deadline_event, deadline_gate):
-            return _deadline_fail_closed(
+        if route is not None:
+            _record_result(
+                "model",
+                route.package_id,
                 started_at,
                 result_callback=result_callback,
                 observation_gate=deadline_gate,
-                suppress_observation=suppress_deadline_observation,
             )
-        return _fail_closed(
-            _error_type(exc),
-            started_at,
-            result_callback=result_callback,
-            observation_gate=deadline_gate,
-        )
-    if _deadline_expired(deadline_event, deadline_gate):
-        return _deadline_fail_closed(
-            started_at,
-            result_callback=result_callback,
-            observation_gate=deadline_gate,
-            suppress_observation=suppress_deadline_observation,
-        )
-    if route is None:
-        return _fail_closed(
-            "invalid_response",
-            started_at,
-            result_callback=result_callback,
-            observation_gate=deadline_gate,
-        )
-    _record_result(
-        "model",
-        route.package_id,
-        started_at,
-        result_callback=result_callback,
-        observation_gate=deadline_gate,
-    )
-    return route
+            return route
+        retry_timeout = _repair_retry_timeout(started_at, limits)
+        if attempt + 1 >= _MAX_MODEL_ATTEMPTS or content is None or retry_timeout is None:
+            return _fail_closed(
+                error_type or "invalid_response",
+                started_at,
+                result_callback=result_callback,
+                observation_gate=deadline_gate,
+            )
+        # 输出不合契约：把结构化错误连同原输出回传，让模型修正后再答一次。
+        logger.info("run_capability_classifier repair_retry first_error=%s", error_type)
+        completion_kwargs["timeout"] = retry_timeout
+        attempt_messages = [
+            *model_messages,
+            {"role": "assistant", "content": content},
+            {"role": "user", "content": feedback},
+        ]
+    raise AssertionError("unreachable")
 
 
 def _build_messages(
@@ -641,6 +674,21 @@ def _same_service_aliases(
         if entry.service_id == service_id and entry.alias != chosen and entry.alias in available_tools
     ]
     return (chosen, *siblings)[:CAPABILITY_MAX_MCP_ALIASES]
+
+
+def _repair_retry_timeout(started_at: float, limits: _ClassifierLimits) -> float | None:
+    remaining = CLASSIFIER_TOTAL_DEADLINE_SECONDS - (perf_counter() - started_at) - _REPAIR_RETRY_MARGIN_SECONDS
+    if remaining < _REPAIR_RETRY_MIN_SECONDS:
+        return None
+    return min(limits.timeout_seconds, remaining)
+
+
+def _validation_feedback(error: ValidationError) -> str:
+    problems = "; ".join(
+        f"{'.'.join(str(part) for part in item['loc']) or '(root)'}: {item['msg']}"
+        for item in error.errors(include_url=False)[:5]
+    )
+    return f"上一次输出没有通过 JSON 校验：{problems}。请修正后按系统说明只输出一个 JSON 对象。"
 
 
 def _response_content(response: object) -> str:

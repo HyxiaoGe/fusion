@@ -111,7 +111,8 @@ def test_default_mode_runtime_classifier_failure_blocks_all_probe_output(monkeyp
     assert "类别" not in captured.out
     assert "OK " not in captured.out
     assert "MISS" not in captured.out
-    completion.assert_called_once()
+    # 调用失败不重试；输出不合契约会带错误修正重试一次。
+    assert completion.call_count == (1 if isinstance(completion_result, BaseException) else 2)
 
 
 @pytest.mark.parametrize("available_tools", [None, [], ["mcp_notion_search"]])
