@@ -88,7 +88,10 @@
   padding-block: 1rem;
 }
 
-.methodLens { border-radius: 17px; }
+.methodLens.methodLens {
+  border-radius: 17px;
+  transition: transform 0.34s cubic-bezier(0.18, 0.82, 0.18, 1.08), opacity 0.18s ease;
+}
 
 .methodButton.methodButton {
   position: relative;
