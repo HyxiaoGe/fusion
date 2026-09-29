@@ -46,6 +46,11 @@ const HighlightedText: React.FC<{ text: string; query: string }> = ({ text, quer
 };
 
 const PREFETCH_INTENT_DELAY_MS = 150;
+const ACTIVE_CHAT_CLASSES = [
+  "relative border-primary/15 bg-gradient-to-br from-background/95 via-background/65 to-primary/[0.08] backdrop-blur-md",
+  "shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_4px_14px_-8px_rgba(0,0,0,0.18)] dark:border-white/15 dark:from-white/[0.12] dark:via-white/[0.06] dark:to-primary/[0.12] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_4px_14px_-8px_rgba(0,0,0,0.6)]",
+  "before:absolute before:bottom-2 before:left-1 before:top-2 before:w-0.5 before:rounded-full before:bg-primary",
+].join(" ");
 
 const ChatItem: React.FC<ChatItemProps> = ({
   chat,
@@ -87,10 +92,11 @@ const ChatItem: React.FC<ChatItemProps> = ({
   return (
     <div
       data-conversation-id={chat.id}
+      aria-current={isActive ? "page" : undefined}
       tabIndex={0}
       className={`group flex min-h-14 cursor-pointer items-center rounded-xl border px-2.5 py-2 text-sm transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
         isActive
-          ? "relative border-border/75 bg-background/95 shadow-fdv2-xs before:absolute before:bottom-2 before:left-0 before:top-2 before:w-0.5 before:rounded-full before:bg-primary"
+          ? ACTIVE_CHAT_CLASSES
           : "border-transparent hover:border-border/60 hover:bg-background/75 hover:text-foreground"
       }`}
       onPointerEnter={(event) => {
