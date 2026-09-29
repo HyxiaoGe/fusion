@@ -345,15 +345,25 @@ def classify_capability_request(
 
     字面层曾在模型之前按正则预选能力包，判错不可恢复；实测显示模型层自身即可
     承担该判断，而字面判据的主要作用是掩盖模型侧的既有缺陷。本函数只保留模型
-    不可用时的 fail-closed 落点，不再做任何语义预选。
+    不可用时的兜底落点，不再做任何语义预选。
+    """
+
+    return classifier_unavailable_route()
+
+
+def classifier_unavailable_route() -> _CandidateRoute:
+    """分类器失败（超时、调用出错、输出不合契约、配置缺失）时的统一兜底。
+
+    失败是系统自己的问题，不代表用户没说清楚，所以不再退回 clarification_only 反问用户。
+    改为开放网页搜索与读取、由回答模型按需调用；用户明确不许联网时，由回答模型的
+    兜底提示词约束它不调用工具、直接基于已有知识作答（服务端此时无从得知该限制）。
     """
 
     return _CandidateRoute(
-        "clarification_only",
-        "low",
-        ("insufficient_capability_signal",),
-        True,
-        resolution_mode="clarification",
+        package_id="fresh_web",
+        confidence="low",
+        reason_codes=("classifier_unavailable",),
+        include_current_date=True,
     )
 
 

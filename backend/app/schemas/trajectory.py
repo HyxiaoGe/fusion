@@ -66,6 +66,7 @@ CapabilityReasonCode = Literal[
     "required_skill_unavailable",
     "explicit_authorized_tool_alias",
     "insufficient_capability_signal",
+    "classifier_unavailable",
 ]
 
 

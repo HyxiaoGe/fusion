@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import threading
 from collections.abc import Callable, Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass
 from math import isfinite
 from time import perf_counter
@@ -18,7 +19,7 @@ from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.core.config import settings
 from app.core.logger import app_logger as logger
 from app.core.prompt_snapshot import current_prompt_snapshot
-from app.services.stream.run_capability_router import _CandidateRoute
+from app.services.stream.run_capability_router import _CandidateRoute, classifier_unavailable_route
 from app.utils.run_capability_contract import (
     CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER,
     CAPABILITY_MAX_MCP_ALIASES,
@@ -32,16 +33,27 @@ from app.utils.run_capability_contract import (
 ClassifierResultCallback = Callable[[str, str | None], None]
 
 _HARD_TIMEOUT_SECONDS = 1.5
-_HARD_MAX_INPUT_TOKENS = 2000
+# 分类器系统提示词自身约 1550 token；输入长到 12k token 时 deepseek-chat 仍在 1s 内返回（dev 实测），
+# 上限只防极端粘贴，超出时截断当前消息而不是判失败。
+_HARD_MAX_INPUT_TOKENS = 16000
 _HARD_MAX_OUTPUT_TOKENS = 128
 _HARD_CONTEXT_TURNS = 1
-# 分类器总时限（含一次修正重试），Runner 的 call-config 硬 deadline 与此一致。
+# 分类器总时限（含一次修正重试或换备用模型），Runner 的 call-config 硬 deadline 与此一致。
 CLASSIFIER_TOTAL_DEADLINE_SECONDS = 3.0
-# 首次输出不合契约时最多再修正一次。
+# 首次输出不合契约时修正一次，或首次调用失败时换备用模型一次，两者共用这一次机会。
 _MAX_MODEL_ATTEMPTS = 2
 # 给 deadline 之后的组装步骤留余量，剩余预算不足就不再重试。
 _REPAIR_RETRY_MARGIN_SECONDS = 0.3
 _REPAIR_RETRY_MIN_SECONDS = 0.5
+# 截断超长消息时保留开头与结尾：用户的要求通常在这两处，中间多是粘贴的材料。
+_TRUNCATION_MAX_ROUNDS = 5
+_TRUNCATION_MARKER = "\n\n[……中间内容过长，已省略……]\n\n"
+# 各模型关闭推理的参数互不兼容：deepseek 走 reasoning_effort，千问经 OpenAI 兼容接口
+# 只认 enable_thinking（传 reasoning_effort 会被代理判为不支持的参数直接 400）。
+_DEFAULT_NON_REASONING_KWARGS: dict = {"reasoning_effort": "none"}
+_NON_REASONING_KWARGS_BY_MODEL: dict[str, dict] = {
+    "qwen3.8-flash": {"extra_body": {"enable_thinking": False}},
+}
 _INVALID_ROUTE_FEEDBACK = (
     "上一次输出的能力包与工具组合不符合系统说明中的规则（能力包不存在、工具不属于该包、"
     "工具不可用或禁用列表不合法）。请重新按系统说明判断，只输出一个 JSON 对象。"
@@ -148,7 +160,7 @@ class ClassifierDeadlineGate:
         _emit_result(result_callback, "failed", "deadline_exceeded")
         _log_result(
             "failed",
-            "clarification_only",
+            classifier_unavailable_route().package_id,
             self._started_at,
             error_type="deadline_exceeded",
             ended_at=self._clock(),
@@ -256,22 +268,9 @@ def classify_capability_request_with_model(
             observation_gate=deadline_gate,
         )
 
-    completion_kwargs = {
-        "model": f"litellm_proxy/{settings.RUN_CAPABILITY_CLASSIFIER_MODEL}",
-        "timeout": limits.timeout_seconds,
-        "num_retries": 0,
-        "max_tokens": limits.max_output_tokens,
-        "temperature": 0,
-        "reasoning_effort": "none",
-        "response_format": {"type": "json_object"},
-        **merge_litellm_kwargs(
-            "run_capability_classifier",
-            {
-                "api_key": settings.LITELLM_API_KEY,
-                "api_base": settings.LITELLM_PROXY_URL,
-            },
-        ),
-    }
+    models = _classifier_models()
+    model_index = 0
+    completion_kwargs = _completion_kwargs(models[model_index], limits, limits.timeout_seconds)
     attempt_messages = model_messages
     for attempt in range(_MAX_MODEL_ATTEMPTS):
         content: str | None = None
@@ -313,7 +312,19 @@ def classify_capability_request_with_model(
                     observation_gate=deadline_gate,
                     suppress_observation=suppress_deadline_observation,
                 )
-            # 调用本身失败（超时/代理不可用）不是输出问题，回传错误也修不好，直接 fail-closed。
+            # 调用本身失败（超时/代理不可用）不是输出问题，回传错误也修不好；
+            # 换另一家上游的备用模型在剩余时间里再分一次，仍不行才兜底。
+            fallback_timeout = _retry_timeout(started_at, limits)
+            if model_index + 1 < len(models) and attempt + 1 < _MAX_MODEL_ATTEMPTS and fallback_timeout is not None:
+                logger.info(
+                    "run_capability_classifier fallback_model model=%s first_error=%s",
+                    models[model_index + 1],
+                    _error_type(exc),
+                )
+                model_index += 1
+                completion_kwargs = _completion_kwargs(models[model_index], limits, fallback_timeout)
+                attempt_messages = model_messages
+                continue
             return _fail_closed(
                 _error_type(exc),
                 started_at,
@@ -336,7 +347,7 @@ def classify_capability_request_with_model(
                 observation_gate=deadline_gate,
             )
             return route
-        retry_timeout = _repair_retry_timeout(started_at, limits)
+        retry_timeout = _retry_timeout(started_at, limits)
         if attempt + 1 >= _MAX_MODEL_ATTEMPTS or content is None or retry_timeout is None:
             return _fail_closed(
                 error_type or "invalid_response",
@@ -389,13 +400,57 @@ def _build_messages(
         return None
     if _within_input_budget(messages, token_counter_fn, effective_limits.max_input_tokens):
         return messages
-    if not history:
-        return None
-    messages = [system_message, {"role": "user", "content": current_message}]
+    if history:
+        messages = [system_message, {"role": "user", "content": current_message}]
+        if not _can_begin_blocking_work(deadline_event, deadline_gate):
+            return None
+        if _within_input_budget(messages, token_counter_fn, effective_limits.max_input_tokens):
+            return messages
+    return _truncate_current_message(
+        system_message,
+        current_message,
+        token_counter_fn,
+        effective_limits.max_input_tokens,
+        deadline_event=deadline_event,
+        deadline_gate=deadline_gate,
+    )
+
+
+def _truncate_current_message(
+    system_message: dict[str, str],
+    current_message: str,
+    token_counter_fn: Callable[..., int] | None,
+    max_input_tokens: int,
+    *,
+    deadline_event: threading.Event | None,
+    deadline_gate: ClassifierDeadlineGate | None,
+) -> list[dict[str, str]] | None:
+    """只为分类截断当前消息：保留开头和结尾，回答模型仍拿到完整原文。"""
+
     if not _can_begin_blocking_work(deadline_event, deadline_gate):
         return None
-    if _within_input_budget(messages, token_counter_fn, effective_limits.max_input_tokens):
-        return messages
+    system_tokens = _count_tokens([system_message], token_counter_fn)
+    message_budget = (
+        max_input_tokens
+        - system_tokens
+        - _count_tokens([{"role": "user", "content": _TRUNCATION_MARKER}], token_counter_fn)
+    )
+    if message_budget <= 0:
+        return None
+    full_tokens = max(1, _count_tokens([{"role": "user", "content": current_message}], token_counter_fn))
+    # 按 token 比例估算保留的字符数，再逐步收紧直到落入预算。
+    keep_chars = int(len(current_message) * message_budget / full_tokens * 0.95)
+    for _ in range(_TRUNCATION_MAX_ROUNDS):
+        if keep_chars <= 0:
+            return None
+        head = current_message[: keep_chars // 2]
+        tail = current_message[len(current_message) - (keep_chars - keep_chars // 2) :]
+        messages = [system_message, {"role": "user", "content": head + _TRUNCATION_MARKER + tail}]
+        if not _can_begin_blocking_work(deadline_event, deadline_gate):
+            return None
+        if _within_input_budget(messages, token_counter_fn, max_input_tokens):
+            return messages
+        keep_chars = int(keep_chars * 0.8)
     return None
 
 
@@ -510,6 +565,13 @@ def _within_input_budget(
     token_counter_fn: Callable[..., int] | None,
     max_input_tokens: int,
 ) -> bool:
+    return _count_tokens(messages, token_counter_fn) <= max_input_tokens
+
+
+def _count_tokens(
+    messages: Sequence[Mapping[str, str]],
+    token_counter_fn: Callable[..., int] | None,
+) -> int:
     tokenizer_model = _token_counter_model()
     if tokenizer_model is None:
         raise _TokenCountUnavailable("tokenizer_model_missing")
@@ -522,7 +584,7 @@ def _within_input_budget(
         raise _TokenCountUnavailable(type(exc).__name__) from exc
     if not isinstance(token_count, int) or isinstance(token_count, bool):
         raise _TokenCountUnavailable("invalid_token_count")
-    return token_count <= max_input_tokens
+    return token_count
 
 
 def _token_counter_model() -> str | None:
@@ -676,7 +738,34 @@ def _same_service_aliases(
     return (chosen, *siblings)[:CAPABILITY_MAX_MCP_ALIASES]
 
 
-def _repair_retry_timeout(started_at: float, limits: _ClassifierLimits) -> float | None:
+def _classifier_models() -> list[str]:
+    primary = settings.RUN_CAPABILITY_CLASSIFIER_MODEL
+    fallback = (settings.RUN_CAPABILITY_CLASSIFIER_FALLBACK_MODEL or "").strip()
+    if not fallback or fallback == primary or fallback.startswith("litellm_proxy/"):
+        return [primary]
+    return [primary, fallback]
+
+
+def _completion_kwargs(model: str, limits: _ClassifierLimits, timeout: float) -> dict:
+    return {
+        "model": f"litellm_proxy/{model}",
+        "timeout": timeout,
+        "num_retries": 0,
+        "max_tokens": limits.max_output_tokens,
+        "temperature": 0,
+        "response_format": {"type": "json_object"},
+        **merge_litellm_kwargs(
+            "run_capability_classifier",
+            {
+                "api_key": settings.LITELLM_API_KEY,
+                "api_base": settings.LITELLM_PROXY_URL,
+                **deepcopy(_NON_REASONING_KWARGS_BY_MODEL.get(model, _DEFAULT_NON_REASONING_KWARGS)),
+            },
+        ),
+    }
+
+
+def _retry_timeout(started_at: float, limits: _ClassifierLimits) -> float | None:
     remaining = CLASSIFIER_TOTAL_DEADLINE_SECONDS - (perf_counter() - started_at) - _REPAIR_RETRY_MARGIN_SECONDS
     if remaining < _REPAIR_RETRY_MIN_SECONDS:
         return None
@@ -718,21 +807,16 @@ def _fail_closed(
     result_callback: ClassifierResultCallback | None = None,
     observation_gate: ClassifierDeadlineGate | None = None,
 ) -> _CandidateRoute:
+    fallback = classifier_unavailable_route()
     _record_result(
         "failed",
-        "clarification_only",
+        fallback.package_id,
         started_at,
         error_type=error_type,
         result_callback=result_callback,
         observation_gate=observation_gate,
     )
-    return _CandidateRoute(
-        package_id="clarification_only",
-        confidence="low",
-        reason_codes=("insufficient_capability_signal",),
-        include_current_date=True,
-        resolution_mode="clarification",
-    )
+    return fallback
 
 
 def _deadline_fail_closed(
@@ -749,13 +833,7 @@ def _deadline_fail_closed(
             result_callback=result_callback,
             observation_gate=observation_gate,
         )
-    return _CandidateRoute(
-        package_id="clarification_only",
-        confidence="low",
-        reason_codes=("insufficient_capability_signal",),
-        include_current_date=True,
-        resolution_mode="clarification",
-    )
+    return classifier_unavailable_route()
 
 
 def _deadline_expired(

@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     LITELLM_PROXY_URL: str = os.getenv("LITELLM_PROXY_URL", "http://litellm-proxy:4000")
     LITELLM_API_KEY: str = os.getenv("LITELLM_API_KEY", "")
     RUN_CAPABILITY_CLASSIFIER_MODEL: str = os.getenv("RUN_CAPABILITY_CLASSIFIER_MODEL", "deepseek-chat")
+    # 主分类模型调用出错或超时时换另一家上游再分一次；留空则不切换。
+    RUN_CAPABILITY_CLASSIFIER_FALLBACK_MODEL: str = os.getenv(
+        "RUN_CAPABILITY_CLASSIFIER_FALLBACK_MODEL", "qwen3.8-flash"
+    )
     RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL: str = os.getenv(
         "RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL", "deepseek/deepseek-chat"
     )
@@ -39,7 +43,7 @@ class Settings(BaseSettings):
         os.getenv("RUN_CAPABILITY_CLASSIFIER_TIMEOUT_SECONDS", "1.5")
     )
     RUN_CAPABILITY_CLASSIFIER_MAX_INPUT_TOKENS: int = int(
-        os.getenv("RUN_CAPABILITY_CLASSIFIER_MAX_INPUT_TOKENS", "2000")
+        os.getenv("RUN_CAPABILITY_CLASSIFIER_MAX_INPUT_TOKENS", "16000")
     )
     RUN_CAPABILITY_CLASSIFIER_MAX_OUTPUT_TOKENS: int = int(
         os.getenv("RUN_CAPABILITY_CLASSIFIER_MAX_OUTPUT_TOKENS", "128")

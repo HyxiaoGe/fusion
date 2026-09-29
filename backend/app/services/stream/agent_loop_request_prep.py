@@ -19,6 +19,7 @@ from app.ai.prompts.run_prompt_snapshot import RunPromptSnapshot
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.ai.prompts.section_ids import (
     AGENT_PLAN_CONTROL,
+    CLASSIFIER_UNAVAILABLE,
     CONTINUATION_SYSTEM,
     DEEP_RESEARCH_CONTRACT,
     NO_TOOL_NETWORK_BOUNDARY,
@@ -701,6 +702,9 @@ async def prepare_agent_loop_messages(
             and getattr(call_config, "tool_discovery", None) is not None
         ):
             yield SystemPromptSection("deferred_tool_catalog", call_config.tool_discovery.catalog_prompt())
+        if "classifier_unavailable" in getattr(resolution, "reason_codes", ()) and resolution.external_tool_names:
+            # 分类失败兜底开放了网页工具；用户是否禁止联网交给回答模型理解，服务端不猜。
+            yield SystemPromptSection(CLASSIFIER_UNAVAILABLE, render_runtime_prompt("stream.classifier_unavailable"))
         if resolution.external_tool_names:
             yield SystemPromptSection("tool_failure_policy", render_runtime_prompt("stream.tool_failure_policy"))
         if "web_search" in resolution.external_tool_names:

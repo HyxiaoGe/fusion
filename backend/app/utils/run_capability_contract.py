@@ -95,7 +95,9 @@ CAPABILITY_PACKAGES: Mapping[str, CapabilityPackageSpec] = MappingProxyType(
         ),
         "fresh_web": CapabilityPackageSpec(
             tools=("web_search",),
-            reason_code_options=(("fresh_external_fact",),),
+            # classifier_unavailable：分类器本身失败时的兜底落点，见 run_capability_router.classifier_unavailable_route。
+            reason_code_options=(("fresh_external_fact",), ("classifier_unavailable",)),
+            confidence_options=("high", "low"),
             include_current_date=True,
         ),
         "verified_web": CapabilityPackageSpec(
@@ -179,7 +181,8 @@ CAPABILITY_PACKAGES: Mapping[str, CapabilityPackageSpec] = MappingProxyType(
                 ("required_tools_unavailable",),
                 ("required_skill_unavailable",),
             ),
-            confidence_options=("high", "medium"),
+            # low 来自分类失败兜底（classifier_unavailable_route）再按模型能力降级。
+            confidence_options=("high", "medium", "low"),
             resolution_mode="degraded",
             include_current_date=None,
             network_boundary_required=True,

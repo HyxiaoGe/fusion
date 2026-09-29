@@ -15,7 +15,11 @@ from app.services.stream.agent_loop_request_prep import (
     inject_plan_control_contract,
     prepare_agent_loop_messages,
 )
-from app.services.stream.run_capability_router import _CandidateRoute, resolve_run_capability_route
+from app.services.stream.run_capability_router import (
+    _CandidateRoute,
+    classifier_unavailable_route,
+    resolve_run_capability_route,
+)
 
 
 class FakeFileRepository:
@@ -44,8 +48,9 @@ def _model_candidate(
     from app.utils.run_capability_contract import CAPABILITY_PACKAGES
 
     spec = CAPABILITY_PACKAGES[package_id]
-    reason_codes = sorted(spec.reason_code_options)[0]
-    confidence = sorted(spec.confidence_options)[0]
+    # 与模型分类器解析输出时的取值一致：各选项的首项是模型路径，后续项留给兜底等非模型来源。
+    reason_codes = spec.reason_code_options[0]
+    confidence = spec.confidence_options[0]
     if include_current_date is None:
         # 日期标志按包取自能力包注册表，不由测试自选；可变日期的包与非模型包取 False。
         include_current_date = spec.route_include_current_date(False) if spec.model_selectable else False
@@ -79,6 +84,7 @@ _REMOVED_LITERAL_PACKAGES = {
     "请核验这条消息，给出可靠来源": ("verified_web", True),
     "搜索民治附近的咖啡店": ("place_discovery", True),
     "请阅读 https://example.com/a": ("url_read", True),
+    "帮我查一下这个": ("clarification_only", True),
 }
 
 
@@ -559,6 +565,54 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertEqual(prepared.prompt_assembly["section_ids"], expected_sections)
 
+    async def test_classifier_failure_fallback_injects_explicit_no_network_guidance_only_with_tools(self):
+        # 分类失败兜底给可选联网工具；用户明确不要联网时由这段提示约束回答模型。
+        for capabilities, expected in (
+            (
+                {"functionCalling": True, "searchCapable": True, "agentTools": True},
+                [
+                    "app_identity",
+                    "classifier_unavailable",
+                    "tool_failure_policy",
+                    "tool_usage_contract",
+                    "current_date",
+                ],
+            ),
+            (
+                {"functionCalling": False, "searchCapable": True, "agentTools": True},
+                ["app_identity", "no_tool_network_boundary", "current_date"],
+            ),
+        ):
+            with self.subTest(capabilities=capabilities):
+                config = build_agent_loop_call_config(
+                    provider="openai",
+                    options={},
+                    capabilities=capabilities,
+                    original_message="不要联网，说说你知道的最新 AI 进展",
+                    classify_fn=lambda **_: classifier_unavailable_route(),
+                )
+                prepared = await prepare_agent_loop_messages(
+                    db=object(),
+                    user_id="user-1",
+                    raw_messages=[],
+                    has_vision=False,
+                    file_ids=None,
+                    original_message="不要联网，说说你知道的最新 AI 进展",
+                    call_config=config,
+                    file_repo_factory=lambda db: FakeFileRepository(),
+                    load_user_system_prompt_fn=lambda db, uid: None,
+                    preprocess_user_input=False,
+                )
+
+                self.assertEqual(prepared.prompt_assembly["section_ids"], expected)
+                if "classifier_unavailable" in expected:
+                    section = next(
+                        s["content"]
+                        for s in prepared.prompt_snapshot["sections"]
+                        if s["section_id"] == "classifier_unavailable"
+                    )
+                    self.assertIn("training", section)
+
     async def test_user_preferences_cannot_expand_or_suppress_weather_route(self):
         tools = [*AMAP_PRODUCT_DEFINITIONS, *FLYAI_TRAVEL_DEFINITIONS]
         tool_names = [tool["function"]["name"] for tool in tools]
@@ -994,6 +1048,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             provider="openai",
             options={"plan_mode": "on"},
             capabilities={"functionCalling": True, "searchCapable": False},
+            classify_fn=_classifier_for("direct"),
         )
 
         self.assertEqual(
@@ -1495,10 +1550,11 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             authorized_tool_names=[alias],
             original_message="请使用 mcp_unapproved_deadbeef 查询秘密资料",
             # 未授权别名不会出现在模型的可选工具里，模型不可能选中它，
-            # 因此这里不注入候选：走默认 fail-closed 落点。
+            # 因此这里不注入候选：走分类失败兜底，再因工具被关闭降级。
         )
-        self.assertEqual(unauthorized.capability_resolution.package_id, "clarification_only")
-        self.assertFalse(unauthorized.capability_resolution.network_boundary_required)
+        self.assertEqual(unauthorized.capability_resolution.package_id, "tools_unavailable")
+        self.assertEqual(unauthorized.capability_resolution.external_tool_names, ())
+        self.assertTrue(unauthorized.capability_resolution.network_boundary_required)
 
     def test_authorized_mcp_alias_degrades_when_agent_tools_are_unsupported(self):
         alias = "mcp_docs_a1b2c3d4"
@@ -1607,6 +1663,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 options={},
                 capabilities={"functionCalling": True, "agentTools": False, "vision": False},
                 original_message="这张图里有什么？",
+                classify_fn=_classifier_for("direct"),
             ),
             file_repo_factory=lambda _db: object(),
             load_user_system_prompt_fn=lambda _db, _user_id: None,
@@ -1816,6 +1873,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 options={},
                 capabilities={"functionCalling": False},
                 original_message="https://example.com",
+                classify_fn=_classifier_for("direct"),
             ),
             file_repo_factory=lambda _db: object(),
             load_user_system_prompt_fn=lambda _db, _user_id: None,
