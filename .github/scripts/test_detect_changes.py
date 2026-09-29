@@ -17,20 +17,30 @@ class DetectChangesTests(unittest.TestCase):
     def test_backend_only(self) -> None:
         self.assertEqual(
             MODULE.classify(["backend/app/main.py"]),
-            {"api": True, "ui": False, "shared": False},
+            {"api": True, "ui": False, "shared": False, "routing_eval": False},
         )
 
     def test_frontend_only_does_not_depend_on_backend(self) -> None:
         self.assertEqual(
             MODULE.classify(["frontend/src/app.tsx"]),
-            {"api": False, "ui": True, "shared": False},
+            {"api": False, "ui": True, "shared": False, "routing_eval": False},
         )
 
     def test_root_ci_change_runs_both(self) -> None:
         self.assertEqual(
             MODULE.classify([".github/workflows/pr-ci.yml"]),
-            {"api": True, "ui": True, "shared": True},
+            {"api": True, "ui": True, "shared": True, "routing_eval": False},
         )
+
+    def test_classifier_changes_request_routing_eval(self) -> None:
+        for path in (
+            "backend/app/services/stream/run_capability_model_classifier.py",
+            "backend/app/ai/prompts/runtime_prompts.toml",
+            "backend/test/fixtures/blind_routing_probe.json",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(MODULE.classify([path])["routing_eval"])
+        self.assertFalse(MODULE.classify(["backend/app/services/stream/runner.py"])["routing_eval"])
 
     def test_pull_request_uses_merge_base(self) -> None:
         diff_range = MODULE.select_diff_range(

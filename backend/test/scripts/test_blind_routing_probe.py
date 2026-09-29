@@ -111,8 +111,7 @@ def test_default_mode_runtime_classifier_failure_blocks_all_probe_output(monkeyp
     assert "类别" not in captured.out
     assert "OK " not in captured.out
     assert "MISS" not in captured.out
-    # 调用失败换备用模型一次；输出不合契约会带错误修正重试一次。
-    assert completion.call_count == 2
+    assert completion.called
 
 
 @pytest.mark.parametrize("available_tools", [None, [], ["mcp_notion_search"]])
@@ -133,3 +132,128 @@ def test_case_tools_reach_real_classifier_seam(monkeypatch, tmp_path, available_
         task_context_messages=None,
         available_tool_names=probe.AVAILABLE_TOOLS if available_tools is None else available_tools,
     )
+
+
+def _write_cases(monkeypatch, tmp_path, cases, gate=None):
+    payload = {"cases": cases}
+    if gate is not None:
+        payload["gate"] = gate
+    fixture = tmp_path / "cases.json"
+    fixture.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(probe, "FIXTURE", fixture)
+
+
+def _case(case_id, **extra):
+    return {"id": case_id, "question": f"问题{case_id}", "group": "direct", "acceptable_packages": ["direct"], **extra}
+
+
+def _monitor_returning(candidates_by_question, failures=()):
+    """按问题返回候选；failures 里的问题回报分类失败。"""
+
+    def classifier(*, message, task_context_messages, available_tool_names, result_callback):
+        if message in failures:
+            result_callback("failed", "timeout")
+        else:
+            result_callback("model", None)
+        candidates = candidates_by_question[message]
+        return candidates.pop(0) if isinstance(candidates, list) else candidates
+
+    return lambda: probe.HybridClassifierMonitor(classifier)
+
+
+def _candidate(package_id, reason_codes, tools=None, **extra):
+    return _CandidateRoute(package_id, "high", reason_codes, True, explicit_tool_names=tools, **extra)
+
+
+_GATE = {"min_pass_rate": 1.0, "min_consistency": 1.0, "max_classifier_failure_rate": 0.5, "repeat": 2}
+
+
+def test_gate_passes_when_every_repeat_lands_in_acceptable_packages(monkeypatch, tmp_path, capsys):
+    _write_cases(monkeypatch, tmp_path, [_case("a"), _case("b")], _GATE)
+    monkeypatch.setattr(
+        probe,
+        "_new_hybrid_classifier_monitor",
+        _monitor_returning({"问题a": _direct_candidate(), "问题b": _direct_candidate()}),
+    )
+
+    assert probe.main(["--gate"]) == 0
+    assert "门禁通过（每条 2 次）" in capsys.readouterr().out
+
+
+def test_gate_fails_on_inconsistent_repeats_and_reports_where_misses_went(monkeypatch, tmp_path, capsys):
+    web = _candidate("fresh_web", ("fresh_external_fact",), ("web_search",))
+    _write_cases(monkeypatch, tmp_path, [_case("a")], _GATE)
+    monkeypatch.setattr(
+        probe, "_new_hybrid_classifier_monitor", _monitor_returning({"问题a": [_direct_candidate(), web]})
+    )
+
+    assert probe.main(["--gate"]) == 1
+    captured = capsys.readouterr()
+    assert "实际=direct,fresh_web" in captured.out
+    assert "误判去向：fresh_web×1" in captured.out
+    assert "通过率 0.0% 低于门槛" in captured.err
+    assert "一致率 0.0% 低于门槛" in captured.err
+
+
+def test_gate_requires_critical_cases_even_when_rate_threshold_is_met(monkeypatch, tmp_path, capsys):
+    web = _candidate("fresh_web", ("fresh_external_fact",), ("web_search",))
+    gate = {**_GATE, "min_pass_rate": 0.5, "min_consistency": 0.5}
+    _write_cases(monkeypatch, tmp_path, [_case("a"), _case("b", critical=True)], gate)
+    monkeypatch.setattr(
+        probe, "_new_hybrid_classifier_monitor", _monitor_returning({"问题a": _direct_candidate(), "问题b": web})
+    )
+
+    assert probe.main(["--gate"]) == 1
+    assert "关键条目未通过：b" in capsys.readouterr().err
+
+
+def test_forbidden_and_required_tools_are_checked_beyond_package(monkeypatch, tmp_path, capsys):
+    weather = _candidate("weather", ("explicit_weather_request",), ("weather_forecast",))
+    cases = [
+        _case("a", acceptable_packages=["weather"], forbidden_tools=["web_search"]),
+        _case("b", acceptable_packages=["weather"], required_tools=["search_trains"]),
+    ]
+    _write_cases(monkeypatch, tmp_path, cases)
+    monkeypatch.setattr(
+        probe, "_new_hybrid_classifier_monitor", _monitor_returning({"问题a": weather, "问题b": weather})
+    )
+
+    assert probe.main([]) == 0
+    output = capsys.readouterr().out
+    # weather 包自动附带网页兜底工具，用户禁止联网时这应当被判为未通过。
+    assert "不应开放=['web_search']" in output
+    assert "缺少工具=['search_trains']" in output
+    assert re.search(r"合计\s+0\s+2", output)
+
+
+def test_context_turn_reaches_classifier(monkeypatch, tmp_path):
+    seen = []
+
+    def classifier(*, message, task_context_messages, available_tool_names, result_callback):
+        seen.append(task_context_messages)
+        result_callback("model", None)
+        return _direct_candidate()
+
+    context = [{"role": "user", "content": "上一问"}, {"role": "assistant", "content": "上一答"}]
+    _write_cases(monkeypatch, tmp_path, [_case("a", context=context)])
+    monkeypatch.setattr(probe, "_new_hybrid_classifier_monitor", lambda: probe.HybridClassifierMonitor(classifier))
+
+    assert probe.main([]) == 0
+    assert seen == [context]
+
+
+def test_sparse_classifier_failures_are_counted_not_fatal(monkeypatch, tmp_path, capsys):
+    _write_cases(monkeypatch, tmp_path, [_case("a"), _case("b"), _case("c")])
+    monkeypatch.setattr(
+        probe,
+        "_new_hybrid_classifier_monitor",
+        _monitor_returning(
+            {"问题a": _direct_candidate(), "问题b": _direct_candidate(), "问题c": _direct_candidate()}, {"问题c"}
+        ),
+    )
+    monkeypatch.setattr(probe, "_DEFAULT_GATE", {**probe._DEFAULT_GATE, "max_classifier_failure_rate": 0.5})
+
+    assert probe.main([]) == 0
+    output = capsys.readouterr().out
+    assert "分类失败：timeout×1" in output
+    assert re.search(r"合计\s+2\s+3", output)

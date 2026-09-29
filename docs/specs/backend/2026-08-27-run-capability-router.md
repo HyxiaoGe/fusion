@@ -189,9 +189,12 @@ Deep Research 继续要求 function calling 与 search capability，并固定只
 - `backend/scripts/blind_routing_probe.py` 默认运行真实混合分类器；缺少
   `LITELLM_PROXY_URL`、`LITELLM_API_KEY` 或分类模型配置时必须以清晰错误和非零状态停止，
   在停止前不得输出任何混合准确率。
-- 模型调用、鉴权、连接、超时、输入预算或输出校验失败时，分类器的产品级
-  `clarification_only` 仍保持 fail-closed，但 probe 必须把它识别为验收失败并在首个失败处
-  非零停止；逐条结果和分类别/合计覆盖率均不得输出。
+- 模型调用、鉴权、连接、超时、输入预算或输出校验失败时，probe 把该次计为未通过并单独
+  统计失败类型；失败占比超过夹具 `gate.max_classifier_failure_rate` 时视为上游故障，以
+  状态 3 停止且不输出任何准确率（2026-09-29 起，此前为首个失败即停止）。
+- `--gate` 为部署后门禁：Fusion dev deploy 的 `routing-eval` 在改动分类器相关路径时，于
+  dev 容器内按夹具 `gate` 配置（每条重复次数、通过率、一致率、critical 条目）判定，不达标
+  只让工作流标红，不触发回滚。
 - `--classifier rules` 是显式规则回滚/诊断模式，不是请求内兜底；它在固定独立夹具上的基线
   为 14/33（42%），其中 `abstract` 必须为 5/5。报告始终按类别输出通过数、总数、覆盖率及
   合计；该夹具不是 CI 门禁，也不得为提高分数改写它的期望值。
@@ -300,7 +303,7 @@ Deep Research 继续要求 function calling 与 search capability，并固定只
 - Agent Loop 集成测试断言实际 `call_kwargs.tools`、handlers、bindings、`final_tool_names`、Prompt sections、run config 和 events。
 - UI 测试断言实时、刷新、历史 Run 和旧 Run 的 resolution 展示。
 - `backend/test/fixtures/agent_behavior_eval_samples.json` 照实现行为书写，验证契约一致性，应当 100% 通过；它**不能**用来判断真实覆盖率。
-- `backend/test/fixtures/blind_routing_probe.json` 独立于实现书写，验证自然口语下的覆盖率，用 `scripts/blind_routing_probe.py` 跑分。当前规则分类器在其上为 42%（travel 20%、weather 0%、web 25%），失败全部落进 `clarification_only`。该脚本不是 CI 门禁，只作诊断基准；换分类器实现（issue #24）后用同一套对比。
+- `backend/test/fixtures/blind_routing_probe.json` 独立于实现书写，验证自然口语下的覆盖率，用 `scripts/blind_routing_probe.py` 跑分。当前规则分类器在其上为 42%（travel 20%、weather 0%、web 25%），失败全部落进 `clarification_only`。该脚本不进 PR CI（要调真实模型），2026-09-29 起作为部署后门禁运行，见上文「盲测入口」。
 - 本地测试、Ruff、Vitest、ESLint、build 只能证明代码与静态协议。
 - 发布后必须复用现有已登录 Fusion Chrome 标签，覆盖上述多类对话并检查真实 Trajectory、Prompt 正文、工具调用、刷新一致性、console/network；未完成真实页面验证不得称为用户验收通过。
 

@@ -8,14 +8,18 @@
 可选 expected_layer=literal/model 同时校验层归属；rules 中的 model 期望只验证
 字面层委派，报告为 model_deferred（未调用模型），包成绩仍取规则基线。
 
-**这不是 CI 门禁**：当前规则分类器在这份集合上远达不到 100%，把它接进 pytest 只会
-让 CI 长期红着。它是诊断基准——换分类器实现（见 issue #24）后用同一套对比，才知道
-是真的变好还是只是又拟合了一遍样本。
+每条可再声明 context（上一轮对话）、forbidden_tools / required_tools（本轮工具边界）、
+critical（门禁必过）。--repeat N 每条跑 N 次，全部落在可接受包内才算通过，并统计一致率。
+
+它要调真实分类模型，所以不进 pytest；--gate 由 Fusion dev deploy 在部署后于 dev 容器内
+运行（改动分类器相关文件时），阈值取夹具的 gate 配置，不达标返回 1。分类失败比例超过
+gate.max_classifier_failure_rate 时视为上游故障，返回 3 且不输出准确率。
 
 用法：
 
     DATABASE_URL="sqlite:///:memory:" python scripts/blind_routing_probe.py
     DATABASE_URL="sqlite:///:memory:" python scripts/blind_routing_probe.py --classifier rules --verbose
+    python scripts/blind_routing_probe.py --gate --workers 4
 """
 
 from __future__ import annotations
@@ -24,7 +28,10 @@ import argparse
 import json
 import pathlib
 import sys
+from collections import Counter
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from urllib.parse import urlparse
 
 _BACKEND_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -49,6 +56,8 @@ AVAILABLE_TOOLS = [
     "search_flights",
     "search_trains",
 ]
+# 夹具未声明 gate 时的兜底阈值；实际门槛以夹具为准。
+_DEFAULT_GATE = {"min_pass_rate": 0.9, "min_consistency": 0.9, "max_classifier_failure_rate": 0.05, "repeat": 2}
 TASK_POLICY = AgentTaskPolicy(
     task_mode="standard",
     plan_mode="auto",
@@ -123,10 +132,16 @@ def _new_hybrid_classifier_monitor() -> HybridClassifierMonitor:
     return HybridClassifierMonitor(classify_capability_request_with_model)
 
 
-def route(message: str, *, classifier: CapabilityClassifier, available_tools: Sequence[str] | None = None):
+def route(
+    message: str,
+    *,
+    classifier: CapabilityClassifier,
+    available_tools: Sequence[str] | None = None,
+    context: Sequence[dict] | None = None,
+):
     return resolve_run_capability_route(
         original_message=message,
-        task_context_messages=None,
+        task_context_messages=list(context) if context else None,
         available_tool_names=AVAILABLE_TOOLS if available_tools is None else available_tools,
         requested_plan_mode="auto",
         task_policy=TASK_POLICY,
@@ -137,20 +152,137 @@ def route(message: str, *, classifier: CapabilityClassifier, available_tools: Se
     )
 
 
-def _print_report(by_group: dict[str, list[bool]]) -> None:
-    total_ok = sum(sum(results) for results in by_group.values())
-    total_cases = sum(len(results) for results in by_group.values())
-    print(f"{'类别':12} {'通过':>6} {'总数':>6} {'覆盖率':>8}")
-    print("-" * 36)
-    for group, results in sorted(by_group.items()):
-        rate = sum(results) / len(results) * 100
-        print(f"{group:12} {sum(results):>6} {len(results):>6} {rate:>7.0f}%")
-    print("-" * 36)
-    print(f"{'合计':12} {total_ok:>6} {total_cases:>6} {total_ok / total_cases * 100:>7.0f}%")
+@dataclass(frozen=True)
+class _Attempt:
+    package_id: str
+    tools: tuple[str, ...]
+    ok: bool
+    detail: str
+    error_type: str | None
+
+
+@dataclass(frozen=True)
+class _CaseResult:
+    case: dict
+    attempts: tuple[_Attempt, ...]
+
+    @property
+    def ok(self) -> bool:
+        return all(attempt.ok for attempt in self.attempts)
+
+    @property
+    def consistent(self) -> bool:
+        return len({attempt.package_id for attempt in self.attempts}) == 1
+
+
+def _run_attempt(case: dict, args: argparse.Namespace, shared_classifier: CapabilityClassifier | None) -> _Attempt:
+    expected_layer = case.get("expected_layer")
+    hybrid_monitor = _new_hybrid_classifier_monitor() if args.classifier == "hybrid" else None
+    rules_monitor = RulesClassifierMonitor() if args.classifier == "rules" and expected_layer is not None else None
+    classifier = hybrid_monitor or rules_monitor or shared_classifier
+    resolution = route(
+        case["question"],
+        classifier=classifier,
+        available_tools=case.get("available_tools"),
+        context=case.get("context"),
+    )
+    tools = tuple(resolution.external_tool_names)
+    error_type = hybrid_monitor.failure_error_type if hybrid_monitor is not None else None
+    ok = error_type is None and resolution.package_id in case["acceptable_packages"]
+    details: list[str] = []
+    forbidden = sorted(set(case.get("forbidden_tools", ())) & set(tools))
+    if forbidden:
+        ok = False
+        details.append(f" 不应开放={forbidden}")
+    missing = sorted(set(case.get("required_tools", ())) - set(tools))
+    if missing:
+        ok = False
+        details.append(f" 缺少工具={missing}")
+    if expected_layer is not None:
+        layer = (rules_monitor or hybrid_monitor).layer
+        layer_ok = layer == expected_layer or (expected_layer == "model" and layer == "model_deferred")
+        layer_detail = (
+            f" layer={layer or 'unknown'} expected_layer={expected_layer} layer_check={'OK' if layer_ok else 'MISS'}"
+        )
+        if layer == "model_deferred":
+            layer_detail += "（仅字面委派，未调用模型）"
+        details.append(layer_detail)
+        ok = ok and layer_ok
+    if error_type is not None:
+        details.append(f" 分类失败={error_type}")
+    return _Attempt(resolution.package_id, tools, ok, "".join(details), error_type)
+
+
+def _run_cases(cases: list[dict], args: argparse.Namespace, repeat: int) -> list[_CaseResult]:
+    shared_classifier = classify_capability_request if args.classifier == "rules" else None
+    jobs = [(index, case) for index, case in enumerate(cases) for _ in range(repeat)]
+    attempts: dict[int, list[_Attempt]] = {index: [] for index in range(len(cases))}
+    if args.workers <= 1:
+        for index, case in jobs:
+            attempts[index].append(_run_attempt(case, args, shared_classifier))
+    else:
+        with ThreadPoolExecutor(max_workers=args.workers) as pool:
+            futures = [(index, pool.submit(_run_attempt, case, args, shared_classifier)) for index, case in jobs]
+            for index, future in futures:
+                attempts[index].append(future.result())
+    return [_CaseResult(case, tuple(attempts[index])) for index, case in enumerate(cases)]
+
+
+def _print_report(results: list[_CaseResult]) -> None:
+    by_group: dict[str, list[_CaseResult]] = {}
+    for result in results:
+        by_group.setdefault(result.case["group"], []).append(result)
+    print(f"{'类别':12} {'通过':>6} {'总数':>6} {'覆盖率':>8} {'一致率':>8}")
+    print("-" * 46)
+    for group, group_results in sorted(by_group.items()):
+        passed = sum(result.ok for result in group_results)
+        consistent = sum(result.consistent for result in group_results)
+        total = len(group_results)
+        print(f"{group:12} {passed:>6} {total:>6} {passed / total * 100:>7.0f}% {consistent / total * 100:>7.0f}%")
+    print("-" * 46)
+    passed = sum(result.ok for result in results)
+    consistent = sum(result.consistent for result in results)
+    total = len(results)
+    print(f"{'合计':12} {passed:>6} {total:>6} {passed / total * 100:>7.0f}% {consistent / total * 100:>7.0f}%")
+
+
+def _print_misses(results: list[_CaseResult]) -> None:
+    misses = [result for result in results if not result.ok]
+    if not misses:
+        return
+    print("\n未覆盖条目：")
+    for result in misses:
+        case = result.case
+        seen = ",".join(attempt.package_id for attempt in result.attempts)
+        detail = next((attempt.detail for attempt in result.attempts if not attempt.ok), "")
+        print(f"  {case['id']:14} 实际={seen:20} 期望∈{case['acceptable_packages']}  {case['question']}{detail}")
+    destinations = Counter(
+        attempt.package_id
+        for result in misses
+        for attempt in result.attempts
+        if attempt.package_id not in result.case["acceptable_packages"]
+    )
+    if destinations:
+        print("误判去向：" + "，".join(f"{package}×{count}" for package, count in destinations.most_common()))
+
+
+def _gate_failures(results: list[_CaseResult], gate: dict) -> list[str]:
+    total = len(results)
+    pass_rate = sum(result.ok for result in results) / total
+    consistency = sum(result.consistent for result in results) / total
+    reasons = []
+    if pass_rate < gate["min_pass_rate"]:
+        reasons.append(f"通过率 {pass_rate:.1%} 低于门槛 {gate['min_pass_rate']:.0%}")
+    if consistency < gate["min_consistency"]:
+        reasons.append(f"一致率 {consistency:.1%} 低于门槛 {gate['min_consistency']:.0%}")
+    critical = [result.case["id"] for result in results if result.case.get("critical") and not result.ok]
+    if critical:
+        reasons.append(f"关键条目未通过：{', '.join(critical)}")
+    return reasons
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
         "--classifier",
         choices=("hybrid", "rules"),
@@ -158,6 +290,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="分类器：默认 hybrid 调用真实 LiteLLM；rules 仅用于显式回滚诊断",
     )
     parser.add_argument("--verbose", action="store_true", help="逐条打印明细")
+    parser.add_argument("--gate", action="store_true", help="按夹具 gate 阈值判定，不达标返回 1")
+    parser.add_argument("--repeat", type=int, default=None, help="每条重复次数；--gate 时默认取夹具配置")
+    parser.add_argument("--workers", type=int, default=1, help="并发调用数")
     args = parser.parse_args(argv)
 
     if args.classifier == "hybrid" and not has_hybrid_classifier_credentials():
@@ -169,60 +304,48 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
 
-    monitor = _new_hybrid_classifier_monitor() if args.classifier == "hybrid" else None
-    classifier: CapabilityClassifier = monitor or classify_capability_request
-
     payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
-    cases = payload["cases"]
+    gate = {**_DEFAULT_GATE, **payload.get("gate", {})}
+    repeat = args.repeat or (gate["repeat"] if args.gate else 1)
+    results = _run_cases(payload["cases"], args, max(1, repeat))
 
-    by_group: dict[str, list[bool]] = {}
-    failures: list[tuple[str, str, str, list[str], str]] = []
-    verbose_lines: list[str] = []
-
-    for case in cases:
-        expected_layer = case.get("expected_layer")
-        rules_monitor = RulesClassifierMonitor() if args.classifier == "rules" and expected_layer is not None else None
-        resolution = route(
-            case["question"], classifier=rules_monitor or classifier, available_tools=case.get("available_tools")
+    attempts = [attempt for result in results for attempt in result.attempts]
+    failed = Counter(attempt.error_type for attempt in attempts if attempt.error_type is not None)
+    failure_rate = sum(failed.values()) / len(attempts)
+    if failure_rate > gate["max_classifier_failure_rate"]:
+        # 分类失败多到这个程度是上游或配置问题，此时的准确率没有意义，不输出。
+        summary = "，".join(f"{error}×{count}" for error, count in failed.most_common())
+        print(
+            f"无法完成混合分类器盲测：模型分类失败 {sum(failed.values())}/{len(attempts)} 次（{summary}）；未输出准确率。",
+            file=sys.stderr,
         )
-        if monitor is not None and monitor.failure_error_type is not None:
-            print(
-                f"无法完成混合分类器盲测：模型分类失败（{monitor.failure_error_type}）；未输出准确率。",
-                file=sys.stderr,
-            )
-            return 3
-        acceptable = case["acceptable_packages"]
-        ok = resolution.package_id in acceptable
-        layer_detail = ""
-        if expected_layer is not None:
-            layer = (rules_monitor or monitor).layer
-            layer_ok = layer == expected_layer or (expected_layer == "model" and layer == "model_deferred")
-            layer_detail = f" layer={layer or 'unknown'} expected_layer={expected_layer} layer_check={'OK' if layer_ok else 'MISS'}"
-            if layer == "model_deferred":
-                layer_detail += "（仅字面委派，未调用模型）"
-            ok = ok and layer_ok
-        by_group.setdefault(case["group"], []).append(ok)
-        if not ok:
-            failures.append((case["id"], case["question"], resolution.package_id, acceptable, layer_detail))
-        if args.verbose:
-            mark = "OK " if ok else "MISS"
-            tools = ",".join(resolution.external_tool_names) or "-"
-            verbose_lines.append(
-                f"{mark} {case['id']:14} {resolution.package_id:20} [{tools}]  {case['question']}{layer_detail}"
-            )
+        return 3
 
     if args.verbose:
-        print("\n".join(verbose_lines))
+        for result in results:
+            for attempt in result.attempts:
+                mark = "OK " if attempt.ok else "MISS"
+                tools = ",".join(attempt.tools) or "-"
+                print(
+                    f"{mark} {result.case['id']:14} {attempt.package_id:20} [{tools}]  "
+                    f"{result.case['question']}{attempt.detail}"
+                )
         print()
 
-    _print_report(by_group)
+    _print_report(results)
+    if failed:
+        print("分类失败：" + "，".join(f"{error}×{count}" for error, count in failed.most_common()))
+    if not args.verbose:
+        _print_misses(results)
 
-    if failures and not args.verbose:
-        print("\n未覆盖条目：")
-        for case_id, question, actual, acceptable, layer_detail in failures:
-            print(f"  {case_id:14} 实际={actual:20} 期望∈{acceptable}  {question}{layer_detail}")
-
-    # 诊断脚本，永远返回 0；覆盖率变化由人判断，不作为门禁。
+    if not args.gate:
+        # 诊断模式永远返回 0；覆盖率变化由人判断。
+        return 0
+    reasons = _gate_failures(results, gate)
+    if reasons:
+        print("\n门禁未通过：" + "；".join(reasons), file=sys.stderr)
+        return 1
+    print(f"\n门禁通过（每条 {repeat} 次）")
     return 0
 
 

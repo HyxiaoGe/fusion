@@ -11,6 +11,16 @@ from pathlib import Path
 
 
 ZERO_SHA = "0" * 40
+# 改到这些路径时，部署后要在 dev 上跑能力路由盲测门禁（它要调真实分类模型，PR CI 访问不到）。
+ROUTING_EVAL_PATH_PREFIXES = (
+    "backend/app/services/stream/run_capability_",
+    "backend/app/utils/run_capability_contract.py",
+    "backend/app/ai/prompts/runtime_prompts.toml",
+    "backend/app/ai/llm_observability.py",
+    "backend/app/core/config.py",
+    "backend/scripts/blind_routing_probe.py",
+    "backend/test/fixtures/blind_routing_probe.json",
+)
 
 
 @dataclass(frozen=True)
@@ -79,6 +89,7 @@ def classify(paths: list[str]) -> dict[str, bool]:
         "api": backend_changed or shared_changed,
         "ui": frontend_changed or shared_changed,
         "shared": shared_changed,
+        "routing_eval": any(path.startswith(ROUTING_EVAL_PATH_PREFIXES) for path in paths),
     }
 
 

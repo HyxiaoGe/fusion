@@ -5,6 +5,9 @@ import json
 import unittest
 from pathlib import Path
 
+from app.utils.run_capability_contract import CAPABILITY_PACKAGES
+from scripts.blind_routing_probe import AVAILABLE_TOOLS as _PROBE_TOOLS
+
 _FIXTURE = Path(__file__).resolve().parent / "fixtures" / "blind_routing_probe.json"
 
 _ORIGINAL_CASE_IDS = frozenset(
@@ -57,6 +60,10 @@ _PROBE_GROUPS = frozenset(
         "identity",
         "mcp_alias",
         "verify_verb",
+        "date",
+        "url",
+        "network_denial",
+        "context",
     }
 )
 
@@ -100,9 +107,29 @@ class BlindRoutingFixtureContractTests(unittest.TestCase):
                 for package in packages:
                     self.assertIsInstance(package, str)
                     self.assertTrue(package.strip())
+                self.assertTrue(set(packages) <= set(CAPABILITY_PACKAGES), packages)
+                for field in ("forbidden_tools", "required_tools"):
+                    if field in case:
+                        self.assertIsInstance(case[field], list)
+                        self.assertTrue(set(case[field]) <= set(_PROBE_TOOLS), case[field])
+                if "critical" in case:
+                    self.assertIs(case["critical"], True)
+                if "context" in case:
+                    self.assertEqual([turn["role"] for turn in case["context"]], ["user", "assistant"])
+                    for turn in case["context"]:
+                        self.assertIsInstance(turn["content"], str)
+                        self.assertTrue(turn["content"].strip())
                 if "available_tools" in case:
                     self.assertIsInstance(case["available_tools"], list)
                     for tool in case["available_tools"]:
                         self.assertIsInstance(tool, str)
                         self.assertTrue(tool.strip())
         self.assertEqual(len(ids), len(set(ids)))
+
+    def test_gate_thresholds_are_ratios_and_repeat_is_positive(self):
+        gate = json.loads(_FIXTURE.read_text(encoding="utf-8"))["gate"]
+        self.assertEqual(set(gate), {"min_pass_rate", "min_consistency", "max_classifier_failure_rate", "repeat"})
+        for field in ("min_pass_rate", "min_consistency", "max_classifier_failure_rate"):
+            self.assertTrue(0 <= gate[field] <= 1, field)
+        self.assertIsInstance(gate["repeat"], int)
+        self.assertGreaterEqual(gate["repeat"], 1)
