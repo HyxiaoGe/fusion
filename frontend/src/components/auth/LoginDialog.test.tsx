@@ -129,6 +129,33 @@ describe('LoginDialog', () => {
     expect(startSsoLoginMock).toHaveBeenCalledWith(provider);
   });
 
+  it('弹窗入场缩放时自动聚焦仍按未缩放尺寸铺满 GitHub 按钮', async () => {
+    render(<LoginDialog open onOpenChange={onOpenChangeMock} />);
+    await screen.findByRole('button', { name: '使用邮箱验证码登录' });
+    const button = screen.getByRole('button', { name: '使用 GitHub 登录' });
+    const lens = button.previousElementSibling as HTMLDivElement;
+
+    Object.defineProperties(button, {
+      offsetLeft: { configurable: true, value: 0 },
+      offsetTop: { configurable: true, value: 16 },
+      offsetWidth: { configurable: true, value: 540 },
+      offsetHeight: { configurable: true, value: 46 },
+    });
+    vi.spyOn(button, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      top: 15.2,
+      width: 513,
+      height: 43.7,
+    } as DOMRect);
+
+    fireEvent.focus(button);
+
+    expect(lens.style.getPropertyValue('--lens-x')).toBe('0px');
+    expect(lens.style.getPropertyValue('--lens-y')).toBe('16px');
+    expect(lens.style.width).toBe('540px');
+    expect(lens.style.height).toBe('46px');
+  });
+
   it('headless verify 完成 SDK 会话后注入 Redux、拉 profile 并关闭弹窗', async () => {
     render(<LoginDialog open onOpenChange={onOpenChangeMock} />);
     const codeInput = await reachCodePanel();

@@ -96,12 +96,10 @@ export function LoginDialog({
       lens?.classList.remove(glassStyles.visible);
       return;
     }
-    const buttonRect = button.getBoundingClientRect();
-    const listRect = list.getBoundingClientRect();
-    lens.style.setProperty("--lens-x", `${buttonRect.left - listRect.left}px`);
-    lens.style.setProperty("--lens-y", `${buttonRect.top - listRect.top}px`);
-    lens.style.width = `${buttonRect.width}px`;
-    lens.style.height = `${buttonRect.height}px`;
+    lens.style.setProperty("--lens-x", `${button.offsetLeft}px`);
+    lens.style.setProperty("--lens-y", `${button.offsetTop}px`);
+    lens.style.width = `${button.offsetWidth}px`;
+    lens.style.height = `${button.offsetHeight}px`;
     lens.classList.add(glassStyles.visible);
   };
 
