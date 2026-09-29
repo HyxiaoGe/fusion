@@ -90,7 +90,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
       data-conversation-id={chat.id}
       aria-current={isActive ? "page" : undefined}
       tabIndex={0}
-      className={`group flex min-h-14 cursor-pointer items-center rounded-xl border px-2.5 py-2 text-sm transition-[color,background-color,border-color,box-shadow] duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${isActive ? styles.active : styles.inactive}`}
+      className={`group flex min-h-[67px] cursor-pointer items-center rounded-[17px] border px-2.5 py-2 text-sm transition-[color,transform] duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${styles.row}`}
       onPointerEnter={(event) => {
         if (!event.pointerType || event.pointerType === "mouse" || event.pointerType === "pen") {
           schedulePrefetch();
