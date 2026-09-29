@@ -1,0 +1,45 @@
+.composer {
+  border-color: rgb(115 145 181 / 32%);
+  background: linear-gradient(135deg, rgb(255 255 255 / 98%), rgb(245 249 255 / 96%));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 90%), 0 8px 28px -12px rgb(35 64 105 / 20%);
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.composer:focus-within {
+  border-color: rgb(91 151 219 / 75%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 94%), 0 0 0 2px rgb(91 151 219 / 14%), 0 8px 28px -12px rgb(35 64 105 / 25%);
+}
+
+.toolbar {
+  border-color: rgb(115 145 181 / 14%);
+  background: rgb(220 232 248 / 12%);
+  border-radius: 0 0 11px 11px;
+}
+
+:global(.dark) .composer {
+  border-color: rgb(142 172 211 / 28%);
+  background: linear-gradient(135deg, rgb(27 35 48 / 96%), rgb(15 20 29 / 96%));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 9%), 0 8px 28px -12px rgb(0 0 0 / 45%);
+}
+
+:global(.dark) .composer:focus-within {
+  border-color: rgb(150 202 255 / 65%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 13%), 0 0 0 2px rgb(150 202 255 / 12%), 0 8px 28px -12px rgb(0 0 0 / 48%);
+}
+
+:global(.dark) .toolbar {
+  border-color: rgb(142 172 211 / 12%);
+  background: rgb(255 255 255 / 2%);
+}
+
+.composer[data-dragging="true"],
+:global(.dark) .composer[data-dragging="true"] {
+  border-color: var(--primary);
+  border-style: dashed;
+  background: color-mix(in oklab, var(--primary) 5%, var(--background));
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 14%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer { transition-duration: 0.01ms; }
+}

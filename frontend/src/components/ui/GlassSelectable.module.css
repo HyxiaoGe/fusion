@@ -7,7 +7,7 @@
 }
 
 .standalone {
-  --glass-idle-opacity: 0.62;
+  --glass-idle-opacity: 0.4;
 }
 
 .control .lens {

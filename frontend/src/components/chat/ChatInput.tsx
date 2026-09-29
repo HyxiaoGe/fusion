@@ -41,6 +41,7 @@ import {
 } from "lucide-react";
 import ImageViewer from "./ImageViewer";
 import ModelSelector from "@/components/models/ModelSelector";
+import composerStyles from "./ChatInput.module.css";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "react-redux";
 import { useToast } from "../ui/toast";
@@ -1352,11 +1353,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
       <div
         role="group"
         aria-label="消息输入区"
-        className={`relative rounded-xl border bg-background shadow-fdv2-xs focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-0 transition-colors duration-fast ${
-          isDragOver
-            ? "border-primary border-dashed bg-primary/5"
-            : "border-border"
-        }`}
+        className={`relative rounded-xl border ${composerStyles.composer}`}
+        data-dragging={isDragOver || undefined}
         onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
         onDragLeave={() => setIsDragOver(false)}
         onDrop={handleDrop}
@@ -1429,7 +1427,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
         <div
           role="toolbar"
           aria-label="消息工具栏"
-          className="flex min-w-0 items-center gap-1 border-t border-border/40 px-2 py-1.5"
+          className={`flex min-w-0 items-center gap-1 border-t px-2 py-1.5 ${composerStyles.toolbar}`}
         >
           {/* 左侧工具按钮组 */}
           <div className="flex min-w-0 flex-1 items-center gap-1">
