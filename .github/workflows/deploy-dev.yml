@@ -38,6 +38,7 @@ jobs:
     outputs:
       api: ${{ steps.targets.outputs.api }}
       ui: ${{ steps.targets.outputs.ui }}
+      routing_eval: ${{ steps.targets.outputs.routing_eval }}
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -137,3 +138,15 @@ jobs:
       rollback_sha: ${{ inputs.ui_rollback_sha || '' }}
       rollback_reason: ${{ inputs.ui_rollback_sha != '' && inputs.rollback_reason || '' }}
     secrets: inherit
+
+  # 能力路由盲测门禁：要调真实分类模型，只能在部署后于 dev 容器内跑。
+  # 独立于 deploy-api，不达标只让工作流标红、不触发回滚；是否回滚由人判断。
+  routing-eval:
+    name: Routing eval gate
+    needs: [changes, deploy-api]
+    if: needs.changes.outputs.routing_eval == 'true' && needs.deploy-api.result == 'success'
+    runs-on: [self-hosted, Linux, X64, fusion-api]
+    timeout-minutes: 15
+    steps:
+      - name: Run blind routing probe against deployed classifier
+        run: docker exec -w /app fusion-api python scripts/blind_routing_probe.py --gate --workers 4
