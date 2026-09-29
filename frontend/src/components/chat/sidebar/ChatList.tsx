@@ -3,7 +3,7 @@
 import React from "react";
 import ChatItem from "./ChatItem";
 import type { ConversationListItem } from "@/hooks/useConversationList";
-import styles from "./ChatList.module.css";
+import styles from "@/components/ui/GlassLens.module.css";
 
 const EMPTY_STREAMING_IDS: readonly string[] = [];
 
