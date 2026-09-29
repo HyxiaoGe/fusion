@@ -1,0 +1,15 @@
+.row {
+  position: relative;
+  z-index: 1;
+  border-color: transparent;
+  background: transparent;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.row:hover {
+  color: var(--foreground);
+}
+
+.row:active {
+  transform: scale(0.986);
+}
