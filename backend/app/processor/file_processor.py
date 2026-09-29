@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 import litellm
 
+from app.ai.litellm_utils import merge_extra_body
 from app.ai.llm_manager import llm_manager
 from app.ai.llm_observability import merge_litellm_kwargs
 from app.ai.prompts import prompt_manager
@@ -20,7 +21,8 @@ class FileProcessor:
 
     LOCAL_TEXT_PREVIEW_LIMIT = 6000
     PROMPT_TEXT_PREVIEW_LIMIT = 3000
-    VISION_MODEL_ID = "qwen-vl-max"
+    # qwen3.8-flash 原生支持读图；默认会先推理，读图描述用不上，关掉后实测 4.6s → 2.0s。
+    VISION_MODEL_ID = "qwen3.8-flash"
 
     def __init__(self):
         self.model = self.VISION_MODEL_ID
@@ -318,6 +320,9 @@ class FileProcessor:
             messages.append({"role": "user", "content": user_content})
 
             litellm_model, _, litellm_kwargs = llm_manager.resolve_model(self.model)
+            # resolve_model 可能返回共享配置，复制后再合并，避免污染其他调用方。
+            litellm_kwargs = dict(litellm_kwargs or {})
+            merge_extra_body(litellm_kwargs, {"enable_thinking": False})
 
             stream_response = await litellm.acompletion(
                 model=litellm_model,
