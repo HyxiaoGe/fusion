@@ -1,17 +1,3 @@
-.scroll {
-  background:
-    radial-gradient(circle 160px at 10% 30%, rgb(114 169 245 / 27%), transparent),
-    radial-gradient(circle 170px at 96% 66%, rgb(244 174 191 / 20%), transparent),
-    radial-gradient(circle 160px at 40% 100%, rgb(137 215 212 / 15%), transparent);
-}
-
-:global(.dark) .scroll {
-  background:
-    radial-gradient(circle 160px at 10% 30%, rgb(45 99 177 / 34%), transparent),
-    radial-gradient(circle 170px at 96% 66%, rgb(117 78 173 / 23%), transparent),
-    radial-gradient(circle 160px at 40% 100%, rgb(45 144 158 / 17%), transparent);
-}
-
 .content {
   position: relative;
   isolation: isolate;
