@@ -1,0 +1,212 @@
+.trigger {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 82%);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgb(255 255 255 / 33%), rgb(255 255 255 / 6%) 65%), rgb(255 255 255 / 18%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 76%), inset 0 -1px 0 rgb(255 255 255 / 22%), 0 0 0 1px rgb(48 79 127 / 8%), 0 8px 20px -13px rgb(37 58 94 / 26%);
+  transition: background 180ms ease, border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.trigger::before,
+.trigger::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.trigger::before {
+  z-index: -1;
+  background: radial-gradient(ellipse 105px 70px at var(--model-glint-x, 38%) var(--model-glint-y, 24%), rgb(255 255 255 / 63%), rgb(186 225 255 / 22%) 52%, transparent 80%);
+  opacity: 0.35;
+  transition: opacity 180ms ease;
+}
+
+.trigger::after {
+  padding: 1px;
+  background: linear-gradient(135deg, rgb(255 255 255 / 92%), rgb(163 211 255 / 72%) 20%, transparent 43%, transparent 68%, rgb(255 209 188 / 72%) 91%, rgb(255 255 255 / 88%));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0.55;
+  transition: opacity 180ms ease;
+}
+
+.trigger:not(:disabled):hover,
+.triggerOpen {
+  border-color: rgb(255 255 255 / 94%);
+  background: linear-gradient(135deg, rgb(255 255 255 / 44%), rgb(255 255 255 / 9%) 65%), rgb(255 255 255 / 24%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 84%), 0 0 0 1px rgb(114 170 226 / 18%), 0 10px 22px -12px rgb(37 58 94 / 30%);
+}
+
+.trigger:not(:disabled):hover::before,
+.trigger:not(:disabled):hover::after,
+.triggerOpen::before,
+.triggerOpen::after {
+  opacity: 0.9;
+}
+
+.trigger:not(:disabled):active { transform: scale(0.985); }
+
+.trigger:focus-visible {
+  outline: 2px solid rgb(95 157 228 / 86%);
+  outline-offset: 2px;
+}
+
+.trigger:disabled::before,
+.trigger:disabled::after { opacity: 0.28; }
+
+.popoverSurface.popoverSurface {
+  border-color: rgb(255 255 255 / 77%);
+  border-radius: 17px;
+  background: linear-gradient(135deg, rgb(255 255 255 / 34%), rgb(255 255 255 / 3%) 56%), rgb(250 252 255 / 72%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 82%), 0 0 0 1px rgb(58 92 140 / 9%), 0 18px 42px -14px rgb(24 46 78 / 30%);
+}
+
+.providerStrip {
+  border-block: 1px solid rgb(102 135 178 / 18%);
+  background: rgb(255 255 255 / 19%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 36%);
+}
+
+.providerTab {
+  border-bottom: 2px solid transparent;
+  transition: color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.providerTab:hover { background: rgb(255 255 255 / 22%); }
+
+.providerTabActive {
+  border-bottom-color: currentColor;
+  background: rgb(255 255 255 / 40%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 58%);
+}
+
+.recentTile,
+.modelTile {
+  border: 1px solid rgb(103 133 172 / 22%);
+  background: linear-gradient(135deg, rgb(255 255 255 / 24%), transparent 65%), rgb(255 255 255 / 18%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 40%);
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.recentTile { border-radius: 9px; }
+.modelTile { border-radius: 11px; }
+
+.recentTile:not(:disabled):hover,
+.modelTile:not(:disabled):hover {
+  border-color: rgb(113 169 223 / 60%);
+  background: linear-gradient(135deg, rgb(255 255 255 / 41%), rgb(255 255 255 / 7%) 70%), rgb(255 255 255 / 24%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 65%), 0 5px 14px -10px rgb(42 83 131 / 28%);
+}
+
+.recentTile:not(:disabled):active,
+.modelTile:not(:disabled):active { transform: scale(0.985); }
+
+.recentTile:focus-visible,
+.modelTile:focus-visible,
+.providerTab:focus-visible {
+  outline: 2px solid rgb(95 157 228 / 86%);
+  outline-offset: -2px;
+}
+
+.tileSelected.tileSelected,
+.tileSelected.tileSelected:not(:disabled):hover {
+  border-color: rgb(89 154 224 / 61%);
+  background: linear-gradient(135deg, rgb(227 243 255 / 54%), rgb(255 255 255 / 13%) 76%), rgb(255 255 255 / 28%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 74%), 0 0 0 1px rgb(89 154 224 / 13%);
+}
+
+.recentTile:disabled,
+.modelTile:disabled {
+  border-color: rgb(103 133 172 / 15%);
+  background: rgb(150 160 176 / 10%);
+  box-shadow: none;
+}
+
+:global(.dark) .trigger {
+  border-color: rgb(255 255 255 / 28%);
+  background: linear-gradient(135deg, rgb(255 255 255 / 13%), rgb(255 255 255 / 2%) 65%), rgb(255 255 255 / 5%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 23%), inset 0 -1px 0 rgb(255 255 255 / 5%), 0 0 0 1px rgb(255 255 255 / 6%), 0 10px 22px -12px rgb(0 0 0 / 48%);
+}
+
+:global(.dark) .trigger::before {
+  background: radial-gradient(ellipse 105px 70px at var(--model-glint-x, 38%) var(--model-glint-y, 24%), rgb(255 255 255 / 31%), rgb(109 194 255 / 15%) 52%, transparent 80%);
+}
+
+:global(.dark) .trigger::after {
+  background: linear-gradient(135deg, rgb(255 255 255 / 78%), rgb(109 194 255 / 65%) 20%, transparent 43%, transparent 68%, rgb(220 175 255 / 57%) 91%, rgb(255 255 255 / 63%));
+}
+
+:global(.dark) .trigger:not(:disabled):hover,
+:global(.dark) .triggerOpen {
+  border-color: rgb(255 255 255 / 43%);
+  background: linear-gradient(135deg, rgb(255 255 255 / 17%), rgb(255 255 255 / 4%) 65%), rgb(255 255 255 / 8%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 29%), 0 0 0 1px rgb(148 204 255 / 14%), 0 12px 24px -11px rgb(0 0 0 / 47%);
+}
+
+:global(.dark) .popoverSurface.popoverSurface {
+  border-color: rgb(255 255 255 / 27%);
+  background: linear-gradient(135deg, rgb(255 255 255 / 11%), rgb(255 255 255 / 1%) 56%), rgb(12 19 32 / 78%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 23%), 0 0 0 1px rgb(255 255 255 / 6%), 0 20px 44px -13px rgb(0 0 0 / 57%);
+}
+
+:global(.dark) .providerStrip {
+  border-color: rgb(255 255 255 / 12%);
+  background: rgb(255 255 255 / 5%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 9%);
+}
+
+:global(.dark) .providerTab:hover { background: rgb(255 255 255 / 7%); }
+
+:global(.dark) .providerTabActive {
+  background: rgb(255 255 255 / 11%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 19%);
+}
+
+:global(.dark) .recentTile,
+:global(.dark) .modelTile {
+  border-color: rgb(255 255 255 / 14%);
+  background: linear-gradient(135deg, rgb(255 255 255 / 8%), transparent 65%), rgb(255 255 255 / 4%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 13%);
+}
+
+:global(.dark) .recentTile:not(:disabled):hover,
+:global(.dark) .modelTile:not(:disabled):hover {
+  border-color: rgb(150 202 255 / 41%);
+  background: linear-gradient(135deg, rgb(255 255 255 / 15%), rgb(255 255 255 / 3%) 70%), rgb(255 255 255 / 7%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 22%), 0 5px 14px -10px rgb(0 0 0 / 55%);
+}
+
+:global(.dark) .tileSelected.tileSelected,
+:global(.dark) .tileSelected.tileSelected:not(:disabled):hover {
+  border-color: rgb(137 194 255 / 52%);
+  background: linear-gradient(135deg, rgb(119 174 229 / 20%), rgb(255 255 255 / 4%) 76%), rgb(255 255 255 / 8%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 25%), 0 0 0 1px rgb(137 194 255 / 10%);
+}
+
+:global(.dark) .recentTile:disabled,
+:global(.dark) .modelTile:disabled {
+  border-color: rgb(255 255 255 / 8%);
+  background: rgb(255 255 255 / 3%);
+  box-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trigger,
+  .trigger::before,
+  .trigger::after,
+  .providerTab,
+  .recentTile,
+  .modelTile { transition-duration: 0.01ms; }
+}

@@ -4,6 +4,8 @@ import * as React from "react"
 import * as TabsPrimitive from "@radix-ui/react-tabs"
 
 import { cn } from "@/lib/utils"
+import glassStyles from "./GlassLens.module.css"
+import selectableStyles from "./GlassSelectable.module.css"
 
 function Tabs({
   className,
@@ -26,7 +28,7 @@ function TabsList({
     <TabsPrimitive.List
       data-slot="tabs-list"
       className={cn(
-        "bg-muted text-muted-foreground inline-flex h-9 w-fit items-center justify-center rounded-lg p-1 dark:bg-slate-800 dark:border dark:border-slate-700",
+        "inline-flex h-9 w-fit items-center justify-center rounded-lg border border-white/50 bg-background/25 p-1 text-muted-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-sm dark:border-white/15 dark:bg-white/[0.04] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]",
         className
       )}
       {...props}
@@ -36,17 +38,35 @@ function TabsList({
 
 function TabsTrigger({
   className,
+  children,
+  onPointerMove,
+  onPointerLeave,
   ...props
 }: React.ComponentProps<typeof TabsPrimitive.Trigger>) {
   return (
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
       className={cn(
-        "data-[state=active]:bg-background data-[state=active]:text-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:outline-ring inline-flex items-center justify-center gap-2 rounded-md px-2 py-1 text-sm font-medium whitespace-nowrap transition-[color,box-shadow] focus-visible:ring-[3px] focus-visible:outline-1 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:shadow-sm [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 dark:data-[state=active]:bg-slate-700 dark:data-[state=active]:text-white data-[state=active]:bg-primary/10 data-[state=active]:font-semibold",
+        selectableStyles.control,
+        "inline-flex items-center justify-center gap-2 rounded-md px-2 py-1 text-sm font-medium whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:font-semibold data-[state=active]:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}
-    />
+      onPointerMove={(event) => {
+        onPointerMove?.(event)
+        const bounds = event.currentTarget.getBoundingClientRect()
+        event.currentTarget.style.setProperty("--glint-x", `${event.clientX - bounds.left}px`)
+        event.currentTarget.style.setProperty("--glint-y", `${event.clientY - bounds.top}px`)
+      }}
+      onPointerLeave={(event) => {
+        onPointerLeave?.(event)
+        event.currentTarget.style.removeProperty("--glint-x")
+        event.currentTarget.style.removeProperty("--glint-y")
+      }}
+    >
+      <span className={cn(glassStyles.lens, selectableStyles.lens)} aria-hidden="true" />
+      <span className={cn(selectableStyles.content, "inline-flex items-center gap-2")}>{children}</span>
+    </TabsPrimitive.Trigger>
   )
 }
 

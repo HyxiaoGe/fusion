@@ -12,6 +12,7 @@ import { AUTO_MODEL_ID } from "@/lib/config/modelConfig";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import ModelSelectorTrigger from "./ModelSelectorTrigger";
 import ModelSelectorPanel from "./ModelSelectorPanel";
+import glassStyles from "./ModelSelectorGlass.module.css";
 
 interface ModelSelectorProps {
   onChange?: (modelId: string) => void;
@@ -180,7 +181,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
           align="start"
           avoidCollisions={true}
           sideOffset={4}
-          className="p-0 w-[calc(100vw-32px)] sm:w-[480px] max-h-[420px] overflow-y-auto"
+          className={`p-0 w-[calc(100vw-32px)] sm:w-[480px] max-h-[420px] overflow-y-auto ${glassStyles.popoverSurface}`}
         >
           <ModelSelectorPanel
             autoModel={autoModel}

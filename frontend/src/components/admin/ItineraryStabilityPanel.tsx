@@ -23,6 +23,7 @@ import {
   formatNumber,
   toShanghaiIso,
 } from './AdminPanelPrimitives';
+import styles from './AdminWindowGlass.module.css';
 
 interface ItineraryStabilityPanelProps {
   onForbidden: () => void;
@@ -75,7 +76,8 @@ export default function ItineraryStabilityPanel({ onForbidden }: ItineraryStabil
               key={option.hours}
               type="button"
               size="sm"
-              variant={windowHours === option.hours ? 'default' : 'outline'}
+              variant="outline"
+              className={styles.windowButton}
               aria-label={option.label}
               aria-pressed={windowHours === option.hours}
               onClick={() => applyWindow(option.hours)}
