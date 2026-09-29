@@ -46,7 +46,7 @@ const ChatList: React.FC<ChatListProps> = ({
   return (
     <div
       data-testid="chat-list-scroll-container"
-      className="px-2 flex-1 overflow-y-auto scrollbar-hide"
+      className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-2 scrollbar-hide"
       ref={containerRef}
       onScroll={handleScroll}
     >
@@ -60,7 +60,7 @@ const ChatList: React.FC<ChatListProps> = ({
         </div>
       ) : searchQuery ? (
         /* 搜索模式：扁平列表，不分组 */
-        <div className="space-y-2">
+        <div className="space-y-1">
           {chats.map((chat) => (
             <ChatItem
               key={chat.id}
@@ -82,9 +82,9 @@ const ChatList: React.FC<ChatListProps> = ({
         /* 正常模式：分组列表 */
         <div>
           {sortedAndGroupedChats.map(({ groupLabel, groupChats }) => (
-            <div key={groupLabel} className="mb-4">
-              <h3 className="text-xs font-medium text-muted-foreground px-2 mb-2">{groupLabel}</h3>
-              <div className="space-y-2">
+            <div key={groupLabel} className="mb-3">
+              <h3 className="mb-1 px-3 pt-2 text-xs font-semibold text-muted-foreground">{groupLabel}</h3>
+              <div className="space-y-1">
                 {groupChats.map((chat) => (
                   <ChatItem
                     key={chat.id}
