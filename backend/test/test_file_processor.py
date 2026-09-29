@@ -40,7 +40,7 @@ class FileProcessorTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(processor, "_call_model", new=AsyncMock(return_value="图片描述")) as call_model:
             result = await processor.process_files(["/tmp/chart.png"], query="分析图片", mime_types=["image/png"])
 
-        self.assertEqual(result["model"], "qwen-vl-max")
+        self.assertEqual(result["model"], "qwen3.8-flash")
         self.assertEqual(result["content"], "图片描述")
         call_model.assert_awaited_once()
 
@@ -124,7 +124,7 @@ class FileProcessorTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch(
                 "app.processor.file_processor.llm_manager.resolve_model",
-                return_value=("litellm_proxy/qwen-vl-max", "qwen", litellm_kwargs),
+                return_value=("litellm_proxy/qwen3.8-flash", "qwen", litellm_kwargs),
             ) as resolve_model,
             patch(
                 "app.processor.file_processor.litellm.acompletion",
@@ -137,10 +137,10 @@ class FileProcessorTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(result, "图片描述")
-        resolve_model.assert_called_once_with("qwen-vl-max")
+        resolve_model.assert_called_once_with("qwen3.8-flash")
 
         call_kwargs = acompletion.await_args.kwargs
-        self.assertEqual(call_kwargs["model"], "litellm_proxy/qwen-vl-max")
+        self.assertEqual(call_kwargs["model"], "litellm_proxy/qwen3.8-flash")
         self.assertEqual(call_kwargs["api_key"], "proxy-key")
         self.assertEqual(call_kwargs["api_base"], "http://litellm-proxy:4000")
         self.assertTrue(call_kwargs["stream"])
@@ -153,10 +153,13 @@ class FileProcessorTests(unittest.IsolatedAsyncioTestCase):
             call_kwargs["extra_body"],
             {
                 "trace": "keep",
+                "enable_thinking": False,
                 "metadata": {"tags": ["app:fusion", "phase:file_processing"]},
                 "cache": {"no-cache": True, "no-store": True},
             },
         )
+        # 关推理只作用于本次调用，不回写 resolve_model 返回的共享配置。
+        self.assertEqual(litellm_kwargs["extra_body"], {"trace": "keep"})
         self.assertEqual(
             call_kwargs["messages"][1]["content"][0],
             {"type": "image_url", "image_url": {"url": "data:image/png;base64,base64-image"}},
