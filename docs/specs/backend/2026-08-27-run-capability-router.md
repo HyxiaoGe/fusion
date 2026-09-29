@@ -195,6 +195,10 @@ Deep Research 继续要求 function calling 与 search capability，并固定只
 - `--gate` 为部署后门禁：Fusion dev deploy 的 `routing-eval` 在改动分类器相关路径时，于
   dev 容器内按夹具 `gate` 配置（每条重复次数、通过率、一致率、critical 条目）判定，不达标
   只让工作流标红，不触发回滚。
+- 线上信号：管理后台「模型运营中心」的「能力路由质量」面板（`GET /api/admin/audit/routing-quality`，
+  最长 7 天）从 `run_started.capability_resolution` 与 `tool_call_started` 聚合按包信号——分类失败
+  兜底、仅澄清、工具不可用，以及仅对已完成 run 统计的「有工具未调用 / 只用了联网 / 主工具未调用」，
+  并列出最新 50 条可疑样本供跳转会话复核。信号是复核线索而非判错。
 - `--classifier rules` 是显式规则回滚/诊断模式，不是请求内兜底；它在固定独立夹具上的基线
   为 14/33（42%），其中 `abstract` 必须为 5/5。报告始终按类别输出通过数、总数、覆盖率及
   合计；该夹具不是 CI 门禁，也不得为提高分数改写它的期望值。

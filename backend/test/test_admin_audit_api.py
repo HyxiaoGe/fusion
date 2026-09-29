@@ -331,6 +331,83 @@ class AdminAuditApiTests(unittest.TestCase):
         ]
         self.assertEqual(len(events), 1)
 
+    def _add_routing_events(self, run_id: str, *, started: datetime, resolution: dict, tools=(), terminal=None):
+        from app.db.models import AgentEvent
+
+        self._add_trajectory_run(run_id)
+        events = [("run_started", {"capability_resolution": resolution})]
+        events += [("tool_call_started", {"tool_name": name, "arguments": "must-not-leak"}) for name in tools]
+        if terminal:
+            events.append((terminal, {}))
+        self.db.add_all(
+            [
+                AgentEvent(
+                    conversation_id="conv-1",
+                    message_id=f"msg-{run_id}",
+                    run_id=run_id,
+                    sequence=index,
+                    event_type=event_type,
+                    schema_version=1,
+                    event_ts=started,
+                    payload=payload,
+                )
+                for index, (event_type, payload) in enumerate(events, start=1)
+            ]
+        )
+        self.db.commit()
+
+    def test_routing_quality_aggregates_shanghai_window_and_records_audit(self):
+        weather = {
+            "package_id": "weather",
+            "reason_codes": ["explicit_weather_request"],
+            "external_tool_names": ["web_search", "weather_forecast"],
+            "required_primary_tool_name": None,
+        }
+        # 12:00 UTC = 上海 20:00，落在窗口内；14:00 UTC = 上海 22:00，落在窗口外。
+        self._add_routing_events(
+            "run-web-only",
+            started=datetime(2026, 7, 11, 12, 0, 0),
+            resolution=weather,
+            tools=["web_search"],
+            terminal="run_completed",
+        )
+        self._add_routing_events(
+            "run-outside",
+            started=datetime(2026, 7, 11, 14, 0, 0),
+            resolution={**weather, "package_id": "clarification_only", "external_tool_names": []},
+            terminal="run_completed",
+        )
+
+        response = self.client.get(
+            "/api/admin/audit/routing-quality",
+            params={"created_from": "2026-07-11T19:00:00", "created_to": "2026-07-11T21:00:00"},
+            headers={"X-Admin-Audit-Reason": "routing-quality-check"},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()["data"]
+        self.assertEqual(data["summary"]["total"], 1)
+        self.assertEqual(data["summary"]["signals"]["web_only_fallback"], 1)
+        self.assertEqual(data["summary"]["signals"]["clarification_only"], 0)
+        self.assertEqual(data["samples"][0]["run_id"], "run-web-only")
+        self.assertEqual(data["samples"][0]["conversation_id"], "conv-1")
+        self.assertNotIn("must-not-leak", response.text)
+        events = self.client.get("/api/admin/audit/events?action=admin.audit.routing_quality.view").json()["data"][
+            "items"
+        ]
+        self.assertEqual(len(events), 1)
+
+    def test_routing_quality_requires_auditor_and_bounded_range(self):
+        path = "/api/admin/audit/routing-quality"
+        self.assertEqual(
+            self.client.get(
+                path, params={"created_from": "2026-07-01T00:00:00", "created_to": "2026-07-09T00:00:00"}
+            ).status_code,
+            400,
+        )
+        self.current_user.is_superuser = False
+        self.assertEqual(self.client.get(path).status_code, 403)
+
     def test_itinerary_stability_rejects_ranges_over_seven_days(self):
         response = self.client.get(
             "/api/admin/audit/itinerary-stability",

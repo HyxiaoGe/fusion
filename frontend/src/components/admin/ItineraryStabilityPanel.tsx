@@ -15,19 +15,14 @@ import type {
   AdminProductToolOutcomeCounts,
 } from '@/types/adminAudit';
 import {
+  ADMIN_WINDOW_OPTIONS,
   AdminEmpty,
   AdminError,
   AdminLoading,
   formatAdminDate,
   formatNumber,
+  toShanghaiIso,
 } from './AdminPanelPrimitives';
-
-const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
-const WINDOW_OPTIONS = [
-  { hours: 1, label: '最近 1 小时' },
-  { hours: 24, label: '最近 24 小时' },
-  { hours: 7 * 24, label: '最近 7 天' },
-] as const;
 
 interface ItineraryStabilityPanelProps {
   onForbidden: () => void;
@@ -75,7 +70,7 @@ export default function ItineraryStabilityPanel({ onForbidden }: ItineraryStabil
 
       <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div className="flex flex-wrap gap-2" role="group" aria-label="行程统计时间窗口">
-          {WINDOW_OPTIONS.map(option => (
+          {ADMIN_WINDOW_OPTIONS.map(option => (
             <Button
               key={option.hours}
               type="button"
@@ -358,10 +353,6 @@ function buildWindowQuery(hours: number, modelId = '', now = new Date()): AdminI
     created_to: toShanghaiIso(createdTo),
     ...(modelId ? { model_id: modelId } : {}),
   };
-}
-
-function toShanghaiIso(value: Date): string {
-  return new Date(value.getTime() + SHANGHAI_OFFSET_MS).toISOString().replace('Z', '+08:00');
 }
 
 function formatDuration(value: number | null): string {

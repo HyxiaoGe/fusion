@@ -75,6 +75,18 @@ export function formatAdminDate(value: string | null): string {
     : `${date.toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' })}（北京时间）`;
 }
 
+const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+export const ADMIN_WINDOW_OPTIONS = [
+  { hours: 1, label: '最近 1 小时' },
+  { hours: 24, label: '最近 24 小时' },
+  { hours: 7 * 24, label: '最近 7 天' },
+] as const;
+
+export function toShanghaiIso(value: Date): string {
+  return new Date(value.getTime() + SHANGHAI_OFFSET_MS).toISOString().replace('Z', '+08:00');
+}
+
 export function formatNumber(value: number | null | undefined): string {
   return new Intl.NumberFormat('zh-CN').format(value ?? 0);
 }

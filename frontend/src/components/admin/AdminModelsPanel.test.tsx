@@ -6,6 +6,7 @@ const apiMocks = vi.hoisted(() => ({
   getAdminModels: vi.fn(),
   getAdminModel: vi.fn(),
   getAdminItineraryStability: vi.fn(),
+  getAdminRoutingQuality: vi.fn(),
 }));
 vi.mock('@/lib/api/adminAudit', () => apiMocks);
 vi.mock('@/components/models/ProviderIcon', () => ({
@@ -38,6 +39,33 @@ const detail = {
   cost_tier: 'medium',
   recommended_for: ['长文本', 'Agent'],
 };
+const emptyRoutingQuality = {
+  scope: {
+    created_from: '2026-07-11T00:00:00+08:00',
+    created_to: '2026-07-12T00:00:00+08:00',
+    unrouted_count: 0,
+    running_count: 0,
+    interrupted_count: 0,
+    failed_count: 0,
+    sample_limit: 50,
+    sample_total: 0,
+  },
+  summary: {
+    total: 0,
+    completed: 0,
+    signals: {
+      classifier_unavailable: 0,
+      clarification_only: 0,
+      tools_unavailable: 0,
+      no_tool_call: 0,
+      web_only_fallback: 0,
+      primary_tool_missed: 0,
+    },
+  },
+  by_package: [],
+  samples: [],
+};
+
 const emptyStability = {
   scope: {
     created_from: '2026-07-11T00:00:00+08:00',
@@ -84,6 +112,7 @@ describe('AdminModelsPanel', () => {
     apiMocks.getAdminModels.mockReset().mockResolvedValue(page);
     apiMocks.getAdminModel.mockReset().mockResolvedValue(detail);
     apiMocks.getAdminItineraryStability.mockReset().mockResolvedValue(emptyStability);
+    apiMocks.getAdminRoutingQuality.mockReset().mockResolvedValue(emptyRoutingQuality);
   });
 
   it('列表紧凑展示模型健康、能力和使用摘要，不泄露配置凭据', async () => {

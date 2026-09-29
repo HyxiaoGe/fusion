@@ -16,6 +16,7 @@ import {
   AdminEmpty, AdminError, AdminFilterActions, AdminLoading, AdminPagination, AdminPanelHeader, formatAdminDate, formatNumber,
 } from './AdminPanelPrimitives';
 import ItineraryStabilityPanel from './ItineraryStabilityPanel';
+import RoutingQualityPanel from './RoutingQualityPanel';
 
 interface AdminModelsPanelProps {
   active?: boolean;
@@ -77,6 +78,7 @@ export default function AdminModelsPanel({
         action={<Button variant="outline" size="sm" onClick={resource.reload} aria-label="刷新模型列表"><RefreshCw />刷新</Button>}
       />
       <ItineraryStabilityPanel onForbidden={onForbidden} />
+      <RoutingQualityPanel onForbidden={onForbidden} />
       <form className="mb-4 grid max-w-3xl gap-2 md:grid-cols-[1fr_1fr_1fr_auto]" onSubmit={event => {
         event.preventDefault();
         setPage(1);
