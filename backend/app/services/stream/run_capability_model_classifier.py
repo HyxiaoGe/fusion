@@ -314,7 +314,8 @@ def classify_capability_request_with_model(
                 )
             # 调用本身失败（超时/代理不可用）不是输出问题，回传错误也修不好；
             # 换另一家上游的备用模型在剩余时间里再分一次，仍不行才兜底。
-            fallback_timeout = _retry_timeout(started_at, limits)
+            # 备用模型不受主模型的单次超时约束：千问 p90 约 1.8s，主模型多半很快报错，剩余时间都给它。
+            fallback_timeout = _remaining_retry_seconds(started_at)
             if model_index + 1 < len(models) and attempt + 1 < _MAX_MODEL_ATTEMPTS and fallback_timeout is not None:
                 logger.info(
                     "run_capability_classifier fallback_model model=%s first_error=%s",
@@ -347,7 +348,8 @@ def classify_capability_request_with_model(
                 observation_gate=deadline_gate,
             )
             return route
-        retry_timeout = _retry_timeout(started_at, limits)
+        remaining = _remaining_retry_seconds(started_at)
+        retry_timeout = None if remaining is None else min(limits.timeout_seconds, remaining)
         if attempt + 1 >= _MAX_MODEL_ATTEMPTS or content is None or retry_timeout is None:
             return _fail_closed(
                 error_type or "invalid_response",
@@ -765,11 +767,11 @@ def _completion_kwargs(model: str, limits: _ClassifierLimits, timeout: float) ->
     }
 
 
-def _retry_timeout(started_at: float, limits: _ClassifierLimits) -> float | None:
+def _remaining_retry_seconds(started_at: float) -> float | None:
     remaining = CLASSIFIER_TOTAL_DEADLINE_SECONDS - (perf_counter() - started_at) - _REPAIR_RETRY_MARGIN_SECONDS
     if remaining < _REPAIR_RETRY_MIN_SECONDS:
         return None
-    return min(limits.timeout_seconds, remaining)
+    return remaining
 
 
 def _validation_feedback(error: ValidationError) -> str:

@@ -14,6 +14,7 @@ from app.db.models import Message
 from app.services.stream.agent_task_policy import AgentTaskPolicy
 from app.services.stream.run_capability_model_classifier import (
     _HARD_MAX_INPUT_TOKENS,
+    CLASSIFIER_TOTAL_DEADLINE_SECONDS,
     _build_messages,
     _effective_classifier_limits,
     _error_type,
@@ -308,7 +309,8 @@ def test_call_failures_switch_to_fallback_model_once(error) -> None:
     assert "reasoning_effort" not in fallback
     assert fallback["extra_body"]["enable_thinking"] is False
     assert fallback["extra_body"]["cache"] == primary["extra_body"]["cache"]
-    assert fallback["timeout"] <= primary["timeout"]
+    # 主模型很快报错时，备用模型拿到总时限里的剩余时间，不被主模型的单次超时卡住。
+    assert primary["timeout"] < fallback["timeout"] < CLASSIFIER_TOTAL_DEADLINE_SECONDS
 
 
 @pytest.mark.parametrize(
