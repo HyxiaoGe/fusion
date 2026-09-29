@@ -1,4 +1,4 @@
-import { forwardRef, type PointerEvent } from "react";
+import { forwardRef } from "react";
 import { cn } from "@/lib/utils";
 import { ChevronUp } from "lucide-react";
 import { buildModelCapabilityLabels } from "@/lib/models/modelCapabilityPresentation";
@@ -6,6 +6,8 @@ import { CapabilityChipList } from "./CapabilityChip";
 import ProviderIcon from "./ProviderIcon";
 import type { ModelInfo, ProviderInfo } from "@/lib/config/modelConfig";
 import styles from "./ModelSelectorGlass.module.css";
+import glassSurface from "@/components/ui/GlassSurface.module.css";
+import GlassHoverLens, { pointGlassLight, resetGlassLight } from "@/components/ui/GlassHoverLens";
 
 interface ModelSelectorTriggerProps {
   model: ModelInfo | null;
@@ -31,26 +33,18 @@ const ModelSelectorTrigger = forwardRef<HTMLButtonElement, ModelSelectorTriggerP
       ? providers.find((p) => p.id === model.provider)?.name || model.provider
       : "";
     const capabilityLabels = model ? buildModelCapabilityLabels(model) : [];
-    const handlePointerMove = (event: PointerEvent<HTMLButtonElement>) => {
-      if (disabled || event.pointerType === "touch") return;
-      const bounds = event.currentTarget.getBoundingClientRect();
-      event.currentTarget.style.setProperty("--model-glint-x", `${event.clientX - bounds.left}px`);
-      event.currentTarget.style.setProperty("--model-glint-y", `${event.clientY - bounds.top}px`);
-    };
-
     return (
       <button
         ref={ref}
         disabled={disabled}
         data-testid="model-selector-trigger"
-        onPointerMove={handlePointerMove}
-        onPointerLeave={(event) => {
-          event.currentTarget.style.removeProperty("--model-glint-x");
-          event.currentTarget.style.removeProperty("--model-glint-y");
-        }}
+        data-open={isOpen}
+        onPointerMove={pointGlassLight}
+        onPointerLeave={resetGlassLight}
         className={cn(
           "inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-foreground",
           styles.trigger,
+          glassSurface.interactive,
           toolbarMode && "h-8 w-[112px] max-w-[112px] justify-between px-1.5 sm:h-[66px] sm:w-64 sm:max-w-none sm:px-2.5",
           disabled && "cursor-default opacity-60",
           !disabled && "cursor-pointer",
@@ -58,6 +52,7 @@ const ModelSelectorTrigger = forwardRef<HTMLButtonElement, ModelSelectorTriggerP
         )}
         {...props}
       >
+        <GlassHoverLens />
         {model ? (
           <>
             <ProviderIcon providerId={model.provider} size={16} className="rounded-md" />

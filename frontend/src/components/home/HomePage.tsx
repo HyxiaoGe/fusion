@@ -35,6 +35,9 @@ import {
 } from '@/lib/api/prompts';
 import { preloadChatMessageList } from '@/components/lazy/preloaders';
 import { useRenderProbe } from '@/lib/debug/perfProbe';
+import { cn } from '@/lib/utils';
+import glassSurface from '@/components/ui/GlassSurface.module.css';
+import GlassHoverLens, { pointGlassLight, resetGlassLight } from '@/components/ui/GlassHoverLens';
 
 interface StarterPrompt {
   id: string;
@@ -557,8 +560,16 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt }) => {
                 <button
                   type="button"
                   onClick={() => onSelectPrompt(starter.prompt)}
-                  className="group flex min-h-24 w-full items-center gap-4 rounded-2xl border border-border/80 bg-background/90 p-4 text-left shadow-fdv2-xs transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-border-strong hover:shadow-fdv2-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transform-none motion-reduce:transition-none"
+                  onPointerMove={pointGlassLight}
+                  onPointerLeave={resetGlassLight}
+                  className={cn(
+                    'group flex min-h-24 w-full items-center gap-4 rounded-2xl p-4 text-left hover:-translate-y-0.5 motion-reduce:transform-none',
+                    glassSurface.surface,
+                    glassSurface.card,
+                    glassSurface.interactive,
+                  )}
                 >
+                  <GlassHoverLens />
                   <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${starter.tone}`}>
                     <Icon className="h-5 w-5" aria-hidden="true" />
                   </span>
@@ -638,7 +649,14 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt }) => {
                   key={question}
                   type="button"
                   onClick={() => onSelectPrompt(question)}
-                  className="max-w-full truncate whitespace-nowrap rounded-full border border-border/70 bg-bg-subtle px-3.5 py-2 text-xs text-fg-secondary transition-colors hover:border-border-strong hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onPointerMove={pointGlassLight}
+                  onPointerLeave={resetGlassLight}
+                  className={cn(
+                    'max-w-full truncate whitespace-nowrap rounded-full px-3.5 py-2 text-xs text-fg-secondary hover:text-foreground',
+                    glassSurface.surface,
+                    glassSurface.pill,
+                    glassSurface.interactive,
+                  )}
                   style={{
                     backfaceVisibility: 'hidden',
                     opacity: areInspirationsFlipped ? 0 : 1,
@@ -648,7 +666,8 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt }) => {
                     willChange: 'opacity, transform',
                   }}
                 >
-                  {question}
+                  <GlassHoverLens corners={false} />
+                  <span>{question}</span>
                 </button>
               ))}
             </div>

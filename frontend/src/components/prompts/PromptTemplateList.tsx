@@ -3,6 +3,7 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { cn } from '@/lib/utils';
 import { useAppDispatch, useAppSelector } from '@/redux/hooks';
 import {
   initializeTemplates,
@@ -11,6 +12,8 @@ import {
 import { PlusIcon, Search } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import PromptTemplateItem, { type PromptTemplateListItem } from './PromptTemplateItem';
+import glassSurface from '@/components/ui/GlassSurface.module.css';
+import GlassHoverLens, { pointGlassLight, resetGlassLight } from '@/components/ui/GlassHoverLens';
 
 interface PromptTemplateListProps {
   onSelectTemplate?: (content: string) => void;
@@ -92,13 +95,18 @@ const PromptTemplateList: React.FC<PromptTemplateListProps> = ({
         ) : null}
       </div>
 
-      <div className="relative mb-4">
-        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+      <div
+        className={cn('relative mb-4 rounded-xl', glassSurface.surface, glassSurface.field, glassSurface.interactive)}
+        onPointerMove={pointGlassLight}
+        onPointerLeave={resetGlassLight}
+      >
+        <GlassHoverLens />
+        <Search className="pointer-events-none absolute left-3 top-2.5 z-10 h-4 w-4 text-muted-foreground" />
         <Input
           placeholder="搜索模板..."
           value={searchTerm}
           onChange={handleSearch}
-          className="pl-8"
+          className={cn('pl-9', glassSurface.fieldInput)}
         />
       </div>
 
