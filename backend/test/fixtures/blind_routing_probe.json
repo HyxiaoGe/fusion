@@ -97,6 +97,12 @@
     {"id": "context-01", "question": "那飞机呢", "acceptable_packages": ["flight", "travel_air_rail", "mobility_intercity"], "group": "context", "context": [{"role": "user", "content": "北京到上海高铁多少钱"}, {"role": "assistant", "content": "北京南到上海虹桥的高铁二等座大约 550 到 670 元，一等座 900 元左右。"}]},
     {"id": "context-02", "question": "那后天呢", "acceptable_packages": ["weather"], "group": "context", "context": [{"role": "user", "content": "明天杭州天气怎么样"}, {"role": "assistant", "content": "明天杭州多云，气温 18 到 25 度，东风 2 级。"}]},
     {"id": "context-03", "question": "再正式一点", "acceptable_packages": ["transform"], "group": "context", "context": [{"role": "user", "content": "帮我把这句翻译成英文：我们下周开个会聊聊"}, {"role": "assistant", "content": "Let's have a meeting next week to talk about it."}]},
-    {"id": "context-04", "question": "谢谢，挺清楚的", "acceptable_packages": ["direct"], "group": "context", "context": [{"role": "user", "content": "今天有什么科技新闻"}, {"role": "assistant", "content": "今天的科技新闻主要有三条：……"}]}
+    {"id": "context-04", "question": "谢谢，挺清楚的", "acceptable_packages": ["direct"], "group": "context", "context": [{"role": "user", "content": "今天有什么科技新闻"}, {"role": "assistant", "content": "今天的科技新闻主要有三条：……"}]},
+    {"id": "recommend-01", "question": "国庆假期准备去哪儿玩？", "acceptable_packages": ["fresh_web", "direct"], "group": "recommend", "forbidden_tools": ["route_compare", "search_flights", "search_trains"], "note": "问去哪而非怎么去，缺出发地和偏好也应直接给建议；对标 DeepSeek/豆包/MiMo 均直接推荐"},
+    {"id": "recommend-02", "question": "带爸妈出去旅游，去哪比较合适", "acceptable_packages": ["direct", "fresh_web"], "group": "recommend", "forbidden_tools": ["route_compare", "search_flights", "search_trains"]},
+    {"id": "recommend-03", "question": "周末在家无聊，有什么好玩的事可以做", "acceptable_packages": ["direct"], "group": "recommend"},
+    {"id": "recommend-04", "question": "最近有什么好看的电影推荐", "acceptable_packages": ["fresh_web"], "group": "recommend"},
+    {"id": "recommend-05", "question": "今年双十一有什么值得买的数码产品", "acceptable_packages": ["fresh_web", "verified_web"], "group": "recommend"},
+    {"id": "recommend-06", "question": "过年回家给长辈带点什么礼物好", "acceptable_packages": ["direct"], "group": "recommend"}
   ]
 }

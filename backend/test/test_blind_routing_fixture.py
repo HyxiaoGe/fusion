@@ -57,6 +57,7 @@ _PROBE_GROUPS = frozenset(
         "web",
         "abstract",
         "boundary",
+        "recommend",
         "identity",
         "mcp_alias",
         "verify_verb",
