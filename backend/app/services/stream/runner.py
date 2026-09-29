@@ -50,6 +50,7 @@ from app.services.stream.llm_stream import llm_call_with_retry, stream_round
 from app.services.stream.persistence import persist_message
 from app.services.stream.previous_run_skill_release import load_previous_run_skill_release_pins
 from app.services.stream.run_capability_model_classifier import (
+    CLASSIFIER_TOTAL_DEADLINE_SECONDS,
     ClassifierDeadlineGate,
     classify_capability_request_with_model,
 )
@@ -78,7 +79,8 @@ from app.services.suggested_question_worker import (
 AGENT_MAX_STEPS = settings.AGENT_MAX_STEPS  # LLM 调用轮次上限
 AGENT_MAX_TOOL_CALLS = settings.AGENT_MAX_TOOL_CALLS  # 工具执行总次数上限
 AGENT_TOTAL_TIMEOUT = settings.AGENT_TOTAL_TIMEOUT  # 单次运行时限（秒）
-_CALL_CONFIG_BUILD_DEADLINE_SECONDS = 1.5
+# 正常分类单次调用受 1.5s 超时约束；只有首次输出不合契约需要修正重试时才会用到更长的预算。
+_CALL_CONFIG_BUILD_DEADLINE_SECONDS = CLASSIFIER_TOTAL_DEADLINE_SECONDS
 
 
 def _log_agent_round_summary(

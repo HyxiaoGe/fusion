@@ -76,7 +76,8 @@ class IdentityCompoundDelegationTests(unittest.TestCase):
                 _ALL_TOOLS,
                 result_callback=lambda result, error_type: observed.append((result, error_type)),
             )
-        self.assertEqual(
+        # 输出不合契约时会带错误修正重试一次，所以只要求至少调用过模型。
+        self.assertGreaterEqual(
             completion.call_count,
             1,
             f"{question!r} 必须交给模型分类；调用次数为 0 说明又出现了模型之前的短路层",

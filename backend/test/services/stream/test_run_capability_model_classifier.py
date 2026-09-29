@@ -287,25 +287,96 @@ def test_missing_credentials_fails_closed_without_model_call(monkeypatch: pytest
 
 
 @pytest.mark.parametrize(
-    "response_or_error",
-    [
-        TimeoutError("deadline"),
-        RuntimeError("proxy unavailable"),
-        _completion_response("unknown_package"),
-        _completion_response("weather", ["web_search"]),
-        SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="not json"))]),
-    ],
-    ids=["timeout", "exception", "unknown-package", "illegal-tool-combination", "malformed-json"],
+    "error",
+    [TimeoutError("deadline"), RuntimeError("proxy unavailable")],
+    ids=["timeout", "exception"],
 )
-def test_model_failures_and_invalid_output_fail_closed_without_retry(response_or_error) -> None:
-    completion = Mock(
-        side_effect=response_or_error if isinstance(response_or_error, BaseException) else None,
-        return_value=None if isinstance(response_or_error, BaseException) else response_or_error,
-    )
+def test_call_failures_fail_closed_without_retry(error) -> None:
+    # 调用本身失败不是输出问题，回传错误也修不好。
+    completion = Mock(side_effect=error)
     with patch("app.services.stream.run_capability_model_classifier.litellm.completion", completion):
         candidate = classify_capability_request_with_model("需要语义判断的请求", ALL_TOOLS)
 
     _assert_clarification(candidate)
+    completion.assert_called_once()
+
+
+_MALFORMED = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="not json"))])
+
+
+@pytest.mark.parametrize(
+    "invalid_response",
+    [
+        _completion_response("unknown_package"),
+        _completion_response("weather", ["web_search"]),
+        _MALFORMED,
+    ],
+    ids=["unknown-package", "illegal-tool-combination", "malformed-json"],
+)
+def test_invalid_output_is_repaired_once_then_fails_closed(invalid_response) -> None:
+    completion = Mock(return_value=invalid_response)
+    with patch("app.services.stream.run_capability_model_classifier.litellm.completion", completion):
+        candidate = classify_capability_request_with_model("需要语义判断的请求", ALL_TOOLS)
+
+    _assert_clarification(candidate)
+    assert completion.call_count == 2
+
+
+def test_invalid_output_repair_feeds_back_structured_error_and_uses_corrected_route() -> None:
+    invalid = SimpleNamespace(
+        choices=[
+            SimpleNamespace(message=SimpleNamespace(content='{"package_id": "fresh_web", "network_policy": "maybe"}'))
+        ]
+    )
+    completion = Mock(side_effect=[invalid, _completion_response("fresh_web", ["web_search"])])
+    with patch("app.services.stream.run_capability_model_classifier.litellm.completion", completion):
+        candidate = classify_capability_request_with_model("特朗普为啥宣布全美降半旗一周？", ALL_TOOLS)
+
+    assert candidate.package_id == "fresh_web"
+    assert candidate.explicit_tool_names == ("web_search",)
+    first_messages = completion.call_args_list[0].kwargs["messages"]
+    retry_messages = completion.call_args_list[1].kwargs["messages"]
+    assert retry_messages[: len(first_messages)] == first_messages
+    assert retry_messages[-2] == {"role": "assistant", "content": invalid.choices[0].message.content}
+    feedback = retry_messages[-1]
+    assert feedback["role"] == "user"
+    # 回传的是具体字段级错误，而不是笼统的“格式错误”。
+    assert "network_policy" in feedback["content"]
+    assert "explicit_tool_names" in feedback["content"]
+
+
+def test_repair_is_skipped_when_remaining_budget_is_too_small(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "app.services.stream.run_capability_model_classifier.CLASSIFIER_TOTAL_DEADLINE_SECONDS",
+        0.1,
+    )
+    completion = Mock(return_value=_MALFORMED)
+    with patch("app.services.stream.run_capability_model_classifier.litellm.completion", completion):
+        candidate = classify_capability_request_with_model("需要语义判断的请求", ALL_TOOLS)
+
+    _assert_clarification(candidate)
+    completion.assert_called_once()
+
+
+def test_echoed_response_format_field_does_not_invalidate_route() -> None:
+    # 实测 deepseek-chat 约 1/4 概率把 response_format 抄进输出，路由字段本身完全正确。
+    echoed = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content=(
+                        '{"type":"json_object","package_id":"fresh_web","explicit_tool_names":["web_search"],'
+                        '"network_policy":"allow","denied_tool_names":[]}'
+                    )
+                )
+            )
+        ]
+    )
+    completion = Mock(return_value=echoed)
+    with patch("app.services.stream.run_capability_model_classifier.litellm.completion", completion):
+        candidate = classify_capability_request_with_model("特朗普为啥宣布全美降半旗一周？", ALL_TOOLS)
+
+    assert candidate.package_id == "fresh_web"
     completion.assert_called_once()
 
 
