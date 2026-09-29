@@ -59,7 +59,7 @@ const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
   return (
     <div 
       ref={sidebarRef} 
-      className={cn("relative border-r border-border bg-bg-subtle overflow-y-auto", className)}
+      className={cn("relative overflow-hidden border-r border-border bg-bg-subtle", className)}
       style={{ width: `${width}px` }}
     >
       {children}

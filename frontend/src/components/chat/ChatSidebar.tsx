@@ -246,18 +246,18 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ onNewChat, activeChatIdOverri
   }, [generateTitle]);
 
   return (
-    <div className="flex flex-col h-full py-2">
+    <div className="flex h-full min-h-0 flex-col">
       <ChatSidebarHeader onNewChat={onNewChat} isNewChatActive={isNewChatActive} />
 
       {/* 搜索框 */}
-      <div className="px-3 pb-2">
+      <div className="px-3 pb-3">
         <div className={cn(
-          "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors",
+          "flex h-10 items-center gap-2 rounded-xl border px-3 text-sm transition-colors focus-within:ring-2 focus-within:ring-ring",
           isSearchFocused
-            ? "bg-background border border-input ring-1 ring-ring"
-            : "bg-muted/30 border border-border/70 dark:border-border hover:border-border hover:bg-muted/60 cursor-text"
+            ? "border-input bg-background"
+            : "border-border/70 bg-background/70 hover:border-border-strong hover:bg-background cursor-text"
         )}>
-          <Search className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+          <Search className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
           <input
             ref={searchInputRef}
             type="text"
@@ -272,14 +272,16 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ onNewChat, activeChatIdOverri
                 searchInputRef.current?.blur();
               }
             }}
-            className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+            className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
           />
           {searchQuery && (
             <button
+              type="button"
               onClick={() => handleSearchChange('')}
-              className="text-muted-foreground hover:text-foreground"
+              aria-label="清除搜索"
+              className="grid h-6 w-6 flex-shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <X className="h-3 w-3" />
+              <X className="h-3.5 w-3.5" />
             </button>
           )}
         </div>
@@ -313,7 +315,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ onNewChat, activeChatIdOverri
       />
 
       {/* 底部用户区（固定不随列表滚动） */}
-      <div className="flex items-center justify-between gap-2 mt-auto border-t pt-2 px-2 pb-3">
+      <div className="mt-auto flex items-center justify-between gap-2 border-t border-border/70 px-3 pb-3 pt-2">
         <UserAvatarMenu />
         <div className="flex items-center gap-1" data-testid="sidebar-display-controls">
           <LanguageToggle />

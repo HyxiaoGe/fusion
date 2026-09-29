@@ -150,7 +150,10 @@ describe("ChatItem", () => {
     expect(status).toBeInTheDocument();
     expect(status).toHaveClass("pointer-events-none");
     expect(status.querySelector("svg")).toHaveClass("animate-spin", "motion-reduce:animate-none");
-    expect(container.querySelector('[title="更多操作"]')).toHaveClass("group-hover:opacity-60");
+    expect(container.querySelector('[title="更多操作"]')).toHaveClass(
+      "group-hover:opacity-100",
+      "group-focus-within:opacity-100",
+    );
 
     rerender(<ChatItem {...baseProps} isStreaming={false} />);
 

@@ -18,9 +18,8 @@ interface MainLayoutProps {
 
 const MainLayout: React.FC<MainLayoutProps> = ({ children, sidebar, rightPanel }) => {
   const pathname = usePathname();
-  const [isMobileViewport, setIsMobileViewport] = React.useState(() => (
-    typeof window !== "undefined" ? window.innerWidth < 1024 : false
-  ));
+  // 首帧与服务端保持一致，挂载后再按实际宽度切换，避免移动端 hydration 失配。
+  const [isMobileViewport, setIsMobileViewport] = React.useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = React.useState(false);
 
   React.useEffect(() => {
@@ -81,7 +80,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children, sidebar, rightPanel }
               aria-label="关闭对话侧栏"
               onClick={() => setIsMobileSidebarOpen(false)}
             />
-            <aside className="absolute inset-y-0 left-0 w-[min(85vw,320px)] border-r bg-sidebar shadow-xl">
+            <aside className="absolute inset-y-0 left-0 w-[min(85vw,320px)] border-r bg-bg-subtle shadow-xl">
               <div className="absolute right-3 top-3 z-10">
                 <Button
                   type="button"
@@ -94,7 +93,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children, sidebar, rightPanel }
                   <XIcon className="h-5 w-5" />
                 </Button>
               </div>
-              <div className="h-full overflow-y-auto pr-2">
+              <div className="h-full">
                 {sidebar}
               </div>
             </aside>

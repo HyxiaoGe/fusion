@@ -88,10 +88,10 @@ const ChatItem: React.FC<ChatItemProps> = ({
     <div
       data-conversation-id={chat.id}
       tabIndex={0}
-      className={`flex items-center group rounded-lg p-3 text-sm cursor-pointer transition-all duration-200 ${
+      className={`group flex min-h-14 cursor-pointer items-center rounded-xl border px-2.5 py-2 text-sm transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
         isActive
-          ? "relative pl-4 bg-muted/50 before:absolute before:left-0 before:top-2 before:bottom-2 before:w-0.5 before:rounded-full before:bg-primary"
-          : "hover:bg-black/5 dark:hover:bg-white/10 hover:text-foreground"
+          ? "relative border-border/75 bg-background/95 shadow-fdv2-xs before:absolute before:bottom-2 before:left-0 before:top-2 before:w-0.5 before:rounded-full before:bg-primary"
+          : "border-transparent hover:border-border/60 hover:bg-background/75 hover:text-foreground"
       }`}
       onPointerEnter={(event) => {
         if (!event.pointerType || event.pointerType === "mouse" || event.pointerType === "pen") {
@@ -125,14 +125,14 @@ const ChatItem: React.FC<ChatItemProps> = ({
         <div className="flex items-center gap-2">
           <MessageSquareIcon size={16} className={`shrink-0 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
           <div className="truncate flex-1 pr-1">
-            <div className={`font-medium truncate ${isActive ? "text-primary font-semibold" : ""}`} title={chat.title || "新对话"}>
+            <div className={`truncate text-[13px] font-medium leading-5 ${isActive ? "font-semibold text-foreground" : ""}`} title={chat.title || "新对话"}>
               {searchQuery ? (
                 <HighlightedText text={chat.title || "新对话"} query={searchQuery} />
               ) : (
                 chat.title || "新对话"
               )}
             </div>
-            <div className="text-[11px] text-muted-foreground truncate mt-0.5">
+            <div className="mt-0.5 truncate text-xs leading-4 text-muted-foreground">
               {formatDate(chat.updatedAt || chat.createdAt)}
               {modelName && (
                 <span className="ml-1">
@@ -143,7 +143,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
           </div>
         </div>
       </div>
-      <div className="relative ml-2 h-6 w-6 shrink-0">
+      <div className="relative ml-1 h-7 w-7 shrink-0">
         {isStreaming ? (
           <span
             role="status"
@@ -162,8 +162,9 @@ const ChatItem: React.FC<ChatItemProps> = ({
             <Button
               variant="ghost"
               size="icon"
-              className="h-6 w-6 p-0 rounded opacity-0 group-hover:opacity-60 hover:!opacity-100"
+              className={`h-7 w-7 rounded-md p-0 text-muted-foreground transition-opacity focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 ${isActive && !isStreaming ? "opacity-100" : "opacity-0"}`}
               title="更多操作"
+              aria-label="更多操作"
               onPointerDown={(event) => {
                 cancelPendingPrefetch();
                 event.stopPropagation();
