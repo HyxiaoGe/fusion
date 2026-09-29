@@ -53,7 +53,8 @@ export type TrajectoryCapabilityReasonCode =
   | 'required_tools_unavailable'
   | 'required_skill_unavailable'
   | 'explicit_authorized_tool_alias'
-  | 'insufficient_capability_signal';
+  | 'insufficient_capability_signal'
+  | 'classifier_unavailable';
 
 /** 与 package id 同理：后端新增 reason code 时 UI 原样展示，不丢弃整条 resolution。 */
 export type TrajectoryCapabilityReasonCodeOrUnknown = TrajectoryCapabilityReasonCode | (string & {});

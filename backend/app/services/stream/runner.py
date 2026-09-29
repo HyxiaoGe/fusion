@@ -54,7 +54,7 @@ from app.services.stream.run_capability_model_classifier import (
     ClassifierDeadlineGate,
     classify_capability_request_with_model,
 )
-from app.services.stream.run_capability_router import _CandidateRoute
+from app.services.stream.run_capability_router import _CandidateRoute, classifier_unavailable_route
 from app.services.stream.run_finalizer import (
     complete_agent_run,
     fail_agent_run,
@@ -185,17 +185,11 @@ def _build_call_config_with_deadline_signal(
 
 
 def _classify_deadline_fallback(**_kwargs) -> _CandidateRoute:
-    return _CandidateRoute(
-        package_id="clarification_only",
-        confidence="low",
-        reason_codes=("insufficient_capability_signal",),
-        include_current_date=True,
-        resolution_mode="clarification",
-    )
+    return classifier_unavailable_route()
 
 
 def _build_deadline_fallback_call_config_fn():
-    """硬 deadline 后只允许无模型的 clarification 配置继续生命周期。"""
+    """硬 deadline 后只允许不调分类模型的兜底配置继续生命周期。"""
 
     return partial(
         build_agent_loop_call_config,

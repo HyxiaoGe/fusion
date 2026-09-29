@@ -76,8 +76,40 @@ def test_new_routes_always_carry_current_date():
         )
 
     fallback = _resolve("你好", classify_fn=classify_capability_request)
-    assert fallback.package_id == "clarification_only"
+    assert fallback.package_id == "fresh_web"
     assert fallback.include_current_date is True
+
+
+def test_classifier_failure_falls_back_to_optional_web_tools_not_clarification():
+    # 分类失败是系统问题：开放网页搜索与读取、由回答模型按需调用，而不是反问用户。
+    route = _resolve("帮我看看这个问题", classify_fn=classify_capability_request)
+
+    assert route.package_id == "fresh_web"
+    assert route.confidence == "low"
+    assert route.reason_codes == ("classifier_unavailable",)
+    assert route.resolution_mode == "routed"
+    assert route.external_tool_names == ("web_search", "url_read")
+    assert route.network_boundary_required is False
+    TrajectoryCapabilityResolution.model_validate(
+        {**serialize_capability_resolution(route), "bundle_fingerprint": "sha256:" + "0" * 64}
+    )
+
+
+def test_classifier_failure_fallback_still_degrades_without_function_calling():
+    route = _resolve(
+        "帮我看看这个问题",
+        capabilities={"functionCalling": False, "searchCapable": True},
+        classify_fn=classify_capability_request,
+    )
+
+    assert route.package_id == "tools_unavailable"
+    assert route.confidence == "low"
+    assert route.reason_codes == ("function_calling_unavailable",)
+    assert route.external_tool_names == ()
+    assert route.network_boundary_required is True
+    TrajectoryCapabilityResolution.model_validate(
+        {**serialize_capability_resolution(route), "bundle_fingerprint": "sha256:" + "0" * 64}
+    )
 
 
 def test_classifier_receives_original_case_and_line_breaks():

@@ -417,9 +417,10 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(prompt_event["status"], "ready")
         self.assertEqual(prompt_event["source"], "code")
         self.assertIsNone(prompt_event["step_id"])
+        # 测试环境无分类器凭证：兜底到 fresh_web，再因模型不支持工具降级为 tools_unavailable，带无联网边界。
         self.assertEqual(
             prompt_event["section_ids"],
-            ["app_identity", "current_date", "visible_response_language"],
+            ["app_identity", "no_tool_network_boundary", "current_date", "visible_response_language"],
         )
         self.assertRegex(prompt_event["fingerprint"], r"^[0-9a-f]{64}$")
         self.assertGreater(prompt_event["char_count"], 0)
@@ -935,7 +936,7 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
 
         completion.assert_not_called()
         self.assertEqual(
-            assemble_lifecycle.call_args.kwargs["call_config"].capability_resolution.package_id, "clarification_only"
+            assemble_lifecycle.call_args.kwargs["call_config"].capability_resolution.package_id, "fresh_web"
         )
         run_lifecycle.assert_awaited_once()
         self.assertEqual([call.args[1] for call in log_info.call_args_list], ["failed"])
@@ -967,9 +968,16 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
 
         await self._assert_post_classification_deadline_observation(
             completion_side_effect=TimeoutError("inner deadline"),
+            # 主模型超时后在剩余时间内换备用模型再分一次，随后仍被外层 deadline 覆盖。
+            expected_completion_calls=2,
         )
 
-    async def _assert_post_classification_deadline_observation(self, *, completion_side_effect):
+    async def _assert_post_classification_deadline_observation(
+        self,
+        *,
+        completion_side_effect,
+        expected_completion_calls: int = 1,
+    ):
         from app.services.stream import agent_loop_request_prep
         from app.services.stream.agent_loop_wiring import AgentLoopCallConfigInputs
 
@@ -1010,7 +1018,12 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
             patch("app.services.stream.run_capability_model_classifier.litellm.token_counter", lambda **_kwargs: 1),
             patch(
                 "app.services.stream.run_capability_model_classifier.litellm.completion",
-                side_effect=completion_side_effect,
+                # 异常走 side_effect；正常响应必须走 return_value，非可迭代对象作 side_effect 会被 Mock 当成 TypeError。
+                **(
+                    {"side_effect": completion_side_effect}
+                    if isinstance(completion_side_effect, BaseException)
+                    else {"return_value": completion_side_effect}
+                ),
             ) as completion,
             patch(
                 "app.services.stream.agent_loop_request_prep.resolve_product_package_plan_policy",
@@ -1037,13 +1050,16 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
             )
             await asyncio.sleep(0.07)
 
-        completion.assert_called_once()
+        self.assertEqual(completion.call_count, expected_completion_calls)
         self.assertEqual(
-            assemble_lifecycle.call_args.kwargs["call_config"].capability_resolution.package_id, "clarification_only"
+            assemble_lifecycle.call_args.kwargs["call_config"].capability_resolution.package_id, "fresh_web"
         )
         run_lifecycle.assert_awaited_once()
-        self.assertEqual([call.args[1] for call in log_info.call_args_list], ["failed"])
-        self.assertEqual([call.args[4] for call in log_info.call_args_list], ["deadline_exceeded"])
+        result_logs = [
+            call for call in log_info.call_args_list if call.args[0].startswith("run_capability_classifier result=")
+        ]
+        self.assertEqual([call.args[1] for call in result_logs], ["failed"])
+        self.assertEqual([call.args[4] for call in result_logs], ["deadline_exceeded"])
 
     async def test_generate_to_redis_uses_runner_patched_agent_loop_dependencies(self):
         """runner patch 路径必须继续流入 runtime/lifecycle 依赖。"""

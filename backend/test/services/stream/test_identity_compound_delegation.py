@@ -106,7 +106,8 @@ class IdentityCompoundDelegationTests(unittest.TestCase):
             with self.subTest(case=case["id"]):
                 candidate, observed = self._classify(case["question"], case["recorded_response_content"])
 
-                self.assertEqual(candidate.package_id, "clarification_only")
+                self.assertEqual(candidate.package_id, "fresh_web")
+                self.assertEqual(candidate.reason_codes, ("classifier_unavailable",))
                 self.assertEqual(observed, [("failed", "validation_error")])
 
     def test_expected_business_packages_are_reachable_through_the_contract(self) -> None:

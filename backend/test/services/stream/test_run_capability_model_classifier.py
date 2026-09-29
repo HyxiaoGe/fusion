@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from app.db.models import Message
 from app.services.stream.agent_task_policy import AgentTaskPolicy
 from app.services.stream.run_capability_model_classifier import (
+    _HARD_MAX_INPUT_TOKENS,
     _build_messages,
     _effective_classifier_limits,
     _error_type,
@@ -61,11 +62,11 @@ def _completion_response(
     return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(payload)))])
 
 
-def _assert_clarification(candidate) -> None:
-    assert candidate.package_id == "clarification_only"
+def _assert_unavailable_fallback(candidate) -> None:
+    # 分类失败统一落到可选联网兜底，由回答模型自行判断是否需要检索。
+    assert candidate.package_id == "fresh_web"
     assert candidate.confidence == "low"
-    assert candidate.reason_codes == ("insufficient_capability_signal",)
-    assert candidate.resolution_mode == "clarification"
+    assert candidate.reason_codes == ("classifier_unavailable",)
     assert candidate.explicit_tool_names is None
     # 分类失败也要带今天日期，否则模型会拿训练截止时间当“今天”作答。
     assert candidate.include_current_date is True
@@ -136,7 +137,7 @@ def test_invalid_model_denial_fails_closed(denied: list[str]) -> None:
     ):
         candidate = classify_capability_request_with_model("查上海天气", ALL_TOOLS)
 
-    _assert_clarification(candidate)
+    _assert_unavailable_fallback(candidate)
 
 
 def test_model_output_maps_mixed_itinerary_in_canonical_tool_order() -> None:
@@ -199,7 +200,7 @@ def test_model_mcp_alias_not_authorized_fails_closed(tool_names: list[str]) -> N
     ):
         candidate = classify_capability_request_with_model("这次请用 mcp_notion_search。", tool_names)
 
-    _assert_clarification(candidate)
+    _assert_unavailable_fallback(candidate)
 
 
 @pytest.mark.parametrize("names", [[], ["mcp_notion_search", "mcp_other_search"]])
@@ -212,7 +213,7 @@ def test_model_mcp_alias_requires_exactly_one_name(names: list[str]) -> None:
             "这次请用 mcp_notion_search。", [*ALL_TOOLS, "mcp_notion_search", "mcp_other_search"]
         )
 
-    _assert_clarification(candidate)
+    _assert_unavailable_fallback(candidate)
 
 
 def test_only_most_recent_complete_turn_is_sent_to_model() -> None:
@@ -273,7 +274,7 @@ def test_current_message_over_input_budget_fails_closed_without_model_call(monke
     with patch("app.services.stream.run_capability_model_classifier.litellm.completion") as completion:
         candidate = classify_capability_request_with_model("超长消息" * 100, ALL_TOOLS)
 
-    _assert_clarification(candidate)
+    _assert_unavailable_fallback(candidate)
     completion.assert_not_called()
 
 
@@ -282,7 +283,7 @@ def test_missing_credentials_fails_closed_without_model_call(monkeypatch: pytest
     with patch("app.services.stream.run_capability_model_classifier.litellm.completion") as completion:
         candidate = classify_capability_request_with_model("需要语义判断的请求", ALL_TOOLS)
 
-    _assert_clarification(candidate)
+    _assert_unavailable_fallback(candidate)
     completion.assert_not_called()
 
 
@@ -291,13 +292,63 @@ def test_missing_credentials_fails_closed_without_model_call(monkeypatch: pytest
     [TimeoutError("deadline"), RuntimeError("proxy unavailable")],
     ids=["timeout", "exception"],
 )
-def test_call_failures_fail_closed_without_retry(error) -> None:
-    # 调用本身失败不是输出问题，回传错误也修不好。
+def test_call_failures_switch_to_fallback_model_once(error) -> None:
+    # 调用本身失败不是输出问题，回传错误也修不好；换备用模型再试一次。
+    completion = Mock(side_effect=[error, _completion_response("direct")])
+    with patch("app.services.stream.run_capability_model_classifier.litellm.completion", completion):
+        candidate = classify_capability_request_with_model("需要语义判断的请求", ALL_TOOLS)
+
+    assert candidate.package_id == "direct"
+    assert completion.call_count == 2
+    primary, fallback = (call.kwargs for call in completion.call_args_list)
+    assert primary["model"] == "litellm_proxy/deepseek-chat"
+    assert fallback["model"] == "litellm_proxy/qwen3.8-flash"
+    assert fallback["messages"] == primary["messages"]
+    # 千问只认 enable_thinking，带 reasoning_effort 会被代理 400。
+    assert "reasoning_effort" not in fallback
+    assert fallback["extra_body"]["enable_thinking"] is False
+    assert fallback["extra_body"]["cache"] == primary["extra_body"]["cache"]
+    assert fallback["timeout"] <= primary["timeout"]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [TimeoutError("deadline"), RuntimeError("proxy unavailable")],
+    ids=["timeout", "exception"],
+)
+def test_fallback_model_failure_falls_back_to_unavailable_route(error) -> None:
     completion = Mock(side_effect=error)
     with patch("app.services.stream.run_capability_model_classifier.litellm.completion", completion):
         candidate = classify_capability_request_with_model("需要语义判断的请求", ALL_TOOLS)
 
-    _assert_clarification(candidate)
+    _assert_unavailable_fallback(candidate)
+    assert completion.call_count == 2
+
+
+@pytest.mark.parametrize("fallback_model", ["", "deepseek-chat", "litellm_proxy/qwen3.8-flash"])
+def test_invalid_or_same_fallback_model_is_not_called(monkeypatch: pytest.MonkeyPatch, fallback_model: str) -> None:
+    monkeypatch.setattr(
+        "app.services.stream.run_capability_model_classifier.settings.RUN_CAPABILITY_CLASSIFIER_FALLBACK_MODEL",
+        fallback_model,
+    )
+    completion = Mock(side_effect=RuntimeError("proxy unavailable"))
+    with patch("app.services.stream.run_capability_model_classifier.litellm.completion", completion):
+        candidate = classify_capability_request_with_model("需要语义判断的请求", ALL_TOOLS)
+
+    _assert_unavailable_fallback(candidate)
+    completion.assert_called_once()
+
+
+def test_fallback_model_is_skipped_when_remaining_budget_is_too_small(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "app.services.stream.run_capability_model_classifier.CLASSIFIER_TOTAL_DEADLINE_SECONDS",
+        0.1,
+    )
+    completion = Mock(side_effect=RuntimeError("proxy unavailable"))
+    with patch("app.services.stream.run_capability_model_classifier.litellm.completion", completion):
+        candidate = classify_capability_request_with_model("需要语义判断的请求", ALL_TOOLS)
+
+    _assert_unavailable_fallback(candidate)
     completion.assert_called_once()
 
 
@@ -318,7 +369,7 @@ def test_invalid_output_is_repaired_once_then_fails_closed(invalid_response) -> 
     with patch("app.services.stream.run_capability_model_classifier.litellm.completion", completion):
         candidate = classify_capability_request_with_model("需要语义判断的请求", ALL_TOOLS)
 
-    _assert_clarification(candidate)
+    _assert_unavailable_fallback(candidate)
     assert completion.call_count == 2
 
 
@@ -354,7 +405,7 @@ def test_repair_is_skipped_when_remaining_budget_is_too_small(monkeypatch: pytes
     with patch("app.services.stream.run_capability_model_classifier.litellm.completion", completion):
         candidate = classify_capability_request_with_model("需要语义判断的请求", ALL_TOOLS)
 
-    _assert_clarification(candidate)
+    _assert_unavailable_fallback(candidate)
     completion.assert_called_once()
 
 
@@ -409,7 +460,7 @@ def test_result_callback_observes_delegated_model_and_fail_closed_results() -> N
 
     assert transform.package_id == "transform"
     assert model.package_id == "direct"
-    _assert_clarification(failed)
+    _assert_unavailable_fallback(failed)
     assert events == [("model", None), ("model", None), ("failed", "timeout")]
 
 
@@ -437,7 +488,7 @@ def test_deadline_signal_turns_late_model_result_into_failed_observation() -> No
             result_callback=lambda result, error_type: observations.append((result, error_type)),
         )
 
-    _assert_clarification(candidate)
+    _assert_unavailable_fallback(candidate)
     completion.assert_called_once()
     assert observations == [("failed", "deadline_exceeded")]
     assert [call.args[1] for call in log_info.call_args_list] == ["failed"]
@@ -465,7 +516,7 @@ def test_deadline_signal_set_by_token_counter_skips_completion_once() -> None:
             result_callback=lambda result, error_type: observations.append((result, error_type)),
         )
 
-    _assert_clarification(candidate)
+    _assert_unavailable_fallback(candidate)
     completion.assert_not_called()
     assert observations == [("failed", "deadline_exceeded")]
     assert [call.args[1] for call in log_info.call_args_list] == ["failed"]
@@ -506,7 +557,7 @@ def test_deadline_worker_discards_late_completion_observation(response_or_error)
             result_callback=lambda result, error_type: observations.append((result, error_type)),
         )
 
-    _assert_clarification(candidate)
+    _assert_unavailable_fallback(candidate)
     completion.assert_called_once()
     assert observations == []
     log_info.assert_not_called()
@@ -533,7 +584,7 @@ def test_deadline_gate_prevents_completion_when_merge_kwargs_expires() -> None:
             deadline_gate=gate,
         )
 
-    _assert_clarification(candidate)
+    _assert_unavailable_fallback(candidate)
     completion.assert_not_called()
 
 
@@ -566,7 +617,7 @@ def test_deadline_gate_prevents_second_history_token_counter_after_first_counter
             result_callback=lambda result, error_type: observations.append((result, error_type)),
         )
 
-    _assert_clarification(candidate)
+    _assert_unavailable_fallback(candidate)
     assert counter_gate_states == [False]
     assert observations == [("failed", "deadline_exceeded")]
     completion.assert_not_called()
@@ -602,19 +653,29 @@ def test_classifier_log_does_not_contain_raw_message() -> None:
 
 @pytest.mark.parametrize(
     "message",
-    ["中" * 2000, "word " * 2000, "🚀" * 2000],
+    ["中" * 40000, "word " * 40000, "🚀" * 40000],
     ids=["中文", "英文", "emoji"],
 )
-def test_real_token_counter_hard_limit_blocks_chinese_english_and_emoji(message: str) -> None:
-    with patch("app.services.stream.run_capability_model_classifier.litellm.completion") as completion:
+def test_real_token_counter_truncates_long_chinese_english_and_emoji(message: str) -> None:
+    # 超预算不再直接失败：保留开头和结尾送分类，回答模型仍拿到完整原文。
+    message = "开头要求" + message + "结尾要求"
+    with patch(
+        "app.services.stream.run_capability_model_classifier.litellm.completion",
+        return_value=_completion_response("direct"),
+    ) as completion:
         candidate = classify_capability_request_with_model(
             message,
             ALL_TOOLS,
             token_counter_fn=litellm.token_counter,
         )
 
-    _assert_clarification(candidate)
-    completion.assert_not_called()
+    assert candidate.package_id == "direct"
+    sent = completion.call_args.kwargs["messages"]
+    user_content = sent[-1]["content"]
+    assert user_content.startswith("开头要求")
+    assert user_content.endswith("结尾要求")
+    assert "中间内容过长，已省略" in user_content
+    assert litellm.token_counter(model=_token_counter_model(), messages=sent) <= _HARD_MAX_INPUT_TOKENS
 
 
 def test_token_counter_uses_classifier_model_family() -> None:
@@ -634,7 +695,7 @@ def test_token_counter_failure_fails_closed_without_model_call() -> None:
             result_callback=lambda result, error_type: results.append((result, error_type)),
         )
 
-    _assert_clarification(candidate)
+    _assert_unavailable_fallback(candidate)
     completion.assert_not_called()
     assert results == [("failed", "token_count_failed")]
 
@@ -645,18 +706,19 @@ def test_over_budget_reports_input_budget_exceeded() -> None:
         candidate = classify_capability_request_with_model(
             "需要语义判断的请求",
             ALL_TOOLS,
-            token_counter_fn=Mock(return_value=2001),
+            # 恒定超预算：连系统提示都放不下，截断也救不回来。
+            token_counter_fn=Mock(return_value=_HARD_MAX_INPUT_TOKENS + 1),
             result_callback=lambda result, error_type: results.append((result, error_type)),
         )
 
-    _assert_clarification(candidate)
+    _assert_unavailable_fallback(candidate)
     completion.assert_not_called()
     assert results == [("failed", "input_budget_exceeded")]
 
 
 def test_token_budget_drops_history_before_rejecting_current_message() -> None:
     def token_counter(*, messages, **_kwargs) -> int:
-        return 2001 if any("旧轮次" in item["content"] for item in messages) else 20
+        return _HARD_MAX_INPUT_TOKENS + 1 if any("旧轮次" in item["content"] for item in messages) else 20
 
     with patch(
         "app.services.stream.run_capability_model_classifier.litellm.completion",
@@ -961,7 +1023,7 @@ def test_high_input_and_context_configuration_is_clamped_to_hard_limits(
 ) -> None:
     monkeypatch.setattr(
         "app.services.stream.run_capability_model_classifier.settings.RUN_CAPABILITY_CLASSIFIER_MAX_INPUT_TOKENS",
-        9000,
+        90000,
     )
     monkeypatch.setattr(
         "app.services.stream.run_capability_model_classifier.settings.RUN_CAPABILITY_CLASSIFIER_CONTEXT_TURNS",
@@ -973,13 +1035,13 @@ def test_high_input_and_context_configuration_is_clamped_to_hard_limits(
         candidate = classify_capability_request_with_model(
             "需要语义判断的请求",
             ALL_TOOLS,
-            token_counter_fn=lambda **_kwargs: 5000,
+            token_counter_fn=lambda **_kwargs: 50000,
         )
 
     assert limits is not None
-    assert limits.max_input_tokens == 2000
+    assert limits.max_input_tokens == _HARD_MAX_INPUT_TOKENS
     assert limits.context_turns == 1
-    _assert_clarification(candidate)
+    _assert_unavailable_fallback(candidate)
     completion.assert_not_called()
 
 
@@ -1005,7 +1067,7 @@ def test_non_positive_classifier_configuration_fails_closed(
             token_counter_fn=lambda **_kwargs: 1,
         )
 
-    _assert_clarification(candidate)
+    _assert_unavailable_fallback(candidate)
     completion.assert_not_called()
 
 
