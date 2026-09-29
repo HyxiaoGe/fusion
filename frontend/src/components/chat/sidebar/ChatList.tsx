@@ -163,7 +163,7 @@ const ChatList: React.FC<ChatListProps> = ({
   return (
     <div
       data-testid="chat-list-scroll-container"
-      className={`min-h-0 flex-1 overflow-y-auto px-2.5 pb-2 scrollbar-hide ${styles.scroll}`}
+      className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-2 scrollbar-hide"
       ref={containerRef}
       onScroll={() => {
         handleScroll?.();
