@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import (
     AdminAuditEvent,
+    AgentEvent,
     AgentProgressSnapshot,
     AgentSession,
     AgentStep,
@@ -42,6 +43,8 @@ def page_payload(items: list[Any], total: int, page: int, page_size: int) -> dic
 class AdminAuditRepository:
     ITINERARY_STABILITY_MAX_ANCHORS = 10_000
     ITINERARY_STABILITY_MAX_TOOL_ROWS = 50_000
+    ROUTING_QUALITY_MAX_RUNS = 5_000
+    ROUTING_QUALITY_MAX_TOOL_EVENTS = 50_000
 
     def __init__(self, db: Session):
         self.db = db
@@ -601,6 +604,57 @@ class AdminAuditRepository:
             "sessions": sessions,
             "messages": messages,
             "tool_logs": tool_logs,
+            "truncated": truncated,
+        }
+
+    def list_routing_quality_rows(self, *, created_from: datetime, created_to: datetime) -> dict[str, Any]:
+        """返回窗口内 run_started 及其工具调用、终态事件；只取聚合所需列，不读取消息正文。"""
+
+        columns = (
+            AgentEvent.run_id,
+            AgentEvent.conversation_id,
+            AgentEvent.event_type,
+            AgentEvent.event_ts,
+            AgentEvent.payload,
+        )
+        starts = (
+            self.db.query(*columns)
+            .filter(
+                AgentEvent.event_type == "run_started",
+                AgentEvent.event_ts >= created_from,
+                AgentEvent.event_ts < created_to,
+            )
+            .order_by(AgentEvent.event_ts.asc(), AgentEvent.run_id.asc())
+            .limit(self.ROUTING_QUALITY_MAX_RUNS + 1)
+            .all()
+        )
+        truncated = len(starts) > self.ROUTING_QUALITY_MAX_RUNS
+        starts = starts[: self.ROUTING_QUALITY_MAX_RUNS]
+        run_ids = sorted({row.run_id for row in starts})
+        if not run_ids:
+            return {"starts": [], "tool_events": [], "terminal_events": [], "truncated": truncated}
+
+        tool_events = (
+            self.db.query(AgentEvent.run_id, AgentEvent.payload)
+            .filter(AgentEvent.run_id.in_(run_ids), AgentEvent.event_type == "tool_call_started")
+            .limit(self.ROUTING_QUALITY_MAX_TOOL_EVENTS + 1)
+            .all()
+        )
+        if len(tool_events) > self.ROUTING_QUALITY_MAX_TOOL_EVENTS:
+            truncated = True
+            tool_events = tool_events[: self.ROUTING_QUALITY_MAX_TOOL_EVENTS]
+        terminal_events = (
+            self.db.query(AgentEvent.run_id, AgentEvent.event_type)
+            .filter(
+                AgentEvent.run_id.in_(run_ids),
+                AgentEvent.event_type.in_(("run_completed", "run_interrupted", "run_failed")),
+            )
+            .all()
+        )
+        return {
+            "starts": starts,
+            "tool_events": tool_events,
+            "terminal_events": terminal_events,
             "truncated": truncated,
         }
 
