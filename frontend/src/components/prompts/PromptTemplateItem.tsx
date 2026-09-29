@@ -2,6 +2,8 @@
 
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import glassSurface from '@/components/ui/GlassSurface.module.css';
+import GlassHoverLens, { pointGlassLight, resetGlassLight } from '@/components/ui/GlassHoverLens';
 import React from 'react';
 
 export interface PromptTemplateListItem {
@@ -33,11 +35,17 @@ const PromptTemplateItem: React.FC<PromptTemplateItemProps> = ({
   return (
     <Card
       className={cn(
-        'cursor-pointer transition-colors hover:bg-accent',
-        isSelected && 'border-primary'
+        'cursor-pointer',
+        glassSurface.surface,
+        glassSurface.card,
+        glassSurface.interactive,
+        isSelected && glassSurface.selected,
       )}
       onClick={onClick}
+      onPointerMove={pointGlassLight}
+      onPointerLeave={resetGlassLight}
     >
+      <GlassHoverLens />
       <CardContent className="p-4">
         <div className="flex justify-between items-start mb-2">
           <h3 className="font-medium">{template.title}</h3>

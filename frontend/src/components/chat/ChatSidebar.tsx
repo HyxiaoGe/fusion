@@ -21,6 +21,8 @@ import { getRouteConversationId } from "@/lib/routes/chatRoutes";
 import type { ConversationListItem } from "@/hooks/useConversationList";
 import { formatInTimeZone } from 'date-fns-tz';
 import { LanguageToggle } from "@/components/ui/language-toggle";
+import glassSurface from "@/components/ui/GlassSurface.module.css";
+import GlassHoverLens, { pointGlassLight, resetGlassLight } from "@/components/ui/GlassHoverLens";
 
 interface ChatSidebarProps {
   onNewChat: () => void;
@@ -252,12 +254,13 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ onNewChat, activeChatIdOverri
       {/* 搜索框 */}
       <div className="px-3 pb-3">
         <div className={cn(
-          "flex h-10 items-center gap-2 rounded-xl border px-3 text-sm transition-colors focus-within:ring-2 focus-within:ring-ring",
-          isSearchFocused
-            ? "border-input bg-background"
-            : "border-border/70 bg-background/70 hover:border-border-strong hover:bg-background cursor-text"
-        )}>
-          <Search className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+          "flex h-10 items-center gap-2 rounded-xl px-3 text-sm",
+          glassSurface.surface,
+          glassSurface.field,
+          glassSurface.interactive,
+        )} data-focused={isSearchFocused} onPointerMove={pointGlassLight} onPointerLeave={resetGlassLight}>
+          <GlassHoverLens />
+          <Search className="relative z-10 h-4 w-4 flex-shrink-0 text-muted-foreground" />
           <input
             ref={searchInputRef}
             type="text"
