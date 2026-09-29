@@ -1,0 +1,55 @@
+.control {
+  --glass-idle-opacity: 0;
+  position: relative;
+  isolation: isolate;
+  background: transparent;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.standalone {
+  --glass-idle-opacity: 0.62;
+}
+
+.control .lens {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  opacity: var(--glass-idle-opacity);
+  transition: opacity 0.18s ease, transform 0.34s cubic-bezier(0.18, 0.82, 0.18, 1.08);
+}
+
+.control:hover:not(:disabled) .lens,
+.control:focus-visible .lens,
+.control[data-state="active"] .lens,
+.control[aria-pressed="true"] .lens {
+  opacity: 1;
+}
+
+.control:active:not(:disabled) .lens {
+  --lens-scale: 0.975;
+}
+
+.control[data-state="active"],
+.control[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 1px rgb(91 151 219 / 48%);
+}
+
+.control:disabled .lens {
+  opacity: 0.16;
+}
+
+.content {
+  position: relative;
+  z-index: 1;
+}
+
+:global(.dark) .control[data-state="active"],
+:global(.dark) .control[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 1px rgb(145 198 255 / 48%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .control .lens {
+    transition-duration: 0.01ms;
+  }
+}

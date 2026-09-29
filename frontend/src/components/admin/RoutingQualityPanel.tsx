@@ -20,6 +20,7 @@ import {
   formatNumber,
   toShanghaiIso,
 } from './AdminPanelPrimitives';
+import styles from './AdminWindowGlass.module.css';
 
 const SIGNAL_LABELS: Record<AdminRoutingQualitySignal, string> = {
   classifier_unavailable: '分类失败兜底',
@@ -85,7 +86,8 @@ export default function RoutingQualityPanel({ onForbidden }: RoutingQualityPanel
             key={option.hours}
             type="button"
             size="sm"
-            variant={windowHours === option.hours ? 'default' : 'outline'}
+            variant="outline"
+            className={styles.windowButton}
             aria-label={`路由质量${option.label}`}
             aria-pressed={windowHours === option.hours}
             onClick={() => applyWindow(option.hours)}

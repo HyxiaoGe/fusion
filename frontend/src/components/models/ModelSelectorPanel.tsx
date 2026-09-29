@@ -11,6 +11,7 @@ import { CapabilityChipList } from "./CapabilityChip";
 import ProviderIcon from "./ProviderIcon";
 import type { ModelInfo, ProviderInfo } from "@/lib/config/modelConfig";
 import { isModelSelectable } from "@/lib/models/modelPreference";
+import styles from "./ModelSelectorGlass.module.css";
 
 // 模型 health.status === 'unhealthy' 时 FE 灰显并禁用点击。
 // 'unknown'（后台第一次还没探完）按健康处理，避免冷启动期间全列表灰掉。
@@ -68,13 +69,15 @@ const RecentModels = memo(
                 key={model.id}
                 onClick={() => !unhealthy && onSelect(model.id)}
                 disabled={unhealthy}
+                aria-pressed={model.id === selectedModelId}
                 className={cn(
-                  "inline-flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-md border text-[11px] transition-colors",
+                  "inline-flex items-center gap-1.5 pl-1 pr-2.5 py-1 text-[11px]",
+                  styles.recentTile,
                   unhealthy
-                    ? "bg-muted/30 border-border/40 text-muted-foreground/60 cursor-not-allowed opacity-60"
+                    ? "text-muted-foreground/60 cursor-not-allowed opacity-60"
                     : model.id === selectedModelId
-                      ? "bg-primary/10 border-primary/30 text-foreground"
-                      : "bg-muted/50 border-border text-muted-foreground hover:bg-accent hover:text-foreground",
+                      ? cn(styles.tileSelected, "text-foreground")
+                      : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 <ProviderIcon providerId={model.provider} size={18} className="rounded" />
@@ -137,16 +140,18 @@ const ProviderTabs = memo(
     );
 
     return (
-      <div ref={containerRef} className="flex border-y border-border bg-muted/30 overflow-x-auto scrollbar-hide">
+      <div ref={containerRef} className={cn("flex overflow-x-auto scrollbar-hide", styles.providerStrip)}>
         {providers.map((provider, idx) => (
           <button
             key={provider.id}
             onClick={(e) => handleClick(e, provider.id, idx)}
+            aria-pressed={provider.id === activeProvider}
             className={cn(
-              "px-3 py-2 text-[11px] whitespace-nowrap transition-colors shrink-0",
+              "px-3 py-2 text-[11px] whitespace-nowrap shrink-0",
+              styles.providerTab,
               idx === providers.length - 1 && "pr-6",
               provider.id === activeProvider
-                ? "text-primary font-semibold border-b-2 border-primary bg-popover -mb-px"
+                ? cn(styles.providerTabActive, "text-primary font-semibold")
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
@@ -178,13 +183,15 @@ const ModelCard = memo(
       <button
         onClick={() => !unhealthy && onSelect()}
         disabled={unhealthy}
+        aria-pressed={isSelected}
         className={cn(
-          "text-left p-2.5 rounded-lg border transition-colors duration-100 w-full",
+          "text-left p-2.5 w-full",
+          styles.modelTile,
           unhealthy
-            ? "border-border/40 bg-muted/20 opacity-55 cursor-not-allowed"
+            ? "opacity-55 cursor-not-allowed"
             : isSelected
-              ? "bg-primary/5 border-primary/40"
-              : "border-border/60 hover:bg-accent hover:border-border",
+              ? styles.tileSelected
+              : "",
         )}
       >
         <div className="flex items-center justify-between gap-1">
@@ -237,13 +244,15 @@ const AutoModelCard = memo(
           data-testid="model-selector-auto"
           onClick={() => !unhealthy && onSelect()}
           disabled={unhealthy}
+          aria-pressed={isSelected}
           className={cn(
-            "flex w-full items-center gap-2.5 rounded-lg border p-2.5 text-left transition-colors duration-100",
+            "flex w-full items-center gap-2.5 p-2.5 text-left",
+            styles.modelTile,
             unhealthy
-              ? "border-border/40 bg-muted/20 opacity-55 cursor-not-allowed"
+              ? "opacity-55 cursor-not-allowed"
               : isSelected
-                ? "bg-primary/5 border-primary/40"
-                : "border-border/60 hover:bg-accent hover:border-border",
+                ? styles.tileSelected
+                : "",
           )}
         >
           <ProviderIcon providerId={model.provider} size={22} className="rounded-md" />

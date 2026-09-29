@@ -17,6 +17,7 @@ import ServiceUsagePanel from "@/app/settings/ServiceUsagePanel";
 import SystemPrompt from "@/app/settings/SystemPrompt";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import styles from "./SettingsDialog.module.css";
 
 export const SettingsDialog = () => {
   const { t } = useTranslation();
@@ -124,12 +125,10 @@ export const SettingsDialog = () => {
                       <h3 className="font-medium">选择主题模式</h3>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <button
+                          type="button"
+                          aria-pressed={mode === 'light'}
                           onClick={() => handleThemeChange('light')}
-                          className={`p-4 rounded-lg border transition-all hover:shadow-md ${
-                            mode === 'light'
-                              ? 'border-primary bg-primary/5 shadow-md'
-                              : 'border-muted hover:border-primary/50'
-                          }`}
+                          className={`${styles.themeOption} p-4 rounded-lg`}
                         >
                           <div className="flex flex-col items-center gap-2">
                             <Sun className={`h-6 w-6 ${mode === 'light' ? 'text-amber-500' : 'text-muted-foreground'}`} />
@@ -139,12 +138,10 @@ export const SettingsDialog = () => {
                         </button>
 
                         <button
+                          type="button"
+                          aria-pressed={mode === 'dark'}
                           onClick={() => handleThemeChange('dark')}
-                          className={`p-4 rounded-lg border transition-all hover:shadow-md ${
-                            mode === 'dark'
-                              ? 'border-primary bg-primary/5 shadow-md'
-                              : 'border-muted hover:border-primary/50'
-                          }`}
+                          className={`${styles.themeOption} p-4 rounded-lg`}
                         >
                           <div className="flex flex-col items-center gap-2">
                             <Moon className={`h-6 w-6 ${mode === 'dark' ? 'text-indigo-400' : 'text-muted-foreground'}`} />
@@ -154,12 +151,10 @@ export const SettingsDialog = () => {
                         </button>
 
                         <button
+                          type="button"
+                          aria-pressed={mode === 'system'}
                           onClick={() => handleThemeChange('system')}
-                          className={`p-4 rounded-lg border transition-all hover:shadow-md ${
-                            mode === 'system'
-                              ? 'border-primary bg-primary/5 shadow-md'
-                              : 'border-muted hover:border-primary/50'
-                          }`}
+                          className={`${styles.themeOption} p-4 rounded-lg`}
                         >
                           <div className="flex flex-col items-center gap-2">
                             <Laptop className={`h-6 w-6 ${mode === 'system' ? 'text-blue-500' : 'text-muted-foreground'}`} />
