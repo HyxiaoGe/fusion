@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { Check, ClipboardCopy, FileText, Hash, ChevronDown, ChevronUp } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 import hljs from 'highlight.js';
+import styles from './CodeBlock.module.css';
 
 interface CodeBlockProps {
   language: string;
@@ -119,17 +120,17 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
   const displayLineNumbers = isCollapsed ? lineNumbers.slice(0, maxLines) : lineNumbers;
 
   return (
-    <div className={cn("relative group my-4", className)}>
+    <div className={cn(styles.block, className)} data-code-block="true">
       {/* 代码块头部 */}
-      <div className="bg-slate-100 dark:bg-slate-800 rounded-t-md py-2 px-4 text-xs font-mono border-b border-slate-200 dark:border-slate-700 flex justify-between items-center">
-        <div className="flex items-center space-x-2">
-          <FileText className="h-3 w-3 text-slate-500" />
-          <span className="text-slate-600 dark:text-slate-300 font-medium">
+      <div className={styles.header}>
+        <div className={styles.metadata}>
+          <FileText aria-hidden="true" />
+          <span className={styles.language}>
             {getDisplayLanguage(language)}
           </span>
           {showLineNumbers && (
-            <div className="flex items-center space-x-1 text-slate-500">
-              <Hash className="h-3 w-3" />
+            <div className={styles.lineCount}>
+              <Hash aria-hidden="true" />
               <span>
                 {isCollapsed && shouldShowCollapse 
                   ? `${maxLines}/${totalLines} 行` 
@@ -142,9 +143,11 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
             <Button
               variant="ghost"
               size="sm"
-              className="h-6 w-6 p-0 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+              className={styles.iconButton}
               onClick={() => setIsExpanded(isCollapsed)}
               title={isCollapsed ? "展开代码" : "折叠代码"}
+              aria-label={isCollapsed ? "展开代码" : "折叠代码"}
+              aria-expanded={!isCollapsed}
             >
               {isCollapsed ? (
                 <ChevronDown className="h-4 w-4" />
@@ -157,12 +160,12 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
         <Button
           variant="ghost"
           size="sm"
-          className="h-6 w-6 p-0 opacity-60 hover:opacity-100 transition-opacity"
+          className={styles.iconButton}
           onClick={handleCopy}
           title="复制代码"
         >
           {copied ? (
-            <Check className="h-3 w-3 text-green-500" />
+            <Check className={styles.success} />
           ) : (
             <ClipboardCopy className="h-3 w-3" />
           )}
@@ -171,19 +174,19 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
       </div>
 
       {/* 代码内容 */}
-      <div className="bg-[#f8fafc] dark:bg-[#0f172a] rounded-b-md overflow-hidden border border-slate-200 dark:border-slate-700 border-t-0">
-        <div className="overflow-x-auto">
-          <div className="flex min-w-full">
+      <div className={styles.scroll}>
+          <div className={styles.row}>
             {/* 行号列 */}
             {showLineNumbers && (
               <div 
-                className="flex-shrink-0 select-none bg-slate-50 dark:bg-slate-800 text-slate-400 dark:text-slate-500 text-xs leading-6 text-right border-r border-slate-200 dark:border-slate-700"
+                className={styles.gutter}
+                aria-hidden="true"
                 style={{ width: `${Math.max(maxLineNumberWidth * 0.6 + 1, 2.5)}rem` }}
               >
                 {displayLineNumbers.map((lineNum, index) => (
                   <div 
                     key={index} 
-                    className="px-3 py-0 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors"
+                    className={styles.lineNumber}
                   >
                     {lineNum}
                   </div>
@@ -192,11 +195,10 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
             )}
 
             {/* 代码列 */}
-            <div className="flex-1 min-w-0">
-              <pre className="text-sm leading-6 text-slate-700 dark:text-slate-300 p-4 m-0 font-mono overflow-visible">
+            <div className={styles.codeColumn}>
+              <pre className={styles.code}>
                 <code 
                   className={cn(
-                    "block min-w-full",
                     `language-${language}`
                   )}
                   dangerouslySetInnerHTML={{ __html: displayCode }}
@@ -205,12 +207,12 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
               
               {/* 折叠时显示的省略提示 */}
               {isCollapsed && shouldShowCollapse && (
-                <div className="px-4 pb-3">
-                  <div className="flex items-center justify-center border-t border-slate-200 dark:border-slate-700 pt-3">
+                <div className={styles.expand}>
+                  <div>
                     <Button
                       variant="outline"
                       size="sm"
-                      className="h-9 px-4 text-sm text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 hover:border-slate-400 dark:hover:border-slate-500 transition-all"
+                      className={styles.expandButton}
                       onClick={() => setIsExpanded(true)}
                     >
                       <ChevronDown className="h-4 w-4 mr-2" />
@@ -221,12 +223,11 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
               )}
             </div>
           </div>
-        </div>
       </div>
 
       {/* 复制成功提示 */}
       {copied && (
-        <div className="absolute top-2 right-2 bg-green-500 text-white text-xs px-2 py-1 rounded shadow-lg animate-fade-in">
+        <div className={styles.copied} role="status">
           已复制
         </div>
       )}

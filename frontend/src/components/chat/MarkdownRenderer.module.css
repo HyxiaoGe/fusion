@@ -1,0 +1,52 @@
+.content {
+  color: var(--foreground);
+  font-size: 16px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+
+/* 文字保持适合追行的宽度，表格与代码保留外层的宽空间。 */
+.content :where(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, hr) { max-width: 52rem; }
+.content :where(p) { margin: 0 0 1rem; }
+.content :where(h1, h2, h3, h4, h5, h6) { font-weight: 600; line-height: 1.4; text-wrap: pretty; }
+.content :where(h1) { margin: 1.75rem 0 1rem; font-size: 1.5rem; letter-spacing: -0.02em; }
+.content :where(h2) { margin: 1.75rem 0 0.75rem; font-size: 1.25rem; letter-spacing: -0.015em; }
+.content :where(h3) { margin: 1.5rem 0 0.625rem; font-size: 1.125rem; }
+.content :where(h4, h5, h6) { margin: 1.25rem 0 0.5rem; font-size: 1rem; }
+.content :where(ul, ol) { margin: 0 0 1rem; padding-left: 1.5rem; }
+.content :where(ul) { list-style-type: disc; }
+.content :where(ol) { list-style-type: decimal; }
+.content :where(li) { padding-left: 0.25rem; }
+.content :where(li + li) { margin-top: 0.375rem; }
+.content :where(li > p) { margin: 0.375rem 0; }
+.content :where(li > ul, li > ol) { margin: 0.375rem 0 0; }
+.content :where(li)::marker { color: var(--muted-foreground); }
+.content :where(strong) { font-weight: 600; }
+.content :where(blockquote) { margin: 1.25rem 0; border-left: 3px solid var(--info-border); padding: 0.25rem 0 0.25rem 1rem; color: var(--fg-secondary); }
+.content :where(blockquote > :last-child) { margin-bottom: 0; }
+.content :where(hr) { margin: 1.75rem 0; border: 0; border-top: 1px solid var(--border); }
+.content :where(a:not([class~="no-underline"])) { color: var(--info); text-decoration: underline; text-decoration-color: var(--info-border); text-underline-offset: 3px; }
+.content :where(a:not([class~="no-underline"])):hover { text-decoration-color: currentColor; }
+.content :where(:not(pre) > code) { border: 1px solid var(--border); border-radius: 5px; background: var(--bg-subtle); padding: 0.1em 0.35em; font-size: 0.875em; }
+.content > :first-child { margin-top: 0; }
+.content > :last-child { margin-bottom: 0; }
+
+.tableFrame {
+  max-width: 100%;
+  margin: 1.5rem 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
+  overscroll-behavior-x: contain;
+}
+
+.tableFrame table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 14px; line-height: 1.65; }
+.tableFrame :where(th, td) { border: 0; border-bottom: 1px solid var(--border); padding: 12px 16px; text-align: left; vertical-align: top; overflow-wrap: normal; }
+.tableFrame :where(th) { background: var(--bg-subtle); font-weight: 600; }
+.tableFrame tbody tr:last-child td { border-bottom: 0; }
+.tableFrame :where(td > :last-child) { margin-bottom: 0; }
+
+@media (max-width: 640px) {
+  .content { font-size: 15px; }
+  .tableFrame :where(th, td) { padding: 10px 12px; }
+}

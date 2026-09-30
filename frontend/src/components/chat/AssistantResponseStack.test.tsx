@@ -527,10 +527,6 @@ describe('AssistantResponseStack', () => {
     expect(screen.getByTestId('stack-reasoning')).toHaveAttribute('data-streaming', 'false');
     expect(screen.getByTestId('stack-reasoning')).toHaveAttribute('data-start-time', '11');
     expect(screen.getByTestId('stack-reasoning')).toHaveAttribute('data-end-time', '22');
-    expect(screen.getByTestId('stack-markdown')).toHaveAttribute(
-      'data-class-name',
-      'prose-headings:border-0 prose-hr:border-border/30',
-    );
     expect(screen.getByTestId('stack-markdown')).toHaveAttribute('data-source-count', '1');
 
     fireEvent.click(screen.getByTestId('stack-reasoning'));

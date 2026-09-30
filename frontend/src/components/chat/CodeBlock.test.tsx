@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { renderToString } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import CodeBlock from './CodeBlock';
@@ -77,5 +77,22 @@ describe('CodeBlock', () => {
     expect(html).toContain('<em>some code</em>');
     expect(highlightAutoMock).toHaveBeenCalledTimes(1);
     expect(highlightMock).not.toHaveBeenCalled();
+  });
+
+  it('折叠显示时复制完整代码，而不是仅复制可见行', async () => {
+    const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+
+    try {
+      const value = 'line 1\nline 2\nline 3';
+      render(<CodeBlock language="text" value={value} maxLines={2} />);
+      expect(document.querySelector('pre code')?.textContent).not.toContain('line 3');
+      fireEvent.click(screen.getByRole('button', { name: '复制代码' }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith(value));
+    } finally {
+      if (originalClipboard) Object.defineProperty(navigator, 'clipboard', originalClipboard);
+      else Reflect.deleteProperty(navigator, 'clipboard');
+    }
   });
 });
