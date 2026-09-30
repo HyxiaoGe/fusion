@@ -9,9 +9,32 @@ vi.mock('./CodeBlock', () => ({
 }));
 
 describe('ReasoningContent', () => {
-  it('完成态使用低权重透明容器并保留折叠与耗时文案', () => {
+  it('折叠时隐藏辅助阅读和键盘内容，展开后沿用同一内容节点', () => {
+    const props = {
+      content: '核对 [参考页面](https://example.com/source)',
+      isStreaming: false,
+      onToggle: vi.fn(),
+    };
+    const { container, rerender } = render(<ReasoningContent {...props} isVisible={false} />);
+    const toggle = screen.getByRole('button', { name: '已深度思考' });
+    const link = container.querySelector('a');
+    const bodyId = toggle.getAttribute('aria-controls');
+
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(bodyId).toBeTruthy();
+    expect(container.querySelector(`[id="${bodyId}"]`)).toHaveAttribute('inert');
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+
+    rerender(<ReasoningContent {...props} isVisible={true} />);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(toggle).toHaveAttribute('aria-controls', bodyId);
+    expect(container.querySelector(`[id="${bodyId}"]`)).not.toHaveAttribute('inert');
+    expect(screen.getByRole('link', { name: '参考页面' })).toBe(link);
+  });
+
+  it('完成态保留折叠回调与耗时文案', () => {
     const onToggle = vi.fn();
-    const { container } = render(
+    render(
       <ReasoningContent
         content="已经完成的思考"
         isStreaming={false}
@@ -21,40 +44,25 @@ describe('ReasoningContent', () => {
       />,
     );
 
-    expect(container.firstElementChild).toHaveClass(
-      'rounded-lg',
-      'border',
-      'mb-2',
-      'overflow-hidden',
-      'transition-all',
-      'duration-300',
-      'border-border/40',
-      'bg-transparent',
-    );
     expect(screen.getByText('已深度思考（用时 1.2 秒）')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button'));
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
 
-  it('streaming 态保留 info 色调但容器仍是紧凑辅助层', () => {
-    const { container } = render(
+  it('流式态保持内容可读并显示展开状态', () => {
+    render(
       <ReasoningContent
-        content="正在推理"
+        content="正在推理 [参考页面](https://example.com/source)"
         isStreaming={true}
         isVisible={false}
         onToggle={vi.fn()}
       />,
     );
 
-    expect(container.firstElementChild).toHaveClass(
-      'rounded-lg',
-      'border',
-      'mb-2',
-      'border-info-border',
-      'bg-info-bg',
-    );
     expect(screen.getByText('正在深度思考...')).toBeInTheDocument();
+    expect(screen.getByRole('button')).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('link', { name: '参考页面' })).toHaveAttribute('href', 'https://example.com/source');
   });
 
   it('裸 URL 后接中文说明时不把说明吞进链接', () => {

@@ -63,14 +63,15 @@ describe('UserMessage', () => {
     expect(screen.getByRole('button', { name: '编辑' })).toBeInTheDocument();
   });
 
-  it('用户文本渲染为有边界的轻量气泡', () => {
-    renderUserMessage();
+  it('用户文本保留换行、长串与 Markdown 字符的纯文本语义', () => {
+    const text = `第一行\n**原样保留**\nhttps://example.com/${'a'.repeat(300)}`;
+    renderUserMessage({ messageText: text });
 
     const bubble = screen.getByLabelText('用户消息内容');
 
-    expect(bubble.className).toContain('border');
-    expect(bubble.className).toContain('shadow');
-    expect(bubble.className).toContain('rounded-xl');
+    expect(bubble.textContent).toBe(text);
+    expect(bubble.querySelector('strong')).toBeNull();
+    expect(bubble.querySelector('a')).toBeNull();
   });
 
   it('渲染 failed 状态提示和重新发送操作', () => {

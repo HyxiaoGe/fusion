@@ -4,6 +4,7 @@ import { AlertCircle, Globe, Loader2, Search, Square, Wrench } from 'lucide-reac
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import type { AssistantActivity } from './assistantActivity';
+import styles from './MessageAuxiliary.module.css';
 
 interface AssistantActivityStatusProps {
   activity: AssistantActivity;
@@ -104,7 +105,8 @@ function StatusShell({
       aria-live={live}
       aria-atomic="true"
       className={cn(
-        'mb-2 flex min-w-0 items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs',
+        'flex min-w-0 items-center gap-2 border',
+        styles.activity,
         tone === 'info' && 'border-info-border bg-info-bg text-info',
         tone === 'teal' && 'border-teal/30 bg-teal/10 text-teal',
         tone === 'warn' && 'border-warn/30 bg-warn/10 text-warn',

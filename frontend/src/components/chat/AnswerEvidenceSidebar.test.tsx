@@ -165,7 +165,7 @@ describe('AnswerEvidenceSidebar', () => {
       />,
     );
 
-    expect(screen.getByTestId('answer-evidence-used-search-0')).toHaveClass('border-l-info');
+    expect(screen.getByTestId('answer-evidence-used-search-0')).toHaveAttribute('data-highlighted', 'true');
   });
 
   it('highlightTick 变化时重复滚动到同一个搜索来源', () => {
@@ -230,6 +230,6 @@ it('稳定引用编号优先于列表位置，候选也能准确聚焦', () => {
     candidateItems: [{ ...model.usedItems[0], id: 'candidate-12', title: '第十二来源', sourceIndex: 11, citationIndex: 12 }],
   };
   render(<AnswerEvidenceSidebar model={sparse} isOpen onClose={() => {}} highlightIndex={0} highlightCitationIndex={12} />);
-  expect(screen.getByTestId('answer-evidence-used-search-11')).toHaveClass('border-l-info');
-  expect(screen.getByTestId('answer-evidence-used-search-0')).not.toHaveClass('border-l-info');
+  expect(screen.getByTestId('answer-evidence-used-search-11')).toHaveAttribute('data-highlighted', 'true');
+  expect(screen.getByTestId('answer-evidence-used-search-0')).toHaveAttribute('data-highlighted', 'false');
 });

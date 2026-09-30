@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import type { AgentRunState } from '@/types/agentRun';
 import type { TrajectoryRunSummary } from '@/types/trajectory';
 import { formatTrajectoryDuration } from './TrajectoryCell';
+import styles from '../MessageAuxiliary.module.css';
 
 export interface TrajectoryStatusLineProps {
   run: AgentRunState;
@@ -138,7 +139,7 @@ export function TrajectoryStatusLine({ run, runSummary, trajectoryStatus, onInsp
     <div
       role="group"
       aria-label="Agent 运行状态"
-      className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border/50 bg-muted/20 px-2.5 py-1.5 text-xs text-muted-foreground"
+      className={styles.trajectory}
     >
       <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
         <span
@@ -162,7 +163,7 @@ export function TrajectoryStatusLine({ run, runSummary, trajectoryStatus, onInsp
       )}
       <span
         data-trajectory-badge={trajectoryStatus}
-        className={cn('rounded-full border px-1.5 py-0.5 font-medium', BADGE_CLASS[trajectoryStatus])}
+        className={cn('border font-medium', styles.badge, BADGE_CLASS[trajectoryStatus])}
       >
         {BADGE_LABEL[trajectoryStatus]}
       </span>
@@ -171,7 +172,7 @@ export function TrajectoryStatusLine({ run, runSummary, trajectoryStatus, onInsp
           type="button"
           variant="ghost"
           size="sm"
-          className="ml-auto h-7 gap-1 px-2 text-xs focus-visible:ring-2 focus-visible:ring-ring"
+          className={styles.detailButton}
           onClick={onInspect}
         >
           <Eye className="h-3.5 w-3.5" aria-hidden="true" />

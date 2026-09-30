@@ -1,0 +1,82 @@
+.reasoning {
+  --aux-sheen: rgb(255 255 255 / 74%);
+  --aux-edge: color-mix(in oklab, var(--border) 65%, transparent);
+  margin-bottom: 8px;
+  overflow: hidden;
+  border: 1px solid var(--aux-edge);
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--background) 94%, var(--bg-subtle));
+  box-shadow: inset 0 1px 0 var(--aux-sheen);
+}
+.reasoning.streaming { border-color: var(--info-border); background: color-mix(in oklab, var(--info-bg) 55%, var(--background)); }
+.header {
+  display: flex;
+  width: 100%;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, var(--aux-sheen), transparent 75%);
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 20px;
+  text-align: left;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+.header:hover { background-color: var(--bg-subtle); color: var(--foreground); }
+.header:focus-visible { outline: 2px solid var(--info); outline-offset: -3px; }
+.header[aria-expanded="true"] { color: var(--fg-secondary); }
+.chevron { display: flex; width: 22px; height: 22px; align-items: center; justify-content: center; flex-shrink: 0; border-radius: 7px; }
+.header:hover .chevron { background: var(--info-bg); color: var(--info); }
+.details { display: grid; transition: grid-template-rows 220ms ease, opacity 220ms ease; }
+.detailsInner { position: relative; padding: 0 12px 12px; border-top: 1px solid var(--aux-edge); }
+.content {
+  max-height: 280px;
+  overflow-y: auto;
+  padding-top: 12px;
+  color: var(--fg-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.content :where(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote) { max-width: 52rem; }
+.content :where(p, ul, ol) { margin: 0 0 10px; }
+.content :where(h1, h2, h3, h4, h5, h6) { margin: 14px 0 8px; font-size: 14px; font-weight: 600; }
+.content :where(ul, ol) { padding-left: 20px; }
+.content :where(ul) { list-style-type: disc; }
+.content :where(ol) { list-style-type: decimal; }
+.content :where(li + li) { margin-top: 4px; }
+.content :where(a) { color: var(--info); text-decoration: underline; text-underline-offset: 3px; }
+.content > :first-child { margin-top: 0; }
+.content > :last-child { margin-bottom: 0; }
+.fade { position: absolute; bottom: 12px; left: 12px; right: 12px; height: 20px; background: linear-gradient(to top, var(--background), transparent); pointer-events: none; }
+.streaming .fade { background: linear-gradient(to top, var(--info-bg), transparent); }
+
+.activity.activity { margin-bottom: 8px; min-height: 34px; border-radius: 10px; border-color: transparent; padding: 7px 10px; font-size: 12px; line-height: 20px; }
+.trajectory { display: flex; min-width: 0; min-height: 32px; flex-wrap: wrap; align-items: center; column-gap: 8px; row-gap: 4px; margin-bottom: 10px; padding: 3px 0; color: var(--muted-foreground); font-size: 12px; line-height: 20px; }
+.badge.badge { border-color: transparent; border-radius: 7px; padding: 2px 7px; font-size: 11px; line-height: 18px; }
+.detailButton.detailButton {
+  height: 28px;
+  min-height: 28px;
+  margin-left: auto;
+  gap: 5px;
+  border: 1px solid color-mix(in oklab, var(--border) 75%, transparent);
+  border-radius: 9px;
+  padding: 3px 9px;
+  background: linear-gradient(135deg, rgb(255 255 255 / 70%), transparent 75%), color-mix(in oklab, var(--background) 85%, var(--bg-subtle));
+  color: var(--muted-foreground);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 72%);
+  font-size: 12px;
+  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease;
+}
+.detailButton.detailButton:hover { border-color: var(--info-border); background-color: var(--info-bg); color: var(--info); }
+.detailButton:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+
+:global(.dark) .reasoning { --aux-sheen: rgb(255 255 255 / 5%); }
+:global(.dark) .detailButton.detailButton { background: linear-gradient(135deg, rgb(255 255 255 / 6%), transparent 75%), var(--bg-subtle); box-shadow: inset 0 1px 0 rgb(255 255 255 / 9%); }
+:global(.dark) .detailButton.detailButton:hover { background-color: var(--info-bg); }
+@media (prefers-reduced-motion: reduce) {
+  .header, .details, .detailButton { transition: none; }
+  .chevron > svg { transition: none; }
+}

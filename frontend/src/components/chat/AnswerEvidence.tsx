@@ -5,6 +5,7 @@ import { BookOpen, ExternalLink, FileSearch, Globe2, Search } from 'lucide-react
 import { cn } from '@/lib/utils';
 import type { AnswerEvidenceItem, AnswerEvidenceModel } from './answerEvidenceModel';
 import { layoutAnswerEvidenceItems } from './answerEvidenceLayout';
+import styles from './AnswerEvidence.module.css';
 
 interface AnswerEvidenceProps {
   evidence: AnswerEvidenceModel | null;
@@ -24,7 +25,7 @@ export default function AnswerEvidence({
   if (!evidence || evidence.totalCount === 0) {
     if (hasSidebarContent && sidebarIssueCount > 0) {
       return (
-        <section className="mb-2 rounded-md border border-border/30 bg-transparent px-2.5 py-2 text-xs text-muted-foreground">
+        <section className={styles.strip}>
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <FileSearch className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate font-medium text-muted-foreground">
@@ -35,7 +36,7 @@ export default function AnswerEvidence({
               aria-label="查看全部依据"
               data-chat-detail-overlay-trigger="true"
               onClick={onOpenSources}
-              className="shrink-0 rounded-full border border-border/40 bg-background/70 px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:border-border/60 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              className={styles.openAll}
             >
               查看全部依据
             </button>
@@ -109,7 +110,7 @@ function AnswerEvidenceContent({
   }, [evidence.totalCount]);
 
   return (
-    <section className="mb-2 rounded-md border border-border/30 bg-transparent px-2.5 py-2 text-xs text-muted-foreground">
+    <section className={styles.strip}>
       <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2">
         <FileSearch className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate font-medium text-muted-foreground">
@@ -131,7 +132,7 @@ function AnswerEvidenceContent({
               aria-label="查看全部依据"
               data-chat-detail-overlay-trigger="true"
               onClick={onOpenSources}
-              className="shrink-0 rounded-full border border-border/40 bg-background/70 px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:border-border/60 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              className={styles.openAll}
             >
               查看全部依据
             </button>
@@ -157,7 +158,7 @@ function AnswerEvidenceContent({
 
 function EvidenceMetaChip({ children }: { children: React.ReactNode }) {
   return (
-    <span className="shrink-0 rounded-full border border-border/30 bg-muted/20 px-2 py-0.5 text-[11px] text-muted-foreground">
+    <span className={styles.metaChip}>
       {children}
     </span>
   );
@@ -181,7 +182,7 @@ function EvidenceItem({
         onClick={() => {
           onSourceClick(item.sourceIndex);
         }}
-        className="inline-flex min-w-0 w-44 max-w-full items-center gap-1.5 rounded-md border border-border/40 bg-background/70 px-2 py-1 text-left transition-colors hover:border-border/60 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        className={cn('inline-flex min-w-0 w-44 max-w-full items-center gap-1.5 px-2 py-1 text-left', styles.item)}
       >
         {content}
       </button>
@@ -194,7 +195,7 @@ function EvidenceItem({
       target="_blank"
       rel="noopener noreferrer"
       aria-label={`打开网页：${item.title}`}
-      className="inline-flex min-w-0 w-44 max-w-full items-center gap-1.5 rounded-md border border-border/40 bg-background/70 px-2 py-1 text-left no-underline transition-colors hover:border-border/60 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+      className={cn('inline-flex min-w-0 w-44 max-w-full items-center gap-1.5 px-2 py-1 text-left no-underline', styles.item)}
     >
       {content}
       <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
