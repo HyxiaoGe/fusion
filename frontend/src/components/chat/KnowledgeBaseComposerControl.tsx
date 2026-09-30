@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { AlertCircle, BookOpen, Check, Loader2, RotateCw, ShieldCheck, X } from 'lucide-react';
+import { AlertCircle, BookOpen, Check, ChevronDown, Loader2, RotateCw, ShieldCheck, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,7 @@ import {
   subscribeKnowledgeBaseCatalog,
 } from '@/lib/chat/knowledgeBaseCatalogResource';
 import type { KnowledgeSelectionStatus } from '@/lib/chat/knowledgeBaseCatalogResource';
+import styles from './KnowledgeBaseComposerControl.module.css';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'failed';
 export type { KnowledgeSelectionStatus } from '@/lib/chat/knowledgeBaseCatalogResource';
@@ -113,7 +114,7 @@ export default function KnowledgeBaseComposerControl({
   if (!enabled) return null;
 
   return (
-    <div className="border-b border-border/40 px-3 py-2">
+    <div className={`border-b px-3 py-2 ${styles.bar}`}>
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
@@ -123,32 +124,34 @@ export default function KnowledgeBaseComposerControl({
               size="sm"
               disabled={disabled}
               data-testid="knowledge-base-composer-trigger"
+              data-selected={selectedIds.length > 0}
               aria-label={t('knowledgeBase.composer.trigger')}
-              className="h-7 shrink-0 gap-1.5 px-2 text-xs"
+              className={`h-7 shrink-0 gap-1.5 px-2 text-xs ${styles.trigger}`}
             >
               <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
               {t('knowledgeBase.composer.trigger')}
               {selectedIds.length > 0 ? (
-                <span className="rounded-full bg-primary/10 px-1.5 text-[10px] text-primary">
+                <span className={styles.count}>
                   {selectedIds.length}
                 </span>
               ) : null}
+              <ChevronDown className={`size-3 opacity-60 ${styles.chevron}`} aria-hidden="true" />
             </Button>
           </PopoverTrigger>
           <PopoverContent
             align="start"
             side="top"
             sideOffset={8}
-            className="w-[22rem] max-w-[calc(100vw-1rem)] p-0"
+            className={styles.panel}
             aria-label={t('knowledgeBase.composer.title')}
           >
-            <div className="border-b border-border/60 px-3 py-2.5">
+            <div className={styles.header}>
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground">
+                  <p className={styles.title}>
                     {t('knowledgeBase.composer.title')}
                   </p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
+                  <p className={styles.hint}>
                     {t('knowledgeBase.composer.description')}
                   </p>
                 </div>
@@ -157,7 +160,7 @@ export default function KnowledgeBaseComposerControl({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-7 shrink-0 px-2 text-xs"
+                    className={`h-7 shrink-0 px-2 text-xs ${styles.clearButton}`}
                     onClick={() => onChange([])}
                   >
                     {t('knowledgeBase.composer.clear')}
@@ -166,7 +169,7 @@ export default function KnowledgeBaseComposerControl({
               </div>
             </div>
 
-            <div className="max-h-72 overflow-y-auto p-1.5">
+            <div className={styles.body}>
               {loadState === 'loading' ? (
                 <div role="status" className="flex min-h-24 items-center justify-center text-xs text-muted-foreground">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
@@ -195,7 +198,7 @@ export default function KnowledgeBaseComposerControl({
                   {t('knowledgeBase.composer.empty')}
                 </div>
               ) : (
-                <div className="space-y-1">
+                <div className={styles.options}>
                   {bases.map((base) => {
                     const checked = selectedIds.includes(base.id);
                     const selectionLimitReached = !checked && (
@@ -205,11 +208,9 @@ export default function KnowledgeBaseComposerControl({
                     return (
                       <label
                         key={base.id}
-                        className={`flex min-w-0 items-center gap-3 rounded-md px-2.5 py-2 transition-colors ${
-                          selectionLimitReached
-                            ? 'cursor-not-allowed opacity-50'
-                            : 'cursor-pointer hover:bg-muted/60'
-                        }`}
+                        className={styles.option}
+                        data-selected={checked}
+                        data-disabled={disabled || selectionLimitReached}
                       >
                         <input
                           type="checkbox"
@@ -219,17 +220,13 @@ export default function KnowledgeBaseComposerControl({
                           onChange={() => toggleKnowledgeBase(base.id)}
                           className="peer sr-only"
                         />
-                        <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                          checked
-                            ? 'border-primary bg-primary text-primary-foreground'
-                            : 'border-border bg-background'
-                        }`}>
+                        <span className={styles.checkbox}>
                           {checked ? <Check className="h-3 w-3" aria-hidden="true" /> : null}
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium text-foreground">{base.name}</span>
+                          <span className={styles.optionTitle} title={base.name}>{base.name}</span>
                           {base.description ? (
-                            <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                            <span className={styles.optionDescription} title={base.description}>
                               {base.description}
                             </span>
                           ) : null}
@@ -243,7 +240,7 @@ export default function KnowledgeBaseComposerControl({
 
             {maxSelectedKnowledgeBases !== null
             && selectedIds.length >= maxSelectedKnowledgeBases ? (
-              <p className="border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
+              <p className={styles.limit}>
                 {t('knowledgeBase.composer.limit', { count: maxSelectedKnowledgeBases })}
               </p>
             ) : null}
@@ -264,12 +261,12 @@ export default function KnowledgeBaseComposerControl({
           return (
             <span
               key={id}
-              className={`inline-flex max-w-48 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${
+              className={`inline-flex max-w-48 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${styles.chip} ${
                 unavailable
                   ? 'border-destructive/30 bg-destructive/5 text-destructive'
                   : pendingValidation || validationFailed
                     ? 'border-warn/30 bg-warn/5 text-warn'
-                  : 'border-primary/20 bg-primary/5 text-foreground'
+                  : `${styles.readyChip} text-foreground`
               }`}
               title={label}
             >
@@ -288,7 +285,7 @@ export default function KnowledgeBaseComposerControl({
         })}
 
         {selectedIds.length > 0 ? (
-          <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+          <span className={`ml-auto inline-flex items-center gap-1 text-[11px] text-muted-foreground ${styles.strict}`}>
             <ShieldCheck
               className={`h-3.5 w-3.5 ${selectionStatus === 'ready' ? 'text-success' : 'text-warn'}`}
               aria-hidden="true"
