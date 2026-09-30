@@ -341,19 +341,25 @@ describe('HomePage', () => {
         await Promise.resolve();
       });
 
+      const nextPageButton = screen.getByRole('button', { name: '换一批' });
+      const templatesButton = screen.getByRole('button', { name: '更多模板' });
       for (let page = 0; page < 2; page += 1) {
-        fireEvent.click(screen.getByRole('button', { name: '换一批' }));
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(700);
+        fireEvent.click(nextPageButton);
+        act(() => {
+          vi.advanceTimersByTime(700);
         });
       }
 
       const starterRegion = screen.getByTestId('starter-prompts');
-      expect(within(starterRegion).getAllByTestId('starter-card')).toHaveLength(4);
-      const commuteButton = within(starterRegion).getByRole('button', { name: /规划通勤/ });
-      const weekendButton = within(starterRegion).getByRole('button', { name: /安排周末行程/ });
-      const diningButton = within(starterRegion).getByRole('button', { name: /聚餐与娱乐/ });
-      const weatherButton = within(starterRegion).getByRole('button', { name: /天气与出行/ });
+      const starterCards = within(starterRegion).getAllByTestId('starter-card');
+      expect(starterCards).toHaveLength(4);
+      const [commuteButton, weekendButton, diningButton, weatherButton] = starterCards.map(
+        (card) => within(card).getByRole('button'),
+      );
+      expect(commuteButton).toHaveAccessibleName(/规划通勤/);
+      expect(weekendButton).toHaveAccessibleName(/安排周末行程/);
+      expect(diningButton).toHaveAccessibleName(/聚餐与娱乐/);
+      expect(weatherButton).toHaveAccessibleName(/天气与出行/);
       expect(commuteButton.querySelector('.lucide-map-pinned')?.parentElement).toHaveClass(
         'bg-sky-500/10',
         'text-sky-600',
@@ -375,22 +381,26 @@ describe('HomePage', () => {
       expect(onSelectPrompt).toHaveBeenCalledTimes(1);
       expect(onSelectPrompt).toHaveBeenLastCalledWith(COMMUTE_CONTENT);
 
-      fireEvent.click(screen.getByRole('button', { name: '更多模板' }));
+      fireEvent.click(templatesButton);
       expect(screen.getByTestId('template-list-items')).toHaveTextContent(
         '规划通勤|安排周末行程|聚餐与娱乐|天气与出行',
       );
-      fireEvent.click(screen.getByRole('button', { name: '使用模板：天气与出行' }));
+      fireEvent.click(within(screen.getByRole('dialog', { name: '提示词模板' })).getByRole(
+        'button', { name: '使用模板：天气与出行' },
+      ));
       expect(onSelectPrompt).toHaveBeenCalledTimes(2);
       expect(onSelectPrompt).toHaveBeenLastCalledWith(WEATHER_CONTENT);
+      expect(screen.queryByRole('dialog', { name: '提示词模板' })).not.toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole('button', { name: '换一批' }));
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(700);
+      fireEvent.click(nextPageButton);
+      act(() => {
+        vi.advanceTimersByTime(700);
       });
-      expect(within(starterRegion).getAllByTestId('starter-card')).toHaveLength(4);
-      expect(within(starterRegion).getByRole('button', { name: /基础任务 1/ })).toBeInTheDocument();
-      expect(within(starterRegion).getByRole('button', { name: /基础任务 4/ })).toBeInTheDocument();
-      expect(within(starterRegion).queryByRole('button', { name: /规划通勤/ })).toBeNull();
+      const initialCards = within(starterRegion).getAllByTestId('starter-card');
+      expect(initialCards).toHaveLength(4);
+      expect(within(initialCards[0]).getByRole('button')).toHaveAccessibleName(/基础任务 1/);
+      expect(within(initialCards[3]).getByRole('button')).toHaveAccessibleName(/基础任务 4/);
+      expect(starterRegion).not.toHaveTextContent('规划通勤');
     } finally {
       vi.useRealTimers();
     }
