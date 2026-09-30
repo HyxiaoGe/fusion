@@ -2,12 +2,13 @@
 
 import { CheckCircle, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import React, { useRef, useEffect, useMemo, useState } from 'react';
+import React, { useRef, useEffect, useMemo, useState, useId } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import { normalizeBareUrlsForMarkdown } from '@/lib/chat/markdownLinks';
 import { ReasoningPreRenderer, ReasoningCodeRenderer } from './markdownCodeComponents';
+import styles from './MessageAuxiliary.module.css';
 
 interface ReasoningContentProps {
   content: string;
@@ -62,6 +63,7 @@ const ReasoningContent: React.FC<ReasoningContentProps> = ({
   endTime,
 }) => {
   const actuallyVisible = isStreaming || isVisible;
+  const bodyId = useId();
 
   // 检测内容是否溢出（需要滚动）
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -99,22 +101,20 @@ const ReasoningContent: React.FC<ReasoningContentProps> = ({
     return null;
   })();
   return (
-    <div className={cn(
-      "rounded-lg border mb-2 overflow-hidden transition-all duration-300",
-      isStreaming
-        ? "border-info-border bg-info-bg"
-        : "border-border/40 bg-transparent"
-    )}>
-      {/* Header */}
+    <div className={cn(styles.reasoning, isStreaming && styles.streaming)}>
+      {/* 推理入口 */}
       <button
+        type="button"
+        aria-expanded={actuallyVisible}
+        aria-controls={bodyId}
         onClick={onToggle}
-        className="flex items-center justify-between w-full px-3 py-2 text-xs"
+        className={styles.header}
       >
-        <div className="flex items-center gap-2 text-muted-foreground">
+        <div className="flex min-w-0 items-center gap-2">
           {isStreaming ? (
             <span className="h-1.5 w-1.5 rounded-full bg-info animate-pulse motion-reduce:animate-none" />
           ) : (
-            <CheckCircle className="h-3.5 w-3.5" />
+            <CheckCircle className="h-3.5 w-3.5" aria-hidden="true" />
           )}
           <span>
             {isStreaming
@@ -123,27 +123,29 @@ const ReasoningContent: React.FC<ReasoningContentProps> = ({
             }
           </span>
         </div>
-        <ChevronUp className={cn(
-          "h-3.5 w-3.5 text-muted-foreground transition-transform duration-200",
-          !actuallyVisible && "rotate-180"
-        )} />
+        <span className={styles.chevron} aria-hidden="true">
+          <ChevronUp className={cn(
+            'h-3.5 w-3.5 transition-transform duration-200',
+            !actuallyVisible && 'rotate-180',
+          )} />
+        </span>
       </button>
 
       {/* 内容区（grid-rows 自适应展开，避免 200px 硬截断） */}
       <div
+        id={bodyId}
+        aria-hidden={!actuallyVisible}
+        inert={!actuallyVisible}
         className={cn(
-          "grid transition-[grid-template-rows,opacity] duration-300 ease-out",
+          styles.details,
           actuallyVisible ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
         )}
       >
         <div className="overflow-hidden">
-          <div className={cn(
-            "px-3 pb-3 border-t border-border/30 relative",
-            isStreaming && "border-l-2 border-l-info/60 ml-0"
-          )}>
+          <div className={styles.detailsInner}>
             <div
               ref={scrollRef}
-              className="pt-2 text-xs text-muted-foreground leading-relaxed max-h-[280px] overflow-y-auto"
+              className={styles.content}
             >
               {content && content.trim() ? (
                 <ReactMarkdown
@@ -164,7 +166,7 @@ const ReasoningContent: React.FC<ReasoningContentProps> = ({
               )}
             </div>
             {isOverflowing && (
-              <div className="absolute bottom-3 left-3 right-3 h-6 bg-gradient-to-t from-muted/80 to-transparent pointer-events-none rounded-b" />
+              <div className={styles.fade} />
             )}
           </div>
         </div>

@@ -10,6 +10,7 @@ import type { ContentBlock, FileBlock as FileBlockType, Message } from '@/types/
 
 import AuthImage from './AuthImage';
 import MessageActions from './MessageActions';
+import styles from './UserMessage.module.css';
 
 interface UserMessageProps {
   message: Message;
@@ -19,8 +20,6 @@ interface UserMessageProps {
   onEdit?: (messageId: string, content: string) => void;
   onViewImage: (block: FileBlockType) => void;
 }
-
-const userActionClassName = 'flex items-center gap-0.5 h-8 mt-0.5 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity duration-150 lg:pointer-events-none lg:group-hover:pointer-events-auto';
 
 function UserMessage({
   message,
@@ -63,7 +62,7 @@ function UserMessage({
   };
 
   return (
-    <div className={cn('flex flex-col space-y-1 items-end', isEditing ? 'w-full max-w-2xl' : 'max-w-[75%]')}>
+    <div className={cn('flex min-w-0 flex-col space-y-1 items-end', isEditing ? 'w-full max-w-2xl' : styles.message)}>
       {fileBlocks.length > 0 && (
         <div className="mb-1">
           <div className="flex flex-wrap gap-2">
@@ -118,7 +117,7 @@ function UserMessage({
       )}
 
       <div className={cn(
-        'rounded-xl border border-border/60 bg-primary/10 px-4 py-2.5 text-foreground shadow-sm shadow-black/5 dark:border-border/50 dark:bg-primary/15 dark:shadow-black/20',
+        styles.bubble,
         isEditing && 'w-full',
       )}
         aria-label="用户消息内容"
@@ -166,7 +165,7 @@ function UserMessage({
           </div>
         ) : (
           <div>
-            <div>{messageText}</div>
+            <div className={styles.text}>{messageText}</div>
             {message.status === 'failed' ? (
               <div className="flex items-center gap-2 text-xs text-red-500 mt-1">
                 <X className="h-3 w-3" />
@@ -183,7 +182,7 @@ function UserMessage({
           onEdit={handleStartEdit}
           onRetry={onRetry ? () => onRetry(message.id) : undefined}
           retryLabel="重新发送"
-          className={userActionClassName}
+          className="mt-0.5"
         />
       )}
     </div>

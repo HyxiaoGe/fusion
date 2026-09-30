@@ -95,8 +95,9 @@ describe('AnswerEvidence', () => {
     expect(onSourceClick).toHaveBeenCalledWith(0);
   });
 
-  it('使用低权重 metadata strip 和轻量依据项样式', () => {
-    const { container } = render(
+  it('混合依据预览保留搜索按钮和可安全打开的网页链接', () => {
+    const onSourceClick = vi.fn();
+    render(
       <AnswerEvidence
         evidence={evidence({
           items: [
@@ -139,52 +140,19 @@ describe('AnswerEvidence', () => {
           summary: '回答依据 · 搜索候选 1 条 · 深读 1 个网页',
           hasSearchSources: true,
         })}
-        onSourceClick={vi.fn()}
+        onSourceClick={onSourceClick}
         onOpenSources={vi.fn()}
       />,
     );
 
-    expect(container.querySelector('section')).toHaveClass(
-      'mb-2',
-      'rounded-md',
-      'border',
-      'border-border/30',
-      'bg-transparent',
-      'px-2.5',
-      'py-2',
-      'text-xs',
-      'text-muted-foreground',
-    );
-
     const sourceButton = screen.getByRole('button', { name: '查看来源：搜索标题' });
-    expect(sourceButton).toHaveClass(
-      'inline-flex',
-      'min-w-0',
-      'max-w-full',
-      'items-center',
-      'gap-1.5',
-      'rounded-md',
-      'border',
-      'border-border/40',
-      'bg-background/70',
-      'px-2',
-      'py-1',
-      'text-left',
-      'transition-colors',
-      'hover:border-border/60',
-      'hover:bg-muted/40',
-    );
+    fireEvent.click(sourceButton);
+    expect(onSourceClick).toHaveBeenCalledWith(0);
 
     const urlLink = screen.getByRole('link', { name: '打开网页：网页标题' });
-    expect(urlLink).toHaveClass(
-      'inline-flex',
-      'gap-1.5',
-      'border-border/40',
-      'bg-background/70',
-      'py-1',
-      'hover:bg-muted/40',
-      'no-underline',
-    );
+    expect(urlLink).toHaveAttribute('href', 'https://example.com/article');
+    expect(urlLink).toHaveAttribute('target', '_blank');
+    expect(urlLink).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
   it('显示 URL 读取摘要并渲染外部链接', () => {

@@ -4,6 +4,7 @@ import { Check, Copy, Edit2, RefreshCw } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import styles from './MessageActions.module.css';
 
 interface MessageActionsProps {
   timestamp?: number;
@@ -14,9 +15,6 @@ interface MessageActionsProps {
   retryLabel: string;
   className?: string;
 }
-
-const defaultClassName = 'flex items-center gap-1 h-8 mt-1 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity duration-150 lg:pointer-events-none lg:group-hover:pointer-events-auto';
-const actionButtonClassName = 'h-8 w-8 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors duration-fast';
 
 function formatTime(timestamp?: number) {
   if (!timestamp || isNaN(timestamp)) return '';
@@ -47,7 +45,7 @@ function MessageActions({
   const copyLabel = copied ? '已复制' : '复制';
 
   return (
-    <div className={cn(defaultClassName, className)}>
+    <div className={cn(styles.actions, className)}>
       {formattedTime ? (
         <span className="text-xs text-muted-foreground/70 mr-1">
           {formattedTime}
@@ -59,7 +57,7 @@ function MessageActions({
           title={copyLabel}
           variant="ghost"
           size="icon"
-          className={actionButtonClassName}
+          className={styles.action}
           onClick={onCopy}
         >
           {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
@@ -71,7 +69,7 @@ function MessageActions({
           title="编辑"
           variant="ghost"
           size="icon"
-          className={actionButtonClassName}
+          className={styles.action}
           onClick={onEdit}
         >
           <Edit2 className="h-4 w-4" />
@@ -83,7 +81,7 @@ function MessageActions({
           title={retryLabel}
           variant="ghost"
           size="icon"
-          className={actionButtonClassName}
+          className={styles.action}
           onClick={onRetry}
         >
           <RefreshCw className="h-4 w-4" />

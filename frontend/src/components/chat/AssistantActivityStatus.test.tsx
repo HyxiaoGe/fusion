@@ -59,7 +59,7 @@ describe('AssistantActivityStatus', () => {
     expect(status).toHaveAttribute('aria-atomic', 'true');
   });
 
-  it('running 状态使用紧凑辅助条基础样式', () => {
+  it('工具未提供目标时仍展示可理解的运行标签', () => {
     render(
       <AssistantActivityStatus
         activity={baseActivity({
@@ -68,7 +68,7 @@ describe('AssistantActivityStatus', () => {
             kind: 'web_search',
             toolName: 'web_search',
             label: '正在搜索',
-            target: 'AI 异常检测',
+            target: '',
             call: {
               toolCallId: 'tool-1',
               toolName: 'web_search',
@@ -81,21 +81,8 @@ describe('AssistantActivityStatus', () => {
       />,
     );
 
-    expect(screen.getByRole('status')).toHaveClass(
-      'mb-2',
-      'flex',
-      'min-w-0',
-      'items-center',
-      'gap-2',
-      'rounded-lg',
-      'border',
-      'px-2.5',
-      'py-1.5',
-      'text-xs',
-      'border-info-border',
-      'bg-info-bg',
-      'text-info',
-    );
+    expect(screen.getByRole('status')).toHaveTextContent('正在搜索');
+    expect(screen.getByRole('status')).not.toHaveTextContent('null');
   });
 
   it('renders running url read with hostname', () => {

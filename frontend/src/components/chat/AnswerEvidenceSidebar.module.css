@@ -1,0 +1,87 @@
+.panel {
+  border-left: 1px solid color-mix(in oklch, var(--info) 14%, var(--border));
+  background: var(--background);
+  box-shadow: -12px 0 36px -18px rgb(15 23 42 / 20%);
+}
+
+.header {
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 75%, transparent);
+  background: linear-gradient(140deg, var(--bg-elevated), color-mix(in oklch, var(--info-bg) 45%, var(--background)));
+  box-shadow: inset 1px 1px 0 rgb(255 255 255 / 85%);
+}
+
+.body {
+  background: var(--background);
+  overscroll-behavior: contain;
+  scroll-padding-block: 16px;
+}
+
+.iconButton {
+  display: flex;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--muted-foreground);
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+.iconButton:hover {
+  border-color: var(--border);
+  background: var(--bg-subtle);
+  color: var(--foreground);
+}
+.iconButton:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+}
+
+.queryBox,
+.empty {
+  border: 1px solid color-mix(in oklch, var(--border) 75%, transparent);
+  border-radius: 12px;
+  background: var(--bg-subtle);
+}
+
+.sourceCard,
+.issueCard {
+  border: 1px solid color-mix(in oklch, var(--border) 88%, transparent);
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 75%);
+}
+.sourceCard {
+  overflow: hidden;
+  border-left-width: 2px;
+  border-left-color: transparent;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+.sourceCard:hover { border-color: color-mix(in oklch, var(--info) 22%, var(--border)); background: var(--bg-subtle); }
+.sourceCard[data-highlighted="true"] {
+  border-left-color: var(--info);
+  background: color-mix(in oklch, var(--info-bg) 75%, var(--bg-elevated));
+}
+.sourceCard:focus-within { outline: 2px solid color-mix(in oklch, var(--info) 65%, transparent); outline-offset: -2px; }
+
+.kindBadge {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 1px 5px;
+  background: var(--bg-subtle);
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+.title { line-height: 1.55; }
+
+:global(.dark) .panel { box-shadow: -12px 0 36px -18px rgb(0 0 0 / 55%); }
+:global(.dark) .header { box-shadow: inset 1px 1px 0 rgb(255 255 255 / 8%); }
+:global(.dark) .sourceCard,
+:global(.dark) .issueCard { box-shadow: inset 0 1px 0 rgb(255 255 255 / 6%); }
+
+@media (prefers-reduced-motion: reduce) {
+  .panel,
+  .iconButton,
+  .sourceCard { transition: none; }
+}

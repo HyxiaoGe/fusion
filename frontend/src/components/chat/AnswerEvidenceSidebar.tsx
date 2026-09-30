@@ -11,6 +11,7 @@ import type {
 import { useChatDetailOverlayRegistration } from './ChatDetailOverlayContext';
 import { ChatDetailOverlayPortal } from './ChatDetailOverlayPortal';
 import KnowledgeEvidenceSourcePreview from './KnowledgeEvidenceSourcePreview';
+import styles from './AnswerEvidenceSidebar.module.css';
 
 interface AnswerEvidenceSidebarProps {
   model: AnswerEvidenceSidebarModel | null;
@@ -99,9 +100,9 @@ export default function AnswerEvidenceSidebar({
         aria-modal="true"
         aria-label="回答依据"
         data-chat-detail-overlay-surface="true"
-        className="fixed inset-y-0 right-0 z-50 flex w-[440px] max-w-[100vw] transform flex-col border-l border-border bg-background shadow-lg transition-transform duration-300 ease-in-out"
+        className={cn('fixed inset-y-0 right-0 z-50 flex w-[440px] max-w-[100vw] transform flex-col transition-transform duration-300 ease-in-out', styles.panel)}
       >
-        <header className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+        <header className={cn('flex items-start justify-between gap-3 px-4 py-3', styles.header)}>
           <div className="min-w-0">
             <h3 className="text-sm font-medium">回答依据</h3>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -129,14 +130,14 @@ export default function AnswerEvidenceSidebar({
               type="button"
               aria-label="关闭回答依据"
               onClick={onClose}
-              className="rounded-md p-1 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              className={styles.iconButton}
             >
               <X className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
             </button>
           </div>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        <div className={cn('min-h-0 flex-1 overflow-y-auto px-4 py-4', styles.body)}>
           <SearchQuerySection queries={model.searchQueries} />
 
           {usedItems.length > 0 ? (
@@ -176,7 +177,7 @@ export default function AnswerEvidenceSidebar({
           ) : null}
 
           {usedItems.length === 0 && candidateItems.length === 0 ? (
-            <section className="rounded-md border border-border/40 bg-muted/10 px-3 py-2 text-xs text-muted-foreground">
+            <section className={cn('px-3 py-2 text-xs text-muted-foreground', styles.empty)}>
               没有可用回答依据
             </section>
           ) : null}
@@ -204,7 +205,7 @@ function SearchQuerySection({ queries }: { queries: string[] }) {
   return (
     <section className="mb-5">
       <h4 className="mb-2 text-xs font-medium text-foreground">搜索关键词</h4>
-      <div className="rounded-md border border-border/40 bg-muted/10 px-3 py-2">
+      <div className={cn('px-3 py-2', styles.queryBox)}>
         <div className="space-y-1.5">
           {queries.map((query, index) => (
             <div key={query} className="flex min-w-0 items-start gap-2 text-xs">
@@ -235,10 +236,8 @@ const UsedSourceItem = React.forwardRef<HTMLDivElement, {
         : item.kind === 'knowledge'
           ? `answer-evidence-used-knowledge-${item.sourceIndex}`
           : undefined}
-      className={cn(
-        'overflow-hidden rounded-md border border-border/40 border-l-2 bg-background/70 transition-colors',
-        highlighted ? 'border-l-info bg-info-bg/60' : 'border-l-transparent hover:bg-muted/20',
-      )}
+      data-highlighted={highlighted}
+      className={styles.sourceCard}
     >
       <div className="flex min-w-0 gap-3 px-3 py-2">
         <span className={cn(
@@ -249,7 +248,7 @@ const UsedSourceItem = React.forwardRef<HTMLDivElement, {
         </span>
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex min-w-0 items-center gap-2">
-            <span className="shrink-0 rounded-full border border-border/30 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            <span className={cn('shrink-0', styles.kindBadge)}>
               {item.kind === 'search' ? '搜索' : item.kind === 'knowledge' ? '知识库' : '读取'}
             </span>
             {item.deepRead ? (
@@ -259,7 +258,7 @@ const UsedSourceItem = React.forwardRef<HTMLDivElement, {
             ) : null}
             <span className="min-w-0 truncate text-[10px] text-muted-foreground">{item.domain}</span>
           </div>
-          <p className="line-clamp-2 text-sm font-medium text-foreground" title={item.title}>
+          <p className={cn('line-clamp-2 text-sm font-medium text-foreground', styles.title)} title={item.title}>
             {item.title}
           </p>
           {item.knowledge ? (
@@ -275,7 +274,7 @@ const UsedSourceItem = React.forwardRef<HTMLDivElement, {
             target="_blank"
             rel="noopener noreferrer"
             aria-label={`打开来源：${item.title}`}
-            className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className={cn('mt-0.5', styles.iconButton)}
           >
             <ExternalLink className="h-4 w-4" aria-hidden="true" />
           </a>
@@ -315,7 +314,7 @@ function UsedSourceIcon({ item }: { item: AnswerEvidenceSidebarUsedItem }) {
 
 function IssueSourceItem({ item }: { item: AnswerEvidenceSidebarIssueItem }) {
   return (
-    <div className="flex min-w-0 gap-3 rounded-md border border-border/40 bg-muted/10 px-3 py-2">
+    <div className={cn('flex min-w-0 gap-3 px-3 py-2', styles.issueCard)}>
       <span className={cn(
         'mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md',
         item.status === 'failed' ? 'text-danger' : item.status === 'degraded' ? 'text-warn' : 'text-muted-foreground',
@@ -324,7 +323,7 @@ function IssueSourceItem({ item }: { item: AnswerEvidenceSidebarIssueItem }) {
       </span>
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex min-w-0 flex-wrap items-center gap-2">
-          <span className="shrink-0 rounded-full border border-border/30 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+          <span className={cn('shrink-0', styles.kindBadge)}>
             {item.kind === 'search' ? '搜索' : item.kind === 'knowledge' ? '知识库' : '读取'}
           </span>
           <StatusBadge status={item.status} />
@@ -332,7 +331,7 @@ function IssueSourceItem({ item }: { item: AnswerEvidenceSidebarIssueItem }) {
             <span className="min-w-0 truncate text-[10px] text-muted-foreground">{item.domain}</span>
           ) : null}
         </div>
-        <p className="line-clamp-2 text-sm font-medium text-foreground" title={item.title}>
+        <p className={cn('line-clamp-2 text-sm font-medium text-foreground', styles.title)} title={item.title}>
           {item.title}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">{item.reason}</p>
@@ -343,7 +342,7 @@ function IssueSourceItem({ item }: { item: AnswerEvidenceSidebarIssueItem }) {
           target="_blank"
           rel="noopener noreferrer"
           aria-label={`打开来源：${item.title}`}
-          className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          className={cn('mt-0.5', styles.iconButton)}
         >
           <ExternalLink className="h-4 w-4" aria-hidden="true" />
         </a>
