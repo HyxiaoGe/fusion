@@ -1671,6 +1671,32 @@ class AmapLocalPlaceSearchTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(result.data["result"]["places"][0]["distance_m"], 320)
 
+    async def test_clustered_geocode_candidates_resolve_to_first_as_same_place(self):
+        # 高德真实响应：「成都太古里」返回同一商圈的多个入口/POI，彼此相距几百米。
+        clustered = [
+            {"location": "104.082798,30.652509", "city": "成都市"},
+            {"location": "104.083135,30.652841", "city": "成都市"},
+            {"location": "104.083740,30.652799", "city": "成都市"},
+            {"location": "104.082798,30.652509", "city": "成都市"},
+        ]
+        for args in (
+            {"query": "咖啡馆", "city": "成都", "near": "成都太古里"},
+            {"query": "咖啡馆", "near": "成都太古里"},
+        ):
+            with self.subTest(args=args):
+                handler, executor = build_handler(
+                    "local_place_search",
+                    {
+                        "maps_geo": [mcp_payload({"results": clustered})],
+                        "maps_around_search": [mcp_payload({"pois": []})],
+                    },
+                )
+
+                result = await handler.execute(local_search_args(args))
+
+                self.assertEqual(result.status, "success")
+                self.assertEqual(executor.calls[1][2]["location"], "104.082798,30.652509")
+
     async def test_geocode_ignores_earlier_metadata_location_and_uses_geocodes_candidate(self):
         handler, executor = build_handler(
             "local_place_search",
@@ -1758,13 +1784,6 @@ class AmapLocalPlaceSearchTests(unittest.IsolatedAsyncioTestCase):
                 [
                     {"location": "114.031,22.616", "city": "深圳市"},
                     {"location": "114.057,22.543", "city": "深圳市"},
-                ],
-            ),
-            (
-                {"query": "烤肉", "near": "民治", "city": "深圳"},
-                [
-                    {"location": "114.031,22.616", "city": "深圳市"},
-                    {"location": "114.031,22.616", "city": "深圳市"},
                 ],
             ),
             (

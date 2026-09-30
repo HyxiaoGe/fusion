@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import re
 import time
 import uuid
@@ -76,6 +77,9 @@ _MODE_TO_REMOTE_TOOL = {
 }
 _MODE_ORDER = tuple(_MODE_TO_REMOTE_TOOL)
 _COORDINATE_PATTERN = re.compile(r"^\s*[+-]?(?:\d+(?:\.\d+)?|\.\d+)\s*,\s*[+-]?(?:\d+(?:\.\d+)?|\.\d+)\s*$")
+# 多个地理编码候选都落在这个半径内时视为同一地点（商圈入口、道路分段）。
+_GEO_SAME_PLACE_RADIUS_METERS = 1_000
+_EARTH_RADIUS_METERS = 6_371_000
 _PRODUCT_TIMEOUT_SECONDS = 25.0
 _MAX_CONTEXT_BYTES = 12_000
 _MAX_RESULT_BYTES = 32_000
@@ -1629,10 +1633,36 @@ def _extract_geo(
                 return None
         return candidate
     selection_city = requested_city or preferred_city
-    if not selection_city:
-        return None
-    matches = [candidate for candidate in candidates if _city_matches(selection_city, candidate.get("city"))]
-    return matches[0] if len(matches) == 1 else None
+    if selection_city:
+        candidates = [candidate for candidate in candidates if _city_matches(selection_city, candidate.get("city"))]
+    if len(candidates) == 1:
+        return candidates[0]
+    # 高德对商圈、道路常返回同一地点的多个入口或 POI（如「成都太古里」10 个点彼此
+    # 相距几百米）。候选都聚在一处时指的是同一个地方，取高德排序第一的即可；真正分散
+    # 在不同位置的同名地点仍按歧义处理。
+    if candidates and _all_within_meters(
+        [candidate["location"] for candidate in candidates],
+        _GEO_SAME_PLACE_RADIUS_METERS,
+    ):
+        return candidates[0]
+    return None
+
+
+def _all_within_meters(locations: list[str], radius_meters: float) -> bool:
+    anchor_lon, anchor_lat = (float(part) for part in locations[0].split(",", 1))
+    for location in locations[1:]:
+        lon, lat = (float(part) for part in location.split(",", 1))
+        if _distance_meters(anchor_lon, anchor_lat, lon, lat) > radius_meters:
+            return False
+    return True
+
+
+def _distance_meters(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    d_phi = phi2 - phi1
+    d_lambda = math.radians(lon2 - lon1)
+    a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
+    return 2 * _EARTH_RADIUS_METERS * math.asin(math.sqrt(a))
 
 
 def _extract_reverse_city(payload: Any) -> str | None:
