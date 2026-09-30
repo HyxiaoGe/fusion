@@ -58,9 +58,11 @@ vi.mock('@/components/home/HomeChatSurface', () => ({
 }));
 
 import AppLayout from './layout';
+import { readComposerDraft, writeComposerDraft } from '@/lib/chat/composerDraftStorage';
 
 describe('AppLayout 新建对话过渡', () => {
   beforeEach(() => {
+    sessionStorage.clear();
     routerPushMock.mockClear();
     requestNewChatDraftResetMock.mockClear();
     homeChatSurfaceMock.mockClear();
@@ -119,6 +121,20 @@ describe('AppLayout 新建对话过渡', () => {
     fireEvent.click(screen.getByRole('button', { name: '新对话' }));
 
     expect(requestNewChatDraftResetMock).toHaveBeenCalledTimes(1);
+    expect(routerPushMock).toHaveBeenCalledWith('/chat/new?model=model-1');
+  });
+
+  it('从已有会话主动新建清首页草稿，保留已有会话草稿', () => {
+    useAppSelectorMock.mockImplementation(selector => selector({
+      auth: { isAuthenticated: true, user: { id: 'user-a' } },
+      models: { models: [{ id: 'model-1', enabled: true }] },
+    }));
+    writeComposerDraft('user-a', null, '先前首页草稿');
+    writeComposerDraft('user-a', 'test', '当前会话草稿');
+    render(<AppLayout><div>旧会话</div></AppLayout>);
+    fireEvent.click(screen.getByRole('button', { name: '新对话' }));
+    expect(readComposerDraft('user-a', null)).toBe('');
+    expect(readComposerDraft('user-a', 'test')).toBe('当前会话草稿');
     expect(routerPushMock).toHaveBeenCalledWith('/chat/new?model=model-1');
   });
 });

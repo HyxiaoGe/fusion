@@ -296,6 +296,7 @@ vi.mock('@/components/chat/ChatInput', () => ({
 
 import HomeChatSurface from './HomeChatSurface';
 import { requestNewChatDraftReset } from '@/lib/chat/newChatDraftReset';
+import { readComposerDraft, writeComposerDraft } from '@/lib/chat/composerDraftStorage';
 
 function createFile(overrides: Record<string, unknown> = {}) {
   return {
@@ -340,6 +341,42 @@ describe('HomeChatSurface 会话资料交互', () => {
     streamState.isStreaming = false;
     streamState.conversationId = null;
     window.sessionStorage.clear();
+  });
+
+  it('首页接受后迁移下一条草稿，物化后可在服务端会话恢复', () => {
+    let options: any;
+    sendMessageMock.mockImplementation((_content, nextOptions) => {
+      options = nextOptions;
+      return new Promise(() => {});
+    });
+    render(<HomeChatSurface />);
+    const send = chatInputRenderMock.mock.lastCall?.[0].onSendMessage;
+    act(() => { void send('第一条', undefined, undefined, undefined, vi.fn(), vi.fn()); });
+    writeComposerDraft('user-a', null, '下一条草稿');
+    act(() => { options.onAccepted(); options.onDraftCreated('temp-chat'); });
+    expect(readComposerDraft('user-a', null)).toBe('');
+    expect(readComposerDraft('user-a', 'temp-chat')).toBe('下一条草稿');
+    act(() => { options.onMaterialized('server-chat'); });
+    expect(readComposerDraft('user-a', 'temp-chat')).toBe('');
+    expect(readComposerDraft('user-a', 'server-chat')).toBe('下一条草稿');
+  });
+
+  it('主动新建会话清首页草稿，并撤销尚未接受请求的启动资格', () => {
+    let options: any;
+    sendMessageMock.mockImplementation((_content, nextOptions) => {
+      options = nextOptions;
+      return new Promise(() => {});
+    });
+    render(<HomeChatSurface />);
+    const send = chatInputRenderMock.mock.lastCall?.[0].onSendMessage;
+    act(() => { void send('旧请求'); });
+    expect(options.canStart()).toBe(true);
+    writeComposerDraft('user-a', null, '旧草稿');
+    act(() => requestNewChatDraftReset());
+    expect(readComposerDraft('user-a', null)).toBe('');
+    expect(options.canStart()).toBe(false);
+    act(() => { options.onAccepted(); options.onMaterialized('old-server-chat'); });
+    expect(routerReplaceMock).not.toHaveBeenCalledWith('/chat/old-server-chat');
   });
 
   it('新对话本地草稿阶段也在消息区顶部装配定位授权提示', () => {
@@ -645,6 +682,7 @@ describe('HomeChatSurface 会话资料交互', () => {
       {
         conversationId: 'pending-chat-1',
         isDraft: true,
+        canStart: expect.any(Function),
         onAccepted: expect.any(Function),
         onDraftCreated: expect.any(Function),
         onMaterialized: expect.any(Function),
@@ -683,6 +721,7 @@ describe('HomeChatSurface 会话资料交互', () => {
       {
         conversationId: 'pending-chat-1',
         isDraft: true,
+        canStart: expect.any(Function),
         onAccepted: expect.any(Function),
         onDraftCreated: expect.any(Function),
         onMaterialized: expect.any(Function),

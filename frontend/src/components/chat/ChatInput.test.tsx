@@ -653,8 +653,8 @@ describe('ChatInput', () => {
 
     const toolbar = screen.getByRole('toolbar', { name: '消息工具栏' });
     expect(toolbar).toHaveClass('min-w-0');
-    expect(screen.getByText('思考')).toHaveClass('hidden', 'min-[420px]:inline');
-    expect(screen.getByText('自动')).toHaveClass('max-w-[4.5rem]', 'truncate');
+    expect(screen.getByText('推理')).toHaveClass('hidden', 'min-[420px]:inline');
+    expect(screen.getByText('模式：自动')).toHaveClass('max-w-[4.5rem]', 'truncate');
     expect(screen.getByTestId('model-selector-trigger')).toHaveClass('max-w-[112px]', 'sm:max-w-none');
   });
 
@@ -1342,7 +1342,7 @@ describe('ChatInput', () => {
     });
 
     expect(recoverableErrors).toEqual([]);
-    expect(container.textContent).toContain('思考已开');
+    expect(container.textContent).toContain('推理已开');
 
     await act(async () => {
       root?.unmount();
@@ -2414,7 +2414,7 @@ describe('ChatInput', () => {
       key: 'Enter',
       code: 'Enter',
     });
-    expect(onStopStreaming).toHaveBeenCalledTimes(2);
+    expect(onStopStreaming).toHaveBeenCalledTimes(1);
     expect(onSendMessage).not.toHaveBeenCalled();
   });
 
@@ -3143,6 +3143,244 @@ describe('ChatInput', () => {
     await waitFor(() => {
       expect(screen.getByTestId('knowledge-base-composer-trigger')).not.toBeDisabled();
     });
+  });
+
+  it('中文输入法确认选词时不发送，兼容组合状态和 229 键码', () => {
+    configureAuthenticatedVisionModel();
+    const onSendMessage = vi.fn();
+    render(<ChatInput onSendMessage={onSendMessage} />);
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: '正在选词' } });
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 });
+    expect(onSendMessage).not.toHaveBeenCalled();
+    expect(input).toHaveValue('正在选词');
+  });
+
+  it('提交期间阻止重复发送，确认后保留新写的草稿', async () => {
+    configureAuthenticatedVisionModel();
+    let accepted: (() => void) | undefined;
+    const onSendMessage = vi.fn((_text, _files, _pending, _knowledge, _reject, accept) => {
+      accepted = accept;
+      return new Promise<void>(() => {});
+    });
+    render(<ChatInput onSendMessage={onSendMessage} activeChatId="chat-a" />);
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: '第一条问题' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onSendMessage).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: '正在提交' })).toBeDisabled();
+    fireEvent.change(input, { target: { value: '继续编辑的草稿' } });
+    act(() => accepted?.());
+    expect(input).toHaveValue('继续编辑的草稿');
+  });
+
+  it('切换会话往返和重新挂载恢复各自的文字草稿', () => {
+    configureAuthenticatedVisionModel();
+    const props = { onSendMessage: vi.fn() };
+    const view = render(<ChatInput {...props} activeChatId="chat-a" resetSignal="chat-a" />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '会话 A 的草稿' } });
+    currentState.conversation.byId['chat-b'] = createConversationBoundToSelectedModel('chat-b');
+    currentState.conversation.hydrationStatus['chat-b'] = 'done';
+    view.rerender(<ChatInput {...props} activeChatId="chat-b" resetSignal="chat-b" />);
+    expect(screen.getByRole('textbox')).toHaveValue('');
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '会话 B 的草稿' } });
+    view.rerender(<ChatInput {...props} activeChatId="chat-a" resetSignal="chat-a" />);
+    expect(screen.getByRole('textbox')).toHaveValue('会话 A 的草稿');
+    view.unmount();
+    render(<ChatInput {...props} activeChatId="chat-b" resetSignal="chat-b" />);
+    expect(screen.getByRole('textbox')).toHaveValue('会话 B 的草稿');
+  });
+
+  it('旧会话发送确认不会清掉当前会话草稿，已提交草稿不再恢复', () => {
+    configureAuthenticatedVisionModel();
+    let accepted: (() => void) | undefined;
+    const onSendMessage = vi.fn((_text, _files, _pending, _knowledge, _reject, accept) => {
+      accepted = accept;
+      return new Promise<void>(() => {});
+    });
+    const view = render(<ChatInput onSendMessage={onSendMessage} activeChatId="chat-a" resetSignal="chat-a" />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '相同文字' } });
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+    currentState.conversation.byId['chat-b'] = createConversationBoundToSelectedModel('chat-b');
+    currentState.conversation.hydrationStatus['chat-b'] = 'done';
+    view.rerender(<ChatInput onSendMessage={onSendMessage} activeChatId="chat-b" resetSignal="chat-b" />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '相同文字' } });
+    act(() => accepted?.());
+    expect(screen.getByRole('textbox')).toHaveValue('相同文字');
+    view.rerender(<ChatInput onSendMessage={onSendMessage} activeChatId="chat-a" resetSignal="chat-a" />);
+    expect(screen.getByRole('textbox')).toHaveValue('');
+  });
+
+  it('停止等待期间防止重复点击并保留下一条草稿', async () => {
+    configureAuthenticatedVisionModel();
+    Object.assign(currentState.streamSlot, { isStreaming: true, conversationId: 'chat-a' });
+    let finishStop: (() => void) | undefined;
+    const onStopStreaming = vi.fn(() => new Promise<void>(resolve => { finishStop = resolve; }));
+    const onSendMessage = vi.fn();
+    const view = render(<ChatInput onSendMessage={onSendMessage} onStopStreaming={onStopStreaming} activeChatId="chat-a" />);
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: '下一条草稿' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onStopStreaming).not.toHaveBeenCalled();
+    expect(onSendMessage).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '停止生成' }));
+    expect(screen.getByRole('button', { name: '正在停止' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '正在停止' }));
+    expect(onStopStreaming).toHaveBeenCalledTimes(1);
+    await act(async () => { finishStop?.(); });
+    // Promise 返回不等同于服务端停止，仍以会话流状态为准。
+    expect(screen.getByRole('button', { name: '停止生成' })).toBeEnabled();
+    currentState.streamSlot.isStreaming = false;
+    view.rerender(<ChatInput onSendMessage={onSendMessage} onStopStreaming={onStopStreaming} activeChatId="chat-a" />);
+    expect(screen.getByRole('button', { name: '发送消息' })).toBeEnabled();
+    expect(input).toHaveValue('下一条草稿');
+  });
+
+  it('提交拒绝后保留输入并可立即重试，Shift+Enter 不发送', async () => {
+    configureAuthenticatedVisionModel();
+    let rejectSend: (() => void) | undefined;
+    const onSendMessage = vi.fn((_text, _files, _pending, _knowledge, reject) => {
+      rejectSend = reject;
+      return new Promise<void>(() => {});
+    });
+    render(<ChatInput onSendMessage={onSendMessage} activeChatId="chat-a" />);
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: '失败后继续写' } });
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
+    expect(onSendMessage).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: 'Enter' });
+    act(() => rejectSend?.());
+    expect(input).toHaveValue('失败后继续写');
+    expect(screen.getByRole('button', { name: '发送消息' })).toBeEnabled();
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onSendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('前端流先结束时仍等待停止确认，不提前允许发送', async () => {
+    configureAuthenticatedVisionModel();
+    Object.assign(currentState.streamSlot, { isStreaming: true, conversationId: 'chat-a' });
+    const deferred = createDeferred<void>();
+    const onStopStreaming = vi.fn(() => deferred.promise);
+    const onSendMessage = vi.fn();
+    const props = { onSendMessage, onStopStreaming, activeChatId: 'chat-a' };
+    const view = render(<ChatInput {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: '停止生成' }));
+    currentState.streamSlot.isStreaming = false;
+    view.rerender(<ChatInput {...props} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '下一条' } });
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+    expect(screen.getByRole('button', { name: '正在停止' })).toBeDisabled();
+    expect(onSendMessage).not.toHaveBeenCalled();
+    await act(async () => deferred.resolve());
+    expect(screen.getByRole('button', { name: '发送消息' })).toBeEnabled();
+  });
+
+  it('停止未确认时保留真实提示和刷新入口，不伪造可重试停止', () => {
+    configureAuthenticatedVisionModel();
+    Object.assign(currentState.streamSlot, {
+      isStreaming: false, conversationId: 'chat-a',
+      currentRun: { status: 'running', stopConfirmation: { status: 'unconfirmed', requestedAt: Date.now() } },
+    });
+    const props = { onSendMessage: vi.fn(), onStopStreaming: vi.fn(), activeChatId: 'chat-a' };
+    const view = render(<ChatInput {...props} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '后续问题' } });
+    expect(screen.getByText('停止结果未确认，请刷新会话核实')).toBeVisible();
+    expect(screen.getByRole('button', { name: '刷新确认' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: '停止生成' })).toBeNull();
+    expect(screen.getByRole('button', { name: '发送消息' })).toBeEnabled();
+    currentState.streamSlot.currentRun = { status: 'completed' };
+    view.rerender(<ChatInput {...props} />);
+    expect(screen.getByRole('button', { name: '发送消息' })).toBeEnabled();
+  });
+
+  it('换账号时隔离草稿，旧发送回调不改新账号相同文字', () => {
+    configureAuthenticatedVisionModel();
+    let accepted: (() => void) | undefined;
+    const onSendMessage = vi.fn((_text, _files, _pending, _knowledge, _reject, accept) => {
+      accepted = accept;
+      return new Promise<void>(() => {});
+    });
+    const props = { onSendMessage, activeChatId: 'chat-a' };
+    const view = render(<ChatInput {...props} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '相同文字' } });
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+    currentState.auth.user = { id: 'another-user' };
+    currentState.auth.token = 'another-token';
+    view.rerender(<ChatInput {...props} />);
+    expect(screen.getByRole('textbox')).toHaveValue('');
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '相同文字' } });
+    act(() => accepted?.());
+    expect(screen.getByRole('textbox')).toHaveValue('相同文字');
+    expect(screen.queryByRole('button', { name: '正在提交' })).toBeNull();
+  });
+
+  it('切换会话后旧停止回调不能解除当前停止等待', async () => {
+    configureAuthenticatedVisionModel();
+    Object.assign(currentState.streamSlot, { isStreaming: true, conversationId: 'chat-a' });
+    const oldStop = createDeferred<void>();
+    const newStop = createDeferred<void>();
+    const view = render(<ChatInput onSendMessage={vi.fn()} onStopStreaming={() => oldStop.promise} activeChatId="chat-a" />);
+    fireEvent.click(screen.getByRole('button', { name: '停止生成' }));
+    currentState.conversation.byId['chat-b'] = createConversationBoundToSelectedModel('chat-b');
+    currentState.conversation.hydrationStatus['chat-b'] = 'done';
+    currentState.streamSlot.conversationId = 'chat-b';
+    view.rerender(<ChatInput onSendMessage={vi.fn()} onStopStreaming={() => newStop.promise} activeChatId="chat-b" />);
+    fireEvent.click(screen.getByRole('button', { name: '停止生成' }));
+    await act(async () => oldStop.resolve());
+    expect(screen.getByRole('button', { name: '正在停止' })).toBeDisabled();
+    await act(async () => newStop.resolve());
+    expect(screen.getByRole('button', { name: '停止生成' })).toBeEnabled();
+  });
+
+  it('同一会话主动重置后，旧发送确认不能清新草稿和资料', () => {
+    configureAuthenticatedVisionModel();
+    let accepted: (() => void) | undefined;
+    const onClearConversationAttachments = vi.fn();
+    const onSendMessage = vi.fn((_text, _files, _pending, _knowledge, _reject, accept) => {
+      accepted = accept;
+      return new Promise<void>(() => {});
+    });
+    const props = { onSendMessage, onClearConversationAttachments, activeChatId: 'chat-a' };
+    const view = render(<ChatInput {...props} resetSignal={0} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '相同文字' } });
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+    view.rerender(<ChatInput {...props} resetSignal={1} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '相同文字' } });
+    act(() => accepted?.());
+    expect(screen.getByRole('textbox')).toHaveValue('相同文字');
+    expect(onClearConversationAttachments).not.toHaveBeenCalled();
+    view.unmount();
+    render(<ChatInput {...props} resetSignal={1} />);
+    expect(screen.getByRole('textbox')).toHaveValue('相同文字');
+  });
+
+  it('先输入再登录时延续匿名文字，不丢失待发送问题', () => {
+    const props = { onSendMessage: vi.fn() };
+    const view = render(<ChatInput {...props} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '登录前的问题' } });
+    configureAuthenticatedVisionModel();
+    view.rerender(<ChatInput {...props} />);
+    expect(screen.getByRole('textbox')).toHaveValue('登录前的问题');
+    expect(screen.getByRole('button', { name: '发送消息' })).toBeEnabled();
+  });
+
+  it('提交后重新写入相同文字仍是新草稿，旧确认不能删除', () => {
+    configureAuthenticatedVisionModel();
+    let accepted: (() => void) | undefined;
+    const onSendMessage = vi.fn((_text, _files, _pending, _knowledge, _reject, accept) => {
+      accepted = accept;
+      return new Promise<void>(() => {});
+    });
+    render(<ChatInput onSendMessage={onSendMessage} activeChatId="chat-a" />);
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: '同一句话' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.change(input, { target: { value: '同一句话' } });
+    act(() => accepted?.());
+    expect(input).toHaveValue('同一句话');
   });
 
 });

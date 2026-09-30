@@ -25,6 +25,7 @@ import { CHAT_NEW_PATH, buildChatConversationPath } from '@/lib/routes/chatRoute
 import type { FileAttachment } from '@/lib/utils/fileHelpers';
 import { markConversationFilesPanelOpen } from '@/lib/chat/filesPanelHandoff';
 import { subscribeNewChatDraftReset } from '@/lib/chat/newChatDraftReset';
+import { moveComposerDraft, writeComposerDraft } from '@/lib/chat/composerDraftStorage';
 import { extractTextFromBlocks, type Message } from '@/types/conversation';
 
 const EMPTY_CONVERSATION_ATTACHMENTS: ConversationComposerAttachment[] = [];
@@ -162,6 +163,8 @@ export default function HomeChatSurface() {
 
   const resetNewChatDraft = useCallback(() => {
     navigationGenerationRef.current += 1;
+    writeComposerDraft(authSessionKey, null, '');
+    if (displayConversationId) writeComposerDraft(authSessionKey, displayConversationId, '');
     if (displayConversationId && isDisplayConversationStreaming) {
       void stopStreaming();
     }
@@ -172,7 +175,7 @@ export default function HomeChatSurface() {
     setFilesConversationId(null);
     setConversationAttachmentState({ chatId: NEW_CHAT_ATTACHMENT_SCOPE, attachments: [] });
     setPendingAutoAttachState({ chatId: NEW_CHAT_ATTACHMENT_SCOPE, fileIds: [] });
-  }, [displayConversationId, isDisplayConversationStreaming, stopStreaming]);
+  }, [authSessionKey, displayConversationId, isDisplayConversationStreaming, stopStreaming]);
 
   const handleSelectPrompt = useCallback((content: string) => {
     prefillRequestIdRef.current += 1;
@@ -399,35 +402,47 @@ export default function HomeChatSurface() {
     onAccepted?: () => void,
   ) => {
     setPrefillRequest(null);
-    const navigationGeneration = navigationGenerationRef.current + 1;
+    const initialNavigationGeneration = navigationGenerationRef.current;
+    const navigationGeneration = initialNavigationGeneration + 1;
     const shouldOpenFilesPanel = Boolean(attachments && attachments.length > 0);
+    let draftConversationId = pendingConversationId ?? null;
+    const composerDraftConversationId = shouldShowPendingConversation ? displayConversationId : null;
+    let acceptedRequest = false;
 
     return sendMessage(
       content,
       {
         conversationId: pendingConversationId ?? null,
         isDraft: true,
+        canStart: () => ownsNewChatNavigationRef.current
+          && navigationGenerationRef.current === initialNavigationGeneration,
         knowledgeBaseIds,
         onRejectedBeforeSend,
         onAccepted: () => {
+          if (!ownsNewChatNavigationRef.current
+            || navigationGenerationRef.current !== initialNavigationGeneration) return;
+          acceptedRequest = true;
           navigationGenerationRef.current = navigationGeneration;
           if (shouldOpenFilesPanel) {
             setFilesPanelOpen(true);
           }
           onAccepted?.();
         },
-        onDraftCreated: () => {
-          if (navigationGenerationRef.current === navigationGeneration) {
+        onDraftCreated: (createdConversationId) => {
+          draftConversationId = createdConversationId;
+          if (acceptedRequest && navigationGenerationRef.current === navigationGeneration) {
+            moveComposerDraft(authSessionKey, composerDraftConversationId, createdConversationId);
             setHandoffConversationId(null);
           }
         },
         onMaterialized: (serverConversationId) => {
           if (
-            !ownsNewChatNavigationRef.current ||
+            !acceptedRequest || !ownsNewChatNavigationRef.current ||
             navigationGenerationRef.current !== navigationGeneration
           ) {
             return;
           }
+          moveComposerDraft(authSessionKey, draftConversationId, serverConversationId);
           setHandoffConversationId(serverConversationId);
           if (shouldOpenFilesPanel) {
             markConversationFilesPanelOpen(serverConversationId);
@@ -444,7 +459,7 @@ export default function HomeChatSurface() {
       },
       attachments
     );
-  }, [router, sendMessage]);
+  }, [authSessionKey, displayConversationId, router, sendMessage, shouldShowPendingConversation]);
 
   return (
     <div className="h-full flex flex-col relative">

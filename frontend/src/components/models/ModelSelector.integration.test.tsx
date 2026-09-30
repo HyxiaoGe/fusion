@@ -244,7 +244,14 @@ describe('ModelSelector 集成渲染', () => {
     };
     rerender(<ModelSelector toolbarMode />);
 
-    expect(screen.getByRole('button', { name: /Plain Model/ })).toBeDisabled();
+    const trigger = screen.getByRole('button', { name: /Plain Model/ });
+    expect(trigger).not.toBeDisabled();
     expect(screen.queryByText('Search Model')).toBeNull();
+
+    fireEvent.click(trigger);
+    expect(screen.getByText('本会话已绑定模型，切换模型请新建对话')).toBeInTheDocument();
+    expect(screen.getByTestId('model-selector-bound-info')).toBeInTheDocument();
+    expect(screen.queryByTestId('model-selector-panel')).not.toBeInTheDocument();
+    expect(dispatchMock).not.toHaveBeenCalled();
   });
 });
