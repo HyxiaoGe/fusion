@@ -415,3 +415,14 @@ AGENTS/CLAUDE 收敛到当前单仓约定，开发与发布技能迁入仓库，
 - PR [#160](https://github.com/HyxiaoGe/fusion/pull/160) 合并为 `1182debd`，删除回答侧“风险/费用词且无免责措辞就拦”的规则，改由 `limitations` 与使用约束提示词前置约束；锚点机制另开 [#161](https://github.com/HyxiaoGe/fusion/issues/161)。发布后首轮 dev 真实请求 7 次里 5 次被 `unknown_place`、`unknown_travel_time`、`unknown_travel_entity` 误判替换。根因是 validator 用正则从回答里猜语义；关键词放行类补丁被否决。
 - PR [#162](https://github.com/HyxiaoGe/fusion/pull/162) 合并为 `18a3d517`：产品回答校验只保留空回答、Markdown 表格、缺少产品结果块三项形态检查，删除正则改写层与 `PRODUCT_ANSWER_REPAIR_ENABLED`，迁移 `c4e8a2f1d935` 删除观测表 repair 列。PR CI 与 dev 发布成功。
 - 原有 Chrome 页面复验 7 题 × 3 次共 21 次有效 run，全部模型直答、无兜底替换。F3 两次轨迹账本 `admission_full` 降级丢事件（近 7 天 11 次，另立问题）；F1 首次回答有“唯一低于 ¥600”数值错误。见[阶段十一报告](reports/backend/2026-09-27-semantic-regex-migration-stage11.md)。
+
+## 2026-09-30 Liquid Glass 视觉层次优化（已发布，深色页面实测）
+
+- 收敛搜索、模板、今日灵感和模型入口的常态材质，保留悬停与选中高光；输入区增加稳定底材、工具栏层次和聚焦边界。五个源文件，聊天、拖拽和模型选择逻辑保持。
+- 本地 91 项相关测试、全量 lint、构建通过，深浅色静态快照比较和独立差异审查完成。PR [#209](https://github.com/HyxiaoGe/fusion/pull/209) 合并为 `4ad1b111`，PR/master CI 和 dev 发布 `36641595031` 成功；UI 台账、运行 digest/image ID 与目标版本一致，健康和 browser smoke 成功。
+- 原有 Chrome 登录态深色首页实测卡片悬停、模板预填与聚焦、模型面板开合；空草稿恢复，原标签已加载新版本。浅色仅做本地静态展示验证；用户反馈“可以，效果看上去还不错”，确认保留当前优化版本。详见[验收记录](reports/frontend/2026-09-30-liquid-glass-hierarchy.md)。
+
+## 2026-09-30 输入区交互优化（本地验证完成，发布待核对）
+
+- 输入法选词保护、稳定回车语义、发送/停止等待反馈与防重复；账号/会话文字草稿切换和刷新恢复、首页物化迁移；推理和执行模式说明、绑定模型只读信息入口。
+- 248 项相关测试、全量 lint、构建通过，独立复审未发现新的 P0/P1。完整类型检查仍在未改文件报错，不能称全量类型检查通过。发布和真实页面证据待补。详见[验收记录](reports/frontend/2026-09-30-composer-interaction.md)。

@@ -32,6 +32,7 @@ import {
   Check,
   ChevronDown,
   Lightbulb,
+  Loader2,
   ListChecks,
   PaperclipIcon,
   Search,
@@ -51,6 +52,7 @@ import ComposerAttachmentList from "./ComposerAttachmentList";
 import ContextStatus from "./ContextStatus";
 import { makeSelectConversationContextStatus } from "@/lib/chat/contextUsage";
 import { resolveSendModel } from "@/lib/chat/sendModelResolution";
+import { clearComposerDraftIfUnchanged, readComposerDraft, readComposerDraftRevision, writeComposerDraft } from "@/lib/chat/composerDraftStorage";
 import {
   isComposerAttachmentError,
   isComposerAttachmentProcessing,
@@ -87,7 +89,7 @@ interface ChatInputProps {
     onAccepted?: () => void,
   ) => void | Promise<void>;
   onClearMessage?: () => void;
-  onStopStreaming?: () => void;
+  onStopStreaming?: () => void | Promise<void>;
   onModelChange?: (modelId: string) => void;
   disabled?: boolean;
   placeholder?: string;
@@ -215,6 +217,13 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const store = useStore<RootState>();
   const { toast } = useToast();
   const [message, setMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isStopRequested, setIsStopRequested] = useState(false);
+  const sendOperationRef = useRef<object | null>(null);
+  const stopOperationRef = useRef<object | null>(null);
+  const draftScopeRef = useRef<{ authIdentity: string | null; conversationId: string | null; invalidated?: boolean } | null>(null);
+  const messageRef = useRef("");
+  const messageVersionRef = useRef(0);
   const [localFiles, setLocalFiles] = useState<LocalFileWithStatus[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [viewingImageUrl, setViewingImageUrl] = useState<string | null>(null);
@@ -312,6 +321,32 @@ const ChatInput: React.FC<ChatInputProps> = ({
     && isAuthenticated
     && (modelsLoadStatus !== 'ready' || sendModelStatus !== 'ready')
   );
+  const updateMessage = useCallback((text: string) => {
+    messageVersionRef.current += 1;
+    messageRef.current = text;
+    setMessage(text);
+    const scope = draftScopeRef.current;
+    if (scope) writeComposerDraft(scope.authIdentity, scope.conversationId, text);
+  }, []);
+
+  useLayoutEffect(() => {
+    const previous = draftScopeRef.current;
+    if (previous?.authIdentity === authIdentity && previous.conversationId === (effectiveChatId ?? null)) return;
+    const scope = { authIdentity, conversationId: effectiveChatId ?? null };
+    const anonymousText = previous?.authIdentity === null && authIdentity
+      && previous.conversationId === scope.conversationId ? messageRef.current : '';
+    draftScopeRef.current = scope;
+    sendOperationRef.current = null;
+    stopOperationRef.current = null;
+    setIsSubmitting(false);
+    setIsStopRequested(false);
+    updateMessage(anonymousText || readComposerDraft(scope.authIdentity, scope.conversationId));
+  }, [authIdentity, effectiveChatId, updateMessage]);
+
+  const stopConfirmation = currentRun?.status === 'running' ? currentRun.stopConfirmation : undefined;
+  const isStopping = isStopRequested || stopConfirmation?.status === 'pending';
+  const isStopUnconfirmed = stopConfirmation?.status === 'unconfirmed';
+  const hasStopTarget = Boolean(onStopStreaming && isCurrentConversationStreaming);
   const knowledgeSelectionScope = `${authIdentity ?? 'anonymous'}:${activeChatId ?? 'new'}`;
   const initialKnowledgeSelectionKey = JSON.stringify([
     knowledgeSelectionScope,
@@ -426,7 +461,19 @@ const ChatInput: React.FC<ChatInputProps> = ({
     uploadGenerationRef.current += 1;
     cancelledUploadLocalIdsRef.current.clear();
     ownedUploadFileIdsRef.current.clear();
-    setMessage("");
+    // 会话切换由草稿作用域恢复文字；同一输入区主动重置才清空。
+    if (previousChatId === chatId) {
+      const scope = draftScopeRef.current;
+      if (scope) {
+        scope.invalidated = true;
+        draftScopeRef.current = { authIdentity: scope.authIdentity, conversationId: scope.conversationId };
+      }
+      updateMessage("");
+    }
+    sendOperationRef.current = null;
+    stopOperationRef.current = null;
+    setIsSubmitting(false);
+    setIsStopRequested(false);
     setIsDragOver(false);
     setViewingImageUrl(null);
     setLocalFiles((prev) => {
@@ -445,7 +492,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
-  }, [chatId, dispatch, resetSignal]);
+  }, [chatId, dispatch, resetSignal, updateMessage]);
 
   useEffect(() => {
     if (!autoFocus || !textareaRef.current || isComposerBlocked) {
@@ -461,11 +508,11 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
 
     previousPrefillRequestIdRef.current = prefillRequest.id;
-    setMessage(prefillRequest.content);
+    updateMessage(prefillRequest.content);
     if (!isComposerBlocked) {
       textareaRef.current?.focus({ preventScroll: true });
     }
-  }, [isComposerBlocked, prefillRequest]);
+  }, [isComposerBlocked, prefillRequest, updateMessage]);
 
   const selectChatFileIds = useMemo(makeSelectChatFileIds, []);
   const fileIds = useAppSelector((state) => selectChatFileIds(state, chatId));
@@ -531,6 +578,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      sendOperationRef.current = null;
+      stopOperationRef.current = null;
       invalidateUploadSession(false, false);
     };
   }, [invalidateUploadSession]);
@@ -1063,7 +1112,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   const handleSendMessage = () => {
-    if ((!message.trim() && composerAttachments.length === 0) || isComposerBlocked) {
+    if (sendOperationRef.current || isCurrentConversationStreaming || isStopping
+      || (!message.trim() && composerAttachments.length === 0) || isComposerBlocked) {
       return;
     }
 
@@ -1125,27 +1175,45 @@ const ChatInput: React.FC<ChatInputProps> = ({
       ? selectedKnowledgeBaseIds
       : undefined;
     const submittedMessage = message;
+    const submittedMessageVersion = messageVersionRef.current;
     const submittedLocalFileIds = new Set(localFiles.map((file) => file.id));
+    const submittedScope = draftScopeRef.current;
+    const submittedDraftRevision = submittedScope
+      ? readComposerDraftRevision(submittedScope.authIdentity, submittedScope.conversationId) : null;
+    const operation = {};
+    sendOperationRef.current = operation;
+    setIsSubmitting(true);
     let sendSettled = false;
+    const finishSubmission = () => {
+      if (sendOperationRef.current !== operation) return;
+      sendOperationRef.current = null;
+      if (mountedRef.current) setIsSubmitting(false);
+    };
     const restoreRejectedDraft = () => {
       if (sendSettled) return;
       sendSettled = true;
-      queueMicrotask(() => {
-        setMessage((currentMessage) => currentMessage || submittedMessage);
-      });
+      finishSubmission();
+      // 接受前从未清空文字，不覆盖用户随后编辑或主动清空的草稿。
     };
     const completeAcceptedSend = () => {
       if (sendSettled) return;
       sendSettled = true;
+      finishSubmission();
+      if (submittedScope?.invalidated) return;
+      if (submittedScope) {
+        clearComposerDraftIfUnchanged(submittedScope.authIdentity, submittedScope.conversationId, submittedMessage, submittedDraftRevision);
+      }
+      // 旧会话的接受回调只清理其存储，不改动当前会话或另一账号的输入区。
+      if (!mountedRef.current || draftScopeRef.current !== submittedScope
+        || selectUploadAuthIdentity(store.getState()) !== submittedScope?.authIdentity) return;
       localFiles.forEach((file) => {
         if (file.fileId) {
           ownedUploadFileIdsRef.current.delete(file.fileId);
           stopPollingFileStatus(file.fileId);
         }
       });
-      setMessage((currentMessage) => (
-        currentMessage === submittedMessage ? "" : currentMessage
-      ));
+      if (messageRef.current === submittedMessage
+        && messageVersionRef.current === submittedMessageVersion) updateMessage("");
       setLocalFiles((currentFiles) => currentFiles.filter(
         (file) => !submittedLocalFileIds.has(file.id),
       ));
@@ -1157,53 +1225,58 @@ const ChatInput: React.FC<ChatInputProps> = ({
         textareaRef.current.style.height = "auto";
       }
     };
-    let sendResult: void | Promise<void>;
-
-    if (attachments.length > 0) {
-      // 首页新对话时，传递文件上传使用的 pendingChatId，确保后端对话 ID 一致
-      const pendingId = !activeChatId ? pendingChatIdRef.current : undefined;
-      if (knowledgeBaseIds !== undefined) {
-        sendResult = onSendMessage(
-          message,
-          attachments,
-          pendingId,
-          knowledgeBaseIds,
-          restoreRejectedDraft,
-          completeAcceptedSend,
-        );
+    try {
+      // 首页图片上传使用既有 pendingChatId，确保后端对话 ID 一致。
+      const pendingId = attachments.length > 0 && !activeChatId ? pendingChatIdRef.current : undefined;
+      const sendResult = onSendMessage(
+        submittedMessage,
+        attachments.length > 0 ? attachments : undefined,
+        pendingId,
+        knowledgeBaseIds,
+        restoreRejectedDraft,
+        completeAcceptedSend,
+      );
+      if (sendResult === undefined) {
+        completeAcceptedSend();
       } else {
-        sendResult = onSendMessage(
-          message,
-          attachments,
-          pendingId,
-          undefined,
-          restoreRejectedDraft,
-          completeAcceptedSend,
-        );
+        // Promise 覆盖整条生成链路；提交反馈以接受/拒绝回调收口。
+        void sendResult.then(restoreRejectedDraft, () => {
+          if (sendSettled) return;
+          restoreRejectedDraft();
+          if (mountedRef.current && draftScopeRef.current === submittedScope) {
+            toast({ message: "发送失败，输入内容已保留，请重试", type: "error" });
+          }
+        });
       }
-    } else {
-      if (knowledgeBaseIds !== undefined) {
-        sendResult = onSendMessage(
-          message,
-          undefined,
-          undefined,
-          knowledgeBaseIds,
-          restoreRejectedDraft,
-          completeAcceptedSend,
-        );
-      } else {
-        sendResult = onSendMessage(
-          message,
-          undefined,
-          undefined,
-          undefined,
-          restoreRejectedDraft,
-          completeAcceptedSend,
-        );
-      }
+    } catch {
+      if (sendSettled) return;
+      restoreRejectedDraft();
+      toast({ message: "发送失败，输入内容已保留，请重试", type: "error" });
     }
-    if (sendResult === undefined) {
-      completeAcceptedSend();
+  };
+
+  const handleStop = () => {
+    if (!onStopStreaming || !hasStopTarget || stopOperationRef.current || isStopping) return;
+    const operation = {};
+    stopOperationRef.current = operation;
+    setIsStopRequested(true);
+    const finishStop = () => {
+      if (stopOperationRef.current !== operation) return;
+      stopOperationRef.current = null;
+      if (mountedRef.current) setIsStopRequested(false);
+    };
+    const stopFailed = () => {
+      if (stopOperationRef.current === operation && mountedRef.current) {
+        toast({ message: "停止结果未确认，请刷新会话核实", type: "warning" });
+      }
+      finishStop();
+    };
+    try {
+      const result = onStopStreaming();
+      if (result) void result.then(finishStop, stopFailed);
+      else finishStop();
+    } catch {
+      stopFailed();
     }
   };
 
@@ -1229,14 +1302,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
   }, [message]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // 选词 Enter 不是发送；229 兼容部分浏览器输入法结束组合的顺序。
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      // 只有当前会话正在生成时，Enter 才是"停止"。否则在别的会话里按回车会停掉
-      // 另一条流，而页面上没有任何提示（issue #74 的实际症状）。
-      if (isCurrentConversationStreaming && onStopStreaming) {
-        onStopStreaming();
-        return;
-      }
       handleSendMessage();
     }
   };
@@ -1308,6 +1377,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   const canSend = (message.trim() || composerAttachments.length > 0)
+    && !isSubmitting && !isStopping && !isCurrentConversationStreaming
     && !isComposerBlocked
     && !hasProcessingFiles
     && !hasImagesButNoVision
@@ -1396,7 +1466,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
           name="chatMessage"
           ref={textareaRef}
           value={message}
-          onChange={(event) => setMessage(event.target.value)}
+          onChange={(event) => updateMessage(event.target.value)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           placeholder={
@@ -1456,10 +1526,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
               disabled={!supportsReasoning || isComposerBlocked}
               aria-label="思考模式"
               aria-pressed={reasoningEnabled && supportsReasoning}
-              title={supportsReasoning ? (reasoningEnabled ? "AI思考过程已开启" : "AI思考过程已关闭") : "当前模型不支持思考过程"}
+              title={supportsReasoning ? `模型推理${reasoningEnabled ? "已开启" : "已关闭"}；执行模式单独控制规划与研究` : "当前模型不支持思考过程"}
             >
               <Lightbulb className={`h-4 w-4 ${reasoningEnabled && supportsReasoning ? "text-info" : ""}`} />
-              <span className="hidden text-xs min-[420px]:inline">{reasoningEnabled && supportsReasoning ? "思考已开" : "思考"}</span>
+              <span className="hidden text-xs min-[420px]:inline">{reasoningEnabled && supportsReasoning ? "推理已开" : "推理"}</span>
             </Button>
 
             <DropdownMenu modal={false}>
@@ -1484,7 +1554,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                     }`}
                   />
                   <span className="max-w-[4.5rem] truncate text-xs">
-                    {COMPOSER_AGENT_MODE_LABELS[composerAgentMode]}
+                    模式：{COMPOSER_AGENT_MODE_LABELS[composerAgentMode]}
                   </span>
                   <ChevronDown className="size-3 opacity-60" />
                 </Button>
@@ -1499,7 +1569,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 <DropdownMenuLabel className="px-2.5 pb-2 pt-1.5">
                   <span className="block text-xs font-semibold text-foreground">执行模式</span>
                   <span className="mt-0.5 block text-[11px] font-normal leading-4 text-muted-foreground">
-                    选择 AI 处理任务时采用的规划深度
+                    控制任务的规划与研究方式；模型推理由“推理”开关控制
                   </span>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator className="mx-0 mb-1.5" />
@@ -1581,30 +1651,40 @@ const ChatInput: React.FC<ChatInputProps> = ({
               onChange={onModelChange || (() => {})}
             />
             <Button
-              onClick={isCurrentConversationStreaming && onStopStreaming ? onStopStreaming : handleSendMessage}
-              disabled={!canSend && !(isCurrentConversationStreaming && onStopStreaming)}
-              variant={isCurrentConversationStreaming && onStopStreaming ? "secondary" : "default"}
+              onClick={hasStopTarget ? handleStop : handleSendMessage}
+              disabled={isSubmitting || isStopping || (!canSend && !hasStopTarget)}
+              variant={hasStopTarget || isStopping ? "secondary" : "default"}
               size="sm"
-              className="h-8 w-8 p-0 rounded-lg"
+              className={`h-8 rounded-lg ${hasStopTarget || isSubmitting || isStopping ? "gap-1.5 px-2.5" : "w-8 p-0"}`}
               aria-label={
-                isCurrentConversationStreaming && onStopStreaming
+                isSubmitting ? "正在提交" : isStopping ? "正在停止" : hasStopTarget
                   ? (isDeepResearchStreaming ? "停止研究" : "停止生成")
                   : "发送消息"
               }
               title={
-                isCurrentConversationStreaming && onStopStreaming
+                isSubmitting ? "正在提交" : isStopping ? "正在停止" : hasStopTarget
                   ? (isDeepResearchStreaming ? "停止研究" : "停止生成")
                   : "发送消息"
               }
             >
-              {isCurrentConversationStreaming && onStopStreaming ? (
-                <Square className="h-4 w-4" />
+              {isSubmitting || isStopping ? (
+                <><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /><span className="text-xs">{isSubmitting ? "提交中" : "停止中"}</span></>
+              ) : hasStopTarget ? (
+                <><Square className="h-3.5 w-3.5" aria-hidden="true" /><span className="text-xs">{isDeepResearchStreaming ? "停止研究" : "停止"}</span></>
               ) : (
                 <ArrowUp className="h-4 w-4" />
               )}
             </Button>
           </div>
         </div>
+      </div>
+
+      <div className="px-1 text-xs text-muted-foreground" role="status" aria-live="polite">
+        {isStopUnconfirmed ? <span className="inline-flex items-center gap-2">停止结果未确认，请刷新会话核实<Button type="button" variant="ghost" size="sm" className="h-6 px-1.5 text-xs" onClick={() => window.location.reload()}>刷新确认</Button></span>
+          : isStopping ? "正在确认停止结果，已输入的草稿会保留"
+            : isSubmitting ? "正在提交消息，草稿暂时保留"
+              : isCurrentConversationStreaming ? "正在生成，可继续编写下一条消息 · Shift+Enter 换行"
+                : "Enter 发送 · Shift+Enter 换行"}
       </div>
 
       {/* 状态提示（卡片外部） */}

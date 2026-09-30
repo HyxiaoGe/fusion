@@ -1,6 +1,6 @@
 import { forwardRef } from "react";
 import { cn } from "@/lib/utils";
-import { ChevronUp } from "lucide-react";
+import { ChevronUp, LockKeyhole } from "lucide-react";
 import { buildModelCapabilityLabels } from "@/lib/models/modelCapabilityPresentation";
 import { CapabilityChipList } from "./CapabilityChip";
 import ProviderIcon from "./ProviderIcon";
@@ -14,6 +14,7 @@ interface ModelSelectorTriggerProps {
   providers: ProviderInfo[];
   isOpen: boolean;
   disabled: boolean;
+  locked?: boolean;
   toolbarMode?: boolean;
   placeholderLabel?: string;
   onClick?: () => void;
@@ -25,6 +26,7 @@ const ModelSelectorTrigger = forwardRef<HTMLButtonElement, ModelSelectorTriggerP
     providers,
     isOpen,
     disabled,
+    locked = false,
     toolbarMode = false,
     placeholderLabel = "选择模型",
     ...props
@@ -37,6 +39,8 @@ const ModelSelectorTrigger = forwardRef<HTMLButtonElement, ModelSelectorTriggerP
       <button
         ref={ref}
         disabled={disabled}
+        aria-label={locked && model ? `${model.name}，查看已绑定模型信息` : undefined}
+        title={locked && !isOpen ? "查看已绑定模型信息" : undefined}
         data-testid="model-selector-trigger"
         data-open={isOpen}
         onPointerMove={pointGlassLight}
@@ -81,12 +85,17 @@ const ModelSelectorTrigger = forwardRef<HTMLButtonElement, ModelSelectorTriggerP
         ) : (
           <span className="truncate px-1 text-sm">{placeholderLabel}</span>
         )}
-        <ChevronUp
-          className={cn(
-            "w-3 h-3 text-muted-foreground transition-transform duration-fast shrink-0",
-            isOpen ? "rotate-0" : "rotate-180",
-          )}
-        />
+        {locked ? (
+          <LockKeyhole aria-hidden="true" className="w-3 h-3 text-muted-foreground shrink-0" />
+        ) : (
+          <ChevronUp
+            aria-hidden="true"
+            className={cn(
+              "w-3 h-3 text-muted-foreground transition-transform duration-fast shrink-0",
+              isOpen ? "rotate-0" : "rotate-180",
+            )}
+          />
+        )}
       </button>
     );
   },

@@ -12,6 +12,8 @@ import { AUTO_MODEL_ID } from "@/lib/config/modelConfig";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import ModelSelectorTrigger from "./ModelSelectorTrigger";
 import ModelSelectorPanel from "./ModelSelectorPanel";
+import { CapabilityChipList } from "./CapabilityChip";
+import { buildModelCapabilityLabels } from "@/lib/models/modelCapabilityPresentation";
 import glassStyles from "./ModelSelectorGlass.module.css";
 
 interface ModelSelectorProps {
@@ -52,7 +54,8 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   const activeChat = activeChatId ? chats[activeChatId] : null;
   const hasMessages = activeChat?.messages?.some((msg) => msg.role === "user") || false;
 
-  const isDisabled = disabled || (!!activeChatId && hasMessages);
+  const isModelBound = Boolean(activeChatId && hasMessages);
+  const isDisabled = Boolean(disabled);
 
   const activeChatModelId = activeChat?.model_id;
   const activeChatHydrationStatus = activeChatId
@@ -104,6 +107,8 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
 
   const handleModelChange = useCallback(
     (value: string) => {
+      if (isDisabled || isModelBound) return;
+
       dispatch(setSelectedModel(value));
 
       if (activeChatId && !hasMessages) {
@@ -121,7 +126,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
       onChange?.(value);
       setIsOpen(false);
     },
-    [dispatch, activeChatId, hasMessages, onChange, models],
+    [dispatch, activeChatId, hasMessages, onChange, models, isDisabled, isModelBound],
   );
 
   const handleProviderChange = useCallback((providerId: string) => {
@@ -165,34 +170,54 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
 
   return (
     <span className="inline-flex min-w-0">
-      <Popover open={isOpen} onOpenChange={isDisabled ? undefined : setIsOpen}>
+      <Popover open={isOpen && !isDisabled} onOpenChange={isDisabled ? undefined : setIsOpen}>
         <PopoverTrigger asChild>
           <ModelSelectorTrigger
             model={currentModel}
             providers={providers}
             isOpen={isOpen}
             disabled={isDisabled}
+            locked={isModelBound}
             toolbarMode={toolbarMode}
           />
         </PopoverTrigger>
         <PopoverContent
-          data-testid="model-selector-panel"
+          data-testid={isModelBound ? "model-selector-bound-info" : "model-selector-panel"}
+          aria-label={isModelBound ? "已绑定模型信息" : undefined}
           side="top"
           align="start"
           avoidCollisions={true}
           sideOffset={4}
-          className={`p-0 w-[calc(100vw-32px)] sm:w-[480px] max-h-[420px] overflow-y-auto ${glassStyles.popoverSurface}`}
+          className={`${isModelBound ? "p-4 sm:w-80" : "p-0 sm:w-[480px]"} w-[calc(100vw-32px)] max-h-[420px] overflow-y-auto ${glassStyles.popoverSurface}`}
         >
-          <ModelSelectorPanel
-            autoModel={autoModel}
-            modelsByProvider={modelsByProvider}
-            selectedModelId={currentModelId}
-            recentModelIds={recentModelIds}
-            allModels={models}
-            activeProvider={effectiveProvider}
-            onSelect={handleModelChange}
-            onProviderChange={handleProviderChange}
-          />
+          {isModelBound && currentModel ? (
+            <div className="space-y-3">
+              <div>
+                <p className="text-sm font-semibold">{currentModel.name}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {providers.find((provider) => provider.id === currentModel.provider)?.name || currentModel.provider}
+                </p>
+                <CapabilityChipList labels={buildModelCapabilityLabels(currentModel)} maxCount={4} />
+              </div>
+              <p className="text-sm leading-relaxed">本会话已绑定模型，切换模型请新建对话</p>
+              {currentModel.id === AUTO_MODEL_ID && currentModelId !== AUTO_MODEL_ID ? (
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  原绑定模型已下线，后续消息由自动选择接续。
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <ModelSelectorPanel
+              autoModel={autoModel}
+              modelsByProvider={modelsByProvider}
+              selectedModelId={currentModelId}
+              recentModelIds={recentModelIds}
+              allModels={models}
+              activeProvider={effectiveProvider}
+              onSelect={handleModelChange}
+              onProviderChange={handleProviderChange}
+            />
+          )}
         </PopoverContent>
       </Popover>
     </span>
