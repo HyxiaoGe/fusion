@@ -113,7 +113,6 @@ function AssistantResponseStack({
 
         <MarkdownRenderer
           content={markdown.content}
-          className="prose-headings:border-0 prose-hr:border-border/30"
           sources={markdown.sources}
           onCitationClick={markdown.onCitationClick}
         />

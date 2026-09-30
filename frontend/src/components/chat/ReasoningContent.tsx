@@ -7,7 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import { normalizeBareUrlsForMarkdown } from '@/lib/chat/markdownLinks';
-import { MarkdownPreRenderer, ReasoningCodeRenderer } from './markdownCodeComponents';
+import { ReasoningPreRenderer, ReasoningCodeRenderer } from './markdownCodeComponents';
 
 interface ReasoningContentProps {
   content: string;
@@ -153,7 +153,7 @@ const ReasoningContent: React.FC<ReasoningContentProps> = ({
                   ]}
                   rehypePlugins={[rehypeRaw]}
                   components={{
-                    pre: MarkdownPreRenderer,
+                    pre: ReasoningPreRenderer,
                     code: ReasoningCodeRenderer,
                   }}
                 >

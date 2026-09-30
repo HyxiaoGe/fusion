@@ -7,6 +7,7 @@ import remarkGfm from 'remark-gfm';
 import type { SearchSourceSummary } from '@/types/conversation';
 import { normalizeBareUrlsForMarkdown } from '@/lib/chat/markdownLinks';
 import { MarkdownCodeRenderer, MarkdownPreRenderer } from './markdownCodeComponents';
+import styles from './MarkdownRenderer.module.css';
 
 interface MarkdownRendererProps {
   content: string;
@@ -193,20 +194,20 @@ const MarkdownHeading3Renderer = ({ node, children, ...props }: MarkdownElementP
 const MarkdownTableRenderer = ({ node, ...props }: MarkdownElementProps<'table'>) => {
   void node;
   return (
-    <div className="overflow-x-auto my-4">
-      <table className="border-collapse w-full" {...props} />
+    <div className={`overflow-x-auto ${styles.tableFrame}`}>
+      <table {...props} />
     </div>
   );
 };
 
-const MarkdownTableHeaderRenderer = ({ node, ...props }: MarkdownElementProps<'th'>) => {
+const MarkdownTableHeaderRenderer = ({ node, children, ...props }: MarkdownElementProps<'th'>) => {
   void node;
-  return <th className="border border-border px-4 py-2 text-left" {...props} />;
+  return <th {...props}>{useCitationChildren(children)}</th>;
 };
 
-const MarkdownTableCellRenderer = ({ node, ...props }: MarkdownElementProps<'td'>) => {
+const MarkdownTableCellRenderer = ({ node, children, ...props }: MarkdownElementProps<'td'>) => {
   void node;
-  return <td className="border border-border px-4 py-2" {...props} />;
+  return <td {...props}>{useCitationChildren(children)}</td>;
 };
 
 const MARKDOWN_COMPONENTS: Components = {
@@ -237,7 +238,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className,
   );
 
   return (
-    <div className={`prose prose-neutral dark:prose-invert max-w-none ${className || ''}`}>
+    <div className={`${styles.content} ${className || ''}`}>
       <CitationRenderContext.Provider value={citationContextValue}>
         <ReactMarkdown
           remarkPlugins={[[remarkGfm, { singleTilde: false }]]}

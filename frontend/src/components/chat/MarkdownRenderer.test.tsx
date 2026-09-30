@@ -210,6 +210,31 @@ describe('MarkdownRenderer — citation 行为（contract §9）', () => {
     expect(chip).toBeTruthy();
   });
 
+  it('表格表头和单元格引用按稳定编号定位来源，缺失编号及代码保持原文', () => {
+    const onCite = vi.fn();
+    const { container } = render(
+      <MarkdownRenderer
+        content={'| 参数与架构 [42] | 开源情况 |\n| --- | --- |\n| 552B MoE，输入激活 8B / 输出激活 16B[42] | 开源[55]，待核对[99]，代码 `[42]` |'}
+        sources={[
+          { title: '开源公告', url: 'https://example.com/open', citation_index: 55 },
+          { title: '架构说明', url: 'https://example.com/architecture', citation_index: 42 },
+        ]}
+        onCitationClick={onCite}
+      />,
+    );
+
+    const header = screen.getByRole('columnheader', { name: /参数与架构/ });
+    fireEvent.click(within(header).getByRole('button', { name: /参考资料 42/ }));
+    const cells = screen.getAllByRole('cell');
+    fireEvent.click(within(cells[0]).getByRole('button', { name: /参考资料 42/ }));
+    fireEvent.click(within(cells[1]).getByRole('button', { name: /参考资料 55/ }));
+
+    expect(onCite.mock.calls).toEqual([[1], [1], [0]]);
+    expect(cells[1].textContent).toContain('[99]');
+    expect(cells[1].querySelector('code')?.textContent).toBe('[42]');
+    expect(container.textContent).not.toMatch(/[⟦⟧]/);
+  });
+
   it('sources=[] 时 [1] 文本原样保留且无 chip', () => {
     const { container } = render(
       <MarkdownRenderer
@@ -356,7 +381,7 @@ describe('MarkdownRenderer — code/table 行为', () => {
     expect(firstCitationClick).toHaveBeenCalledTimes(1);
   });
 
-  it('table 保留横向滚动容器和单元格边框样式', () => {
+  it('table 保留横向滚动容器和表头、单元格语义', () => {
     const { container } = render(
       <MarkdownRenderer
         content={'| A | B |\n| - | - |\n| 1 | 2 |'}
@@ -365,8 +390,8 @@ describe('MarkdownRenderer — code/table 行为', () => {
     );
 
     expect(container.querySelector('.overflow-x-auto table')).toBeTruthy();
-    expect(screen.getByRole('columnheader', { name: 'A' })).toHaveClass('border');
-    expect(screen.getByRole('cell', { name: '1' })).toHaveClass('border');
+    expect(screen.getByRole('columnheader', { name: 'A' })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: '1' })).toBeInTheDocument();
   });
 });
 
