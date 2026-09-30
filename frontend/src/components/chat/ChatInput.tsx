@@ -43,6 +43,7 @@ import {
 import ImageViewer from "./ImageViewer";
 import ModelSelector from "@/components/models/ModelSelector";
 import composerStyles from "./ChatInput.module.css";
+import agentModeStyles from "./ComposerAgentMode.module.css";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "react-redux";
 import { useToast } from "../ui/toast";
@@ -1537,7 +1538,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-8 min-w-0 gap-1.5 px-2 text-muted-foreground hover:text-foreground"
+                  className={`h-8 min-w-0 gap-1.5 px-2 text-muted-foreground hover:text-foreground ${agentModeStyles.trigger}`}
                   disabled={isComposerBlocked}
                   aria-label={`执行模式：${COMPOSER_AGENT_MODE_LABELS[composerAgentMode]}`}
                   title={`当前执行模式：${COMPOSER_AGENT_MODE_LABELS[composerAgentMode]}`}
@@ -1556,24 +1557,25 @@ const ChatInput: React.FC<ChatInputProps> = ({
                   <span className="max-w-[4.5rem] truncate text-xs">
                     模式：{COMPOSER_AGENT_MODE_LABELS[composerAgentMode]}
                   </span>
-                  <ChevronDown className="size-3 opacity-60" />
+                  <ChevronDown className={`size-3 opacity-60 ${agentModeStyles.chevron}`} />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="start"
                 side="top"
                 sideOffset={8}
-                className="w-[19rem] max-w-[calc(100vw-1rem)] rounded-xl border-border/70 bg-popover/95 p-1.5 shadow-xl backdrop-blur-sm"
+                className={agentModeStyles.panel}
                 aria-label="选择执行模式"
               >
-                <DropdownMenuLabel className="px-2.5 pb-2 pt-1.5">
-                  <span className="block text-xs font-semibold text-foreground">执行模式</span>
-                  <span className="mt-0.5 block text-[11px] font-normal leading-4 text-muted-foreground">
+                <DropdownMenuLabel className={agentModeStyles.header}>
+                  <span className={agentModeStyles.title}>执行模式</span>
+                  <span className={agentModeStyles.hint}>
                     控制任务的规划与研究方式；模型推理由“推理”开关控制
                   </span>
                 </DropdownMenuLabel>
-                <DropdownMenuSeparator className="mx-0 mb-1.5" />
+                <DropdownMenuSeparator className={agentModeStyles.separator} />
                 <DropdownMenuRadioGroup
+                  className={agentModeStyles.options}
                   value={composerAgentMode}
                   onValueChange={(value) => {
                     const nextMode = value as ComposerAgentMode;
@@ -1602,20 +1604,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
                         value={mode.value}
                         disabled={disabledMode}
                         aria-label={`${COMPOSER_AGENT_MODE_LABELS[mode.value]}：${itemDescription}`}
-                        className={`items-start gap-3 rounded-lg border px-2.5 py-2.5 pl-2.5 transition-colors [&>span:first-child]:hidden ${
-                          isSelected
-                            ? "border-primary/20 bg-primary/[0.07] focus:bg-primary/[0.1]"
-                            : "border-transparent focus:border-border/70 focus:bg-accent/60"
-                        }`}
+                        className={`${agentModeStyles.option} [&>span:first-child]:hidden`}
                       >
                         <span
-                          className={`mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg ${
-                            isSelected
-                              ? "bg-primary/10 text-primary"
-                              : "bg-muted/70 text-muted-foreground"
-                          }`}
+                          className={agentModeStyles.icon}
                         >
-                          <ModeIcon className="size-4" />
+                          <ModeIcon className="size-4 text-current" />
                         </span>
                         <span className="flex min-w-0 flex-1 flex-col">
                           <span className="flex min-w-0 items-center gap-2">
@@ -1624,13 +1618,13 @@ const ChatInput: React.FC<ChatInputProps> = ({
                             </span>
                             <span className="ml-auto flex size-5 shrink-0 items-center justify-center">
                               {isSelected && (
-                                <span className="flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
-                                  <Check className="size-3" strokeWidth={2.5} />
+                                <span className={agentModeStyles.selectedMark}>
+                                  <Check className="size-3 text-current" strokeWidth={2.5} />
                                 </span>
                               )}
                             </span>
                           </span>
-                          <span className="mt-0.5 text-xs font-normal leading-4 text-muted-foreground">
+                          <span className={agentModeStyles.description}>
                             {itemDescription}
                           </span>
                         </span>
