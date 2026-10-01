@@ -549,6 +549,12 @@
     }
   },
   "documents": {
+    "draft": {
+      "writing": "Writing",
+      "revising": "Revising the document",
+      "untitled": "Untitled document",
+      "preview": "Live document draft preview"
+    },
     "card": {
       "created": "Created",
       "edited": "Edited",

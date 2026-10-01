@@ -123,6 +123,17 @@ export interface ContentDeltaPayload {
   step_id?: string;
 }
 
+/** document_draft chunk：文档工具参数里的正文片段，仅供生成期预览。 */
+export interface DocumentDraftPayload {
+  draft_id?: string;
+  tool_name?: string;
+  phase?: 'started';
+  field?: 'title' | 'content';
+  delta?: string;
+  run_id?: string;
+  step_id?: string;
+}
+
 /** error chunk 的 data plane 形态（BYOK 结构化 / stream_error 兜底）. */
 export interface StreamErrorPayload {
   code?: string;
@@ -229,6 +240,8 @@ export interface StreamCallbacks {
   onReasoning: (payload: ContentDeltaPayload) => void;
   /** 回答 token 流（answering chunk） */
   onAnswering: (payload: ContentDeltaPayload) => void;
+  /** document_draft chunk：文档草稿实时预览 */
+  onDocumentDraft?: (payload: DocumentDraftPayload) => void;
   /** preparing chunk：流开启信号（FE 可显示 spinner） */
   onPreparing?: () => void;
 
@@ -802,6 +815,9 @@ async function parseSseEnvelopeStream(
             break;
           case 'answering':
             callbacks.onAnswering(envelope.data as ContentDeltaPayload);
+            break;
+          case 'document_draft':
+            callbacks.onDocumentDraft?.(envelope.data as DocumentDraftPayload);
             break;
           case 'preparing':
             callbacks.onPreparing?.();

@@ -2,7 +2,7 @@
 
 import { memo } from 'react';
 import type { DocumentBlock, SearchSourceSummary, StructuredToolResultBlock } from '@/types/conversation';
-import type { AgentRunState } from '@/types/agentRun';
+import type { AgentRunState, DocumentDraftState } from '@/types/agentRun';
 import type { TrajectoryRunSummary } from '@/types/trajectory';
 import type { TrajectoryBadgeStatus } from '@/lib/trajectory/TrajectoryCellProjection';
 import ReasoningContent from './ReasoningContent';
@@ -14,6 +14,7 @@ import type { AnswerEvidenceSidebarModel } from './answerEvidenceSidebarModel';
 import MarkdownRenderer from './MarkdownRenderer';
 import StructuredToolResults from './StructuredToolResults';
 import DocumentCards from '@/components/documents/DocumentCards';
+import DocumentDraftCard from '@/components/documents/DocumentDraftCard';
 import TrajectoryStatusLine from './trajectory/TrajectoryStatusLine';
 
 interface AssistantResponseStackProps {
@@ -35,6 +36,7 @@ interface AssistantResponseStackProps {
   structuredResults?: StructuredToolResultBlock[];
   structuredResultsLoading?: boolean;
   documentBlocks?: DocumentBlock[];
+  documentDraft?: DocumentDraftState | null;
   onStructuredResultFollowUp?: (question: string) => void;
   answerEvidenceSidebar?: AnswerEvidenceSidebarModel | null;
   onSourceClick: (index: number) => void;
@@ -60,6 +62,7 @@ function AssistantResponseStack({
   structuredResults = [],
   structuredResultsLoading = false,
   documentBlocks = EMPTY_DOCUMENT_BLOCKS,
+  documentDraft = null,
   onStructuredResultFollowUp,
   answerEvidenceSidebar,
   onSourceClick,
@@ -106,6 +109,8 @@ function AssistantResponseStack({
         isLoading={structuredResultsLoading}
         onFollowUp={onStructuredResultFollowUp}
       />
+
+      {documentDraft ? <DocumentDraftCard draft={documentDraft} /> : null}
 
       <DocumentCards blocks={documentBlocks} />
 

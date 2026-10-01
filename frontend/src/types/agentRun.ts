@@ -210,7 +210,16 @@ export interface AgentRunState {
   plan?: AgentPlanState;
   evidence?: AgentEvidenceItem[];
   toolDigests?: AgentToolDigest[];
+  /** 文档工具参数的实时草稿，仅生成期展示；落库后的 document 内容块到达即清除。 */
+  documentDraft?: DocumentDraftState;
   lastSequence: number;
+}
+
+export interface DocumentDraftState {
+  draftId: string;
+  toolName: string;
+  title: string;
+  content: string;
 }
 
 export type AgentContextType = 'geolocation';

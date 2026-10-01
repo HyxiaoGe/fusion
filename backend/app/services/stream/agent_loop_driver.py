@@ -386,6 +386,8 @@ async def _run_round(
         "llm_round_detail_scheduler",
     ):
         run_round_kwargs["llm_round_detail_scheduler"] = runtime.llm_round_detail_scheduler
+    if runtime.output_tool_names and _accepts_keyword(runtime.run_round_fn, "draft_tool_names"):
+        run_round_kwargs["draft_tool_names"] = runtime.output_tool_names
     round_result = await runtime.run_round_fn(**run_round_kwargs)
     state.finish_reason = round_result.finish_reason
     state.update_usage(round_result.accumulated_usage)
