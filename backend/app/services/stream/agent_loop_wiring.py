@@ -141,6 +141,7 @@ class AgentLoopWiringDependencies:
     load_authorized_tool_names_fn: Callable[..., list[str]] | None = None
     load_previous_skill_release_pins_fn: Callable[..., Any] | None = None
     llm_round_detail_scheduler: Callable[[Any], Any] | None = None
+    load_document_tools_fn: Callable[..., Any] | None = None
 
     def to_execution_dependencies(self) -> AgentLoopDependencies:
         return AgentLoopDependencies(
@@ -208,6 +209,7 @@ class AgentLoopCallConfigInputs:
     should_load_dynamic_tool_metadata: bool
     skill_release_pins: Any | None
     previous_run_id: str | None = None
+    document_tools: Any | None = None
 
 
 def prepare_agent_loop_call_config_inputs(
@@ -257,6 +259,23 @@ def prepare_agent_loop_call_config_inputs(
             user_id=run_input.user_id,
             previous_run_id=run_input.previous_run_id,
         )
+    document_tools = None
+    if (
+        dependencies.load_document_tools_fn is not None
+        and supports_dynamic_agent_tools(capabilities)
+        and options.get("disable_tools") is not True
+        and options.get("knowledge_grounded") is not True
+    ):
+        try:
+            document_tools = dependencies.load_document_tools_fn(
+                db,
+                conversation_id=run_input.conversation_id,
+                user_id=run_input.user_id,
+                message_id=run_input.assistant_message_id,
+                run_id=run_input.trace_id,
+            )
+        except Exception as error:  # noqa: BLE001 — 文档工具不可用时退回聊天交付，不阻断本轮
+            dependencies.warning_fn(f"文档工具装配失败，本轮按聊天交付: error_type={type(error).__name__}")
     return AgentLoopCallConfigInputs(
         options=options,
         capabilities=capabilities,
@@ -267,6 +286,7 @@ def prepare_agent_loop_call_config_inputs(
         should_load_dynamic_tool_metadata=should_load_dynamic_tool_metadata,
         skill_release_pins=skill_release_pins,
         previous_run_id=run_input.previous_run_id,
+        document_tools=document_tools,
     )
 
 
@@ -315,6 +335,11 @@ def build_agent_loop_call_config_from_inputs(
         **(
             {"previous_run_id": inputs.previous_run_id}
             if inputs.previous_run_id is not None and _accepts_keyword(build_call_config_fn, "previous_run_id")
+            else {}
+        ),
+        **(
+            {"document_tools": inputs.document_tools}
+            if inputs.document_tools is not None and _accepts_keyword(build_call_config_fn, "document_tools")
             else {}
         ),
     )

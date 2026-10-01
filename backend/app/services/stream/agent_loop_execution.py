@@ -137,6 +137,7 @@ def _build_execution_parts(
                 name for name in getattr(request.call_config, "announced_tools", []) if name != "tool_search"
             ),
             required_initial_tool_counts=dict(getattr(request.call_config, "required_initial_tool_counts", {})),
+            output_tool_names=frozenset(getattr(request.call_config, "output_tool_names", frozenset())),
         ),
         tool_discovery=discovery,
     )
@@ -229,6 +230,7 @@ def build_agent_loop_runtime(
         dynamic_tool_handlers=getattr(request.call_config, "dynamic_tool_handlers", {}),
         plan_mode=getattr(request.call_config, "plan_mode", "auto"),
         control_tool_names=getattr(request.call_config, "control_tool_names", frozenset()),
+        output_tool_names=getattr(request.call_config, "output_tool_names", frozenset()),
         task_mode=getattr(request.call_config, "task_mode", "standard"),
         evidence_policy=getattr(request.call_config, "evidence_policy", "standard"),
         llm_round_detail_scheduler=llm_round_detail_scheduler,

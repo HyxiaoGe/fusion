@@ -69,6 +69,8 @@ class _ModelRouteResponse(BaseModel):
     network_policy: Literal["allow", "no_web_search", "no_url_read", "no_network"]
     denied_tool_names: list[str] = Field(max_length=8)
     required_primary_tool_name: str | None = None
+    # 交付形态由模型判断；缺省或未知值一律按聊天处理，不因该字段让整次分类失败。
+    output_mode: str | None = None
 
 
 @dataclass(frozen=True)
@@ -188,6 +190,7 @@ def classify_capability_request_with_model(
     deadline_gate: ClassifierDeadlineGate | None = None,
     suppress_deadline_observation: bool = False,
     mcp_tool_catalog: tuple[McpRouteTool, ...] = (),
+    existing_document_titles: tuple[str, ...] = (),
 ) -> _CandidateRoute:
     """以一次结构化模型调用分类请求，并在服务端校验工具授权。"""
 
@@ -233,6 +236,7 @@ def classify_capability_request_with_model(
             tools,
             context_messages,
             mcp_tool_catalog=mcp_tool_catalog,
+            existing_document_titles=existing_document_titles,
             token_counter_fn=token_counter_fn,
             limits=limits,
             deadline_event=deadline_event,
@@ -374,6 +378,7 @@ def _build_messages(
     conversation_messages: list[object] | None,
     *,
     mcp_tool_catalog: tuple[McpRouteTool, ...] = (),
+    existing_document_titles: tuple[str, ...] = (),
     token_counter_fn: Callable[..., int] | None = None,
     limits: _ClassifierLimits | None = None,
     deadline_event: threading.Event | None = None,
@@ -395,7 +400,9 @@ def _build_messages(
             current_prompt_snapshot().classifier_prompt if current_prompt_snapshot() is not None else _system_prompt()
         )
         + "\nAuthorized MCP tools for this request: "
-        + json.dumps(authorized_mcp_tools, ensure_ascii=False, separators=(",", ":")),
+        + json.dumps(authorized_mcp_tools, ensure_ascii=False, separators=(",", ":"))
+        + "\nExisting documents in this conversation: "
+        + json.dumps(list(existing_document_titles), ensure_ascii=False, separators=(",", ":")),
     }
     messages = [system_message, *history, {"role": "user", "content": current_message}]
     if not _can_begin_blocking_work(deadline_event, deadline_gate):
@@ -719,6 +726,7 @@ def _parse_model_route(
         network_policy=parsed.network_policy,
         denied_tool_names=denied_tools,
         required_primary_tool_name=required_primary_tool_name,
+        output_mode="document" if parsed.output_mode == "document" else "chat",
     )
 
 

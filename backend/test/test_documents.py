@@ -18,7 +18,7 @@ os.environ["DATABASE_URL"] = "sqlite:///./fusion-test.db"
 
 from app.db.database import Base  # noqa: E402
 from app.db.models import Conversation, User  # noqa: E402
-from app.schemas.chat import DocumentBlock  # noqa: E402
+from app.schemas.chat import DocumentBlock, SearchBlock, UrlBlock, WeatherResultsBlock  # noqa: E402
 from app.schemas.content_block_registry import (  # noqa: E402
     deserialize_content_blocks,
     is_registered_rich_content_block,
@@ -32,8 +32,10 @@ from app.services.documents.service import (  # noqa: E402
     DocumentWriteContext,
     apply_document_edits,
 )
+from app.services.documents.sources import document_sources_from_blocks  # noqa: E402
 from app.services.mcp.tool_contract import max_tool_argument_json_bytes  # noqa: E402
 from app.services.stream.product_result_answer import has_product_result_blocks  # noqa: E402
+from app.services.stream.tool_context import ToolRuntimeContext  # noqa: E402
 from app.services.tool_handlers.document import (  # noqa: E402
     DocumentToolBinding,
     build_create_document_tool,
@@ -53,6 +55,30 @@ GUIDE = """# 香港三天两夜
 - **09:00-11:05** 深圳出发 → 油麻地
 :::
 """
+
+
+def _weather_block() -> WeatherResultsBlock:
+    return WeatherResultsBlock(
+        type="weather_results",
+        schema_version=1,
+        provider="amap",
+        status="degraded",
+        limitations=["仅含 1 天预报"],
+        query="香港",
+        resolved_location="香港",
+        day_count=1,
+        forecast_days=[
+            {
+                "date": "2026-10-16",
+                "weekday": 5,
+                "day_weather": "晴",
+                "night_weather": "多云",
+                "high_c": 29,
+                "low_c": 24,
+            }
+        ],
+        fetched_at=datetime(2026, 10, 2, 8, 0, tzinfo=UTC),
+    )
 
 
 def _source(label: str, *, kind: str = "weather") -> DocumentSource:
@@ -155,7 +181,6 @@ class DocumentServiceTests(_DatabaseCase):
 class DocumentToolTests(_DatabaseCase, unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         _DatabaseCase.setUp(self)
-        self.sources = [_source("香港 10-16 至 10-18 天气")]
         self.handlers = build_document_tool_handlers(
             DocumentToolBinding(
                 conversation_id="conv-1",
@@ -163,13 +188,14 @@ class DocumentToolTests(_DatabaseCase, unittest.IsolatedAsyncioTestCase):
                 session_factory=self.Session,
                 message_id="msg-1",
                 run_id="run-1",
-                sources_provider=lambda: self.sources,
             )
         )
 
     async def test_create_and_edit_produce_document_blocks_and_brief_model_context(self):
         create = self.handlers["create_document"]
-        created = await create.execute({"title": "香港攻略", "content": GUIDE})
+        weather = _weather_block()
+        runtime_context = ToolRuntimeContext(content_blocks=(weather,))
+        created = await create.execute_with_runtime_context({"title": "香港攻略", "content": GUIDE}, runtime_context)
         self.assertEqual(created.status, "success")
         block = create.build_content_block(created, "blk-1", "log-1")
         self.assertIsInstance(block, DocumentBlock)
@@ -190,7 +216,8 @@ class DocumentToolTests(_DatabaseCase, unittest.IsolatedAsyncioTestCase):
         edited_block = edit.build_content_block(edited, "blk-2", "log-2")
         self.assertEqual((edited_block.operation, edited_block.change_summary), ("edited", "改去中环"))
         stored = self.service().get_version(created.data["document_id"], user_id="user-1")
-        self.assertEqual([source.label for source in stored.sources], ["香港 10-16 至 10-18 天气"])
+        self.assertEqual([(source.kind, source.label) for source in stored.sources], [("weather", "香港")])
+        self.assertEqual(stored.sources[0].fetched_at, weather.fetched_at)
 
     async def test_failures_return_actionable_context_without_block(self):
         edit = self.handlers["edit_document"]
@@ -212,17 +239,29 @@ class DocumentToolTests(_DatabaseCase, unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(malformed.data["error_code"], "edits_invalid")
 
-    async def test_source_provider_failure_does_not_block_write(self):
-        def broken():
-            raise RuntimeError("boom")
+    async def test_source_collection_failure_does_not_block_write(self):
+        class BrokenContext:
+            @property
+            def content_blocks(self):
+                raise RuntimeError("boom")
 
-        handler = build_document_tool_handlers(
-            DocumentToolBinding(
-                conversation_id="conv-1", user_id="user-1", session_factory=self.Session, sources_provider=broken
-            )
-        )["create_document"]
-        result = await handler.execute({"title": "攻略", "content": GUIDE})
+        handler = self.handlers["create_document"]
+        result = await handler.execute_with_runtime_context({"title": "攻略", "content": GUIDE}, BrokenContext())
         self.assertEqual((result.status, result.data["source_count"]), ("success", 0))
+
+    def test_sources_only_come_from_successful_structured_results(self):
+        search = SearchBlock(
+            type="search",
+            query="香港 10 月活动",
+            sources=[{"title": "香港旅游局", "url": "https://www.discoverhongkong.com/"}],
+            result_provider="tavily",
+        )
+        failed_url = UrlBlock(type="url_read", url="https://example.com/x", status="failed")
+        sources = document_sources_from_blocks([_weather_block(), search, failed_url, object()])
+        self.assertEqual(
+            [(source.kind, source.label, source.url) for source in sources],
+            [("weather", "香港", None), ("web", "香港旅游局", "https://www.discoverhongkong.com/")],
+        )
 
     def test_logs_and_events_never_carry_document_body(self):
         handler = self.handlers["edit_document"]

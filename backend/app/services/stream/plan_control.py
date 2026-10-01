@@ -215,10 +215,14 @@ async def process_plan_control_calls(
             await emitter.plan_snapshot(**result.snapshot)
 
     round_failed = repairable_rejection and not accepted_control
-    discovery_calls = [call for call in external_calls if discovery_control and call.get("name") == discovery_control]
-    other_external_calls = [
-        call for call in external_calls if not (discovery_control and call.get("name") == discovery_control)
-    ]
+    output_tool_names = frozenset(getattr(coordinator, "output_tool_names", frozenset()) or ())
+
+    def is_unplanned_control(call: dict) -> bool:
+        name = call.get("name")
+        return bool(discovery_control and name == discovery_control) or name in output_tool_names
+
+    discovery_calls = [call for call in external_calls if is_unplanned_control(call)]
+    other_external_calls = [call for call in external_calls if not is_unplanned_control(call)]
     if coordinator.mode == "on" and other_external_calls and not coordinator.has_valid_model_plan:
         round_failed = True
         repair_reasons.add("plan_required")
@@ -257,7 +261,7 @@ async def process_plan_control_calls(
             server_recovery_item_id = coordinator.sole_server_recovery_item_id_for_tool(str(call.get("name", "")))
         if server_recovery_item_id is not None:
             plan_item_id = server_recovery_item_id
-        if discovery_control and call.get("name") == discovery_control:
+        if is_unplanned_control(call):
             executable_external_calls.append(call)
             continue
         missing_required_binding = (
