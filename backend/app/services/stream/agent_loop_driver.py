@@ -12,6 +12,7 @@ from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.ai.prompts.section_ids import (
     DEEP_RESEARCH_STAGE,
+    DOCUMENT_DELIVERY_ROUND,
     PRODUCT_RESULT_ROUND,
     RESEARCH_EVIDENCE_WORKSET,
 )
@@ -20,6 +21,7 @@ from app.services.stream.agent_loop_outcome import AgentLoopExit, AgentLoopOutco
 from app.services.stream.agent_loop_policy import check_agent_loop_limit
 from app.services.stream.agent_loop_round_outcome import (
     AgentRoundOutcomeRequest,
+    complete_round_without_answer,
     handle_agent_round_outcome,
     requires_product_result_guard,
 )
@@ -28,6 +30,7 @@ from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_loop_step_requests import build_limit_summary_step_request
 from app.services.stream.agent_round import AgentRoundResult
 from app.services.stream.dynamic_tool_discovery import TOOL_SEARCH_NAME
+from app.services.stream.limit_summary_fact_guard import has_tool_evidence, requires_external_evidence
 from app.services.stream.product_result_answer import has_product_result_blocks
 from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
 from app.services.stream.research_evidence import (
@@ -73,21 +76,27 @@ async def run_agent_loop(
                 break
             if state.ready_for_plan_synthesis():
                 state.finish_reason = "plan_synthesis"
-                await _run_limit_summary(
+                superseded = await _run_limit_summary(
+                    db=db,
                     state=state,
                     runtime=runtime,
                     messages=messages,
                     summary_finish_reason="plan_synthesis",
                 )
+                if superseded is not None:
+                    return superseded
                 break
             state.finish_reason = "dynamic_tool_budget_exhausted"
             state.mark_unknown_terminated()
-            await _run_limit_summary(
+            superseded = await _run_limit_summary(
+                db=db,
                 state=state,
                 runtime=runtime,
                 messages=messages,
                 summary_finish_reason="dynamic_tool_budget_exhausted",
             )
+            if superseded is not None:
+                return superseded
             break
 
         step_number, step_context = await _start_next_step(state=state, runtime=runtime)
@@ -112,12 +121,15 @@ async def run_agent_loop(
         if outcome is None:
             if state.ready_for_plan_synthesis():
                 state.finish_reason = "plan_synthesis"
-                await _run_limit_summary(
+                superseded = await _run_limit_summary(
+                    db=db,
                     state=state,
                     runtime=runtime,
                     messages=messages,
                     summary_finish_reason="plan_synthesis",
                 )
+                if superseded is not None:
+                    return superseded
                 break
             continue
         if outcome.exit == AgentLoopExit.SUPERSEDED:
@@ -132,12 +144,15 @@ async def run_agent_loop(
             break
         if outcome.exit == AgentLoopExit.SUMMARY_REQUIRED:
             state.finish_reason = outcome.summary_finish_reason or "empty_answer_summary"
-            await _run_limit_summary(
+            superseded = await _run_limit_summary(
+                db=db,
                 state=state,
                 runtime=runtime,
                 messages=messages,
                 summary_finish_reason=outcome.summary_finish_reason or "limit_summary",
             )
+            if superseded is not None:
+                return superseded
             break
         break
 
@@ -158,7 +173,9 @@ async def run_agent_loop(
             finally:
                 state.finish_reason = limit_finish_reason
         else:
-            await _run_limit_summary(state=state, runtime=runtime, messages=messages)
+            superseded = await _run_limit_summary(db=db, state=state, runtime=runtime, messages=messages)
+            if superseded is not None:
+                return superseded
 
     return AgentLoopOutcome(exit=AgentLoopExit.COMPLETED)
 
@@ -247,12 +264,19 @@ async def _run_round(
     runtime: AgentLoopRuntime,
     step_number: int,
     step_context: AgentStepContext,
+    document_delivery: bool = False,
 ) -> AgentRoundResult:
     call_kwargs = await _filter_exhausted_dynamic_tools(
         call_kwargs=runtime.call_kwargs,
         dynamic_tool_handlers=runtime.dynamic_tool_handlers,
     )
-    if runtime.task_mode != "deep_research" and runtime.plan_mode == "on":
+    if document_delivery:
+        # 终局写文档轮：只开放文档工具并强制调用，取证工具与计划控制都不再提供。
+        call_kwargs = _require_tool_call(
+            _filter_tools_for_research_stage(call_kwargs, allowed_tool_names=runtime.output_tool_names),
+            provider=runtime.provider,
+        )
+    elif runtime.task_mode != "deep_research" and runtime.plan_mode == "on":
         policy = resolve_plan_mode_tool_policy(state.plan_coordinator)
         allowed_tool_names = policy.allowed_tool_names
         preferred_tool_name = policy.preferred_tool_name
@@ -340,6 +364,15 @@ async def _run_round(
         effective_messages,
         content_blocks=state.content_blocks,
     )
+    if document_delivery:
+        effective_messages = [
+            *effective_messages,
+            PromptMessage(
+                role="system",
+                content=render_runtime_prompt("documents.delivery_round"),
+                section_id=DOCUMENT_DELIVERY_ROUND,
+            ),
+        ]
     run_round_kwargs = dict(
         conversation_id=runtime.conversation_id,
         task_id=runtime.task_id,
@@ -374,6 +407,7 @@ async def _run_round(
         or runtime.evidence_policy == "knowledge_grounded_v1"
         or runtime.tool_discovery is not None
         or requires_product_result_guard(runtime)
+        or document_delivery
     )
     if should_defer_output and _accepts_keyword(runtime.run_round_fn, "defer_output"):
         run_round_kwargs["defer_output"] = True
@@ -599,11 +633,14 @@ async def _reconcile_exhausted_dynamic_tool_owners(
 
 async def _run_limit_summary(
     *,
+    db=None,
     state: AgentLoopState,
     runtime: AgentLoopRuntime,
     messages: list[PromptMessage],
     summary_finish_reason: str = "limit_summary",
-) -> None:
+) -> AgentLoopOutcome | None:
+    """进入无工具终局总结；文档模式先补一轮写文档。返回非空表示 run 已被新请求取代。"""
+
     if not state.plan_coordinator.execution_items_terminal():
         blocked_snapshot = state.plan_coordinator.block_pending_execution(
             reason=f"{summary_finish_reason}_execution_blocked"
@@ -613,6 +650,9 @@ async def _run_limit_summary(
     snapshot = state.plan_coordinator.begin_synthesis()
     if snapshot is not None:
         await runtime.emitter.plan_snapshot(**snapshot)
+    superseded = await _deliver_document_before_summary(db=db, state=state, runtime=runtime, messages=messages)
+    if superseded is not None:
+        return superseded
     summary_outcome = await runtime.run_limit_summary_step_fn(
         request=build_limit_summary_step_request(
             state=state,
@@ -627,6 +667,7 @@ async def _run_limit_summary(
                 )
             ),
             summary_finish_reason=summary_finish_reason,
+            document_delivered=_has_document_block(state.content_blocks),
         ),
     )
     state.update_usage(summary_outcome.accumulated_usage)
@@ -635,6 +676,74 @@ async def _run_limit_summary(
         state.mark_unknown_terminated()
     if summary_finish_reason == "plan_repair_exhausted":
         state.mark_unknown_terminated()
+    return None
+
+
+def _has_document_block(content_blocks: list) -> bool:
+    return any(
+        (block.get("type") if isinstance(block, dict) else getattr(block, "type", None)) == "document"
+        for block in content_blocks
+    )
+
+
+def _should_deliver_document(*, state: AgentLoopState, runtime: AgentLoopRuntime) -> bool:
+    """文档模式的终局总结没有工具，计划综合或额度收口都会让成品落进对话正文。
+
+    这里在总结前补一轮只开放文档工具的回合。没有任何所需证据时不补：
+    总结侧的无证据守卫会换成诚实答复，文档不能绕过这道边界。
+    """
+
+    if not runtime.output_tool_names or state.document_delivery_attempted:
+        return False
+    if runtime.task_mode == "deep_research" or state.limit_reason == "timeout":
+        return False
+    if _has_document_block(state.content_blocks):
+        return False
+    if requires_external_evidence(runtime.capability_resolution, tool_discovery=runtime.tool_discovery):
+        return has_tool_evidence(
+            state.content_blocks,
+            capability_resolution=runtime.capability_resolution,
+            recovery_evidence=state.recovery_evidence,
+            tool_discovery=runtime.tool_discovery,
+        )
+    return True
+
+
+async def _deliver_document_before_summary(
+    *,
+    db,
+    state: AgentLoopState,
+    runtime: AgentLoopRuntime,
+    messages: list[PromptMessage],
+) -> AgentLoopOutcome | None:
+    if not _should_deliver_document(state=state, runtime=runtime):
+        return None
+    state.document_delivery_attempted = True
+    step_number, step_context = await _start_next_step(state=state, runtime=runtime)
+    round_result = await _run_round(
+        messages=messages,
+        state=state,
+        runtime=runtime,
+        step_number=step_number,
+        step_context=step_context,
+        document_delivery=True,
+    )
+    request = AgentRoundOutcomeRequest(
+        db=db,
+        messages=messages,
+        state=state,
+        runtime=runtime,
+        step_number=step_number,
+        step_context=step_context,
+        round_result=round_result,
+    )
+    if round_result.finish_reason == "cancelled" or round_result.tool_calls:
+        outcome = await handle_agent_round_outcome(request=request)
+        if outcome is not None and outcome.exit == AgentLoopExit.SUPERSEDED:
+            return outcome
+        return None
+    await complete_round_without_answer(request, reason="document_delivery_skipped")
+    return None
 
 
 def _messages_with_research_workset(

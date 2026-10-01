@@ -202,6 +202,14 @@ class LimitSummaryHelpersTests(unittest.TestCase):
         self.assertNotIn("quota", content)
         self.assertNotIn("budget", content)
 
+    def test_delivered_document_summary_only_replies_briefly(self):
+        messages = []
+
+        append_limit_summary_prompt(messages, summary_finish_reason="plan_synthesis", document_delivered=True)
+
+        self.assertIn("already been written", messages[-1]["content"])
+        self.assertIn("Do not repeat", messages[-1]["content"])
+
     def test_plan_repair_summary_does_not_claim_tool_limit(self):
         messages = []
 

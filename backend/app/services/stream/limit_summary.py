@@ -138,6 +138,8 @@ class LimitSummaryStepRequest:
     recovery_evidence: RecoveryEvidenceWorkset | None = None
     fallback_response_context: FallbackResponseContext | None = None
     tool_discovery: Any = None
+    # 本次 run 已写出文档时，总结只做简短回复，不再复述文档正文。
+    document_delivered: bool = False
 
 
 def _is_standard_plan_synthesis(request: LimitSummaryStepRequest) -> bool:
@@ -200,6 +202,7 @@ def append_limit_summary_prompt(
     content_blocks: list | None = None,
     capability_resolution: RunCapabilityResolution | None = None,
     recovery_evidence: RecoveryEvidenceWorkset | None = None,
+    document_delivered: bool = False,
 ) -> None:
     messages[:] = ensure_prompt_messages(messages)
     if summary_finish_reason == "plan_synthesis":
@@ -230,6 +233,8 @@ def append_limit_summary_prompt(
         )
     ):
         prompt = f"{prompt}\n\n{NO_TOOL_EVIDENCE_SUMMARY_PROMPT}"
+    if document_delivered:
+        prompt = f"{prompt}\n\n{render_runtime_prompt('documents.delivered_summary')}"
     messages.append(PromptMessage(role="system", content=prompt, section_id=section_id))
 
 
@@ -1005,6 +1010,7 @@ async def run_limit_summary_step(
         content_blocks=request.content_blocks,
         capability_resolution=request.capability_resolution,
         recovery_evidence=request.recovery_evidence,
+        document_delivered=request.document_delivered,
     )
     thinking_block_id = summary_context.thinking_block_id
     text_block_id = summary_context.text_block_id

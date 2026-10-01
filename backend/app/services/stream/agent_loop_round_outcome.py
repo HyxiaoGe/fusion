@@ -380,6 +380,24 @@ async def _complete_round_before_plan_synthesis(request: AgentRoundOutcomeReques
     )
 
 
+async def complete_round_without_answer(request: AgentRoundOutcomeRequest, *, reason: str) -> None:
+    """终局前的辅助回合没有产出可交付内容时，只收 step，正文交给随后的总结。"""
+
+    _record_suppression(request, reason)
+    lifecycle = request.round_result.llm_lifecycle
+    if lifecycle is not None:
+        await lifecycle.finish_success(output_visible=False)
+    await complete_text_response_step(
+        context=request.step_context,
+        emitter=request.runtime.emitter,
+        session_cache=request.runtime.session_cache,
+        complete_step_fn=request.runtime.complete_step_fn,
+        completed_tool_calls=request.state.total_tool_calls,
+        max_tool_calls=request.runtime.limits.max_tool_calls,
+        clock=request.runtime.clock,
+    )
+
+
 async def _repair_incomplete_execution(request: AgentRoundOutcomeRequest) -> None:
     """计划执行未终态时丢弃正文，下一轮只允许继续执行既定工具步骤。"""
 

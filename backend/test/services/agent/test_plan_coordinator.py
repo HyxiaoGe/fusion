@@ -357,7 +357,7 @@ class PlanCoordinatorTests(unittest.TestCase):
         )
         return coordinator
 
-    def test_plan_rejects_more_than_six_items_to_match_user_visible_contract(self):
+    def test_plan_rejects_more_than_ten_open_items(self):
         coordinator = PlanCoordinator(run_id="run-1", mode="on")
         result = coordinator.apply_model_update(
             {
@@ -371,7 +371,7 @@ class PlanCoordinatorTests(unittest.TestCase):
                         "depends_on": [] if index == 1 else [f"step-{index - 1}"],
                         "planned_tools": [],
                     }
-                    for index in range(1, 8)
+                    for index in range(1, 12)
                 ],
             }
         )
@@ -542,11 +542,11 @@ class PlanCoordinatorTests(unittest.TestCase):
 
     def test_revision_limits_open_items_but_not_preserved_terminal_items(self):
         coordinator = self._hk_chain_with_failed_head()
-        open_ids = [f"new-{index}" for index in range(1, 7)]
+        open_ids = [f"new-{index}" for index in range(1, 11)]
 
         too_many = coordinator.apply_model_update(
             {
-                "reason": "超过 6 个待执行步骤",
+                "reason": "超过 10 个待执行步骤",
                 "items": [
                     self._revision_item("wx", "weather_forecast", []),
                     *[self._revision_item(item_id, "web_search", []) for item_id in open_ids],
