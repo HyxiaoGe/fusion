@@ -49,6 +49,7 @@ def _response(
     revision: int,
     hint: str | None = None,
     canonical_plan: list[dict[str, Any]] | None = None,
+    rewirable_step_ids: list[str] | None = None,
 ) -> str:
     payload = {
         "status": status,
@@ -59,6 +60,8 @@ def _response(
         payload["hint"] = hint
     if canonical_plan:
         payload["canonical_plan"] = canonical_plan
+    if rewirable_step_ids:
+        payload["rewirable_step_ids"] = rewirable_step_ids
     return json.dumps(
         payload,
         ensure_ascii=False,
@@ -186,7 +189,7 @@ async def process_plan_control_calls(
                 "uncovered_execution_tools=%s",
                 coordinator.run_id,
                 reason,
-                min(len(items), 7) if isinstance(items, list) else None,
+                min(len(items), 11) if isinstance(items, list) else None,
                 _required_tool_coverage_summary(
                     items if isinstance(items, list) else None,
                     coordinator,
@@ -201,6 +204,7 @@ async def process_plan_control_calls(
             canonical_plan=(
                 coordinator.canonical_plan_for_model() if not accepted and coordinator.has_valid_model_plan else None
             ),
+            rewirable_step_ids=None if accepted else coordinator.rewirable_step_ids(),
         )
         accepted_control = accepted_control or accepted
         is_repairable_rejection = (

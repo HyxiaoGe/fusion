@@ -379,6 +379,185 @@ class PlanCoordinatorTests(unittest.TestCase):
         self.assertFalse(result.accepted)
         self.assertEqual(result.reason, "invalid_plan_structure")
 
+    def _hk_chain_with_failed_head(self) -> PlanCoordinator:
+        """复现真实验收 run 2781b2a9：缺省依赖被串成链，链头工具失败后整条链被连带阻塞。"""
+
+        coordinator = PlanCoordinator(run_id="run-hk-chain", mode="on")
+        chain = [
+            ("wx", "weather_forecast"),
+            ("rt", "route_compare"),
+            ("food", "local_place_search"),
+            ("peak", "web_search"),
+            ("disney", "web_search"),
+        ]
+        items = [
+            {
+                "id": item_id,
+                "title": f"查询 {item_id}",
+                "status": "pending",
+                "kind": "search",
+                "depends_on": [chain[index - 1][0]] if index else [],
+                "planned_tools": [tool_name],
+            }
+            for index, (item_id, tool_name) in enumerate(chain)
+        ]
+        items.append(
+            {
+                "id": "doc",
+                "title": "汇总攻略",
+                "status": "pending",
+                "kind": "synthesis",
+                "depends_on": ["disney"],
+                "planned_tools": [],
+            }
+        )
+        self.assertTrue(coordinator.apply_model_update({"reason": "链式计划", "items": items}).accepted)
+        coordinator.mark_tools_started(["wx"])
+        coordinator.mark_tool_results({"wx": "failed"})
+        self.assertEqual(
+            {item["id"]: item["status"] for item in coordinator.items},
+            {
+                "wx": "failed",
+                "rt": "blocked",
+                "food": "blocked",
+                "peak": "blocked",
+                "disney": "blocked",
+                "doc": "pending",
+            },
+        )
+        return coordinator
+
+    @staticmethod
+    def _revision_item(item_id: str, tool_name: str | None, depends_on: list[str], kind: str = "search") -> dict:
+        return {
+            "id": item_id,
+            "title": f"查询 {item_id}" if tool_name else "汇总攻略",
+            "status": "pending",
+            "kind": kind,
+            "depends_on": depends_on,
+            "planned_tools": [tool_name] if tool_name else [],
+        }
+
+    def test_dependency_blocked_items_can_be_rewired_after_head_failure(self):
+        coordinator = self._hk_chain_with_failed_head()
+        self.assertEqual(coordinator.rewirable_step_ids(), ["rt", "food", "peak", "disney"])
+
+        result = coordinator.apply_model_update(
+            {
+                "reason": "天气改用联网搜索，其余查询不再依赖天气",
+                "items": [
+                    self._revision_item("wx", "weather_forecast", []),
+                    self._revision_item("wx2", "web_search", []),
+                    self._revision_item("rt", "route_compare", []),
+                    self._revision_item("food", "local_place_search", []),
+                    self._revision_item("peak", "web_search", []),
+                    self._revision_item("disney", "web_search", []),
+                    self._revision_item("doc", None, ["wx", "wx2", "rt", "food", "peak", "disney"], kind="synthesis"),
+                ],
+            }
+        )
+
+        self.assertTrue(result.accepted, result.reason)
+        self.assertEqual(
+            {item["id"]: item["status"] for item in coordinator.items},
+            {
+                "wx": "failed",
+                "wx2": "pending",
+                "rt": "pending",
+                "food": "pending",
+                "peak": "pending",
+                "disney": "pending",
+                "doc": "pending",
+            },
+        )
+        self.assertEqual(coordinator.rewirable_step_ids(), [])
+        self.assertIn("rt", coordinator.active_plan_item_ids_for_tool("route_compare"))
+        self.assertNotIn("rt", coordinator.failed_tool_item_ids)
+
+    def test_dependency_blocked_items_can_be_removed(self):
+        coordinator = self._hk_chain_with_failed_head()
+
+        result = coordinator.apply_model_update(
+            {
+                "reason": "只保留天气替代查询",
+                "items": [
+                    self._revision_item("wx", "weather_forecast", []),
+                    self._revision_item("wx2", "web_search", []),
+                    self._revision_item("doc", None, ["wx", "wx2"], kind="synthesis"),
+                ],
+            }
+        )
+
+        self.assertTrue(result.accepted, result.reason)
+        self.assertEqual([item["id"] for item in coordinator.items], ["wx", "wx2", "doc"])
+
+    def test_failed_item_stays_locked_when_blocked_dependents_are_editable(self):
+        coordinator = self._hk_chain_with_failed_head()
+
+        result = coordinator.apply_model_update(
+            {
+                "reason": "删掉失败步骤",
+                "items": [
+                    self._revision_item("rt", "route_compare", []),
+                    self._revision_item("doc", None, ["rt"], kind="synthesis"),
+                ],
+            }
+        )
+
+        self.assertFalse(result.accepted)
+        self.assertEqual(result.reason, "terminal_item_removed")
+
+    def test_unchanged_resubmission_keeps_dependency_blocks(self):
+        coordinator = self._hk_chain_with_failed_head()
+        before = [dict(item) for item in coordinator.items]
+
+        result = coordinator.apply_model_update({"reason": "原样重提", "items": coordinator.canonical_plan_for_model()})
+
+        self.assertTrue(result.accepted)
+        self.assertEqual(result.reason, "no_change")
+        self.assertEqual(coordinator.items, before)
+        self.assertEqual(coordinator.rewirable_step_ids(), ["rt", "food", "peak", "disney"])
+
+    def test_rewired_item_still_waiting_on_failed_step_is_blocked_again(self):
+        coordinator = self._hk_chain_with_failed_head()
+
+        result = coordinator.apply_model_update(
+            {
+                "reason": "只解开路线",
+                "items": [
+                    self._revision_item("wx", "weather_forecast", []),
+                    self._revision_item("rt", "route_compare", []),
+                    self._revision_item("food", "local_place_search", ["wx"]),
+                    self._revision_item("doc", None, ["wx", "rt", "food"], kind="synthesis"),
+                ],
+            }
+        )
+
+        self.assertTrue(result.accepted, result.reason)
+        self.assertEqual(
+            {item["id"]: item["status"] for item in coordinator.items},
+            {"wx": "failed", "rt": "pending", "food": "blocked", "doc": "pending"},
+        )
+        self.assertEqual(coordinator.rewirable_step_ids(), ["food"])
+
+    def test_revision_limits_open_items_but_not_preserved_terminal_items(self):
+        coordinator = self._hk_chain_with_failed_head()
+        open_ids = [f"new-{index}" for index in range(1, 7)]
+
+        too_many = coordinator.apply_model_update(
+            {
+                "reason": "超过 6 个待执行步骤",
+                "items": [
+                    self._revision_item("wx", "weather_forecast", []),
+                    *[self._revision_item(item_id, "web_search", []) for item_id in open_ids],
+                    self._revision_item("doc", None, ["wx", *open_ids], kind="synthesis"),
+                ],
+            }
+        )
+
+        self.assertFalse(too_many.accepted)
+        self.assertEqual(too_many.reason, "invalid_plan_structure")
+
     def test_initial_plan_must_cover_configured_tool_counts(self):
         coordinator = PlanCoordinator(run_id="run-1", mode="on")
         coordinator.configure_initial_tool_requirements(

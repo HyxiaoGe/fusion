@@ -1017,7 +1017,9 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(web_parameters["properties"]["_plan_item_id"]["type"], "string")
         self.assertIn("id", plan_item["required"])
         self.assertIn("planned_tools", plan_item["required"])
-        self.assertEqual(plan_parameters["properties"]["plan"]["maxItems"], 6)
+        # 缺省依赖曾被服务端串成线性链，独立查询被迫串行；依赖必须由模型显式声明。
+        self.assertIn("depends_on", plan_item["required"])
+        self.assertEqual(plan_parameters["properties"]["plan"]["maxItems"], 10)
         self.assertEqual(
             plan_item["properties"]["id"]["pattern"],
             "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",

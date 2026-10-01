@@ -23,6 +23,9 @@ _FAILED_DEPENDENCY_STATUSES = frozenset({"failed", "skipped", "blocked"})
 _INITIAL_PLAN_REPAIR_ATTEMPT_LIMIT = 3
 _ACTIVE_PLAN_REPAIR_ATTEMPT_LIMIT = 5
 _MAX_SERVER_RECOVERY_ITEMS_PER_TOOL = 2
+# 新建或待执行的步骤上限；修订时保留下来的已执行/已终态步骤不占这个名额。
+_MAX_OPEN_PLAN_ITEMS = 6
+_MAX_PLAN_ITEMS = 10
 
 
 class ModelPlanItem(BaseModel):
@@ -54,7 +57,7 @@ class ModelPlanUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     reason: str = Field(min_length=1, max_length=240)
-    items: list[ModelPlanItem] = Field(min_length=2, max_length=6)
+    items: list[ModelPlanItem] = Field(min_length=2, max_length=_MAX_PLAN_ITEMS)
 
 
 @dataclass(frozen=True)
@@ -91,6 +94,8 @@ class PlanCoordinator:
     attempted_tool_item_ids: set[str] = field(default_factory=set)
     successful_tool_item_ids: set[str] = field(default_factory=set)
     failed_tool_item_ids: set[str] = field(default_factory=set)
+    # 只因上游失败被连带阻塞、自身从未执行的步骤；模型修订时可以改依赖或删除。
+    dependency_blocked_item_ids: set[str] = field(default_factory=set)
     server_recovery_item_ids: set[str] = field(default_factory=set)
     recovery_replanned_item_ids: set[str] = field(default_factory=set)
     synthesis_started: bool = False
@@ -114,12 +119,14 @@ class PlanCoordinator:
             return PlanUpdateResult(False, "run_already_terminal")
         if self.synthesis_started:
             return PlanUpdateResult(False, "synthesis_already_started")
+        repairable_item_ids = self._repairable_blocked_item_ids()
         locked_item_ids = set(self.attempted_tool_item_ids)
         locked_item_ids.update(
             str(item.get("id"))
             for item in self.items
             if item.get("status") in {"completed", "failed", "skipped", "blocked"}
         )
+        locked_item_ids -= repairable_item_ids
         payload = _normalize_model_plan_payload(
             payload,
             previous_items=self.items,
@@ -131,6 +138,8 @@ class PlanCoordinator:
             return self._reject_repair("invalid_plan_structure")
 
         item_ids = [item.id for item in update.items]
+        if len(item_ids) - len(locked_item_ids.intersection(item_ids)) > _MAX_OPEN_PLAN_ITEMS:
+            return self._reject_repair("invalid_plan_structure")
         if len(item_ids) != len(set(item_ids)):
             return self._reject_repair("duplicate_item_id")
         if any(len(item.planned_tools) > 1 for item in update.items):
@@ -146,6 +155,7 @@ class PlanCoordinator:
                 item_id
                 for item_id, item in previous_items_by_id.items()
                 if item.get("status") in {"completed", "failed", "skipped", "blocked"}
+                and item_id not in repairable_item_ids
             }
             if previous_terminal_ids - known_ids:
                 return self._reject_repair("terminal_item_removed")
@@ -186,6 +196,8 @@ class PlanCoordinator:
             previous_attempted_ids = self.attempted_tool_item_ids.intersection(previous_items_by_id)
             for item in update.items:
                 previous_item = previous_items_by_id.get(item.id)
+                if item.id in repairable_item_ids:
+                    continue
                 if previous_status.get(item.id) in {"completed", "failed", "skipped", "blocked"} and previous_item:
                     locked_fields = ("title", "kind", "depends_on", "planned_tools")
                     if any(getattr(item, field) != previous_item.get(field) for field in locked_fields):
@@ -204,6 +216,13 @@ class PlanCoordinator:
             required_active_tool_name,
         ):
             return self._reject_repair("missing_required_recovery_owner")
+        for item in normalized_items:
+            if str(item.get("id")) in repairable_item_ids:
+                item["status"] = "pending"
+        dependency_blocks = self._dependency_block_statuses_for(normalized_items)
+        for item in normalized_items:
+            if str(item.get("id")) in dependency_blocks:
+                item["status"] = "blocked"
         if self.has_valid_model_plan and normalized_items == self.items:
             self.consecutive_no_progress_updates += 1
             self._mark_recovery_handled()
@@ -216,19 +235,45 @@ class PlanCoordinator:
         self.source = "model"
         self.reason = "model_update"
         self.items = normalized_items
-        dependency_blocks = self._dependency_block_statuses({})
-        if dependency_blocks:
-            for item in self.items:
-                item_id = str(item.get("id"))
-                if item_id in dependency_blocks:
-                    item["status"] = "blocked"
-            self.failed_tool_item_ids.update(dependency_blocks)
+        self.failed_tool_item_ids.difference_update(repairable_item_ids)
+        self.dependency_blocked_item_ids.difference_update(repairable_item_ids)
+        self.failed_tool_item_ids.update(dependency_blocks)
+        self.dependency_blocked_item_ids.update(dependency_blocks)
         self._mark_recovery_handled()
         self.reset_repair_attempts()
         return PlanUpdateResult(True, "model_update", self.snapshot())
 
     def _reject_repair(self, reason: str) -> PlanUpdateResult:
         return PlanUpdateResult(False, reason)
+
+    def _repairable_blocked_item_ids(self) -> set[str]:
+        """只被失败依赖连带阻塞、自身从未执行的步骤没有执行事实需要保护。
+
+        把它们和真实失败的步骤一样锁死，会让模型既不能改依赖也不能删除，
+        补一个替代步骤又超出步骤上限，修复只能耗尽（真实验收 run 2781b2a9）。
+        """
+
+        return {
+            str(item.get("id"))
+            for item in self.items
+            if item.get("status") == "blocked"
+            and str(item.get("id")) in self.dependency_blocked_item_ids
+            and str(item.get("id")) not in self.attempted_tool_item_ids
+        }
+
+    def rewirable_step_ids(self) -> list[str]:
+        """按计划顺序返回可改依赖或删除的连带阻塞步骤，供拒绝回执告知模型。"""
+
+        repairable_item_ids = self._repairable_blocked_item_ids()
+        return [str(item.get("id")) for item in self.items if str(item.get("id")) in repairable_item_ids]
+
+    def _dependency_block_statuses_for(self, items: list[dict[str, Any]]) -> dict[str, PlanStatus]:
+        previous_items = self.items
+        self.items = items
+        try:
+            return self._dependency_block_statuses({})
+        finally:
+            self.items = previous_items
 
     def repair_attempt_limit(self, *, tolerate_status_drift: bool = False) -> int:
         """仅对已有计划的并发/终态漂移放宽阈值，其他错误保持原门禁。"""
@@ -802,9 +847,11 @@ class PlanCoordinator:
                 for item in self.items
             )
         }
+        dependency_blocks = self._dependency_block_statuses(accepted_result_statuses)
+        self.dependency_blocked_item_ids.update(dependency_blocks)
         accepted_statuses = {
             **accepted_result_statuses,
-            **self._dependency_block_statuses(accepted_result_statuses),
+            **dependency_blocks,
         }
         self.attempted_tool_item_ids.update(accepted_result_statuses)
         for item_id, status in accepted_statuses.items():
@@ -875,7 +922,9 @@ class PlanCoordinator:
         }
         if not statuses:
             return None
-        statuses.update(self._dependency_block_statuses(statuses))
+        dependency_blocks = self._dependency_block_statuses(statuses)
+        self.dependency_blocked_item_ids.update(dependency_blocks)
+        statuses.update(dependency_blocks)
         self.failed_tool_item_ids.update(statuses)
         return self._apply_statuses(statuses, reason=reason)
 
