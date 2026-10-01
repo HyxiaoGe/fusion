@@ -121,7 +121,9 @@ def build_update_plan_tool(allowed_tool_names: list[str] | None = None) -> dict[
                     "plan": {
                         "type": "array",
                         "minItems": 2,
-                        "maxItems": 10,
+                        # 首版计划仍按 6 步约束；修订时保留的已执行步骤由服务端放宽（上限 10）。
+                        # schema 放到 10 实测会让模型首版就写 8 步而被拒（run bfd3f46c）。
+                        "maxItems": 6,
                         "items": {
                             "type": "object",
                             "additionalProperties": False,
