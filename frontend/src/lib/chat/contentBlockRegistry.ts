@@ -1,5 +1,6 @@
 import type {
   ContentBlock,
+  DocumentBlock,
   FileBlock,
   KnowledgeEvidenceBlock,
   KnowledgeEvidenceStatus,
@@ -32,6 +33,7 @@ const CONTENT_BLOCK_CONTRACTS: readonly ContentBlockContract[] = [
   { type: 'search', schemaVersion: null, decode: decodeSearchBlock },
   { type: 'url_read', schemaVersion: null, decode: decodeUrlBlock },
   { type: 'knowledge_evidence', schemaVersion: 1, decode: decodeKnowledgeEvidenceBlock },
+  { type: 'document', schemaVersion: 1, decode: decodeDocumentBlock },
   ...STRUCTURED_TOOL_RESULT_CONTRACTS.map(contract => ({
     type: contract.type,
     schemaVersion: contract.schemaVersion,
@@ -330,6 +332,30 @@ function decodeKnowledgeEvidenceBlock(source: Record<string, unknown>): Knowledg
     source_count: nonNegativeNumber(source.source_count) ?? sourceRefs.length,
     knowledge_base_ids: normalizeStringArray(source.knowledge_base_ids, 5),
     source_refs: sourceRefs,
+  };
+}
+
+function decodeDocumentBlock(source: Record<string, unknown>): DocumentBlock | null {
+  const id = requiredString(source.id);
+  const documentId = boundedRequiredString(source.document_id, 64);
+  const version = positiveInteger(source.version);
+  const title = boundedRequiredString(source.title, 200);
+  const charCount = nonNegativeInteger(source.char_count);
+  const operation = source.operation === 'created' || source.operation === 'edited' ? source.operation : null;
+  if (!id || !documentId || version === undefined || !title || charCount === undefined || !operation) return null;
+  if (source.format !== 'markdown') return null;
+  return {
+    type: 'document',
+    id,
+    schema_version: 1,
+    document_id: documentId,
+    version,
+    title,
+    format: 'markdown',
+    operation,
+    change_summary: optionalNullableString(source.change_summary) ?? null,
+    char_count: charCount,
+    ...optionalField('tool_call_log_id', optionalString(source.tool_call_log_id)),
   };
 }
 

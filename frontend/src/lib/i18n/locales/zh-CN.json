@@ -547,5 +547,46 @@
         "mcp_explicit": "显式 MCP 工具"
       }
     }
+  },
+  "documents": {
+    "card": {
+      "created": "已创建",
+      "edited": "已修改",
+      "version": "v{{version}}",
+      "chars": "{{chars}} 字",
+      "open": "打开"
+    },
+    "panel": {
+      "fallbackTitle": "文档",
+      "loading": "正在加载文档…",
+      "failed": "文档加载失败。",
+      "retry": "重试",
+      "close": "关闭文档",
+      "closeBackdrop": "关闭文档背景",
+      "versionLabel": "文档版本",
+      "downloadMarkdown": "Markdown",
+      "downloadHtml": "HTML"
+    },
+    "sources": {
+      "title": "数据来源",
+      "empty": "本文档未使用实时查询结果，内容仅供参考。",
+      "queriedAt": "（查询于 {{time}}）",
+      "kinds": {
+        "weather": "天气",
+        "place": "地点",
+        "route": "路线",
+        "flight": "航班",
+        "train": "火车",
+        "itinerary": "行程",
+        "web": "网页搜索",
+        "url": "网页"
+      }
+    },
+    "callout": {
+      "tip": "提示",
+      "info": "说明",
+      "warning": "注意",
+      "price": "费用"
+    }
   }
 }

@@ -2,6 +2,7 @@ import { createSelector, createSlice, PayloadAction } from '@reduxjs/toolkit';
 import type {
   ContentBlock,
   ContextUsage,
+  DocumentBlock,
   KnowledgeEvidenceBlock,
   SearchSourceSummary,
   StructuredToolResultBlock,
@@ -512,7 +513,7 @@ const streamSlice = createSlice({
       run.evidence = capEvidenceItems(run.evidence);
     }),
 
-    upsertStaticContentBlock: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; sequence: number; block: StructuredToolResultBlock | KnowledgeEvidenceBlock; }>) => {
+    upsertStaticContentBlock: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; sequence: number; block: StructuredToolResultBlock | KnowledgeEvidenceBlock | DocumentBlock; }>) => {
       const run = state.currentRun;
       const { runId, sequence, block } = action.payload;
       if (!run || run.runId !== runId || sequence <= run.lastSequence) return;

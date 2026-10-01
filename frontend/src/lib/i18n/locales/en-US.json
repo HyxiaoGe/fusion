@@ -547,5 +547,46 @@
         "mcp_explicit": "Explicit MCP tool"
       }
     }
+  },
+  "documents": {
+    "card": {
+      "created": "Created",
+      "edited": "Edited",
+      "version": "v{{version}}",
+      "chars": "{{chars}} chars",
+      "open": "Open"
+    },
+    "panel": {
+      "fallbackTitle": "Document",
+      "loading": "Loading document…",
+      "failed": "Failed to load the document.",
+      "retry": "Retry",
+      "close": "Close document",
+      "closeBackdrop": "Close document backdrop",
+      "versionLabel": "Document version",
+      "downloadMarkdown": "Markdown",
+      "downloadHtml": "HTML"
+    },
+    "sources": {
+      "title": "Data sources",
+      "empty": "This document does not use live query results; treat it as reference only.",
+      "queriedAt": " (queried {{time}})",
+      "kinds": {
+        "weather": "Weather",
+        "place": "Place",
+        "route": "Route",
+        "flight": "Flight",
+        "train": "Train",
+        "itinerary": "Itinerary",
+        "web": "Web search",
+        "url": "Web page"
+      }
+    },
+    "callout": {
+      "tip": "Tip",
+      "info": "Note",
+      "warning": "Warning",
+      "price": "Cost"
+    }
   }
 }
