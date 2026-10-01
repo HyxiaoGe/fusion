@@ -335,6 +335,39 @@ search_unavailable = """The search returned no usable result and cannot support 
 search_truncated = """The search returned {{ source_count }} results; only the first {{ context_count }} are included with snippets. Remaining entries contain candidate metadata only: read their URLs before using their claims as evidence.
 """
 
+[documents]
+create_description = """Create a standalone document deliverable that the user can open in a preview panel, revise over several turns, and download. Use it when the user asks for a finished artifact such as a travel guide, itinerary, plan, report, checklist or summary document, instead of writing that artifact in the chat reply.
+
+Write the document body in Markdown (GFM: headings, lists, tables, bold, links). Do not write HTML, CSS or scripts. The following container directives render as rich components:
+- Callouts: a line `:::tip`, `:::info`, `:::warning` or `:::price`, an optional label in brackets such as `:::warning[Before you go]`, the Markdown content, then a closing `:::` line.
+- Timeline: `:::timeline` wrapping a bullet list; each item starts with the time range in bold, for example `- **09:00-11:05** Depart Shenzhen to Yau Ma Tei`, followed by indented details.
+- Stats cards: `:::stats` wrapping a bullet list of `label: value` items, for example `- Total budget: ¥3,500-4,300`.
+- Tabs: an outer `::::tabs` block containing one `:::tab[Tab label]` block per tab, each closed with `:::`, and the outer block closed with `::::`. Use tabs for parallel sections such as one tab per day.
+
+Facts rules:
+- Values that tools returned in this run (weather, routes and durations, places and their fields, flights, trains, prices, opening hours) must be copied exactly from the tool results; never replace them with remembered values.
+- Content that no tool verified (general background, local tips, experience-based advice) may come from your knowledge or web results, but present it as reference information and do not state unverified specifics as confirmed facts.
+- Do not write a sources or references section; the system appends the list of data sources actually queried.
+
+Write the document in the user's language. After the tool succeeds, reply to the user in 2-4 sentences summarizing what the document covers and inviting revisions; do not repeat the document content in the reply."""
+create_title = """Short document title shown on the document card, at most 120 characters."""
+create_content = """Complete Markdown body of the document, following the format and facts rules in the tool description. At most 60000 characters."""
+edit_description = """Revise an existing document from this conversation, creating a new version. Use it whenever the user asks to change a document that already exists instead of creating a new one.
+
+Prefer `edits`: each edit replaces one exact `old_text` excerpt copied from the current document content with `new_text`. Each old_text must appear exactly once in the current content; include enough surrounding text to make it unique. Edits apply in order. Use `content` instead only when rewriting most of the document. Provide exactly one of `edits` or `content`. The same Markdown format and facts rules as create_document apply.
+
+After the tool succeeds, reply to the user in 1-3 sentences describing what changed; do not repeat the document content."""
+edit_document_id = """document_id of the document to revise, from the current-documents context or an earlier create_document result."""
+edit_edits = """Ordered exact-text replacements, at most 20."""
+edit_old_text = """Exact excerpt of the current document content to replace; must appear exactly once."""
+edit_new_text = """Replacement text; may be empty to delete the excerpt."""
+edit_content = """Complete new Markdown body; use only for a near-complete rewrite."""
+edit_title = """Optional new title."""
+change_summary = """One short sentence describing what changed in this version, in the user's language."""
+created_context = """Document created: document_id={{ document_id }}, version {{ version }}, title "{{ title }}", {{ char_count }} characters. The user sees it as a document card with a preview panel, and the system appends the data-source list. Reply briefly as the tool description requires."""
+edited_context = """Document revised: document_id={{ document_id }}, now version {{ version }}, title "{{ title }}", {{ char_count }} characters. Reply briefly as the tool description requires."""
+failed_context = """The document operation failed: {{ error_code }}.{% if detail %} {{ detail }}.{% endif %}{% if edit_index is not none %} Failing edit index: {{ edit_index }}.{% endif %} Fix the arguments and call the tool again; when an old_text was not found or not unique, copy it exactly from the current document content."""
+
 [amap]
 local_usage = """Hard result-usage constraints:
 - Refer only to places actually returned in result.places and fields actually returned for them; do not introduce a place absent from result.places.

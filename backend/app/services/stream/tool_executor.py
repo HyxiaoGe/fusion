@@ -22,7 +22,7 @@ from app.services.agent.emitter import AgentEventEmitter
 from app.services.agent.progress_digest import build_evidence_items, build_tool_result_digest
 from app.services.agent.trajectory_payload import is_cancellation_terminal_event
 from app.services.mcp.tool_contract import (
-    MAX_TOOL_ARGUMENT_JSON_BYTES,
+    max_tool_argument_json_bytes,
     validate_tool_argument_resource_limits,
 )
 from app.services.stream.tool_call_lifecycle import (
@@ -383,7 +383,7 @@ def parse_tool_arguments(tool_call: dict) -> dict:
         return arguments
     if not isinstance(arguments, str):
         raise ToolArgumentsParseError
-    if len(arguments.encode("utf-8")) > MAX_TOOL_ARGUMENT_JSON_BYTES:
+    if len(arguments.encode("utf-8")) > max_tool_argument_json_bytes(tool_call.get("name")):
         raise ToolArgumentsLimitError("max_bytes")
     try:
         parsed = json.loads(arguments)
@@ -825,7 +825,10 @@ def _validate_handler_arguments(
     handler: Any,
     args: dict,
 ) -> list[str]:
-    raw_errors = validate_tool_argument_resource_limits(args)
+    raw_errors = validate_tool_argument_resource_limits(
+        args,
+        max_json_bytes=max_tool_argument_json_bytes(getattr(handler, "tool_name", None)),
+    )
     validator = getattr(type(handler), "validate_arguments", None)
     try:
         if not raw_errors:
