@@ -21,6 +21,7 @@ from app.api import (
     admin_model_management,
     auth,
     chat,
+    documents,
     files,
     knowledge_bases,
     models,
@@ -400,6 +401,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 # 注册路由
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(files.router, prefix="/api/files", tags=["files"])
+app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
 app.include_router(knowledge_bases.router, prefix="/api/knowledge-bases", tags=["knowledge-bases"])
 app.include_router(models.router, prefix="/api/models", tags=["models"])
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])

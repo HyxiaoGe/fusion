@@ -794,6 +794,24 @@ class ItineraryResultsBlock(BaseModel):
         return self
 
 
+class DocumentBlock(BaseModel):
+    """模型通过 create_document / edit_document 产出的交付物文档引用；正文按版本存于 documents 表。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["document"]
+    id: str = Field(default_factory=lambda: f"blk_{uuid4().hex[:12]}", max_length=160)
+    schema_version: Literal[1]
+    document_id: str = Field(min_length=1, max_length=64)
+    version: int = Field(ge=1)
+    title: str = Field(min_length=1, max_length=200)
+    format: Literal["markdown"]
+    operation: Literal["created", "edited"]
+    change_summary: Optional[str] = Field(default=None, max_length=500)
+    char_count: int = Field(ge=0)
+    tool_call_log_id: str = Field(default="", max_length=160)
+
+
 ProductResultBlock = Union[
     PlaceResultsBlock,
     RouteResultsBlock,
@@ -819,6 +837,7 @@ ContentBlock = Union[
     FlightResultsBlock,
     TrainResultsBlock,
     ItineraryResultsBlock,
+    DocumentBlock,
 ]
 
 # stop 接口只接受客户端实际流式渲染的文本类 block；工具与富结果由服务端持久化。

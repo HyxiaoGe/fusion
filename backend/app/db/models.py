@@ -116,6 +116,7 @@ class Conversation(Base):
         cascade="all, delete-orphan",
         order_by="ConversationKnowledgeBase.position",
     )
+    documents = relationship("Document", back_populates="conversation", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_conversations_updated_id", "updated_at", "id"),
@@ -603,6 +604,67 @@ class Message(Base):
             "id",
             postgresql_where=text("suggested_questions_status = 'pending'"),
         ),
+    )
+
+
+class Document(Base):
+    """会话内由模型生成、可迭代修改的交付物文档；正文按版本存放在 document_versions。"""
+
+    __tablename__ = "documents"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    title = Column(String(200), nullable=False)
+    format = Column(String(16), nullable=False, default="markdown", server_default="markdown")
+    current_version = Column(Integer, nullable=False, default=1, server_default="1")
+    created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=utc_now,
+        server_default=func.now(),
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+    conversation = relationship("Conversation", back_populates="documents")
+    versions = relationship(
+        "DocumentVersion",
+        back_populates="document",
+        cascade="all, delete-orphan",
+        order_by="DocumentVersion.version.asc()",
+    )
+
+    __table_args__ = (
+        CheckConstraint("format IN ('markdown')", name="ck_documents_format"),
+        CheckConstraint("current_version >= 1", name="ck_documents_current_version"),
+        Index("ix_documents_conversation_created", "conversation_id", "created_at"),
+        Index("ix_documents_user_id", "user_id"),
+    )
+
+
+class DocumentVersion(Base):
+    """文档的不可变版本；sources 由系统按实际工具调用生成，不来自模型输出。"""
+
+    __tablename__ = "document_versions"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    document_id = Column(String, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    version = Column(Integer, nullable=False)
+    title = Column(String(200), nullable=False)
+    content = Column(Text, nullable=False)
+    change_summary = Column(String(500), nullable=True)
+    sources = Column(JSONB, nullable=False, server_default=JSON_EMPTY_SERVER_DEFAULT, default=list)
+    message_id = Column(String, nullable=True)
+    run_id = Column(String, nullable=True)
+    tool_call_id = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
+
+    document = relationship("Document", back_populates="versions")
+
+    __table_args__ = (
+        UniqueConstraint("document_id", "version", name="uq_document_versions_document_version"),
+        CheckConstraint("version >= 1", name="ck_document_versions_version"),
     )
 
 

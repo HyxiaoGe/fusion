@@ -24,6 +24,9 @@ _JSON_SCHEMA_TYPES = frozenset({"array", "boolean", "integer", "null", "number",
 _MAX_ARGUMENT_VALIDATION_ERRORS = 16
 _MAX_ARGUMENT_VALIDATION_DEPTH = 12
 MAX_TOOL_ARGUMENT_JSON_BYTES = 64 * 1024
+# 文档工具的参数携带整篇正文（中文 UTF-8 每字 3 字节，转义后更长），单独放宽。
+_TOOL_ARGUMENT_JSON_BYTE_LIMITS = {"create_document": 512 * 1024, "edit_document": 512 * 1024}
+
 MAX_TOOL_ARGUMENT_NODES = 2_048
 MAX_TOOL_ARGUMENT_ARRAY_ITEMS = 256
 _NON_NEGATIVE_INTEGER_SCHEMA_KEYS = frozenset(
@@ -247,7 +250,15 @@ def validate_tool_arguments(
     return collector.errors
 
 
-def validate_tool_argument_resource_limits(arguments: Any) -> list[dict[str, str]]:
+def max_tool_argument_json_bytes(tool_name: object) -> int:
+    return _TOOL_ARGUMENT_JSON_BYTE_LIMITS.get(tool_name, MAX_TOOL_ARGUMENT_JSON_BYTES)  # type: ignore[arg-type]
+
+
+def validate_tool_argument_resource_limits(
+    arguments: Any,
+    *,
+    max_json_bytes: int = MAX_TOOL_ARGUMENT_JSON_BYTES,
+) -> list[dict[str, str]]:
     """为所有工具参数提供与远端 schema 无关的资源上限。"""
 
     node_count = 0
@@ -274,7 +285,7 @@ def validate_tool_argument_resource_limits(arguments: Any) -> list[dict[str, str
         encoded_bytes = 0
         for chunk in encoder.iterencode(arguments):
             encoded_bytes += len(chunk.encode("utf-8"))
-            if encoded_bytes > MAX_TOOL_ARGUMENT_JSON_BYTES:
+            if encoded_bytes > max_json_bytes:
                 return [{"field": "$", "code": "max_bytes"}]
     except (RecursionError, TypeError, ValueError):
         return [{"field": "$", "code": "type"}]
