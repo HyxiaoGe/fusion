@@ -871,6 +871,119 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
             {"search": "completed", "answer": "running"},
         )
 
+    async def _deliver_document_scenario(self, *, round_result, capability_resolution=None, content_blocks=()):
+        state = AgentLoopState(content_blocks=list(content_blocks))
+        rounds: list[dict] = []
+        summaries: list[object] = []
+
+        async def start_step_fn(**kwargs):
+            context = AgentStepContext(
+                step_id=f"step-{kwargs['step_number']}",
+                step_number=kwargs["step_number"],
+                started_at=kwargs["clock"](),
+                thinking_block_id=f"thinking-{kwargs['step_number']}",
+                text_block_id=f"text-{kwargs['step_number']}",
+            )
+            kwargs["on_step_started"](context.step_id)
+            return context
+
+        async def run_round_fn(**kwargs):
+            rounds.append(kwargs)
+            return round_result
+
+        async def handle_tool_calls_round_fn(*, request):
+            request.on_tools_executed(1)
+            request.agent_state.content_blocks.append({"type": "document", "document_id": "doc-1"})
+            return ToolRoundOutcome(tool_call_count=1, tool_names=["create_document"])
+
+        async def run_limit_summary_step_fn(*, request):
+            summaries.append(request)
+            return LimitSummaryOutcome(accumulated_usage=Usage(input_tokens=1, output_tokens=1))
+
+        outcome = await _run_limit_summary(
+            db=object(),
+            state=state,
+            runtime=_runtime(
+                emitter=AsyncMock(),
+                plan_mode="on",
+                output_tool_names=frozenset({"create_document", "edit_document"}),
+                capability_resolution=capability_resolution,
+                call_kwargs={
+                    "tools": [
+                        _tool_definition("update_plan"),
+                        _tool_definition("web_search"),
+                        _tool_definition("create_document"),
+                        _tool_definition("edit_document"),
+                    ],
+                    "tool_choice": "auto",
+                },
+                start_step_fn=start_step_fn,
+                complete_step_fn=AsyncMock(),
+                run_round_fn=run_round_fn,
+                handle_tool_calls_round_fn=handle_tool_calls_round_fn,
+                run_limit_summary_step_fn=run_limit_summary_step_fn,
+            ),
+            messages=[{"role": "user", "content": "做一份香港三日攻略"}],
+            summary_finish_reason="plan_synthesis",
+        )
+        self.assertIsNone(outcome)
+        return state, rounds, summaries
+
+    async def test_document_mode_writes_document_before_tool_free_synthesis(self):
+        state, rounds, summaries = await self._deliver_document_scenario(
+            round_result=AgentRoundResult(
+                reasoning_buf="",
+                content_buf="",
+                tool_calls=[{"id": "tc-doc", "name": "create_document", "arguments": "{}"}],
+                finish_reason="tool_calls",
+                accumulated_usage=Usage(input_tokens=2, output_tokens=3),
+            )
+        )
+
+        self.assertEqual(len(rounds), 1)
+        call_kwargs = rounds[0]["call_kwargs"]
+        self.assertEqual(sorted(_tool_names(call_kwargs)), ["create_document", "edit_document"])
+        self.assertEqual(call_kwargs["tool_choice"], "required")
+        self.assertEqual(rounds[0]["messages"][-1].section_id, "document_delivery_round")
+        self.assertTrue(state.document_delivery_attempted)
+        self.assertEqual(len(summaries), 1)
+        self.assertTrue(summaries[0].document_delivered)
+
+    async def test_document_round_without_tool_call_falls_back_to_summary_once(self):
+        state, rounds, summaries = await self._deliver_document_scenario(
+            round_result=AgentRoundResult(
+                reasoning_buf="",
+                content_buf="正文里的攻略",
+                tool_calls=[],
+                finish_reason="stop",
+                accumulated_usage=Usage(input_tokens=2, output_tokens=3),
+            )
+        )
+
+        self.assertEqual(len(rounds), 1)
+        self.assertTrue(state.document_delivery_attempted)
+        self.assertEqual(len(summaries), 1)
+        self.assertFalse(summaries[0].document_delivered)
+
+    async def test_document_round_skipped_without_required_evidence(self):
+        state, rounds, summaries = await self._deliver_document_scenario(
+            round_result=None,
+            capability_resolution=SimpleNamespace(requires_catalog_evidence=True, package_id="fresh_web"),
+        )
+
+        self.assertEqual(rounds, [])
+        self.assertFalse(state.document_delivery_attempted)
+        self.assertFalse(summaries[0].document_delivered)
+
+    async def test_document_round_skipped_when_document_already_written(self):
+        state, rounds, summaries = await self._deliver_document_scenario(
+            round_result=None,
+            content_blocks=[{"type": "document", "document_id": "doc-0"}],
+        )
+
+        self.assertEqual(rounds, [])
+        self.assertTrue(summaries[0].document_delivered)
+
     async def test_standard_plan_summary_injects_candidate_search_context(self):
         coordinator = PlanCoordinator(run_id="run-standard-candidate-summary", mode="on")
         self.assertTrue(

@@ -15,6 +15,7 @@ KNOWLEDGE_GROUNDING = "knowledge_grounding"
 CONTINUATION_SYSTEM = "continuation_system"
 DOCUMENT_OUTPUT_CONTRACT = "document_output_contract"
 CURRENT_DOCUMENTS = "current_documents"
+DOCUMENT_DELIVERY_ROUND = "document_delivery_round"
 
 PLAN_REQUIRED_REPAIR = "plan_required_repair"
 PLAN_EXECUTION_REPAIR = "plan_execution_repair"

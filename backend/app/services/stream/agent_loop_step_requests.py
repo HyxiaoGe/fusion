@@ -76,6 +76,7 @@ def build_tool_round_request(
         agent_state=state,
         output_deferred=round_result.output_deferred,
         allow_deferred_reasoning_output=round_result.allow_deferred_reasoning_output,
+        output_tool_names=runtime.output_tool_names,
     )
 
 
@@ -85,6 +86,7 @@ def build_limit_summary_step_request(
     runtime: AgentLoopRuntime,
     messages: list[PromptMessage],
     summary_finish_reason: str = "limit_summary",
+    document_delivered: bool = False,
 ) -> LimitSummaryStepRequest:
     return LimitSummaryStepRequest(
         conversation_id=runtime.conversation_id,
@@ -124,4 +126,5 @@ def build_limit_summary_step_request(
         recovery_evidence=state.recovery_evidence,
         fallback_response_context=runtime.fallback_response_context,
         tool_discovery=runtime.tool_discovery,
+        document_delivered=document_delivered,
     )
