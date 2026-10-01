@@ -40,7 +40,7 @@
     {"id": "identity-01", "question": "可以先告诉我你是谁吗？", "acceptable_packages": ["direct"], "group": "identity", "note": "询问助手身份，带情态前缀；能力包应为 direct，是否字面短路另看 telemetry。"},
     {"id": "identity-02", "question": "麻烦你介绍一下自己吧，我还没用过这个助手。", "acceptable_packages": ["direct"], "group": "identity", "note": "礼貌包装的助手自我介绍请求。"},
     {"id": "identity-03", "question": "你是哪个团队做出来的呀？", "acceptable_packages": ["direct"], "group": "identity", "note": "询问助手来源，不要求外部检索。"},
-    {"id": "identity-04", "question": "你觉得我适合做什么？", "acceptable_packages": ["direct"], "group": "identity", "expected_layer": "model", "note": "负例：职业建议，不是询问助手身份；direct 包相同，需结合 telemetry 核对是否错误身份短路。"},
+    {"id": "identity-04", "question": "你觉得我适合做什么？", "acceptable_packages": ["direct", "clarification_only"], "group": "identity", "expected_layer": "model", "note": "负例：职业建议，不是询问助手身份。系统不了解用户背景，先澄清同样合理；需结合 telemetry 核对是否错误身份短路。"},
     {"id": "identity-05", "question": "你能告诉我怎么介绍自己才不尴尬吗？", "acceptable_packages": ["direct"], "group": "identity", "expected_layer": "model", "note": "负例：用户寻求自我介绍建议，不是让助手交代身份。"},
     {"id": "mcp_alias-01", "question": "这次请用 mcp_notion_search。", "available_tools": ["web_search", "url_read", "mcp_notion_search"], "acceptable_packages": ["mcp_explicit"], "group": "mcp_alias", "note": "完整的已授权工具点名指令；仅评价路由，不实际调用 MCP。"},
     {"id": "mcp_alias-02", "question": "麻烦调用一下 mcp_calendar_list_events。", "available_tools": ["web_search", "url_read", "mcp_calendar_list_events"], "acceptable_packages": ["mcp_explicit"], "group": "mcp_alias", "note": "完整的已授权工具点名指令，工具参数留给后续执行。"},
