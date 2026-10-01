@@ -121,7 +121,7 @@ def build_update_plan_tool(allowed_tool_names: list[str] | None = None) -> dict[
                     "plan": {
                         "type": "array",
                         "minItems": 2,
-                        "maxItems": 6,
+                        "maxItems": 10,
                         "items": {
                             "type": "object",
                             "additionalProperties": False,
@@ -141,7 +141,11 @@ def build_update_plan_tool(allowed_tool_names: list[str] | None = None) -> dict[
                                     "type": "string",
                                     "enum": ["reasoning", "search", "read", "synthesis", "answer", "other"],
                                 },
-                                "depends_on": {"type": "array", "items": {"type": "string"}},
+                                "depends_on": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": render_runtime_prompt("stream.plan_depends_on"),
+                                },
                                 "planned_tools": {
                                     "type": "array",
                                     "items": planned_tool_schema,
@@ -149,7 +153,7 @@ def build_update_plan_tool(allowed_tool_names: list[str] | None = None) -> dict[
                                     "description": planned_tools_description,
                                 },
                             },
-                            "required": ["id", "step", "status", "planned_tools"],
+                            "required": ["id", "step", "status", "depends_on", "planned_tools"],
                         },
                     },
                 },

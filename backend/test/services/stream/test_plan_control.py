@@ -339,6 +339,43 @@ class PlanControlTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertIn("canonical_plan", response["hint"])
+        self.assertNotIn("rewirable_step_ids", response)
+
+    async def test_rejection_lists_dependency_blocked_steps_the_model_may_rewire(self):
+        coordinator = PlanCoordinator(run_id="run-rewirable", mode="on")
+        items = [
+            {"id": "wx", "title": "查天气", "kind": "search", "depends_on": [], "planned_tools": ["weather_forecast"]},
+            {"id": "rt", "title": "查路线", "kind": "search", "depends_on": ["wx"], "planned_tools": ["route_compare"]},
+            {"id": "doc", "title": "汇总", "kind": "synthesis", "depends_on": ["rt"], "planned_tools": []},
+        ]
+        self.assertTrue(
+            coordinator.apply_model_update(
+                {"reason": "链式计划", "items": [{**item, "status": "pending"} for item in items]}
+            ).accepted
+        )
+        coordinator.mark_tools_started(["wx"])
+        coordinator.mark_tool_results({"wx": "failed"})
+
+        result = await process_plan_control_calls(
+            tool_calls=[
+                _update_call(
+                    arguments={
+                        "reason": "删掉失败步骤",
+                        "items": [
+                            {**items[1], "status": "pending", "depends_on": []},
+                            {**items[2], "status": "pending"},
+                        ],
+                    }
+                )
+            ],
+            coordinator=coordinator,
+            emitter=AsyncMock(),
+        )
+
+        response = json.loads(result.tool_responses["plan-1"])
+        self.assertEqual(response["reason"], "terminal_item_removed")
+        self.assertEqual(response["rewirable_step_ids"], ["rt"])
+        self.assertIn("rewirable_step_ids", response["hint"])
 
     async def test_mixed_round_applies_plan_before_returning_external_calls(self):
         emitter = AsyncMock()
