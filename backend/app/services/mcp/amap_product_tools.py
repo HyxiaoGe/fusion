@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import math
 import re
 import time
 import uuid
@@ -77,9 +76,8 @@ _MODE_TO_REMOTE_TOOL = {
 }
 _MODE_ORDER = tuple(_MODE_TO_REMOTE_TOOL)
 _COORDINATE_PATTERN = re.compile(r"^\s*[+-]?(?:\d+(?:\.\d+)?|\.\d+)\s*,\s*[+-]?(?:\d+(?:\.\d+)?|\.\d+)\s*$")
-# 多个地理编码候选都落在这个半径内时视为同一地点（商圈入口、道路分段）。
-_GEO_SAME_PLACE_RADIUS_METERS = 1_000
-_EARTH_RADIUS_METERS = 6_371_000
+# 地名歧义时随失败结果交给模型的候选上限，供模型向用户说明并请其选择。
+_AMBIGUOUS_CANDIDATE_LIMIT = 5
 _PRODUCT_TIMEOUT_SECONDS = 25.0
 _MAX_CONTEXT_BYTES = 12_000
 _MAX_RESULT_BYTES = 32_000
@@ -120,6 +118,12 @@ _LOCAL_PLACE_RESULT_USAGE_CONTRACT = render_runtime_prompt("amap.local_usage")
 _ROUTE_RESULT_USAGE_CONTRACT = render_runtime_prompt("amap.route_usage")
 _WEATHER_RESULT_USAGE_CONTRACT = render_runtime_prompt("amap.weather_usage")
 _PRODUCT_FINAL_ANSWER_CONTRACT = render_runtime_prompt("amap.final_answer")
+_CANDIDATE_CHOICE_SCHEMA = {
+    "type": "integer",
+    "minimum": 1,
+    "maximum": _AMBIGUOUS_CANDIDATE_LIMIT,
+    "description": render_runtime_prompt("amap.candidate_choice"),
+}
 AMAP_PRODUCT_DEFINITIONS = [
     {
         "type": "function",
@@ -132,6 +136,7 @@ AMAP_PRODUCT_DEFINITIONS = [
                     "query": {"type": "string", "minLength": 1, "maxLength": 80},
                     "city": {"type": "string", "minLength": 1, "maxLength": 40},
                     "near": {"type": "string", "minLength": 1, "maxLength": 120},
+                    "near_candidate": _CANDIDATE_CHOICE_SCHEMA,
                     "anchor_source": {
                         "type": "string",
                         "enum": ["named", "current_location", "none"],
@@ -167,6 +172,8 @@ AMAP_PRODUCT_DEFINITIONS = [
                     },
                     "origin_city": {"type": "string", "minLength": 1, "maxLength": 40},
                     "destination_city": {"type": "string", "minLength": 1, "maxLength": 40},
+                    "origin_candidate": _CANDIDATE_CHOICE_SCHEMA,
+                    "destination_candidate": _CANDIDATE_CHOICE_SCHEMA,
                     "origin_source": {
                         "type": "string",
                         "enum": ["named", "current_location"],
@@ -598,9 +605,10 @@ class AmapProductToolHandler(BaseToolHandler):
                 geo_payload,
                 label=normalized["near"],
                 requested_city=normalized.get("city"),
+                candidate_choice=normalized.get("near_candidate"),
             )
             if resolution.ambiguous:
-                raise McpClientError(PLACE_ANCHOR_AMBIGUOUS_ERROR_CODE, AMAP_PLACE_ANCHOR_AMBIGUOUS_MESSAGE)
+                raise _ambiguous_location_error(normalized["near"], resolution, argument="near_candidate")
             anchor = resolution.anchor
             if anchor is None:
                 raise McpClientError("invalid_response", MCP_TOOL_UNAVAILABLE_MESSAGE)
@@ -907,6 +915,8 @@ class AmapProductToolHandler(BaseToolHandler):
                 normalized["origin"],
                 normalized.get("origin_city"),
                 stats,
+                candidate_choice=normalized.get("origin_candidate"),
+                candidate_argument="origin_candidate",
                 reserve_calls=(1 if normalized["destination_source"] == "named" else 0) + 1,
             )
         )
@@ -917,6 +927,8 @@ class AmapProductToolHandler(BaseToolHandler):
                 normalized["destination"],
                 normalized.get("destination_city"),
                 stats,
+                candidate_choice=normalized.get("destination_candidate"),
+                candidate_argument="destination_candidate",
                 preferred_city=(origin.get("city") if not normalized.get("destination_city") else None),
                 reserve_calls=1,
             )
@@ -985,6 +997,8 @@ class AmapProductToolHandler(BaseToolHandler):
         city: str | None,
         stats: "_RemoteCallStats",
         *,
+        candidate_choice: int | None,
+        candidate_argument: str,
         preferred_city: str | None = None,
         reserve_calls: int = 0,
     ) -> dict[str, Any]:
@@ -998,18 +1012,22 @@ class AmapProductToolHandler(BaseToolHandler):
             if error.code != "tool_error":
                 raise
             payload = None
-        endpoint = (
-            _extract_geo(
+        resolution = (
+            _resolve_geo(
                 payload,
                 label=label,
                 requested_city=city,
                 preferred_city=preferred_city,
+                candidate_choice=candidate_choice,
             )
             if payload is not None
-            else None
+            else _GeoResolution()
         )
-        if endpoint is not None:
-            return endpoint
+        if resolution.ambiguous:
+            # 地名对应多处时不用文本搜索的排序替用户挑一个，交给模型判断或向用户确认。
+            raise _ambiguous_location_error(label, resolution, argument=candidate_argument)
+        if resolution.anchor is not None:
+            return resolution.anchor
 
         selection_city = city or preferred_city
         await self._require_remaining_budget((1 if selection_city else 2) + reserve_calls)
@@ -1232,7 +1250,7 @@ class AmapProductToolHandler(BaseToolHandler):
                 else:
                     failure_contract = render_runtime_prompt("amap.weather_unavailable")
             elif (
-                self.tool_name == AMAP_LOCAL_PLACE_SEARCH
+                self.tool_name in {AMAP_LOCAL_PLACE_SEARCH, AMAP_ROUTE_COMPARE}
                 and result.data.get("error_code") == PLACE_ANCHOR_AMBIGUOUS_ERROR_CODE
             ):
                 failure_contract = render_runtime_prompt("amap.place_anchor_ambiguous")
@@ -1445,7 +1463,10 @@ def _normalize_amap_search_keywords(query: str) -> str:
 
 
 def _validate_local_args(args: Any) -> dict[str, Any]:
-    source = _validate_closed_object(args, {"query", "city", "near", "anchor_source", "radius_m", "limit"})
+    source = _validate_closed_object(
+        args,
+        {"query", "city", "near", "near_candidate", "anchor_source", "radius_m", "limit"},
+    )
     query = _required_text(source, "query", 80)
     city = _optional_text(source, "city", 40)
     near = _optional_text(source, "near", 120)
@@ -1455,6 +1476,9 @@ def _validate_local_args(args: Any) -> dict[str, Any]:
     if anchor_source not in {"named", "current_location", "none"}:
         raise _InvalidArguments
     if (anchor_source == "named") != bool(near):
+        raise _InvalidArguments
+    near_candidate = _optional_candidate_choice(source, "near_candidate")
+    if near_candidate is not None and anchor_source != "named":
         raise _InvalidArguments
     radius = source.get("radius_m", 3_000)
     limit = source.get("limit", 5)
@@ -1466,6 +1490,7 @@ def _validate_local_args(args: Any) -> dict[str, Any]:
         "query": query,
         "city": city,
         "near": near,
+        "near_candidate": near_candidate,
         "anchor_source": anchor_source,
         "radius_m": radius,
         "limit": limit,
@@ -1480,6 +1505,8 @@ def _validate_route_args(args: Any) -> dict[str, Any]:
             "destination",
             "origin_city",
             "destination_city",
+            "origin_candidate",
+            "destination_candidate",
             "origin_source",
             "destination_source",
             "requested_departure_time",
@@ -1504,6 +1531,12 @@ def _validate_route_args(args: Any) -> dict[str, Any]:
         destination = "当前位置"
     elif destination_source == "current_location" or destination in {"current_location", "当前位置"}:
         raise _InvalidArguments
+    origin_candidate = _optional_candidate_choice(source, "origin_candidate")
+    destination_candidate = _optional_candidate_choice(source, "destination_candidate")
+    if origin_candidate is not None and origin_source != "named":
+        raise _InvalidArguments
+    if destination_candidate is not None and destination_source != "named":
+        raise _InvalidArguments
     raw_modes = source.get("modes")
     if not isinstance(raw_modes, list) or not 1 <= len(raw_modes) <= 3:
         raise _InvalidArguments
@@ -1516,6 +1549,8 @@ def _validate_route_args(args: Any) -> dict[str, Any]:
         "destination": destination,
         "origin_city": _optional_text(source, "origin_city", 40),
         "destination_city": _optional_text(source, "destination_city", 40),
+        "origin_candidate": origin_candidate,
+        "destination_candidate": destination_candidate,
         "origin_source": origin_source,
         "destination_source": destination_source,
         "requested_departure_time": _normalized_optional_text(
@@ -1603,6 +1638,15 @@ def _required_text(source: dict[str, Any], key: str, max_chars: int) -> str:
     return normalized
 
 
+def _optional_candidate_choice(source: dict[str, Any], key: str) -> int | None:
+    value = source.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= _AMBIGUOUS_CANDIDATE_LIMIT:
+        raise _InvalidArguments
+    return value
+
+
 def _optional_text(source: dict[str, Any], key: str, max_chars: int) -> str | None:
     if key not in source or source[key] is None:
         return None
@@ -1614,26 +1658,15 @@ def _normalized_optional_text(source: dict[str, Any], key: str, max_chars: int) 
     return re.sub(r"\s+", " ", value) if value is not None else None
 
 
-def _extract_geo(
-    payload: Any,
-    *,
-    label: str,
-    requested_city: str | None,
-    preferred_city: str | None = None,
-) -> dict[str, Any] | None:
-    return _resolve_geo(
-        payload,
-        label=label,
-        requested_city=requested_city,
-        preferred_city=preferred_city,
-    ).anchor
-
-
 @dataclass(frozen=True)
 class _GeoResolution:
     anchor: dict[str, Any] | None = None
-    # 有多个彼此分散的候选（跨城同名，或同城多处同名道路），补城市或更具体地名可解。
-    ambiguous: bool = False
+    # 地名对应多个候选：是否同一处、该选哪个不由工具判断，交给模型选定或向用户确认。
+    candidates: tuple[dict[str, Any], ...] = ()
+
+    @property
+    def ambiguous(self) -> bool:
+        return bool(self.candidates)
 
 
 def _resolve_geo(
@@ -1642,8 +1675,11 @@ def _resolve_geo(
     label: str,
     requested_city: str | None,
     preferred_city: str | None = None,
+    candidate_choice: int | None = None,
 ) -> _GeoResolution:
+    safe_label = _redact_product_text(label)[:120]
     candidates: list[dict[str, Any]] = []
+    seen_locations: set[str] = set()
     for node in _structured_data_roots(payload):
         for list_key in ("geocodes", "results"):
             raw_candidates = node.get(list_key)
@@ -1653,12 +1689,20 @@ def _resolve_geo(
                 if not isinstance(candidate, dict):
                     continue
                 location = _safe_coordinate(candidate.get("location"))
-                if not location:
+                # 坐标完全相同的候选是同一个点（高德对道路常重复返回），只保留一个。
+                if not location or location in seen_locations:
                     continue
-                result: dict[str, Any] = {"label": _redact_product_text(label)[:120], "location": location}
+                seen_locations.add(location)
+                result: dict[str, Any] = {"label": safe_label, "location": location}
                 city = _first_text(candidate, ("city", "cityname", "province"), 40)
                 if city:
                     result["city"] = city
+                district = _first_text(candidate, ("district",), 40)
+                if district:
+                    result["district"] = district
+                level = _first_text(candidate, ("level",), 20)
+                if level:
+                    result["level"] = level
                 candidates.append(result)
     if len(candidates) == 1:
         candidate = candidates[0]
@@ -1666,40 +1710,41 @@ def _resolve_geo(
             candidate_city = candidate.get("city")
             if not candidate_city or not _city_matches(requested_city, candidate_city):
                 return _GeoResolution()
-        return _GeoResolution(anchor=candidate)
+        return _GeoResolution(anchor=_anchor_from_candidate(candidate))
     selection_city = requested_city or preferred_city
     if selection_city:
         candidates = [candidate for candidate in candidates if _city_matches(selection_city, candidate.get("city"))]
     if len(candidates) == 1:
-        return _GeoResolution(anchor=candidates[0])
+        return _GeoResolution(anchor=_anchor_from_candidate(candidates[0]))
     if not candidates:
         return _GeoResolution()
-    # 高德对商圈、道路常返回同一地点的多个入口或 POI（如「成都太古里」10 个点彼此
-    # 相距几百米）。候选都聚在一处时指的是同一个地方，取高德排序第一的即可；真正分散
-    # 在不同位置的同名地点仍按歧义处理。
-    if _all_within_meters(
-        [candidate["location"] for candidate in candidates],
-        _GEO_SAME_PLACE_RADIUS_METERS,
-    ):
-        return _GeoResolution(anchor=candidates[0])
-    return _GeoResolution(ambiguous=True)
+    candidates = candidates[:_AMBIGUOUS_CANDIDATE_LIMIT]
+    # 是否同一处由模型看过候选后决定；工具只按模型给的编号取高德原样返回的坐标。
+    if candidate_choice is not None and candidate_choice <= len(candidates):
+        return _GeoResolution(anchor=_anchor_from_candidate(candidates[candidate_choice - 1]))
+    return _GeoResolution(candidates=tuple(candidates))
 
 
-def _all_within_meters(locations: list[str], radius_meters: float) -> bool:
-    anchor_lon, anchor_lat = (float(part) for part in locations[0].split(",", 1))
-    for location in locations[1:]:
-        lon, lat = (float(part) for part in location.split(",", 1))
-        if _distance_meters(anchor_lon, anchor_lat, lon, lat) > radius_meters:
-            return False
-    return True
+def _anchor_from_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
+    return {key: candidate[key] for key in ("label", "location", "city") if key in candidate}
 
 
-def _distance_meters(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
-    phi1, phi2 = math.radians(lat1), math.radians(lat2)
-    d_phi = phi2 - phi1
-    d_lambda = math.radians(lon2 - lon1)
-    a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
-    return 2 * _EARTH_RADIUS_METERS * math.asin(math.sqrt(a))
+def _ambiguous_location_error(label: str, resolution: _GeoResolution, *, argument: str) -> McpClientError:
+    return McpClientError(
+        PLACE_ANCHOR_AMBIGUOUS_ERROR_CODE,
+        AMAP_PLACE_ANCHOR_AMBIGUOUS_MESSAGE,
+        safe_details={
+            "place_name": _redact_product_text(label)[:120],
+            "candidate_argument": argument,
+            "candidates": [
+                {
+                    "candidate": index,
+                    **{key: candidate[key] for key in ("city", "district", "level", "location") if key in candidate},
+                }
+                for index, candidate in enumerate(resolution.candidates, start=1)
+            ],
+        },
+    )
 
 
 def _extract_reverse_city(payload: Any) -> str | None:

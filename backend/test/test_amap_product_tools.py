@@ -122,7 +122,7 @@ class AmapProductDefinitionTests(unittest.TestCase):
         self.assertFalse(route_schema["additionalProperties"])
         self.assertEqual(
             set(local_schema["properties"]),
-            {"query", "city", "near", "anchor_source", "radius_m", "limit"},
+            {"query", "city", "near", "near_candidate", "anchor_source", "radius_m", "limit"},
         )
         self.assertEqual(
             local_schema["properties"]["anchor_source"]["enum"],
@@ -137,12 +137,22 @@ class AmapProductDefinitionTests(unittest.TestCase):
                 "destination",
                 "origin_city",
                 "destination_city",
+                "origin_candidate",
+                "destination_candidate",
                 "origin_source",
                 "destination_source",
                 "requested_departure_time",
                 "modes",
             },
         )
+        for schema, key in (
+            (local_schema, "near_candidate"),
+            (route_schema, "origin_candidate"),
+            (route_schema, "destination_candidate"),
+        ):
+            self.assertEqual(schema["properties"][key]["minimum"], 1)
+            self.assertEqual(schema["properties"][key]["maximum"], 5)
+            self.assertIn("ambiguous_location", schema["properties"][key]["description"])
         self.assertEqual(route_schema["properties"]["origin_source"]["enum"], ["named", "current_location"])
         self.assertEqual(route_schema["properties"]["destination_source"]["enum"], ["named", "current_location"])
         self.assertEqual(
@@ -1672,13 +1682,14 @@ class AmapLocalPlaceSearchTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(result.data["result"]["places"][0]["distance_m"], 320)
 
-    async def test_clustered_geocode_candidates_resolve_to_first_as_same_place(self):
-        # 高德真实响应：「成都太古里」返回同一商圈的多个入口/POI，彼此相距几百米。
+    async def test_multiple_geocode_candidates_are_returned_for_model_to_choose(self):
+        # 高德真实响应：「成都太古里」返回同一商圈的多个入口/POI，彼此相距几百米。工具不按
+        # 距离替用户合并，坐标完全相同的重复点去重后把候选交给模型判断。
         clustered = [
-            {"location": "104.082798,30.652509", "city": "成都市"},
-            {"location": "104.083135,30.652841", "city": "成都市"},
-            {"location": "104.083740,30.652799", "city": "成都市"},
-            {"location": "104.082798,30.652509", "city": "成都市"},
+            {"location": "104.082798,30.652509", "city": "成都市", "district": "锦江区", "level": "住宅区"},
+            {"location": "104.083135,30.652841", "city": "成都市", "district": "锦江区", "level": "兴趣点"},
+            {"location": "104.083740,30.652799", "city": "成都市", "district": "锦江区", "level": "兴趣点"},
+            {"location": "104.082798,30.652509", "city": "成都市", "district": "锦江区", "level": "住宅区"},
         ]
         for args in (
             {"query": "咖啡馆", "city": "成都", "near": "成都太古里"},
@@ -1687,16 +1698,98 @@ class AmapLocalPlaceSearchTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(args=args):
                 handler, executor = build_handler(
                     "local_place_search",
-                    {
-                        "maps_geo": [mcp_payload({"results": clustered})],
-                        "maps_around_search": [mcp_payload({"pois": []})],
-                    },
+                    {"maps_geo": [mcp_payload({"results": clustered})]},
                 )
 
                 result = await handler.execute(local_search_args(args))
 
-                self.assertEqual(result.status, "success")
-                self.assertEqual(executor.calls[1][2]["location"], "104.082798,30.652509")
+                self.assertEqual(result.status, "failed")
+                self.assertEqual(result.data["error_code"], "ambiguous_location")
+                self.assertEqual([call[0] for call in executor.calls], ["maps_geo"])
+                details = result.data["error_details"]
+                self.assertEqual(details["place_name"], "成都太古里")
+                self.assertEqual(details["candidate_argument"], "near_candidate")
+                self.assertEqual(
+                    details["candidates"],
+                    [
+                        {
+                            "candidate": 1,
+                            "city": "成都市",
+                            "district": "锦江区",
+                            "level": "住宅区",
+                            "location": "104.082798,30.652509",
+                        },
+                        {
+                            "candidate": 2,
+                            "city": "成都市",
+                            "district": "锦江区",
+                            "level": "兴趣点",
+                            "location": "104.083135,30.652841",
+                        },
+                        {
+                            "candidate": 3,
+                            "city": "成都市",
+                            "district": "锦江区",
+                            "level": "兴趣点",
+                            "location": "104.083740,30.652799",
+                        },
+                    ],
+                )
+                context = handler.format_llm_context(result)
+                self.assertIn(render_runtime_prompt("amap.place_anchor_ambiguous"), context)
+                self.assertIn("near_candidate", context)
+                self.assertIn("锦江区", context)
+
+        handler, executor = build_handler(
+            "local_place_search",
+            {
+                "maps_geo": [mcp_payload({"results": clustered})],
+                "maps_around_search": [mcp_payload({"pois": []})],
+            },
+        )
+        result = await handler.execute(
+            local_search_args({"query": "咖啡馆", "near": "成都太古里", "near_candidate": 2})
+        )
+        self.assertEqual(result.status, "success")
+        self.assertEqual(executor.calls[1][2]["location"], "104.083135,30.652841")
+
+    async def test_candidate_choice_is_validated_and_only_applies_to_named_anchor(self):
+        for args in (
+            {"query": "咖啡馆", "near": "成都太古里", "near_candidate": 0},
+            {"query": "咖啡馆", "near": "成都太古里", "near_candidate": 6},
+            {"query": "咖啡馆", "near": "成都太古里", "near_candidate": True},
+            {"query": "咖啡馆", "near": "成都太古里", "near_candidate": "2"},
+            {"query": "咖啡馆", "anchor_source": "none", "near_candidate": 1},
+        ):
+            with self.subTest(args=args):
+                handler, executor = build_handler("local_place_search", {})
+                result = await handler.execute(local_search_args(args))
+                self.assertEqual(result.status, "failed")
+                self.assertEqual(result.data["error_code"], "invalid_arguments")
+                self.assertEqual(executor.calls, [])
+
+    async def test_candidate_choice_beyond_returned_candidates_stays_ambiguous(self):
+        handler, executor = build_handler(
+            "local_place_search",
+            {
+                "maps_geo": [
+                    mcp_payload(
+                        {
+                            "geocodes": [
+                                {"location": "121.497253,31.238235", "city": "上海市", "district": "浦东新区"},
+                                {"location": "121.492308,31.233383", "city": "上海市", "district": "黄浦区"},
+                            ]
+                        }
+                    )
+                ]
+            },
+        )
+        result = await handler.execute(
+            local_search_args({"query": "咖啡馆", "city": "上海", "near": "外滩", "near_candidate": 3})
+        )
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.data["error_code"], "ambiguous_location")
+        self.assertEqual(len(result.data["error_details"]["candidates"]), 2)
 
     async def test_geocode_ignores_earlier_metadata_location_and_uses_geocodes_candidate(self):
         handler, executor = build_handler(
@@ -1860,7 +1953,11 @@ class AmapLocalPlaceSearchTests(unittest.IsolatedAsyncioTestCase):
                 self.assertNotIn("repair", ambiguous_result.data)
                 self.assertEqual([call[0] for call in ambiguous_executor.calls], ["maps_geo"])
                 context = ambiguous_handler.format_llm_context(ambiguous_result)
-                self.assertEqual(context, render_runtime_prompt("amap.place_anchor_ambiguous"))
+                self.assertIn(render_runtime_prompt("amap.place_anchor_ambiguous"), context)
+                self.assertEqual(
+                    [candidate["candidate"] for candidate in ambiguous_result.data["error_details"]["candidates"]],
+                    [1, 2],
+                )
 
         mismatched_handler, mismatched_executor = build_handler(
             "local_place_search",
@@ -3055,6 +3152,62 @@ class AmapRouteCompareTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(routes["transit"]["duration_s"], 2700)
         self.assertEqual(routes["transit"]["transit_type"], "public_transit")
         self.assertNotIn("transfers", routes["transit"])
+
+    async def test_ambiguous_endpoint_returns_candidates_instead_of_text_search_guess(self):
+        bund = [
+            {"location": "121.497253,31.238235", "city": "上海市", "district": "浦东新区", "level": "住宅区"},
+            {"location": "121.492308,31.233383", "city": "上海市", "district": "黄浦区", "level": "兴趣点"},
+        ]
+        station = [{"location": "121.318910,31.193987", "city": "上海市", "district": "闵行区"}]
+        handler, executor = build_handler(
+            "route_compare",
+            {"maps_geo": [mcp_payload({"geocodes": station}), mcp_payload({"geocodes": bund})]},
+        )
+
+        result = await handler.execute(
+            route_compare_args({"origin": "上海虹桥火车站", "destination": "外滩", "destination_city": "上海"})
+        )
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.data["error_code"], "ambiguous_location")
+        self.assertEqual([call[0] for call in executor.calls], ["maps_geo", "maps_geo"])
+        details = result.data["error_details"]
+        self.assertEqual(details["place_name"], "外滩")
+        self.assertEqual(details["candidate_argument"], "destination_candidate")
+        self.assertEqual([candidate["district"] for candidate in details["candidates"]], ["浦东新区", "黄浦区"])
+        context = handler.format_llm_context(result)
+        self.assertIn(render_runtime_prompt("amap.place_anchor_ambiguous"), context)
+
+        handler, executor = build_handler(
+            "route_compare",
+            {
+                "maps_geo": [mcp_payload({"geocodes": station}), mcp_payload({"geocodes": bund})],
+                "maps_direction_driving": [mcp_payload({"paths": [{"distance": "25000", "duration": "2100"}]})],
+            },
+        )
+        result = await handler.execute(
+            route_compare_args(
+                {
+                    "origin": "上海虹桥火车站",
+                    "destination": "外滩",
+                    "destination_city": "上海",
+                    "destination_candidate": 2,
+                    "modes": ["driving"],
+                }
+            )
+        )
+        self.assertEqual(result.status, "success")
+        self.assertEqual(executor.calls[2][0], "maps_direction_driving")
+        self.assertEqual(executor.calls[2][2]["destination"], "121.492308,31.233383")
+
+    async def test_route_candidate_choice_requires_named_endpoint(self):
+        handler, executor = build_handler("route_compare", {})
+        result = await handler.execute(
+            route_compare_args({"origin": "当前位置", "destination": "外滩", "origin_candidate": 1})
+        )
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.data["error_code"], "invalid_arguments")
+        self.assertEqual(executor.calls, [])
 
     async def test_transit_uses_geocode_cities_while_input_cities_only_disambiguate_geo(self):
         handler, executor = build_handler(
