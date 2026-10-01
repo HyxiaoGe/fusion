@@ -96,8 +96,13 @@ _ADCODE_PATTERN = re.compile(r"^\d{6}$")
 WEATHER_REGION_UNSUPPORTED_ERROR_CODE = "weather_region_unsupported"
 AMAP_WEATHER_REGION_UNSUPPORTED_MESSAGE = "高德天气服务未覆盖该地区，无法取得当地预报"
 _WEATHER_UNSUPPORTED_ADCODE_PREFIXES = ("71", "81", "82")  # 台湾、香港、澳门
+# 地点搜索的锚点地名对应多处分散位置。与上游故障分开报，模型才知道补城市或换更具体
+# 的地名能解决，而不是反复重试同一组参数。
+PLACE_ANCHOR_AMBIGUOUS_ERROR_CODE = "ambiguous_location"
+AMAP_PLACE_ANCHOR_AMBIGUOUS_MESSAGE = "地点名称对应多个位置，需要补充城市或更具体的地点"
 _PRODUCT_FAILURE_MESSAGES = {
     WEATHER_REGION_UNSUPPORTED_ERROR_CODE: AMAP_WEATHER_REGION_UNSUPPORTED_MESSAGE,
+    PLACE_ANCHOR_AMBIGUOUS_ERROR_CODE: AMAP_PLACE_ANCHOR_AMBIGUOUS_MESSAGE,
 }
 _SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 _WEATHER_CACHE_MAX_AGE = timedelta(minutes=30)
@@ -589,11 +594,14 @@ class AmapProductToolHandler(BaseToolHandler):
                 {"address": normalized["near"], **({"city": normalized["city"]} if normalized.get("city") else {})},
                 stats,
             )
-            anchor = _extract_geo(
+            resolution = _resolve_geo(
                 geo_payload,
                 label=normalized["near"],
                 requested_city=normalized.get("city"),
             )
+            if resolution.ambiguous:
+                raise McpClientError(PLACE_ANCHOR_AMBIGUOUS_ERROR_CODE, AMAP_PLACE_ANCHOR_AMBIGUOUS_MESSAGE)
+            anchor = resolution.anchor
             if anchor is None:
                 raise McpClientError("invalid_response", MCP_TOOL_UNAVAILABLE_MESSAGE)
             search_payload = await self._call(
@@ -1223,6 +1231,11 @@ class AmapProductToolHandler(BaseToolHandler):
                     failure_contract = render_runtime_prompt("amap.weather_region_unsupported")
                 else:
                     failure_contract = render_runtime_prompt("amap.weather_unavailable")
+            elif (
+                self.tool_name == AMAP_LOCAL_PLACE_SEARCH
+                and result.data.get("error_code") == PLACE_ANCHOR_AMBIGUOUS_ERROR_CODE
+            ):
+                failure_contract = render_runtime_prompt("amap.place_anchor_ambiguous")
             elif self.tool_name in {AMAP_LOCAL_PLACE_SEARCH, AMAP_ROUTE_COMPARE}:
                 failure_contract = render_runtime_prompt("amap.place_route_unavailable")
             else:
@@ -1608,6 +1621,28 @@ def _extract_geo(
     requested_city: str | None,
     preferred_city: str | None = None,
 ) -> dict[str, Any] | None:
+    return _resolve_geo(
+        payload,
+        label=label,
+        requested_city=requested_city,
+        preferred_city=preferred_city,
+    ).anchor
+
+
+@dataclass(frozen=True)
+class _GeoResolution:
+    anchor: dict[str, Any] | None = None
+    # 有多个彼此分散的候选（跨城同名，或同城多处同名道路），补城市或更具体地名可解。
+    ambiguous: bool = False
+
+
+def _resolve_geo(
+    payload: Any,
+    *,
+    label: str,
+    requested_city: str | None,
+    preferred_city: str | None = None,
+) -> _GeoResolution:
     candidates: list[dict[str, Any]] = []
     for node in _structured_data_roots(payload):
         for list_key in ("geocodes", "results"):
@@ -1630,22 +1665,24 @@ def _extract_geo(
         if requested_city:
             candidate_city = candidate.get("city")
             if not candidate_city or not _city_matches(requested_city, candidate_city):
-                return None
-        return candidate
+                return _GeoResolution()
+        return _GeoResolution(anchor=candidate)
     selection_city = requested_city or preferred_city
     if selection_city:
         candidates = [candidate for candidate in candidates if _city_matches(selection_city, candidate.get("city"))]
     if len(candidates) == 1:
-        return candidates[0]
+        return _GeoResolution(anchor=candidates[0])
+    if not candidates:
+        return _GeoResolution()
     # 高德对商圈、道路常返回同一地点的多个入口或 POI（如「成都太古里」10 个点彼此
     # 相距几百米）。候选都聚在一处时指的是同一个地方，取高德排序第一的即可；真正分散
     # 在不同位置的同名地点仍按歧义处理。
-    if candidates and _all_within_meters(
+    if _all_within_meters(
         [candidate["location"] for candidate in candidates],
         _GEO_SAME_PLACE_RADIUS_METERS,
     ):
-        return candidates[0]
-    return None
+        return _GeoResolution(anchor=candidates[0])
+    return _GeoResolution(ambiguous=True)
 
 
 def _all_within_meters(locations: list[str], radius_meters: float) -> bool:

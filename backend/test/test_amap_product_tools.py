@@ -10,6 +10,7 @@ from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.schemas.chat import WeatherResultsBlock
 from app.services.agent.context_broker import Geolocation
 from app.services.mcp.amap_product_tools import (
+    AMAP_PLACE_ANCHOR_AMBIGUOUS_MESSAGE,
     AMAP_PRODUCT_DEFINITIONS,
     AMAP_PRODUCT_REMOTE_DEPENDENCIES,
     AMAP_WEATHER_REGION_UNSUPPORTED_MESSAGE,
@@ -1778,6 +1779,7 @@ class AmapLocalPlaceSearchTests(unittest.IsolatedAsyncioTestCase):
                     {"location": "116.407,39.904", "city": "北京市"},
                     {"location": "114.031,22.616", "city": "深圳市"},
                 ],
+                "ambiguous_location",
             ),
             (
                 {"query": "烤肉", "near": "民治", "city": "深圳"},
@@ -1785,13 +1787,15 @@ class AmapLocalPlaceSearchTests(unittest.IsolatedAsyncioTestCase):
                     {"location": "114.031,22.616", "city": "深圳市"},
                     {"location": "114.057,22.543", "city": "深圳市"},
                 ],
+                "ambiguous_location",
             ),
             (
                 {"query": "烤肉", "near": "民治", "city": "深圳"},
                 [{"location": "121.473,31.230", "city": "上海市"}],
+                "invalid_response",
             ),
         )
-        for args, candidates in cases:
+        for args, candidates, expected_error_code in cases:
             handler, executor = build_handler(
                 "local_place_search",
                 {"maps_geo": [mcp_payload({"results": candidates})]},
@@ -1799,7 +1803,7 @@ class AmapLocalPlaceSearchTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(args=args, candidates=candidates):
                 result = await handler.execute(local_search_args(args))
                 self.assertEqual(result.status, "failed")
-                self.assertEqual(result.data["error_code"], "invalid_response")
+                self.assertEqual(result.data["error_code"], expected_error_code)
                 self.assertEqual([call[0] for call in executor.calls], ["maps_geo"])
 
     async def test_geocode_city_selects_one_candidate_and_ambiguous_candidates_fail_closed(self):
@@ -1851,8 +1855,12 @@ class AmapLocalPlaceSearchTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(city=city):
                 ambiguous_result = await ambiguous_handler.execute(local_search_args(args))
                 self.assertEqual(ambiguous_result.status, "failed")
-                self.assertEqual(ambiguous_result.data["error_code"], "invalid_response")
+                self.assertEqual(ambiguous_result.data["error_code"], "ambiguous_location")
+                self.assertEqual(ambiguous_result.error_message, AMAP_PLACE_ANCHOR_AMBIGUOUS_MESSAGE)
+                self.assertNotIn("repair", ambiguous_result.data)
                 self.assertEqual([call[0] for call in ambiguous_executor.calls], ["maps_geo"])
+                context = ambiguous_handler.format_llm_context(ambiguous_result)
+                self.assertEqual(context, render_runtime_prompt("amap.place_anchor_ambiguous"))
 
         mismatched_handler, mismatched_executor = build_handler(
             "local_place_search",
