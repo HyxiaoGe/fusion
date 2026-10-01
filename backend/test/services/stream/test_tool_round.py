@@ -2706,3 +2706,31 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
             if call.kwargs["evidence"]["status"] == "selected"
         ]
         self.assertEqual(selected_events, [])
+
+
+class PendingPlaceChoiceTests(unittest.TestCase):
+    def test_only_ambiguous_failure_with_candidates_becomes_place_choice(self):
+        from app.services.stream.tool_round import _pending_place_choice
+
+        details = {"place_name": "外滩", "candidates": [{"candidate": 1}, {"candidate": 2}]}
+        ambiguous = ToolResult(status="failed", data={"error_code": "ambiguous_location", "error_details": details})
+        self.assertEqual(_pending_place_choice(ambiguous), details)
+        for result in (
+            ToolResult(status="success", data={"error_code": "ambiguous_location", "error_details": details}),
+            ToolResult(status="failed", data={"error_code": "invalid_response", "error_details": details}),
+            ToolResult(status="failed", data={"error_code": "ambiguous_location"}),
+            ToolResult(
+                status="failed",
+                data={"error_code": "ambiguous_location", "error_details": {"place_name": "外滩", "candidates": []}},
+            ),
+            ToolResult(
+                status="failed",
+                data={
+                    "error_code": "ambiguous_location",
+                    "error_details": details,
+                    "repair": {"requires_user_input": True},
+                },
+            ),
+        ):
+            with self.subTest(result=result):
+                self.assertIsNone(_pending_place_choice(result))

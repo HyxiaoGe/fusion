@@ -755,7 +755,11 @@ async def handle_tool_calls_round(*, request: ToolRoundRequest) -> ToolRoundOutc
     executed_results = [record for record in results if not record.reused]
     if request.agent_state is not None:
         for record in executed_results:
-            request.agent_state.record_tool_outcome(record.tool_name, record.result.status)
+            request.agent_state.record_tool_outcome(
+                record.tool_name,
+                record.result.status,
+                place_choice=_pending_place_choice(record.result),
+            )
             request.agent_state.recovery_evidence.record_result(record.tool_name, record.result)
     executed_count = _actual_tool_execution_count(executable_tool_calls, results)
     has_successful_tool_progress = any(not record.reused and record.result.status == "success" for record in results)
@@ -920,6 +924,21 @@ def _plan_item_statuses_from_results(
 
     del agent_state
     return _plan_item_statuses_from_batch(results)
+
+
+def _pending_place_choice(result: Any) -> dict[str, Any] | None:
+    """地名歧义失败且带候选时返回待用户选择的候选；修参通道（如天气）不走这里。"""
+
+    data = getattr(result, "data", None)
+    if getattr(result, "status", None) != "failed" or not isinstance(data, dict) or "repair" in data:
+        return None
+    details = data.get("error_details")
+    if data.get("error_code") != "ambiguous_location" or not isinstance(details, dict):
+        return None
+    candidates = details.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        return None
+    return details
 
 
 def _record_tool_repairs(

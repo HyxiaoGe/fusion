@@ -202,6 +202,24 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
             await handle_agent_round_outcome(request=self.request(state))
         self.assertFalse(state.tool_recovery_prompted)
 
+    async def test_place_choice_does_not_trigger_search_recovery(self):
+        state = AgentLoopState(product_tool_attempted=True)
+        state.record_tool_outcome(
+            "route_compare",
+            "failed",
+            place_choice={"place_name": "外滩", "candidates": [{"candidate": 1}, {"candidate": 2}]},
+        )
+        self.assertEqual(state.tool_issue_names, set())
+        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()):
+            await handle_agent_round_outcome(request=self.request(state))
+        self.assertFalse(state.tool_recovery_prompted)
+
+    def test_later_success_clears_pending_place_choice(self):
+        state = AgentLoopState(product_tool_attempted=True)
+        state.record_tool_outcome("route_compare", "failed", place_choice={"place_name": "外滩", "candidates": [{}]})
+        state.record_tool_outcome("route_compare", "success")
+        self.assertEqual(state.pending_place_choices, {})
+
     async def test_failed_mcp_round_defers_output_before_deciding_recovery(self):
         from app.services.stream.agent_loop_driver import _run_round
 

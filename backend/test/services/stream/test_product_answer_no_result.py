@@ -26,6 +26,7 @@ async def capture_product_answer_case(
     internal_entry: bool = False,
     tool_failed: bool = False,
     pending_repair: bool = False,
+    place_choice: bool = False,
 ) -> dict:
     state = AgentLoopState(product_tool_attempted=attempted)
     state.content_blocks.append(ThinkingBlock(type="thinking", thinking="正在整理本次结果。"))
@@ -43,6 +44,8 @@ async def capture_product_answer_case(
         )
     if tool_failed:
         state.record_tool_outcome("local_place_search", "failed")
+    if place_choice:
+        state.record_tool_outcome("route_compare", "failed", place_choice=_BUND_CHOICE)
     if pending_repair:
         state.pending_tool_repairs["repair-protocol"] = {"required_fields": [], "retryable": False}
     state.mark_current_step("step-no-result")
@@ -101,7 +104,36 @@ async def capture_product_answer_case(
     }
 
 
+_BUND_CHOICE = {
+    "place_name": "外滩",
+    "candidate_argument": "destination_candidate",
+    "candidates": [
+        {
+            "candidate": 1,
+            "city": "上海市",
+            "district": "浦东新区",
+            "level": "住宅区",
+            "location": "121.497253,31.238235",
+        },
+        {"candidate": 2, "city": "上海市", "district": "黄浦区", "level": "兴趣点", "location": "121.492308,31.233383"},
+    ],
+}
+
+
 class ProductAnswerNoResultTests(unittest.IsolatedAsyncioTestCase):
+    async def test_pending_place_choice_asks_user_with_candidates_instead_of_failure_answer(self):
+        result = await capture_product_answer_case(attempted=True, place_choice=True)
+        self.assertEqual(
+            result["answer"],
+            "「外滩」在地图上对应多个地点：\n1. 上海市浦东新区（类型：住宅区）\n2. 上海市黄浦区（类型：兴趣点）\n\n"
+            "请告诉我你指的是哪一个，或提供更具体的地址、所在区或附近地标；确认之前我不会猜测地点，也不会给出对应的地点或路线结果。",
+        )
+        self.assertNotIn("121.49", result["answer"])
+        self.assertFalse(result["unknown_terminated"])
+        self.assertFalse(result["model_output_visible"])
+        self.assertEqual(result["exit"], "completed")
+        self.assertEqual(result["stored_text"], [result["answer"]])
+
     def test_validator_rejects_answer_without_any_product_result_blocks(self):
         # 钉死产品提交提前返回的前提：普通非空候选不能在没有产品结果时通过校验。
         cases = (
@@ -124,6 +156,11 @@ class ProductAnswerNoResultTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(result["answer"], result["candidate"])
         self.assertNotIn("| --- |", result["answer"])
         self.assertEqual(result["stored_text"], [result["answer"]])
+
+    async def test_pending_place_choice_does_not_override_other_product_results(self):
+        result = await capture_product_answer_case(attempted=True, product_result=True, place_choice=True)
+        self.assertNotIn("对应多个地点", result["answer"])
+        self.assertEqual(result["validation_calls"], 1)
 
     async def test_thinking_only_without_product_attempt_stays_on_ordinary_path(self):
         result = await capture_product_answer_case(attempted=False)
