@@ -40,6 +40,7 @@ from app.services.stream.product_answer_observability import (
 from app.services.stream.product_answer_validator import validate_product_answer
 from app.services.stream.product_result_answer import (
     build_grounded_product_answer,
+    build_place_choice_clarification,
     build_product_tool_failure_answer,
     build_tool_repair_clarification,
     has_product_result_blocks,
@@ -575,6 +576,17 @@ async def _complete_text_round(request: AgentRoundOutcomeRequest) -> None:
     )
 
 
+def _build_user_clarification(state: AgentLoopState) -> str:
+    # 同一轮已有其他产品结果时按正常校验交付模型回答，不用地名确认覆盖已查到的内容。
+    place_choice = (
+        ""
+        if has_product_result_blocks(state.content_blocks)
+        else build_place_choice_clarification(state.pending_place_choices)
+    )
+    parts = (build_tool_repair_clarification(state.pending_tool_repairs), place_choice)
+    return "\n\n".join(part for part in parts if part)
+
+
 async def _commit_deferred_answer(
     request: AgentRoundOutcomeRequest,
 ) -> AgentRoundOutcomeRequest:
@@ -586,7 +598,7 @@ async def _commit_deferred_answer(
     if request.terminal and request.state.limit_reason is not None:
         return await _commit_terminal_product_answer(request)
 
-    clarification = build_tool_repair_clarification(request.state.pending_tool_repairs)
+    clarification = _build_user_clarification(request.state)
     if clarification:
         grounded_answer = build_grounded_product_answer(
             request.state.content_blocks,
@@ -655,7 +667,7 @@ async def _commit_terminal_product_answer(request: AgentRoundOutcomeRequest) -> 
     answer = build_grounded_product_answer(request.state.content_blocks, messages=request.messages)
     if not answer:
         answer = build_product_tool_failure_answer(request.messages)
-    clarification = build_tool_repair_clarification(request.state.pending_tool_repairs)
+    clarification = _build_user_clarification(request.state)
     pending_items = request.state.plan_coordinator.pending_execution_items()
     incomplete = ""
     if pending_items:

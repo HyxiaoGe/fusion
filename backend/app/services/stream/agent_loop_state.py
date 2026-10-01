@@ -75,18 +75,30 @@ class AgentLoopState:
     attempted_tool_names: set[str] = field(default_factory=set)
     successful_tool_names: set[str] = field(default_factory=set)
     tool_recovery_prompted: bool = False
+    pending_place_choices: dict[str, dict[str, Any]] = field(default_factory=dict)
     recovery_evidence: RecoveryEvidenceWorkset = field(default_factory=RecoveryEvidenceWorkset)
     tool_discovery: Any = None
 
-    def record_tool_outcome(self, tool_name: str, status: str) -> None:
+    def record_tool_outcome(
+        self,
+        tool_name: str,
+        status: str,
+        *,
+        place_choice: dict[str, Any] | None = None,
+    ) -> None:
         """累计各类执行结果；一次成功不能抹掉其他调用的失败或降级。"""
         self.attempted_tool_names.add(tool_name)
+        if place_choice is not None:
+            # 地名对应多个候选、等用户选择：不是工具故障，不触发替代工具恢复或失败兜底。
+            self.pending_place_choices[tool_name] = place_choice
+            return
         if status == "failed":
             self.failed_tool_names.add(tool_name)
         elif status == "degraded":
             self.degraded_tool_names.add(tool_name)
         elif status == "success":
             self.successful_tool_names.add(tool_name)
+            self.pending_place_choices.pop(tool_name, None)
 
     @property
     def tool_issue_names(self) -> set[str]:

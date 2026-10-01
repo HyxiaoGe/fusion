@@ -361,6 +361,37 @@ def build_tool_repair_clarification(pending_repairs: dict[str, dict[str, Any]] |
     return ""
 
 
+def build_place_choice_clarification(pending_place_choices: dict[str, dict[str, Any]] | None) -> str:
+    """地名对应多个候选时，按工具返回的候选生成确定性说明并请用户选择，不替用户猜。"""
+
+    paragraphs: list[str] = []
+    for choice in (pending_place_choices or {}).values():
+        if not isinstance(choice, dict):
+            continue
+        place_name = choice.get("place_name")
+        candidates = choice.get("candidates")
+        if not isinstance(place_name, str) or not place_name or not isinstance(candidates, list):
+            continue
+        lines: list[str] = []
+        for index, candidate in enumerate(candidates[:5], start=1):
+            if not isinstance(candidate, dict):
+                continue
+            area = "".join(
+                value for key in ("city", "district") if isinstance(value := candidate.get(key), str) and value
+            )
+            level = candidate.get("level")
+            kind = f"（类型：{level}）" if isinstance(level, str) and level else ""
+            lines.append(f"{index}. {area or '未标注区域'}{kind}")
+        if lines:
+            paragraphs.append(f"「{place_name}」在地图上对应多个地点：\n" + "\n".join(lines))
+    if not paragraphs:
+        return ""
+    paragraphs.append(
+        "请告诉我你指的是哪一个，或提供更具体的地址、所在区或附近地标；确认之前我不会猜测地点，也不会给出对应的地点或路线结果。"
+    )
+    return "\n\n".join(paragraphs)
+
+
 def _has_unavailable_geolocation_context(messages: list[dict[str, Any]]) -> bool:
     for message in reversed(messages):
         if message.get("role") != "tool" or not isinstance(message.get("content"), str):
