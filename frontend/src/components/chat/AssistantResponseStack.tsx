@@ -1,7 +1,7 @@
 'use client';
 
 import { memo } from 'react';
-import type { SearchSourceSummary, StructuredToolResultBlock } from '@/types/conversation';
+import type { DocumentBlock, SearchSourceSummary, StructuredToolResultBlock } from '@/types/conversation';
 import type { AgentRunState } from '@/types/agentRun';
 import type { TrajectoryRunSummary } from '@/types/trajectory';
 import type { TrajectoryBadgeStatus } from '@/lib/trajectory/TrajectoryCellProjection';
@@ -13,6 +13,7 @@ import type { AnswerEvidenceModel } from './answerEvidenceModel';
 import type { AnswerEvidenceSidebarModel } from './answerEvidenceSidebarModel';
 import MarkdownRenderer from './MarkdownRenderer';
 import StructuredToolResults from './StructuredToolResults';
+import DocumentCards from '@/components/documents/DocumentCards';
 import TrajectoryStatusLine from './trajectory/TrajectoryStatusLine';
 
 interface AssistantResponseStackProps {
@@ -33,6 +34,7 @@ interface AssistantResponseStackProps {
   answerEvidence: AnswerEvidenceModel | null;
   structuredResults?: StructuredToolResultBlock[];
   structuredResultsLoading?: boolean;
+  documentBlocks?: DocumentBlock[];
   onStructuredResultFollowUp?: (question: string) => void;
   answerEvidenceSidebar?: AnswerEvidenceSidebarModel | null;
   onSourceClick: (index: number) => void;
@@ -45,6 +47,8 @@ interface AssistantResponseStackProps {
   showStreamingCursor: boolean;
 }
 
+const EMPTY_DOCUMENT_BLOCKS: DocumentBlock[] = [];
+
 function AssistantResponseStack({
   reasoning,
   activity,
@@ -55,6 +59,7 @@ function AssistantResponseStack({
   answerEvidence,
   structuredResults = [],
   structuredResultsLoading = false,
+  documentBlocks = EMPTY_DOCUMENT_BLOCKS,
   onStructuredResultFollowUp,
   answerEvidenceSidebar,
   onSourceClick,
@@ -101,6 +106,8 @@ function AssistantResponseStack({
         isLoading={structuredResultsLoading}
         onFollowUp={onStructuredResultFollowUp}
       />
+
+      <DocumentCards blocks={documentBlocks} />
 
       <div className="w-full max-w-6xl">
         <AnswerEvidence

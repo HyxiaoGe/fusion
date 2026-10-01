@@ -114,6 +114,7 @@ describe('contentBlockRegistry', () => {
       { type: 'search', schemaVersion: null },
       { type: 'url_read', schemaVersion: null },
       { type: 'knowledge_evidence', schemaVersion: 1 },
+      { type: 'document', schemaVersion: 1 },
       { type: 'place_results', schemaVersion: 1 },
       { type: 'route_results', schemaVersion: 1 },
       { type: 'flight_results', schemaVersion: 1 },
@@ -771,5 +772,25 @@ describe('contentBlockRegistry', () => {
       day_count: 3,
       status: 'degraded',
     }));
+  });
+
+  it('decodes document blocks and rejects malformed ones', () => {
+    const payload = {
+      type: 'document',
+      id: 'blk-doc',
+      schema_version: 1,
+      document_id: 'doc-1',
+      version: 2,
+      title: '香港攻略',
+      format: 'markdown',
+      operation: 'edited',
+      change_summary: 'D1 改去中环',
+      char_count: 1200,
+      tool_call_log_id: 'log-1',
+    };
+    expect(normalizeContentBlock(payload)).toEqual(payload);
+    expect(normalizeContentBlock({ ...payload, version: 0 })).toMatchObject({ type: 'unsupported_result' });
+    expect(normalizeContentBlock({ ...payload, format: 'html' })).toMatchObject({ type: 'unsupported_result' });
+    expect(normalizeContentBlock({ ...payload, schema_version: 2 })).toMatchObject({ type: 'unsupported_result' });
   });
 });

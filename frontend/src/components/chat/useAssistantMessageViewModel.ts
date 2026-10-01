@@ -7,6 +7,7 @@ import { selectStreamContentBlocks, selectStreamSlot } from '@/redux/slices/stre
 import type { AgentRunState } from '@/types/agentRun';
 import type {
   ContentBlock,
+  DocumentBlock,
   KnowledgeEvidenceBlock,
   Message,
   SearchBlock,
@@ -50,6 +51,7 @@ export interface AssistantMessageViewModel {
   knowledgeBlocks: KnowledgeEvidenceBlock[];
   structuredResults: StructuredToolResultBlock[];
   rawStructuredResults?: StructuredToolResultBlock[];
+  documentBlocks?: DocumentBlock[];
   displayText: string;
   displayThinking: string;
   suppressThinking: boolean;
@@ -109,6 +111,7 @@ export function deriveStaticAssistantMessageViewModel({
   const displayThinking = extractThinkingFromBlocks(blocksToRender);
   const structuredResults = collectStructuredToolResultBlocks(blocksToRender);
   const rawStructuredResults = blocksToRender.filter(isStructuredToolResultBlock);
+  const documentBlocks = collectDocumentBlocks(blocksToRender);
   const suppressThinking = activity.shouldSuppressReasoning;
 
   return {
@@ -121,6 +124,7 @@ export function deriveStaticAssistantMessageViewModel({
     knowledgeBlocks,
     structuredResults,
     rawStructuredResults,
+    documentBlocks,
     displayText,
     displayThinking,
     suppressThinking,
@@ -253,6 +257,7 @@ export function useAssistantMessageViewModel({
     () => blocksToRender.filter(isStructuredToolResultBlock),
     [blocksToRender],
   );
+  const documentBlocks = useMemo(() => collectDocumentBlocks(blocksToRender), [blocksToRender]);
   const suppressThinking = activity.shouldSuppressReasoning;
   const hasThinking = !suppressThinking && displayThinking.length > 0;
 
@@ -266,6 +271,7 @@ export function useAssistantMessageViewModel({
     knowledgeBlocks,
     structuredResults,
     rawStructuredResults,
+    documentBlocks,
     displayText,
     displayThinking,
     suppressThinking,
@@ -279,6 +285,10 @@ export function useAssistantMessageViewModel({
 
 function collectSearchBlocks(contentBlocks: ContentBlock[]): SearchBlock[] {
   return contentBlocks.filter((block): block is SearchBlock => block.type === 'search');
+}
+
+function collectDocumentBlocks(contentBlocks: ContentBlock[]): DocumentBlock[] {
+  return contentBlocks.filter((block): block is DocumentBlock => block.type === 'document');
 }
 
 function collectKnowledgeEvidenceBlocks(contentBlocks: ContentBlock[]): KnowledgeEvidenceBlock[] {

@@ -1,0 +1,93 @@
+.panel {
+  border-left: 1px solid var(--border);
+  background: var(--background);
+  box-shadow: -12px 0 36px -18px rgb(15 23 42 / 20%);
+}
+
+.header {
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 75%, transparent);
+  background: var(--bg-elevated);
+}
+
+.body {
+  background: var(--background);
+  overscroll-behavior: contain;
+}
+
+.iconButton {
+  display: flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--muted-foreground);
+  transition: background var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard);
+}
+.iconButton:hover {
+  border-color: var(--border);
+  background: var(--bg-subtle);
+  color: var(--foreground);
+}
+
+.actionButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+  padding: 0.25rem 0.625rem;
+  color: var(--fg-secondary);
+  font-size: 12px;
+}
+.actionButton:hover:not(:disabled) { color: var(--foreground); border-color: var(--border-strong); }
+.actionButton:disabled { opacity: 0.5; cursor: not-allowed; }
+.iconButton:focus-visible,
+.actionButton:focus-visible,
+.versionSelect:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+}
+
+.versionSelect {
+  max-width: 220px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  padding: 0.25rem 0.5rem;
+  color: var(--foreground);
+  font-size: 12px;
+}
+
+.error {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--danger);
+  font-size: 14px;
+}
+
+.sources {
+  margin-top: 2rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.sources h2 {
+  margin: 0 0 0.5rem;
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 600;
+}
+.sources ul {
+  margin: 0;
+  padding-left: 1.25rem;
+  list-style: disc;
+}
+.sources a { color: var(--info); text-decoration: underline; text-underline-offset: 3px; }
+
+:global(.dark) .panel { box-shadow: -12px 0 36px -18px rgb(0 0 0 / 55%); }

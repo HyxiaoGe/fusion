@@ -182,6 +182,7 @@ function AssistantMessageFrame({
     knowledgeBlocks,
     structuredResults,
     rawStructuredResults,
+    documentBlocks,
     displayText,
     displayThinking,
     suppressThinking,
@@ -324,6 +325,7 @@ function AssistantMessageFrame({
             answerEvidence={answerEvidence}
             structuredResults={renderableStructuredResults}
             structuredResultsLoading={isCurrentMessageStreaming}
+            documentBlocks={documentBlocks}
             onStructuredResultFollowUp={
               isLastMessage && !isCurrentMessageStreaming ? onSelectQuestion : undefined
             }

@@ -135,6 +135,21 @@ export interface KnowledgeEvidenceBlock {
   source_refs: KnowledgeSourceReference[];
 }
 
+/** 模型通过 create_document / edit_document 产出的交付物文档引用；正文按版本经文档接口读取。 */
+export interface DocumentBlock {
+  type: 'document';
+  id: string;
+  schema_version: 1;
+  document_id: string;
+  version: number;
+  title: string;
+  format: 'markdown';
+  operation: 'created' | 'edited';
+  change_summary: string | null;
+  char_count: number;
+  tool_call_log_id?: string;
+}
+
 export interface ProviderPlacePhoto {
   url?: string;
   title?: string | null;
@@ -426,6 +441,7 @@ export type ContentBlock =
   | SearchBlock
   | UrlBlock
   | KnowledgeEvidenceBlock
+  | DocumentBlock
   | StructuredToolResultBlock;
 
 // ============================================================
