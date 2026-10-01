@@ -34,6 +34,16 @@ def entry_to_sse_envelope(entry_fields: dict) -> dict:
         for k in ("run_id", "step_id"):
             if k in entry_fields:
                 data[k] = entry_fields[k]
+    elif chunk_type == "document_draft":
+        # 文档草稿：工具参数里的正文片段，仅供实时预览，权威内容以落库后的 document 内容块为准
+        try:
+            parsed = json.loads(content) if content else {}
+        except (ValueError, TypeError):
+            parsed = {}
+        data = parsed if isinstance(parsed, dict) else {}
+        for k in ("run_id", "step_id"):
+            if k in entry_fields:
+                data[k] = entry_fields[k]
     elif chunk_type == "thinking_pending":
         # 思考中占位事件：FE 用来显示脉冲动画
         data = {"block_id": block_id}

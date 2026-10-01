@@ -114,6 +114,8 @@ class LLMStreamRequest:
     on_visible_output: Callable[[str], Awaitable[None]] | None = None
     on_output_candidate: Callable[[str, float | None], None] | None = None
     capture_output_candidate_time: Callable[[], float | None] | None = None
+    # 工具调用参数片段（index, name, arguments 片段）的旁路观察者，用于文档草稿预览；不影响累积结果。
+    on_tool_call_delta: Callable[[int, str | None, str], Awaitable[None]] | None = None
 
 
 @dataclass
@@ -303,6 +305,20 @@ def accumulate_tool_calls(tool_calls_acc: dict[int, dict], delta) -> None:
             tool_calls_acc[idx]["name"] = tool_call.function.name
         if tool_call.function and tool_call.function.arguments:
             tool_calls_acc[idx]["arguments"] += tool_call.function.arguments
+
+
+async def notify_tool_call_deltas(
+    observer: Callable[[int, str | None, str], Awaitable[None]],
+    delta,
+) -> None:
+    if not has_tool_call_delta(delta):
+        return
+    for tool_call in delta.tool_calls:
+        idx = tool_call.index if getattr(tool_call, "index", None) is not None else 0
+        function = getattr(tool_call, "function", None)
+        name = getattr(function, "name", None) if function is not None else None
+        arguments = getattr(function, "arguments", None) if function is not None else None
+        await observer(idx, name or None, arguments or "")
 
 
 def extract_reasoning_delta(delta, should_use_reasoning: bool) -> str:
@@ -791,6 +807,8 @@ async def process_stream_choice(*, request: LLMStreamRequest, state: LLMStreamSt
     accumulate_tool_calls(state.tool_calls_acc, delta)
     if getattr(delta, "tool_calls", None) and request.on_output_candidate is not None:
         request.on_output_candidate("tool_call", candidate_time)
+    if request.on_tool_call_delta is not None:
+        await notify_tool_call_deltas(request.on_tool_call_delta, delta)
     raw_reasoning_delta = extract_reasoning_delta(delta, request.should_use_reasoning)
     content_delta = extract_content_delta(delta, raw_reasoning_delta)
     previous_content_candidate = _final_content_candidate(state)
@@ -912,6 +930,7 @@ async def stream_round(
     on_visible_output: Callable[[str], Awaitable[None]] | None = None,
     on_output_candidate: Callable[[str, float | None], None] | None = None,
     capture_output_candidate_time: Callable[[], float | None] | None = None,
+    on_tool_call_delta: Callable[[int, str | None, str], Awaitable[None]] | None = None,
 ) -> tuple[str, str, list[dict], str, Optional[Usage]]:
     """
     通用 LLM 流式响应处理。
@@ -940,6 +959,7 @@ async def stream_round(
             on_visible_output=on_visible_output,
             on_output_candidate=on_output_candidate,
             capture_output_candidate_time=capture_output_candidate_time,
+            on_tool_call_delta=on_tool_call_delta,
         ),
     )
     return StreamRoundTuple(

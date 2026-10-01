@@ -549,6 +549,12 @@
     }
   },
   "documents": {
+    "draft": {
+      "writing": "正在撰写",
+      "revising": "正在修订文档",
+      "untitled": "未命名文档",
+      "preview": "文档草稿实时预览"
+    },
     "card": {
       "created": "已创建",
       "edited": "已修改",

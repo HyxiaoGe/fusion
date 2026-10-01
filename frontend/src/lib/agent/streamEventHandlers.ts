@@ -1,6 +1,7 @@
 import { getRunStatusFromFinishReason } from '@/lib/agent/finishReason';
 import type { StreamCallbacks } from '@/lib/api/chat';
 import {
+  applyDocumentDraftDelta,
   applyPlanSnapshot,
   discardContentBlock,
   finalizeRun,
@@ -68,6 +69,20 @@ export function createAgentStreamEventHandlers({
       const conversationId = resolveTrajectoryConversationId?.(event);
       if (!trajectoryDispatch || !conversationId) return;
       trajectoryDispatch(mergeLiveTrajectoryEvent({ conversationId, event }));
+    },
+    onDocumentDraft: payload => {
+      if (!isActive()) return;
+      const conversationId = resolveConversationId();
+      if (!conversationId || !payload.run_id || !payload.draft_id || !payload.tool_name) return;
+      const field = payload.field === 'title' || payload.field === 'content' ? payload.field : undefined;
+      dispatch(applyDocumentDraftDelta({
+        conversationId,
+        runId: payload.run_id,
+        draftId: payload.draft_id,
+        toolName: payload.tool_name,
+        field,
+        delta: typeof payload.delta === 'string' ? payload.delta : undefined,
+      }));
     },
     onRunStarted: ev => {
       if (!isActive()) return;

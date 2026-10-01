@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 
 import { useAppSelector } from '@/redux/hooks';
 import { selectStreamContentBlocks, selectStreamSlot } from '@/redux/slices/streamSlice';
-import type { AgentRunState } from '@/types/agentRun';
+import type { AgentRunState, DocumentDraftState } from '@/types/agentRun';
 import type {
   ContentBlock,
   DocumentBlock,
@@ -52,6 +52,7 @@ export interface AssistantMessageViewModel {
   structuredResults: StructuredToolResultBlock[];
   rawStructuredResults?: StructuredToolResultBlock[];
   documentBlocks?: DocumentBlock[];
+  documentDraft?: DocumentDraftState | null;
   displayText: string;
   displayThinking: string;
   suppressThinking: boolean;
@@ -125,6 +126,7 @@ export function deriveStaticAssistantMessageViewModel({
     structuredResults,
     rawStructuredResults,
     documentBlocks,
+    documentDraft: null,
     displayText,
     displayThinking,
     suppressThinking,
@@ -258,6 +260,7 @@ export function useAssistantMessageViewModel({
     [blocksToRender],
   );
   const documentBlocks = useMemo(() => collectDocumentBlocks(blocksToRender), [blocksToRender]);
+  const documentDraft = isCurrentlyStreaming ? ownedRun?.documentDraft ?? null : null;
   const suppressThinking = activity.shouldSuppressReasoning;
   const hasThinking = !suppressThinking && displayThinking.length > 0;
 
@@ -272,6 +275,7 @@ export function useAssistantMessageViewModel({
     structuredResults,
     rawStructuredResults,
     documentBlocks,
+    documentDraft,
     displayText,
     displayThinking,
     suppressThinking,

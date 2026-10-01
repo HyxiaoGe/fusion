@@ -519,12 +519,30 @@ const streamSlice = createSlice({
       if (!run || run.runId !== runId || sequence <= run.lastSequence) return;
       run.lastSequence = sequence;
       run.protocolVersion = 2;
+      if (block.type === 'document') run.documentDraft = undefined;
       const index = state.staticBlocks.findIndex(existing => existing.id === block.id);
       if (index >= 0) {
         state.staticBlocks[index] = block;
       } else {
         state.staticBlocks.push(block);
       }
+    }),
+
+    // 草稿是临时预览流，不走 agent_event 序号；只认当前 run，新 draftId 覆盖旧草稿（失败重试会换新调用）。
+    applyDocumentDraftDelta: withSlot((state, action: PayloadAction<{ conversationId: string } & {
+      runId: string;
+      draftId: string;
+      toolName: string;
+      field?: 'title' | 'content';
+      delta?: string;
+    }>) => {
+      const run = state.currentRun;
+      const { runId, draftId, toolName, field, delta } = action.payload;
+      if (!run || run.runId !== runId) return;
+      if (!run.documentDraft || run.documentDraft.draftId !== draftId) {
+        run.documentDraft = { draftId, toolName, title: '', content: '' };
+      }
+      if (field && delta) run.documentDraft[field] += delta;
     }),
 
     pushStep: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; stepId: string; stepNumber: number; sequence: number }>) => {
@@ -964,6 +982,7 @@ export const {
   advanceTypewriter,
   appendTextDelta,
   appendThinkingDelta,
+  applyDocumentDraftDelta,
   applyPlanSnapshot,
   clearStreamError,
   clearCurrentRun,

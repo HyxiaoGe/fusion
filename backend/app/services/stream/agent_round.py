@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from inspect import Parameter, signature
@@ -16,13 +17,14 @@ from app.schemas.chat import ContextUsage, Usage
 from app.services.agent.llm_round_detail_recorder import LlmRoundDetailDraft
 from app.services.chat.context_manager import ContextManagementError, ContextPlan, prepare_context
 from app.services.chat.model_call_language_policy import finalize_model_call_language_policy
+from app.services.documents.draft_stream import DocumentDraftStreamer
 from app.services.stream.context_status import build_context_usage, emit_context_status
 from app.services.stream.llm_round_lifecycle import (
     LLMRoundLifecycle,
     accumulate_token_usage,
     round_tool_names,
 )
-from app.services.stream_state_service import StreamOwnershipLostError
+from app.services.stream_state_service import StreamOwnershipLostError, append_chunk
 from app.utils.prompt_fingerprint import fingerprint_system_messages
 
 
@@ -113,6 +115,7 @@ async def collect_agent_round_stream(
     on_output_candidate: Callable[..., None] | None = None,
     capture_output_candidate_time: Callable[[], float | None] | None = None,
     partial_output: dict[str, str] | None = None,
+    on_tool_call_delta: Callable[[int, str | None, str], Awaitable[None]] | None = None,
 ) -> StreamRoundResult:
     response = await llm_call_fn(
         litellm_model,
@@ -145,6 +148,8 @@ async def collect_agent_round_stream(
         stream_kwargs["capture_output_candidate_time"] = capture_output_candidate_time
     if partial_output is not None and _accepts_keyword(stream_round_fn, "partial_output"):
         stream_kwargs["partial_output"] = partial_output
+    if on_tool_call_delta is not None and _accepts_keyword(stream_round_fn, "on_tool_call_delta"):
+        stream_kwargs["on_tool_call_delta"] = on_tool_call_delta
     return await stream_round_fn(
         response,
         conversation_id,
@@ -154,6 +159,33 @@ async def collect_agent_round_stream(
         step_context.text_block_id,
         **stream_kwargs,
     )
+
+
+def _document_draft_observer(
+    tool_names: frozenset[str],
+    *,
+    conversation_id: str,
+    task_id: str,
+    run_id: str,
+    step_id: str,
+) -> Callable[[int, str | None, str], Awaitable[None]] | None:
+    """本轮公告了文档工具时，把其参数里的正文作为草稿流推给前端；草稿不落库，以工具执行结果为准。"""
+
+    if not tool_names:
+        return None
+
+    async def emit(payload: dict[str, Any]) -> None:
+        await append_chunk(
+            conversation_id,
+            "document_draft",
+            json.dumps(payload, ensure_ascii=False),
+            payload["draft_id"],
+            task_id=task_id,
+            run_id=run_id,
+            step_id=step_id,
+        )
+
+    return DocumentDraftStreamer(tool_names=tool_names, draft_id_prefix=step_id, emit=emit).on_tool_call_delta
 
 
 def _accepts_keyword(fn: Callable[..., Any], keyword: str) -> bool:
@@ -238,6 +270,7 @@ async def run_agent_round(
     defer_output: bool = False,
     allow_deferred_reasoning_output: bool = True,
     llm_round_detail_scheduler: Callable[[LlmRoundDetailDraft], Any] | None = None,
+    draft_tool_names: frozenset[str] = frozenset(),
 ) -> AgentRoundResult:
     finalized_messages = finalize_model_call_language_policy(messages)
     try:
@@ -327,6 +360,13 @@ async def run_agent_round(
             on_output_candidate=getattr(observation, "observe_output_candidate", None),
             capture_output_candidate_time=getattr(observation, "capture_output_candidate_time", None),
             partial_output=partial_output,
+            on_tool_call_delta=_document_draft_observer(
+                frozenset(draft_tool_names).intersection(round_tool_names(call_kwargs)),
+                conversation_id=conversation_id,
+                task_id=task_id,
+                run_id=run_id,
+                step_id=step_context.step_id,
+            ),
         )
     except asyncio.CancelledError as exc:
         if lifecycle is not None:

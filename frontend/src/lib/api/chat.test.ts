@@ -2222,3 +2222,44 @@ describe('getConversation', () => {
     );
   });
 });
+
+describe('document_draft chunk', () => {
+  beforeEach(() => {
+    fetchWithAuthMock.mockReset();
+  });
+
+  it('把文档草稿片段交给 onDocumentDraft，并不影响正文回调', async () => {
+    const draft = {
+      draft_id: 'step-1:0',
+      tool_name: 'create_document',
+      field: 'content',
+      delta: '# 第一天',
+      run_id: 'run-1',
+      step_id: 'step-1',
+    };
+    fetchWithAuthMock.mockResolvedValue(
+      createStreamResponse([
+        envelope('document_draft', draft),
+        envelope('done', {}),
+        'data: [DONE]\n\n',
+      ]),
+    );
+    const onDocumentDraft = vi.fn();
+    const onAnswering = vi.fn();
+
+    await sendMessageStream(
+      { model_id: 'g', message: '出一份攻略', conversation_id: 'conv-1' },
+      {
+        onReady: vi.fn(),
+        onReasoning: vi.fn(),
+        onAnswering,
+        onDocumentDraft,
+        onDone: vi.fn(),
+        onError: vi.fn(),
+      },
+    );
+
+    expect(onDocumentDraft).toHaveBeenCalledWith(draft);
+    expect(onAnswering).not.toHaveBeenCalled();
+  });
+});

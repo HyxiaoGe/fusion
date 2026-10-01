@@ -39,3 +39,27 @@
   color: var(--info);
   font-size: 12px;
 }
+
+.draftCard {
+  display: flex;
+  width: 100%;
+  max-width: 36rem;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  padding: 0.75rem 1rem;
+}
+
+.draftPreview {
+  width: 100%;
+  max-width: 48rem;
+  max-height: 22rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-subtle);
+  padding: 1rem 1.25rem;
+}
