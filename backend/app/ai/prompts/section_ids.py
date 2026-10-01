@@ -13,6 +13,8 @@ NO_VISION_FILE_BOUNDARY = "no_vision_file_boundary"
 VISIBLE_RESPONSE_LANGUAGE = "visible_response_language"
 KNOWLEDGE_GROUNDING = "knowledge_grounding"
 CONTINUATION_SYSTEM = "continuation_system"
+DOCUMENT_OUTPUT_CONTRACT = "document_output_contract"
+CURRENT_DOCUMENTS = "current_documents"
 
 PLAN_REQUIRED_REPAIR = "plan_required_repair"
 PLAN_EXECUTION_REPAIR = "plan_execution_repair"
@@ -35,6 +37,7 @@ TERMINAL_CONTROL_SECTION_IDS = frozenset(
         AGENT_PLAN_CONTROL,
         PLAN_REQUIRED_REPAIR,
         PLAN_EXECUTION_REPAIR,
+        DOCUMENT_OUTPUT_CONTRACT,
     }
 )
 

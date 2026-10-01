@@ -7,8 +7,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -28,6 +28,7 @@ from app.services.documents.service import (
     DocumentWriteContext,
     run_document_operation,
 )
+from app.services.documents.sources import document_sources_from_blocks
 from app.services.tool_handlers.base import BaseToolHandler, ToolResult
 
 CREATE_DOCUMENT_TOOL_NAME = "create_document"
@@ -44,8 +45,6 @@ class DocumentToolBinding:
     session_factory: Callable[[], Session]
     message_id: str | None = None
     run_id: str | None = None
-    # 执行时读取本 Run 已实际完成的工具结果，生成系统侧数据来源。
-    sources_provider: Callable[[], Sequence[DocumentSource]] = field(default=lambda: ())
 
     def write_context(self) -> DocumentWriteContext:
         return DocumentWriteContext(
@@ -54,13 +53,6 @@ class DocumentToolBinding:
             message_id=self.message_id,
             run_id=self.run_id,
         )
-
-    def collect_sources(self) -> list[DocumentSource]:
-        try:
-            return list(self.sources_provider())
-        except Exception as error:  # noqa: BLE001 — 来源采集失败不能阻断文档写入
-            logger.warning("文档数据来源采集失败: error_type=%s", type(error).__name__)
-            return []
 
 
 def build_create_document_tool() -> dict:
@@ -158,11 +150,18 @@ class _DocumentToolHandler(BaseToolHandler):
         return "document"
 
     async def execute(self, args: dict) -> ToolResult:
+        return await self._execute(args, sources=[])
+
+    async def execute_with_runtime_context(self, args: dict, runtime_context: Any) -> ToolResult:
+        # 数据来源只取本 Run 已投影的结构化工具结果；模型无法自报来源。
+        return await self._execute(args, sources=_collect_sources(runtime_context))
+
+    async def _execute(self, args: dict, *, sources: list[DocumentSource]) -> ToolResult:
         try:
             snapshot = await asyncio.to_thread(
                 run_document_operation,
                 self.binding.session_factory,
-                lambda service: self._run(service, args),
+                lambda service: self._run(service, args, sources),
             )
         except DocumentError as error:
             return ToolResult(
@@ -177,7 +176,7 @@ class _DocumentToolHandler(BaseToolHandler):
             )
         return ToolResult(status="success", data=_snapshot_data(snapshot, operation=self.operation))
 
-    def _run(self, service: DocumentService, args: dict) -> DocumentVersionSnapshot:
+    def _run(self, service: DocumentService, args: dict, sources: list[DocumentSource]) -> DocumentVersionSnapshot:
         raise NotImplementedError
 
     def build_content_block(self, result: ToolResult, block_id: str, log_id: str) -> DocumentBlock | None:
@@ -244,12 +243,12 @@ class CreateDocumentHandler(_DocumentToolHandler):
     def tool_name(self) -> str:
         return CREATE_DOCUMENT_TOOL_NAME
 
-    def _run(self, service: DocumentService, args: dict) -> DocumentVersionSnapshot:
+    def _run(self, service: DocumentService, args: dict, sources: list[DocumentSource]) -> DocumentVersionSnapshot:
         return service.create(
             self.binding.write_context(),
             title=args.get("title"),
             content=args.get("content"),
-            sources=self.binding.collect_sources(),
+            sources=sources,
         )
 
 
@@ -260,7 +259,7 @@ class EditDocumentHandler(_DocumentToolHandler):
     def tool_name(self) -> str:
         return EDIT_DOCUMENT_TOOL_NAME
 
-    def _run(self, service: DocumentService, args: dict) -> DocumentVersionSnapshot:
+    def _run(self, service: DocumentService, args: dict, sources: list[DocumentSource]) -> DocumentVersionSnapshot:
         return service.edit(
             self.binding.write_context(),
             document_id=args.get("document_id"),
@@ -268,7 +267,7 @@ class EditDocumentHandler(_DocumentToolHandler):
             content=args.get("content"),
             title=args.get("title"),
             change_summary=args.get("change_summary"),
-            sources=self.binding.collect_sources(),
+            sources=sources,
         )
 
 
@@ -277,6 +276,14 @@ def build_document_tool_handlers(binding: DocumentToolBinding) -> dict[str, Base
         CREATE_DOCUMENT_TOOL_NAME: CreateDocumentHandler(binding),
         EDIT_DOCUMENT_TOOL_NAME: EditDocumentHandler(binding),
     }
+
+
+def _collect_sources(runtime_context: Any) -> list[DocumentSource]:
+    try:
+        return document_sources_from_blocks(getattr(runtime_context, "content_blocks", ()) or ())
+    except Exception as error:  # noqa: BLE001 — 来源采集失败不能阻断文档写入
+        logger.warning("文档数据来源采集失败: error_type=%s", type(error).__name__)
+        return []
 
 
 def _parse_edits(value: Any) -> list[DocumentEdit] | None:

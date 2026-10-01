@@ -34,6 +34,8 @@ NetworkPolicy = Literal["allow", "no_web_search", "no_url_read", "no_network"]
 
 
 ResolutionMode = Literal["routed", "degraded", "clarification"]
+# 交付形态与能力包正交：document 时额外公告文档工具，正文写进文档而非聊天气泡。
+OutputMode = Literal["chat", "document"]
 
 
 SCHEMA_VERSION = 2
@@ -71,6 +73,7 @@ class RunCapabilityResolution:
     skill_resolution: RunSkillResolution | None = None
     loaded_skills: tuple[LoadedSkillSnapshot, ...] = field(default=(), repr=False, compare=False)
     requires_catalog_evidence: bool = False
+    output_mode: OutputMode = "chat"
 
 
 class CapabilityClassifier(Protocol):
@@ -88,6 +91,7 @@ class CapabilityClassifier(Protocol):
         task_context_messages: list[object] | None,
         available_tool_names: list[str],
         mcp_tool_catalog: tuple[McpRouteTool, ...] = (),
+        existing_document_titles: tuple[str, ...] = (),
     ) -> "_CandidateRoute": ...
 
 
@@ -102,6 +106,7 @@ class _CandidateRoute:
     network_policy: NetworkPolicy = "allow"
     denied_tool_names: tuple[str, ...] = ()
     required_primary_tool_name: str | None = None
+    output_mode: OutputMode = "chat"
 
 
 def resolve_run_capability_route(
@@ -118,6 +123,7 @@ def resolve_run_capability_route(
     load_skills_fn: Callable[..., Any] | None = None,
     classify_fn: CapabilityClassifier | None = None,
     mcp_tool_catalog: tuple[McpRouteTool, ...] = (),
+    existing_document_titles: tuple[str, ...] = (),
 ) -> RunCapabilityResolution:
     """根据受信运行态与当前用户消息解析最小能力包。"""
 
@@ -125,7 +131,9 @@ def resolve_run_capability_route(
     skill_loader = load_skills_fn or load_skills_for_package
     classify = classify_fn or classify_capability_request
     # 只在有可调用 MCP 工具时传目录，保持不认识该参数的分类器可用。
-    catalog_kwargs = {"mcp_tool_catalog": mcp_tool_catalog} if mcp_tool_catalog else {}
+    catalog_kwargs: dict[str, Any] = {"mcp_tool_catalog": mcp_tool_catalog} if mcp_tool_catalog else {}
+    if existing_document_titles:
+        catalog_kwargs["existing_document_titles"] = existing_document_titles
     function_calling = capabilities.get("functionCalling") is True
     search_capable = capabilities.get("searchCapable") is True
 
@@ -332,6 +340,8 @@ def serialize_capability_resolution(resolution: RunCapabilityResolution) -> dict
             "duration_ms": skill_resolution.duration_ms,
             "error_code": skill_resolution.error_code,
         },
+        # chat 为默认形态，不写入以保持历史 Run 的协议与指纹不变。
+        **({"output_mode": resolution.output_mode} if resolution.output_mode != "chat" else {}),
     }
 
 
@@ -408,6 +418,8 @@ def _resolution(
         network_boundary_required=network_boundary_required,
         denied_product_tool_names=denied_product_tool_names,
         required_primary_tool_name=candidate.required_primary_tool_name,
+        # 降级与澄清不进入文档模式：前者没有可用工具，后者需要先问清楚。
+        output_mode=candidate.output_mode if candidate.resolution_mode == "routed" else "chat",
     )
 
 

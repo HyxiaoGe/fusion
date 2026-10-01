@@ -343,6 +343,7 @@ _CAPABILITY_RESOLUTION_FIELDS = (
     "required_primary_tool_name",
     "bundle_fingerprint",
     "skill_resolution",
+    "output_mode",
 )
 
 

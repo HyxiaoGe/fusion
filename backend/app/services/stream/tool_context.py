@@ -34,6 +34,8 @@ class ToolRuntimeContext:
     remaining_agent_tool_calls_before_round: int | None = None
     remaining_agent_tool_calls_after_batch: int | None = None
     remaining_argument_repair_slots: int | None = None
+    # 本 Run 已投影的结果块快照，供需要引用已完成查询的工具（如文档数据来源）读取。
+    content_blocks: tuple[Any, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -62,6 +64,7 @@ def enrich_tool_runtime_context(
     context.step_number = step_number
     context.argument_repair_state = state.argument_repair_state
     context.route_city_hints = _trusted_route_city_hints(state.content_blocks)
+    context.content_blocks = tuple(state.content_blocks)
     return context
 
 

@@ -21,7 +21,9 @@ from app.ai.prompts.section_ids import (
     AGENT_PLAN_CONTROL,
     CLASSIFIER_UNAVAILABLE,
     CONTINUATION_SYSTEM,
+    CURRENT_DOCUMENTS,
     DEEP_RESEARCH_CONTRACT,
+    DOCUMENT_OUTPUT_CONTRACT,
     NO_TOOL_NETWORK_BOUNDARY,
     NO_VISION_FILE_BOUNDARY,
     TOOL_USAGE_CONTRACT,
@@ -38,6 +40,7 @@ from app.services.chat.message_builder import (
     inject_file_content,
     is_image_file,
 )
+from app.services.documents.agent_tools import DocumentToolSet, render_current_documents_context
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_TOOL_NAMES
 from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_TOOL_NAMES
 from app.services.prompt_snapshot_service import freeze_runtime_prompt_bundle, with_call_config_prompt_snapshot
@@ -61,6 +64,8 @@ from app.utils.run_capability_contract import (
 
 VOLCENGINE_PROVIDERS = {"volcengine"}
 MAX_CONTROLLED_OUTPUT_TOKENS = 4096
+# 文档正文整篇放在一次工具调用参数里，供应商默认输出上限可能截断 JSON；仅文档交付时显式放宽。
+DOCUMENT_OUTPUT_MAX_TOKENS = 16384
 PLAN_ITEM_ARGUMENT_NAME = "_plan_item_id"
 PLAN_ITEM_ID_PATTERN = "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
 
@@ -86,6 +91,9 @@ class AgentLoopCallConfig:
     dynamic_tool_discovery: bool = False
     tool_discovery: Any = None
     discovery_experiment: Any = None
+    # 交付形态工具（文档）：不属于能力包，不进计划绑定，计划收口阶段仍可调用。
+    output_tool_names: frozenset[str] = frozenset()
+    document_context: str | None = None
 
 
 def build_update_plan_tool(allowed_tool_names: list[str] | None = None) -> dict[str, Any]:
@@ -268,6 +276,7 @@ def build_agent_loop_call_config(
     classify_fn: CapabilityClassifier | None = None,
     prompt_bundle_snapshot: PromptBundleSnapshot | None = None,
     previous_run_id: str | None = None,
+    document_tools: DocumentToolSet | None = None,
 ) -> AgentLoopCallConfig:
     prompt_bundle_snapshot = prompt_bundle_snapshot or freeze_runtime_prompt_bundle()
     options = options or {}
@@ -361,6 +370,7 @@ def build_agent_loop_call_config(
             load_skills_fn=skill_loader,
             classify_fn=classify_fn,
             mcp_tool_catalog=mcp_tool_catalog,
+            existing_document_titles=document_tools.existing_titles if document_tools is not None else (),
         )
     if (
         skill_release_pins
@@ -433,6 +443,14 @@ def build_agent_loop_call_config(
             else tool
             for tool in tools
         ]
+    document_handlers: dict[str, Any] = {}
+    document_context: str | None = None
+    if capability_resolution.output_mode == "document" and document_tools is not None and supports_dynamic_tools:
+        with use_prompt_snapshot(prompt_bundle_snapshot):
+            tools.extend(document_tools.definitions_factory())
+            document_context = render_current_documents_context(document_tools.existing_documents)
+        document_handlers = dict(document_tools.handlers)
+        call_kwargs.setdefault("max_tokens", DOCUMENT_OUTPUT_MAX_TOKENS)
     if tools:
         call_kwargs["tools"] = tools
         call_kwargs["tool_choice"] = "auto"
@@ -445,6 +463,7 @@ def build_agent_loop_call_config(
 
     announced_tools = list(external_tool_names)
     active_handlers = {name: provided_handlers[name] for name in announced_tools if name in provided_handlers}
+    active_handlers.update(document_handlers)
     bindings_by_alias = {
         str(binding.get("alias", "")): binding
         for binding in (tool_bindings or [])
@@ -468,6 +487,8 @@ def build_agent_loop_call_config(
         required_initial_tool_counts=dict(plan_tool_policy.required_initial_tool_counts),
         plan_tool_policy_reason=plan_tool_policy.reason,
         prompt_bundle_snapshot=prompt_bundle_snapshot,
+        output_tool_names=frozenset(document_handlers),
+        document_context=document_context,
     )
 
 
@@ -725,6 +746,11 @@ async def prepare_agent_loop_messages(
                 NO_TOOL_NETWORK_BOUNDARY,
                 get_no_tool_network_boundary_prompt(),
             )
+        if getattr(call_config, "output_tool_names", frozenset()):
+            yield SystemPromptSection(DOCUMENT_OUTPUT_CONTRACT, render_runtime_prompt("documents.output_contract"))
+            document_context = getattr(call_config, "document_context", None)
+            if document_context:
+                yield SystemPromptSection(CURRENT_DOCUMENTS, document_context)
 
     assembly = assemble_system_prompt(
         user_system_prompt=user_system_prompt,

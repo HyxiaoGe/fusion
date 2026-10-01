@@ -259,6 +259,9 @@ async def _run_round(
         if runtime.tool_discovery is not None:
             allowed_tool_names = frozenset(allowed_tool_names) | frozenset({TOOL_SEARCH_NAME})
             preferred_tool_name = None
+        if not policy.require_tool_call:
+            # 计划内取证完成后的收口阶段：文档交付工具在这里写入成品。
+            allowed_tool_names = frozenset(allowed_tool_names) | runtime.output_tool_names
         call_kwargs = _filter_tools_for_research_stage(
             call_kwargs,
             allowed_tool_names=allowed_tool_names,

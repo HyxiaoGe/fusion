@@ -162,6 +162,8 @@ class TrajectoryCapabilityResolution(BaseModel):
     required_primary_tool_name: str | None = None
     bundle_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     skill_resolution: TrajectorySkillResolution | None = None
+    # 只有文档交付才写入；缺省即 chat，历史 Run 不带该字段。
+    output_mode: Literal["document"] | None = None
 
     @field_validator("reason_codes", "external_tool_names")
     @classmethod
@@ -224,6 +226,8 @@ class TrajectoryCapabilityResolution(BaseModel):
             serialized.pop("denied_product_tool_names", None)
         if "required_primary_tool_name" not in self.model_fields_set:
             serialized.pop("required_primary_tool_name", None)
+        if self.output_mode is None:
+            serialized.pop("output_mode", None)
         return serialized
 
 
