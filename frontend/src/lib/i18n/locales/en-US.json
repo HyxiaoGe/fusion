@@ -68,6 +68,14 @@
       "newChatTitle": "New Conversation"
     },
     "chatBody": {
+      "actions": {
+        "copy": "Copy",
+        "copied": "Copied",
+        "copyFailed": "Copy failed. Please try again."
+      },
+      "trajectory": {
+        "inspect": "View trajectory"
+      },
       "code": {
         "plainText": "Plain text",
         "lineCount": "{{count}} lines",

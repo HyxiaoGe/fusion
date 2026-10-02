@@ -1,6 +1,7 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import i18n from '@/lib/i18n';
 import type { AgentRunState } from '@/types/agentRun';
 import type { PlaceResultsBlock, SearchSourceSummary } from '@/types/conversation';
 import type { AssistantActivity } from './assistantActivity';
@@ -145,6 +146,7 @@ const agentRun: AgentRunState = {
 };
 
 describe('AssistantResponseStack', () => {
+  beforeEach(async () => { await i18n.changeLanguage('zh-CN'); });
   it('使用真实状态行展示状态、耗时、轨迹 badge 并进入轨迹', () => {
     const onInspectTrajectory = vi.fn();
     render(

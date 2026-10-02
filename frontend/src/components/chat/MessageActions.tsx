@@ -1,6 +1,7 @@
 'use client';
 
 import { Check, Copy, Edit2, RefreshCw } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -41,8 +42,9 @@ function MessageActions({
   retryLabel,
   className,
 }: MessageActionsProps) {
+  const { t } = useTranslation();
   const formattedTime = formatTime(timestamp);
-  const copyLabel = copied ? '已复制' : '复制';
+  const copyLabel = t(`chatBody.actions.${copied ? 'copied' : 'copy'}`);
 
   return (
     <div className={cn(styles.actions, className)}>
