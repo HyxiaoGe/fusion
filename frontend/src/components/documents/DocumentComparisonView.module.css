@@ -1,0 +1,26 @@
+.view { display: flex; min-height: 0; flex: 1; flex-direction: column; background: var(--background); }
+.controls { display: flex; flex-shrink: 0; flex-wrap: wrap; align-items: center; gap: 0.75rem; border-bottom: 1px solid var(--border); padding: 0.75rem 1.5rem; background: var(--bg-elevated); }
+.baseLabel { display: inline-flex; align-items: center; gap: 0.5rem; color: var(--fg-secondary); font-size: 12px; }
+.direction { color: var(--muted-foreground); font-size: 12px; }
+.navigation { display: flex; align-items: center; gap: 0.375rem; margin-left: auto; }
+.count { min-width: 4rem; color: var(--fg-secondary); font-size: 12px; text-align: right; margin-right: 0.25rem; }
+.body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 1.5rem clamp(1.25rem, 4vw, 2.5rem) 2.5rem; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+.body:focus-visible { outline: 2px solid var(--info); outline-offset: -3px; }
+.empty { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0; color: var(--muted-foreground); font-size: 14px; }
+.unchanged { margin: 0 0 1rem; border: 1px dashed var(--border); border-radius: 12px; color: var(--fg-secondary); }
+.unchanged > summary, .raw > summary { cursor: pointer; padding: 0.625rem 0.875rem; font-size: 12px; }
+.unchanged > summary:focus-visible, .raw > summary:focus-visible { outline: 2px solid var(--info); outline-offset: -2px; border-radius: 10px; }
+.context { border-top: 1px solid var(--border); padding: 1rem; }
+.change { margin-bottom: 1.25rem; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: var(--background); }
+.change:focus { outline: 2px solid var(--info); outline-offset: 3px; }
+.changeHeading { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.625rem 1rem; border-bottom: 1px solid var(--border); background: var(--bg-elevated); color: var(--fg-secondary); font-size: 12px; font-weight: 600; }
+.side { padding: 0.875rem 1rem; border-left: 3px solid var(--danger-border); background: var(--background); }
+.side + .side { border-top: 1px solid var(--border); }
+.side[data-side="after"] { border-left-color: var(--success-border); }
+.sideLabel { margin: 0 0 0.625rem; color: var(--danger); font-size: 12px; font-weight: 600; }
+.side[data-side="after"] .sideLabel { color: var(--success); }
+.plain { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--foreground); font-size: 14px; line-height: 1.8; font-family: inherit; }
+.plain mark { border-radius: 3px; padding: 0.05em 0; color: inherit; background: var(--danger-bg); box-decoration-break: clone; }
+.plain mark[data-change="added"] { background: var(--success-bg); }
+.raw { border-top: 1px solid var(--border); color: var(--fg-secondary); }
+.raw pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; tab-size: 4; }
