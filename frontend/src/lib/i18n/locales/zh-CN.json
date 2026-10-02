@@ -621,6 +621,12 @@
       "downloadMarkdown": "Markdown",
       "downloadHtml": "HTML"
     },
+    "reading": {
+      "contents": "目录",
+      "outlineLabel": "文档目录",
+      "current": "当前章节",
+      "bodyLabel": "文档正文"
+    },
     "sources": {
       "title": "数据来源",
       "empty": "本文档未使用实时查询结果，内容仅供参考。",

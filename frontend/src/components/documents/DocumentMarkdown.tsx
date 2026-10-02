@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { createContext, useContext, useMemo, useState } from 'react';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
 import { Info, Lightbulb, TriangleAlert, Wallet } from 'lucide-react';
 import ReactMarkdown, { type Components } from 'react-markdown';
@@ -22,32 +22,42 @@ interface DocumentMarkdownProps {
   /** 导出静态 HTML 时展开全部 tab，不依赖交互。 */
   expandTabs?: boolean;
   className?: string;
+  tabSelections?: Record<string, number>;
+  onTabChange?: (path: string, index: number) => void;
 }
 
-export default function DocumentMarkdown({ content, expandTabs = false, className }: DocumentMarkdownProps) {
+const ReadingTabsContext = createContext<{
+  selections: Record<string, number>;
+  onChange?: (path: string, index: number) => void;
+} | null>(null);
+
+export default function DocumentMarkdown({ content, expandTabs = false, className, tabSelections, onTabChange }: DocumentMarkdownProps) {
   const segments = useMemo(() => parseDocumentDirectives(content), [content]);
+  const readingTabs = useMemo(() => tabSelections ? { selections: tabSelections, onChange: onTabChange } : null, [tabSelections, onTabChange]);
   return (
     <div className={cn(markdownStyles.content, styles.document, 'fdoc', className)} data-testid="document-markdown">
-      <Segments segments={segments} expandTabs={expandTabs} />
+      <ReadingTabsContext.Provider value={readingTabs}>
+        <Segments segments={segments} expandTabs={expandTabs} path="root" />
+      </ReadingTabsContext.Provider>
     </div>
   );
 }
 
-function Segments({ segments, expandTabs }: { segments: DocumentSegment[]; expandTabs: boolean }) {
+function Segments({ segments, expandTabs, path }: { segments: DocumentSegment[]; expandTabs: boolean; path: string }) {
   return (
     <>
       {segments.map((segment, index) => (
-        <SegmentView key={index} segment={segment} expandTabs={expandTabs} />
+        <SegmentView key={index} segment={segment} expandTabs={expandTabs} path={`${path}.${index}`} />
       ))}
     </>
   );
 }
 
-function SegmentView({ segment, expandTabs }: { segment: DocumentSegment; expandTabs: boolean }) {
+function SegmentView({ segment, expandTabs, path }: { segment: DocumentSegment; expandTabs: boolean; path: string }) {
   const { t } = useTranslation();
   switch (segment.kind) {
     case 'markdown':
-      return <MarkdownBlock text={segment.text} staticView={expandTabs} />;
+      return <MarkdownBlock text={segment.text} staticView={expandTabs} path={path} />;
     case 'callout': {
       const Icon = { tip: Lightbulb, info: Info, warning: TriangleAlert, price: Wallet }[segment.variant];
       return (
@@ -57,7 +67,7 @@ function SegmentView({ segment, expandTabs }: { segment: DocumentSegment; expand
             <p className={cn(styles.calloutLabel, 'fdoc-callout-label')}>{segment.label ?? t(`documents.callout.${segment.variant}`)}</p>
           </div>
           <div className={cn(styles.calloutBody, 'fdoc-callout-body')}>
-            <Segments segments={segment.children} expandTabs={expandTabs} />
+            <Segments segments={segment.children} expandTabs={expandTabs} path={`${path}.children`} />
           </div>
         </aside>
       );
@@ -66,11 +76,11 @@ function SegmentView({ segment, expandTabs }: { segment: DocumentSegment; expand
       return (
         <section className={cn(styles.timeline, 'fdoc-timeline')}>
           {segment.label ? <p className={cn(styles.blockLabel, 'fdoc-block-label')}>{segment.label}</p> : null}
-          <Segments segments={segment.children} expandTabs={expandTabs} />
+          <Segments segments={segment.children} expandTabs={expandTabs} path={`${path}.children`} />
         </section>
       );
     case 'stats':
-      if (segment.items.length === 0) return <MarkdownBlock text={segment.fallback} staticView={expandTabs} />;
+      if (segment.items.length === 0) return <MarkdownBlock text={segment.fallback} staticView={expandTabs} path={path} />;
       return (
         <section className={cn(styles.statsSection, 'fdoc-stats-section')}>
           {segment.label ? <p className={cn(styles.blockLabel, 'fdoc-block-label')}>{segment.label}</p> : null}
@@ -85,16 +95,20 @@ function SegmentView({ segment, expandTabs }: { segment: DocumentSegment; expand
         </section>
       );
     case 'tabs':
-      return expandTabs ? <ExpandedTabs tabs={segment.tabs} /> : <InteractiveTabs tabs={segment.tabs} />;
+      return expandTabs ? <ExpandedTabs tabs={segment.tabs} path={path} /> : <InteractiveTabs tabs={segment.tabs} path={path} />;
   }
 }
 
-function InteractiveTabs({ tabs }: { tabs: DocumentTab[] }) {
+function InteractiveTabs({ tabs, path }: { tabs: DocumentTab[]; path: string }) {
   const { t } = useTranslation();
   const [activeIndex, setActiveIndex] = useState(0);
-  const value = String(Math.min(activeIndex, tabs.length - 1));
+  const readingTabs = useContext(ReadingTabsContext);
+  const value = String(Math.min(readingTabs?.selections[path] ?? activeIndex, tabs.length - 1));
   return (
-    <TabsPrimitive.Root className={styles.tabs} value={value} onValueChange={next => setActiveIndex(Number(next))}>
+    <TabsPrimitive.Root className={styles.tabs} value={value} onValueChange={next => {
+      setActiveIndex(Number(next));
+      readingTabs?.onChange?.(path, Number(next));
+    }}>
       <TabsPrimitive.List className={styles.tabList} aria-label={t('documents.tabs.label')}>
         {tabs.map((tab, index) => (
           <TabsPrimitive.Trigger
@@ -111,21 +125,21 @@ function InteractiveTabs({ tabs }: { tabs: DocumentTab[] }) {
       </TabsPrimitive.List>
       {tabs.map((tab, index) => (
         <TabsPrimitive.Content key={`${tab.label}-${index}`} value={String(index)} className={styles.tabPanel}>
-          <Segments segments={tab.children} expandTabs={false} />
+          <Segments segments={tab.children} expandTabs={false} path={`${path}.tab.${index}`} />
         </TabsPrimitive.Content>
       ))}
     </TabsPrimitive.Root>
   );
 }
 
-function ExpandedTabs({ tabs }: { tabs: DocumentTab[] }) {
+function ExpandedTabs({ tabs, path }: { tabs: DocumentTab[]; path: string }) {
   return (
     <>
       {tabs.map((tab, index) => (
         <section key={`${tab.label}-${index}`} className={cn(styles.tabs, 'fdoc-tab-section')}>
           <p className={cn(styles.expandedTabLabel, 'fdoc-tab-label')}>{tab.label}</p>
           <div className={cn(styles.tabPanel, 'fdoc-tab-panel')}>
-            <Segments segments={tab.children} expandTabs />
+            <Segments segments={tab.children} expandTabs path={`${path}.tab.${index}`} />
           </div>
         </section>
       ))}
@@ -168,13 +182,26 @@ const StaticDocumentPre = (props: MarkdownElementProps<'pre'>) => renderDocument
 const DOCUMENT_MARKDOWN_COMPONENTS: Components = { a: DocumentLink, table: DocumentTable, pre: DocumentPre };
 const STATIC_MARKDOWN_COMPONENTS: Components = { a: DocumentLink, table: DocumentTable, pre: StaticDocumentPre };
 
-const MarkdownBlock = React.memo(function MarkdownBlock({ text, staticView }: { text: string; staticView: boolean }) {
+function documentHeading(Tag: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6', path: string): NonNullable<Components['h1']> {
+  return function Heading({ node, ...props }) {
+    // 位置取自 Markdown 语法树，同名标题和不同标签页仍有稳定且独立的定位键。
+    return <Tag {...props} data-document-heading-key={`${path}-${node?.position?.start.offset ?? 0}`} />;
+  };
+}
+
+const MarkdownBlock = React.memo(function MarkdownBlock({ text, staticView, path }: { text: string; staticView: boolean; path: string }) {
+  const components = useMemo<Components>(() => ({
+    ...DOCUMENT_MARKDOWN_COMPONENTS,
+    h1: documentHeading('h1', path), h2: documentHeading('h2', path),
+    h3: documentHeading('h3', path), h4: documentHeading('h4', path),
+    h5: documentHeading('h5', path), h6: documentHeading('h6', path),
+  }), [path]);
   // 文档正文来自模型：不渲染原始 HTML，链接一律新窗口打开。
   return (
     <ReactMarkdown
       remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
       skipHtml
-      components={staticView ? STATIC_MARKDOWN_COMPONENTS : DOCUMENT_MARKDOWN_COMPONENTS}
+      components={staticView ? STATIC_MARKDOWN_COMPONENTS : components}
     >
       {text}
     </ReactMarkdown>

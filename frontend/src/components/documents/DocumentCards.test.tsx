@@ -14,6 +14,7 @@ vi.mock('@/lib/api/documents', () => ({
   getDocument: getDocumentMock,
   getDocumentContent: getDocumentContentMock,
 }));
+vi.mock('@/redux/hooks', () => ({ useAppSelector: () => 'test-user' }));
 
 import DocumentCards, { latestDocumentBlocks } from './DocumentCards';
 
@@ -59,6 +60,7 @@ describe('DocumentCards', () => {
   });
 
   beforeEach(() => {
+    window.sessionStorage.clear();
     getDocumentMock.mockReset().mockResolvedValue({
       id: 'doc-1',
       conversation_id: 'conv-1',
