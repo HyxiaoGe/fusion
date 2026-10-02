@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const dispatchMock = vi.hoisted(() => vi.fn());
@@ -15,11 +15,11 @@ vi.mock('framer-motion', () => ({
   },
 }));
 
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (key: string) => (key === 'knowledgeBase.title' ? '知识库' : '知识'),
-  }),
-}));
+vi.mock('react-i18next', async () => {
+  const { default: messages } = await import('@/lib/i18n/locales/zh-CN.json');
+  return { useTranslation: () => ({ t: (key: string) => key.split('.').reduce<unknown>((value, part) =>
+    value && typeof value === 'object' ? (value as Record<string, unknown>)[part] : undefined, messages) ?? key }) };
+});
 
 vi.mock('@/app/settings/SystemPrompt', () => ({
   default: () => <div>系统提示词设置</div>,
@@ -83,6 +83,18 @@ describe('SettingsDialog 管理员用量入口', () => {
 
     expect(screen.queryByRole('tab', { name: /服务用量/ })).toBeNull();
     expect(screen.getAllByRole('tab')).toHaveLength(3);
+  });
+
+  it('主题选中和关闭操作沿用现有状态协议', () => {
+    mockSettingsDialogState(false);
+    render(<SettingsDialog />);
+    expect(screen.getByRole('button', { name: '跟随系统' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '浅色模式' })).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(screen.getByRole('button', { name: '深色模式' }));
+    expect(dispatchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'theme/setThemeMode', payload: 'dark' }));
+    expect(screen.getByRole('tablist', { name: '设置分类' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '关闭设置' }));
+    expect(dispatchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'settings/closeSettingsDialog' }));
   });
 
   it('普通用户可以看到知识库页签', () => {

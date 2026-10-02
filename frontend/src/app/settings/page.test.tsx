@@ -17,11 +17,11 @@ vi.mock('framer-motion', () => ({
   },
 }));
 
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (key: string) => (key === 'knowledgeBase.title' ? '知识库' : '知识'),
-  }),
-}));
+vi.mock('react-i18next', async () => {
+  const { default: messages } = await import('@/lib/i18n/locales/zh-CN.json');
+  return { useTranslation: () => ({ t: (key: string) => key.split('.').reduce<unknown>((value, part) =>
+    value && typeof value === 'object' ? (value as Record<string, unknown>)[part] : undefined, messages) ?? key }) };
+});
 
 vi.mock('./SystemPrompt', () => ({
   default: () => <div>AI 个性化内容</div>,

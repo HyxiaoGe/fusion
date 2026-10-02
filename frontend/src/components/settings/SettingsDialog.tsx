@@ -6,7 +6,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAppDispatch, useAppSelector } from "@/redux/hooks";
 import { closeSettingsDialog, setActiveSettingsTab } from "@/redux/slices/settingsSlice";
 import { setThemeMode } from "@/redux/slices/themeSlice";
-import { motion } from "framer-motion";
 import { Activity, BookOpen, Bot, Database, Settings, Sun, Moon, Laptop, Network, SlidersHorizontal } from "lucide-react";
 import DataManagement from "@/app/settings/DataManagement";
 import KnowledgeBaseManager from "@/components/settings/KnowledgeBaseManager";
@@ -15,12 +14,18 @@ import ModelManagementPanel from "@/app/settings/ModelManagementPanel";
 import RuntimeConfigManager from "@/app/settings/RuntimeConfigManager";
 import ServiceUsagePanel from "@/app/settings/ServiceUsagePanel";
 import SystemPrompt from "@/app/settings/SystemPrompt";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import styles from "./SettingsDialog.module.css";
+import GlassHoverLens, { pointGlassLight, resetGlassLight } from "@/components/ui/GlassHoverLens";
+import glassSurface from "@/components/ui/GlassSurface.module.css";
+import { cn } from "@/lib/utils";
+import styles from "./SettingsSurface.module.css";
+
+const THEME_MODES = [{ mode: 'light', Icon: Sun }, { mode: 'dark', Icon: Moon }, { mode: 'system', Icon: Laptop }] as const;
 
 export const SettingsDialog = () => {
   const { t } = useTranslation();
+  const themeId = useId();
   const dispatch = useAppDispatch();
   const { isSettingsDialogOpen, activeSettingsTab } = useAppSelector((state) => state.settings);
   const { mode } = useAppSelector((state) => state.theme);
@@ -49,57 +54,57 @@ export const SettingsDialog = () => {
 
   return (
     <Dialog open={isSettingsDialogOpen} onOpenChange={handleClose}>
-      <DialogContent className="max-w-[95vw] w-full h-[85vh] flex flex-col sm:max-w-[90vw] lg:max-w-6xl xl:max-w-7xl">
-        <DialogHeader>
+      <DialogContent closeLabel={t("settings.close")} className={`${styles.workspace} ${styles.dialog} max-w-[95vw] w-full h-[85vh] flex flex-col sm:max-w-[90vw] lg:max-w-6xl xl:max-w-7xl`}>
+        <DialogHeader className={styles.dialogHeading}>
           <DialogTitle className="flex items-center gap-2">
             <Settings className="h-5 w-5" />
-            设置
+            {t("settings.title")}
           </DialogTitle>
-          <DialogDescription className="sr-only">
-            配置个性化、数据、知识库和管理员设置。
+          <DialogDescription className={styles.dialogDescription}>
+            {t("settings.description")}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-hidden">
-          <Tabs value={selectedSettingsTab} onValueChange={handleTabChange} className="h-full flex flex-col">
-            <div data-testid="settings-tabs-scroller" className="bg-card/50 backdrop-blur-sm border rounded-lg shadow-sm p-1 flex-shrink-0 overflow-x-auto">
-              <TabsList className={`grid w-full gap-1 bg-transparent ${showAdminTabs ? "min-w-[52rem] grid-cols-7 md:min-w-0" : "grid-cols-3"}`}>
-                <TabsTrigger value="general" className="flex gap-2 items-center justify-center">
+        <div className={styles.dialogBody}>
+          <Tabs value={selectedSettingsTab} onValueChange={handleTabChange} className={`${styles.tabs} h-full`}>
+            <div data-testid="settings-tabs-scroller" className={`${styles.navigation} overflow-x-auto`}>
+              <TabsList aria-label={t("settings.navigation")} className={`${styles.navList} grid w-full gap-1 ${showAdminTabs ? "min-w-[52rem] grid-cols-7 md:min-w-0" : "grid-cols-3"}`}>
+                <TabsTrigger value="general" className={styles.navTrigger}>
                   <Settings className="h-4 w-4" />
-                  <span className="hidden md:inline">常规设置</span>
-                  <span className="md:hidden">常规</span>
+                  <span className="hidden md:inline">{t("settings.tabs.general")}</span>
+                  <span className="md:hidden">{t("settings.tabs.generalShort")}</span>
                 </TabsTrigger>
-                <TabsTrigger value="data" className="flex gap-2 items-center justify-center">
+                <TabsTrigger value="data" className={styles.navTrigger}>
                   <Database className="h-4 w-4" />
-                  <span className="hidden md:inline">数据管理</span>
-                  <span className="md:hidden">数据</span>
+                  <span className="hidden md:inline">{t("settings.tabs.data")}</span>
+                  <span className="md:hidden">{t("settings.tabs.dataShort")}</span>
                 </TabsTrigger>
-                <TabsTrigger value="knowledge" className="flex gap-2 items-center justify-center">
+                <TabsTrigger value="knowledge" className={styles.navTrigger}>
                   <BookOpen className="h-4 w-4" />
                   <span className="hidden md:inline">{knowledgeBaseTitle}</span>
                   <span className="md:hidden">{knowledgeBaseShortTitle}</span>
                 </TabsTrigger>
                 {showAdminTabs && (
                   <>
-                    <TabsTrigger value="usage" className="flex gap-2 items-center justify-center">
+                    <TabsTrigger value="usage" className={styles.navTrigger}>
                       <Activity className="h-4 w-4" />
-                      <span className="hidden md:inline">服务用量</span>
-                      <span className="md:hidden">用量</span>
+                      <span className="hidden md:inline">{t("settings.tabs.usage")}</span>
+                      <span className="md:hidden">{t("settings.tabs.usageShort")}</span>
                     </TabsTrigger>
-                    <TabsTrigger value="runtime-config" className="flex gap-2 items-center justify-center">
+                    <TabsTrigger value="runtime-config" className={styles.navTrigger}>
                       <SlidersHorizontal className="h-4 w-4" />
-                      <span className="hidden md:inline">运行时配置</span>
-                      <span className="md:hidden">配置</span>
+                      <span className="hidden md:inline">{t("settings.tabs.runtime")}</span>
+                      <span className="md:hidden">{t("settings.tabs.runtimeShort")}</span>
                     </TabsTrigger>
-                    <TabsTrigger value="mcp-servers" className="flex gap-2 items-center justify-center">
+                    <TabsTrigger value="mcp-servers" className={styles.navTrigger}>
                       <Network className="h-4 w-4" />
-                      <span className="hidden md:inline">MCP 服务</span>
-                      <span className="md:hidden">MCP</span>
+                      <span className="hidden md:inline">{t("settings.tabs.mcp")}</span>
+                      <span className="md:hidden">{t("settings.tabs.mcpShort")}</span>
                     </TabsTrigger>
-                    <TabsTrigger value="model-management" className="flex gap-2 items-center justify-center">
+                    <TabsTrigger value="model-management" className={styles.navTrigger}>
                       <Bot className="h-4 w-4" />
-                      <span className="hidden md:inline">模型管理</span>
-                      <span className="md:hidden">模型</span>
+                      <span className="hidden md:inline">{t("settings.tabs.models")}</span>
+                      <span className="md:hidden">{t("settings.tabs.modelsShort")}</span>
                     </TabsTrigger>
                   </>
                 )}
@@ -107,100 +112,74 @@ export const SettingsDialog = () => {
             </div>
 
             {/* 常规设置标签页 */}
-            <TabsContent value="general" className="flex-1 overflow-auto mt-4 space-y-6">
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3 }}
-              >
-                <Card className="overflow-hidden border-muted shadow-md transition-all hover:shadow-lg">
-                  <CardHeader className="bg-muted/10 border-b pb-3">
+            <TabsContent value="general" className={`${styles.panel} ${styles.formPanel} space-y-6`}>
+              <div>
+                <Card>
+                  <CardHeader className="border-b pb-5">
                     <CardTitle className="flex items-center gap-2">
-                      <Sun className="h-5 w-5 text-primary" />
-                      主题设置
+                      <Sun className="h-5 w-5 text-primary" aria-hidden="true" />
+                      {t("settings.appearance.title")}
                     </CardTitle>
+                    <p className={styles.dialogDescription}>{t("settings.appearance.description")}</p>
                   </CardHeader>
-                  <CardContent className="pt-6">
-                    <div className="space-y-4">
-                      <h3 className="font-medium">选择主题模式</h3>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <button
-                          type="button"
-                          aria-pressed={mode === 'light'}
-                          onClick={() => handleThemeChange('light')}
-                          className={`${styles.themeOption} p-4 rounded-lg`}
-                        >
-                          <div className="flex flex-col items-center gap-2">
-                            <Sun className={`h-6 w-6 ${mode === 'light' ? 'text-amber-500' : 'text-muted-foreground'}`} />
-                            <span className="font-medium">浅色模式</span>
-                            <span className="text-xs text-muted-foreground">明亮清晰的界面</span>
-                          </div>
-                        </button>
-
-                        <button
-                          type="button"
-                          aria-pressed={mode === 'dark'}
-                          onClick={() => handleThemeChange('dark')}
-                          className={`${styles.themeOption} p-4 rounded-lg`}
-                        >
-                          <div className="flex flex-col items-center gap-2">
-                            <Moon className={`h-6 w-6 ${mode === 'dark' ? 'text-indigo-400' : 'text-muted-foreground'}`} />
-                            <span className="font-medium">深色模式</span>
-                            <span className="text-xs text-muted-foreground">护眼的深色界面</span>
-                          </div>
-                        </button>
-
-                        <button
-                          type="button"
-                          aria-pressed={mode === 'system'}
-                          onClick={() => handleThemeChange('system')}
-                          className={`${styles.themeOption} p-4 rounded-lg`}
-                        >
-                          <div className="flex flex-col items-center gap-2">
-                            <Laptop className={`h-6 w-6 ${mode === 'system' ? 'text-blue-500' : 'text-muted-foreground'}`} />
-                            <span className="font-medium">跟随系统</span>
-                            <span className="text-xs text-muted-foreground">自动跟随系统设置</span>
-                          </div>
-                        </button>
+                  <CardContent className={styles.themeContent}>
+                    <div className="space-y-3" role="group" aria-label={t("settings.appearance.label")}>
+                      <div className={styles.themeGrid}>
+                        {THEME_MODES.map(({ mode: themeMode, Icon }) => (
+                          <button
+                            key={themeMode}
+                            type="button"
+                            aria-label={t(`settings.appearance.${themeMode}`)}
+                            aria-describedby={`${themeId}-${themeMode}`}
+                            aria-pressed={mode === themeMode}
+                            onClick={() => handleThemeChange(themeMode)}
+                            onPointerMove={pointGlassLight}
+                            onPointerLeave={resetGlassLight}
+                            className={cn(glassSurface.surface, glassSurface.card, glassSurface.interactive, styles.themeOption, mode === themeMode && glassSurface.selected)}
+                          >
+                            <GlassHoverLens />
+                            <span className={styles.themeCopy}>
+                              <Icon className="h-6 w-6" aria-hidden="true" />
+                              <span className="font-medium">{t(`settings.appearance.${themeMode}`)}</span>
+                              <span id={`${themeId}-${themeMode}`} className={styles.themeDescription}>{t(`settings.appearance.${themeMode}Hint`)}</span>
+                            </span>
+                          </button>
+                        ))}
                       </div>
                     </div>
                   </CardContent>
                 </Card>
-              </motion.div>
+              </div>
 
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: 0.1 }}
-              >
+              <div>
                 <SystemPrompt />
-              </motion.div>
+              </div>
             </TabsContent>
 
             {/* 数据管理标签页 */}
-            <TabsContent value="data" className="flex-1 overflow-auto mt-4">
+            <TabsContent value="data" className={`${styles.panel} ${styles.formPanel}`}>
               <DataManagement />
             </TabsContent>
 
-            <TabsContent value="knowledge" className="flex-1 overflow-auto mt-4">
+            <TabsContent value="knowledge" className={styles.panel}>
               <KnowledgeBaseManager />
             </TabsContent>
 
             {showAdminTabs && (
               <>
-                <TabsContent value="usage" className="flex-1 overflow-auto mt-4">
+                <TabsContent value="usage" className={styles.panel}>
                   <ServiceUsagePanel />
                 </TabsContent>
 
-                <TabsContent value="runtime-config" className="flex-1 overflow-auto mt-4">
+                <TabsContent value="runtime-config" className={styles.panel}>
                   <RuntimeConfigManager />
                 </TabsContent>
 
-                <TabsContent value="mcp-servers" className="flex-1 overflow-auto mt-4">
+                <TabsContent value="mcp-servers" className={styles.panel}>
                   <McpServerManager />
                 </TabsContent>
 
-                <TabsContent value="model-management" className="flex-1 overflow-auto mt-4">
+                <TabsContent value="model-management" className={styles.panel}>
                   <ModelManagementPanel />
                 </TabsContent>
               </>

@@ -469,7 +469,51 @@
       "language": "Language",
       "fontSize": "Font Size",
       "apiKeys": "API Keys",
-      "about": "About"
+      "about": "About",
+      "title": "Settings",
+      "description": "Manage appearance, AI preferences, and application data.",
+      "close": "Close settings",
+      "navigation": "Settings categories",
+      "tabs": {
+        "general": "General", "generalShort": "General",
+        "personalization": "AI preferences", "personalizationShort": "AI",
+        "data": "Data management", "dataShort": "Data",
+        "usage": "Service usage", "usageShort": "Usage",
+        "runtime": "Runtime configuration", "runtimeShort": "Config",
+        "mcp": "MCP services", "mcpShort": "MCP",
+        "models": "Model management", "modelsShort": "Models"
+      },
+      "appearance": {
+        "title": "Appearance", "description": "Choose a comfortable appearance for reading and work.",
+        "label": "Choose a theme",
+        "light": "Light mode", "lightHint": "A bright, clear interface",
+        "dark": "Dark mode", "darkHint": "A soft, dark interface",
+        "system": "System", "systemHint": "Follow your system settings"
+      },
+      "personalization": {
+        "title": "AI preferences",
+        "description": "These preferences are added to every conversation as a system prompt. Focus on lasting preferences such as your role, response style, and length.",
+        "templates": "Start with a template", "label": "Response preferences",
+        "placeholder": "Example: I am a frontend engineer. Use React and TypeScript examples and keep introductions brief.",
+        "hint": "Saved preferences will apply to future conversations.",
+        "unsaved": "Unsaved changes", "unchanged": "Matches your saved preferences",
+        "overLimit": "Content exceeds 1,000 characters. Shorten it before saving.",
+        "saving": "Saving", "saved": "Saved", "saveFailed": "Could not save. Please try again.",
+        "reset": "Reset", "save": "Save",
+        "template": {
+          "engineer": { "label": "Engineer", "description": "Runnable examples and practical reasoning", "content": "I am an engineer. Use code examples and practical engineering reasoning. Explain concepts with runnable examples and avoid vague statements. Unless I ask for more detail, keep answers under 300 words." },
+          "writing": { "label": "Writing assistant", "description": "Direct writing with the conclusion first", "content": "Answer in concise, direct English. Avoid excessive praise and emoji. Start with the conclusion, then explain the reasoning. Remove repetition and empty phrases." },
+          "learner": { "label": "Learner", "description": "Simple analogies and clear definitions", "content": "I am unfamiliar with the subject. Explain concepts with simple analogies and define technical terms first. You may suggest a next learning step at the end." }
+        }
+      },
+      "data": {
+        "title": "Data management", "description": "Back up or restore this browser's conversations and settings.",
+        "export": "Export data", "exportDescription": "Export conversations and application settings as JSON to back them up or transfer them to another device.",
+        "import": "Import data", "importDescription": "Restore conversations and settings from a previous JSON backup.",
+        "importWarning": "Importing overwrites current data. Check your backup first.",
+        "exportSuccess": "Data exported", "exportFailed": "Could not export data. Please try again.",
+        "invalidFile": "Choose a JSON backup file", "importFailed": "Could not import data. Check the backup file."
+      }
     },
   "trajectory": {
     "outputProvenance": {
