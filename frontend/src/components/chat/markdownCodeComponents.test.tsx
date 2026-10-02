@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+import i18n from '@/lib/i18n';
 import ReactMarkdown from 'react-markdown';
 import { MarkdownCodeRenderer, MarkdownPreRenderer } from './markdownCodeComponents';
 import ReasoningContent from './ReasoningContent';
@@ -7,6 +8,8 @@ import ReasoningContent from './ReasoningContent';
 const markdownComponents = { pre: MarkdownPreRenderer, code: MarkdownCodeRenderer };
 
 describe('Markdown 代码块边界', () => {
+  beforeEach(async () => { await i18n.changeLanguage('zh-CN'); });
+
   it('没有语言标记的 fenced code 保留代码块、缩进与换行，行内代码独立渲染', () => {
     const { container } = render(
       <ReactMarkdown components={markdownComponents}>
