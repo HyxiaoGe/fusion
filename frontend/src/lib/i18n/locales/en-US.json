@@ -68,6 +68,14 @@
       "newChatTitle": "New Conversation"
     },
     "chatBody": {
+      "citation": {
+        "knowledge": "Knowledge base",
+        "web": "Web source",
+        "summary": "Source summary",
+        "noSummary": "No summary is available for this source.",
+        "openHint": "Select the citation to view the full source · Esc to dismiss",
+        "linkHint": "Select the citation to open the webpage · Esc to dismiss"
+      },
       "actions": {
         "copy": "Copy",
         "copied": "Copied",

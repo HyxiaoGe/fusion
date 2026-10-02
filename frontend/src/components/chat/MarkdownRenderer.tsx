@@ -9,6 +9,8 @@ import { normalizeBareUrlsForMarkdown } from '@/lib/chat/markdownLinks';
 import { MarkdownCodeRenderer, MarkdownPreRenderer } from './markdownCodeComponents';
 import MarkdownTable from './MarkdownTable';
 import styles from './MarkdownRenderer.module.css';
+import CitationPreview from './CitationPreview';
+import citationStyles from './CitationPreview.module.css';
 
 interface MarkdownRendererProps {
   content: string;
@@ -78,21 +80,13 @@ function renderWithCitations(
     const source = sourceIndex >= 0 ? sources[sourceIndex] : undefined;
 
     if (source) {
-      let domain = source.kind === 'knowledge' ? '知识库' : '';
-      if (source.kind !== 'knowledge') {
-        try {
-          domain = new URL(source.url).hostname.replace('www.', '');
-        } catch {
-          domain = source.url;
-        }
-      }
-
-      const sharedClass =
-        'inline-flex items-center justify-center h-4 w-4 rounded-full bg-info-bg text-info text-[10px] font-medium hover:bg-info/20 transition-colors align-super ml-0.5 no-underline';
+      const sharedClass = `${citationStyles.chip} no-underline`;
+      const previewProps = { 'data-citation-index': sourceIndex, 'data-citation-number': num };
 
       const trigger = onCitationClick ? (
         <button
           type="button"
+          {...previewProps}
           data-chat-detail-overlay-trigger="true"
           onClick={(e) => {
             e.preventDefault();
@@ -100,22 +94,21 @@ function renderWithCitations(
           }}
           className={sharedClass}
           aria-label={`查看参考资料 ${num}：${source.title}`}
-          title={`${source.title} · ${domain}`}
         >
           {num}
         </button>
       ) : source.kind !== 'knowledge' ? (
         <a
+          {...previewProps}
           href={source.url}
           target="_blank"
           rel="noopener noreferrer"
           className={sharedClass}
-          title={`${source.title} · ${domain}`}
         >
           {num}
         </a>
       ) : (
-        <span className={sharedClass} title={`${source.title} · ${domain}`}>{num}</span>
+        <span {...previewProps} className={sharedClass} tabIndex={0} aria-label={source.title}>{num}</span>
       );
 
       parts.push(<React.Fragment key={`cite-${match.index}`}>{trigger}</React.Fragment>);
@@ -237,7 +230,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className,
   );
 
   return (
-    <div className={`${styles.content} ${className || ''}`}>
+    <CitationPreview sources={sources} className={`${styles.content} ${className || ''}`}>
       <CitationRenderContext.Provider value={citationContextValue}>
         <ReactMarkdown
           remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
@@ -247,7 +240,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className,
           {processedContent}
         </ReactMarkdown>
       </CitationRenderContext.Provider>
-    </div>
+    </CitationPreview>
   );
 };
 
