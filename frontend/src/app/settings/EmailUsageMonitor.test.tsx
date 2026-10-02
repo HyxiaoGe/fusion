@@ -128,7 +128,7 @@ describe('EmailUsageMonitor', () => {
 
     render(<EmailUsageMonitor />);
 
-    expect(await screen.findByText('Resend 邮件用量')).toBeInTheDocument();
+    expect(await screen.findByTestId('email-usage-card')).toHaveTextContent('Resend 邮件用量');
     expect(screen.getByTestId('email-usage-card')).toHaveClass('h-full', 'border-border');
     expect(screen.getByTestId('email-usage-card')).not.toHaveClass('h-fit', 'border-muted');
     expect(screen.getByText('本月已用 / 月度额度')).toBeInTheDocument();
@@ -150,7 +150,7 @@ describe('EmailUsageMonitor', () => {
 
     render(<EmailUsageMonitor />);
 
-    expect(await screen.findByText('Resend 邮件用量')).toBeInTheDocument();
+    expect(await screen.findByTestId('email-usage-card')).toHaveTextContent('Resend 邮件用量');
     expect(screen.queryByText(/今日/)).not.toBeInTheDocument();
   });
 

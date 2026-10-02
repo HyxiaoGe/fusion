@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -148,5 +148,61 @@ describe('RuntimeConfigManager', () => {
     expect(createRuntimeConfigEntryMock).not.toHaveBeenCalled();
     expect(activateRuntimeConfigEntryMock).not.toHaveBeenCalled();
     expect(setRuntimeConfigEntryActiveMock).not.toHaveBeenCalled();
+  });
+
+  it('初始加载和初始失败不展示零条配置，并可只读重试', async () => {
+    let reject!: (reason: Error) => void;
+    fetchRuntimeConfigSnapshotMock.mockReturnValueOnce(new Promise((_, rejectRequest) => { reject = rejectRequest; }));
+    render(<RuntimeConfigManager />);
+    expect(screen.getByRole('status')).toHaveTextContent('正在加载运行时配置');
+    expect(screen.queryByText('当前配置')).not.toBeInTheDocument();
+    await act(async () => reject(new Error('配置查询失败')));
+    expect(screen.getByRole('alert')).toHaveTextContent('配置查询失败');
+    expect(screen.queryByText('当前配置')).not.toBeInTheDocument();
+    prepareSnapshot();
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    expect(await screen.findByText('当前生效配置')).toBeInTheDocument();
+    expect(fetchRuntimeConfigSnapshotMock).toHaveBeenCalledTimes(2);
+    expect(createRuntimeConfigEntryMock).not.toHaveBeenCalled();
+  });
+
+  it('成功的空快照明确区分没有生效配置和没有版本记录', async () => {
+    prepareSnapshot({ ...baseSnapshot, effective: [], entries: [] });
+    await renderLoaded();
+    expect(screen.getByText('暂无生效配置')).toBeInTheDocument();
+    expect(screen.getByText('暂无配置版本记录')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('刷新保留原内容与按钮节点，禁用重复请求，完成后更新快照', async () => {
+    prepareSnapshot();
+    await renderLoaded();
+    let resolve!: (value: typeof baseSnapshot) => void;
+    fetchRuntimeConfigSnapshotMock.mockReturnValueOnce(new Promise((resolveRequest) => { resolve = resolveRequest; }));
+    const refresh = screen.getByRole('button', { name: '刷新运行时配置' });
+    fireEvent.click(refresh);
+    expect(refresh).toBeDisabled();
+    expect(screen.getByText('刷新中')).toBeInTheDocument();
+    expect(screen.getByTestId('runtime-config-entry-row-active')).toBeInTheDocument();
+    fireEvent.click(refresh);
+    expect(fetchRuntimeConfigSnapshotMock).toHaveBeenCalledTimes(2);
+    await act(async () => resolve({ ...baseSnapshot, entries: [] }));
+    expect(refresh).toBeEnabled();
+    expect(refresh).toBe(screen.getByRole('button', { name: '刷新运行时配置' }));
+    expect(screen.getByText('暂无配置版本记录')).toBeInTheDocument();
+  });
+
+  it('刷新失败保留上次数据并标明旧快照，再次刷新可恢复', async () => {
+    prepareSnapshot();
+    await renderLoaded();
+    fetchRuntimeConfigSnapshotMock.mockRejectedValueOnce(new Error('暂时无法读取配置'));
+    fireEvent.click(screen.getByRole('button', { name: '刷新运行时配置' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('暂时无法读取配置');
+    expect(screen.getByRole('alert')).toHaveTextContent('当前显示上次读取的配置，可再次刷新。');
+    expect(screen.getByTestId('runtime-config-entry-row-active')).toBeInTheDocument();
+    prepareSnapshot();
+    fireEvent.click(screen.getByRole('button', { name: '刷新运行时配置' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '刷新运行时配置' })).toBeEnabled());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });

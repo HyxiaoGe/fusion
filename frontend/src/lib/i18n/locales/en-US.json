@@ -483,6 +483,22 @@
         "mcp": "MCP services", "mcpShort": "MCP",
         "models": "Model management", "modelsShort": "Models"
       },
+      "monitoring": {
+        "refreshAllLabel": "Refresh all service usage",
+        "refreshAll": "Refresh all",
+        "searchLoading": "Loading search usage",
+        "emailLoading": "Loading Resend usage",
+        "officialBalance": "Official balance",
+        "usageSnapshot": "Usage snapshot",
+        "runtimeLoading": "Loading runtime configuration",
+        "retry": "Retry",
+        "refresh": "Refresh",
+        "refreshing": "Refreshing",
+        "runtimeRefresh": "Refresh runtime configuration",
+        "noEffective": "No effective configuration",
+        "noVersions": "No configuration versions",
+        "previousSnapshot": "Showing the last loaded configuration. You can refresh again."
+      },
       "appearance": {
         "title": "Appearance", "description": "Choose a comfortable appearance for reading and work.",
         "label": "Choose a theme",
