@@ -220,6 +220,8 @@ export interface DocumentDraftState {
   toolName: string;
   title: string;
   content: string;
+  /** 修订草稿的目标文档，用于在生成期显示原文档标题。 */
+  documentId: string;
 }
 
 export type AgentContextType = 'geolocation';

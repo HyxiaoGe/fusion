@@ -74,7 +74,12 @@ export function createAgentStreamEventHandlers({
       if (!isActive()) return;
       const conversationId = resolveConversationId();
       if (!conversationId || !payload.run_id || !payload.draft_id || !payload.tool_name) return;
-      const field = payload.field === 'title' || payload.field === 'content' ? payload.field : undefined;
+      const field =
+        payload.field === 'title' || payload.field === 'content'
+          ? payload.field
+          : payload.field === 'document_id'
+            ? 'documentId'
+            : undefined;
       dispatch(applyDocumentDraftDelta({
         conversationId,
         runId: payload.run_id,
