@@ -165,3 +165,29 @@
   .recentTile,
   .modelTile { transition-duration: 0.01ms; }
 }
+
+@media (prefers-reduced-transparency: reduce) {
+  .trigger,
+  .popoverSurface.popoverSurface {
+    background: var(--bg-elevated) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .providerStrip { background: var(--bg-subtle) !important; }
+  .recentTile,
+  .modelTile { background: var(--bg-elevated) !important; }
+
+  .trigger:not(:disabled):hover,
+  .triggerOpen,
+  .providerTab:hover,
+  .providerTabActive,
+  .recentTile:not(:disabled):hover,
+  .modelTile:not(:disabled):hover { background: var(--accent) !important; }
+
+  .tileSelected.tileSelected,
+  .tileSelected.tileSelected:not(:disabled):hover { background: var(--info-bg) !important; }
+
+  .recentTile:disabled,
+  .modelTile:disabled { background: var(--muted) !important; }
+}

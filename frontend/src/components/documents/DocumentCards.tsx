@@ -4,6 +4,7 @@ import { memo, useState } from 'react';
 import { ChevronRight, FileText } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { DocumentBlock } from '@/types/conversation';
+import GlassHoverLens, { pointGlassLight, resetGlassLight } from '@/components/ui/GlassHoverLens';
 import DocumentPanel from './DocumentPanel';
 import styles from './DocumentCards.module.css';
 
@@ -37,8 +38,11 @@ function DocumentCards({ blocks }: DocumentCardsProps) {
           key={block.document_id}
           type="button"
           className={styles.card}
+          onPointerMove={pointGlassLight}
+          onPointerLeave={resetGlassLight}
           onClick={() => setOpenBlock(block)}
         >
+          <GlassHoverLens />
           <span className={styles.icon} aria-hidden="true">
             <FileText className="h-4 w-4" />
           </span>

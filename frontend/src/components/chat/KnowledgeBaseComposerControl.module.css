@@ -127,3 +127,31 @@
   .option { transition: none; }
   .panel.panel { animation-duration: 0.01ms; }
 }
+
+@media (prefers-reduced-transparency: reduce) {
+  .trigger.trigger,
+  .panel.panel {
+    background: var(--bg-elevated) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .trigger.trigger:not(:disabled):hover,
+  .trigger.trigger[data-state="open"] { background: var(--accent) !important; }
+
+  .trigger.trigger[data-selected="true"],
+  .count,
+  .readyChip { background: var(--info-bg) !important; }
+
+  .option,
+  .checkbox,
+  .clearButton.clearButton { background: var(--bg-elevated) !important; }
+
+  .option:not([data-disabled="true"]):hover,
+  .clearButton.clearButton:hover { background: var(--accent) !important; }
+
+  .option[data-selected="true"],
+  .option[data-selected="true"] .checkbox { background: var(--info-bg) !important; }
+
+  .strict { background: var(--muted) !important; }
+}

@@ -86,3 +86,17 @@
     transition-duration: 0.01ms;
   }
 }
+
+@media (prefers-reduced-transparency: reduce) {
+  .windowButton.windowButton {
+    background: var(--bg-elevated) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .windowButton.windowButton:hover { background: var(--accent) !important; }
+  .windowButton.windowButton[aria-pressed="true"] { background: var(--info-bg) !important; }
+
+  .windowButton::before,
+  .windowButton::after { display: none !important; }
+}

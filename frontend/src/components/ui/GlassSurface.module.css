@@ -133,3 +133,26 @@
 @media (prefers-reduced-motion: reduce) {
   .surface { transition-duration: 0.01ms; }
 }
+
+@media (prefers-reduced-transparency: reduce) {
+  .solidFallback {
+    background: var(--bg-elevated) !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .surface.surface {
+    background: var(--bg-elevated) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .surface.surface:hover,
+  .surface.surface:focus-within,
+  .surface.surface[data-focused="true"] { background: var(--accent) !important; }
+
+  .selected.selected,
+  .selected.selected:hover { background: var(--info-bg) !important; }
+
+  .hoverLens.hoverLens { display: none !important; }
+}

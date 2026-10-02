@@ -92,3 +92,17 @@
     transition-duration: 0.01ms;
   }
 }
+
+@media (prefers-reduced-transparency: reduce) {
+  .themeOption {
+    background: var(--bg-elevated) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .themeOption:hover { background: var(--accent) !important; }
+  .themeOption[aria-pressed="true"] { background: var(--info-bg) !important; }
+
+  .themeOption::before,
+  .themeOption::after { display: none !important; }
+}

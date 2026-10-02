@@ -1,65 +1,84 @@
-.card {
+.card,
+.draftCard {
+  position: relative;
+  isolation: isolate;
   display: flex;
   width: 100%;
-  max-width: 36rem;
+  max-width: 42rem;
   align-items: center;
-  gap: 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-elevated);
-  padding: 0.75rem 1rem;
-  transition: border-color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard);
+  gap: 0.875rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--info) 22%, var(--border));
+  border-radius: 17px;
+  background: linear-gradient(135deg, color-mix(in oklab, var(--bg-elevated) 88%, transparent), color-mix(in oklab, var(--info-bg) 48%, transparent));
+  padding: 0.875rem 1rem;
+  box-shadow: inset 0 1px 0 var(--bg-elevated), 0 8px 24px -19px color-mix(in oklab, var(--info) 35%, transparent);
 }
+
+.card { transition: border-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard); }
+.card > :not([data-glass-lens]) { position: relative; z-index: 1; }
 .card:hover {
-  border-color: var(--info-border);
-  background: var(--bg-subtle);
+  border-color: color-mix(in oklab, var(--info) 65%, var(--border));
+  box-shadow: inset 0 1px 0 var(--bg-elevated), 0 10px 26px -18px color-mix(in oklab, var(--info) 45%, transparent);
 }
+.card:hover > :global([data-glass-lens]),
+.card:focus-visible > :global([data-glass-lens]) { opacity: 1; }
 .card:focus-visible {
   outline: 2px solid var(--info);
-  outline-offset: 2px;
+  outline-offset: 3px;
 }
 
 .icon {
   display: flex;
-  width: 32px;
-  height: 32px;
+  width: 38px;
+  height: 40px;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  border-radius: 9px;
-  background: var(--info-bg);
+  border: 1px solid var(--info-border);
+  border-radius: 11px;
+  background: linear-gradient(145deg, var(--bg-elevated), var(--info-bg));
   color: var(--info);
+  box-shadow: inset 0 1px 0 var(--bg-elevated);
 }
 
 .open {
   display: inline-flex;
+  min-height: 30px;
   flex-shrink: 0;
   align-items: center;
-  gap: 0.125rem;
+  gap: 0.25rem;
+  border-radius: 9px;
+  padding: 0 0.5rem;
   color: var(--info);
   font-size: 12px;
 }
 
+/* 草稿的标题、字数和正文持续更新，整个生成区域保持实色且无模糊层。 */
 .draftCard {
-  display: flex;
-  width: 100%;
-  max-width: 36rem;
-  align-items: center;
-  gap: 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-elevated);
-  padding: 0.75rem 1rem;
+  background: linear-gradient(135deg, var(--bg-elevated), var(--info-bg));
+  box-shadow: inset 0 1px 0 var(--bg-elevated);
 }
 
 .draftPreview {
   width: 100%;
-  max-width: 48rem;
+  max-width: 42rem;
   max-height: 22rem;
   overflow-y: auto;
   overscroll-behavior: contain;
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-subtle);
+  border-radius: 17px;
+  background: var(--background);
   padding: 1rem 1.25rem;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .card,
+  .draftCard { background: var(--bg-elevated); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card { transition: none; }
 }
