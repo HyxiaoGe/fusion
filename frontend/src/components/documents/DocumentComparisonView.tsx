@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { DocumentVersionContent, DocumentVersionSummary } from '@/types/document';
@@ -52,7 +52,7 @@ export default function DocumentComparisonView({ document: current, olderVersion
   const failed = base.status === 'error' && base.owner === owner;
   const diff = useMemo(() => ready ? buildDocumentDiff(ready, current) : null, [ready, current]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setActive(0);
     navigationTopRef.current = null;
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
