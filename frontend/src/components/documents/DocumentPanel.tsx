@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Download, FileCode2, X } from 'lucide-react';
+import { ChevronDown, Download, FileCode2, FileText, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { getDocument, getDocumentContent } from '@/lib/api/documents';
@@ -14,6 +14,7 @@ import {
 import type { DocumentDetail, DocumentVersionContent } from '@/types/document';
 import { useChatDetailOverlayRegistration } from '@/components/chat/ChatDetailOverlayContext';
 import { ChatDetailOverlayPortal } from '@/components/chat/ChatDetailOverlayPortal';
+import GlassHoverLens, { pointGlassLight, resetGlassLight } from '@/components/ui/GlassHoverLens';
 import DocumentMarkdown from './DocumentMarkdown';
 import DocumentSources from './DocumentSources';
 import styles from './DocumentPanel.module.css';
@@ -132,46 +133,15 @@ export default function DocumentPanel({ documentId, initialVersion, isOpen, onCl
         data-chat-detail-overlay-surface="true"
         className={cn('fixed inset-y-0 right-0 z-50 flex w-[min(880px,100vw)] flex-col', styles.panel)}
       >
-        <header className={cn('flex items-center justify-between gap-3 px-5 py-3', styles.header)}>
-          <div className="min-w-0">
-            <h3 className="truncate text-sm font-medium">{title}</h3>
-            {ready?.change_summary ? (
-              <p className="mt-0.5 truncate text-xs text-muted-foreground">{ready.change_summary}</p>
-            ) : null}
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {versions.length > 1 ? (
-              <select
-                aria-label={t('documents.panel.versionLabel')}
-                className={styles.versionSelect}
-                value={version}
-                onChange={event => setVersion(Number(event.target.value))}
-              >
-                {[...versions].reverse().map(item => (
-                  <option key={item.version} value={item.version}>
-                    v{item.version}{item.change_summary ? ` · ${item.change_summary}` : ''}
-                  </option>
-                ))}
-              </select>
-            ) : null}
-            <button
-              type="button"
-              className={styles.actionButton}
-              onClick={handleDownloadMarkdown}
-              disabled={!ready}
-            >
-              <Download className="h-3.5 w-3.5" aria-hidden="true" />
-              {t('documents.panel.downloadMarkdown')}
-            </button>
-            <button
-              type="button"
-              className={styles.actionButton}
-              onClick={() => { void handleDownloadHtml(); }}
-              disabled={!ready}
-            >
-              <FileCode2 className="h-3.5 w-3.5" aria-hidden="true" />
-              {t('documents.panel.downloadHtml')}
-            </button>
+        <header className={styles.header}>
+          <div className={styles.heading}>
+            <span className={styles.documentIcon} aria-hidden="true"><FileText className="h-5 w-5" /></span>
+            <div className="min-w-0 flex-1">
+              <h3 className={styles.title}>{title}</h3>
+              {ready?.change_summary ? (
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">{ready.change_summary}</p>
+              ) : null}
+            </div>
             <button
               ref={closeButtonRef}
               type="button"
@@ -182,9 +152,54 @@ export default function DocumentPanel({ documentId, initialVersion, isOpen, onCl
               <X className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
+          <div className={styles.toolbar}>
+            {versions.length > 1 ? (
+              <span className={styles.versionControl}>
+                <select
+                  aria-label={t('documents.panel.versionLabel')}
+                  className={styles.versionSelect}
+                  value={version}
+                  onChange={event => setVersion(Number(event.target.value))}
+                >
+                  {[...versions].reverse().map(item => (
+                    <option key={item.version} value={item.version}>
+                      v{item.version}{item.change_summary ? ` · ${item.change_summary}` : ''}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+              </span>
+            ) : ready ? (
+              <span className={styles.versionBadge}>{t('documents.card.version', { version: ready.version })}</span>
+            ) : null}
+            <button
+              type="button"
+              className={styles.actionButton}
+              onClick={handleDownloadMarkdown}
+              disabled={!ready}
+              onPointerMove={pointGlassLight}
+              onPointerLeave={resetGlassLight}
+            >
+              <GlassHoverLens corners={false} />
+              <Download className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>{t('documents.panel.downloadMarkdown')}</span>
+            </button>
+            <button
+              type="button"
+              className={styles.actionButton}
+              onClick={() => { void handleDownloadHtml(); }}
+              disabled={!ready}
+              onPointerMove={pointGlassLight}
+              onPointerLeave={resetGlassLight}
+            >
+              <GlassHoverLens corners={false} />
+              <FileCode2 className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>{t('documents.panel.downloadHtml')}</span>
+            </button>
+          </div>
         </header>
 
-        <div className={cn('min-h-0 flex-1 overflow-y-auto px-8 py-6', styles.body)}>
+        <div className={cn('min-h-0 flex-1 overflow-y-auto', styles.body)}>
           {content.status === 'loading' ? (
             <p className="text-sm text-muted-foreground">{t('documents.panel.loading')}</p>
           ) : null}

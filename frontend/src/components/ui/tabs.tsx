@@ -6,6 +6,7 @@ import * as TabsPrimitive from "@radix-ui/react-tabs"
 import { cn } from "@/lib/utils"
 import glassStyles from "./GlassLens.module.css"
 import selectableStyles from "./GlassSelectable.module.css"
+import surfaceStyles from "./GlassSurface.module.css"
 
 function Tabs({
   className,
@@ -29,6 +30,7 @@ function TabsList({
       data-slot="tabs-list"
       className={cn(
         "inline-flex h-9 w-fit items-center justify-center rounded-lg border border-white/50 bg-background/25 p-1 text-muted-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-sm dark:border-white/15 dark:bg-white/[0.04] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]",
+        surfaceStyles.solidFallback,
         className
       )}
       {...props}

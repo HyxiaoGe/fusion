@@ -153,3 +153,26 @@
 @media (prefers-reduced-motion: reduce) {
   .methodButton { transition-duration: 0.01ms; }
 }
+
+@media (prefers-reduced-transparency: reduce) {
+  .overlay.overlay {
+    background: var(--bg-subtle) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .surface.surface { background: var(--bg-elevated) !important; }
+  .dialogLens,
+  .methodLens { display: none !important; }
+
+  .methodButton.methodButton,
+  .surface :global([data-slot="dialog-close"]),
+  .emailPanel form button { background: var(--muted) !important; }
+
+  .methodButton.methodButton:hover,
+  .methodButton.methodButton:focus-visible,
+  .surface :global([data-slot="dialog-close"]):hover,
+  .emailPanel form button:hover { background: var(--accent) !important; }
+
+  .surface :global([data-slot="input"]) { background: var(--background) !important; }
+}

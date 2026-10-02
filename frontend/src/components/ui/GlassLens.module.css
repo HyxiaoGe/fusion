@@ -146,3 +146,20 @@
     transition-duration: 0.01ms;
   }
 }
+
+@media (prefers-reduced-transparency: reduce) {
+  /* 保留列表与标签的状态标识，只去掉透视和光层。 */
+  .lens {
+    --glass-idle-opacity: 0;
+    background: var(--info-bg) !important;
+    border-color: var(--info-border);
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    box-shadow: none !important;
+  }
+
+  .lens::before,
+  .lens::after,
+  .corner,
+  :global(button:disabled) .lens { display: none !important; }
+}

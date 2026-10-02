@@ -143,3 +143,22 @@
   .option { transition: none; }
   .panel.panel { animation-duration: 0.01ms; }
 }
+
+@media (prefers-reduced-transparency: reduce) {
+  .trigger.trigger,
+  .panel.panel {
+    background: var(--bg-elevated) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .trigger.trigger:not(:disabled):hover,
+  .trigger.trigger[data-state="open"] { background: var(--accent) !important; }
+
+  .option.option { background: var(--bg-elevated) !important; }
+  .option.option[data-highlighted] { background: var(--accent) !important; }
+  .option.option[data-state="checked"] { background: var(--info-bg) !important; }
+  .option.option[data-disabled] { background: var(--muted) !important; }
+  .icon { background: var(--muted) !important; }
+  .selectedMark { background: var(--info-bg) !important; }
+}
