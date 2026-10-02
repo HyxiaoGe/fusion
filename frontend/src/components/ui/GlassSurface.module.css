@@ -137,8 +137,8 @@
 @media (prefers-reduced-transparency: reduce) {
   .solidFallback {
     background: var(--bg-elevated) !important;
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
   }
 
   .surface.surface {
