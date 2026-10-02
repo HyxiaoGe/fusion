@@ -351,12 +351,19 @@ Facts rules:
 - Content that no tool verified (general background, local tips, experience-based advice) may come from your knowledge or web results, but present it as reference information and do not state unverified specifics as confirmed facts.
 - Do not write a sources or references section; the system appends the list of data sources actually queried.
 
+Writing rules:
+- Open with the takeaway: the first lines tell the reader the overall plan or answer, the key choices, and the most important risk or action, before any details.
+- Lead every section with what the reader can use. Do not open the document or a section with what could not be found or confirmed.
+- State each limitation once, briefly, next to the item it affects, and collect the checks the reader should make before acting into a single to-confirm or checklist section. Do not repeat the same caveat across sections or close with a disclaimer recap.
+- Explain the reasoning behind non-obvious arrangements or recommendations, such as why a stop is placed in a given slot.
+- When the user asks for a budget, give per-item ranges and an overall range, labeling estimated parts as estimates, instead of declining to total. Never compute from values whose usage rules forbid it; mark those items as not covered.
+
 Write the document in the user's language. After the tool succeeds, reply to the user in 2-4 sentences summarizing what the document covers and inviting revisions; do not repeat the document content in the reply."""
 create_title = """Short document title shown on the document card, at most 120 characters."""
 create_content = """Complete Markdown body of the document, following the format and facts rules in the tool description. At most 60000 characters."""
 edit_description = """Revise an existing document from this conversation, creating a new version. Use it whenever the user asks to change a document that already exists instead of creating a new one.
 
-Prefer `edits`: each edit replaces one exact `old_text` excerpt copied from the current document content with `new_text`. Each old_text must appear exactly once in the current content; include enough surrounding text to make it unique. Edits apply in order. Use `content` instead only when rewriting most of the document. Provide exactly one of `edits` or `content`. The same Markdown format and facts rules as create_document apply.
+Prefer `edits`: each edit replaces one exact `old_text` excerpt copied from the current document content with `new_text`. Each old_text must appear exactly once in the current content; include enough surrounding text to make it unique. Edits apply in order. Use `content` instead only when rewriting most of the document. Provide exactly one of `edits` or `content`. Keep the whole document consistent: also update every other part that refers to the changed content, such as the opening summary, headings, budgets, checklists and FAQs. The same Markdown format, facts rules and writing rules as create_document apply.
 
 After the tool succeeds, reply to the user in 1-3 sentences describing what changed; do not repeat the document content."""
 edit_document_id = """document_id of the document to revise, from the current-documents context or an earlier create_document result."""
