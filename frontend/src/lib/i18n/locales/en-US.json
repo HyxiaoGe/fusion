@@ -588,6 +588,15 @@
         "url": "Web page"
       }
     },
+    "tabs": { "label": "Document sections" },
+    "code": {
+      "plainText": "Plain text",
+      "copy": "Copy",
+      "copyLabel": "Copy code",
+      "copying": "Copying",
+      "copied": "Copied",
+      "failed": "Copy failed. Select the code to copy it manually."
+    },
     "callout": {
       "tip": "Tip",
       "info": "Note",
