@@ -1,7 +1,11 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
+import { SettingsBadge } from "@/components/settings/SettingsControls";
+import { SettingsMonitoringState } from "@/components/settings/SettingsMonitoringState";
+import styles from "@/components/settings/SettingsMonitoring.module.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, CalendarDays, Clock3, Loader2, MailCheck } from "lucide-react";
+import { CalendarDays, Clock3, MailCheck } from "lucide-react";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { fetchEmailUsageAPI, type EmailUsageOverview } from "@/lib/api/emailUsage";
@@ -80,21 +84,9 @@ function formatShanghaiDateTime(value: string | null | undefined): string {
   return `${get("year")}/${get("month")}/${get("day")} ${get("hour")}:${get("minute")}:${get("second")}`;
 }
 
-function StatusCard({ title, description }: { title: string; description: string }) {
-  return (
-    <Card className="h-full border-border shadow-sm">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <MailCheck className="h-5 w-5 text-muted-foreground" />
-          {title}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="text-sm text-muted-foreground">{description}</CardContent>
-    </Card>
-  );
-}
 
 export default function EmailUsageMonitor() {
+  const { t } = useTranslation();
   const initialScope = currentCacheScope();
   const initialData = getCachedEmailUsage(initialScope);
   const [data, setData] = useState<EmailUsageOverview | null>(initialData);
@@ -143,43 +135,29 @@ export default function EmailUsageMonitor() {
 
   if (loading) {
     return (
-      <Card className="h-full border-border shadow-sm">
-        <CardContent className="flex min-h-32 flex-1 items-center justify-center text-sm text-muted-foreground">
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          正在加载 Resend 用量
-        </CardContent>
-      </Card>
+      <SettingsMonitoringState title="Resend 邮件用量" icon={MailCheck} state="loading">
+        {t("settings.monitoring.emailLoading", { defaultValue: "正在加载 Resend 用量" })}
+      </SettingsMonitoringState>
     );
   }
 
   if (error) {
-    return (
-      <Card className="h-full border-border shadow-sm">
-        <CardContent className="flex items-center gap-2 p-4">
-          <div className="flex items-center gap-2 text-sm text-destructive">
-            <AlertCircle className="h-4 w-4" />
-            <span>{error}</span>
-          </div>
-        </CardContent>
-      </Card>
-    );
+    return <SettingsMonitoringState title="Resend 邮件用量" icon={MailCheck} state="error">{error}</SettingsMonitoringState>;
   }
 
   if (!data?.configured) {
     return (
-      <StatusCard
-        title="Resend API 用量采集尚未配置"
-        description="auth-service 尚未启用 Resend Email API 用量采集；现有 SMTP 发送不受影响。"
-      />
+      <SettingsMonitoringState title="Resend API 用量采集尚未配置" icon={MailCheck} state="empty">
+        auth-service 尚未启用 Resend Email API 用量采集；现有 SMTP 发送不受影响。
+      </SettingsMonitoringState>
     );
   }
 
   if (!data.available) {
     return (
-      <StatusCard
-        title="Resend 用量尚未同步"
-        description="Resend Email API 已配置，等待首次成功投递后同步官方用量快照。"
-      />
+      <SettingsMonitoringState title="Resend 用量尚未同步" icon={MailCheck} state="empty">
+        Resend Email API 已配置，等待首次成功投递后同步官方用量快照。
+      </SettingsMonitoringState>
     );
   }
 
@@ -188,19 +166,20 @@ export default function EmailUsageMonitor() {
   return (
     <Card
       data-testid="email-usage-card"
-      className="h-full gap-0 overflow-hidden border-border py-0 shadow-sm"
+      className={`h-full border-border ${styles.card}`}
     >
-      <CardHeader className="px-5 py-4">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-            <MailCheck className="h-4 w-4 text-primary" />
+      <CardHeader className={styles.header}>
+        <CardTitle className={styles.title}>
+          <span className={styles.icon}>
+            <MailCheck className="h-4 w-4" aria-hidden="true" />
           </span>
           Resend 邮件用量
         </CardTitle>
+        <SettingsBadge tone="info">{t("settings.monitoring.usageSnapshot", { defaultValue: "用量快照" })}</SettingsBadge>
       </CardHeader>
 
-      <CardContent className="space-y-4 px-5 pb-5">
-        <div>
+      <CardContent className={`space-y-4 ${styles.body}`}>
+        <div className={styles.metric}>
           <p className="text-xs text-muted-foreground">本月已用 / 月度额度</p>
           <p data-testid="email-monthly-usage" className="mt-1 text-3xl font-semibold tracking-tight">
             {formatNumber(data.used_emails)} / {formatNumber(data.monthly_quota)}
@@ -213,18 +192,18 @@ export default function EmailUsageMonitor() {
                 <span>额度进度</span>
                 <span>已使用 {usagePercent.toFixed(1)}%</span>
               </div>
-              <Progress aria-label="Resend 月度用量" value={usagePercent} />
+              <Progress className={styles.progress} aria-label="Resend 月度用量" value={usagePercent} />
             </div>
           )}
         </div>
 
         <div className={`grid gap-2 ${hasDailyUsage ? "grid-cols-2" : "grid-cols-1"}`}>
-          <div data-testid="email-remaining-usage" className="rounded-lg bg-muted/40 px-3 py-2.5 text-sm">
+          <div data-testid="email-remaining-usage" className={`text-sm ${styles.stat}`}>
             <span className="text-muted-foreground">剩余 </span>
             <span className="font-medium">{formatNumber(data.remaining_emails)} 封</span>
           </div>
           {hasDailyUsage && (
-            <div data-testid="email-daily-usage" className="rounded-lg bg-muted/40 px-3 py-2.5 text-sm">
+            <div data-testid="email-daily-usage" className={`text-sm ${styles.stat}`}>
               <span className="text-muted-foreground">今日 </span>
               <span className="font-medium">
                 {formatNumber(data.daily_used_emails)}
@@ -237,7 +216,7 @@ export default function EmailUsageMonitor() {
         </div>
       </CardContent>
 
-      <CardFooter className="mt-auto flex-wrap gap-x-4 gap-y-1.5 border-t bg-muted/10 px-5 py-3 text-xs text-muted-foreground">
+      <CardFooter className={`mt-auto gap-x-4 gap-y-1.5 text-xs text-muted-foreground ${styles.footer}`}>
         <span className="flex items-center gap-1.5">
           <CalendarDays className="h-3.5 w-3.5" />
           账期 {formatDate(data.period_start)} - {formatDate(data.period_end)}

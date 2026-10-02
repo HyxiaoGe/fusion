@@ -1,7 +1,11 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
+import { SettingsBadge } from "@/components/settings/SettingsControls";
+import { SettingsMonitoringState } from "@/components/settings/SettingsMonitoringState";
+import styles from "@/components/settings/SettingsMonitoring.module.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, BarChart3, CalendarDays, ChevronDown, List, Loader2, WalletCards } from "lucide-react";
+import { BarChart3, CalendarDays, ChevronDown, List, WalletCards } from "lucide-react";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { fetchSearchUsageAPI, type ProviderRecordedUsageDaily, type SearchUsageOverview } from "@/lib/api/searchUsage";
@@ -84,6 +88,7 @@ function recentDailyUsage(daily: ProviderRecordedUsageDaily[] | undefined): Prov
 }
 
 export default function SearchUsageMonitor() {
+  const { t } = useTranslation();
   const initialScope = currentCacheScope();
   const initialData = getCachedSearchUsage(initialScope);
   const [data, setData] = useState<SearchUsageOverview | null>(initialData);
@@ -137,60 +142,41 @@ export default function SearchUsageMonitor() {
 
   if (loading) {
     return (
-      <Card className="h-full border-border shadow-sm">
-        <CardContent className="flex min-h-32 flex-1 items-center justify-center text-sm text-muted-foreground">
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          正在加载联网用量
-        </CardContent>
-      </Card>
+      <SettingsMonitoringState title="Firecrawl 用量" icon={WalletCards} state="loading">
+        {t("settings.monitoring.searchLoading", { defaultValue: "正在加载联网用量" })}
+      </SettingsMonitoringState>
     );
   }
 
   if (error) {
-    return (
-      <Card className="h-full border-border shadow-sm">
-        <CardContent className="flex items-center gap-2 p-4">
-          <div className="flex items-center gap-2 text-sm text-destructive">
-            <AlertCircle className="h-4 w-4" />
-            <span>{error}</span>
-          </div>
-        </CardContent>
-      </Card>
-    );
+    return <SettingsMonitoringState title="Firecrawl 用量" icon={WalletCards} state="error">{error}</SettingsMonitoringState>;
   }
 
   if (!firecrawl?.available) {
     return (
-      <Card className="h-full border-border shadow-sm">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <WalletCards className="h-5 w-5 text-muted-foreground" />
-            Firecrawl 用量暂不可用
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          当前 search-service 没有配置 Firecrawl API Key，暂时无法读取官方余额。
-        </CardContent>
-      </Card>
+      <SettingsMonitoringState title="Firecrawl 用量暂不可用" icon={WalletCards} state="empty">
+        当前 search-service 没有配置 Firecrawl API Key，暂时无法读取官方余额。
+      </SettingsMonitoringState>
     );
   }
 
   return (
     <Card
       data-testid="search-usage-card"
-      className="h-full gap-0 overflow-hidden border-border py-0 shadow-sm"
+      className={`h-full border-border ${styles.card}`}
     >
-      <CardHeader className="px-5 py-4">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-            <WalletCards className="h-4 w-4 text-primary" />
+      <CardHeader className={styles.header}>
+        <CardTitle className={styles.title}>
+          <span className={styles.icon}>
+            <WalletCards className="h-4 w-4" aria-hidden="true" />
           </span>
           Firecrawl 用量
         </CardTitle>
+        <SettingsBadge tone="info">{t("settings.monitoring.officialBalance", { defaultValue: "官方余额" })}</SettingsBadge>
       </CardHeader>
 
-      <CardContent className="space-y-4 px-5 pb-5">
-        <div>
+      <CardContent className={`space-y-4 ${styles.body}`}>
+        <div className={styles.metric}>
           <p className="text-xs text-muted-foreground">剩余额度</p>
           <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
             <p className="text-3xl font-semibold tracking-tight">
@@ -207,12 +193,12 @@ export default function SearchUsageMonitor() {
                 <span>额度进度</span>
                 <span>已使用 {usagePercent.toFixed(1)}%</span>
               </div>
-              <Progress aria-label="Firecrawl 额度用量" value={usagePercent} />
+              <Progress className={styles.progress} aria-label="Firecrawl 额度用量" value={usagePercent} />
             </div>
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/40 px-3 py-2.5 text-sm">
+        <div className={`flex flex-wrap items-center justify-between gap-3 text-sm ${styles.stat}`}>
           <span className="text-muted-foreground">系统累计</span>
           <span className="text-right font-medium">
             {recordedUsageAvailable
@@ -223,7 +209,7 @@ export default function SearchUsageMonitor() {
 
         <details
           data-testid="search-usage-details"
-          className="group rounded-lg border bg-muted/5"
+          className={`group ${styles.details}`}
         >
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden">
             <span>查看详细记录</span>
@@ -250,7 +236,7 @@ export default function SearchUsageMonitor() {
                   ))}
                 </ul>
               ) : (
-                <p className="text-xs text-muted-foreground">暂无每日记录</p>
+                <p className={`text-xs ${styles.notice}`}>暂无每日记录</p>
               )}
             </section>
 
@@ -272,16 +258,16 @@ export default function SearchUsageMonitor() {
                   ))}
                 </ul>
               ) : data?.historical?.available === false ? (
-                <p className="text-xs text-muted-foreground">官方历史暂不可用</p>
+                <p className={`text-xs ${styles.notice}`}>官方历史暂不可用</p>
               ) : (
-                <p className="text-xs text-muted-foreground">官方历史暂无数据</p>
+                <p className={`text-xs ${styles.notice}`}>官方历史暂无数据</p>
               )}
             </section>
           </div>
         </details>
       </CardContent>
 
-      <CardFooter className="mt-auto gap-2 border-t bg-muted/10 px-5 py-3 text-xs text-muted-foreground">
+      <CardFooter className={`mt-auto gap-2 text-xs text-muted-foreground ${styles.footer}`}>
         <CalendarDays className="h-3.5 w-3.5" />
         账期 {formatDate(firecrawl.billing_period_start)} - {formatDate(firecrawl.billing_period_end)}
       </CardFooter>
