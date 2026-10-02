@@ -17,8 +17,8 @@
 .side { padding: 0.875rem 1rem; border-left: 3px solid var(--danger-border); background: var(--background); }
 .side + .side { border-top: 1px solid var(--border); }
 .side[data-side="after"] { border-left-color: var(--success-border); }
-.sideLabel { margin: 0 0 0.625rem; color: var(--danger); font-size: 12px; font-weight: 600; }
-.side[data-side="after"] .sideLabel { color: var(--success); }
+.sideLabel { margin: 0 0 0.625rem; color: color-mix(in oklab, var(--danger) 70%, var(--foreground)); font-size: 12px; font-weight: 600; }
+.side[data-side="after"] .sideLabel { color: color-mix(in oklab, var(--success) 70%, var(--foreground)); }
 .plain { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--foreground); font-size: 14px; line-height: 1.8; font-family: inherit; }
 .plain mark { border-radius: 3px; padding: 0.05em 0; color: inherit; background: var(--danger-bg); box-decoration-break: clone; }
 .plain mark[data-change="added"] { background: var(--success-bg); }
