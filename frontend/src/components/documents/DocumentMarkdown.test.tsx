@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeAll, describe, expect, it } from 'vitest';
 import i18n from '@/lib/i18n';
 import DocumentMarkdown from './DocumentMarkdown';
+import { buildDocumentHighlights } from '@/lib/documents/documentDiffHighlights';
 
 const tabs = (labels: string[], close = true) => [
   ':::tabs',
@@ -116,5 +117,39 @@ describe('文档富内容', () => {
     act(() => { rerender(<DocumentMarkdown content={`${content}\n3. 午餐\n:::\n\n完成`} />); });
     expect(screen.getByText('午餐')).toBeInTheDocument();
     expect(screen.getByText('完成')).toBeInTheDocument();
+  });
+
+  it('差异高亮按原文位置投影到 CRLF 嵌套容器，重复文字不会误标', () => {
+    const before = '相同正文\r\n\r\n::::tabs\r\n:::tab[甲]\r\n相同正文\r\n:::\r\n:::tab[乙]\r\n相同正文\r\n:::\r\n::::\r\n';
+    const after = before.replace(':::tab[乙]\r\n相同正文', ':::tab[乙]\r\n不同正文');
+    const { container } = render(<DocumentMarkdown content={after} highlights={buildDocumentHighlights(before, after).after} expandTabs />);
+    expect(container.querySelectorAll('mark')).toHaveLength(1);
+    expect(container.querySelector('mark')).toHaveTextContent('不');
+    expect(container.querySelector('mark')).toHaveAttribute('data-document-change', 'modified');
+    expect(screen.getAllByText('相同正文')).toHaveLength(2);
+  });
+
+  it('高亮代码与转义字符时保留字面内容，普通阅读不产生任何标记', () => {
+    const before = '```html\n<script>alert(1)</script>\n```\n\nA &amp; B\n';
+    const after = before.replace('alert(1)', 'alert(2)').replace('&amp;', '&lt;');
+    const view = render(<DocumentMarkdown content={after} highlights={buildDocumentHighlights(before, after).after} expandTabs />);
+    expect(view.container.querySelector('pre')?.textContent).toBe('<script>alert(2)</script>\n');
+    expect(view.container.querySelector('div[data-document-change="modified"]')).toBeInTheDocument();
+    expect(view.container.querySelector('script')).toBeNull();
+    expect(view.container.querySelector('mark')).toHaveTextContent('A < B');
+    view.rerender(<DocumentMarkdown content={after} expandTabs />);
+    expect(view.container.querySelector('[data-document-change]')).toBeNull();
+    expect(view.container.querySelector('pre')?.textContent).toBe('<script>alert(2)</script>\n');
+  });
+
+  it('正文与提示块标题同名时，源位置仍落在实际改动的正文上', () => {
+    const before = ':::tip[西溪]\n西湖\n:::\n';
+    const after = ':::tip[西溪]\n西溪\n:::\n';
+    const { container } = render(<DocumentMarkdown content={after} highlights={buildDocumentHighlights(before, after).after} expandTabs />);
+    const marks = container.querySelectorAll('mark');
+    expect(marks).toHaveLength(1);
+    expect(marks[0]).toHaveTextContent('溪');
+    expect(marks[0].closest('.fdoc-callout-body')).toBeInTheDocument();
+    expect(container.querySelector('.fdoc-callout-heading mark')).toBeNull();
   });
 });

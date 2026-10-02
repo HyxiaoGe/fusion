@@ -672,7 +672,7 @@
       "loading": "正在加载对比版本…",
       "failed": "对比版本加载失败，请重试。",
       "identical": "标题和正文没有变化。",
-      "unchanged": "展开未变内容",
+      "modifyLegend": "修改",
       "changeLabel": "变化 {{index}}",
       "title": "标题修改",
       "added": "新增",

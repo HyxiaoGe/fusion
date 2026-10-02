@@ -41,6 +41,8 @@ describe('文档只读版本对比', () => {
     expect(region).toHaveTextContent('第二天去灵隐寺');
     expect(screen.getByText('v1 → v3')).toBeInTheDocument();
     expect(screen.queryByText('其他不变')).toBeNull();
+    expect(screen.queryByText('展开未变内容')).toBeNull();
+    expect(screen.queryByText('第一天去中环')).toBeNull();
   });
 
   it('标题与正文分开计数，键盘导航聚焦具体变化且仅滚动比较区', async () => {
@@ -58,6 +60,7 @@ describe('文档只读版本对比', () => {
     expect(body.scrollTop).toBeGreaterThan(0);
     await user.click(screen.getByRole('button', { name: '上一处变化' }));
     expect(screen.getByRole('region', { name: '变化 1' })).toHaveFocus();
+    expect(within(screen.getByRole('region', { name: '文档版本差异' })).getAllByRole('separator')).toHaveLength(2);
   });
 
   it('文末短变化被滚动上限截短时，导航计数不会退回上一处', async () => {
@@ -138,5 +141,41 @@ describe('文档只读版本对比', () => {
     fireEvent.click(within(change).getByText('查看 Markdown 原文差异'));
     expect(change.querySelector('pre')?.textContent).toContain('const budget');
     expect(change.textContent).toContain('::::tabs');
+  });
+
+  it('五天概览表只突出第三天改变的三个单元格，保留其余行列用于定位', async () => {
+    const before = '| 天数 | 主题 | 核心产出 | 关键对接人 |\n| --- | --- | --- | --- |\n| Day 1 | 报到与安顿 | 设备可用 | HR |\n| Day 2 | 熟悉业务与流程 | 掌握常用系统 | 业务骨干 |\n| Day 3 | 深入岗位职责 | 明确岗位职责与考核指标、完成首批小任务 | 直属主管 |\n| Day 4 | 上手实操 | 完整任务 | 协作同事 |\n| Day 5 | 复盘与规划 | 周报 | HR |\n';
+    const after = before.replace('深入岗位职责', '参加部门新人培训').replace('明确岗位职责与考核指标、完成首批小任务', '完成部门新人培训、整理培训笔记').replace('| 直属主管 |', '| 培训讲师、直属主管 |');
+    getContent.mockResolvedValueOnce(snapshot(1, { content: before }));
+    render(<DocumentComparisonView document={snapshot(3, { content: after })} olderVersions={[olderVersions[1]]} authIdentity="user" />);
+    const change = await screen.findByRole('region', { name: '变化 1' });
+    expect(change).toHaveAttribute('data-change-kind', 'modified');
+    const tables = within(change).getAllByRole('table');
+    expect(tables).toHaveLength(2);
+    for (const table of tables) {
+      expect(table.querySelectorAll('td[data-document-change="modified"]')).toHaveLength(3);
+      const rows = within(table).getAllByRole('row');
+      for (const index of [0, 1, 2, 4, 5]) expect(rows[index].querySelector('[data-document-change]')).toBeNull();
+      expect(rows[3].querySelector('td')).not.toHaveAttribute('data-document-change');
+    }
+    expect(tables[1].querySelectorAll('td[data-document-change="modified"]')[2]).toHaveTextContent('培训讲师、直属主管');
+  });
+
+  it('列表只给新增午餐标绿，独立删除块标红，原文仍完整保留', async () => {
+    const before = '- [ ] 整理工位\n- [ ] 填写反馈\n\n保留的说明。\n\n删除这整段。\n';
+    const after = '- [ ] 整理工位\n- [ ] 填写反馈\n- [ ] 和入职引导人约一次午餐\n\n保留的说明。\n';
+    getContent.mockResolvedValueOnce(snapshot(1, { content: before }));
+    render(<DocumentComparisonView document={snapshot(3, { content: after })} olderVersions={[olderVersions[1]]} authIdentity="user" />);
+    const change = await screen.findByRole('region', { name: '变化 1' });
+    const marks = [...change.querySelectorAll('[data-testid="document-markdown"] mark')];
+    expect(marks).toHaveLength(1);
+    expect(marks[0]).toHaveAttribute('data-document-change', 'added');
+    expect(marks[0]).toHaveTextContent('和入职引导人约一次午餐');
+    const removed = screen.getByRole('region', { name: '变化 2' });
+    expect(removed).toHaveAttribute('data-change-kind', 'removed');
+    expect(removed.querySelector('mark')).toHaveAttribute('data-document-change', 'removed');
+    fireEvent.click(within(change).getByText('查看 Markdown 原文差异'));
+    expect(change.querySelectorAll('pre')[0].textContent).toBe('- [ ] 整理工位\n- [ ] 填写反馈\n');
+    expect(change.querySelectorAll('pre')[1].textContent).toBe('- [ ] 整理工位\n- [ ] 填写反馈\n- [ ] 和入职引导人约一次午餐\n');
   });
 });

@@ -236,3 +236,5 @@ function compareTokens(before: string[], after: string[], budget: number): Docum
   append('equal', before.slice(before.length - suffix).join(''));
   return result;
 }
+
+export { compareTokens as compareDocumentTokens };

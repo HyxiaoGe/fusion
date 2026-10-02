@@ -678,7 +678,7 @@
       "loading": "Loading the comparison version…",
       "failed": "Failed to load the comparison version. Please retry.",
       "identical": "The title and body are unchanged.",
-      "unchanged": "Expand unchanged content",
+      "modifyLegend": "Modified",
       "changeLabel": "Change {{index}}",
       "title": "Title changed",
       "added": "Added",
