@@ -68,6 +68,29 @@
       "newChatTitle": "New Conversation"
     },
     "chatBody": {
+      "evidencePanel": {
+        "title": "Answer sources",
+        "close": "Close answer sources",
+        "closeBackdrop": "Close answer sources backdrop",
+        "usedCount": "{{count}} used",
+        "candidateCount": "{{count}} candidates",
+        "readCount": "{{count}} webpages read",
+        "issueCount": "{{count}} unused",
+        "usedSources": "Used sources",
+        "candidateSources": "Candidate sources",
+        "issueSources": "Unused sources",
+        "queries": "Search queries",
+        "empty": "No answer sources available",
+        "selectSource": "Select source: {{title}}",
+        "selectCitation": "Select source {{number}}: {{title}}",
+        "openSource": "Open source: {{title}}",
+        "current": "Currently viewing",
+        "deepRead": "Read in full",
+        "chunk": "Chunk {{number}}",
+        "page": "Page {{number}}",
+        "kinds": { "search": "Search", "url_read": "Webpage", "knowledge": "Knowledge base" },
+        "status": { "unused": "Unused", "degraded": "Partially available", "interrupted": "Interrupted" }
+      },
       "citation": {
         "knowledge": "Knowledge base",
         "web": "Web source",

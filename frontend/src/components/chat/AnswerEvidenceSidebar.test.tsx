@@ -1,5 +1,7 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import i18n from '@/lib/i18n';
 import type { AnswerEvidenceSidebarModel } from './answerEvidenceSidebarModel';
 import AnswerEvidenceSidebar from './AnswerEvidenceSidebar';
 
@@ -55,6 +57,9 @@ const model: AnswerEvidenceSidebarModel = {
   isRenderable: true,
 };
 
+beforeEach(async () => { await i18n.changeLanguage('zh-CN'); });
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
 describe('AnswerEvidenceSidebar', () => {
   it('closed 时不渲染侧栏内容', () => {
     const { container } = render(
@@ -80,7 +85,7 @@ describe('AnswerEvidenceSidebar', () => {
     expect(screen.getByRole('heading', { name: '回答依据' })).toBeInTheDocument();
     expect(screen.getByText('已使用 2 条 · 深读 1 个网页')).toBeInTheDocument();
     expect(screen.getByText('2 个未使用')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '搜索关键词' })).toBeInTheDocument();
+    expect(screen.getByText('搜索关键词').closest('details')).not.toHaveAttribute('open');
     expect(screen.getByText('AI 标准')).toBeInTheDocument();
     expect(screen.getByText('OpenAI 最新融资')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '已使用来源' })).toBeInTheDocument();
@@ -232,4 +237,91 @@ it('稳定引用编号优先于列表位置，候选也能准确聚焦', () => {
   render(<AnswerEvidenceSidebar model={sparse} isOpen onClose={() => {}} highlightIndex={0} highlightCitationIndex={12} />);
   expect(screen.getByTestId('answer-evidence-used-search-11')).toHaveAttribute('data-highlighted', 'true');
   expect(screen.getByTestId('answer-evidence-used-search-0')).toHaveAttribute('data-highlighted', 'false');
+  expect(screen.getByRole('button', { name: '选择来源 12：第十二来源' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByTestId('answer-evidence-used-search-11')).toHaveAttribute('aria-current', 'true');
+  expect(within(screen.getByTestId('answer-evidence-used-search-11')).getByText('12')).toBeVisible();
+});
+
+it('键盘选择只改变当前查看来源，不改变依据分组或激活外链', async () => {
+  const user = userEvent.setup();
+  const onClose = vi.fn();
+  render(<AnswerEvidenceSidebar model={model} isOpen onClose={onClose} />);
+  await user.tab();
+  expect(screen.getByText('搜索关键词').closest('summary')).toHaveFocus();
+  await user.tab();
+  const first = screen.getByRole('button', { name: '选择来源：搜索来源' });
+  expect(first).toHaveFocus();
+  await user.keyboard(' ');
+  expect(first).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByText('当前查看')).toBeVisible();
+  await user.click(screen.getByRole('button', { name: '选择来源：读取来源' }));
+  expect(first).toHaveAttribute('aria-pressed', 'false');
+  expect(screen.getByRole('button', { name: '选择来源：读取来源' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getAllByText('当前查看')).toHaveLength(1);
+  expect(screen.getByText('已使用 2 条 · 深读 1 个网页')).toBeInTheDocument();
+  const link = screen.getByRole('link', { name: '打开来源：搜索来源' });
+  expect(link.closest('button')).toBeNull();
+  expect(link).toHaveAttribute('target', '_blank');
+  expect(onClose).not.toHaveBeenCalled();
+});
+
+it('新的正文引用定位优先于侧栏临时选择，关闭重开也不沿用旧选择', () => {
+  const sparse = {
+    ...model,
+    usedItems: [{ ...model.usedItems[0], citationIndex: 39 }],
+    candidateItems: [{ ...model.usedItems[0], id: 'candidate-12', title: '候选来源十二', sourceIndex: 11, citationIndex: 12 }],
+  };
+  const props = { model: sparse, isOpen: true, onClose: vi.fn(), highlightCitationIndex: 12, highlightTick: 1 };
+  const { rerender } = render(<AnswerEvidenceSidebar {...props} />);
+  fireEvent.click(screen.getByRole('button', { name: '选择来源 39：搜索来源' }));
+  expect(screen.getByRole('button', { name: '选择来源 39：搜索来源' })).toHaveAttribute('aria-pressed', 'true');
+  rerender(<AnswerEvidenceSidebar {...props} highlightTick={2} />);
+  expect(screen.getByRole('button', { name: '选择来源 12：候选来源十二' })).toHaveAttribute('aria-pressed', 'true');
+  fireEvent.click(screen.getByRole('button', { name: '选择来源 39：搜索来源' }));
+  rerender(<AnswerEvidenceSidebar {...props} highlightTick={2} isOpen={false} />);
+  rerender(<AnswerEvidenceSidebar {...props} highlightTick={2} />);
+  expect(screen.getByRole('button', { name: '选择来源 12：候选来源十二' })).toHaveAttribute('aria-pressed', 'true');
+  fireEvent.click(screen.getByRole('button', { name: '选择来源 39：搜索来源' }));
+  rerender(<AnswerEvidenceSidebar {...props} highlightTick={2} model={{ ...sparse, usedItems: [{ ...sparse.usedItems[0], url: 'https://new.example.com', title: '替换后的来源' }] }} />);
+  expect(screen.getByRole('button', { name: '选择来源 39：替换后的来源' })).toHaveAttribute('aria-pressed', 'false');
+  expect(screen.getByRole('button', { name: '选择来源 12：候选来源十二' })).toHaveAttribute('aria-pressed', 'true');
+});
+
+it('关键词默认折叠，可展开全部内容，来源顺序保持不变', async () => {
+  const user = userEvent.setup();
+  render(<AnswerEvidenceSidebar model={model} isOpen onClose={vi.fn()} />);
+  const details = screen.getByText('搜索关键词').closest('details')!;
+  expect(details).not.toHaveAttribute('open');
+  await user.click(screen.getByText('搜索关键词'));
+  expect(details).toHaveAttribute('open');
+  expect(screen.getByText('OpenAI 最新融资')).toBeVisible();
+  await user.click(screen.getByText('搜索关键词'));
+  expect(details).not.toHaveAttribute('open');
+  expect(screen.getAllByRole('button', { name: /^选择来源：/ }).map(element => element.getAttribute('aria-label'))).toEqual(['选择来源：搜索来源', '选择来源：读取来源']);
+});
+
+it('减少动画时直接定位，关闭前取消尚未执行的定位', () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
+  const scroll = vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
+  scroll.mockClear();
+  const props = { model, isOpen: true, onClose: vi.fn(), highlightIndex: 0 };
+  const { rerender } = render(<AnswerEvidenceSidebar {...props} />);
+  act(() => { vi.advanceTimersByTime(100); });
+  expect(scroll).toHaveBeenCalledWith({ behavior: 'auto', block: 'center' });
+  scroll.mockClear();
+  fireEvent.click(screen.getByRole('button', { name: '选择来源：读取来源' }));
+  rerender(<AnswerEvidenceSidebar {...props} isOpen={false} />);
+  act(() => { vi.advanceTimersByTime(100); });
+  expect(scroll).not.toHaveBeenCalled();
+});
+
+it('新增选中和面板文字随语言切换', async () => {
+  await i18n.changeLanguage('en-US');
+  render(<AnswerEvidenceSidebar model={model} isOpen onClose={vi.fn()} highlightIndex={0} />);
+  expect(screen.getByRole('dialog', { name: 'Answer sources' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Select source: 搜索来源' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByText('Currently viewing')).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Used sources' })).toBeVisible();
+  await i18n.changeLanguage('zh-CN');
 });
