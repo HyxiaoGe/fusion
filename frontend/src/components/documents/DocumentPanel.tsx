@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, Download, FileCode2, FileText, X } from 'lucide-react';
+import { ChevronDown, Download, FileCode2, FileText, GitCompare, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { getDocument, getDocumentContent } from '@/lib/api/documents';
@@ -21,6 +21,7 @@ import styles from './DocumentPanel.module.css';
 import { useAppSelector } from '@/redux/hooks';
 import { selectAuthSessionKey } from '@/redux/selectors';
 import DocumentReadingView from './DocumentReadingView';
+import DocumentComparisonView from './DocumentComparisonView';
 
 interface DocumentPanelProps {
   documentId: string;
@@ -38,14 +39,16 @@ export default function DocumentPanel({ documentId, initialVersion, isOpen, onCl
   const [detail, setDetail] = useState<LoadState<DocumentDetail>>({ status: 'loading' });
   const [content, setContent] = useState<LoadState<DocumentVersionContent>>({ status: 'loading' });
   const [reloadTick, setReloadTick] = useState(0);
+  const [comparisonOwner, setComparisonOwner] = useState<string | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const detailOwner = JSON.stringify([authIdentity, documentId]);
   const contentOwner = JSON.stringify([authIdentity, documentId, version]);
   useChatDetailOverlayRegistration(isOpen);
 
   useEffect(() => {
+    setComparisonOwner(null);
     if (isOpen) setVersion(initialVersion);
-  }, [documentId, initialVersion, isOpen]);
+  }, [documentId, initialVersion, isOpen, authIdentity]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -101,6 +104,8 @@ export default function DocumentPanel({ documentId, initialVersion, isOpen, onCl
   const readyDetail = detail.status === 'ready' && detail.owner === detailOwner ? detail.data : null;
   const title = ready?.title ?? readyDetail?.title ?? t('documents.panel.fallbackTitle');
   const versions = readyDetail?.versions ?? [];
+  const olderVersions = versions.filter(item => item.version < version).sort((a, b) => b.version - a.version);
+  const comparing = comparisonOwner === detailOwner && olderVersions.length > 0;
 
   const handleDownloadMarkdown = () => {
     if (!ready) return;
@@ -183,6 +188,22 @@ export default function DocumentPanel({ documentId, initialVersion, isOpen, onCl
             ) : ready ? (
               <span className={styles.versionBadge}>{t('documents.card.version', { version: ready.version })}</span>
             ) : null}
+            {versions.length > 1 ? (
+              <button
+                type="button"
+                className={styles.actionButton}
+                aria-pressed={comparing}
+                disabled={!ready || olderVersions.length === 0}
+                title={olderVersions.length === 0 ? t('documents.comparison.firstVersion') : undefined}
+                onClick={() => setComparisonOwner(comparing ? null : detailOwner)}
+                onPointerMove={pointGlassLight}
+                onPointerLeave={resetGlassLight}
+              >
+                <GlassHoverLens corners={false} />
+                <GitCompare className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>{t(comparing ? 'documents.comparison.read' : 'documents.comparison.open')}</span>
+              </button>
+            ) : null}
             <button
               type="button"
               className={styles.actionButton}
@@ -211,7 +232,11 @@ export default function DocumentPanel({ documentId, initialVersion, isOpen, onCl
         </header>
 
         {ready ? (
-          <DocumentReadingView key={contentOwner} document={ready} authIdentity={authIdentity} />
+          comparing ? (
+            <DocumentComparisonView key={contentOwner} document={ready} olderVersions={olderVersions} authIdentity={authIdentity} />
+          ) : (
+            <DocumentReadingView key={contentOwner} document={ready} authIdentity={authIdentity} />
+          )
         ) : (
           <div className={cn('min-h-0 flex-1 overflow-y-auto', styles.body)}>
             {content.status !== 'error' ? (
