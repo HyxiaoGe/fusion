@@ -627,6 +627,12 @@
       "downloadMarkdown": "Markdown",
       "downloadHtml": "HTML"
     },
+    "reading": {
+      "contents": "Contents",
+      "outlineLabel": "Document contents",
+      "current": "Current section",
+      "bodyLabel": "Document body"
+    },
     "sources": {
       "title": "Data sources",
       "empty": "This document does not use live query results; treat it as reference only.",

@@ -18,6 +18,9 @@ import GlassHoverLens, { pointGlassLight, resetGlassLight } from '@/components/u
 import DocumentMarkdown from './DocumentMarkdown';
 import DocumentSources from './DocumentSources';
 import styles from './DocumentPanel.module.css';
+import { useAppSelector } from '@/redux/hooks';
+import { selectAuthSessionKey } from '@/redux/selectors';
+import DocumentReadingView from './DocumentReadingView';
 
 interface DocumentPanelProps {
   documentId: string;
@@ -26,44 +29,51 @@ interface DocumentPanelProps {
   onClose: () => void;
 }
 
-type LoadState<T> = { status: 'loading' } | { status: 'ready'; data: T } | { status: 'error' };
+type LoadState<T> = { status: 'loading' } | { status: 'ready'; owner: string; data: T } | { status: 'error' };
 
 export default function DocumentPanel({ documentId, initialVersion, isOpen, onClose }: DocumentPanelProps) {
   const { t, i18n } = useTranslation();
+  const authIdentity = useAppSelector(selectAuthSessionKey);
   const [version, setVersion] = useState(initialVersion);
   const [detail, setDetail] = useState<LoadState<DocumentDetail>>({ status: 'loading' });
   const [content, setContent] = useState<LoadState<DocumentVersionContent>>({ status: 'loading' });
   const [reloadTick, setReloadTick] = useState(0);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const detailOwner = JSON.stringify([authIdentity, documentId]);
+  const contentOwner = JSON.stringify([authIdentity, documentId, version]);
   useChatDetailOverlayRegistration(isOpen);
 
   useEffect(() => {
     if (isOpen) setVersion(initialVersion);
-  }, [initialVersion, isOpen]);
+  }, [documentId, initialVersion, isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
     const controller = new AbortController();
     setDetail({ status: 'loading' });
     getDocument(documentId, controller.signal)
-      .then(data => setDetail({ status: 'ready', data }))
+      .then(data => {
+        if (!controller.signal.aborted) setDetail({ status: 'ready', owner: detailOwner, data });
+      })
       .catch(() => {
         if (!controller.signal.aborted) setDetail({ status: 'error' });
       });
     return () => controller.abort();
-  }, [documentId, isOpen, reloadTick]);
+  }, [documentId, detailOwner, isOpen, reloadTick]);
 
   useEffect(() => {
     if (!isOpen) return;
     const controller = new AbortController();
     setContent({ status: 'loading' });
     getDocumentContent(documentId, version, controller.signal)
-      .then(data => setContent({ status: 'ready', data }))
+      .then(data => {
+        if (!controller.signal.aborted) setContent({ status: 'ready', owner: contentOwner, data });
+      })
       .catch(() => {
         if (!controller.signal.aborted) setContent({ status: 'error' });
       });
     return () => controller.abort();
-  }, [documentId, isOpen, version, reloadTick]);
+  }, [documentId, contentOwner, isOpen, version, reloadTick]);
 
   // 父组件在流式输出中频繁重渲染，onClose 引用会变；用 ref 避免反复抢焦点。
   const onCloseRef = useRef(onClose);
@@ -87,9 +97,10 @@ export default function DocumentPanel({ documentId, initialVersion, isOpen, onCl
 
   if (!isOpen) return null;
 
-  const ready = content.status === 'ready' ? content.data : null;
-  const title = ready?.title ?? (detail.status === 'ready' ? detail.data.title : t('documents.panel.fallbackTitle'));
-  const versions = detail.status === 'ready' ? detail.data.versions : [];
+  const ready = content.status === 'ready' && content.owner === contentOwner ? content.data : null;
+  const readyDetail = detail.status === 'ready' && detail.owner === detailOwner ? detail.data : null;
+  const title = ready?.title ?? readyDetail?.title ?? t('documents.panel.fallbackTitle');
+  const versions = readyDetail?.versions ?? [];
 
   const handleDownloadMarkdown = () => {
     if (!ready) return;
@@ -199,25 +210,23 @@ export default function DocumentPanel({ documentId, initialVersion, isOpen, onCl
           </div>
         </header>
 
-        <div className={cn('min-h-0 flex-1 overflow-y-auto', styles.body)}>
-          {content.status === 'loading' ? (
-            <p className="text-sm text-muted-foreground">{t('documents.panel.loading')}</p>
-          ) : null}
-          {content.status === 'error' ? (
-            <div className={styles.error}>
-              <p>{t('documents.panel.failed')}</p>
-              <button type="button" className={styles.actionButton} onClick={() => setReloadTick(tick => tick + 1)}>
-                {t('documents.panel.retry')}
-              </button>
-            </div>
-          ) : null}
-          {ready ? (
-            <>
-              <DocumentMarkdown content={ready.content} />
-              <DocumentSources sources={ready.sources} />
-            </>
-          ) : null}
-        </div>
+        {ready ? (
+          <DocumentReadingView key={contentOwner} document={ready} authIdentity={authIdentity} />
+        ) : (
+          <div className={cn('min-h-0 flex-1 overflow-y-auto', styles.body)}>
+            {content.status !== 'error' ? (
+              <p className="text-sm text-muted-foreground">{t('documents.panel.loading')}</p>
+            ) : null}
+            {content.status === 'error' ? (
+              <div className={styles.error}>
+                <p>{t('documents.panel.failed')}</p>
+                <button type="button" className={styles.actionButton} onClick={() => setReloadTick(tick => tick + 1)}>
+                  {t('documents.panel.retry')}
+                </button>
+              </div>
+            ) : null}
+          </div>
+        )}
       </aside>
     </ChatDetailOverlayPortal>
   );
