@@ -1,5 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '@/lib/i18n';
 import type { DocumentBlock } from '@/types/conversation';
@@ -83,6 +84,7 @@ describe('DocumentCards', () => {
   });
 
   it('opens the panel at the card version, renders directives and sources, and switches versions', async () => {
+    const user = userEvent.setup();
     render(<DocumentCards blocks={[block()]} />);
     expect(screen.getByText('已创建 · v1 · 3,200 字')).toBeInTheDocument();
 
@@ -91,7 +93,7 @@ describe('DocumentCards', () => {
     expect(getDocumentContentMock).toHaveBeenCalledWith('doc-1', 1, expect.any(AbortSignal));
     expect(await within(panel).findByText('去油麻地')).toBeInTheDocument();
     expect(within(panel).queryByText('去太平山')).not.toBeInTheDocument();
-    fireEvent.click(within(panel).getByRole('tab', { name: 'D2' }));
+    await user.click(within(panel).getByRole('tab', { name: 'D2' }));
     expect(within(panel).getByText('去太平山')).toBeInTheDocument();
     expect(within(panel).getByTestId('document-sources')).toHaveTextContent('天气：香港天气 · 高德地图（查询于 2026/10/02 09:30）');
 
@@ -122,6 +124,13 @@ describe('DocumentCards', () => {
   });
 
   it('downloads a standalone html with every tab expanded and the system sources', async () => {
+    const code = [...Array.from({ length: 60 }, (_, i) => `const line${i} = ${i};`), '<script>literal</script>', '代码末尾'].join('\n');
+    getDocumentContentMock.mockResolvedValue({ ...contentFor(1), content: [
+      contentFor(1).content,
+      ':::tabs', ':::tab[代码]', '```ts', code, '```', ':::',
+      ':::tab[说明]', ':::tip[提示标题]', '提示内容', ':::',
+      ':::tabs', ':::tab[内层]', '| 名称 | 数值 |', '| --- | --- |', '| 项目 | 10 |', ':::', ':::', ':::', ':::',
+    ].join('\n') });
     const blobs: Blob[] = [];
     const createObjectURL = vi.fn((value: Blob) => {
       blobs.push(value);
@@ -142,6 +151,11 @@ describe('DocumentCards', () => {
     expect(html).toContain('去太平山');
     expect(html).toContain('fdoc-sources');
     expect(html).not.toContain('<script');
+    const exported = new DOMParser().parseFromString(html, 'text/html');
+    expect(exported.querySelector('pre')?.textContent).toBe(`${code}\n`);
+    expect(exported.body.textContent).toContain('提示内容');
+    expect(exported.querySelector('table')?.textContent?.replace(/\s+/g, '')).toContain('项目10');
+    expect(exported.querySelector('button, [role="tablist"]')).toBeNull();
     clickSpy.mockRestore();
   });
 });
