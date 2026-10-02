@@ -37,7 +37,7 @@ export default function SettingsPage() {
         </header>
         <Tabs value={activeTab} onValueChange={setActiveTab} className={styles.tabs}>
           <div data-testid="settings-tabs-scroller" className={`${styles.navigation} overflow-x-auto`}>
-            <TabsList aria-label={t("settings.navigation")} className={`${styles.navList} grid w-full gap-1 ${showAdminTabs ? "min-w-[52rem] grid-cols-7 md:min-w-0" : "grid-cols-3"}`}>
+            <TabsList aria-label={t("settings.navigation")} className={`${styles.navList} grid w-full gap-1`}>
               <TabsTrigger value="general" className={styles.navTrigger}>
                 <Sparkles className="h-4 w-4" />
                 <span className="hidden md:inline">{t("settings.tabs.personalization")}</span>
