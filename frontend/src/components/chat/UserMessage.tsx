@@ -10,6 +10,7 @@ import type { ContentBlock, FileBlock as FileBlockType, Message } from '@/types/
 
 import AuthImage from './AuthImage';
 import MessageActions from './MessageActions';
+import { useMessageCopy } from './useMessageCopy';
 import styles from './UserMessage.module.css';
 
 interface UserMessageProps {
@@ -31,6 +32,7 @@ function UserMessage({
 }: UserMessageProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(messageText);
+  const { copied, copy } = useMessageCopy({ text: messageText });
   const fileBlocks = blocksToRender.filter((block): block is FileBlockType => block.type === 'file');
 
   const handleStartEdit = () => {
@@ -179,6 +181,8 @@ function UserMessage({
       {!isEditing && (
         <MessageActions
           timestamp={message.timestamp}
+          copied={copied}
+          onCopy={messageText ? copy : undefined}
           onEdit={handleStartEdit}
           onRetry={onRetry ? () => onRetry(message.id) : undefined}
           retryLabel="重新发送"

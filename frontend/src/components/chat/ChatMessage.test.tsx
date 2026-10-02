@@ -2,6 +2,7 @@ import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import i18n from '@/lib/i18n';
 import type { AgentRunState } from '@/types/agentRun';
 import trajectoryReducer, {
   trajectoryRunListReceived,
@@ -245,7 +246,8 @@ describe('ChatMessage', () => {
     expect(assistantColumn).not.toHaveClass('max-w-[85%]');
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('zh-CN');
     resetSelectorState();
     vi.useFakeTimers();
     toastMock.mockReset();

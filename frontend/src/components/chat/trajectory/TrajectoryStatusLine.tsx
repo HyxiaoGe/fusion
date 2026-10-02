@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Eye, TriangleAlert } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { RUN_STATUS_TREATMENT } from '@/lib/agent/statusTreatment';
@@ -121,6 +122,7 @@ function runDuration(run: AgentRunState, now: number, summary?: TrajectoryRunSum
 }
 
 export function TrajectoryStatusLine({ run, runSummary, trajectoryStatus, onInspect }: TrajectoryStatusLineProps) {
+  const { t } = useTranslation();
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -161,24 +163,26 @@ export function TrajectoryStatusLine({ run, runSummary, trajectoryStatus, onInsp
           <span className="truncate">{issue}</span>
         </span>
       )}
-      <span
-        data-trajectory-badge={trajectoryStatus}
-        className={cn('border font-medium', styles.badge, BADGE_CLASS[trajectoryStatus])}
-      >
-        {BADGE_LABEL[trajectoryStatus]}
-      </span>
-      {onInspect && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className={styles.detailButton}
-          onClick={onInspect}
+      <span className={styles.trajectoryDetails}>
+        <span
+          data-trajectory-badge={trajectoryStatus}
+          className={cn('border font-medium', styles.badge, BADGE_CLASS[trajectoryStatus])}
         >
-          <Eye className="h-3.5 w-3.5" aria-hidden="true" />
-          查看轨迹
-        </Button>
-      )}
+          {BADGE_LABEL[trajectoryStatus]}
+        </span>
+        {onInspect && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className={styles.detailButton}
+            onClick={onInspect}
+          >
+            <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+            {t('chatBody.trajectory.inspect')}
+          </Button>
+        )}
+      </span>
     </div>
   );
 }

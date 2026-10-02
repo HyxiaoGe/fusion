@@ -1,9 +1,19 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import i18n from '@/lib/i18n';
 
 import MessageActions from './MessageActions';
 
 describe('MessageActions', () => {
+  beforeEach(async () => { await i18n.changeLanguage('zh-CN'); });
+
+  it('复制操作及成功反馈随语言切换', async () => {
+    await i18n.changeLanguage('en-US');
+    const { rerender } = render(<MessageActions onCopy={vi.fn()} retryLabel="Retry" />);
+    expect(screen.getByRole('button', { name: 'Copy', exact: true })).toBeInTheDocument();
+    rerender(<MessageActions onCopy={vi.fn()} copied retryLabel="Retry" />);
+    expect(screen.getByRole('button', { name: 'Copied', exact: true })).toBeInTheDocument();
+  });
   it('渲染 assistant 的复制和重新生成操作', () => {
     const onCopy = vi.fn();
     const onRetry = vi.fn();

@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useMessageCopy } from './useMessageCopy';
+import i18n from '@/lib/i18n';
 
 const toastMock = vi.fn();
 
@@ -10,7 +11,8 @@ vi.mock('@/components/ui/toast', () => ({
 }));
 
 describe('useMessageCopy', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('zh-CN');
     vi.useFakeTimers();
     toastMock.mockReset();
     Object.defineProperty(window, 'isSecureContext', {
@@ -74,6 +76,37 @@ describe('useMessageCopy', () => {
     expect(document.execCommand).not.toHaveBeenCalled();
     expect(toastMock).not.toHaveBeenCalled();
     expect(result.current.copied).toBe(false);
+  });
+
+  it('消息编辑后清除旧成功状态，迟到的复制结果不能标记新内容', async () => {
+    let finishCopy!: () => void;
+    vi.mocked(navigator.clipboard.writeText).mockImplementationOnce(() => new Promise<void>(resolve => { finishCopy = resolve; }));
+    const { result, rerender } = renderHook(({ text }) => useMessageCopy({ text }), { initialProps: { text: '编辑前' } });
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.copy(); });
+    rerender({ text: '编辑后' });
+    await act(async () => { finishCopy(); await pending; });
+    expect(result.current.copied).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+
+    await act(async () => { await result.current.copy(); });
+    expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith('编辑后');
+    expect(result.current.copied).toBe(true);
+    rerender({ text: '再次编辑' });
+    expect(result.current.copied).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('卸载后迟到的复制失败不弹出旧消息错误', async () => {
+    let failCopy!: (error: Error) => void;
+    vi.mocked(navigator.clipboard.writeText).mockImplementationOnce(() => new Promise<void>((_, reject) => { failCopy = reject; }));
+    const { result, unmount } = renderHook(() => useMessageCopy({ text: '旧消息' }));
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.copy(); });
+    unmount();
+    await act(async () => { failCopy(new Error('blocked')); await pending; });
+    expect(toastMock).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('成功复制后 2 秒重置 copied，并以最后一次复制重新计时', async () => {

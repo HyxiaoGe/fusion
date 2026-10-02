@@ -1,6 +1,7 @@
 import React, { act } from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import i18n from '@/lib/i18n';
 
 import type { AgentRunState } from '@/types/agentRun';
 import type { TrajectoryRunSummary } from '@/types/trajectory';
@@ -41,6 +42,7 @@ function summary(overrides: Partial<TrajectoryRunSummary> = {}): TrajectoryRunSu
 }
 
 describe('TrajectoryStatusLine', () => {
+  beforeEach(async () => { await i18n.changeLanguage('zh-CN'); });
   afterEach(() => vi.useRealTimers());
 
   it.each(['pending', 'unconfirmed'] as const)('停止%s时不冒充运行中或已中断，也不继续计时', (status) => {

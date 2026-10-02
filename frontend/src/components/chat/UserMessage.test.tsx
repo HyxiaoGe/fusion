@@ -1,5 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import i18n from '@/lib/i18n';
 
 import type { ContentBlock, FileBlock, Message } from '@/types/conversation';
 import { getFileUrl } from '@/lib/api/files';
@@ -11,6 +12,11 @@ vi.mock('@/lib/api/files', () => ({
 }));
 
 const getFileUrlMock = vi.mocked(getFileUrl);
+const toastMock = vi.fn();
+vi.mock('@/components/ui/toast', () => ({
+  useToast: () => ({ toast: toastMock }),
+}));
+const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
 
 function makeMessage(overrides: Partial<Message> = {}): Message {
   return {
@@ -52,8 +58,19 @@ function renderUserMessage({
 }
 
 describe('UserMessage', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('zh-CN');
     getFileUrlMock.mockReset();
+    toastMock.mockReset();
+    Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true });
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    if (originalClipboard) Object.defineProperty(navigator, 'clipboard', originalClipboard);
+    else Reflect.deleteProperty(navigator, 'clipboard');
   });
 
   it('渲染普通用户文本', () => {
@@ -72,6 +89,37 @@ describe('UserMessage', () => {
     expect(bubble.textContent).toBe(text);
     expect(bubble.querySelector('strong')).toBeNull();
     expect(bubble.querySelector('a')).toBeNull();
+  });
+
+  it('复制用户原文保留换行和 Markdown，且不会触发编辑或重新发送', async () => {
+    const text = '第一行\n**原样保留**\n最后一行\n';
+    const { onEdit, onRetry } = renderUserMessage({ messageText: text });
+    const copyButton = screen.getByRole('button', { name: '复制', exact: true });
+    copyButton.focus();
+    fireEvent.click(copyButton);
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(text);
+    await waitFor(() => expect(copyButton).toHaveAccessibleName('已复制'));
+    expect(copyButton).toHaveFocus();
+    expect(onEdit).not.toHaveBeenCalled();
+    expect(onRetry).not.toHaveBeenCalled();
+    expect(screen.queryByRole('textbox')).toBeNull();
+  });
+
+  it('复制失败显示错误反馈且可以重新复制', async () => {
+    vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('blocked'));
+    renderUserMessage();
+    fireEvent.click(screen.getByRole('button', { name: '复制', exact: true }));
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith({ message: '复制失败，请重试', type: 'error' }));
+    fireEvent.click(screen.getByRole('button', { name: '复制', exact: true }));
+    await screen.findByRole('button', { name: '已复制', exact: true });
+  });
+
+  it('仅附件且没有文本时不显示无效的复制入口', () => {
+    const file: FileBlock = { type: 'file', id: 'file-1', file_id: 'pdf-1', filename: '说明.pdf', mime_type: 'application/pdf' };
+    renderUserMessage({ blocksToRender: [file], messageText: '' });
+    expect(screen.getByText('说明.pdf')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '复制', exact: true })).toBeNull();
   });
 
   it('渲染 failed 状态提示和重新发送操作', () => {
