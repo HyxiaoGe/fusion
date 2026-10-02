@@ -31,7 +31,12 @@
   scrollbar-color: var(--border) transparent;
 }
 
+/* 保留每个分类的文字宽度，空间不足时由外层横向滚动，避免翻译或窄窗口截断。 */
 .navList.navList {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(max-content, 1fr);
+  justify-content: start;
   height: auto;
   padding: 0;
   border: 0;

@@ -68,7 +68,7 @@ export const SettingsDialog = () => {
         <div className={styles.dialogBody}>
           <Tabs value={selectedSettingsTab} onValueChange={handleTabChange} className={`${styles.tabs} h-full`}>
             <div data-testid="settings-tabs-scroller" className={`${styles.navigation} overflow-x-auto`}>
-              <TabsList aria-label={t("settings.navigation")} className={`${styles.navList} grid w-full gap-1 ${showAdminTabs ? "min-w-[52rem] grid-cols-7 md:min-w-0" : "grid-cols-3"}`}>
+              <TabsList aria-label={t("settings.navigation")} className={`${styles.navList} grid w-full gap-1`}>
                 <TabsTrigger value="general" className={styles.navTrigger}>
                   <Settings className="h-4 w-4" />
                   <span className="hidden md:inline">{t("settings.tabs.general")}</span>
