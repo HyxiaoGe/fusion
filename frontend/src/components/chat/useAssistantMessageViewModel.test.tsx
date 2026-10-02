@@ -420,6 +420,48 @@ describe('useAssistantMessageViewModel', () => {
     ]);
   });
 
+  it.each(['静态', '流式组件'] as const)('%s 引用摘要按最终编号和证据身份合并，不按数组顺序', (mode) => {
+    const message: Message = { id: 'assistant-1', role: 'assistant', timestamp: 1,
+      content: [{ type: 'text', id: 'text', text: '引用[42][55]' }] };
+    const currentRun: AgentRunState = {
+      runId: 'run-preview', messageId: message.id, status: 'completed',
+      config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300 },
+      totalSteps: 1, totalToolCalls: 1, lastSequence: 1, steps: [],
+      evidence: [
+        { id: 'ev-55', kind: 'web', status: 'used', title: '来源乙', url: 'https://b.example.com', citationIndex: 55, snippet: '摘要乙', claim: '不是来源原文的结论乙', usedByFinalAnswer: true },
+        { id: 'ev-42', kind: 'web', status: 'used', title: '来源甲', url: 'https://a.example.com', citationIndex: 42, snippet: '  摘要甲  ', claim: '不是来源原文的结论甲', usedByFinalAnswer: true },
+      ],
+    };
+    const actual = mode === '静态'
+      ? deriveStaticAssistantMessageViewModel({ message, currentRun, isLoadingQuestions: false, suggestedQuestionsCount: 0 })
+      : renderViewModel(message, { currentRun }).result.current;
+    expect(actual.searchSources.map(source => [source.citation_index, source.title, source.snippet])).toEqual([
+      [42, '来源甲', '摘要甲'], [55, '来源乙', '摘要乙'],
+    ]);
+  });
+
+  it('引用注册表覆盖来源身份后不保留旧摘要，也不借用其他消息的 run', () => {
+    const message: Message = { id: 'assistant-1', role: 'assistant', timestamp: 1,
+      content: [
+        { type: 'text', id: 'text', text: '引用[42]' },
+        { type: 'search', id: 'search', query: '示例', sources: [], source_refs: [{ kind: 'search', title: '正确来源', url: 'https://correct.example.com', citation_index: 42, evidence_id: 'ev-correct' }] },
+      ],
+    };
+    const currentRun: AgentRunState = {
+      runId: 'run-preview', messageId: message.id, status: 'completed',
+      config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300 },
+      totalSteps: 1, totalToolCalls: 1, lastSequence: 1, steps: [],
+      evidence: [{ id: 'ev-old', kind: 'web', status: 'used', title: '旧来源', url: 'https://old.example.com', citationIndex: 42, snippet: '旧来源摘要不能跟随编号', claim: '', usedByFinalAnswer: true }],
+    };
+    const actual = renderViewModel(message, { currentRun }).result.current;
+    expect(actual.searchSources).toEqual([expect.objectContaining({ url: 'https://correct.example.com', evidence_id: 'ev-correct', citation_index: 42 })]);
+    expect(actual.searchSources[0].snippet).toBeUndefined();
+    const unrelated = { ...currentRun, messageId: 'other-message', evidence: [{ ...currentRun.evidence![0], id: 'ev-correct', url: 'https://correct.example.com' }] };
+    const staticModel = deriveStaticAssistantMessageViewModel({ message, currentRun: unrelated, isLoadingQuestions: false, suggestedQuestionsCount: 0 });
+    expect(staticModel.searchSources[0].snippet).toBeUndefined();
+    expect(renderViewModel(message, { currentRun: unrelated }).result.current.searchSources[0].snippet).toBeUndefined();
+  });
+
   it('聚合多个 search block 的 source_refs 作为统一回答依据', () => {
     const message: Message = {
       id: 'assistant-1',

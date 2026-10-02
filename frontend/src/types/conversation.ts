@@ -47,6 +47,8 @@ export interface SearchSourceSummary {
   evidence_id?: string;
   citation_index?: number;
   kind?: 'web' | 'knowledge';
+  /** 来源证据已有的摘要；仅供阅读预览，不作为引用编号或正文事实。 */
+  snippet?: string;
 }
 
 export type NetworkSourceStatus = 'success' | 'failed' | 'degraded' | 'interrupted';

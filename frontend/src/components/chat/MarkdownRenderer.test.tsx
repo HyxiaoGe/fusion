@@ -1,5 +1,7 @@
 import React from 'react';
-import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { act, waitFor } from '@testing-library/react';
+import { afterEach, beforeAll, beforeEach, describe, it, expect, vi } from 'vitest';
+import i18n from '@/lib/i18n';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import MarkdownRenderer from './MarkdownRenderer';
 
@@ -32,6 +34,9 @@ const manySources = Array.from({ length: 60 }, (_, index) => ({
   title: `Source ${index + 1}`,
   favicon: '',
 }));
+
+beforeAll(async () => { await i18n.changeLanguage('zh-CN'); });
+afterEach(() => { vi.restoreAllMocks(); });
 
 beforeEach(() => {
   reactMarkdownRenderMock.mockClear();
@@ -192,7 +197,7 @@ describe('MarkdownRenderer — citation 行为（contract §9）', () => {
     fireEvent.click(citation);
     expect(onCite).toHaveBeenCalledWith(0);
     expect(container.querySelector('a[href=""]')).toBeNull();
-    expect(citation).toHaveAttribute('title', '安装手册.md · 知识库');
+    expect(citation).not.toHaveAttribute('title');
   });
 
   it('h2 标题内的 [1] 也渲染为 chip（processChildren 覆盖标题）', () => {
@@ -262,6 +267,26 @@ describe('MarkdownRenderer — citation 行为（contract §9）', () => {
 
     expect(screen.getAllByRole('button')).toHaveLength(60);
     expect(container.querySelector('[data-slot="tooltip-trigger"]')).toBeNull();
+    expect(document.querySelector('[data-radix-popper-content-wrapper]')).toBeNull();
+  });
+
+  it('聚焦或悬停预览不重解析正文、不重挂代码或引用，来源更新沿原节点继续', async () => {
+    vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(1024);
+    vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(768);
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ x: 40, y: 40, top: 40, left: 40, right: 58, bottom: 58, width: 18, height: 18, toJSON: () => ({}) });
+    const sources = [{ title: '来源甲', url: 'https://a.example.com', citation_index: 42, snippet: '已有来源摘要' }];
+    const { rerender } = render(<MarkdownRenderer content={'回答[42]\n\n```js\nconst a = 1;\n```'} sources={sources} onCitationClick={vi.fn()} />);
+    const chip = screen.getByRole('button', { name: /参考资料 42/ });
+    const code = screen.getByTestId('code-block');
+    act(() => chip.focus());
+    await waitFor(() => expect(screen.getByRole('tooltip')).toHaveTextContent('已有来源摘要'));
+    expect(reactMarkdownRenderMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('code-block')).toBe(code);
+    expect(screen.getByRole('button', { name: /参考资料 42/ })).toBe(chip);
+    rerender(<MarkdownRenderer content={'回答[42]\n\n```js\nconst a = 1;\nconst b = 2;\n```'} sources={[{ ...sources[0], snippet: '更新后的摘要' }]} onCitationClick={vi.fn()} />);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('更新后的摘要');
+    expect(screen.getByTestId('code-block')).toBe(code);
+    expect(screen.getByTestId('code-block')).toHaveTextContent('const b = 2;');
   });
 });
 

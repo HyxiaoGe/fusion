@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 
 import { useAppSelector } from '@/redux/hooks';
 import { selectStreamContentBlocks, selectStreamSlot } from '@/redux/slices/streamSlice';
-import type { AgentRunState, DocumentDraftState } from '@/types/agentRun';
+import type { AgentEvidenceItem, AgentRunState, DocumentDraftState } from '@/types/agentRun';
 import type {
   ContentBlock,
   DocumentBlock,
@@ -108,6 +108,7 @@ export function deriveStaticAssistantMessageViewModel({
     activity.urlBlocks,
     evidenceSearchSources,
     answerEvidence,
+    ownedRun?.evidence,
   );
   const displayThinking = extractThinkingFromBlocks(blocksToRender);
   const structuredResults = collectStructuredToolResultBlocks(blocksToRender);
@@ -239,12 +240,14 @@ export function useAssistantMessageViewModel({
         ? streamSearchSources
         : evidenceSearchSources,
       answerEvidence,
+      ownedRun?.evidence,
     ),
     [
       activity.urlBlocks,
       answerEvidence,
       evidenceSearchSources,
       isCurrentlyStreaming,
+      ownedRun?.evidence,
       searchBlocks,
       streamSearchSources,
     ],
@@ -330,6 +333,7 @@ function collectCitationSources(
   urlBlocks: UrlBlock[],
   fallbackSources: SearchSourceSummary[],
   answerEvidence: AnswerEvidenceModel | null,
+  agentEvidence: AgentEvidenceItem[] = [],
 ): SearchSourceSummary[] {
   const stableItems = [
     ...(answerEvidence?.usedItems ?? answerEvidence?.items ?? []),
@@ -360,7 +364,15 @@ function collectCitationSources(
     });
   }
   if (byCitation.size > 0) {
-    return [...byCitation.values()].sort((left, right) => left.citation_index! - right.citation_index!);
+    return [...byCitation.values()]
+      .sort((left, right) => left.citation_index! - right.citation_index!)
+      .map(source => {
+        // 完整引用注册表覆盖后，才按最终来源身份取摘要，不能沿用被替换来源的摘要。
+        const evidence = source.kind === 'knowledge' ? undefined : agentEvidence.find(entry => entry.kind === 'web'
+          && entry.url === source.url
+          && (source.evidence_id ? entry.id === source.evidence_id : entry.citationIndex === source.citation_index));
+        return evidence?.snippet?.trim() ? { ...source, snippet: evidence.snippet.trim() } : source;
+      });
   }
   if (sourceRefs.length === 0) {
     return fallbackSources;

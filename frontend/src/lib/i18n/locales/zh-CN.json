@@ -68,6 +68,14 @@
       "newChatTitle": "新的对话"
     },
     "chatBody": {
+      "citation": {
+        "knowledge": "知识库",
+        "web": "网页来源",
+        "summary": "来源摘要",
+        "noSummary": "此来源暂无摘要。",
+        "openHint": "点击引用编号查看完整来源 · Esc 收起预览",
+        "linkHint": "点击引用编号打开原网页 · Esc 收起预览"
+      },
       "actions": {
         "copy": "复制",
         "copied": "已复制",
