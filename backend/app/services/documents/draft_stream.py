@@ -12,7 +12,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-DRAFT_FIELDS = frozenset({"title", "content"})
+# document_id 只为修订草稿显示原文档标题，不进正文预览。
+DRAFT_FIELDS = frozenset({"title", "content", "document_id"})
 # 草稿合并推送阈值：约每秒数次刷新，肉眼仍是连续输出。
 DRAFT_FLUSH_CHARS = 200
 DRAFT_FLUSH_INTERVAL_S = 0.25
@@ -219,7 +220,12 @@ class DocumentDraftStreamer:
                 await self._flush(call)
             call.buffered_field = field_name
             call.buffered_text += delta
-        if len(call.buffered_text) >= self.flush_chars or self.clock() - call.last_flush_at >= self.flush_interval_s:
+        # 修订调用的 document_id 之后是 edits（不在草稿字段内），不立即推送就会一直滞留到末尾。
+        if (
+            call.buffered_field == "document_id"
+            or len(call.buffered_text) >= self.flush_chars
+            or self.clock() - call.last_flush_at >= self.flush_interval_s
+        ):
             await self._flush(call)
 
     async def _flush(self, call: _DraftCall) -> None:

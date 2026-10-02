@@ -128,7 +128,7 @@ export interface DocumentDraftPayload {
   draft_id?: string;
   tool_name?: string;
   phase?: 'started';
-  field?: 'title' | 'content';
+  field?: 'title' | 'content' | 'document_id';
   delta?: string;
   run_id?: string;
   step_id?: string;

@@ -533,14 +533,14 @@ const streamSlice = createSlice({
       runId: string;
       draftId: string;
       toolName: string;
-      field?: 'title' | 'content';
+      field?: 'title' | 'content' | 'documentId';
       delta?: string;
     }>) => {
       const run = state.currentRun;
       const { runId, draftId, toolName, field, delta } = action.payload;
       if (!run || run.runId !== runId) return;
       if (!run.documentDraft || run.documentDraft.draftId !== draftId) {
-        run.documentDraft = { draftId, toolName, title: '', content: '' };
+        run.documentDraft = { draftId, toolName, title: '', content: '', documentId: '' };
       }
       if (field && delta) run.documentDraft[field] += delta;
     }),

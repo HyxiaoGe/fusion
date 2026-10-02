@@ -49,6 +49,7 @@ class TopLevelStringFieldScannerTests(unittest.TestCase):
 
             self.assertEqual(collected.get("title", ""), payload["title"], text)
             self.assertEqual(collected.get("content", ""), payload["content"], text)
+            self.assertEqual(collected.get("document_id", ""), payload["document_id"], text)
             self.assertEqual(set(collected) - DRAFT_FIELDS, set())
 
     def test_streams_unterminated_content_progressively(self):
@@ -84,7 +85,7 @@ class DocumentDraftStreamerTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
-    async def test_edit_document_reports_start_without_streaming_edit_bodies(self):
+    async def test_edit_document_streams_target_id_without_edit_bodies(self):
         events = []
 
         async def emit(payload):
@@ -97,7 +98,13 @@ class DocumentDraftStreamerTests(unittest.IsolatedAsyncioTestCase):
             '{"document_id":"doc-1","edits":[{"old_text":"旧","new_text":"新"}]}',
         )
 
-        self.assertEqual(events, [{"draft_id": "step-2:0", "tool_name": "edit_document", "phase": "started"}])
+        self.assertEqual(
+            events,
+            [
+                {"draft_id": "step-2:0", "tool_name": "edit_document", "phase": "started"},
+                {"draft_id": "step-2:0", "tool_name": "edit_document", "field": "document_id", "delta": "doc-1"},
+            ],
+        )
 
 
 class DocumentDraftCoalescingTests(unittest.IsolatedAsyncioTestCase):
