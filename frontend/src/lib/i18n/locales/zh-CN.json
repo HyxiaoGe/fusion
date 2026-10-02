@@ -68,6 +68,29 @@
       "newChatTitle": "新的对话"
     },
     "chatBody": {
+      "evidencePanel": {
+        "title": "回答依据",
+        "close": "关闭回答依据",
+        "closeBackdrop": "关闭回答依据背景",
+        "usedCount": "已使用 {{count}} 条",
+        "candidateCount": "候选 {{count}} 条",
+        "readCount": "深读 {{count}} 个网页",
+        "issueCount": "{{count}} 个未使用",
+        "usedSources": "已使用来源",
+        "candidateSources": "候选来源",
+        "issueSources": "未使用来源",
+        "queries": "搜索关键词",
+        "empty": "没有可用回答依据",
+        "selectSource": "选择来源：{{title}}",
+        "selectCitation": "选择来源 {{number}}：{{title}}",
+        "openSource": "打开来源：{{title}}",
+        "current": "当前查看",
+        "deepRead": "已深读",
+        "chunk": "第 {{number}} 块",
+        "page": "第 {{number}} 页",
+        "kinds": { "search": "搜索", "url_read": "读取", "knowledge": "知识库" },
+        "status": { "unused": "未使用", "degraded": "部分可用", "interrupted": "中断" }
+      },
       "citation": {
         "knowledge": "知识库",
         "web": "网页来源",
