@@ -15,11 +15,13 @@ import {
   Wrench,
   XCircle,
 } from "lucide-react";
-import { SettingsBadge as Badge, SettingsButton as Button, SettingsSwitch as Switch, type SettingsStatusTone } from "@/components/settings/SettingsControls";
+import { SettingsBadge as Badge, SettingsButton as Button, SettingsSwitch as Switch, SettingsInput as Input, SettingsCheckbox, SettingsFieldError, SettingsSelectTrigger as SelectTrigger, SettingsSelectContent as SelectContent, SettingsSelectItem as SelectItem, type SettingsStatusTone } from "@/components/settings/SettingsControls";
+import { useSettingsDialogFocus } from "@/components/settings/useSettingsDialogFocus";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { Select, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import controlStyles from "@/components/settings/SettingsControls.module.css";
 import {
   createMcpServerAPI,
   fetchMcpServersAPI,
@@ -296,6 +298,8 @@ export default function McpServerManager() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const editorFocus = useSettingsDialogFocus({ open: editorOpen, fallbackRef: panelRef });
   const [editingServer, setEditingServer] = useState<McpServer | null>(null);
   const [form, setForm] = useState<ServerFormState>(emptyForm);
   const [formErrors, setFormErrors] = useState<FormErrors>({});
@@ -338,7 +342,8 @@ export default function McpServerManager() {
     void load(false);
   }, [load]);
 
-  const openCreate = () => {
+  const openCreate = (event: React.MouseEvent<HTMLButtonElement>) => {
+    editorFocus.captureOpener(event.currentTarget);
     setEditingServer(null);
     setForm(emptyForm);
     setFormErrors({});
@@ -346,7 +351,8 @@ export default function McpServerManager() {
     setEditorOpen(true);
   };
 
-  const openEdit = (server: McpServer) => {
+  const openEdit = (server: McpServer, opener: HTMLButtonElement) => {
+    editorFocus.captureOpener(opener);
     setEditingServer(server);
     setForm(formFromServer(server));
     setFormErrors({});
@@ -451,7 +457,7 @@ export default function McpServerManager() {
   };
 
   return (
-    <div className="space-y-4" data-testid="mcp-server-manager">
+    <div ref={panelRef} tabIndex={-1} className="space-y-4" data-testid="mcp-server-manager">
       <Card className="border-muted shadow-sm">
         <CardHeader className="border-b bg-muted/10 pb-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -552,7 +558,7 @@ export default function McpServerManager() {
                             `${server.name} 状态更新失败`,
                           )}
                         />
-                        <Button aria-label={`编辑${server.name}`} size="icon" variant="ghost" onClick={() => openEdit(server)} disabled={isBusy}>
+                        <Button aria-label={`编辑${server.name}`} size="icon" variant="ghost" onClick={(event) => openEdit(server, event.currentTarget)} disabled={isBusy}>
                           <Edit3 className="h-4 w-4" />
                         </Button>
                       </div>
@@ -632,7 +638,7 @@ export default function McpServerManager() {
       </Card>
 
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
-        <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+        <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto" onOpenAutoFocus={editorFocus.onOpenAutoFocus} onCloseAutoFocus={editorFocus.onCloseAutoFocus}>
           <DialogHeader>
             <DialogTitle>{editingServer ? "编辑 MCP 服务" : "新增 MCP 服务"}</DialogTitle>
             <DialogDescription>
@@ -675,20 +681,20 @@ export default function McpServerManager() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="mcp-name">服务名称</Label>
-                <Input id="mcp-name" value={form.name} onChange={(event) => changeForm("name", event.target.value)} aria-invalid={Boolean(formErrors.name)} />
-                {formErrors.name && <p className="text-xs text-destructive">{formErrors.name}</p>}
+                <Input id="mcp-name" value={form.name} onChange={(event) => changeForm("name", event.target.value)} aria-invalid={Boolean(formErrors.name)} aria-describedby={formErrors.name ? "mcp-name-error" : undefined} />
+                {formErrors.name && <SettingsFieldError id="mcp-name-error">{formErrors.name}</SettingsFieldError>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="mcp-provider">提供商</Label>
-                <Input id="mcp-provider" placeholder="例如 amap" value={form.provider} onChange={(event) => changeForm("provider", event.target.value)} aria-invalid={Boolean(formErrors.provider)} />
-                {formErrors.provider && <p className="text-xs text-destructive">{formErrors.provider}</p>}
+                <Input id="mcp-provider" placeholder="例如 amap" value={form.provider} onChange={(event) => changeForm("provider", event.target.value)} aria-invalid={Boolean(formErrors.provider)} aria-describedby={formErrors.provider ? "mcp-provider-error" : undefined} />
+                {formErrors.provider && <SettingsFieldError id="mcp-provider-error">{formErrors.provider}</SettingsFieldError>}
               </div>
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="mcp-endpoint">Endpoint URL</Label>
-              <Input id="mcp-endpoint" type="url" placeholder="https://example.com/mcp" value={form.endpointUrl} onChange={(event) => changeForm("endpointUrl", event.target.value)} aria-invalid={Boolean(formErrors.endpointUrl)} />
-              {formErrors.endpointUrl && <p className="text-xs text-destructive">{formErrors.endpointUrl}</p>}
+              <Input id="mcp-endpoint" type="url" placeholder="https://example.com/mcp" value={form.endpointUrl} onChange={(event) => changeForm("endpointUrl", event.target.value)} aria-invalid={Boolean(formErrors.endpointUrl)} aria-describedby={formErrors.endpointUrl ? "mcp-endpoint-error" : undefined} />
+              {formErrors.endpointUrl && <SettingsFieldError id="mcp-endpoint-error">{formErrors.endpointUrl}</SettingsFieldError>}
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
@@ -699,33 +705,31 @@ export default function McpServerManager() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="mcp-auth-type">鉴权方式</Label>
-                <select
-                  id="mcp-auth-type"
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  value={form.authType}
-                  onChange={(event) => changeForm("authType", event.target.value)}
-                >
-                  <option value="none">无鉴权</option>
-                  <option value="bearer">Bearer</option>
-                  <option value="header">自定义 Header</option>
-                  <option value="query">Query 参数</option>
-                </select>
+                <Select value={form.authType} onValueChange={(value) => changeForm("authType", value)}>
+                  <SelectTrigger id="mcp-auth-type" className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">无鉴权</SelectItem>
+                    <SelectItem value="bearer">Bearer</SelectItem>
+                    <SelectItem value="header">自定义 Header</SelectItem>
+                    <SelectItem value="query">Query 参数</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
             {["header", "query"].includes(form.authType) && (
               <div className="space-y-2">
                 <Label htmlFor="mcp-auth-name">Header / Query 参数名</Label>
-                <Input id="mcp-auth-name" placeholder={form.authType === "header" ? "例如 X-API-Key" : "例如 key"} value={form.authName} onChange={(event) => changeForm("authName", event.target.value)} aria-invalid={Boolean(formErrors.authName)} />
-                {formErrors.authName && <p className="text-xs text-destructive">{formErrors.authName}</p>}
+                <Input id="mcp-auth-name" placeholder={form.authType === "header" ? "例如 X-API-Key" : "例如 key"} value={form.authName} onChange={(event) => changeForm("authName", event.target.value)} aria-invalid={Boolean(formErrors.authName)} aria-describedby={formErrors.authName ? "mcp-auth-name-error" : undefined} />
+                {formErrors.authName && <SettingsFieldError id="mcp-auth-name-error">{formErrors.authName}</SettingsFieldError>}
               </div>
             )}
 
             {form.authType !== "none" && (
               <div className="space-y-2">
                 <Label htmlFor="mcp-credential-ref">凭证引用</Label>
-                <Input id="mcp-credential-ref" placeholder="例如 AMAP_MCP_API_KEY" value={form.credentialRef} onChange={(event) => changeForm("credentialRef", event.target.value)} aria-invalid={Boolean(formErrors.credentialRef)} autoComplete="off" />
-                {formErrors.credentialRef && <p className="text-xs text-destructive">{formErrors.credentialRef}</p>}
+                <Input id="mcp-credential-ref" placeholder="例如 AMAP_MCP_API_KEY" value={form.credentialRef} onChange={(event) => changeForm("credentialRef", event.target.value)} aria-invalid={Boolean(formErrors.credentialRef)} aria-describedby={formErrors.credentialRef ? "mcp-credential-ref-error" : undefined} autoComplete="off" />
+                {formErrors.credentialRef && <SettingsFieldError id="mcp-credential-ref-error">{formErrors.credentialRef}</SettingsFieldError>}
                 <p className="text-xs text-muted-foreground">部署环境需要预先配置对应变量。</p>
               </div>
             )}
@@ -750,10 +754,9 @@ export default function McpServerManager() {
                     const tool = editingServer?.discovered_tools.find((item) => item.name === toolName);
                     const checked = parseAllowedTools(form.allowedTools).includes(toolName);
                     return (
-                      <label key={toolName} className="flex cursor-pointer items-start gap-3 rounded-md p-2 hover:bg-muted/60">
-                        <input
-                          type="checkbox"
-                          className="mt-0.5 h-4 w-4 rounded border-input accent-[var(--info)]"
+                      <label key={toolName} className={`flex cursor-pointer items-start gap-3 rounded-md p-2 ${controlStyles.checkboxOption}`}>
+                        <SettingsCheckbox
+                          className="mt-0.5"
                           checked={checked}
                           onChange={(event) => toggleAllowedTool(toolName, event.target.checked)}
                         />
@@ -783,7 +786,7 @@ export default function McpServerManager() {
               </p>
             </div>
 
-            {actionError && <p className="text-sm text-destructive" role="alert">{actionError}</p>}
+            {actionError && <SettingsFieldError className="text-sm">{actionError}</SettingsFieldError>}
 
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <Button variant="outline" onClick={() => setEditorOpen(false)} disabled={busyAction?.startsWith("save")}>取消</Button>

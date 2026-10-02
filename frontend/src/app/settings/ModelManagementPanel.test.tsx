@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/types/api';
 import type { ModelAdmissionOperation, ModelManagementSnapshot } from '@/types/modelManagement';
@@ -118,6 +119,46 @@ describe('ModelManagementPanel', () => {
     updateModelsMock.mockClear();
     updateModelVisibilityMock.mockReset();
     updateProvidersMock.mockClear();
+  });
+
+  it.each(['取消', 'Escape'])('%s 模型恢复确认后回到实际行按钮且不提交请求', async (closeAction) => {
+    const user = userEvent.setup();
+    await renderLoaded();
+    const opener = screen.getByRole('button', { name: '恢复 Legacy Model' });
+    await user.click(opener);
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByRole('textbox', { name: '操作原因' })).toHaveFocus();
+    await user.keyboard('仅检查交互');
+    if (closeAction === '取消') {
+      await user.click(within(dialog).getByRole('button', { name: '取消' }));
+    } else {
+      await user.keyboard('{Escape}');
+    }
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(opener).toHaveFocus());
+    expect(updateModelVisibilityMock).not.toHaveBeenCalled();
+    expect(admitModelCandidateMock).not.toHaveBeenCalled();
+    expect(refreshModelsMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['取消', 'Escape'])('%s 预检上线确认后回到对应候选且不创建任务', async (closeAction) => {
+    const user = userEvent.setup();
+    await renderLoaded();
+    const opener = screen.getByRole('button', { name: '验证并上线 gemini-next' });
+    await user.click(opener);
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByRole('textbox', { name: '操作原因' })).toHaveFocus();
+    await user.keyboard('仅检查交互');
+    if (closeAction === '取消') {
+      await user.click(within(dialog).getByRole('button', { name: '取消' }));
+    } else {
+      await user.keyboard('{Escape}');
+    }
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(opener).toHaveFocus());
+    expect(admitModelCandidateMock).not.toHaveBeenCalled();
+    expect(updateModelVisibilityMock).not.toHaveBeenCalled();
+    expect(refreshModelsMock).not.toHaveBeenCalled();
   });
 
   it('展示统计、已注册模型、治理候选和中文候选状态，不暴露硬删除', async () => {

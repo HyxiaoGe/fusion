@@ -12,7 +12,8 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { SettingsBadge as Badge, SettingsButton as Button } from "@/components/settings/SettingsControls";
+import { SettingsBadge as Badge, SettingsButton as Button, SettingsInput as Input, SettingsSelectTrigger as SelectTrigger, SettingsSelectContent as SelectContent, SettingsSelectItem as SelectItem } from "@/components/settings/SettingsControls";
+import { useSettingsDialogFocus } from "@/components/settings/useSettingsDialogFocus";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -22,13 +23,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import ProviderIcon from "@/components/models/ProviderIcon";
 import {
   Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
 } from "@/components/ui/select";
 import {
   admitModelCandidateAPI,
@@ -228,6 +225,8 @@ export default function ModelManagementPanel() {
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [pendingTerminalSyncCount, setPendingTerminalSyncCount] = useState(0);
   const [action, setAction] = useState<ManagementAction | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const actionFocus = useSettingsDialogFocus({ open: action !== null, fallbackRef: panelRef });
   const [reason, setReason] = useState("");
   const [selectedProvider, setSelectedProvider] = useState(ALL_PROVIDERS_VALUE);
   const [searchQuery, setSearchQuery] = useState("");
@@ -637,7 +636,7 @@ export default function ModelManagementPanel() {
   const governance = governanceState(snapshot.governance);
 
   return (
-    <div className="space-y-4">
+    <div ref={panelRef} tabIndex={-1} className="space-y-4">
       <Card className="border-muted shadow-sm">
         <CardHeader className="border-b bg-muted/10 pb-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -838,7 +837,8 @@ export default function ModelManagementPanel() {
                   variant={model.selectable ? "outline" : "default"}
                   disabled={managementBusy || (!model.selectable && !model.routable)}
                   aria-label={`${model.selectable ? "隐藏" : model.routable ? registeredModelIsUnhealthy(model) ? "恢复显示" : "恢复" : "不可恢复"} ${model.name}`}
-                  onClick={() => {
+                  onClick={(event) => {
+                    actionFocus.captureOpener(event.currentTarget);
                     if (!model.selectable && !model.routable) return;
                     setAction({ kind: "visibility", model, nextSelectable: !model.selectable });
                     setReason("");
@@ -923,7 +923,8 @@ export default function ModelManagementPanel() {
                       size="sm"
                       disabled={managementBusy}
                       aria-label={`${admissionActionLabel} ${candidate.model_id}`}
-                      onClick={() => {
+                      onClick={(event) => {
+                        actionFocus.captureOpener(event.currentTarget);
                         setAction({
                           kind: "admission",
                           candidate,
@@ -967,7 +968,7 @@ export default function ModelManagementPanel() {
       </Card>
 
       <Dialog open={Boolean(action)} onOpenChange={(open) => !open && closeActionDialog()}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg" onOpenAutoFocus={actionFocus.onOpenAutoFocus} onCloseAutoFocus={actionFocus.onCloseAutoFocus}>
           <DialogHeader>
             <DialogTitle>{actionTitle}</DialogTitle>
             <DialogDescription>

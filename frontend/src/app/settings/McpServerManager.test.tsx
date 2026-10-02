@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { StrictMode } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
 
 const apiMocks = vi.hoisted(() => ({
   create: vi.fn(),
@@ -21,6 +22,11 @@ vi.mock('@/lib/api/mcpServers', () => ({
 }));
 
 import McpServerManager from './McpServerManager';
+
+beforeAll(() => {
+  // jsdom 没有布局滚动 API，保留真实 Radix 选择器的键盘与焦点流程。
+  HTMLElement.prototype.scrollIntoView = () => {};
+});
 
 const server = {
   id: 'mcp-1',
@@ -56,6 +62,11 @@ const recommendedAmapReadOnlyTools = [
   'maps_search_detail',
 ];
 
+async function selectAuthType(label: string) {
+  fireEvent.keyDown(screen.getByRole('combobox', { name: '鉴权方式' }), { key: 'ArrowDown' });
+  fireEvent.click(await screen.findByRole('option', { name: label }));
+}
+
 describe('McpServerManager', () => {
   beforeEach(() => {
     Object.values(apiMocks).forEach((mock) => mock.mockReset());
@@ -69,6 +80,41 @@ describe('McpServerManager', () => {
 
     expect(screen.getByRole('heading', { name: 'MCP 服务' })).toBeInTheDocument();
     expect(screen.getByText('正在加载 MCP 服务')).toBeInTheDocument();
+  });
+
+  it('新增和编辑关闭后返回各自入口，取消不会提交配置', async () => {
+    const user = userEvent.setup();
+    render(<McpServerManager />);
+    await screen.findByText('高德地图');
+    const create = screen.getByRole('button', { name: '新增 MCP 服务' });
+    await user.click(create);
+    await user.click(screen.getByRole('button', { name: '取消' }));
+    await waitFor(() => expect(create).toHaveFocus());
+
+    const edit = screen.getByRole('button', { name: '编辑高德地图' });
+    await user.click(edit);
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(edit).toHaveFocus());
+    expect(apiMocks.create).not.toHaveBeenCalled();
+    expect(apiMocks.update).not.toHaveBeenCalled();
+  });
+
+  it('鉴权下拉的 Esc 只关闭选项，再次 Esc 才退出编辑器', async () => {
+    const user = userEvent.setup();
+    render(<McpServerManager />);
+    await screen.findByText('高德地图');
+    const create = screen.getByRole('button', { name: '新增 MCP 服务' });
+    await user.click(create);
+    const select = screen.getByRole('combobox', { name: '鉴权方式' });
+    select.focus();
+    await user.keyboard('{ArrowDown}');
+    expect(await screen.findByRole('option', { name: 'Bearer' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('dialog', { name: '新增 MCP 服务' })).toBeInTheDocument();
+    await waitFor(() => expect(select).toHaveFocus());
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(create).toHaveFocus());
+    expect(apiMocks.create).not.toHaveBeenCalled();
   });
 
   it('展示服务状态、脱敏 endpoint、工具和最近检测结果', async () => {
@@ -185,11 +231,14 @@ describe('McpServerManager', () => {
     fireEvent.change(screen.getByLabelText('服务名称'), { target: { value: '腾讯地图' } });
     fireEvent.change(screen.getByLabelText('提供商'), { target: { value: 'tencent' } });
     fireEvent.change(screen.getByLabelText('Endpoint URL'), { target: { value: 'https://mcp.tencent.com/mcp' } });
-    fireEvent.change(screen.getByLabelText('鉴权方式'), { target: { value: 'header' } });
+    await selectAuthType('自定义 Header');
     fireEvent.click(screen.getByRole('button', { name: '保存服务' }));
 
     expect(await screen.findByText('Header / Query 参数名不能为空')).toBeInTheDocument();
     expect(screen.getByText('凭证引用不能为空')).toBeInTheDocument();
+    expect(screen.getByLabelText('Header / Query 参数名')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText('Header / Query 参数名')).toHaveAccessibleDescription('Header / Query 参数名不能为空');
+    expect(screen.getByLabelText('凭证引用')).toHaveAccessibleDescription('凭证引用不能为空');
     expect(apiMocks.create).not.toHaveBeenCalled();
   });
 
@@ -211,7 +260,7 @@ describe('McpServerManager', () => {
     expect(screen.getByLabelText('提供商')).toHaveValue('amap');
     expect(screen.getByLabelText('Endpoint URL')).toHaveValue('https://mcp.amap.com/mcp');
     expect(screen.getByLabelText('Endpoint URL')).not.toHaveValue(expect.stringContaining('?'));
-    expect(screen.getByLabelText('鉴权方式')).toHaveValue('query');
+    expect(screen.getByRole('combobox', { name: '鉴权方式' })).toHaveTextContent('Query 参数');
     expect(screen.getByLabelText('Header / Query 参数名')).toHaveValue('key');
     expect(screen.getByLabelText('凭证引用')).toHaveValue('AMAP_MCP_API_KEY');
     expect(screen.queryByLabelText(/API Key|明文密钥|secret|token/i)).toBeNull();
@@ -252,7 +301,7 @@ describe('McpServerManager', () => {
     expect(screen.getByLabelText('服务名称')).toHaveValue('Context7 技术文档');
     expect(screen.getByLabelText('提供商')).toHaveValue('context7');
     expect(screen.getByLabelText('Endpoint URL')).toHaveValue('https://mcp.context7.com/mcp');
-    expect(screen.getByLabelText('鉴权方式')).toHaveValue('none');
+    expect(screen.getByRole('combobox', { name: '鉴权方式' })).toHaveTextContent('无鉴权');
     expect(screen.queryByLabelText('Header / Query 参数名')).toBeNull();
     expect(screen.queryByLabelText('凭证引用')).toBeNull();
     expect(screen.queryByLabelText(/API Key|明文密钥|secret|token/i)).toBeNull();
@@ -475,7 +524,7 @@ describe('McpServerManager', () => {
     fireEvent.change(screen.getByLabelText('服务名称'), { target: { value: '腾讯地图' } });
     fireEvent.change(screen.getByLabelText('提供商'), { target: { value: 'tencent' } });
     fireEvent.change(screen.getByLabelText('Endpoint URL'), { target: { value: 'https://mcp.tencent.com/mcp' } });
-    fireEvent.change(screen.getByLabelText('鉴权方式'), { target: { value: 'bearer' } });
+    await selectAuthType('Bearer');
     fireEvent.change(screen.getByLabelText('凭证引用'), { target: { value: 'TENCENT_MCP_TOKEN' } });
     expect(screen.queryByRole('textbox', { name: '允许工具' })).toBeNull();
     expect(screen.getByText(/新建服务默认不授权任何工具/)).toBeInTheDocument();
@@ -504,7 +553,7 @@ describe('McpServerManager', () => {
     render(<McpServerManager />);
     const card = await screen.findByTestId('mcp-server-mcp-1');
     fireEvent.click(within(card).getByRole('button', { name: '编辑高德地图' }));
-    fireEvent.change(screen.getByLabelText('鉴权方式'), { target: { value: 'none' } });
+    await selectAuthType('无鉴权');
     fireEvent.click(screen.getByRole('button', { name: '保存服务' }));
 
     await waitFor(() => expect(apiMocks.update).toHaveBeenCalledWith(

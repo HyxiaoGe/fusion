@@ -44,12 +44,121 @@
 .switch.switch:disabled { opacity: 0.5; }
 .switch :global([data-slot="switch-thumb"]) { border: 0; box-shadow: 0 1px 4px color-mix(in oklab, var(--foreground) 18%, transparent); }
 
+/* 表单正文保持实色，焦点和选中状态使用语义蓝，不建立逐字段模糊层。 */
+.field.field {
+  min-height: 40px;
+  border: 1px solid var(--border-strong);
+  border-radius: 11px;
+  background: var(--bg-elevated);
+  color: var(--foreground);
+  box-shadow: inset 0 1px 2px color-mix(in oklab, var(--foreground) 3%, transparent);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.field.field::placeholder { color: var(--muted-foreground); }
+.field.field::selection { color: var(--foreground); background: var(--info-bg); }
+.field.field:hover:not(:disabled) { border-color: color-mix(in oklab, var(--info) 40%, var(--border-strong)); }
+.field.field:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; border-color: var(--info); box-shadow: none; }
+.field.field:disabled { opacity: 1; cursor: not-allowed; color: var(--muted-foreground); background: var(--bg-subtle); border-color: var(--border); box-shadow: none; }
+.textarea.textarea { min-height: 112px; line-height: 1.7; resize: vertical; }
+
+.selectTrigger.selectTrigger {
+  height: auto;
+  gap: 10px;
+  white-space: normal;
+  text-align: left;
+  line-height: 1.5;
+}
+
+.selectTrigger.selectTrigger :global([data-slot="select-value"]) {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: unset;
+}
+
+.selectTrigger.selectTrigger :global(svg) { color: var(--muted-foreground); }
+.selectTrigger.selectTrigger[data-state="open"]:not(:disabled) { border-color: var(--info); box-shadow: 0 0 0 1px color-mix(in oklab, var(--info) 25%, transparent); }
+.selectTrigger.selectTrigger[data-placeholder] { color: var(--muted-foreground); }
+
+.selectContent.selectContent {
+  max-height: min(24rem, var(--radix-select-content-available-height, 24rem));
+  max-width: min(40rem, calc(100vw - 24px));
+  border: 1px solid var(--border-strong);
+  border-radius: 13px;
+  background: var(--bg-elevated);
+  color: var(--foreground);
+  box-shadow: var(--shadow-popover);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.selectContent.selectContent :global([data-radix-select-viewport]) {
+  height: auto;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  padding: 5px;
+}
+
+.selectItem.selectItem {
+  min-height: 36px;
+  border-radius: 8px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+  color: var(--foreground);
+}
+
+.selectItem.selectItem > :global(span:last-child) { display: block; min-width: 0; }
+
+.selectItem.selectItem[data-state="checked"],
+.selectItem.selectItem[data-highlighted] { color: color-mix(in oklab, var(--info) 75%, var(--foreground)); background: var(--info-bg); }
+.selectItem.selectItem :global(svg) { color: var(--info); }
+.selectItem.selectItem[data-disabled] { color: var(--muted-foreground); background: var(--bg-subtle); opacity: 1; }
+.selectItem.selectItem[data-disabled] :global(svg) { color: var(--muted-foreground); }
+
+.checkbox.checkbox {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+  margin: 0;
+  accent-color: var(--info);
+  color-scheme: light;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+:global(.dark) .checkbox.checkbox { color-scheme: dark; }
+
+.checkbox.checkbox:focus-visible { outline: 2px solid var(--info); outline-offset: 3px; }
+.checkbox.checkbox:disabled { accent-color: var(--muted-foreground); cursor: not-allowed; opacity: 0.6; }
+.checkboxOption { border: 1px solid transparent; transition: border-color 150ms ease, background 150ms ease; }
+.checkboxOption:hover, .checkboxOption:has([data-settings-checkbox]:checked) { background: var(--info-bg); border-color: var(--info-border); }
+.checkboxOption:focus-within { border-color: var(--info); }
+
+/* 错误状态优先于悬停、展开和焦点，避免蓝色覆盖校验提示。 */
+.field.field[aria-invalid="true"]:not(:disabled),
+.field.field:user-invalid:not(:disabled),
+.field.field[aria-invalid="true"]:not(:disabled):hover,
+.field.field[aria-invalid="true"]:not(:disabled):focus-visible,
+.selectTrigger.selectTrigger[aria-invalid="true"][data-state="open"]:not(:disabled) { border-color: var(--danger); outline-color: var(--danger); box-shadow: none; }
+.checkbox.checkbox[aria-invalid="true"]:not(:disabled) { accent-color: var(--danger); outline: 2px solid var(--danger); outline-offset: 3px; }
+.fieldError { color: color-mix(in oklab, var(--danger) 75%, var(--foreground)); font-size: 12px; line-height: 1.6; }
+
 @media (prefers-reduced-motion: reduce) {
   .action.action, .action :global([data-glass-lens]), .switch.switch, .switch :global([data-slot="switch-thumb"]) { transition: none; }
+  .field.field, .selectContent.selectContent[data-state] { transition: none; animation: none; }
+  .checkboxOption { transition: none; }
 }
 
 @media (prefers-reduced-transparency: reduce) {
   .secondary.secondary { background: var(--bg-elevated); }
   .secondary.secondary:hover:not(:disabled) { background: var(--info-bg); }
   .action :global([data-glass-lens]) { display: none; }
+  .field.field, .selectContent.selectContent { background: var(--bg-elevated); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .field.field:disabled { background: var(--bg-subtle); }
 }

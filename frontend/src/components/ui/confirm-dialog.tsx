@@ -12,6 +12,8 @@ import {
 import { Button } from '@/components/ui/button';
 
 interface ConfirmDialogProps {
+  onOpenAutoFocus?: React.ComponentProps<typeof DialogContent>['onOpenAutoFocus'];
+  onCloseAutoFocus?: React.ComponentProps<typeof DialogContent>['onCloseAutoFocus'];
   isOpen: boolean;
   onClose: () => void;
   onConfirm: () => void;
@@ -35,6 +37,8 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   variant = 'default',
   confirmButtonClassName,
   cancelButtonClassName,
+  onOpenAutoFocus,
+  onCloseAutoFocus,
 }) => {
   const handleConfirm = () => {
     onConfirm();
@@ -43,7 +47,7 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[425px]" onOpenAutoFocus={onOpenAutoFocus} onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>

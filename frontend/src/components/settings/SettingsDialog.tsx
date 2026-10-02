@@ -21,6 +21,8 @@ import glassSurface from "@/components/ui/GlassSurface.module.css";
 import { cn } from "@/lib/utils";
 import styles from "./SettingsSurface.module.css";
 import { revealFocusedSettingsTab } from "./settingsNavigation";
+import { useSettingsDialogOpener } from "./SettingsDialogFocusContext";
+import { useSettingsDialogFocus } from "./useSettingsDialogFocus";
 
 const THEME_MODES = [{ mode: 'light', Icon: Sun }, { mode: 'dark', Icon: Moon }, { mode: 'system', Icon: Laptop }] as const;
 
@@ -29,6 +31,8 @@ export const SettingsDialog = () => {
   const themeId = useId();
   const dispatch = useAppDispatch();
   const { isSettingsDialogOpen, activeSettingsTab } = useAppSelector((state) => state.settings);
+  const { openerRef } = useSettingsDialogOpener();
+  const dialogFocus = useSettingsDialogFocus({ open: isSettingsDialogOpen, fallbackRef: openerRef });
   const { mode } = useAppSelector((state) => state.theme);
   const [isMounted, setIsMounted] = useState(false);
   const isAdmin = useAppSelector((state) => Boolean(state.auth.user?.is_superuser));
@@ -55,7 +59,9 @@ export const SettingsDialog = () => {
 
   return (
     <Dialog open={isSettingsDialogOpen} onOpenChange={handleClose}>
-      <DialogContent closeLabel={t("settings.close")} className={`${styles.workspace} ${styles.dialog} max-w-[95vw] w-full h-[85vh] flex flex-col sm:max-w-[90vw] lg:max-w-6xl xl:max-w-7xl`}>
+      <DialogContent closeLabel={t("settings.close")} className={`${styles.workspace} ${styles.dialog} max-w-[95vw] w-full h-[85vh] flex flex-col sm:max-w-[90vw] lg:max-w-6xl xl:max-w-7xl`}
+        onOpenAutoFocus={(event) => { dialogFocus.captureOpener(openerRef.current); dialogFocus.onOpenAutoFocus(event); }}
+        onCloseAutoFocus={dialogFocus.onCloseAutoFocus}>
         <DialogHeader className={styles.dialogHeading}>
           <DialogTitle className="flex items-center gap-2">
             <Settings className="h-5 w-5" />
