@@ -284,7 +284,8 @@ const UsedSourceItem = React.forwardRef<HTMLDivElement, {
       aria-current={highlighted ? 'true' : undefined}
       className={styles.sourceCard}
     >
-      <div className={styles.sourceRow}>
+      <div className={styles.sourceRow} onPointerMove={pointGlassLight} onPointerLeave={resetGlassLight}>
+        <GlassHoverLens />
         <button
           type="button"
           className={styles.sourceSelect}
@@ -293,10 +294,7 @@ const UsedSourceItem = React.forwardRef<HTMLDivElement, {
             ? t('chatBody.evidencePanel.selectCitation', { number: item.citationIndex, title: item.title })
             : t('chatBody.evidencePanel.selectSource', { title: item.title })}
           onClick={onSelect}
-          onPointerMove={pointGlassLight}
-          onPointerLeave={resetGlassLight}
         >
-          <GlassHoverLens />
           <span className={styles.sourceIcon}>
             {item.citationIndex != null ? <span className={styles.citationNumber}>{item.citationIndex}</span> : <UsedSourceIcon item={item} />}
           </span>
