@@ -113,7 +113,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .iconButton,
-  .actionButton { transition: none; }
+  .actionButton.actionButton { transition: none; }
 }
 
 .error {
