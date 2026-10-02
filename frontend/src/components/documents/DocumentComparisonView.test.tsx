@@ -178,4 +178,25 @@ describe('文档只读版本对比', () => {
     expect(change.querySelectorAll('pre')[0].textContent).toBe('- [ ] 整理工位\n- [ ] 填写反馈\n');
     expect(change.querySelectorAll('pre')[1].textContent).toBe('- [ ] 整理工位\n- [ ] 填写反馈\n- [ ] 和入职引导人约一次午餐\n');
   });
+
+  it('富内容标题和统计字段直接显示变化，原文与已保存快照保持完整', async () => {
+    const before = '::::tabs\n:::tab[原计划]\n:::stats[原预算]\n- 总额: **¥100**\n- 天数: 3\n:::\n:::tip[出发前]\n带好证件\n:::\n:::\n::::\n';
+    const after = before.replace('原计划', '新计划').replace('原预算', '新预算').replace('¥100', '¥200').replace('出发前', '到达后');
+    getContent.mockResolvedValueOnce(snapshot(1, { content: before }));
+    const current = snapshot(3, { content: after });
+    render(<DocumentComparisonView document={current} olderVersions={[olderVersions[1]]} authIdentity="user" />);
+    const change = await screen.findByRole('region', { name: '变化 1' });
+    const rendered = change.querySelectorAll('[data-testid="document-markdown"]');
+    for (const side of rendered) {
+      expect(side.querySelector('.fdoc-tab-label mark')).toBeInTheDocument();
+      expect(side.querySelector('.fdoc-block-label mark')).toBeInTheDocument();
+      expect(side.querySelector('.fdoc-callout-label mark')).toBeInTheDocument();
+      expect(side.querySelector('.fdoc-stat-value mark')).toBeInTheDocument();
+      expect(side.querySelectorAll('.fdoc-stat')[1].querySelector('mark')).toBeNull();
+    }
+    fireEvent.click(within(change).getByText('查看 Markdown 原文差异'));
+    expect(change.querySelectorAll('pre')[0].textContent).toBe(before);
+    expect(change.querySelectorAll('pre')[1].textContent).toBe(after);
+    expect(current.content).toBe(after);
+  });
 });

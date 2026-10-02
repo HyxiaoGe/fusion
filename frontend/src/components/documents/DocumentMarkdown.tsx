@@ -13,6 +13,7 @@ import {
   parseDocumentDirectives,
   type DocumentSegment,
   type DocumentTab,
+  type DocumentSourcePositions,
 } from '@/lib/documents/documentDirectives';
 import markdownStyles from '@/components/chat/MarkdownRenderer.module.css';
 import GlassHoverLens, { pointGlassLight, resetGlassLight } from '@/components/ui/GlassHoverLens';
@@ -37,9 +38,12 @@ const ReadingTabsContext = createContext<{
 const HighlightsContext = createContext<Record<string, DocumentHighlightRange[]> | null>(null);
 
 export default function DocumentMarkdown({ content, expandTabs = false, className, tabSelections, onTabChange, highlights }: DocumentMarkdownProps) {
-  const segments = useMemo(() => parseDocumentDirectives(content), [content]);
+  const { segments, highlightsByPath } = useMemo(() => {
+    const positions: DocumentSourcePositions | undefined = highlights?.length ? new WeakMap() : undefined;
+    const segments = parseDocumentDirectives(content, positions);
+    return { segments, highlightsByPath: positions ? mapDocumentMarkdownHighlights(content, segments, highlights!, positions) : null };
+  }, [content, highlights]);
   const readingTabs = useMemo(() => tabSelections ? { selections: tabSelections, onChange: onTabChange } : null, [tabSelections, onTabChange]);
-  const highlightsByPath = useMemo(() => highlights?.length ? mapDocumentMarkdownHighlights(content, segments, highlights) : null, [content, segments, highlights]);
   return (
     <div className={cn(markdownStyles.content, styles.document, 'fdoc', className)} data-testid="document-markdown">
       <ReadingTabsContext.Provider value={readingTabs}>
@@ -72,7 +76,7 @@ function SegmentView({ segment, expandTabs, path }: { segment: DocumentSegment; 
         <aside className={cn(styles.callout, 'fdoc-callout')} data-variant={segment.variant}>
           <div className={cn(styles.calloutHeading, 'fdoc-callout-heading')}>
             <span className={cn(styles.calloutIcon, 'fdoc-callout-icon')}><Icon aria-hidden="true" /></span>
-            <p className={cn(styles.calloutLabel, 'fdoc-callout-label')}>{segment.label ?? t(`documents.callout.${segment.variant}`)}</p>
+            <p className={cn(styles.calloutLabel, 'fdoc-callout-label')}><HighlightedField text={segment.label ?? t(`documents.callout.${segment.variant}`)} path={`${path}.label`} /></p>
           </div>
           <div className={cn(styles.calloutBody, 'fdoc-callout-body')}>
             <Segments segments={segment.children} expandTabs={expandTabs} path={`${path}.children`} />
@@ -83,7 +87,7 @@ function SegmentView({ segment, expandTabs, path }: { segment: DocumentSegment; 
     case 'timeline':
       return (
         <section className={cn(styles.timeline, 'fdoc-timeline')}>
-          {segment.label ? <p className={cn(styles.blockLabel, 'fdoc-block-label')}>{segment.label}</p> : null}
+          {segment.label ? <p className={cn(styles.blockLabel, 'fdoc-block-label')}><HighlightedField text={segment.label} path={`${path}.label`} /></p> : null}
           <Segments segments={segment.children} expandTabs={expandTabs} path={`${path}.children`} />
         </section>
       );
@@ -91,12 +95,12 @@ function SegmentView({ segment, expandTabs, path }: { segment: DocumentSegment; 
       if (segment.items.length === 0) return <MarkdownBlock text={segment.fallback} staticView={expandTabs} path={path} />;
       return (
         <section className={cn(styles.statsSection, 'fdoc-stats-section')}>
-          {segment.label ? <p className={cn(styles.blockLabel, 'fdoc-block-label')}>{segment.label}</p> : null}
+          {segment.label ? <p className={cn(styles.blockLabel, 'fdoc-block-label')}><HighlightedField text={segment.label} path={`${path}.label`} /></p> : null}
           <div className={cn(styles.stats, 'fdoc-stats')}>
             {segment.items.map((item, index) => (
               <div key={`${item.label}-${index}`} className={cn(styles.stat, 'fdoc-stat')}>
-                <span className={cn(styles.statValue, 'fdoc-stat-value')}>{item.value}</span>
-                <span className={cn(styles.statLabel, 'fdoc-stat-label')}>{item.label}</span>
+                <span className={cn(styles.statValue, 'fdoc-stat-value')}><HighlightedField text={item.value} path={`${path}.item.${index}.value`} /></span>
+                <span className={cn(styles.statLabel, 'fdoc-stat-label')}><HighlightedField text={item.label} path={`${path}.item.${index}.label`} /></span>
               </div>
             ))}
           </div>
@@ -127,7 +131,7 @@ function InteractiveTabs({ tabs, path }: { tabs: DocumentTab[]; path: string }) 
             onPointerLeave={resetGlassLight}
           >
             <GlassHoverLens corners={false} />
-            <span>{tab.label}</span>
+            <span><HighlightedField text={tab.label} path={`${path}.tab.${index}.label`} /></span>
           </TabsPrimitive.Trigger>
         ))}
       </TabsPrimitive.List>
@@ -145,7 +149,7 @@ function ExpandedTabs({ tabs, path }: { tabs: DocumentTab[]; path: string }) {
     <>
       {tabs.map((tab, index) => (
         <section key={`${tab.label}-${index}`} className={cn(styles.tabs, 'fdoc-tab-section')}>
-          <p className={cn(styles.expandedTabLabel, 'fdoc-tab-label')}>{tab.label}</p>
+          <p className={cn(styles.expandedTabLabel, 'fdoc-tab-label')}><HighlightedField text={tab.label} path={`${path}.tab.${index}.label`} /></p>
           <div className={cn(styles.tabPanel, 'fdoc-tab-panel')}>
             <Segments segments={tab.children} expandTabs path={`${path}.tab.${index}`} />
           </div>
@@ -153,6 +157,21 @@ function ExpandedTabs({ tabs, path }: { tabs: DocumentTab[]; path: string }) {
       ))}
     </>
   );
+}
+
+/** 富内容字段只标记实际显示字符；无源位置的默认标题保持普通文字。 */
+function HighlightedField({ text, path }: { text: string; path: string }) {
+  const ranges = useContext(HighlightsContext)?.[path];
+  if (!ranges?.length) return text;
+  const children = [];
+  let offset = 0;
+  ranges.forEach(range => {
+    if (range.start > offset) children.push(text.slice(offset, range.start));
+    children.push(<mark key={range.start} data-document-change={range.kind}>{text.slice(range.start, range.end)}</mark>);
+    offset = range.end;
+  });
+  children.push(text.slice(offset));
+  return <>{children}</>;
 }
 
 type MarkdownElementProps<T extends keyof React.JSX.IntrinsicElements> = React.ComponentPropsWithoutRef<T> & {
