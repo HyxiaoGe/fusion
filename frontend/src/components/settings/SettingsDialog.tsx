@@ -20,6 +20,7 @@ import GlassHoverLens, { pointGlassLight, resetGlassLight } from "@/components/u
 import glassSurface from "@/components/ui/GlassSurface.module.css";
 import { cn } from "@/lib/utils";
 import styles from "./SettingsSurface.module.css";
+import { revealFocusedSettingsTab } from "./settingsNavigation";
 
 const THEME_MODES = [{ mode: 'light', Icon: Sun }, { mode: 'dark', Icon: Moon }, { mode: 'system', Icon: Laptop }] as const;
 
@@ -67,7 +68,7 @@ export const SettingsDialog = () => {
 
         <div className={styles.dialogBody}>
           <Tabs value={selectedSettingsTab} onValueChange={handleTabChange} className={`${styles.tabs} h-full`}>
-            <div data-testid="settings-tabs-scroller" className={`${styles.navigation} overflow-x-auto`}>
+            <div data-testid="settings-tabs-scroller" className={`${styles.navigation} overflow-x-auto`} onFocusCapture={revealFocusedSettingsTab}>
               <TabsList aria-label={t("settings.navigation")} className={`${styles.navList} grid w-full gap-1`}>
                 <TabsTrigger value="general" className={styles.navTrigger}>
                   <Settings className="h-4 w-4" />

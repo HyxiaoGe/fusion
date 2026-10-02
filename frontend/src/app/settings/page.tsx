@@ -14,6 +14,7 @@ import SystemPrompt from "./SystemPrompt";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "@/components/settings/SettingsSurface.module.css";
+import { revealFocusedSettingsTab } from "@/components/settings/settingsNavigation";
 
 export default function SettingsPage() {
   const { t } = useTranslation();
@@ -36,7 +37,7 @@ export default function SettingsPage() {
           <p>{t("settings.description")}</p>
         </header>
         <Tabs value={activeTab} onValueChange={setActiveTab} className={styles.tabs}>
-          <div data-testid="settings-tabs-scroller" className={`${styles.navigation} overflow-x-auto`}>
+          <div data-testid="settings-tabs-scroller" className={`${styles.navigation} overflow-x-auto`} onFocusCapture={revealFocusedSettingsTab}>
             <TabsList aria-label={t("settings.navigation")} className={`${styles.navList} grid w-full gap-1`}>
               <TabsTrigger value="general" className={styles.navTrigger}>
                 <Sparkles className="h-4 w-4" />
