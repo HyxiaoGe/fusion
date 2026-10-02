@@ -240,6 +240,11 @@ it('稳定引用编号优先于列表位置，候选也能准确聚焦', () => {
   expect(screen.getByRole('button', { name: '选择来源 12：第十二来源' })).toHaveAttribute('aria-pressed', 'true');
   expect(screen.getByTestId('answer-evidence-used-search-11')).toHaveAttribute('aria-current', 'true');
   expect(within(screen.getByTestId('answer-evidence-used-search-11')).getByText('12')).toBeVisible();
+  for (const sourceIndex of [0, 11]) {
+    const card = screen.getByTestId(`answer-evidence-used-search-${sourceIndex}`);
+    expect(within(card).getAllByAltText('')).toHaveLength(1);
+    expect(within(card).getByAltText('')).toHaveAttribute('src', 'https://search.example.com/favicon.ico');
+  }
 });
 
 it('键盘选择只改变当前查看来源，不改变依据分组或激活外链', async () => {

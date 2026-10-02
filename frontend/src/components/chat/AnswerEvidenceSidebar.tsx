@@ -310,6 +310,11 @@ const UsedSourceItem = React.forwardRef<HTMLDivElement, {
                   {t('chatBody.evidencePanel.deepRead')}
                 </span>
               ) : null}
+              {item.citationIndex != null && item.favicon ? (
+                <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center" aria-hidden="true">
+                  <UsedSourceIcon item={item} />
+                </span>
+              ) : null}
               <span className="min-w-0 truncate text-[10px] text-muted-foreground">{item.domain}</span>
             </span>
             <span className={styles.title} title={item.title}>{item.title}</span>
