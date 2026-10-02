@@ -1,0 +1,149 @@
+.workspace {
+  min-width: 0;
+  min-height: 0;
+  color: var(--foreground);
+}
+
+.page {
+  width: min(100%, 90rem);
+  height: 100%;
+  margin: 0 auto;
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.pageHeading h1 { font-size: 24px; font-weight: 650; letter-spacing: -0.025em; }
+.pageHeading p { margin-top: 6px; color: var(--muted-foreground); font-size: 13px; line-height: 1.6; }
+.tabs { flex: 1; min-height: 0; gap: 16px; }
+
+.navigation {
+  flex-shrink: 0;
+  padding: 6px;
+  border: 1px solid color-mix(in oklab, var(--info) 15%, var(--border));
+  border-radius: 16px;
+  background: linear-gradient(135deg, color-mix(in oklab, var(--bg-elevated) 86%, transparent), color-mix(in oklab, var(--accent) 64%, transparent));
+  backdrop-filter: blur(16px) saturate(145%);
+  -webkit-backdrop-filter: blur(16px) saturate(145%);
+  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--bg-elevated) 80%, transparent), 0 8px 22px -18px color-mix(in oklab, var(--foreground) 18%, transparent);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.navList.navList {
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.navTrigger.navTrigger { min-height: 40px; padding: 10px 12px; border-radius: 11px; }
+.navTrigger.navTrigger[data-state="active"] { color: var(--foreground); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--info) 35%, transparent); }
+.navTrigger.navTrigger[data-state="active"] svg { color: var(--info); }
+.navTrigger.navTrigger:focus-visible { outline: 2px solid var(--info); outline-offset: -2px; }
+
+.panel.panel { min-height: 0; min-width: 0; overflow: auto; padding: 3px 3px 20px; margin-top: 0; scrollbar-gutter: stable; }
+.formPanel.formPanel { width: min(100%, 64rem); margin-inline: auto; }
+
+/* 材质集中在边缘和标题区，编辑正文、列表和管理表格不置于模糊祖先下。 */
+.workspace :global([data-slot="card"]) {
+  border-radius: 18px;
+  border-color: color-mix(in oklab, var(--info) 10%, var(--border));
+  background: var(--card);
+  box-shadow: inset 0 1px 0 var(--bg-elevated), 0 12px 32px -24px color-mix(in oklab, var(--foreground) 24%, transparent);
+}
+
+.workspace :global([data-slot="card-header"]) {
+  background: linear-gradient(120deg, color-mix(in oklab, var(--info) 5%, var(--bg-elevated)), color-mix(in oklab, var(--accent) 65%, var(--bg-elevated)));
+  border-color: var(--border);
+  border-radius: 15px 15px 0 0;
+}
+
+.workspace :global([data-slot="button"]) { border-radius: 10px; }
+.workspace :global([data-slot="button"]):focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+
+.formPanel :global([data-slot="card"]) { padding-block: 0; gap: 0; }
+.formPanel :global([data-slot="card-header"]) { padding: 20px 24px; }
+.formPanel :global([data-slot="card-content"]) { padding: 20px 24px 24px; }
+
+.dialog.dialog { overflow: hidden; padding: 24px; gap: 18px; background: var(--bg-elevated); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.dialogHeading { padding-right: 32px; }
+.dialogDescription { color: var(--muted-foreground); font-size: 13px; line-height: 1.6; }
+.dialogBody { flex: 1; overflow: hidden; min-height: 0; }
+.themeContent { padding-top: 0; }
+.themeLabel { font-size: 13px; color: var(--muted-foreground); }
+.themeGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.themeOption.themeOption { border-radius: 14px; padding: 18px 12px; text-align: center; }
+.themeOption.themeOption[aria-pressed="true"] { border-color: var(--info); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--info) 30%, transparent); }
+.themeOption.themeOption:focus-visible { outline-color: var(--info); }
+.themeOption svg { color: var(--muted-foreground); }
+.themeOption[aria-pressed="true"] svg { color: var(--info); }
+.themeCopy { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+.themeDescription { color: var(--muted-foreground); font-size: 12px; }
+
+.editorContent { display: flex; flex-direction: column; gap: 20px; padding-top: 0; }
+.templateGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.templateButton.templateButton { min-height: 76px; padding: 13px 15px; border-radius: 13px; text-align: left; }
+.templateButton.templateButton[aria-pressed="true"] { border-color: var(--info); }
+.templateButton.templateButton:disabled { opacity: 0.55; cursor: wait; }
+.templateCopy { display: flex; flex-direction: column; gap: 5px; }
+.templateDescription { font-size: 12px; font-weight: 400; color: var(--muted-foreground); line-height: 1.5; }
+.editorField { display: flex; flex-direction: column; gap: 9px; }
+.editorTextarea {
+  width: 100%;
+  min-height: 220px;
+  padding: 16px;
+  resize: vertical;
+  border: 1px solid var(--input);
+  border-radius: 13px;
+  background: var(--bg-subtle);
+  color: var(--foreground);
+  font-size: 14px;
+  line-height: 1.8;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.editorTextarea::placeholder { color: var(--muted-foreground); }
+.editorTextarea:focus-visible { outline: 2px solid color-mix(in oklab, var(--info) 65%, transparent); outline-offset: 2px; border-color: var(--info); }
+.editorTextarea[aria-invalid="true"] { border-color: var(--danger); }
+.editorTextarea:disabled { opacity: 0.7; cursor: wait; }
+.editorMeta { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; color: var(--muted-foreground); font-size: 12px; }
+.feedback { min-height: 1.5em; font-size: 12px; line-height: 1.5; color: var(--muted-foreground); }
+.feedback[data-state="success"] { color: color-mix(in oklab, var(--success) 65%, var(--foreground)); }
+.feedback[data-state="error"] { color: color-mix(in oklab, var(--danger) 75%, var(--foreground)); }
+.actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; padding-top: 16px; border-top: 1px solid var(--border); }
+.quietButton.quietButton { border-radius: 10px; }
+
+.dataGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.dataAction { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 22px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-subtle); }
+.dataAction h3 { font-size: 15px; font-weight: 600; }
+.dataAction p { color: var(--muted-foreground); font-size: 13px; line-height: 1.7; }
+.dataAction button { margin-top: auto; }
+.dataIcon { color: var(--info); padding: 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-elevated); }
+.dataWarning { display: block; margin-top: 8px; color: color-mix(in oklab, var(--warn) 60%, var(--foreground)); }
+.dataNotice { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 12px; padding: 12px 15px; background: var(--bg-subtle); font-size: 13px; }
+.dataNotice[data-state="success"] { color: color-mix(in oklab, var(--success) 65%, var(--foreground)); }
+.dataNotice[data-state="error"] { color: color-mix(in oklab, var(--danger) 75%, var(--foreground)); }
+
+@media (max-width: 640px) {
+  .page { padding: 16px 12px; gap: 16px; }
+  .dialog.dialog { padding: 16px; }
+  .themeGrid, .templateGrid { grid-template-columns: 1fr; }
+  .themeOption.themeOption { padding: 12px; }
+  .themeCopy { flex-direction: row; justify-content: center; flex-wrap: wrap; }
+  .templateButton.templateButton { min-height: 64px; }
+  .dataGrid { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .editorTextarea { transition: none; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .navigation { background: var(--bg-elevated); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .workspace :global([data-slot="card-header"]) { background: var(--bg-subtle); }
+}

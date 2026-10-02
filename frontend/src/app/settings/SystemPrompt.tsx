@@ -1,44 +1,31 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Sparkles, Save, RotateCcw, Loader2 } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
+import { Check, Sparkles, Save, RotateCcw, Loader2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import GlassHoverLens, { pointGlassLight, resetGlassLight } from "@/components/ui/GlassHoverLens";
+import glassSurface from "@/components/ui/GlassSurface.module.css";
+import styles from "@/components/settings/SettingsSurface.module.css";
+import { cn } from "@/lib/utils";
 import { useAppDispatch, useAppSelector } from "@/redux/hooks";
 import { updateUserSystemPrompt } from "@/redux/slices/authSlice";
 
 const MAX_LENGTH = 1000;
 
-const TEMPLATES: Array<{ key: string; label: string; content: string }> = [
-  {
-    key: "engineer",
-    label: "工程师",
-    content:
-      "我是一名工程师，请用代码示例和工程化思维回答；解释概念时优先给可运行示例，避免空泛描述。除非我明确要求展开，回答控制在 300 字以内。",
-  },
-  {
-    key: "writing",
-    label: "写作助手",
-    content:
-      "请用简洁直接的中文回答，避免过度恭维和 emoji；先给结论再展开论证；同义反复和套话直接删掉。",
-  },
-  {
-    key: "learner",
-    label: "学习者",
-    content:
-      "我对相关领域不熟悉，请用通俗类比解释概念，遇到术语先给定义。回答末尾可以提示下一步学习方向。",
-  },
-];
+const TEMPLATE_KEYS = ["engineer", "writing", "learner"] as const;
 
 export default function SystemPrompt() {
+  const { t } = useTranslation();
   const dispatch = useAppDispatch();
   const savedPrompt = useAppSelector((state) => state.auth.user?.system_prompt ?? "");
+  const fieldId = useId();
+  const savingRef = useRef(false);
 
   const [draft, setDraft] = useState(savedPrompt);
   const [saving, setSaving] = useState(false);
-  const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(
-    null,
-  );
+  const [feedback, setFeedback] = useState<"success" | "error" | null>(null);
 
   useEffect(() => {
     setDraft(savedPrompt);
@@ -50,113 +37,141 @@ export default function SystemPrompt() {
     return () => clearTimeout(timer);
   }, [feedback]);
 
-  const dirty = useMemo(() => draft !== savedPrompt, [draft, savedPrompt]);
+  const dirty = draft !== savedPrompt;
   const overLimit = draft.length > MAX_LENGTH;
 
   const handleSave = async () => {
-    if (!dirty || overLimit || saving) return;
+    if (!dirty || overLimit || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     setFeedback(null);
     try {
       await dispatch(updateUserSystemPrompt(draft)).unwrap();
-      setFeedback({ type: "success", message: "已保存" });
-    } catch (err: any) {
-      setFeedback({ type: "error", message: err?.message || "保存失败" });
+      setFeedback("success");
+    } catch {
+      setFeedback("error");
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
 
   const handleReset = () => {
+    if (savingRef.current) return;
     setDraft(savedPrompt);
     setFeedback(null);
   };
 
   const handleTemplate = (content: string) => {
+    if (savingRef.current) return;
     setDraft(content);
     setFeedback(null);
   };
 
   return (
-    <Card className="overflow-hidden border-muted shadow-md transition-all hover:shadow-lg">
-      <CardHeader className="bg-muted/10 border-b pb-3">
+    <Card className="overflow-hidden border-border/70 shadow-none">
+      <CardHeader className="border-b border-border/70 pb-5">
         <CardTitle className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-primary" />
-          AI 个性化
+          <Sparkles className="h-5 w-5 text-primary" aria-hidden="true" />
+          {t("settings.personalization.title")}
         </CardTitle>
         <p className="text-sm text-muted-foreground mt-1">
-          这里设置的内容会作为系统提示词加入每次对话，AI 会自然遵守，但不会主动提及。
-          建议聚焦角色、回答风格、长度偏好等稳定的偏好。
+          {t("settings.personalization.description")}
         </p>
       </CardHeader>
-      <CardContent className="pt-4 space-y-4">
+      <CardContent className={styles.editorContent}>
         <div>
-          <p className="text-sm font-medium mb-2">快速套用模板</p>
-          <div className="flex flex-wrap gap-2">
-            {TEMPLATES.map((tpl) => (
-              <Button
-                key={tpl.key}
-                size="sm"
-                variant="outline"
-                onClick={() => handleTemplate(tpl.content)}
-              >
-                {tpl.label}
-              </Button>
-            ))}
+          <p className="text-sm font-medium mb-3">{t("settings.personalization.templates")}</p>
+          <div className={styles.templateGrid}>
+            {TEMPLATE_KEYS.map((key) => {
+              const content = t(`settings.personalization.template.${key}.content`);
+              const selected = draft === content;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className={cn(glassSurface.surface, glassSurface.card, glassSurface.interactive, styles.templateButton, selected && glassSurface.selected)}
+                  aria-label={t(`settings.personalization.template.${key}.label`)}
+                  aria-pressed={selected}
+                  aria-describedby={`${fieldId}-${key}`}
+                  disabled={saving}
+                  onClick={() => handleTemplate(content)}
+                  onPointerMove={pointGlassLight}
+                  onPointerLeave={resetGlassLight}
+                >
+                  <GlassHoverLens />
+                  <span className={styles.templateCopy}>
+                    <span className="flex items-center justify-between gap-2 font-medium">
+                      {t(`settings.personalization.template.${key}.label`)}
+                      <Check className={cn("h-4 w-4 text-primary", !selected && "invisible")} aria-hidden="true" />
+                    </span>
+                    <span id={`${fieldId}-${key}`} className={styles.templateDescription}>
+                      {t(`settings.personalization.template.${key}.description`)}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        <div>
+        <div className={styles.editorField}>
+          <label htmlFor={fieldId} className="text-sm font-medium">{t("settings.personalization.label")}</label>
           <textarea
+            id={fieldId}
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              if (savingRef.current) return;
+              setDraft(e.target.value);
+              setFeedback(null);
+            }}
             rows={8}
-            placeholder="例：我是一名前端工程师，回答时请用 React + TypeScript 示例，避免过度铺垫。"
-            className="w-full px-3 py-2 rounded-md border border-input bg-transparent text-sm font-normal leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-primary/40"
+            disabled={saving}
+            aria-invalid={overLimit}
+            aria-describedby={`${fieldId}-hint ${fieldId}-count${overLimit ? ` ${fieldId}-error` : ""}`}
+            placeholder={t("settings.personalization.placeholder")}
+            className={styles.editorTextarea}
           />
-          <div className="flex items-center justify-between mt-1 text-xs">
-            <span
-              className={
-                overLimit
-                  ? "text-destructive"
-                  : "text-muted-foreground"
-              }
-            >
+          <p id={`${fieldId}-hint`} className="text-xs text-muted-foreground">{t("settings.personalization.hint")}</p>
+          <div className={styles.editorMeta}>
+            <span id={`${fieldId}-count`} className={styles.feedback} data-state={overLimit ? "error" : undefined}>
               {draft.length} / {MAX_LENGTH}
             </span>
-            {feedback && (
-              <span
-                className={
-                  feedback.type === "success" ? "text-emerald-600" : "text-destructive"
-                }
-              >
-                {feedback.message}
-              </span>
-            )}
+            <span className="text-muted-foreground">{t(`settings.personalization.${dirty ? "unsaved" : "unchanged"}`)}</span>
           </div>
+          {overLimit && <p id={`${fieldId}-error`} className={styles.feedback} data-state="error" role="alert">{t("settings.personalization.overLimit", { limit: MAX_LENGTH })}</p>}
+          <p className={styles.feedback} data-state={feedback ?? undefined} role={feedback === "error" ? "alert" : "status"} aria-live={feedback === "error" ? "assertive" : "polite"}>
+            {saving ? t("settings.personalization.saving") : feedback ? t(`settings.personalization.${feedback === "success" ? "saved" : "saveFailed"}`) : ""}
+          </p>
         </div>
 
-        <div className="flex items-center justify-end gap-2">
+        <div className={styles.actions}>
           <Button
+            type="button"
             variant="ghost"
             size="sm"
+            className={cn(glassSurface.surface, glassSurface.pill, glassSurface.interactive, styles.quietButton)}
             onClick={handleReset}
+            onPointerMove={pointGlassLight}
+            onPointerLeave={resetGlassLight}
             disabled={!dirty || saving}
           >
-            <RotateCcw className="h-4 w-4 mr-1" />
-            还原
+            <GlassHoverLens />
+            <RotateCcw className="h-4 w-4" aria-hidden="true" />
+            <span>{t("settings.personalization.reset")}</span>
           </Button>
           <Button
+            type="button"
             size="sm"
             onClick={handleSave}
             disabled={!dirty || overLimit || saving}
           >
             {saving ? (
-              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
             ) : (
-              <Save className="h-4 w-4 mr-1" />
+              <Save className="h-4 w-4" aria-hidden="true" />
             )}
-            保存
+            {t(`settings.personalization.${saving ? "saving" : "save"}`)}
           </Button>
         </div>
       </CardContent>

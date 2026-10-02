@@ -463,7 +463,51 @@
       "language": "语言",
       "fontSize": "字体大小",
       "apiKeys": "API密钥",
-      "about": "关于"
+      "about": "关于",
+      "title": "设置",
+      "description": "管理界面偏好、AI 个性化与应用数据。",
+      "close": "关闭设置",
+      "navigation": "设置分类",
+      "tabs": {
+        "general": "常规设置", "generalShort": "常规",
+        "personalization": "AI 个性化", "personalizationShort": "AI",
+        "data": "数据管理", "dataShort": "数据",
+        "usage": "服务用量", "usageShort": "用量",
+        "runtime": "运行时配置", "runtimeShort": "配置",
+        "mcp": "MCP 服务", "mcpShort": "MCP",
+        "models": "模型管理", "modelsShort": "模型"
+      },
+      "appearance": {
+        "title": "主题设置", "description": "选择适合阅读和工作的界面外观。",
+        "label": "选择主题模式",
+        "light": "浅色模式", "lightHint": "明亮清晰的界面",
+        "dark": "深色模式", "darkHint": "柔和的深色界面",
+        "system": "跟随系统", "systemHint": "自动跟随系统设置"
+      },
+      "personalization": {
+        "title": "AI 个性化",
+        "description": "这里设置的内容会作为系统提示词加入每次对话。建议聚焦角色、回答风格和长度等稳定偏好。",
+        "templates": "快速套用模板", "label": "回答偏好",
+        "placeholder": "例：我是一名前端工程师，回答时请用 React + TypeScript 示例，避免过度铺垫。",
+        "hint": "这些偏好将在保存后用于后续对话。",
+        "unsaved": "有未保存的修改", "unchanged": "与已保存的内容一致",
+        "overLimit": "内容超过 1000 字，请缩短后再保存。",
+        "saving": "正在保存", "saved": "已保存", "saveFailed": "保存失败，请重试。",
+        "reset": "还原", "save": "保存",
+        "template": {
+          "engineer": { "label": "工程师", "description": "可运行示例与工程化思路", "content": "我是一名工程师，请用代码示例和工程化思维回答；解释概念时优先给可运行示例，避免空泛描述。除非我明确要求展开，回答控制在 300 字以内。" },
+          "writing": { "label": "写作助手", "description": "简洁直接，先给结论", "content": "请用简洁直接的中文回答，避免过度恭维和 emoji；先给结论再展开论证；同义反复和套话直接删掉。" },
+          "learner": { "label": "学习者", "description": "通俗类比与术语解释", "content": "我对相关领域不熟悉，请用通俗类比解释概念，遇到术语先给定义。回答末尾可以提示下一步学习方向。" }
+        }
+      },
+      "data": {
+        "title": "数据管理", "description": "备份或恢复此浏览器的聊天记录与设置。",
+        "export": "导出数据", "exportDescription": "将聊天记录和应用设置导出为 JSON 文件，方便备份或转移到其他设备。",
+        "import": "导入数据", "importDescription": "从之前导出的 JSON 备份中恢复聊天记录和设置。",
+        "importWarning": "导入将覆盖当前数据，请确认备份内容。",
+        "exportSuccess": "数据导出成功", "exportFailed": "数据导出失败，请重试。",
+        "invalidFile": "请选择 JSON 格式的备份文件", "importFailed": "数据导入失败，请检查备份文件。"
+      }
     },
   "trajectory": {
     "outputProvenance": {

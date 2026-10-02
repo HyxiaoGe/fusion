@@ -7,9 +7,15 @@ import { importDataFromFile } from '@/lib/db/importData';
 import { useAppDispatch } from '@/redux/hooks';
 import { AlertCircleIcon, CheckCircleIcon, DownloadIcon, UploadIcon } from 'lucide-react';
 import React, { useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import GlassHoverLens, { pointGlassLight, resetGlassLight } from '@/components/ui/GlassHoverLens';
+import glassSurface from '@/components/ui/GlassSurface.module.css';
+import styles from '@/components/settings/SettingsSurface.module.css';
+import { cn } from '@/lib/utils';
 
 const DataManagement: React.FC = () => {
   const dispatch = useAppDispatch();
+  const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -43,10 +49,10 @@ const DataManagement: React.FC = () => {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
       
-      setMessage({ text: '数据导出成功！', type: 'success' });
+      setMessage({ text: t('settings.data.exportSuccess'), type: 'success' });
     } catch (error) {
       console.error('导出数据失败:', error);
-      setMessage({ text: '导出数据失败: ' + (error as Error).message, type: 'error' });
+      setMessage({ text: t('settings.data.exportFailed'), type: 'error' });
     } finally {
       setIsLoading(false);
     }
@@ -64,7 +70,7 @@ const DataManagement: React.FC = () => {
 
     const file = files[0];
     if (file.type !== 'application/json') {
-      setMessage({ text: '请选择JSON格式的备份文件', type: 'error' });
+      setMessage({ text: t('settings.data.invalidFile'), type: 'error' });
       return;
     }
 
@@ -76,7 +82,8 @@ const DataManagement: React.FC = () => {
       const result = await importDataFromFile(file, dispatch);
       setMessage({ text: result, type: 'success' });
     } catch (error) {
-      setMessage({ text: (error as Error).message, type: 'error' });
+      console.error('导入数据失败:', error);
+      setMessage({ text: t('settings.data.importFailed'), type: 'error' });
     } finally {
       setIsLoading(false);
       // 重置文件输入，以便可以重新选择同一个文件
@@ -87,21 +94,16 @@ const DataManagement: React.FC = () => {
   };
 
   return (
-    <Card className="w-full h-full">
-      <CardHeader>
-        <CardTitle>数据管理</CardTitle>
+    <Card className="w-full" aria-busy={isLoading}>
+      <CardHeader className="border-b pb-5">
+        <CardTitle>{t('settings.data.title')}</CardTitle>
         <CardDescription>
-          导出或导入您的聊天记录和设置数据
+          {t('settings.data.description')}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {message && (
-          <div 
-            className={`p-3 rounded flex items-center gap-2 ${
-              message.type === 'success' 
-                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
-                : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-            }`}
+          <div className={styles.dataNotice} data-state={message.type} role={message.type === 'error' ? 'alert' : 'status'}
           >
             {message.type === 'success' ? (
               <CheckCircleIcon className="h-5 w-5 flex-shrink-0" />
@@ -112,34 +114,42 @@ const DataManagement: React.FC = () => {
           </div>
         )}
 
-        <div className="flex flex-col sm:flex-row gap-4 w-full">
-          <div className="flex-1 border rounded-md p-4">
-            <h3 className="font-medium mb-2">导出数据</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              将您的聊天记录和应用设置导出为JSON文件，方便备份或转移到其他设备。
-            </p>
+        <div className={styles.dataGrid}>
+          <div className={styles.dataAction}>
+            <span className={styles.dataIcon}><DownloadIcon className="h-5 w-5" aria-hidden="true" /></span>
+            <h3>{t('settings.data.export')}</h3>
+            <p>{t('settings.data.exportDescription')}</p>
             <Button 
               onClick={handleExport} 
               disabled={isLoading}
-              className="w-full sm:w-auto"
+              className={cn(glassSurface.surface, glassSurface.pill, glassSurface.interactive, styles.quietButton)}
+              variant="outline"
+              onPointerMove={pointGlassLight}
+              onPointerLeave={resetGlassLight}
             >
-              <DownloadIcon className="h-4 w-4 mr-2" />
-              导出数据
+              <GlassHoverLens />
+              <DownloadIcon className="h-4 w-4" aria-hidden="true" />
+              <span>{t('settings.data.export')}</span>
             </Button>
           </div>
 
-          <div className="flex-1 border rounded-md p-4">
-            <h3 className="font-medium mb-2">导入数据</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              从之前导出的JSON文件中恢复您的聊天记录和设置。<span className="font-medium">注意：这将覆盖当前数据。</span>
+          <div className={styles.dataAction}>
+            <span className={styles.dataIcon}><UploadIcon className="h-5 w-5" aria-hidden="true" /></span>
+            <h3>{t('settings.data.import')}</h3>
+            <p>
+              {t('settings.data.importDescription')}<span className={styles.dataWarning}>{t('settings.data.importWarning')}</span>
             </p>
             <Button 
               onClick={handleImportClick} 
               disabled={isLoading}
-              className="w-full sm:w-auto"
+              className={cn(glassSurface.surface, glassSurface.pill, glassSurface.interactive, styles.quietButton)}
+              variant="outline"
+              onPointerMove={pointGlassLight}
+              onPointerLeave={resetGlassLight}
             >
-              <UploadIcon className="h-4 w-4 mr-2" />
-              导入数据
+              <GlassHoverLens />
+              <UploadIcon className="h-4 w-4" aria-hidden="true" />
+              <span>{t('settings.data.import')}</span>
             </Button>
             <input
               type="file"
