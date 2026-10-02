@@ -20,6 +20,8 @@ interface ConfirmDialogProps {
   confirmLabel?: string;
   cancelLabel?: string;
   variant?: 'default' | 'destructive';
+  confirmButtonClassName?: string;
+  cancelButtonClassName?: string;
 }
 
 const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
@@ -31,6 +33,8 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   confirmLabel = '确认',
   cancelLabel = '取消',
   variant = 'default',
+  confirmButtonClassName,
+  cancelButtonClassName,
 }) => {
   const handleConfirm = () => {
     onConfirm();
@@ -45,10 +49,10 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         </DialogHeader>
         <DialogDescription className="py-4">{description}</DialogDescription>
         <DialogFooter className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" className={cancelButtonClassName} onClick={onClose}>
             {cancelLabel}
           </Button>
-          <Button variant={variant} onClick={handleConfirm}>
+          <Button variant={variant} className={confirmButtonClassName} onClick={handleConfirm}>
             {confirmLabel}
           </Button>
         </DialogFooter>

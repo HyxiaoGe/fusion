@@ -1,0 +1,55 @@
+.action.action {
+  --glass-resting-opacity: 0;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.actionContent { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; gap: inherit; }
+.choice:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+
+.primary.primary { background: var(--info); color: var(--bg-elevated); border-color: var(--info); box-shadow: inset 0 1px 0 color-mix(in oklab, var(--bg-elevated) 24%, transparent), 0 5px 12px -7px var(--info); }
+.primary.primary:hover:not(:disabled) { background: color-mix(in oklab, var(--info) 92%, var(--foreground)); border-color: color-mix(in oklab, var(--info) 80%, var(--foreground)); }
+.secondary.secondary { color: var(--foreground); background: linear-gradient(135deg, var(--bg-elevated), color-mix(in oklab, var(--info) 3%, var(--bg-subtle))); box-shadow: inset 0 1px 0 var(--bg-elevated), 0 4px 12px -9px color-mix(in oklab, var(--foreground) 28%, transparent); }
+.secondary.secondary:hover:not(:disabled) { border-color: color-mix(in oklab, var(--info) 45%, var(--border)); background: var(--info-bg); }
+.quiet.quiet { background: transparent; border-color: transparent; box-shadow: none; }
+.destructive.destructive { background: var(--danger-bg); color: color-mix(in oklab, var(--danger) 75%, var(--foreground)); border-color: var(--danger-border); box-shadow: none; }
+.destructive.destructive:hover:not(:disabled) { background: color-mix(in oklab, var(--danger) 12%, var(--danger-bg)); border-color: var(--danger); }
+.action.action:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; box-shadow: none; }
+.destructive.destructive:focus-visible { outline-color: var(--danger); }
+.action.action:disabled { opacity: 0.5; box-shadow: none; }
+
+/* 长列表只使用光层和边缘反馈，不给每个按钮建立模糊或常驻合成层。 */
+.action.action :global([data-glass-lens]) { border-radius: inherit; backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; will-change: auto; transform: none; opacity: 0; transition: opacity 150ms ease; }
+.action:hover:not(:disabled) :global([data-glass-lens]), .action:focus-visible :global([data-glass-lens]) { opacity: 1; }
+.action:active:not(:disabled) :global([data-glass-lens]) { opacity: 0.6; }
+.action.primary :global([data-glass-lens]), .action.destructive :global([data-glass-lens]) { background: transparent; }
+.action.primary :global([data-glass-lens])::before, .action.destructive :global([data-glass-lens])::before { opacity: 0.06; }
+
+.badge.badge { gap: 4px; font-weight: 500; color: var(--status-color); background: var(--status-bg); border-color: var(--status-border); box-shadow: inset 0 1px 0 color-mix(in oklab, var(--bg-elevated) 50%, transparent); }
+.badge.badge:hover { color: var(--status-color); background: var(--status-bg); border-color: var(--status-border); }
+.neutral { --status-color: var(--muted-foreground); --status-bg: var(--bg-subtle); --status-border: var(--border); }
+.info { --status-color: color-mix(in oklab, var(--info) 75%, var(--foreground)); --status-bg: var(--info-bg); --status-border: var(--info-border); }
+.success { --status-color: color-mix(in oklab, var(--success) 65%, var(--foreground)); --status-bg: var(--success-bg); --status-border: var(--success-border); }
+.warning { --status-color: color-mix(in oklab, var(--warn) 60%, var(--foreground)); --status-bg: var(--warn-bg); --status-border: var(--warn-border); }
+.danger { --status-color: color-mix(in oklab, var(--danger) 75%, var(--foreground)); --status-bg: var(--danger-bg); --status-border: var(--danger-border); }
+
+.switch.switch { border-color: var(--border); box-shadow: inset 0 1px 3px color-mix(in oklab, var(--foreground) 10%, transparent); transition: background 150ms ease, border-color 150ms ease; }
+.switch.switch[data-state="checked"] { background: color-mix(in oklab, var(--info) 90%, var(--background)); border-color: var(--info); }
+.switch.switch[data-state="unchecked"] { background: var(--muted); }
+.switch.switch:focus-visible { outline: 2px solid var(--info); outline-offset: 3px; box-shadow: none; }
+.switch.switch:disabled { opacity: 0.5; }
+.switch :global([data-slot="switch-thumb"]) { border: 0; box-shadow: 0 1px 4px color-mix(in oklab, var(--foreground) 18%, transparent); }
+
+@media (prefers-reduced-motion: reduce) {
+  .action.action, .action :global([data-glass-lens]), .switch.switch, .switch :global([data-slot="switch-thumb"]) { transition: none; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .secondary.secondary { background: var(--bg-elevated); }
+  .secondary.secondary:hover:not(:disabled) { background: var(--info-bg); }
+  .action :global([data-glass-lens]) { display: none; }
+}

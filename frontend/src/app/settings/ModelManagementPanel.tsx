@@ -12,8 +12,7 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { SettingsBadge as Badge, SettingsButton as Button } from "@/components/settings/SettingsControls";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -819,8 +818,8 @@ export default function ModelManagementPanel() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-medium">{model.name}</p>
-                    <Badge variant={model.selectable ? "default" : "outline"}>{registeredStateLabel(model)}</Badge>
-                    <Badge variant="outline">{healthLabel(model.health)}</Badge>
+                    <Badge tone={!model.selectable ? "neutral" : !model.routable ? "danger" : ["active", "selectable"].includes(model.state) ? "info" : "neutral"}>{registeredStateLabel(model)}</Badge>
+                    <Badge tone={modelHealthStatus(model.health) === "healthy" ? "success" : modelHealthStatus(model.health) === "unhealthy" ? "danger" : "neutral"}>{healthLabel(model.health)}</Badge>
                   </div>
                   <p className="mt-1 break-all text-xs text-muted-foreground">{model.provider_display} · {model.model_id}</p>
                   {!model.selectable && (
@@ -898,11 +897,11 @@ export default function ModelManagementPanel() {
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-medium">{candidate.model_id}</p>
-                      <Badge variant={candidate.state === "admission_ready" ? "default" : "outline"}>
+                      <Badge tone={candidate.state === "admitted" ? "success" : ["blocked", "rejected"].includes(candidate.state) ? "danger" : ["quarantined", "preflight_required"].includes(candidate.state) ? "warning" : candidate.state === "admission_ready" ? "info" : "neutral"}>
                         {candidateStateLabel(candidate.state)}
                       </Badge>
                       {operation && (
-                        <Badge variant={operation.status === "failed" ? "destructive" : "outline"}>
+                        <Badge tone={operation.status === "failed" ? "danger" : operation.status === "succeeded" ? "success" : "info"}>
                           {operationStatusLabel(operation.status)}
                         </Badge>
                       )}

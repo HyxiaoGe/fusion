@@ -248,7 +248,7 @@ describe('KnowledgeBaseManager', () => {
 
     const selectedItem = within(list).getByRole('button', { name: /产品手册/ });
     expect(selectedItem).toHaveAttribute('aria-current', 'true');
-    expect(selectedItem).toHaveClass('bg-primary/10');
+    expect(selectedItem).toHaveClass('bg-[var(--info-bg)]', 'border-[var(--info-border)]');
     expect(within(selectedItem).getByText('2 个文档')).toBeInTheDocument();
     expect(within(selectedItem).getByText('1 失败')).toHaveClass('text-destructive');
     expect(within(selectedItem).getByTestId('knowledge-base-list-status-base-a')).toHaveClass(
