@@ -1,4 +1,4 @@
-.card,
+.card.card,
 .draftCard {
   position: relative;
   isolation: isolate;
@@ -75,7 +75,7 @@
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  .card,
+  .card.card,
   .draftCard { background: var(--bg-elevated); }
 }
 
