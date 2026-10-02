@@ -1,0 +1,232 @@
+/* 结果正文保持实色；玻璃光层只放在独立操作按钮上。 */
+.resultSurface {
+  --result-accent: var(--info);
+  min-width: 0;
+  border: 1px solid color-mix(in oklab, var(--result-accent) 16%, var(--border));
+  border-radius: 18px;
+  background: linear-gradient(145deg, var(--bg-elevated), var(--bg-subtle));
+  padding: 16px;
+  box-shadow: inset 0 1px 0 var(--bg-elevated), 0 8px 26px -23px color-mix(in oklab, var(--result-accent) 32%, transparent);
+}
+
+.placeSurface { --result-accent: var(--teal); }
+.resultHeader { align-items: center; }
+.resultIcon {
+  display: flex;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in oklab, var(--result-accent) 16%, var(--border));
+  border-radius: 11px;
+  background: color-mix(in oklab, var(--result-accent) 7%, var(--bg-elevated));
+}
+.resultTitle { font-weight: 600; }
+.resultStatus {
+  max-width: 45%;
+  text-align: center;
+  background: var(--bg-elevated);
+  line-height: 1.5;
+}
+.weatherGrid,
+.placeGrid { margin-top: 16px; }
+.resultFooter {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 9px;
+  color: var(--muted-foreground);
+  line-height: 1.6;
+}
+.resultFooter > p { margin-top: 3px; }
+
+.weatherDay {
+  container-type: inline-size;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--bg-elevated);
+  padding: 13px;
+  box-shadow: inset 0 1px 0 var(--bg-elevated);
+}
+.weatherDay[data-today="true"] {
+  border-color: color-mix(in oklab, var(--info) 48%, var(--border));
+  background: linear-gradient(155deg, var(--info-bg), var(--bg-elevated) 65%);
+  box-shadow: inset 0 2px 0 color-mix(in oklab, var(--info) 28%, var(--bg-elevated));
+}
+.dayHeader {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+}
+.date { color: var(--foreground); font-size: 13px; font-weight: 600; line-height: 1.5; }
+.weekday { margin-top: 2px; color: var(--muted-foreground); font-size: 11px; line-height: 1.5; }
+.today {
+  flex-shrink: 0;
+  border: 1px solid var(--info-border);
+  border-radius: 7px;
+  background: var(--info-bg);
+  padding: 2px 6px;
+  color: var(--info);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.weatherSummary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 15px 0 11px;
+}
+.weatherIcon {
+  display: flex;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: var(--info-bg);
+}
+.temperature {
+  color: var(--foreground);
+  font-size: clamp(16px, 14cqi, 21px);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.025em;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.weatherConditions { display: grid; gap: 3px; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.dayCondition { color: var(--foreground); }
+.nightCondition { color: var(--muted-foreground); }
+.weatherWind {
+  display: grid;
+  gap: 3px;
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.placeCard {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--bg-elevated);
+  box-shadow: 0 2px 7px -5px color-mix(in oklab, var(--foreground) 18%, transparent);
+}
+.placeContent { display: flex; flex-direction: column; align-self: stretch; align-items: flex-start; padding: 12px; }
+.placeName {
+  display: -webkit-box;
+  width: 100%;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.placeMetadata {
+  max-width: 100%;
+  overflow: hidden;
+  margin-top: 3px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.6;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.placeHighlights { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 7px; }
+.rating,
+.referenceCost {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border-radius: 6px;
+  padding: 2px 5px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+}
+.rating { background: var(--warn-bg); color: var(--foreground); }
+.rating > svg { color: color-mix(in oklab, var(--warn) 70%, var(--foreground)); fill: color-mix(in oklab, var(--warn) 14%, transparent); }
+.referenceCost { background: var(--bg-subtle); color: var(--fg-secondary); }
+.placeDetail {
+  display: flex;
+  max-width: 100%;
+  align-items: flex-start;
+  gap: 5px;
+  margin-top: 6px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.placeDetail > svg { flex-shrink: 0; margin-top: 3px; }
+.placeDetail > span {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+
+.action {
+  --glass-resting-opacity: 0.07;
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  min-height: 30px;
+  max-width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--result-accent) 22%, var(--border));
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--bg-elevated), color-mix(in oklab, var(--result-accent) 5%, var(--bg-elevated)));
+  padding: 4px 9px;
+  color: var(--foreground);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+  text-decoration: none;
+  box-shadow: inset 0 1px 0 var(--bg-elevated);
+  transition: border-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
+}
+.action > :not([data-glass-lens]) { position: relative; z-index: 1; }
+.action:hover {
+  border-color: color-mix(in oklab, var(--result-accent) 65%, var(--border));
+  box-shadow: inset 0 1px 0 var(--bg-elevated), 0 5px 13px -9px color-mix(in oklab, var(--result-accent) 55%, transparent);
+}
+.action:hover > :global([data-glass-lens]),
+.action:focus-visible > :global([data-glass-lens]) { opacity: 1; }
+.action:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+.action:active > :global([data-glass-lens]) { --lens-scale: 0.975; }
+.placeActions { display: flex; width: 100%; justify-content: flex-end; margin-top: auto; padding-top: 10px; }
+.expandAction { margin-top: 12px; color: var(--fg-secondary); }
+
+@media (prefers-reduced-transparency: reduce) {
+  .resultSurface,
+  .weatherDay,
+  .weatherDay[data-today="true"],
+  .action { background: var(--bg-elevated); }
+  .weatherDay[data-today="true"] { border-color: var(--info); }
+  .action > :global([data-glass-lens]) { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .action { transition: none; }
+  .placeCard :global(img) { transition: none; }
+}

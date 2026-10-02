@@ -1,5 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   FlightResultsBlock,
@@ -392,7 +393,6 @@ describe('StructuredToolResults', () => {
       const days = within(grid).getAllByTestId('weather-forecast-day');
       expect(days).toHaveLength(4);
       expect(days[0]).toHaveAttribute('data-today', 'true');
-      expect(days[0]).toHaveClass('border-primary/40', 'bg-primary/5');
       expect(within(days[0]).getByText('今天')).toBeInTheDocument();
       expect(within(days[0]).getByText('7月23日')).toBeInTheDocument();
       expect(within(days[0]).getByText('星期四')).toBeInTheDocument();
@@ -585,6 +585,58 @@ describe('StructuredToolResults', () => {
     expect(screen.getAllByRole('link', { name: '查看详情' })).toHaveLength(5);
     expect(screen.queryByText('餐厅 6')).toBeNull();
     expect(screen.queryByRole('tab')).toBeNull();
+  });
+
+  it('地点展开按钮提供区域关联，键盘展开和收起后保持焦点', async () => {
+    const user = userEvent.setup();
+    render(<StructuredToolResults blocks={[placeBlock()]} />);
+
+    const toggle = screen.getByRole('button', { name: '展开更多地点' });
+    const grid = screen.getByTestId('place-results-grid');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle).toHaveAttribute('aria-controls', grid.id);
+    toggle.focus();
+    await user.keyboard(' ');
+
+    expect(screen.getAllByTestId('place-result-item')).toHaveLength(5);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(toggle).toHaveAccessibleName('收起地点');
+    expect(toggle).toHaveFocus();
+    await user.keyboard('{Enter}');
+
+    expect(screen.getAllByTestId('place-result-item')).toHaveLength(3);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle).toHaveFocus();
+  });
+
+  it('地点英文界面显示完整评价、参考消费和距离，通用详情动作本地化', async () => {
+    await i18n.changeLanguage('en-US');
+    render(<StructuredToolResults blocks={[placeBlock({
+      attribution: undefined,
+      result_count: 1,
+      places: [{
+        provider_place_id: 'english-place',
+        name: 'West Lake Restaurant',
+        category: '050100',
+        rating: 4.6,
+        reference_cost_yuan: 97,
+        distance_m: 1500,
+        address: 'West Lake Road',
+        open_hours: '10:30–22:00',
+        actions: [{ kind: 'open_external', label: '查看详情', url: 'https://www.amap.com/place/1' }],
+      }],
+    })]} />);
+
+    const region = screen.getByRole('region', { name: 'Place recommendations' });
+    expect(within(region).getByText('Map service')).toBeInTheDocument();
+    expect(within(region).getByText('Rating 4.6')).toBeInTheDocument();
+    expect(within(region).getByText('Reference cost ¥97')).toBeInTheDocument();
+    expect(within(region).getByText('1.5 km')).toBeInTheDocument();
+    expect(region).not.toHaveTextContent('050100');
+    expect(within(region).getByText('West Lake Road')).toBeInTheDocument();
+    expect(within(region).getByText('10:30–22:00')).toBeInTheDocument();
+    expect(within(region).getByRole('link', { name: 'View details' })).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(within(region).queryByText('查看详情')).toBeNull();
   });
 
   it('真实 https 图片使用固定比例缩略图，点击后可预览原图并切换多图', async () => {

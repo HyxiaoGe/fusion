@@ -67,7 +67,47 @@
       "placeholder": "输入您的问题...",
       "newChatTitle": "新的对话"
     },
+    "chatBody": {
+      "code": {
+        "plainText": "纯文本",
+        "lineCount": "{{count}} 行",
+        "collapsedLineCount": "{{visible}}/{{total}} 行",
+        "expand": "展开代码",
+        "collapse": "折叠代码",
+        "showRemaining": "显示剩余 {{count}} 行代码",
+        "copyLabel": "复制代码",
+        "copy": "复制",
+        "copying": "复制中…",
+        "copied": "已复制",
+        "failed": "复制失败，请选择代码手动复制或重试。",
+        "contentLabel": "代码内容：{{language}}"
+      },
+      "table": {
+        "label": "回答表格",
+        "horizontal": "可左右滚动查看完整表格",
+        "vertical": "可上下滚动，表头保持可见",
+        "both": "可上下、左右滚动查看表格，表头保持可见"
+      }
+    },
     "structuredResults": {
+      "place": {
+        "region": "地点推荐结果",
+        "title": "地点推荐",
+        "mapService": "地图服务",
+        "degraded": "部分地点可用",
+        "count": "{{count}} 个地点",
+        "empty": "暂未取得可展示的地点信息",
+        "unknownName": "地点信息待补充",
+        "expandLabel": "展开更多地点",
+        "collapseLabel": "收起地点",
+        "expand": "查看更多（{{count}}）",
+        "collapse": "收起",
+        "viewDetails": "查看详情",
+        "rating": "评分 {{value}}",
+        "referenceCost": "参考消费 ¥{{value}}",
+        "distanceMeters": "{{count}} 米",
+        "distanceKilometers": "{{value}} 公里"
+      },
       "common": {
         "travelService": "出行服务",
         "tripPending": "行程待确认",
