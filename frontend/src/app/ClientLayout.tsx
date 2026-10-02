@@ -39,6 +39,7 @@ import {
 } from "@/redux/actions/authSessionActions";
 import { LoginDialog } from "@/components/auth/LoginDialog";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
+import { SettingsDialogFocusProvider } from "@/components/settings/SettingsDialogFocusContext";
 
 // 懒加载性能监控组件，只在开发环境启用
 const PerformanceMonitor = dynamic(
@@ -365,6 +366,7 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
 
   return (
     <ToastProvider>
+      <SettingsDialogFocusProvider>
       <ToastInitializer />
       <ModelConfigInitializer />
       <div className="w-full h-screen overflow-hidden text-sm flex-1">
@@ -408,6 +410,7 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
       {process.env.NODE_ENV === 'development' && (
         <PerformanceMonitor />
       )}
+      </SettingsDialogFocusProvider>
     </ToastProvider>
   );
 };

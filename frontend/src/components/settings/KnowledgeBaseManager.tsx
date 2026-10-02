@@ -21,7 +21,8 @@ import {
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { SettingsBadge as Badge, SettingsButton as Button } from './SettingsControls';
+import { SettingsBadge as Badge, SettingsButton as Button, SettingsInput as Input, SettingsTextarea as Textarea } from './SettingsControls';
+import { useSettingsDialogFocus } from './useSettingsDialogFocus';
 import controlStyles from './SettingsControls.module.css';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import ConfirmDialog from '@/components/ui/confirm-dialog';
@@ -40,9 +41,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/toast';
 import { useKnowledgeBaseSettings } from '@/hooks/useKnowledgeBaseSettings';
 import { cn } from '@/lib/utils';
@@ -284,6 +283,13 @@ export default function KnowledgeBaseManager() {
   const [form, setForm] = useState<BaseFormState>(emptyForm);
   const [confirmTarget, setConfirmTarget] = useState<ConfirmTarget>(null);
   const [chunkPreviewTarget, setChunkPreviewTarget] = useState<ChunkPreviewTarget | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const baseActionsRef = useRef<HTMLButtonElement>(null);
+  const documentActionsRefs = useRef(new Map<string, HTMLButtonElement>());
+  const menusOpeningDialog = useRef(new Set<string>());
+  const formFocus = useSettingsDialogFocus({ open: formMode !== null, fallbackRef: panelRef });
+  const confirmFocus = useSettingsDialogFocus({ open: confirmTarget !== null, fallbackRef: panelRef });
+  const previewFocus = useSettingsDialogFocus({ open: chunkPreviewTarget !== null, fallbackRef: panelRef });
   const [mobileView, setMobileView] = useState<'list' | 'detail'>('list');
   const busy = state.mutation !== null;
   const featureDisabled =
@@ -293,18 +299,32 @@ export default function KnowledgeBaseManager() {
   const statusLabel = (status: string) =>
     t(`knowledgeBase.status.${status}`, { defaultValue: t('knowledgeBase.status.unknown') });
 
-  const openCreate = () => {
+  const openCreate = (event: React.MouseEvent<HTMLButtonElement>) => {
+    formFocus.captureOpener(event.currentTarget);
     setForm(emptyForm);
     setFormMode('create');
   };
 
   const openEdit = (knowledgeBase: KnowledgeBase) => {
+    formFocus.captureOpener(baseActionsRef.current);
+    menusOpeningDialog.current.add('base');
     setForm({
       name: knowledgeBase.name,
       description: knowledgeBase.description,
       business_type: knowledgeBase.business_type,
     });
     setFormMode('edit');
+  };
+
+  const openConfirmation = (target: NonNullable<ConfirmTarget>, source: string, opener: HTMLButtonElement | null) => {
+    confirmFocus.captureOpener(opener);
+    menusOpeningDialog.current.add(source);
+    setConfirmTarget(target);
+  };
+
+  const closeMenuFocus = (source: string, event: Event) => {
+    // 只有转入弹窗时暂停菜单恢复，普通 Esc 仍由菜单原语返回触发按钮。
+    if (menusOpeningDialog.current.delete(source)) event.preventDefault();
   };
 
   const handleFormSubmit = async (event: React.FormEvent) => {
@@ -403,7 +423,7 @@ export default function KnowledgeBaseManager() {
   };
 
   return (
-    <Card className="overflow-hidden border-muted shadow-sm">
+    <Card ref={panelRef} tabIndex={-1} className="overflow-hidden border-muted shadow-sm">
       <CardHeader className="border-b bg-muted/10">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-1">
@@ -606,12 +626,13 @@ export default function KnowledgeBaseManager() {
                         aria-label={t('knowledgeBase.baseActions', {
                           name: state.selectedBase.name,
                         })}
+                        ref={baseActionsRef}
                         title={t('knowledgeBase.baseActions', { name: state.selectedBase.name })}
                       >
                         <MoreHorizontal />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-40">
+                    <DropdownMenuContent align="end" className="w-40" onCloseAutoFocus={(event) => closeMenuFocus('base', event)}>
                       <DropdownMenuItem onSelect={() => openEdit(state.selectedBase!)}>
                         <Pencil />
                         {t('knowledgeBase.edit')}
@@ -620,11 +641,11 @@ export default function KnowledgeBaseManager() {
                       <DropdownMenuItem
                         variant="destructive"
                         onSelect={() =>
-                          setConfirmTarget({
+                          openConfirmation({
                             type: 'base',
                             id: state.selectedBase!.id,
                             name: state.selectedBase!.name,
-                          })
+                          }, 'base', baseActionsRef.current)
                         }
                       >
                         <Trash2 />
@@ -736,12 +757,13 @@ export default function KnowledgeBaseManager() {
                                   type="button"
                                   size="sm"
                                   variant="outline"
-                                  onClick={() =>
+                                  onClick={(event) => {
+                                    previewFocus.captureOpener(event.currentTarget);
                                     setChunkPreviewTarget({
                                       knowledgeBaseId: state.selectedBaseId!,
                                       document,
-                                    })
-                                  }
+                                    });
+                                  }}
                                 >
                                   <Eye />
                                   {t('knowledgeBase.previewChunks')}
@@ -756,6 +778,10 @@ export default function KnowledgeBaseManager() {
                                       variant="outline"
                                       className="h-8 w-8"
                                       disabled={actionsDisabled}
+                                      ref={(button) => {
+                                        if (button) documentActionsRefs.current.set(document.id, button);
+                                        else documentActionsRefs.current.delete(document.id);
+                                      }}
                                       aria-label={t('knowledgeBase.documentActions', {
                                         name: document.filename,
                                       })}
@@ -766,15 +792,15 @@ export default function KnowledgeBaseManager() {
                                       <MoreHorizontal />
                                     </Button>
                                   </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="end" className="w-40">
+                                  <DropdownMenuContent align="end" className="w-40" onCloseAutoFocus={(event) => closeMenuFocus(document.id, event)}>
                                     {document.status === 'failed' && (
                                       <DropdownMenuItem
                                         onSelect={() =>
-                                          setConfirmTarget({
+                                          openConfirmation({
                                             type: 'retry',
                                             id: document.id,
                                             name: document.filename,
-                                          })
+                                          }, document.id, documentActionsRefs.current.get(document.id) ?? null)
                                         }
                                       >
                                         <RotateCcw />
@@ -784,11 +810,11 @@ export default function KnowledgeBaseManager() {
                                     {document.status === 'ready' && (
                                       <DropdownMenuItem
                                         onSelect={() =>
-                                          setConfirmTarget({
+                                          openConfirmation({
                                             type: 'rebuild',
                                             id: document.id,
                                             name: document.filename,
-                                          })
+                                          }, document.id, documentActionsRefs.current.get(document.id) ?? null)
                                         }
                                       >
                                         <RefreshCw />
@@ -801,11 +827,11 @@ export default function KnowledgeBaseManager() {
                                     <DropdownMenuItem
                                       variant="destructive"
                                       onSelect={() =>
-                                        setConfirmTarget({
+                                        openConfirmation({
                                           type: 'document',
                                           id: document.id,
                                           name: document.filename,
-                                        })
+                                        }, document.id, documentActionsRefs.current.get(document.id) ?? null)
                                       }
                                     >
                                       <Trash2 />
@@ -837,7 +863,7 @@ export default function KnowledgeBaseManager() {
       </CardContent>
 
       <Dialog open={formMode !== null} onOpenChange={(open) => !open && setFormMode(null)}>
-        <DialogContent>
+        <DialogContent onOpenAutoFocus={formFocus.onOpenAutoFocus} onCloseAutoFocus={formFocus.onCloseAutoFocus}>
           <form onSubmit={(event) => void handleFormSubmit(event)} className="space-y-4">
             <DialogHeader>
               <DialogTitle>
@@ -893,6 +919,8 @@ export default function KnowledgeBaseManager() {
       </Dialog>
 
       <KnowledgeChunkPreviewDialog
+        onOpenAutoFocus={previewFocus.onOpenAutoFocus}
+        onCloseAutoFocus={previewFocus.onCloseAutoFocus}
         open={chunkPreviewTarget !== null}
         knowledgeBaseId={chunkPreviewTarget?.knowledgeBaseId ?? null}
         document={chunkPreviewTarget?.document ?? null}
@@ -902,6 +930,8 @@ export default function KnowledgeBaseManager() {
       />
 
       <ConfirmDialog
+        onOpenAutoFocus={confirmFocus.onOpenAutoFocus}
+        onCloseAutoFocus={confirmFocus.onCloseAutoFocus}
         isOpen={confirmTarget !== null}
         onClose={() => setConfirmTarget(null)}
         onConfirm={() => void handleConfirmAction()}

@@ -16,6 +16,8 @@ import { ApiError } from '@/types/api';
 import type { KnowledgeDocument } from '@/types/knowledge';
 
 interface KnowledgeChunkPreviewDialogProps {
+  onOpenAutoFocus?: React.ComponentProps<typeof DialogContent>['onOpenAutoFocus'];
+  onCloseAutoFocus?: React.ComponentProps<typeof DialogContent>['onCloseAutoFocus'];
   open: boolean;
   knowledgeBaseId: string | null;
   document: KnowledgeDocument | null;
@@ -71,6 +73,8 @@ export default function KnowledgeChunkPreviewDialog({
   knowledgeBaseId,
   document,
   onOpenChange,
+  onOpenAutoFocus,
+  onCloseAutoFocus,
 }: KnowledgeChunkPreviewDialogProps) {
   const { t } = useTranslation();
   const state = useKnowledgeDocumentChunks({
@@ -83,6 +87,8 @@ export default function KnowledgeChunkPreviewDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        onOpenAutoFocus={onOpenAutoFocus}
+        onCloseAutoFocus={onCloseAutoFocus}
         className="flex max-h-[84vh] flex-col overflow-hidden sm:max-w-4xl"
         closeLabel={t('knowledgeBase.chunkPreview.close')}
       >

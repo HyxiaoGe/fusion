@@ -13,9 +13,14 @@ import { Button } from "@/components/ui/button";
 import { logoutWithSso } from "@/redux/slices/authSlice";
 import { openSettingsDialog } from "@/redux/slices/settingsSlice";
 import { LogOut, Settings } from "lucide-react";
+import { useRef } from "react";
+import { useSettingsDialogOpener } from "@/components/settings/SettingsDialogFocusContext";
 
 export function UserMenu() {
   const dispatch = useAppDispatch();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const openingSettings = useRef(false);
+  const { captureOpener } = useSettingsDialogOpener();
   const { isAuthenticated, user } = useAppSelector((state) => state.auth);
 
   const handleLogout = () => {
@@ -23,6 +28,8 @@ export function UserMenu() {
   };
 
   const handleOpenSettings = () => {
+    captureOpener(triggerRef.current);
+    openingSettings.current = true;
     dispatch(openSettingsDialog({}));
   };
 
@@ -33,14 +40,16 @@ export function UserMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="relative h-8 w-8 rounded-full">
+        <Button ref={triggerRef} variant="ghost" className="relative h-8 w-8 rounded-full">
           <Avatar className="h-8 w-8">
             <AvatarImage src={user.avatar || undefined} alt={user.nickname || user.username || 'User'} />
             <AvatarFallback>{(user.nickname || user.username || 'U').slice(0, 2).toUpperCase()}</AvatarFallback>
           </Avatar>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-56" align="end" forceMount>
+      <DropdownMenuContent className="w-56" align="end" forceMount onCloseAutoFocus={(event) => {
+        if (openingSettings.current) { event.preventDefault(); openingSettings.current = false; }
+      }}>
         <DropdownMenuItem>
           <div className="flex flex-col space-y-1">
             <p className="text-sm font-medium leading-none">{user.nickname || user.username}</p>
@@ -50,7 +59,7 @@ export function UserMenu() {
           </div>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={handleOpenSettings} className="flex items-center cursor-pointer">
+        <DropdownMenuItem onSelect={handleOpenSettings} className="flex items-center cursor-pointer">
           <Settings className="mr-2 h-4 w-4" />
           <span>设置</span>
         </DropdownMenuItem>

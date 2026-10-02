@@ -16,13 +16,17 @@ import { resetConversationState } from "@/redux/slices/conversationSlice";
 import { resetFileUploadState } from "@/redux/slices/fileUploadSlice";
 import { resetStreamState } from "@/redux/slices/streamSlice";
 import { Settings, LogOut, LogIn, ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useSettingsDialogOpener } from "@/components/settings/SettingsDialogFocusContext";
 import { LoginDialog } from "@/components/auth/LoginDialog";
 import { DEFAULT_USER_AVATAR_SRC, proxiedAvatar } from "@/lib/auth/avatar";
 import { useHasMounted } from "@/hooks/useHasMounted";
 
 export function UserAvatarMenu() {
   const dispatch = useAppDispatch();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const openingSettings = useRef(false);
+  const { captureOpener } = useSettingsDialogOpener();
   const { isAuthenticated, user, sessionResolved, status: authStatus } = useAppSelector((state) => state.auth);
   const [isLoginDialogOpen, setIsLoginDialogOpen] = useState(false);
   // 登录态来自 localStorage，SSR 与首个 hydration 帧都无从得知 → getInitialAuthState 返回未登录，
@@ -48,6 +52,8 @@ export function UserAvatarMenu() {
   const avatarSrc = proxiedAvatar(user?.avatar) ?? DEFAULT_USER_AVATAR_SRC;
 
   const handleOpenSettings = () => {
+    captureOpener(triggerRef.current);
+    openingSettings.current = true;
     dispatch(openSettingsDialog({}));
   };
 
@@ -81,7 +87,7 @@ export function UserAvatarMenu() {
       {isAuthenticated ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="relative h-9 w-9 rounded-full hover:scale-110 transition-all duration-300 shadow-sm hover:shadow-md">
+            <Button ref={triggerRef} variant="ghost" size="icon" className="relative h-9 w-9 rounded-full hover:scale-110 transition-all duration-300 shadow-sm hover:shadow-md">
               <Avatar 
                 key={`avatar-${isAuthenticated}-${user?.avatar}`}
                 className="h-8 w-8"
@@ -91,7 +97,9 @@ export function UserAvatarMenu() {
               </Avatar>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent className="w-56" align="end" forceMount>
+          <DropdownMenuContent className="w-56" align="end" forceMount onCloseAutoFocus={(event) => {
+            if (openingSettings.current) { event.preventDefault(); openingSettings.current = false; }
+          }}>
           {/* 用户信息 */}
           <DropdownMenuItem>
             <div className="flex items-center space-x-3">
@@ -116,7 +124,7 @@ export function UserAvatarMenu() {
           <DropdownMenuSeparator />
           
           {/* 设置 */}
-          <DropdownMenuItem onClick={handleOpenSettings} className="flex items-center cursor-pointer">
+          <DropdownMenuItem onSelect={handleOpenSettings} className="flex items-center cursor-pointer">
             <Settings className="mr-2 h-4 w-4" />
             <span>设置</span>
           </DropdownMenuItem>

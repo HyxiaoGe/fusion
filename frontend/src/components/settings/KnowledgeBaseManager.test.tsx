@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { KnowledgeBase, KnowledgeDocument } from '@/types/knowledge';
@@ -196,6 +197,87 @@ describe('KnowledgeBaseManager', () => {
   beforeEach(() => {
     toastMock.mockReset();
     hookState.current = makeState();
+  });
+
+  it('知识库菜单进入编辑时不回聚焦菜单按钮，取消后恢复真实触发器', async () => {
+    const user = userEvent.setup();
+    render(<KnowledgeBaseManager />);
+    const opener = screen.getByRole('button', { name: '管理知识库 产品手册' });
+    await user.click(opener);
+    const refocused = vi.fn();
+    opener.addEventListener('focus', refocused);
+    await user.click(screen.getByRole('menuitem', { name: '编辑' }));
+    const dialog = screen.getByRole('dialog', { name: '编辑知识库' });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(within(dialog).getByRole('textbox', { name: '名称' })).toHaveFocus();
+    expect(refocused).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole('button', { name: '取消' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(opener).toHaveFocus());
+    expect(hookState.current.updateBase).not.toHaveBeenCalled();
+    expect(hookState.current.removeBase).not.toHaveBeenCalled();
+  });
+
+  it('知识库删除确认保持初始取消焦点，取消后回菜单按钮且不删除', async () => {
+    const user = userEvent.setup();
+    render(<KnowledgeBaseManager />);
+    const opener = screen.getByRole('button', { name: '管理知识库 产品手册' });
+    await user.click(opener);
+    const refocused = vi.fn();
+    opener.addEventListener('focus', refocused);
+    await user.click(screen.getByRole('menuitem', { name: '删除' }));
+    const dialog = screen.getByRole('dialog', { name: '删除知识库？' });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    const cancel = within(dialog).getByRole('button', { name: '取消' });
+    expect(cancel).toHaveFocus();
+    expect(refocused).not.toHaveBeenCalled();
+    await user.click(cancel);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(opener).toHaveFocus());
+    expect(hookState.current.removeBase).not.toHaveBeenCalled();
+    expect(hookState.current.removeDocument).not.toHaveBeenCalled();
+  });
+
+  it('普通知识库菜单 Escape 仍返回触发器且不打开弹窗', async () => {
+    const user = userEvent.setup();
+    render(<KnowledgeBaseManager />);
+    const opener = screen.getByRole('button', { name: '管理知识库 产品手册' });
+    await user.click(opener);
+    expect(screen.getByRole('menuitem', { name: '编辑' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+    await waitFor(() => expect(opener).toHaveFocus());
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(hookState.current.updateBase).not.toHaveBeenCalled();
+    expect(hookState.current.removeBase).not.toHaveBeenCalled();
+  });
+
+  it('新建知识库 Escape 关闭后回创建按钮且不保存', async () => {
+    const user = userEvent.setup();
+    render(<KnowledgeBaseManager />);
+    const opener = screen.getByRole('button', { name: '新建知识库' });
+    await user.click(opener);
+    const dialog = screen.getByRole('dialog', { name: '新建知识库' });
+    expect(within(dialog).getByRole('textbox', { name: '名称' })).toHaveFocus();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(opener).toHaveFocus());
+    expect(hookState.current.createBase).not.toHaveBeenCalled();
+  });
+
+  it('文档重试确认取消后回对应文档菜单按钮且不创建任务', async () => {
+    const user = userEvent.setup();
+    render(<KnowledgeBaseManager />);
+    const opener = screen.getByRole('button', { name: '管理文档 failed-document.txt' });
+    await user.click(opener);
+    await user.click(screen.getByRole('menuitem', { name: '重试' }));
+    const dialog = screen.getByRole('dialog', { name: '重试文档处理？' });
+    await user.click(within(dialog).getByRole('button', { name: '取消' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(opener).toHaveFocus());
+    expect(screen.getByRole('button', { name: '管理文档 ready-document.txt' })).not.toHaveFocus();
+    expect(hookState.current.retryDocument).not.toHaveBeenCalled();
+    expect(hookState.current.rebuildDocument).not.toHaveBeenCalled();
   });
 
   it('展示紧凑统计、文档状态，并默认隐藏低频操作', () => {
