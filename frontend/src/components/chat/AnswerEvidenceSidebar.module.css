@@ -67,14 +67,11 @@
 }
 .iconButton > :not([data-glass-lens]) { position: relative; z-index: 1; }
 .iconButton.iconButton > :global([data-glass-lens]),
-.queryToggle.queryToggle > :global([data-glass-lens]),
-.sourceSelect.sourceSelect > :global([data-glass-lens]) { opacity: 0; }
+.queryToggle.queryToggle > :global([data-glass-lens]) { opacity: 0; }
 .iconButton.iconButton:hover > :global([data-glass-lens]),
 .iconButton.iconButton:focus-visible > :global([data-glass-lens]),
 .queryToggle.queryToggle:hover > :global([data-glass-lens]),
-.queryToggle.queryToggle:focus-visible > :global([data-glass-lens]),
-.sourceSelect.sourceSelect:hover > :global([data-glass-lens]),
-.sourceSelect.sourceSelect:focus-visible > :global([data-glass-lens]) { opacity: 1; }
+.queryToggle.queryToggle:focus-visible > :global([data-glass-lens]) { opacity: 1; }
 
 .queryBox,
 .empty {
@@ -122,17 +119,20 @@
   box-shadow: inset 0 1px 0 var(--bg-elevated), 0 0 0 1px color-mix(in oklch, var(--info) 10%, transparent), 0 6px 18px -12px var(--info);
 }
 .sourceCard:focus-within { outline: 2px solid color-mix(in oklch, var(--info) 65%, transparent); outline-offset: -2px; }
-.sourceRow { display: flex; min-width: 0; align-items: flex-start; }
+.sourceCard:has(.sourceSelect:focus-visible) { outline: 2px solid var(--info); outline-offset: -2px; }
+.sourceRow { position: relative; isolation: isolate; display: flex; min-width: 0; align-items: flex-start; border-radius: inherit; }
+.sourceRow > :not([data-glass-lens]) { position: relative; z-index: 1; }
+.sourceCard .sourceRow.sourceRow > :global([data-glass-lens]) { opacity: 0; }
+.sourceCard[data-highlighted="true"] > .sourceRow > :global([data-glass-lens]) { opacity: 0.3; }
+.sourceCard:hover > .sourceRow > :global([data-glass-lens]),
+.sourceCard:focus-within > .sourceRow > :global([data-glass-lens]) { opacity: 1; }
 .sourceSelect {
   position: relative; isolation: isolate; overflow: hidden;
   display: flex; flex: 1; min-width: 0; gap: 10px;
   padding: 12px 10px; border-radius: 13px; text-align: left; cursor: pointer;
 }
 .sourceSelect > :not([data-glass-lens]) { position: relative; z-index: 1; }
-.sourceSelect:focus-visible { outline: 2px solid var(--info); outline-offset: -3px; }
-.sourceSelect.sourceSelect[aria-pressed="true"] > :global([data-glass-lens]) { opacity: 0.3; }
-.sourceSelect.sourceSelect[aria-pressed="true"]:hover > :global([data-glass-lens]),
-.sourceSelect.sourceSelect[aria-pressed="true"]:focus-visible > :global([data-glass-lens]) { opacity: 1; }
+.sourceSelect:focus-visible { outline: none; }
 .sourceIcon { display: flex; width: 28px; height: 28px; flex-shrink: 0; align-items: center; justify-content: center; color: var(--info); }
 .citationNumber {
   display: inline-flex; min-width: 28px; min-height: 28px; padding: 2px 4px;
