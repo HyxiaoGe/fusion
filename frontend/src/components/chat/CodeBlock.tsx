@@ -1,9 +1,11 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
+import GlassHoverLens, { pointGlassLight, resetGlassLight } from '@/components/ui/GlassHoverLens';
 import { cn } from '@/lib/utils';
 import { Check, ClipboardCopy, FileText, Hash, ChevronDown, ChevronUp } from 'lucide-react';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import hljs from 'highlight.js';
 import styles from './CodeBlock.module.css';
 
@@ -14,6 +16,8 @@ interface CodeBlockProps {
   className?: string;
   maxLines?: number; // 最大显示行数，超过则可折叠
 }
+
+type CopyState = 'idle' | 'copying' | 'copied' | 'failed';
 
 const LANGUAGE_MAP: Record<string, string> = {
   js: 'javascript',
@@ -58,8 +62,6 @@ const DISPLAY_LANGUAGE_MAP: Record<string, string> = {
   powershell: 'PowerShell',
   sql: 'SQL',
   markdown: 'Markdown',
-  text: 'Plain Text',
-  plaintext: 'Plain Text',
 };
 
 function getDisplayLanguage(language: string): string {
@@ -86,16 +88,34 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
   className,
   maxLines = 15 // 默认最大显示15行
 }) => {
-  const [copied, setCopied] = useState(false);
+  const { t } = useTranslation();
+  const [copyState, setCopyState] = useState<CopyState>('idle');
   const [isExpanded, setIsExpanded] = useState(false);
+  const revision = useRef(0);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const contentId = useId();
+
+  useEffect(() => {
+    revision.current += 1;
+    setCopyState('idle');
+    return () => {
+      // 内容更新或卸载后，旧复制回调不能覆盖当前代码的反馈。
+      revision.current += 1;
+      clearTimeout(copyTimer.current);
+    };
+  }, [value]);
 
   const handleCopy = async () => {
+    const currentRevision = revision.current;
+    clearTimeout(copyTimer.current);
+    setCopyState('copying');
     try {
       await navigator.clipboard.writeText(value);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (error) {
-      console.error('复制失败:', error);
+      if (revision.current !== currentRevision) return;
+      setCopyState('copied');
+      copyTimer.current = setTimeout(() => setCopyState('idle'), 2000);
+    } catch {
+      if (revision.current === currentRevision) setCopyState('failed');
     }
   };
 
@@ -118,6 +138,10 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
     [displayValue, language],
   );
   const displayLineNumbers = isCollapsed ? lineNumbers.slice(0, maxLines) : lineNumbers;
+  const displayLanguage = !language || ['text', 'plaintext'].includes(language.toLowerCase())
+    ? t('chatBody.code.plainText')
+    : getDisplayLanguage(language);
+  const copyLabel = t(`chatBody.code.${copyState === 'copied' ? 'copied' : copyState === 'copying' ? 'copying' : 'copy'}`);
 
   return (
     <div className={cn(styles.block, className)} data-code-block="true">
@@ -126,15 +150,15 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
         <div className={styles.metadata}>
           <FileText aria-hidden="true" />
           <span className={styles.language}>
-            {getDisplayLanguage(language)}
+            {displayLanguage}
           </span>
           {showLineNumbers && (
             <div className={styles.lineCount}>
               <Hash aria-hidden="true" />
               <span>
                 {isCollapsed && shouldShowCollapse 
-                  ? `${maxLines}/${totalLines} 行` 
-                  : `${totalLines} 行`
+                  ? t('chatBody.code.collapsedLineCount', { visible: maxLines, total: totalLines })
+                  : t('chatBody.code.lineCount', { count: totalLines })
                 }
               </span>
             </div>
@@ -145,14 +169,18 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
               size="sm"
               className={styles.iconButton}
               onClick={() => setIsExpanded(isCollapsed)}
-              title={isCollapsed ? "展开代码" : "折叠代码"}
-              aria-label={isCollapsed ? "展开代码" : "折叠代码"}
+              onPointerMove={pointGlassLight}
+              onPointerLeave={resetGlassLight}
+              title={t(`chatBody.code.${isCollapsed ? 'expand' : 'collapse'}`)}
+              aria-label={t(`chatBody.code.${isCollapsed ? 'expand' : 'collapse'}`)}
               aria-expanded={!isCollapsed}
+              aria-controls={contentId}
             >
+              <GlassHoverLens corners={false} />
               {isCollapsed ? (
-                <ChevronDown className="h-4 w-4" />
+                <ChevronDown aria-hidden="true" />
               ) : (
-                <ChevronUp className="h-4 w-4" />
+                <ChevronUp aria-hidden="true" />
               )}
             </Button>
           )}
@@ -160,21 +188,36 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
         <Button
           variant="ghost"
           size="sm"
-          className={styles.iconButton}
-          onClick={handleCopy}
-          title="复制代码"
+          className={cn(styles.copyButton, copyState === 'copied' && styles.success)}
+          onClick={() => { void handleCopy(); }}
+          onPointerMove={pointGlassLight}
+          onPointerLeave={resetGlassLight}
+          title={t('chatBody.code.copyLabel')}
+          aria-label={t('chatBody.code.copyLabel')}
+          disabled={copyState === 'copying'}
         >
-          {copied ? (
-            <Check className={styles.success} />
+          <GlassHoverLens corners={false} />
+          {copyState === 'copied' ? (
+            <Check aria-hidden="true" />
           ) : (
-            <ClipboardCopy className="h-3 w-3" />
+            <ClipboardCopy aria-hidden="true" />
           )}
-          <span className="sr-only">复制代码</span>
+          <span aria-live="polite">{copyLabel}</span>
         </Button>
       </div>
 
+      {copyState === 'failed' ? (
+        <p role="alert" className={styles.error}>{t('chatBody.code.failed')}</p>
+      ) : null}
+
       {/* 代码内容 */}
-      <div className={styles.scroll}>
+      <div
+        id={contentId}
+        className={styles.scroll}
+        role="region"
+        aria-label={t('chatBody.code.contentLabel', { language: displayLanguage })}
+        tabIndex={0}
+      >
           <div className={styles.row}>
             {/* 行号列 */}
             {showLineNumbers && (
@@ -214,9 +257,14 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
                       size="sm"
                       className={styles.expandButton}
                       onClick={() => setIsExpanded(true)}
+                      onPointerMove={pointGlassLight}
+                      onPointerLeave={resetGlassLight}
+                      aria-expanded={false}
+                      aria-controls={contentId}
                     >
-                      <ChevronDown className="h-4 w-4 mr-2" />
-                      显示剩余 {totalLines - maxLines} 行代码
+                      <GlassHoverLens corners={false} />
+                      <ChevronDown aria-hidden="true" />
+                      <span>{t('chatBody.code.showRemaining', { count: totalLines - maxLines })}</span>
                     </Button>
                   </div>
                 </div>
@@ -225,12 +273,6 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
           </div>
       </div>
 
-      {/* 复制成功提示 */}
-      {copied && (
-        <div className={styles.copied} role="status">
-          已复制
-        </div>
-      )}
     </div>
   );
 };

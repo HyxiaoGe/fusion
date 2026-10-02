@@ -67,7 +67,53 @@
       "placeholder": "Enter your question...",
       "newChatTitle": "New Conversation"
     },
+    "chatBody": {
+      "code": {
+        "plainText": "Plain text",
+        "lineCount": "{{count}} lines",
+        "lineCount_one": "{{count}} line",
+        "lineCount_other": "{{count}} lines",
+        "collapsedLineCount": "{{visible}}/{{total}} lines",
+        "expand": "Expand code",
+        "collapse": "Collapse code",
+        "showRemaining": "Show {{count}} remaining lines",
+        "showRemaining_one": "Show {{count}} remaining line",
+        "showRemaining_other": "Show {{count}} remaining lines",
+        "copyLabel": "Copy code",
+        "copy": "Copy",
+        "copying": "Copying…",
+        "copied": "Copied",
+        "failed": "Copy failed. Select the code to copy manually or try again.",
+        "contentLabel": "Code content: {{language}}"
+      },
+      "table": {
+        "label": "Answer table",
+        "horizontal": "Scroll horizontally to view the full table",
+        "vertical": "Scroll vertically; the header stays visible",
+        "both": "Scroll vertically and horizontally; the header stays visible"
+      }
+    },
     "structuredResults": {
+      "place": {
+        "region": "Place recommendations",
+        "title": "Recommended places",
+        "mapService": "Map service",
+        "degraded": "Some places available",
+        "count": "{{count}} places",
+        "count_one": "{{count}} place",
+        "count_other": "{{count}} places",
+        "empty": "No place information available yet",
+        "unknownName": "Place name unavailable",
+        "expandLabel": "Show more places",
+        "collapseLabel": "Show fewer places",
+        "expand": "Show more ({{count}})",
+        "collapse": "Show less",
+        "viewDetails": "View details",
+        "rating": "Rating {{value}}",
+        "referenceCost": "Reference cost ¥{{value}}",
+        "distanceMeters": "{{count}} m",
+        "distanceKilometers": "{{value}} km"
+      },
       "common": {
         "travelService": "Travel service",
         "tripPending": "Trip pending",

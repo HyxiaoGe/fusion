@@ -1,0 +1,44 @@
+.frame {
+  max-width: 100%;
+  margin: 1.5rem 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--background);
+}
+.viewport { position: relative; }
+.viewport::before,
+.viewport::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  width: 18px;
+  pointer-events: none;
+  content: '';
+  opacity: 0;
+}
+.viewport::before { left: 0; background: linear-gradient(to right, var(--background), transparent); }
+.viewport::after { right: 0; background: linear-gradient(to left, var(--background), transparent); }
+.viewport[data-left='true']::before,
+.viewport[data-right='true']::after { opacity: 1; }
+.scroll {
+  max-height: 28rem;
+  overflow: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.scroll:focus-visible { outline: 2px solid var(--info); outline-offset: -3px; }
+.scroll table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 14px; line-height: 1.65; }
+.scroll :where(th, td) { min-width: 8rem; max-width: 26rem; border: 0; border-bottom: 1px solid var(--border); padding: 12px 16px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.scroll :where(th) { position: sticky; top: 0; z-index: 1; background: var(--bg-subtle); font-weight: 600; box-shadow: 0 1px 0 var(--border); }
+.scroll tbody tr:last-child td { border-bottom: 0; }
+.scroll tbody tr:hover td { background: var(--bg-subtle); }
+.scroll :where(td > :last-child) { margin-bottom: 0; }
+.hint { display: flex; align-items: center; gap: 0.375rem; border-top: 1px solid var(--border); background: var(--bg-subtle); padding: 0.375rem 0.875rem; color: var(--fg-secondary); font-size: 12px; line-height: 1.5; }
+.hint > svg { width: 14px; height: 14px; flex-shrink: 0; color: var(--muted-foreground); }
+
+@media (max-width: 640px) {
+  .scroll :where(th, td) { padding: 10px 12px; }
+}

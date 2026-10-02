@@ -10,8 +10,11 @@ import {
   CableCar,
   CarFront,
   CarTaxiFront,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  Clock3,
   Cloud,
   CloudFog,
   CloudLightning,
@@ -28,6 +31,7 @@ import {
   Plus,
   Route,
   Ship,
+  Star,
   Sun,
   Timer,
   Train,
@@ -64,6 +68,7 @@ import type {
   WeatherResultsBlock,
 } from '@/types/conversation';
 import { cn } from '@/lib/utils';
+import GlassHoverLens, { pointGlassLight, resetGlassLight } from '@/components/ui/GlassHoverLens';
 import {
   deriveItineraryResultPresentation,
   type ItineraryPresentationItem,
@@ -75,6 +80,7 @@ import {
   type TransportIconKind,
   type TransportTone,
 } from './transportModePresentation';
+import styles from './StructuredToolResults.module.css';
 
 interface StructuredToolResultsProps {
   blocks: StructuredToolResultBlock[];
@@ -170,28 +176,35 @@ function UnsupportedResult() {
 }
 
 function PlaceResults({ block }: { block: PlaceResultsBlock }) {
+  const { t } = useTranslation();
   const places = (block.places ?? []).slice(0, 5);
   const [expanded, setExpanded] = useState(false);
+  const gridId = useId();
   const visiblePlaces = places.slice(0, expanded ? 5 : 3);
   const resultCount = safeCount(block.result_count) ?? places.length;
 
   return (
     <section
-      aria-label="地点推荐结果"
-      className="rounded-lg border border-border/50 bg-card/40 p-3"
+      aria-label={t('structuredResults.place.region')}
+      className={cn(styles.resultSurface, styles.placeSurface)}
     >
       <ResultHeader
         icon={<MapPin className="h-4 w-4 text-teal" aria-hidden="true" />}
-        title={buildPlaceTitle(block)}
+        title={buildPlaceTitle(block, t('structuredResults.place.title'))}
         attribution={block.attribution}
+        fallbackAttribution={t('structuredResults.place.mapService')}
         status={block.status}
-        statusText={block.status === 'degraded' ? '部分地点可用' : `${resultCount} 个地点`}
+        statusText={block.status === 'degraded'
+          ? t('structuredResults.place.degraded')
+          : t('structuredResults.place.count', { count: resultCount })}
+        polished
       />
 
       {visiblePlaces.length > 0 ? (
         <div
           data-testid="place-results-grid"
-          className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-3"
+          id={gridId}
+          className={cn(styles.placeGrid, 'grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-3')}
         >
           {visiblePlaces.map((place, index) => (
             <PlaceResultItem
@@ -201,73 +214,101 @@ function PlaceResults({ block }: { block: PlaceResultsBlock }) {
           ))}
         </div>
       ) : (
-        <EmptyResult text="暂未取得可展示的地点信息" />
+        <EmptyResult text={t('structuredResults.place.empty')} />
       )}
 
       {places.length > 3 ? (
         <button
           type="button"
-          aria-label={expanded ? '收起地点' : '展开更多地点'}
+          aria-label={t(expanded ? 'structuredResults.place.collapseLabel' : 'structuredResults.place.expandLabel')}
+          aria-expanded={expanded}
+          aria-controls={gridId}
           onClick={() => setExpanded(current => !current)}
-          className="mt-3 text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          onPointerMove={pointGlassLight}
+          onPointerLeave={resetGlassLight}
+          className={cn(styles.action, styles.expandAction)}
         >
-          {expanded ? '收起' : `查看更多（${Math.min(5, places.length) - 3}）`}
+          <GlassHoverLens />
+          <span>{expanded
+            ? t('structuredResults.place.collapse')
+            : t('structuredResults.place.expand', { count: Math.min(5, places.length) - 3 })}</span>
+          {expanded ? <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" /> : <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />}
         </button>
       ) : null}
 
-      <Limitations items={block.limitations} />
+      <Limitations items={block.limitations} className={styles.resultFooter} />
     </section>
   );
 }
 
 function PlaceResultItem({ place }: { place: ProviderPlaceResult }) {
-  const name = safeText(place.name) || '地点信息待补充';
+  const { t } = useTranslation();
+  const name = safeText(place.name) || t('structuredResults.place.unknownName');
   const photos = securePhotos(place.photos);
   const showImageLayout = photos.length > 0;
   const primaryAction = secureExternalActions(place.actions)[0];
-  const metadata = compact([
-    safeText(place.category),
-    formatDistance(place.distance_m),
-    formatRating(place.rating),
-    formatReferenceCost(place.reference_cost_yuan),
-  ]);
+  const distance = typeof place.distance_m === 'number' && Number.isFinite(place.distance_m) && place.distance_m >= 0
+    ? place.distance_m < 1000
+      ? t('structuredResults.place.distanceMeters', { count: Math.round(place.distance_m) })
+      : t('structuredResults.place.distanceKilometers', { value: (place.distance_m / 1000).toFixed(place.distance_m >= 10_000 ? 0 : 1) })
+    : '';
+  const category = safeText(place.category);
+  // 供应商的六位分类编号不能帮助用户选地点，只展示可读的分类名称。
+  const metadata = compact([/^\d{6}$/.test(category) ? '' : category, distance]);
+  const rating = typeof place.rating === 'number' && Number.isFinite(place.rating) && place.rating >= 0
+    ? t('structuredResults.place.rating', { value: place.rating.toFixed(1) })
+    : '';
+  const referenceCost = typeof place.reference_cost_yuan === 'number' && Number.isFinite(place.reference_cost_yuan) && place.reference_cost_yuan >= 0
+    ? t('structuredResults.place.referenceCost', { value: Math.round(place.reference_cost_yuan) })
+    : '';
   const location = compact([safeText(place.district), safeText(place.business_area), safeText(place.address)]);
 
   return (
     <article
       data-testid="place-result-item"
-      className={cn(
-        'flex min-w-0 rounded-md border border-border/40 bg-background/70',
-        showImageLayout ? 'overflow-hidden' : 'px-3 py-2.5',
-      )}
+      className={styles.placeCard}
     >
       {showImageLayout ? <SafePlaceImage photos={photos} fallbackName={name} /> : null}
       <div
         data-testid="place-result-content"
-        className={cn('min-w-0 flex-1', showImageLayout && 'p-2.5')}
+        className={cn('min-w-0 flex-1', styles.placeContent)}
       >
-        <div className="flex min-w-0 items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <h4 className="truncate text-sm font-medium text-foreground" title={name}>{name}</h4>
-            {metadata ? <p className="mt-0.5 truncate text-xs text-muted-foreground">{metadata}</p> : null}
-            {location ? <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{location}</p> : null}
-            {safeText(place.open_hours) ? (
-              <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{place.open_hours}</p>
-            ) : null}
+        <h4 className={styles.placeName} title={name}>{name}</h4>
+        {metadata ? <p className={styles.placeMetadata} title={metadata}>{metadata}</p> : null}
+        {rating || referenceCost ? (
+          <div className={styles.placeHighlights}>
+            {rating ? <span className={styles.rating}><Star className="h-3 w-3" aria-hidden="true" />{rating}</span> : null}
+            {referenceCost ? <span className={styles.referenceCost}>{referenceCost}</span> : null}
           </div>
-          {primaryAction ? (
+        ) : null}
+        {location ? (
+          <p className={styles.placeDetail} title={location}>
+            <MapPin className="h-3 w-3" aria-hidden="true" />
+            <span>{location}</span>
+          </p>
+        ) : null}
+        {safeText(place.open_hours) ? (
+          <p className={styles.placeDetail} title={safeText(place.open_hours)}>
+            <Clock3 className="h-3 w-3" aria-hidden="true" />
+            <span>{place.open_hours}</span>
+          </p>
+        ) : null}
+        {primaryAction ? (
+          <div className={styles.placeActions}>
             <a
               href={primaryAction.url}
               target="_blank"
               rel="noopener noreferrer"
-              aria-label={primaryAction.label}
-              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/50 px-2 py-1 text-[11px] font-medium text-foreground hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              onPointerMove={pointGlassLight}
+              onPointerLeave={resetGlassLight}
+              className={styles.action}
             >
-              {primaryAction.label}
+              <GlassHoverLens />
+              <span>{primaryAction.label === '查看详情' ? t('structuredResults.place.viewDetails') : primaryAction.label}</span>
               <ExternalLink className="h-3 w-3" aria-hidden="true" />
             </a>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </div>
     </article>
   );
@@ -652,7 +693,7 @@ function WeatherResults({ block }: { block: WeatherResultsBlock }) {
   return (
     <section
       aria-label={t('structuredResults.weather.region')}
-      className="rounded-lg border border-border/50 bg-card/40 p-3"
+      className={styles.resultSurface}
     >
       <ResultHeader
         icon={<CloudSun className="h-4 w-4 text-info" aria-hidden="true" />}
@@ -661,15 +702,17 @@ function WeatherResults({ block }: { block: WeatherResultsBlock }) {
           dayLabel,
         })}
         attribution={block.attribution}
+        fallbackAttribution={t('structuredResults.place.mapService')}
         status={block.status}
         statusText={block.status === 'degraded'
           ? t('structuredResults.weather.degraded')
           : t('structuredResults.weather.count', { count })}
+        polished
       />
 
       <div
         data-testid="weather-results-grid"
-        className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4"
+        className={cn(styles.weatherGrid, 'grid grid-cols-2 gap-2 lg:grid-cols-4')}
       >
         {forecastDays.map(day => (
           <WeatherForecastDay
@@ -680,8 +723,10 @@ function WeatherResults({ block }: { block: WeatherResultsBlock }) {
         ))}
       </div>
 
-      <WeatherFreshness fetchedAt={block.fetched_at} language={i18n.language} />
-      <Limitations items={block.limitations} />
+      <div className={styles.resultFooter}>
+        <WeatherFreshness fetchedAt={block.fetched_at} language={i18n.language} />
+        <Limitations items={block.limitations} />
+      </div>
     </section>
   );
 }
@@ -701,45 +746,44 @@ function WeatherForecastDay({
     <article
       data-testid="weather-forecast-day"
       data-today={today ? 'true' : 'false'}
-      className={cn(
-        'min-w-0 rounded-lg border border-border/50 bg-background/50 p-3',
-        today && 'border-primary/40 bg-primary/5',
-      )}
+      className={styles.weatherDay}
     >
-      <header className="flex min-w-0 items-start justify-between gap-1">
+      <header className={styles.dayHeader}>
         <div className="min-w-0">
-          <p className="text-xs font-medium text-foreground">
+          <p className={styles.date}>
             {formatWeatherDate(day.date, language)}
           </p>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
+          <p className={styles.weekday}>
             {t(`structuredResults.weather.weekdays.${day.weekday}`)}
           </p>
         </div>
         {today ? (
-          <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+          <span className={styles.today}>
             {t('structuredResults.weather.today')}
           </span>
         ) : null}
       </header>
 
-      <div className="mt-3 flex items-center justify-between gap-2">
-        <WeatherPhenomenonIcon weather={`${day.day_weather} ${day.night_weather}`} />
-        <p className="text-base font-semibold tabular-nums text-foreground">
+      <div className={styles.weatherSummary}>
+        <span className={styles.weatherIcon}>
+          <WeatherPhenomenonIcon weather={`${day.day_weather} ${day.night_weather}`} />
+        </span>
+        <p className={styles.temperature}>
           {formatTemperatureRange(day.low_c, day.high_c)}
         </p>
       </div>
 
-      <div className="mt-3 space-y-1 text-[11px]">
-        <p className="text-foreground">
+      <div className={styles.weatherConditions}>
+        <p className={styles.dayCondition}>
           {t('structuredResults.weather.daytime')} {safeText(day.day_weather)}
         </p>
-        <p className="text-muted-foreground">
+        <p className={styles.nightCondition}>
           {t('structuredResults.weather.nighttime')} {safeText(day.night_weather)}
         </p>
       </div>
 
       {dayWind || nightWind ? (
-        <div className="mt-2 space-y-0.5 border-t border-border/40 pt-2 text-[10px] text-muted-foreground">
+        <div className={styles.weatherWind}>
           {dayWind ? (
             <p>{t('structuredResults.weather.daytime')} {dayWind}</p>
           ) : null}
@@ -1359,6 +1403,7 @@ function ResultHeader({
   fallbackAttribution = '地图服务',
   status,
   statusText,
+  polished = false,
 }: {
   icon: ReactNode;
   title: string;
@@ -1366,13 +1411,14 @@ function ResultHeader({
   fallbackAttribution?: string;
   status?: NetworkSourceStatus | null;
   statusText: string;
+  polished?: boolean;
 }) {
   return (
-    <header className="flex min-w-0 items-start justify-between gap-3">
+    <header className={cn('flex min-w-0 items-start justify-between gap-3', polished && styles.resultHeader)}>
       <div className="flex min-w-0 items-start gap-2">
-        <span className="mt-0.5 shrink-0">{icon}</span>
+        <span className={polished ? styles.resultIcon : 'mt-0.5 shrink-0'}>{icon}</span>
         <div className="min-w-0">
-          <h3 className="truncate text-sm font-medium text-foreground" title={title}>{title}</h3>
+          <h3 className={cn('truncate text-sm font-medium text-foreground', polished && styles.resultTitle)} title={title}>{title}</h3>
           <p className="mt-0.5 text-[11px] text-muted-foreground">
             {safeText(attribution?.label) || fallbackAttribution}
           </p>
@@ -1383,6 +1429,7 @@ function ResultHeader({
         status === 'failed' || status === 'degraded'
           ? 'border-warn/30 bg-warn/5 text-warn'
           : 'border-border/40 text-muted-foreground',
+        polished && styles.resultStatus,
       )}>
         {statusText}
       </span>
@@ -1399,17 +1446,17 @@ function EmptyResult({ text }: { text: string }) {
   );
 }
 
-function Limitations({ items }: { items?: string[] | null }) {
+function Limitations({ items, className }: { items?: string[] | null; className?: string }) {
   const safeItems = (items ?? []).map(safeText).filter(Boolean).slice(0, 2);
   if (safeItems.length === 0) return null;
-  return <p className="mt-2 text-[11px] text-muted-foreground">{safeItems.join('；')}</p>;
+  return <p className={cn('mt-2 text-[11px] text-muted-foreground', className)}>{safeItems.join('；')}</p>;
 }
 
-function buildPlaceTitle(block: PlaceResultsBlock): string {
+function buildPlaceTitle(block: PlaceResultsBlock, fallback: string): string {
   const query = safeText(block.query);
   const near = safeText(block.near);
   if (query && near) return `${near} · ${query}`;
-  return query || near || '地点推荐';
+  return query || near || fallback;
 }
 
 function securePhotos(photos?: ProviderPlacePhoto[] | null): ProviderPlacePhoto[] {
@@ -1729,18 +1776,6 @@ function formatTotalDistance(value?: number | null): string {
 function formatWalkingDistance(value?: number | null): string {
   const distance = formatDistance(value);
   return distance ? `步行 ${distance}` : '';
-}
-
-function formatRating(value?: number | null): string {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0
-    ? `评分 ${value.toFixed(1)}`
-    : '';
-}
-
-function formatReferenceCost(value?: number | null): string {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0
-    ? `参考消费 ¥${Math.round(value)}`
-    : '';
 }
 
 function formatToll(value?: number | null): string {
