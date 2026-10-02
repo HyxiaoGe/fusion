@@ -152,4 +152,63 @@ describe('文档富内容', () => {
     expect(marks[0].closest('.fdoc-callout-body')).toBeInTheDocument();
     expect(container.querySelector('.fdoc-callout-heading mark')).toBeNull();
   });
+
+  it('统计字段去掉内部强调后，只标记对应的数值和标签，重复数值不误标', () => {
+    const before = ':::stats[预算概览]\n- **总**预算: **¥1,000**\n- 已使用: ¥1,000\n- 备用金: ¥500\n- 天数：3 天\n:::\n';
+    const after = ':::stats[费用概览]\n- **总**费用: **¥1,200**\n- 已使用: ¥1,000\n- 天数：3 天\n- 交通额度: ¥200\n:::\n';
+    const highlights = buildDocumentHighlights(before, after);
+    const view = render(<DocumentMarkdown content={after} highlights={highlights.after} expandTabs />);
+    const cards = view.container.querySelectorAll('.fdoc-stat');
+    expect(cards).toHaveLength(4);
+    expect(cards[0].querySelector('.fdoc-stat-label mark')).toHaveTextContent('费用');
+    expect(cards[0].querySelector('.fdoc-stat-value mark')).toHaveTextContent('2');
+    expect(cards[0].textContent).toBe('¥1,200总费用');
+    expect(cards[1].querySelector('mark')).toBeNull();
+    expect(cards[2].querySelector('mark')).toBeNull();
+    expect(cards[3].querySelectorAll('mark')).toHaveLength(2);
+    cards[3].querySelectorAll('mark').forEach(mark => expect(mark).toHaveAttribute('data-document-change', 'added'));
+    expect(view.container.querySelector('.fdoc-block-label mark')).toHaveTextContent('费用');
+    view.rerender(<DocumentMarkdown content={before} highlights={highlights.before} expandTabs />);
+    view.container.querySelectorAll('.fdoc-stat')[2].querySelectorAll('mark').forEach(mark => expect(mark).toHaveAttribute('data-document-change', 'removed'));
+  });
+
+  it('提示、时间线和嵌套标签页标题按真实源位置高亮，同名正文保持普通文字', () => {
+    const before = '::::tabs\r\n:::tab[西湖]\r\n:::tip[西湖]\r\n西湖\r\n:::\r\n:::timeline[西湖]\r\n- 到站\r\n:::\r\n:::\r\n::::\r\n';
+    const after = before.replaceAll('[西湖]', '[西溪]');
+    const { container } = render(<DocumentMarkdown content={after} highlights={buildDocumentHighlights(before, after).after} expandTabs />);
+    for (const selector of ['.fdoc-tab-label', '.fdoc-callout-label', '.fdoc-block-label']) {
+      const mark = container.querySelector(`${selector} mark`);
+      expect(mark).toHaveTextContent('溪');
+      expect(mark).toHaveAttribute('data-document-change', 'modified');
+    }
+    expect(container.querySelector('.fdoc-callout-body mark')).toBeNull();
+    expect(screen.getByText('西湖')).toBeInTheDocument();
+  });
+
+  it('未闭合嵌套统计块仍映射到真实字段，完整原文中的容器标签不会误标', () => {
+    const before = ':::stats[费用]\n- 费用: 100\n:::tip[费用]\n- 天数: 3\n';
+    const after = before.replace('天数: 3', '天数: 4');
+    const { container } = render(<DocumentMarkdown content={after} highlights={buildDocumentHighlights(before, after).after} expandTabs />);
+    expect(container.querySelectorAll('mark')).toHaveLength(1);
+    expect(container.querySelector('.fdoc-stat-value mark')).toHaveTextContent('4');
+    expect(container.querySelector('.fdoc-block-label mark')).toBeNull();
+  });
+
+  it('交互标签标题高亮不会影响键盘切换；普通阅读和静态导出不残留标记', async () => {
+    const user = userEvent.setup();
+    const before = tabs(['甲', '乙']);
+    const after = before.replace(':::tab[乙]', ':::tab[丙]');
+    const view = render(<DocumentMarkdown content={after} highlights={buildDocumentHighlights(before, after).after} />);
+    const tab = screen.getByRole('tab', { name: '丙' });
+    expect(tab.querySelector('mark')).toHaveTextContent('丙');
+    screen.getByRole('tab', { name: '甲' }).focus();
+    await user.keyboard('{ArrowRight}');
+    expect(tab).toHaveFocus();
+    expect(tab).toHaveAttribute('aria-selected', 'true');
+    view.rerender(<DocumentMarkdown content={after} />);
+    expect(view.container.querySelector('[data-document-change]')).toBeNull();
+    const html = renderToStaticMarkup(<DocumentMarkdown content={after} expandTabs />);
+    expect(html).not.toContain('data-document-change');
+    expect(html).toContain('丙');
+  });
 });

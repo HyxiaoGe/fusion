@@ -31,6 +31,7 @@
 .side :global(mark[data-document-change]), .side :global(a[data-document-change]), .side :global(strong[data-document-change]), .side :global(em[data-document-change]), .side :global(del[data-document-change]), .side :global(code[data-document-change]) { border-radius: 3px; padding: 0.05em 0; color: inherit; background: color-mix(in oklab, var(--highlight-color) 25%, var(--background)); box-decoration-break: clone; }
 .side :global(td[data-document-change]), .side :global(th[data-document-change]) { background: color-mix(in oklab, var(--highlight-color) 18%, var(--background)); box-shadow: inset 3px 0 var(--highlight-color); }
 .side :global(td[data-document-change] mark), .side :global(th[data-document-change] mark) { background: transparent; }
+.side :global(.fdoc-stat-label mark[data-document-change]) { color: var(--foreground); }
 .side :global(div[data-document-change]) { border-left: 3px solid var(--highlight-color); padding-left: 0.625rem; }
 .raw { border-top: 1px solid var(--border); color: var(--fg-secondary); }
 .raw pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; tab-size: 4; }

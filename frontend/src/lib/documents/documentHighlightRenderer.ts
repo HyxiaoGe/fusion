@@ -1,8 +1,8 @@
-import type { DocumentSegment } from './documentDirectives';
+import type { DocumentSegment, DocumentSourcePositions } from './documentDirectives';
 import type { DocumentHighlightRange } from './documentDiffHighlights';
 
 /** 容器解析会归一 CRLF；高亮先映射到同一份文本，再按渲染路径投影。 */
-export function mapDocumentMarkdownHighlights(source: string, segments: DocumentSegment[], ranges: DocumentHighlightRange[]) {
+export function mapDocumentMarkdownHighlights(source: string, segments: DocumentSegment[], ranges: DocumentHighlightRange[], positions: DocumentSourcePositions) {
   const removed: number[] = [];
   for (let i = 0; i < source.length - 1; i += 1) {
     if (source[i] === '\r' && source[i + 1] === '\n') removed.push(i);
@@ -17,34 +17,51 @@ export function mapDocumentMarkdownHighlights(source: string, segments: Document
     }
     return offset - low;
   };
-  const normalized = source.replace(/\r\n/g, '\n');
   const highlights = ranges.map(range => ({ ...range, start: normalizeOffset(range.start), end: normalizeOffset(range.end) }))
     .filter(range => range.end > range.start);
   const result: Record<string, DocumentHighlightRange[]> = {};
-  let cursor = 0;
-  const findText = (text: string) => {
-    let start = normalized.indexOf(text, cursor);
-    // 只匹配完整原文行，避免把正文误定位到同名的容器标题。
-    while (start >= 0) {
-      const end = start + text.length;
-      if ((start === 0 || normalized[start - 1] === '\n') && (end === normalized.length || normalized[end] === '\n')) return start;
-      start = normalized.indexOf(text, start + 1);
+  const project = (path: string, offsets?: number[]) => {
+    if (!offsets?.length) return;
+    const projected: DocumentHighlightRange[] = [];
+    let rangeIndex = 0;
+    const first = offsets.find(offset => offset >= 0);
+    if (first === undefined) return;
+    let high = highlights.length;
+    while (rangeIndex < high) {
+      const middle = (rangeIndex + high) >>> 1;
+      if (highlights[middle].end <= first) rangeIndex = middle + 1;
+      else high = middle;
     }
-    return -1;
+    offsets.forEach((offset, index) => {
+      // 虚拟换行没有对应源字符，不能把已忽略的容器变化投影到正文上。
+      if (offset < 0) return;
+      while (rangeIndex < highlights.length && highlights[rangeIndex].end <= offset) rangeIndex += 1;
+      const range = highlights[rangeIndex];
+      if (!range || range.start > offset) return;
+      const previous = projected.at(-1);
+      if (previous?.kind === range.kind && previous.end === index) previous.end = index + 1;
+      else projected.push({ start: index, end: index + 1, kind: range.kind });
+    });
+    result[path] = projected;
   };
   const walk = (items: DocumentSegment[], parent: string) => {
     items.forEach((segment, index) => {
       const path = `${parent}.${index}`;
+      const position = positions.get(segment);
+      project(`${path}.label`, position?.label);
       if (segment.kind === 'markdown' || segment.kind === 'stats') {
-        const text = segment.kind === 'markdown' ? segment.text : segment.fallback;
-        const start = findText(text);
-        // 无法精确定位时不猜测；原文差异仍保留全部变化。
-        if (start < 0) return;
-        cursor = start + text.length;
-        result[path] = highlights.filter(range => range.start < cursor && range.end > start)
-          .map(range => ({ ...range, start: Math.max(0, range.start - start), end: Math.min(text.length, range.end - start) }));
+        project(path, position?.text);
+        if (segment.kind === 'stats') segment.items.forEach((item, itemIndex) => {
+          const position = positions.get(item);
+          project(`${path}.item.${itemIndex}.label`, position?.label);
+          project(`${path}.item.${itemIndex}.value`, position?.value);
+        });
       } else if (segment.kind === 'tabs') {
-        segment.tabs.forEach((tab, tabIndex) => walk(tab.children, `${path}.tab.${tabIndex}`));
+        segment.tabs.forEach((tab, tabIndex) => {
+          const tabPath = `${path}.tab.${tabIndex}`;
+          project(`${tabPath}.label`, positions.get(tab)?.label);
+          walk(tab.children, tabPath);
+        });
       } else {
         walk(segment.children, `${path}.children`);
       }
