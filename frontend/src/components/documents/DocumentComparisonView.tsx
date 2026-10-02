@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, ChevronDown } from 'lucide-react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ArrowDown, ArrowUp, ChevronDown, Minus, Pencil, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { DocumentVersionContent, DocumentVersionSummary } from '@/types/document';
 import { getDocumentContent } from '@/lib/api/documents';
-import { buildDocumentDiff, diffDocumentText, type DocumentDiffSegment } from '@/lib/documents/documentDiff';
+import { buildDocumentDiff, type DocumentDiffSegment } from '@/lib/documents/documentDiff';
+import { buildDocumentHighlights, type DocumentHighlightRange } from '@/lib/documents/documentDiffHighlights';
 import GlassHoverLens, { pointGlassLight, resetGlassLight } from '@/components/ui/GlassHoverLens';
 import DocumentMarkdown from './DocumentMarkdown';
 import panelStyles from './DocumentPanel.module.css';
@@ -111,6 +112,9 @@ export default function DocumentComparisonView({ document: current, olderVersion
           </span>
         </label>
         <span className={styles.direction}>{t('documents.comparison.direction', { before: baseVersion, after: current.version })}</span>
+        <div className={styles.legend}>
+          {(['added', 'removed', 'modified'] as const).map(kind => <span key={kind} data-change-kind={kind}><i aria-hidden="true" />{t(`documents.comparison.${kind === 'modified' ? 'modifyLegend' : kind}`)}</span>)}
+        </div>
         <div className={styles.navigation} aria-label={t('documents.comparison.navigation')} role="group">
           <span className={styles.count} role="status">{diff ? t('documents.comparison.position', { current: diff.changeCount ? active + 1 : 0, total: diff.changeCount }) : ''}</span>
           <button type="button" className={panelStyles.actionButton} aria-label={t('documents.comparison.previous')} disabled={!diff || active === 0 || !diff.changeCount} onClick={() => navigate(active - 1)} onPointerMove={pointGlassLight} onPointerLeave={resetGlassLight}>
@@ -128,20 +132,19 @@ export default function DocumentComparisonView({ document: current, olderVersion
         ) : (
           <>
             {diff.changeCount === 0 ? <p className={styles.empty}>{t('documents.comparison.identical')}</p> : null}
-            {diff.segments.map((segment, index) => segment.kind === 'equal' ? (
-              <details key={index} className={styles.unchanged}>
-                <summary>{t('documents.comparison.unchanged')}</summary>
-                <div className={styles.context}><DocumentMarkdown content={segment.text} expandTabs /></div>
-              </details>
-            ) : (
-              <section key={index} ref={element => { changesRef.current[segment.index] = element; }} tabIndex={-1} className={styles.change} aria-label={t('documents.comparison.changeLabel', { index: segment.index + 1 })} data-change-index={segment.index}>
+            {diff.segments.filter((segment): segment is Change => segment.kind === 'change').map(segment => {
+              const kind = !segment.before ? 'added' : !segment.after ? 'removed' : 'modified';
+              const Icon = kind === 'added' ? Plus : kind === 'removed' ? Minus : Pencil;
+              return <Fragment key={segment.index}>
+                {segment.index > 0 ? <hr className={styles.changeDivider} /> : null}
+                <section ref={element => { changesRef.current[segment.index] = element; }} tabIndex={-1} className={styles.change} aria-label={t('documents.comparison.changeLabel', { index: segment.index + 1 })} data-change-index={segment.index} data-change-kind={kind}>
                 <div className={styles.changeHeading}>
-                  <span>{t('documents.comparison.changeLabel', { index: segment.index + 1 })}</span>
-                  <span>{t(`documents.comparison.${segment.scope === 'title' ? 'title' : !segment.before ? 'added' : !segment.after ? 'removed' : 'modified'}`)}</span>
+                  <span className={styles.changeNumber}>{t('documents.comparison.changeLabel', { index: segment.index + 1 })}</span>
+                  <span className={styles.changeType}><Icon className="h-3.5 w-3.5" aria-hidden="true" />{t(`documents.comparison.${segment.scope === 'title' ? 'title' : kind}`)}</span>
                 </div>
                 <ChangeContent change={segment} beforeVersion={baseVersion} afterVersion={current.version} />
-              </section>
-            ))}
+              </section></Fragment>;
+            })}
           </>
         )}
       </div>
@@ -151,15 +154,15 @@ export default function DocumentComparisonView({ document: current, olderVersion
 
 function ChangeContent({ change, beforeVersion, afterVersion }: { change: Change; beforeVersion: number; afterVersion: number }) {
   const { t } = useTranslation();
-  const tokens = useMemo(() => diffDocumentText(change.before, change.after), [change.before, change.after]);
+  const highlights = useMemo(() => buildDocumentHighlights(change.before, change.after), [change.before, change.after]);
   const plain = change.scope === 'title' || [change.before, change.after].every(text => !/[#>*`_\[\]|\\~]|^\s*(?:[-+]\s|\d+[.)]\s|:{3,})/m.test(text));
-  const textFor = (side: 'before' | 'after') => tokens.filter(token => token.kind !== (side === 'before' ? 'added' : 'removed')).map((token, index) => token.kind === 'equal' ? token.text : <mark key={index} data-change={token.kind}>{token.text}</mark>);
+  const textFor = (side: 'before' | 'after') => highlightedText(change[side], highlights[side]);
   return (
     <>
       {(['before', 'after'] as const).map(side => change[side] ? (
         <div key={side} className={styles.side} data-side={side}>
           <p className={styles.sideLabel}>{t(`documents.comparison.${side}`, { version: side === 'before' ? beforeVersion : afterVersion })}</p>
-          {plain ? <div className={styles.plain}>{textFor(side)}</div> : <DocumentMarkdown content={change[side]} expandTabs />}
+          {plain ? <div className={styles.plain}>{textFor(side)}</div> : <DocumentMarkdown content={change[side]} highlights={highlights[side]} expandTabs />}
         </div>
       ) : null)}
       {!plain ? <details className={styles.raw}><summary>{t('documents.comparison.raw')}</summary>
@@ -167,4 +170,17 @@ function ChangeContent({ change, beforeVersion, afterVersion }: { change: Change
       </details> : null}
     </>
   );
+}
+
+/** 直接按原文范围拆分 React 文字节点，保留空白与 Markdown 原文。 */
+function highlightedText(text: string, ranges: DocumentHighlightRange[]) {
+  const result = [];
+  let offset = 0;
+  ranges.forEach(range => {
+    if (range.start > offset) result.push(text.slice(offset, range.start));
+    result.push(<mark key={range.start} data-document-change={range.kind}>{text.slice(range.start, range.end)}</mark>);
+    offset = range.end;
+  });
+  result.push(text.slice(offset));
+  return result;
 }

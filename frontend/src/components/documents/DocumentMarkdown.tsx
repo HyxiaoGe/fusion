@@ -7,6 +7,8 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import { useTranslation } from 'react-i18next';
 import remarkGfm from 'remark-gfm';
 import { cn } from '@/lib/utils';
+import type { DocumentHighlightRange } from '@/lib/documents/documentDiffHighlights';
+import { createDocumentHighlightPlugin, mapDocumentMarkdownHighlights } from '@/lib/documents/documentHighlightRenderer';
 import {
   parseDocumentDirectives,
   type DocumentSegment,
@@ -24,20 +26,26 @@ interface DocumentMarkdownProps {
   className?: string;
   tabSelections?: Record<string, number>;
   onTabChange?: (path: string, index: number) => void;
+  /** 仅只读差异视图传入，范围以 content 的原始字符位置为准。 */
+  highlights?: DocumentHighlightRange[];
 }
 
 const ReadingTabsContext = createContext<{
   selections: Record<string, number>;
   onChange?: (path: string, index: number) => void;
 } | null>(null);
+const HighlightsContext = createContext<Record<string, DocumentHighlightRange[]> | null>(null);
 
-export default function DocumentMarkdown({ content, expandTabs = false, className, tabSelections, onTabChange }: DocumentMarkdownProps) {
+export default function DocumentMarkdown({ content, expandTabs = false, className, tabSelections, onTabChange, highlights }: DocumentMarkdownProps) {
   const segments = useMemo(() => parseDocumentDirectives(content), [content]);
   const readingTabs = useMemo(() => tabSelections ? { selections: tabSelections, onChange: onTabChange } : null, [tabSelections, onTabChange]);
+  const highlightsByPath = useMemo(() => highlights?.length ? mapDocumentMarkdownHighlights(content, segments, highlights) : null, [content, segments, highlights]);
   return (
     <div className={cn(markdownStyles.content, styles.document, 'fdoc', className)} data-testid="document-markdown">
       <ReadingTabsContext.Provider value={readingTabs}>
-        <Segments segments={segments} expandTabs={expandTabs} path="root" />
+        <HighlightsContext.Provider value={highlightsByPath}>
+          <Segments segments={segments} expandTabs={expandTabs} path="root" />
+        </HighlightsContext.Provider>
       </ReadingTabsContext.Provider>
     </div>
   );
@@ -149,6 +157,7 @@ function ExpandedTabs({ tabs, path }: { tabs: DocumentTab[]; path: string }) {
 
 type MarkdownElementProps<T extends keyof React.JSX.IntrinsicElements> = React.ComponentPropsWithoutRef<T> & {
   node?: unknown;
+  'data-document-change'?: DocumentHighlightRange['kind'];
 };
 
 const DocumentLink = ({ node, ...props }: MarkdownElementProps<'a'>) => {
@@ -171,7 +180,8 @@ function renderDocumentPre({ node, children, ...props }: MarkdownElementProps<'p
   const code = nodes[0];
   if (nodes.length === 1 && React.isValidElement<React.ComponentPropsWithoutRef<'code'>>(code) && code.type === 'code') {
     const language = /language-([^\s]+)/.exec(code.props.className ?? '')?.[1];
-    return <DocumentCodeBlock language={language} value={String(code.props.children ?? '')} staticView={staticView} />;
+    const block = <DocumentCodeBlock language={language} value={String(code.props.children ?? '')} staticView={staticView} />;
+    return props['data-document-change'] ? <div data-document-change={props['data-document-change']}>{block}</div> : block;
   }
   return <pre {...props}>{children}</pre>;
 }
@@ -190,6 +200,8 @@ function documentHeading(Tag: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6', path: str
 }
 
 const MarkdownBlock = React.memo(function MarkdownBlock({ text, staticView, path }: { text: string; staticView: boolean; path: string }) {
+  const highlights = useContext(HighlightsContext)?.[path];
+  const highlightPlugins = useMemo(() => highlights?.length ? [createDocumentHighlightPlugin(text, highlights)] : [], [text, highlights]);
   const components = useMemo<Components>(() => ({
     ...DOCUMENT_MARKDOWN_COMPONENTS,
     h1: documentHeading('h1', path), h2: documentHeading('h2', path),
@@ -200,6 +212,7 @@ const MarkdownBlock = React.memo(function MarkdownBlock({ text, staticView, path
   return (
     <ReactMarkdown
       remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
+      rehypePlugins={highlightPlugins}
       skipHtml
       components={staticView ? STATIC_MARKDOWN_COMPONENTS : components}
     >
