@@ -15,13 +15,11 @@ import {
   Wrench,
   XCircle,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { SettingsBadge as Badge, SettingsButton as Button, SettingsSwitch as Switch, type SettingsStatusTone } from "@/components/settings/SettingsControls";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import {
   createMcpServerAPI,
   fetchMcpServersAPI,
@@ -154,26 +152,26 @@ const safePresets = [
 
 const healthPresentation: Record<
   McpHealthStatus,
-  { label: string; className: string; icon: typeof CheckCircle2 }
+  { label: string; tone: SettingsStatusTone; icon: typeof CheckCircle2 }
 > = {
   healthy: {
     label: "连接健康",
-    className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    tone: "success",
     icon: CheckCircle2,
   },
   unhealthy: {
     label: "连接异常",
-    className: "border-destructive/30 bg-destructive/10 text-destructive",
+    tone: "danger",
     icon: XCircle,
   },
   disabled: {
     label: "服务停用",
-    className: "border-muted-foreground/30 bg-muted text-muted-foreground",
+    tone: "neutral",
     icon: CircleHelp,
   },
   unknown: {
     label: "连接未检测",
-    className: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+    tone: "neutral",
     icon: CircleHelp,
   },
 };
@@ -532,11 +530,11 @@ export default function McpServerManager() {
                         <div className="flex flex-wrap items-center gap-2">
                           <h3 className="font-semibold">{server.name}</h3>
                           <Badge variant="outline">{server.provider}</Badge>
-                          <Badge variant="outline" className={health.className}>
+                          <Badge tone={health.tone}>
                             <HealthIcon className="mr-1 h-3 w-3" />
                             {health.label}
                           </Badge>
-                          <Badge variant="outline">{server.is_enabled ? "已启用" : "已停用"}</Badge>
+                          <Badge tone={server.is_enabled ? "info" : "neutral"}>{server.is_enabled ? "已启用" : "已停用"}</Badge>
                         </div>
                         <p className="mt-2 break-all font-mono text-xs text-muted-foreground" title="Endpoint 已隐藏查询参数和部分路径">
                           {formatEndpoint(server.endpoint_url)}
@@ -755,7 +753,7 @@ export default function McpServerManager() {
                       <label key={toolName} className="flex cursor-pointer items-start gap-3 rounded-md p-2 hover:bg-muted/60">
                         <input
                           type="checkbox"
-                          className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+                          className="mt-0.5 h-4 w-4 rounded border-input accent-[var(--info)]"
                           checked={checked}
                           onChange={(event) => toggleAllowedTool(toolName, event.target.checked)}
                         />

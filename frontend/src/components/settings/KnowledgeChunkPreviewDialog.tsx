@@ -3,7 +3,7 @@
 import { AlertCircle, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { Button } from '@/components/ui/button';
+import { SettingsButton as Button } from './SettingsControls';
 import {
   Dialog,
   DialogContent,

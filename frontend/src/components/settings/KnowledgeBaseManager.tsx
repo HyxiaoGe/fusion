@@ -21,8 +21,8 @@ import {
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { SettingsBadge as Badge, SettingsButton as Button } from './SettingsControls';
+import controlStyles from './SettingsControls.module.css';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import ConfirmDialog from '@/components/ui/confirm-dialog';
 import {
@@ -155,12 +155,14 @@ export function prepareKnowledgeFile(file: File): File {
 }
 
 function StatusBadge({ status, label }: { status: string; label: string }) {
-  const variant =
+  const tone =
     status === 'failed'
-      ? 'destructive'
+      ? 'danger'
       : status === 'ready' || status === 'active'
-        ? 'default'
-        : 'secondary';
+        ? 'success'
+        : status === 'deleting'
+          ? 'warning'
+          : ['queued', 'parsing', 'chunking', 'embedding', 'writing'].includes(status) ? 'info' : 'neutral';
   const Icon =
     status === 'failed'
       ? AlertCircle
@@ -168,7 +170,7 @@ function StatusBadge({ status, label }: { status: string; label: string }) {
         ? CheckCircle2
         : CircleDashed;
   return (
-    <Badge variant={variant} className="shrink-0 gap-1 whitespace-nowrap">
+    <Badge tone={tone} className="shrink-0 gap-1 whitespace-nowrap">
       <Icon
         className={cn(
           'h-3 w-3',
@@ -468,7 +470,7 @@ export default function KnowledgeBaseManager() {
             ) : state.bases.items.length === 0 ? (
               <button
                 type="button"
-                className="w-full rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground hover:border-primary/60 hover:text-foreground"
+                className="w-full rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground hover:border-[var(--info)] hover:text-foreground"
                 disabled={featureDisabled}
                 onClick={openCreate}
               >
@@ -485,8 +487,9 @@ export default function KnowledgeBaseManager() {
                     title={knowledgeBase.name}
                     className={cn(
                       'relative w-full overflow-hidden rounded-xl border border-transparent bg-muted/25 px-3 py-3 text-left transition-[background-color,border-color,box-shadow] hover:border-border hover:bg-muted/50',
+                      controlStyles.choice,
                       state.selectedBaseId === knowledgeBase.id &&
-                        'border-primary/30 bg-primary/10 shadow-sm hover:border-primary/40 hover:bg-primary/10',
+                        'border-[var(--info-border)] bg-[var(--info-bg)] shadow-sm hover:border-[var(--info)] hover:bg-[var(--info-bg)]',
                     )}
                     onClick={() => {
                       state.setSelectedBaseId(knowledgeBase.id);
@@ -495,7 +498,7 @@ export default function KnowledgeBaseManager() {
                   >
                     {state.selectedBaseId === knowledgeBase.id && (
                       <span
-                        className="absolute inset-y-2 left-0 w-0.5 rounded-r-full bg-primary"
+                        className="absolute inset-y-2 left-0 w-0.5 rounded-r-full bg-[var(--info)]"
                         aria-hidden="true"
                       />
                     )}
@@ -927,6 +930,8 @@ export default function KnowledgeBaseManager() {
             : t('knowledgeBase.delete')
         }
         cancelLabel={t('knowledgeBase.cancel')}
+        cancelButtonClassName={cn('relative', controlStyles.action, controlStyles.secondary)}
+        confirmButtonClassName={cn('relative', controlStyles.action, ['rebuild', 'retry'].includes(confirmTarget?.type ?? '') ? controlStyles.primary : controlStyles.destructive)}
         variant={
           ['rebuild', 'retry'].includes(confirmTarget?.type ?? '')
             ? 'default'

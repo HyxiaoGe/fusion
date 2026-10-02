@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Check, Sparkles, Save, RotateCcw, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { SettingsButton } from "@/components/settings/SettingsControls";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import GlassHoverLens, { pointGlassLight, resetGlassLight } from "@/components/ui/GlassHoverLens";
 import glassSurface from "@/components/ui/GlassSurface.module.css";
@@ -160,7 +161,7 @@ export default function SystemPrompt() {
             <RotateCcw className="h-4 w-4" aria-hidden="true" />
             <span>{t("settings.personalization.reset")}</span>
           </Button>
-          <Button
+          <SettingsButton
             type="button"
             size="sm"
             onClick={handleSave}
@@ -172,7 +173,7 @@ export default function SystemPrompt() {
               <Save className="h-4 w-4" aria-hidden="true" />
             )}
             {t(`settings.personalization.${saving ? "saving" : "save"}`)}
-          </Button>
+          </SettingsButton>
         </div>
       </CardContent>
     </Card>
