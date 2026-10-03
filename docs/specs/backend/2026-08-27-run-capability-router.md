@@ -1,5 +1,7 @@
 # Run 级能力路由
 
+> 修订（2026-10-03）：「不在 Run 中途重新分类或晋升工具」由 `2026-10-03-run-capability-escalation.md` 替代为受控的一次能力升级；路由器仍负责首判。
+
 ## 背景
 
 当前主聊天在模型支持函数调用时，普通请求也会先装配 `web_search`、`url_read`、`update_plan` 和全部已授权动态工具；随后 Prompt 组装器根据这套工具集加入 `tool_usage_contract`、`agent_plan_control`，并固定追加 `current_date`。因此“你好”虽然可能最终不调用工具，首轮请求仍携带与任务无关的 Prompt 和 tool schema。
