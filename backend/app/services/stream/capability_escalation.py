@@ -90,10 +90,12 @@ class CapabilityEscalationSession:
 
 def build_request_capability_schema(session: CapabilityEscalationSession) -> dict:
     package_lines = [render_runtime_prompt("capability_escalation.packages_description")]
+    selectable_tools: list[str] = []
     for package_id in session.target_package_ids:
         spec = CAPABILITY_PACKAGES[package_id]
         tools = [name for name in spec.tools if name in session.available_tool_names]
         package_lines.append(f"- {package_id}: {', '.join(tools)}")
+        selectable_tools.extend(name for name in tools if name not in selectable_tools)
     return {
         "type": "function",
         "function": {
@@ -110,11 +112,12 @@ def build_request_capability_schema(session: CapabilityEscalationSession) -> dic
                     },
                     "tool_names": {
                         "type": "array",
-                        "items": {"type": "string"},
+                        "items": {"type": "string", "enum": selectable_tools},
                         "description": render_runtime_prompt("capability_escalation.tool_names_description"),
                     },
                     "primary_tool_name": {
                         "type": "string",
+                        "enum": selectable_tools,
                         "description": render_runtime_prompt("capability_escalation.primary_tool_name_description"),
                     },
                     "reason": {
