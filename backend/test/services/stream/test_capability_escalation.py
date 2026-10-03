@@ -378,3 +378,39 @@ def test_agent_loop_switches_before_the_round_after_the_request():
     assert "web_search" in seen_tools[1]
     assert REQUEST_CAPABILITY_TOOL_NAME not in seen_tools[1]
     assert [event["step_number"] for event in emitter.escalations] == [1]
+
+
+def test_granted_result_spells_out_the_new_tools_parameters_from_the_sent_schemas():
+    source = _config(_candidate("direct"))
+
+    result = _request(
+        source,
+        package_id="mixed_itinerary",
+        tool_names=["weather_forecast", "local_place_search"],
+        primary_tool_name="weather_forecast",
+        reason="x",
+    )
+    context = source.dynamic_tool_handlers[REQUEST_CAPABILITY_TOOL_NAME].format_llm_context(result)
+
+    escalated = source.escalation_session.pending.config
+    schemas = {tool["function"]["name"]: tool["function"]["parameters"] for tool in escalated.call_kwargs["tools"]}
+    for name in escalated.capability_resolution.external_tool_names:
+        (line,) = [line for line in result.data["tool_signatures"] if line.startswith(f"{name}(")]
+        assert f"- {line}" in context
+        for prop in schemas[name]["properties"]:
+            assert f"{prop}: " in line
+        for prop in schemas[name].get("required", []):
+            assert ", required" in line.split(f"{prop}: ", 1)[1].split(";", 1)[0]
+    assert "location_source: one of named|current_location, required" in context
+
+
+def test_granted_result_stored_before_signatures_still_renders():
+    from app.services.tool_handlers.base import ToolResult
+
+    source = _config(_candidate("direct"))
+    handler = source.dynamic_tool_handlers[REQUEST_CAPABILITY_TOOL_NAME]
+    legacy = ToolResult(
+        status="success", data={"package_id": "weather", "tool_names": ["weather_forecast"], "reason": "x"}
+    )
+
+    assert "- weather_forecast" in handler.format_llm_context(legacy)
