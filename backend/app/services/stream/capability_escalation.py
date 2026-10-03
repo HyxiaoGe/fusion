@@ -109,21 +109,15 @@ def build_request_capability_schema(session: CapabilityEscalationSession) -> dic
                     "tool_names": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": (
-                            "Tools of the package to enable. Omit to enable the whole package. "
-                            "mixed_itinerary requires choosing 2 to 3 of its tools from different families."
-                        ),
+                        "description": render_runtime_prompt("capability_escalation.tool_names_description"),
                     },
                     "primary_tool_name": {
                         "type": "string",
-                        "description": (
-                            "Required for mixed_itinerary and mobility_intercity: the first lookup the task needs; "
-                            "it must be one of tool_names. Omit for other packages."
-                        ),
+                        "description": render_runtime_prompt("capability_escalation.primary_tool_name_description"),
                     },
                     "reason": {
                         "type": "string",
-                        "description": "One sentence on what the answer needs that the current tools cannot provide.",
+                        "description": render_runtime_prompt("capability_escalation.reason_description"),
                     },
                 },
                 "required": ["package_id", "reason"],
