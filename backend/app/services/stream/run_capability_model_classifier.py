@@ -19,7 +19,7 @@ from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.core.config import settings
 from app.core.logger import app_logger as logger
 from app.core.prompt_snapshot import current_prompt_snapshot
-from app.services.stream.run_capability_router import _CandidateRoute, classifier_unavailable_route
+from app.services.stream.run_capability_router import NetworkPolicy, _CandidateRoute, classifier_unavailable_route
 from app.utils.run_capability_contract import (
     CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER,
     CAPABILITY_MAX_MCP_ALIASES,
@@ -660,12 +660,38 @@ def _parse_model_route(
     include_current_date: bool,
 ) -> _CandidateRoute | None:
     parsed = _ModelRouteResponse.model_validate_json(_response_content(response))
-    package_id = parsed.package_id
+    return build_candidate_route(
+        package_id=parsed.package_id,
+        explicit_tool_names=tuple(parsed.explicit_tool_names),
+        required_primary_tool_name=parsed.required_primary_tool_name,
+        network_policy=parsed.network_policy,
+        denied_tool_names=tuple(parsed.denied_tool_names),
+        output_mode=parsed.output_mode,
+        available_tools=_available_tools,
+        mcp_tool_catalog=mcp_tool_catalog,
+        include_current_date=include_current_date,
+    )
+
+
+def build_candidate_route(
+    *,
+    package_id: str,
+    explicit_tool_names: tuple[str, ...],
+    required_primary_tool_name: str | None,
+    network_policy: NetworkPolicy,
+    denied_tool_names: tuple[str, ...],
+    output_mode: str | None,
+    available_tools: list[str],
+    mcp_tool_catalog: tuple[McpRouteTool, ...] = (),
+    include_current_date: bool,
+) -> _CandidateRoute | None:
+    """按能力包注册表校验一组路由字段；分类器输出与 Run 内能力升级共用这一套规则。"""
+
+    _available_tools = available_tools
     if package_id not in CAPABILITY_MODEL_PACKAGE_IDS:
         return None
     spec = CAPABILITY_PACKAGES[package_id]
-    explicit_tools = tuple(parsed.explicit_tool_names)
-    required_primary_tool_name = parsed.required_primary_tool_name
+    explicit_tools = tuple(explicit_tool_names)
     dropped_recovery_tools = False
     if spec.has_external_tools and not set(spec.tools).intersection(CAPABILITY_RECOVERY_TOOL_NAMES):
         # 兜底网页工具由服务端自动附加，模型把它们列进产品包或 MCP 包只是冗余，不是冲突。
@@ -681,7 +707,7 @@ def _parse_model_route(
             package_id = single_package_id
             spec = CAPABILITY_PACKAGES[package_id]
             required_primary_tool_name = None
-    denied_tools = tuple(parsed.denied_tool_names)
+    denied_tools = tuple(denied_tool_names)
     if len(set(denied_tools)) != len(denied_tools):
         return None
     allowed_denials = frozenset(CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER) | frozenset(
@@ -723,10 +749,10 @@ def _parse_model_route(
         include_current_date=spec.route_include_current_date(include_current_date),
         resolution_mode=spec.resolution_mode,
         explicit_tool_names=canonical_tools or None,
-        network_policy=parsed.network_policy,
+        network_policy=network_policy,
         denied_tool_names=denied_tools,
         required_primary_tool_name=required_primary_tool_name,
-        output_mode="document" if parsed.output_mode == "document" else "chat",
+        output_mode="document" if output_mode == "document" else "chat",
     )
 
 

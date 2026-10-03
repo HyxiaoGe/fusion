@@ -616,6 +616,9 @@
       "planMode": "Plan mode",
       "routerVersion": "Router version",
       "bundleFingerprint": "Capability bundle fingerprint",
+      "escalation": "Capability escalation",
+      "escalationValue": "{{from}} → {{to}} (step {{step}})",
+      "escalatedExternalTools": "External tools after escalation",
       "none": "None",
       "confidenceValues": {
         "high": "High",

@@ -72,6 +72,10 @@ const EVENT_PAYLOAD_FIELDS: Record<string, readonly string[]> = {
     'protocol_version', 'status', 'source', 'template_version', 'section_ids',
     'fingerprint', 'char_count', 'duration_ms', 'error_code', 'message', 'detail_status',
   ],
+  capability_escalated: [
+    'protocol_version', 'step_number', 'from_package_id', 'capability_resolution', 'section_ids',
+    'system_prompt_fingerprint',
+  ],
   context_status_updated: [
     'protocol_version', 'message_id', 'phase', 'status', 'round_index', 'window_tokens',
     'estimated_tokens_before', 'estimated_tokens_after', 'actual_prompt_tokens', 'removed_turns',

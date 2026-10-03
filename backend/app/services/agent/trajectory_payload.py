@@ -125,6 +125,16 @@ _EVENT_FIELDS: dict[str, frozenset[str]] = {
     # 完整 content block 不属于 P0 脱敏账本，只保留事件存在性与协议版本。
     "content_block_upserted": frozenset({"protocol_version"}),
     "content_block_discarded": frozenset({"protocol_version", "block_id"}),
+    "capability_escalated": frozenset(
+        {
+            "protocol_version",
+            "step_number",
+            "from_package_id",
+            "capability_resolution",
+            "section_ids",
+            "system_prompt_fingerprint",
+        }
+    ),
     "system_prompt_prepared": frozenset(
         {
             "protocol_version",

@@ -138,10 +138,17 @@ def _build_execution_parts(
             ),
             required_initial_tool_counts=dict(getattr(request.call_config, "required_initial_tool_counts", {})),
             unplanned_tool_names=frozenset(getattr(request.call_config, "output_tool_names", frozenset()))
-            | frozenset(getattr(request.call_config, "skill_tool_names", frozenset())),
+            | frozenset(getattr(request.call_config, "skill_tool_names", frozenset()))
+            | frozenset(getattr(request.call_config, "escalation_tool_names", frozenset())),
         ),
         tool_discovery=discovery,
     )
+    escalation = getattr(request.call_config, "escalation_session", None)
+    if escalation is not None:
+        # 计划一旦制定就按首判能力执行到底；升级只发生在计划之前。
+        escalation.blocked_reason = lambda: (
+            "plan_already_created" if state.plan_coordinator.has_valid_model_plan else None
+        )
     if discovery is not None:
         discovery.plan_coordinator = state.plan_coordinator
         state.plan_coordinator.discovery_control_tool = TOOL_SEARCH_NAME
@@ -242,6 +249,8 @@ def build_agent_loop_runtime(
             preferred_locale=request.response_language,
         ),
         tool_discovery=getattr(request.call_config, "tool_discovery", None),
+        capability_escalation=getattr(request.call_config, "escalation_session", None),
+        escalation_tool_names=frozenset(getattr(request.call_config, "escalation_tool_names", frozenset())),
     )
 
 

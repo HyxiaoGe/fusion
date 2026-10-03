@@ -196,6 +196,40 @@ describe('TrajectoryCellProjection', () => {
     });
   });
 
+  it('首判保持不变，升级事件单独投影为 capabilityEscalation', () => {
+    const summary = runSummary('escalated', {
+      capability_resolution: { ...capabilityResolution('weather', 'weather_forecast'), package_id: 'direct', external_tool_names: [] },
+    });
+    const escalated = capabilityResolution('fresh_web', 'web_search');
+    const projection = projectTrajectoryCells(input({
+      runs: [summary],
+      runSummariesById: { escalated: summary },
+      liveEventsByRunId: {
+        escalated: [
+          event('escalated', 3, 'capability_escalated', {
+            payload: { step_number: 'x', from_package_id: 'direct', capability_resolution: escalated },
+          }),
+          event('escalated', 4, 'capability_escalated', {
+            payload: { step_number: 1, from_package_id: 'direct', capability_resolution: escalated },
+          }),
+        ],
+      },
+    }));
+
+    expect(projection.unassociatedCells[0]).toMatchObject({
+      type: 'run',
+      capabilityResolution: { package_id: 'direct' },
+      capabilityEscalation: { fromPackageId: 'direct', stepNumber: 1, resolution: escalated },
+    });
+  });
+
+  it('没有升级事件时 capabilityEscalation 为 null', () => {
+    const summary = runSummary('plain', { capability_resolution: capabilityResolution('weather', 'weather_forecast') });
+    const projection = projectTrajectoryCells(input({ runs: [summary], runSummariesById: { plain: summary } }));
+
+    expect(projection.unassociatedCells[0]).toMatchObject({ type: 'run', capabilityEscalation: null });
+  });
+
   it('Run summary 尚未返回能力路由时使用当前 Run 的合法 run_started 值', () => {
     const summary = runSummary('live-only');
     const projection = projectTrajectoryCells(input({

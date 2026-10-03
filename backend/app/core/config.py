@@ -49,6 +49,8 @@ class Settings(BaseSettings):
         os.getenv("RUN_CAPABILITY_CLASSIFIER_MAX_OUTPUT_TOKENS", "128")
     )
     RUN_CAPABILITY_CLASSIFIER_CONTEXT_TURNS: int = int(os.getenv("RUN_CAPABILITY_CLASSIFIER_CONTEXT_TURNS", "1"))
+    # 首判为 direct/clarification_only 时允许作答模型在同一 Run 内申请一次能力升级。
+    RUN_CAPABILITY_ESCALATION_ENABLED: bool = os.getenv("RUN_CAPABILITY_ESCALATION_ENABLED", "true").lower() == "true"
 
     # 单次 Agent 运行预算；给多轮查证和工具失败后的恢复留出空间。
     AGENT_MAX_STEPS: int = Field(default=64, ge=1)
