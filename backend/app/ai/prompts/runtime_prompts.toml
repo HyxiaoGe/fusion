@@ -343,7 +343,7 @@ create_description = """Create a standalone document deliverable that the user c
 Write the document body in Markdown (GFM: headings, lists, tables, bold, links). Do not write HTML, CSS or scripts. The following container directives render as rich components:
 - Callouts: a line `:::tip`, `:::info`, `:::warning` or `:::price`, an optional label in brackets such as `:::warning[Before you go]`, the Markdown content, then a closing `:::` line.
 - Timeline: `:::timeline` wrapping a bullet list; each item starts with the time range in bold, for example `- **09:00-11:05** Depart Shenzhen to Yau Ma Tei`, followed by indented details.
-- Stats cards: `:::stats` wrapping a bullet list of `label: value` items, for example `- Total budget: ¥3,500-4,300`.
+- Stats cards: `:::stats` wrapping a bullet list of `label: value` items, for example `- Total budget: ¥3,500-4,300`. Each value must be a short figure or phrase of a few words; put explanations, conditions and caveats in the surrounding text, not in the card value.
 - Tabs: an outer `::::tabs` block containing one `:::tab[Tab label]` block per tab, each closed with `:::`, and the outer block closed with `::::`. Use tabs for parallel sections such as one tab per day.
 
 Facts rules:
