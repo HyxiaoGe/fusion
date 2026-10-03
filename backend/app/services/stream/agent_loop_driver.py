@@ -286,6 +286,13 @@ async def _run_round(
         if not policy.require_tool_call:
             # 计划内取证完成后的收口阶段：文档交付工具在这里写入成品。
             allowed_tool_names = frozenset(allowed_tool_names) | runtime.output_tool_names
+        if runtime.skill_tool_names and (
+            not policy.require_tool_call or not state.plan_coordinator.has_valid_model_plan
+        ):
+            # Skill 只在制定计划前与收口阶段开放；锁定执行计划步骤时不让它绕开当前步骤。
+            allowed_tool_names = frozenset(allowed_tool_names) | runtime.skill_tool_names
+            if preferred_tool_name == "update_plan":
+                preferred_tool_name = None
         call_kwargs = _filter_tools_for_research_stage(
             call_kwargs,
             allowed_tool_names=allowed_tool_names,
@@ -294,6 +301,9 @@ async def _run_round(
             if preferred_tool_name is None:
                 for tool_name in allowed_tool_names:
                     if runtime.tool_discovery is not None and tool_name == TOOL_SEARCH_NAME:
+                        continue
+                    # update_plan 与 load_skill 不挂计划绑定参数。
+                    if tool_name == "update_plan" or tool_name in runtime.skill_tool_names:
                         continue
                     call_kwargs = _constrain_research_stage_plan_binding(
                         call_kwargs,

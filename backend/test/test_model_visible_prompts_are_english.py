@@ -175,11 +175,10 @@ def test_server_generated_plan_text_exposed_to_the_model_is_english():
     _assert_english(coordinator.canonical_plan_for_model(), path="server_generated_plan")
 
 
-def test_bundled_skill_instruction_is_english():
-    skill_path = (
-        Path(__file__).resolve().parents[1] / "app" / "ai" / "skills" / "verified-research" / "1.0.0" / "SKILL.md"
-    )
-    _assert_english(skill_path.read_text(encoding="utf-8"), path="verified-research/SKILL.md")
+def test_bundled_skill_files_are_english():
+    skills_root = Path(__file__).resolve().parents[1] / "app" / "ai" / "skills"
+    for path in sorted(skills_root.glob("*/SKILL.md")) + sorted(skills_root.glob("*/references/*")):
+        _assert_english(path.read_text(encoding="utf-8"), path=str(path.relative_to(skills_root)))
 
 
 def test_runtime_prompt_file_is_external_english_jinja2_data():

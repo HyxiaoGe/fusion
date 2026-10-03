@@ -50,7 +50,6 @@ def _resolve(
     capabilities: dict | None = None,
     tools_disabled: bool = False,
     knowledge_grounded: bool = False,
-    load_skills_fn=None,
     classify_fn=None,
 ) -> RunCapabilityResolution:
     return resolve_run_capability_route(
@@ -62,7 +61,6 @@ def _resolve(
         capabilities=capabilities or {"functionCalling": True, "searchCapable": True},
         tools_disabled=tools_disabled,
         knowledge_grounded=knowledge_grounded,
-        load_skills_fn=load_skills_fn,
         classify_fn=classify_fn,
     )
 
@@ -366,12 +364,11 @@ def test_capability_classifier_is_replaceable_without_touching_the_skeleton():
 
     assert len(calls) == 1
     assert calls[0]["message"] == "随便说点什么"
-    # 契约校验、工具派生、指纹与 Skill 终态仍由骨架完成。
+    # 契约校验、工具派生与指纹仍由骨架完成。
     assert resolution.package_id == "weather"
     assert resolution.external_tool_names == ("web_search", "url_read", "weather_forecast")
     assert resolution.resolution_mode == "routed"
     assert resolution.include_current_date is True
-    assert resolution.skill_resolution is not None
 
 
 def test_replaced_classifier_still_goes_through_contract_validation():

@@ -2,15 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
-from app.ai.skills.registry import (
-    LoadedSkillSnapshot,
-    RunSkillResolution,
-    load_skills_for_package,
-)
 from app.services.agent.plan_coordinator import PlanMode
 from app.services.stream.agent_task_policy import AgentTaskPolicy
 from app.services.stream.dynamic_tool_discovery import (
@@ -70,8 +64,6 @@ class RunCapabilityResolution:
     network_boundary_required: bool
     denied_product_tool_names: frozenset[str] = field(default_factory=frozenset)
     required_primary_tool_name: str | None = None
-    skill_resolution: RunSkillResolution | None = None
-    loaded_skills: tuple[LoadedSkillSnapshot, ...] = field(default=(), repr=False, compare=False)
     requires_catalog_evidence: bool = False
     output_mode: OutputMode = "chat"
 
@@ -120,7 +112,6 @@ def resolve_run_capability_route(
     tools_disabled: bool,
     knowledge_grounded: bool,
     unavailable_tool_names: list[str] | None = None,
-    load_skills_fn: Callable[..., Any] | None = None,
     classify_fn: CapabilityClassifier | None = None,
     mcp_tool_catalog: tuple[McpRouteTool, ...] = (),
     existing_document_titles: tuple[str, ...] = (),
@@ -128,7 +119,6 @@ def resolve_run_capability_route(
     """根据受信运行态与当前用户消息解析最小能力包。"""
 
     message = _normalize_message(original_message)
-    skill_loader = load_skills_fn or load_skills_for_package
     classify = classify_fn or classify_capability_request
     # 只在有可调用 MCP 工具时传目录，保持不认识该参数的分类器可用。
     catalog_kwargs: dict[str, Any] = {"mcp_tool_catalog": mcp_tool_catalog} if mcp_tool_catalog else {}
@@ -172,8 +162,7 @@ def resolve_run_capability_route(
                 tools_disabled=True,
                 network_boundary_required=bool(blocked_tool_names),
                 denied_product_tool_names=denied_product_tool_names,
-            ),
-            load_skills_fn=skill_loader,
+            )
         )
 
     if task_policy.task_mode == "deep_research":
@@ -247,8 +236,7 @@ def resolve_run_capability_route(
                 tools_disabled=True,
                 network_boundary_required=True,
                 denied_product_tool_names=denied_product_tool_names,
-            ),
-            load_skills_fn=skill_loader,
+            )
         )
 
     resolution = _resolution(
@@ -278,8 +266,7 @@ def resolve_run_capability_route(
                 tools_disabled=True,
                 network_boundary_required=True,
                 denied_product_tool_names=denied_product_tool_names,
-            ),
-            load_skills_fn=skill_loader,
+            )
         )
     if needs_external_capability and not resolution.external_tool_names:
         return _validated_resolution(
@@ -297,18 +284,14 @@ def resolve_run_capability_route(
                 tools_disabled=True,
                 network_boundary_required=True,
                 denied_product_tool_names=denied_product_tool_names,
-            ),
-            load_skills_fn=skill_loader,
+            )
         )
-    return _validated_resolution(resolution, load_skills_fn=skill_loader)
+    return _validated_resolution(resolution)
 
 
 def serialize_capability_resolution(resolution: RunCapabilityResolution) -> dict:
     """转换为可持久化的安全协议，不包含原文或自由文本。"""
 
-    skill_resolution = resolution.skill_resolution
-    if skill_resolution is None:
-        raise ValueError("Run 能力包尚未冻结 Skill 终态")
     return {
         "schema_version": resolution.schema_version,
         "router_version": resolution.router_version,
@@ -322,24 +305,6 @@ def serialize_capability_resolution(resolution: RunCapabilityResolution) -> dict
         "network_boundary_required": resolution.network_boundary_required,
         "denied_product_tool_names": sorted(resolution.denied_product_tool_names),
         "required_primary_tool_name": resolution.required_primary_tool_name,
-        "skill_resolution": {
-            "status": skill_resolution.status,
-            "activation_source": skill_resolution.activation_source,
-            "requested_skill_ids": list(skill_resolution.requested_skill_ids),
-            "skills": [
-                {
-                    "skill_id": skill.skill_id,
-                    "version": skill.version,
-                    "content_sha256": skill.content_sha256,
-                    "allowed_tool_names": list(skill.allowed_tool_names),
-                    "section_id": skill.section_id,
-                    "char_count": skill.char_count,
-                }
-                for skill in skill_resolution.skills
-            ],
-            "duration_ms": skill_resolution.duration_ms,
-            "error_code": skill_resolution.error_code,
-        },
         # chat 为默认形态，不写入以保持历史 Run 的协议与指纹不变。
         **({"output_mode": resolution.output_mode} if resolution.output_mode != "chat" else {}),
     }
@@ -437,38 +402,7 @@ def _resolve_denied_tool_names(candidate: _CandidateRoute, available_tool_names:
     return frozenset(denied)
 
 
-def _validated_resolution(
-    resolution: RunCapabilityResolution,
-    *,
-    load_skills_fn: Callable[..., Any],
-) -> RunCapabilityResolution:
-    skill_result = load_skills_fn(
-        resolution.package_id,
-        resolution.external_tool_names,
-    )
-    skill_resolution = skill_result.resolution
-    if skill_resolution.status == "load_failed":
-        resolution = RunCapabilityResolution(
-            schema_version=SCHEMA_VERSION,
-            router_version=ROUTER_VERSION,
-            package_id="tools_unavailable",
-            confidence=resolution.confidence,
-            resolution_mode="degraded",
-            reason_codes=("required_skill_unavailable",),
-            external_tool_names=(),
-            effective_plan_mode="off",
-            include_current_date=resolution.include_current_date,
-            network_boundary_required=True,
-            denied_product_tool_names=resolution.denied_product_tool_names,
-            skill_resolution=skill_resolution,
-            loaded_skills=(),
-        )
-    else:
-        resolution = replace(
-            resolution,
-            skill_resolution=skill_resolution,
-            loaded_skills=tuple(skill_result.loaded_skills),
-        )
+def _validated_resolution(resolution: RunCapabilityResolution) -> RunCapabilityResolution:
     validate_capability_resolution_semantics(
         package_id=resolution.package_id,
         confidence=resolution.confidence,
@@ -478,7 +412,6 @@ def _validated_resolution(
         effective_plan_mode=resolution.effective_plan_mode,
         include_current_date=resolution.include_current_date,
         network_boundary_required=resolution.network_boundary_required,
-        skill_resolution=resolution.skill_resolution,
     )
     if CAPABILITY_PACKAGES[resolution.package_id].requires_primary_tool:
         if resolution.required_primary_tool_name not in resolution.external_tool_names:

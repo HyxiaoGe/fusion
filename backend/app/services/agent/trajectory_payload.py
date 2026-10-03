@@ -13,7 +13,6 @@ from app.schemas.trajectory import (
     ContextToolVisibility,
     LlmOutputProvenance,
     TrajectoryCapabilityResolution,
-    TrajectorySkillMetadata,
 )
 from app.utils.run_capability_contract import CAPABILITY_CONTROL_TOOL_NAMES
 
@@ -141,18 +140,6 @@ _EVENT_FIELDS: dict[str, frozenset[str]] = {
             "message",
         }
     ),
-    "skills_resolved": frozenset(
-        {
-            "protocol_version",
-            "status",
-            "activation_source",
-            "requested_skill_ids",
-            "skills",
-            "duration_ms",
-            "detail_status",
-            "error_code",
-        }
-    ),
     "context_status_updated": frozenset(
         {
             "protocol_version",
@@ -205,7 +192,7 @@ _EVIDENCE_FIELDS = frozenset(
         "citation_index",
     }
 )
-_LIST_FIELDS = frozenset({"tools", "key_findings", "source_refs", "section_ids", "requested_skill_ids"})
+_LIST_FIELDS = frozenset({"tools", "key_findings", "source_refs", "section_ids"})
 _SECRET_PATTERN = re.compile(
     r"(?i)\b(api[_-]?key|authorization|access[_-]?token|token|password|secret)\s*[:=]\s*"
     r"(?:bearer\s+)?[^\s,;]+"
@@ -272,16 +259,6 @@ def _sanitize_evidence(value: Any) -> dict[str, Any]:
     return evidence
 
 
-_SKILL_METADATA_FIELDS = (
-    "skill_id",
-    "version",
-    "content_sha256",
-    "allowed_tool_names",
-    "section_id",
-    "char_count",
-)
-
-
 def sanitize_context_visibility(value: Any) -> dict[str, Any] | None:
     """只接受有界 ID 集合，不允许正文或凭据通过上下文可见性字段入库。"""
     if not isinstance(value, Mapping):
@@ -307,27 +284,6 @@ def sanitize_output_provenance(value: Any) -> dict[str, Any] | None:
         return None
 
 
-def _sanitize_skill_metadata(value: Any) -> dict[str, Any] | None:
-    if not isinstance(value, Mapping):
-        return None
-    candidate = {field: value[field] for field in _SKILL_METADATA_FIELDS if field in value}
-    try:
-        return TrajectorySkillMetadata.model_validate(candidate).model_dump()
-    except ValidationError:
-        return None
-
-
-def _sanitize_skills(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    sanitized = [_sanitize_skill_metadata(item) for item in value[:1]]
-    return [item for item in sanitized if item is not None]
-
-
-def _sanitize_requested_skill_ids(value: Any) -> list[str]:
-    return _bounded_list(value)[:1]
-
-
 _CAPABILITY_RESOLUTION_FIELDS = (
     "schema_version",
     "router_version",
@@ -342,7 +298,6 @@ _CAPABILITY_RESOLUTION_FIELDS = (
     "denied_product_tool_names",
     "required_primary_tool_name",
     "bundle_fingerprint",
-    "skill_resolution",
     "output_mode",
 )
 
@@ -396,8 +351,6 @@ _SPECIAL_SANITIZERS: dict[str, Callable[[Any], Any]] = {
     "items": _sanitize_plan_items,
     "item": _sanitize_plan_item,
     "evidence": _sanitize_evidence,
-    "skills": _sanitize_skills,
-    "requested_skill_ids": _sanitize_requested_skill_ids,
     "capability_resolution": _sanitize_capability_resolution,
     "tools": _sanitize_external_tool_names,
     "tool_names": _sanitize_round_tool_names,

@@ -15,7 +15,6 @@ from pydantic import ValidationError
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from app.ai.skills.registry import RunSkillResolution
 from app.db.database import Base
 from app.db.models import AgentEvent, AgentSession, RunTrajectoryMeta
 from app.schemas.chat import (
@@ -54,7 +53,7 @@ from app.services.stream.agent_loop_run_completion import (
     write_fallback_run_error,
 )
 from app.services.stream.research_evidence import validate_research_completion
-from app.services.stream.run_capability_router import RunCapabilityResolution, _CandidateRoute
+from app.services.stream.run_capability_router import RunCapabilityResolution
 from app.services.stream.run_finalizer import interrupt_agent_run
 from app.services.stream.tool_executor import AgentEventCompositeWriter
 from app.services.stream_state_service import StreamOwnershipLostError, StreamWriteTerminalError
@@ -75,16 +74,6 @@ def _unused_sync(*_args, **_kwargs):
 
 
 class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
-    @staticmethod
-    def _not_selected_skill_resolution() -> RunSkillResolution:
-        return RunSkillResolution(
-            status="not_selected",
-            activation_source="capability_package",
-            requested_skill_ids=(),
-            skills=(),
-            duration_ms=0,
-        )
-
     async def test_system_prompt_ready_is_emitted_once_before_driver(self):
         from app.ai.prompts.system_prompt import assemble_system_prompt
 
@@ -146,82 +135,10 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
         prompt_events = [event for event in emitted if event["type"] == "system_prompt_prepared"]
-        skill_events = [event for event in emitted if event["type"] == "skills_resolved"]
         self.assertEqual(len(prompt_events), 1)
-        self.assertEqual(len(skill_events), 1)
-        self.assertEqual(skill_events[0]["status"], "not_selected")
-        self.assertIsNone(skill_events[0]["detail_status"])
         self.assertEqual(prompt_events[0]["fingerprint"], snapshot["fingerprint"])
         self.assertEqual(prompt_events[0]["detail_status"], "available")
         self.assertNotIn("不能进入事件的规则原文", str(emitted))
-
-    async def test_loaded_skill_emits_safe_metadata_and_available_detail_before_driver(self):
-        from app.ai.prompts.system_prompt import SystemPromptSection, assemble_system_prompt
-
-        emitted = []
-
-        class CaptureWriter:
-            async def append_chunk(self, _conversation_id, _task_id, _chunk_type, payload):
-                emitted.append(payload)
-
-        message = "核验 OpenAI 最新公告，给出官方原文和交叉来源"
-        call_config = build_agent_loop_call_config(
-            provider="openai",
-            options={"plan_mode": "on"},
-            capabilities={"functionCalling": True, "searchCapable": True},
-            original_message=message,
-            # 选包判据已删除（#132）：能力包由模型决定，这里按原句声明模型会选什么。
-            classify_fn=lambda **_: _CandidateRoute("verified_web", "high", ("verified_source_request",), True),
-        )
-        loaded_skill = call_config.capability_resolution.loaded_skills[0]
-        assembly = assemble_system_prompt(
-            sections=lambda: [SystemPromptSection(loaded_skill.metadata.section_id, loaded_skill.content)]
-        )
-        snapshot = {
-            "schema_version": 1,
-            "template_version": assembly.metadata["template_version"],
-            "fingerprint": assembly.metadata["fingerprint"],
-            "char_count": assembly.metadata["char_count"],
-            "sections": [
-                {"section_id": key, "content": prompt_message["content"]}
-                for key, prompt_message in zip(
-                    assembly.metadata["section_ids"],
-                    assembly.messages,
-                    strict=True,
-                )
-            ],
-        }
-        prepared = SimpleNamespace(
-            messages=assembly.messages,
-            initial_content_blocks=[],
-            final_tool_names=["web_search", "url_read"],
-            prompt_assembly=assembly.metadata,
-            prompt_snapshot=snapshot,
-        )
-
-        async def run_loop(**_kwargs):
-            event_types = [event["type"] for event in emitted]
-            self.assertLess(event_types.index("skills_resolved"), event_types.index("system_prompt_prepared"))
-            return AgentLoopOutcome(exit=AgentLoopExit.COMPLETED)
-
-        await run_agent_loop_lifecycle(
-            request=self._request(call_config=call_config),
-            execution=self._execution(call_config=call_config, redis_writer=CaptureWriter()),
-            dependencies=self._dependencies(
-                start_agent_run_fn=_start_event_run,
-                prepare_messages_fn=AsyncMock(return_value=prepared),
-                run_agent_loop_fn=run_loop,
-                write_system_prompt_snapshot_fn=AsyncMock(),
-            ),
-        )
-
-        event = next(event for event in emitted if event["type"] == "skills_resolved")
-        self.assertEqual(event["status"], "loaded")
-        self.assertEqual(event["detail_status"], "available")
-        self.assertEqual(event["skills"][0]["skill_id"], "verified-research")
-        self.assertEqual(event["skills"][0]["content_sha256"], loaded_skill.metadata.content_sha256)
-        self.assertNotIn("content", event["skills"][0])
-        self.assertNotIn(loaded_skill.content, str(emitted))
 
     async def test_prompt_snapshot_write_failure_keeps_run_running_and_reports_degraded_without_body(self):
         from app.ai.prompts.system_prompt import assemble_system_prompt
@@ -597,7 +514,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 effective_plan_mode="off",
                 include_current_date=True,
                 network_boundary_required=False,
-                skill_resolution=self._not_selected_skill_resolution(),
             ),
             plan_mode="off",
             task_mode="standard",
@@ -623,13 +539,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 "network_boundary_required": False,
                 "denied_product_tool_names": [],
                 "required_primary_tool_name": None,
-                "skill_resolution": {
-                    "status": "not_selected",
-                    "activation_source": "capability_package",
-                    "requested_skill_ids": [],
-                    "skills": [],
-                    "error_code": None,
-                },
             },
             "announced_tools": ["web_search"],
             "mcp_tool_bindings": [],
@@ -661,14 +570,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             "network_boundary_required": False,
             "denied_product_tool_names": [],
             "required_primary_tool_name": None,
-            "skill_resolution": {
-                "status": "not_selected",
-                "activation_source": "capability_package",
-                "requested_skill_ids": [],
-                "skills": [],
-                "duration_ms": 0,
-                "error_code": None,
-            },
             "bundle_fingerprint": bundle_fingerprint,
         }
 
@@ -726,7 +627,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             effective_plan_mode="off",
             include_current_date=False,
             network_boundary_required=False,
-            skill_resolution=self._not_selected_skill_resolution(),
         )
         base.announced_tools = []
 
@@ -784,7 +684,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             include_current_date=True,
             network_boundary_required=False,
             required_primary_tool_name="route_compare",
-            skill_resolution=self._not_selected_skill_resolution(),
         )
         first = _run_config(self._limits(), route)["capability_resolution"]
         alternate = _run_config(
@@ -801,77 +700,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
         )["capability_resolution"]
         self.assertEqual(first["required_primary_tool_name"], "route_compare")
         self.assertNotEqual(first["bundle_fingerprint"], alternate["bundle_fingerprint"])
-
-    def test_bundle_fingerprint_covers_loaded_skill_version_and_content_hash(self):
-        message = "核验 OpenAI 最新公告，给出官方原文和交叉来源"
-        base = build_agent_loop_call_config(
-            provider="openai",
-            options={"plan_mode": "on"},
-            capabilities={"functionCalling": True, "searchCapable": True},
-            original_message=message,
-            # 选包判据已删除（#132）：能力包由模型决定，这里按原句声明模型会选什么。
-            classify_fn=lambda **_: _CandidateRoute("verified_web", "high", ("verified_source_request",), True),
-        )
-        resolution = base.capability_resolution
-        metadata = resolution.skill_resolution.skills[0]
-
-        def with_metadata(**changes):
-            changed_metadata = replace(metadata, **changes)
-            changed_skill_resolution = replace(
-                resolution.skill_resolution,
-                skills=(changed_metadata,),
-            )
-            return SimpleNamespace(
-                **{
-                    **base.__dict__,
-                    "capability_resolution": replace(
-                        resolution,
-                        skill_resolution=changed_skill_resolution,
-                    ),
-                }
-            )
-
-        baseline = _run_config(self._limits(), base)["capability_resolution"]["bundle_fingerprint"]
-        with_hash = _run_config(
-            self._limits(),
-            with_metadata(content_sha256="f" * 64),
-        )["capability_resolution"]["bundle_fingerprint"]
-        with_version = _run_config(
-            self._limits(),
-            with_metadata(
-                version="1.0.1",
-                section_id="skill:verified-research@1.0.1",
-            ),
-        )["capability_resolution"]["bundle_fingerprint"]
-
-        self.assertEqual(len({baseline, with_hash, with_version}), 3)
-
-    def test_bundle_fingerprint_ignores_skill_load_duration(self):
-        message = "核验 OpenAI 最新公告，给出官方原文和交叉来源"
-        base = build_agent_loop_call_config(
-            provider="openai",
-            options={"plan_mode": "on"},
-            capabilities={"functionCalling": True, "searchCapable": True},
-            original_message=message,
-        )
-        resolution = base.capability_resolution
-        changed_duration = SimpleNamespace(
-            **{
-                **base.__dict__,
-                "capability_resolution": replace(
-                    resolution,
-                    skill_resolution=replace(
-                        resolution.skill_resolution,
-                        duration_ms=resolution.skill_resolution.duration_ms + 137,
-                    ),
-                ),
-            }
-        )
-
-        baseline = _run_config(self._limits(), base)["capability_resolution"]["bundle_fingerprint"]
-        changed = _run_config(self._limits(), changed_duration)["capability_resolution"]["bundle_fingerprint"]
-
-        self.assertEqual(baseline, changed)
 
     def _execution(self, *, call_config=None, limits=None, redis_writer=None):
         call_config = call_config or self._call_config()
@@ -1152,7 +980,7 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             finalized.append(expected_last_sequence)
             self.assertEqual(
                 [event["type"] for event in events],
-                ["run_started", "skills_resolved", "system_prompt_prepared", "run_interrupted"],
+                ["run_started", "system_prompt_prepared", "run_interrupted"],
             )
 
         execution.trajectory_recorder.finalize = AsyncMock(side_effect=finalize)
@@ -1175,15 +1003,15 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(session_cache.status, "interrupted")
         self.assertTrue(execution.state.terminal_emitted)
-        self.assertEqual(finalized, [3])
+        self.assertEqual(finalized, [2])
         self.assertEqual(
             [event["type"] for event in events],
-            ["run_started", "skills_resolved", "system_prompt_prepared", "run_interrupted"],
+            ["run_started", "system_prompt_prepared", "run_interrupted"],
         )
         complete_run.assert_not_awaited()
         fallback_status.assert_not_awaited()
         execution.emitter.seal_and_get_last_sequence.assert_awaited_once_with()
-        execution.trajectory_recorder.finalize.assert_awaited_once_with(3)
+        execution.trajectory_recorder.finalize.assert_awaited_once_with(2)
 
     async def test_completed_persist_superseded_terminal_failure_keeps_business_status_and_no_double_terminal(self):
         for terminal_error in (
@@ -1252,13 +1080,13 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(execution.state.terminal_emitted)
                 self.assertEqual(
                     [event["type"] for event in events],
-                    ["run_started", "skills_resolved", "system_prompt_prepared"],
+                    ["run_started", "system_prompt_prepared"],
                 )
                 fallback_status.assert_not_awaited()
                 finalize_cancelled.assert_not_awaited()
                 finalize_failed.assert_not_awaited()
                 execution.emitter.seal_and_get_last_sequence.assert_awaited_once_with()
-                execution.trajectory_recorder.finalize.assert_awaited_once_with(3)
+                execution.trajectory_recorder.finalize.assert_awaited_once_with(2)
 
     async def test_completed_persist_superseded_cancel_during_terminal_has_no_second_terminal(self):
         terminal_entered = asyncio.Event()
@@ -1321,7 +1149,7 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
         fallback_status.assert_not_awaited()
         finalize_cancelled.assert_not_awaited()
         execution.emitter.seal_and_get_last_sequence.assert_awaited_once_with()
-        execution.trajectory_recorder.finalize.assert_awaited_once_with(3)
+        execution.trajectory_recorder.finalize.assert_awaited_once_with(2)
 
     # 验证终态矩阵，不验证等待超时；真实 SQLite 账本给 CI 线程调度留出余量（#142）。
     @patch("app.services.agent.trajectory_recorder.TRAJECTORY_WAIT_TIMEOUT_SECONDS", 2)
@@ -1486,9 +1314,9 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                             self.assertIsNotNone(meta.finalized_at)
 
                     expected_events = (
-                        ["run_started", "skills_resolved", "system_prompt_prepared", "run_interrupted"]
+                        ["run_started", "system_prompt_prepared", "run_interrupted"]
                         if scenario in {"accepted", "ownership"}
-                        else ["run_started", "skills_resolved", "system_prompt_prepared"]
+                        else ["run_started", "system_prompt_prepared"]
                     )
                     self.assertEqual(event_types, expected_events)
                     if scenario in {"accepted", "ownership"}:
@@ -1497,9 +1325,9 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(
                         required_event_types,
                         (
-                            ["run_started", "skills_resolved", "system_prompt_prepared", "run_interrupted"]
+                            ["run_started", "system_prompt_prepared", "run_interrupted"]
                             if writer_error is None
-                            else ["run_started", "skills_resolved", "system_prompt_prepared"]
+                            else ["run_started", "system_prompt_prepared"]
                         ),
                     )
                     self.assertEqual(execution.state.terminal_emitted, terminal_emitted)
@@ -1507,7 +1335,7 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                     dependencies.finalize_cancelled_run_fn.assert_not_awaited()
                     dependencies.finalize_failed_run_fn.assert_not_awaited()
                     execution.emitter.seal_and_get_last_sequence.assert_awaited_once_with()
-                    recorder.finalize.assert_awaited_once_with(3)
+                    recorder.finalize.assert_awaited_once_with(2)
                     if terminal_emitted:
                         finalize_stream.assert_awaited_once()
                     else:
@@ -2073,7 +1901,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 effective_plan_mode="off",
                 include_current_date=False,
                 network_boundary_required=False,
-                skill_resolution=self._not_selected_skill_resolution(),
             ),
             plan_mode="off",
             task_mode="standard",
@@ -2180,9 +2007,7 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             dependencies=self._dependencies(start_agent_run_fn=start_agent_run_fn),
         )
 
-        self.assertEqual(
-            [event["type"] for event in emitted], ["run_started", "skills_resolved", "system_prompt_prepared"]
-        )
+        self.assertEqual([event["type"] for event in emitted], ["run_started", "system_prompt_prepared"])
         self.assertFalse(hasattr(execution.state, "plan_items"))
 
     async def test_lifecycle_passes_continuation_inputs_and_preserves_existing_blocks_first(self):

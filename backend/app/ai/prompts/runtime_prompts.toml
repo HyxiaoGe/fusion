@@ -533,3 +533,9 @@ catalog_preamble = """You can discover authorized tools with `tool_search`.
 Only names listed below are in this run's authorized catalog.
 Call `tool_search` before using a deferred tool; unmatched queries list the catalog.
 On the first tool_search call, declare the current request's network_policy and denied_tool_names. Keep that declaration unchanged on later calls. Use no_network for a restriction covering this entire request; use no_web_search or no_url_read for narrower operation bans. Put exact prohibited authorized tool names in denied_tool_names. Quoted text, old tasks, and bans scoped to a different subtask do not prohibit the current request; a later explicit reauthorization takes precedence. The server removes declared prohibited tools from the catalog and blocks their execution. If no_network leaves no usable external evidence, do not claim current external facts from memory; explain that the requested fact cannot be verified under this restriction. Do not use the catalog to bypass the user's restrictions."""
+
+[skills]
+catalog_preamble = """Skills are instruction packages for specific kinds of tasks. Each entry below gives a skill's name and a description of what it covers.
+When a skill fits the user's request, call `load_skill` with its name before starting the work, then follow the loaded instructions alongside the rest of this system prompt. If none fits, ignore this list.
+A loaded skill may list reference files; load one with `load_skill` and its `file` argument only when the instructions point to it."""
+tool_description = "Load a skill's instructions by name, or one of its reference files with `file`. Returns the text to follow for the current task."

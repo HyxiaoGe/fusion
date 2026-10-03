@@ -26,11 +26,11 @@ from app.ai.prompts.section_ids import (
     DOCUMENT_OUTPUT_CONTRACT,
     NO_TOOL_NETWORK_BOUNDARY,
     NO_VISION_FILE_BOUNDARY,
+    SKILLS_CATALOG,
     TOOL_USAGE_CONTRACT,
     VERIFIED_WEB_EVIDENCE,
 )
 from app.ai.prompts.system_prompt import SystemPromptSection, assemble_system_prompt
-from app.ai.skills.registry import RunSkillResolution, SkillReleasePin, load_skills_for_package
 from app.ai.tools import build_url_read_tool, build_web_search_tool
 from app.core.prompt_snapshot import PromptBundleSnapshot, use_prompt_snapshot
 from app.db.repositories import FileRepository
@@ -55,6 +55,13 @@ from app.services.stream.run_capability_router import (
     CapabilityClassifier,
     RunCapabilityResolution,
     resolve_run_capability_route,
+)
+from app.services.stream.skill_loading import (
+    LOAD_SKILL_TOOL_NAME,
+    LoadSkillHandler,
+    SkillSession,
+    build_load_skill_schema,
+    build_skill_session,
 )
 from app.utils.run_capability_contract import (
     CAPABILITY_PRIMARY_TOOL_PACKAGES,
@@ -94,6 +101,16 @@ class AgentLoopCallConfig:
     # 交付形态工具（文档）：不属于能力包，不进计划绑定，计划收口阶段仍可调用。
     output_tool_names: frozenset[str] = frozenset()
     document_context: str | None = None
+    # 按需加载的 Skill：目录进 system prompt，load_skill 同样不进计划绑定。
+    skill_session: SkillSession | None = None
+
+    @property
+    def skill_tool_names(self) -> frozenset[str]:
+        return frozenset({LOAD_SKILL_TOOL_NAME}) if self.skill_session is not None else frozenset()
+
+    @property
+    def unplanned_tool_names(self) -> frozenset[str]:
+        return self.output_tool_names | self.skill_tool_names
 
 
 def build_update_plan_tool(allowed_tool_names: list[str] | None = None) -> dict[str, Any]:
@@ -278,7 +295,6 @@ def build_agent_loop_call_config(
     authorized_tool_names: list[str] | None = None,
     original_message: str | None = None,
     task_context_messages: list[object] | None = None,
-    skill_release_pins: tuple[SkillReleasePin, ...] | None = None,
     classify_fn: CapabilityClassifier | None = None,
     prompt_bundle_snapshot: PromptBundleSnapshot | None = None,
     previous_run_id: str | None = None,
@@ -325,8 +341,6 @@ def build_agent_loop_call_config(
     )
 
     if is_dynamic_tool_discovery_enabled(options):
-        if skill_release_pins is not None:
-            raise DynamicToolDiscoveryUnsupportedError("skill")
         if task_policy.task_mode == "deep_research":
             raise DynamicToolDiscoveryUnsupportedError("deep_research")
         if previous_run_id is not None or options.get("stream_mode") == "continuation":
@@ -352,16 +366,6 @@ def build_agent_loop_call_config(
             requested_plan_mode=requested_plan_mode,
             prompt_bundle_snapshot=prompt_bundle_snapshot,
         )
-    skill_loader = None
-    if skill_release_pins is not None:
-
-        def skill_loader(package_id, routed_tool_names):
-            return load_skills_for_package(
-                package_id,
-                routed_tool_names,
-                release_pins=skill_release_pins,
-            )
-
     with use_prompt_snapshot(prompt_bundle_snapshot):
         capability_resolution = resolve_run_capability_route(
             original_message=original_message,
@@ -373,37 +377,9 @@ def build_agent_loop_call_config(
             tools_disabled=tools_disabled,
             knowledge_grounded=knowledge_grounded,
             unavailable_tool_names=unavailable_tool_names,
-            load_skills_fn=skill_loader,
             classify_fn=classify_fn,
             mcp_tool_catalog=mcp_tool_catalog,
             existing_document_titles=document_tools.existing_titles if document_tools is not None else (),
-        )
-    if (
-        skill_release_pins
-        and capability_resolution.skill_resolution is not None
-        and capability_resolution.skill_resolution.status == "not_selected"
-    ):
-        capability_resolution = RunCapabilityResolution(
-            schema_version=capability_resolution.schema_version,
-            router_version=capability_resolution.router_version,
-            package_id="tools_unavailable",
-            confidence=capability_resolution.confidence,
-            resolution_mode="degraded",
-            reason_codes=("required_skill_unavailable",),
-            external_tool_names=(),
-            effective_plan_mode="off",
-            include_current_date=capability_resolution.include_current_date,
-            network_boundary_required=True,
-            denied_product_tool_names=capability_resolution.denied_product_tool_names,
-            skill_resolution=RunSkillResolution(
-                status="load_failed",
-                activation_source="capability_package",
-                requested_skill_ids=tuple(pin.skill_id for pin in skill_release_pins),
-                skills=(),
-                duration_ms=0,
-                error_code="skill_load_failed",
-            ),
-            loaded_skills=(),
         )
     external_tool_names = list(capability_resolution.external_tool_names)
     tools = [available_tools_by_name[name] for name in external_tool_names]
@@ -457,6 +433,17 @@ def build_agent_loop_call_config(
             document_context = render_current_documents_context(document_tools.existing_documents)
         document_handlers = dict(document_tools.handlers)
         call_kwargs.setdefault("max_tokens", DOCUMENT_OUTPUT_MAX_TOKENS)
+    # 深度研究有自己的取证与综合契约，不叠加 Skill 方法论。
+    skill_session = (
+        build_skill_session(external_tool_names)
+        if supports_dynamic_tools and task_policy.task_mode != "deep_research"
+        else None
+    )
+    skill_handlers: dict[str, Any] = {}
+    if skill_session is not None:
+        with use_prompt_snapshot(prompt_bundle_snapshot):
+            tools.append(build_load_skill_schema(skill_session))
+        skill_handlers[LOAD_SKILL_TOOL_NAME] = LoadSkillHandler(skill_session)
     if tools:
         call_kwargs["tools"] = tools
         call_kwargs["tool_choice"] = "auto"
@@ -470,6 +457,7 @@ def build_agent_loop_call_config(
     announced_tools = list(external_tool_names)
     active_handlers = {name: provided_handlers[name] for name in announced_tools if name in provided_handlers}
     active_handlers.update(document_handlers)
+    active_handlers.update(skill_handlers)
     bindings_by_alias = {
         str(binding.get("alias", "")): binding
         for binding in (tool_bindings or [])
@@ -495,6 +483,7 @@ def build_agent_loop_call_config(
         prompt_bundle_snapshot=prompt_bundle_snapshot,
         output_tool_names=frozenset(document_handlers),
         document_context=document_context,
+        skill_session=skill_session,
     )
 
 
@@ -503,17 +492,6 @@ def _capability_prompt_view(call_config: AgentLoopCallConfig):
     if experiment is not None:
         return experiment
     return call_config.capability_resolution
-
-
-def _not_selected_skill_resolution() -> RunSkillResolution:
-    return RunSkillResolution(
-        status="not_selected",
-        activation_source="capability_package",
-        requested_skill_ids=(),
-        skills=(),
-        duration_ms=0,
-        error_code=None,
-    )
 
 
 def _build_discovery_call_config(
@@ -605,7 +583,6 @@ def _build_discovery_call_config(
         announced_tools=(TOOL_SEARCH_NAME,),
         authorized_tool_names=tuple(session.catalog_names()),
         external_tool_names=(TOOL_SEARCH_NAME,),
-        skill_resolution=_not_selected_skill_resolution(),
     )
     return AgentLoopCallConfig(
         should_use_reasoning=should_use_reasoning,
@@ -743,8 +720,9 @@ async def prepare_agent_loop_messages(
                 AGENT_PLAN_CONTROL,
                 get_agent_plan_control_prompt(resolution.effective_plan_mode),
             )
-        for skill in resolution.loaded_skills:
-            yield SystemPromptSection(skill.metadata.section_id, skill.content)
+        skill_session = getattr(call_config, "skill_session", None)
+        if skill_session is not None:
+            yield SystemPromptSection(SKILLS_CATALOG, skill_session.catalog_prompt())
         if getattr(resolution, "package_id", None) == "deep_research":
             yield SystemPromptSection(DEEP_RESEARCH_CONTRACT, DEEP_RESEARCH_CONTRACT_PROMPT)
         if resolution.network_boundary_required:

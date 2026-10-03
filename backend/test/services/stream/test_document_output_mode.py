@@ -231,7 +231,7 @@ class DocumentCallConfigTests(unittest.IsolatedAsyncioTestCase):
 
 class DocumentPlanControlTests(unittest.IsolatedAsyncioTestCase):
     async def test_document_tools_execute_without_plan_binding_in_on_mode(self):
-        coordinator = PlanCoordinator(run_id="run-doc", mode="on", output_tool_names=frozenset({"create_document"}))
+        coordinator = PlanCoordinator(run_id="run-doc", mode="on", unplanned_tool_names=frozenset({"create_document"}))
         accepted = coordinator.apply_model_update(
             {
                 "reason": "先查天气再写攻略",
@@ -292,7 +292,6 @@ class DocumentToolWiringTests(unittest.TestCase):
         dependencies = SimpleNamespace(
             load_dynamic_tools_fn=None,
             load_authorized_tool_names_fn=None,
-            load_previous_skill_release_pins_fn=None,
             load_document_tools_fn=loader,
             warning_fn=warnings.append,
         )

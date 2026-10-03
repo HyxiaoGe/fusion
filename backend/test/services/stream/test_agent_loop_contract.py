@@ -1173,7 +1173,6 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
             result.event_types,
             [
                 "run_started",
-                "skills_resolved",
                 "system_prompt_prepared",
                 "step_started",
                 "context_status_updated",

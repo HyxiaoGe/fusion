@@ -402,7 +402,6 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
             types,
             [
                 "run_started",
-                "skills_resolved",
                 "system_prompt_prepared",
                 "step_started",
                 "context_status_updated",
@@ -888,7 +887,6 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
             tool_bindings=[],
             authorized_tool_names=[],
             should_load_dynamic_tool_metadata=False,
-            skill_release_pins=None,
         )
         lifecycle_call = SimpleNamespace(request=object(), execution=object(), dependencies=object())
 
@@ -989,7 +987,6 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
             tool_bindings=[],
             authorized_tool_names=[],
             should_load_dynamic_tool_metadata=False,
-            skill_release_pins=None,
         )
         lifecycle_call = SimpleNamespace(request=object(), execution=object(), dependencies=object())
         main_thread_id = threading.get_ident()
@@ -1221,7 +1218,6 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
             types,
             [
                 "run_started",
-                "skills_resolved",
                 "system_prompt_prepared",
                 "step_started",
                 "context_status_updated",

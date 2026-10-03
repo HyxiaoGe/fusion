@@ -42,43 +42,6 @@ LogFn = Callable[[str], None]
 TRAJECTORY_BARRIER_TIMEOUT_SECONDS = 1.0
 
 
-def _skill_resolution_object(call_config: AgentLoopCallConfig):
-    experiment = getattr(call_config, "discovery_experiment", None)
-    if experiment is not None and getattr(experiment, "skill_resolution", None) is not None:
-        return experiment.skill_resolution
-    resolution = getattr(call_config, "capability_resolution", None)
-    return getattr(resolution, "skill_resolution", None)
-
-
-def _skill_resolution_status(call_config: AgentLoopCallConfig) -> str:
-    skill_resolution = _skill_resolution_object(call_config)
-    return getattr(skill_resolution, "status", "not_selected")
-
-
-def _skill_resolution_payload(call_config: AgentLoopCallConfig) -> dict[str, Any]:
-    resolution = getattr(call_config, "capability_resolution", None)
-    if resolution is not None:
-        return serialize_capability_resolution(resolution)["skill_resolution"]
-    skill_resolution = _skill_resolution_object(call_config)
-    if skill_resolution is None:
-        return {
-            "status": "not_selected",
-            "activation_source": "capability_package",
-            "requested_skill_ids": [],
-            "skills": [],
-            "duration_ms": 0,
-            "error_code": None,
-        }
-    return {
-        "status": skill_resolution.status,
-        "activation_source": skill_resolution.activation_source,
-        "requested_skill_ids": list(skill_resolution.requested_skill_ids),
-        "skills": list(skill_resolution.skills),
-        "duration_ms": skill_resolution.duration_ms,
-        "error_code": skill_resolution.error_code,
-    }
-
-
 @dataclass(frozen=True)
 class AgentLoopLifecycleRequest:
     raw_messages: list
@@ -230,12 +193,6 @@ async def _run_success_path(
     dependencies: AgentLoopLifecycleDependencies,
 ) -> None:
     await _start_run(request=request, execution=execution, dependencies=dependencies)
-    if _skill_resolution_status(request.call_config) != "loaded":
-        await _emit_skills_resolved(
-            request=request,
-            execution=execution,
-            detail_status=None,
-        )
     grounding = await _prepare_knowledge_grounding(request=request, execution=execution)
     if grounding is not None:
         execution.state.content_blocks.append(grounding.evidence_block)
@@ -431,15 +388,11 @@ async def _prepare_messages(
             preprocess_user_input=request.preprocess_user_input,
         )
     except SystemPromptAssemblyError as error:
-        await _emit_loaded_skills_degraded(request=request, execution=execution)
         try:
             await execution.emitter.system_prompt_prepared(**error.metadata)
         except Exception:
             # 保留组装原始失败，不让诊断写入异常覆盖主错误。
             dependencies.warning_fn("系统提示词失败事件写入失败")
-        raise
-    except Exception:
-        await _emit_loaded_skills_degraded(request=request, execution=execution)
         raise
     bundle_snapshot = request.call_config.prompt_bundle_snapshot
     if bundle_snapshot is None:
@@ -472,7 +425,6 @@ async def _prepare_messages(
         },
     )
     metadata = getattr(prepared, "prompt_assembly", None)
-    skill_detail_status = "degraded"
     if metadata is not None:
         metadata = dict(metadata)
         snapshot = getattr(prepared, "prompt_snapshot", None)
@@ -485,62 +437,14 @@ async def _prepare_messages(
                     snapshot=snapshot,
                 )
                 metadata["detail_status"] = "available"
-                skill_detail_status = "available"
             except Exception as error:
                 # 辅助正文失败不终止生成，也不将异常中的提示词写入日志。
                 metadata["detail_status"] = "degraded"
                 dependencies.warning_fn(f"系统提示词正文保存失败: error_type={type(error).__name__}")
         else:
             metadata["detail_status"] = "degraded"
-        await _emit_loaded_skills_resolved(
-            request=request,
-            execution=execution,
-            detail_status=skill_detail_status,
-        )
         await execution.emitter.system_prompt_prepared(**metadata)
-    else:
-        await _emit_loaded_skills_degraded(request=request, execution=execution)
     return prepared
-
-
-async def _emit_loaded_skills_degraded(
-    *,
-    request: AgentLoopLifecycleRequest,
-    execution: AgentLoopExecutionContext,
-) -> None:
-    await _emit_loaded_skills_resolved(
-        request=request,
-        execution=execution,
-        detail_status="degraded",
-    )
-
-
-async def _emit_loaded_skills_resolved(
-    *,
-    request: AgentLoopLifecycleRequest,
-    execution: AgentLoopExecutionContext,
-    detail_status: str,
-) -> None:
-    if _skill_resolution_status(request.call_config) != "loaded":
-        return
-    await _emit_skills_resolved(
-        request=request,
-        execution=execution,
-        detail_status=detail_status,
-    )
-
-
-async def _emit_skills_resolved(
-    *,
-    request: AgentLoopLifecycleRequest,
-    execution: AgentLoopExecutionContext,
-    detail_status: str | None,
-) -> None:
-    skill_resolution = _skill_resolution_payload(request.call_config)
-    await execution.emitter.skills_resolved(
-        **skill_resolution,
-        detail_status=detail_status,
-    )
 
 
 async def _prepare_knowledge_grounding(
@@ -776,15 +680,9 @@ def _run_config(limits: AgentLoopLimits, call_config: AgentLoopCallConfig | None
         announced_tools = list(getattr(call_config, "announced_tools", []) or [])
         if resolution_payload["external_tool_names"] != announced_tools:
             raise ValueError("能力路由工具与 Run 公告工具不一致")
-        fingerprint_resolution = {
-            **resolution_payload,
-            "skill_resolution": {
-                key: value for key, value in resolution_payload["skill_resolution"].items() if key != "duration_ms"
-            },
-        }
         fingerprint_input = {
             "prompt_template_version": TEMPLATE_VERSION,
-            "capability_resolution": fingerprint_resolution,
+            "capability_resolution": resolution_payload,
             "announced_tools": announced_tools,
             "mcp_tool_bindings": bindings,
             "task_mode": config["task_mode"],

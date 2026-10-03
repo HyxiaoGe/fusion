@@ -182,7 +182,8 @@ def _recovery_alternatives(request: AgentRoundOutcomeRequest) -> set[str]:
     """
     announced = set(request.round_result.announced_tool_names or frozenset())
     announced.update(round_tool_names(request.runtime.call_kwargs))
-    return announced - request.state.attempted_tool_names - {"update_plan"}
+    skill_tool_names = frozenset(getattr(request.runtime, "skill_tool_names", frozenset()) or ())
+    return announced - request.state.attempted_tool_names - {"update_plan"} - skill_tool_names
 
 
 PROTOCOL_RESIDUE_ANSWER_TEXT = default_safe_fallback("protocol_error")

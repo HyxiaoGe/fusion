@@ -45,7 +45,7 @@ PRODUCT_EVIDENCE_TOOL_NAMES = frozenset(
     }
 )
 _PAGE_RE = re.compile(r"^(?:list|page)(?::(\d+))?$", re.IGNORECASE)
-_UNSUPPORTED_SCENES = ("skill", "deep_research", "continuation")
+_UNSUPPORTED_SCENES = ("deep_research", "continuation")
 NETWORK_POLICIES = frozenset({"allow", "no_web_search", "no_url_read", "no_network"})
 CATALOG_EVIDENCE_ADAPTER_NOTE = (
     "requires_catalog_evidence is a conservative experiment adapter. "
@@ -124,8 +124,6 @@ class DiscoveryExperimentContext:
     announced_tools: tuple[str, ...] = ()
     authorized_tool_names: tuple[str, ...] = ()
     external_tool_names: tuple[str, ...] = ()
-    loaded_skills: tuple[Any, ...] = ()
-    skill_resolution: Any = None
     package_id: None = None
 
 

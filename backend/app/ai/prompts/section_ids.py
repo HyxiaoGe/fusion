@@ -16,6 +16,7 @@ CONTINUATION_SYSTEM = "continuation_system"
 DOCUMENT_OUTPUT_CONTRACT = "document_output_contract"
 CURRENT_DOCUMENTS = "current_documents"
 DOCUMENT_DELIVERY_ROUND = "document_delivery_round"
+SKILLS_CATALOG = "skills_catalog"
 
 PLAN_REQUIRED_REPAIR = "plan_required_repair"
 PLAN_EXECUTION_REPAIR = "plan_execution_repair"
@@ -39,6 +40,7 @@ TERMINAL_CONTROL_SECTION_IDS = frozenset(
         PLAN_REQUIRED_REPAIR,
         PLAN_EXECUTION_REPAIR,
         DOCUMENT_OUTPUT_CONTRACT,
+        SKILLS_CATALOG,
     }
 )
 
@@ -52,6 +54,4 @@ DEEP_RESEARCH_CONTROL_SECTION_IDS = frozenset(
 
 
 def is_terminal_control_section(section_id: str | None) -> bool:
-    return bool(
-        section_id in TERMINAL_CONTROL_SECTION_IDS or (isinstance(section_id, str) and section_id.startswith("skill:"))
-    )
+    return section_id in TERMINAL_CONTROL_SECTION_IDS
