@@ -458,3 +458,26 @@ def test_corrected_request_after_a_fixable_rejection_is_granted():
     )
 
     assert retried.status == "success"
+
+
+def test_rejected_capability_request_is_not_a_tool_failure():
+    from app.services.stream.agent_loop_state import AgentLoopState
+
+    state = AgentLoopState()
+    state.record_tool_outcome(REQUEST_CAPABILITY_TOOL_NAME, "failed")
+
+    assert state.tool_issue_names == set()
+    assert state.attempted_tool_names == set()
+
+
+def test_tool_name_parameters_only_accept_tools_of_the_offered_packages():
+    source = _config(_candidate("direct"))
+    schema = next(
+        tool for tool in source.call_kwargs["tools"] if tool["function"]["name"] == REQUEST_CAPABILITY_TOOL_NAME
+    )
+    properties = schema["function"]["parameters"]["properties"]
+
+    selectable = properties["tool_names"]["items"]["enum"]
+    assert "weather_forecast" in selectable and "local_place_search" in selectable
+    assert len(selectable) == len(set(selectable))
+    assert properties["primary_tool_name"]["enum"] == selectable

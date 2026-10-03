@@ -9,6 +9,7 @@ from typing import Any, Literal
 from app.schemas.chat import ContextUsage, Usage
 from app.services.agent.plan_coordinator import PlanCoordinator
 from app.services.stream.agent_loop_policy import AgentLoopLimitReason
+from app.services.stream.capability_escalation import REQUEST_CAPABILITY_TOOL_NAME
 from app.services.stream.itinerary_observability import ItineraryToolObservation
 from app.services.stream.product_result_answer import has_product_result_blocks
 from app.services.stream.research_evidence import MAX_RESEARCH_REPAIRS, ResearchEvidenceWorkset
@@ -89,6 +90,9 @@ class AgentLoopState:
         place_choice: dict[str, Any] | None = None,
     ) -> None:
         """累计各类执行结果；一次成功不能抹掉其他调用的失败或降级。"""
+        if tool_name == REQUEST_CAPABILITY_TOOL_NAME:
+            # 能力申请被拒是控制决策，不是工具故障；计入会触发失败兜底、替换掉凭知识写的回答。
+            return
         self.attempted_tool_names.add(tool_name)
         if place_choice is not None:
             # 地名对应多个候选、等用户选择：不是工具故障，不触发替代工具恢复或失败兜底。
