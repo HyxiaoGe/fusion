@@ -667,7 +667,7 @@ async def _run_limit_summary(
                 )
             ),
             summary_finish_reason=summary_finish_reason,
-            document_delivered=_has_document_block(state.content_blocks),
+            document_delivered=state.has_document_block(),
         ),
     )
     state.update_usage(summary_outcome.accumulated_usage)
@@ -677,13 +677,6 @@ async def _run_limit_summary(
     if summary_finish_reason == "plan_repair_exhausted":
         state.mark_unknown_terminated()
     return None
-
-
-def _has_document_block(content_blocks: list) -> bool:
-    return any(
-        (block.get("type") if isinstance(block, dict) else getattr(block, "type", None)) == "document"
-        for block in content_blocks
-    )
 
 
 def _should_deliver_document(*, state: AgentLoopState, runtime: AgentLoopRuntime) -> bool:
@@ -697,7 +690,7 @@ def _should_deliver_document(*, state: AgentLoopState, runtime: AgentLoopRuntime
         return False
     if runtime.task_mode == "deep_research" or state.limit_reason == "timeout":
         return False
-    if _has_document_block(state.content_blocks):
+    if state.has_document_block():
         return False
     if requires_external_evidence(runtime.capability_resolution, tool_discovery=runtime.tool_discovery):
         return has_tool_evidence(

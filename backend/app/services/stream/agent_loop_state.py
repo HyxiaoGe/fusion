@@ -179,6 +179,12 @@ class AgentLoopState:
             and not self.pending_tool_repairs
         )
 
+    def has_document_block(self) -> bool:
+        return any(
+            (block.get("type") if isinstance(block, dict) else getattr(block, "type", None)) == "document"
+            for block in self.content_blocks
+        )
+
     def update_usage(self, usage: Usage) -> None:
         self.accumulated_usage = usage
 

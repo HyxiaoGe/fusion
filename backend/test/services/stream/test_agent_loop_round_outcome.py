@@ -6,7 +6,7 @@ from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
-from app.ai.prompts.section_ids import PLAN_REQUIRED_REPAIR, RESEARCH_COMPLETION_REPAIR
+from app.ai.prompts.section_ids import PLAN_EXECUTION_REPAIR, PLAN_REQUIRED_REPAIR, RESEARCH_COMPLETION_REPAIR
 from app.schemas.chat import (
     PlaceResult,
     PlaceResultsBlock,
@@ -2494,3 +2494,95 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _document_plan_state(*, run_id: str, with_document: bool) -> AgentLoopState:
+    coordinator = PlanCoordinator(run_id=run_id, mode="on")
+    assert coordinator.apply_model_update(
+        {
+            "reason": "先查资料，再写文档",
+            "items": [
+                {
+                    "id": "search",
+                    "title": "查询资料",
+                    "status": "pending",
+                    "kind": "search",
+                    "depends_on": [],
+                    "planned_tools": ["web_search"],
+                },
+                {
+                    "id": "doc",
+                    "title": "撰写文档",
+                    "status": "pending",
+                    "kind": "answer",
+                    "depends_on": ["search"],
+                    "planned_tools": [],
+                },
+            ],
+        }
+    ).accepted
+    state = AgentLoopState(plan_coordinator=coordinator)
+    if with_document:
+        state.content_blocks.append({"type": "document", "document_id": "doc-1"})
+    state.mark_current_step(f"{run_id}-step")
+    return state
+
+
+def _has_section(messages, section_id: str) -> bool:
+    return any(
+        (message.get("section_id") if isinstance(message, dict) else getattr(message, "section_id", None)) == section_id
+        for message in messages
+    )
+
+
+class DocumentDeliveredPendingPlanTests(unittest.IsolatedAsyncioTestCase):
+    async def _stop_round(self, state: AgentLoopState, run_id: str):
+        emitter = AsyncMock()
+        messages = [{"role": "user", "content": "帮我做一份攻略"}]
+        outcome = await handle_agent_round_outcome(
+            request=AgentRoundOutcomeRequest(
+                db="db",
+                messages=messages,
+                state=state,
+                runtime=_runtime(
+                    complete_step_fn=_complete_step_noop,
+                    emitter=emitter,
+                    session_cache=AsyncMock(),
+                    plan_mode="on",
+                ),
+                step_number=4,
+                step_context=_step_context(f"{run_id}-step"),
+                round_result=AgentRoundResult(
+                    reasoning_buf="",
+                    content_buf="攻略已生成。",
+                    tool_calls=[],
+                    finish_reason="stop",
+                    accumulated_usage=Usage(input_tokens=2, output_tokens=3),
+                    announced_tool_names=frozenset({"web_search"}),
+                    output_deferred=True,
+                ),
+            )
+        )
+        return outcome, emitter, messages
+
+    async def test_delivered_document_skips_pending_lookup_steps(self):
+        state = _document_plan_state(run_id="run-doc-skip", with_document=True)
+
+        _outcome, emitter, messages = await self._stop_round(state, "run-doc-skip")
+
+        statuses = {item["id"]: item["status"] for item in state.plan_coordinator.items}
+        self.assertEqual(statuses["search"], "skipped")
+        self.assertTrue(state.plan_coordinator.execution_items_terminal())
+        self.assertEqual(emitter.plan_snapshot.await_args_list[0].kwargs.get("reason"), "document_delivered")
+        self.assertFalse(_has_section(messages, PLAN_EXECUTION_REPAIR))
+
+    async def test_pending_lookup_steps_still_required_without_document(self):
+        state = _document_plan_state(run_id="run-doc-none", with_document=False)
+
+        outcome, _emitter, messages = await self._stop_round(state, "run-doc-none")
+
+        self.assertIsNone(outcome)
+        self.assertTrue(_has_section(messages, PLAN_EXECUTION_REPAIR))
+        statuses = {item["id"]: item["status"] for item in state.plan_coordinator.items}
+        self.assertEqual(statuses["search"], "pending")
+        self.assertFalse(state.plan_coordinator.execution_items_terminal())
