@@ -540,7 +540,9 @@ packages_description = "Capability packages you can request, with the tools each
 tool_names_description = "Tools of the package to enable. Omit to enable the whole package. mixed_itinerary requires choosing 2 to 3 of its tools from different families."
 primary_tool_name_description = "Required for mixed_itinerary and mobility_intercity: the first lookup the task needs; it must be one of tool_names. Omit for other packages."
 reason_description = "One sentence on what the answer needs that the current tools cannot provide."
-granted = "Capability {{ package_id }} granted. From the next step you can call: {{ tool_names }}."
+granted = """Capability {{ package_id }} granted. From the next step these tools are in your tool list. Their parameters, taken from the tool definitions:
+{{ tool_signatures }}
+Call them with these parameter names. The skills list in the system prompt now matches these capabilities."""
 rejected = "Capability request rejected ({{ reason }}). Continue with the current capabilities; do not claim results from tools you could not call."
 
 [skills]

@@ -197,6 +197,7 @@ class RequestCapabilityHandler(BaseToolHandler):
             data={
                 "package_id": resolution.package_id,
                 "tool_names": list(resolution.external_tool_names),
+                "tool_signatures": tool_signatures(config.call_kwargs, resolution.external_tool_names),
                 "reason": reason,
             },
         )
@@ -216,7 +217,10 @@ class RequestCapabilityHandler(BaseToolHandler):
         return render_runtime_prompt(
             "capability_escalation.granted",
             package_id=data["package_id"],
-            tool_names=", ".join(data["tool_names"]),
+            # 本修复前落库的结果没有签名，重建历史上下文时退回工具名。
+            tool_signatures="\n".join(
+                f"- {line}" for line in data.get("tool_signatures") or data.get("tool_names") or ()
+            ),
         )
 
     def _build_result_summary(self, result: ToolResult) -> dict:
@@ -227,6 +231,45 @@ class RequestCapabilityHandler(BaseToolHandler):
             "package_id": data.get("package_id"),
             "reason_code": data.get("reason_code"),
         }
+
+
+def tool_signatures(call_kwargs: dict, tool_names: Iterable[str]) -> list[str]:
+    """从本次真正下发的 schema 机械生成参数签名，放进批准结果。
+
+    新工具在 Run 中途才出现在工具列表里，部分模型不会读取中途出现的定义而空参调用；
+    把参数名、类型、枚举与必填放进对话正文，不依赖模型去重读工具列表。
+    """
+
+    schemas = {
+        tool["function"]["name"]: tool["function"].get("parameters") or {}
+        for tool in call_kwargs.get("tools") or []
+        if isinstance(tool, dict) and isinstance(tool.get("function"), dict)
+    }
+    return [f"{name}({_parameter_signature(schemas.get(name) or {})})" for name in tool_names]
+
+
+def _parameter_signature(parameters: dict) -> str:
+    required = set(parameters.get("required") or ())
+    parts = []
+    for field, spec in (parameters.get("properties") or {}).items():
+        spec = spec if isinstance(spec, dict) else {}
+        part = f"{field}: {_type_label(spec)}"
+        if field in required:
+            part += ", required"
+        parts.append(part)
+    return "; ".join(parts)
+
+
+def _type_label(spec: dict) -> str:
+    if spec.get("enum"):
+        return "one of " + "|".join(str(value) for value in spec["enum"])
+    kind = spec.get("type")
+    if isinstance(kind, list):
+        kind = "|".join(str(item) for item in kind)
+    if kind == "array":
+        items = spec.get("items") if isinstance(spec.get("items"), dict) else {}
+        return f"array of {_type_label(items)}"
+    return str(kind or "any")
 
 
 def _rejected(package_id: str, reason_code: str) -> ToolResult:
