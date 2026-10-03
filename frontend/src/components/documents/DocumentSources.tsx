@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import type { DocumentSource } from '@/types/document';
-import { formatSourceTime, sourceKindLabel } from '@/lib/documents/documentExport';
+import { formatSourceTime, sourceKindLabel, sourceProviderLabel } from '@/lib/documents/documentExport';
 import styles from './DocumentPanel.module.css';
 
 /** 系统生成的数据来源；为空时说明本文档未引用实时查询结果。 */
@@ -15,6 +15,7 @@ export default function DocumentSources({ sources }: { sources: DocumentSource[]
         <ul>
           {sources.map((source, index) => {
             const time = formatSourceTime(source.fetched_at, i18n.language);
+            const provider = sourceProviderLabel(source.provider, t);
             return (
               <li key={`${source.kind}-${source.label}-${index}`}>
                 <span>{sourceKindLabel(source.kind, t)}：</span>
@@ -23,7 +24,7 @@ export default function DocumentSources({ sources }: { sources: DocumentSource[]
                 ) : (
                   <span>{source.label}</span>
                 )}
-                {source.provider ? <span> · {source.provider}</span> : null}
+                {provider ? <span> · {provider}</span> : null}
                 {time ? <span>{t('documents.sources.queriedAt', { time })}</span> : null}
               </li>
             );

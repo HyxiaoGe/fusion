@@ -27,6 +27,46 @@ const nested = [
 describe('文档富内容', () => {
   beforeAll(async () => { await i18n.changeLanguage('zh-CN'); });
 
+  it('统计长值按字符数降为正文层级，原文与差异标记完整保留', () => {
+    const short = '¥3,500';
+    const limit = '数'.repeat(20);
+    const long = '约400-700元（不含大交通与住宿，明细见预算参考）';
+    const emoji = '🧭'.repeat(20);
+    const content = `:::stats[预算]\n- 短值: ${short}\n- 边界: ${limit}\n- 长值: ${long}\n- 字符: ${emoji}\n:::\n`;
+    const before = content.replace('400-700', '300-600');
+    const view = render(<DocumentMarkdown content={content} highlights={buildDocumentHighlights(before, content).after} />);
+    const values = view.container.querySelectorAll('.fdoc-stat-value');
+    expect(values[0]).not.toHaveAttribute('data-long-value');
+    expect(values[1]).not.toHaveAttribute('data-long-value');
+    expect(values[2]).toHaveAttribute('data-long-value', 'true');
+    expect(values[2]).toHaveTextContent(long);
+    expect(values[2].querySelector('mark')).toBeInTheDocument();
+    expect(values[3]).not.toHaveAttribute('data-long-value');
+    const html = renderToStaticMarkup(<DocumentMarkdown content={content} expandTabs />);
+    expect(html).toContain('data-long-value="true"');
+    expect(html).toContain(long);
+    expect(html).not.toContain('data-document-change');
+    view.rerender(<DocumentMarkdown content={content.replace(limit, limit + '数')} />);
+    expect(view.container.querySelectorAll('.fdoc-stat-value')[1]).toHaveAttribute('data-long-value', 'true');
+  });
+
+  it('清单保持原有勾选状态和只读语义，HTML 导出也保留状态', async () => {
+    const user = userEvent.setup();
+    const content = '- [x] 已确认预算\n- [ ] 待确认营业时间\n';
+    render(<DocumentMarkdown content={content} />);
+    const [checked, unchecked] = screen.getAllByRole('checkbox');
+    expect(checked).toBeChecked();
+    expect(unchecked).not.toBeChecked();
+    expect(checked).toBeDisabled();
+    expect(unchecked).toBeDisabled();
+    await user.click(unchecked);
+    expect(unchecked).not.toBeChecked();
+    const html = renderToStaticMarkup(<DocumentMarkdown content={content} expandTabs />);
+    expect(html).toContain('type="checkbox"');
+    expect(html).toContain('checked=""');
+    expect(html.match(/disabled=""/g)).toHaveLength(2);
+  });
+
   it('方向键循环切换、Home/End 定位，Tab 进入关联面板', async () => {
     const user = userEvent.setup();
     render(<DocumentMarkdown content={tabs(['甲', '乙', '丙'])} />);

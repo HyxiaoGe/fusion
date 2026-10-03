@@ -6,6 +6,17 @@ export function sourceKindLabel(kind: DocumentSource['kind'], t: Translate): str
   return t(`documents.sources.kinds.${kind}`);
 }
 
+/** 只映射结构化来源标识；未知或内部服务商不对用户展示，来源原文保持不变。 */
+export function sourceProviderLabel(provider: DocumentSource['provider'], t: Translate): string | null {
+  switch (provider?.trim().toLowerCase()) {
+    case 'amap':
+    case '高德地图':
+      return t('documents.sources.providers.amap');
+    default:
+      return null;
+  }
+}
+
 export function formatSourceTime(value: string | null | undefined, locale = 'zh-CN'): string | null {
   if (!value) return null;
   const date = new Date(value);
@@ -26,7 +37,8 @@ export function buildSourcesMarkdown(sources: DocumentSource[], t: Translate, lo
   if (sources.length === 0) return '';
   const lines = sources.map(source => {
     const time = formatSourceTime(source.fetched_at, locale);
-    const provider = source.provider ? ` · ${source.provider}` : '';
+    const providerLabel = sourceProviderLabel(source.provider, t);
+    const provider = providerLabel ? ` · ${providerLabel}` : '';
     const suffix = time ? t('documents.sources.queriedAt', { time }) : '';
     const label = source.url ? `[${escapeMarkdownText(source.label)}](${source.url})` : escapeMarkdownText(source.label);
     return `- ${sourceKindLabel(source.kind, t)}：${label}${provider}${suffix}`;
@@ -104,6 +116,7 @@ body { margin: 0; background: #fff; color: var(--fg);
 .fdoc p, .fdoc ul, .fdoc ol { margin: 0 0 1rem; }
 .fdoc ul, .fdoc ol { padding-left: 1.5rem; }
 .fdoc li + li { margin-top: 0.35rem; }
+.fdoc input[type="checkbox"] { accent-color: var(--info); color-scheme: light; vertical-align: middle; margin-right: 0.5em; }
 .fdoc a { color: var(--info); }
 .fdoc hr { border: 0; border-top: 1px solid var(--border); margin: 1.75rem 0; }
 .fdoc blockquote { margin: 1.25rem 0; border-left: 3px solid var(--info-border); padding: 0.25rem 0 0.25rem 1rem; color: var(--muted); }
@@ -140,6 +153,7 @@ body { margin: 0; background: #fff; color: var(--fg);
 .fdoc-stat { display: flex; min-width: 0; flex-direction: column; justify-content: space-between; gap: 0.625rem;
   border: 1px solid var(--border); border-radius: 16px; padding: 1rem 1.125rem; background: linear-gradient(135deg, #fff, var(--info-bg)); }
 .fdoc-stat-value { font-size: 1.125rem; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+.fdoc-stat-value[data-long-value="true"] { font-size: 15px; font-weight: 400; line-height: 1.7; }
 .fdoc-stat-label { color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .fdoc-tab-section { margin: 0 0 1.25rem; }
 .fdoc .fdoc-tab-label { font-size: 1.125rem; font-weight: 600; margin: 1.5rem 0 0.75rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }

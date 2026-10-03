@@ -746,6 +746,7 @@
       "title": "数据来源",
       "empty": "本文档未使用实时查询结果，内容仅供参考。",
       "queriedAt": "（查询于 {{time}}）",
+      "providers": { "amap": "高德地图" },
       "kinds": {
         "weather": "天气",
         "place": "地点",

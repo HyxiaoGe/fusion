@@ -45,3 +45,31 @@ describe('document export', () => {
     expect(html).not.toContain('<script');
   });
 });
+
+
+describe('document source provider presentation', () => {
+  const sources = [
+    { kind: 'weather' as const, label: '杭州天气', provider: 'amap', fetched_at: '2026-10-02T01:30:00Z' },
+    { kind: 'place' as const, label: '西湖', provider: '高德地图' },
+    { kind: 'web' as const, label: 'Firecrawl 官网原文', provider: 'firecrawl', url: 'https://example.com/firecrawl' },
+    { kind: 'url' as const, label: '高德地图服务说明', provider: 'internal-provider', url: 'https://example.com/amap' },
+  ];
+
+  it.each([
+    ['zh-CN', '高德地图', '天气', '数据来源'],
+    ['en-US', 'AMap', 'Weather', 'Data sources'],
+  ])('localizes known providers and hides raw identifiers in %s Markdown', (locale, provider, kind, heading) => {
+    const translate = i18n.getFixedT(locale);
+    const markdown = buildMarkdownExport({ ...document, content: '正文中的 Firecrawl 和高德地图品牌原文\n', sources }, translate, locale);
+    expect(markdown).toContain(`## ${heading}`);
+    expect(markdown).toContain(`${kind}：杭州天气 · ${provider}`);
+    expect(markdown).toContain(`西湖 · ${provider}`);
+    expect(markdown).not.toContain(' · amap');
+    expect(markdown).not.toContain(' · firecrawl');
+    expect(markdown).not.toContain('internal-provider');
+    expect(markdown).toContain('正文中的 Firecrawl 和高德地图品牌原文');
+    expect(markdown).toContain('[Firecrawl 官网原文](https://example.com/firecrawl)');
+    expect(markdown).toContain('[高德地图服务说明](https://example.com/amap)');
+    expect(markdown).toMatch(/2026[\/]10[\/]02|10[\/]02[\/]2026/);
+  });
+});
