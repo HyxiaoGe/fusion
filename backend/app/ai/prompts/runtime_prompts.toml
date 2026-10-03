@@ -544,6 +544,7 @@ granted = """Capability {{ package_id }} granted. From the next step these tools
 {{ tool_signatures }}
 Call them with these parameter names. The skills list in the system prompt now matches these capabilities."""
 rejected = "Capability request rejected ({{ reason }}). Continue with the current capabilities; do not claim results from tools you could not call."
+rejected_retryable = "Capability request rejected ({{ reason }}). Fix the arguments according to the request_capability parameter descriptions and request once more, or continue with the current capabilities; do not claim results from tools you could not call."
 
 [skills]
 catalog_preamble = """Skills are instruction packages for specific kinds of tasks. Each entry below gives a skill's name and a description of what it covers.

@@ -154,9 +154,27 @@ def test_single_tool_package_can_be_requested_without_listing_tools():
     ("args", "reason_code"),
     [
         ({"package_id": "deep_research", "reason": "x"}, "unknown_package"),
-        ({"package_id": "mixed_itinerary", "reason": "x"}, "invalid_tool_selection"),
+        ({"package_id": "mixed_itinerary", "reason": "x"}, "primary_tool_name_required"),
         (
             {"package_id": "mixed_itinerary", "tool_names": ["weather_forecast", "local_place_search"], "reason": "x"},
+            "primary_tool_name_required",
+        ),
+        (
+            {
+                "package_id": "mixed_itinerary",
+                "tool_names": ["weather_forecast", "local_place_search"],
+                "primary_tool_name": "route_compare",
+                "reason": "x",
+            },
+            "primary_tool_name_required",
+        ),
+        (
+            {
+                "package_id": "mixed_itinerary",
+                "tool_names": ["weather_forecast", "unknown_tool"],
+                "primary_tool_name": "weather_forecast",
+                "reason": "x",
+            },
             "invalid_tool_selection",
         ),
     ],
@@ -414,3 +432,29 @@ def test_granted_result_stored_before_signatures_still_renders():
     )
 
     assert "- weather_forecast" in handler.format_llm_context(legacy)
+
+
+def test_fixable_rejection_invites_one_corrected_request_then_stops():
+    source = _config(_candidate("direct"))
+    handler = source.dynamic_tool_handlers[REQUEST_CAPABILITY_TOOL_NAME]
+    args = {"package_id": "mixed_itinerary", "tool_names": ["weather_forecast", "local_place_search"], "reason": "x"}
+
+    first = _request(source, **args)
+    second = _request(source, **args)
+
+    assert first.data["can_retry"] is True
+    assert "request once more" in handler.format_llm_context(first)
+    assert second.data["can_retry"] is False
+    assert "request once more" not in handler.format_llm_context(second)
+
+
+def test_corrected_request_after_a_fixable_rejection_is_granted():
+    source = _config(_candidate("direct"))
+    tools = ["weather_forecast", "local_place_search"]
+
+    assert _request(source, package_id="mixed_itinerary", tool_names=tools, reason="x").status == "failed"
+    retried = _request(
+        source, package_id="mixed_itinerary", tool_names=tools, primary_tool_name="weather_forecast", reason="x"
+    )
+
+    assert retried.status == "success"

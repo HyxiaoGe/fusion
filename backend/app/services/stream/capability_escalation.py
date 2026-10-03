@@ -39,6 +39,8 @@ REQUEST_CAPABILITY_TOOL_NAME = "request_capability"
 ESCALATION_SOURCE_PACKAGES = frozenset({"direct", "clarification_only"})
 # 被拒后允许模型修正一次参数；成功升级始终只有一次。
 MAX_ESCALATION_REQUESTS_PER_RUN = 2
+# 参数层面的拒绝：模型改参数后可以再申请一次；其余拒绝原因改参数也无济于事。
+_RETRYABLE_REASON_CODES = frozenset({"unknown_package", "invalid_tool_selection", "primary_tool_name_required"})
 _MAX_REASON_CHARS = 200
 
 
@@ -148,15 +150,15 @@ class RequestCapabilityHandler(BaseToolHandler):
         args = args if isinstance(args, dict) else {}
         package_id = str(args.get("package_id") or "")
         if session.applied or session.pending is not None:
-            return _rejected(package_id, "already_escalated")
+            return self._reject(package_id, "already_escalated")
         if session.attempts >= MAX_ESCALATION_REQUESTS_PER_RUN:
-            return _rejected(package_id, "request_limit_reached")
+            return self._reject(package_id, "request_limit_reached")
         session.attempts += 1
         blocked = session.blocked_reason() if session.blocked_reason is not None else None
         if blocked:
-            return _rejected(package_id, blocked)
+            return self._reject(package_id, blocked)
         if package_id not in session.target_package_ids:
-            return _rejected(package_id, "unknown_package")
+            return self._reject(package_id, "unknown_package")
         spec = CAPABILITY_PACKAGES[package_id]
         raw_tools = args.get("tool_names")
         tool_names = (
@@ -176,7 +178,10 @@ class RequestCapabilityHandler(BaseToolHandler):
             include_current_date=True,
         )
         if candidate is None:
-            return _rejected(package_id, "invalid_tool_selection")
+            primary_name = primary if isinstance(primary, str) else None
+            if spec.requires_primary_tool and primary_name not in tool_names:
+                return self._reject(package_id, "primary_tool_name_required")
+            return self._reject(package_id, "invalid_tool_selection")
         # 禁用与禁网约束只来自首判时用户的原话，模型的申请不能放宽它们。
         candidate = replace(
             candidate,
@@ -185,11 +190,11 @@ class RequestCapabilityHandler(BaseToolHandler):
         try:
             config = session.rebuild_call_config(candidate)
         except ValueError:
-            return _rejected(package_id, "capability_unavailable")
+            return self._reject(package_id, "capability_unavailable")
         resolution = getattr(config, "capability_resolution", None)
         if resolution is None or resolution.package_id != candidate.package_id:
             reason_codes = getattr(resolution, "reason_codes", ()) or ("capability_unavailable",)
-            return _rejected(package_id, reason_codes[0])
+            return self._reject(package_id, reason_codes[0])
         reason = str(args.get("reason") or "")[:_MAX_REASON_CHARS]
         session.pending = PendingEscalation(config=config, reason=reason)
         return ToolResult(
@@ -202,6 +207,13 @@ class RequestCapabilityHandler(BaseToolHandler):
             },
         )
 
+    def _reject(self, package_id: str, reason_code: str) -> ToolResult:
+        result = _rejected(package_id, reason_code)
+        result.data["can_retry"] = (
+            reason_code in _RETRYABLE_REASON_CODES and self._session.attempts < MAX_ESCALATION_REQUESTS_PER_RUN
+        )
+        return result
+
     def build_content_block(self, result: ToolResult, block_id: str, log_id: str):
         return None
 
@@ -213,7 +225,8 @@ class RequestCapabilityHandler(BaseToolHandler):
     ) -> str:
         data = result.data
         if result.status != "success":
-            return render_runtime_prompt("capability_escalation.rejected", reason=data.get("reason_code"))
+            key = "rejected_retryable" if data.get("can_retry") else "rejected"
+            return render_runtime_prompt(f"capability_escalation.{key}", reason=data.get("reason_code"))
         return render_runtime_prompt(
             "capability_escalation.granted",
             package_id=data["package_id"],
