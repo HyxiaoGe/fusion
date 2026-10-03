@@ -904,6 +904,18 @@ class PlanCoordinator:
         self.failed_tool_item_ids.update(statuses)
         return self._apply_statuses(statuses, reason=reason)
 
+    def skip_pending_execution(self, *, reason: str) -> dict[str, Any] | None:
+        """交付物已产出后，尚未取得结果的执行项不再补跑，单向收为 skipped。"""
+
+        if self.synthesis_started or self.terminal_outcome is not None:
+            return None
+        statuses: dict[str, PlanStatus] = {
+            str(item.get("id")): "skipped"
+            for item in self.items
+            if item.get("planned_tools") and item.get("status") not in {"completed", "failed", "skipped", "blocked"}
+        }
+        return self._apply_statuses(statuses, reason=reason)
+
     def block_tool_owners(
         self,
         tool_names: set[str] | frozenset[str],

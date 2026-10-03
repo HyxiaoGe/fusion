@@ -130,6 +130,8 @@ async def _handle_agent_round_outcome(
             return None
         if _requires_plan_before_stop(request):
             return await _repair_missing_required_plan(request)
+        if _document_delivered_with_pending_execution(request):
+            await _skip_pending_execution_after_document(request)
         if _requires_execution_before_stop(request):
             await _repair_incomplete_execution(request)
             return None
@@ -153,6 +155,8 @@ async def _handle_agent_round_outcome(
 
     if _requires_plan_before_stop(request):
         return await _repair_missing_required_plan(request)
+    if _document_delivered_with_pending_execution(request):
+        await _skip_pending_execution_after_document(request)
     if _requires_execution_before_stop(request):
         await _repair_incomplete_execution(request)
         return None
@@ -353,6 +357,18 @@ def _requires_execution_before_stop(request: AgentRoundOutcomeRequest) -> bool:
         and not coordinator.synthesis_started
         and not coordinator.execution_items_terminal()
     )
+
+
+def _document_delivered_with_pending_execution(request: AgentRoundOutcomeRequest) -> bool:
+    return _requires_execution_before_stop(request) and request.state.has_document_block()
+
+
+async def _skip_pending_execution_after_document(request: AgentRoundOutcomeRequest) -> None:
+    """文档已交付时，剩余查询步骤不再强制补跑，收为 skipped 后按正常路径收尾。"""
+
+    snapshot = request.state.plan_coordinator.skip_pending_execution(reason="document_delivered")
+    if snapshot is not None:
+        await request.runtime.emitter.plan_snapshot(**snapshot)
 
 
 def _requires_plan_synthesis(request: AgentRoundOutcomeRequest) -> bool:
