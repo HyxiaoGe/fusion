@@ -1,6 +1,6 @@
 ---
 name: web-research
-description: Method for answering questions that need current or verifiable information from the web, such as recent events, releases, prices, policies, official statements, or facts the user wants checked against sources. Covers choosing queries, deciding which pages to read in full, cross-checking key facts, and when to stop searching. Not needed when general knowledge already answers the question.
+description: Use before searching whenever the answer depends on current or verifiable facts from the web, such as news, releases, prices, exchange rates, policies, official statements, or facts the user asks to check. Gives the method for aimed queries, reading the right pages, cross-checking key facts, and stopping as soon as the answer is supported, so searches stay few and focused.
 metadata:
   fusion-tools: web_search url_read
   adapted-from: "DeerFlow deep-research skill (MIT, github.com/bytedance/deer-flow): date-aware queries and reading full sources; stop condition added for Fusion"

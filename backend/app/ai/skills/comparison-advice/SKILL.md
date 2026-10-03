@@ -1,6 +1,6 @@
 ---
 name: comparison-advice
-description: Method for helping the user choose between options, such as products, plans, services, tools, offers, or courses of action, by comparing them on the criteria that matter in the user's situation and ending with a clear recommendation. Use when the user asks which option to pick, how A compares with B, or whether something is worth it.
+description: Method for helping the user choose between options, such as products, plans, services, tools, offers, or courses of action, by comparing them on the criteria that matter in the user's situation and ending with a clear recommendation. Use when the user asks which option to pick, how A compares with B, or whether something is worth it. Not for planning a schedule or trip, or for open-ended how-to questions that have no options to choose between.
 metadata:
   source: "Written for Fusion"
 ---
