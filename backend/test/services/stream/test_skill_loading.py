@@ -3,6 +3,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+import pytest
+
 from app.ai.prompts.prompt_message import PromptMessage
 from app.ai.prompts.section_ids import SKILLS_CATALOG
 from app.ai.skills import discover_skills
@@ -268,3 +270,25 @@ class SkillPlanStageTests(unittest.IsolatedAsyncioTestCase):
 def test_session_budget_property():
     session = SkillSession(entries={}, attempts=MAX_SKILL_LOADS_PER_RUN)
     assert session.budget_exhausted
+
+
+@pytest.mark.bundled_skills
+def test_bundled_skills_follow_the_route_tools():
+    def config_for(package_id: str, message: str):
+        return build_agent_loop_call_config(
+            provider="openai",
+            options={},
+            capabilities=CAPABILITIES,
+            original_message=message,
+            classify_fn=lambda **_kwargs: _candidate(package_id),
+        )
+
+    direct = config_for("direct", "MacBook Air 和 MacBook Pro 选哪个")
+    web = config_for("fresh_web", "最新的 Python 发布说明")
+
+    assert set(direct.skill_session.entries) == {"comparison-advice"}
+    assert set(web.skill_session.entries) == {"comparison-advice", "web-research"}
+    # 每个内置 Skill 都按本 Run 公告的工具决定是否列出。
+    authorized = frozenset(web.announced_tools)
+    expected = {entry.name for entry in discover_skills() if entry.available_for(authorized)}
+    assert set(web.skill_session.entries) == expected
