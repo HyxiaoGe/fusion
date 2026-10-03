@@ -104,6 +104,7 @@ export default function DocumentPanel({ documentId, initialVersion, isOpen, onCl
   const readyDetail = detail.status === 'ready' && detail.owner === detailOwner ? detail.data : null;
   const title = ready?.title ?? readyDetail?.title ?? t('documents.panel.fallbackTitle');
   const versions = readyDetail?.versions ?? [];
+  const loadingVersions = detail.status === 'loading' || (detail.status === 'ready' && detail.owner !== detailOwner);
   const olderVersions = versions.filter(item => item.version < version).sort((a, b) => b.version - a.version);
   const comparing = comparisonOwner === detailOwner && olderVersions.length > 0;
 
@@ -169,65 +170,82 @@ export default function DocumentPanel({ documentId, initialVersion, isOpen, onCl
             </button>
           </div>
           <div className={styles.toolbar}>
-            {versions.length > 1 ? (
-              <span className={styles.versionControl}>
-                <select
-                  aria-label={t('documents.panel.versionLabel')}
-                  className={styles.versionSelect}
-                  value={version}
-                  onChange={event => setVersion(Number(event.target.value))}
-                >
-                  {[...versions].reverse().map(item => (
-                    <option key={item.version} value={item.version}>
-                      v{item.version}{item.change_summary ? ` · ${item.change_summary}` : ''}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
-              </span>
-            ) : ready ? (
-              <span className={styles.versionBadge}>{t('documents.card.version', { version: ready.version })}</span>
-            ) : null}
-            {versions.length > 1 ? (
+            <div className={styles.versionTools}>
+              <div className={styles.versionSlot} data-testid="document-version-slot">
+                {loadingVersions ? (
+                  <span className={styles.loadingPlaceholder} data-testid="document-version-placeholder" aria-hidden="true" />
+                ) : versions.length > 1 ? (
+                  <span className={styles.versionControl}>
+                    <select
+                      aria-label={t('documents.panel.versionLabel')}
+                      className={styles.versionSelect}
+                      value={version}
+                      onChange={event => setVersion(Number(event.target.value))}
+                    >
+                      {[...versions].reverse().map(item => (
+                        <option key={item.version} value={item.version}>
+                          v{item.version}{item.change_summary ? ` · ${item.change_summary}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                  </span>
+                ) : ready ? (
+                  <span className={styles.versionBadge}>{t('documents.card.version', { version: ready.version })}</span>
+                ) : null}
+              </div>
+              <div className={styles.comparisonSlot} data-testid="document-comparison-slot">
+                {/* 用本地化标签保留真实按钮宽度，隐藏占位不会进入键盘焦点。 */}
+                <span className={cn(styles.actionButton, styles.slotSizer)} aria-hidden="true">
+                  <GitCompare className="h-3.5 w-3.5" />
+                  <span>{t('documents.comparison.open')}</span>
+                </span>
+                {loadingVersions ? (
+                  <span className={styles.loadingPlaceholder} data-testid="document-comparison-placeholder" aria-hidden="true" />
+                ) : versions.length > 1 ? (
+                  <button
+                    type="button"
+                    className={styles.actionButton}
+                    aria-pressed={comparing}
+                    disabled={!ready || olderVersions.length === 0}
+                    title={olderVersions.length === 0 ? t('documents.comparison.firstVersion') : undefined}
+                    onClick={() => setComparisonOwner(comparing ? null : detailOwner)}
+                    onPointerMove={pointGlassLight}
+                    onPointerLeave={resetGlassLight}
+                  >
+                    <GlassHoverLens corners={false} />
+                    <GitCompare className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span>{t(comparing ? 'documents.comparison.read' : 'documents.comparison.open')}</span>
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            <div className={styles.exportTools}>
               <button
                 type="button"
                 className={styles.actionButton}
-                aria-pressed={comparing}
-                disabled={!ready || olderVersions.length === 0}
-                title={olderVersions.length === 0 ? t('documents.comparison.firstVersion') : undefined}
-                onClick={() => setComparisonOwner(comparing ? null : detailOwner)}
+                onClick={handleDownloadMarkdown}
+                disabled={!ready}
                 onPointerMove={pointGlassLight}
                 onPointerLeave={resetGlassLight}
               >
                 <GlassHoverLens corners={false} />
-                <GitCompare className="h-3.5 w-3.5" aria-hidden="true" />
-                <span>{t(comparing ? 'documents.comparison.read' : 'documents.comparison.open')}</span>
+                <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>{t('documents.panel.downloadMarkdown')}</span>
               </button>
-            ) : null}
-            <button
-              type="button"
-              className={styles.actionButton}
-              onClick={handleDownloadMarkdown}
-              disabled={!ready}
-              onPointerMove={pointGlassLight}
-              onPointerLeave={resetGlassLight}
-            >
-              <GlassHoverLens corners={false} />
-              <Download className="h-3.5 w-3.5" aria-hidden="true" />
-              <span>{t('documents.panel.downloadMarkdown')}</span>
-            </button>
-            <button
-              type="button"
-              className={styles.actionButton}
-              onClick={() => { void handleDownloadHtml(); }}
-              disabled={!ready}
-              onPointerMove={pointGlassLight}
-              onPointerLeave={resetGlassLight}
-            >
-              <GlassHoverLens corners={false} />
-              <FileCode2 className="h-3.5 w-3.5" aria-hidden="true" />
-              <span>{t('documents.panel.downloadHtml')}</span>
-            </button>
+              <button
+                type="button"
+                className={styles.actionButton}
+                onClick={() => { void handleDownloadHtml(); }}
+                disabled={!ready}
+                onPointerMove={pointGlassLight}
+                onPointerLeave={resetGlassLight}
+              >
+                <GlassHoverLens corners={false} />
+                <FileCode2 className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>{t('documents.panel.downloadHtml')}</span>
+              </button>
+            </div>
           </div>
         </header>
 

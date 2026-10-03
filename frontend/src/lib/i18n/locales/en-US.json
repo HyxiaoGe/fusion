@@ -752,6 +752,7 @@
       "title": "Data sources",
       "empty": "This document does not use live query results; treat it as reference only.",
       "queriedAt": " (queried {{time}})",
+      "providers": { "amap": "AMap" },
       "kinds": {
         "weather": "Weather",
         "place": "Place",

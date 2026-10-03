@@ -99,7 +99,10 @@ function SegmentView({ segment, expandTabs, path }: { segment: DocumentSegment; 
           <div className={cn(styles.stats, 'fdoc-stats')}>
             {segment.items.map((item, index) => (
               <div key={`${item.label}-${index}`} className={cn(styles.stat, 'fdoc-stat')}>
-                <span className={cn(styles.statValue, 'fdoc-stat-value')}><HighlightedField text={item.value} path={`${path}.item.${index}.value`} /></span>
+                <span
+                  className={cn(styles.statValue, 'fdoc-stat-value')}
+                  data-long-value={Array.from(item.value).length > 20 || undefined}
+                ><HighlightedField text={item.value} path={`${path}.item.${index}.value`} /></span>
                 <span className={cn(styles.statLabel, 'fdoc-stat-label')}><HighlightedField text={item.label} path={`${path}.item.${index}.label`} /></span>
               </div>
             ))}

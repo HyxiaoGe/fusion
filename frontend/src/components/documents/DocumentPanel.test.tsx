@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '@/lib/i18n';
-import type { DocumentVersionContent } from '@/types/document';
+import type { DocumentDetail, DocumentVersionContent } from '@/types/document';
 import { readDocumentReadingPosition } from '@/lib/documents/documentReadingStorage';
 
 const { getDocumentMock, getContentMock, identity } = vi.hoisted(() => ({
@@ -16,6 +16,26 @@ import DocumentPanel from './DocumentPanel';
 function contentFor(id: string, version: number): DocumentVersionContent {
   return { document_id: id, version, title: `文档 ${id}`, content: `# 第${version}版\n\n${id} 的正文`,
     format: 'markdown', change_summary: null, sources: [], created_at: null };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function detailFor(id: string, versionCount = 2): DocumentDetail {
+  return {
+    id, conversation_id: 'conversation', title: `文档 ${id}`, format: 'markdown',
+    current_version: versionCount, created_at: null, updated_at: null,
+    versions: Array.from({ length: versionCount }, (_, index) => ({
+      version: index + 1, title: `文档 ${id}`, change_summary: null, char_count: 10, created_at: null,
+    })),
+  };
 }
 
 describe('文档侧栏请求归属与阅读恢复', () => {
@@ -37,6 +57,95 @@ describe('文档侧栏请求归属与阅读恢复', () => {
     });
   });
   afterEach(() => { vi.restoreAllMocks(); });
+
+  it('正文先返回时保留版本和差异占位，正文与导出无需等待版本列表', async () => {
+    const detailRequest = deferred<DocumentDetail>();
+    const contentRequest = deferred<DocumentVersionContent>();
+    getDocumentMock.mockReturnValueOnce(detailRequest.promise);
+    getContentMock.mockReturnValueOnce(contentRequest.promise);
+    const user = userEvent.setup();
+    render(<DocumentPanel documentId="doc" initialVersion={2} isOpen onClose={vi.fn()} />);
+    const versionSlot = screen.getByTestId('document-version-slot');
+    const comparisonSlot = screen.getByTestId('document-comparison-slot');
+    expect(screen.getByTestId('document-version-placeholder')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('document-comparison-placeholder')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByRole('button', { name: 'Markdown' })).toBeDisabled();
+    expect(screen.queryByRole('combobox', { name: '文档版本' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '查看差异' })).toBeNull();
+
+    await act(async () => contentRequest.resolve(contentFor('doc', 2)));
+    expect(screen.getByTestId('document-reading-body')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Markdown' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'HTML' })).toBeEnabled();
+    expect(screen.getByTestId('document-version-placeholder')).toBeInTheDocument();
+    expect(screen.getByTestId('document-comparison-placeholder')).toBeInTheDocument();
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Markdown' })).toHaveFocus();
+
+    await act(async () => detailRequest.resolve(detailFor('doc')));
+    expect(screen.getByTestId('document-version-slot')).toBe(versionSlot);
+    expect(screen.getByTestId('document-comparison-slot')).toBe(comparisonSlot);
+    expect(screen.queryByTestId('document-version-placeholder')).toBeNull();
+    expect(screen.queryByTestId('document-comparison-placeholder')).toBeNull();
+    expect(screen.getByRole('combobox', { name: '文档版本' })).toHaveValue('2');
+    expect(screen.getByRole('button', { name: '查看差异' })).toBeEnabled();
+  });
+
+  it('版本列表先返回时结束占位，等待正文期间维持真实按钮禁用状态', async () => {
+    const detailRequest = deferred<DocumentDetail>();
+    const contentRequest = deferred<DocumentVersionContent>();
+    getDocumentMock.mockReturnValueOnce(detailRequest.promise);
+    getContentMock.mockReturnValueOnce(contentRequest.promise);
+    render(<DocumentPanel documentId="doc" initialVersion={2} isOpen onClose={vi.fn()} />);
+    await act(async () => detailRequest.resolve(detailFor('doc')));
+    expect(screen.queryByTestId('document-version-placeholder')).toBeNull();
+    expect(screen.queryByTestId('document-comparison-placeholder')).toBeNull();
+    expect(screen.getByRole('combobox', { name: '文档版本' })).toHaveValue('2');
+    expect(screen.getByRole('button', { name: '查看差异' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Markdown' })).toBeDisabled();
+    expect(screen.queryByTestId('document-reading-body')).toBeNull();
+    await act(async () => contentRequest.resolve(contentFor('doc', 2)));
+    expect(screen.getByTestId('document-reading-body')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '查看差异' })).toBeEnabled();
+  });
+
+  it('换文档立即回到占位，单版加载完成不显示差异入口', async () => {
+    const props = { documentId: 'doc', initialVersion: 2, isOpen: true, onClose: vi.fn() };
+    const view = render(<DocumentPanel {...props} />);
+    await screen.findByRole('combobox', { name: '文档版本' });
+    await screen.findByTestId('document-reading-body');
+    const versionSlot = screen.getByTestId('document-version-slot');
+    const comparisonSlot = screen.getByTestId('document-comparison-slot');
+    const detailRequest = deferred<DocumentDetail>();
+    getDocumentMock.mockReturnValueOnce(detailRequest.promise);
+    view.rerender(<DocumentPanel {...props} documentId="single" initialVersion={1} />);
+    expect(screen.getByTestId('document-version-placeholder')).toBeInTheDocument();
+    expect(screen.getByTestId('document-comparison-placeholder')).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: '文档版本' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '查看差异' })).toBeNull();
+    await screen.findByRole('heading', { name: '第1版' });
+    await act(async () => detailRequest.resolve(detailFor('single', 1)));
+    expect(screen.getByTestId('document-version-slot')).toBe(versionSlot);
+    expect(screen.getByTestId('document-comparison-slot')).toBe(comparisonSlot);
+    expect(screen.queryByTestId('document-version-placeholder')).toBeNull();
+    expect(screen.queryByTestId('document-comparison-placeholder')).toBeNull();
+    expect(screen.queryByRole('button', { name: '查看差异' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Markdown' })).toBeEnabled();
+  });
+
+  it('版本列表失败结束占位，已返回的正文和导出仍可使用', async () => {
+    const detailRequest = deferred<DocumentDetail>();
+    getDocumentMock.mockReturnValueOnce(detailRequest.promise);
+    render(<DocumentPanel documentId="doc" initialVersion={2} isOpen onClose={vi.fn()} />);
+    await screen.findByTestId('document-reading-body');
+    expect(screen.getByTestId('document-version-placeholder')).toBeInTheDocument();
+    await act(async () => detailRequest.reject(new Error('版本列表暂不可用')));
+    expect(screen.queryByTestId('document-version-placeholder')).toBeNull();
+    expect(screen.queryByTestId('document-comparison-placeholder')).toBeNull();
+    expect(screen.queryByRole('button', { name: '查看差异' })).toBeNull();
+    expect(screen.getByTestId('document-reading-body')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Markdown' })).toBeEnabled();
+  });
 
   it('切换版本与关闭重开分别恢复原版本的最后位置', async () => {
     const user = userEvent.setup();
