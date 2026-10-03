@@ -384,7 +384,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -1278,7 +1277,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -2263,7 +2261,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -2291,7 +2288,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -2920,7 +2916,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -3540,7 +3535,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -3568,7 +3562,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -3937,7 +3930,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -4570,7 +4562,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -4598,7 +4589,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -4626,7 +4616,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -4654,7 +4643,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -4776,7 +4764,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -5041,7 +5028,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -5069,7 +5055,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -5955,7 +5940,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -5983,7 +5967,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -6011,7 +5994,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -7291,7 +7273,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -7319,7 +7300,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -7347,7 +7327,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -8572,7 +8551,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -8600,7 +8578,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -8628,7 +8605,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -8656,7 +8632,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -9740,7 +9715,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -10072,7 +10046,6 @@
       "tool_failure_policy",
       "tool_usage_contract",
       "agent_plan_control",
-      "skill:verified-research@1.0.0",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
