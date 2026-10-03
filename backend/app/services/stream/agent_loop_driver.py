@@ -29,6 +29,7 @@ from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_loop_step_requests import build_limit_summary_step_request
 from app.services.stream.agent_round import AgentRoundResult
+from app.services.stream.capability_escalation import apply_pending_escalation
 from app.services.stream.dynamic_tool_discovery import TOOL_SEARCH_NAME
 from app.services.stream.limit_summary_fact_guard import has_tool_evidence, requires_external_evidence
 from app.services.stream.product_result_answer import has_product_result_blocks
@@ -56,6 +57,7 @@ async def run_agent_loop(
     while True:
         if await _stop_if_limit_reached(state=state, runtime=runtime):
             break
+        runtime = await apply_pending_escalation(messages=messages, state=state, runtime=runtime)
 
         exhausted_plan_changed = await _reconcile_exhausted_dynamic_tool_owners(
             state=state,
@@ -286,11 +288,10 @@ async def _run_round(
         if not policy.require_tool_call:
             # 计划内取证完成后的收口阶段：文档交付工具在这里写入成品。
             allowed_tool_names = frozenset(allowed_tool_names) | runtime.output_tool_names
-        if runtime.skill_tool_names and (
-            not policy.require_tool_call or not state.plan_coordinator.has_valid_model_plan
-        ):
-            # Skill 只在制定计划前与收口阶段开放；锁定执行计划步骤时不让它绕开当前步骤。
-            allowed_tool_names = frozenset(allowed_tool_names) | runtime.skill_tool_names
+        assist_tool_names = runtime.unplanned_assist_tool_names
+        if assist_tool_names and (not policy.require_tool_call or not state.plan_coordinator.has_valid_model_plan):
+            # Skill 与能力申请只在制定计划前与收口阶段开放；锁定执行计划步骤时不让它绕开当前步骤。
+            allowed_tool_names = frozenset(allowed_tool_names) | assist_tool_names
             if preferred_tool_name == "update_plan":
                 preferred_tool_name = None
         call_kwargs = _filter_tools_for_research_stage(
@@ -302,8 +303,8 @@ async def _run_round(
                 for tool_name in allowed_tool_names:
                     if runtime.tool_discovery is not None and tool_name == TOOL_SEARCH_NAME:
                         continue
-                    # update_plan 与 load_skill 不挂计划绑定参数。
-                    if tool_name == "update_plan" or tool_name in runtime.skill_tool_names:
+                    # update_plan、load_skill 与 request_capability 不挂计划绑定参数。
+                    if tool_name == "update_plan" or tool_name in assist_tool_names:
                         continue
                     call_kwargs = _constrain_research_stage_plan_binding(
                         call_kwargs,

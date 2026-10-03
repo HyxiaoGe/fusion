@@ -83,11 +83,19 @@ export interface RunCell extends TrajectoryCellBase {
   trajectoryBadge: TrajectoryBadge;
   /** 手写 legacy 投影可能缺失；正式投影始终写入合法对象或 null。 */
   capabilityResolution?: TrajectoryCapabilityResolution | null;
+  /** Run 内能力升级：首判仍是 capabilityResolution，升级后的能力包记在这里。 */
+  capabilityEscalation?: TrajectoryCapabilityEscalation | null;
   /** 显式开启动态发现。不代表目录工具已加载或已执行。 */
   dynamicToolDiscovery?: boolean;
   records: NormalizedTrajectoryEvent[];
   spans: TrajectorySpan[];
   liveTail: NormalizedTrajectoryEvent[];
+}
+
+export interface TrajectoryCapabilityEscalation {
+  fromPackageId: string;
+  stepNumber: number;
+  resolution: TrajectoryCapabilityResolution;
 }
 
 export interface PlanCell extends TrajectoryCellBase {
@@ -610,6 +618,7 @@ function createRunCell(
     association: join.strategy,
     trajectoryBadge: deriveTrajectoryBadge(run, snapshot),
     capabilityResolution: resolveCapabilityResolution(run, snapshot, liveEvents),
+    capabilityEscalation: resolveCapabilityEscalation(snapshot, liveEvents),
     dynamicToolDiscovery: resolveDynamicToolDiscovery(run, snapshot, liveEvents, messages),
     records: detail?.durableEvents ?? [],
     spans: detail?.snapshot.spans ?? [],
@@ -634,6 +643,23 @@ function resolveCapabilityResolution(
     return normalizeTrajectoryCapabilityResolution(event.payload.capability_resolution);
   }
   return null;
+}
+
+/** 升级事件是唯一事实源：历史读回走 snapshot.events，实时走 live tail，二者同一形状。 */
+function resolveCapabilityEscalation(
+  snapshot: TrajectorySnapshotCacheEntry | undefined,
+  liveEvents: readonly NormalizedTrajectoryEvent[],
+): TrajectoryCapabilityEscalation | null {
+  let escalation: TrajectoryCapabilityEscalation | null = null;
+  for (const event of [...(snapshot?.events ?? []), ...liveEvents]) {
+    if (event.eventType !== 'capability_escalated') continue;
+    const fromPackageId = stringValue(event.payload.from_package_id);
+    const stepNumber = numberValue(event.payload.step_number);
+    const resolution = normalizeTrajectoryCapabilityResolution(event.payload.capability_resolution);
+    if (!fromPackageId || stepNumber === null || !resolution) continue;
+    escalation = { fromPackageId, stepNumber, resolution };
+  }
+  return escalation;
 }
 
 function eventEnablesDynamicToolDiscovery(event: NormalizedTrajectoryEvent): boolean {

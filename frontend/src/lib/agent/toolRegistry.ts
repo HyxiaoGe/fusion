@@ -6,7 +6,7 @@
  * icon 用 Lucide component reference 而不是字符串——保证类型安全 + tree-shaking 友好。
  */
 
-import { BookOpen, CloudSun, Search, Globe, MapPin, Plane, Route, Train, Wrench } from 'lucide-react';
+import { ArrowUpCircle, BookOpen, CloudSun, Search, Globe, MapPin, Plane, Route, Train, Wrench } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 export type SemanticColor = 'info' | 'success' | 'warn' | 'danger' | 'teal' | 'neutral';
@@ -80,6 +80,12 @@ export const TOOL_REGISTRY: Record<string, ToolMeta> = {
       firstStringArgument(a, ['file']),
       '技能说明',
     ),
+  },
+  request_capability: {
+    label: '申请更多能力',
+    icon: ArrowUpCircle,
+    color: 'neutral',
+    summarize: (a) => firstStringArgument(a, ['package_id']) || '能力包',
   },
 };
 

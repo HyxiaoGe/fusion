@@ -610,6 +610,9 @@
       "planMode": "计划模式",
       "routerVersion": "路由器版本",
       "bundleFingerprint": "能力包指纹",
+      "escalation": "能力升级",
+      "escalationValue": "{{from}} → {{to}}（第 {{step}} 步）",
+      "escalatedExternalTools": "升级后外部工具",
       "none": "无",
       "confidenceValues": {
         "high": "高",

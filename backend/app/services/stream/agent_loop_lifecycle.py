@@ -225,6 +225,10 @@ async def _run_success_path(
     prepared_messages = await _prepare_messages(
         request=request, execution=execution, dependencies=dependencies, grounding=grounding
     )
+    escalation = getattr(request.call_config, "escalation_session", None)
+    if escalation is not None:
+        escalation.rebuild_system_messages = prepared_messages.rebuild_system_messages
+        escalation.system_section_ids = frozenset(prepared_messages.system_section_ids)
     execution.state.content_blocks.extend(request.initial_content_blocks)
     execution.state.content_blocks.extend(prepared_messages.initial_content_blocks)
     # 预读成功的正文已注入本轮 messages，与工具读页同等入账；续跑带回的历史块不登记，
@@ -413,6 +417,8 @@ async def _prepare_messages(
         final_tool_names=getattr(prepared, "final_tool_names", []),
         run_prompt_snapshot=run_snapshot,
         prompt_snapshot=snapshot_data,
+        rebuild_system_messages=getattr(prepared, "rebuild_system_messages", None),
+        system_section_ids=tuple(getattr(prepared, "system_section_ids", ()) or ()),
         prompt_assembly={
             **(prepared.prompt_assembly or {}),
             "status": "ready",
@@ -637,22 +643,7 @@ def _run_config(limits: AgentLoopLimits, call_config: AgentLoopCallConfig | None
     }
     if bundle_snapshot is not None:
         config["prompt_bundle"] = bundle_snapshot.identity()
-    binding_fields = (
-        "alias",
-        "server_id",
-        "remote_tool_name",
-        "provider",
-        "config_version",
-        "tool_label",
-        "definition_sha256",
-    )
-    bindings = []
-    for binding in getattr(call_config, "tool_bindings", []) or []:
-        if not isinstance(binding, dict):
-            continue
-        safe_binding = {field: binding[field] for field in binding_fields if field in binding}
-        if safe_binding.get("alias"):
-            bindings.append(safe_binding)
+    bindings = _safe_tool_bindings(call_config)
     if bindings:
         config["mcp_tool_bindings"] = bindings
     resolution = getattr(call_config, "capability_resolution", None)
@@ -670,31 +661,65 @@ def _run_config(limits: AgentLoopLimits, call_config: AgentLoopCallConfig | None
         }
         return config
     if resolution is not None:
-        resolution_payload = serialize_capability_resolution(resolution)
-        TrajectoryCapabilityResolution.model_validate(
-            {
-                **resolution_payload,
-                "bundle_fingerprint": "sha256:" + "0" * 64,
-            }
-        )
-        announced_tools = list(getattr(call_config, "announced_tools", []) or [])
-        if resolution_payload["external_tool_names"] != announced_tools:
-            raise ValueError("能力路由工具与 Run 公告工具不一致")
-        fingerprint_input = {
-            "prompt_template_version": TEMPLATE_VERSION,
-            "capability_resolution": resolution_payload,
-            "announced_tools": announced_tools,
-            "mcp_tool_bindings": bindings,
-            "task_mode": config["task_mode"],
-            "network_profile": config["network_profile"],
-            "evidence_policy": config["evidence_policy"],
-        }
-        serialized_fingerprint_input = json.dumps(
-            fingerprint_input,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        resolution_payload["bundle_fingerprint"] = "sha256:" + hashlib.sha256(serialized_fingerprint_input).hexdigest()
-        config["capability_resolution"] = TrajectoryCapabilityResolution.model_validate(resolution_payload).model_dump()
+        config["capability_resolution"] = capability_resolution_trajectory_payload(call_config)
     return config
+
+
+_BINDING_FIELDS = (
+    "alias",
+    "server_id",
+    "remote_tool_name",
+    "provider",
+    "config_version",
+    "tool_label",
+    "definition_sha256",
+)
+
+
+def _safe_tool_bindings(call_config: AgentLoopCallConfig | None) -> list[dict]:
+    bindings = []
+    for binding in getattr(call_config, "tool_bindings", []) or []:
+        if not isinstance(binding, dict):
+            continue
+        safe_binding = {field: binding[field] for field in _BINDING_FIELDS if field in binding}
+        if safe_binding.get("alias"):
+            bindings.append(safe_binding)
+    return bindings
+
+
+def capability_resolution_trajectory_payload(call_config: AgentLoopCallConfig) -> dict:
+    """能力 resolution 的轨迹协议对象，指纹覆盖 Prompt 模板、公告工具与绑定。
+
+    首判写进 run_started，Run 内升级写进 capability_escalated，两者同一算法。
+    """
+
+    resolution = call_config.capability_resolution
+    if resolution is None:
+        raise ValueError("缺少能力 resolution")
+    resolution_payload = serialize_capability_resolution(resolution)
+    TrajectoryCapabilityResolution.model_validate(
+        {
+            **resolution_payload,
+            "bundle_fingerprint": "sha256:" + "0" * 64,
+        }
+    )
+    announced_tools = list(getattr(call_config, "announced_tools", []) or [])
+    if resolution_payload["external_tool_names"] != announced_tools:
+        raise ValueError("能力路由工具与 Run 公告工具不一致")
+    fingerprint_input = {
+        "prompt_template_version": TEMPLATE_VERSION,
+        "capability_resolution": resolution_payload,
+        "announced_tools": announced_tools,
+        "mcp_tool_bindings": _safe_tool_bindings(call_config),
+        "task_mode": getattr(call_config, "task_mode", "standard"),
+        "network_profile": getattr(call_config, "network_profile", "standard"),
+        "evidence_policy": getattr(call_config, "evidence_policy", "standard"),
+    }
+    serialized_fingerprint_input = json.dumps(
+        fingerprint_input,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    resolution_payload["bundle_fingerprint"] = "sha256:" + hashlib.sha256(serialized_fingerprint_input).hexdigest()
+    return TrajectoryCapabilityResolution.model_validate(resolution_payload).model_dump()

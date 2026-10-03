@@ -735,6 +735,30 @@ class AgentEventEmitter:
             )
         )
 
+    async def capability_escalated(
+        self,
+        *,
+        step_number: int,
+        from_package_id: str,
+        capability_resolution: dict[str, Any],
+        section_ids: list[str],
+        system_prompt_fingerprint: str,
+    ) -> None:
+        if self._message_id is None:
+            raise RuntimeError("capability_escalated 必须在 run_started 之后发送")
+        await self._emit(
+            ev.CapabilityEscalated(
+                type="capability_escalated",
+                protocol_version=2,
+                step_number=step_number,
+                from_package_id=from_package_id,
+                capability_resolution=capability_resolution,
+                section_ids=section_ids,
+                system_prompt_fingerprint=system_prompt_fingerprint,
+                **self._envelope(step_id=None),
+            )
+        )
+
     async def context_status_updated(
         self,
         *,

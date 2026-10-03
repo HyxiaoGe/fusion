@@ -55,3 +55,12 @@ class AgentLoopRuntime:
     capability_resolution: RunCapabilityResolution | None = None
     fallback_response_context: FallbackResponseContext | None = None
     tool_discovery: Any = None
+    # Run 内能力升级：会话在升级生效后置为已用，工具名随之清空。
+    capability_escalation: Any = None
+    escalation_tool_names: frozenset[str] = frozenset()
+
+    @property
+    def unplanned_assist_tool_names(self) -> frozenset[str]:
+        """Skill 加载与能力申请：不绑定计划步骤，只在制定计划前与收口阶段开放。"""
+
+        return self.skill_tool_names | self.escalation_tool_names

@@ -1,6 +1,6 @@
 # Run 内能力升级
 
-状态：设计已确认，待实施（2026-10-03）。
+状态：已实施（2026-10-04），待 dev 验收。实施时对第 1、2、4 节的调整见各节「实施说明」。
 
 ## 背景
 
@@ -39,7 +39,8 @@ Run 级能力路由（`2026-08-27-run-capability-router.md`）在首个 LLM Roun
 
 - 模型支持函数调用；
 - 首判包属于可升级来源：`direct`、`clarification_only`；
-- 非深度研究、非知识库模式、未 `disable_tools`、非续跑；
+- 非深度研究、非知识库模式、未 `disable_tools`、非续跑、非文档交付模式；
+- 开关 `RUN_CAPABILITY_ESCALATION_ENABLED` 打开；
 - 本 Run 尚未升级过。
 
 参数与分类器输出同构，便于复用同一套确定性 resolution 校验：
@@ -47,13 +48,13 @@ Run 级能力路由（`2026-08-27-run-capability-router.md`）在首个 LLM Roun
 ```json
 {
   "package_id": "mixed_itinerary",
-  "explicit_tool_names": ["weather_forecast", "local_place_search"],
-  "required_primary_tool_name": "weather_forecast",
+  "tool_names": ["weather_forecast", "local_place_search"],
+  "primary_tool_name": "weather_forecast",
   "reason": "Needs this weekend's forecast and real places in Shanghai."
 }
 ```
 
-- `package_id` 的 enum 只列本 Run 可升级的目标包；`explicit_tool_names` 按包规则校验。
+- `package_id` 的 enum 只列本 Run 可升级的目标包；`tool_names` 按包规则校验，省略时取包的固定工具集。
 - `reason` 限长，只进审计，不参与任何判定。
 - 工具描述用英文、说明用途和代价（多一轮、更慢），不写语义触发条件（不写「当用户提到天气时」之类）。
 - 与 `update_plan`、`load_skill` 一样属于控制工具：不绑定计划步骤，不计入外部工具预算。
@@ -67,6 +68,11 @@ Run 级能力路由（`2026-08-27-run-capability-router.md`）在首个 LLM Roun
 3. 首判时的用户约束不放宽：`network_policy` 与 `denied_tool_names` 继承首判结果，模型不能覆盖；用户明确禁止联网时，联网类目标直接拒绝；
 4. 目标包工具对当前模型与账号可用（函数调用、搜索能力、产品工具配置）；
 5. 交给现有 resolution 骨架做与首判完全相同的派生校验（工具数量、primary tool、计划模式等）。
+
+实施说明：
+
+- 校验与首判共用 `build_candidate_route`，切换用固定候选重新调用 `build_agent_loop_call_config`，因此升级后的执行面与「首判就是目标包」逐字段相同（有离线等价测试）。
+- 每个 Run 最多成功升级 1 次、申请 2 次（含被拒）；模型计划制定后申请一律拒绝（`plan_already_created`），避免计划与新工具集错位。
 
 ### 3. 原子切换
 
@@ -88,15 +94,22 @@ Run 级能力路由（`2026-08-27-run-capability-router.md`）在首个 LLM Roun
   ```json
   {
     "type": "capability_escalated",
+    "protocol_version": 2,
     "step_number": 1,
     "from_package_id": "direct",
-    "resolution": { "...与 capability_resolution 同 schema 的目标包安全对象...": "" },
-    "reason_codes": ["model_requested"]
+    "capability_resolution": { "...与 run_started.capability_resolution 同 schema、同指纹算法的目标包安全对象...": "" },
+    "section_ids": ["app_identity", "current_date", "tool_usage_contract"],
+    "system_prompt_fingerprint": "<64 位 hex>"
   }
   ```
 
-  `resolution.resolution_mode = "escalated"`。不记录模型 `reason` 原文以外的任何自由文本；`reason` 只进工具调用日志。
-- `AgentSession.run_config` 增加 `capability_escalation`（目标 resolution 与发生步数），作为刷新与历史的事实源。
+  事件不含模型 `reason`；`reason` 只在该次工具调用的参数与结果里。
+
+实施说明（相对原设计的调整）：
+
+- 目标 resolution 保持正常的 `routed` 形态，不新增 `resolution_mode = "escalated"`：升级与否由事件本身表达，resolution schema 与前端校验不变。
+- 不写 `AgentSession.run_config`。`capability_escalated` 是持久化轨迹事件，实时 SSE 与历史读回走同一条账本，事件本身就是事实源；`run_config` 保持首判快照。
+- Run 级系统提示词快照（`system_prompt_prepared` 与详情）保持首判版本；升级后每轮的实际提示词由 `llm_round_started.system_prompt_fingerprint` 与 `tool_names` 区分，事件里的 `section_ids` 与指纹对应升级后的版本。
 - 拒绝不发事件，只体现在该次工具调用的结果与日志里。
 - 前后端协议同步：前端 normalizer 接受新事件；轨迹 Run 概览显示「首判包 → 升级包（第 N 步）」；工具注册表加 `request_capability` 节点（标签走 i18n）。必须与后端同一 PR 发布。
 
@@ -132,7 +145,7 @@ dev 部署后用探针账号逐条新会话运行，判定依据为轨迹事件�
 
 ## 实施拆分
 
-1. 后端：控制工具、校验、原子切换（复用发现原型的运行态同步，补 Prompt 重组）、事件与 `run_config`、开关、测试。
+1. 后端：控制工具、校验、原子切换（复用发现原型的运行态同步，补 Prompt 重组）、事件、开关、测试。
 2. 前端：事件归一化、轨迹概览、工具节点与 i18n。与 1 同一 PR。
 3. 观测：路由质量面板指标，可单独 PR。
 4. dev 验收与描述调优，结果补记到本文末尾。

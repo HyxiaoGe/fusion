@@ -534,6 +534,12 @@ Only names listed below are in this run's authorized catalog.
 Call `tool_search` before using a deferred tool; unmatched queries list the catalog.
 On the first tool_search call, declare the current request's network_policy and denied_tool_names. Keep that declaration unchanged on later calls. Use no_network for a restriction covering this entire request; use no_web_search or no_url_read for narrower operation bans. Put exact prohibited authorized tool names in denied_tool_names. Quoted text, old tasks, and bans scoped to a different subtask do not prohibit the current request; a later explicit reauthorization takes precedence. The server removes declared prohibited tools from the catalog and blocks their execution. If no_network leaves no usable external evidence, do not claim current external facts from memory; explain that the requested fact cannot be verified under this restriction. Do not use the catalog to bypass the user's restrictions."""
 
+[capability_escalation]
+tool_description = """Request one additional capability package for this run. The tools available now were chosen from the request before you started answering. When a good answer needs facts you cannot reliably know without a lookup, such as current information, live conditions, real places, routes, timetables, or the content of a page, call this once with the package that provides them, before writing the answer. On success the package's tools become available from the next step; answering takes longer but rests on real results. When existing knowledge already answers the request well, answer directly instead. A request can be granted at most once per run; if it is rejected, continue with the current capabilities and say what you could not check."""
+packages_description = "Capability packages you can request, with the tools each provides:"
+granted = "Capability {{ package_id }} granted. From the next step you can call: {{ tool_names }}."
+rejected = "Capability request rejected ({{ reason }}). Continue with the current capabilities; do not claim results from tools you could not call."
+
 [skills]
 catalog_preamble = """Skills are instruction packages for specific kinds of tasks. Each entry below gives a skill's name and a description of what it covers.
 When a skill fits the user's request, call `load_skill` with its name before starting the work, then follow the loaded instructions alongside the rest of this system prompt. If none fits, ignore this list.

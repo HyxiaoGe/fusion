@@ -839,3 +839,29 @@ describe('工具上下文可见性', () => {
     expect(normalizeSseTrajectoryEvent({ ...envelope, context_visibility: { ...context_visibility, visible_tool_call_ids: Array.from({ length: 201 }, () => 'id') } })?.payload.context_visibility).toBeNull();
   });
 });
+
+describe('Run 内能力升级事件', () => {
+  it('实时与历史保留同一安全形状，不保留模型申请理由', () => {
+    const resolution = {
+      schema_version: 2, router_version: '2026-09-21.1', package_id: 'fresh_web', confidence: 'high',
+      resolution_mode: 'routed', reason_codes: ['fresh_external_fact'], external_tool_names: ['web_search'],
+      effective_plan_mode: 'off', include_current_date: true, network_boundary_required: false,
+      bundle_fingerprint: `sha256:${'c'.repeat(64)}`,
+    };
+    const payload = {
+      protocol_version: 2, step_number: 1, from_package_id: 'direct', capability_resolution: resolution,
+      section_ids: ['app_identity', 'tool_usage_contract'], system_prompt_fingerprint: 'd'.repeat(64),
+    };
+    const live = normalizeSseTrajectoryEvent({
+      type: 'capability_escalated', run_id: 'run-1', step_id: null, parent_step_id: null, tool_call_id: null,
+      sequence: 4, trace_id: 'trace-1', ts: Date.parse(timestamp) / 1000, ...payload, reason: '模型原文',
+    });
+    const history = normalizeTrajectoryRecord('run-1', {
+      sequence: 4, event_type: 'capability_escalated', timestamp, step_id: null, parent_step_id: null,
+      tool_call_id: null, trace_id: 'trace-1', payload,
+    });
+
+    expect(live?.payload).toEqual(payload);
+    expect(history).toEqual(live);
+  });
+});

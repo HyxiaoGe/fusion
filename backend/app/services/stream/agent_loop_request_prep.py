@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any
 
 from app.ai.prompts.agent_loop import (
@@ -32,6 +33,7 @@ from app.ai.prompts.section_ids import (
 )
 from app.ai.prompts.system_prompt import SystemPromptSection, assemble_system_prompt
 from app.ai.tools import build_url_read_tool, build_web_search_tool
+from app.core.config import settings
 from app.core.prompt_snapshot import PromptBundleSnapshot, use_prompt_snapshot
 from app.db.repositories import FileRepository
 from app.services.agent.plan_coordinator import PlanMode
@@ -49,6 +51,14 @@ from app.services.stream.agent_plan_tool_policy import (
     resolve_product_package_plan_policy,
 )
 from app.services.stream.agent_task_policy import resolve_agent_task_policy
+from app.services.stream.capability_escalation import (
+    ESCALATION_SOURCE_PACKAGES,
+    REQUEST_CAPABILITY_TOOL_NAME,
+    CapabilityEscalationSession,
+    RequestCapabilityHandler,
+    build_request_capability_schema,
+    escalation_target_package_ids,
+)
 from app.services.stream.persistence import preprocess_url_in_message
 from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
 from app.services.stream.run_capability_router import (
@@ -103,14 +113,20 @@ class AgentLoopCallConfig:
     document_context: str | None = None
     # 按需加载的 Skill：目录进 system prompt，load_skill 同样不进计划绑定。
     skill_session: SkillSession | None = None
+    # 首判为可升级来源包时挂上；request_capability 同样不进计划绑定。
+    escalation_session: CapabilityEscalationSession | None = None
 
     @property
     def skill_tool_names(self) -> frozenset[str]:
         return frozenset({LOAD_SKILL_TOOL_NAME}) if self.skill_session is not None else frozenset()
 
     @property
+    def escalation_tool_names(self) -> frozenset[str]:
+        return frozenset({REQUEST_CAPABILITY_TOOL_NAME}) if self.escalation_session is not None else frozenset()
+
+    @property
     def unplanned_tool_names(self) -> frozenset[str]:
-        return self.output_tool_names | self.skill_tool_names
+        return self.output_tool_names | self.skill_tool_names | self.escalation_tool_names
 
 
 def build_update_plan_tool(allowed_tool_names: list[str] | None = None) -> dict[str, Any]:
@@ -190,6 +206,9 @@ class AgentLoopPreparedMessages:
     prompt_assembly: dict[str, Any] | None = None
     prompt_snapshot: dict[str, Any] | None = None
     run_prompt_snapshot: RunPromptSnapshot | None = None
+    # 按另一个 call config 重组本 Run 的系统提示词段落；Run 内能力升级时使用。
+    rebuild_system_messages: Callable[[AgentLoopCallConfig], tuple[PromptMessage, ...]] | None = None
+    system_section_ids: tuple[str, ...] = ()
 
 
 def announced_tool_names_from_call_kwargs(call_kwargs: dict) -> list[str]:
@@ -299,6 +318,7 @@ def build_agent_loop_call_config(
     prompt_bundle_snapshot: PromptBundleSnapshot | None = None,
     previous_run_id: str | None = None,
     document_tools: DocumentToolSet | None = None,
+    allow_capability_escalation: bool = True,
 ) -> AgentLoopCallConfig:
     prompt_bundle_snapshot = prompt_bundle_snapshot or freeze_runtime_prompt_bundle()
     options = options or {}
@@ -444,6 +464,50 @@ def build_agent_loop_call_config(
         with use_prompt_snapshot(prompt_bundle_snapshot):
             tools.append(build_load_skill_schema(skill_session))
         skill_handlers[LOAD_SKILL_TOOL_NAME] = LoadSkillHandler(skill_session)
+    escalation_session: CapabilityEscalationSession | None = None
+    escalation_handlers: dict[str, Any] = {}
+    if (
+        allow_capability_escalation
+        and settings.RUN_CAPABILITY_ESCALATION_ENABLED
+        and supports_dynamic_tools
+        and capability_resolution.package_id in ESCALATION_SOURCE_PACKAGES
+        and capability_resolution.output_mode == "chat"
+        and task_policy.task_mode != "deep_research"
+        and previous_run_id is None
+        and options.get("stream_mode") != "continuation"
+    ):
+        target_package_ids = escalation_target_package_ids(available_tools_by_name)
+        if target_package_ids:
+
+            def rebuild_call_config(candidate) -> AgentLoopCallConfig:
+                # 同一组纯值入参、固定候选路由重跑首判派生：不调分类模型，不碰数据库。
+                return build_agent_loop_call_config(
+                    provider=provider,
+                    options=options,
+                    capabilities=capabilities,
+                    volcengine_providers=volcengine_providers,
+                    build_web_search_tool_fn=build_web_search_tool_fn,
+                    build_url_read_tool_fn=build_url_read_tool_fn,
+                    additional_tools=additional_tools,
+                    dynamic_tool_handlers=dynamic_tool_handlers,
+                    tool_bindings=tool_bindings,
+                    authorized_tool_names=authorized_tool_names,
+                    original_message=original_message,
+                    task_context_messages=task_context_messages,
+                    classify_fn=lambda **_kwargs: candidate,
+                    prompt_bundle_snapshot=prompt_bundle_snapshot,
+                    allow_capability_escalation=False,
+                )
+
+            escalation_session = CapabilityEscalationSession(
+                source_resolution=capability_resolution,
+                target_package_ids=target_package_ids,
+                available_tool_names=tuple(available_tools_by_name),
+                rebuild_call_config=rebuild_call_config,
+            )
+            with use_prompt_snapshot(prompt_bundle_snapshot):
+                tools.append(build_request_capability_schema(escalation_session))
+            escalation_handlers[REQUEST_CAPABILITY_TOOL_NAME] = RequestCapabilityHandler(escalation_session)
     if tools:
         call_kwargs["tools"] = tools
         call_kwargs["tool_choice"] = "auto"
@@ -458,6 +522,7 @@ def build_agent_loop_call_config(
     active_handlers = {name: provided_handlers[name] for name in announced_tools if name in provided_handlers}
     active_handlers.update(document_handlers)
     active_handlers.update(skill_handlers)
+    active_handlers.update(escalation_handlers)
     bindings_by_alias = {
         str(binding.get("alias", "")): binding
         for binding in (tool_bindings or [])
@@ -484,6 +549,7 @@ def build_agent_loop_call_config(
         output_tool_names=frozenset(document_handlers),
         document_context=document_context,
         skill_session=skill_session,
+        escalation_session=escalation_session,
     )
 
 
@@ -694,53 +760,23 @@ async def prepare_agent_loop_messages(
         initial_content_blocks = []
         has_image_attachment = False
 
-    def selected_sections():
-        # 只在空消息集上选择可信模板，用户文本不会影响段落是否存在。
-        if has_image_attachment and not has_vision:
-            yield SystemPromptSection(NO_VISION_FILE_BOUNDARY, get_no_vision_file_boundary_prompt())
-        for section_id in extra_system_prompts or []:
-            yield SystemPromptSection(section_id, call_config.prompt_bundle_snapshot.resolve(section_id)[0])
-        resolution = _capability_prompt_view(call_config)
-        if (
-            getattr(call_config, "dynamic_tool_discovery", False)
-            and getattr(call_config, "tool_discovery", None) is not None
-        ):
-            yield SystemPromptSection("deferred_tool_catalog", call_config.tool_discovery.catalog_prompt())
-        if "classifier_unavailable" in getattr(resolution, "reason_codes", ()) and resolution.external_tool_names:
-            # 分类失败兜底开放了网页工具；用户是否禁止联网交给回答模型理解，服务端不猜。
-            yield SystemPromptSection(CLASSIFIER_UNAVAILABLE, render_runtime_prompt("stream.classifier_unavailable"))
-        if resolution.external_tool_names:
-            yield SystemPromptSection("tool_failure_policy", render_runtime_prompt("stream.tool_failure_policy"))
-        if "web_search" in resolution.external_tool_names:
-            yield SystemPromptSection(TOOL_USAGE_CONTRACT, get_tool_usage_contract_prompt())
-        if call_config.evidence_policy == "verified_web_v1":
-            yield SystemPromptSection(VERIFIED_WEB_EVIDENCE, render_runtime_prompt("stream.verified_web_evidence"))
-        if resolution.effective_plan_mode != "off":
-            yield SystemPromptSection(
-                AGENT_PLAN_CONTROL,
-                get_agent_plan_control_prompt(resolution.effective_plan_mode),
-            )
-        skill_session = getattr(call_config, "skill_session", None)
-        if skill_session is not None:
-            yield SystemPromptSection(SKILLS_CATALOG, skill_session.catalog_prompt())
-        if getattr(resolution, "package_id", None) == "deep_research":
-            yield SystemPromptSection(DEEP_RESEARCH_CONTRACT, DEEP_RESEARCH_CONTRACT_PROMPT)
-        if resolution.network_boundary_required:
-            yield SystemPromptSection(
-                NO_TOOL_NETWORK_BOUNDARY,
-                get_no_tool_network_boundary_prompt(),
-            )
-        if getattr(call_config, "output_tool_names", frozenset()):
-            yield SystemPromptSection(DOCUMENT_OUTPUT_CONTRACT, render_runtime_prompt("documents.output_contract"))
-            document_context = getattr(call_config, "document_context", None)
-            if document_context:
-                yield SystemPromptSection(CURRENT_DOCUMENTS, document_context)
+    def assemble(config: AgentLoopCallConfig):
+        return assemble_system_prompt(
+            user_system_prompt=user_system_prompt,
+            include_current_date=_capability_prompt_view(config).include_current_date,
+            sections=partial(
+                _run_prompt_sections,
+                config,
+                no_vision_file_boundary=has_image_attachment and not has_vision,
+                extra_system_prompts=tuple(extra_system_prompts or ()),
+            ),
+        )
 
-    assembly = assemble_system_prompt(
-        user_system_prompt=user_system_prompt,
-        include_current_date=_capability_prompt_view(call_config).include_current_date,
-        sections=selected_sections,
-    )
+    def rebuild_system_messages(config: AgentLoopCallConfig) -> tuple[PromptMessage, ...]:
+        with use_prompt_snapshot(config.prompt_bundle_snapshot):
+            return tuple(assemble(config).messages)
+
+    assembly = assemble(call_config)
     messages = [*assembly.messages, *ensure_prompt_messages(messages)]
     run_snapshot = RunPromptSnapshot(
         bundle_snapshot=call_config.prompt_bundle_snapshot,
@@ -754,7 +790,57 @@ async def prepare_agent_loop_messages(
         prompt_snapshot=run_snapshot.to_storage(),
         run_prompt_snapshot=run_snapshot,
         final_tool_names=list(_capability_prompt_view(call_config).external_tool_names),
+        rebuild_system_messages=rebuild_system_messages,
+        system_section_ids=tuple(message.section_id for message in assembly.messages),
     )
+
+
+def _run_prompt_sections(
+    call_config: AgentLoopCallConfig,
+    *,
+    no_vision_file_boundary: bool,
+    extra_system_prompts: tuple[str, ...],
+):
+    # 只在空消息集上选择可信模板，用户文本不会影响段落是否存在。
+    if no_vision_file_boundary:
+        yield SystemPromptSection(NO_VISION_FILE_BOUNDARY, get_no_vision_file_boundary_prompt())
+    for section_id in extra_system_prompts:
+        yield SystemPromptSection(section_id, call_config.prompt_bundle_snapshot.resolve(section_id)[0])
+    resolution = _capability_prompt_view(call_config)
+    if (
+        getattr(call_config, "dynamic_tool_discovery", False)
+        and getattr(call_config, "tool_discovery", None) is not None
+    ):
+        yield SystemPromptSection("deferred_tool_catalog", call_config.tool_discovery.catalog_prompt())
+    if "classifier_unavailable" in getattr(resolution, "reason_codes", ()) and resolution.external_tool_names:
+        # 分类失败兜底开放了网页工具；用户是否禁止联网交给回答模型理解，服务端不猜。
+        yield SystemPromptSection(CLASSIFIER_UNAVAILABLE, render_runtime_prompt("stream.classifier_unavailable"))
+    if resolution.external_tool_names:
+        yield SystemPromptSection("tool_failure_policy", render_runtime_prompt("stream.tool_failure_policy"))
+    if "web_search" in resolution.external_tool_names:
+        yield SystemPromptSection(TOOL_USAGE_CONTRACT, get_tool_usage_contract_prompt())
+    if call_config.evidence_policy == "verified_web_v1":
+        yield SystemPromptSection(VERIFIED_WEB_EVIDENCE, render_runtime_prompt("stream.verified_web_evidence"))
+    if resolution.effective_plan_mode != "off":
+        yield SystemPromptSection(
+            AGENT_PLAN_CONTROL,
+            get_agent_plan_control_prompt(resolution.effective_plan_mode),
+        )
+    skill_session = getattr(call_config, "skill_session", None)
+    if skill_session is not None:
+        yield SystemPromptSection(SKILLS_CATALOG, skill_session.catalog_prompt())
+    if getattr(resolution, "package_id", None) == "deep_research":
+        yield SystemPromptSection(DEEP_RESEARCH_CONTRACT, DEEP_RESEARCH_CONTRACT_PROMPT)
+    if resolution.network_boundary_required:
+        yield SystemPromptSection(
+            NO_TOOL_NETWORK_BOUNDARY,
+            get_no_tool_network_boundary_prompt(),
+        )
+    if getattr(call_config, "output_tool_names", frozenset()):
+        yield SystemPromptSection(DOCUMENT_OUTPUT_CONTRACT, render_runtime_prompt("documents.output_contract"))
+        document_context = getattr(call_config, "document_context", None)
+        if document_context:
+            yield SystemPromptSection(CURRENT_DOCUMENTS, document_context)
 
 
 def inject_extra_system_prompts(

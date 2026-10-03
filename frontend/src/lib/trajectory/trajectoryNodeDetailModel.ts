@@ -261,11 +261,25 @@ function cellSummaryFields(
           : 'trajectory.capabilityResolution.notRecorded'),
       }];
     }
-    const toolNames = resolution.external_tool_names.length > 0
-      ? resolution.external_tool_names.map(toolName => (
-        `${getToolMeta(toolName).label} (${toolName})`
-      )).join(' · ')
-      : translate('trajectory.capabilityResolution.none');
+    const formatToolNames = (names: readonly string[]) => (names.length > 0
+      ? names.map(toolName => `${getToolMeta(toolName).label} (${toolName})`).join(' · ')
+      : translate('trajectory.capabilityResolution.none'));
+    const toolNames = formatToolNames(resolution.external_tool_names);
+    const escalation = cell.capabilityEscalation;
+    const escalationFields: TrajectoryNodeSummaryField[] = escalation ? [
+      {
+        label: translate('trajectory.capabilityResolution.escalation'),
+        value: translate('trajectory.capabilityResolution.escalationValue', {
+          from: capabilityPackageLabel(escalation.fromPackageId, translate),
+          to: capabilityPackageLabel(escalation.resolution.package_id, translate),
+          step: escalation.stepNumber,
+        }),
+      },
+      {
+        label: translate('trajectory.capabilityResolution.escalatedExternalTools'),
+        value: formatToolNames(escalation.resolution.external_tool_names),
+      },
+    ] : [];
     return [
       {
         label: translate('trajectory.capabilityResolution.package'),
@@ -295,6 +309,7 @@ function cellSummaryFields(
         label: translate('trajectory.capabilityResolution.bundleFingerprint'),
         value: `${resolution.bundle_fingerprint.slice(0, 19)}…`,
       },
+      ...escalationFields,
     ];
   }
   if (cell.type === 'context' && cell.eventType === 'system_prompt_prepared') {

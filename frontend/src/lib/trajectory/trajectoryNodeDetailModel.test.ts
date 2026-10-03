@@ -96,6 +96,61 @@ describe('buildTrajectoryNodeDetailModel', () => {
     ]);
   });
 
+  it('Run 详情在首判之后展示能力升级与升级后工具', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const resolution = {
+      schema_version: 1 as const,
+      router_version: '2026-08-27.1',
+      package_id: 'direct',
+      confidence: 'high' as const,
+      resolution_mode: 'routed' as const,
+      reason_codes: ['no_external_fact_needed'],
+      external_tool_names: [],
+      effective_plan_mode: 'off' as const,
+      include_current_date: true,
+      network_boundary_required: false,
+      bundle_fingerprint: `sha256:${'a'.repeat(64)}`,
+    };
+    const run: Extract<TrajectoryCell, { type: 'run' }> = {
+      ...baseCell(),
+      key: 'run:run-1',
+      type: 'run',
+      summarySource: 'run-summary',
+      attemptIndex: 1,
+      runStatus: 'completed',
+      totalSteps: 2,
+      totalToolCalls: 2,
+      startedAt: '2026-08-26T00:00:00.000Z',
+      endedAt: '2026-08-26T00:00:01.000Z',
+      isSelected: true,
+      isHydrated: true,
+      association: 'explicit',
+      trajectoryBadge: { status: 'complete', source: 'run-summary', reason: null },
+      capabilityResolution: resolution,
+      capabilityEscalation: {
+        fromPackageId: 'direct',
+        stepNumber: 1,
+        resolution: {
+          ...resolution,
+          package_id: 'weather',
+          reason_codes: ['explicit_weather_request'],
+          external_tool_names: ['weather_forecast'],
+        },
+      },
+      records: [],
+      spans: [],
+      liveTail: [],
+    };
+
+    const fields = buildTrajectoryNodeDetailModel(run, null).summaryFields;
+
+    expect(fields).toContainEqual({ label: '能力包', value: '直接回答 · direct' });
+    expect(fields.slice(-2)).toEqual([
+      { label: '能力升级', value: '直接回答 · direct → 天气 · weather（第 1 步）' },
+      { label: '升级后外部工具', value: '查询天气 (weather_forecast)' },
+    ]);
+  });
+
   it('后端新增能力包时无需改前端：未知 package 退回展示原始 id', async () => {
     await i18n.changeLanguage('zh-CN');
     const run: Extract<TrajectoryCell, { type: 'run' }> = {
