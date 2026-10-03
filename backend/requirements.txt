@@ -5,6 +5,8 @@ fastapi==0.115.12
 httpx==0.28.1
 # 本地 Prompt 使用 sandboxed Jinja2；显式固定，不依赖传递依赖。
 Jinja2==3.1.6
+# Skills 的 SKILL.md frontmatter 解析；运行时直接依赖，不再靠传递依赖带入。
+PyYAML>=6.0
 litellm>=1.40.0,<2.0.0
 fastapi-sso==0.21.0  # LiteLLM logging path 可选 import，不装会刷 ModuleNotFoundError
 orjson>=3.9.0

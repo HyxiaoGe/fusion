@@ -139,7 +139,6 @@ class AgentLoopWiringDependencies:
     generate_conversation_title_fn: Callable[..., Any] | None = None
     load_dynamic_tools_fn: Callable[..., Any] | None = None
     load_authorized_tool_names_fn: Callable[..., list[str]] | None = None
-    load_previous_skill_release_pins_fn: Callable[..., Any] | None = None
     llm_round_detail_scheduler: Callable[[Any], Any] | None = None
     load_document_tools_fn: Callable[..., Any] | None = None
 
@@ -207,7 +206,6 @@ class AgentLoopCallConfigInputs:
     tool_bindings: list[Any]
     authorized_tool_names: list[str]
     should_load_dynamic_tool_metadata: bool
-    skill_release_pins: Any | None
     previous_run_id: str | None = None
     document_tools: Any | None = None
 
@@ -247,18 +245,6 @@ def prepare_agent_loop_call_config_inputs(
         if should_load_dynamic_tool_metadata
         else []
     )
-    skill_release_pins = None
-    if (
-        run_input.run_attempt_kind == "continue"
-        and run_input.previous_run_id is not None
-        and dependencies.load_previous_skill_release_pins_fn is not None
-    ):
-        skill_release_pins = dependencies.load_previous_skill_release_pins_fn(
-            db,
-            conversation_id=run_input.conversation_id,
-            user_id=run_input.user_id,
-            previous_run_id=run_input.previous_run_id,
-        )
     document_tools = None
     if (
         dependencies.load_document_tools_fn is not None
@@ -284,7 +270,6 @@ def prepare_agent_loop_call_config_inputs(
         tool_bindings=list(getattr(dynamic_tool_set, "audit_bindings", []) or []),
         authorized_tool_names=authorized_tool_names,
         should_load_dynamic_tool_metadata=should_load_dynamic_tool_metadata,
-        skill_release_pins=skill_release_pins,
         previous_run_id=run_input.previous_run_id,
         document_tools=document_tools,
     )
@@ -325,11 +310,6 @@ def build_agent_loop_call_config_from_inputs(
             {"prompt_bundle_snapshot": run_input.prompt_bundle_snapshot}
             if run_input.prompt_bundle_snapshot is not None
             and _accepts_keyword(build_call_config_fn, "prompt_bundle_snapshot")
-            else {}
-        ),
-        **(
-            {"skill_release_pins": inputs.skill_release_pins}
-            if inputs.skill_release_pins is not None and _accepts_keyword(build_call_config_fn, "skill_release_pins")
             else {}
         ),
         **(

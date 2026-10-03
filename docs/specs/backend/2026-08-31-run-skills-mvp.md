@@ -1,5 +1,7 @@
 # Run 级 Skills MVP
 
+> 已废弃（2026-10-03）：本方案的能力包绑定、全文冻结与 `skills_resolved` 事件已整体删除，改为按 Agent Skills 开放标准由模型调用 `load_skill` 按需加载，见 `backend/app/ai/skills/catalog.py` 与 `backend/app/services/stream/skill_loading.py`。下文仅作历史记录。
+
 ## 目标
 
 在现有 Run 级能力路由上增加第一版代码托管 Skills：每个 Run 在 `run_started` 之前完成 Skill 选择、读取、校验和全文冻结；同一冻结结果同时约束 Prompt、工具、Run 指纹与 Trajectory。首期仅把 `verified_web` 映射到 `verified-research@1.0.0`，不建设 PromptHub、Skill 管理后台、安装市场或运行中动态发现链路。

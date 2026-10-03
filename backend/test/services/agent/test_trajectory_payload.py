@@ -35,24 +35,6 @@ CAPABILITY_RESOLUTION = {
     "bundle_fingerprint": "sha256:" + "a" * 64,
 }
 
-SKILL_METADATA = {
-    "skill_id": "verified-research",
-    "version": "1.0.0",
-    "content_sha256": "b" * 64,
-    "allowed_tool_names": ["web_search", "url_read"],
-    "section_id": "skill:verified-research@1.0.0",
-    "char_count": 354,
-}
-
-SKILL_RESOLUTION = {
-    "status": "loaded",
-    "activation_source": "capability_package",
-    "requested_skill_ids": ["verified-research"],
-    "skills": [SKILL_METADATA],
-    "duration_ms": 1,
-    "error_code": None,
-}
-
 EVENT_FIELDS = {
     "run_started": {
         "conversation_id": "conv-1",
@@ -109,11 +91,6 @@ EVENT_FIELDS = {
         "duration_ms": 1,
         "error_code": None,
         "message": None,
-    },
-    "skills_resolved": {
-        "protocol_version": 2,
-        **SKILL_RESOLUTION,
-        "detail_status": "available",
     },
     "llm_round_first_output_delta": {
         "llm_round_id": "round-1",
@@ -334,16 +311,6 @@ EVENT_ALLOWED_FIELDS = {
         "error_code",
         "message",
     },
-    "skills_resolved": {
-        "protocol_version",
-        "status",
-        "activation_source",
-        "requested_skill_ids",
-        "skills",
-        "duration_ms",
-        "detail_status",
-        "error_code",
-    },
     "llm_round_first_output_delta": {"llm_round_id", "delta_kind", "ttft_ms"},
     "llm_round_completed": {
         "llm_round_id",
@@ -523,14 +490,6 @@ class TrajectoryPayloadTests(unittest.TestCase):
             "effective_plan_mode": "auto",
             "required_primary_tool_name": "route_compare",
             "denied_product_tool_names": ["url_read", "web_search"],
-            "skill_resolution": {
-                "status": "not_selected",
-                "activation_source": "capability_package",
-                "requested_skill_ids": [],
-                "skills": [],
-                "duration_ms": 0,
-                "error_code": None,
-            },
         }
         payload = build_trajectory_payload(
             {
@@ -579,7 +538,7 @@ class TrajectoryPayloadTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, str(payload))
 
-    def test_schema_v2_capability_and_skills_event_persist_only_safe_metadata(self):
+    def test_schema_v2_capability_drops_legacy_skill_resolution(self):
         resolution_v2 = {
             **CAPABILITY_RESOLUTION,
             "schema_version": 2,
@@ -588,7 +547,7 @@ class TrajectoryPayloadTests(unittest.TestCase):
             "reason_codes": ["verified_source_request"],
             "external_tool_names": ["web_search", "url_read"],
             "effective_plan_mode": "on",
-            "skill_resolution": SKILL_RESOLUTION,
+            "skill_resolution": {"status": "loaded", "skills": [{"content": "完整 Skill 正文禁止进入账本"}]},
         }
         run_payload = build_trajectory_payload(
             {
@@ -599,22 +558,10 @@ class TrajectoryPayloadTests(unittest.TestCase):
                 "capability_resolution": resolution_v2,
             }
         )
-        skill_payload = build_trajectory_payload(
-            {
-                **COMMON,
-                "type": "skills_resolved",
-                **EVENT_FIELDS["skills_resolved"],
-                "skills": [{**SKILL_METADATA, "content": "完整 Skill 正文禁止进入账本", "path": "/private"}],
-                "raw_error": "SECRET",
-                "user_input": "用户原文",
-            }
-        )
 
-        self.assertEqual(run_payload["capability_resolution"]["skill_resolution"], SKILL_RESOLUTION)
-        self.assertEqual(skill_payload["skills"], [SKILL_METADATA])
-        encoded = str({"run": run_payload, "event": skill_payload})
-        for forbidden in ("完整 Skill 正文", "/private", "raw_error", "SECRET", "user_input", "用户原文"):
-            self.assertNotIn(forbidden, encoded)
+        self.assertEqual(run_payload["capability_resolution"]["package_id"], "verified_web")
+        self.assertNotIn("skill_resolution", run_payload["capability_resolution"])
+        self.assertNotIn("完整 Skill 正文", str(run_payload))
 
     def test_run_started_drops_control_tool_and_package_mismatch_resolution(self):
         invalid_resolutions = (

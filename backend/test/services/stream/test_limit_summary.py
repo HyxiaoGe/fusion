@@ -445,12 +445,12 @@ class LimitSummaryHelpersTests(unittest.TestCase):
 
         self.assertEqual(messages, expected)
 
-    def test_standard_final_summary_removes_verified_research_plan_contract(self):
+    def test_standard_final_summary_removes_skills_catalog(self):
         messages = [
             PromptMessage(
                 role="system",
-                content="【可核验证据计划规则】先搜索再读取",
-                section_id="skill:verified_research",
+                content="Skills catalog: call load_skill before starting",
+                section_id="skills_catalog",
             ),
             {"role": "user", "content": "请综合结论"},
         ]
@@ -540,7 +540,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
         ):
             with self.subTest(evidence_policy=evidence_policy):
                 messages = [
-                    PromptMessage(role="system", content="先调用网页工具", section_id="skill:verified_research"),
+                    PromptMessage(role="system", content="先调用网页工具", section_id="skills_catalog"),
                     PromptMessage(role="user", content="请核验 COMMIT 的说明"),
                     PromptMessage(
                         role="assistant",

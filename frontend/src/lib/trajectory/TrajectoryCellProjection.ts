@@ -808,15 +808,12 @@ function projectDetailCells(detail: DetailContext, runCell: RunCell): Trajectory
     }
 
     if (item.eventType === 'system_prompt_prepared'
-      || item.eventType === 'skills_resolved'
       || item.eventType === 'context_status_updated'
       || item.eventType === 'context_required'
       || item.eventType === 'context_result') {
       const contextId = item.eventType === 'system_prompt_prepared'
         ? 'system_prompt'
-        : item.eventType === 'skills_resolved'
-          ? 'skills'
-          : stringValue(item.payload.request_id)
+        : stringValue(item.payload.request_id)
         ?? `${item.eventType}:${numberValue(item.payload.round_index) ?? item.sequence}`;
       const existing = contexts.get(contextId);
       if (existing) {
@@ -961,7 +958,6 @@ function isSpecializedProjectableEvent(item: NormalizedTrajectoryEvent): boolean
   if (item.eventType.startsWith('llm_round_')) return true;
   if (item.eventType === 'plan_snapshot' || item.eventType === 'plan_step_updated') return true;
   if (item.eventType === 'system_prompt_prepared'
-    || item.eventType === 'skills_resolved'
     || item.eventType === 'context_status_updated'
     || item.eventType === 'context_required'
     || item.eventType === 'context_result') return true;

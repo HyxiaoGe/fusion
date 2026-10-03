@@ -3,7 +3,6 @@ from dataclasses import FrozenInstanceError
 from unittest.mock import patch
 
 from app.ai.prompts.prompt_message import PromptMessage
-from app.ai.skills.registry import SkillReleasePin
 from app.schemas.chat import TextBlock
 from app.services.agent.plan_coordinator import PlanCoordinator
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_DEFINITIONS
@@ -200,70 +199,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         ]
         assert config.capability_resolution.package_id == "direct"
 
-    def test_continuation_with_frozen_skill_fails_closed_when_current_route_drops_skill(self):
-        current = build_agent_loop_call_config(
-            provider="openai",
-            options={"plan_mode": "on"},
-            capabilities={"functionCalling": True, "searchCapable": True},
-            original_message="核验 OpenAI 最新公告，给出官方原文和交叉来源",
-            classify_fn=_classifier_for_removed_literal("核验 OpenAI 最新公告，给出官方原文和交叉来源"),
-        )
-        metadata = current.capability_resolution.skill_resolution.skills[0]
-
-        continued = build_agent_loop_call_config(
-            provider="openai",
-            options={"plan_mode": "on"},
-            capabilities={"functionCalling": True, "searchCapable": True},
-            original_message="继续",
-            skill_release_pins=(
-                SkillReleasePin(
-                    skill_id=metadata.skill_id,
-                    version=metadata.version,
-                    content_sha256=metadata.content_sha256,
-                ),
-            ),
-        )
-
-        self.assertEqual(continued.capability_resolution.package_id, "tools_unavailable")
-        self.assertEqual(continued.capability_resolution.reason_codes, ("required_skill_unavailable",))
-        self.assertEqual(continued.capability_resolution.skill_resolution.status, "load_failed")
-        self.assertEqual(continued.announced_tools, [])
-
-    async def test_prompt_uses_frozen_skill_snapshot_without_rereading_disk(self):
-        message = "核验 OpenAI 最新公告，给出官方原文和交叉来源"
-        config = build_agent_loop_call_config(
-            provider="openai",
-            options={"plan_mode": "on"},
-            capabilities={"functionCalling": True, "searchCapable": True},
-            original_message=message,
-            classify_fn=_classifier_for("verified_web"),
-        )
-        frozen = config.capability_resolution.loaded_skills[0]
-
-        with patch(
-            "app.ai.skills.registry.Path.read_bytes",
-            side_effect=AssertionError("Prompt 组装不得重新读取 Skill 文件"),
-        ):
-            prepared = await prepare_agent_loop_messages(
-                db=object(),
-                user_id="user-1",
-                raw_messages=[],
-                has_vision=False,
-                file_ids=None,
-                original_message=message,
-                call_config=config,
-                file_repo_factory=lambda _db: FakeFileRepository(),
-                load_user_system_prompt_fn=lambda _db, _uid: None,
-                preprocess_user_input=False,
-            )
-
-        skill_sections = [
-            section
-            for section in prepared.prompt_snapshot["sections"]
-            if section["section_id"] == frozen.metadata.section_id
-        ]
-        self.assertEqual(skill_sections, [{"section_id": frozen.metadata.section_id, "content": frozen.content}])
-
     async def test_real_builder_preserves_parsed_attachment_without_text_in_new_conversation(self):
         from app.ai.prompts.agent_loop import APP_IDENTITY_PROMPT
         from app.schemas.chat import FileBlock, Message
@@ -333,10 +268,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(APP_IDENTITY_PROMPT, contents)
         self.assertIn(TOOL_USAGE_CONTRACT_PROMPT, contents)
         self.assertIn(AGENT_PLAN_CONTROL_ON_PROMPT, contents)
-        self.assertEqual(config.capability_resolution.skill_resolution.status, "loaded")
-        self.assertIn("skill:verified-research@1.0.0", prepared.prompt_assembly["section_ids"])
-        skill_content = config.capability_resolution.loaded_skills[0].content
-        self.assertEqual(contents.count(skill_content), 1)
         self.assertNotIn("verified_research_plan", prepared.prompt_assembly["section_ids"])
         self.assertEqual(prepared.prompt_assembly["status"], "ready")
         self.assertTrue(all(set(message) == {"role", "content"} for message in prepared.messages))
@@ -476,7 +407,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                     "app_identity",
                     "tool_failure_policy",
                     "tool_usage_contract",
-                    "skill:verified-research@1.0.0",
                     "current_date",
                 ],
             ),
@@ -887,56 +817,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             "planned_tools"
         ]["items"]
         self.assertEqual(planned_tools["enum"], ["web_search", "url_read"])
-
-    async def test_verified_research_loads_skill_body_only_for_matching_policy(self):
-        async def build_llm_messages_fn(
-            _raw_messages,
-            _has_vision,
-            _repo,
-            _user_system_prompt,
-            *,
-            user_id=None,
-            conversation_id=None,
-            include_base_system=True,
-        ):
-            return [{"role": "user", "content": "原问题"}]
-
-        async def prepare(message: str, package_id: str):
-            # 能力包由模型决定，测试按包验证 Skill 是否加载，不再从文本推断。
-            return await prepare_agent_loop_messages(
-                db=object(),
-                user_id="user-1",
-                raw_messages=[],
-                has_vision=False,
-                file_ids=None,
-                original_message=message,
-                call_config=build_agent_loop_call_config(
-                    provider="openai",
-                    options={"plan_mode": "on"},
-                    capabilities={"functionCalling": True, "searchCapable": True},
-                    original_message=message,
-                    classify_fn=_classifier_for(package_id),
-                ),
-                file_repo_factory=lambda _db: object(),
-                load_user_system_prompt_fn=lambda _db, _user_id: None,
-                build_llm_messages_fn=build_llm_messages_fn,
-                preprocess_user_input=False,
-            )
-
-        verified = await prepare("请联网调研韩国股市，并给出可靠来源。", "verified_web")
-        simple = await prepare("KOSPI 今天多少点？", "fresh_web")
-        verified_system_text = "\n".join(
-            str(message.get("content", "")) for message in verified.messages if message.get("role") == "system"
-        )
-        simple_system_text = "\n".join(
-            str(message.get("content", "")) for message in simple.messages if message.get("role") == "system"
-        )
-
-        self.assertIn("# Verified Research", verified_system_text)
-        self.assertIn("Search for candidate sources first", verified_system_text)
-        self.assertIn("with independent sources", verified_system_text)
-        self.assertNotIn("[Verified-research plan rules]", verified_system_text)
-        self.assertNotIn("# Verified Research", simple_system_text)
 
     def test_deep_research_forces_plan_mode_and_records_task_policy(self):
         config = build_agent_loop_call_config(

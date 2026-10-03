@@ -1305,7 +1305,7 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(config.capability_resolution)
         self.assertNotIn("capability_resolution", payload)
         self.assertTrue(payload["dynamic_tool_discovery"]["enabled"])
-        self.assertIn("skill", payload["dynamic_tool_discovery"]["unsupported_scenes"])
+        self.assertIn("deep_research", payload["dynamic_tool_discovery"]["unsupported_scenes"])
         self.assertFalse(payload["dynamic_tool_discovery"]["requires_catalog_evidence"])
         self.assertIn("conservative experiment adapter", payload["dynamic_tool_discovery"]["catalog_evidence_note"])
         self.assertIsNone(config.discovery_experiment.package_id)
@@ -1322,26 +1322,7 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(kind)
 
     def test_unsupported_scenes_refuse_instead_of_silent_fallback(self):
-        from app.ai.skills.registry import SkillReleasePin
-
         schemas, handlers, _shared = build_prototype_fixture_catalog()
-        pin = SkillReleasePin(
-            skill_id="verified-research",
-            version="1.0.0",
-            content_sha256="0" * 64,
-        )
-        with self.assertRaises(DynamicToolDiscoveryUnsupportedError) as skill_error:
-            build_agent_loop_call_config(
-                provider="openai",
-                options={"dynamic_tool_discovery": True},
-                capabilities={"functionCalling": True, "searchCapable": True, "agentTools": True},
-                additional_tools=schemas,
-                dynamic_tool_handlers=handlers,
-                authorized_tool_names=[schema["function"]["name"] for schema in schemas],
-                original_message="杭州天气",
-                skill_release_pins=(pin,),
-            )
-        self.assertEqual(skill_error.exception.scene, "skill")
         with self.assertRaises(DynamicToolDiscoveryUnsupportedError) as research_error:
             build_agent_loop_call_config(
                 provider="openai",

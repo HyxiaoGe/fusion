@@ -116,8 +116,8 @@ class ToolRoundRequest:
     agent_state: AgentLoopState | None = None
     output_deferred: bool = False
     allow_deferred_reasoning_output: bool = False
-    # 交付物工具只落盘已取得的结果，不属于取证预算；额度收口时仍须能写出文档。
-    output_tool_names: frozenset[str] = frozenset()
+    # 交付物写入与 Skill 加载不属于取证预算；额度收口时仍须能写出文档。
+    unplanned_tool_names: frozenset[str] = frozenset()
     resolve_tool_context_fn: Callable[..., Awaitable[ToolContextResolution]] = resolve_tool_context
 
 
@@ -1391,7 +1391,7 @@ def _select_tool_calls_within_limit(
     executed_tool_calls: list[dict] = []
     not_executed_tool_calls: list[dict] = []
     for tool_call in candidate_tool_calls:
-        if _is_successfully_reusable_call(request, tool_call) or tool_call.get("name") in request.output_tool_names:
+        if _is_successfully_reusable_call(request, tool_call) or tool_call.get("name") in request.unplanned_tool_names:
             executed_tool_calls.append(tool_call)
             continue
         if is_local_argument_preflight_failure(

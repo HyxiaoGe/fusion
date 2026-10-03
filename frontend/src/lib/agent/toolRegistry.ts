@@ -6,7 +6,7 @@
  * icon 用 Lucide component reference 而不是字符串——保证类型安全 + tree-shaking 友好。
  */
 
-import { CloudSun, Search, Globe, MapPin, Plane, Route, Train, Wrench } from 'lucide-react';
+import { BookOpen, CloudSun, Search, Globe, MapPin, Plane, Route, Train, Wrench } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 export type SemanticColor = 'info' | 'success' | 'warn' | 'danger' | 'teal' | 'neutral';
@@ -70,6 +70,16 @@ export const TOOL_REGISTRY: Record<string, ToolMeta> = {
     icon: Train,
     color: 'teal',
     summarize: summarizeTravelQuery,
+  },
+  load_skill: {
+    label: '加载技能',
+    icon: BookOpen,
+    color: 'neutral',
+    summarize: (a) => joinSummaryParts(
+      firstStringArgument(a, ['name']),
+      firstStringArgument(a, ['file']),
+      '技能说明',
+    ),
   },
 };
 

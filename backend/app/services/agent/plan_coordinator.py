@@ -100,8 +100,8 @@ class PlanCoordinator:
     recovery_replanned_item_ids: set[str] = field(default_factory=set)
     synthesis_started: bool = False
     terminal_outcome: str | None = None
-    # 交付形态工具（文档写入）不属于任何计划步骤，不要求也不消费计划绑定。
-    output_tool_names: frozenset[str] = frozenset()
+    # 文档写入与 Skill 加载不属于任何计划步骤，不要求也不消费计划绑定。
+    unplanned_tool_names: frozenset[str] = frozenset()
 
     @property
     def has_valid_model_plan(self) -> bool:

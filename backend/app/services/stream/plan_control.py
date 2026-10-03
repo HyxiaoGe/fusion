@@ -219,11 +219,11 @@ async def process_plan_control_calls(
             await emitter.plan_snapshot(**result.snapshot)
 
     round_failed = repairable_rejection and not accepted_control
-    output_tool_names = frozenset(getattr(coordinator, "output_tool_names", frozenset()) or ())
+    unplanned_tool_names = frozenset(getattr(coordinator, "unplanned_tool_names", frozenset()) or ())
 
     def is_unplanned_control(call: dict) -> bool:
         name = call.get("name")
-        return bool(discovery_control and name == discovery_control) or name in output_tool_names
+        return bool(discovery_control and name == discovery_control) or name in unplanned_tool_names
 
     discovery_calls = [call for call in external_calls if is_unplanned_control(call)]
     other_external_calls = [call for call in external_calls if not is_unplanned_control(call)]

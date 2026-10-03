@@ -1433,7 +1433,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
             network_budget=object(),
             run_id="run-limit",
             tool_handlers={},
-            output_tool_names=frozenset(),
+            unplanned_tool_names=frozenset(),
         )
 
         with self.assertLogs("app.services.stream.tool_round", level="WARNING") as captured:
@@ -1487,7 +1487,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
                 valid_handler.tool_name: valid_handler,
                 extra_handler.tool_name: extra_handler,
             },
-            output_tool_names=frozenset(),
+            unplanned_tool_names=frozenset(),
         )
 
         selected, not_executed = tool_round_module._select_tool_calls_within_limit(request)
@@ -1506,7 +1506,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
             run_id="run-document-limit",
             agent_state=None,
             tool_handlers={},
-            output_tool_names=frozenset({"create_document"}),
+            unplanned_tool_names=frozenset({"create_document"}),
         )
 
         selected, not_executed = tool_round_module._select_tool_calls_within_limit(request)
@@ -1535,7 +1535,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
             run_id="run-preflight-attempt-cap",
             agent_state=None,
             tool_handlers={handler.tool_name: handler},
-            output_tool_names=frozenset(),
+            unplanned_tool_names=frozenset(),
         )
 
         selected, not_executed = tool_round_module._select_tool_calls_within_limit(request)
@@ -1591,7 +1591,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
             run_id="run-unknown-handler-limit",
             agent_state=None,
             tool_handlers={},
-            output_tool_names=frozenset(),
+            unplanned_tool_names=frozenset(),
         )
 
         selected, not_executed = tool_round_module._select_tool_calls_within_limit(request)

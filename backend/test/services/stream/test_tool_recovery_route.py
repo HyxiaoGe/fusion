@@ -194,5 +194,3 @@ class RecoveryPromptTests(unittest.IsolatedAsyncioTestCase):
                 for item in prepared.messages
                 if item["role"] == "system"
             )
-            if config.capability_resolution.package_id == "verified_web":
-                assert "skill:verified-research@1.0.0" in prepared.prompt_assembly["section_ids"]

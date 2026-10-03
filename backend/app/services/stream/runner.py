@@ -49,7 +49,6 @@ from app.services.stream.agent_round import run_agent_round
 from app.services.stream.limit_summary import run_limit_summary_step
 from app.services.stream.llm_stream import llm_call_with_retry, stream_round
 from app.services.stream.persistence import persist_message
-from app.services.stream.previous_run_skill_release import load_previous_run_skill_release_pins
 from app.services.stream.run_capability_model_classifier import (
     CLASSIFIER_TOTAL_DEADLINE_SECONDS,
     ClassifierDeadlineGate,
@@ -156,7 +155,6 @@ def _agent_loop_wiring_dependencies() -> AgentLoopWiringDependencies:
         generate_conversation_title_fn=schedule_conversation_title_generation,
         load_dynamic_tools_fn=load_mcp_agent_tools,
         load_authorized_tool_names_fn=load_mcp_authorized_tool_aliases,
-        load_previous_skill_release_pins_fn=load_previous_run_skill_release_pins,
         llm_round_detail_scheduler=schedule_llm_round_detail,
         load_document_tools_fn=partial(load_document_tool_set, session_factory=SessionLocal),
     )

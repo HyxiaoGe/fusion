@@ -1,17 +1,19 @@
-"""Fusion 代码托管 Skills。"""
+"""Fusion 代码内置 Skills（Agent Skills 开放标准）。"""
 
-from app.ai.skills.registry import (
-    LoadedSkillSnapshot,
-    RunSkillResolution,
-    SkillLoadResult,
-    SkillMetadata,
-    load_skills_for_package,
+from app.ai.skills.catalog import (
+    SkillDocument,
+    SkillEntry,
+    SkillFileError,
+    discover_skills,
+    read_skill,
+    read_skill_reference,
 )
 
 __all__ = [
-    "LoadedSkillSnapshot",
-    "RunSkillResolution",
-    "SkillLoadResult",
-    "SkillMetadata",
-    "load_skills_for_package",
+    "SkillDocument",
+    "SkillEntry",
+    "SkillFileError",
+    "discover_skills",
+    "read_skill",
+    "read_skill_reference",
 ]

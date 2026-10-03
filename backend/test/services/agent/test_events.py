@@ -22,7 +22,6 @@ from app.services.agent.events import (
     RunLimitReached,
     RunProgressUpdated,
     RunStarted,
-    SkillsResolved,
     StepCompleted,
     StepStarted,
     SuggestedQuestionsPending,
@@ -49,15 +48,6 @@ CAPABILITY_RESOLUTION = {
     "bundle_fingerprint": "sha256:" + "a" * 64,
 }
 
-SKILL_METADATA = {
-    "skill_id": "verified-research",
-    "version": "1.0.0",
-    "content_sha256": "b" * 64,
-    "allowed_tool_names": ["web_search", "url_read"],
-    "section_id": "skill:verified-research@1.0.0",
-    "char_count": 354,
-}
-
 CAPABILITY_RESOLUTION_V2 = {
     **CAPABILITY_RESOLUTION,
     "schema_version": 2,
@@ -66,14 +56,6 @@ CAPABILITY_RESOLUTION_V2 = {
     "reason_codes": ["verified_source_request"],
     "external_tool_names": ["web_search", "url_read"],
     "effective_plan_mode": "on",
-    "skill_resolution": {
-        "status": "loaded",
-        "activation_source": "capability_package",
-        "requested_skill_ids": ["verified-research"],
-        "skills": [SKILL_METADATA],
-        "duration_ms": 1,
-        "error_code": None,
-    },
 }
 
 
@@ -103,7 +85,7 @@ class AgentEventModelTests(unittest.TestCase):
         self.assertEqual(ev.task_id, "task-1")
         self.assertEqual(ev.capability_resolution.model_dump(), CAPABILITY_RESOLUTION)
 
-    def test_capability_resolution_v2_requires_safe_skill_resolution_and_v1_remains_readable(self):
+    def test_capability_resolution_v2_and_v1_remain_readable_without_skill_fields(self):
         base = {
             "type": "run_started",
             "conversation_id": "c1",
@@ -119,33 +101,12 @@ class AgentEventModelTests(unittest.TestCase):
         current = RunStarted(**base, capability_resolution=CAPABILITY_RESOLUTION_V2)
 
         self.assertEqual(legacy.capability_resolution.schema_version, 1)
-        self.assertIsNone(legacy.capability_resolution.skill_resolution)
-        self.assertEqual(current.capability_resolution.skill_resolution.status, "loaded")
+        self.assertEqual(current.capability_resolution.schema_version, 2)
+        # Skill 改为模型按需加载后，能力协议不再携带 skill_resolution。
         with self.assertRaises(ValidationError):
             RunStarted(
                 **base,
-                capability_resolution={
-                    key: value for key, value in CAPABILITY_RESOLUTION_V2.items() if key != "skill_resolution"
-                },
-            )
-        with self.assertRaises(ValidationError):
-            RunStarted(
-                **{**base, "tools": ["web_search"]},
-                capability_resolution={
-                    **CAPABILITY_RESOLUTION,
-                    "skill_resolution": CAPABILITY_RESOLUTION_V2["skill_resolution"],
-                },
-            )
-        with self.assertRaises(ValidationError):
-            RunStarted(
-                **base,
-                capability_resolution={
-                    **CAPABILITY_RESOLUTION_V2,
-                    "skill_resolution": {
-                        **CAPABILITY_RESOLUTION_V2["skill_resolution"],
-                        "skills": [{**SKILL_METADATA, "content": "正文不得进入能力协议"}],
-                    },
-                },
+                capability_resolution={**CAPABILITY_RESOLUTION_V2, "skill_resolution": {"status": "not_selected"}},
             )
 
     def test_run_started_rejects_unsafe_or_invalid_capability_resolution(self):
@@ -443,62 +404,6 @@ class AgentEventModelTests(unittest.TestCase):
             adapter.validate_python({**payload, "status": "loading"})
         with self.assertRaises(ValidationError):
             adapter.validate_python({**payload, "prompt": "不能暴露的规则"})
-
-    def test_skills_resolved_accepts_three_terminal_states_and_rejects_body_or_inconsistent_metadata(self):
-        adapter = TypeAdapter(AnyAgentEvent)
-        loaded = {
-            **self._common(),
-            "type": "skills_resolved",
-            "protocol_version": 2,
-            **CAPABILITY_RESOLUTION_V2["skill_resolution"],
-            "detail_status": "available",
-        }
-
-        event = adapter.validate_python(loaded)
-        self.assertIsInstance(event, SkillsResolved)
-        self.assertEqual(event.skills[0].content_sha256, "b" * 64)
-        for payload in (
-            {**loaded, "skills": [{**SKILL_METADATA, "content": "正文禁止进入事件"}]},
-            {**loaded, "status": "not_selected"},
-            {**loaded, "detail_status": "pending"},
-            {**loaded, "detail_status": None},
-            {**loaded, "skills": [{**SKILL_METADATA, "allowed_tool_names": ["url_read", "web_search"]}]},
-            {**loaded, "skills": [{**SKILL_METADATA, "allowed_tool_names": ["update_plan"]}]},
-            {**loaded, "requested_skill_ids": ["verified-research", "other"]},
-        ):
-            with self.subTest(payload=payload):
-                with self.assertRaises(ValidationError):
-                    adapter.validate_python(payload)
-
-        not_selected = adapter.validate_python(
-            {
-                **self._common(),
-                "type": "skills_resolved",
-                "protocol_version": 2,
-                "status": "not_selected",
-                "activation_source": "capability_package",
-                "requested_skill_ids": [],
-                "skills": [],
-                "duration_ms": 0,
-                "detail_status": None,
-                "error_code": None,
-            }
-        )
-        load_failed = adapter.validate_python(
-            {
-                **self._common(),
-                "type": "skills_resolved",
-                "protocol_version": 2,
-                "status": "load_failed",
-                "activation_source": "capability_package",
-                "requested_skill_ids": ["verified-research"],
-                "skills": [],
-                "duration_ms": 1,
-                "detail_status": None,
-                "error_code": "skill_load_failed",
-            }
-        )
-        self.assertEqual((not_selected.status, load_failed.status), ("not_selected", "load_failed"))
 
     def test_existing_event_defaults_to_schema_version_1(self):
         event = StepStarted(type="step_started", step_number=1, **self._common())
