@@ -2,7 +2,7 @@ import asyncio
 import json
 import unittest
 import uuid
-from contextlib import nullcontext
+from contextlib import asynccontextmanager, nullcontext
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -322,9 +322,13 @@ class EvalUserTests(unittest.TestCase):
         self.assertEqual(count, 1)
 
 
-def _outcome(case_id, model_id, status):
+def _outcome(case_id, model_id, status, attempt=1):
     return CaseOutcome(
-        case_id=case_id, model_id=model_id, status=status, checks=[CheckOutcome("run_status", status, "")]
+        case_id=case_id,
+        model_id=model_id,
+        status=status,
+        checks=[CheckOutcome("run_status", status, "")],
+        attempt=attempt,
     )
 
 
@@ -373,6 +377,18 @@ class StoreTests(unittest.TestCase):
         self.assertNotIn(("c", "m"), previous)
         self.assertEqual([(c.case_id, c.before, c.after) for c in regressions], [("a", "passed", "failed")])
         self.assertEqual([(c.case_id, c.before, c.after) for c in fixes], [("b", "failed", "passed")])
+
+    def test_recheck_result_is_final_for_summary_and_baseline(self):
+        outcomes = [_outcome("a", "m", "failed"), _outcome("a", "m", "passed", attempt=2), _outcome("b", "m", "passed")]
+        self._suite(outcomes, started_offset=-10)
+
+        with self.factory() as db:
+            previous = store.previous_results(
+                db, before=utc_now(), pairs={("a", "m"), ("b", "m")}, exclude_suite_run_id="current"
+            )
+
+        self.assertEqual(store.summarize(outcomes)["m"], {"passed": 2, "failed": 0, "error": 0, "total": 2})
+        self.assertEqual(previous[("a", "m")][0], "passed")
 
     def test_errors_are_neither_regressions_nor_fixes(self):
         regressions, fixes = store.compare(
@@ -469,6 +485,59 @@ class ScriptTests(unittest.TestCase):
         self.assertEqual(run_eval_suite.main([]), 2)
         self.assertEqual(run_eval_suite.main(["--models", "m1", "--case", "no-such-case"]), 2)
         self.assertEqual(run_eval_suite.main(["--list"]), 0)
+
+    def test_regressions_are_rechecked_once_and_only_confirmed_ones_fail(self):
+        factory = _session_factory()
+        with factory() as db:
+            baseline = store.start_suite_run(
+                db, label="t", git_sha=None, suite_sha256="0" * 64, models=["m"], case_ids=[]
+            )
+            run = db.get(EvalSuiteRun, baseline)
+            run.started_at = utc_now() - timedelta(minutes=10)
+            db.commit()
+            for case_id in ("unambiguous-route", "greeting-no-escalation", "poem-no-escalation"):
+                store.save_outcome(db, baseline, _outcome(case_id, "m", "passed"))
+            store.finish_suite_run(db, baseline, status="completed", summary={})
+
+        scripted = {
+            ("unambiguous-route", 1): "failed",
+            ("unambiguous-route", 2): "failed",
+            ("greeting-no-escalation", 1): "failed",
+            ("greeting-no-escalation", 2): "passed",
+            ("poem-no-escalation", 1): "passed",
+        }
+        calls = []
+
+        async def fake_run_case(case, model, *, user_id, session_factory, judge, attempt=1):
+            calls.append((case.id, attempt))
+            return _outcome(case.id, model, scripted[(case.id, attempt)], attempt=attempt)
+
+        @asynccontextmanager
+        async def fake_runtime():
+            yield
+
+        args = run_eval_suite.build_parser().parse_args(["--models", "m", "--fail-on-regression", "--apply"])
+        cases = [
+            case
+            for case in run_eval_suite.load_suite().cases
+            if case.id in {"unambiguous-route", "greeting-no-escalation", "poem-no-escalation"}
+        ]
+        with (
+            patch("app.db.database.SessionLocal", factory),
+            patch.object(runner, "run_case", fake_run_case),
+            patch.object(runner, "eval_runtime", fake_runtime),
+        ):
+            code = asyncio.run(run_eval_suite._execute(args, cases, run_eval_suite.plan(cases, ["m"]), "0" * 64))
+
+        self.assertEqual(code, 1)
+        self.assertEqual(
+            sorted(c for c in calls if c[1] == 2), [("greeting-no-escalation", 2), ("unambiguous-route", 2)]
+        )
+        with factory() as db:
+            rows = db.query(EvalCaseResult).filter(EvalCaseResult.suite_run_id != baseline).count()
+            current = db.query(EvalSuiteRun).filter(EvalSuiteRun.id != baseline).one()
+        self.assertEqual(rows, 5)
+        self.assertEqual(current.summary["m"], {"passed": 2, "failed": 1, "error": 0, "total": 3})
 
 
 if __name__ == "__main__":

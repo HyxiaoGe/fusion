@@ -16,6 +16,8 @@
 范围见 `.github/scripts/detect_changes.py` 的 `AGENT_EVAL_PATH_PREFIXES`），`Fusion dev deploy` 的 `Agent eval gate`
 会在 dev 的 fusion-api 容器内跑全部用例。默认模型 `mimo-v2.6-pro,qwen3.8-flash`，可用仓库变量 `EVAL_GATE_MODELS` 调整。
 
-- 出现退步（同一用例在同一模型上此前通过、本轮失败）时工作流标红，不自动回滚，由人判断。
+- 出现退步（同一用例在同一模型上此前通过、本轮失败）、当场复核一次仍失败时工作流标红，不自动回滚，由人判断。
+- 复核通过的记为"不稳定"，列在报告里但不标红；两次运行都入库（`attempt` 1/2），对比基准取复核结果。
+- 门禁排在 UI 部署之后运行：dev 只有一台 Linux runner，避免长时间评测堵住 UI 部署。
 - 新增用例第一次失败不算退步；`error`（超时、裁判故障等基础设施问题）也不算。
 - 每次结果存入 `eval_suite_runs` / `eval_case_results`，可按 `case_id`、`model_id` 回看历史与轨迹快照。

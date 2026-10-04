@@ -27,7 +27,7 @@ cases:
       - type: skills
         expect: none
       - type: judge
-        rubric: 回答基于工具返回的车次信息说明有没有票；列出的车次、时间、余票都能在工具结果中找到，没有编造车次。
+        rubric: 列出的车次和时间都能在工具结果中找到，没有编造车次；工具结果含余票时据此说明有没有票，不含余票时如实说明查不到余票并给出购票查询途径，不能声称有票或没票。
 
   - id: food-near-landmark
     source: product-cases-smoke 2026-10-04（#263/#264）
@@ -43,3 +43,17 @@ cases:
         expect: none
       - type: judge
         rubric: 回答推荐的店铺都出现在工具返回的地点结果里，没有推荐工具结果之外的店铺。
+
+  - id: train-tickets-must-use-train-tool
+    source: 每日探针 2026-09-30 / 10-02 / 10-03 doubao "只用了联网"（问余票只搜网页）
+    message: 后天上海到杭州的高铁还有票吗
+    checks:
+      - type: tool_called
+        tool: search_trains
+      - type: tool_arg
+        tool: search_trains
+        field: origin
+        contains: 上海
+      - type: judge
+        rubric: 没有用网页搜索结果代替车次查询；列出的车次和时间都能在工具结果中找到，没有编造车次；工具结果含余票时据此说明有没有票，不含余票时如实说明查不到余票并给出购票查询途径，不能声称有票或没票。
+

@@ -156,8 +156,13 @@ jobs:
   # 只在出现"此前通过、本轮失败"的退步时标红；与路由盲测一样不触发回滚，由人判断。
   agent-eval:
     name: Agent eval gate
-    needs: [changes, deploy-api]
-    if: needs.changes.outputs.agent_eval == 'true' && needs.deploy-api.result == 'success'
+    # dev 只有一台 Linux runner：排在 UI 部署之后，避免长时间评测把 UI 部署堵在队列里。
+    needs: [changes, deploy-api, deploy-ui]
+    if: >-
+      always() &&
+      needs.changes.outputs.agent_eval == 'true' &&
+      needs.deploy-api.result == 'success' &&
+      contains(fromJSON('["success", "skipped"]'), needs.deploy-ui.result)
     runs-on: [self-hosted, Linux, X64, fusion-api]
     timeout-minutes: 60
     env:

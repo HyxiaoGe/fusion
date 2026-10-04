@@ -39,6 +39,7 @@ class CaseOutcome:
     run_id: str | None = None
     conversation_id: str | None = None
     duration_ms: int = 0
+    attempt: int = 1
 
 
 @dataclass
@@ -140,11 +141,17 @@ async def _stop_generation(conversation_id: str) -> None:
 
 
 async def run_case(
-    case: EvalCase, model_id: str, *, user_id: str, session_factory: Callable[[], Session], judge: Judge | None
+    case: EvalCase,
+    model_id: str,
+    *,
+    user_id: str,
+    session_factory: Callable[[], Session],
+    judge: Judge | None,
+    attempt: int = 1,
 ) -> CaseOutcome:
     started = time.monotonic()
     turns: list[_TurnResult] = []
-    outcome = CaseOutcome(case.id, model_id, "error")
+    outcome = CaseOutcome(case.id, model_id, "error", attempt=attempt)
     timed_out = False
     try:
         await asyncio.wait_for(

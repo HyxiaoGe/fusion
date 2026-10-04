@@ -72,3 +72,15 @@ cases:
         tool: web_search
       - type: judge
         rubric: 回答遵守了用户"不要联网"的要求，说明了不联网就无法提供今天的实时新闻；没有把训练数据里的旧闻当作"今天的新闻"陈述。
+
+  - id: todays-world-news-searches
+    source: 每日探针 2026-09-28 "判为仅澄清"（新闻类问题未联网，直接反问）
+    message: 今天国际新闻有啥大事？
+    checks:
+      - type: first_package
+        any_of: [fresh_web, verified_web]
+      - type: tool_called
+        tool: web_search
+      - type: judge
+        rubric: 回答直接给出了今天的国际新闻要点，而不是反问用户想看哪方面的新闻；列出的事件都能在工具返回的搜索结果中找到依据。
+

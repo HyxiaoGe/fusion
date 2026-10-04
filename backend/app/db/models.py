@@ -1195,10 +1195,14 @@ class EvalCaseResult(Base):
     run_id = Column(String, nullable=True)
     conversation_id = Column(String, nullable=True)
     duration_ms = Column(Integer, nullable=True)
+    # 1 为首次运行；首次出现退步时同一轮内复核一次，记为 2。
+    attempt = Column(Integer, nullable=False, default=1, server_default="1")
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 
     __table_args__ = (
         CheckConstraint("status IN ('passed', 'failed', 'error')", name="ck_eval_case_results_status"),
-        UniqueConstraint("suite_run_id", "case_id", "model_id", name="uq_eval_case_results_run_case_model"),
+        UniqueConstraint(
+            "suite_run_id", "case_id", "model_id", "attempt", name="uq_eval_case_results_run_case_model_attempt"
+        ),
         Index("ix_eval_case_results_case_model_created", "case_id", "model_id", "created_at"),
     )
