@@ -1,6 +1,7 @@
 from typing import Any, Mapping
 
 APP_TAG = "app:fusion"
+PROXY_NUM_RETRIES_HEADER = "x-litellm-num-retries"
 
 ALLOWED_LLM_PHASES = frozenset(
     {
@@ -35,6 +36,11 @@ def merge_litellm_kwargs(
         merged.get("extra_body"),
         prompt_metadata=prompt_metadata,
     )
+    # 重试只由调用方负责。SDK（litellm + openai 客户端）和代理默认各自重试 2 次，层层相乘：
+    # 一次失败最多放大到 9 次上游请求，并吃掉分类器/辅助调用的时间预算。
+    merged["num_retries"] = 0
+    merged["max_retries"] = 0
+    merged["extra_headers"] = {**(merged.get("extra_headers") or {}), PROXY_NUM_RETRIES_HEADER: "0"}
     return merged
 
 
