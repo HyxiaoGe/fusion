@@ -1,7 +1,10 @@
+import asyncio
 import json
 import unittest
 import uuid
+from contextlib import nullcontext
 from datetime import timedelta
+from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -18,7 +21,7 @@ from app.db.models import (
     ToolCallLog,
     User,
 )
-from app.evals import store
+from app.evals import runner, store
 from app.evals.cases import EvalCase
 from app.evals.checks import CheckOutcome
 from app.evals.judge import build_judge_messages, parse_verdict
@@ -200,6 +203,111 @@ class SseParsingTests(unittest.TestCase):
             parse_sse_frame(f"data: {json.dumps(frame)}", turn)
 
         self.assertEqual(turn.run_id, "r1")
+
+
+def _case_with(**extra):
+    return EvalCase.model_validate(
+        {
+            "id": "sample-case",
+            "category": "sample",
+            "source": "unit test",
+            "message": "后天杭州会下雨吗",
+            "checks": [{"type": "tool_called", "tool": "weather_forecast"}],
+            **extra,
+        }
+    )
+
+
+class RunCaseTests(unittest.TestCase):
+    """用假的发送与账本驱动 run_case，覆盖完成、超时、缺 run_id、发送异常四条路径。"""
+
+    def setUp(self):
+        self.stopped = []
+        self.sent = []
+
+        async def stop(conversation_id):
+            self.stopped.append(conversation_id)
+
+        async def wait_terminal(factory, run_id):
+            return "completed"
+
+        patches = [
+            patch.object(runner, "_stop_generation", stop),
+            patch.object(runner, "_wait_terminal", wait_terminal),
+            patch.object(
+                runner,
+                "load_snapshot",
+                lambda db, run_id: {
+                    "run_id": run_id,
+                    "status": "completed",
+                    "tool_calls": [{"tool": "weather_forecast", "arguments": {}}],
+                },
+            ),
+        ]
+        for item in patches:
+            item.start()
+            self.addCleanup(item.stop)
+
+    def _run(self, send, case=None):
+        with patch.object(runner, "_send_turn", send):
+            return asyncio.run(
+                runner.run_case(case or _case_with(), "m", user_id="u", session_factory=nullcontext, judge=None)
+            )
+
+    def test_completed_run_is_judged(self):
+        async def send(db, turn, **kwargs):
+            self.sent.append((kwargs["message"], turn.conversation_id))
+            turn.run_id, turn.conversation_id = f"run-{len(self.sent)}", "conv-1"
+
+        outcome = self._run(send, _case_with(setup_turns=["我在杭州"]))
+
+        self.assertEqual(outcome.status, "passed")
+        self.assertEqual((outcome.run_id, outcome.conversation_id), ("run-2", "conv-1"))
+        self.assertEqual(self.sent, [("我在杭州", None), ("后天杭州会下雨吗", "conv-1")])
+        self.assertEqual(self.stopped, [])
+
+    def test_timeout_stops_generation_and_keeps_trajectory(self):
+        async def send(db, turn, **kwargs):
+            turn.run_id, turn.conversation_id = "run-slow", "conv-slow"
+            await asyncio.sleep(10)
+
+        with patch.object(runner, "CASE_TIMEOUT_SECONDS", 0.05):
+            outcome = self._run(send)
+
+        self.assertEqual(outcome.status, "failed")
+        self.assertEqual(outcome.run_id, "run-slow")
+        self.assertEqual(self.stopped, ["conv-slow"])
+        self.assertEqual(outcome.snapshot["run_id"], "run-slow")
+        self.assertEqual([(c.type, c.status) for c in outcome.checks], [("run_status", "failed")])
+        self.assertIn("本轮超过", outcome.checks[0].detail)
+
+    def test_timeout_during_setup_turn_is_labelled(self):
+        async def send(db, turn, **kwargs):
+            turn.run_id, turn.conversation_id = "run-setup", "conv-setup"
+            await asyncio.sleep(10)
+
+        with patch.object(runner, "CASE_TIMEOUT_SECONDS", 0.05):
+            outcome = self._run(send, _case_with(setup_turns=["我在杭州"]))
+
+        self.assertIn("前置对话超过", outcome.checks[0].detail)
+
+    def test_missing_run_id_is_error(self):
+        async def send(db, turn, **kwargs):
+            turn.errors.append("upstream 500")
+
+        outcome = self._run(send)
+
+        self.assertEqual(outcome.status, "error")
+        self.assertIn("upstream 500", outcome.error)
+
+    def test_send_exception_is_error(self):
+        async def send(db, turn, **kwargs):
+            raise RuntimeError("redis down")
+
+        outcome = self._run(send)
+
+        self.assertEqual(outcome.status, "error")
+        self.assertIn("redis down", outcome.error)
 
 
 class EvalUserTests(unittest.TestCase):

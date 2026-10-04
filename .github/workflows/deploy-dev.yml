@@ -39,6 +39,7 @@ jobs:
       api: ${{ steps.targets.outputs.api }}
       ui: ${{ steps.targets.outputs.ui }}
       routing_eval: ${{ steps.targets.outputs.routing_eval }}
+      agent_eval: ${{ steps.targets.outputs.agent_eval }}
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -150,3 +151,21 @@ jobs:
     steps:
       - name: Run blind routing probe against deployed classifier
         run: docker exec -w /app fusion-api python scripts/blind_routing_probe.py --gate --workers 4
+
+  # 回放评测门禁：端到端真实调用模型，按轨迹判分，结果入库（scripts/run_eval_suite.py）。
+  # 只在出现"此前通过、本轮失败"的退步时标红；与路由盲测一样不触发回滚，由人判断。
+  agent-eval:
+    name: Agent eval gate
+    needs: [changes, deploy-api]
+    if: needs.changes.outputs.agent_eval == 'true' && needs.deploy-api.result == 'success'
+    runs-on: [self-hosted, Linux, X64, fusion-api]
+    timeout-minutes: 60
+    env:
+      EVAL_GATE_MODELS: ${{ vars.EVAL_GATE_MODELS || 'mimo-v2.6-pro,qwen3.8-flash' }}
+      DEPLOY_SHA: ${{ github.sha }}
+    steps:
+      - name: Run replay eval suite against deployed API
+        run: >-
+          docker exec -w /app fusion-api python -m scripts.run_eval_suite
+          --models "${EVAL_GATE_MODELS}" --label deploy --git-sha "${DEPLOY_SHA}"
+          --workers 3 --fail-on-regression --apply

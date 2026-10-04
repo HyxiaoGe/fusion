@@ -21,6 +21,20 @@ ROUTING_EVAL_PATH_PREFIXES = (
     "backend/scripts/blind_routing_probe.py",
     "backend/test/fixtures/blind_routing_probe.json",
 )
+# 改到这些路径时，部署后要在 dev 上跑回放评测门禁（端到端真实调用模型，按轨迹判分）。
+AGENT_EVAL_PATH_PREFIXES = (
+    "backend/app/services/stream/",
+    "backend/app/services/chat_service.py",
+    "backend/app/services/chat/",
+    "backend/app/services/tool_handlers/",
+    "backend/app/services/mcp/",
+    "backend/app/ai/",
+    "backend/app/utils/run_capability_contract.py",
+    "backend/app/core/config.py",
+    "backend/app/evals/",
+    "backend/evals/",
+    "backend/scripts/run_eval_suite.py",
+)
 
 
 @dataclass(frozen=True)
@@ -90,6 +104,7 @@ def classify(paths: list[str]) -> dict[str, bool]:
         "ui": frontend_changed or shared_changed,
         "shared": shared_changed,
         "routing_eval": any(path.startswith(ROUTING_EVAL_PATH_PREFIXES) for path in paths),
+        "agent_eval": any(path.startswith(AGENT_EVAL_PATH_PREFIXES) for path in paths),
     }
 
 
