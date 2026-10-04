@@ -1,7 +1,5 @@
 import { API_CONFIG } from '@/lib/config';
 import type {
-  ModelCandidateAdmissionRequest,
-  ModelAdmissionOperation,
   ModelManagementSnapshot,
   ModelVisibilityUpdateRequest,
 } from '@/types/modelManagement';
@@ -22,16 +20,5 @@ export function updateModelVisibilityAPI(
     method: 'PATCH',
     headers: jsonHeaders,
     body: JSON.stringify({ model_id: modelId, ...request }),
-  });
-}
-
-export function admitModelCandidateAPI(
-  candidateFingerprint: string,
-  request: ModelCandidateAdmissionRequest,
-): Promise<ModelAdmissionOperation> {
-  return apiRequest<ModelAdmissionOperation>(`${basePath}/candidates/${encodeURIComponent(candidateFingerprint)}/admit`, {
-    method: 'POST',
-    headers: jsonHeaders,
-    body: JSON.stringify(request),
   });
 }

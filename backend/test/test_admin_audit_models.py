@@ -4,7 +4,6 @@ from pathlib import Path
 from app.db.models import (
     AdminAuditEvent,
     AgentStep,
-    ModelAdmissionOperation,
     ModelCatalogControl,
     PerformanceRun,
 )
@@ -37,9 +36,6 @@ class AdminAuditModelTests(unittest.TestCase):
         self.assertIn("selectable", ModelCatalogControl.__table__.c)
         self.assertIn("routable", ModelCatalogControl.__table__.c)
         self.assertIn("revision", ModelCatalogControl.__table__.c)
-        self.assertIn("lease_token_hash", ModelAdmissionOperation.__table__.c)
-        self.assertNotIn("lease_token", ModelAdmissionOperation.__table__.c)
-        self.assertIn("catalog_invalidated_at", ModelAdmissionOperation.__table__.c)
 
         migrations = list(Path("alembic/versions").glob("*_add_model_catalog_controls.py"))
         self.assertEqual(len(migrations), 1)
