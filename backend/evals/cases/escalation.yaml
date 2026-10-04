@@ -1,0 +1,74 @@
+# Run 内能力升级（#259–#262）。来源：dev ~/.fusion-probe/escalation-cases*.json
+category: escalation
+cases:
+  - id: kids-day-out-weather-venues
+    source: escalation-probe 2026-10-04（#259）
+    message: 明天带孩子在上海玩一天，要看天气和附近的亲子场馆，怎么安排
+    checks:
+      - type: escalation
+        expect: either
+        targets: [mixed_itinerary, place_discovery, weather]
+      - type: tool_called
+        tool: weather_forecast
+      - type: judge
+        rubric: 回答给出了一天的安排，并提到了天气情况；涉及的天气和场馆信息与工具结果一致，没有编造工具结果里没有的场馆或天气。
+
+  - id: shanghai-three-days
+    source: escalation-probe 2026-10-04（#259）
+    message: 上海三天怎么玩
+    checks:
+      - type: escalation
+        expect: either
+        targets: [mixed_itinerary, place_discovery, weather]
+
+  - id: breaking-news-needs-web
+    source: escalation-probe 2026-10-04（#259，fresh_web 升级）
+    message: 最近一周有哪些重要的科技新闻？
+    checks:
+      - type: escalation
+        expect: either
+        targets: [fresh_web, verified_web]
+      - type: tool_called
+        tool: web_search
+      - type: judge
+        rubric: 回答列出的新闻都能在工具返回的搜索结果中找到依据，没有凭空编造的事件、日期或数字。
+
+  - id: greeting-no-escalation
+    source: escalation-probe 2026-10-04（#259，不应升级的对照组）
+    message: 你好
+    checks:
+      - type: first_package
+        any_of: [direct]
+      - type: escalation
+        expect: none
+      - type: tool_not_called
+        tool: web_search
+
+  - id: poem-no-escalation
+    source: escalation-probe 2026-10-04（#259，不应升级的对照组）
+    message: 写一首关于秋天的短诗
+    checks:
+      - type: escalation
+        expect: none
+      - type: tool_not_called
+        tool: web_search
+
+  - id: concept-explain-no-escalation
+    source: escalation-probe 2026-10-04（#259，不应升级的对照组）
+    message: 解释一下 Rust 的所有权
+    checks:
+      - type: escalation
+        expect: none
+      - type: tool_not_called
+        tool: web_search
+
+  - id: user-forbids-network
+    source: escalation-probe 2026-10-04（#261/#262，用户明确不联网）
+    message: 不要联网，告诉我今天的新闻
+    checks:
+      - type: escalation
+        expect: none
+      - type: tool_not_called
+        tool: web_search
+      - type: judge
+        rubric: 回答遵守了用户"不要联网"的要求，说明了不联网就无法提供今天的实时新闻；没有把训练数据里的旧闻当作"今天的新闻"陈述。

@@ -1,0 +1,45 @@
+# 单一产品查询：必须调用对应工具（#264），不挂 Skills（#263）。
+# 来源：dev ~/.fusion-probe/product-cases-*.json；日期改成相对说法，避免用例过期。
+category: product_lookup
+cases:
+  - id: weather-day-after-tomorrow
+    source: product-cases-qwen 2026-10-04（#263/#264）
+    message: 后天杭州会下雨吗
+    checks:
+      - type: tool_called
+        tool: weather_forecast
+        max_count: 2
+      - type: tool_arg
+        tool: weather_forecast
+        field: location
+        contains: 杭州
+      - type: skills
+        expect: none
+      - type: judge
+        rubric: 回答明确回答了后天杭州是否会下雨，且降水与温度信息和工具结果中对应日期一致；工具结果没有覆盖该日期时，回答如实说明了这一点。
+
+  - id: train-tickets-tomorrow
+    source: product-cases-qwen 2026-10-04（#263/#264）
+    message: 明天武汉到上海的高铁还有票吗
+    checks:
+      - type: tool_called
+        tool: search_trains
+      - type: skills
+        expect: none
+      - type: judge
+        rubric: 回答基于工具返回的车次信息说明有没有票；列出的车次、时间、余票都能在工具结果中找到，没有编造车次。
+
+  - id: food-near-landmark
+    source: product-cases-smoke 2026-10-04（#263/#264）
+    message: 西安回民街附近有啥好吃的
+    checks:
+      - type: tool_called
+        tool: local_place_search
+      - type: tool_arg
+        tool: local_place_search
+        field: near
+        contains: 回民街
+      - type: skills
+        expect: none
+      - type: judge
+        rubric: 回答推荐的店铺都出现在工具返回的地点结果里，没有推荐工具结果之外的店铺。

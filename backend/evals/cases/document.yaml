@@ -1,0 +1,22 @@
+# 交付物文档（#221–#227）：明确要文档时生成 document 内容块。
+category: document
+cases:
+  - id: explicit-document-request
+    source: doc-accept 2026-10-02（#221–#227）
+    message: 帮我写一份新员工入职第一周的工作安排文档
+    checks:
+      - type: tool_called
+        tool: create_document
+        max_count: 1
+      - type: answer_block
+        block_type: document
+
+  - id: short-answer-no-document
+    source: doc-accept 2026-10-02（对照组：普通问答不应生成文档）
+    message: 一句话解释什么是 HTTP 缓存
+    checks:
+      - type: tool_not_called
+        tool: create_document
+      - type: answer_block
+        block_type: document
+        present: false

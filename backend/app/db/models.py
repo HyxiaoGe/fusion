@@ -1155,3 +1155,50 @@ class PerformanceRun(Base):
         Index("ix_performance_runs_created_id", "created_at", "run_id"),
         Index("ix_performance_runs_environment_created_id", "environment", "created_at", "run_id"),
     )
+
+
+class EvalSuiteRun(Base):
+    """一次回放评测：同一批用例在若干模型上的真实运行。"""
+
+    __tablename__ = "eval_suite_runs"
+
+    id = Column(String, primary_key=True, default=lambda: uuid.uuid4().hex)
+    label = Column(String(40), nullable=False)
+    git_sha = Column(String(40), nullable=True)
+    suite_sha256 = Column(String(64), nullable=False)
+    models = Column(JSONB, nullable=False)
+    case_ids = Column(JSONB, nullable=False)
+    status = Column(String(20), nullable=False)
+    summary = Column(JSONB, nullable=False, default=dict)
+    started_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('running', 'completed', 'failed')", name="ck_eval_suite_runs_status"),
+        Index("ix_eval_suite_runs_started", "started_at"),
+    )
+
+
+class EvalCaseResult(Base):
+    """单条用例在单个模型上的判分结果，自带轨迹快照，会话被删后仍可复盘。"""
+
+    __tablename__ = "eval_case_results"
+
+    id = Column(String, primary_key=True, default=lambda: uuid.uuid4().hex)
+    suite_run_id = Column(String, ForeignKey("eval_suite_runs.id", ondelete="CASCADE"), nullable=False)
+    case_id = Column(String(100), nullable=False)
+    model_id = Column(String(100), nullable=False)
+    status = Column(String(20), nullable=False)
+    checks = Column(JSONB, nullable=False, default=list)
+    trajectory = Column(JSONB, nullable=True)
+    error = Column(Text, nullable=True)
+    run_id = Column(String, nullable=True)
+    conversation_id = Column(String, nullable=True)
+    duration_ms = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('passed', 'failed', 'error')", name="ck_eval_case_results_status"),
+        UniqueConstraint("suite_run_id", "case_id", "model_id", name="uq_eval_case_results_run_case_model"),
+        Index("ix_eval_case_results_case_model_created", "case_id", "model_id", "created_at"),
+    )

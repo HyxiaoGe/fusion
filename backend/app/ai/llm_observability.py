@@ -12,6 +12,7 @@ ALLOWED_LLM_PHASES = frozenset(
         "file_processing",
         "run_capability_classifier",
         "fallback_language",
+        "eval_judge",
     }
 )
 

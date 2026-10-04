@@ -1,0 +1,20 @@
+# Skills 按需加载（#255–#257）：多站行程类问题应加载 trip-planning。
+# 来源：dev ~/.fusion-probe/skill-cases.json
+category: skills
+cases:
+  - id: multi-day-trip-loads-skill
+    source: skill-trigger 2026-10-03（#255）
+    message: 帮我规划杭州三天两夜的行程，下周五出发
+    checks:
+      - type: skills
+        expect: loaded
+        names: [trip-planning]
+      - type: tool_called
+        tool: weather_forecast
+
+  - id: comparison-advice
+    source: skill-trigger 2026-10-03（#256）
+    message: MacBook Air 和 MacBook Pro 选哪个？我主要写代码
+    checks:
+      - type: judge
+        rubric: 回答围绕"写代码"这一用途比较了两款机器的关键差异，并在最后给出了明确的推荐，而不是只罗列参数。
