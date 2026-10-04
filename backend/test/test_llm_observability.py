@@ -39,6 +39,14 @@ class LLMObservabilityTests(unittest.TestCase):
 
         self.assertEqual(merged["extra_body"]["cache"], {"no-cache": True, "no-store": True})
 
+    def test_retries_are_owned_by_caller_not_sdk_or_proxy(self):
+        # SDK 与代理默认各重试 2 次，与调用方重试相乘；三层都只留调用方一层。
+        merged = merge_litellm_kwargs("chat_stream", {"extra_headers": {"x-trace": "keep"}, "num_retries": 3})
+
+        self.assertEqual(merged["num_retries"], 0)
+        self.assertEqual(merged["max_retries"], 0)
+        self.assertEqual(merged["extra_headers"], {"x-trace": "keep", "x-litellm-num-retries": "0"})
+
     def test_merge_litellm_kwargs_sends_tags_through_extra_body(self):
         kwargs = {
             "api_key": "test-key",
