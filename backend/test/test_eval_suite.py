@@ -26,7 +26,12 @@ from app.evals.cases import EvalCase
 from app.evals.checks import CheckOutcome
 from app.evals.judge import build_judge_messages, parse_verdict
 from app.evals.runner import CaseOutcome, _TurnResult, ensure_eval_user, parse_sse_frame
-from app.evals.trajectory import TOOL_RESULT_CHAR_LIMIT, build_snapshot, load_snapshot
+from app.evals.trajectory import (
+    JUDGE_TOOL_RESULT_CHAR_LIMIT,
+    TOOL_RESULT_CHAR_LIMIT,
+    build_snapshot,
+    load_snapshot,
+)
 from app.utils.time import utc_now
 from scripts import run_eval_suite
 
@@ -99,6 +104,15 @@ class BuildSnapshotTests(unittest.TestCase):
         result = snapshot["tool_calls"][0]["result"]
         self.assertTrue(result["truncated"])
         self.assertEqual(len(result["preview"]), TOOL_RESULT_CHAR_LIMIT)
+
+    def test_judge_snapshot_keeps_full_search_results(self):
+        big = {"items": ["x" * 100] * 200}
+        snapshot = self._snapshot(
+            tool_logs=[{"tool_name": "web_search", "status": "success", "detail": {"payload": {}, "result": big}}],
+            result_limit=JUDGE_TOOL_RESULT_CHAR_LIMIT,
+        )
+
+        self.assertEqual(snapshot["tool_calls"][0]["result"], big)
 
     def test_missing_answer_and_resolution_are_tolerated(self):
         snapshot = self._snapshot(events=[("run_started", {"capability_resolution": None})], answer_content=None)

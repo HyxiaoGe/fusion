@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session
 from app.db.models import AgentEvent, AgentSession, Message, ToolCallLog
 
 TOOL_RESULT_CHAR_LIMIT = 4000
+# 裁判核对回答依据时要看到完整搜索结果；单次 web_search 实测可达 5 万字。
+JUDGE_TOOL_RESULT_CHAR_LIMIT = 60000
 TOOL_ARGUMENT_CHAR_LIMIT = 2000
 ANSWER_CHAR_LIMIT = 12000
 
@@ -36,6 +38,7 @@ def build_snapshot(
     events: Iterable[tuple[str, Mapping[str, Any]]],
     tool_logs: Iterable[Mapping[str, Any]],
     answer_content: Any,
+    result_limit: int = TOOL_RESULT_CHAR_LIMIT,
 ) -> dict[str, Any]:
     """events 按 sequence 排好序；tool_logs 每项含 tool_name/status/error_message/detail。"""
     first_package = None
@@ -76,7 +79,7 @@ def build_snapshot(
                 "status": log.get("status"),
                 "error": log.get("error_message"),
                 "arguments": _bounded(detail.get("payload") or {}, TOOL_ARGUMENT_CHAR_LIMIT),
-                "result": _bounded(detail.get("result"), TOOL_RESULT_CHAR_LIMIT),
+                "result": _bounded(detail.get("result"), result_limit),
             }
         )
 
@@ -104,7 +107,7 @@ def build_snapshot(
     }
 
 
-def load_snapshot(db: Session, run_id: str) -> dict[str, Any] | None:
+def load_snapshot(db: Session, run_id: str, *, result_limit: int = TOOL_RESULT_CHAR_LIMIT) -> dict[str, Any] | None:
     session = db.get(AgentSession, run_id)
     if session is None:
         return None
@@ -144,4 +147,5 @@ def load_snapshot(db: Session, run_id: str) -> dict[str, Any] | None:
             for log in logs
         ],
         answer_content=answer.content if answer is not None else None,
+        result_limit=result_limit,
     )

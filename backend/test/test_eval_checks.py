@@ -192,6 +192,21 @@ class JudgeCheckTests(unittest.TestCase):
         self.assertEqual(outcome.status, "failed")
         self.assertEqual(outcome.detail, "温度与工具结果不一致")
 
+    def test_judge_reads_wider_snapshot_when_given(self):
+        seen = []
+
+        async def judge(check, case, snapshot):
+            seen.append(snapshot["tool_calls"][0]["result"])
+            return JudgeVerdict(passed=True, reason="ok")
+
+        stored = _snapshot()
+        wide = _snapshot(tool_calls=[{"tool": "weather_forecast", "arguments": {}, "result": {"full": True}}])
+
+        outcomes = asyncio.run(evaluate(_case(self.rubric), stored, judge, judge_snapshot=wide))
+
+        self.assertEqual(seen, [{"full": True}])
+        self.assertEqual(_by_type(outcomes)["judge"].status, "passed")
+
     def test_judge_failure_is_error_not_model_failure(self):
         async def judge(check, case, snapshot):
             raise TimeoutError("judge timed out")

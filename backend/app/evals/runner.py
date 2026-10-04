@@ -18,9 +18,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import AgentSession, User
-from app.evals.cases import EvalCase
+from app.evals.cases import EvalCase, JudgeCheck
 from app.evals.checks import CheckOutcome, Judge, evaluate, overall_status
-from app.evals.trajectory import load_snapshot
+from app.evals.trajectory import JUDGE_TOOL_RESULT_CHAR_LIMIT, load_snapshot
 
 EVAL_USERNAME = "fusion-eval-suite"
 CASE_TIMEOUT_SECONDS = 900
@@ -218,7 +218,11 @@ async def _judge_turn(
     if snapshot is None:
         outcome.error = f"轨迹账本里找不到 run {turn.run_id}"
         return
-    outcome.checks = await evaluate(case, snapshot, judge)
+    judge_snapshot = None
+    if judge is not None and any(isinstance(check, JudgeCheck) for check in case.checks):
+        with session_factory() as db:
+            judge_snapshot = load_snapshot(db, turn.run_id, result_limit=JUDGE_TOOL_RESULT_CHAR_LIMIT)
+    outcome.checks = await evaluate(case, snapshot, judge, judge_snapshot=judge_snapshot)
     outcome.status = overall_status(outcome.checks)
 
 
