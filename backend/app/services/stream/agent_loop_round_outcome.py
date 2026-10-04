@@ -9,6 +9,7 @@ from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.ai.prompts.section_ids import (
     PLAN_EXECUTION_REPAIR,
     PLAN_REQUIRED_REPAIR,
+    PRODUCT_TOOL_REQUIRED_REPAIR,
     RESEARCH_COMPLETION_REPAIR,
 )
 from app.core.logger import app_logger as logger
@@ -134,6 +135,9 @@ async def _handle_agent_round_outcome(
             await _skip_pending_execution_after_document(request)
         if _requires_execution_before_stop(request):
             await _repair_incomplete_execution(request)
+            return None
+        if _requires_product_tool_before_stop(request):
+            await _repair_missing_product_tool_stop(request)
             return None
         if _requires_research_completion_repair(request):
             return await _repair_research_completion(request)
@@ -277,6 +281,50 @@ async def _repair_tool_failure_stop(request: AgentRoundOutcomeRequest) -> None:
             failed_tools=", ".join(sorted(request.state.tool_issue_names)),
             available_tools=", ".join(sorted(_recovery_alternatives(request))),
         ),
+    )
+
+
+def _announced_product_tool_names(runtime: AgentLoopRuntime) -> list[str]:
+    resolution = runtime.capability_resolution
+    names = AMAP_PRODUCT_TOOL_NAMES | FLYAI_TRAVEL_TOOL_NAMES
+    return [name for name in (resolution.external_tool_names if resolution else ()) if name in names]
+
+
+def _requires_product_tool_before_stop(request: AgentRoundOutcomeRequest) -> bool:
+    """产品路由一次产品工具都没调就收尾时，给一次补调机会；否则只能交付「未取得数据」。"""
+
+    return (
+        requires_product_result_guard(request.runtime)
+        and not request.state.product_tool_prompted
+        and not request.state.product_tool_attempted
+        and not has_product_result_blocks(request.state.content_blocks)
+        and not request.state.pending_tool_repairs
+        and request.runtime.task_mode != "deep_research"
+        and request.runtime.evidence_policy != "knowledge_grounded_v1"
+    )
+
+
+async def _repair_missing_product_tool_stop(request: AgentRoundOutcomeRequest) -> None:
+    request.state.product_tool_prompted = True
+    _record_suppression(request, "tool_round")
+    product_tools = _announced_product_tool_names(request.runtime)
+    request.runtime.warning_fn(
+        f"产品路由未调用产品工具即收尾，提示补调一次: run_id={request.runtime.run_id} "
+        f"model_id={request.runtime.model_id} product_tools={product_tools}"
+    )
+    await complete_text_response_step(
+        context=request.step_context,
+        emitter=request.runtime.emitter,
+        session_cache=request.runtime.session_cache,
+        complete_step_fn=request.runtime.complete_step_fn,
+        completed_tool_calls=request.state.total_tool_calls,
+        max_tool_calls=request.runtime.limits.max_tool_calls,
+        clock=request.runtime.clock,
+    )
+    _replace_system_message(
+        request.messages,
+        section_id=PRODUCT_TOOL_REQUIRED_REPAIR,
+        content=render_runtime_prompt("stream.product_tool_required_retry", product_tools=", ".join(product_tools)),
     )
 
 

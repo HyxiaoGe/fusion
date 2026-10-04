@@ -3,6 +3,7 @@
 import unittest
 from dataclasses import replace
 from itertools import permutations
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from app.schemas.chat import PlaceResult, PlaceResultsBlock, SearchBlock, SourceReference, Usage
@@ -301,3 +302,66 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(state.tool_recovery_prompted)
         self.assertIn(answer, str(append.await_args_list))
         self.assertNotIn("航班", str(append.await_args_list))
+
+
+class MissingProductToolRepairTests(unittest.IsolatedAsyncioTestCase):
+    def request(self, state, *, task_mode="standard"):
+        return AgentRoundOutcomeRequest(
+            db=None,
+            messages=[{"role": "user", "content": "西安回民街附近有啥好吃的"}],
+            state=state,
+            runtime=_runtime(
+                emitter=AsyncMock(),
+                complete_step_fn=AsyncMock(),
+                task_mode=task_mode,
+                capability_resolution=SimpleNamespace(
+                    external_tool_names=("local_place_search", "web_search", "url_read")
+                ),
+            ),
+            step_number=1,
+            step_context=_step_context(),
+            round_result=AgentRoundResult(
+                reasoning_buf="",
+                content_buf="回民街推荐老孙家泡馍。",
+                tool_calls=[],
+                finish_reason="stop",
+                accumulated_usage=Usage(input_tokens=0, output_tokens=0),
+                context=None,
+                output_deferred=True,
+            ),
+        )
+
+    async def test_stop_without_product_tool_gets_one_silent_repair_round(self):
+        state = AgentLoopState()
+        request = self.request(state)
+        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()) as append:
+            self.assertIsNone(await handle_agent_round_outcome(request=request))
+        append.assert_not_awaited()
+        self.assertTrue(state.product_tool_prompted)
+        self.assertEqual(request.messages[-1].section_id, "product_tool_required_repair")
+        self.assertIn("local_place_search", request.messages[-1].content)
+        self.assertNotIn("web_search", request.messages[-1].content)
+
+    async def test_second_stop_without_product_tool_delivers_no_data_answer_not_model_facts(self):
+        state = AgentLoopState()
+        request = self.request(state)
+        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()):
+            self.assertIsNone(await handle_agent_round_outcome(request=request))
+            self.assertIsNotNone(await handle_agent_round_outcome(request=request))
+        self.assertNotIn("老孙家", state.content_blocks[-1].text)
+        self.assertIn("未取得", state.content_blocks[-1].text)
+
+    async def test_no_repair_once_a_product_tool_was_attempted_or_in_deep_research(self):
+        for state, task_mode in (
+            (AgentLoopState(product_tool_attempted=True), "standard"),
+            (AgentLoopState(), "deep_research"),
+        ):
+            with self.subTest(task_mode=task_mode, attempted=state.product_tool_attempted):
+                request = self.request(state, task_mode=task_mode)
+                with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()):
+                    await handle_agent_round_outcome(request=request)
+                self.assertFalse(state.product_tool_prompted)
+                self.assertNotIn(
+                    "product_tool_required_repair",
+                    [getattr(message, "section_id", None) for message in request.messages],
+                )
