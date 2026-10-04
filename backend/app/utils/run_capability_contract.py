@@ -23,8 +23,12 @@ CAPABILITY_MAX_EXTERNAL_TOOLS = 5
 # 同一 MCP 服务的授权工具一起公告，例如 Context7 需要先解析库 ID 再查文档。
 CAPABILITY_MAX_MCP_ALIASES = 3
 
+# 默认不开计划校验：模型自行规划，只有用户在前端选了计划模式才开启（2026-10-05 评测：行程类关闭后 11/12 vs 18/26）。
 _ON_OFF_PLAN_MODES = frozenset({"on", "off"})
-_AUTO_PLAN_MODES = frozenset({"auto", "on", "off"})
+# 曾默认 auto 的包；只用于读回历史轨迹快照，新 Run 不再产生 auto。
+_LEGACY_AUTO_PLAN_PACKAGES = frozenset(
+    {"verified_web", "mobility_route", "travel_air_rail", "mobility_intercity", "mixed_itinerary"}
+)
 
 
 @dataclass(frozen=True)
@@ -110,7 +114,6 @@ CAPABILITY_PACKAGES: Mapping[str, CapabilityPackageSpec] = MappingProxyType(
             tools=("web_search", "url_read"),
             reason_code_options=(("verified_source_request",),),
             include_current_date=True,
-            plan_modes=_AUTO_PLAN_MODES,
             requires_all_tools=True,
         ),
         "url_read": CapabilityPackageSpec(tools=("url_read",), reason_code_options=(("explicit_url_read",),)),
@@ -129,7 +132,6 @@ CAPABILITY_PACKAGES: Mapping[str, CapabilityPackageSpec] = MappingProxyType(
             # 端点未收录、仅凭专名形状放行时以 medium 公开路线工具，不进入强制调用契约。
             confidence_options=("high", "medium"),
             include_current_date=None,
-            plan_modes=_AUTO_PLAN_MODES,
         ),
         "flight": CapabilityPackageSpec(
             tools=("search_flights",),
@@ -145,7 +147,6 @@ CAPABILITY_PACKAGES: Mapping[str, CapabilityPackageSpec] = MappingProxyType(
             tools=("search_flights", "search_trains"),
             reason_code_options=(("air_rail_comparison",),),
             include_current_date=True,
-            plan_modes=_AUTO_PLAN_MODES,
             requires_all_tools=True,
         ),
         "mobility_intercity": CapabilityPackageSpec(
@@ -153,14 +154,12 @@ CAPABILITY_PACKAGES: Mapping[str, CapabilityPackageSpec] = MappingProxyType(
             reason_code_options=(("origin_destination_relation", "intercity_locations"),),
             confidence_options=("medium",),
             include_current_date=True,
-            plan_modes=_AUTO_PLAN_MODES,
             requires_primary_tool=True,
         ),
         "mixed_itinerary": CapabilityPackageSpec(
             tools=("weather_forecast", "local_place_search", "route_compare", "search_flights", "search_trains"),
             reason_code_options=(("mixed_itinerary_request",),),
             include_current_date=True,
-            plan_modes=_AUTO_PLAN_MODES,
             requires_primary_tool=True,
         ),
         "deep_research": CapabilityPackageSpec(
@@ -307,7 +306,8 @@ def validate_capability_resolution_semantics(
         if package_id == "deep_research" and actual_tool_names != allowed_tool_name_set:
             raise ValueError("Deep Research 必须公告完整搜索与读取工具集合")
 
-    if effective_plan_mode not in spec.plan_modes:
+    legacy_auto = effective_plan_mode == "auto" and package_id in _LEGACY_AUTO_PLAN_PACKAGES
+    if effective_plan_mode not in spec.plan_modes and not legacy_auto:
         raise ValueError("能力包与有效计划模式不匹配")
 
     if (

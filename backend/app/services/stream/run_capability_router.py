@@ -436,9 +436,8 @@ def _effective_plan_mode(
     if "off" not in plan_modes:
         # 必须开启计划的包（deep_research）不受请求的计划模式影响。
         return "on"
-    if requested_plan_mode in {"on", "off"}:
-        return requested_plan_mode
-    return "auto" if "auto" in plan_modes else "off"
+    # 只有用户显式选计划模式才开启校验；默认交给模型自行规划。
+    return "on" if requested_plan_mode == "on" else "off"
 
 
 def _canonicalize_tool_names(tool_names: tuple[str, ...]) -> tuple[str, ...]:

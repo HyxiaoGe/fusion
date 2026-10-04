@@ -223,7 +223,7 @@ def test_multi_product_route_freezes_one_primary_tool(package_id: str) -> None:
 
     assert route.package_id == package_id
     assert route.required_primary_tool_name == "route_compare"
-    assert route.effective_plan_mode == "auto"
+    assert route.effective_plan_mode == "off"
     snapshot = serialize_capability_resolution(route)
     assert snapshot["required_primary_tool_name"] == "route_compare"
     assert snapshot["denied_product_tool_names"] == []

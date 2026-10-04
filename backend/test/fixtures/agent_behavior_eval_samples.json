@@ -383,14 +383,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false
   },
   {
@@ -461,14 +460,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false
   },
   {
@@ -541,14 +539,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "air_rail_comparison"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false
   },
   {
@@ -570,7 +567,6 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -578,7 +574,7 @@
       "origin_destination_relation",
       "intercity_locations"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false
   },
   {
@@ -600,14 +596,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "mixed_itinerary_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false
   },
   {
@@ -760,14 +755,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "physical_origin_destination"
   },
@@ -1083,7 +1077,6 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -1091,7 +1084,7 @@
       "origin_destination_relation",
       "intercity_locations"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "english_capability_routing"
   },
@@ -1164,14 +1157,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "transport_endpoint_hijack"
   },
@@ -1192,14 +1184,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "transport_endpoint_hijack"
   },
@@ -1222,7 +1213,6 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -1230,7 +1220,7 @@
       "origin_destination_relation",
       "intercity_locations"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "intercity_paraphrase_equivalence"
   },
@@ -1276,14 +1266,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "external_source_transform"
   },
@@ -1305,14 +1294,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "mixed_itinerary_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "multi_capability_union"
   },
@@ -1334,14 +1322,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "mixed_itinerary_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "multi_capability_union"
   },
@@ -1363,14 +1350,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "mixed_itinerary_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "multi_capability_union"
   },
@@ -1481,7 +1467,6 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -1489,7 +1474,7 @@
       "origin_destination_relation",
       "intercity_locations"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "english_intercity_paraphrase"
   },
@@ -1512,7 +1497,6 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -1520,7 +1504,7 @@
       "origin_destination_relation",
       "intercity_locations"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "english_intercity_paraphrase"
   },
@@ -1752,14 +1736,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "english_physical_route"
   },
   {
@@ -1780,14 +1763,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "english_physical_route"
   },
   {
@@ -1810,7 +1792,6 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -1818,7 +1799,7 @@
       "origin_destination_relation",
       "intercity_locations"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "english_intercity_coverage"
   },
   {
@@ -2260,14 +2241,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "external_reference_transform"
   },
   {
@@ -2287,14 +2267,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "external_reference_transform"
   },
   {
@@ -2316,14 +2295,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "air_rail_comparison"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "parallel_travel_modes"
   },
   {
@@ -2372,14 +2350,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "mixed_itinerary_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "parallel_travel_modes"
   },
   {
@@ -2915,14 +2892,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "transform_external_precedence"
   },
   {
@@ -3013,14 +2989,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "local_mode_scope"
   },
   {
@@ -3041,14 +3016,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "local_mode_scope"
   },
   {
@@ -3069,14 +3043,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "explicit_ground_mode"
   },
   {
@@ -3097,14 +3070,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "explicit_ground_mode"
   },
   {
@@ -3126,14 +3098,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "air_rail_comparison"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "multiple_mode_segments"
   },
   {
@@ -3155,14 +3126,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "air_rail_comparison"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "multiple_mode_segments"
   },
   {
@@ -3184,14 +3154,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "mixed_itinerary_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "multiple_mode_segments"
   },
   {
@@ -3258,7 +3227,6 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -3266,7 +3234,7 @@
       "origin_destination_relation",
       "intercity_locations"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "quoted_literal_apostrophe_boundary"
   },
   {
@@ -3534,14 +3502,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "combined_search_read"
   },
   {
@@ -3561,14 +3528,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "combined_search_read"
   },
   {
@@ -3616,14 +3582,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "negated_route_mode"
   },
   {
@@ -3821,14 +3786,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "mixed_itinerary_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "comma_mode_union"
   },
   {
@@ -3850,14 +3814,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "air_rail_comparison"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "comma_mode_union"
   },
   {
@@ -3929,14 +3892,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "object_scoped_denial"
   },
   {
@@ -4263,14 +4225,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "mixed_itinerary_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "ordered_mode_negation"
   },
   {
@@ -4318,14 +4279,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "ordered_mode_negation"
   },
   {
@@ -4346,14 +4306,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "ordered_mode_negation"
   },
   {
@@ -4374,14 +4333,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "ordered_mode_negation"
   },
   {
@@ -4561,14 +4519,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "verified_reauthorization"
   },
   {
@@ -4588,14 +4545,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "verified_reauthorization"
   },
   {
@@ -4615,14 +4571,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "verified_reauthorization"
   },
   {
@@ -4642,14 +4597,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "verified_reauthorization"
   },
   {
@@ -4763,14 +4717,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "web_action_variant"
   },
   {
@@ -5027,14 +4980,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "url_delimiter_boundary"
   },
   {
@@ -5054,14 +5006,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "url_delimiter_boundary"
   },
   {
@@ -5082,14 +5033,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "mode_lexical_scope"
   },
   {
@@ -5138,14 +5088,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "air_rail_comparison"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "mode_lexical_scope"
   },
   {
@@ -5167,14 +5116,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "air_rail_comparison"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "mode_lexical_scope"
   },
   {
@@ -5222,14 +5170,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "mode_lexical_scope"
   },
   {
@@ -5524,14 +5471,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "mode_lexical_scope"
   },
   {
@@ -5939,14 +5885,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "url_delimiter_boundary"
   },
   {
@@ -5966,14 +5911,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "url_delimiter_boundary"
   },
   {
@@ -5993,14 +5937,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "url_delimiter_boundary"
   },
   {
@@ -6021,14 +5964,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "mode_lexical_scope"
   },
   {
@@ -6049,14 +5991,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "mode_lexical_scope"
   },
   {
@@ -6158,14 +6099,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "mode_exclusion_grammar"
   },
   {
@@ -6213,14 +6153,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "mode_exclusion_grammar"
   },
   {
@@ -6473,14 +6412,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "air_rail_comparison"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "positive_product_idiom"
   },
   {
@@ -6529,14 +6467,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "air_rail_comparison"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "positive_product_idiom"
   },
   {
@@ -6558,14 +6495,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "mixed_itinerary_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "positive_product_idiom"
   },
   {
@@ -6911,14 +6847,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "air_rail_comparison"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "positive_product_idiom"
   },
   {
@@ -6940,14 +6875,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "mixed_itinerary_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "positive_product_idiom"
   },
   {
@@ -6995,14 +6929,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "route_mode_exclusion"
   },
   {
@@ -7023,14 +6956,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "route_mode_exclusion"
   },
   {
@@ -7051,14 +6983,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "route_mode_exclusion"
   },
   {
@@ -7272,14 +7203,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "url_action_delimiter"
   },
   {
@@ -7299,14 +7229,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "url_action_delimiter"
   },
   {
@@ -7326,14 +7255,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "url_action_delimiter"
   },
   {
@@ -7432,14 +7360,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "route_mode_lexeme"
   },
   {
@@ -7460,14 +7387,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "route_mode_lexeme"
   },
   {
@@ -7489,14 +7415,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "mixed_itinerary_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "route_mode_exclusion"
   },
   {
@@ -8550,14 +8475,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "final_matrix_31"
   },
   {
@@ -8577,14 +8501,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "final_matrix_32"
   },
   {
@@ -8604,14 +8527,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "final_matrix_33"
   },
   {
@@ -8631,14 +8553,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "final_matrix_34"
   },
   {
@@ -9109,14 +9030,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "final_matrix_55"
   },
   {
@@ -9137,14 +9057,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "final_matrix_56"
   },
   {
@@ -9165,14 +9084,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "final_matrix_57"
   },
   {
@@ -9491,14 +9409,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "air_rail_comparison"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "final_matrix_69"
   },
   {
@@ -9520,14 +9437,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "air_rail_comparison"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "adversarial_variant_id": "final_matrix_70"
   },
   {
@@ -9714,14 +9630,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_09"
   },
@@ -10045,14 +9960,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "verified_source_request"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_24"
   },
@@ -11153,14 +11067,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_71"
   },
@@ -11181,14 +11094,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_72"
   },
@@ -11517,14 +11429,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_86"
   },
@@ -11545,14 +11456,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_87"
   },
@@ -11615,14 +11525,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_90"
   },
@@ -11643,14 +11552,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false,
     "adversarial_variant_id": "review_p1_91"
   },
@@ -12082,7 +11990,6 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -12090,7 +11997,7 @@
       "origin_destination_relation",
       "intercity_locations"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false
   },
   {
@@ -12112,7 +12019,6 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -12120,7 +12026,7 @@
       "origin_destination_relation",
       "intercity_locations"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false
   },
   {
@@ -12142,7 +12048,6 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -12150,7 +12055,7 @@
       "origin_destination_relation",
       "intercity_locations"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false
   },
   {
@@ -12172,7 +12077,6 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -12180,7 +12084,7 @@
       "origin_destination_relation",
       "intercity_locations"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false
   },
   {
@@ -12202,7 +12106,6 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -12210,7 +12113,7 @@
       "origin_destination_relation",
       "intercity_locations"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false
   },
   {
@@ -12230,14 +12133,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false
   },
   {
@@ -12259,7 +12161,6 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -12267,7 +12168,7 @@
       "origin_destination_relation",
       "intercity_locations"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false
   },
   {
@@ -12287,14 +12188,13 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
     "required_capability_reason_codes": [
       "explicit_route_task"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false
   },
   {
@@ -12356,7 +12256,6 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -12364,7 +12263,7 @@
       "origin_destination_relation",
       "intercity_locations"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false
   },
   {
@@ -12386,7 +12285,6 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -12394,7 +12292,7 @@
       "origin_destination_relation",
       "intercity_locations"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false
   },
   {
@@ -12416,7 +12314,6 @@
       "app_identity",
       "tool_failure_policy",
       "tool_usage_contract",
-      "agent_plan_control",
       "current_date"
     ],
     "expected_resolution_mode": "routed",
@@ -12424,7 +12321,7 @@
       "origin_destination_relation",
       "intercity_locations"
     ],
-    "expected_effective_plan_mode": "auto",
+    "expected_effective_plan_mode": "off",
     "expected_network_boundary_required": false
   }
 ]
