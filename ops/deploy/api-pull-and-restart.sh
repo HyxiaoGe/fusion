@@ -39,9 +39,6 @@ export MCP_SERVER_CIRCUIT_COOLDOWN_SECONDS="${DEPLOY_MCP_SERVER_CIRCUIT_COOLDOWN
 export DASHSCOPE_API_KEY="${DEPLOY_DASHSCOPE_API_KEY:-${DASHSCOPE_API_KEY:-}}"
 export AMAP_MCP_API_KEY="${DEPLOY_AMAP_MCP_API_KEY:-${AMAP_MCP_API_KEY:-}}"
 export LITELLM_MODEL_MANAGEMENT_ENABLED="$(printf '%s' "${DEPLOY_LITELLM_MODEL_MANAGEMENT_ENABLED:-false}" | tr '[:upper:]' '[:lower:]')"
-export LITELLM_MODEL_ADMISSION_WORKER_ENABLED="$(printf '%s' "${DEPLOY_LITELLM_MODEL_ADMISSION_WORKER_ENABLED:-false}" | tr '[:upper:]' '[:lower:]')"
-export LITELLM_GOVERNANCE_MAX_AGE_SECONDS="${DEPLOY_LITELLM_GOVERNANCE_MAX_AGE_SECONDS:-86400}"
-export LITELLM_MODEL_ADMISSION_WORKER_TOKEN="${DEPLOY_LITELLM_MODEL_ADMISSION_WORKER_TOKEN:-}"
 export KNOWLEDGE_BASE_ENABLED="$(printf '%s' "${DEPLOY_KNOWLEDGE_BASE_ENABLED:-false}" | tr '[:upper:]' '[:lower:]')"
 export KNOWLEDGE_MAX_BASES_PER_USER="${KNOWLEDGE_MAX_BASES_PER_USER:-50}"
 export KNOWLEDGE_MAX_DOCUMENTS_PER_BASE="${KNOWLEDGE_MAX_DOCUMENTS_PER_BASE:-100}"
@@ -81,17 +78,10 @@ export MILVUS_DATABASE="${DEPLOY_MILVUS_DATABASE:-}"
 export MILVUS_COLLECTION_PREFIX="${DEPLOY_MILVUS_COLLECTION_PREFIX:-fusion_knowledge_chunks}"
 export MILVUS_TIMEOUT_SECONDS="${DEPLOY_MILVUS_TIMEOUT_SECONDS:-10}"
 export MILVUS_DOCKER_NETWORK="${DEPLOY_MILVUS_DOCKER_NETWORK:-fusion_knowledge_milvus}"
-case "${LITELLM_GOVERNANCE_MAX_AGE_SECONDS}" in
-  ''|*[!0-9]*|0) echo "治理快照最大年龄必须是正整数"; exit 1 ;;
+case "${LITELLM_MODEL_MANAGEMENT_ENABLED}" in
+  true|false) ;;
+  *) echo "LITELLM_MODEL_MANAGEMENT_ENABLED 必须为 true 或 false"; exit 1 ;;
 esac
-case "${LITELLM_MODEL_MANAGEMENT_ENABLED}:${LITELLM_MODEL_ADMISSION_WORKER_ENABLED}" in
-  true:true|true:false|false:false) ;;
-  *) echo "模型管理开关必须为 true 或 false，且 Worker 不能单独启用"; exit 1 ;;
-esac
-if [ "${LITELLM_MODEL_ADMISSION_WORKER_ENABLED}" = "true" ] && [ -z "${LITELLM_MODEL_ADMISSION_WORKER_TOKEN}" ]; then
-  echo "模型准入 Worker 已启用，但发布密钥未配置"
-  exit 1
-fi
 case "${KNOWLEDGE_BASE_ENABLED}" in
   true|false) ;;
   *) echo "KNOWLEDGE_BASE_ENABLED 必须为 true 或 false"; exit 1 ;;
@@ -380,14 +370,6 @@ done
 # dev 中 auth-service 只在 Docker 网络内暴露，未发布宿主机 8100。
 # 显式覆盖旧 .env 里的宿主机地址，避免 fusion-api JWKS/userinfo 校验连到不可达地址。
 export AUTH_SERVICE_INTERNAL_BASE_URL="http://auth-service:8100"
-expected_governance_root="${HOME}/backups/litellm-governance"
-governance_root="${LITELLM_GOVERNANCE_ROOT_HOST:-${expected_governance_root}}"
-if [ "${governance_root}" != "${expected_governance_root}" ]; then
-  echo "LITELLM_GOVERNANCE_ROOT_HOST 必须与 systemd 治理服务目录一致: ${expected_governance_root}"
-  exit 1
-fi
-export LITELLM_GOVERNANCE_ROOT_HOST="${expected_governance_root}"
-test -d "${LITELLM_GOVERNANCE_ROOT_HOST}"
 docker network inspect "${MILVUS_DOCKER_NETWORK}" >/dev/null 2>&1 \
   || docker network create "${MILVUS_DOCKER_NETWORK}" >/dev/null
 install -d -m 0755 "${FUSION_STORAGE_DIR}"
@@ -432,7 +414,6 @@ services:
     volumes:
       - ./logs:/app/logs
       - ${FUSION_STORAGE_DIR}:/app/storage/files
-      - ${LITELLM_GOVERNANCE_ROOT_HOST}:/var/lib/fusion/litellm-governance:ro
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - SERVER_HOST=${SERVER_HOST}
@@ -471,12 +452,7 @@ services:
       - RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL=${RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL:-deepseek/deepseek-chat}
       # 全模型 /health 探测默认关闭（每模型真实 completion 产生费用），详见 docs/LITELLM_HEALTH.md
       - LITELLM_HEALTH_ENABLED=${LITELLM_HEALTH_ENABLED:-false}
-      - LITELLM_GOVERNANCE_ROOT=/var/lib/fusion/litellm-governance
-      - LITELLM_GOVERNANCE_MAX_AGE_SECONDS=${LITELLM_GOVERNANCE_MAX_AGE_SECONDS:-86400}
       - LITELLM_MODEL_MANAGEMENT_ENABLED=${LITELLM_MODEL_MANAGEMENT_ENABLED:-false}
-      - LITELLM_MODEL_ADMISSION_WORKER_ENABLED=${LITELLM_MODEL_ADMISSION_WORKER_ENABLED:-false}
-      - LITELLM_MODEL_ADMISSION_WORKER_TOKEN=${LITELLM_MODEL_ADMISSION_WORKER_TOKEN:-}
-      - LITELLM_MODEL_ADMISSION_LEASE_SECONDS=${LITELLM_MODEL_ADMISSION_LEASE_SECONDS:-600}
       - AGENT_MAX_STEPS=${AGENT_MAX_STEPS}
       - AGENT_MAX_TOOL_CALLS=${AGENT_MAX_TOOL_CALLS}
       - AGENT_TOTAL_TIMEOUT=${AGENT_TOTAL_TIMEOUT}

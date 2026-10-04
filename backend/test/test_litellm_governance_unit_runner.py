@@ -59,14 +59,7 @@ class LiteLLMGovernanceUnitRunnerTests(unittest.TestCase):
                 proxy_env=proxy_env,
                 governance_env=governance_env,
                 registry=registry,
-                required_env_names=[
-                    "LITELLM_MASTER_KEY",
-                    "LITELLM_CANDIDATE_KEY",
-                    "LITELLM_VIRTUAL_KEY",
-                    "LITELLM_MODEL_ADMISSION_WORKER_TOKEN",
-                    "LITELLM_GOVERNANCE_MAX_AGE_SECONDS",
-                    "FUSION_MODEL_MANAGEMENT_BASE_URL",
-                ],
+                required_env_names=["LITELLM_MASTER_KEY", "LITELLM_CANDIDATE_KEY"],
                 inherited={
                     "HOME": "/home/test",
                     "PATH": "/usr/bin:/bin",
@@ -80,18 +73,11 @@ class LiteLLMGovernanceUnitRunnerTests(unittest.TestCase):
         self.assertEqual(execute_env["LITELLM_MASTER_KEY"], "master")
         self.assertEqual(execute_env["MOONSHOT_API_KEY"], "moonshot")
         self.assertEqual(execute_env["LITELLM_CANDIDATE_KEY"], "candidate")
-        self.assertEqual(execute_env["LITELLM_VIRTUAL_KEY"], "virtual")
-        self.assertEqual(
-            execute_env["FUSION_MODEL_MANAGEMENT_BASE_URL"],
-            "http://127.0.0.1:8002",
-        )
-        self.assertEqual(execute_env["LITELLM_MODEL_ADMISSION_WORKER_TOKEN"], "worker-token")
-        self.assertEqual(execute_env["LITELLM_GOVERNANCE_MAX_AGE_SECONDS"], "7200")
         self.assertNotIn("PYTHONPATH", execute_env)
         self.assertNotIn("LD_PRELOAD", execute_env)
         self.assertEqual(execute_env["PYTHONNOUSERSITE"], "1")
 
-    def test_read_only_governance_process_does_not_receive_worker_credentials(self):
+    def test_leftover_worker_credentials_in_governance_env_are_never_injected(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             proxy_env, governance_env, registry = self._files(Path(temp_dir))
 

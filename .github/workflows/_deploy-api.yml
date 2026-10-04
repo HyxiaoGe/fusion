@@ -184,13 +184,6 @@ jobs:
         env:
           ROLLBACK_REQUESTED: ${{ needs.prepare.outputs.rollback_requested }}
         run: ops/deploy/api-resolve-deployment-digest.sh
-      - name: Pause model management worker before API deploy
-        id: pause_model_management_worker
-        env:
-          DEPLOY_LITELLM_MODEL_MANAGEMENT_ENABLED: ${{ vars.LITELLM_MODEL_MANAGEMENT_ENABLED || 'false' }}
-          DEPLOY_LITELLM_MODEL_ADMISSION_WORKER_ENABLED: ${{ vars.LITELLM_MODEL_ADMISSION_WORKER_ENABLED || 'false' }}
-          ROLLBACK_MODEL_MANAGEMENT_TIMER_ACTIVE: ${{ steps.capture_rollback_target.outputs.model_management_timer_active }}
-        run: ops/deploy/api-pause-model-management-worker.sh
       - name: Apply alembic migrations
         id: apply_migrations
         if: inputs.migration_enabled && needs.prepare.outputs.rollback_requested != 'true'
@@ -222,9 +215,6 @@ jobs:
           DEPLOY_RUN_CAPABILITY_CLASSIFIER_MODEL: ${{ vars.RUN_CAPABILITY_CLASSIFIER_MODEL || 'deepseek-chat' }}
           DEPLOY_RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL: ${{ vars.RUN_CAPABILITY_CLASSIFIER_TOKENIZER_MODEL || 'deepseek/deepseek-chat' }}
           DEPLOY_LITELLM_MODEL_MANAGEMENT_ENABLED: ${{ vars.LITELLM_MODEL_MANAGEMENT_ENABLED || 'false' }}
-          DEPLOY_LITELLM_MODEL_ADMISSION_WORKER_ENABLED: ${{ vars.LITELLM_MODEL_ADMISSION_WORKER_ENABLED || 'false' }}
-          DEPLOY_LITELLM_GOVERNANCE_MAX_AGE_SECONDS: ${{ vars.LITELLM_GOVERNANCE_MAX_AGE_SECONDS || '86400' }}
-          DEPLOY_LITELLM_MODEL_ADMISSION_WORKER_TOKEN: ${{ secrets.LITELLM_MODEL_ADMISSION_WORKER_TOKEN }}
           DEPLOY_KNOWLEDGE_BASE_ENABLED: ${{ vars.KNOWLEDGE_BASE_ENABLED || 'false' }}
           DEPLOY_KNOWLEDGE_MAX_FILE_SIZE: ${{ vars.KNOWLEDGE_MAX_FILE_SIZE || '10485760' }}
           DEPLOY_KNOWLEDGE_CHUNKER_VERSION: ${{ vars.KNOWLEDGE_CHUNKER_VERSION || 'chunker-v2' }}
@@ -263,30 +253,14 @@ jobs:
           ROLLBACK_REQUESTED: ${{ needs.prepare.outputs.rollback_requested }}
           KNOWLEDGE_WORKER_SUPPORTED: ${{ steps.deploy_candidate.outputs.knowledge_worker_supported }}
         run: ops/deploy/api-verify-health.sh
-      - name: Install LiteLLM governance discovery
+      - name: Install LiteLLM cost sync
         if: needs.prepare.outputs.rollback_requested != 'true'
         env:
-          ROLLBACK_GOVERNANCE_TIMER_ACTIVE: ${{ steps.capture_rollback_target.outputs.governance_timer_active }}
           ROLLBACK_COST_TIMER_ACTIVE: ${{ steps.capture_rollback_target.outputs.cost_timer_active }}
-        run: ops/deploy/api-install-litellm-governance.sh
-      - name: Install model management worker
-        if: needs.prepare.outputs.rollback_requested != 'true'
-        env:
-          DEPLOY_LITELLM_MODEL_MANAGEMENT_ENABLED: ${{ vars.LITELLM_MODEL_MANAGEMENT_ENABLED || 'false' }}
-          DEPLOY_LITELLM_MODEL_ADMISSION_WORKER_ENABLED: ${{ vars.LITELLM_MODEL_ADMISSION_WORKER_ENABLED || 'false' }}
-          DEPLOY_LITELLM_GOVERNANCE_MAX_AGE_SECONDS: ${{ vars.LITELLM_GOVERNANCE_MAX_AGE_SECONDS || '86400' }}
-          DEPLOY_LITELLM_MODEL_ADMISSION_WORKER_TOKEN: ${{ secrets.LITELLM_MODEL_ADMISSION_WORKER_TOKEN }}
-          ROLLBACK_MODEL_MANAGEMENT_TIMER_ACTIVE: ${{ steps.capture_rollback_target.outputs.model_management_timer_active }}
-        run: ops/deploy/api-install-model-management-worker.sh
+        run: ops/deploy/api-install-litellm-cost-sync.sh
       - name: Run deployment smoke
         id: deployment_smoke
         run: ops/deploy/api-run-deployment-smoke.sh
-      - name: Restore model management worker for manual rollback
-        if: needs.prepare.outputs.rollback_requested == 'true'
-        env:
-          DEPLOY_LITELLM_MODEL_MANAGEMENT_ENABLED: ${{ vars.LITELLM_MODEL_MANAGEMENT_ENABLED || 'false' }}
-          DEPLOY_LITELLM_MODEL_ADMISSION_WORKER_ENABLED: ${{ vars.LITELLM_MODEL_ADMISSION_WORKER_ENABLED || 'false' }}
-        run: ops/deploy/api-restore-model-management-worker-manual-rollback.sh
       - name: Preserve API rollback images
         id: cleanup_old_images
         if: success()
@@ -297,11 +271,6 @@ jobs:
       - name: Record accepted API release
         if: success()
         run: ops/deploy/api-record-accepted-release.sh
-      - name: Restore model management worker after pre-deploy failure
-        if: ${{ failure() && steps.capture_rollback_target.outcome == 'success' && steps.pause_model_management_worker.outcome == 'success' && steps.deploy_candidate.outcome == 'skipped' }}
-        env:
-          ROLLBACK_MODEL_MANAGEMENT_TIMER_ACTIVE: ${{ steps.capture_rollback_target.outputs.model_management_timer_active }}
-        run: ops/deploy/api-restore-model-management-worker-predeploy-failure.sh
       - name: Roll back failed deployment
         id: rollback_failed_deployment
         if: ${{ failure() && steps.capture_rollback_target.outcome == 'success' && steps.deploy_candidate.outcome != 'skipped' }}
@@ -314,26 +283,13 @@ jobs:
           ROLLBACK_KNOWLEDGE_WORKER_EXISTED: ${{ steps.capture_rollback_target.outputs.knowledge_worker_existed }}
           ROLLBACK_KNOWLEDGE_WORKER_IMAGE_REF: ${{ steps.capture_rollback_target.outputs.knowledge_worker_image_ref }}
           ROLLBACK_KNOWLEDGE_WORKER_IMAGE_ID: ${{ steps.capture_rollback_target.outputs.knowledge_worker_image_id }}
-          ROLLBACK_MODEL_MANAGEMENT_CURRENT_TARGET: ${{ steps.capture_rollback_target.outputs.model_management_current_target }}
-          ROLLBACK_MODEL_MANAGEMENT_TIMER_ENABLED: ${{ steps.capture_rollback_target.outputs.model_management_timer_enabled }}
-          ROLLBACK_MODEL_MANAGEMENT_TIMER_ACTIVE: ${{ steps.capture_rollback_target.outputs.model_management_timer_active }}
           ROLLBACK_GOVERNANCE_CURRENT_TARGET: ${{ steps.capture_rollback_target.outputs.governance_current_target }}
-          ROLLBACK_GOVERNANCE_TIMER_ENABLED: ${{ steps.capture_rollback_target.outputs.governance_timer_enabled }}
-          ROLLBACK_GOVERNANCE_TIMER_ACTIVE: ${{ steps.capture_rollback_target.outputs.governance_timer_active }}
           ROLLBACK_COST_TIMER_ENABLED: ${{ steps.capture_rollback_target.outputs.cost_timer_enabled }}
           ROLLBACK_COST_TIMER_ACTIVE: ${{ steps.capture_rollback_target.outputs.cost_timer_active }}
-          ROLLBACK_GOVERNANCE_SERVICE_UNIT_EXISTED: ${{ steps.capture_rollback_target.outputs.governance_service_unit_existed }}
-          ROLLBACK_GOVERNANCE_TIMER_UNIT_EXISTED: ${{ steps.capture_rollback_target.outputs.governance_timer_unit_existed }}
-          ROLLBACK_GOVERNANCE_SERVICE_UNIT_B64: ${{ steps.capture_rollback_target.outputs.governance_service_unit_b64 }}
-          ROLLBACK_GOVERNANCE_TIMER_UNIT_B64: ${{ steps.capture_rollback_target.outputs.governance_timer_unit_b64 }}
           ROLLBACK_COST_SERVICE_UNIT_EXISTED: ${{ steps.capture_rollback_target.outputs.cost_service_unit_existed }}
           ROLLBACK_COST_TIMER_UNIT_EXISTED: ${{ steps.capture_rollback_target.outputs.cost_timer_unit_existed }}
           ROLLBACK_COST_SERVICE_UNIT_B64: ${{ steps.capture_rollback_target.outputs.cost_service_unit_b64 }}
           ROLLBACK_COST_TIMER_UNIT_B64: ${{ steps.capture_rollback_target.outputs.cost_timer_unit_b64 }}
-          ROLLBACK_MODEL_MANAGEMENT_SERVICE_UNIT_EXISTED: ${{ steps.capture_rollback_target.outputs.model_management_service_unit_existed }}
-          ROLLBACK_MODEL_MANAGEMENT_TIMER_UNIT_EXISTED: ${{ steps.capture_rollback_target.outputs.model_management_timer_unit_existed }}
-          ROLLBACK_MODEL_MANAGEMENT_SERVICE_UNIT_B64: ${{ steps.capture_rollback_target.outputs.model_management_service_unit_b64 }}
-          ROLLBACK_MODEL_MANAGEMENT_TIMER_UNIT_B64: ${{ steps.capture_rollback_target.outputs.model_management_timer_unit_b64 }}
           DEPLOY_AGENT_MAX_STEPS: ${{ vars.AGENT_MAX_STEPS }}
           DEPLOY_AGENT_MAX_TOOL_CALLS: ${{ vars.AGENT_MAX_TOOL_CALLS }}
           DEPLOY_AGENT_TOTAL_TIMEOUT: ${{ vars.AGENT_TOTAL_TIMEOUT }}
@@ -355,9 +311,6 @@ jobs:
           DEPLOY_AMAP_MCP_API_KEY: ${{ secrets.AMAP_MCP_API_KEY }}
           DEPLOY_FLYAI_API_KEY: ${{ secrets.FLYAI_API_KEY }}
           ROLLBACK_LITELLM_MODEL_MANAGEMENT_ENABLED: ${{ steps.capture_rollback_target.outputs.model_management_enabled }}
-          ROLLBACK_LITELLM_MODEL_ADMISSION_WORKER_ENABLED: ${{ steps.capture_rollback_target.outputs.model_admission_worker_enabled }}
-          DEPLOY_LITELLM_GOVERNANCE_MAX_AGE_SECONDS: ${{ vars.LITELLM_GOVERNANCE_MAX_AGE_SECONDS || '86400' }}
-          DEPLOY_LITELLM_MODEL_ADMISSION_WORKER_TOKEN: ${{ secrets.LITELLM_MODEL_ADMISSION_WORKER_TOKEN }}
         run: ops/deploy/api-rollback-failed-deployment.sh
       - name: Push CI/CD metrics
         if: always()
