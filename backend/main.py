@@ -250,7 +250,7 @@ async def add_request_id(request: Request, call_next):
 @app.middleware("http")
 async def prevent_admin_audit_caching(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith(("/api/admin", "/api/models", "/api/internal/model-management")):
+    if request.url.path.startswith(("/api/admin", "/api/models")):
         response.headers["Cache-Control"] = "private, no-store"
         response.headers["Pragma"] = "no-cache"
     return response
@@ -414,11 +414,6 @@ app.include_router(
     admin_model_management.router,
     prefix="/api/admin/model-management",
     tags=["admin-model-management"],
-)
-app.include_router(
-    admin_model_management.internal_router,
-    prefix="/api/internal/model-management",
-    tags=["internal-model-management"],
 )
 
 if __name__ == "__main__":
