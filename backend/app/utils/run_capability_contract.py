@@ -68,6 +68,12 @@ class CapabilityPackageSpec:
 
         return bool(self.tools) and not set(self.tools).intersection(CAPABILITY_RECOVERY_TOOL_NAMES)
 
+    @property
+    def is_single_product_lookup(self) -> bool:
+        """只公告一个产品工具：一次专用查询，已有工具契约与答案约束，不需要多步方法论。"""
+
+        return self.is_product_package and len(self.tools) == 1
+
     def route_include_current_date(self, requested: bool) -> bool:
         if self.include_current_date is not None:
             return self.include_current_date
