@@ -24,6 +24,7 @@ RESEARCH_COMPLETION_REPAIR = "research_completion_repair"
 DEEP_RESEARCH_STAGE = "deep_research_stage"
 RESEARCH_EVIDENCE_WORKSET = "research_evidence_workset"
 PRODUCT_RESULT_ROUND = "product_result_round"
+PRODUCT_TOOL_REQUIRED_REPAIR = "product_tool_required_repair"
 
 PLAN_SYNTHESIS = "plan_synthesis"
 NO_PROGRESS_SUMMARY = "no_progress_summary"
@@ -39,6 +40,7 @@ TERMINAL_CONTROL_SECTION_IDS = frozenset(
         AGENT_PLAN_CONTROL,
         PLAN_REQUIRED_REPAIR,
         PLAN_EXECUTION_REPAIR,
+        PRODUCT_TOOL_REQUIRED_REPAIR,
         DOCUMENT_OUTPUT_CONTRACT,
         SKILLS_CATALOG,
     }

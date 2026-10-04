@@ -1912,7 +1912,8 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
             first_tools = baseline["rounds"][0]["visible_tools"]
             self.assertIn("search_trains", first_tools)
             self.assertNotIn("weather_forecast", first_tools)
-            self.assertEqual(train_summary["used_tokens"], 21 + 5 + 11 + 7 + 11 + 7)
+            # 模拟主模型从不调用工具：基线产品路由会多一轮补调产品工具的修正。
+            self.assertEqual(train_summary["used_tokens"], 21 + 5 + 11 + 7 + 11 + 7 + 11 + 7)
             self.assertFalse(train_summary["usage_unknown"])
 
             classifier_calls.clear()
