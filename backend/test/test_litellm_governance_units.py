@@ -10,40 +10,29 @@ else:
 
 ROOT = Path(__file__).resolve().parents[1]
 MONOREPO_ROOT = ROOT.parent
-SERVICE = ROOT / "ops/litellm/fusion-litellm-governance.service"
-TIMER = ROOT / "ops/litellm/fusion-litellm-governance.timer"
 COST_SERVICE = ROOT / "ops/litellm/fusion-litellm-cost-sync.service"
 COST_TIMER = ROOT / "ops/litellm/fusion-litellm-cost-sync.timer"
-MODEL_MANAGEMENT_SERVICE = ROOT / "ops/litellm/fusion-litellm-model-management.service"
-MODEL_MANAGEMENT_TIMER = ROOT / "ops/litellm/fusion-litellm-model-management.timer"
 REQUIREMENTS = ROOT / "ops/litellm/requirements-governance.txt"
 GOVERNANCE_ENV = ROOT / "ops/litellm/litellm-governance.env.example"
 DEPLOY_WORKFLOW = MONOREPO_ROOT / ".github/workflows/_deploy-api.yml"
 
 
-class LiteLLMGovernanceUnitTests(unittest.TestCase):
-    def test_deploy_validates_governance_offline_without_running_provider_discovery(self):
+class LiteLLMCostSyncUnitTests(unittest.TestCase):
+    def test_deploy_installs_cost_sync_and_retires_admission_units(self):
         content = read_expanded_workflow(DEPLOY_WORKFLOW)
-        install_step = content.split("- name: Install LiteLLM governance discovery", 1)[1].split(
-            "- name: Install model management worker", 1
-        )[0]
+        install_step = content.split("- name: Install LiteLLM cost sync", 1)[1].split("- name: ", 1)[0]
 
-        self.assertIn("-m scripts.run_litellm_governance_unit", install_step)
-        self.assertIn("-- /usr/bin/true", install_step)
-        self.assertNotIn("systemctl --user start fusion-litellm-governance.service", install_step)
-        self.assertIn("systemctl --user enable --now fusion-litellm-governance.timer", install_step)
+        self.assertIn("systemctl --user enable --now fusion-litellm-cost-sync.timer", install_step)
+        self.assertIn("for retired_unit in fusion-litellm-governance fusion-litellm-model-management; do", install_step)
+        self.assertIn('systemctl --user disable --now "${retired_unit}.timer"', install_step)
+        self.assertNotIn("enable --now fusion-litellm-governance.timer", install_step)
+        self.assertNotIn("fusion-litellm-model-management.timer", content.replace(install_step, ""))
 
     def test_documented_module_entrypoints_start_from_repo_root(self):
         modules = (
             "scripts.run_litellm_governance_unit",
-            "scripts.run_litellm_governance_cycle",
             "scripts.ensure_litellm_cost_map_sync",
-            "scripts.orchestrate_litellm_model_candidates",
-            "scripts.enrich_litellm_model_candidates",
-            "scripts.execute_litellm_candidate_admission",
-            "scripts.check_litellm_model_management_worker_env",
-            "scripts.configure_litellm_model_management_worker_env",
-            "scripts.run_litellm_model_management_worker",
+            "scripts.model_onboard",
         )
 
         for module in modules:
@@ -57,37 +46,6 @@ class LiteLLMGovernanceUnitTests(unittest.TestCase):
                     check=False,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
-
-    def test_service_is_read_only_and_has_no_apply_or_secret_literal(self):
-        content = SERVICE.read_text(encoding="utf-8")
-
-        self.assertIn("run_litellm_governance_cycle.py", content)
-        self.assertNotIn("EnvironmentFile=", content)
-        self.assertIn("%h/project/litellm-proxy/.env", content)
-        self.assertIn("run_litellm_governance_unit.py", content)
-        self.assertIn("-m scripts.run_litellm_governance_unit", content)
-        self.assertIn("AssertPathExists=", content)
-        self.assertIn("ops/litellm/candidate-overrides.json", content)
-        self.assertIn("--overrides", content)
-        self.assertNotIn("ConditionPathExists=", content)
-        self.assertIn("litellm-governance-venv/bin/python", content)
-        self.assertNotIn("ExecStartPre=", content)
-        self.assertIn("UnsetEnvironment=PYTHONPATH PYTHONHOME LD_PRELOAD", content)
-        self.assertIn("NoNewPrivileges=true", content)
-        self.assertIn("ProtectSystem=strict", content)
-        self.assertIn("UMask=0077", content)
-        self.assertNotIn("--apply", content)
-        self.assertNotIn("sk-", content)
-        self.assertNotIn("LITELLM_MASTER_KEY=", content)
-        self.assertNotIn("/usr/bin/python3", content)
-
-    def test_timer_uses_six_hour_shanghai_cadence_and_persistent_catchup(self):
-        content = TIMER.read_text(encoding="utf-8")
-
-        self.assertIn("00,06,12,18:20:00 Asia/Shanghai", content)
-        self.assertIn("Persistent=true", content)
-        self.assertIn("RandomizedDelaySec=10m", content)
-        self.assertIn("fusion-litellm-governance.service", content)
 
     def test_cost_sync_unit_is_separate_idempotent_apply_guard(self):
         service = COST_SERVICE.read_text(encoding="utf-8")
@@ -117,37 +75,10 @@ class LiteLLMGovernanceUnitTests(unittest.TestCase):
         self.assertIn("httpx==0.28.1", content)
         self.assertNotIn(">=", content)
 
-    def test_model_management_worker_is_isolated_and_timer_driven(self):
-        service = MODEL_MANAGEMENT_SERVICE.read_text(encoding="utf-8")
-        timer = MODEL_MANAGEMENT_TIMER.read_text(encoding="utf-8")
-
-        self.assertIn("run_litellm_model_management_worker", service)
-        self.assertIn("run_litellm_governance_unit", service)
-        self.assertIn("--require-env LITELLM_MASTER_KEY", service)
-        self.assertIn("--require-env LITELLM_VIRTUAL_KEY", service)
-        self.assertIn("--require-env LITELLM_MODEL_ADMISSION_WORKER_TOKEN", service)
-        self.assertIn("--require-env LITELLM_GOVERNANCE_MAX_AGE_SECONDS", service)
-        self.assertIn("--require-env FUSION_MODEL_MANAGEMENT_BASE_URL", service)
-        self.assertNotIn("EnvironmentFile=", service)
-        self.assertIn("ProtectSystem=strict", service)
-        self.assertIn("ProtectHome=read-only", service)
-        self.assertIn("NoNewPrivileges=true", service)
-        self.assertIn("%h/.local/share/fusion/litellm-model-management-current", service)
-        self.assertNotIn("%h/project/fusion/fusion-api/scripts/run_litellm_model_management_worker.py", service)
-        self.assertIn("%h/backups/litellm-governance", service)
-        self.assertIn("%h/.local/state/fusion/litellm-model-management", service)
-        self.assertIn("ReadWritePaths=", service)
-        self.assertIn("OnCalendar=*-*-* *:*:00 Asia/Shanghai", timer)
-        self.assertIn("Persistent=true", timer)
-
     def test_governance_env_does_not_duplicate_provider_or_master_keys(self):
         content = GOVERNANCE_ENV.read_text(encoding="utf-8")
 
         self.assertIn("LITELLM_BASE_URL=", content)
-        self.assertIn("LITELLM_CANDIDATE_KEY=", content)
-        self.assertIn("LITELLM_VIRTUAL_KEY=", content)
-        self.assertIn("LITELLM_MODEL_ADMISSION_WORKER_TOKEN=", content)
-        self.assertIn("LITELLM_GOVERNANCE_MAX_AGE_SECONDS=", content)
         self.assertNotIn("LITELLM_MASTER_KEY=", content)
         self.assertNotIn("MOONSHOT_API_KEY=", content)
         self.assertNotIn("QWEN_API_KEY=", content)

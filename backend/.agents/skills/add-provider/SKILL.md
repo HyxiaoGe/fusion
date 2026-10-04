@@ -13,7 +13,8 @@ Fusion 使用 LiteLLM Proxy；[LLMManager](../../../app/ai/llm_manager.py)解析
 
 - [解析器测试](../../../test/test_llm_manager.py)：alias 与 Proxy 参数，目录可用/不可用及未知模型行为。
 - [目录测试](../../../test/test_litellm_catalog.py)：元数据与能力映射。
-- [模型管理测试](../../../test/test_model_management_service.py)：涉及准入或可见性时使用。
+- [模型管理测试](../../../test/test_model_management_service.py)：涉及可见性时使用。
+- 在代理登记、预检、发布或下线模型用 [model_onboard](../../../scripts/model_onboard.py)，用法见 [ops/litellm/README.md](../../../ops/litellm/README.md)。
 - 流式、reasoning、工具或多模态变化另选实际消费方的测试，覆盖成功和相关失败路径。
 
 目标代码和测试通过只证明 Fusion 侧支持。Proxy 注册、远端凭据、真实模型调用和额度消耗须在用户明确授权范围内执行；已有授权可持续使用。凭据不得进入命令文本或报告，真实接入结论需目标 alias 的实际成功与相关降级证据。

@@ -503,7 +503,7 @@ class DeployScriptContractTests(unittest.TestCase):
                 "docker": (
                     "#!/usr/bin/env bash\n"
                     "if [ \"${1:-}\" = \"inspect\" ]; then\n"
-                    "  printf '/app/storage/files\\n/var/lib/fusion/litellm-governance\\n'\n"
+                    "  printf '/app/storage/files\\n'\n"
                     "fi\n"
                     "exit 0\n"
                 ),

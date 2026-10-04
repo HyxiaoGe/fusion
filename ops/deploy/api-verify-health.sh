@@ -94,40 +94,6 @@ else:
 PY
 
 docker inspect fusion-api --format '{{range .Mounts}}{{println .Destination}}{{end}}' | grep -qx '/app/storage/files'
-docker inspect fusion-api --format '{{range .Mounts}}{{println .Destination}}{{end}}' | grep -qx '/var/lib/fusion/litellm-governance'
-docker exec -e FUSION_ROLLBACK_REQUESTED="${ROLLBACK_REQUESTED}" -i fusion-api python - <<'PY'
-import os
-
-from app.core.config import settings
-
-required_names = (
-    "LITELLM_GOVERNANCE_ROOT",
-    "LITELLM_GOVERNANCE_MAX_AGE_SECONDS",
-    "LITELLM_MODEL_ADMISSION_WORKER_ENABLED",
-    "LITELLM_MODEL_MANAGEMENT_ENABLED",
-    "LITELLM_MODEL_ADMISSION_WORKER_TOKEN",
-)
-missing_names = [name for name in required_names if getattr(settings, name, None) is None]
-rollback_requested = os.environ.get("FUSION_ROLLBACK_REQUESTED") == "true"
-if missing_names:
-    if rollback_requested:
-        print("旧版回滚目标不含模型治理配置，跳过该项兼容性探针")
-        raise SystemExit(0)
-    raise SystemExit(f"LiteLLM model management settings missing: {', '.join(missing_names)}")
-
-if getattr(settings, "LITELLM_GOVERNANCE_ROOT", None) != "/var/lib/fusion/litellm-governance":
-    raise SystemExit("LiteLLM governance mount path mismatch")
-if getattr(settings, "LITELLM_GOVERNANCE_MAX_AGE_SECONDS", 0) <= 0:
-    raise SystemExit("LiteLLM governance max age must be positive")
-worker_enabled = bool(getattr(settings, "LITELLM_MODEL_ADMISSION_WORKER_ENABLED", False))
-management_enabled = bool(getattr(settings, "LITELLM_MODEL_MANAGEMENT_ENABLED", False))
-worker_token = getattr(settings, "LITELLM_MODEL_ADMISSION_WORKER_TOKEN", "")
-if worker_enabled and not management_enabled:
-    raise SystemExit("LiteLLM admission worker cannot be enabled while model management is disabled")
-if worker_enabled and not worker_token:
-    raise SystemExit("LiteLLM admission worker token is missing")
-print("LiteLLM model management read-only boundary ok")
-PY
 docker exec -i fusion-api python - <<'PY'
 import asyncio
 import urllib.request

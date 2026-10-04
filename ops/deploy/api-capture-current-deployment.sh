@@ -219,35 +219,6 @@ rollback_model_management_enabled="$(capture_container_bool_env LITELLM_MODEL_MA
   echo "无法读取部署前的模型管理开关"
   exit 1
 }
-rollback_model_admission_worker_enabled="$(capture_container_bool_env LITELLM_MODEL_ADMISSION_WORKER_ENABLED)" || {
-  echo "无法读取部署前的模型准入 Worker 开关"
-  exit 1
-}
-case "${rollback_model_management_enabled}:${rollback_model_admission_worker_enabled}" in
-  true:true|true:false|false:false) ;;
-  *) echo "部署前的模型管理开关组合无效，拒绝在无法安全回滚时部署"; exit 1 ;;
-esac
-
-model_management_current_link="${HOME}/.local/share/fusion/litellm-model-management-current"
-model_management_current_target=""
-if [ -L "${model_management_current_link}" ]; then
-  model_management_current_target="$(readlink -f -- "${model_management_current_link}")"
-  case "${model_management_current_target}" in
-    "${HOME}/.local/share/fusion/litellm-model-management-src-"*) ;;
-    *) echo "模型准入 Worker 当前版本不在受管目录中: ${model_management_current_target:-<empty>}"; exit 1 ;;
-  esac
-elif [ -e "${model_management_current_link}" ]; then
-  echo "模型准入 Worker 当前版本路径不是符号链接，拒绝部署"
-  exit 1
-fi
-model_management_timer_enabled="false"
-model_management_timer_active="false"
-if systemctl --user is-enabled --quiet fusion-litellm-model-management.timer; then
-  model_management_timer_enabled="true"
-fi
-if systemctl --user is-active --quiet fusion-litellm-model-management.timer; then
-  model_management_timer_active="true"
-fi
 
 governance_current_link="${HOME}/.local/share/fusion/litellm-governance-current"
 governance_current_target=""
@@ -255,22 +226,14 @@ if [ -L "${governance_current_link}" ]; then
   governance_current_target="$(readlink -f -- "${governance_current_link}")"
   case "${governance_current_target}" in
     "${HOME}/.local/share/fusion/litellm-governance-src-"*) ;;
-    *) echo "LiteLLM 治理当前版本不在受管目录中: ${governance_current_target:-<empty>}"; exit 1 ;;
+    *) echo "LiteLLM 成本同步当前版本不在受管目录中: ${governance_current_target:-<empty>}"; exit 1 ;;
   esac
 elif [ -e "${governance_current_link}" ]; then
-  echo "LiteLLM 治理当前版本路径不是符号链接，拒绝部署"
+  echo "LiteLLM 成本同步当前版本路径不是符号链接，拒绝部署"
   exit 1
 fi
-governance_timer_enabled="false"
-governance_timer_active="false"
 cost_timer_enabled="false"
 cost_timer_active="false"
-if systemctl --user is-enabled --quiet fusion-litellm-governance.timer; then
-  governance_timer_enabled="true"
-fi
-if systemctl --user is-active --quiet fusion-litellm-governance.timer; then
-  governance_timer_active="true"
-fi
 if systemctl --user is-enabled --quiet fusion-litellm-cost-sync.timer; then
   cost_timer_enabled="true"
 fi
@@ -278,28 +241,6 @@ if systemctl --user is-active --quiet fusion-litellm-cost-sync.timer; then
   cost_timer_active="true"
 fi
 governance_unit_dir="${HOME}/.config/systemd/user"
-governance_service_unit="${governance_unit_dir}/fusion-litellm-governance.service"
-governance_timer_unit="${governance_unit_dir}/fusion-litellm-governance.timer"
-governance_service_unit_existed="false"
-governance_timer_unit_existed="false"
-governance_service_unit_b64=""
-governance_timer_unit_b64=""
-if [ -e "${governance_service_unit}" ]; then
-  if [ ! -f "${governance_service_unit}" ] || [ -L "${governance_service_unit}" ]; then
-    echo "LiteLLM 治理 service unit 不是受管普通文件"
-    exit 1
-  fi
-  governance_service_unit_existed="true"
-  governance_service_unit_b64="$(base64 -w0 "${governance_service_unit}")"
-fi
-if [ -e "${governance_timer_unit}" ]; then
-  if [ ! -f "${governance_timer_unit}" ] || [ -L "${governance_timer_unit}" ]; then
-    echo "LiteLLM 治理 timer unit 不是受管普通文件"
-    exit 1
-  fi
-  governance_timer_unit_existed="true"
-  governance_timer_unit_b64="$(base64 -w0 "${governance_timer_unit}")"
-fi
 cost_service_unit="${governance_unit_dir}/fusion-litellm-cost-sync.service"
 cost_timer_unit="${governance_unit_dir}/fusion-litellm-cost-sync.timer"
 cost_service_unit_existed="false"
@@ -322,29 +263,6 @@ if [ -e "${cost_timer_unit}" ]; then
   cost_timer_unit_existed="true"
   cost_timer_unit_b64="$(base64 -w0 "${cost_timer_unit}")"
 fi
-model_management_service_unit="${governance_unit_dir}/fusion-litellm-model-management.service"
-model_management_timer_unit="${governance_unit_dir}/fusion-litellm-model-management.timer"
-model_management_service_unit_existed="false"
-model_management_timer_unit_existed="false"
-model_management_service_unit_b64=""
-model_management_timer_unit_b64=""
-if [ -e "${model_management_service_unit}" ]; then
-  if [ ! -f "${model_management_service_unit}" ] || [ -L "${model_management_service_unit}" ]; then
-    echo "模型准入 Worker service unit 不是受管普通文件"
-    exit 1
-  fi
-  model_management_service_unit_existed="true"
-  model_management_service_unit_b64="$(base64 -w0 "${model_management_service_unit}")"
-fi
-if [ -e "${model_management_timer_unit}" ]; then
-  if [ ! -f "${model_management_timer_unit}" ] || [ -L "${model_management_timer_unit}" ]; then
-    echo "模型准入 Worker timer unit 不是受管普通文件"
-    exit 1
-  fi
-  model_management_timer_unit_existed="true"
-  model_management_timer_unit_b64="$(base64 -w0 "${model_management_timer_unit}")"
-fi
-
 {
   printf '%s\n' "api_image_ref=${api_image_ref}"
   printf '%s\n' "api_image_id=${api_image_id}"
@@ -355,25 +273,11 @@ fi
   printf '%s\n' "knowledge_worker_image_ref=${knowledge_worker_image_ref}"
   printf '%s\n' "knowledge_worker_image_id=${knowledge_worker_image_id}"
   printf '%s\n' "model_management_enabled=${rollback_model_management_enabled}"
-  printf '%s\n' "model_admission_worker_enabled=${rollback_model_admission_worker_enabled}"
-  printf '%s\n' "model_management_current_target=${model_management_current_target}"
-  printf '%s\n' "model_management_timer_enabled=${model_management_timer_enabled}"
-  printf '%s\n' "model_management_timer_active=${model_management_timer_active}"
   printf '%s\n' "governance_current_target=${governance_current_target}"
-  printf '%s\n' "governance_timer_enabled=${governance_timer_enabled}"
-  printf '%s\n' "governance_timer_active=${governance_timer_active}"
   printf '%s\n' "cost_timer_enabled=${cost_timer_enabled}"
   printf '%s\n' "cost_timer_active=${cost_timer_active}"
-  printf '%s\n' "governance_service_unit_existed=${governance_service_unit_existed}"
-  printf '%s\n' "governance_timer_unit_existed=${governance_timer_unit_existed}"
-  printf '%s\n' "governance_service_unit_b64=${governance_service_unit_b64}"
-  printf '%s\n' "governance_timer_unit_b64=${governance_timer_unit_b64}"
   printf '%s\n' "cost_service_unit_existed=${cost_service_unit_existed}"
   printf '%s\n' "cost_timer_unit_existed=${cost_timer_unit_existed}"
   printf '%s\n' "cost_service_unit_b64=${cost_service_unit_b64}"
   printf '%s\n' "cost_timer_unit_b64=${cost_timer_unit_b64}"
-  printf '%s\n' "model_management_service_unit_existed=${model_management_service_unit_existed}"
-  printf '%s\n' "model_management_timer_unit_existed=${model_management_timer_unit_existed}"
-  printf '%s\n' "model_management_service_unit_b64=${model_management_service_unit_b64}"
-  printf '%s\n' "model_management_timer_unit_b64=${model_management_timer_unit_b64}"
 } >> "${GITHUB_OUTPUT}"
