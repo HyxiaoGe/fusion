@@ -10,6 +10,8 @@ from app.ai.prompts.section_ids import SKILLS_CATALOG
 from app.ai.skills import discover_skills
 from app.schemas.chat import Usage
 from app.services.agent.plan_coordinator import PlanCoordinator
+from app.services.mcp.amap_product_tools import AMAP_PRODUCT_DEFINITIONS
+from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_DEFINITIONS
 from app.services.stream.agent_loop_driver import _run_round
 from app.services.stream.agent_loop_request_prep import build_agent_loop_call_config
 from app.services.stream.agent_loop_state import AgentLoopState
@@ -163,6 +165,36 @@ class SkillCallConfigTests(_SkillRootTestCase):
                 LOAD_SKILL_TOOL_NAME,
                 [tool["function"]["name"] for tool in config.call_kwargs.get("tools", [])],
             )
+
+    def test_single_product_lookup_routes_carry_no_skills(self):
+        tools = [*AMAP_PRODUCT_DEFINITIONS, *FLYAI_TRAVEL_DEFINITIONS]
+        handlers = {tool["function"]["name"]: object() for tool in tools}
+
+        def config_for(package_id: str):
+            return build_agent_loop_call_config(
+                provider="openai",
+                options={},
+                capabilities=CAPABILITIES,
+                additional_tools=tools,
+                dynamic_tool_handlers=handlers,
+                original_message="查一下",
+                classify_fn=lambda **_kwargs: _candidate(package_id),
+            )
+
+        single = [package_id for package_id, spec in CAPABILITY_PACKAGES.items() if spec.is_single_product_lookup]
+        self.assertEqual(set(single), {"weather", "place_discovery", "mobility_route", "flight", "train"})
+        for package_id in single:
+            with self.subTest(package_id=package_id):
+                config = config_for(package_id)
+                self.assertEqual(config.capability_resolution.package_id, package_id)
+                self.assertIsNone(config.skill_session)
+                self.assertNotIn(LOAD_SKILL_TOOL_NAME, config.dynamic_tool_handlers)
+                self.assertNotIn(LOAD_SKILL_TOOL_NAME, _tool_names(config.call_kwargs))
+
+        multi = config_for("travel_air_rail")
+        self.assertEqual(multi.capability_resolution.package_id, "travel_air_rail")
+        self.assertIn("comparison-advice", multi.skill_session.entries)
+        self.assertIn(LOAD_SKILL_TOOL_NAME, _tool_names(multi.call_kwargs))
 
     def test_final_synthesis_drops_skills_catalog(self):
         session = build_skill_session(["web_search"])

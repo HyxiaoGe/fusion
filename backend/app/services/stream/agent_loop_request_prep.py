@@ -74,6 +74,7 @@ from app.services.stream.skill_loading import (
     build_skill_session,
 )
 from app.utils.run_capability_contract import (
+    CAPABILITY_PACKAGES,
     CAPABILITY_PRIMARY_TOOL_PACKAGES,
     McpRouteTool,
     is_authorized_mcp_tool_alias,
@@ -453,10 +454,14 @@ def build_agent_loop_call_config(
             document_context = render_current_documents_context(document_tools.existing_documents)
         document_handlers = dict(document_tools.handlers)
         call_kwargs.setdefault("max_tokens", DOCUMENT_OUTPUT_MAX_TOKENS)
-    # 深度研究有自己的取证与综合契约，不叠加 Skill 方法论。
+    # 深度研究有自己的取证与综合契约，不叠加 Skill 方法论；单一产品查询同理——
+    # 现有 Skill 都面向多步任务，挂目录只会稀释首轮对用户问题的注意力（实测会让模型漏掉问题）。
+    package_spec = CAPABILITY_PACKAGES.get(capability_resolution.package_id)
     skill_session = (
         build_skill_session(external_tool_names)
-        if supports_dynamic_tools and task_policy.task_mode != "deep_research"
+        if supports_dynamic_tools
+        and task_policy.task_mode != "deep_research"
+        and not (package_spec is not None and package_spec.is_single_product_lookup)
         else None
     )
     skill_handlers: dict[str, Any] = {}
