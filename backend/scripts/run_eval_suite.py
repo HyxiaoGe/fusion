@@ -50,11 +50,11 @@ def plan(cases: Sequence[EvalCase], models: Sequence[str]) -> list[tuple[EvalCas
     return [(case, model) for case in cases for model in models if case.applies_to(model)]
 
 
-def format_report(outcomes, regressions, fixes) -> str:
-    from app.evals.store import summarize
+def format_report(outcomes, regressions, flaky, fixes) -> str:
+    from app.evals.store import final_outcomes, summarize
 
     lines = []
-    for outcome in sorted(outcomes, key=lambda item: (item.case_id, item.model_id)):
+    for outcome in sorted(final_outcomes(outcomes), key=lambda item: (item.case_id, item.model_id)):
         if outcome.status == "passed":
             continue
         lines.append(f"[{outcome.status}] {outcome.case_id} @ {outcome.model_id}  run={outcome.run_id}")
@@ -69,8 +69,12 @@ def format_report(outcomes, regressions, fixes) -> str:
         lines.append(f"{model:<32}{counts['passed']:>6}{counts['failed']:>6}{counts['error']:>6}{counts['total']:>6}")
     if regressions:
         lines.append("")
-        lines.append(f"退步 {len(regressions)} 项（此前通过、本轮失败）：")
+        lines.append(f"退步 {len(regressions)} 项（此前通过、本轮失败且复核仍失败）：")
         lines.extend(f"  - {item.case_id} @ {item.model_id}（基准 {item.before_suite_run_id}）" for item in regressions)
+    if flaky:
+        lines.append("")
+        lines.append(f"不稳定 {len(flaky)} 项（此前通过、本轮首次失败、复核未失败），不计为退步：")
+        lines.extend(f"  - {item.case_id} @ {item.model_id}" for item in flaky)
     if fixes:
         lines.append("")
         lines.append(f"改善 {len(fixes)} 项（此前失败、本轮通过）：")
@@ -102,34 +106,46 @@ async def _execute(args, cases: list[EvalCase], pairs: list[tuple[EvalCase, str]
     semaphore = asyncio.Semaphore(max(1, args.workers))
     outcomes = []
 
-    async def one(case: EvalCase, model: str) -> None:
+    async def one(case: EvalCase, model: str, attempt: int = 1) -> None:
         async with semaphore:
-            outcome = await run_case(case, model, user_id=user_id, session_factory=SessionLocal, judge=judge)
+            outcome = await run_case(
+                case, model, user_id=user_id, session_factory=SessionLocal, judge=judge, attempt=attempt
+            )
         with SessionLocal() as db:
             store.save_outcome(db, suite_run_id, outcome)
         outcomes.append(outcome)
-        print(f"  [{outcome.status}] {case.id} @ {model}  {outcome.duration_ms / 1000:.0f}s", flush=True)
+        tag = "" if attempt == 1 else "  （复核）"
+        print(f"  [{outcome.status}] {case.id} @ {model}  {outcome.duration_ms / 1000:.0f}s{tag}", flush=True)
 
     try:
         async with eval_runtime():
             await asyncio.gather(*(one(case, model) for case, model in pairs))
+            with SessionLocal() as db:
+                previous = store.previous_results(
+                    db,
+                    before=started,
+                    pairs={(item.case_id, item.model_id) for item in outcomes},
+                    exclude_suite_run_id=suite_run_id,
+                )
+            # 单次失败可能只是模型或分类器的随机波动：退步当场复核一次，仍失败才算退步。
+            first_regressions, _ = store.compare(outcomes, previous)
+            by_id = {case.id: case for case in cases}
+            if first_regressions:
+                print(f"复核 {len(first_regressions)} 项退步…", flush=True)
+            await asyncio.gather(*(one(by_id[item.case_id], item.model_id, 2) for item in first_regressions))
     except BaseException:
         with SessionLocal() as db:
             store.finish_suite_run(db, suite_run_id, status="failed", summary=store.summarize(outcomes))
         raise
 
+    final = store.final_outcomes(outcomes)
+    regressions, fixes = store.compare(final, previous)
+    confirmed = {(item.case_id, item.model_id) for item in regressions}
+    flaky = [item for item in first_regressions if (item.case_id, item.model_id) not in confirmed]
     with SessionLocal() as db:
-        summary = store.summarize(outcomes)
-        store.finish_suite_run(db, suite_run_id, status="completed", summary=summary)
-        previous = store.previous_results(
-            db,
-            before=started,
-            pairs={(item.case_id, item.model_id) for item in outcomes},
-            exclude_suite_run_id=suite_run_id,
-        )
-    regressions, fixes = store.compare(outcomes, previous)
+        store.finish_suite_run(db, suite_run_id, status="completed", summary=store.summarize(outcomes))
     print()
-    print(format_report(outcomes, regressions, fixes))
+    print(format_report(outcomes, regressions, flaky, fixes))
     return 1 if regressions and args.fail_on_regression else 0
 
 

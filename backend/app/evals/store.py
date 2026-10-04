@@ -1,6 +1,7 @@
 """评测结果入库与前后对比。
 
-对比基准按"用例 × 模型"取此前已完成评测里最近一次结果，每轮选的用例或模型不同也能比较。
+对比基准按"用例 × 模型"取此前已完成评测里最近一次结果（有复核时取复核结果），
+每轮选的用例或模型不同也能比较。
 """
 
 from __future__ import annotations
@@ -56,6 +57,7 @@ def save_outcome(db: Session, suite_run_id: str, outcome: CaseOutcome) -> None:
             run_id=outcome.run_id,
             conversation_id=outcome.conversation_id,
             duration_ms=outcome.duration_ms,
+            attempt=outcome.attempt,
         )
     )
     db.commit()
@@ -63,7 +65,7 @@ def save_outcome(db: Session, suite_run_id: str, outcome: CaseOutcome) -> None:
 
 def summarize(outcomes: list[CaseOutcome]) -> dict[str, dict[str, int]]:
     summary: dict[str, Counter] = {}
-    for outcome in outcomes:
+    for outcome in final_outcomes(outcomes):
         summary.setdefault(outcome.model_id, Counter())[outcome.status] += 1
     return {
         model: {"passed": c["passed"], "failed": c["failed"], "error": c["error"], "total": sum(c.values())}
@@ -82,7 +84,7 @@ def finish_suite_run(db: Session, suite_run_id: str, *, status: str, summary: di
 def previous_results(
     db: Session, *, before: datetime, pairs: set[tuple[str, str]], exclude_suite_run_id: str
 ) -> dict[tuple[str, str], tuple[str, str]]:
-    """每个 (case_id, model_id) 在此前已完成评测里的最近一次 (status, suite_run_id)。"""
+    """每个 (case_id, model_id) 在此前已完成评测里的最近一次 (status, suite_run_id)，同轮取最后一次复核。"""
     if not pairs:
         return {}
     case_ids = {case_id for case_id, _ in pairs}
@@ -96,7 +98,7 @@ def previous_results(
             func.row_number()
             .over(
                 partition_by=(EvalCaseResult.case_id, EvalCaseResult.model_id),
-                order_by=EvalSuiteRun.started_at.desc(),
+                order_by=(EvalSuiteRun.started_at.desc(), EvalCaseResult.attempt.desc()),
             )
             .label("rank"),
         )
@@ -135,3 +137,13 @@ def compare(
         elif before[0] == "failed" and outcome.status == "passed":
             fixes.append(change)
     return regressions, fixes
+
+
+def final_outcomes(outcomes: list[CaseOutcome]) -> list[CaseOutcome]:
+    """每个 (用例, 模型) 只保留最后一次运行。"""
+    latest: dict[tuple[str, str], CaseOutcome] = {}
+    for outcome in outcomes:
+        key = (outcome.case_id, outcome.model_id)
+        if key not in latest or outcome.attempt >= latest[key].attempt:
+            latest[key] = outcome
+    return list(latest.values())
