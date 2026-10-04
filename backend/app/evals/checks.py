@@ -151,15 +151,24 @@ _DETERMINISTIC = {
 }
 
 
-async def evaluate(case: EvalCase, snapshot: Mapping[str, Any], judge: Judge | None) -> list[CheckOutcome]:
-    """默认要求 run completed；用例给了 run_status 就以它为准。"""
+async def evaluate(
+    case: EvalCase,
+    snapshot: Mapping[str, Any],
+    judge: Judge | None,
+    *,
+    judge_snapshot: Mapping[str, Any] | None = None,
+) -> list[CheckOutcome]:
+    """默认要求 run completed；用例给了 run_status 就以它为准。
+
+    judge_snapshot 是工具结果截断更宽松的同一 run 快照，只交给裁判；入库的仍是 snapshot。
+    """
     status_check = next((check for check in case.checks if isinstance(check, RunStatusCheck)), None)
     outcomes = [_check_run_status(status_check, snapshot)]
     for check in case.checks:
         if isinstance(check, RunStatusCheck):
             continue
         if isinstance(check, JudgeCheck):
-            outcomes.append(await _run_judge(check, case, snapshot, judge))
+            outcomes.append(await _run_judge(check, case, judge_snapshot or snapshot, judge))
             continue
         outcomes.append(_DETERMINISTIC[type(check)](check, snapshot))
     return outcomes
