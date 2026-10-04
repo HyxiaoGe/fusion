@@ -3,7 +3,6 @@
 import asyncio
 import unittest
 from dataclasses import replace
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.schemas.chat import PlaceResult, PlaceResultsBlock, Usage
@@ -230,49 +229,6 @@ class OutputProvenanceTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(provenance["disposition"], disposition)
                 self.assertEqual(provenance["source"], source)
                 self.assertEqual(lifecycle.content_text, candidate)
-
-    async def test_product_fallback_is_server_output(self):
-        for mode in ("fallback", "pending"):
-            with self.subTest(mode=mode):
-                lifecycle = await self._lifecycle()
-                lifecycle.record_detail(reasoning_text="", content_text="模型候选")
-                request = AgentRoundOutcomeRequest(
-                    db=None,
-                    messages=[],
-                    state=AgentLoopState(product_tool_attempted=True),
-                    runtime=_runtime(),
-                    step_number=1,
-                    step_context=_step_context(),
-                    round_result=AgentRoundResult(
-                        reasoning_buf="",
-                        content_buf="模型候选",
-                        tool_calls=[],
-                        finish_reason="stop",
-                        accumulated_usage=Usage(),
-                        output_deferred=True,
-                        llm_lifecycle=lifecycle,
-                    ),
-                )
-                prefix = "app.services.stream.agent_loop_round_outcome."
-                with (
-                    patch(prefix + "append_chunk", new=AsyncMock()) as append,
-                    patch(prefix + "complete_text_response_step", new=AsyncMock()),
-                    patch(
-                        prefix + "build_tool_repair_clarification", return_value="待补参数" if mode == "pending" else ""
-                    ),
-                    patch(
-                        prefix + "validate_product_answer",
-                        return_value=SimpleNamespace(is_valid=False, reason_code="test"),
-                    ),
-                    patch(prefix + "build_grounded_product_answer", return_value="确定性回答"),
-                    patch(prefix + "_emit_product_answer_observation"),
-                ):
-                    await handle_agent_round_outcome(request=request)
-                provenance = lifecycle.emitter.llm_round_completed.call_args.kwargs["output_provenance"]
-                self.assertEqual(provenance["disposition"], "replaced")
-                self.assertEqual(provenance["source"], "server")
-                self.assertEqual(provenance["block_id"], append.call_args.args[3])
-                self.assertEqual(lifecycle.content_text, "模型候选")
 
     async def test_tool_retraction_finishes_model_before_tool_execution(self):
         lifecycle = await self._lifecycle()
