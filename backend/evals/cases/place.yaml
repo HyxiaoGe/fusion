@@ -1,0 +1,18 @@
+# 地名歧义（#218–#220）：多个同名候选时不按距离猜，交模型判断或询问用户。
+category: place
+cases:
+  - id: ambiguous-gulou-food
+    source: amap 地名歧义 2026-10-01（#218–#220）
+    message: 鼓楼附近有什么好吃的
+    checks:
+      - type: judge
+        rubric: 用户没有说明城市，而"鼓楼"在多个城市都有。回答要么向用户确认是哪个城市的鼓楼，要么明确说明自己假定的是哪个城市并提示其他城市也有鼓楼；不能不加说明地只给某一个城市的结果。
+
+  - id: unambiguous-route
+    source: skill-cases 2026-10-03（单一路线查询）
+    message: 从上海虹桥站到外滩怎么走最快
+    checks:
+      - type: tool_called
+        tool: route_compare
+      - type: skills
+        expect: none
