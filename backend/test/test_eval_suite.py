@@ -280,6 +280,24 @@ class RunCaseTests(unittest.TestCase):
         self.assertEqual(self.sent, [("我在杭州", None), ("后天杭州会下雨吗", "conv-1")])
         self.assertEqual(self.stopped, [])
 
+    def test_waits_for_generation_task_after_terminal_status(self):
+        from app.services import task_manager
+
+        finished = []
+
+        async def send(db, turn, **kwargs):
+            async def finalize():
+                await asyncio.sleep(0.05)
+                finished.append(True)
+
+            turn.run_id, turn.conversation_id = "run-1", "conv-finalize"
+            task_manager.register_task("conv-finalize", asyncio.create_task(finalize()), "task-1")
+
+        outcome = self._run(send)
+
+        self.assertEqual(outcome.status, "passed")
+        self.assertEqual(finished, [True])
+
     def test_timeout_stops_generation_and_keeps_trajectory(self):
         async def send(db, turn, **kwargs):
             turn.run_id, turn.conversation_id = "run-slow", "conv-slow"
@@ -452,6 +470,36 @@ class JudgeTests(unittest.TestCase):
         self.assertIn("weather_forecast", user)
         self.assertNotIn("request_capability", user)
         self.assertIn("后天杭州小雨", user)
+
+    def test_malformed_verdict_is_asked_again_once(self):
+        from types import SimpleNamespace
+
+        from app.evals import judge as judge_module
+
+        case = EvalCase.model_validate(
+            {
+                "id": "sample-case",
+                "category": "sample",
+                "source": "unit test",
+                "message": "后天杭州会下雨吗",
+                "checks": [{"type": "judge", "rubric": "回答与工具结果中的天气一致。"}],
+            }
+        )
+        replies = iter(['{"type": "json_object", "reason": "漏了 passed"}', '{"passed": true, "reason": "一致"}'])
+        calls = []
+
+        async def fake_completion(**kwargs):
+            calls.append(kwargs["messages"])
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=next(replies)))])
+
+        with (
+            patch.object(judge_module.llm_manager, "resolve_model", lambda model_id: ("m", "p", {})),
+            patch.object(judge_module.litellm, "acompletion", fake_completion),
+        ):
+            verdict = asyncio.run(judge_module.judge_answer(case.checks[0], case, {"answer_text": "小雨"}))
+
+        self.assertTrue(verdict.passed)
+        self.assertEqual(len(calls), 2)
 
     def test_parse_verdict(self):
         verdict = parse_verdict('{"passed": false, "reason": "编造了温度"}')

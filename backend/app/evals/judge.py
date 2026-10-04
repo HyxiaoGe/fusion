@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import litellm
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from app.ai.litellm_utils import merge_extra_body
 from app.ai.llm_manager import llm_manager
@@ -70,14 +70,23 @@ async def judge_answer(check: JudgeCheck, case: EvalCase, snapshot: Mapping[str,
     model, _provider, kwargs = llm_manager.resolve_model(JUDGE_MODEL_ID)
     kwargs = dict(kwargs or {})
     merge_extra_body(kwargs, {"thinking": {"type": "disabled"}})
-    response = await litellm.acompletion(
-        model=model,
-        messages=build_judge_messages(check, case, snapshot),
-        stream=False,
-        temperature=0,
-        max_tokens=JUDGE_MAX_TOKENS,
-        timeout=JUDGE_TIMEOUT_SECONDS,
-        response_format={"type": "json_object"},
-        **merge_litellm_kwargs("eval_judge", kwargs),
-    )
-    return parse_verdict(response.choices[0].message.content or "")
+    messages = build_judge_messages(check, case, snapshot)
+
+    async def ask() -> JudgeVerdict:
+        response = await litellm.acompletion(
+            model=model,
+            messages=messages,
+            stream=False,
+            temperature=0,
+            max_tokens=JUDGE_MAX_TOKENS,
+            timeout=JUDGE_TIMEOUT_SECONDS,
+            response_format={"type": "json_object"},
+            **merge_litellm_kwargs("eval_judge", kwargs),
+        )
+        return parse_verdict(response.choices[0].message.content or "")
+
+    try:
+        return await ask()
+    except ValidationError:
+        # 实测偶发漏掉 passed 字段（门禁 run 37210651726）；只对格式错误重问一次。
+        return await ask()

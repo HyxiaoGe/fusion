@@ -112,6 +112,16 @@ async def _wait_terminal(session_factory: Callable[[], Session], run_id: str) ->
         await asyncio.sleep(_TERMINAL_POLL_SECONDS)
 
 
+async def _wait_generation(conversation_id: str | None) -> None:
+    """会话状态先于轨迹屏障（seal + finalize）落库：还要等生成任务本身结束，
+    否则最后一条用例刚判完就关闭运行时，会取消仍在收尾的屏障。"""
+    from app.services.task_manager import get_task
+
+    task = get_task(conversation_id) if conversation_id else None
+    if task is not None and not task.done():
+        await asyncio.wait({task}, timeout=TERMINAL_WAIT_SECONDS)
+
+
 async def _drive(
     case: EvalCase,
     model_id: str,
@@ -129,6 +139,7 @@ async def _drive(
             conversation_id = turn.conversation_id or conversation_id
             if turn.run_id:
                 await _wait_terminal(session_factory, turn.run_id)
+            await _wait_generation(conversation_id)
 
 
 async def _stop_generation(conversation_id: str) -> None:
@@ -169,6 +180,7 @@ async def run_case(
         await _stop_generation(turn.conversation_id)
         if turn.run_id:
             await _wait_terminal(session_factory, turn.run_id)
+        await _wait_generation(turn.conversation_id)
 
     try:
         if outcome.error is None:
