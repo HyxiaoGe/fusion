@@ -715,7 +715,7 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Affected tools: url_read", recovery_messages[0]["content"])
         completed = [event for event in self._agent_events() if event["type"] == "run_completed"]
         self.assertEqual(len(completed), 1)
-        self.assertEqual(completed[0]["finish_reason"], "incomplete")
+        self.assertEqual(completed[0]["finish_reason"], "stop")
 
     async def test_generate_to_redis_closes_db_when_lifecycle_raises(self):
         """runner 外层必须负责 DB session 生命周期，即使 lifecycle 失败也要关闭。"""
