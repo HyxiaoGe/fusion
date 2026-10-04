@@ -9,3 +9,13 @@
 - **judge 评分标准要可判定**：写成"回答做到了 X，且没有 Y"，涉及事实时要求与工具结果一致。
 - **不用绝对日期**：写"明天""后天""下周五"，否则用例会随时间过期。
 - **规则有争议时先确认**：期望行为与现有产品规则不一致时，先和 Sean 确认再入库。
+
+## 部署门禁
+
+`master` 部署成功后，若本次改动涉及 Agent 行为（流式与 Agent loop、对话服务、工具、MCP、`app/ai` 下的提示词与 Skills、评测本身，
+范围见 `.github/scripts/detect_changes.py` 的 `AGENT_EVAL_PATH_PREFIXES`），`Fusion dev deploy` 的 `Agent eval gate`
+会在 dev 的 fusion-api 容器内跑全部用例。默认模型 `mimo-v2.6-pro,qwen3.8-flash`，可用仓库变量 `EVAL_GATE_MODELS` 调整。
+
+- 出现退步（同一用例在同一模型上此前通过、本轮失败）时工作流标红，不自动回滚，由人判断。
+- 新增用例第一次失败不算退步；`error`（超时、裁判故障等基础设施问题）也不算。
+- 每次结果存入 `eval_suite_runs` / `eval_case_results`，可按 `case_id`、`model_id` 回看历史与轨迹快照。

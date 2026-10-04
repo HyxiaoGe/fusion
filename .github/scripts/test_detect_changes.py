@@ -16,20 +16,20 @@ SPEC.loader.exec_module(MODULE)
 class DetectChangesTests(unittest.TestCase):
     def test_backend_only(self) -> None:
         self.assertEqual(
-            MODULE.classify(["backend/app/main.py"]),
-            {"api": True, "ui": False, "shared": False, "routing_eval": False},
+            MODULE.classify(["backend/app/db/models.py"]),
+            {"api": True, "ui": False, "shared": False, "routing_eval": False, "agent_eval": False},
         )
 
     def test_frontend_only_does_not_depend_on_backend(self) -> None:
         self.assertEqual(
             MODULE.classify(["frontend/src/app.tsx"]),
-            {"api": False, "ui": True, "shared": False, "routing_eval": False},
+            {"api": False, "ui": True, "shared": False, "routing_eval": False, "agent_eval": False},
         )
 
     def test_root_ci_change_runs_both(self) -> None:
         self.assertEqual(
             MODULE.classify([".github/workflows/pr-ci.yml"]),
-            {"api": True, "ui": True, "shared": True, "routing_eval": False},
+            {"api": True, "ui": True, "shared": True, "routing_eval": False, "agent_eval": False},
         )
 
     def test_classifier_changes_request_routing_eval(self) -> None:
@@ -41,6 +41,22 @@ class DetectChangesTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(MODULE.classify([path])["routing_eval"])
         self.assertFalse(MODULE.classify(["backend/app/services/stream/runner.py"])["routing_eval"])
+
+    def test_agent_behavior_changes_request_agent_eval(self) -> None:
+        for path in (
+            "backend/app/services/stream/runner.py",
+            "backend/app/services/chat_service.py",
+            "backend/app/services/tool_handlers/weather.py",
+            "backend/app/ai/skills/trip-planning/SKILL.md",
+            "backend/app/ai/prompts/runtime_prompts.toml",
+            "backend/evals/cases/escalation.yaml",
+            "backend/app/evals/checks.py",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(MODULE.classify([path])["agent_eval"])
+        for path in ("backend/app/api/admin_audit.py", "backend/test/test_eval_checks.py", "frontend/src/app.tsx"):
+            with self.subTest(path=path):
+                self.assertFalse(MODULE.classify([path])["agent_eval"])
 
     def test_pull_request_uses_merge_base(self) -> None:
         diff_range = MODULE.select_diff_range(
