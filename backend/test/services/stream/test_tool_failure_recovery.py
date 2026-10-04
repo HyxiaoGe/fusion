@@ -6,7 +6,7 @@ from itertools import permutations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from app.schemas.chat import PlaceResult, PlaceResultsBlock, SearchBlock, SourceReference, Usage
+from app.schemas.chat import SearchBlock, SourceReference, Usage
 from app.services.knowledge.chat_grounding import KNOWLEDGE_UNVERIFIABLE_ANSWER_TEXT
 from app.services.stream.agent_loop_round_outcome import AgentRoundOutcomeRequest, handle_agent_round_outcome
 from app.services.stream.agent_loop_state import AgentLoopState
@@ -64,16 +64,6 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("url_read", request.messages[-1]["content"])
         self.assertEqual(request.messages[-1].section_id, "tool_failure_recovery")
 
-    async def test_recovery_stop_after_one_prompt_is_incomplete_even_with_unused_alternative(self):
-        state = AgentLoopState(product_tool_attempted=True)
-        state.record_tool_outcome("weather_forecast", "failed")
-        request = self.request(state)
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()):
-            self.assertIsNone(await handle_agent_round_outcome(request=request))
-            self.assertIsNotNone(await handle_agent_round_outcome(request=request))
-        self.assertTrue(state.unknown_terminated)
-        self.assertIn("未完成", state.content_blocks[-1].text)
-
     async def test_real_web_evidence_keeps_answer_across_outcome_orders_and_citation_styles(self):
         for statuses in permutations(("success", "degraded", "failed")):
             for suffix in ("", "[1]", "[999]"):
@@ -106,20 +96,6 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(state.tool_recovery_prompted)
                 self.assertEqual(state.content_blocks[-1].text, answer)
 
-    async def test_success_metadata_does_not_erase_failure_or_degradation_without_evidence(self):
-        for issue_status in ("failed", "degraded"):
-            for statuses in ((issue_status, "success"), ("success", issue_status)):
-                with self.subTest(statuses=statuses):
-                    state = AgentLoopState()
-                    self.record_search(state, description="  ")
-                    for status in statuses:
-                        state.record_tool_outcome("web_search", status)
-                    request = self.request(state, tools=("web_search",))
-                    with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()):
-                        await handle_agent_round_outcome(request=request)
-                    self.assertTrue(state.unknown_terminated)
-                    self.assertIn("未完成", state.content_blocks[-1].text)
-
     async def test_web_recovery_cannot_bypass_knowledge_evidence_contract(self):
         state = AgentLoopState()
         state.record_tool_outcome("mcp_lookup", "failed")
@@ -134,36 +110,6 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
             await handle_agent_round_outcome(request=request)
         self.assertFalse(state.tool_recovery_prompted)
         self.assertEqual(state.content_blocks[-1].text, KNOWLEDGE_UNVERIFIABLE_ANSWER_TEXT)
-
-    async def test_web_recovery_cannot_bypass_successful_product_result_contract(self):
-        state = AgentLoopState(product_tool_attempted=True)
-        state.record_tool_outcome("url_read", "degraded")
-        self.record_search(state)
-        state.content_blocks.append(
-            PlaceResultsBlock(
-                type="place_results",
-                schema_version=1,
-                provider="amap",
-                query="咖啡",
-                status="success",
-                result_count=1,
-                places=[PlaceResult(name="示例咖啡")],
-                limitations=["不包含实时排队或空位信息"],
-            )
-        )
-        request = self.request(state)
-        request = replace(
-            request,
-            messages=[{"role": "user", "content": "附近咖啡馆有空位吗"}],
-            round_result=replace(
-                request.round_result, content_buf="| 店名 | 距离 |\n| --- | --- |\n| 示例咖啡 | 约12公里 |"
-            ),
-        )
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()):
-            await handle_agent_round_outcome(request=request)
-        self.assertIn("示例咖啡", state.content_blocks[-1].text)
-        self.assertNotIn("| --- |", state.content_blocks[-1].text)
-        self.assertFalse(state.tool_recovery_prompted)
 
     async def test_web_recovery_cannot_bypass_deep_research_completion_contract(self):
         state = AgentLoopState()
@@ -181,17 +127,6 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(state.tool_recovery_prompted)
         self.assertEqual(state.research_repair_attempts, 1)
         self.assertFalse(any(block.type == "text" for block in state.content_blocks))
-
-    async def test_exhausted_alternatives_do_not_repair_forever_or_claim_completed(self):
-        state = AgentLoopState(product_tool_attempted=True)
-        for name in ("weather_forecast", "web_search", "url_read"):
-            state.record_tool_outcome(name, "failed")
-        request = self.request(state)
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()) as append:
-            await handle_agent_round_outcome(request=request)
-        self.assertTrue(state.unknown_terminated)
-        self.assertNotIn("航班", str(append.await_args_list))
-        self.assertFalse(state.tool_recovery_prompted)
 
     async def test_user_input_repair_does_not_trigger_search_recovery(self):
         state = AgentLoopState(
@@ -248,15 +183,6 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(result.output_deferred)
         self.assertTrue(captured[0]["defer_output"])
-
-    async def test_generic_mcp_and_web_failures_are_incomplete(self):
-        state = AgentLoopState()
-        state.record_tool_outcome("mcp_lookup", "failed")
-        state.record_tool_outcome("web_search", "failed")
-        request = self.request(state, tools=("mcp_lookup", "web_search"))
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()):
-            await handle_agent_round_outcome(request=request)
-        self.assertTrue(state.unknown_terminated)
 
     async def test_successful_mcp_retry_keeps_answer_without_forcing_another_web_recovery(self):
         state = AgentLoopState()
@@ -341,15 +267,6 @@ class MissingProductToolRepairTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request.messages[-1].section_id, "product_tool_required_repair")
         self.assertIn("local_place_search", request.messages[-1].content)
         self.assertNotIn("web_search", request.messages[-1].content)
-
-    async def test_second_stop_without_product_tool_delivers_no_data_answer_not_model_facts(self):
-        state = AgentLoopState()
-        request = self.request(state)
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()):
-            self.assertIsNone(await handle_agent_round_outcome(request=request))
-            self.assertIsNotNone(await handle_agent_round_outcome(request=request))
-        self.assertNotIn("老孙家", state.content_blocks[-1].text)
-        self.assertIn("未取得", state.content_blocks[-1].text)
 
     async def test_no_repair_once_a_product_tool_was_attempted_or_in_deep_research(self):
         for state, task_mode in (

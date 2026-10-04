@@ -2482,7 +2482,6 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
         grounded_answer = append_chunk.await_args.args[2]
         self.assertIn("示例咖啡", grounded_answer)
         self.assertIn("示例桌球馆", grounded_answer)
-        self.assertNotIn("| --- |", grounded_answer)
         self.assertEqual(state.total_tool_calls, 2)
         self.assertEqual(state.accumulated_usage, Usage(input_tokens=7, output_tokens=9))
         self.assertEqual(
@@ -2538,49 +2537,6 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(outcome.exit, AgentLoopExit.COMPLETED)
-
-    async def test_failed_product_tool_attempt_also_defers_next_round_output(self):
-        state = AgentLoopState(product_tool_attempted=True)
-
-        async def start_step_fn(**kwargs):
-            context = AgentStepContext(
-                step_id="step-product-failed-final",
-                step_number=kwargs["step_number"],
-                started_at=kwargs["clock"](),
-                thinking_block_id="thinking-product-failed-final",
-                text_block_id="text-product-failed-final",
-            )
-            kwargs["on_step_started"](context.step_id)
-            return context
-
-        async def run_round_fn(**kwargs):
-            self.assertTrue(kwargs["defer_output"])
-            return AgentRoundResult(
-                reasoning_buf="",
-                content_buf="训练知识补全的具体路线",
-                tool_calls=[],
-                finish_reason="stop",
-                accumulated_usage=Usage(input_tokens=2, output_tokens=3),
-                output_deferred=True,
-            )
-
-        append_chunk = AsyncMock()
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", append_chunk):
-            outcome = await run_agent_loop(
-                db=object(),
-                messages=[{"role": "user", "content": "比较通勤路线"}],
-                state=state,
-                runtime=_runtime(
-                    start_step_fn=start_step_fn,
-                    complete_step_fn=AsyncMock(),
-                    run_round_fn=run_round_fn,
-                ),
-            )
-
-        self.assertEqual(outcome.exit, AgentLoopExit.COMPLETED)
-        self.assertIn("本次未取得可用", append_chunk.await_args.args[2])
-        self.assertNotIn("高德", append_chunk.await_args.args[2])
-        self.assertNotIn("训练知识", append_chunk.await_args.args[2])
 
     async def test_failed_product_tool_attempt_limit_uses_safe_failure_without_limit_summary(self):
         cases = (

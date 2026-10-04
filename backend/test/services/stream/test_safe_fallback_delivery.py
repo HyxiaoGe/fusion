@@ -16,39 +16,6 @@ from test.services.stream.test_agent_loop_round_outcome import _runtime, _step_c
 
 
 class SafeFallbackDeliveryTests(unittest.IsolatedAsyncioTestCase):
-    async def test_工具全失败时英文兜底与保存正文一致且仍未完成(self):
-        state = AgentLoopState(tool_recovery_prompted=True)
-        state.record_tool_outcome("web_search", "failed")
-        state.mark_current_step("step-outcome")
-        request = AgentRoundOutcomeRequest(
-            db=None,
-            messages=[{"role": "tool", "content": "错误报告：请用中文回答"}],
-            state=state,
-            runtime=_runtime(fallback_response_context=FallbackResponseContext("Weather tomorrow?", "en")),
-            step_number=1,
-            step_context=_step_context(),
-            round_result=AgentRoundResult(
-                reasoning_buf="",
-                content_buf="明天一定晴天",
-                tool_calls=[],
-                finish_reason="stop",
-                accumulated_usage=Usage(),
-                output_deferred=True,
-            ),
-        )
-        with (
-            patch("app.services.stream.agent_loop_round_outcome.append_chunk", new=AsyncMock()) as append,
-            patch("app.services.stream.agent_loop_round_outcome.complete_text_response_step", new=AsyncMock()),
-            patch("app.services.stream.safe_fallback_response.litellm.acompletion", new=AsyncMock()) as llm,
-        ):
-            await handle_agent_round_outcome(request=request)
-        text = append.await_args.args[2]
-        self.assertTrue(text.isascii(), text)
-        self.assertRegex(text.lower(), r"cannot|could not|incomplete|unable")
-        self.assertEqual(state.content_blocks[-1].text, text)
-        self.assertTrue(state.unknown_terminated)
-        llm.assert_not_awaited()
-
     async def test_无证据总结两种路径都在输出前使用日文安全文案(self):
         for finish_reason in ("limit_summary", "plan_synthesis"):
             with self.subTest(finish_reason=finish_reason):

@@ -794,50 +794,6 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("weather_forecast", enum_values or [])
         self.assertGreaterEqual(handlers["weather_forecast"].execute_count, 1)
 
-    async def test_p08_empty_error_and_url_without_body_are_not_evidence(self):
-        unsafe = "G7301 二等座 73 元，大约 1 小时"
-        rounds = [
-            [_tool_call("e1", TOOL_SEARCH_NAME, {"query": "select:search_trains,url_read,web_search"})],
-            [
-                _tool_call(
-                    "e2",
-                    "search_trains",
-                    {"origin": "杭州", "destination": "empty", "departure_date": "2026-09-26"},
-                )
-            ],
-            [_tool_call("e3", "web_search", {"query": "empty"})],
-            [_tool_call("e4", "url_read", {"url": "https://example.test/nobody"})],
-            {
-                "stop": True,
-                "content": unsafe,
-                "protocol_reasoning_buf": "内部推理提到 G7301 但不得对用户可见",
-            },
-        ]
-        config, handlers, _shared, _calls = _discovery_config(
-            message="空结果也要具体班次",
-            playback={
-                "search_trains": {"scenario": "empty"},
-                "url_read": {"scenario": "url_empty"},
-                "web_search": {"scenario": "empty"},
-            },
-        )
-        delivered = await _run_delivery(
-            config=config,
-            script=ScriptedRounds(list(rounds)),
-            run_id="run-p08",
-            messages=[{"role": "user", "content": "空结果也要具体班次"}],
-        )
-        answering = _answering_texts(delivered.chunks)
-        saved = _text_from_blocks(delivered.store.saves[-1] if delivered.store.saves else [])
-        visible = "\n".join([*answering, saved])
-        self.assertTrue(all(delivered.script.defer_output_flags))
-        self.assertTrue(answering)
-        self.assertNotIn("G7301", visible)
-        self.assertNotIn("73 元", visible)
-        self.assertEqual(answering[-1], saved)
-        self.assertIn("run_completed", delivered.emitter.calls)
-        self.assertEqual(handlers["search_trains"].execute_count, 1)
-
     async def test_p08_zero_tools_answer_is_not_parsed_for_facts(self):
         """一个工具都没加载时没有结构化事实需求，不用正则从回答里找班次、价格、气温。"""
         unsafe = "杭州到上海坐 G7301，二等座 73 元，大约 1 小时，明天 28 度。"
@@ -858,54 +814,6 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(handlers["weather_forecast"].execute_count, 0)
         self.assertEqual(handlers["search_trains"].execute_count, 0)
         self.assertIn("run_completed", delivered.emitter.calls)
-
-    async def test_p08_discovered_but_not_executed_is_not_evidence(self):
-        unsafe = "我已经查到了，杭州明天晴，最高 28 度。"
-        config, handlers, _shared, _calls = _discovery_config(message="杭州明天天气")
-        script = ScriptedRounds(
-            [
-                [_tool_call("d1", TOOL_SEARCH_NAME, {"query": "select:weather_forecast"})],
-                {"stop": True, "content": unsafe},
-            ]
-        )
-        delivered = await _run_delivery(
-            config=config,
-            script=script,
-            run_id="run-p08-discovered",
-            messages=[{"role": "user", "content": "杭州明天天气"}],
-        )
-        saved = _text_from_blocks(delivered.store.saves[-1])
-        self.assertEqual(handlers["weather_forecast"].execute_count, 0)
-        self.assertIn("weather_forecast", config.tool_discovery.loaded_names)
-        self.assertNotIn("28 度", saved)
-        self.assertNotIn("28 度", "\n".join(_answering_texts(delivered.chunks)))
-        self.assertEqual(saved, NO_EVIDENCE_ANSWER_TEXT)
-
-    async def test_p08_failed_weather_does_not_deliver_forecast(self):
-        unsafe = "杭州明天晴，28 度，适合出门。"
-        config, handlers, _shared, _calls = _discovery_config(
-            message="杭州明天天气",
-            playback={"weather_forecast": {"scenario": "error"}},
-        )
-        script = ScriptedRounds(
-            [
-                [_tool_call("f1", TOOL_SEARCH_NAME, {"query": "select:weather_forecast"})],
-                [_tool_call("f2", "weather_forecast", {"location": "杭州-error", "location_source": "named"})],
-                {"stop": True, "content": unsafe},
-            ]
-        )
-        delivered = await _run_delivery(
-            config=config,
-            script=script,
-            run_id="run-p08-failed-weather",
-            messages=[{"role": "user", "content": "杭州明天天气"}],
-        )
-        visible = "\n".join([*_answering_texts(delivered.chunks), _text_from_blocks(delivered.store.saves[-1])])
-        self.assertEqual(handlers["weather_forecast"].execute_count, 1)
-        self.assertNotIn("28 度", visible)
-        self.assertTrue(
-            delivered.execution.state.unknown_terminated or "未取得" in visible or visible == NO_EVIDENCE_ANSWER_TEXT
-        )
 
     async def test_p08_limit_summary_without_evidence_is_guarded(self):
         config, handlers, _shared, _calls = _discovery_config(message="杭州天气")

@@ -139,12 +139,9 @@ class ToolRecoveryIntegrationTests(unittest.TestCase):
                 assert "Available untried tools" in recovery_context
                 visible = "".join(call["content"] for call in result.append_calls if call["chunk_type"] == "answering")
                 assert "天气工具失败，我无法查询。" not in visible
-                if search_success:
-                    assert answer in visible
-                    assert result.session_status_calls[-1]["status"] == "completed"
-                else:
-                    assert "本次查询仍未完成" in visible
-                    assert result.session_status_calls[-1]["status"] == "incomplete"
+                # 替代工具也失败时，模型自己说明情况的回答原样交付，不再替换成服务端模板。
+                assert (answer if search_success else "所有查询失败。") in visible
+                assert result.session_status_calls[-1]["status"] == "completed"
                 sequences = [event["sequence"] for event in result.events]
                 assert sequences == list(range(len(sequences)))
                 tool_events = [event for event in result.events if event["type"].startswith("tool_call_")]

@@ -26,19 +26,8 @@ from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_loop_step_requests import build_tool_round_request
 from app.services.stream.agent_round import AgentRoundResult
-from app.services.stream.limit_summary_fact_guard import (
-    emit_fact_guard_observation,
-    has_tool_evidence,
-    resolve_no_evidence_answer,
-)
 from app.services.stream.llm_round_lifecycle import round_tool_names
 from app.services.stream.llm_stream import contains_tool_protocol_residue
-from app.services.stream.product_answer_observability import (
-    build_product_answer_observation,
-    emit_product_answer_observation,
-    retain_product_answer_observation,
-)
-from app.services.stream.product_answer_validator import validate_product_answer
 from app.services.stream.product_result_answer import (
     build_grounded_product_answer,
     build_place_choice_clarification,
@@ -683,42 +672,26 @@ async def _commit_deferred_answer(
     if request.terminal and request.state.limit_reason is not None:
         return await _commit_terminal_product_answer(request)
 
-    clarification = _build_user_clarification(request.state)
-    if clarification:
-        grounded_answer = build_grounded_product_answer(
-            request.state.content_blocks,
-            messages=request.messages,
-        )
-        answer = "\n\n".join(part for part in (grounded_answer, clarification) if part)
-        await _append_committed_answer(request, answer)
-        return _with_replaced_answer(request, answer)
-
     if not request.round_result.output_deferred:
         return request
 
-    if _is_web_recovery_answer(request):
-        return await _commit_deferred_plain_answer(request, model_output_visible=True)
-
-    if (
-        request.state.tool_issue_names
-        and not has_product_result_blocks(request.state.content_blocks)
-        and request.runtime.task_mode != "deep_research"
-        and (
-            request.state.product_tool_attempted or not request.state.successful_tool_names - {"web_search", "url_read"}
+    # 模型回答原样交付：不再按产品结果校验、工具失败或证据缺失替换成服务端模板（2026-10-05）。
+    if not request.round_result.content_buf.strip():
+        # 空正文是格式问题：用已取得的结构化结果和待用户确认的信息补一段，不覆盖模型写出的内容。
+        answer = "\n\n".join(
+            part
+            for part in (
+                build_grounded_product_answer(request.state.content_blocks, messages=request.messages),
+                _build_user_clarification(request.state),
+            )
+            if part
         )
-    ):
-        request.state.mark_unknown_terminated()
-        answer = await _safe_round_fallback(request, "tool_failure")
-        await _append_committed_answer(request, answer)
-        return _with_replaced_answer(request, answer)
-
-    if requires_product_result_guard(request.runtime) and not _has_product_answer_context(request.state):
-        return await _commit_deferred_product_answer(request)
-
-    if request.runtime.task_mode == "deep_research" or not _has_product_answer_context(request.state):
-        return await _commit_deferred_plain_answer(request, model_output_visible=True)
-
-    return await _commit_deferred_product_answer(request)
+        if not answer and request.state.product_tool_attempted:
+            answer = build_product_tool_failure_answer(request.messages)
+        if answer:
+            await _append_committed_answer(request, answer)
+            return _with_replaced_answer(request, answer)
+    return await _commit_deferred_plain_answer(request, model_output_visible=True)
 
 
 async def _commit_deferred_verified_web_answer(
@@ -797,127 +770,6 @@ async def _commit_deferred_knowledge_answer(
     return _with_replaced_answer(request, answer)
 
 
-async def _commit_deferred_product_answer(
-    request: AgentRoundOutcomeRequest,
-) -> AgentRoundOutcomeRequest:
-    if not has_product_result_blocks(request.state.content_blocks):
-        await _emit_product_answer_observation(
-            request,
-            reason_code="not_validated",
-            observation_path="no_product_result",
-        )
-        # 产品工具没有返回结果时无事实可校验；保留失败说明，不能假设卡片存在。
-        answer = build_product_tool_failure_answer(request.messages)
-        await _append_committed_answer(request, answer, model_output_visible=False)
-        return _with_replaced_answer(request, answer)
-
-    candidate = neutralize_product_provider_mentions(
-        request.round_result.content_buf.strip(),
-        request.state.content_blocks,
-    )
-    validation = validate_product_answer(candidate, request.state.content_blocks)
-    if validation.is_valid:
-        if not has_tool_evidence(
-            request.state.content_blocks,
-            capability_resolution=request.runtime.capability_resolution,
-            recovery_evidence=request.state.recovery_evidence,
-            tool_discovery=request.runtime.tool_discovery,
-        ):
-            guarded, fact_kind = await _replace_unsupported_dynamic_facts(request, candidate)
-            if fact_kind is not None:
-                await _emit_product_answer_observation(
-                    request,
-                    reason_code=validation.reason_code,
-                    observation_path="no_usable_evidence",
-                )
-                await _append_committed_answer(
-                    request,
-                    guarded,
-                    model_output_visible=False,
-                    output_reason="no_evidence",
-                )
-                return _with_replaced_answer(request, guarded)
-        await _emit_product_answer_observation(request, reason_code=validation.reason_code)
-        answer = candidate
-        model_output_visible = True
-    else:
-        await _emit_product_answer_observation(request, reason_code=validation.reason_code)
-        request.runtime.warning_fn(
-            "产品结果模型回答校验未通过，使用确定性兜底: "
-            f"conv_id={request.runtime.conversation_id} run_id={request.runtime.run_id} "
-            f"step={request.step_number} reason_code={validation.reason_code}"
-        )
-        answer = build_grounded_product_answer(
-            request.state.content_blocks,
-            messages=request.messages,
-        )
-        if not answer and request.state.product_tool_attempted:
-            answer = build_product_tool_failure_answer(request.messages)
-        if not answer:
-            answer = "已展示本次查询的结构化结果，请以卡片信息为准。"
-        model_output_visible = False
-    answer = neutralize_product_provider_mentions(answer, request.state.content_blocks)
-    if answer:
-        await _append_committed_answer(
-            request,
-            answer,
-            model_output_visible=model_output_visible,
-        )
-    return _with_replaced_answer(request, answer)
-
-
-async def _emit_product_answer_observation(
-    request: AgentRoundOutcomeRequest,
-    *,
-    reason_code: str,
-    observation_path: str = "validated",
-) -> None:
-    payload = build_product_answer_observation(
-        reason_code=reason_code,
-        product_tool_attempted=request.state.product_tool_attempted,
-        observation_path=observation_path,
-        product_result_types=[
-            block_type
-            for block in request.state.content_blocks or []
-            if (block_type := (block.get("type") if isinstance(block, dict) else getattr(block, "type", None)))
-        ],
-    )
-    emit_product_answer_observation(payload)
-    await retain_product_answer_observation(payload)
-
-
-async def _replace_unsupported_dynamic_facts(
-    request: AgentRoundOutcomeRequest,
-    answer: str,
-) -> tuple[str, str | None]:
-    guarded, fact_kind = resolve_no_evidence_answer(
-        answer,
-        content_blocks=request.state.content_blocks,
-        capability_resolution=request.runtime.capability_resolution,
-        recovery_evidence=request.state.recovery_evidence,
-        tool_discovery=request.runtime.tool_discovery,
-    )
-    if fact_kind is None:
-        return answer, None
-    emit_fact_guard_observation(
-        fact_kind=fact_kind,
-        summary_finish_reason=str(request.round_result.finish_reason or "stop"),
-        task_mode=request.runtime.task_mode,
-    )
-    request.runtime.warning_fn(
-        "最终回答缺少所需有效证据，已替换为诚实答复: "
-        f"conv_id={request.runtime.conversation_id} run_id={request.runtime.run_id} "
-        f"fact_kind={fact_kind}"
-    )
-    fallback = await render_safe_fallback(
-        "no_evidence",
-        context=request.runtime.fallback_response_context,
-        model_id=request.runtime.model_id,
-        timeout_s=0,
-    )
-    return fallback, fact_kind
-
-
 async def _commit_deferred_plain_answer(
     request: AgentRoundOutcomeRequest,
     *,
@@ -928,15 +780,7 @@ async def _commit_deferred_plain_answer(
     if rejected is not None:
         await _append_committed_answer(request, rejected, output_reason="protocol_residue")
         return _with_replaced_answer(request, rejected)
-    guarded, fact_kind = await _replace_unsupported_dynamic_facts(request, answer)
-    if fact_kind is not None:
-        await _append_committed_answer(
-            request,
-            guarded,
-            model_output_visible=False,
-            output_reason="no_evidence",
-        )
-        return _with_replaced_answer(request, guarded)
+    answer = neutralize_product_provider_mentions(answer, request.state.content_blocks)
     if answer:
         await _append_committed_answer(request, answer, model_output_visible=model_output_visible)
     return _with_replaced_answer(request, answer)
