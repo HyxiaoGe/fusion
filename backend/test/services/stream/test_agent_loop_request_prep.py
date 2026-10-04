@@ -379,7 +379,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 {"functionCalling": True, "searchCapable": True, "agentTools": True},
                 "mobility_intercity",
                 ["web_search", "url_read", "route_compare", "search_flights", "search_trains"],
-                ["app_identity", "tool_failure_policy", "tool_usage_contract", "agent_plan_control", "current_date"],
+                ["app_identity", "tool_failure_policy", "tool_usage_contract", "current_date"],
             ),
             (
                 "今天上海证券交易所开市吗？",
@@ -775,26 +775,26 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(route_plan.accepted)
         self.assertEqual(route_plan.reason, "unannounced_planned_tool")
 
-    def test_plan_mode_defaults_auto_and_control_tool_is_hidden_from_user_tool_list(self):
-        config = build_agent_loop_call_config(
-            provider="openai",
-            options={},
-            capabilities={"functionCalling": True, "searchCapable": True},
-            original_message="OpenAI 今天发布了什么？阅读官方公告后总结",
-            classify_fn=_classifier_for_removed_literal("OpenAI 今天发布了什么？阅读官方公告后总结"),
-        )
+    def test_plan_mode_defaults_off_without_plan_control_tool(self):
+        for options in ({}, {"plan_mode": "auto"}):
+            with self.subTest(options=options):
+                config = build_agent_loop_call_config(
+                    provider="openai",
+                    options=options,
+                    capabilities={"functionCalling": True, "searchCapable": True},
+                    original_message="OpenAI 今天发布了什么？阅读官方公告后总结",
+                    classify_fn=_classifier_for_removed_literal("OpenAI 今天发布了什么？阅读官方公告后总结"),
+                )
 
-        model_tool_names = [tool["function"]["name"] for tool in config.call_kwargs["tools"]]
-        self.assertEqual(config.plan_mode, "auto")
-        self.assertIn("update_plan", model_tool_names)
-        self.assertIn("web_search", model_tool_names)
-        self.assertIn("url_read", model_tool_names)
-        self.assertEqual(config.announced_tools, ["web_search", "url_read"])
-        self.assertNotIn("update_plan", config.announced_tools)
-        self.assertEqual(config.control_tool_names, frozenset({"update_plan"}))
-        update_plan = next(tool for tool in config.call_kwargs["tools"] if tool["function"]["name"] == "update_plan")
-        status_schema = update_plan["function"]["parameters"]["properties"]["plan"]["items"]["properties"]["status"]
-        self.assertEqual(status_schema["enum"], ["pending", "in_progress"])
+                model_tool_names = [tool["function"]["name"] for tool in config.call_kwargs["tools"]]
+                self.assertEqual(config.plan_mode, "off")
+                self.assertNotIn("update_plan", model_tool_names)
+                self.assertEqual(config.announced_tools, ["web_search", "url_read"])
+                self.assertEqual(config.control_tool_names, frozenset())
+                web_tool = next(
+                    tool for tool in config.call_kwargs["tools"] if tool["function"]["name"] == "web_search"
+                )
+                self.assertNotIn("_plan_item_id", web_tool["function"]["parameters"]["properties"])
 
     def test_standard_verified_research_constrains_first_plan_to_search_and_reads(self):
         # #132 第一波：来源请求由模型选包，计划门禁仍按最终包挂载。
@@ -910,21 +910,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("_plan_item_id", plan_parameters["properties"])
 
-    def test_auto_mode_exposes_optional_plan_item_binding_without_breaking_simple_tools(self):
-        config = build_agent_loop_call_config(
-            provider="openai",
-            options={"plan_mode": "auto"},
-            capabilities={"functionCalling": True, "searchCapable": True},
-            original_message="OpenAI 今天发布了什么？阅读官方公告后总结",
-            classify_fn=_classifier_for_removed_literal("OpenAI 今天发布了什么？阅读官方公告后总结"),
-        )
-
-        web_tool = next(tool for tool in config.call_kwargs["tools"] if tool["function"]["name"] == "web_search")
-        parameters = web_tool["function"]["parameters"]
-
-        self.assertIn("_plan_item_id", parameters["properties"])
-        self.assertNotIn("_plan_item_id", parameters.get("required", []))
-
     def test_control_plan_tool_only_requires_function_calling_not_search_capability(self):
         config = build_agent_loop_call_config(
             provider="openai",
@@ -996,30 +981,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(config.plan_mode, "off")
         self.assertNotIn("tools", config.call_kwargs)
         self.assertEqual(config.control_tool_names, frozenset())
-
-    def test_auto_plan_contract_requires_plan_for_itinerary_and_multi_tool_tasks(self):
-        config = build_agent_loop_call_config(
-            provider="openai",
-            options={},
-            capabilities={"functionCalling": True, "searchCapable": True},
-            original_message="OpenAI 今天发布了什么？阅读官方公告后总结",
-            classify_fn=_classifier_for_removed_literal("OpenAI 今天发布了什么？阅读官方公告后总结"),
-        )
-        messages = [{"role": "user", "content": "规划通勤路线"}]
-
-        prepared = inject_plan_control_contract(messages, config)
-
-        self.assertEqual(prepared[0]["role"], "system")
-        contract = prepared[0]["content"]
-        self.assertIn("[Execution-plan control rules]", contract)
-        self.assertIn("before the first external tool call", contract)
-        self.assertIn("itinerary planning, option comparison, research, review", contract)
-        self.assertIn("two or more external tool calls", contract)
-        self.assertIn("one independent factual lookup", contract)
-        self.assertIn("Do not mark steps completed", contract)
-        self.assertIn("Do not narrate the rejection", contract)
-        self.assertIn("bypass the gate because planning failed", contract)
-        self.assertNotIn("update_plan", contract)
 
     def test_on_plan_contract_requires_plan_before_any_answer_or_external_tool(self):
         config = build_agent_loop_call_config(
