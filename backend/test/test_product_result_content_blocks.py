@@ -579,3 +579,31 @@ class ProductResultEventTests(unittest.IsolatedAsyncioTestCase):
                     "provider_response": {"secret": "LEAK_SENTINEL"},
                 },
             )
+
+    async def test_document_block_is_upserted_for_live_document_card(self):
+        from app.schemas.chat import DocumentBlock
+
+        writer = AsyncMock()
+        emitter = AgentEventEmitter(
+            run_id="run-1",
+            trace_id="trace-1",
+            conversation_id="conv-1",
+            task_id="task-1",
+            redis_writer=writer,
+        )
+        block = DocumentBlock(
+            type="document",
+            schema_version=1,
+            document_id="doc-1",
+            version=1,
+            title="青岛三日游攻略",
+            format="markdown",
+            operation="created",
+            char_count=1200,
+        )
+
+        await emitter.content_block_upserted(tool_call_id="tc-doc", content_block=block)
+
+        payload = writer.append_chunk.await_args.args[3]
+        self.assertEqual(payload["type"], "content_block_upserted")
+        self.assertEqual(payload["content_block"], block.model_dump(mode="json"))
