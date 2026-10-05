@@ -48,6 +48,11 @@ class DetectChangesTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertFalse(MODULE.classify([path])["agent_eval"])
 
+    def test_skip_eval_marker_in_commit_message(self) -> None:
+        self.assertTrue(MODULE.agent_eval_skipped("Merge pull request #1 from x/y\n\nfix: 调整展示 [skip eval]"))
+        self.assertTrue(MODULE.agent_eval_skipped("fix: 调整展示 [Skip Eval]"))
+        self.assertFalse(MODULE.agent_eval_skipped("fix: 调整 agent 循环"))
+
     def test_pull_request_uses_merge_base(self) -> None:
         diff_range = MODULE.select_diff_range(
             event_name="pull_request",

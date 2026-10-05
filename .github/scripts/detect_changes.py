@@ -25,6 +25,9 @@ AGENT_EVAL_PATH_PREFIXES = (
     "backend/evals/",
     "backend/scripts/run_eval_suite.py",
 )
+# 改动落在上述路径但不影响模型行为（纯展示、权限、日志等）时，PR 标题带此标记即跳过评测；
+# merge/squash 提交信息都会带上 PR 标题。
+SKIP_AGENT_EVAL_MARKER = "[skip eval]"
 
 
 @dataclass(frozen=True)
@@ -97,6 +100,14 @@ def classify(paths: list[str]) -> dict[str, bool]:
     }
 
 
+def agent_eval_skipped(commit_message: str) -> bool:
+    return SKIP_AGENT_EVAL_MARKER in commit_message.lower()
+
+
+def head_commit_message(head: str) -> str:
+    return subprocess.check_output(["git", "log", "-1", "--format=%B", head], text=True)
+
+
 def write_outputs(values: dict[str, str | bool]) -> None:
     output_path = os.environ.get("GITHUB_OUTPUT")
     lines = [f"{key}={str(value).lower() if isinstance(value, bool) else value}" for key, value in values.items()]
@@ -123,6 +134,9 @@ def main() -> None:
     )
     paths = changed_paths(diff_range)
     result = classify(paths)
+    if result["agent_eval"] and diff_range.mode == "range" and agent_eval_skipped(head_commit_message(args.head)):
+        print(f"提交信息含 {SKIP_AGENT_EVAL_MARKER}，跳过 Agent eval gate")
+        result["agent_eval"] = False
     write_outputs(
         {
             **result,
