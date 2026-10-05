@@ -1,84 +1,20 @@
-"""外部工具任务应保留通用联网替代工具。"""
+"""产品工具与通用联网工具一起公告，工具失败时可以换用。"""
 
 import unittest
 
-from app.schemas.trajectory import TrajectoryCapabilityResolution
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_DEFINITIONS
 from app.services.stream.agent_loop_request_prep import build_agent_loop_call_config
-from app.services.stream.agent_task_policy import AgentTaskPolicy
-from app.services.stream.run_capability_router import (
-    _CandidateRoute,
-    resolve_run_capability_route,
-    serialize_capability_resolution,
-)
 
 
 class RecoveryRouteTests(unittest.TestCase):
-    def test_external_routes_announce_optional_search_and_read(self):
-        for package, primary, reason in [
-            ("weather", ("weather_forecast",), "explicit_weather_request"),
-            ("place_discovery", ("local_place_search",), "explicit_place_discovery"),
-            ("mobility_route", ("route_compare",), "explicit_route_task"),
-            ("flight", ("search_flights",), "explicit_flight_request"),
-            ("train", ("search_trains",), "explicit_train_request"),
-            ("travel_air_rail", ("search_flights", "search_trains"), "air_rail_comparison"),
-            ("mixed_itinerary", ("weather_forecast", "route_compare", "search_trains"), "mixed_itinerary_request"),
-            ("fresh_web", ("web_search",), "fresh_external_fact"),
-            ("url_read", ("url_read",), "explicit_url_read"),
-            ("mcp_explicit", ("mcp_authorized_tool",), "explicit_authorized_tool_alias"),
-        ]:
-            with self.subTest(package=package, primary=primary, reason=reason):
-                candidate = _CandidateRoute(
-                    package,
-                    "high",
-                    (reason,),
-                    True,
-                    explicit_tool_names=primary,
-                    required_primary_tool_name=primary[0] if package == "mixed_itinerary" else None,
-                )
-                route = resolve_run_capability_route(
-                    original_message="查询当前信息",
-                    task_context_messages=None,
-                    available_tool_names=[*primary, "web_search", "url_read"],
-                    requested_plan_mode="off",
-                    task_policy=AgentTaskPolicy("standard", "off", "standard", "standard"),
-                    capabilities={"functionCalling": True, "searchCapable": True},
-                    tools_disabled=False,
-                    knowledge_grounded=False,
-                    classify_fn=lambda **_: candidate,
-                )
-                assert set(route.external_tool_names) == {*primary, "web_search", "url_read"}
-                TrajectoryCapabilityResolution.model_validate(
-                    {**serialize_capability_resolution(route), "bundle_fingerprint": "sha256:" + "a" * 64}
-                )
-
-    def test_missing_optional_tools_does_not_disable_weather(self):
-        route = resolve_run_capability_route(
-            original_message="香港三天天气",
-            task_context_messages=None,
-            available_tool_names=["weather_forecast", "web_search", "url_read"],
-            unavailable_tool_names=["web_search", "url_read"],
-            requested_plan_mode="off",
-            task_policy=AgentTaskPolicy("standard", "off", "standard", "standard"),
-            capabilities={"functionCalling": True, "searchCapable": True},
-            tools_disabled=False,
-            knowledge_grounded=False,
-            # 选包判据已删除（#132）：能力包由模型决定，这里声明模型选 weather。
-            classify_fn=lambda **_: _CandidateRoute("weather", "high", ("explicit_weather_request",), True),
-        )
-        assert route.package_id == "weather"
-        assert route.external_tool_names == ("weather_forecast",)
-
     def test_weather_request_schemas_include_recovery_without_requiring_it(self):
         weather = next(tool for tool in AMAP_PRODUCT_DEFINITIONS if tool["function"]["name"] == "weather_forecast")
         config = build_agent_loop_call_config(
             provider="openai",
             options={"plan_mode": "on"},
             capabilities={"functionCalling": True, "searchCapable": True},
-            original_message="香港三天天气",
             additional_tools=[weather],
             dynamic_tool_handlers={"weather_forecast": lambda _: None},
-            classify_fn=lambda **_: _CandidateRoute("weather", "high", ("explicit_weather_request",), True),
         )
         assert set(config.announced_tools) == {"weather_forecast", "web_search", "url_read"}
         assert {tool["function"]["name"] for tool in config.call_kwargs["tools"]} == {
@@ -96,21 +32,13 @@ class RecoveryPromptTests(unittest.IsolatedAsyncioTestCase):
         async def messages(*args, **kwargs):
             return [{"role": "user", "content": "查询"}]
 
-        # 选包判据已删除（#132）：按原句声明模型会选什么，本测试验证选定包之后的恢复提示。
-        packages = {
-            "香港三天天气": ("weather", ("explicit_weather_request",)),
-            "核验 OpenAI 最新公告，给出官方原文和交叉来源": ("verified_web", ("verified_source_request",)),
-        }
         for message in ("香港三天天气", "核验 OpenAI 最新公告，给出官方原文和交叉来源"):
-            package_id, reason_codes = packages[message]
             config = build_agent_loop_call_config(
                 provider="openai",
                 options={"plan_mode": "off"},
                 capabilities={"functionCalling": True, "searchCapable": True},
-                original_message=message,
                 additional_tools=AMAP_PRODUCT_DEFINITIONS,
                 dynamic_tool_handlers={tool["function"]["name"]: lambda _: None for tool in AMAP_PRODUCT_DEFINITIONS},
-                classify_fn=lambda _p=package_id, _r=reason_codes, **_: _CandidateRoute(_p, "high", _r, True),
             )
             prepared = await prepare_agent_loop_messages(
                 db=object(),

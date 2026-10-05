@@ -58,12 +58,8 @@ class BuildSnapshotTests(unittest.TestCase):
         args = {
             "session": {"id": "run-1", "conversation_id": "conv-1", "model_id": "qwen3.8-flash", "status": "completed"},
             "events": [
-                ("run_started", {"capability_resolution": {"package_id": "direct"}}),
+                ("run_started", {"capability_resolution": {"package_id": "agent"}}),
                 ("skills_resolved", {"status": "loaded", "skills": [{"skill_id": "web-research"}]}),
-                (
-                    "capability_escalated",
-                    {"from_package_id": "direct", "capability_resolution": {"package_id": "weather"}, "step_number": 2},
-                ),
                 ("run_completed", {"finish_reason": "stop"}),
             ],
             "tool_logs": [
@@ -83,11 +79,10 @@ class BuildSnapshotTests(unittest.TestCase):
         args.update(overrides)
         return build_snapshot(**args)
 
-    def test_extracts_routing_tools_and_answer(self):
+    def test_extracts_mode_tools_and_answer(self):
         snapshot = self._snapshot()
 
-        self.assertEqual(snapshot["first_package"], "direct")
-        self.assertEqual(snapshot["escalations"], [{"from": "direct", "to": "weather", "step": 2}])
+        self.assertEqual(snapshot["mode"], "agent")
         self.assertEqual(snapshot["finish_reason"], "stop")
         self.assertEqual(snapshot["skills"], ["web-research", "trip-planning"])
         self.assertEqual([call["tool"] for call in snapshot["tool_calls"]], ["load_skill", "weather_forecast"])
@@ -117,7 +112,7 @@ class BuildSnapshotTests(unittest.TestCase):
     def test_missing_answer_and_resolution_are_tolerated(self):
         snapshot = self._snapshot(events=[("run_started", {"capability_resolution": None})], answer_content=None)
 
-        self.assertIsNone(snapshot["first_package"])
+        self.assertIsNone(snapshot["mode"])
         self.assertEqual(snapshot["answer_text"], "")
         self.assertEqual(snapshot["answer_blocks"], [])
 
@@ -149,7 +144,7 @@ class LoadSnapshotTests(unittest.TestCase):
             db.flush()
             for sequence, (event_type, payload) in enumerate(
                 [
-                    ("run_started", {"capability_resolution": {"package_id": "weather"}}),
+                    ("run_started", {"capability_resolution": {"package_id": "agent"}}),
                     ("run_completed", {"finish_reason": "stop"}),
                 ],
                 start=1,
@@ -184,7 +179,7 @@ class LoadSnapshotTests(unittest.TestCase):
             snapshot = load_snapshot(db, "run-1")
             missing = load_snapshot(db, "no-such-run")
 
-        self.assertEqual(snapshot["first_package"], "weather")
+        self.assertEqual(snapshot["mode"], "agent")
         self.assertEqual(snapshot["tool_calls"][0]["arguments"], {"location": "杭州"})
         self.assertEqual(snapshot["answer_text"], "好的")
         self.assertIsNone(missing)
@@ -432,13 +427,13 @@ class StoreTests(unittest.TestCase):
 
     def test_results_keep_trajectory_snapshot(self):
         outcome = _outcome("a", "m", "passed")
-        outcome.snapshot = {"first_package": "weather", "tool_calls": []}
+        outcome.snapshot = {"mode": "agent", "tool_calls": []}
         suite_id = self._suite([outcome])
 
         with self.factory() as db:
             row = db.query(EvalCaseResult).filter_by(suite_run_id=suite_id).one()
 
-        self.assertEqual(row.trajectory["first_package"], "weather")
+        self.assertEqual(row.trajectory["mode"], "agent")
         self.assertEqual(row.checks, [{"type": "run_status", "status": "passed", "detail": ""}])
 
 
@@ -457,7 +452,7 @@ class JudgeTests(unittest.TestCase):
         check = case.checks[0]
         snapshot = {
             "tool_calls": [
-                {"tool": "request_capability", "arguments": {"package_id": "weather"}},
+                {"tool": "update_plan", "arguments": {"items": []}},
                 {"tool": "weather_forecast", "arguments": {"location": "杭州"}, "result": {"rain": True}},
             ],
             "answer_text": "后天杭州小雨。",
@@ -468,7 +463,7 @@ class JudgeTests(unittest.TestCase):
         self.assertIn("回答与工具结果中的天气一致", user)
         self.assertIn("我在杭州", user)
         self.assertIn("weather_forecast", user)
-        self.assertNotIn("request_capability", user)
+        self.assertNotIn("update_plan", user)
         self.assertIn("后天杭州小雨", user)
 
     def test_malformed_verdict_is_asked_again_once(self):
@@ -512,7 +507,7 @@ class JudgeTests(unittest.TestCase):
 
 class ScriptTests(unittest.TestCase):
     def test_dry_run_lists_pairs_without_calling_models(self):
-        self.assertEqual(run_eval_suite.main(["--models", "m1,m2", "--category", "escalation"]), 0)
+        self.assertEqual(run_eval_suite.main(["--models", "m1,m2", "--category", "tool_selection"]), 0)
 
     def test_plan_respects_model_scope(self):
         cases = [
@@ -522,7 +517,7 @@ class ScriptTests(unittest.TestCase):
                     "category": "c",
                     "source": "unit test",
                     "message": "hi",
-                    "checks": [{"type": "escalation", "expect": "none"}],
+                    "checks": [{"type": "tool_not_called", "tool": "web_search"}],
                 }
             ),
             EvalCase.model_validate(
@@ -532,7 +527,7 @@ class ScriptTests(unittest.TestCase):
                     "source": "unit test",
                     "message": "hi",
                     "models": ["m1"],
-                    "checks": [{"type": "escalation", "expect": "none"}],
+                    "checks": [{"type": "tool_not_called", "tool": "web_search"}],
                 }
             ),
         ]

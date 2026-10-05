@@ -1,4 +1,4 @@
-import type { ContextToolVisibility, TrajectoryCapabilityResolution } from './trajectory';
+import type { ContextToolVisibility } from './trajectory';
 
 export type AgentRunStatus =
   | 'running'
@@ -335,17 +335,6 @@ export interface AgentSystemPromptPreparedEvent extends AgentEventEnvelope {
   error_code?: string | null;
   message?: string | null;
   detail_status?: 'available' | 'degraded' | null;
-}
-
-/** Run 内能力升级：首判能力包不足时，作答模型申请并通过校验后切换到的目标能力包。 */
-export interface AgentCapabilityEscalatedEvent extends AgentEventEnvelope {
-  type: 'capability_escalated';
-  protocol_version: 2;
-  step_number: number;
-  from_package_id: string;
-  capability_resolution: TrajectoryCapabilityResolution;
-  section_ids: string[];
-  system_prompt_fingerprint: string;
 }
 
 export interface AgentLlmRoundStartedEvent extends AgentEventEnvelope {

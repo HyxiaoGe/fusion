@@ -138,7 +138,6 @@ class AgentLoopWiringDependencies:
     fail_suggested_questions_fn: Callable[..., Any] | None = None
     generate_conversation_title_fn: Callable[..., Any] | None = None
     load_dynamic_tools_fn: Callable[..., Any] | None = None
-    load_authorized_tool_names_fn: Callable[..., list[str]] | None = None
     llm_round_detail_scheduler: Callable[[Any], Any] | None = None
     load_document_tools_fn: Callable[..., Any] | None = None
 
@@ -204,8 +203,6 @@ class AgentLoopCallConfigInputs:
     additional_tools: list[Any]
     dynamic_tool_handlers: dict[str, Any]
     tool_bindings: list[Any]
-    authorized_tool_names: list[str]
-    should_load_dynamic_tool_metadata: bool
     previous_run_id: str | None = None
     document_tools: Any | None = None
 
@@ -226,24 +223,10 @@ def prepare_agent_loop_call_config_inputs(
         and options.get("knowledge_grounded") is not True
         and dependencies.load_dynamic_tools_fn is not None
     )
-    should_load_dynamic_tool_metadata = (
-        dependencies.load_authorized_tool_names_fn is not None
-        and options.get("knowledge_grounded") is not True
-        and not should_load_dynamic_tools
-    )
     dynamic_tool_set = (
         _load_dynamic_tools(dependencies.load_dynamic_tools_fn, db=db, user_id=run_input.user_id)
         if should_load_dynamic_tools
         else None
-    )
-    authorized_tool_names = (
-        _load_dynamic_tools(
-            dependencies.load_authorized_tool_names_fn,
-            db=db,
-            user_id=run_input.user_id,
-        )
-        if should_load_dynamic_tool_metadata
-        else []
     )
     document_tools = None
     if (
@@ -268,8 +251,6 @@ def prepare_agent_loop_call_config_inputs(
         additional_tools=list(getattr(dynamic_tool_set, "definitions", []) or []),
         dynamic_tool_handlers=dict(getattr(dynamic_tool_set, "handlers", {}) or {}),
         tool_bindings=list(getattr(dynamic_tool_set, "audit_bindings", []) or []),
-        authorized_tool_names=authorized_tool_names,
-        should_load_dynamic_tool_metadata=should_load_dynamic_tool_metadata,
         previous_run_id=run_input.previous_run_id,
         document_tools=document_tools,
     )
@@ -290,22 +271,6 @@ def build_agent_loop_call_config_from_inputs(
         additional_tools=inputs.additional_tools,
         dynamic_tool_handlers=inputs.dynamic_tool_handlers,
         tool_bindings=inputs.tool_bindings,
-        **(
-            {"authorized_tool_names": inputs.authorized_tool_names}
-            if inputs.should_load_dynamic_tool_metadata
-            and _accepts_keyword(build_call_config_fn, "authorized_tool_names")
-            else {}
-        ),
-        **(
-            {"original_message": run_input.original_message}
-            if _accepts_keyword(build_call_config_fn, "original_message")
-            else {}
-        ),
-        **(
-            {"task_context_messages": run_input.raw_messages}
-            if _accepts_keyword(build_call_config_fn, "task_context_messages")
-            else {}
-        ),
         **(
             {"prompt_bundle_snapshot": run_input.prompt_bundle_snapshot}
             if run_input.prompt_bundle_snapshot is not None

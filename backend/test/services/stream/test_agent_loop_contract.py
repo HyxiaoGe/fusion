@@ -1,18 +1,14 @@
 """agent-loop 跨模块契约测试。"""
 
 import json
-import re
 import unittest
 from contextlib import ExitStack
-from dataclasses import dataclass, field, replace
-from functools import partial
+from dataclasses import dataclass, field
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.schemas.chat import PlaceResult, PlaceResultsBlock, SearchBlock
 from app.services.stream import StreamHandler
-from app.services.stream.agent_loop_request_prep import build_agent_loop_call_config
-from app.services.stream.run_capability_router import _CandidateRoute, classify_capability_request
 from app.services.stream.tool_execution_result import ToolExecutionRecord
 from app.services.tool_handlers.base import ToolResult
 from app.utils.prompt_fingerprint import fingerprint_system_messages
@@ -55,7 +51,6 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
         options=None,
         dynamic_tool_set=None,
         user_message="hi",
-        classifier_candidate=None,
     ) -> AgentLoopContractResult:
         result = AgentLoopContractResult()
         self.last_result = result
@@ -164,57 +159,12 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
         fake_redis = None
         caught_exc = None
 
-        from app.services.stream import runner
-
-        production_wiring = runner._agent_loop_wiring_dependencies
-
-        def _contract_classifier(*, message, **kwargs):
-            # 选包判据已整体删除（#132），router 不再从文本推断能力包。本套测试验证
-            # 工具与终态契约，所以按原句声明模型会选什么，等价于以前字面层的结果。
-            if classifier_candidate is not None:
-                return classifier_candidate
-            if message.casefold() in {"今天 OpenAI 发布了什么？".casefold(), "今天查询深圳聚餐趋势".casefold()}:
-                return _CandidateRoute("fresh_web", "high", ("fresh_external_fact",), True)
-            alias_match = re.search(r"\bmcp_[0-9a-z_]+", message)
-            if alias_match:
-                return _CandidateRoute(
-                    "mcp_explicit",
-                    "high",
-                    ("explicit_authorized_tool_alias",),
-                    True,
-                    explicit_tool_names=(alias_match.group(0),),
-                )
-            if "天气" in message:
-                return _CandidateRoute("weather", "high", ("explicit_weather_request",), True)
-            if "附近" in message:
-                return _CandidateRoute("place_discovery", "high", ("explicit_place_discovery",), True)
-            if "怎么走" in message:
-                return _CandidateRoute("mobility_route", "high", ("explicit_route_task",), True)
-            if "交叉核实来源" in message or "阅读官方公告" in message:
-                return _CandidateRoute("verified_web", "high", ("verified_source_request",), True)
-            return classify_capability_request(message=message, **kwargs)
-
-        def _rule_classifier_wiring():
-            return replace(
-                production_wiring(),
-                build_call_config_fn=partial(
-                    build_agent_loop_call_config,
-                    classify_fn=_contract_classifier,
-                ),
-            )
-
         with ExitStack() as stack:
             # 本套验证工具/终态契约，隔离新增的语言辅助模型；语言选择另有真实提交链测试。
             stack.enter_context(
                 patch(
                     "app.services.stream.safe_fallback_response.resolve_utility_model",
                     side_effect=ValueError("测试不调用外部语言模型"),
-                )
-            )
-            stack.enter_context(
-                patch(
-                    "app.services.stream.runner._agent_loop_wiring_dependencies",
-                    side_effect=_rule_classifier_wiring,
                 )
             )
             if use_real_redis_stream:
@@ -423,7 +373,7 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("_plan_item_id", definition["function"]["parameters"]["properties"])
         self.assertEqual(
             [tool["function"]["name"] for tool in request_tools],
-            [alias],
+            [alias, "create_document", "edit_document"],
         )
         self.assertNotIn("web_search", str(result.llm_calls[0]["call_kwargs"]))
         second_round_tool_messages = [
@@ -996,10 +946,13 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
         second_round_tool_names = {
             tool["function"]["name"] for tool in result.llm_calls[1]["call_kwargs"].get("tools", [])
         }
-        self.assertEqual(first_round_tool_names, {exhausted_alias, "web_search", "url_read"})
-        self.assertEqual(second_round_tool_names, {"web_search", "url_read"})
-        self.assertNotIn(sibling_alias, first_round_tool_names)
-        self.assertNotIn(available_alias, first_round_tool_names)
+        document_tool_names = {"create_document", "edit_document"}
+        self.assertEqual(
+            first_round_tool_names,
+            {exhausted_alias, sibling_alias, available_alias, "web_search", "url_read", *document_tool_names},
+        )
+        # 同一服务共享预算：耗尽后两个工具一起下架，其他服务的工具照常公告。
+        self.assertEqual(second_round_tool_names, {available_alias, "web_search", "url_read", *document_tool_names})
         self.assertNotIn(
             "调用预算已用完",
             "\n".join(str(message.get("content") or "") for call in result.llm_calls for message in call["messages"]),

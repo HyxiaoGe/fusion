@@ -1,8 +1,8 @@
-"""授权目录内的动态工具发现（实验 opt-in）。
+"""授权 MCP 工具过多时的按需加载。
 
-候选路径不调用包分类器，也不伪造能力包去绕过旧校验。发现仅限本次 Run
-已授权且具备 schema/handler 的目录；扩容时同步更新 schema、handler、
-MCP binding 与计划允许集。默认产品路径保持关闭。
+MCP 工具数量或 schema 体积超过阈值时，不把它们全部放进每轮工具列表，而是只公告
+`tool_search` 和一份简短目录；模型检索到的工具从下一轮起加入工具列表。触发条件只看
+规模，不看用户意图。目录仅限本次 Run 已授权且具备 schema/handler 的工具。
 """
 
 from __future__ import annotations
@@ -18,77 +18,13 @@ from app.services.tool_handlers.base import BaseToolHandler, ToolResult
 
 TOOL_SEARCH_NAME = "tool_search"
 MAX_SEARCH_RESULTS = 8
-NETWORK_KIND_LOCAL_READONLY = "local_readonly"
-NETWORK_KIND_SEARCH = "search"
-NETWORK_KIND_URL = "url"
-NETWORK_KIND_PRODUCT_QUERY = "product_query"
-NETWORK_KIND_UNKNOWN_NETWORK = "unknown_network"
-KNOWN_NETWORK_KINDS: dict[str, str] = {
-    "web_search": NETWORK_KIND_SEARCH,
-    "url_read": NETWORK_KIND_URL,
-    "weather_forecast": NETWORK_KIND_PRODUCT_QUERY,
-    "local_place_search": NETWORK_KIND_PRODUCT_QUERY,
-    "route_compare": NETWORK_KIND_PRODUCT_QUERY,
-    "search_flights": NETWORK_KIND_PRODUCT_QUERY,
-    "search_trains": NETWORK_KIND_PRODUCT_QUERY,
-    "mcp_readonly_probe": NETWORK_KIND_LOCAL_READONLY,
-}
-PRODUCT_EVIDENCE_TOOL_NAMES = frozenset(
-    {
-        "weather_forecast",
-        "local_place_search",
-        "route_compare",
-        "search_flights",
-        "search_trains",
-        "web_search",
-        "url_read",
-    }
-)
+
 _PAGE_RE = re.compile(r"^(?:list|page)(?::(\d+))?$", re.IGNORECASE)
-_UNSUPPORTED_SCENES = ("deep_research", "continuation")
-NETWORK_POLICIES = frozenset({"allow", "no_web_search", "no_url_read", "no_network"})
-CATALOG_EVIDENCE_ADAPTER_NOTE = (
-    "requires_catalog_evidence is a conservative experiment adapter. "
-    "Authorized catalog presence does not by itself create an evidence "
-    "obligation for ordinary greeting or identity replies."
-)
-
-
-class DynamicToolDiscoveryUnsupportedError(ValueError):
-    """opt-in 发现路径明确拒绝尚未覆盖的场景，禁止静默回退旧分类。"""
-
-    def __init__(self, scene: str) -> None:
-        self.scene = scene
-        super().__init__(f"dynamic_tool_discovery does not support {scene}")
 
 
 def _tool_definition_name(tool: dict) -> str:
     function = tool.get("function") if isinstance(tool, dict) else None
     return str(function.get("name", "")) if isinstance(function, dict) else ""
-
-
-def is_dynamic_tool_discovery_enabled(options: Mapping[str, Any] | None) -> bool:
-    return bool(options) and options.get("dynamic_tool_discovery") is True
-
-
-def infer_network_kind(name: str, *, binding: dict[str, Any] | None = None) -> str:
-    if name in KNOWN_NETWORK_KINDS:
-        return KNOWN_NETWORK_KINDS[name]
-    if binding or name.startswith("mcp_"):
-        return NETWORK_KIND_UNKNOWN_NETWORK
-    return NETWORK_KIND_UNKNOWN_NETWORK
-
-
-def network_kind_is_denied(kind: str, network_policy: str) -> bool:
-    """未知网络工具在限制联网能力时按保守边界处理。"""
-
-    if network_policy == "no_network":
-        return kind != NETWORK_KIND_LOCAL_READONLY
-    if network_policy == "no_web_search":
-        return kind in {NETWORK_KIND_SEARCH, NETWORK_KIND_UNKNOWN_NETWORK}
-    if network_policy == "no_url_read":
-        return kind in {NETWORK_KIND_URL, NETWORK_KIND_UNKNOWN_NETWORK}
-    return False
 
 
 def _literal_catalog_match(query: str, entry: "AuthorizedToolEntry") -> bool:
@@ -107,90 +43,37 @@ class AuthorizedToolEntry:
     schema: dict[str, Any]
     handler: Any
     binding: dict[str, Any] | None = None
-    network_kind: str = NETWORK_KIND_UNKNOWN_NETWORK
-
-
-@dataclass(frozen=True)
-class DiscoveryExperimentContext:
-    """实验 Run 的显式上下文；不是能力包，不得写入 TrajectoryCapabilityResolution。"""
-
-    enabled: bool = True
-    include_current_date: bool = True
-    effective_plan_mode: str = "off"
-    network_boundary_required: bool = False
-    requires_catalog_evidence: bool = False
-    catalog_evidence_note: str = CATALOG_EVIDENCE_ADAPTER_NOTE
-    unsupported_scenes: tuple[str, ...] = _UNSUPPORTED_SCENES
-    announced_tools: tuple[str, ...] = ()
-    authorized_tool_names: tuple[str, ...] = ()
-    external_tool_names: tuple[str, ...] = ()
-    package_id: None = None
 
 
 @dataclass
 class DynamicToolDiscoverySession:
-    """单次 Run 的授权目录、已加载集合与发现事件。"""
+    """单次 Run 的延迟加载目录、已加载集合与发现事件。"""
 
     authorized: dict[str, AuthorizedToolEntry]
-    denied_names: frozenset[str] = field(default_factory=frozenset)
-    declared_network_policy: str | None = None
-    declared_denied_tool_names: frozenset[str] | None = None
     loaded_names: set[str] = field(default_factory=set)
     events: list[dict[str, Any]] = field(default_factory=list)
-    unsupported_scenes: tuple[str, ...] = _UNSUPPORTED_SCENES
     call_kwargs: dict[str, Any] | None = None
     handlers: dict[str, Any] | None = None
     bindings: list[dict[str, Any]] | None = None
-    plan_mode: str = "off"
     budget_identities: dict[str, int] = field(default_factory=dict)
 
     def catalog_names(self) -> list[str]:
-        return [name for name in self.authorized if name not in self.denied_names]
+        return list(self.authorized)
 
     def catalog_prompt(self) -> str:
         lines = render_runtime_prompt("dynamic_tool_discovery.catalog_preamble").splitlines()
-        lines.append("<available-authorized-tools>")
+        lines.append("<deferred-tools>")
         for name in self.catalog_names():
             entry = self.authorized[name]
             lines.append(f"- {name}: {entry.summary}")
-        lines.append("</available-authorized-tools>")
+        lines.append("</deferred-tools>")
         return "\n".join(lines)
 
     def record(self, **event: Any) -> None:
         self.events.append(dict(event))
 
-    def apply_declared_constraints(self, network_policy: object, denied_tool_names: object) -> bool:
-        """首次发现必须声明约束；后续调用不得放宽或修改已冻结的目录。"""
-
-        if (
-            not isinstance(network_policy, str)
-            or network_policy not in NETWORK_POLICIES
-            or not isinstance(denied_tool_names, list)
-        ):
-            return False
-        if (
-            len(denied_tool_names) > 8
-            or any(not isinstance(name, str) or name not in self.authorized for name in denied_tool_names)
-            or len(set(denied_tool_names)) != len(denied_tool_names)
-        ):
-            return False
-        declared_names = frozenset(denied_tool_names)
-        if self.declared_network_policy is not None:
-            return network_policy == self.declared_network_policy and declared_names == self.declared_denied_tool_names
-        self.declared_network_policy = network_policy
-        self.declared_denied_tool_names = declared_names
-        self.denied_names = frozenset(
-            name
-            for name, entry in self.authorized.items()
-            if name in declared_names or network_kind_is_denied(entry.network_kind, network_policy)
-        )
-        self.record(
-            kind="tool_constraints_declared", network_policy=network_policy, denied_names=sorted(self.denied_names)
-        )
-        return True
-
     def is_authorized(self, name: str) -> bool:
-        return name in self.authorized and name not in self.denied_names
+        return name in self.authorized
 
     def is_loaded(self, name: str) -> bool:
         return name in self.loaded_names
@@ -199,7 +82,7 @@ class DynamicToolDiscoverySession:
         catalog = [self.authorized[name] for name in self.catalog_names()]
         stripped = (query or "").strip()
         if not stripped:
-            return catalog, "list"
+            return catalog[:MAX_SEARCH_RESULTS], "list"
         page_match = _PAGE_RE.fullmatch(stripped)
         if page_match:
             page = int(page_match.group(1) or "0")
@@ -208,25 +91,12 @@ class DynamicToolDiscoverySession:
         if stripped.startswith("select:"):
             wanted = {item.strip() for item in stripped[7:].split(",") if item.strip()}
             matched = [entry for entry in catalog if entry.name in wanted]
-            missing = sorted(name for name in wanted if name not in {entry.name for entry in matched})
-            denied = sorted(name for name in wanted if name in self.denied_names or name not in self.authorized)
-            if denied:
-                self.record(kind="discover_denied", names=denied, query=stripped)
-            if missing and not matched:
+            unknown = sorted(name for name in wanted if name not in self.authorized)
+            if unknown:
+                self.record(kind="discover_denied", names=unknown, query=stripped)
+            if not matched:
                 return catalog[:MAX_SEARCH_RESULTS], "list"
             return matched, "select"
-        if stripped.startswith("+"):
-            parts = stripped[1:].split(None, 1)
-            if not parts:
-                return catalog[:MAX_SEARCH_RESULTS], "list"
-            required = parts[0].casefold()
-            candidates = [entry for entry in catalog if required in entry.name.casefold()]
-            if len(parts) > 1:
-                extra = parts[1]
-                candidates = [entry for entry in candidates if _literal_catalog_match(extra, entry)]
-            if not candidates:
-                return catalog[:MAX_SEARCH_RESULTS], "list"
-            return candidates[:MAX_SEARCH_RESULTS], "search"
         matched = [entry for entry in catalog if _literal_catalog_match(stripped, entry)]
         if not matched:
             return catalog[:MAX_SEARCH_RESULTS], "list"
@@ -261,8 +131,8 @@ class DynamicToolDiscoverySession:
                 "reason": "tool_authorized_but_not_loaded",
                 "tool_name": name,
                 "message": (
-                    f"`{name}` is authorized for this run but not loaded. "
-                    f"Call `{TOOL_SEARCH_NAME}` with query `select:{name}` to fetch its schema, then retry."
+                    f"`{name}` is available but not loaded yet. "
+                    f"Call `{TOOL_SEARCH_NAME}` with query `select:{name}` to load it, then retry."
                 ),
             }
             self.record(kind="unloaded_intercept", name=name)
@@ -272,8 +142,8 @@ class DynamicToolDiscoverySession:
             "reason": "tool_not_authorized",
             "tool_name": name,
             "message": (
-                f"`{name}` is not in this run's authorized catalog and cannot be activated. "
-                f"Call `{TOOL_SEARCH_NAME}` with an empty query to list allowed tools."
+                f"`{name}` is not an available tool in this run. "
+                f"Call `{TOOL_SEARCH_NAME}` with an empty query to list the deferred tools."
             ),
         }
         self.record(kind="unauthorized_intercept", name=name)
@@ -314,15 +184,6 @@ class ToolSearchHandler(BaseToolHandler):
     async def execute(self, args: dict) -> ToolResult:
         if not isinstance(args, dict):
             args = {}
-        if not self._session.apply_declared_constraints(args.get("network_policy"), args.get("denied_tool_names")):
-            self._session.record(kind="tool_constraints_invalid")
-            return ToolResult(
-                status="failed",
-                data={
-                    "reason": "invalid_tool_constraints",
-                    "message": "Declare valid, unchanged network_policy and denied_tool_names before discovery.",
-                },
-            )
         query = str(args.get("query") or "")
         matched, mode = self._session.search(query)
         if mode in {"search", "select"}:
@@ -334,7 +195,6 @@ class ToolSearchHandler(BaseToolHandler):
                 "matched_names": [entry.name for entry in matched],
                 "promoted_names": promoted,
                 "schemas": schemas,
-                "network_policy": self._session.declared_network_policy,
             }
         else:
             listing = [{"name": entry.name, "summary": entry.summary} for entry in matched]
@@ -342,8 +202,7 @@ class ToolSearchHandler(BaseToolHandler):
                 "mode": "list",
                 "query": query,
                 "catalog": listing,
-                "message": "No exclusive match; listing the current authorized catalog.",
-                "network_policy": self._session.declared_network_policy,
+                "message": "No exclusive match; listing deferred tools.",
             }
             self._session.record(kind="catalog_listed", query=query, count=len(listing))
         return ToolResult(status="success", data=data)
@@ -366,9 +225,8 @@ def build_tool_search_schema() -> dict[str, Any]:
         "function": {
             "name": TOOL_SEARCH_NAME,
             "description": (
-                "Fetch schemas for authorized deferred tools. "
-                "On the first call declare current-request tool restrictions; repeat the same declaration on later calls. "
-                "Query forms: literal keyword, `select:name1,name2`, `+name extra`, empty/`list`/`page:N` to browse."
+                "Load deferred tools listed in the system prompt so they can be called from the next step. "
+                "Query forms: keywords, `select:name1,name2`, or empty/`list`/`page:N` to browse."
             ),
             "parameters": {
                 "type": "object",
@@ -376,21 +234,10 @@ def build_tool_search_schema() -> dict[str, Any]:
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Literal search query or select:/list/page:N",
-                    },
-                    "network_policy": {
-                        "type": "string",
-                        "enum": ["allow", "no_web_search", "no_url_read", "no_network"],
-                        "description": "Scope of the current user's prohibition; no_network denies every external network tool.",
-                    },
-                    "denied_tool_names": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "maxItems": 8,
-                        "description": "Exact authorized tool names explicitly prohibited for this request; [] if none.",
+                        "description": "Keywords, select:name1,name2, or list/page:N",
                     },
                 },
-                "required": ["query", "network_policy", "denied_tool_names"],
+                "required": ["query"],
             },
         },
     }
@@ -420,19 +267,13 @@ def build_discovery_entries(
         if not isinstance(name, str) or not schema or handler is None:
             continue
         function = schema.get("function") if isinstance(schema, dict) else None
-        summary = ""
-        if isinstance(function, dict):
-            summary = str(function.get("description") or name)
-        else:
-            summary = name
-        binding = bindings_by_alias.get(name)
+        summary = str(function.get("description") or name) if isinstance(function, dict) else name
         entries[name] = AuthorizedToolEntry(
             name=name,
             summary=summary.split("\n", 1)[0][:180],
             schema=schema,
             handler=handler,
-            binding=binding,
-            network_kind=infer_network_kind(name, binding=binding),
+            binding=bindings_by_alias.get(name),
         )
     return entries
 
@@ -443,27 +284,11 @@ def attach_session_runtime(
     call_kwargs: dict[str, Any],
     handlers: dict[str, Any],
     bindings: list[dict[str, Any]],
-    plan_mode: str,
 ) -> None:
     session.call_kwargs = call_kwargs
     session.handlers = handlers
     session.bindings = bindings
-    session.plan_mode = plan_mode
     session.loaded_names.add(TOOL_SEARCH_NAME)
     session.handlers[TOOL_SEARCH_NAME] = ToolSearchHandler(session)
-    for name, handler in handlers.items():
+    for handler in handlers.values():
         session._record_budget_identity(handler)
-
-
-def discovery_requires_external_evidence(session: DynamicToolDiscoverySession | None) -> bool:
-    """本轮已加载外部事实工具时，回答必须有该类工具的有效证据。
-
-    目录含产品工具不等于当前问候任务有证据义务；只有模型经 tool_search 实际加载了
-    外部工具，才说明它认定本轮需要外部事实。
-    """
-
-    from app.utils.run_capability_contract import CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES, is_authorized_mcp_tool_alias
-
-    loaded = getattr(session, "loaded_names", None) or ()
-    external = frozenset().union(*CAPABILITY_PACKAGE_EXTERNAL_TOOL_NAMES.values())
-    return any(name in external or is_authorized_mcp_tool_alias(name) for name in loaded)

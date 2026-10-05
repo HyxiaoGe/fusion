@@ -25,8 +25,6 @@ cases:
     source: 每日探针 2026-10-03 / 10-04 doubao "只用了联网 主工具未调用 未生成文档"（青岛、厦门三日游攻略）
     message: 帮我做一份青岛三日游攻略
     checks:
-      - type: first_package
-        any_of: [mixed_itinerary]
       - type: tool_called
         tool: local_place_search
       - type: tool_called

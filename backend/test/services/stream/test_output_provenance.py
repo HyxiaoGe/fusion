@@ -260,8 +260,8 @@ class OutputProvenanceTests(unittest.IsolatedAsyncioTestCase):
         runtime.handle_tool_calls_round_fn.assert_awaited_once()
         lifecycle.emitter.llm_round_completed.assert_awaited_once()
 
-    async def test_summary_adoption_and_guard_replacement_compare_original_candidate(self):
-        for mode in ("adopt", "knowledge", "guard", "research"):
+    async def test_summary_adoption_and_replacement_compare_original_candidate(self):
+        for mode in ("adopt", "knowledge", "research"):
             with self.subTest(mode=mode):
                 lifecycle = await self._lifecycle()
                 lifecycle.record_detail(reasoning_text="", content_text="模型总结候选")
@@ -276,10 +276,6 @@ class OutputProvenanceTests(unittest.IsolatedAsyncioTestCase):
                 with (
                     patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append,
                     patch("app.services.stream.limit_summary._emit_knowledge_summary_used_evidence", new=AsyncMock()),
-                    patch(
-                        "app.services.stream.limit_summary._guard_no_evidence_answer",
-                        return_value=("服务端总结", "test") if mode == "guard" else ("模型总结候选", None),
-                    ),
                 ):
                     await _commit_limit_summary_result(
                         request=request,

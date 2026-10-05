@@ -22,10 +22,6 @@ class RunPromptSnapshot:
             raise ValueError("Run Prompt 快照包含重复 section identity")
 
     @property
-    def classifier_prompt(self) -> str:
-        return self.bundle_snapshot.classifier_prompt
-
-    @property
     def fingerprint(self) -> str:
         return fingerprint_system_messages(self.messages)
 

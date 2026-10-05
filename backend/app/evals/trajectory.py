@@ -41,22 +41,13 @@ def build_snapshot(
     result_limit: int = TOOL_RESULT_CHAR_LIMIT,
 ) -> dict[str, Any]:
     """events 按 sequence 排好序；tool_logs 每项含 tool_name/status/error_message/detail。"""
-    first_package = None
-    escalations: list[dict[str, Any]] = []
+    mode = None
     skills: list[str] = []
     skills_status = None
     finish_reason = None
     for event_type, payload in events:
-        if event_type == "run_started" and first_package is None:
-            first_package = (payload.get("capability_resolution") or {}).get("package_id")
-        elif event_type == "capability_escalated":
-            escalations.append(
-                {
-                    "from": payload.get("from_package_id"),
-                    "to": (payload.get("capability_resolution") or {}).get("package_id"),
-                    "step": payload.get("step_number"),
-                }
-            )
+        if event_type == "run_started" and mode is None:
+            mode = (payload.get("capability_resolution") or {}).get("package_id")
         elif event_type == "skills_resolved":
             skills_status = payload.get("status")
             for item in payload.get("skills") or []:
@@ -96,8 +87,7 @@ def build_snapshot(
         "finish_reason": finish_reason,
         "total_steps": session.get("total_steps"),
         "duration_ms": session.get("total_duration_ms"),
-        "first_package": first_package,
-        "escalations": escalations,
+        "mode": mode,
         "skills_status": skills_status,
         "skills": skills,
         "tool_calls": tool_calls,

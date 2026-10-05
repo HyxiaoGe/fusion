@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.ai.prompts.section_ids import (
-    PRODUCT_TOOL_REQUIRED_REPAIR,
     RESEARCH_COMPLETION_REPAIR,
 )
 from app.core.logger import app_logger as logger
@@ -37,7 +36,6 @@ from app.services.stream.product_result_answer import (
 from app.services.stream.research_evidence import (
     build_research_repair_prompt,
     validate_research_completion,
-    validate_verified_web_completion,
 )
 from app.services.stream.round_completion import append_round_content_blocks, complete_text_response_step
 from app.services.stream.safe_fallback_response import default_safe_fallback, render_safe_fallback
@@ -45,15 +43,6 @@ from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream.tool_recovery_evidence import is_grounded_recovery_answer
 from app.services.stream.tool_round import ToolRoundOutcome
 from app.services.stream_state_service import StreamWriteTerminalError, append_chunk
-
-
-def requires_product_result_guard(runtime: AgentLoopRuntime) -> bool:
-    """已公告产品工具的请求必须经过结构化结果边界。"""
-
-    resolution = runtime.capability_resolution
-    if resolution is None:
-        return False
-    return bool(set(resolution.external_tool_names).intersection(AMAP_PRODUCT_TOOL_NAMES | FLYAI_TRAVEL_TOOL_NAMES))
 
 
 @dataclass(frozen=True)
@@ -113,9 +102,6 @@ async def _handle_agent_round_outcome(
         if _requires_tool_failure_recovery(request):
             await _repair_tool_failure_stop(request)
             return None
-        if _requires_product_tool_before_stop(request):
-            await _repair_missing_product_tool_stop(request)
-            return None
         if _requires_research_completion_repair(request):
             return await _repair_research_completion(request)
         if _needs_empty_answer_summary(request):
@@ -150,8 +136,10 @@ def _recovery_alternatives(request: AgentRoundOutcomeRequest) -> set[str]:
     """
     announced = set(request.round_result.announced_tool_names or frozenset())
     announced.update(round_tool_names(request.runtime.call_kwargs))
-    assist_tool_names = frozenset(getattr(request.runtime, "skill_tool_names", frozenset()) or ()) | frozenset(
-        getattr(request.runtime, "escalation_tool_names", frozenset()) or ()
+    assist_tool_names = (
+        frozenset(getattr(request.runtime, "skill_tool_names", frozenset()) or ())
+        | frozenset(getattr(request.runtime, "output_tool_names", frozenset()) or ())
+        | frozenset(getattr(request.runtime, "control_tool_names", frozenset()) or ())
     )
     return announced - request.state.attempted_tool_names - {"update_plan"} - assist_tool_names
 
@@ -245,50 +233,6 @@ async def _repair_tool_failure_stop(request: AgentRoundOutcomeRequest) -> None:
             failed_tools=", ".join(sorted(request.state.tool_issue_names)),
             available_tools=", ".join(sorted(_recovery_alternatives(request))),
         ),
-    )
-
-
-def _announced_product_tool_names(runtime: AgentLoopRuntime) -> list[str]:
-    resolution = runtime.capability_resolution
-    names = AMAP_PRODUCT_TOOL_NAMES | FLYAI_TRAVEL_TOOL_NAMES
-    return [name for name in (resolution.external_tool_names if resolution else ()) if name in names]
-
-
-def _requires_product_tool_before_stop(request: AgentRoundOutcomeRequest) -> bool:
-    """产品路由一次产品工具都没调就收尾时，给一次补调机会；否则只能交付「未取得数据」。"""
-
-    return (
-        requires_product_result_guard(request.runtime)
-        and not request.state.product_tool_prompted
-        and not request.state.product_tool_attempted
-        and not has_product_result_blocks(request.state.content_blocks)
-        and not request.state.pending_tool_repairs
-        and request.runtime.task_mode != "deep_research"
-        and request.runtime.evidence_policy != "knowledge_grounded_v1"
-    )
-
-
-async def _repair_missing_product_tool_stop(request: AgentRoundOutcomeRequest) -> None:
-    request.state.product_tool_prompted = True
-    _record_suppression(request, "tool_round")
-    product_tools = _announced_product_tool_names(request.runtime)
-    request.runtime.warning_fn(
-        f"产品路由未调用产品工具即收尾，提示补调一次: run_id={request.runtime.run_id} "
-        f"model_id={request.runtime.model_id} product_tools={product_tools}"
-    )
-    await complete_text_response_step(
-        context=request.step_context,
-        emitter=request.runtime.emitter,
-        session_cache=request.runtime.session_cache,
-        complete_step_fn=request.runtime.complete_step_fn,
-        completed_tool_calls=request.state.total_tool_calls,
-        max_tool_calls=request.runtime.limits.max_tool_calls,
-        clock=request.runtime.clock,
-    )
-    _replace_system_message(
-        request.messages,
-        section_id=PRODUCT_TOOL_REQUIRED_REPAIR,
-        content=render_runtime_prompt("stream.product_tool_required_retry", product_tools=", ".join(product_tools)),
     )
 
 
@@ -483,8 +427,6 @@ async def _commit_deferred_answer(
 ) -> AgentRoundOutcomeRequest:
     if request.runtime.evidence_policy == "knowledge_grounded_v1":
         return await _commit_deferred_knowledge_answer(request)
-    if request.runtime.evidence_policy == "verified_web_v1":
-        return await _commit_deferred_verified_web_answer(request)
 
     if request.terminal and request.state.limit_reason is not None:
         return await _commit_terminal_product_answer(request)
@@ -509,32 +451,6 @@ async def _commit_deferred_answer(
             await _append_committed_answer(request, answer)
             return _with_replaced_answer(request, answer)
     return await _commit_deferred_plain_answer(request, model_output_visible=True)
-
-
-async def _commit_deferred_verified_web_answer(
-    request: AgentRoundOutcomeRequest,
-) -> AgentRoundOutcomeRequest:
-    answer = request.round_result.content_buf.strip()
-    rejected = await _reject_protocol_residue(request, answer)
-    if rejected is not None:
-        await _append_committed_answer(request, rejected, output_reason="protocol_residue")
-        return _with_replaced_answer(request, rejected)
-    validation = validate_verified_web_completion(
-        request.state.research_workset,
-        request.state.recovery_evidence,
-        answer,
-    )
-    if not validation.is_valid:
-        request.runtime.warning_fn(
-            "查证回答缺少已读正文或有效引用，已替换为诚实答复: "
-            f"conv_id={request.runtime.conversation_id} run_id={request.runtime.run_id} "
-            f"reason={validation.reason}"
-        )
-        answer = await _safe_round_fallback(request, "no_evidence")
-        await _append_committed_answer(request, answer, output_reason="verified_web_guard")
-        return _with_replaced_answer(request, answer)
-    await _append_committed_answer(request, answer, model_output_visible=True)
-    return _with_replaced_answer(request, answer)
 
 
 async def _commit_terminal_product_answer(request: AgentRoundOutcomeRequest) -> AgentRoundOutcomeRequest:

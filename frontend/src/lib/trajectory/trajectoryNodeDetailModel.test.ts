@@ -50,7 +50,7 @@ function baseCell(): {
 }
 
 describe('buildTrajectoryNodeDetailModel', () => {
-  it('Run 详情展示能力包、路由状态与可辨识的初始外部工具', async () => {
+  it('Run 详情展示模式、可辨识的公告工具与按需检索工具', async () => {
     await i18n.changeLanguage('zh-CN');
     const run: Extract<TrajectoryCell, { type: 'run' }> = {
       ...baseCell(),
@@ -68,15 +68,13 @@ describe('buildTrajectoryNodeDetailModel', () => {
       association: 'explicit',
       trajectoryBadge: { status: 'complete', source: 'run-summary', reason: null },
       capabilityResolution: {
-        schema_version: 1,
-        router_version: '2026-08-27.1',
-        package_id: 'weather',
-        confidence: 'high',
-        resolution_mode: 'routed',
-        reason_codes: ['explicit_weather_request'],
+        schema_version: 3,
+        router_version: '2026-10-05.1',
+        package_id: 'agent',
+        reason_codes: ['all_available_tools'],
         external_tool_names: ['weather_forecast'],
+        deferred_tool_names: ['mcp_docs_search'],
         effective_plan_mode: 'off',
-        include_current_date: true,
         network_boundary_required: false,
         bundle_fingerprint: `sha256:${'a'.repeat(64)}`,
       },
@@ -86,72 +84,16 @@ describe('buildTrajectoryNodeDetailModel', () => {
     };
 
     expect(buildTrajectoryNodeDetailModel(run, null).summaryFields).toEqual([
-      { label: '能力包', value: '天气 · weather' },
-      { label: '置信度', value: '高' },
-      { label: '路由结果', value: '已路由' },
-      { label: 'Run 初始外部工具', value: '查询天气 (weather_forecast)' },
+      { label: '模式', value: '全部可用工具 · agent' },
+      { label: '公告工具', value: '查询天气 (weather_forecast)' },
+      { label: '按需检索工具', value: expect.stringContaining('(mcp_docs_search)') },
       { label: '计划模式', value: '关闭' },
-      { label: '路由器版本', value: '2026-08-27.1' },
-      { label: '能力包指纹', value: `sha256:${'a'.repeat(12)}…` },
+      { label: '路由器版本', value: '2026-10-05.1' },
+      { label: '工具包指纹', value: `sha256:${'a'.repeat(12)}…` },
     ]);
   });
 
-  it('Run 详情在首判之后展示能力升级与升级后工具', async () => {
-    await i18n.changeLanguage('zh-CN');
-    const resolution = {
-      schema_version: 1 as const,
-      router_version: '2026-08-27.1',
-      package_id: 'direct',
-      confidence: 'high' as const,
-      resolution_mode: 'routed' as const,
-      reason_codes: ['no_external_fact_needed'],
-      external_tool_names: [],
-      effective_plan_mode: 'off' as const,
-      include_current_date: true,
-      network_boundary_required: false,
-      bundle_fingerprint: `sha256:${'a'.repeat(64)}`,
-    };
-    const run: Extract<TrajectoryCell, { type: 'run' }> = {
-      ...baseCell(),
-      key: 'run:run-1',
-      type: 'run',
-      summarySource: 'run-summary',
-      attemptIndex: 1,
-      runStatus: 'completed',
-      totalSteps: 2,
-      totalToolCalls: 2,
-      startedAt: '2026-08-26T00:00:00.000Z',
-      endedAt: '2026-08-26T00:00:01.000Z',
-      isSelected: true,
-      isHydrated: true,
-      association: 'explicit',
-      trajectoryBadge: { status: 'complete', source: 'run-summary', reason: null },
-      capabilityResolution: resolution,
-      capabilityEscalation: {
-        fromPackageId: 'direct',
-        stepNumber: 1,
-        resolution: {
-          ...resolution,
-          package_id: 'weather',
-          reason_codes: ['explicit_weather_request'],
-          external_tool_names: ['weather_forecast'],
-        },
-      },
-      records: [],
-      spans: [],
-      liveTail: [],
-    };
-
-    const fields = buildTrajectoryNodeDetailModel(run, null).summaryFields;
-
-    expect(fields).toContainEqual({ label: '能力包', value: '直接回答 · direct' });
-    expect(fields.slice(-2)).toEqual([
-      { label: '能力升级', value: '直接回答 · direct → 天气 · weather（第 1 步）' },
-      { label: '升级后外部工具', value: '查询天气 (weather_forecast)' },
-    ]);
-  });
-
-  it('后端新增能力包时无需改前端：未知 package 退回展示原始 id', async () => {
+  it('后端新增模式时无需改前端：未知模式退回展示原始 id', async () => {
     await i18n.changeLanguage('zh-CN');
     const run: Extract<TrajectoryCell, { type: 'run' }> = {
       ...baseCell(),
@@ -169,15 +111,13 @@ describe('buildTrajectoryNodeDetailModel', () => {
       association: 'explicit',
       trajectoryBadge: { status: 'complete', source: 'run-summary', reason: null },
       capabilityResolution: {
-        schema_version: 1,
-        router_version: '2026-08-27.1',
-        package_id: 'future_package',
-        confidence: 'high',
-        resolution_mode: 'routed',
+        schema_version: 3,
+        router_version: '2026-10-05.1',
+        package_id: 'future_mode',
         reason_codes: ['future_reason_code'],
         external_tool_names: ['weather_forecast'],
+        deferred_tool_names: [],
         effective_plan_mode: 'off',
-        include_current_date: true,
         network_boundary_required: false,
         bundle_fingerprint: `sha256:${'a'.repeat(64)}`,
       },
@@ -189,8 +129,9 @@ describe('buildTrajectoryNodeDetailModel', () => {
     const fields = buildTrajectoryNodeDetailModel(run, null).summaryFields;
 
     // 既不丢弃整条 resolution，也不把 i18n key 直接显示给用户。
-    expect(fields).toContainEqual({ label: '能力包', value: 'future_package' });
-    expect(fields).toContainEqual({ label: 'Run 初始外部工具', value: '查询天气 (weather_forecast)' });
+    expect(fields).toContainEqual({ label: '模式', value: 'future_mode' });
+    expect(fields).toContainEqual({ label: '公告工具', value: '查询天气 (weather_forecast)' });
+    expect(fields.map(field => field.label)).not.toContain('按需检索工具');
   });
 
   it('老 Run 精确显示能力路由未记录且不展示推断字段', async () => {
@@ -217,7 +158,7 @@ describe('buildTrajectoryNodeDetailModel', () => {
     };
 
     expect(buildTrajectoryNodeDetailModel(run, null).summaryFields).toEqual([
-      { label: '能力路由', value: '该历史运行未记录能力路由' },
+      { label: '工具边界', value: '该运行未记录工具边界（旧版记录不再展示）' },
     ]);
   });
 
@@ -246,7 +187,7 @@ describe('buildTrajectoryNodeDetailModel', () => {
     };
 
     expect(buildTrajectoryNodeDetailModel(run, null).summaryFields).toEqual([
-      { label: 'Capability routing', value: 'Dynamic tool discovery' },
+      { label: 'Tool boundary', value: 'Dynamic tool discovery' },
     ]);
   });
 

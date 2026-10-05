@@ -11,15 +11,13 @@ from app.services.agent.events import StepStarted
 from app.services.stream_state_service import StreamOwnershipLostError
 
 CAPABILITY_RESOLUTION = {
-    "schema_version": 1,
-    "router_version": "2026-08-27.1",
-    "package_id": "fresh_web",
-    "confidence": "high",
-    "resolution_mode": "routed",
-    "reason_codes": ["fresh_external_fact"],
+    "schema_version": 3,
+    "router_version": "2026-10-05.1",
+    "package_id": "agent",
+    "reason_codes": ["all_available_tools"],
     "external_tool_names": ["web_search"],
+    "deferred_tool_names": [],
     "effective_plan_mode": "off",
-    "include_current_date": True,
     "network_boundary_required": False,
     "bundle_fingerprint": "sha256:" + "a" * 64,
 }
@@ -100,25 +98,18 @@ class EmitterEnvelopeTests(unittest.IsolatedAsyncioTestCase):
             redis_writer=writer,
         )
         invalid_resolutions = (
+            {**CAPABILITY_RESOLUTION, "external_tool_names": ["update_plan"]},
             {
                 **CAPABILITY_RESOLUTION,
-                "package_id": "mcp_explicit",
-                "reason_codes": ["explicit_authorized_tool_alias"],
-                "external_tool_names": ["update_plan"],
-                "include_current_date": False,
-            },
-            {
-                **CAPABILITY_RESOLUTION,
-                "package_id": "direct",
-                "reason_codes": ["direct_greeting"],
+                "package_id": "tools_unavailable",
+                "reason_codes": ["tools_disabled"],
                 "external_tool_names": ["web_search"],
-                "include_current_date": False,
             },
             {
                 **CAPABILITY_RESOLUTION,
                 "package_id": "deep_research",
                 "reason_codes": ["deep_research_mode"],
-                "external_tool_names": ["url_read", "web_search"],
+                "external_tool_names": ["web_search", "mcp_docs_a1b2c3d4"],
                 "effective_plan_mode": "on",
             },
         )

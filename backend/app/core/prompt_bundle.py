@@ -18,10 +18,10 @@ from app.core.prompt_snapshot import (
 )
 
 
-def freeze_prompt_bundle(defaults: Mapping[str, str], *, classifier_prompt: str = "") -> PromptBundleSnapshot:
+def freeze_prompt_bundle(defaults: Mapping[str, str]) -> PromptBundleSnapshot:
     """冻结本次调用使用的完整本地 Prompt 集合。"""
 
-    return build_bundle_snapshot(defaults, classifier_prompt=classifier_prompt)
+    return build_bundle_snapshot(defaults)
 
 
 def resolve_prompt_template(name: str, fallback: str) -> str:

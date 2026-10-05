@@ -9,20 +9,18 @@ import {
 const timestamp = '2026-08-22T00:00:00.000Z';
 
 const capabilityResolution = {
-  schema_version: 1,
-  router_version: '2026-08-27.1',
-  package_id: 'weather',
-  confidence: 'high',
-  resolution_mode: 'routed',
-  reason_codes: ['explicit_weather_request'],
+  schema_version: 3,
+  router_version: '2026-10-05.1',
+  package_id: 'agent',
+  reason_codes: ['all_available_tools'],
   external_tool_names: ['weather_forecast'],
+  deferred_tool_names: [],
   effective_plan_mode: 'off',
-  include_current_date: true,
   network_boundary_required: false,
   bundle_fingerprint: `sha256:${'a'.repeat(64)}`,
 };
 
-const capabilityResolutionV2 = {
+const legacyResolutionV2 = {
   schema_version: 2,
   router_version: '2026-08-31.1',
   package_id: 'verified_web',
@@ -139,74 +137,70 @@ describe('normalizeTrajectoryEvent', () => {
     })?.payload.dynamic_tool_discovery_enabled).toBeUndefined();
   });
 
-  it('实时与历史 run_started 保留 schema v2 能力路由，且旧 v1 继续可读', () => {
-    const live = normalizeSseTrajectoryEvent({
-      type: 'run_started',
-      schema_version: 1,
-      run_id: 'run-v2',
-      parent_run_id: null,
-      step_id: null,
-      parent_step_id: null,
-      tool_call_id: null,
-      sequence: 0,
-      trace_id: 'trace-v2',
-      ts: Date.parse(timestamp) / 1000,
-      tools: ['web_search', 'url_read'],
-      capability_resolution: capabilityResolutionV2,
-    });
-    const durable = normalizeTrajectoryRecord('run-v2', {
-      sequence: 0,
-      event_type: 'run_started',
-      schema_version: 1,
-      timestamp,
-      step_id: null,
-      tool_call_id: null,
-      parent_step_id: null,
-      trace_id: 'trace-v2',
-      payload: {
+  it('旧 v1/v2 能力路由读侧视为未记录，只丢弃能力对象，不丢弃 run_started', () => {
+    const legacyV1 = { ...legacyResolutionV2, schema_version: 1 };
+    for (const legacy of [legacyV1, legacyResolutionV2]) {
+      const live = normalizeSseTrajectoryEvent({
         type: 'run_started',
-        run_id: 'run-v2',
+        schema_version: 1,
+        run_id: 'run-legacy',
+        parent_run_id: null,
+        step_id: null,
+        parent_step_id: null,
+        tool_call_id: null,
+        sequence: 0,
+        trace_id: 'trace-legacy',
+        ts: Date.parse(timestamp) / 1000,
         tools: ['web_search', 'url_read'],
-        capability_resolution: capabilityResolutionV2,
-      },
-    });
+        capability_resolution: legacy,
+      });
+      const durable = normalizeTrajectoryRecord('run-legacy', {
+        sequence: 0,
+        event_type: 'run_started',
+        schema_version: 1,
+        timestamp,
+        step_id: null,
+        tool_call_id: null,
+        parent_step_id: null,
+        trace_id: 'trace-legacy',
+        payload: {
+          type: 'run_started',
+          run_id: 'run-legacy',
+          tools: ['web_search', 'url_read'],
+          capability_resolution: legacy,
+        },
+      });
 
-    expect(live?.payload.capability_resolution).toEqual(capabilityResolutionV2);
-    expect(durable).toEqual(live);
-    expect(normalizeTrajectoryCapabilityResolution(capabilityResolution)).toEqual(capabilityResolution);
+      expect(live).not.toBeNull();
+      expect(live?.payload).not.toHaveProperty('capability_resolution');
+      expect(durable).toEqual(live);
+      expect(normalizeTrajectoryCapabilityResolution(legacy)).toBeNull();
+    }
   });
 
-  it('schema v2 携带已删除的 Skill 终态时仅丢弃能力对象，不丢弃 run_started', () => {
-    const event = normalizeSseTrajectoryEvent({
-      type: 'run_started',
-      schema_version: 1,
-      run_id: 'run-v2-legacy-skill',
-      parent_run_id: null,
-      step_id: null,
-      parent_step_id: null,
-      tool_call_id: null,
-      sequence: 0,
-      trace_id: 'trace-v2-legacy-skill',
-      ts: Date.parse(timestamp) / 1000,
-      tools: ['web_search', 'url_read'],
-      capability_resolution: { ...capabilityResolutionV2, skill_resolution: { status: 'not_selected' } },
-    });
-    expect(event).not.toBeNull();
-    expect(event?.payload).not.toHaveProperty('capability_resolution');
-  });
-
-  it('schema v2 延续校验 bundle fingerprint', () => {
-    expect(normalizeTrajectoryCapabilityResolution({
-      ...capabilityResolutionV2,
-      bundle_fingerprint: 'c'.repeat(64),
+  it('旧版能力升级事件不再属于公共事件，读回时整条丢弃', () => {
+    expect(normalizeTrajectoryRecord('run-legacy', {
+      sequence: 4, event_type: 'capability_escalated', schema_version: 1, timestamp, step_id: null,
+      parent_step_id: null, tool_call_id: null, trace_id: 'trace-legacy',
+      payload: { protocol_version: 2, step_number: 1, from_package_id: 'direct', capability_resolution: legacyResolutionV2 },
     })).toBeNull();
+  });
+
+  it('保留按需检索工具列表', () => {
+    const resolution = { ...capabilityResolution, deferred_tool_names: ['mcp_docs_search', 'mcp_calendar_lookup'] };
+    expect(normalizeTrajectoryCapabilityResolution(resolution)).toEqual(resolution);
   });
 
   it.each([
     ['额外字段', { ...capabilityResolution, raw_query: '北京天气' }],
-    ['非法工具', { ...capabilityResolution, external_tool_names: ['update_plan'] }],
-    ['超界工具', { ...capabilityResolution, external_tool_names: ['a', 'b', 'c', 'd', 'e', 'f'] }],
-    ['重复理由', { ...capabilityResolution, reason_codes: ['explicit_weather_request', 'explicit_weather_request'] }],
+    ['旧版置信度字段', { ...capabilityResolution, confidence: 'high' }],
+    ['缺少按需检索列表', Object.fromEntries(Object.entries(capabilityResolution).filter(([key]) => key !== 'deferred_tool_names'))],
+    ['控制工具', { ...capabilityResolution, external_tool_names: ['update_plan'] }],
+    ['按需列表含控制工具', { ...capabilityResolution, deferred_tool_names: ['update_plan'] }],
+    ['超界工具', { ...capabilityResolution, external_tool_names: Array.from({ length: 129 }, (_, index) => `tool_${index}`) }],
+    ['重复理由', { ...capabilityResolution, reason_codes: ['all_available_tools', 'all_available_tools'] }],
+    ['超界理由', { ...capabilityResolution, reason_codes: ['all_available_tools', 'tools_disabled', 'deep_research_mode'] }],
+    ['已删除的 auto 计划', { ...capabilityResolution, effective_plan_mode: 'auto' }],
     ['非法版本', { ...capabilityResolution, router_version: 'latest' }],
     ['非法指纹', { ...capabilityResolution, bundle_fingerprint: 'a'.repeat(64) }],
   ])('拒绝%s的能力路由对象', (_label, value) => {
@@ -214,27 +208,31 @@ describe('normalizeTrajectoryEvent', () => {
   });
 
   it.each([
-    ['不可用工具包仍公告工具', {
+    ['不可用模式仍公告工具', {
       ...capabilityResolution,
       package_id: 'tools_unavailable',
-      resolution_mode: 'degraded',
       reason_codes: ['tools_disabled'],
       external_tool_names: ['web_search'],
-      effective_plan_mode: 'off',
     }],
-    ['天气包使用 auto 计划', { ...capabilityResolution, effective_plan_mode: 'auto' }],
-    ['天气包使用其他原因码', { ...capabilityResolution, reason_codes: ['stable_knowledge_question'] }],
-    ['天气包使用低置信度', { ...capabilityResolution, confidence: 'low' }],
+    ['深度研究公告产品工具', { ...capabilityResolution, package_id: 'deep_research', reason_codes: ['deep_research_mode'] }],
+    ['有工具却要求联网边界', { ...capabilityResolution, network_boundary_required: true }],
   ])('不再由 UI 判定后端字段的跨字段语义：%s', (_label, value) => {
-    // 能力包与工具、计划模式、日期、reason code 的一致性由后端 run_capability_contract
-    // 保证；UI 复制一份判定只会在后端新增能力包时静默丢字段（issue #26）。
+    // 模式与工具、联网边界的一致性由后端契约保证；UI 复制一份判定只会在后端调整时静默丢字段（issue #26）。
     expect(normalizeTrajectoryCapabilityResolution(value)).not.toBeNull();
+    const event = normalizeSseTrajectoryEvent({
+      type: 'run_started', schema_version: 1, run_id: 'run-cross-field',
+      parent_run_id: null, step_id: null, parent_step_id: null, tool_call_id: null,
+      sequence: 0, trace_id: 'trace-cross-field', ts: Date.parse(timestamp) / 1000,
+      tools: value.external_tool_names,
+      capability_resolution: value,
+    });
+    expect(event?.payload).toHaveProperty('capability_resolution');
   });
 
-  it('未知 package_id 降级展示而不是丢弃整条 resolution', () => {
+  it('未知模式降级展示而不是丢弃整条 resolution', () => {
     const resolution = {
       ...capabilityResolution,
-      package_id: 'future_package',
+      package_id: 'future_mode',
       reason_codes: ['future_reason_code'],
     };
 
@@ -244,7 +242,7 @@ describe('normalizeTrajectoryEvent', () => {
   it('未知标识符仍受形状约束', () => {
     expect(normalizeTrajectoryCapabilityResolution({
       ...capabilityResolution,
-      package_id: 'Not A Package Id',
+      package_id: 'Not A Mode Id',
     })).toBeNull();
     expect(normalizeTrajectoryCapabilityResolution({
       ...capabilityResolution,
@@ -256,205 +254,15 @@ describe('normalizeTrajectoryEvent', () => {
     })).toBeNull();
   });
 
-  it('接受 API 可生成的零工具降级包与单一 MCP alias 包', () => {
-    expect(normalizeTrajectoryCapabilityResolution({
-      ...capabilityResolution,
-      package_id: 'tools_unavailable',
-      confidence: 'medium',
-      resolution_mode: 'degraded',
-      reason_codes: ['required_tools_unavailable'],
-      external_tool_names: [],
-      effective_plan_mode: 'off',
-      include_current_date: true,
-      network_boundary_required: true,
-    })).not.toBeNull();
-    expect(normalizeTrajectoryCapabilityResolution({
-      ...capabilityResolution,
-      package_id: 'mcp_explicit',
-      reason_codes: ['explicit_authorized_tool_alias'],
-      external_tool_names: ['mcp_calendar_lookup'],
-      include_current_date: false,
-    })).not.toBeNull();
-  });
-
   it.each([
-    ['direct', { package_id: 'direct', reason_codes: ['direct_greeting'], external_tool_names: [], include_current_date: false }],
-    ['transform', { package_id: 'transform', reason_codes: ['text_transform_request'], external_tool_names: [], include_current_date: false }],
-    ['date', { package_id: 'date', reason_codes: ['current_date_question'], external_tool_names: [] }],
-    ['fresh_web', { package_id: 'fresh_web', reason_codes: ['fresh_external_fact'], external_tool_names: ['web_search'] }],
-    ['verified_web', { package_id: 'verified_web', reason_codes: ['verified_source_request'], external_tool_names: ['web_search', 'url_read'], effective_plan_mode: 'auto' }],
-    ['url_read', { package_id: 'url_read', reason_codes: ['explicit_url_read'], external_tool_names: ['url_read'], include_current_date: false }],
-    ['weather', {}],
-    ['place_discovery', { package_id: 'place_discovery', reason_codes: ['explicit_place_discovery'], external_tool_names: ['local_place_search'], include_current_date: false }],
-    ['mobility_route', { package_id: 'mobility_route', reason_codes: ['explicit_route_task'], external_tool_names: ['route_compare'], effective_plan_mode: 'auto', include_current_date: false }],
-    ['flight', { package_id: 'flight', reason_codes: ['explicit_flight_request'], external_tool_names: ['search_flights'] }],
-    ['train', { package_id: 'train', reason_codes: ['explicit_train_request'], external_tool_names: ['search_trains'] }],
-    ['travel_air_rail', { package_id: 'travel_air_rail', reason_codes: ['air_rail_comparison'], external_tool_names: ['search_flights', 'search_trains'], effective_plan_mode: 'auto' }],
-    ['mobility_intercity', { package_id: 'mobility_intercity', confidence: 'medium', reason_codes: ['origin_destination_relation', 'intercity_locations'], external_tool_names: ['route_compare', 'search_flights', 'search_trains'], effective_plan_mode: 'auto' }],
-    ['mixed_itinerary', { package_id: 'mixed_itinerary', reason_codes: ['mixed_itinerary_request'], external_tool_names: ['route_compare', 'search_flights', 'search_trains'], effective_plan_mode: 'auto' }],
+    ['agent', {}],
+    ['agent_with_deferred_tools', { external_tool_names: ['web_search', 'url_read'], deferred_tool_names: ['mcp_docs_search'] }],
     ['deep_research', { package_id: 'deep_research', reason_codes: ['deep_research_mode'], external_tool_names: ['web_search', 'url_read'], effective_plan_mode: 'on' }],
-    ['knowledge_grounded', { package_id: 'knowledge_grounded', reason_codes: ['knowledge_grounded_mode'], external_tool_names: [], effective_plan_mode: 'off', include_current_date: false }],
-    ['tools_unavailable', { package_id: 'tools_unavailable', resolution_mode: 'degraded', reason_codes: ['tools_disabled'], external_tool_names: [], effective_plan_mode: 'off', include_current_date: false, network_boundary_required: true }],
-    ['clarification_only', { package_id: 'clarification_only', confidence: 'low', resolution_mode: 'clarification', reason_codes: ['insufficient_capability_signal'], external_tool_names: [], effective_plan_mode: 'off', include_current_date: false }],
-    ['mcp_explicit', { package_id: 'mcp_explicit', reason_codes: ['explicit_authorized_tool_alias'], external_tool_names: ['mcp_calendar_lookup'], include_current_date: false }],
-  ])('接受 API 契约中的合法 %s 能力包', (_packageId, overrides) => {
-    expect(normalizeTrajectoryCapabilityResolution({
-      ...capabilityResolution,
-      ...overrides,
-    })).not.toBeNull();
-  });
-
-  it.each([
-    ['tools_unavailable', {
-      ...capabilityResolution,
-      package_id: 'tools_unavailable',
-      confidence: 'high',
-      resolution_mode: 'degraded',
-      reason_codes: ['tools_disabled'],
-      external_tool_names: ['web_search'],
-      effective_plan_mode: 'off',
-      include_current_date: false,
-      network_boundary_required: true,
-    }],
-    ['mcp_explicit', {
-      ...capabilityResolution,
-      package_id: 'mcp_explicit',
-      reason_codes: ['explicit_authorized_tool_alias'],
-      external_tool_names: ['web_search'],
-      include_current_date: false,
-    }],
-  ])('SSE 不再因 %s 的跨字段组合丢弃能力对象', (_label, resolution) => {
-    const event = normalizeSseTrajectoryEvent({
-      type: 'run_started',
-      schema_version: 1,
-      run_id: 'run-invalid',
-      parent_run_id: null,
-      step_id: null,
-      parent_step_id: null,
-      tool_call_id: null,
-      sequence: 0,
-      trace_id: 'trace-invalid',
-      ts: Date.parse(timestamp) / 1000,
-      tools: ['web_search'],
-      capability_resolution: resolution,
-    });
-
-    // 跨字段一致性由后端 run_capability_contract 保证（issue #26）。
-    expect(event).not.toBeNull();
-    expect(event?.payload).toHaveProperty('capability_resolution');
-  });
-
-  it.each([
-    ['verified_web', {
-      ...capabilityResolution,
-      package_id: 'verified_web',
-      reason_codes: ['verified_source_request'],
-      external_tool_names: ['url_read', 'web_search'],
-      effective_plan_mode: 'auto',
-    }],
-    ['deep_research', {
-      ...capabilityResolution,
-      package_id: 'deep_research',
-      reason_codes: ['deep_research_mode'],
-      external_tool_names: ['url_read', 'web_search'],
-      effective_plan_mode: 'on',
-    }],
-    ['travel_air_rail', {
-      ...capabilityResolution,
-      package_id: 'travel_air_rail',
-      reason_codes: ['air_rail_comparison'],
-      external_tool_names: ['search_trains', 'search_flights'],
-      effective_plan_mode: 'auto',
-    }],
-    ['mobility_intercity', {
-      ...capabilityResolution,
-      package_id: 'mobility_intercity',
-      confidence: 'medium',
-      reason_codes: ['origin_destination_relation', 'intercity_locations'],
-      external_tool_names: ['search_trains', 'route_compare'],
-      effective_plan_mode: 'auto',
-    }],
-    ['mixed_itinerary', {
-      ...capabilityResolution,
-      package_id: 'mixed_itinerary',
-      reason_codes: ['mixed_itinerary_request'],
-      external_tool_names: ['search_trains', 'route_compare'],
-      effective_plan_mode: 'auto',
-    }],
-  ])('工具 canonical 顺序不再由 UI 判定：%s', (_label, resolution) => {
-    // 顺序由后端 CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER 保证，UI 原样展示（issue #26）。
-    expect(normalizeTrajectoryCapabilityResolution(resolution)).not.toBeNull();
-    const event = normalizeSseTrajectoryEvent({
-      type: 'run_started', schema_version: 1, run_id: 'run-reversed',
-      parent_run_id: null, step_id: null, parent_step_id: null, tool_call_id: null,
-      sequence: 0, trace_id: 'trace-reversed', ts: Date.parse(timestamp) / 1000,
-      tools: resolution.external_tool_names,
-      capability_resolution: resolution,
-    });
-    expect(event?.payload).toHaveProperty('capability_resolution');
-  });
-
-  it.each([
-    ['verified_web', {
-      ...capabilityResolution,
-      package_id: 'verified_web',
-      reason_codes: ['verified_source_request'],
-      external_tool_names: ['url_read'],
-      effective_plan_mode: 'auto',
-    }],
-    ['travel_air_rail', {
-      ...capabilityResolution,
-      package_id: 'travel_air_rail',
-      reason_codes: ['air_rail_comparison'],
-      external_tool_names: ['search_trains'],
-      effective_plan_mode: 'auto',
-    }],
-    ['mobility_intercity', {
-      ...capabilityResolution,
-      package_id: 'mobility_intercity',
-      confidence: 'medium',
-      reason_codes: ['origin_destination_relation', 'intercity_locations'],
-      external_tool_names: ['route_compare', 'search_trains'],
-      effective_plan_mode: 'auto',
-    }],
-    ['mixed_itinerary', {
-      ...capabilityResolution,
-      package_id: 'mixed_itinerary',
-      reason_codes: ['mixed_itinerary_request'],
-      external_tool_names: ['route_compare', 'search_flights'],
-      effective_plan_mode: 'auto',
-    }],
-    ['mixed_itinerary_weather_flight', {
-      ...capabilityResolution,
-      package_id: 'mixed_itinerary',
-      reason_codes: ['mixed_itinerary_request'],
-      external_tool_names: ['weather_forecast', 'search_flights'],
-      effective_plan_mode: 'auto',
-    }],
-    ['mixed_itinerary_weather_place', {
-      ...capabilityResolution,
-      package_id: 'mixed_itinerary',
-      reason_codes: ['mixed_itinerary_request'],
-      external_tool_names: ['weather_forecast', 'local_place_search'],
-      effective_plan_mode: 'auto',
-    }],
-    ['mixed_itinerary_weather_route', {
-      ...capabilityResolution,
-      package_id: 'mixed_itinerary',
-      reason_codes: ['mixed_itinerary_request'],
-      external_tool_names: ['weather_forecast', 'route_compare'],
-      effective_plan_mode: 'auto',
-    }],
-  ])('normalizer 与 SSE 保留合法 %s canonical 子序列', (_label, resolution) => {
+    ['knowledge_grounded', { package_id: 'knowledge_grounded', reason_codes: ['knowledge_grounded_mode'], external_tool_names: [], network_boundary_required: true }],
+    ['tools_unavailable', { package_id: 'tools_unavailable', reason_codes: ['tools_disabled'], external_tool_names: [], network_boundary_required: true }],
+  ])('接受 API 契约中的合法 %s 模式', (_modeId, overrides) => {
+    const resolution = { ...capabilityResolution, ...overrides };
     expect(normalizeTrajectoryCapabilityResolution(resolution)).toEqual(resolution);
-    const event = normalizeSseTrajectoryEvent({
-      type: 'run_started', schema_version: 1, run_id: 'run-canonical',
-      parent_run_id: null, step_id: null, parent_step_id: null, tool_call_id: null,
-      sequence: 0, trace_id: 'trace-canonical', ts: Date.parse(timestamp) / 1000,
-      tools: resolution.external_tool_names,
-      capability_resolution: resolution,
-    });
-    expect(event?.payload.capability_resolution).toEqual(resolution);
   });
 
   it('缺失 schema_version 的已知 SSE 事件按 legacy 版本归一化', () => {
@@ -837,31 +645,5 @@ describe('工具上下文可见性', () => {
     expect(durable?.payload.context_visibility).toEqual(context_visibility);
     expect(normalizeSseTrajectoryEvent({ ...envelope, context_visibility: { ...context_visibility, visible_tool_call_ids: ['token=secret'] } })?.payload.context_visibility).toBeNull();
     expect(normalizeSseTrajectoryEvent({ ...envelope, context_visibility: { ...context_visibility, visible_tool_call_ids: Array.from({ length: 201 }, () => 'id') } })?.payload.context_visibility).toBeNull();
-  });
-});
-
-describe('Run 内能力升级事件', () => {
-  it('实时与历史保留同一安全形状，不保留模型申请理由', () => {
-    const resolution = {
-      schema_version: 2, router_version: '2026-09-21.1', package_id: 'fresh_web', confidence: 'high',
-      resolution_mode: 'routed', reason_codes: ['fresh_external_fact'], external_tool_names: ['web_search'],
-      effective_plan_mode: 'off', include_current_date: true, network_boundary_required: false,
-      bundle_fingerprint: `sha256:${'c'.repeat(64)}`,
-    };
-    const payload = {
-      protocol_version: 2, step_number: 1, from_package_id: 'direct', capability_resolution: resolution,
-      section_ids: ['app_identity', 'tool_usage_contract'], system_prompt_fingerprint: 'd'.repeat(64),
-    };
-    const live = normalizeSseTrajectoryEvent({
-      type: 'capability_escalated', run_id: 'run-1', step_id: null, parent_step_id: null, tool_call_id: null,
-      sequence: 4, trace_id: 'trace-1', ts: Date.parse(timestamp) / 1000, ...payload, reason: '模型原文',
-    });
-    const history = normalizeTrajectoryRecord('run-1', {
-      sequence: 4, event_type: 'capability_escalated', timestamp, step_id: null, parent_step_id: null,
-      tool_call_id: null, trace_id: 'trace-1', payload,
-    });
-
-    expect(live?.payload).toEqual(payload);
-    expect(history).toEqual(live);
   });
 });

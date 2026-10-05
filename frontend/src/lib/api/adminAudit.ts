@@ -18,8 +18,6 @@ import type {
   AdminModelsQuery,
   AdminItineraryStabilityQuery,
   AdminItineraryStabilityResponse,
-  AdminRoutingQualityQuery,
-  AdminRoutingQualityResponse,
   AdminToolCallRecord,
   AdminUserDetail,
   AdminUsersQuery,
@@ -142,10 +140,6 @@ export function getAdminModel(modelId: string, signal?: AbortSignal) {
 
 export function getAdminItineraryStability(query: AdminItineraryStabilityQuery, signal?: AbortSignal) {
   return get<AdminItineraryStabilityResponse>(`/itinerary-stability${buildQuery(query)}`, signal);
-}
-
-export function getAdminRoutingQuality(query: AdminRoutingQualityQuery, signal?: AbortSignal) {
-  return get<AdminRoutingQualityResponse>(`/routing-quality${buildQuery(query)}`, signal);
 }
 
 export function importAdminPerformanceRun(payload: PerformanceRunImportPayload) {

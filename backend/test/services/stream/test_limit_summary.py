@@ -44,7 +44,6 @@ from app.services.stream.limit_summary import (
     remove_conflicting_tool_usage_contract,
     run_limit_summary_step,
 )
-from app.services.stream.limit_summary_fact_guard import NO_EVIDENCE_ANSWER_TEXT
 from app.services.stream.research_evidence import ResearchEvidenceWorkset
 from app.services.stream.run_capability_router import RunCapabilityResolution
 from app.services.stream.step_lifecycle import AgentStepContext
@@ -183,20 +182,6 @@ class LimitSummaryHelpersTests(unittest.TestCase):
         self.assertNotIn("tool-call limit", content)
         self.assertNotIn("quota", content)
         self.assertNotIn("budget", content)
-
-    def test_verified_web_summary_keeps_citation_rule_without_tool_control(self):
-        messages = [
-            PromptMessage(
-                role="system",
-                content="发现并调用网页工具",
-                section_id="verified_web_evidence",
-            )
-        ]
-        remove_conflicting_tool_usage_contract(messages)
-        append_limit_summary_prompt(messages, evidence_policy="verified_web_v1")
-
-        self.assertNotIn("发现并调用网页工具", "\n".join(message.content for message in messages))
-        self.assertIn("Cite each source with its existing number", messages[-1].content)
 
     def test_build_limit_summary_call_kwargs_copies_and_removes_tool_controls(self):
         tools = [{"function": {"name": "web_search"}}]
@@ -442,87 +427,6 @@ class LimitSummaryHelpersTests(unittest.TestCase):
 
 
 class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
-    async def test_verified_web_summary_keeps_read_body_for_final_model(self):
-        read_body = "[1] <web_context>## Description\nCOMMIT commits the current transaction.</web_context>"
-        for evidence_policy, capability_resolution in (
-            ("standard", SimpleNamespace(package_id="verified_web")),
-            ("verified_web_v1", None),
-        ):
-            with self.subTest(evidence_policy=evidence_policy):
-                messages = [
-                    PromptMessage(role="system", content="先调用网页工具", section_id="skills_catalog"),
-                    PromptMessage(role="user", content="请核验 COMMIT 的说明"),
-                    PromptMessage(
-                        role="assistant",
-                        content="",
-                        provider_fields={
-                            "tool_calls": [
-                                {
-                                    "id": "call-read",
-                                    "type": "function",
-                                    "function": {
-                                        "name": "url_read",
-                                        "arguments": '{"url":"https://example.com/commit"}',
-                                    },
-                                }
-                            ]
-                        },
-                    ),
-                    PromptMessage(role="tool", content=read_body, provider_fields={"tool_call_id": "call-read"}),
-                ]
-                request = LimitSummaryStepRequest(
-                    conversation_id="conv-verified",
-                    task_id="task-verified",
-                    run_id="run-verified",
-                    step_number=2,
-                    model_id="gpt-4",
-                    provider="openai",
-                    litellm_model="openai/gpt-4",
-                    litellm_kwargs={},
-                    messages=messages,
-                    should_use_reasoning=False,
-                    content_blocks=[],
-                    call_kwargs={},
-                    accumulated_usage=Usage(input_tokens=0, output_tokens=0),
-                    emitter=AsyncMock(),
-                    session_cache=object(),
-                    total_timeout_s=300,
-                    run_start=100.0,
-                    start_step_fn=AsyncMock(),
-                    complete_step_fn=AsyncMock(),
-                    llm_call_fn=AsyncMock(),
-                    stream_round_fn=AsyncMock(),
-                    log_round_summary_fn=lambda **_kwargs: None,
-                    clock=lambda: 120.0,
-                    evidence_policy=evidence_policy,
-                    capability_resolution=capability_resolution,
-                )
-                summary_context = SimpleNamespace(thinking_block_id="thinking", text_block_id="text")
-                round_result = limit_summary_module.LimitSummaryRoundResult(
-                    reasoning_buf="", content_buf="", usage_data=None
-                )
-                with (
-                    patch.object(
-                        limit_summary_module, "start_limit_summary_step", new=AsyncMock(return_value=summary_context)
-                    ),
-                    patch.object(
-                        limit_summary_module, "run_summary_round_with_timeout", new=AsyncMock(return_value=round_result)
-                    ),
-                    patch.object(
-                        limit_summary_module, "_commit_limit_summary_result", new=AsyncMock(return_value=False)
-                    ),
-                    patch.object(limit_summary_module, "_finish_summary_round_lifecycle", new=AsyncMock()),
-                    patch.object(limit_summary_module, "complete_limit_summary_step", new=AsyncMock()),
-                ):
-                    await run_limit_summary_step(request=request)
-
-                self.assertIn(read_body, [message.content for message in request.messages])
-                self.assertEqual(
-                    [message.get("tool_call_id") for message in request.messages if message.role == "tool"],
-                    ["call-read"],
-                )
-                self.assertNotIn("先调用网页工具", [message.content for message in request.messages])
-
     @staticmethod
     def _deferred_commit_request() -> LimitSummaryStepRequest:
         return LimitSummaryStepRequest(
@@ -2068,23 +1972,20 @@ class LimitSummaryNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("No tool result was obtained", summary_prompt)
 
 
-class McpExplicitLimitSummaryTests(unittest.IsolatedAsyncioTestCase):
-    """显式 MCP 能力：工具失败后触顶不能交付未经查询的事实，成功结果照常交付。"""
+class McpLimitSummaryTests(unittest.IsolatedAsyncioTestCase):
+    """MCP 工具失败或成功后触顶，模型的总结都原样交付，服务端不替换回答。"""
 
     _ANSWER = "票价 300 元，08:15 发车。"
 
     @staticmethod
     def _resolution() -> RunCapabilityResolution:
         return RunCapabilityResolution(
-            schema_version=1,
+            schema_version=3,
             router_version="test",
-            package_id="mcp_explicit",
-            confidence="high",
-            resolution_mode="routed",
-            reason_codes=("explicit_authorized_tool_alias",),
+            package_id="agent",
+            reason_codes=("all_available_tools",),
             external_tool_names=("mcp_fare_lookup",),
             effective_plan_mode="off",
-            include_current_date=False,
             network_boundary_required=False,
         )
 
@@ -2104,14 +2005,14 @@ class McpExplicitLimitSummaryTests(unittest.IsolatedAsyncioTestCase):
             outcome = await run_limit_summary_step(request=request)
         return request, append, outcome
 
-    async def test_MCP失败后触顶换成诚实答复(self):
+    async def test_MCP失败后触顶原样交付模型总结(self):
         request, append, outcome = await self._run(
             ToolResult(status="failed", data={"error_code": "server_unavailable"})
         )
 
-        self.assertEqual(append.await_args.args[2], NO_EVIDENCE_ANSWER_TEXT)
-        self.assertEqual(request.content_blocks[-1].text, NO_EVIDENCE_ANSWER_TEXT)
-        self.assertTrue(outcome.incomplete)
+        self.assertEqual(append.await_args.args[2], self._ANSWER)
+        self.assertEqual(request.content_blocks[-1].text, self._ANSWER)
+        self.assertFalse(outcome.incomplete)
 
     async def test_MCP成功后触顶原样交付(self):
         request, append, outcome = await self._run(ToolResult(status="success", data={"payload": {"fare_yuan": 300}}))

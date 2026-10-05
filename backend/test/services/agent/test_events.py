@@ -35,27 +35,15 @@ from app.services.agent.events import (
 )
 
 CAPABILITY_RESOLUTION = {
-    "schema_version": 1,
-    "router_version": "2026-08-27.1",
-    "package_id": "fresh_web",
-    "confidence": "high",
-    "resolution_mode": "routed",
-    "reason_codes": ["fresh_external_fact"],
+    "schema_version": 3,
+    "router_version": "2026-10-05.1",
+    "package_id": "agent",
+    "reason_codes": ["all_available_tools"],
     "external_tool_names": ["web_search"],
+    "deferred_tool_names": [],
     "effective_plan_mode": "off",
-    "include_current_date": True,
     "network_boundary_required": False,
     "bundle_fingerprint": "sha256:" + "a" * 64,
-}
-
-CAPABILITY_RESOLUTION_V2 = {
-    **CAPABILITY_RESOLUTION,
-    "schema_version": 2,
-    "router_version": "2026-08-31.1",
-    "package_id": "verified_web",
-    "reason_codes": ["verified_source_request"],
-    "external_tool_names": ["web_search", "url_read"],
-    "effective_plan_mode": "on",
 }
 
 
@@ -85,28 +73,29 @@ class AgentEventModelTests(unittest.TestCase):
         self.assertEqual(ev.task_id, "task-1")
         self.assertEqual(ev.capability_resolution.model_dump(), CAPABILITY_RESOLUTION)
 
-    def test_capability_resolution_v2_and_v1_remain_readable_without_skill_fields(self):
-        base = {
-            "type": "run_started",
-            "conversation_id": "c1",
-            "message_id": "msg-1",
-            "task_id": "task-1",
-            "model": "gpt",
-            "tools": ["web_search", "url_read"],
-            "config": {},
-            **self._common(),
+    def test_legacy_package_resolution_is_rejected(self):
+        legacy = {
+            **CAPABILITY_RESOLUTION,
+            "schema_version": 2,
+            "package_id": "fresh_web",
+            "confidence": "high",
+            "resolution_mode": "routed",
+            "reason_codes": ["fresh_external_fact"],
+            "include_current_date": True,
         }
+        legacy.pop("deferred_tool_names")
 
-        legacy = RunStarted(**{**base, "tools": ["web_search"]}, capability_resolution=CAPABILITY_RESOLUTION)
-        current = RunStarted(**base, capability_resolution=CAPABILITY_RESOLUTION_V2)
-
-        self.assertEqual(legacy.capability_resolution.schema_version, 1)
-        self.assertEqual(current.capability_resolution.schema_version, 2)
-        # Skill 改为模型按需加载后，能力协议不再携带 skill_resolution。
         with self.assertRaises(ValidationError):
             RunStarted(
-                **base,
-                capability_resolution={**CAPABILITY_RESOLUTION_V2, "skill_resolution": {"status": "not_selected"}},
+                type="run_started",
+                conversation_id="c1",
+                message_id="msg-1",
+                task_id="task-1",
+                model="gpt",
+                tools=["web_search"],
+                config={},
+                capability_resolution=legacy,
+                **self._common(),
             )
 
     def test_run_started_rejects_unsafe_or_invalid_capability_resolution(self):
@@ -152,13 +141,7 @@ class AgentEventModelTests(unittest.TestCase):
             )
 
     def test_run_started_rejects_control_tool_even_when_resolution_and_tools_match(self):
-        invalid_resolution = {
-            **CAPABILITY_RESOLUTION,
-            "package_id": "mcp_explicit",
-            "reason_codes": ["explicit_authorized_tool_alias"],
-            "external_tool_names": ["update_plan"],
-            "include_current_date": False,
-        }
+        invalid_resolution = {**CAPABILITY_RESOLUTION, "external_tool_names": ["update_plan"]}
 
         with self.assertRaises(ValidationError):
             RunStarted(
@@ -186,51 +169,33 @@ class AgentEventModelTests(unittest.TestCase):
                 **self._common(),
             )
 
-    def test_run_started_rejects_package_tool_and_fixed_semantic_mismatches(self):
+    def test_run_started_rejects_mode_and_tool_mismatches(self):
         invalid_resolutions = (
-            {
-                **CAPABILITY_RESOLUTION,
-                "package_id": "direct",
-                "reason_codes": ["direct_greeting"],
-                "external_tool_names": ["web_search"],
-                "include_current_date": False,
-            },
             {**CAPABILITY_RESOLUTION, "effective_plan_mode": "auto"},
             {**CAPABILITY_RESOLUTION, "network_boundary_required": True},
             {
                 **CAPABILITY_RESOLUTION,
-                "package_id": "mcp_explicit",
-                "reason_codes": ["explicit_authorized_tool_alias"],
-                "external_tool_names": ["authorized_but_not_mcp_alias"],
-                "include_current_date": False,
-            },
-            {
-                **CAPABILITY_RESOLUTION,
-                "package_id": "clarification_only",
-                "confidence": "high",
-                "resolution_mode": "clarification",
-                "reason_codes": ["insufficient_capability_signal"],
-                "external_tool_names": [],
-                "include_current_date": False,
-            },
-            {
-                **CAPABILITY_RESOLUTION,
                 "package_id": "tools_unavailable",
-                "resolution_mode": "routed",
                 "reason_codes": ["tools_disabled"],
-                "external_tool_names": [],
-                "effective_plan_mode": "off",
                 "network_boundary_required": True,
             },
             {
                 **CAPABILITY_RESOLUTION,
-                "package_id": "mobility_intercity",
-                "confidence": "high",
-                "reason_codes": ["origin_destination_relation", "intercity_locations"],
-                "external_tool_names": ["route_compare", "search_flights", "search_trains"],
-                "effective_plan_mode": "off",
+                "package_id": "knowledge_grounded",
+                "reason_codes": ["knowledge_grounded_mode"],
+                "deferred_tool_names": ["mcp_docs_a1b2c3d4"],
+                "external_tool_names": [],
+                "network_boundary_required": True,
             },
-            {**CAPABILITY_RESOLUTION, "reason_codes": ["verified_source_request"]},
+            {
+                **CAPABILITY_RESOLUTION,
+                "package_id": "deep_research",
+                "reason_codes": ["deep_research_mode"],
+                "external_tool_names": ["web_search", "mcp_docs_a1b2c3d4"],
+                "effective_plan_mode": "on",
+            },
+            {**CAPABILITY_RESOLUTION, "deferred_tool_names": ["web_search"]},
+            {**CAPABILITY_RESOLUTION, "reason_codes": ["fresh_external_fact"]},
         )
 
         for invalid_resolution in invalid_resolutions:
@@ -247,77 +212,11 @@ class AgentEventModelTests(unittest.TestCase):
                     **self._common(),
                 )
 
-    def test_run_started_accepts_single_exact_mcp_alias(self):
+    def test_run_started_accepts_mcp_tools_direct_and_deferred(self):
         resolution = {
             **CAPABILITY_RESOLUTION,
-            "package_id": "mcp_explicit",
-            "reason_codes": ["explicit_authorized_tool_alias"],
-            "external_tool_names": ["mcp_docs_a1b2c3d4"],
-            "include_current_date": False,
-        }
-
-        event = RunStarted(
-            type="run_started",
-            conversation_id="c1",
-            message_id="msg-1",
-            task_id="task-1",
-            model="gpt",
-            tools=["mcp_docs_a1b2c3d4"],
-            config={"capability_resolution": resolution},
-            capability_resolution=resolution,
-            **self._common(),
-        )
-
-        self.assertEqual(event.tools, ["mcp_docs_a1b2c3d4"])
-
-    def test_run_started_rejects_reversed_fixed_package_tool_order(self):
-        reversed_resolutions = (
-            {
-                **CAPABILITY_RESOLUTION,
-                "package_id": "deep_research",
-                "reason_codes": ["deep_research_mode"],
-                "external_tool_names": ["url_read", "web_search"],
-                "effective_plan_mode": "on",
-            },
-            {
-                **CAPABILITY_RESOLUTION,
-                "package_id": "travel_air_rail",
-                "reason_codes": ["air_rail_comparison"],
-                "external_tool_names": ["search_trains", "search_flights"],
-                "effective_plan_mode": "off",
-            },
-            {
-                **CAPABILITY_RESOLUTION,
-                "package_id": "mobility_intercity",
-                "confidence": "medium",
-                "reason_codes": ["origin_destination_relation", "intercity_locations"],
-                "external_tool_names": ["search_trains", "route_compare"],
-                "effective_plan_mode": "off",
-            },
-        )
-
-        for resolution in reversed_resolutions:
-            with self.subTest(resolution=resolution), self.assertRaises(ValidationError):
-                RunStarted(
-                    type="run_started",
-                    conversation_id="c1",
-                    message_id="msg-1",
-                    task_id="task-1",
-                    model="gpt",
-                    tools=resolution["external_tool_names"],
-                    config={"capability_resolution": resolution},
-                    capability_resolution=resolution,
-                    **self._common(),
-                )
-
-    def test_run_started_accepts_canonical_partial_fixed_package_tools(self):
-        resolution = {
-            **CAPABILITY_RESOLUTION,
-            "package_id": "mobility_intercity",
-            "confidence": "medium",
-            "reason_codes": ["origin_destination_relation", "intercity_locations"],
-            "external_tool_names": ["route_compare", "search_trains"],
-            "effective_plan_mode": "off",
+            "external_tool_names": ["web_search", "url_read", "mcp_docs_a1b2c3d4"],
+            "deferred_tool_names": ["mcp_maps_e5f6a7b8"],
         }
 
         event = RunStarted(
@@ -332,7 +231,7 @@ class AgentEventModelTests(unittest.TestCase):
             **self._common(),
         )
 
-        self.assertEqual(event.capability_resolution.external_tool_names, ["route_compare", "search_trains"])
+        self.assertEqual(event.capability_resolution.deferred_tool_names, ["mcp_maps_e5f6a7b8"])
 
     def test_run_started_message_id_required(self):
         """RunStarted 缺 message_id 必须抛 ValidationError"""

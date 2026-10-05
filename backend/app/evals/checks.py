@@ -1,6 +1,6 @@
 """按用例检查项对 run 快照判分。
 
-除 judge 外都只读快照里的结构化字段（能力包、工具名、工具参数、内容块类型），
+除 judge 外都只读快照里的结构化字段（工具名、工具参数、内容块类型），
 不对回答文本做关键词或正则匹配；回答是否满足语义要求只交给裁判模型。
 """
 
@@ -13,9 +13,7 @@ from typing import Any, Literal
 from app.evals.cases import (
     AnswerBlockCheck,
     Check,
-    EscalationCheck,
     EvalCase,
-    FirstPackageCheck,
     JudgeCheck,
     RunStatusCheck,
     SkillsCheck,
@@ -69,27 +67,6 @@ def _check_run_status(check: RunStatusCheck | None, snapshot: Mapping[str, Any])
     return _outcome("run_status", status in allowed, f"status={status}, 期望 {allowed}")
 
 
-def _check_first_package(check: FirstPackageCheck, snapshot: Mapping[str, Any]) -> CheckOutcome:
-    package = snapshot.get("first_package")
-    return _outcome(check.type, package in check.any_of, f"首判={package}, 期望 {check.any_of}")
-
-
-def _check_escalation(check: EscalationCheck, snapshot: Mapping[str, Any]) -> CheckOutcome:
-    targets = [item.get("to") for item in snapshot.get("escalations") or []]
-    requested = bool(_calls(snapshot, "request_capability"))
-    if check.expect == "none":
-        return _outcome(
-            check.type,
-            not targets and not requested,
-            f"升级={targets or '无'}, 申请能力={'是' if requested else '否'}",
-        )
-    if not targets:
-        return _outcome(check.type, check.expect == "either", "未升级")
-    if check.targets and targets[0] not in check.targets:
-        return _outcome(check.type, False, f"升级到 {targets[0]}, 期望 {check.targets}")
-    return _outcome(check.type, True, f"升级到 {targets}")
-
-
 def _check_tool_called(check: ToolCalledCheck, snapshot: Mapping[str, Any]) -> CheckOutcome:
     count = len(_calls(snapshot, check.tool))
     upper = check.max_count if check.max_count is not None else count
@@ -141,8 +118,6 @@ def _check_answer_block(check: AnswerBlockCheck, snapshot: Mapping[str, Any]) ->
 
 
 _DETERMINISTIC = {
-    FirstPackageCheck: _check_first_package,
-    EscalationCheck: _check_escalation,
     ToolCalledCheck: _check_tool_called,
     ToolNotCalledCheck: _check_tool_not_called,
     ToolArgCheck: _check_tool_arg,

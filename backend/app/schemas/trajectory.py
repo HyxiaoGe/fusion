@@ -7,144 +7,72 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.utils.run_capability_contract import (
-    CAPABILITY_PRIMARY_TOOL_PACKAGES,
-    validate_capability_resolution_semantics,
-)
+from app.utils.run_capability_contract import CAPABILITY_CONTROL_TOOL_NAMES, DEEP_RESEARCH_TOOL_NAMES
 
-CapabilityPackageId = Literal[
-    "direct",
-    "transform",
-    "date",
-    "fresh_web",
-    "verified_web",
-    "url_read",
-    "weather",
-    "place_discovery",
-    "mobility_route",
-    "flight",
-    "train",
-    "travel_air_rail",
-    "mobility_intercity",
-    "mixed_itinerary",
-    "deep_research",
-    "knowledge_grounded",
-    "tools_unavailable",
-    "clarification_only",
-    "mcp_explicit",
-]
+CapabilityModeId = Literal["agent", "deep_research", "knowledge_grounded", "tools_unavailable"]
 CapabilityReasonCode = Literal[
-    "direct_greeting",
-    "assistant_identity_question",
-    "stable_knowledge_question",
-    "simple_calculation",
-    "text_transform_request",
-    "current_date_question",
-    "fresh_external_fact",
-    "verified_source_request",
-    "explicit_url_read",
-    "explicit_weather_request",
-    "explicit_place_discovery",
-    "explicit_route_task",
-    "explicit_flight_request",
-    "explicit_train_request",
-    "air_rail_comparison",
-    "mixed_itinerary_request",
-    "origin_destination_relation",
-    "intercity_locations",
-    "adjacent_route_followup",
+    "all_available_tools",
     "deep_research_mode",
     "knowledge_grounded_mode",
     "tools_disabled",
     "function_calling_unavailable",
     "search_capability_unavailable",
     "required_tools_unavailable",
-    "explicit_authorized_tool_alias",
-    "insufficient_capability_signal",
-    "classifier_unavailable",
 ]
+_TOOL_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]{0,127}")
 
 
 class TrajectoryCapabilityResolution(BaseModel):
-    """Run 级能力路由在实时与历史协议中的显式安全 DTO。"""
+    """Run 级工具边界在实时与历史协议中的显式安全 DTO。
+
+    v3 起不再有能力包分类，package_id 只表示模式。旧版本记录读侧校验失败即视为不可读，
+    不回溯兼容。
+    """
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    schema_version: Literal[1, 2]
+    schema_version: Literal[3]
     router_version: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}\.\d+$", max_length=32)
-    package_id: CapabilityPackageId
-    confidence: Literal["high", "medium", "low"]
-    resolution_mode: Literal["routed", "degraded", "clarification"]
-    reason_codes: list[CapabilityReasonCode] = Field(min_length=1, max_length=4)
-    external_tool_names: list[str] = Field(max_length=5)
+    package_id: CapabilityModeId
+    reason_codes: list[CapabilityReasonCode] = Field(min_length=1, max_length=2)
+    external_tool_names: list[str] = Field(max_length=128)
+    deferred_tool_names: list[str] = Field(default_factory=list, max_length=512)
     effective_plan_mode: Literal["on", "off"]
-    include_current_date: bool
     network_boundary_required: bool
-    denied_product_tool_names: list[str] | None = Field(default=None, max_length=512)
-    required_primary_tool_name: str | None = None
     bundle_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
-    # 只有文档交付才写入；缺省即 chat，历史 Run 不带该字段。
-    output_mode: Literal["document"] | None = None
 
-    @field_validator("reason_codes", "external_tool_names")
+    @field_validator("reason_codes", "external_tool_names", "deferred_tool_names")
     @classmethod
     def _require_unique_items(cls, value: list[str]) -> list[str]:
         if len(value) != len(set(value)):
             raise ValueError("能力路由列表字段不得重复")
         return value
 
-    @field_validator("external_tool_names")
+    @field_validator("external_tool_names", "deferred_tool_names")
     @classmethod
     def _validate_tool_names(cls, value: list[str]) -> list[str]:
-        if any(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]{0,127}", name) is None for name in value):
+        if any(_TOOL_NAME_RE.fullmatch(name) is None for name in value):
             raise ValueError("能力路由工具名格式非法")
         return value
 
     @model_validator(mode="after")
-    def _validate_package_semantics(self) -> TrajectoryCapabilityResolution:
-        if self.schema_version == 1 and (
-            self.denied_product_tool_names is not None or self.required_primary_tool_name is not None
+    def _validate_mode_semantics(self) -> TrajectoryCapabilityResolution:
+        if set(self.external_tool_names).intersection(self.deferred_tool_names):
+            raise ValueError("按需加载工具不得同时直接公告")
+        if CAPABILITY_CONTROL_TOOL_NAMES.intersection([*self.external_tool_names, *self.deferred_tool_names]):
+            raise ValueError("控制工具不属于外部工具")
+        if self.package_id == "deep_research" and (
+            self.deferred_tool_names or not set(self.external_tool_names) <= set(DEEP_RESEARCH_TOOL_NAMES)
         ):
-            raise ValueError("schema v1 不得携带模型工具约束")
-        validate_capability_resolution_semantics(
-            package_id=self.package_id,
-            confidence=self.confidence,
-            resolution_mode=self.resolution_mode,
-            reason_codes=self.reason_codes,
-            external_tool_names=self.external_tool_names,
-            effective_plan_mode=self.effective_plan_mode,
-            # 当前日期已改为一律注入，历史 Run 的 False 仍是当时的真实记录，不回溯校验。
-            include_current_date=None,
-            network_boundary_required=self.network_boundary_required,
-        )
-        if self.denied_product_tool_names is not None:
-            denied = self.denied_product_tool_names
-            if len(denied) != len(set(denied)):
-                raise ValueError("能力路由禁用工具不得重复")
-            self._validate_tool_names(denied)
-            if set(denied).intersection(self.external_tool_names):
-                raise ValueError("能力路由禁用工具不得同时公告")
-        if self.required_primary_tool_name is not None:
-            if self.package_id not in CAPABILITY_PRIMARY_TOOL_PACKAGES:
-                raise ValueError("非跨产品能力包不得指定主工具")
-            if self.required_primary_tool_name not in self.external_tool_names:
-                raise ValueError("跨产品主工具必须已公告")
-            if self.required_primary_tool_name in (self.denied_product_tool_names or []):
-                raise ValueError("跨产品主工具不得被禁用")
+            raise ValueError("深度研究只公告联网搜索与网页读取")
+        has_tools = bool(self.external_tool_names or self.deferred_tool_names)
+        if self.package_id in {"knowledge_grounded", "tools_unavailable"} and has_tools:
+            raise ValueError("无工具模式不得公告工具")
+        if self.network_boundary_required == has_tools:
+            raise ValueError("联网边界必须与是否有工具一致")
         return self
-
-    @model_serializer(mode="wrap")
-    def _serialize_versioned(self, handler):
-        serialized = handler(self)
-        if "denied_product_tool_names" not in self.model_fields_set:
-            serialized.pop("denied_product_tool_names", None)
-        if "required_primary_tool_name" not in self.model_fields_set:
-            serialized.pop("required_primary_tool_name", None)
-        if self.output_mode is None:
-            serialized.pop("output_mode", None)
-        return serialized
 
 
 @dataclass(frozen=True)

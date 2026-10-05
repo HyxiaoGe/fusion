@@ -32,7 +32,6 @@ from app.services.agent_strategy_config import get_agent_tools_disabled_aliases
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_TOOL_NAMES
 from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_TOOL_NAMES
 from app.services.stream.itinerary_observability import aggregate_itinerary_stability
-from app.services.stream.routing_quality_observability import aggregate_routing_quality
 
 
 class AdminAuditService:
@@ -1242,50 +1241,6 @@ class AdminAuditService:
                 "created_from": display_start.isoformat(),
                 "created_to": display_end.isoformat(),
                 "model_id": normalized_model_id,
-            },
-        )
-        return result
-
-    def get_routing_quality(
-        self,
-        *,
-        admin: User,
-        request_id: str,
-        reason: str | None,
-        created_from: datetime | None,
-        created_to: datetime | None,
-    ) -> dict[str, Any]:
-        display_end = (
-            self._normalize_itinerary_time(created_to)
-            if created_to is not None
-            else datetime.now(ZoneInfo("Asia/Shanghai"))
-        )
-        display_start = (
-            self._normalize_itinerary_time(created_from)
-            if created_from is not None
-            else display_end - timedelta(hours=24)
-        )
-        if display_end <= display_start:
-            raise ApiException.bad_request("created_to 必须晚于 created_from")
-        if display_end - display_start > timedelta(days=7):
-            raise ApiException.bad_request("路由质量查询范围不能超过 7 天")
-
-        rows = self.repository.list_routing_quality_rows(
-            created_from=display_start.astimezone(timezone.utc),
-            created_to=display_end.astimezone(timezone.utc),
-        )
-        if rows.get("truncated") is True:
-            raise ApiException.service_unavailable("路由质量样本超出单次安全聚合上限，请缩短查询范围")
-        result = aggregate_routing_quality(rows, created_from=display_start, created_to=display_end)
-        self._record(
-            admin=admin,
-            action="admin.audit.routing_quality.view",
-            resource_type="routing_quality",
-            request_id=request_id,
-            reason=reason,
-            metadata={
-                "created_from": display_start.isoformat(),
-                "created_to": display_end.isoformat(),
             },
         )
         return result

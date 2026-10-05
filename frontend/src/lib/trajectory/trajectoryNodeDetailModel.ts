@@ -197,13 +197,13 @@ function localTtft(
 }
 
 /**
- * 后端新增能力包时前端可能还没有对应文案：退回只展示原始 id，不显示 i18n key，
+ * 后端新增模式时前端可能还没有对应文案：退回只展示原始 id，不显示 i18n key，
  * 也不因此丢弃整条 resolution（issue #26）。
  */
-function capabilityPackageLabel(packageId: string, translate: TFunction): string {
-  const key = `trajectory.capabilityResolution.packages.${packageId}`;
+function capabilityModeLabel(modeId: string, translate: TFunction): string {
+  const key = `trajectory.capabilityResolution.modes.${modeId}`;
   const label = translate(key);
-  return label === key ? packageId : `${label} · ${packageId}`;
+  return label === key ? modeId : `${label} · ${modeId}`;
 }
 
 function cellSummaryFields(
@@ -264,39 +264,23 @@ function cellSummaryFields(
     const formatToolNames = (names: readonly string[]) => (names.length > 0
       ? names.map(toolName => `${getToolMeta(toolName).label} (${toolName})`).join(' · ')
       : translate('trajectory.capabilityResolution.none'));
-    const toolNames = formatToolNames(resolution.external_tool_names);
-    const escalation = cell.capabilityEscalation;
-    const escalationFields: TrajectoryNodeSummaryField[] = escalation ? [
+    const fields: TrajectoryNodeSummaryField[] = [
       {
-        label: translate('trajectory.capabilityResolution.escalation'),
-        value: translate('trajectory.capabilityResolution.escalationValue', {
-          from: capabilityPackageLabel(escalation.fromPackageId, translate),
-          to: capabilityPackageLabel(escalation.resolution.package_id, translate),
-          step: escalation.stepNumber,
-        }),
+        label: translate('trajectory.capabilityResolution.mode'),
+        value: capabilityModeLabel(resolution.package_id, translate),
       },
       {
-        label: translate('trajectory.capabilityResolution.escalatedExternalTools'),
-        value: formatToolNames(escalation.resolution.external_tool_names),
+        label: translate('trajectory.capabilityResolution.externalTools'),
+        value: formatToolNames(resolution.external_tool_names),
       },
-    ] : [];
-    return [
-      {
-        label: translate('trajectory.capabilityResolution.package'),
-        value: capabilityPackageLabel(resolution.package_id, translate),
-      },
-      {
-        label: translate('trajectory.capabilityResolution.confidence'),
-        value: translate(`trajectory.capabilityResolution.confidenceValues.${resolution.confidence}`),
-      },
-      {
-        label: translate('trajectory.capabilityResolution.resolutionMode'),
-        value: translate(`trajectory.capabilityResolution.resolutionModes.${resolution.resolution_mode}`),
-      },
-      {
-        label: translate('trajectory.capabilityResolution.initialExternalTools'),
-        value: toolNames,
-      },
+    ];
+    if (resolution.deferred_tool_names.length > 0) {
+      fields.push({
+        label: translate('trajectory.capabilityResolution.deferredTools'),
+        value: formatToolNames(resolution.deferred_tool_names),
+      });
+    }
+    fields.push(
       {
         label: translate('trajectory.capabilityResolution.planMode'),
         value: translate(`trajectory.capabilityResolution.planModes.${resolution.effective_plan_mode}`),
@@ -309,8 +293,8 @@ function cellSummaryFields(
         label: translate('trajectory.capabilityResolution.bundleFingerprint'),
         value: `${resolution.bundle_fingerprint.slice(0, 19)}…`,
       },
-      ...escalationFields,
-    ];
+    );
+    return fields;
   }
   if (cell.type === 'context' && cell.eventType === 'system_prompt_prepared') {
     return ['source', 'template_version', 'section_ids', 'fingerprint', 'char_count'].flatMap(key => {

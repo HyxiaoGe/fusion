@@ -1,4 +1,4 @@
-"""在服务边界冻结代码默认值与分类器正文，不在分类预算内解析来源。"""
+"""在服务边界冻结代码默认 Prompt。"""
 
 from functools import wraps
 
@@ -8,9 +8,7 @@ from app.core.prompt_snapshot import PromptBundleSnapshot, use_prompt_snapshot
 
 
 def freeze_runtime_prompt_bundle() -> PromptBundleSnapshot:
-    from app.services.stream.run_capability_model_classifier import _system_prompt
-
-    return freeze_prompt_bundle(CODE_DEFAULT_PROMPT_TEMPLATES, classifier_prompt=_system_prompt())
+    return freeze_prompt_bundle(CODE_DEFAULT_PROMPT_TEMPLATES)
 
 
 def with_call_config_prompt_snapshot(prepare_fn):

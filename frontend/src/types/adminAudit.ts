@@ -407,58 +407,6 @@ export interface AdminModelsQuery extends AdminConversationSectionQuery {
   health_status?: string;
 }
 
-export type AdminRoutingQualitySignal =
-  | 'classifier_unavailable'
-  | 'clarification_only'
-  | 'tools_unavailable'
-  | 'no_tool_call'
-  | 'web_only_fallback'
-  | 'primary_tool_missed';
-
-export type AdminRoutingQualitySignals = Record<AdminRoutingQualitySignal, number>;
-
-export interface AdminRoutingQualityCounts {
-  total: number;
-  completed: number;
-  signals: AdminRoutingQualitySignals;
-}
-
-export interface AdminRoutingQualityPackageItem extends AdminRoutingQualityCounts {
-  package_id: string;
-}
-
-export interface AdminRoutingQualitySample {
-  run_id: string;
-  conversation_id: string;
-  started_at: string;
-  package_id: string;
-  status: 'completed' | 'interrupted' | 'failed' | 'running';
-  signals: AdminRoutingQualitySignal[];
-  called_tools: string[];
-  required_primary_tool_name: string | null;
-}
-
-export interface AdminRoutingQualityResponse {
-  scope: {
-    created_from: string;
-    created_to: string;
-    unrouted_count: number;
-    running_count: number;
-    interrupted_count: number;
-    failed_count: number;
-    sample_limit: number;
-    sample_total: number;
-  };
-  summary: AdminRoutingQualityCounts;
-  by_package: AdminRoutingQualityPackageItem[];
-  samples: AdminRoutingQualitySample[];
-}
-
-export interface AdminRoutingQualityQuery {
-  created_from: string;
-  created_to: string;
-}
-
 export interface AdminItineraryStabilityQuery {
   created_from: string;
   created_to: string;
