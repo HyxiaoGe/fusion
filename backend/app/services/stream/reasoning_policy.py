@@ -30,8 +30,14 @@ def configure_reasoning_call_kwargs(
     has_tools = bool(configured.get("tools"))
 
     if not should_use_reasoning:
-        if thinking_switchable:
-            # 用户关了推理就让模型真的不思考，否则模型照常推理、只是前端看不到，白等。
+        if not thinking_switchable:
+            return configured
+        # 用户关了推理就让模型真的不思考，否则模型照常推理、只是前端看不到，白等。
+        if normalized_provider == "gemini":
+            # Gemini 走 LiteLLM 原生适配：reasoning_effort=none 映射为关闭思考；
+            # 透传的 thinking 字段会被 Gemini API 400。
+            configured["reasoning_effort"] = "none"
+        else:
             # 必须再包一层 extra_body：代理按 OpenAI 参数表校验顶层字段，顶层 thinking
             # 会被拒（UnsupportedParamsError）；内层 extra_body 由代理原样转给供应商。
             merge_extra_body(configured, {"extra_body": {"thinking": {"type": "disabled"}}})

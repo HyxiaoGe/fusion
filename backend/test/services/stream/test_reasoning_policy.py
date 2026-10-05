@@ -90,6 +90,18 @@ class ReasoningPolicyTests(unittest.TestCase):
         self.assertEqual(configured["tool_choice"], "auto")
         self.assertEqual(original["extra_body"], {"trace": "kept"})
 
+    def test_reasoning_off_disables_gemini_thinking_via_reasoning_effort(self):
+        configured = configure_reasoning_call_kwargs(
+            {"tools": [{"function": {"name": "web_search"}}], "tool_choice": "auto"},
+            provider="gemini",
+            should_use_reasoning=False,
+            thinking_switchable=True,
+        )
+
+        self.assertEqual(configured["reasoning_effort"], "none")
+        self.assertNotIn("extra_body", configured)
+        self.assertEqual(configured["tool_choice"], "auto")
+
     def test_reasoning_off_reconfigure_keeps_disabled_thinking(self):
         first_round = configure_reasoning_call_kwargs(
             {"tools": [{"function": {"name": "web_search"}}]},
