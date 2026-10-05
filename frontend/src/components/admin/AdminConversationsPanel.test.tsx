@@ -1,3 +1,4 @@
+import i18n from '@/lib/i18n';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -57,7 +58,19 @@ function ControlledConversationsPanel({
 }
 
 describe('AdminConversationsPanel', () => {
+  it('未完整交付不会显示为已完成，未知状态保留原始诊断值', async () => {
+    apiMocks.getAdminConversations.mockResolvedValue({ ...emptyPage, items: [
+      { ...conversations[0], latest_agent_status: 'incomplete' },
+      { ...conversations[1], latest_agent_status: 'new_terminal_state' },
+    ], total: 2, total_pages: 1 });
+    render(<ControlledConversationsPanel />);
+    expect(await screen.findByTitle('incomplete')).toHaveTextContent('未完整交付');
+    expect(screen.queryByText('已完成')).toBeNull();
+    expect(screen.getByTitle('new_terminal_state')).toHaveTextContent('new_terminal_state');
+  });
+
   beforeEach(() => {
+    void i18n.changeLanguage('zh-CN');
     const modelItems = [
       {
         model_id: 'model-a', name: '模型 Alpha', provider: 'provider-a', provider_display: '提供商 A',
@@ -172,7 +185,7 @@ describe('AdminConversationsPanel', () => {
     const secondTime = screen.getByLabelText('对话时间 conv-2');
     expect(secondTime).toHaveTextContent('时间未记录');
     expect(firstTime.closest('td')).toHaveTextContent('对话 1');
-    expect(firstTime.closest('table')).toHaveClass('min-w-[1100px]');
+    expect(firstTime.closest('table')).toHaveClass('min-w-[1280px]');
     expect(firstTime.closest('table')).not.toHaveClass('min-w-[1400px]');
   });
 

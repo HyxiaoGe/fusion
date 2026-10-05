@@ -1,4 +1,29 @@
 {
+    "admin": {
+      "filters": {
+        "userSearch": "搜索用户",
+        "role": "管理员筛选",
+        "registeredFrom": "注册开始日期",
+        "registeredTo": "注册结束日期",
+        "conversationSearch": "搜索对话",
+        "userId": "用户 ID",
+        "model": "模型筛选",
+        "tools": "是否有工具调用",
+        "files": "是否有文件",
+        "createdFrom": "创建开始日期",
+        "createdTo": "创建结束日期"
+      },
+      "usersList": "用户列表",
+      "conversationsList": "对话列表",
+      "status": {
+        "running": "运行中",
+        "completed": "已完成",
+        "limitReached": "达到限制",
+        "incomplete": "未完整交付",
+        "interrupted": "已中断",
+        "failed": "失败"
+      }
+    },
     "app": {
       "title": "AI智能助手",
       "newChat": "新建聊天",

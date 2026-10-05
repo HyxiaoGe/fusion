@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Activity, Boxes, MessagesSquare, ScrollText, Users } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import styles from './AdminSurface.module.css';
 import AdminAuditEventsPanel from './AdminAuditEventsPanel';
 import AdminConversationsPanel from './AdminConversationsPanel';
 import AdminPerformancePanel from './AdminPerformancePanel';
@@ -198,16 +199,16 @@ export default function AdminAuditCenter() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1600px] p-4 lg:p-6">
+    <div className={`${styles.workspace} ${styles.controls}`}>
       <Tabs value={activeTab} onValueChange={handleTabChange} activationMode="manual" className="min-h-0">
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 lg:w-fit lg:grid-cols-5">
+        <TabsList className={styles.navigation}>
           <TabsTrigger value="users"><Users />用户</TabsTrigger>
           <TabsTrigger value="conversations"><MessagesSquare />对话</TabsTrigger>
           <TabsTrigger value="models"><Boxes />模型</TabsTrigger>
           <TabsTrigger value="performance"><Activity />压测</TabsTrigger>
           <TabsTrigger value="events"><ScrollText />访问审计</TabsTrigger>
         </TabsList>
-        {visitedTabs.has('users') ? <TabsContent value="users" forceMount hidden={activeTab !== 'users'} className="mt-4 data-[state=inactive]:hidden">
+        {visitedTabs.has('users') ? <TabsContent value="users" forceMount hidden={activeTab !== 'users'} className={`${styles.panel} data-[state=inactive]:hidden`}>
           <AdminUsersPanel
             active={activeTab === 'users'}
             onForbidden={handleForbidden}
@@ -217,7 +218,7 @@ export default function AdminAuditCenter() {
             onViewConversations={handleViewConversations}
           />
         </TabsContent> : null}
-        {visitedTabs.has('conversations') ? <TabsContent value="conversations" forceMount hidden={activeTab !== 'conversations'} className="mt-4 data-[state=inactive]:hidden">
+        {visitedTabs.has('conversations') ? <TabsContent value="conversations" forceMount hidden={activeTab !== 'conversations'} className={`${styles.panel} data-[state=inactive]:hidden`}>
           <AdminConversationsPanel
             active={activeTab === 'conversations'}
             onForbidden={handleForbidden}
@@ -230,7 +231,7 @@ export default function AdminAuditCenter() {
             onBack={handleBackConversation}
           />
         </TabsContent> : null}
-        {visitedTabs.has('models') ? <TabsContent value="models" forceMount hidden={activeTab !== 'models'} className="mt-4 data-[state=inactive]:hidden">
+        {visitedTabs.has('models') ? <TabsContent value="models" forceMount hidden={activeTab !== 'models'} className={`${styles.panel} data-[state=inactive]:hidden`}>
           <AdminModelsPanel
             active={activeTab === 'models'}
             onForbidden={handleForbidden}
@@ -240,14 +241,14 @@ export default function AdminAuditCenter() {
             onViewConversations={handleViewModelConversations}
           />
         </TabsContent> : null}
-        {visitedTabs.has('performance') ? <TabsContent value="performance" forceMount hidden={activeTab !== 'performance'} className="mt-4 data-[state=inactive]:hidden">
+        {visitedTabs.has('performance') ? <TabsContent value="performance" forceMount hidden={activeTab !== 'performance'} className={`${styles.panel} data-[state=inactive]:hidden`}>
           <AdminPerformancePanel
             onForbidden={handleForbidden}
             selectedRunId={performanceRoute.runId ?? null}
             onToggle={handleTogglePerformance}
           />
         </TabsContent> : null}
-        {visitedTabs.has('events') ? <TabsContent value="events" forceMount hidden={activeTab !== 'events'} className="mt-4 data-[state=inactive]:hidden">
+        {visitedTabs.has('events') ? <TabsContent value="events" forceMount hidden={activeTab !== 'events'} className={`${styles.panel} data-[state=inactive]:hidden`}>
           <AdminAuditEventsPanel active={activeTab === 'events'} onForbidden={handleForbidden} />
         </TabsContent> : null}
       </Tabs>

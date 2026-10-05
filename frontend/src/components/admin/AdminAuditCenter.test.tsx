@@ -1,3 +1,4 @@
+import i18n from '@/lib/i18n';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/types/api';
@@ -131,6 +132,7 @@ const emptyStability = {
 
 describe('AdminAuditCenter', () => {
   beforeEach(() => {
+    void i18n.changeLanguage('zh-CN');
     Object.values(apiMocks).forEach(mock => mock.mockReset().mockResolvedValue(emptyPage));
     apiMocks.getAdminItineraryStability.mockResolvedValue(emptyStability);
     navigationMocks.push.mockReset().mockImplementation((url: string) => navigationMocks.pushUrl(url));

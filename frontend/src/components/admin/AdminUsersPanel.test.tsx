@@ -1,3 +1,4 @@
+import i18n from '@/lib/i18n';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -53,7 +54,18 @@ function ControlledUsersPanel({
 }
 
 describe('AdminUsersPanel', () => {
+  it('英文可见标签与可访问名称一致', async () => {
+    await i18n.changeLanguage('en-US');
+    render(<AdminUsersPanel onForbidden={() => undefined} selectedUserId={null} onOpen={() => undefined} onClose={() => undefined} onViewConversations={() => undefined} />);
+    expect(screen.getByRole('textbox', { name: 'Search users' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'User permissions' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Registered from')).toBeInTheDocument();
+    expect(screen.getByLabelText('Registered to')).toBeInTheDocument();
+    expect(screen.getByText('Search users', { selector: 'span' })).toBeInTheDocument();
+  });
+
   beforeEach(() => {
+    void i18n.changeLanguage('zh-CN');
     apiMocks.getAdminUsers.mockReset().mockResolvedValue(page);
     apiMocks.getAdminUser.mockReset();
   });
