@@ -87,6 +87,7 @@ vi.mock('./MarkdownRenderer', () => ({
 function activity(overrides: Partial<AssistantActivity> = {}): AssistantActivity {
   return {
     kind: 'answering',
+    hasCompletedTools: false,
     tool: null,
     issue: null,
     searchBlock: null,

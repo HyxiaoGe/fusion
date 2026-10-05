@@ -261,6 +261,11 @@ export interface StreamCallbacks {
     },
   ) => void;
   onStepStarted?: (ev: AgentEventEnvelope & { step_number: number }) => void;
+  onLlmRoundStarted?: (ev: AgentEventEnvelope & { llm_round_id: string; round_index: number }) => void;
+  onLlmRoundFirstOutputDelta?: (
+    ev: AgentEventEnvelope & { llm_round_id: string; delta_kind: 'reasoning' | 'content' | 'tool_call' },
+  ) => void;
+  onLlmRoundCompleted?: (ev: AgentEventEnvelope & { llm_round_id: string }) => void;
   onToolCallStarted?: (
     ev: AgentEventEnvelope & {
       tool_name: string;
@@ -612,6 +617,12 @@ async function parseSseEnvelopeStream(
         }
         case 'step_started':
           return callbacks.onStepStarted?.(ev as never);
+        case 'llm_round_started':
+          return callbacks.onLlmRoundStarted?.(ev as never);
+        case 'llm_round_first_output_delta':
+          return callbacks.onLlmRoundFirstOutputDelta?.(ev as never);
+        case 'llm_round_completed':
+          return callbacks.onLlmRoundCompleted?.(ev as never);
         case 'tool_call_started':
           return callbacks.onToolCallStarted?.(ev as never);
         case 'tool_call_delta':

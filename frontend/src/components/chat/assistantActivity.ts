@@ -1,4 +1,4 @@
-import type { AgentRunState, ToolCallState } from '@/types/agentRun';
+import type { AgentLlmPhaseOutput, AgentRunState, ToolCallState } from '@/types/agentRun';
 import type { ContentBlock, SearchBlock, UrlBlock } from '@/types/conversation';
 import { getToolMeta, hasToolMeta } from '@/lib/agent/toolRegistry';
 import {
@@ -9,6 +9,7 @@ import {
 export type AssistantActivityKind =
   | 'waiting'
   | 'reasoning'
+  | 'planning'
   | 'tool_running'
   | 'answering'
   | 'completed'
@@ -42,6 +43,8 @@ export interface AssistantToolIssue {
 
 export interface AssistantActivity {
   kind: AssistantActivityKind;
+  /** waiting 时是否已执行过工具：区分“准备回答”与“分析工具结果”。 */
+  hasCompletedTools: boolean;
   tool: AssistantToolActivity | null;
   issue: AssistantToolIssue | null;
   searchBlock: SearchBlock | null;
@@ -78,11 +81,14 @@ export function deriveAssistantActivity(input: DeriveAssistantActivityInput): As
     hasText,
     hasThinking: hasThinking && !shouldSuppressReasoning,
     hasRunningTool: runningToolActivity !== null,
+    llmOutput: input.currentRun?.llmPhase?.output ?? null,
   });
+  const hasCompletedTools = findLatestToolCall(input.currentRun, call => isTerminalToolStatus(call.status)) !== null;
   const tool = kind === 'tool_running' ? runningToolActivity : null;
 
   return {
     kind,
+    hasCompletedTools,
     tool,
     issue,
     searchBlock,
@@ -125,7 +131,12 @@ function isExecutionMode(
 
 function deriveKind(
   input: DeriveAssistantActivityInput,
-  facts: { hasText: boolean; hasThinking: boolean; hasRunningTool: boolean },
+  facts: {
+    hasText: boolean;
+    hasThinking: boolean;
+    hasRunningTool: boolean;
+    llmOutput: AgentLlmPhaseOutput | null;
+  },
 ): AssistantActivityKind {
   if (input.messageStatus === 'failed' || input.currentRun?.status === 'failed') {
     return 'failed';
@@ -144,8 +155,13 @@ function deriveKind(
     return 'answering';
   }
 
-  if (isActiveStreaming && facts.hasThinking) {
+  // 执行模式会隐藏思考块，此时靠模型轮次的首个输出类型判断“正在思考”。
+  if (isActiveStreaming && (facts.hasThinking || facts.llmOutput === 'reasoning')) {
     return 'reasoning';
+  }
+
+  if (isActiveStreaming && facts.llmOutput === 'tool_call') {
+    return 'planning';
   }
 
   if (isActiveStreaming || input.messageStatus === 'pending' || input.currentRun?.status === 'running') {

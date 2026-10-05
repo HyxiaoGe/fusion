@@ -12,6 +12,8 @@ import {
   mergeToolCallDelta,
   pushStep,
   pushToolCall,
+  setLlmPhase,
+  clearLlmPhase,
   updatePlanStep,
   updateRunProgress,
   upsertEvidenceItem,
@@ -119,6 +121,37 @@ export function createAgentStreamEventHandlers({
         stepNumber: ev.step_number,
         sequence: ev.sequence,
       }));
+    },
+    onLlmRoundStarted: ev => {
+      if (!isActive() || !ev.llm_round_id) return;
+      const conversationId = resolveConversationId();
+      if (!conversationId) return;
+      dispatch(setLlmPhase({
+        conversationId,
+        runId: ev.run_id,
+        roundId: ev.llm_round_id,
+        roundIndex: ev.round_index,
+        output: 'pending',
+        sequence: ev.sequence,
+      }));
+    },
+    onLlmRoundFirstOutputDelta: ev => {
+      if (!isActive() || !ev.llm_round_id) return;
+      const conversationId = resolveConversationId();
+      if (!conversationId) return;
+      dispatch(setLlmPhase({
+        conversationId,
+        runId: ev.run_id,
+        roundId: ev.llm_round_id,
+        output: ev.delta_kind,
+        sequence: ev.sequence,
+      }));
+    },
+    onLlmRoundCompleted: ev => {
+      if (!isActive() || !ev.llm_round_id) return;
+      const conversationId = resolveConversationId();
+      if (!conversationId) return;
+      dispatch(clearLlmPhase({ conversationId, runId: ev.run_id, roundId: ev.llm_round_id }));
     },
     onToolCallStarted: ev => {
       if (!isActive() || !ev.step_id || !ev.tool_call_id) return;
