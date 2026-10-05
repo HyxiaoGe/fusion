@@ -17,7 +17,6 @@ from app.services.stream.agent_loop_request_prep import build_agent_loop_call_co
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_round import AgentRoundResult
 from app.services.stream.limit_summary import remove_conflicting_tool_usage_contract
-from app.services.stream.run_capability_router import _CandidateRoute
 from app.services.stream.skill_loading import (
     LOAD_SKILL_TOOL_NAME,
     MAX_SKILL_LOADS_PER_RUN,
@@ -27,7 +26,6 @@ from app.services.stream.skill_loading import (
     build_skill_session,
 )
 from app.services.stream.step_lifecycle import AgentStepContext
-from app.utils.run_capability_contract import CAPABILITY_PACKAGES
 from test.services.stream.test_agent_loop_driver import _runtime, _tool_definition, _tool_names
 
 CAPABILITIES = {"functionCalling": True, "searchCapable": True}
@@ -40,17 +38,6 @@ def _write_skill(root: Path, name: str, tools: str = "", body: str = "Follow the
     (directory / "SKILL.md").write_text(
         f"---\nname: {name}\ndescription: Use for {name} tasks.\n{metadata}---\n\n{body}",
         encoding="utf-8",
-    )
-
-
-def _candidate(package_id: str) -> _CandidateRoute:
-    spec = CAPABILITY_PACKAGES[package_id]
-    return _CandidateRoute(
-        package_id,
-        spec.confidence_options[0],
-        spec.reason_code_options[0],
-        True,
-        resolution_mode=spec.resolution_mode,
     )
 
 
@@ -130,8 +117,6 @@ class SkillCallConfigTests(_SkillRootTestCase):
             provider="openai",
             options={"plan_mode": "on"},
             capabilities=CAPABILITIES,
-            original_message="查一下最新的 Python 发布说明",
-            classify_fn=lambda **_kwargs: _candidate("fresh_web"),
         )
 
         tools = {tool["function"]["name"]: tool for tool in config.call_kwargs["tools"]}
@@ -148,13 +133,11 @@ class SkillCallConfigTests(_SkillRootTestCase):
             provider="openai",
             options={"disable_tools": True},
             capabilities=CAPABILITIES,
-            original_message="你好",
         )
         research = build_agent_loop_call_config(
             provider="openai",
             options={"task_mode": "deep_research"},
             capabilities=CAPABILITIES,
-            original_message="深入调研固态电池产业链",
         )
 
         for config in (disabled, research):
@@ -165,35 +148,21 @@ class SkillCallConfigTests(_SkillRootTestCase):
                 [tool["function"]["name"] for tool in config.call_kwargs.get("tools", [])],
             )
 
-    def test_single_product_lookup_routes_carry_no_skills(self):
+    def test_product_tools_and_skills_are_announced_together(self):
         tools = [*AMAP_PRODUCT_DEFINITIONS, *FLYAI_TRAVEL_DEFINITIONS]
         handlers = {tool["function"]["name"]: object() for tool in tools}
 
-        def config_for(package_id: str):
-            return build_agent_loop_call_config(
-                provider="openai",
-                options={},
-                capabilities=CAPABILITIES,
-                additional_tools=tools,
-                dynamic_tool_handlers=handlers,
-                original_message="查一下",
-                classify_fn=lambda **_kwargs: _candidate(package_id),
-            )
+        config = build_agent_loop_call_config(
+            provider="openai",
+            options={},
+            capabilities=CAPABILITIES,
+            additional_tools=tools,
+            dynamic_tool_handlers=handlers,
+        )
 
-        single = [package_id for package_id, spec in CAPABILITY_PACKAGES.items() if spec.is_single_product_lookup]
-        self.assertEqual(set(single), {"weather", "place_discovery", "mobility_route", "flight", "train"})
-        for package_id in single:
-            with self.subTest(package_id=package_id):
-                config = config_for(package_id)
-                self.assertEqual(config.capability_resolution.package_id, package_id)
-                self.assertIsNone(config.skill_session)
-                self.assertNotIn(LOAD_SKILL_TOOL_NAME, config.dynamic_tool_handlers)
-                self.assertNotIn(LOAD_SKILL_TOOL_NAME, _tool_names(config.call_kwargs))
-
-        multi = config_for("travel_air_rail")
-        self.assertEqual(multi.capability_resolution.package_id, "travel_air_rail")
-        self.assertIn("comparison-advice", multi.skill_session.entries)
-        self.assertIn(LOAD_SKILL_TOOL_NAME, _tool_names(multi.call_kwargs))
+        self.assertEqual(config.capability_resolution.package_id, "agent")
+        self.assertIn("comparison-advice", config.skill_session.entries)
+        self.assertIn(LOAD_SKILL_TOOL_NAME, _tool_names(config.call_kwargs))
 
     def test_final_synthesis_drops_skills_catalog(self):
         session = build_skill_session(["web_search"])
@@ -262,22 +231,15 @@ def test_session_budget_property():
 
 
 @pytest.mark.bundled_skills
-def test_bundled_skills_follow_the_route_tools():
-    def config_for(package_id: str, message: str):
-        return build_agent_loop_call_config(
-            provider="openai",
-            options={},
-            capabilities=CAPABILITIES,
-            original_message=message,
-            classify_fn=lambda **_kwargs: _candidate(package_id),
-        )
+def test_bundled_skills_follow_the_announced_tools():
+    config = build_agent_loop_call_config(
+        provider="openai",
+        options={},
+        capabilities=CAPABILITIES,
+    )
 
-    direct = config_for("direct", "MacBook Air 和 MacBook Pro 选哪个")
-    web = config_for("fresh_web", "最新的 Python 发布说明")
-
-    assert set(direct.skill_session.entries) == {"comparison-advice"}
-    assert set(web.skill_session.entries) == {"comparison-advice", "web-research"}
     # 每个内置 Skill 都按本 Run 公告的工具决定是否列出。
-    authorized = frozenset(web.announced_tools)
+    authorized = frozenset(config.announced_tools)
     expected = {entry.name for entry in discover_skills() if entry.available_for(authorized)}
-    assert set(web.skill_session.entries) == expected
+    assert {"comparison-advice", "web-research"} <= expected
+    assert set(config.skill_session.entries) == expected

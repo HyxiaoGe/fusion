@@ -31,7 +31,6 @@ class PromptBundleSnapshot:
     effective_revision: str
     catalog_version: str
     templates: tuple[PromptTemplateSnapshot, ...]
-    classifier_prompt: str
 
     def identity(self) -> dict:
         """仅返回审计身份，不将模板正文或用户内容带入轻量配置。"""
@@ -60,10 +59,7 @@ class PromptBundleSnapshot:
 
 
 class PromptSnapshotSource(Protocol):
-    """Bundle 与分类后的 Run 快照共用同一只读解析契约。"""
-
-    @property
-    def classifier_prompt(self) -> str: ...
+    """Bundle 与 Run 快照共用同一只读解析契约。"""
 
     def resolve(self, name: str) -> tuple[str, dict[str, str | None]]: ...
 
@@ -85,7 +81,7 @@ def use_prompt_snapshot(snapshot: PromptSnapshotSource) -> Iterator[None]:
         _CURRENT_SNAPSHOT.reset(token)
 
 
-def build_bundle_snapshot(defaults: Mapping[str, str], *, classifier_prompt: str) -> PromptBundleSnapshot:
+def build_bundle_snapshot(defaults: Mapping[str, str]) -> PromptBundleSnapshot:
     if set(defaults) != {spec.key for spec in PROMPT_SPECS}:
         raise ValueError("代码默认 Prompt 必须完整覆盖 catalog")
     if any(not isinstance(body, str) or not body.strip() for body in defaults.values()):
@@ -108,7 +104,6 @@ def build_bundle_snapshot(defaults: Mapping[str, str], *, classifier_prompt: str
         effective_revision=_code_default_revision(templates),
         catalog_version=CATALOG_VERSION,
         templates=templates,
-        classifier_prompt=classifier_prompt,
     )
 
 

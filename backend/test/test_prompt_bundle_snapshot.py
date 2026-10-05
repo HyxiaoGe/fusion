@@ -19,9 +19,9 @@ def changed_defaults(suffix: str) -> dict[str, str]:
 
 def test_frozen_getters_keep_original_local_content_after_caller_mutation():
     defaults = changed_defaults("\n版本 A")
-    frozen = prompt_bundle.freeze_prompt_bundle(defaults, classifier_prompt="分类 A")
+    frozen = prompt_bundle.freeze_prompt_bundle(defaults)
     defaults["app_identity"] = "外部变异"
-    newer = prompt_bundle.freeze_prompt_bundle(changed_defaults("\n版本 B"), classifier_prompt="分类 B")
+    newer = prompt_bundle.freeze_prompt_bundle(changed_defaults("\n版本 B"))
 
     with prompt_bundle.use_prompt_snapshot(frozen):
         assert get_app_identity_prompt().endswith("\n版本 A")
@@ -31,7 +31,6 @@ def test_frozen_getters_keep_original_local_content_after_caller_mutation():
 
     assert frozen.source_kind == "code_default"
     assert frozen.source_revision is None
-    assert frozen.classifier_prompt == "分类 A"
     with pytest.raises(FrozenInstanceError):
         frozen.effective_revision = "b" * 64
 

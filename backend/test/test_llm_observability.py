@@ -9,10 +9,9 @@ class LLMObservabilityTests(unittest.TestCase):
 
         self.assertEqual(metadata, {"tags": ["app:fusion", "phase:chat_stream"]})
 
-    def test_classifier_phase_uses_low_cardinality_tag(self):
-        metadata = build_litellm_metadata("run_capability_classifier")
-
-        self.assertEqual(metadata, {"tags": ["app:fusion", "phase:run_capability_classifier"]})
+    def test_removed_classifier_phase_is_rejected(self):
+        with self.assertRaises(ValueError):
+            build_litellm_metadata("run_capability_classifier")
 
     def test_兜底语言选择有独立低基数标签(self):
         metadata = merge_litellm_kwargs("fallback_language", {})
@@ -35,7 +34,7 @@ class LLMObservabilityTests(unittest.TestCase):
 
     def test_every_call_bypasses_proxy_response_cache(self):
         # 代理开着响应缓存；一次坏的分类输出曾被原样复用数分钟，所有模型都拿到同一个错路由。
-        merged = merge_litellm_kwargs("run_capability_classifier", {})
+        merged = merge_litellm_kwargs("chat_stream", {})
 
         self.assertEqual(merged["extra_body"]["cache"], {"no-cache": True, "no-store": True})
 

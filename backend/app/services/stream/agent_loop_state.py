@@ -9,7 +9,6 @@ from typing import Any, Literal
 from app.schemas.chat import ContextUsage, Usage
 from app.services.agent.plan_coordinator import PlanCoordinator
 from app.services.stream.agent_loop_policy import AgentLoopLimitReason
-from app.services.stream.capability_escalation import REQUEST_CAPABILITY_TOOL_NAME
 from app.services.stream.itinerary_observability import ItineraryToolObservation
 from app.services.stream.research_evidence import MAX_RESEARCH_REPAIRS, ResearchEvidenceWorkset
 from app.services.stream.run_finalizer import AgentRunStats
@@ -74,9 +73,6 @@ class AgentLoopState:
     attempted_tool_names: set[str] = field(default_factory=set)
     successful_tool_names: set[str] = field(default_factory=set)
     tool_recovery_prompted: bool = False
-    product_tool_prompted: bool = False
-    # 文档模式在终局总结前只补一次写文档轮，避免反复强制。
-    document_delivery_attempted: bool = False
     pending_place_choices: dict[str, dict[str, Any]] = field(default_factory=dict)
     recovery_evidence: RecoveryEvidenceWorkset = field(default_factory=RecoveryEvidenceWorkset)
     tool_discovery: Any = None
@@ -89,9 +85,6 @@ class AgentLoopState:
         place_choice: dict[str, Any] | None = None,
     ) -> None:
         """累计各类执行结果；一次成功不能抹掉其他调用的失败或降级。"""
-        if tool_name == REQUEST_CAPABILITY_TOOL_NAME:
-            # 能力申请被拒是控制决策，不是工具故障；计入会触发失败兜底、替换掉凭知识写的回答。
-            return
         self.attempted_tool_names.add(tool_name)
         if place_choice is not None:
             # 地名对应多个候选、等用户选择：不是工具故障，不触发替代工具恢复或失败兜底。

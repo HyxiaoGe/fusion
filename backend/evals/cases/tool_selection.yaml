@@ -1,13 +1,11 @@
-# Run 内能力升级（#259–#262）。来源：dev ~/.fusion-probe/escalation-cases*.json
-category: escalation
+# 工具自选：普通 Run 公告全部可用工具，由模型决定用不用、用哪个（能力包分类与升级已删除）。
+# 用例 id 沿用原能力升级用例（#259–#262），以便门禁对比删除前后的表现。来源：dev ~/.fusion-probe/escalation-cases*.json
+category: tool_selection
 cases:
   - id: kids-day-out-weather-venues
     source: escalation-probe 2026-10-04（#259）
     message: 明天带孩子在上海玩一天，要看天气和附近的亲子场馆，怎么安排
     checks:
-      - type: escalation
-        expect: either
-        targets: [mixed_itinerary, place_discovery, weather]
       - type: tool_called
         tool: weather_forecast
       - type: judge
@@ -17,17 +15,13 @@ cases:
     source: escalation-probe 2026-10-04（#259）
     message: 上海三天怎么玩
     checks:
-      - type: escalation
-        expect: either
-        targets: [mixed_itinerary, place_discovery, weather]
+      - type: judge
+        rubric: 回答直接给出了三天的游玩安排，而不是只反问用户的偏好；提到的具体场馆、天气或交通信息若来自工具则与工具结果一致，没有编造。
 
   - id: breaking-news-needs-web
     source: escalation-probe 2026-10-04（#259，fresh_web 升级）
     message: 最近一周有哪些重要的科技新闻？
     checks:
-      - type: escalation
-        expect: either
-        targets: [fresh_web, verified_web]
       - type: tool_called
         tool: web_search
       - type: judge
@@ -37,10 +31,8 @@ cases:
     source: escalation-probe 2026-10-04（#259，不应升级的对照组）
     message: 你好
     checks:
-      - type: first_package
-        any_of: [direct]
-      - type: escalation
-        expect: none
+      - type: tool_not_called
+        tool: local_place_search
       - type: tool_not_called
         tool: web_search
 
@@ -48,8 +40,6 @@ cases:
     source: escalation-probe 2026-10-04（#259，不应升级的对照组）
     message: 写一首关于秋天的短诗
     checks:
-      - type: escalation
-        expect: none
       - type: tool_not_called
         tool: web_search
 
@@ -57,8 +47,6 @@ cases:
     source: escalation-probe 2026-10-04（#259，不应升级的对照组）
     message: 解释一下 Rust 的所有权
     checks:
-      - type: escalation
-        expect: none
       - type: tool_not_called
         tool: web_search
 
@@ -66,8 +54,6 @@ cases:
     source: escalation-probe 2026-10-04（#261/#262，用户明确不联网）
     message: 不要联网，告诉我今天的新闻
     checks:
-      - type: escalation
-        expect: none
       - type: tool_not_called
         tool: web_search
       - type: judge
@@ -77,8 +63,6 @@ cases:
     source: 每日探针 2026-09-28 "判为仅澄清"（新闻类问题未联网，直接反问）
     message: 今天国际新闻有啥大事？
     checks:
-      - type: first_package
-        any_of: [fresh_web, verified_web]
       - type: tool_called
         tool: web_search
       - type: judge

@@ -371,18 +371,6 @@ class SystemPromptPrepared(AgentEventBase):
     message: str | None = Field(default=None, max_length=120)
 
 
-class CapabilityEscalated(AgentEventBase):
-    """Run 内一次能力升级：首判包与升级后的完整 resolution，不携带模型给出的理由原文。"""
-
-    type: Literal["capability_escalated"]
-    protocol_version: Literal[2]
-    step_number: int = Field(ge=1)
-    from_package_id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,47}$")
-    capability_resolution: TrajectoryCapabilityResolution
-    section_ids: list[str] = Field(max_length=50)
-    system_prompt_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
-
-
 class ContextStatusUpdated(AgentEventBase):
     """单轮 LLM 上下文状态；字段严格白名单，不携带 prompt 或内部来源。"""
 
@@ -456,7 +444,6 @@ AnyAgentEvent = Annotated[
     | ContentBlockUpserted
     | ContentBlockDiscarded
     | SystemPromptPrepared
-    | CapabilityEscalated
     | ContextStatusUpdated
     | ContextRequired
     | ContextResult,

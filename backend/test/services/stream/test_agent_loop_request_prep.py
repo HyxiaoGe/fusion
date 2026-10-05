@@ -5,18 +5,12 @@ from unittest.mock import patch
 from app.ai.prompts.prompt_message import PromptMessage
 from app.schemas.chat import TextBlock
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_DEFINITIONS
-from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_DEFINITIONS
 from app.services.stream.agent_loop_request_prep import (
     build_agent_loop_call_config,
     inject_deep_research_contract,
     inject_no_tool_network_boundary,
     inject_plan_control_contract,
     prepare_agent_loop_messages,
-)
-from app.services.stream.run_capability_router import (
-    _CandidateRoute,
-    classifier_unavailable_route,
-    resolve_run_capability_route,
 )
 
 
@@ -29,152 +23,7 @@ class FakeFileRepository:
         return {"doc-1": "文档正文"}
 
 
-def _model_candidate(
-    package_id: str,
-    *,
-    include_current_date: bool | None = None,
-    explicit_tool_names=None,
-    required_primary_tool_name: str | None = None,
-):
-    """构造一个符合能力契约的模型候选。
-
-    选包判据已整体删除（#132），router 不再从文本推断能力包。模型选了什么现在是
-    测试的**输入**，因此置信度、reason_codes 与 resolution_mode 一律照契约取值，
-    不由测试自选。
-    """
-
-    from app.utils.run_capability_contract import CAPABILITY_PACKAGES
-
-    spec = CAPABILITY_PACKAGES[package_id]
-    # 与模型分类器解析输出时的取值一致：各选项的首项是模型路径，后续项留给兜底等非模型来源。
-    reason_codes = spec.reason_code_options[0]
-    confidence = spec.confidence_options[0]
-    if include_current_date is None:
-        # 日期标志按包取自能力包注册表，不由测试自选；可变日期的包与非模型包取 False。
-        include_current_date = spec.route_include_current_date(False) if spec.model_selectable else False
-    if required_primary_tool_name is None and spec.requires_primary_tool:
-        required_primary_tool_name = (explicit_tool_names or ("route_compare",))[0]
-    return _CandidateRoute(
-        package_id,
-        confidence,
-        reason_codes,
-        include_current_date,
-        resolution_mode=spec.resolution_mode,
-        explicit_tool_names=explicit_tool_names,
-        required_primary_tool_name=required_primary_tool_name,
-    )
-
-
-# 选包判据删除后，这些原句的能力包由模型决定；测试里按原句声明模型会选什么，
-# 只用于验证「选定包之后」的工具与提示词信封。tools_unavailable 由 _resolution
-# 依据 options/capabilities 自行降级，所以这里声明降级前的包。
-_REMOVED_LITERAL_PACKAGES = {
-    "你好": ("direct", True),
-    "今天上海证券交易所开市吗？": ("fresh_web", True),
-    "查一下今天最新的 OpenAI 新闻": ("fresh_web", True),
-    "OpenAI 最近发布了什么模型？": ("fresh_web", True),
-    "我现在在北京，我想去上海，你可以帮我吗": ("mobility_intercity", True),
-    "总结 https://example.com/report，只依据该页面": ("url_read", True),
-    "OpenAI 今天发布了什么？阅读官方公告后总结": ("verified_web", True),
-    "明天上海天气怎样？": ("weather", True),
-    "查今天上海天气": ("weather", True),
-    "核验 OpenAI 最新公告，给出官方原文和交叉来源": ("verified_web", True),
-    "请核验这条消息，给出可靠来源": ("verified_web", True),
-    "搜索民治附近的咖啡店": ("place_discovery", True),
-    "请阅读 https://example.com/a": ("url_read", True),
-    "帮我查一下这个": ("clarification_only", True),
-}
-
-
-def _classifier_for_removed_literal(message: str):
-    entry = _REMOVED_LITERAL_PACKAGES.get(message)
-    if entry is None:
-        return None
-    package_id, include_current_date = entry
-    return _classifier_for(package_id, include_current_date=include_current_date)
-
-
-def _classifier_for(package_id: str, **kwargs):
-    """把确定的模型候选注入 router，用于验证「选定包之后」的信封。"""
-
-    candidate = _model_candidate(package_id, **kwargs)
-
-    def classify(**_kwargs):
-        return candidate
-
-    return classify
-
-
 class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
-    def test_verified_web_with_one_denied_required_tool_has_no_impossible_plan(self):
-        config = build_agent_loop_call_config(
-            provider="openai",
-            options={"plan_mode": "on"},
-            capabilities={"functionCalling": True, "searchCapable": True},
-            original_message="核验公告，但别搜索网页",
-            classify_fn=lambda **_: _CandidateRoute(
-                "verified_web",
-                "high",
-                ("verified_source_request",),
-                True,
-                denied_tool_names=("web_search",),
-            ),
-        )
-
-        self.assertEqual(config.capability_resolution.package_id, "tools_unavailable")
-        self.assertEqual(config.announced_tools, [])
-
-    def test_build_call_config_defaults_to_rule_classifier(self):
-        with patch(
-            "app.services.stream.agent_loop_request_prep.resolve_run_capability_route",
-            wraps=resolve_run_capability_route,
-        ) as resolver:
-            build_agent_loop_call_config(
-                provider="openai",
-                options={},
-                capabilities={"functionCalling": True, "searchCapable": True},
-                original_message="你好",
-            )
-
-        assert resolver.call_args.kwargs["classify_fn"] is None
-
-    def test_build_call_config_forwards_injected_classifier_and_raw_context(self):
-        raw_context = [{"role": "user", "content": "上一轮的原始内容"}]
-        classifier_calls = []
-
-        def classifier(*, message, task_context_messages, available_tool_names):
-            classifier_calls.append(
-                {
-                    "message": message,
-                    "task_context_messages": task_context_messages,
-                    "available_tool_names": available_tool_names,
-                }
-            )
-            return _CandidateRoute("direct", "high", ("direct_greeting",), True)
-
-        with patch(
-            "app.services.stream.agent_loop_request_prep.resolve_run_capability_route",
-            wraps=resolve_run_capability_route,
-        ) as resolver:
-            config = build_agent_loop_call_config(
-                provider="openai",
-                options={},
-                capabilities={"functionCalling": True, "searchCapable": True},
-                original_message="你好",
-                task_context_messages=raw_context,
-                classify_fn=classifier,
-            )
-
-        assert resolver.call_args.kwargs["classify_fn"] is classifier
-        assert classifier_calls == [
-            {
-                "message": "你好",
-                "task_context_messages": raw_context,
-                "available_tool_names": ["web_search", "url_read"],
-            }
-        ]
-        assert config.capability_resolution.package_id == "direct"
-
     async def test_real_builder_preserves_parsed_attachment_without_text_in_new_conversation(self):
         from app.ai.prompts.agent_loop import APP_IDENTITY_PROMPT
         from app.schemas.chat import FileBlock, Message
@@ -200,7 +49,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 provider="openai",
                 options={},
                 capabilities={"functionCalling": False},
-                original_message="",
             ),
             file_repo_factory=lambda db: file_repo,
             load_user_system_prompt_fn=lambda db, uid: None,
@@ -225,8 +73,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             provider="openai",
             options={"plan_mode": "on"},
             capabilities={"functionCalling": True, "searchCapable": True},
-            original_message="OpenAI 今天发布了什么？阅读官方公告后总结",
-            classify_fn=_classifier_for_removed_literal("OpenAI 今天发布了什么？阅读官方公告后总结"),
         )
         prepared = await prepare_agent_loop_messages(
             db=object(),
@@ -262,11 +108,22 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_assembly_sections_follow_actual_capabilities_and_modes(self):
         for message, options, expected in [
-            ("你好", {}, ["app_identity", "current_date"]),
+            (
+                "你好",
+                {},
+                ["app_identity", "tool_selection_policy", "tool_failure_policy", "tool_usage_contract", "current_date"],
+            ),
             (
                 "今天上海证券交易所开市吗？",
                 {"plan_mode": "on"},
-                ["app_identity", "tool_failure_policy", "tool_usage_contract", "agent_plan_control", "current_date"],
+                [
+                    "app_identity",
+                    "tool_selection_policy",
+                    "tool_failure_policy",
+                    "tool_usage_contract",
+                    "agent_plan_control",
+                    "current_date",
+                ],
             ),
             (
                 "深入研究 2026 年 AI Agent 浏览器安全现状",
@@ -286,8 +143,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                     provider="openai",
                     options=options,
                     capabilities={"functionCalling": True, "searchCapable": True},
-                    original_message=message,
-                    classify_fn=_classifier_for_removed_literal(message),
                 )
                 prepared = await prepare_agent_loop_messages(
                     db=object(),
@@ -305,254 +160,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(len(prepared.messages), len(expected))
                 self.assertEqual([s["section_id"] for s in prepared.prompt_snapshot["sections"]], expected)
                 self.assertTrue(all(s["content"] for s in prepared.prompt_snapshot["sections"]))
-
-    async def test_greeting_materializes_empty_capability_bundle(self):
-        tools = [*AMAP_PRODUCT_DEFINITIONS, *FLYAI_TRAVEL_DEFINITIONS]
-        tool_names = [tool["function"]["name"] for tool in tools]
-        bindings = [{"alias": name, "server_id": f"server-{index}"} for index, name in enumerate(tool_names)]
-        config = build_agent_loop_call_config(
-            provider="deepseek",
-            options={},
-            capabilities={"functionCalling": True, "searchCapable": True, "agentTools": True},
-            additional_tools=tools,
-            dynamic_tool_handlers={name: object() for name in tool_names},
-            tool_bindings=bindings,
-            original_message="你好",
-            classify_fn=_classifier_for("direct", include_current_date=True),
-        )
-
-        prepared = await prepare_agent_loop_messages(
-            db=object(),
-            user_id="user-1",
-            raw_messages=[],
-            has_vision=False,
-            file_ids=None,
-            original_message="你好",
-            call_config=config,
-            file_repo_factory=lambda db: FakeFileRepository(),
-            load_user_system_prompt_fn=lambda db, uid: None,
-            preprocess_user_input=False,
-        )
-
-        self.assertNotIn("tools", config.call_kwargs)
-        self.assertEqual(config.dynamic_tool_handlers, {})
-        self.assertEqual(config.tool_bindings, [])
-        self.assertEqual(config.announced_tools, [])
-        self.assertEqual(prepared.final_tool_names, [])
-        self.assertEqual(prepared.prompt_assembly["section_ids"], ["app_identity", "current_date"])
-        self.assertEqual(config.capability_resolution.package_id, "direct")
-
-    async def test_route_resolution_atomically_materializes_tools_and_prompt_sections(self):
-        tools = [*AMAP_PRODUCT_DEFINITIONS, *FLYAI_TRAVEL_DEFINITIONS]
-        tool_names = [tool["function"]["name"] for tool in tools]
-        handlers = {name: object() for name in tool_names}
-        bindings = [{"alias": name, "server_id": f"server-{index}"} for index, name in enumerate(tool_names)]
-
-        cases = [
-            (
-                "我现在在北京，我想去上海，你可以帮我吗",
-                {},
-                {"functionCalling": True, "searchCapable": True, "agentTools": True},
-                "mobility_intercity",
-                ["web_search", "url_read", "route_compare", "search_flights", "search_trains"],
-                ["app_identity", "tool_failure_policy", "tool_usage_contract", "current_date"],
-            ),
-            (
-                "今天上海证券交易所开市吗？",
-                {},
-                {"functionCalling": True, "searchCapable": True, "agentTools": True},
-                "fresh_web",
-                ["web_search", "url_read"],
-                ["app_identity", "tool_failure_policy", "tool_usage_contract", "current_date"],
-            ),
-            (
-                "总结 https://example.com/report，只依据该页面",
-                {},
-                {"functionCalling": True, "searchCapable": True, "agentTools": True},
-                "url_read",
-                ["web_search", "url_read"],
-                ["app_identity", "tool_failure_policy", "tool_usage_contract", "current_date"],
-            ),
-            (
-                "OpenAI 今天发布了什么？阅读官方公告后总结",
-                {"plan_mode": "off"},
-                {"functionCalling": True, "searchCapable": True, "agentTools": True},
-                "verified_web",
-                ["web_search", "url_read"],
-                [
-                    "app_identity",
-                    "tool_failure_policy",
-                    "tool_usage_contract",
-                    "current_date",
-                ],
-            ),
-            (
-                "明天上海天气怎样？",
-                {},
-                {"functionCalling": True, "searchCapable": True, "agentTools": True},
-                "weather",
-                ["web_search", "url_read", "weather_forecast"],
-                ["app_identity", "tool_failure_policy", "tool_usage_contract", "current_date"],
-            ),
-            (
-                "你好",
-                {"plan_mode": "on"},
-                {"functionCalling": True, "searchCapable": True, "agentTools": True},
-                "direct",
-                [],
-                ["app_identity", "agent_plan_control", "current_date"],
-            ),
-            (
-                "查一下今天最新的 OpenAI 新闻",
-                {"disable_tools": True},
-                {"functionCalling": True, "searchCapable": True, "agentTools": True},
-                "tools_unavailable",
-                [],
-                ["app_identity", "no_tool_network_boundary", "current_date"],
-            ),
-            (
-                "查今天上海天气",
-                {},
-                {"functionCalling": False, "searchCapable": True, "agentTools": True},
-                "tools_unavailable",
-                [],
-                ["app_identity", "no_tool_network_boundary", "current_date"],
-            ),
-        ]
-
-        async def build_messages(
-            _raw_messages,
-            _has_vision,
-            _repo,
-            _user_system_prompt,
-            *,
-            user_id=None,
-            conversation_id=None,
-            include_base_system=True,
-        ):
-            return [{"role": "user", "content": "原问题"}]
-
-        for message, options, capabilities, package_id, expected_external_tools, expected_sections in cases:
-            with self.subTest(message=message):
-                config = build_agent_loop_call_config(
-                    provider="openai",
-                    options=options,
-                    capabilities=capabilities,
-                    additional_tools=tools,
-                    dynamic_tool_handlers=handlers,
-                    tool_bindings=bindings,
-                    original_message=message,
-                    classify_fn=_classifier_for_removed_literal(message),
-                )
-                prepared = await prepare_agent_loop_messages(
-                    db=object(),
-                    user_id="user-1",
-                    raw_messages=[],
-                    has_vision=False,
-                    file_ids=None,
-                    original_message=message,
-                    call_config=config,
-                    file_repo_factory=lambda _db: object(),
-                    load_user_system_prompt_fn=lambda _db, _user_id: None,
-                    build_llm_messages_fn=build_messages,
-                    preprocess_user_input=False,
-                )
-
-                model_tool_names = [tool["function"]["name"] for tool in config.call_kwargs.get("tools", [])]
-                expected_control_tools = ["update_plan"] if "agent_plan_control" in expected_sections else []
-                self.assertEqual(config.capability_resolution.package_id, package_id)
-                self.assertEqual(config.announced_tools, expected_external_tools)
-                self.assertEqual(prepared.final_tool_names, expected_external_tools)
-                self.assertEqual(model_tool_names, [*expected_external_tools, *expected_control_tools])
-                self.assertEqual(set(config.dynamic_tool_handlers), set(expected_external_tools).intersection(handlers))
-                self.assertEqual(
-                    [binding["alias"] for binding in config.tool_bindings],
-                    [name for name in expected_external_tools if name in handlers],
-                )
-                self.assertEqual(prepared.prompt_assembly["section_ids"], expected_sections)
-
-    async def test_classifier_failure_fallback_injects_explicit_no_network_guidance_only_with_tools(self):
-        # 分类失败兜底给可选联网工具；用户明确不要联网时由这段提示约束回答模型。
-        for capabilities, expected in (
-            (
-                {"functionCalling": True, "searchCapable": True, "agentTools": True},
-                [
-                    "app_identity",
-                    "classifier_unavailable",
-                    "tool_failure_policy",
-                    "tool_usage_contract",
-                    "current_date",
-                ],
-            ),
-            (
-                {"functionCalling": False, "searchCapable": True, "agentTools": True},
-                ["app_identity", "no_tool_network_boundary", "current_date"],
-            ),
-        ):
-            with self.subTest(capabilities=capabilities):
-                config = build_agent_loop_call_config(
-                    provider="openai",
-                    options={},
-                    capabilities=capabilities,
-                    original_message="不要联网，说说你知道的最新 AI 进展",
-                    classify_fn=lambda **_: classifier_unavailable_route(),
-                )
-                prepared = await prepare_agent_loop_messages(
-                    db=object(),
-                    user_id="user-1",
-                    raw_messages=[],
-                    has_vision=False,
-                    file_ids=None,
-                    original_message="不要联网，说说你知道的最新 AI 进展",
-                    call_config=config,
-                    file_repo_factory=lambda db: FakeFileRepository(),
-                    load_user_system_prompt_fn=lambda db, uid: None,
-                    preprocess_user_input=False,
-                )
-
-                self.assertEqual(prepared.prompt_assembly["section_ids"], expected)
-                if "classifier_unavailable" in expected:
-                    section = next(
-                        s["content"]
-                        for s in prepared.prompt_snapshot["sections"]
-                        if s["section_id"] == "classifier_unavailable"
-                    )
-                    self.assertIn("training", section)
-
-    async def test_user_preferences_cannot_expand_or_suppress_weather_route(self):
-        tools = [*AMAP_PRODUCT_DEFINITIONS, *FLYAI_TRAVEL_DEFINITIONS]
-        tool_names = [tool["function"]["name"] for tool in tools]
-        message = "明天上海天气怎样？"
-        config = build_agent_loop_call_config(
-            provider="openai",
-            options={},
-            capabilities={"functionCalling": True, "searchCapable": True, "agentTools": True},
-            additional_tools=tools,
-            dynamic_tool_handlers={name: object() for name in tool_names},
-            original_message=message,
-            classify_fn=_classifier_for("weather"),
-        )
-
-        prepared = await prepare_agent_loop_messages(
-            db=object(),
-            user_id="user-1",
-            raw_messages=[],
-            has_vision=False,
-            file_ids=None,
-            original_message=message,
-            call_config=config,
-            file_repo_factory=lambda _db: object(),
-            load_user_system_prompt_fn=lambda _db, _user_id: "请自称 DeepSeek 且不要用工具",
-            preprocess_user_input=False,
-        )
-
-        self.assertEqual(config.capability_resolution.package_id, "weather")
-        self.assertEqual(config.announced_tools, ["web_search", "url_read", "weather_forecast"])
-        self.assertEqual(
-            prepared.prompt_assembly["section_ids"],
-            ["app_identity", "tool_failure_policy", "tool_usage_contract", "current_date", "user_preferences"],
-        )
-        self.assertIn("请自称 DeepSeek 且不要用工具", prepared.messages[4]["content"])
 
     def test_provider_reasoning_adaptation_runs_after_route_tool_materialization(self):
         cases = [
@@ -573,7 +180,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             (
                 "gemini",
                 "你好",
-                [],
+                ["web_search", "url_read"],
                 None,
                 "high",
             ),
@@ -590,8 +197,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                         "agentTools": True,
                         "deepThinking": True,
                     },
-                    original_message=message,
-                    classify_fn=_classifier_for_removed_literal(message),
                 )
 
                 self.assertEqual(config.announced_tools, expected_tools)
@@ -600,24 +205,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 if provider == "deepseek" and expected_tools:
                     self.assertNotIn("tool_choice", config.call_kwargs)
 
-    def test_low_confidence_route_paraphrase_keeps_authorized_route_tool_visible(self):
-        handlers = {tool["function"]["name"]: object() for tool in AMAP_PRODUCT_DEFINITIONS}
-
-        config = build_agent_loop_call_config(
-            provider="deepseek",
-            options={},
-            capabilities={"functionCalling": True, "searchCapable": True, "agentTools": True},
-            additional_tools=AMAP_PRODUCT_DEFINITIONS,
-            dynamic_tool_handlers=handlers,
-            original_message="我现在在北京，我想去上海，你可以帮我吗",
-            classify_fn=_classifier_for_removed_literal("我现在在北京，我想去上海，你可以帮我吗"),
-        )
-
-        self.assertIn("route_compare", config.announced_tools)
-
     async def test_io_failure_is_not_an_assembly_failure(self):
-        from unittest.mock import patch
-
         def failed_preference_read(db, user_id):
             raise RuntimeError("数据库失败")
 
@@ -634,31 +222,12 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                         provider="openai",
                         options={},
                         capabilities={"functionCalling": False},
-                        original_message="测试",
                     ),
                     file_repo_factory=lambda db: FakeFileRepository(),
                     load_user_system_prompt_fn=failed_preference_read,
                     preprocess_user_input=False,
                 )
             timer.assert_not_called()
-
-    def test_explicit_commute_plan_only_announces_route_tool(self):
-        handlers = {tool["function"]["name"]: object() for tool in AMAP_PRODUCT_DEFINITIONS}
-        config = build_agent_loop_call_config(
-            provider="deepseek",
-            options={"plan_mode": "on"},
-            capabilities={
-                "functionCalling": True,
-                "searchCapable": True,
-                "agentTools": True,
-            },
-            additional_tools=AMAP_PRODUCT_DEFINITIONS,
-            dynamic_tool_handlers=handlers,
-            original_message=("我住在南景新村，公司在双子塔，请帮我比较驾车、公交和地铁的通勤路线，并给出推荐选择。"),
-            classify_fn=_classifier_for("mobility_route", explicit_tool_names=("route_compare",)),
-        )
-
-        self.assertEqual(config.announced_tools, ["web_search", "url_read", "route_compare"])
 
     def test_deep_research_only_announces_stage_executable_tools(self):
         handlers = {tool["function"]["name"]: object() for tool in AMAP_PRODUCT_DEFINITIONS}
@@ -672,7 +241,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             },
             additional_tools=AMAP_PRODUCT_DEFINITIONS,
             dynamic_tool_handlers=handlers,
-            original_message="深度研究从南景新村到双子塔的地铁和驾车通勤路线。",
         )
 
         self.assertEqual(config.announced_tools, ["web_search", "url_read"])
@@ -685,8 +253,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                     provider="openai",
                     options=options,
                     capabilities={"functionCalling": True, "searchCapable": True},
-                    original_message="OpenAI 今天发布了什么？阅读官方公告后总结",
-                    classify_fn=_classifier_for_removed_literal("OpenAI 今天发布了什么？阅读官方公告后总结"),
                 )
 
                 model_tool_names = [tool["function"]["name"] for tool in config.call_kwargs["tools"]]
@@ -698,17 +264,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                     tool for tool in config.call_kwargs["tools"] if tool["function"]["name"] == "web_search"
                 )
                 self.assertNotIn("_plan_item_id", web_tool["function"]["parameters"]["properties"])
-
-    def test_standard_verified_research_announces_search_and_read(self):
-        config = build_agent_loop_call_config(
-            provider="openai",
-            options={"plan_mode": "on"},
-            capabilities={"functionCalling": True, "searchCapable": True},
-            original_message="请联网调研韩国股市，梳理主要争议并给出可靠来源。",
-            classify_fn=lambda **_: _CandidateRoute("verified_web", "high", ("verified_source_request",), True),
-        )
-
-        self.assertEqual(config.announced_tools, ["web_search", "url_read"])
 
     def test_deep_research_forces_plan_mode_and_records_task_policy(self):
         config = build_agent_loop_call_config(
@@ -752,8 +307,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             provider="openai",
             options={"plan_mode": "off"},
             capabilities={"functionCalling": True, "searchCapable": True},
-            original_message="今天上海证券交易所开市吗？",
-            classify_fn=_classifier_for("fresh_web"),
         )
 
         model_tool_names = [tool["function"]["name"] for tool in config.call_kwargs["tools"]]
@@ -768,8 +321,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             provider="openai",
             options={"plan_mode": "on"},
             capabilities={"functionCalling": True, "searchCapable": True},
-            original_message="今天上海证券交易所开市吗？",
-            classify_fn=_classifier_for("fresh_web"),
         )
 
         tools = {tool["function"]["name"]: tool for tool in config.call_kwargs["tools"]}
@@ -782,18 +333,16 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("enum", plan_item["properties"]["planned_tools"]["items"])
         self.assertEqual(plan_parameters["properties"]["plan"]["maxItems"], 14)
 
-    def test_control_plan_tool_only_requires_function_calling_not_search_capability(self):
+    def test_plan_mode_is_off_when_no_tool_is_available(self):
         config = build_agent_loop_call_config(
             provider="openai",
             options={"plan_mode": "on"},
             capabilities={"functionCalling": True, "searchCapable": False},
-            classify_fn=_classifier_for("direct"),
         )
 
-        self.assertEqual(
-            [tool["function"]["name"] for tool in config.call_kwargs["tools"]],
-            ["update_plan"],
-        )
+        self.assertEqual(config.capability_resolution.package_id, "tools_unavailable")
+        self.assertEqual(config.plan_mode, "off")
+        self.assertNotIn("tools", config.call_kwargs)
         self.assertEqual(config.announced_tools, [])
 
     def test_requested_on_mode_defensively_disables_when_model_cannot_call_control_tool(self):
@@ -868,8 +417,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             provider="volcengine",
             options={"plan_mode": "off"},
             capabilities={"functionCalling": True, "searchCapable": True, "deepThinking": True},
-            original_message="今天上海证券交易所开市吗？",
-            classify_fn=_classifier_for("fresh_web"),
         )
 
         self.assertTrue(config.should_use_reasoning)
@@ -946,8 +493,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             provider="volcengine",
             options={"use_reasoning": False},
             capabilities={"functionCalling": True, "searchCapable": True, "deepThinking": True},
-            original_message="OpenAI 今天发布了什么？阅读官方公告后总结",
-            classify_fn=_classifier_for_removed_literal("OpenAI 今天发布了什么？阅读官方公告后总结"),
         )
 
         self.assertFalse(config.should_use_reasoning)
@@ -972,8 +517,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             provider="openai",
             options={"plan_mode": "off"},
             capabilities={"functionCalling": True, "agentTools": False, "searchCapable": True},
-            original_message="今天上海证券交易所开市吗？",
-            classify_fn=_classifier_for("fresh_web"),
         )
 
         self.assertTrue(config.supports_function_calling)
@@ -1011,8 +554,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             additional_tools=[mcp_tool],
             dynamic_tool_handlers={"mcp_microsoft_docs_a1b2c3d4": handler},
             tool_bindings=[binding],
-            original_message="请使用 mcp_microsoft_docs_a1b2c3d4 查询 Microsoft Learn",
-            classify_fn=_classifier_for("mcp_explicit", explicit_tool_names=("mcp_microsoft_docs_a1b2c3d4",)),
         )
 
         self.assertFalse(config.supports_function_calling)
@@ -1022,48 +563,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(config.call_kwargs["tool_choice"], "auto")
         self.assertIs(config.dynamic_tool_handlers["mcp_microsoft_docs_a1b2c3d4"], handler)
         self.assertEqual(config.tool_bindings, [binding])
-
-    def test_classifier_receives_labeled_catalog_and_same_service_mcp_tools_are_announced(self):
-        def tool(name):
-            return {"type": "function", "function": {"name": name, "parameters": {"type": "object"}}}
-
-        names = ("mcp_c7_resolve", "mcp_c7_query", "mcp_learn_search")
-        bindings = [
-            {"alias": "mcp_c7_resolve", "server_id": "server-c7", "tool_label": "Context7 / resolve-library-id"},
-            {"alias": "mcp_c7_query", "server_id": "server-c7", "tool_label": "Context7 / query-docs"},
-            {"alias": "mcp_learn_search", "server_id": "server-learn", "tool_label": "Microsoft Learn / docs_search"},
-            {"alias": "mcp_not_loaded", "server_id": "server-x", "tool_label": "Unloaded / tool"},
-            {"alias": "local_place_search", "server_id": "amap-1", "tool_label": "高德 / local_place_search"},
-        ]
-        seen = {}
-        candidate = _model_candidate("mcp_explicit", explicit_tool_names=("mcp_c7_query", "mcp_c7_resolve"))
-
-        def classify(**kwargs):
-            seen.update(kwargs)
-            return candidate
-
-        config = build_agent_loop_call_config(
-            provider="openai",
-            options={"plan_mode": "off"},
-            capabilities={"functionCalling": True, "agentTools": True, "searchCapable": False},
-            additional_tools=[tool(name) for name in (*names, "local_place_search")],
-            dynamic_tool_handlers={name: object() for name in (*names, "local_place_search")},
-            tool_bindings=bindings,
-            original_message="FastAPI 的依赖注入怎么写？",
-            classify_fn=classify,
-        )
-
-        self.assertEqual(
-            [(entry.alias, entry.service_id, entry.label) for entry in seen["mcp_tool_catalog"]],
-            [
-                ("mcp_c7_resolve", "server-c7", "Context7 / resolve-library-id"),
-                ("mcp_c7_query", "server-c7", "Context7 / query-docs"),
-                ("mcp_learn_search", "server-learn", "Microsoft Learn / docs_search"),
-            ],
-        )
-        self.assertEqual(config.capability_resolution.package_id, "mcp_explicit")
-        self.assertEqual(config.announced_tools, ["mcp_c7_query", "mcp_c7_resolve"])
-        self.assertEqual([binding["alias"] for binding in config.tool_bindings], ["mcp_c7_query", "mcp_c7_resolve"])
 
     def test_build_call_config_injects_stable_amap_product_tool_without_false_network_boundary(self):
         product_tool = {
@@ -1082,8 +581,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             additional_tools=[product_tool],
             dynamic_tool_handlers={"local_place_search": handler},
             tool_bindings=[{"alias": "local_place_search", "server_id": "amap-1"}],
-            original_message="搜索民治附近的咖啡店",
-            classify_fn=_classifier_for_removed_literal("搜索民治附近的咖啡店"),
         )
         messages = [{"role": "user", "content": "搜索民治附近的咖啡店"}]
 
@@ -1178,9 +675,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                     additional_tools=[mcp_tool],
                     dynamic_tool_handlers={alias: handler},
                     tool_bindings=[binding],
-                    authorized_tool_names=[alias],
-                    original_message=message,
-                    classify_fn=_classifier_for("mcp_explicit", explicit_tool_names=("mcp_docs_a1b2c3d4",)),
                 )
                 prepared = await prepare_agent_loop_messages(
                     db=object(),
@@ -1197,7 +691,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 )
 
                 self.assertEqual(config.capability_resolution.package_id, "tools_unavailable")
-                self.assertEqual(config.capability_resolution.resolution_mode, "degraded")
                 self.assertEqual(config.capability_resolution.reason_codes, (expected_reason,))
                 self.assertTrue(config.capability_resolution.network_boundary_required)
                 self.assertEqual(config.capability_resolution.external_tool_names, ())
@@ -1215,8 +708,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             provider="openai",
             options={"disable_tools": True},
             capabilities={"functionCalling": True, "searchCapable": True},
-            authorized_tool_names=[alias],
-            original_message="请使用 mcp_unapproved_deadbeef 查询秘密资料",
             # 未授权别名不会出现在模型的可选工具里，模型不可能选中它，
             # 因此这里不注入候选：走分类失败兜底，再因工具被关闭降级。
         )
@@ -1224,23 +715,24 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(unauthorized.capability_resolution.external_tool_names, ())
         self.assertTrue(unauthorized.capability_resolution.network_boundary_required)
 
-    def test_authorized_mcp_alias_degrades_when_agent_tools_are_unsupported(self):
+    def test_authorized_mcp_alias_is_not_announced_when_agent_tools_are_unsupported(self):
         alias = "mcp_docs_a1b2c3d4"
+        mcp_tool = {
+            "type": "function",
+            "function": {"name": alias, "description": "docs", "parameters": {"type": "object", "properties": {}}},
+        }
         config = build_agent_loop_call_config(
             provider="openai",
             options={},
             capabilities={"functionCalling": True, "searchCapable": True, "agentTools": False},
-            authorized_tool_names=[alias],
-            original_message=f"请调用 {alias} 查询 Microsoft Learn",
-            classify_fn=_classifier_for("mcp_explicit", explicit_tool_names=("mcp_docs_a1b2c3d4",)),
+            additional_tools=[mcp_tool],
+            dynamic_tool_handlers={alias: object()},
         )
 
-        self.assertEqual(config.capability_resolution.package_id, "tools_unavailable")
-        self.assertEqual(config.capability_resolution.reason_codes, ("required_tools_unavailable",))
-        self.assertTrue(config.capability_resolution.network_boundary_required)
-        self.assertEqual(config.capability_resolution.external_tool_names, ())
-        self.assertEqual(config.announced_tools, [])
-        self.assertNotIn("tools", config.call_kwargs)
+        self.assertEqual(config.capability_resolution.package_id, "agent")
+        self.assertEqual(config.announced_tools, ["web_search", "url_read"])
+        self.assertNotIn(alias, [tool["function"]["name"] for tool in config.call_kwargs["tools"]])
+        self.assertEqual(config.dynamic_tool_handlers, {})
 
     def test_mcp_tool_prevents_false_no_network_boundary(self):
         messages = [{"role": "user", "content": "查一下 Microsoft Learn"}]
@@ -1281,8 +773,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 provider="qwen",
                 options={},
                 capabilities={"functionCalling": True, "agentTools": False},
-                original_message="OpenAI 最近发布了什么模型？",
-                classify_fn=_classifier_for("fresh_web"),
             ),
             file_repo_factory=lambda _db: object(),
             load_user_system_prompt_fn=lambda _db, _user_id: None,
@@ -1330,8 +820,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 provider="qwen",
                 options={},
                 capabilities={"functionCalling": True, "agentTools": False, "vision": False},
-                original_message="这张图里有什么？",
-                classify_fn=_classifier_for("direct"),
             ),
             file_repo_factory=lambda _db: object(),
             load_user_system_prompt_fn=lambda _db, _user_id: None,
@@ -1341,13 +829,14 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             [message["role"] for message in prepared.messages],
-            ["system", "system", "system", "user"],
+            ["system", "system", "system", "system", "user"],
         )
         self.assertIn("[No image-understanding capability]", prepared.messages[1]["content"])
         self.assertIn("cannot read or understand image attachments", prepared.messages[1]["content"])
         self.assertIn("Do not guess its contents", prepared.messages[1]["content"])
-        self.assertIn("[Current date]", prepared.messages[2]["content"])
-        self.assertEqual(prepared.messages[3]["content"], "这张图里有什么？")
+        self.assertEqual(prepared.messages[2].section_id, "no_tool_network_boundary")
+        self.assertIn("[Current date]", prepared.messages[3]["content"])
+        self.assertEqual(prepared.messages[4]["content"], "这张图里有什么？")
 
     async def test_prepare_messages_builds_llm_input_files_url_context_and_tool_contract(self):
         file_repo = FakeFileRepository()
@@ -1407,8 +896,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             provider="openai",
             options={"use_reasoning": True},
             capabilities={"functionCalling": True, "searchCapable": True, "deepThinking": True},
-            original_message="请阅读 https://example.com/a",
-            classify_fn=_classifier_for_removed_literal("请阅读 https://example.com/a"),
         )
 
         prepared = await prepare_agent_loop_messages(
@@ -1428,8 +915,8 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIsNone(build_calls[0]["user_system_prompt"])
-        self.assertIn("user's personalization preferences", prepared.messages[5]["content"])
-        self.assertIn("用户偏好", prepared.messages[5]["content"])
+        self.assertIn("user's personalization preferences", prepared.messages[6]["content"])
+        self.assertIn("用户偏好", prepared.messages[6]["content"])
         self.assertIs(build_calls[0]["repo"], file_repo)
         self.assertEqual(build_calls[0]["user_id"], "user-1")
         self.assertIsNone(build_calls[0]["conversation_id"])
@@ -1439,12 +926,12 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(prepared.final_tool_names, ["web_search", "url_read"])
         self.assertEqual(
             [message["role"] for message in prepared.messages],
-            ["system", "system", "system", "system", "system", "system", "user", "user"],
+            ["system", "system", "system", "system", "system", "system", "system", "user", "user"],
         )
         self.assertIn("[Fusion identity consistency]", prepared.messages[0]["content"])
         self.assertIn("[No image-understanding capability]", prepared.messages[1]["content"])
-        self.assertIn("<web_context>", prepared.messages[6]["content"])
-        self.assertIn("文档正文", prepared.messages[7]["content"])
+        self.assertIn("<web_context>", prepared.messages[7]["content"])
+        self.assertIn("文档正文", prepared.messages[8]["content"])
         self.assertEqual(call_config.announced_tools, ["web_search", "url_read"])
 
     def test_tool_usage_contract_uses_centralized_prompt(self):
@@ -1540,8 +1027,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 provider="openai",
                 options={},
                 capabilities={"functionCalling": False},
-                original_message="https://example.com",
-                classify_fn=_classifier_for("direct"),
             ),
             file_repo_factory=lambda _db: object(),
             load_user_system_prompt_fn=lambda _db, _user_id: None,
@@ -1555,12 +1040,12 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(prepared.initial_content_blocks, [])
         self.assertIn("Continue the previous response", prepared.messages[1].content)
-        self.assertEqual(prepared.messages[3]["role"], "user")
+        self.assertEqual(prepared.messages[4]["role"], "user")
         self.assertEqual(
-            [message.section_id for message in prepared.messages[:3]],
-            ["app_identity", "continuation_system", "current_date"],
+            [message.section_id for message in prepared.messages[:4]],
+            ["app_identity", "continuation_system", "no_tool_network_boundary", "current_date"],
         )
-        self.assertTrue(all(message.section_id is None for message in prepared.messages[3:]))
+        self.assertTrue(all(message.section_id is None for message in prepared.messages[4:]))
 
     async def test_prepare_messages_passes_conversation_scope_to_builder(self):
         build_calls = []

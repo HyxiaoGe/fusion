@@ -225,10 +225,6 @@ async def _run_success_path(
     prepared_messages = await _prepare_messages(
         request=request, execution=execution, dependencies=dependencies, grounding=grounding
     )
-    escalation = getattr(request.call_config, "escalation_session", None)
-    if escalation is not None:
-        escalation.rebuild_system_messages = prepared_messages.rebuild_system_messages
-        escalation.system_section_ids = frozenset(prepared_messages.system_section_ids)
     execution.state.content_blocks.extend(request.initial_content_blocks)
     execution.state.content_blocks.extend(prepared_messages.initial_content_blocks)
     # 预读成功的正文已注入本轮 messages，与工具读页同等入账；续跑带回的历史块不登记，
@@ -345,13 +341,9 @@ def configure_research_state(
     content_blocks: list[Any],
     allow_read_success: bool = True,
 ) -> None:
-    if (
-        getattr(call_config, "task_mode", "standard") != "deep_research"
-        and getattr(call_config, "evidence_policy", "standard") != "verified_web_v1"
-    ):
+    if getattr(call_config, "task_mode", "standard") != "deep_research":
         return
-    if getattr(call_config, "task_mode", "standard") == "deep_research":
-        state.configure_research_mode(network_required=True)
+    state.configure_research_mode(network_required=True)
     research_blocks = [
         block
         for block in content_blocks
@@ -411,8 +403,6 @@ async def _prepare_messages(
         final_tool_names=getattr(prepared, "final_tool_names", []),
         run_prompt_snapshot=run_snapshot,
         prompt_snapshot=snapshot_data,
-        rebuild_system_messages=getattr(prepared, "rebuild_system_messages", None),
-        system_section_ids=tuple(getattr(prepared, "system_section_ids", ()) or ()),
         prompt_assembly={
             **(prepared.prompt_assembly or {}),
             "status": "ready",
@@ -641,18 +631,6 @@ def _run_config(limits: AgentLoopLimits, call_config: AgentLoopCallConfig | None
     if bindings:
         config["mcp_tool_bindings"] = bindings
     resolution = getattr(call_config, "capability_resolution", None)
-    experiment = getattr(call_config, "discovery_experiment", None)
-    if getattr(call_config, "dynamic_tool_discovery", False) or experiment is not None:
-        session = getattr(call_config, "tool_discovery", None)
-        config["dynamic_tool_discovery"] = {
-            "enabled": True,
-            "authorized_tool_names": list(getattr(session, "catalog_names", lambda: [])()),
-            "initial_visible_tools": list(getattr(call_config, "announced_tools", []) or []),
-            "unsupported_scenes": list(getattr(session, "unsupported_scenes", ())),
-            "catalog_evidence_note": getattr(experiment, "catalog_evidence_note", None),
-            "requires_catalog_evidence": bool(getattr(experiment, "requires_catalog_evidence", False)),
-        }
-        return config
     if resolution is not None:
         config["capability_resolution"] = capability_resolution_trajectory_payload(call_config)
     return config
@@ -681,10 +659,7 @@ def _safe_tool_bindings(call_config: AgentLoopCallConfig | None) -> list[dict]:
 
 
 def capability_resolution_trajectory_payload(call_config: AgentLoopCallConfig) -> dict:
-    """能力 resolution 的轨迹协议对象，指纹覆盖 Prompt 模板、公告工具与绑定。
-
-    首判写进 run_started，Run 内升级写进 capability_escalated，两者同一算法。
-    """
+    """能力 resolution 的轨迹协议对象，指纹覆盖 Prompt 模板、公告工具与绑定。"""
 
     resolution = call_config.capability_resolution
     if resolution is None:

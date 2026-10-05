@@ -22,7 +22,6 @@ from app.services.stream import (
     agent_loop_round_outcome,
     limit_summary,
 )
-from app.services.stream.run_capability_model_classifier import _system_prompt
 from app.services.stream.safe_fallback_response import SUPPORTED_FALLBACK_LOCALES
 
 _CJK = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
@@ -51,7 +50,7 @@ def _assert_schema_descriptions_are_english(value, *, path: str) -> None:
             _assert_schema_descriptions_are_english(item, path=f"{path}[{index}]")
 
 
-def test_static_system_prompts_and_classifier_are_english():
+def test_static_system_prompts_are_english():
     modules = (
         agent_loop,
         product_results,
@@ -67,7 +66,6 @@ def test_static_system_prompts_and_classifier_are_english():
             if isinstance(value, str) and ("PROMPT" in name or "CONTRACT" in name or name == "SYSTEM_PROMPT"):
                 _assert_english(value, path=f"{module.__name__}.{name}")
     _assert_english(CODE_DEFAULT_PROMPT_TEMPLATES, path="CODE_DEFAULT_PROMPT_TEMPLATES")
-    _assert_english(_system_prompt(), path="run_capability_model_classifier._system_prompt")
 
 
 def test_tool_definitions_are_english():

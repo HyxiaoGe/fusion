@@ -169,7 +169,7 @@ def _planned_research_state(
 
 
 class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
-    async def test_product_package_without_tool_attempt_defers_model_answer_in_auto_and_off_modes(self):
+    async def test_answer_without_tool_attempt_streams_directly_in_auto_and_off_modes(self):
         for plan_mode in ("auto", "off"):
             with self.subTest(plan_mode=plan_mode):
                 observed = []
@@ -204,7 +204,8 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
                     ),
                 )
 
-                self.assertEqual(observed, [True])
+                # 服务端不再替换回答，模型没调工具时直接流式交付，不先缓存。
+                self.assertEqual(observed, [None])
 
     async def test_weather_result_adds_temporary_round_constraint_without_mutating_run_messages(self):
         captured = []
@@ -372,52 +373,6 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIsNone(outcome)
         return state, rounds, summaries
-
-    async def test_document_mode_writes_document_before_tool_free_synthesis(self):
-        state, rounds, summaries = await self._deliver_document_scenario(
-            round_result=AgentRoundResult(
-                reasoning_buf="",
-                content_buf="",
-                tool_calls=[{"id": "tc-doc", "name": "create_document", "arguments": "{}"}],
-                finish_reason="tool_calls",
-                accumulated_usage=Usage(input_tokens=2, output_tokens=3),
-            )
-        )
-
-        self.assertEqual(len(rounds), 1)
-        call_kwargs = rounds[0]["call_kwargs"]
-        self.assertEqual(sorted(_tool_names(call_kwargs)), ["create_document", "edit_document"])
-        self.assertEqual(call_kwargs["tool_choice"], "required")
-        self.assertEqual(rounds[0]["messages"][-1].section_id, "document_delivery_round")
-        self.assertTrue(state.document_delivery_attempted)
-        self.assertEqual(len(summaries), 1)
-        self.assertTrue(summaries[0].document_delivered)
-
-    async def test_document_round_without_tool_call_falls_back_to_summary_once(self):
-        state, rounds, summaries = await self._deliver_document_scenario(
-            round_result=AgentRoundResult(
-                reasoning_buf="",
-                content_buf="正文里的攻略",
-                tool_calls=[],
-                finish_reason="stop",
-                accumulated_usage=Usage(input_tokens=2, output_tokens=3),
-            )
-        )
-
-        self.assertEqual(len(rounds), 1)
-        self.assertTrue(state.document_delivery_attempted)
-        self.assertEqual(len(summaries), 1)
-        self.assertFalse(summaries[0].document_delivered)
-
-    async def test_document_round_skipped_without_required_evidence(self):
-        state, rounds, summaries = await self._deliver_document_scenario(
-            round_result=None,
-            capability_resolution=SimpleNamespace(requires_catalog_evidence=True, package_id="fresh_web"),
-        )
-
-        self.assertEqual(rounds, [])
-        self.assertFalse(state.document_delivery_attempted)
-        self.assertFalse(summaries[0].document_delivered)
 
     async def test_document_round_skipped_when_document_already_written(self):
         state, rounds, summaries = await self._deliver_document_scenario(

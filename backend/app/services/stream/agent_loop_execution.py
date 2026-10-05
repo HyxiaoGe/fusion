@@ -228,8 +228,6 @@ def build_agent_loop_runtime(
             preferred_locale=request.response_language,
         ),
         tool_discovery=getattr(request.call_config, "tool_discovery", None),
-        capability_escalation=getattr(request.call_config, "escalation_session", None),
-        escalation_tool_names=frozenset(getattr(request.call_config, "escalation_tool_names", frozenset())),
     )
 
 

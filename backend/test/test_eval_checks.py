@@ -21,8 +21,7 @@ def _case(checks, **extra):
 def _snapshot(**overrides):
     snapshot = {
         "status": "completed",
-        "first_package": "weather",
-        "escalations": [],
+        "mode": "agent",
         "skills": [],
         "tool_calls": [
             {
@@ -64,12 +63,10 @@ class RunStatusTests(unittest.TestCase):
 
 
 class DeterministicCheckTests(unittest.TestCase):
-    def test_first_package(self):
-        passed = _run(_case([{"type": "first_package", "any_of": ["weather"]}]), _snapshot())
-        failed = _run(_case([{"type": "first_package", "any_of": ["direct"]}]), _snapshot())
-
-        self.assertEqual(_by_type(passed)["first_package"].status, "passed")
-        self.assertEqual(_by_type(failed)["first_package"].status, "failed")
+    def test_removed_check_types_are_rejected(self):
+        for check_type in ("first_package", "escalation"):
+            with self.subTest(check_type=check_type), self.assertRaises(ValueError):
+                _case([{"type": check_type, "any_of": ["weather"]}])
 
     def test_tool_called_counts_and_upper_bound(self):
         two_calls = _snapshot(tool_calls=_snapshot()["tool_calls"] * 2)
@@ -152,32 +149,6 @@ class DeterministicCheckTests(unittest.TestCase):
         self.assertEqual(_by_type(present)["answer_block"].status, "passed")
         self.assertEqual(_by_type(absent)["answer_block"].status, "passed")
         self.assertEqual(_by_type(unexpected)["answer_block"].status, "failed")
-
-
-class EscalationCheckTests(unittest.TestCase):
-    def _check(self, snapshot, **check):
-        return _by_type(_run(_case([{"type": "escalation", **check}]), snapshot))["escalation"]
-
-    def test_none_rejects_escalation_and_capability_requests(self):
-        escalated = _snapshot(escalations=[{"from": "direct", "to": "fresh_web"}])
-        requested_only = _snapshot(tool_calls=[{"tool": "request_capability", "arguments": {}}])
-
-        self.assertEqual(self._check(escalated, expect="none").status, "failed")
-        self.assertEqual(self._check(requested_only, expect="none").status, "failed")
-        self.assertEqual(self._check(_snapshot(tool_calls=[]), expect="none").status, "passed")
-
-    def test_escalate_requires_escalation_into_targets(self):
-        to_weather = _snapshot(escalations=[{"from": "direct", "to": "weather"}])
-
-        self.assertEqual(self._check(_snapshot(), expect="escalate").status, "failed")
-        self.assertEqual(self._check(to_weather, expect="escalate", targets=["weather"]).status, "passed")
-        self.assertEqual(self._check(to_weather, expect="escalate", targets=["fresh_web"]).status, "failed")
-
-    def test_either_accepts_no_escalation_but_still_checks_targets(self):
-        to_train = _snapshot(escalations=[{"from": "direct", "to": "train"}])
-
-        self.assertEqual(self._check(_snapshot(), expect="either", targets=["weather"]).status, "passed")
-        self.assertEqual(self._check(to_train, expect="either", targets=["weather"]).status, "failed")
 
 
 class JudgeCheckTests(unittest.TestCase):

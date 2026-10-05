@@ -17,7 +17,6 @@ import {
   getAdminModel,
   getAdminModels,
   getAdminItineraryStability,
-  getAdminRoutingQuality,
   getAdminUsers,
   importAdminPerformanceRun,
 } from './adminAudit';
@@ -135,17 +134,4 @@ describe('管理员审计 API', () => {
     );
   });
 
-  it('路由质量只发送时间窗口', async () => {
-    const signal = new AbortController().signal;
-
-    await getAdminRoutingQuality({
-      created_from: '2026-09-28T10:00:00.000+08:00',
-      created_to: '2026-09-29T10:00:00.000+08:00',
-    }, signal);
-
-    expect(apiRequestMock).toHaveBeenCalledWith(
-      '/api/admin/audit/routing-quality?created_from=2026-09-28T10%3A00%3A00.000%2B08%3A00&created_to=2026-09-29T10%3A00%3A00.000%2B08%3A00',
-      { signal },
-    );
-  });
 });

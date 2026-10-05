@@ -18,23 +18,19 @@ import {
 const timestamp = '2026-08-22T00:00:00.000Z';
 
 function capabilityResolution(
-  packageId: 'weather' | 'fresh_web',
+  packageId: 'agent' | 'deep_research',
   toolName: 'weather_forecast' | 'web_search',
 ): TrajectoryCapabilityResolution {
   return {
-    schema_version: 1 as const,
-    router_version: '2026-08-27.1',
+    schema_version: 3 as const,
+    router_version: '2026-10-05.1',
     package_id: packageId,
-    confidence: 'high' as const,
-    resolution_mode: 'routed' as const,
-    reason_codes: [
-      packageId === 'weather' ? 'explicit_weather_request' : 'fresh_external_fact',
-    ],
+    reason_codes: [packageId === 'agent' ? 'all_available_tools' : 'deep_research_mode'],
     external_tool_names: [toolName],
+    deferred_tool_names: [],
     effective_plan_mode: 'off' as const,
-    include_current_date: true,
     network_boundary_required: false,
-    bundle_fingerprint: `sha256:${(packageId === 'weather' ? 'a' : 'b').repeat(64)}`,
+    bundle_fingerprint: `sha256:${(packageId === 'agent' ? 'a' : 'b').repeat(64)}`,
   };
 }
 
@@ -106,12 +102,9 @@ function input(overrides: Partial<TrajectoryCellProjectionInput> = {}): Trajecto
 describe('TrajectoryCellProjection', () => {
   it('Run summary 原样展示后端下发的工具顺序，不再由 UI 判定 canonical', () => {
     const reversed: TrajectoryCapabilityResolution = {
-      ...capabilityResolution('fresh_web', 'web_search'),
-      package_id: 'mobility_intercity',
-      confidence: 'medium',
-      reason_codes: ['origin_destination_relation', 'intercity_locations'],
+      ...capabilityResolution('agent', 'web_search'),
       external_tool_names: ['search_trains', 'route_compare'],
-      effective_plan_mode: 'auto',
+      effective_plan_mode: 'on',
     };
     const canonical: TrajectoryCapabilityResolution = {
       ...reversed,
@@ -139,20 +132,14 @@ describe('TrajectoryCellProjection', () => {
 
   it('Run summary 的跨字段组合不再由 UI 判定合法性', () => {
     const unavailable: TrajectoryCapabilityResolution = {
-      ...capabilityResolution('fresh_web', 'web_search'),
+      ...capabilityResolution('deep_research', 'web_search'),
       package_id: 'tools_unavailable',
-      confidence: 'high',
-      resolution_mode: 'degraded',
       reason_codes: ['tools_disabled'],
-      effective_plan_mode: 'off',
-      include_current_date: false,
       network_boundary_required: true,
     };
     const invalidMcp: TrajectoryCapabilityResolution = {
-      ...capabilityResolution('fresh_web', 'web_search'),
-      package_id: 'mcp_explicit',
-      reason_codes: ['explicit_authorized_tool_alias'],
-      include_current_date: false,
+      ...capabilityResolution('deep_research', 'web_search'),
+      external_tool_names: ['mcp_unrelated_tool'],
     };
     const unavailableRun = runSummary('invalid-unavailable', { capability_resolution: unavailable });
     const mcpRun = runSummary('invalid-mcp', { capability_resolution: invalidMcp });
@@ -172,7 +159,7 @@ describe('TrajectoryCellProjection', () => {
 
   it('Run summary 的合法能力路由优先于冲突的实时事件', () => {
     const summary = runSummary('summary-first', {
-      capability_resolution: capabilityResolution('weather', 'weather_forecast'),
+      capability_resolution: capabilityResolution('agent', 'weather_forecast'),
     });
     const projection = projectTrajectoryCells(input({
       runs: [summary],
@@ -181,7 +168,7 @@ describe('TrajectoryCellProjection', () => {
         'summary-first': [event('summary-first', 0, 'run_started', {
           payload: {
             tools: ['web_search'],
-            capability_resolution: capabilityResolution('fresh_web', 'web_search'),
+            capability_resolution: capabilityResolution('deep_research', 'web_search'),
           },
         })],
       },
@@ -190,44 +177,10 @@ describe('TrajectoryCellProjection', () => {
     expect(projection.unassociatedCells[0]).toMatchObject({
       type: 'run',
       capabilityResolution: {
-        package_id: 'weather',
+        package_id: 'agent',
         external_tool_names: ['weather_forecast'],
       },
     });
-  });
-
-  it('首判保持不变，升级事件单独投影为 capabilityEscalation', () => {
-    const summary = runSummary('escalated', {
-      capability_resolution: { ...capabilityResolution('weather', 'weather_forecast'), package_id: 'direct', external_tool_names: [] },
-    });
-    const escalated = capabilityResolution('fresh_web', 'web_search');
-    const projection = projectTrajectoryCells(input({
-      runs: [summary],
-      runSummariesById: { escalated: summary },
-      liveEventsByRunId: {
-        escalated: [
-          event('escalated', 3, 'capability_escalated', {
-            payload: { step_number: 'x', from_package_id: 'direct', capability_resolution: escalated },
-          }),
-          event('escalated', 4, 'capability_escalated', {
-            payload: { step_number: 1, from_package_id: 'direct', capability_resolution: escalated },
-          }),
-        ],
-      },
-    }));
-
-    expect(projection.unassociatedCells[0]).toMatchObject({
-      type: 'run',
-      capabilityResolution: { package_id: 'direct' },
-      capabilityEscalation: { fromPackageId: 'direct', stepNumber: 1, resolution: escalated },
-    });
-  });
-
-  it('没有升级事件时 capabilityEscalation 为 null', () => {
-    const summary = runSummary('plain', { capability_resolution: capabilityResolution('weather', 'weather_forecast') });
-    const projection = projectTrajectoryCells(input({ runs: [summary], runSummariesById: { plain: summary } }));
-
-    expect(projection.unassociatedCells[0]).toMatchObject({ type: 'run', capabilityEscalation: null });
   });
 
   it('Run summary 尚未返回能力路由时使用当前 Run 的合法 run_started 值', () => {
@@ -239,7 +192,7 @@ describe('TrajectoryCellProjection', () => {
         'live-only': [event('live-only', 0, 'run_started', {
           payload: {
             tools: ['web_search'],
-            capability_resolution: capabilityResolution('fresh_web', 'web_search'),
+            capability_resolution: capabilityResolution('deep_research', 'web_search'),
           },
         })],
       },
@@ -248,7 +201,7 @@ describe('TrajectoryCellProjection', () => {
     expect(projection.unassociatedCells[0]).toMatchObject({
       type: 'run',
       capabilityResolution: {
-        package_id: 'fresh_web',
+        package_id: 'deep_research',
         external_tool_names: ['web_search'],
       },
     });
@@ -264,7 +217,7 @@ describe('TrajectoryCellProjection', () => {
           event('legacy-resolution', 0, 'run_started', {
             payload: {
               tools: ['web_search'],
-              capability_resolution: capabilityResolution('fresh_web', 'web_search'),
+              capability_resolution: capabilityResolution('deep_research', 'web_search'),
             },
           }),
           event('legacy-resolution', 1, 'system_prompt_prepared', {
@@ -325,7 +278,7 @@ describe('TrajectoryCellProjection', () => {
       dynamicToolDiscovery: true,
     });
     expect(buildTrajectoryNodeDetailModel(runCell!, null).summaryFields).toEqual([
-      { label: '能力路由', value: '动态工具发现' },
+      { label: '工具边界', value: '动态工具发现' },
     ]);
     expect(JSON.stringify(buildTrajectoryNodeDetailModel(runCell!, null).summaryFields)).not.toContain('web_search');
   });
@@ -364,7 +317,7 @@ describe('TrajectoryCellProjection', () => {
       .find(cell => cell.type === 'run');
 
     expect(buildTrajectoryNodeDetailModel(runCell!, null).summaryFields).toEqual([
-      { label: '能力路由', value: '动态工具发现' },
+      { label: '工具边界', value: '动态工具发现' },
     ]);
   });
 
@@ -412,17 +365,17 @@ describe('TrajectoryCellProjection', () => {
       dynamicToolDiscovery: false,
     });
     expect(buildTrajectoryNodeDetailModel(runCell!, null).summaryFields).toEqual([
-      { label: '能力路由', value: '该历史运行未记录能力路由' },
+      { label: '工具边界', value: '该运行未记录工具边界（旧版记录不再展示）' },
     ]);
     expect(JSON.stringify(buildTrajectoryNodeDetailModel(runCell!, null).summaryFields)).not.toContain('web_search');
   });
 
   it('同一会话的两个 Run 分别保留自己的能力包与初始工具', () => {
     const weather = runSummary('weather-run', {
-      capability_resolution: capabilityResolution('weather', 'weather_forecast'),
+      capability_resolution: capabilityResolution('agent', 'weather_forecast'),
     });
     const web = runSummary('web-run', {
-      capability_resolution: capabilityResolution('fresh_web', 'web_search'),
+      capability_resolution: capabilityResolution('deep_research', 'web_search'),
     });
     const projection = projectTrajectoryCells(input({
       runs: [weather, web],
@@ -438,8 +391,8 @@ describe('TrajectoryCellProjection', () => {
       cell.capabilityResolution?.package_id,
       cell.capabilityResolution?.external_tool_names,
     ])).toEqual([
-      ['weather-run', 'weather', ['weather_forecast']],
-      ['web-run', 'fresh_web', ['web_search']],
+      ['weather-run', 'agent', ['weather_forecast']],
+      ['web-run', 'deep_research', ['web_search']],
     ]);
   });
 

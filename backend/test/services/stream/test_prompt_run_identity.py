@@ -1,4 +1,4 @@
-"""真实事务确保分类前有身份，分类完成只能补配置，不能重置运行。"""
+"""真实事务确保构建调用配置前有身份，配置完成只能补配置，不能重置运行。"""
 
 import asyncio
 from dataclasses import replace
@@ -15,7 +15,6 @@ from app.db.models import AgentSession, Conversation, User
 from app.services.agent import session_cache
 from app.services.stream import runner
 from app.services.stream.agent_loop_request_prep import build_agent_loop_call_config
-from app.services.stream.run_capability_router import _CandidateRoute
 
 
 @pytest.fixture
@@ -54,17 +53,17 @@ def run_kwargs():
 
 
 @pytest.mark.anyio
-async def test_identity_commit_failure_prevents_classifier_and_business_model():
+async def test_identity_commit_failure_prevents_call_config_and_business_model():
     entered = []
 
-    def classify(**kwargs):
-        entered.append("classifier")
-        raise AssertionError("不应进入分类")
+    def build_config(**kwargs):
+        entered.append("call_config")
+        raise AssertionError("不应构建调用配置")
 
     with (
         patch.object(runner, "SessionLocal", return_value=MagicMock()),
         patch.object(runner, "prepare_agent_loop_call_config_inputs", return_value=SimpleNamespace()),
-        patch.object(runner, "build_agent_loop_call_config_from_inputs", side_effect=classify),
+        patch.object(runner, "build_agent_loop_call_config_from_inputs", side_effect=build_config),
         patch.object(session_cache, "write_session_started", AsyncMock(side_effect=RuntimeError("身份事务失败"))),
         patch.object(runner, "_run_agent_loop_lifecycle_call", AsyncMock(side_effect=AssertionError("不应进入主模型"))),
         patch.object(runner, "finalize_stream", AsyncMock()) as finalize,
@@ -77,21 +76,20 @@ async def test_identity_commit_failure_prevents_classifier_and_business_model():
 
 
 @pytest.mark.anyio
-async def test_classifier_observes_committed_identity_and_pre_lifecycle_error_terminates_run(session_factory):
+async def test_call_config_observes_committed_identity_and_pre_lifecycle_error_terminates_run(session_factory):
     seen = []
 
-    def classify(**kwargs):
+    def build_config(**kwargs):
         with session_factory() as db:
             row = db.get(AgentSession, "r1")
-            assert row is not None, "分类前必须已经原子创建 Run"
+            assert row is not None, "构建调用配置前必须已经原子创建 Run"
             seen.append(row.run_config["prompt_bundle"])
-        return _CandidateRoute("direct", "high", ("stable_knowledge_question",), True)
+        return build_agent_loop_call_config(**kwargs)
 
     dependencies = replace(
         runner._agent_loop_wiring_dependencies(),
-        build_call_config_fn=lambda **kwargs: build_agent_loop_call_config(**kwargs, classify_fn=classify),
+        build_call_config_fn=build_config,
         load_dynamic_tools_fn=None,
-        load_authorized_tool_names_fn=None,
     )
     with (
         patch.object(runner, "SessionLocal", session_factory),
@@ -168,18 +166,16 @@ def anyio_backend():
 
 
 @pytest.mark.anyio
-async def test_classifier_cancellation_expires_gate_and_terminates_identity_run(session_factory):
+async def test_call_config_cancellation_terminates_identity_run(session_factory):
     with (
         patch.object(runner, "SessionLocal", session_factory),
         patch.object(runner, "prepare_agent_loop_call_config_inputs", return_value=SimpleNamespace()),
         patch.object(runner, "build_agent_loop_call_config_from_inputs", side_effect=asyncio.CancelledError()),
-        patch.object(runner, "ClassifierDeadlineGate") as gate,
         patch.object(runner, "finalize_stream", AsyncMock()) as finalize,
         patch.object(runner, "_run_agent_loop_lifecycle_call", AsyncMock()) as lifecycle,
         pytest.raises(asyncio.CancelledError),
     ):
         await runner.StreamHandler().generate_to_redis(**run_kwargs())
-    gate.return_value.expire.assert_called_once()
     lifecycle.assert_not_awaited()
     assert finalize.await_args.kwargs["error_code"] == "stream_interrupted"
     with session_factory() as db:

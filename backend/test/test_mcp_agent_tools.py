@@ -17,7 +17,6 @@ from app.services.mcp.agent_tools import (  # noqa: E402
     McpAgentToolLimits,
     McpAgentToolRunBudget,
     load_mcp_agent_tools,
-    load_mcp_authorized_tool_aliases,
 )
 from app.services.mcp.client import (  # noqa: E402
     McpClientError,
@@ -26,7 +25,6 @@ from app.services.mcp.client import (  # noqa: E402
 )
 from app.services.mcp.server_service import McpServerService  # noqa: E402
 from app.services.mcp.tool_contract import (  # noqa: E402
-    build_agent_tool_alias,
     canonical_json_bytes,
     is_valid_tool_snapshot,
     sanitize_tool_schema_for_model,
@@ -165,74 +163,7 @@ def load_tools(rows, **kwargs):
     )
 
 
-def load_authorized_aliases(rows):
-    return load_mcp_authorized_tool_aliases(
-        object(),
-        repository_factory=lambda _db: FakeRepository(rows),
-    )
-
-
 class McpAgentToolCatalogTests(unittest.TestCase):
-    def test_authorized_alias_projection_keeps_seventeenth_tool_beyond_execution_count_budget(self):
-        tool_names = [f"tool_{index:02d}" for index in range(1, 18)]
-        row = build_row(
-            allowed_tools=tool_names,
-            discovered_tools=[
-                {
-                    "name": name,
-                    "description": name,
-                    "input_schema": {"type": "object"},
-                }
-                for name in tool_names
-            ],
-        )
-        seventeenth_alias = build_agent_tool_alias(row.id, tool_names[-1])
-
-        executable_aliases = {definition["function"]["name"] for definition in load_tools([row]).definitions}
-        authorized_aliases = load_authorized_aliases([row])
-
-        self.assertEqual(len(executable_aliases), 16)
-        self.assertNotIn(seventeenth_alias, executable_aliases)
-        self.assertEqual(len(authorized_aliases), 17)
-        self.assertIn(seventeenth_alias, authorized_aliases)
-
-    def test_authorized_alias_projection_keeps_tool_beyond_execution_schema_byte_budget(self):
-        snapshots = [
-            {
-                "name": "tool_01",
-                "description": "小 schema",
-                "input_schema": {"type": "object"},
-            },
-            {
-                "name": "tool_02",
-                "description": "大 schema",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {f"field_{index}": {"type": "string"} for index in range(64)},
-                },
-            },
-        ]
-        row = build_row(
-            allowed_tools=[snapshot["name"] for snapshot in snapshots],
-            discovered_tools=snapshots,
-        )
-        first_only_row = build_row(
-            allowed_tools=[snapshots[0]["name"]],
-            discovered_tools=[snapshots[0]],
-        )
-        first_definition_bytes = len(canonical_json_bytes(load_tools([first_only_row]).definitions))
-        limits = McpAgentToolLimits(max_definition_bytes=first_definition_bytes)
-        trimmed_alias = build_agent_tool_alias(row.id, snapshots[1]["name"])
-
-        executable_aliases = {
-            definition["function"]["name"] for definition in load_tools([row], limits=limits).definitions
-        }
-        authorized_aliases = load_authorized_aliases([row])
-
-        self.assertEqual(executable_aliases, {build_agent_tool_alias(row.id, snapshots[0]["name"])})
-        self.assertNotIn(trimmed_alias, executable_aliases)
-        self.assertIn(trimmed_alias, authorized_aliases)
-
     def test_rejects_non_finite_numbers_from_canonical_snapshots(self):
         for value in (float("nan"), float("inf"), float("-inf")):
             with self.subTest(value=value):
@@ -383,23 +314,6 @@ class McpAgentToolCatalogTests(unittest.TestCase):
             ).encode("utf-8")
         )
         self.assertLessEqual(total_bytes, limits.max_definition_bytes)
-
-    def test_authorized_alias_projection_skips_official_amap_raw_tools(self):
-        amap_row = build_row(
-            id="server-amap",
-            provider="amap",
-            endpoint_url="https://mcp.amap.com/mcp",
-            allowed_tools=["maps_geo"],
-            discovered_tools=[{"name": "maps_geo", "description": "地理编码", "input_schema": {"type": "object"}}],
-        )
-        docs_row = build_row(
-            allowed_tools=["query_docs"],
-            discovered_tools=[{"name": "query_docs", "description": "查文档", "input_schema": {"type": "object"}}],
-        )
-
-        aliases = load_authorized_aliases([amap_row, docs_row])
-
-        self.assertEqual(aliases, [build_agent_tool_alias(str(docs_row.id), "query_docs")])
 
     def test_amap_catalog_hides_products_when_dependencies_are_incomplete(self):
         row = build_row(

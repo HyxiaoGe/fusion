@@ -114,15 +114,13 @@ function runCell(): Extract<TrajectoryCell, { type: 'run' }> {
     association: 'explicit',
     trajectoryBadge: { status: 'complete', source: 'run-summary', reason: null },
     capabilityResolution: {
-      schema_version: 1,
-      router_version: '2026-08-27.1',
-      package_id: 'weather',
-      confidence: 'high',
-      resolution_mode: 'routed',
-      reason_codes: ['explicit_weather_request'],
+      schema_version: 3,
+      router_version: '2026-10-05.1',
+      package_id: 'agent',
+      reason_codes: ['all_available_tools'],
       external_tool_names: ['weather_forecast'],
+      deferred_tool_names: [],
       effective_plan_mode: 'off',
-      include_current_date: true,
       network_boundary_required: false,
       bundle_fingerprint: `sha256:${'a'.repeat(64)}`,
     },
@@ -296,27 +294,23 @@ describe('TrajectoryNodeDetailPanel', () => {
     vi.useRealTimers();
   });
 
-  it('保持同一 Run Detail 打开时切换语言会重算能力路由字段', async () => {
+  it('保持同一 Run Detail 打开时切换语言会重算工具边界字段', async () => {
     await i18n.changeLanguage('zh-CN');
     renderPanel(runCell());
     const summary = screen.getByRole('tabpanel', { name: '摘要' });
-    expect(within(summary).getByText('能力包')).toBeInTheDocument();
-    expect(within(summary).getByText('天气 · weather')).toBeInTheDocument();
-    expect(within(summary).getByText('高')).toBeInTheDocument();
-    expect(within(summary).getByText('已路由')).toBeInTheDocument();
+    expect(within(summary).getByText('模式')).toBeInTheDocument();
+    expect(within(summary).getByText('全部可用工具 · agent')).toBeInTheDocument();
     expect(within(summary).getByText('关闭')).toBeInTheDocument();
 
     await act(async () => i18n.changeLanguage('en-US'));
 
-    expect(within(summary).getByText('Capability package')).toBeInTheDocument();
-    expect(within(summary).getByText('Weather · weather')).toBeInTheDocument();
-    expect(within(summary).getByText('High')).toBeInTheDocument();
-    expect(within(summary).getByText('Routed')).toBeInTheDocument();
-    expect(within(summary).getByText('Initial external tools for Run')).toBeInTheDocument();
+    expect(within(summary).getByText('Mode')).toBeInTheDocument();
+    expect(within(summary).getByText('All available tools · agent')).toBeInTheDocument();
+    expect(within(summary).getByText('Announced tools')).toBeInTheDocument();
     expect(within(summary).getByText('Off')).toBeInTheDocument();
     expect(within(summary).getByText('Router version')).toBeInTheDocument();
-    expect(within(summary).getByText('Capability bundle fingerprint')).toBeInTheDocument();
-    expect(within(summary).queryByText('能力包')).not.toBeInTheDocument();
+    expect(within(summary).getByText('Tool bundle fingerprint')).toBeInTheDocument();
+    expect(within(summary).queryByText('模式')).not.toBeInTheDocument();
   });
 
   it('初始 Tool 与非 Tool 都只显示本地 Summary，点击 Payload 后才请求且 Result 复用响应', async () => {

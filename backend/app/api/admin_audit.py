@@ -343,26 +343,6 @@ def get_itinerary_stability(
     )
 
 
-@router.get("/routing-quality")
-def get_routing_quality(
-    request: Request,
-    created_from: datetime | None = None,
-    created_to: datetime | None = None,
-    reason: str | None = Header(None, alias="X-Admin-Audit-Reason", max_length=300),
-    service: AdminAuditService = Depends(get_admin_audit_service),
-    auditor: User = Depends(get_conversation_auditor),
-):
-    return success(
-        data=service.get_routing_quality(
-            admin=auditor,
-            **_context(request, reason),
-            created_from=created_from,
-            created_to=created_to,
-        ),
-        request_id=request.state.request_id,
-    )
-
-
 @router.get("/models/{model_id:path}")
 def get_model(
     model_id: str,

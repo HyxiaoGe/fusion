@@ -497,15 +497,12 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             call_kwargs={},
             announced_tools=["web_search"],
             capability_resolution=RunCapabilityResolution(
-                schema_version=2,
-                router_version="2026-08-31.1",
-                package_id="fresh_web",
-                confidence="high",
-                resolution_mode="routed",
-                reason_codes=("fresh_external_fact",),
+                schema_version=3,
+                router_version="2026-10-05.1",
+                package_id="agent",
+                reason_codes=("all_available_tools",),
                 external_tool_names=("web_search",),
                 effective_plan_mode="off",
-                include_current_date=True,
                 network_boundary_required=False,
             ),
             plan_mode="off",
@@ -520,18 +517,14 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
         fingerprint_input = {
             "prompt_template_version": TEMPLATE_VERSION,
             "capability_resolution": {
-                "schema_version": 2,
-                "router_version": "2026-08-31.1",
-                "package_id": "fresh_web",
-                "confidence": "high",
-                "resolution_mode": "routed",
-                "reason_codes": ["fresh_external_fact"],
+                "schema_version": 3,
+                "router_version": "2026-10-05.1",
+                "package_id": "agent",
+                "reason_codes": ["all_available_tools"],
                 "external_tool_names": ["web_search"],
+                "deferred_tool_names": [],
                 "effective_plan_mode": "off",
-                "include_current_date": True,
                 "network_boundary_required": False,
-                "denied_product_tool_names": [],
-                "required_primary_tool_name": None,
             },
             "announced_tools": ["web_search"],
             "mcp_tool_bindings": [],
@@ -551,18 +544,14 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             ).hexdigest()
         )
         return {
-            "schema_version": 2,
-            "router_version": "2026-08-31.1",
-            "package_id": "fresh_web",
-            "confidence": "high",
-            "resolution_mode": "routed",
-            "reason_codes": ["fresh_external_fact"],
+            "schema_version": 3,
+            "router_version": "2026-10-05.1",
+            "package_id": "agent",
+            "reason_codes": ["all_available_tools"],
             "external_tool_names": ["web_search"],
+            "deferred_tool_names": [],
             "effective_plan_mode": "off",
-            "include_current_date": True,
             "network_boundary_required": False,
-            "denied_product_tool_names": [],
-            "required_primary_tool_name": None,
             "bundle_fingerprint": bundle_fingerprint,
         }
 
@@ -573,27 +562,23 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
         call_config = self._call_config()
         call_config.capability_resolution = replace(
             call_config.capability_resolution,
-            package_id="mcp_explicit",
-            reason_codes=("explicit_authorized_tool_alias",),
             external_tool_names=("update_plan",),
-            include_current_date=False,
         )
         call_config.announced_tools = ["update_plan"]
 
         with self.assertRaises(ValidationError):
             _run_config(self._limits(), call_config)
 
-    def test_run_config_rejects_reversed_tools_before_bundle_fingerprint_persistence(self):
+    def test_run_config_rejects_deep_research_mcp_tool_before_bundle_fingerprint_persistence(self):
         call_config = self._call_config()
         call_config.capability_resolution = replace(
             call_config.capability_resolution,
             package_id="deep_research",
             reason_codes=("deep_research_mode",),
-            external_tool_names=("url_read", "web_search"),
+            external_tool_names=("web_search", "url_read", "mcp_docs_a1b2c3d4"),
             effective_plan_mode="on",
-            include_current_date=True,
         )
-        call_config.announced_tools = ["url_read", "web_search"]
+        call_config.announced_tools = ["web_search", "url_read", "mcp_docs_a1b2c3d4"]
         call_config.plan_mode = "on"
         call_config.task_mode = "deep_research"
         call_config.network_profile = "deep_research"
@@ -607,92 +592,33 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
         sha256.assert_not_called()
 
-    def test_bundle_fingerprint_covers_date_and_network_boundary_semantics(self):
-        base = self._call_config()
-        base.capability_resolution = RunCapabilityResolution(
-            schema_version=2,
-            router_version="2026-08-31.1",
-            package_id="knowledge_grounded",
-            confidence="high",
-            resolution_mode="routed",
-            reason_codes=("knowledge_grounded_mode",),
-            external_tool_names=(),
-            effective_plan_mode="off",
-            include_current_date=False,
-            network_boundary_required=False,
-        )
-        base.announced_tools = []
-
-        baseline = _run_config(self._limits(), base)["capability_resolution"]["bundle_fingerprint"]
-        with_date = _run_config(
-            self._limits(),
-            SimpleNamespace(
-                **{
-                    **base.__dict__,
-                    "capability_resolution": replace(base.capability_resolution, include_current_date=True),
-                }
-            ),
-        )["capability_resolution"]["bundle_fingerprint"]
-        with_boundary = _run_config(
-            self._limits(),
-            SimpleNamespace(
-                **{
-                    **base.__dict__,
-                    "capability_resolution": replace(base.capability_resolution, network_boundary_required=True),
-                }
-            ),
-        )["capability_resolution"]["bundle_fingerprint"]
-
-        self.assertEqual(len({baseline, with_date, with_boundary}), 3)
-
-    def test_bundle_fingerprint_covers_denied_and_required_primary_tools(self):
+    def test_bundle_fingerprint_covers_deferred_tools_and_bindings(self):
         base = self._call_config()
         baseline = _run_config(self._limits(), base)["capability_resolution"]["bundle_fingerprint"]
-        denied = _run_config(
+        deferred = _run_config(
             self._limits(),
             SimpleNamespace(
                 **{
                     **base.__dict__,
                     "capability_resolution": replace(
                         base.capability_resolution,
-                        denied_product_tool_names=frozenset({"url_read"}),
+                        deferred_tool_names=("mcp_docs_a1b2c3d4",),
                     ),
                 }
             ),
         )["capability_resolution"]
-        self.assertEqual(denied["denied_product_tool_names"], ["url_read"])
-        self.assertNotEqual(baseline, denied["bundle_fingerprint"])
-
-        route = self._call_config()
-        route.announced_tools = ["route_compare", "search_trains"]
-        route.capability_resolution = RunCapabilityResolution(
-            schema_version=2,
-            router_version="2026-08-31.1",
-            package_id="mobility_intercity",
-            confidence="medium",
-            resolution_mode="routed",
-            reason_codes=("origin_destination_relation", "intercity_locations"),
-            external_tool_names=("route_compare", "search_trains"),
-            effective_plan_mode="off",
-            include_current_date=True,
-            network_boundary_required=False,
-            required_primary_tool_name="route_compare",
-        )
-        first = _run_config(self._limits(), route)["capability_resolution"]
-        alternate = _run_config(
+        bound = _run_config(
             self._limits(),
             SimpleNamespace(
                 **{
-                    **route.__dict__,
-                    "capability_resolution": replace(
-                        route.capability_resolution,
-                        required_primary_tool_name="search_trains",
-                    ),
+                    **base.__dict__,
+                    "tool_bindings": [{"alias": "mcp_docs_a1b2c3d4", "server_id": "server-1"}],
                 }
             ),
         )["capability_resolution"]
-        self.assertEqual(first["required_primary_tool_name"], "route_compare")
-        self.assertNotEqual(first["bundle_fingerprint"], alternate["bundle_fingerprint"])
+
+        self.assertEqual(deferred["deferred_tool_names"], ["mcp_docs_a1b2c3d4"])
+        self.assertEqual(len({baseline, deferred["bundle_fingerprint"], bound["bundle_fingerprint"]}), 3)
 
     def _execution(self, *, call_config=None, limits=None, redis_writer=None):
         call_config = call_config or self._call_config()
@@ -1717,7 +1643,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             provider="openai",
             options={"knowledge_grounded": True},
             capabilities={"functionCalling": True, "searchCapable": True},
-            original_message="未知问题",
         )
         execution = self._execution(call_config=call_config)
         evidence = KnowledgeEvidenceBlock(
@@ -1778,7 +1703,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             provider="openai",
             options={"knowledge_grounded": True},
             capabilities={"functionCalling": True, "searchCapable": True},
-            original_message="怎么发布",
         )
         execution = self._execution(call_config=call_config)
         evidence = KnowledgeEvidenceBlock(
@@ -1884,15 +1808,12 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             call_kwargs={},
             announced_tools=["mcp_docs_a1b2c3d4"],
             capability_resolution=RunCapabilityResolution(
-                schema_version=2,
-                router_version="2026-08-31.1",
-                package_id="mcp_explicit",
-                confidence="high",
-                resolution_mode="routed",
-                reason_codes=("explicit_authorized_tool_alias",),
+                schema_version=3,
+                router_version="2026-10-05.1",
+                package_id="agent",
+                reason_codes=("all_available_tools",),
                 external_tool_names=("mcp_docs_a1b2c3d4",),
                 effective_plan_mode="off",
-                include_current_date=False,
                 network_boundary_required=False,
             ),
             plan_mode="off",

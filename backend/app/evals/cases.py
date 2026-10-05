@@ -2,15 +2,14 @@
 
 每个 YAML 文件是一个类别，形如：
 
-    category: escalation
+    category: tool_selection
     cases:
       - id: weekend-shanghai-kids
         source: escalation-probe 2026-10-04（#259）
         message: 周末带孩子在上海玩一天，怎么安排比较好
         checks:
-          - type: escalation
-            expect: either
-            targets: [mixed_itinerary, place_discovery, weather]
+          - type: tool_called
+            tool: weather_forecast
 
 检查项只描述"该做到什么、不能出什么错"，不写标准答案；能用轨迹判的不交给裁判模型。
 """
@@ -31,22 +30,6 @@ _CASE_ID_PATTERN = r"^[a-z0-9][a-z0-9-]{2,80}$"
 
 class _Check(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
-
-class FirstPackageCheck(_Check):
-    """首轮能力包（分类器的首判）落在给定集合内。"""
-
-    type: Literal["first_package"]
-    any_of: list[str] = Field(min_length=1)
-
-
-class EscalationCheck(_Check):
-    """Run 内能力升级：escalate 必须升级，none 不得申请也不得升级，either 都可以；
-    targets 非空时，发生的第一次升级必须落在其中。"""
-
-    type: Literal["escalation"]
-    expect: Literal["escalate", "none", "either"]
-    targets: list[str] = Field(default_factory=list)
 
 
 class ToolCalledCheck(_Check):
@@ -117,8 +100,6 @@ class JudgeCheck(_Check):
 
 Check = Annotated[
     Union[
-        FirstPackageCheck,
-        EscalationCheck,
         ToolCalledCheck,
         ToolNotCalledCheck,
         ToolArgCheck,

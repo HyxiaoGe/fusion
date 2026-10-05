@@ -72,10 +72,6 @@ const EVENT_PAYLOAD_FIELDS: Record<string, readonly string[]> = {
     'protocol_version', 'status', 'source', 'template_version', 'section_ids',
     'fingerprint', 'char_count', 'duration_ms', 'error_code', 'message', 'detail_status',
   ],
-  capability_escalated: [
-    'protocol_version', 'step_number', 'from_package_id', 'capability_resolution', 'section_ids',
-    'system_prompt_fingerprint',
-  ],
   context_status_updated: [
     'protocol_version', 'message_id', 'phase', 'status', 'round_index', 'window_tokens',
     'estimated_tokens_before', 'estimated_tokens_after', 'actual_prompt_tokens', 'removed_turns',
@@ -99,26 +95,18 @@ const EVIDENCE_FIELDS = new Set([
 const LIST_FIELDS = new Set(['tools', 'key_findings', 'source_refs', 'section_ids']);
 // 后端契约里的 package_id 与 reason code 都是服务端生成的短标识符；UI 只校验形状。
 const CAPABILITY_IDENTIFIER_PATTERN = /^[a-z][a-z0-9_]{0,47}$/;
-const CAPABILITY_RESOLUTION_COMMON_FIELDS = [
+const CAPABILITY_RESOLUTION_FIELDS = new Set([
   'schema_version',
   'router_version',
   'package_id',
-  'confidence',
-  'resolution_mode',
   'reason_codes',
   'external_tool_names',
+  'deferred_tool_names',
   'effective_plan_mode',
-  'include_current_date',
   'network_boundary_required',
-] as const;
-// v1 与 v2 现在字段相同；版本号只标识路由协议代次。
-const CAPABILITY_RESOLUTION_FIELDS = new Set([
-  ...CAPABILITY_RESOLUTION_COMMON_FIELDS,
   'bundle_fingerprint',
 ]);
-const CAPABILITY_CONFIDENCE = new Set(['high', 'medium', 'low']);
-const CAPABILITY_RESOLUTION_MODES = new Set(['routed', 'degraded', 'clarification']);
-const CAPABILITY_PLAN_MODES = new Set(['auto', 'on', 'off']);
+const CAPABILITY_PLAN_MODES = new Set(['on', 'off']);
 const ROUTER_VERSION_PATTERN = /^\d{4}-\d{2}-\d{2}\.\d+$/;
 const BUNDLE_FINGERPRINT_PATTERN = /^sha256:[0-9a-f]{64}$/;
 const TOOL_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_-]{0,127}$/;
@@ -139,13 +127,20 @@ function isUniqueIdentifierList(
     && new Set(value).size === value.length;
 }
 
-/** 将实时与历史来源统一收敛为同一个有界能力路由对象。 */
+function isUniqueToolNameList(value: unknown, maxLength: number): value is string[] {
+  return Array.isArray(value)
+    && value.length <= maxLength
+    && value.every(tool => typeof tool === 'string' && TOOL_NAME_PATTERN.test(tool) && tool !== 'update_plan')
+    && new Set(value).size === value.length;
+}
+
+/** 将实时与历史来源统一收敛为同一个有界工具边界对象；v3 之前的旧记录返回 null。 */
 export function normalizeTrajectoryCapabilityResolution(
   value: unknown,
 ): TrajectoryCapabilityResolution | null {
   if (!isRecord(value)) return null;
   const keys = Object.keys(value);
-  if ((value.schema_version !== 1 && value.schema_version !== 2)
+  if (value.schema_version !== 3
     || keys.length !== CAPABILITY_RESOLUTION_FIELDS.size
     || keys.some(key => !CAPABILITY_RESOLUTION_FIELDS.has(key))) return null;
   if (typeof value.router_version !== 'string'
@@ -153,42 +148,27 @@ export function normalizeTrajectoryCapabilityResolution(
     || !ROUTER_VERSION_PATTERN.test(value.router_version)
     || typeof value.package_id !== 'string'
     || !CAPABILITY_IDENTIFIER_PATTERN.test(value.package_id)
-    || typeof value.confidence !== 'string'
-    || !CAPABILITY_CONFIDENCE.has(value.confidence)
-    || typeof value.resolution_mode !== 'string'
-    || !CAPABILITY_RESOLUTION_MODES.has(value.resolution_mode)
-    || !isUniqueIdentifierList(value.reason_codes, 1, 4)
-    || !Array.isArray(value.external_tool_names)
-    || value.external_tool_names.length > 5
-    || value.external_tool_names.some(tool => (
-      typeof tool !== 'string' || !TOOL_NAME_PATTERN.test(tool) || tool === 'update_plan'
-    ))
-    || new Set(value.external_tool_names).size !== value.external_tool_names.length
+    || !isUniqueIdentifierList(value.reason_codes, 1, 2)
+    || !isUniqueToolNameList(value.external_tool_names, 128)
+    || !isUniqueToolNameList(value.deferred_tool_names, 512)
     || typeof value.effective_plan_mode !== 'string'
     || !CAPABILITY_PLAN_MODES.has(value.effective_plan_mode)
-    || typeof value.include_current_date !== 'boolean'
     || typeof value.network_boundary_required !== 'boolean'
     || typeof value.bundle_fingerprint !== 'string'
     || !BUNDLE_FINGERPRINT_PATTERN.test(value.bundle_fingerprint)) return null;
 
-  const common = {
+  // UI 只做结构性校验：模式与工具、联网边界的语义一致性由后端契约保证（issue #26）。
+  return {
+    schema_version: 3,
     router_version: value.router_version,
     package_id: value.package_id,
-    confidence: value.confidence as TrajectoryCapabilityResolution['confidence'],
-    resolution_mode: value.resolution_mode as TrajectoryCapabilityResolution['resolution_mode'],
     reason_codes: [...value.reason_codes],
     external_tool_names: [...value.external_tool_names],
+    deferred_tool_names: [...value.deferred_tool_names],
     effective_plan_mode: value.effective_plan_mode as TrajectoryCapabilityResolution['effective_plan_mode'],
-    include_current_date: value.include_current_date,
     network_boundary_required: value.network_boundary_required,
     bundle_fingerprint: value.bundle_fingerprint,
   };
-  const resolution: TrajectoryCapabilityResolution = value.schema_version === 1
-    ? { schema_version: 1, ...common }
-    : { schema_version: 2, ...common };
-  // UI 只做结构性校验与降级展示：能力包与工具、计划模式、日期、reason code 的语义
-  // 一致性由后端 run_capability_contract 保证，前端不再维护第二份判定（issue #26）。
-  return resolution;
 }
 
 function nullableString(value: unknown): string | null | undefined {

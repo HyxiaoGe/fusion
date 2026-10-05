@@ -230,7 +230,7 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("航班", str(append.await_args_list))
 
 
-class MissingProductToolRepairTests(unittest.IsolatedAsyncioTestCase):
+class MissingProductToolTests(unittest.IsolatedAsyncioTestCase):
     def request(self, state, *, task_mode="standard"):
         return AgentRoundOutcomeRequest(
             db=None,
@@ -257,28 +257,11 @@ class MissingProductToolRepairTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-    async def test_stop_without_product_tool_gets_one_silent_repair_round(self):
-        state = AgentLoopState()
-        request = self.request(state)
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()) as append:
-            self.assertIsNone(await handle_agent_round_outcome(request=request))
-        append.assert_not_awaited()
-        self.assertTrue(state.product_tool_prompted)
-        self.assertEqual(request.messages[-1].section_id, "product_tool_required_repair")
-        self.assertIn("local_place_search", request.messages[-1].content)
-        self.assertNotIn("web_search", request.messages[-1].content)
-
-    async def test_no_repair_once_a_product_tool_was_attempted_or_in_deep_research(self):
-        for state, task_mode in (
-            (AgentLoopState(product_tool_attempted=True), "standard"),
-            (AgentLoopState(), "deep_research"),
-        ):
-            with self.subTest(task_mode=task_mode, attempted=state.product_tool_attempted):
-                request = self.request(state, task_mode=task_mode)
-                with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()):
+    async def test_stop_without_product_tool_is_delivered_without_repair_round(self):
+        for task_mode in ("standard", "deep_research"):
+            with self.subTest(task_mode=task_mode):
+                request = self.request(AgentLoopState(), task_mode=task_mode)
+                with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()) as append:
                     await handle_agent_round_outcome(request=request)
-                self.assertFalse(state.product_tool_prompted)
-                self.assertNotIn(
-                    "product_tool_required_repair",
-                    [getattr(message, "section_id", None) for message in request.messages],
-                )
+                self.assertIn("回民街推荐老孙家泡馍。", str(append.await_args_list))
+                self.assertEqual(request.messages[-1]["role"], "user")

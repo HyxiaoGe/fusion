@@ -48,7 +48,7 @@ def build_judge_messages(check: JudgeCheck, case: EvalCase, snapshot: Mapping[st
             "result": call.get("result"),
         }
         for call in snapshot.get("tool_calls") or []
-        if call.get("tool") not in {"request_capability", "load_skill", "update_plan", "tool_search"}
+        if call.get("tool") not in {"load_skill", "update_plan", "tool_search"}
     ]
     context = "\n".join(f"- {turn}" for turn in case.setup_turns) or "（无）"
     user = (

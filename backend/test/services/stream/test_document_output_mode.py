@@ -1,6 +1,5 @@
-"""文档交付形态：分类器字段、路由冻结、工具公告与计划门禁豁免、上下文注入。"""
+"""文档交付：工具公告、计划门禁豁免、上下文注入。"""
 
-import json
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -15,24 +14,9 @@ from app.services.stream.agent_loop_request_prep import (
     prepare_agent_loop_messages,
 )
 from app.services.stream.plan_control import process_plan_control_calls
-from app.services.stream.run_capability_model_classifier import _build_messages, _parse_model_route
-from app.services.stream.run_capability_router import _CandidateRoute, serialize_capability_resolution
-from app.utils.run_capability_contract import CAPABILITY_PACKAGES
+from app.services.stream.run_capability_router import serialize_capability_resolution
 
 CAPABILITIES = {"functionCalling": True, "searchCapable": True}
-
-
-def _candidate(package_id: str, *, output_mode: str = "chat", **kwargs) -> _CandidateRoute:
-    spec = CAPABILITY_PACKAGES[package_id]
-    return _CandidateRoute(
-        package_id,
-        spec.confidence_options[0],
-        spec.reason_code_options[0],
-        True,
-        resolution_mode=spec.resolution_mode,
-        output_mode=output_mode,
-        **kwargs,
-    )
 
 
 def _snapshot(content: str = "# 香港三天两夜\n\n## D1\n- 油麻地") -> DocumentVersionSnapshot:
@@ -60,62 +44,21 @@ def _tool_set(existing=()) -> DocumentToolSet:
     )
 
 
-def _response(payload: dict) -> SimpleNamespace:
-    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(payload)))])
-
-
 def _tool_names(config) -> list[str]:
     return [tool["function"]["name"] for tool in config.call_kwargs.get("tools", [])]
 
 
-class ClassifierOutputModeTests(unittest.TestCase):
-    def _parse(self, **extra):
-        payload = {
-            "package_id": "direct",
-            "explicit_tool_names": [],
-            "network_policy": "allow",
-            "denied_tool_names": [],
-            **extra,
-        }
-        return _parse_model_route(_response(payload), [], include_current_date=True)
-
-    def test_output_mode_is_model_decided_and_unknown_values_fall_back_to_chat(self):
-        self.assertEqual(self._parse(output_mode="document").output_mode, "document")
-        self.assertEqual(self._parse(output_mode="report").output_mode, "chat")
-        self.assertEqual(self._parse().output_mode, "chat")
-
-    def test_existing_document_titles_are_listed_for_revision_requests(self):
-        messages = _build_messages(
-            "第二天换成迪士尼",
-            [],
-            None,
-            existing_document_titles=("香港三天两夜攻略",),
-            token_counter_fn=lambda **_: 1,
-        )
-        self.assertIn('Existing documents in this conversation: ["香港三天两夜攻略"]', messages[0]["content"])
-        self.assertIn("output_mode", messages[0]["content"])
-
-
 class DocumentCallConfigTests(unittest.IsolatedAsyncioTestCase):
-    def test_document_mode_announces_document_tools_outside_capability_package(self):
-        seen = {}
-
-        def classify(**kwargs):
-            seen.update(kwargs)
-            return _candidate("fresh_web", output_mode="document")
-
+    def test_agent_mode_announces_document_tools_as_output_tools(self):
         config = build_agent_loop_call_config(
             provider="openai",
             options={"plan_mode": "on"},
             capabilities=CAPABILITIES,
-            original_message="出一份10/16-18香港三天两夜攻略",
-            classify_fn=classify,
             document_tools=_tool_set([_snapshot()]),
         )
 
-        self.assertEqual(seen["existing_document_titles"], ("香港三天两夜攻略",))
         resolution = config.capability_resolution
-        self.assertEqual(resolution.output_mode, "document")
+        self.assertEqual(resolution.package_id, "agent")
         self.assertNotIn("create_document", resolution.external_tool_names)
         self.assertEqual(config.announced_tools, list(resolution.external_tool_names))
         self.assertEqual(config.output_tool_names, frozenset({"create_document", "edit_document"}))
@@ -124,70 +67,32 @@ class DocumentCallConfigTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("edit_document", tools)
         self.assertEqual(config.call_kwargs["max_tokens"], DOCUMENT_OUTPUT_MAX_TOKENS)
         self.assertIn("doc-1", config.document_context)
-
-        payload = serialize_capability_resolution(resolution)
-        self.assertEqual(payload["output_mode"], "document")
-        validated = TrajectoryCapabilityResolution.model_validate(
-            {**payload, "bundle_fingerprint": "sha256:" + "0" * 64}
-        )
-        self.assertEqual(validated.model_dump()["output_mode"], "document")
-
-    def test_chat_mode_and_unsupported_models_never_expose_document_tools(self):
-        chat = build_agent_loop_call_config(
-            provider="openai",
-            options={},
-            capabilities=CAPABILITIES,
-            original_message="你好",
-            classify_fn=lambda **_: _candidate("direct"),
-            document_tools=_tool_set(),
-        )
-        self.assertNotIn("create_document", _tool_names(chat))
-        self.assertNotIn("output_mode", serialize_capability_resolution(chat.capability_resolution))
-        self.assertNotIn(
-            "output_mode",
-            TrajectoryCapabilityResolution.model_validate(
-                {
-                    **serialize_capability_resolution(chat.capability_resolution),
-                    "bundle_fingerprint": "sha256:" + "0" * 64,
-                }
-            ).model_dump(),
+        TrajectoryCapabilityResolution.model_validate(
+            {**serialize_capability_resolution(resolution), "bundle_fingerprint": "sha256:" + "0" * 64}
         )
 
+    def test_document_tools_need_agent_mode_and_dynamic_tool_support(self):
         for capabilities, options in (
             ({"functionCalling": True, "agentTools": False, "searchCapable": True}, {}),
             (CAPABILITIES, {"disable_tools": True}),
+            (CAPABILITIES, {"task_mode": "deep_research"}),
         ):
-            config = build_agent_loop_call_config(
-                provider="openai",
-                options=options,
-                capabilities=capabilities,
-                original_message="写一份周报",
-                classify_fn=lambda **_: _candidate("direct", output_mode="document"),
-                document_tools=_tool_set(),
-            )
-            self.assertEqual(config.output_tool_names, frozenset())
-            self.assertNotIn("create_document", _tool_names(config))
-            self.assertNotIn("max_tokens", config.call_kwargs)
-
-    def test_clarification_route_cannot_enter_document_mode(self):
-        config = build_agent_loop_call_config(
-            provider="openai",
-            options={},
-            capabilities=CAPABILITIES,
-            original_message="帮我做个攻略",
-            classify_fn=lambda **_: _candidate("clarification_only", output_mode="document"),
-            document_tools=_tool_set(),
-        )
-        self.assertEqual(config.capability_resolution.output_mode, "chat")
-        self.assertEqual(config.output_tool_names, frozenset())
+            with self.subTest(capabilities=capabilities, options=options):
+                config = build_agent_loop_call_config(
+                    provider="openai",
+                    options=options,
+                    capabilities=capabilities,
+                    document_tools=_tool_set(),
+                )
+                self.assertEqual(config.output_tool_names, frozenset())
+                self.assertNotIn("create_document", _tool_names(config))
+                self.assertNotIn("max_tokens", config.call_kwargs)
 
     async def test_document_contract_and_current_documents_enter_system_prompt(self):
         config = build_agent_loop_call_config(
             provider="openai",
             options={},
             capabilities=CAPABILITIES,
-            original_message="第二天换成迪士尼",
-            classify_fn=lambda **_: _candidate("direct", output_mode="document"),
             document_tools=_tool_set([_snapshot()]),
         )
         prepared = await prepare_agent_loop_messages(
@@ -288,7 +193,6 @@ class DocumentToolWiringTests(unittest.TestCase):
         )
         dependencies = SimpleNamespace(
             load_dynamic_tools_fn=None,
-            load_authorized_tool_names_fn=None,
             load_document_tools_fn=loader,
             warning_fn=warnings.append,
         )

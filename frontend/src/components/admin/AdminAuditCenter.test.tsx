@@ -17,7 +17,6 @@ const apiMocks = vi.hoisted(() => ({
   getAdminModels: vi.fn(),
   getAdminModel: vi.fn(),
   getAdminItineraryStability: vi.fn(),
-  getAdminRoutingQuality: vi.fn(),
 }));
 
 const navigationMocks = vi.hoisted(() => ({
@@ -101,32 +100,6 @@ const modelSummary = {
   conversation_count: 1, user_count: 1, assistant_message_count: 2, input_tokens: 3, output_tokens: 4,
   last_used_at: null, agent_run_count: 0, agent_error_count: 0, latest_performance_run: null,
 };
-const emptyRoutingQuality = {
-  scope: {
-    created_from: '2026-07-11T00:00:00+08:00',
-    created_to: '2026-07-12T00:00:00+08:00',
-    unrouted_count: 0,
-    running_count: 0,
-    interrupted_count: 0,
-    failed_count: 0,
-    sample_limit: 50,
-    sample_total: 0,
-  },
-  summary: {
-    total: 0,
-    completed: 0,
-    signals: {
-      classifier_unavailable: 0,
-      clarification_only: 0,
-      tools_unavailable: 0,
-      no_tool_call: 0,
-      web_only_fallback: 0,
-      primary_tool_missed: 0,
-    },
-  },
-  by_package: [],
-  samples: [],
-};
 
 const emptyStability = {
   scope: {
@@ -160,7 +133,6 @@ describe('AdminAuditCenter', () => {
   beforeEach(() => {
     Object.values(apiMocks).forEach(mock => mock.mockReset().mockResolvedValue(emptyPage));
     apiMocks.getAdminItineraryStability.mockResolvedValue(emptyStability);
-    apiMocks.getAdminRoutingQuality.mockResolvedValue(emptyRoutingQuality);
     navigationMocks.push.mockReset().mockImplementation((url: string) => navigationMocks.pushUrl(url));
     navigationMocks.replace.mockReset().mockImplementation((url: string) => navigationMocks.replaceUrl(url));
     navigationMocks.back.mockReset().mockImplementation(() => navigationMocks.backUrl());

@@ -1,91 +1,36 @@
-export type TrajectoryCapabilityPackageId =
-  | 'direct'
-  | 'transform'
-  | 'date'
-  | 'fresh_web'
-  | 'verified_web'
-  | 'url_read'
-  | 'weather'
-  | 'place_discovery'
-  | 'mobility_route'
-  | 'flight'
-  | 'train'
-  | 'travel_air_rail'
-  | 'mobility_intercity'
-  | 'mixed_itinerary'
+/** Run 的工具模式：v3 起不再按问题分类，只区分有无工具与是否深度研究。 */
+export type TrajectoryCapabilityModeId =
+  | 'agent'
   | 'deep_research'
   | 'knowledge_grounded'
-  | 'tools_unavailable'
-  | 'clarification_only'
-  | 'mcp_explicit';
+  | 'tools_unavailable';
 
-/**
- * 后端新增能力包时 UI 无需同步改动：未知 id 原样展示，不丢弃整条 resolution。
- * 能力包与工具、计划模式、日期、reason code 的语义一致性由后端契约保证（issue #26）。
- */
-export type TrajectoryCapabilityPackageIdOrUnknown = TrajectoryCapabilityPackageId | (string & {});
+/** 后端新增模式时 UI 原样展示 id，不丢弃整条 resolution。 */
+export type TrajectoryCapabilityModeIdOrUnknown = TrajectoryCapabilityModeId | (string & {});
 
 export type TrajectoryCapabilityReasonCode =
-  | 'direct_greeting'
-  | 'assistant_identity_question'
-  | 'stable_knowledge_question'
-  | 'simple_calculation'
-  | 'text_transform_request'
-  | 'current_date_question'
-  | 'fresh_external_fact'
-  | 'verified_source_request'
-  | 'explicit_url_read'
-  | 'explicit_weather_request'
-  | 'explicit_place_discovery'
-  | 'explicit_route_task'
-  | 'explicit_flight_request'
-  | 'explicit_train_request'
-  | 'air_rail_comparison'
-  | 'mixed_itinerary_request'
-  | 'origin_destination_relation'
-  | 'intercity_locations'
-  | 'adjacent_route_followup'
+  | 'all_available_tools'
   | 'deep_research_mode'
   | 'knowledge_grounded_mode'
   | 'tools_disabled'
   | 'function_calling_unavailable'
   | 'search_capability_unavailable'
-  | 'required_tools_unavailable'
-  | 'explicit_authorized_tool_alias'
-  | 'insufficient_capability_signal'
-  | 'classifier_unavailable';
+  | 'required_tools_unavailable';
 
-/** 与 package id 同理：后端新增 reason code 时 UI 原样展示，不丢弃整条 resolution。 */
 export type TrajectoryCapabilityReasonCodeOrUnknown = TrajectoryCapabilityReasonCode | (string & {});
 
-interface TrajectoryCapabilityResolutionBase {
+/** Run 级工具边界的受控 wire DTO（v3）；更早版本的记录读侧视为未记录。 */
+export interface TrajectoryCapabilityResolution {
+  schema_version: 3;
   router_version: string;
-  package_id: TrajectoryCapabilityPackageIdOrUnknown;
-  confidence: 'high' | 'medium' | 'low';
-  resolution_mode: 'routed' | 'degraded' | 'clarification';
+  package_id: TrajectoryCapabilityModeIdOrUnknown;
   reason_codes: TrajectoryCapabilityReasonCodeOrUnknown[];
   external_tool_names: string[];
-  effective_plan_mode: 'auto' | 'on' | 'off';
-  include_current_date: boolean;
+  deferred_tool_names: string[];
+  effective_plan_mode: 'on' | 'off';
   network_boundary_required: boolean;
-}
-
-/** 旧 Run 的 v1 能力路由；当时尚未记录 Skill 终态。 */
-export interface TrajectoryCapabilityResolutionV1 extends TrajectoryCapabilityResolutionBase {
-  schema_version: 1;
   bundle_fingerprint: string;
 }
-
-/** 新 Run 的 v2 能力路由；Skill 改为模型按需加载后不再携带 Skill 终态。 */
-export interface TrajectoryCapabilityResolutionV2 extends TrajectoryCapabilityResolutionBase {
-  schema_version: 2;
-  bundle_fingerprint: string;
-}
-
-/** Run 级能力路由的受控 wire DTO，兼容历史 v1 与 v2。 */
-export type TrajectoryCapabilityResolution =
-  | TrajectoryCapabilityResolutionV1
-  | TrajectoryCapabilityResolutionV2;
 
 /** P1 普通用户轨迹读取端点的 wire DTO；字段保持后端 snake_case。 */
 export interface TrajectoryRunSummary {

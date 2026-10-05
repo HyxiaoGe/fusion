@@ -20,7 +20,6 @@ async def test_continuation_and_summary_consume_same_frozen_local_prompts():
         provider="openai",
         options={},
         capabilities={},
-        original_message="继续",
         prompt_bundle_snapshot=frozen,
     )
     prepared = await prepare_agent_loop_messages(

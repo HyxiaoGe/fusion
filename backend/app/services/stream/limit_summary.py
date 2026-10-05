@@ -38,12 +38,7 @@ from app.services.knowledge.chat_grounding import (
     validate_grounded_answer,
 )
 from app.services.stream.context_status import build_context_usage, emit_context_status
-from app.services.stream.limit_summary_fact_guard import (
-    emit_fact_guard_observation,
-    has_tool_evidence,
-    requires_external_evidence,
-    resolve_no_evidence_answer,
-)
+from app.services.stream.limit_summary_fact_guard import has_tool_evidence
 from app.services.stream.llm_round_lifecycle import (
     LLMRoundLifecycle,
     accumulate_token_usage,
@@ -55,7 +50,6 @@ from app.services.stream.research_evidence import (
     ResearchEvidenceWorkset,
     build_research_repair_prompt,
     validate_research_completion,
-    validate_verified_web_completion,
 )
 from app.services.stream.safe_fallback_response import default_safe_fallback, render_safe_fallback
 from app.services.stream.tool_recovery_evidence import RecoveryEvidenceWorkset
@@ -133,22 +127,11 @@ class LimitSummaryStepRequest:
     capability_resolution: RunCapabilityResolution | None = None
     recovery_evidence: RecoveryEvidenceWorkset | None = None
     fallback_response_context: FallbackResponseContext | None = None
-    tool_discovery: Any = None
     # 本次 run 已写出文档时，总结只做简短回复，不再复述文档正文。
     document_delivered: bool = False
 
 
-def _holds_unverified_summary_reasoning(request: LimitSummaryStepRequest) -> bool:
-    return request.tool_discovery is not None
-
-
 def _should_defer_summary_output(request: LimitSummaryStepRequest) -> bool:
-    if requires_external_evidence(request.capability_resolution) and not has_tool_evidence(
-        request.content_blocks,
-        capability_resolution=request.capability_resolution,
-        recovery_evidence=request.recovery_evidence,
-    ):
-        return True
     return request.defer_output or request.task_mode == "deep_research"
 
 
@@ -183,16 +166,8 @@ def append_limit_summary_prompt(
         section_id = LIMIT_SUMMARY
     if task_mode == "deep_research" and section_id != RESEARCH_EVIDENCE_SUMMARY:
         prompt = f"{prompt}\n\n{RESEARCH_EVIDENCE_SUMMARY_PROMPT}"
-    if evidence_policy == "verified_web_v1":
-        prompt = f"{prompt}\n\n{render_runtime_prompt('stream.verified_web_summary')}"
     # 一次工具证据都没有时，"基于已收集的信息"指向空集；补上诚实下限，避免用参数记忆补齐。
-    if (
-        content_blocks is not None
-        and (capability_resolution is None or requires_external_evidence(capability_resolution))
-        and not has_tool_evidence(
-            content_blocks, capability_resolution=capability_resolution, recovery_evidence=recovery_evidence
-        )
-    ):
+    if content_blocks is not None and not has_tool_evidence(content_blocks, recovery_evidence=recovery_evidence):
         prompt = f"{prompt}\n\n{NO_TOOL_EVIDENCE_SUMMARY_PROMPT}"
     if document_delivered:
         prompt = f"{prompt}\n\n{render_runtime_prompt('documents.delivered_summary')}"
@@ -395,7 +370,6 @@ async def call_limit_summary_round(
             request.should_use_reasoning
             and _should_defer_summary_output(request)
             and request.evidence_policy != "knowledge_grounded_v1"
-            and not _holds_unverified_summary_reasoning(request)
             and _accepts_keyword(request.stream_round_fn, "allow_deferred_reasoning_output")
         ):
             stream_kwargs["allow_deferred_reasoning_output"] = True
@@ -856,10 +830,6 @@ async def run_limit_summary_step(
         request.messages,
         task_mode=request.task_mode,
         final_synthesis=True,
-        preserve_web_tool_context=(
-            request.evidence_policy == "verified_web_v1"
-            or getattr(request.capability_resolution, "package_id", None) == "verified_web"
-        ),
     )
     append_limit_summary_prompt(
         request.messages,
@@ -956,51 +926,6 @@ async def _guard_protocol_residue(
     return await _safe_summary_fallback(request, "protocol_error"), True
 
 
-async def _guard_no_evidence_answer(
-    request: LimitSummaryStepRequest,
-    answer: str,
-) -> tuple[str, str | None]:
-    """按冻结能力和有效证据守住总结边界，并留下可聚合的观测。"""
-
-    if request.evidence_policy == "verified_web_v1":
-        validation = validate_verified_web_completion(
-            request.research_workset or ResearchEvidenceWorkset(),
-            request.recovery_evidence or RecoveryEvidenceWorkset(),
-            answer,
-        )
-        if not validation.is_valid:
-            if request.warning_fn is not None:
-                request.warning_fn(
-                    "查证总结缺少已读正文或有效引用，已替换为诚实答复: "
-                    f"conv_id={request.conversation_id} run_id={request.run_id} "
-                    f"reason={validation.reason}"
-                )
-            return await _safe_summary_fallback(request, "no_evidence"), "verified_web"
-        return answer, None
-
-    guarded, fact_kind = resolve_no_evidence_answer(
-        answer,
-        content_blocks=request.content_blocks,
-        capability_resolution=request.capability_resolution,
-        recovery_evidence=request.recovery_evidence,
-        tool_discovery=request.tool_discovery,
-    )
-    if fact_kind is None:
-        return guarded, None
-    emit_fact_guard_observation(
-        fact_kind=fact_kind,
-        summary_finish_reason=request.summary_finish_reason,
-        task_mode=request.task_mode,
-    )
-    if request.warning_fn is not None:
-        request.warning_fn(
-            "收尾总结缺少所需有效证据，已替换为诚实答复: "
-            f"conv_id={request.conversation_id} run_id={request.run_id} "
-            f"finish_reason={request.summary_finish_reason} fact_kind={fact_kind}"
-        )
-    return await _safe_summary_fallback(request, "no_evidence"), fact_kind
-
-
 async def _commit_limit_summary_result(
     *,
     request: LimitSummaryStepRequest,
@@ -1009,7 +934,7 @@ async def _commit_limit_summary_result(
     thinking_block_id: str,
     text_block_id: str,
 ) -> bool:
-    if round_result.reasoning_buf and not _holds_unverified_summary_reasoning(request):
+    if round_result.reasoning_buf:
         request.content_blocks.append(
             ThinkingBlock(
                 type="thinking",
@@ -1055,9 +980,7 @@ async def _commit_limit_summary_result(
         if not answer or round_result.finish_reason == "protocol_fallback":
             answer = await _safe_summary_fallback(request, "protocol_error")
         answer, protocol_residue = await _guard_protocol_residue(request, answer)
-        # 本次 run 没有任何工具证据时，具体数值（班次、票价、时长、气温）无从支撑，直接换成诚实答复。
-        answer, unsupported_fact_kind = await _guard_no_evidence_answer(request, answer)
-        if unsupported_fact_kind is not None or protocol_residue:
+        if protocol_residue:
             incomplete = True
         if _should_defer_summary_output(request):
             await append_chunk(
@@ -1073,7 +996,6 @@ async def _commit_limit_summary_result(
             if (
                 round_result.content_buf.strip()
                 and round_result.finish_reason != "protocol_fallback"
-                and unsupported_fact_kind is None
                 and not protocol_residue
             ):
                 await _finish_summary_round_lifecycle(round_result, model_output_visible=True)
@@ -1083,16 +1005,6 @@ async def _commit_limit_summary_result(
             content_buf=answer,
             text_block_id=text_block_id,
         )
-        if (
-            request.evidence_policy == "verified_web_v1"
-            and unsupported_fact_kind is None
-            and request.research_workset is not None
-        ):
-            await _emit_deep_summary_used_evidence(
-                request=request,
-                answer_text=answer,
-                workset=request.research_workset,
-            )
         return incomplete
 
 

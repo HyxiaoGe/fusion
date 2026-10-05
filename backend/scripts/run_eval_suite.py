@@ -6,7 +6,7 @@
 
     docker exec -w /app fusion-api python -m scripts.run_eval_suite --models qwen3.8-flash
     docker exec -w /app fusion-api python -m scripts.run_eval_suite --models qwen3.8-flash,mimo-v2.6-pro \\
-        --category escalation --apply
+        --category tool_selection --apply
     docker exec -w /app fusion-api python -m scripts.run_eval_suite --list
 
 退出码：0 完成且无退步；1 存在退步（仅 --fail-on-regression）；2 参数或用例错误；3 运行中止。

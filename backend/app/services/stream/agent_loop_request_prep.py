@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from functools import partial
@@ -19,7 +20,6 @@ from app.ai.prompts.run_prompt_snapshot import RunPromptSnapshot
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.ai.prompts.section_ids import (
     AGENT_PLAN_CONTROL,
-    CLASSIFIER_UNAVAILABLE,
     CONTINUATION_SYSTEM,
     CURRENT_DOCUMENTS,
     DEEP_RESEARCH_CONTRACT,
@@ -27,12 +27,11 @@ from app.ai.prompts.section_ids import (
     NO_TOOL_NETWORK_BOUNDARY,
     NO_VISION_FILE_BOUNDARY,
     SKILLS_CATALOG,
+    TOOL_SELECTION_POLICY,
     TOOL_USAGE_CONTRACT,
-    VERIFIED_WEB_EVIDENCE,
 )
 from app.ai.prompts.system_prompt import SystemPromptSection, assemble_system_prompt
 from app.ai.tools import build_url_read_tool, build_web_search_tool
-from app.core.config import settings
 from app.core.prompt_snapshot import PromptBundleSnapshot, use_prompt_snapshot
 from app.db.repositories import FileRepository
 from app.services.agent.plan_coordinator import PlanMode
@@ -46,18 +45,16 @@ from app.services.mcp.amap_product_tools import AMAP_PRODUCT_TOOL_NAMES
 from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_TOOL_NAMES
 from app.services.prompt_snapshot_service import freeze_runtime_prompt_bundle, with_call_config_prompt_snapshot
 from app.services.stream.agent_task_policy import resolve_agent_task_policy
-from app.services.stream.capability_escalation import (
-    ESCALATION_SOURCE_PACKAGES,
-    REQUEST_CAPABILITY_TOOL_NAME,
-    CapabilityEscalationSession,
-    RequestCapabilityHandler,
-    build_request_capability_schema,
-    escalation_target_package_ids,
+from app.services.stream.dynamic_tool_discovery import (
+    TOOL_SEARCH_NAME,
+    DynamicToolDiscoverySession,
+    attach_session_runtime,
+    build_discovery_entries,
+    build_tool_search_schema,
 )
 from app.services.stream.persistence import preprocess_url_in_message
 from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
 from app.services.stream.run_capability_router import (
-    CapabilityClassifier,
     RunCapabilityResolution,
     resolve_run_capability_route,
 )
@@ -68,16 +65,15 @@ from app.services.stream.skill_loading import (
     build_load_skill_schema,
     build_skill_session,
 )
-from app.utils.run_capability_contract import (
-    CAPABILITY_PACKAGES,
-    McpRouteTool,
-    is_authorized_mcp_tool_alias,
-)
+from app.utils.run_capability_contract import is_authorized_mcp_tool_alias
 
 VOLCENGINE_PROVIDERS = {"volcengine"}
 MAX_CONTROLLED_OUTPUT_TOKENS = 4096
 # 文档正文整篇放在一次工具调用参数里，供应商默认输出上限可能截断 JSON；仅文档交付时显式放宽。
 DOCUMENT_OUTPUT_MAX_TOKENS = 16384
+# 授权 MCP 工具超过任一阈值时改由 tool_search 按需加载，避免每轮工具列表过长稀释模型注意力。
+MAX_DIRECT_MCP_TOOLS = 10
+MAX_DIRECT_MCP_SCHEMA_CHARS = 20000
 
 
 @dataclass(frozen=True)
@@ -96,28 +92,21 @@ class AgentLoopCallConfig:
     network_profile: str = "standard"
     evidence_policy: str = "standard"
     prompt_bundle_snapshot: PromptBundleSnapshot | None = None
-    dynamic_tool_discovery: bool = False
+    # MCP 工具过多时的按需加载目录；未触发时为 None。
     tool_discovery: Any = None
-    discovery_experiment: Any = None
     # 交付形态工具（文档）：不属于能力包，不进计划绑定，计划收口阶段仍可调用。
     output_tool_names: frozenset[str] = frozenset()
     document_context: str | None = None
     # 按需加载的 Skill：目录进 system prompt，load_skill 同样不进计划绑定。
     skill_session: SkillSession | None = None
-    # 首判为可升级来源包时挂上；request_capability 同样不进计划绑定。
-    escalation_session: CapabilityEscalationSession | None = None
 
     @property
     def skill_tool_names(self) -> frozenset[str]:
         return frozenset({LOAD_SKILL_TOOL_NAME}) if self.skill_session is not None else frozenset()
 
     @property
-    def escalation_tool_names(self) -> frozenset[str]:
-        return frozenset({REQUEST_CAPABILITY_TOOL_NAME}) if self.escalation_session is not None else frozenset()
-
-    @property
     def unplanned_tool_names(self) -> frozenset[str]:
-        return self.output_tool_names | self.skill_tool_names | self.escalation_tool_names
+        return self.output_tool_names | self.skill_tool_names
 
 
 def build_update_plan_tool() -> dict[str, Any]:
@@ -173,9 +162,6 @@ class AgentLoopPreparedMessages:
     prompt_assembly: dict[str, Any] | None = None
     prompt_snapshot: dict[str, Any] | None = None
     run_prompt_snapshot: RunPromptSnapshot | None = None
-    # 按另一个 call config 重组本 Run 的系统提示词段落；Run 内能力升级时使用。
-    rebuild_system_messages: Callable[[AgentLoopCallConfig], tuple[PromptMessage, ...]] | None = None
-    system_section_ids: tuple[str, ...] = ()
 
 
 def announced_tool_names_from_call_kwargs(call_kwargs: dict) -> list[str]:
@@ -192,31 +178,6 @@ def announced_tool_names_from_call_kwargs(call_kwargs: dict) -> list[str]:
 def _tool_definition_name(tool: dict) -> str:
     function = tool.get("function") if isinstance(tool, dict) else None
     return str(function.get("name", "")) if isinstance(function, dict) else ""
-
-
-def _mcp_route_catalog(
-    tool_bindings: list[dict[str, Any]],
-    available_tools_by_name: dict[str, dict],
-) -> tuple[McpRouteTool, ...]:
-    """只把本轮真实可调用的 MCP 别名交给分类器，标签取管理员配置的服务名与工具名。"""
-
-    catalog: dict[str, McpRouteTool] = {}
-    for binding in tool_bindings:
-        if not isinstance(binding, dict):
-            continue
-        alias = binding.get("alias")
-        service_id = binding.get("server_id")
-        label = binding.get("tool_label")
-        if (
-            is_authorized_mcp_tool_alias(alias)
-            and alias in available_tools_by_name
-            and isinstance(service_id, str)
-            and service_id
-            and isinstance(label, str)
-            and label
-        ):
-            catalog.setdefault(alias, McpRouteTool(alias=alias, service_id=service_id, label=label))
-    return tuple(catalog.values())
 
 
 def supports_search_tools(capabilities: dict) -> bool:
@@ -240,6 +201,15 @@ def normalize_controlled_max_tokens(value: Any) -> int | None:
     return min(value, MAX_CONTROLLED_OUTPUT_TOKENS)
 
 
+def _defer_mcp_tools(mcp_tools: list[dict]) -> bool:
+    """MCP 工具过多时改为按需加载；只看数量和体积，不看用户意图。"""
+
+    if len(mcp_tools) > MAX_DIRECT_MCP_TOOLS:
+        return True
+    schema_chars = sum(len(json.dumps(tool, ensure_ascii=False)) for tool in mcp_tools)
+    return schema_chars > MAX_DIRECT_MCP_SCHEMA_CHARS
+
+
 def build_agent_loop_call_config(
     *,
     provider: str,
@@ -251,14 +221,9 @@ def build_agent_loop_call_config(
     additional_tools: list[dict] | None = None,
     dynamic_tool_handlers: dict[str, Any] | None = None,
     tool_bindings: list[dict[str, Any]] | None = None,
-    authorized_tool_names: list[str] | None = None,
-    original_message: str | None = None,
-    task_context_messages: list[object] | None = None,
-    classify_fn: CapabilityClassifier | None = None,
     prompt_bundle_snapshot: PromptBundleSnapshot | None = None,
     previous_run_id: str | None = None,
     document_tools: DocumentToolSet | None = None,
-    allow_capability_escalation: bool = True,
 ) -> AgentLoopCallConfig:
     prompt_bundle_snapshot = prompt_bundle_snapshot or freeze_runtime_prompt_bundle()
     options = options or {}
@@ -288,133 +253,45 @@ def build_agent_loop_call_config(
             tool for tool in (additional_tools or []) if _tool_definition_name(tool) in provided_handlers
         )
     available_tools_by_name = {name: tool for tool in available_tools if (name := _tool_definition_name(tool))}
-    trusted_authorized_tool_names = [name for name in (authorized_tool_names or []) if isinstance(name, str) and name]
-    route_tool_names = list(available_tools_by_name)
-    route_tool_names.extend(
-        name for name in dict.fromkeys(trusted_authorized_tool_names) if name not in available_tools_by_name
+    mcp_tools = [tool for name, tool in available_tools_by_name.items() if is_authorized_mcp_tool_alias(name)]
+    deferred_tool_names = (
+        [_tool_definition_name(tool) for tool in mcp_tools]
+        if task_policy.task_mode != "deep_research" and _defer_mcp_tools(mcp_tools)
+        else []
     )
-    unavailable_tool_names = [name for name in trusted_authorized_tool_names if name not in available_tools_by_name]
-    mcp_tool_catalog = _mcp_route_catalog(tool_bindings or [], available_tools_by_name)
-    from app.services.stream.dynamic_tool_discovery import (
-        DynamicToolDiscoveryUnsupportedError,
-        is_dynamic_tool_discovery_enabled,
+    capability_resolution = resolve_run_capability_route(
+        available_tool_names=[name for name in available_tools_by_name if name not in deferred_tool_names],
+        deferred_tool_names=deferred_tool_names,
+        requested_plan_mode=requested_plan_mode,
+        task_policy=task_policy,
+        capabilities=capabilities,
+        tools_disabled=tools_disabled,
+        knowledge_grounded=knowledge_grounded,
     )
-
-    if is_dynamic_tool_discovery_enabled(options):
-        if task_policy.task_mode == "deep_research":
-            raise DynamicToolDiscoveryUnsupportedError("deep_research")
-        if previous_run_id is not None or options.get("stream_mode") == "continuation":
-            raise DynamicToolDiscoveryUnsupportedError("continuation")
-        if not supports_function_calling:
-            raise DynamicToolDiscoveryUnsupportedError("function_calling_unavailable")
-        return _build_discovery_call_config(
-            provider=provider,
-            options=options,
-            capabilities=capabilities,
-            volcengine_providers=volcengine_providers,
-            should_use_reasoning=should_use_reasoning,
-            supports_function_calling=supports_function_calling,
-            supports_dynamic_tools=supports_dynamic_tools,
-            call_kwargs=call_kwargs,
-            available_tools_by_name=available_tools_by_name,
-            provided_handlers=provided_handlers,
-            tool_bindings=tool_bindings or [],
-            authorized_tool_names=trusted_authorized_tool_names,
-            original_message=original_message,
-            task_policy=task_policy,
-            knowledge_grounded=knowledge_grounded,
-            requested_plan_mode=requested_plan_mode,
-            prompt_bundle_snapshot=prompt_bundle_snapshot,
-        )
-    with use_prompt_snapshot(prompt_bundle_snapshot):
-        capability_resolution = resolve_run_capability_route(
-            original_message=original_message,
-            task_context_messages=task_context_messages,
-            available_tool_names=route_tool_names,
-            requested_plan_mode=requested_plan_mode,
-            task_policy=task_policy,
-            capabilities=capabilities,
-            tools_disabled=tools_disabled,
-            knowledge_grounded=knowledge_grounded,
-            unavailable_tool_names=unavailable_tool_names,
-            classify_fn=classify_fn,
-            mcp_tool_catalog=mcp_tool_catalog,
-            existing_document_titles=document_tools.existing_titles if document_tools is not None else (),
-        )
+    agent_mode = capability_resolution.package_id == "agent"
     external_tool_names = list(capability_resolution.external_tool_names)
     tools = [available_tools_by_name[name] for name in external_tool_names]
     plan_mode = capability_resolution.effective_plan_mode
-    control_tool_names: frozenset[str] = frozenset()
+    control_tool_names: set[str] = set()
     if plan_mode != "off":
         tools.append(build_update_plan_tool())
-        control_tool_names = frozenset({"update_plan"})
+        control_tool_names.add("update_plan")
+    active_handlers = {name: provided_handlers[name] for name in external_tool_names if name in provided_handlers}
     document_handlers: dict[str, Any] = {}
     document_context: str | None = None
-    if capability_resolution.output_mode == "document" and document_tools is not None and supports_dynamic_tools:
+    if agent_mode and document_tools is not None and supports_dynamic_tools:
         with use_prompt_snapshot(prompt_bundle_snapshot):
             tools.extend(document_tools.definitions_factory())
             document_context = render_current_documents_context(document_tools.existing_documents)
         document_handlers = dict(document_tools.handlers)
         call_kwargs.setdefault("max_tokens", DOCUMENT_OUTPUT_MAX_TOKENS)
-    # 深度研究有自己的取证与综合契约，不叠加 Skill 方法论；单一产品查询同理——
-    # 现有 Skill 都面向多步任务，挂目录只会稀释首轮对用户问题的注意力（实测会让模型漏掉问题）。
-    package_spec = CAPABILITY_PACKAGES.get(capability_resolution.package_id)
-    skill_session = (
-        build_skill_session(external_tool_names)
-        if supports_dynamic_tools
-        and task_policy.task_mode != "deep_research"
-        and not (package_spec is not None and package_spec.is_single_product_lookup)
-        else None
-    )
+    # 深度研究有自己的取证与综合契约，不叠加 Skill 方法论。
+    skill_session = build_skill_session(external_tool_names) if agent_mode and supports_dynamic_tools else None
     skill_handlers: dict[str, Any] = {}
     if skill_session is not None:
         with use_prompt_snapshot(prompt_bundle_snapshot):
             tools.append(build_load_skill_schema(skill_session))
         skill_handlers[LOAD_SKILL_TOOL_NAME] = LoadSkillHandler(skill_session)
-    escalation_session: CapabilityEscalationSession | None = None
-    escalation_handlers: dict[str, Any] = {}
-    if (
-        allow_capability_escalation
-        and settings.RUN_CAPABILITY_ESCALATION_ENABLED
-        and supports_dynamic_tools
-        and capability_resolution.package_id in ESCALATION_SOURCE_PACKAGES
-        and capability_resolution.output_mode == "chat"
-        and task_policy.task_mode != "deep_research"
-        and previous_run_id is None
-        and options.get("stream_mode") != "continuation"
-    ):
-        target_package_ids = escalation_target_package_ids(available_tools_by_name)
-        if target_package_ids:
-
-            def rebuild_call_config(candidate) -> AgentLoopCallConfig:
-                # 同一组纯值入参、固定候选路由重跑首判派生：不调分类模型，不碰数据库。
-                return build_agent_loop_call_config(
-                    provider=provider,
-                    options=options,
-                    capabilities=capabilities,
-                    volcengine_providers=volcengine_providers,
-                    build_web_search_tool_fn=build_web_search_tool_fn,
-                    build_url_read_tool_fn=build_url_read_tool_fn,
-                    additional_tools=additional_tools,
-                    dynamic_tool_handlers=dynamic_tool_handlers,
-                    tool_bindings=tool_bindings,
-                    authorized_tool_names=authorized_tool_names,
-                    original_message=original_message,
-                    task_context_messages=task_context_messages,
-                    classify_fn=lambda **_kwargs: candidate,
-                    prompt_bundle_snapshot=prompt_bundle_snapshot,
-                    allow_capability_escalation=False,
-                )
-
-            escalation_session = CapabilityEscalationSession(
-                source_resolution=capability_resolution,
-                target_package_ids=target_package_ids,
-                available_tool_names=tuple(available_tools_by_name),
-                rebuild_call_config=rebuild_call_config,
-            )
-            with use_prompt_snapshot(prompt_bundle_snapshot):
-                tools.append(build_request_capability_schema(escalation_session))
-            escalation_handlers[REQUEST_CAPABILITY_TOOL_NAME] = RequestCapabilityHandler(escalation_session)
     if tools:
         call_kwargs["tools"] = tools
         call_kwargs["tool_choice"] = "auto"
@@ -425,151 +302,52 @@ def build_agent_loop_call_config(
         should_use_reasoning=should_use_reasoning,
     )
 
-    announced_tools = list(external_tool_names)
-    active_handlers = {name: provided_handlers[name] for name in announced_tools if name in provided_handlers}
     active_handlers.update(document_handlers)
     active_handlers.update(skill_handlers)
-    active_handlers.update(escalation_handlers)
     bindings_by_alias = {
         str(binding.get("alias", "")): binding
         for binding in (tool_bindings or [])
         if isinstance(binding, dict) and binding.get("alias")
     }
-    active_bindings = [bindings_by_alias[name] for name in announced_tools if name in bindings_by_alias]
+    active_bindings = [bindings_by_alias[name] for name in external_tool_names if name in bindings_by_alias]
+    tool_discovery: DynamicToolDiscoverySession | None = None
+    if capability_resolution.deferred_tool_names:
+        tool_discovery = DynamicToolDiscoverySession(
+            authorized=build_discovery_entries(
+                schemas_by_name=available_tools_by_name,
+                handlers_by_name=provided_handlers,
+                bindings=tool_bindings or [],
+                authorized_names=capability_resolution.deferred_tool_names,
+            )
+        )
+        call_kwargs["tools"] = [*call_kwargs.get("tools", []), build_tool_search_schema()]
+        call_kwargs["tool_choice"] = "auto"
+        attach_session_runtime(
+            tool_discovery,
+            call_kwargs=call_kwargs,
+            handlers=active_handlers,
+            bindings=active_bindings,
+        )
+        control_tool_names.add(TOOL_SEARCH_NAME)
     return AgentLoopCallConfig(
         should_use_reasoning=should_use_reasoning,
         supports_function_calling=supports_function_calling,
         call_kwargs=call_kwargs,
-        announced_tools=announced_tools,
+        announced_tools=external_tool_names,
         capability_resolution=capability_resolution,
         supports_dynamic_tools=bool(active_handlers),
         dynamic_tool_handlers=active_handlers,
         tool_bindings=active_bindings,
         plan_mode=plan_mode,
-        control_tool_names=control_tool_names,
+        control_tool_names=frozenset(control_tool_names),
         task_mode=task_policy.task_mode,
         network_profile=task_policy.network_profile,
         evidence_policy="knowledge_grounded_v1" if knowledge_grounded else task_policy.evidence_policy,
         prompt_bundle_snapshot=prompt_bundle_snapshot,
+        tool_discovery=tool_discovery,
         output_tool_names=frozenset(document_handlers),
         document_context=document_context,
         skill_session=skill_session,
-        escalation_session=escalation_session,
-    )
-
-
-def _capability_prompt_view(call_config: AgentLoopCallConfig):
-    experiment = getattr(call_config, "discovery_experiment", None)
-    if experiment is not None:
-        return experiment
-    return call_config.capability_resolution
-
-
-def _build_discovery_call_config(
-    *,
-    provider: str,
-    options: dict,
-    capabilities: dict,
-    volcengine_providers: set[str] | frozenset[str],
-    should_use_reasoning: bool,
-    supports_function_calling: bool,
-    supports_dynamic_tools: bool,
-    call_kwargs: dict,
-    available_tools_by_name: dict[str, dict],
-    provided_handlers: dict[str, Any],
-    tool_bindings: list[dict[str, Any]],
-    authorized_tool_names: list[str],
-    original_message: str | None,
-    task_policy: Any,
-    knowledge_grounded: bool,
-    requested_plan_mode: PlanMode,
-    prompt_bundle_snapshot: PromptBundleSnapshot | None,
-) -> AgentLoopCallConfig:
-    from app.services.stream.dynamic_tool_discovery import (
-        CATALOG_EVIDENCE_ADAPTER_NOTE,
-        TOOL_SEARCH_NAME,
-        DiscoveryExperimentContext,
-        DynamicToolDiscoverySession,
-        ToolSearchHandler,
-        attach_session_runtime,
-        build_discovery_entries,
-        build_tool_search_schema,
-    )
-    from app.services.tool_handlers import get_handler
-
-    plan_mode: PlanMode = "off" if knowledge_grounded else requested_plan_mode
-    discovery_handlers = dict(provided_handlers)
-    # 内置工具的 schema 已经通过模型能力过滤；生产入口仅额外传入 MCP/产品工具的 handler。
-    builtin_names = [name for name in ("web_search", "url_read") if name in available_tools_by_name]
-    for name in builtin_names:
-        if name not in discovery_handlers:
-            handler = get_handler(name)
-            if handler is not None:
-                discovery_handlers[name] = handler
-    # MCP 授权名单不包含内置工具，合并时只补入上述已通过能力过滤的两个名称。
-    discovery_names = list(dict.fromkeys([*(authorized_tool_names or available_tools_by_name), *builtin_names]))
-    entries = build_discovery_entries(
-        schemas_by_name=available_tools_by_name,
-        handlers_by_name=discovery_handlers,
-        bindings=tool_bindings,
-        authorized_names=discovery_names,
-    )
-    # 首个 tool_search 调用声明并冻结约束；此前只公开发现控制工具。
-    session = DynamicToolDiscoverySession(authorized=entries)
-    tools = [build_tool_search_schema()]
-    control_tool_names: frozenset[str] = frozenset({TOOL_SEARCH_NAME})
-    if plan_mode != "off":
-        tools.append(build_update_plan_tool())
-        control_tool_names = frozenset({TOOL_SEARCH_NAME, "update_plan"})
-    call_kwargs = dict(call_kwargs)
-    call_kwargs["tools"] = tools
-    call_kwargs["tool_choice"] = "auto"
-    effective_provider = "volcengine" if provider in volcengine_providers else provider
-    call_kwargs = configure_reasoning_call_kwargs(
-        call_kwargs,
-        provider=effective_provider,
-        should_use_reasoning=should_use_reasoning,
-    )
-    active_handlers: dict[str, Any] = {TOOL_SEARCH_NAME: ToolSearchHandler(session)}
-    active_bindings: list[dict[str, Any]] = []
-    attach_session_runtime(
-        session,
-        call_kwargs=call_kwargs,
-        handlers=active_handlers,
-        bindings=active_bindings,
-        plan_mode=plan_mode,
-    )
-    experiment = DiscoveryExperimentContext(
-        include_current_date=True,
-        effective_plan_mode=plan_mode,
-        network_boundary_required=False,
-        requires_catalog_evidence=False,
-        catalog_evidence_note=CATALOG_EVIDENCE_ADAPTER_NOTE,
-        announced_tools=(TOOL_SEARCH_NAME,),
-        authorized_tool_names=tuple(session.catalog_names()),
-        external_tool_names=(TOOL_SEARCH_NAME,),
-    )
-    return AgentLoopCallConfig(
-        should_use_reasoning=should_use_reasoning,
-        supports_function_calling=supports_function_calling,
-        call_kwargs=call_kwargs,
-        announced_tools=[TOOL_SEARCH_NAME],
-        capability_resolution=None,
-        supports_dynamic_tools=True,
-        dynamic_tool_handlers=active_handlers,
-        tool_bindings=active_bindings,
-        plan_mode=plan_mode,
-        control_tool_names=control_tool_names,
-        task_mode=task_policy.task_mode,
-        network_profile=task_policy.network_profile,
-        evidence_policy=(
-            # 按请求文本用正则选证据策略已删除（#132）；改为按实际工具结果判定，见 #127。
-            "knowledge_grounded_v1" if knowledge_grounded else task_policy.evidence_policy
-        ),
-        prompt_bundle_snapshot=prompt_bundle_snapshot,
-        dynamic_tool_discovery=True,
-        tool_discovery=session,
-        discovery_experiment=experiment,
     )
 
 
@@ -660,7 +438,7 @@ async def prepare_agent_loop_messages(
     def assemble(config: AgentLoopCallConfig):
         return assemble_system_prompt(
             user_system_prompt=user_system_prompt,
-            include_current_date=_capability_prompt_view(config).include_current_date,
+            include_current_date=True,
             sections=partial(
                 _run_prompt_sections,
                 config,
@@ -668,10 +446,6 @@ async def prepare_agent_loop_messages(
                 extra_system_prompts=tuple(extra_system_prompts or ()),
             ),
         )
-
-    def rebuild_system_messages(config: AgentLoopCallConfig) -> tuple[PromptMessage, ...]:
-        with use_prompt_snapshot(config.prompt_bundle_snapshot):
-            return tuple(assemble(config).messages)
 
     assembly = assemble(call_config)
     messages = [*assembly.messages, *ensure_prompt_messages(messages)]
@@ -686,9 +460,7 @@ async def prepare_agent_loop_messages(
         prompt_assembly=assembly.metadata,
         prompt_snapshot=run_snapshot.to_storage(),
         run_prompt_snapshot=run_snapshot,
-        final_tool_names=list(_capability_prompt_view(call_config).external_tool_names),
-        rebuild_system_messages=rebuild_system_messages,
-        system_section_ids=tuple(message.section_id for message in assembly.messages),
+        final_tool_names=list(call_config.announced_tools),
     )
 
 
@@ -703,21 +475,16 @@ def _run_prompt_sections(
         yield SystemPromptSection(NO_VISION_FILE_BOUNDARY, get_no_vision_file_boundary_prompt())
     for section_id in extra_system_prompts:
         yield SystemPromptSection(section_id, call_config.prompt_bundle_snapshot.resolve(section_id)[0])
-    resolution = _capability_prompt_view(call_config)
-    if (
-        getattr(call_config, "dynamic_tool_discovery", False)
-        and getattr(call_config, "tool_discovery", None) is not None
-    ):
+    resolution = call_config.capability_resolution
+    if getattr(call_config, "tool_discovery", None) is not None:
         yield SystemPromptSection("deferred_tool_catalog", call_config.tool_discovery.catalog_prompt())
-    if "classifier_unavailable" in getattr(resolution, "reason_codes", ()) and resolution.external_tool_names:
-        # 分类失败兜底开放了网页工具；用户是否禁止联网交给回答模型理解，服务端不猜。
-        yield SystemPromptSection(CLASSIFIER_UNAVAILABLE, render_runtime_prompt("stream.classifier_unavailable"))
+    if resolution.package_id == "agent":
+        # 工具选择交给回答模型：何时直接回答、何时查、用户禁止的不用，都写在这里而不是服务端预判。
+        yield SystemPromptSection(TOOL_SELECTION_POLICY, render_runtime_prompt("stream.tool_selection_policy"))
     if resolution.external_tool_names:
         yield SystemPromptSection("tool_failure_policy", render_runtime_prompt("stream.tool_failure_policy"))
     if "web_search" in resolution.external_tool_names:
         yield SystemPromptSection(TOOL_USAGE_CONTRACT, get_tool_usage_contract_prompt())
-    if call_config.evidence_policy == "verified_web_v1":
-        yield SystemPromptSection(VERIFIED_WEB_EVIDENCE, render_runtime_prompt("stream.verified_web_evidence"))
     if resolution.effective_plan_mode != "off":
         yield SystemPromptSection(
             AGENT_PLAN_CONTROL,
@@ -726,7 +493,7 @@ def _run_prompt_sections(
     skill_session = getattr(call_config, "skill_session", None)
     if skill_session is not None:
         yield SystemPromptSection(SKILLS_CATALOG, skill_session.catalog_prompt())
-    if getattr(resolution, "package_id", None) == "deep_research":
+    if resolution.package_id == "deep_research":
         yield SystemPromptSection(DEEP_RESEARCH_CONTRACT, DEEP_RESEARCH_CONTRACT_PROMPT)
     if resolution.network_boundary_required:
         yield SystemPromptSection(
@@ -802,7 +569,7 @@ async def _prepare_url_context(
     call_config: AgentLoopCallConfig,
     preprocess_url_in_message_fn: Callable[..., Awaitable[tuple[Any | None, dict | None, str | None]]],
 ) -> tuple[list[PromptMessage], list[Any]]:
-    if "url_read" not in _capability_prompt_view(call_config).external_tool_names:
+    if "url_read" not in call_config.announced_tools:
         return messages, []
     initial_content_blocks = []
     url_read_block, url_context_msg, _auto_detected_url = await preprocess_url_in_message_fn(
