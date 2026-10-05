@@ -161,7 +161,7 @@ def _normalize_tool_digest(event: dict[str, Any]) -> dict[str, Any]:
         "plan_item_id": str(event.get("plan_item_id")) if event.get("plan_item_id") else None,
     }
     repair_state = event.get("repair_state")
-    if repair_state in {"retrying", "requires_user_input", "exhausted", "resolved"}:
+    if repair_state in {"retrying", "requires_user_input", "exhausted", "resolved", "awaiting_choice"}:
         digest["repair_state"] = repair_state
     repair_id = event.get("repair_id")
     if isinstance(repair_id, str) and repair_id:

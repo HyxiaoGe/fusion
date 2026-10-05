@@ -130,6 +130,52 @@ class ToolCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("深圳市", str(completed))
 
+    async def test_place_ambiguity_is_reported_as_awaiting_choice_not_failure(self):
+        complete_tool_lifecycle = getattr(lifecycle_module, "complete_tool_lifecycle")
+        emitter = RecordingEmitter()
+        result = ToolResult(
+            status="failed",
+            data={
+                "error_code": "ambiguous_location",
+                "error_details": {"candidates": [{"index": 1, "name": "象山景区"}, {"index": 2, "name": "象山区"}]},
+            },
+            error_message="地点有多个候选",
+        )
+
+        await complete_tool_lifecycle(
+            emitter=emitter,
+            tool_call_id="call-ambiguous",
+            tool_name="route_compare",
+            result=result,
+            duration_ms=500,
+            result_summary_builder=lambda _result: {"kind": "route", "truncated": False},
+        )
+
+        completed = emitter.events[0][1]
+        self.assertEqual(completed["status"], "degraded")
+        self.assertIsNone(completed["error"])
+        self.assertEqual(completed["result_summary"]["repair_state"], "awaiting_choice")
+        # 模型侧的工具结果保持失败，候选仍由模型处理。
+        self.assertEqual(result.status, "failed")
+
+    async def test_other_failures_stay_failed(self):
+        complete_tool_lifecycle = getattr(lifecycle_module, "complete_tool_lifecycle")
+        emitter = RecordingEmitter()
+        result = ToolResult(status="failed", data={"error_code": "ambiguous_location"}, error_message="无候选")
+
+        await complete_tool_lifecycle(
+            emitter=emitter,
+            tool_call_id="call-no-candidates",
+            tool_name="route_compare",
+            result=result,
+            duration_ms=500,
+            result_summary_builder=lambda _result: {"kind": "route", "truncated": False},
+        )
+
+        completed = emitter.events[0][1]
+        self.assertEqual(completed["status"], "failed")
+        self.assertNotIn("repair_state", completed["result_summary"])
+
     async def test_success_metadata_resolves_only_matching_repair(self):
         complete_tool_lifecycle = getattr(lifecycle_module, "complete_tool_lifecycle")
         emitter = RecordingEmitter()

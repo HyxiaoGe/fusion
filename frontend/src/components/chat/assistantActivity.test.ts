@@ -863,6 +863,41 @@ describe('deriveAssistantActivity', () => {
     expect(interrupted.tool).toBeNull();
   });
 
+  it('地名有多个候选时不算工具问题', () => {
+    const activity = deriveAssistantActivity({
+      isStreaming: false,
+      isCurrentlyStreaming: false,
+      contentBlocks: [{ type: 'text', id: 'text-1', text: '“象山”有两个候选，你指的是哪个？' }],
+      currentRun: makeRun({
+        status: 'completed',
+        steps: [
+          {
+            stepId: 'step-1',
+            stepNumber: 1,
+            status: 'completed',
+            startedAt: 1,
+            contentBlockIds: [],
+            toolCalls: [
+              {
+                toolCallId: 'tool-1',
+                toolName: 'route_compare',
+                arguments: { origin: '桂林站', destination: '象山' },
+                status: 'degraded',
+                startedAt: 1,
+                resultSummary: { kind: 'route', truncated: false, repair_state: 'awaiting_choice' },
+              },
+            ],
+          },
+        ],
+      }),
+      messageStatus: null,
+      isLoadingSuggestedQuestions: false,
+      suggestedQuestionsCount: 0,
+    });
+
+    expect(activity.issue).toBeNull();
+  });
+
   it('falls back to the raw url when url_read target cannot be parsed', () => {
     const activity = deriveAssistantActivity({
       isStreaming: true,

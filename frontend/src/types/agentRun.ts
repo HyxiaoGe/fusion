@@ -133,7 +133,7 @@ export interface AgentToolDigest {
   keyFindings: string[];
   sourceRefs: string[];
   truncated: boolean;
-  repairState?: 'retrying' | 'requires_user_input' | 'exhausted' | 'resolved';
+  repairState?: 'retrying' | 'requires_user_input' | 'exhausted' | 'resolved' | 'awaiting_choice';
   repairId?: string;
 }
 
@@ -146,7 +146,7 @@ export interface ToolCallResultSummary {
   mode_count?: number;
   favicon?: string;
   truncated: boolean;
-  repair_state?: 'retrying' | 'requires_user_input' | 'exhausted' | 'resolved';
+  repair_state?: 'retrying' | 'requires_user_input' | 'exhausted' | 'resolved' | 'awaiting_choice';
   repair_id?: string;
   resolves_repair_id?: string;
 }

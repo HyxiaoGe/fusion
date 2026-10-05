@@ -225,3 +225,23 @@ def test_success_digest_carries_matching_resolution_id():
 
     assert digest["repair_state"] == "resolved"
     assert digest["repair_id"] == "repair_0123456789abcdef"
+
+
+def test_place_ambiguity_digest_is_awaiting_choice():
+    record = SimpleNamespace(
+        tool_call={"id": "call-ambiguous", "name": "route_compare"},
+        tool_name="route_compare",
+        result=SimpleNamespace(
+            status="failed",
+            data={"error_code": "ambiguous_location", "error_details": {"candidates": [{"index": 1}, {"index": 2}]}},
+            error_message="地点有多个候选",
+        ),
+        handler=SimpleNamespace(_build_result_summary=lambda _result: {"kind": "route", "truncated": False}),
+    )
+
+    digest = build_tool_result_digest(record)
+
+    assert digest["status"] == "degraded"
+    assert digest["repair_state"] == "awaiting_choice"
+    assert digest["title"] == "地点有多个候选，待确认"
+    assert "repair_id" not in digest

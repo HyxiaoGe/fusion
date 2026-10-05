@@ -38,6 +38,7 @@ function getStatusText(digest: AgentToolDigest): string {
   if (digest.repairState === 'retrying') return '修正中';
   if (digest.repairState === 'requires_user_input') return '待补充';
   if (digest.repairState === 'exhausted') return '未修正';
+  if (digest.repairState === 'awaiting_choice') return '待确认';
   switch (digest.status) {
     case 'success':
       return '完成';
@@ -58,6 +59,7 @@ function getDigestTitle(digest: AgentToolDigest): string {
   if (digest.repairState === 'retrying') return '正在修正工具参数';
   if (digest.repairState === 'requires_user_input') return '需要补充查询条件';
   if (digest.repairState === 'exhausted') return '参数未能自动修正';
+  if (digest.repairState === 'awaiting_choice') return '地点有多个候选，待确认';
   if (digest.toolName === 'web_search' && digest.status === 'success') {
     return '搜索完成';
   }
