@@ -68,6 +68,54 @@ class ReasoningPolicyTests(unittest.TestCase):
 
         self.assertEqual(configured, original)
 
+    def test_reasoning_off_disables_thinking_for_switchable_models(self):
+        original = {
+            "tools": [{"function": {"name": "web_search"}}],
+            "tool_choice": "auto",
+            "extra_body": {"trace": "kept"},
+        }
+
+        configured = configure_reasoning_call_kwargs(
+            original,
+            provider="openai",
+            should_use_reasoning=False,
+            thinking_switchable=True,
+        )
+
+        self.assertEqual(
+            configured["extra_body"],
+            {"trace": "kept", "extra_body": {"thinking": {"type": "disabled"}}},
+        )
+        self.assertNotIn("thinking", configured["extra_body"])
+        self.assertEqual(configured["tool_choice"], "auto")
+        self.assertEqual(original["extra_body"], {"trace": "kept"})
+
+    def test_reasoning_off_reconfigure_keeps_disabled_thinking(self):
+        first_round = configure_reasoning_call_kwargs(
+            {"tools": [{"function": {"name": "web_search"}}]},
+            provider="openai",
+            should_use_reasoning=False,
+            thinking_switchable=True,
+        )
+
+        later_round = configure_reasoning_call_kwargs(
+            first_round,
+            provider="openai",
+            should_use_reasoning=False,
+        )
+
+        self.assertEqual(later_round, first_round)
+
+    def test_reasoning_on_ignores_switchable_flag(self):
+        configured = configure_reasoning_call_kwargs(
+            {"tools": [{"function": {"name": "web_search"}}]},
+            provider="openai",
+            should_use_reasoning=True,
+            thinking_switchable=True,
+        )
+
+        self.assertNotIn("extra_body", configured)
+
 
 if __name__ == "__main__":
     unittest.main()

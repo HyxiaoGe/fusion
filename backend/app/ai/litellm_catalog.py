@@ -234,6 +234,8 @@ def normalize_capabilities(
     normalized["functionCalling"] = function_calling
     normalized["vision"] = bool(normalized.get("vision", False))
     normalized["deepThinking"] = bool(normalized.get("deepThinking", False))
+    # 能用 thinking=disabled 真正关掉推理；只对推理模型有意义。
+    normalized["thinkingSwitchable"] = normalized["deepThinking"] and normalized.get("thinkingSwitchable") is True
     normalized["fileSupport"] = bool(normalized.get("fileSupport", False))
     normalized["imageGen"] = bool(normalized.get("imageGen", False))
 

@@ -20,6 +20,13 @@ class LiteLLMCatalogTests(unittest.TestCase):
         self.assertTrue(capabilities["searchCapable"])
         self.assertTrue(capabilities["webSearch"])
 
+    def test_thinking_switchable_requires_explicit_flag_on_reasoning_model(self):
+        normalize = litellm_catalog.normalize_capabilities
+        self.assertTrue(normalize("m", {"deepThinking": True, "thinkingSwitchable": True})["thinkingSwitchable"])
+        self.assertFalse(normalize("m", {"deepThinking": True})["thinkingSwitchable"])
+        self.assertFalse(normalize("m", {"deepThinking": False, "thinkingSwitchable": True})["thinkingSwitchable"])
+        self.assertFalse(normalize("m", {"deepThinking": True, "thinkingSwitchable": "yes"})["thinkingSwitchable"])
+
     def test_normalize_capabilities_disables_known_non_agent_models_by_default(self):
         capabilities = litellm_catalog.normalize_capabilities(
             "qwen-vl-max",

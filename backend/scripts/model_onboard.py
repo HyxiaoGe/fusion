@@ -4,6 +4,8 @@ Fusion 的模型目录就是 LiteLLM 代理里 Fusion key 白名单允许的模�
 - add：登记到代理（不进白名单，用户看不到）后用 master key 跑预检；预检失败自动删除。
 - publish：加进白名单并推进目录代次，Fusion 立即可见。
 - retire：代码里仍写死该模型则拒绝；否则移出白名单、删除代理模型，输出备份。
+- set-capabilities：开关已登记模型的能力位（如 thinkingSwitchable），只改元数据里的
+  capabilities，回读确认后推进目录代次。
 
 在 dev 上运行（master key 只经环境变量传入，不落盘不打印）：
     cd ~/project/litellm-proxy && set -a && . ./.env && set +a
@@ -25,7 +27,16 @@ from scripts.check_litellm_candidate_preflight import Candidate, run_preflight, 
 
 MASTER_KEY_ENV = "LITELLM_MASTER_KEY"
 SOURCE = "fusion-model-onboard-v1"
-CAPABILITY_KEYS = ("vision", "functionCalling", "deepThinking", "webSearch", "fileSupport", "imageGen")
+# thinkingSwitchable：传 thinking=disabled 能真正关掉推理（上线前须实测推理 token 归零）。
+CAPABILITY_KEYS = (
+    "vision",
+    "functionCalling",
+    "deepThinking",
+    "thinkingSwitchable",
+    "webSearch",
+    "fileSupport",
+    "imageGen",
+)
 APP_ROOT = Path(__file__).resolve().parents[1] / "app"
 
 
@@ -39,6 +50,8 @@ class HttpClient(Protocol):
     def get(self, url: str, **kwargs: Any) -> Any: ...
 
     def post(self, url: str, **kwargs: Any) -> Any: ...
+
+    def patch(self, url: str, **kwargs: Any) -> Any: ...
 
 
 class ProxyAdmin:
@@ -90,6 +103,16 @@ class ProxyAdmin:
 
     def delete_model(self, model_uuid: str) -> None:
         self._post("/model/delete", {"id": model_uuid}, "model_delete_failed")
+
+    def update_model_metadata(self, model_uuid: str, metadata: Mapping[str, Any]) -> None:
+        # PATCH 只合并传入字段；实测 litellm_params、定价与上下文窗口保持不变。
+        response = self.client.patch(
+            f"{self.base_url}/model/{model_uuid}/update",
+            headers=self._headers(),
+            json={"model_info": {"metadata": dict(metadata)}},
+            timeout=20.0,
+        )
+        self._json(response, "model_update_failed")
 
 
 def _usd_per_token(per_million: float) -> float:
@@ -221,6 +244,27 @@ def cmd_retire(admin: ProxyAdmin, args: argparse.Namespace, *, code_root: Path =
     }
 
 
+def cmd_set_capabilities(admin: ProxyAdmin, args: argparse.Namespace) -> dict[str, Any]:
+    entry = admin.find_model(args.model_id)
+    if entry is None:
+        raise OnboardError("model_missing", args.model_id)
+    metadata = dict((entry.get("model_info") or {}).get("metadata") or {})
+    before = dict(metadata.get("capabilities") or {})
+    after = {**before, **{key: True for key in args.enable}, **{key: False for key in args.disable}}
+    admin.update_model_metadata(entry["model_info"]["id"], {**metadata, "capabilities": after})
+    readback = admin.find_model(args.model_id)
+    readback_capabilities = ((readback or {}).get("model_info") or {}).get("metadata", {}).get("capabilities")
+    if readback_capabilities != after:
+        raise OnboardError("model_update_readback_failed", args.model_id)
+    return {
+        "status": "capabilities_updated",
+        "model_id": args.model_id,
+        "before": before,
+        "after": after,
+        "catalog_generation": bump_catalog_generation(),
+    }
+
+
 def cmd_list(admin: ProxyAdmin, _args: argparse.Namespace) -> dict[str, Any]:
     entries = admin.model_entries()
     published = set(admin.key_models())
@@ -262,6 +306,11 @@ def build_parser() -> argparse.ArgumentParser:
         command = sub.add_parser(name, help=help_text)
         command.add_argument("model_id")
     sub.add_parser("list", help="列出代理里登记的模型及发布状态")
+
+    set_caps = sub.add_parser("set-capabilities", help="开关已登记模型的能力位")
+    set_caps.add_argument("model_id")
+    set_caps.add_argument("--enable", nargs="*", default=[], choices=CAPABILITY_KEYS)
+    set_caps.add_argument("--disable", nargs="*", default=[], choices=CAPABILITY_KEYS)
     return parser
 
 
@@ -274,7 +323,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     base_url = os.environ.get("LITELLM_PROXY_URL", "http://litellm-proxy:4000")
     admin = ProxyAdmin(httpx, base_url, master_key, fusion_key)
-    handlers = {"add": cmd_add, "publish": cmd_publish, "retire": cmd_retire, "list": cmd_list}
+    handlers = {
+        "add": cmd_add,
+        "publish": cmd_publish,
+        "retire": cmd_retire,
+        "list": cmd_list,
+        "set-capabilities": cmd_set_capabilities,
+    }
     try:
         result = handlers[args.command](admin, args)
     except OnboardError as exc:

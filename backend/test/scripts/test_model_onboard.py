@@ -1,6 +1,8 @@
+import io
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -43,6 +45,15 @@ class FakeProxy:
         elif url.endswith("/key/update"):
             self.key_models = list(json["models"])
         return _Response({})
+
+    def patch(self, url, *, json, **kwargs):
+        model_uuid = url.rsplit("/", 2)[-2]
+        self.posts.append(("model/update", json))
+        for entry in self.entries:
+            if entry["model_info"]["id"] == model_uuid:
+                entry["model_info"] = {**entry["model_info"], **json["model_info"]}
+                return _Response({})
+        return _Response({"error": "missing"}, status_code=404)
 
 
 def _add_args(**overrides):
@@ -164,6 +175,61 @@ class ModelOnboardTests(unittest.TestCase):
         self.assertIsNone(self.admin.find_model("new-model"))
         self.assertEqual(result["backup"]["model_name"], "new-model")
         self.assertNotIn("master", json.dumps(result))
+
+    def _registered_proxy(self):
+        return FakeProxy(
+            entries=[
+                {
+                    "model_name": "m1",
+                    "litellm_params": {"model": "openai/m1"},
+                    "model_info": {
+                        "id": "uuid-m1",
+                        "db_model": True,
+                        "max_input_tokens": 1000,
+                        "metadata": {
+                            "display_name": "M1",
+                            "capabilities": {"deepThinking": True, "vision": True},
+                        },
+                    },
+                }
+            ]
+        )
+
+    def test_set_capabilities_merges_flags_keeps_other_metadata_and_bumps_catalog(self):
+        proxy = self._registered_proxy()
+        admin = model_onboard.ProxyAdmin(proxy, "http://proxy", "master", "fusion")
+        args = SimpleNamespace(model_id="m1", enable=["thinkingSwitchable"], disable=["vision"])
+
+        with patch.object(model_onboard, "bump_catalog_generation", return_value="gen-2"):
+            result = model_onboard.cmd_set_capabilities(admin, args)
+
+        self.assertEqual(result["status"], "capabilities_updated")
+        self.assertEqual(result["before"], {"deepThinking": True, "vision": True})
+        self.assertEqual(
+            result["after"],
+            {"deepThinking": True, "vision": False, "thinkingSwitchable": True},
+        )
+        self.assertEqual(result["catalog_generation"], "gen-2")
+        info = proxy.entries[0]["model_info"]
+        self.assertEqual(info["metadata"]["display_name"], "M1")
+        self.assertEqual(info["max_input_tokens"], 1000)
+        self.assertEqual(proxy.entries[0]["litellm_params"], {"model": "openai/m1"})
+
+    def test_set_capabilities_requires_registered_model(self):
+        admin = model_onboard.ProxyAdmin(FakeProxy(), "http://proxy", "master", "fusion")
+        args = SimpleNamespace(model_id="missing", enable=["thinkingSwitchable"], disable=[])
+
+        with self.assertRaises(model_onboard.OnboardError) as raised:
+            model_onboard.cmd_set_capabilities(admin, args)
+
+        self.assertEqual(raised.exception.code, "model_missing")
+
+    def test_set_capabilities_parser_rejects_unknown_capability(self):
+        parser = model_onboard.build_parser()
+        parsed = parser.parse_args(["set-capabilities", "m1", "--enable", "thinkingSwitchable"])
+        self.assertEqual(parsed.enable, ["thinkingSwitchable"])
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            parser.parse_args(["set-capabilities", "m1", "--enable", "unknown"])
 
     def test_main_requires_both_credentials(self):
         with patch.dict("os.environ", {"LITELLM_MASTER_KEY": "", "LITELLM_API_KEY": "k"}):
