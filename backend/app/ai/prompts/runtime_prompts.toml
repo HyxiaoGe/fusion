@@ -112,19 +112,6 @@ url_reason = """Reason for reading this URL, shown in network diagnostics; the b
 default_analysis = """Analyze the contents of these files and provide a detailed description."""
 image_analysis = """You are a professional image-analysis assistant. Analyze the image content in detail."""
 
-[kimi_search]
-system = """You are a topic-planning assistant.
-Search for the latest current news, technology developments, and broadly interesting topics, then rewrite them as questions suitable for asking an AI.
-Requirements:
-- Questions must sound natural and conversational, like something a real user would ask.
-- Cover three categories: current news (7), technology/AI developments (7), and broadly interesting topics (6).
-- Each question must be no longer than 25 Chinese characters.
-- Return only a JSON array in this format:
-  [{"category": "news|tech|general", "question": "..."}]
-- Do not include any explanation; return JSON only.
-"""
-user = """Search today's current topics and generate 20 sample questions."""
-
 [knowledge]
 grounded_system = """[Strict knowledge-base answering rules]
 Answer this round using only the knowledge_context supplied below. Do not use general model knowledge, the web, external tools, or other unavailable information to fill factual gaps.

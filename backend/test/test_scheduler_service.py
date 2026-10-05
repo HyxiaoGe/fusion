@@ -50,14 +50,14 @@ class TrajectorySchedulerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(options["coalesce"])
 
     async def test_start_scheduler_only_registers_application_jobs(self):
-        """应用启动只注册示例问题和轨迹修复任务。"""
+        """应用启动只注册轨迹修复任务（示例问题由探针写入，不再定时生成）。"""
 
         fake = FakeScheduler()
         with patch.object(scheduler_service, "AsyncIOScheduler", return_value=fake):
             await scheduler_service.start_scheduler()
 
         self.assertEqual(
-            {"refresh_prompt_examples", "reconcile_trajectory_ledger"},
+            {"reconcile_trajectory_ledger"},
             {options["id"] for _func, options in fake.jobs},
         )
 

@@ -1,7 +1,7 @@
 """
 示例问题服务
 
-负责刷新、缓存、读取动态示例问题。
+负责入池、缓存、读取首页示例问题（来源：dev 每日探针）。
 - 写入 PostgreSQL（持久化）
 - 缓存到 Redis（TTL 2 小时）
 - 读取时优先 Redis，miss 则查 PostgreSQL 并回填
@@ -16,12 +16,11 @@ from app.core.logger import app_logger as logger
 from app.core.redis import get_redis_pool
 from app.db.database import SessionLocal
 from app.db.models import PromptExample
-from app.services.external.kimi_search_service import fetch_trending_questions
 
 REDIS_KEY = "prompt:examples"
 REDIS_TTL = 7200  # 2 小时
 
-# 默认 fallback 问题（冷启动或 Kimi 不可用时使用）
+# 默认 fallback 问题（池子为空时使用）
 DEFAULT_EXAMPLES = [
     {"category": "general", "question": "写一个 Python 快速排序函数"},
     {"category": "general", "question": "帮我 review 这段代码"},
@@ -35,23 +34,10 @@ DEFAULT_EXAMPLES = [
 ]
 
 
-async def refresh_prompt_examples() -> None:
-    """
-    定时任务入口：调用 Kimi 生成新问题 → 写 PostgreSQL → 写 Redis。
-    """
-    logger.info("开始刷新示例问题...")
-
-    questions = await fetch_trending_questions()
-    if not questions:
-        logger.warning("未获取到新问题，跳过刷新")
-        return
-    await store_prompt_examples(questions, source="kimi")
-
-
 async def store_prompt_examples(questions: list[dict], *, source: str, db=None) -> int:
     """把一批 {question, category} 并入示例池，返回新增条数。
 
-    除 Kimi 定时任务外，每日探针也用它把当天出的题写入首页“今日灵感”。
+    dev 每日探针出题后调用它，把当天的题写入首页“今日灵感”。
     累积写入、按题目去重；池子上限 200 条，超出的旧题标记为不活跃；写完刷新 Redis 全量缓存。
     """
     own_session = db is None

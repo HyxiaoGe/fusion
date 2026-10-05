@@ -669,14 +669,14 @@ class DocumentVersion(Base):
 
 
 class PromptExample(Base):
-    """动态示例问题（首页“今日灵感”；来源：每日探针出题、Kimi 定时任务）"""
+    """首页“今日灵感”示例问题（dev 每日探针出题后写入）"""
 
     __tablename__ = "prompt_examples"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     question = Column(String, nullable=False)
     category = Column(String, nullable=False)  # 抽样均衡用的分类，如 news / tech / weather
-    source = Column(String, default="kimi")  # "kimi" | "probe"
+    source = Column(String, default="kimi")  # "probe"（每日探针）；历史数据为 "kimi"
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=get_china_time)
     expires_at = Column(DateTime, nullable=True)

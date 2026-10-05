@@ -65,7 +65,6 @@ services:
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       - REDIS_URL=${REDIS_URL:-redis://middleware-redis:6379/0}
-      - MOONSHOT_API_KEY=${MOONSHOT_API_KEY:-}
       - XIAOMI_API_KEY=${XIAOMI_API_KEY:-}
       - MINIMAX_API_KEY=${MINIMAX_API_KEY:-}
       - LITELLM_PROXY_URL=${LITELLM_PROXY_URL:-http://litellm-proxy:4000}

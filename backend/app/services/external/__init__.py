@@ -1,1 +1,1 @@
-"""外部 HTTP 客户端（Reader / Tavily / Moonshot 等）。"""
+"""外部 HTTP 客户端（Reader / Tavily 等）。"""
