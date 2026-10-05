@@ -52,7 +52,9 @@
 .controls :global([data-slot="button"]):focus-visible { outline: 2px solid var(--info); outline-offset: 2px; box-shadow: none; }
 .controls :global([data-slot="button"]):disabled { color: var(--muted-foreground); background: var(--bg-subtle); opacity: 0.6; box-shadow: none; }
 .controls :global([data-slot="button"]).primaryAction { color: var(--bg-elevated); background: var(--info); border-color: var(--info); }
-.controls :global([data-slot="button"]).primaryAction:hover:not(:disabled) { background: color-mix(in oklab, var(--info) 88%, var(--foreground)); }
+/* 实心主按钮不继承浅色内高光，避免静止时出现白缝；键盘焦点仍使用无阴影轮廓。 */
+.controls :global([data-slot="button"]).primaryAction:not(:disabled):not(:focus-visible) { box-shadow: 0 4px 12px -9px color-mix(in oklab, var(--foreground) 25%, transparent); }
+.controls :global([data-slot="button"]).primaryAction:hover:not(:disabled) { background: color-mix(in oklab, var(--info) 88%, var(--foreground)); border-color: color-mix(in oklab, var(--info) 88%, var(--foreground)); }
 
 .controls :global([data-slot="input"]),
 .controls :global([data-slot="select-trigger"]),
