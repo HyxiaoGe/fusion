@@ -45,36 +45,47 @@ async def refresh_prompt_examples() -> None:
     if not questions:
         logger.warning("未获取到新问题，跳过刷新")
         return
+    await store_prompt_examples(questions, source="kimi")
 
-    db = SessionLocal()
+
+async def store_prompt_examples(questions: list[dict], *, source: str, db=None) -> int:
+    """把一批 {question, category} 并入示例池，返回新增条数。
+
+    除 Kimi 定时任务外，每日探针也用它把当天出的题写入首页“今日灵感”。
+    累积写入、按题目去重；池子上限 200 条，超出的旧题标记为不活跃；写完刷新 Redis 全量缓存。
+    """
+    own_session = db is None
+    db = db or SessionLocal()
     try:
         now = datetime.now(timezone(timedelta(hours=8)))
         expires_at = now + timedelta(hours=2)
 
-        # 累积写入（不清除旧数据），池子自然增长
-        # 去重：跳过已存在的问题
         existing = set(r[0] for r in db.query(PromptExample.question).filter(PromptExample.is_active == True).all())
+        active_before = db.query(PromptExample).filter(PromptExample.is_active == True).count()
 
         new_count = 0
         for item in questions:
-            if item["question"] in existing:
+            question = str(item.get("question") or "").strip()
+            category = str(item.get("category") or "general").strip() or "general"
+            if not question or question in existing:
                 continue
             db.add(
                 PromptExample(
-                    question=item["question"],
-                    category=item["category"],
-                    source="kimi",
+                    question=question,
+                    category=category,
+                    source=source,
                     is_active=True,
                     created_at=now,
                     expires_at=expires_at,
                 )
             )
+            existing.add(question)
             new_count += 1
 
-        # 池子上限 200 条，超出的旧数据标记为不活跃
-        active_count = db.query(PromptExample).filter(PromptExample.is_active == True).count()
-        if active_count + new_count > 200:
-            overflow = active_count + new_count - 200
+        # 池子上限 200 条，超出的旧数据标记为不活跃（加题前计数，不依赖 autoflush）
+        active_count = active_before + new_count
+        if active_count > 200:
+            overflow = active_count - 200
             old_ids = [
                 r[0]
                 for r in db.query(PromptExample.id)
@@ -89,18 +100,21 @@ async def refresh_prompt_examples() -> None:
                 )
 
         db.commit()
-        logger.info(f"示例问题已写入数据库: {new_count} 条新增，池子共 {min(active_count + new_count, 200)} 条")
+        logger.info(f"示例问题已写入数据库（{source}）: {new_count} 条新增，池子共 {min(active_count, 200)} 条")
 
         # 写 Redis 缓存（全量活跃池，不只是本批次）
         all_active = db.query(PromptExample).filter(PromptExample.is_active == True).all()
         all_examples = [{"question": r.question, "category": r.category} for r in all_active]
         await _cache_to_redis(all_examples, now)
+        return new_count
 
     except Exception as e:
         logger.error(f"刷新示例问题失败: {e}")
         db.rollback()
+        return 0
     finally:
-        db.close()
+        if own_session:
+            db.close()
 
 
 async def get_prompt_examples(limit: int = 8) -> dict:
