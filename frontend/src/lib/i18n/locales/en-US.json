@@ -1,5 +1,40 @@
 {
     "admin": {
+      "details": {
+        "additionalContent": "Additional content",
+        "runId": "Run ID",
+        "duration": "Duration"
+      },
+      "modelStatistics": {
+        "conversations": "Conversation usage",
+        "runtime": "Token and Agent statistics",
+        "tokens": "Persisted token statistics",
+        "agent": "Agent run statistics"
+      },
+      "performanceStatistics": {
+        "configuration": "Execution configuration",
+        "results": "Execution results",
+        "latency": "Latency and throughput",
+        "output": "Output and events",
+        "checks": "Scenario checks",
+        "summary": "Overall metrics"
+      },
+      "performanceImport": {
+        "expand": "Import summary",
+        "collapse": "Hide import",
+        "openLabel": "Expand performance import",
+        "closeLabel": "Collapse performance import",
+        "title": "Import a safe performance summary",
+        "description": "Only JSON summaries without accounts, tokens, message content or conversation ID lists are accepted.",
+        "jsonLabel": "Performance result JSON",
+        "placeholder": "Runner JSON, or {\"schema_version\":1,\"run_id\":\"...\",\"environment\":\"prod\",\"safe_summary\":{}}",
+        "loading": "Importing…",
+        "submit": "Import performance result",
+        "success": "Performance result imported",
+        "exists": "Performance record already exists",
+        "parseError": "Unable to parse the performance result",
+        "importError": "Unable to import the performance result"
+      },
       "filters": {
         "userSearch": "Search users",
         "role": "User permissions",

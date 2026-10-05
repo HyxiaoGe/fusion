@@ -140,7 +140,7 @@ function StabilityContent({ data }: {
         <ExcludedSampleSummary scope={data.scope} />
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className={styles.stabilitySummary}>
         <ItinerarySummaryCard metrics={data.summary} />
         <ToolSummaryCard outcomes={data.summary.product_tools} />
         <LatencySummaryCard
@@ -181,11 +181,11 @@ function SummaryCard({ label, icon, children }: {
   children: React.ReactNode;
 }) {
   return (
-    <section aria-label={label} className="rounded-lg border border-border/70 bg-background/50 p-3">
+    <section aria-label={label} className={styles.metricGroup}>
       <h3 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
         {icon}{label}
       </h3>
-      <div className="mt-2 space-y-1.5 text-sm">{children}</div>
+      <div className="mt-3 text-sm">{children}</div>
     </section>
   );
 }
@@ -194,10 +194,14 @@ function ItinerarySummaryCard({ metrics }: { metrics: AdminItineraryStabilityMet
   const { itinerary } = metrics;
   return (
     <SummaryCard label="行程交付总览" icon={<Route className="h-3.5 w-3.5" aria-hidden="true" />}>
-      <Metric label="总样本" value={formatNumber(itinerary.total)} />
-      <Metric label="Complete" value={formatNumber(itinerary.complete)} tone="success" />
-      <Metric label="Partial" value={formatNumber(itinerary.partial)} tone="warn" />
-      <Metric label="Failed" value={formatNumber(itinerary.failed)} tone="danger" />
+      <dl className="mb-3">
+        <Metric label="总样本" value={formatNumber(itinerary.total)} prominent />
+      </dl>
+      <dl className="grid grid-cols-3 gap-3">
+        <Metric label="Complete" value={formatNumber(itinerary.complete)} tone="success" stacked />
+        <Metric label="Partial" value={formatNumber(itinerary.partial)} tone="warn" stacked />
+        <Metric label="Failed" value={formatNumber(itinerary.failed)} tone="danger" stacked />
+      </dl>
     </SummaryCard>
   );
 }
@@ -205,10 +209,14 @@ function ItinerarySummaryCard({ metrics }: { metrics: AdminItineraryStabilityMet
 function ToolSummaryCard({ outcomes }: { outcomes: AdminProductToolOutcomeCounts }) {
   return (
     <SummaryCard label="产品工具总览" icon={<Wrench className="h-3.5 w-3.5" aria-hidden="true" />}>
-      <Metric label="调用" value={formatNumber(outcomes.total)} />
-      <Metric label="成功" value={formatNumber(outcomes.success)} tone="success" />
-      <Metric label="降级" value={formatNumber(outcomes.degraded)} tone="warn" />
-      <Metric label="失败" value={formatNumber(outcomes.failed)} tone="danger" />
+      <dl className="mb-3">
+        <Metric label="调用" value={formatNumber(outcomes.total)} prominent />
+      </dl>
+      <dl className="grid grid-cols-3 gap-3">
+        <Metric label="成功" value={formatNumber(outcomes.success)} tone="success" stacked />
+        <Metric label="降级" value={formatNumber(outcomes.degraded)} tone="warn" stacked />
+        <Metric label="失败" value={formatNumber(outcomes.failed)} tone="danger" stacked />
+      </dl>
     </SummaryCard>
   );
 }
@@ -219,10 +227,12 @@ function LatencySummaryCard({ runLatency, toolLatency }: {
 }) {
   return (
     <SummaryCard label="延迟总览" icon={<Clock3 className="h-3.5 w-3.5" aria-hidden="true" />}>
-      <Metric label="行程 P50" value={formatDuration(runLatency.p50_ms)} />
-      <Metric label="行程 P95" value={formatDuration(runLatency.p95_ms)} />
-      <Metric label="工具 P50" value={formatDuration(toolLatency.p50_ms)} />
-      <Metric label="工具 P95" value={formatDuration(toolLatency.p95_ms)} />
+      <dl className={styles.detailMetrics}>
+        <Metric label="行程 P50" value={formatDuration(runLatency.p50_ms)} />
+        <Metric label="行程 P95" value={formatDuration(runLatency.p95_ms)} />
+        <Metric label="工具 P50" value={formatDuration(toolLatency.p50_ms)} />
+        <Metric label="工具 P95" value={formatDuration(toolLatency.p95_ms)} />
+      </dl>
     </SummaryCard>
   );
 }
@@ -233,18 +243,22 @@ function SignalSummaryCard({ signals }: { signals: AdminItineraryStabilitySignal
     + signals.agent_limit_reached;
   return (
     <SummaryCard label="异常信号总览" icon={<TriangleAlert className="h-3.5 w-3.5" aria-hidden="true" />}>
-      <Metric label="上游错误" value={formatNumber(signals.upstream_error)} tone="danger" />
-      <Metric label="修参触发" value={formatNumber(signals.repair_required)} tone="warn" />
-      <Metric label="需用户补充" value={formatNumber(signals.repair_requires_user_input)} />
-      <Metric label="额度耗尽" value={formatNumber(budgetExhausted)} tone="danger" />
+      <dl className={styles.detailMetrics}>
+        <Metric label="上游错误" value={formatNumber(signals.upstream_error)} tone="danger" />
+        <Metric label="修参触发" value={formatNumber(signals.repair_required)} tone="warn" />
+        <Metric label="需用户补充" value={formatNumber(signals.repair_requires_user_input)} />
+        <Metric label="额度耗尽" value={formatNumber(budgetExhausted)} tone="danger" />
+      </dl>
     </SummaryCard>
   );
 }
 
-function Metric({ label, value, tone = 'default' }: {
+function Metric({ label, value, tone = 'default', prominent = false, stacked = false }: {
   label: string;
   value: string;
   tone?: 'default' | 'success' | 'warn' | 'danger';
+  prominent?: boolean;
+  stacked?: boolean;
 }) {
   const toneClass = tone === 'success'
     ? 'text-success'
@@ -254,9 +268,9 @@ function Metric({ label, value, tone = 'default' }: {
         ? 'text-danger'
         : 'text-foreground';
   return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={`font-medium ${toneClass}`}>{value}</span>
+    <div className={stacked ? 'min-w-0' : 'flex min-w-0 items-baseline justify-between gap-3'}>
+      <dt className="break-words text-xs text-muted-foreground">{label}</dt>
+      <dd className={`break-words font-medium tabular-nums ${toneClass} ${prominent ? 'text-2xl' : 'text-sm'} ${stacked ? 'mt-1' : 'text-right'}`}>{value}</dd>
     </div>
   );
 }
@@ -270,16 +284,17 @@ function ModelMetricsTable({ items }: {
         <Activity className="h-4 w-4" aria-hidden="true" />按模型
       </h3>
       <div className="overflow-x-auto rounded-lg border border-border/70">
-        <table className="w-full min-w-[980px] text-left text-xs">
+        <table className="w-full min-w-[980px] table-fixed text-left text-xs">
           <caption className="sr-only">按模型统计</caption>
+          <colgroup><col className="w-[18%]" /><col className="w-[12%]" /><col className="w-[10%]" /><col className="w-[12%]" /><col className="w-[15%]" /><col className="w-[15%]" /><col className="w-[18%]" /></colgroup>
           <thead className="bg-muted/30 text-muted-foreground">
             <tr>
               <th scope="col" className="px-3 py-2">模型</th>
-              <th scope="col" className="px-3 py-2">行程 C / P / F</th>
-              <th scope="col" className="px-3 py-2">Complete 率</th>
-              <th scope="col" className="px-3 py-2">工具 S / D / F</th>
-              <th scope="col" className="px-3 py-2">运行 P50 / P95</th>
-              <th scope="col" className="px-3 py-2">工具 P50 / P95</th>
+              <th scope="col" className="px-3 py-2 text-right">行程 C / P / F</th>
+              <th scope="col" className="px-3 py-2 text-right">Complete 率</th>
+              <th scope="col" className="px-3 py-2 text-right">工具 S / D / F</th>
+              <th scope="col" className="px-3 py-2 text-right">运行 P50 / P95</th>
+              <th scope="col" className="px-3 py-2 text-right">工具 P50 / P95</th>
               <th scope="col" className="px-3 py-2">异常信号</th>
             </tr>
           </thead>
@@ -287,16 +302,16 @@ function ModelMetricsTable({ items }: {
             {items.map(item => (
               <tr key={item.model_id} className="border-t border-border/60">
                 <td className="max-w-[220px] break-all px-3 py-2 font-medium">{item.model_id}</td>
-                <td className="px-3 py-2">
+                <td className="break-words px-3 py-2 text-right tabular-nums">
                   {formatNumber(item.itinerary.complete)} / {formatNumber(item.itinerary.partial)} / {formatNumber(item.itinerary.failed)}
                 </td>
-                <td className="px-3 py-2">{formatPercentage(item.itinerary.complete, item.itinerary.total)}</td>
-                <td className="px-3 py-2">
+                <td className="break-words px-3 py-2 text-right tabular-nums">{formatPercentage(item.itinerary.complete, item.itinerary.total)}</td>
+                <td className="break-words px-3 py-2 text-right tabular-nums">
                   {formatNumber(item.product_tools.success)} / {formatNumber(item.product_tools.degraded)} / {formatNumber(item.product_tools.failed)}
                 </td>
-                <td className="px-3 py-2">{formatDurationPair(item.run_latency_ms)}</td>
-                <td className="px-3 py-2">{formatDurationPair(item.tool_latency_ms)}</td>
-                <td className="px-3 py-2">
+                <td className="break-words px-3 py-2 text-right tabular-nums">{formatDurationPair(item.run_latency_ms)}</td>
+                <td className="break-words px-3 py-2 text-right tabular-nums">{formatDurationPair(item.tool_latency_ms)}</td>
+                <td className="break-words px-3 py-2 leading-relaxed tabular-nums">
                   上游 {formatNumber(item.signals.upstream_error)} · 修参 {formatNumber(item.signals.repair_required)} · 额度 {formatNumber(totalBudgetSignals(item.signals))}
                 </td>
               </tr>
@@ -315,29 +330,30 @@ function ToolMetricsTable({ items }: { items: AdminItineraryStabilityToolItem[] 
         <Wrench className="h-4 w-4" aria-hidden="true" />按工具
       </h3>
       <div className="overflow-x-auto rounded-lg border border-border/70">
-        <table className="w-full min-w-[760px] text-left text-xs">
+        <table className="w-full min-w-[760px] table-fixed text-left text-xs">
           <caption className="sr-only">按工具统计</caption>
+          <colgroup><col className="w-[24%]" /><col className="w-[8%]" /><col className="w-[23%]" /><col className="w-[17%]" /><col className="w-[14%]" /><col className="w-[14%]" /></colgroup>
           <thead className="bg-muted/30 text-muted-foreground">
             <tr>
               <th scope="col" className="px-3 py-2">工具</th>
-              <th scope="col" className="px-3 py-2">调用</th>
-              <th scope="col" className="px-3 py-2">成功 / 降级 / 失败</th>
-              <th scope="col" className="px-3 py-2">P50 / P95</th>
-              <th scope="col" className="px-3 py-2">上游错误</th>
-              <th scope="col" className="px-3 py-2">额度耗尽</th>
+              <th scope="col" className="px-3 py-2 text-right">调用</th>
+              <th scope="col" className="px-3 py-2 text-right">成功 / 降级 / 失败</th>
+              <th scope="col" className="px-3 py-2 text-right">P50 / P95</th>
+              <th scope="col" className="px-3 py-2 text-right">上游错误</th>
+              <th scope="col" className="px-3 py-2 text-right">额度耗尽</th>
             </tr>
           </thead>
           <tbody>
             {items.map(item => (
               <tr key={item.tool_name} className="border-t border-border/60">
                 <td className="px-3 py-2 font-medium" title={item.tool_name}>{toolLabel(item.tool_name)}</td>
-                <td className="px-3 py-2">{formatNumber(item.calls.total)}</td>
-                <td className="px-3 py-2">
+                <td className="break-words px-3 py-2 text-right tabular-nums">{formatNumber(item.calls.total)}</td>
+                <td className="break-words px-3 py-2 text-right tabular-nums">
                   {formatNumber(item.calls.success)} / {formatNumber(item.calls.degraded)} / {formatNumber(item.calls.failed)}
                 </td>
-                <td className="px-3 py-2">{formatDurationPair(item.latency_ms)}</td>
-                <td className="px-3 py-2">{formatNumber(item.upstream_error)}</td>
-                <td className="px-3 py-2">{formatNumber(item.budget_exhausted)}</td>
+                <td className="break-words px-3 py-2 text-right tabular-nums">{formatDurationPair(item.latency_ms)}</td>
+                <td className="break-words px-3 py-2 text-right tabular-nums">{formatNumber(item.upstream_error)}</td>
+                <td className="break-words px-3 py-2 text-right tabular-nums">{formatNumber(item.budget_exhausted)}</td>
               </tr>
             ))}
           </tbody>
