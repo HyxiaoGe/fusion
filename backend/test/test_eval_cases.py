@@ -31,7 +31,7 @@ class CaseValidationTests(unittest.TestCase):
             "category": "sample",
             "source": "unit test",
             "message": "你好",
-            "checks": [{"type": "escalation", "expect": "none"}],
+            "checks": [{"type": "tool_not_called", "tool": "web_search"}],
         }
         payload.update(overrides)
         return EvalCase.model_validate(payload)
@@ -78,7 +78,7 @@ class CaseValidationTests(unittest.TestCase):
 
 class SuiteLoadingTests(unittest.TestCase):
     def test_duplicate_ids_across_files_are_rejected(self):
-        case = "  - id: same-id\n    source: unit test\n    message: hi\n    checks:\n      - type: escalation\n        expect: none\n"
+        case = "  - id: same-id\n    source: unit test\n    message: hi\n    checks:\n      - type: tool_not_called\n        tool: web_search\n"
         with tempfile.TemporaryDirectory() as tmp:
             _write(Path(tmp), "a.yaml", f"category: alpha\ncases:\n{case}")
             _write(Path(tmp), "b.yaml", f"category: beta\ncases:\n{case}")
@@ -87,7 +87,7 @@ class SuiteLoadingTests(unittest.TestCase):
                 load_suite(Path(tmp))
 
     def test_category_comes_from_file(self):
-        case = "  - id: only-case\n    source: unit test\n    message: hi\n    checks:\n      - type: escalation\n        expect: none\n"
+        case = "  - id: only-case\n    source: unit test\n    message: hi\n    checks:\n      - type: tool_not_called\n        tool: web_search\n"
         with tempfile.TemporaryDirectory() as tmp:
             _write(Path(tmp), "a.yaml", f"category: alpha\ncases:\n{case}")
 
