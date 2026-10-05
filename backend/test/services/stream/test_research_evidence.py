@@ -1,7 +1,6 @@
 import unittest
 
 from app.schemas.chat import SearchBlock, SearchSourceSummary, SourceReference, UrlBlock
-from app.services.agent.plan_coordinator import PlanCoordinator
 from app.services.stream.research_evidence import (
     ResearchEvidenceWorkset,
     assign_missing_source_reference_metadata,
@@ -118,7 +117,7 @@ class ResearchEvidenceTests(unittest.TestCase):
                 self.assertNotIn("example.com", control)
                 self.assertEqual(build_research_untrusted_context_messages(workset), [])
                 self.assertEqual(
-                    resolve_deep_research_stage(workset, has_valid_plan=True),
+                    resolve_deep_research_stage(workset),
                     "search_repair",
                 )
 
@@ -278,42 +277,6 @@ class ResearchEvidenceTests(unittest.TestCase):
         self.assertFalse(invalid.is_valid)
         self.assertEqual(invalid.reason, "invalid_citation")
 
-    def test_fallback_plan_keeps_full_research_evidence_gate(self):
-        coordinator = PlanCoordinator(run_id="run-fallback", mode="on")
-        coordinator.configure_initial_tool_requirements(
-            {
-                "web_search": 1,
-                "url_read": 2,
-            }
-        )
-        self.assertTrue(coordinator.adopt_research_fallback().accepted)
-        workset = ResearchEvidenceWorkset()
-
-        self.assertEqual(
-            resolve_deep_research_stage(workset, has_valid_plan=coordinator.has_valid_model_plan),
-            "search",
-        )
-        self.assertEqual(validate_research_completion(workset, "无依据结论").reason, "missing_search")
-
-        workset.record_content_blocks([_search_block()])
-        self.assertEqual(
-            resolve_deep_research_stage(workset, has_valid_plan=coordinator.has_valid_model_plan),
-            "read",
-        )
-        workset.record_content_blocks([_read_block("https://example.com/a", evidence_id="ev-a", citation_index=2)])
-        self.assertEqual(validate_research_completion(workset, "只有一条来源。[2]").reason, "insufficient_reads")
-
-        workset.record_content_blocks([_read_block("https://example.com/b", evidence_id="ev-b", citation_index=3)])
-        self.assertEqual(
-            resolve_deep_research_stage(workset, has_valid_plan=coordinator.has_valid_model_plan),
-            "synthesis",
-        )
-        self.assertTrue(validate_research_completion(workset, "已核验结论。[2]").is_valid)
-        self.assertEqual(
-            validate_research_completion(workset, "引用不存在来源。[9]").reason,
-            "invalid_citation",
-        )
-
     def test_completion_rejects_insufficient_reads(self):
         workset = ResearchEvidenceWorkset()
         workset.record_content_blocks(
@@ -335,52 +298,6 @@ class ResearchEvidenceTests(unittest.TestCase):
 
         self.assertFalse(result.is_valid)
         self.assertEqual(result.reason, "missing_search")
-
-    def test_research_stage_does_not_synthesize_while_planned_tool_item_is_unexecuted(self):
-        workset = ResearchEvidenceWorkset()
-        workset.record_content_blocks(
-            [
-                _search_block(),
-                _read_block("https://example.com/a", evidence_id="ev-a", citation_index=2),
-                _read_block("https://example.com/b", evidence_id="ev-b", citation_index=3),
-            ]
-        )
-
-        self.assertEqual(
-            resolve_deep_research_stage(
-                workset,
-                has_valid_plan=True,
-                unexecuted_plan_tool_names={"web_search"},
-            ),
-            "search",
-        )
-        self.assertEqual(
-            resolve_deep_research_stage(
-                workset,
-                has_valid_plan=True,
-                unexecuted_plan_tool_names=set(),
-            ),
-            "synthesis",
-        )
-
-    def test_rejected_non_stage_tool_plan_cannot_enter_synthesis(self):
-        workset = ResearchEvidenceWorkset()
-        workset.record_content_blocks(
-            [
-                _search_block(),
-                _read_block("https://example.com/a", evidence_id="ev-a", citation_index=2),
-                _read_block("https://example.com/b", evidence_id="ev-b", citation_index=3),
-            ]
-        )
-
-        self.assertEqual(
-            resolve_deep_research_stage(
-                workset,
-                has_valid_plan=False,
-                unexecuted_plan_tool_names={"route_compare"},
-            ),
-            "planning",
-        )
 
 
 if __name__ == "__main__":

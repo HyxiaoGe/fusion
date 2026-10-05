@@ -77,8 +77,6 @@ class CapabilityEscalationSession:
     # lifecycle 在消息准备完成后挂上；为空时只切换执行面，不重组系统提示词。
     rebuild_system_messages: Callable[[Any], tuple[PromptMessage, ...]] | None = None
     system_section_ids: frozenset[str] = frozenset()
-    # 返回拒绝原因码；execution 装配时按计划状态挂上。
-    blocked_reason: Callable[[], str | None] | None = None
     attempts: int = 0
     pending: PendingEscalation | None = None
     applied: bool = False
@@ -157,9 +155,6 @@ class RequestCapabilityHandler(BaseToolHandler):
         if session.attempts >= MAX_ESCALATION_REQUESTS_PER_RUN:
             return self._reject(package_id, "request_limit_reached")
         session.attempts += 1
-        blocked = session.blocked_reason() if session.blocked_reason is not None else None
-        if blocked:
-            return self._reject(package_id, blocked)
         if package_id not in session.target_package_ids:
             return self._reject(package_id, "unknown_package")
         spec = CAPABILITY_PACKAGES[package_id]
@@ -327,12 +322,6 @@ async def apply_pending_escalation(
     state.plan_coordinator = PlanCoordinator(
         run_id=runtime.run_id,
         mode=config.plan_mode,
-        allowed_tool_names=frozenset(config.announced_tools),
-        required_initial_tool_counts=dict(config.required_initial_tool_counts),
-        unplanned_tool_names=frozenset(config.unplanned_tool_names),
-    )
-    runtime.network_budget.require_distinct_read_urls = "verified_research_request" in set(
-        (config.plan_tool_policy_reason or "").split("+")
     )
     resolution = config.capability_resolution
     # 申请发生在刚结束的那一步；state.step 是最近一次已开始的步数。

@@ -14,8 +14,6 @@ from app.ai.prompts.agent_loop import LIMIT_SUMMARY_PROMPT as _LIMIT_SUMMARY_PRO
 from app.ai.prompts.agent_loop import (
     NO_PROGRESS_SUMMARY_PROMPT,
     NO_TOOL_EVIDENCE_SUMMARY_PROMPT,
-    PLAN_REPAIR_SUMMARY_PROMPT,
-    PLAN_SYNTHESIS_PROMPT,
     RESEARCH_EVIDENCE_SUMMARY_PROMPT,
     get_limit_summary_prompt,
 )
@@ -25,8 +23,6 @@ from app.ai.prompts.section_ids import (
     DEEP_RESEARCH_CONTROL_SECTION_IDS,
     LIMIT_SUMMARY,
     NO_PROGRESS_SUMMARY,
-    PLAN_REPAIR_SUMMARY,
-    PLAN_SYNTHESIS,
     RESEARCH_COMPLETION_REPAIR,
     RESEARCH_EVIDENCE_SUMMARY,
     SUMMARY_TOOL_PROTOCOL_RETRY,
@@ -142,40 +138,11 @@ class LimitSummaryStepRequest:
     document_delivered: bool = False
 
 
-def _is_standard_plan_synthesis(request: LimitSummaryStepRequest) -> bool:
-    """是否属于普通计划最终综合这一形态；只看终结原因，不看输出模式。
-
-    超时/异常的部分输出打捞与工具协议兜底都按形态判断：无论正文走流式还是缓存，
-    已经产生的推理与正文都应当保留。
-    """
-
-    return request.summary_finish_reason == "plan_synthesis" and request.task_mode != "deep_research"
-
-
-def _streams_standard_plan_synthesis(request: LimitSummaryStepRequest) -> bool:
-    """普通计划最终综合直接透传正文；深度研究仍需缓存全文完成校验。
-
-    `ready_for_plan_synthesis()` 的准入条件本身就包含"没有产品结果"，因此本分支可以在
-    零工具证据下终结整个 run。此时改走缓存输出，让事实边界能在正文送达用户之前生效；
-    否则未经查证的班次与票价已经发出，事后再拦也收不回来（issue #31）。
-    """
-
-    if request.evidence_policy == "verified_web_v1":
-        return False
-    return _is_standard_plan_synthesis(request) and has_tool_evidence(
-        request.content_blocks,
-        capability_resolution=request.capability_resolution,
-        recovery_evidence=request.recovery_evidence,
-    )
-
-
 def _holds_unverified_summary_reasoning(request: LimitSummaryStepRequest) -> bool:
     return request.tool_discovery is not None
 
 
 def _should_defer_summary_output(request: LimitSummaryStepRequest) -> bool:
-    if _streams_standard_plan_synthesis(request):
-        return False
     if requires_external_evidence(request.capability_resolution) and not has_tool_evidence(
         request.content_blocks,
         capability_resolution=request.capability_resolution,
@@ -205,15 +172,9 @@ def append_limit_summary_prompt(
     document_delivered: bool = False,
 ) -> None:
     messages[:] = ensure_prompt_messages(messages)
-    if summary_finish_reason == "plan_synthesis":
-        prompt = PLAN_SYNTHESIS_PROMPT
-        section_id = PLAN_SYNTHESIS
-    elif summary_finish_reason == "no_progress_summary":
+    if summary_finish_reason == "no_progress_summary":
         prompt = NO_PROGRESS_SUMMARY_PROMPT
         section_id = NO_PROGRESS_SUMMARY
-    elif summary_finish_reason == "plan_repair_exhausted":
-        prompt = PLAN_REPAIR_SUMMARY_PROMPT
-        section_id = PLAN_REPAIR_SUMMARY
     elif summary_finish_reason == "research_evidence_repair_exhausted":
         prompt = RESEARCH_EVIDENCE_SUMMARY_PROMPT
         section_id = RESEARCH_EVIDENCE_SUMMARY
@@ -330,7 +291,7 @@ def _create_limit_summary_observation(
     round_index: int | None = None,
     estimator_status: str | None = None,
 ) -> Any:
-    round_kind = "plan_synthesis" if request.summary_finish_reason == "plan_synthesis" else "limit_summary"
+    round_kind = "limit_summary"
     return create_llm_round_observation(
         conversation_id=request.conversation_id,
         run_id=request.run_id,
@@ -619,7 +580,6 @@ async def run_summary_round_with_timeout(
 ) -> LimitSummaryRoundResult:
     started_at = time.monotonic()
     next_round_index = request.step_number
-    first_partial: dict[str, str] = {}
     try:
         first_result = await asyncio.wait_for(
             call_limit_summary_round(
@@ -627,7 +587,7 @@ async def run_summary_round_with_timeout(
                 thinking_block_id=thinking_block_id,
                 text_block_id=text_block_id,
                 step_id=summary_context.step_id,
-                partial_output=first_partial if _is_standard_plan_synthesis(request) else None,
+                partial_output=None,
                 round_index=next_round_index,
             ),
             timeout=remaining,
@@ -636,38 +596,12 @@ async def run_summary_round_with_timeout(
     except asyncio.TimeoutError:
         warning = request.warning_fn if request.warning_fn is not None else logger.warning
         warning(f"触顶总结超出剩余预算: conv_id={request.conversation_id}, budget={remaining}s")
-        return _build_timeout_partial_result(first_partial)
+        return _build_timeout_partial_result({})
     except StreamWriteTerminalError:
         raise
-    except Exception as error:
-        partial_result = _build_stream_error_partial_result(first_partial)
-        if partial_result is None:
-            raise
-        warning = request.warning_fn if request.warning_fn is not None else logger.warning
-        warning(
-            "流式计划综合异常中止，保留已发送的安全片段: "
-            f"conv_id={request.conversation_id}, run_id={request.run_id}, "
-            f"step={request.step_number}, error_type={type(error).__name__}"
-        )
-        return partial_result
 
     if not _is_summary_tool_protocol_violation(first_result):
         result = first_result
-    elif _is_standard_plan_synthesis(request) and first_result.content_buf:
-        warning = request.warning_fn if request.warning_fn is not None else logger.warning
-        warning(
-            "流式计划综合返回了工具协议，保留已发送的安全正文并终止综合: "
-            f"conv_id={request.conversation_id}, run_id={request.run_id}, step={request.step_number}"
-        )
-        result = LimitSummaryRoundResult(
-            reasoning_buf=first_result.reasoning_buf,
-            content_buf=first_result.content_buf,
-            usage_data=first_result.usage_data,
-            context=first_result.context,
-            tool_calls=(),
-            finish_reason="protocol_fallback",
-            llm_lifecycle=first_result.llm_lifecycle,
-        )
     else:
         await _finish_summary_round_lifecycle(first_result, model_output_visible=False)
         warning = request.warning_fn if request.warning_fn is not None else logger.warning
@@ -689,7 +623,6 @@ async def run_summary_round_with_timeout(
                 first_result=first_result,
             )
 
-        retry_partial: dict[str, str] = {}
         try:
             retry_result = await asyncio.wait_for(
                 call_limit_summary_round(
@@ -697,7 +630,7 @@ async def run_summary_round_with_timeout(
                     thinking_block_id=thinking_block_id,
                     text_block_id=text_block_id,
                     step_id=summary_context.step_id,
-                    partial_output=retry_partial if _streams_standard_plan_synthesis(request) else None,
+                    partial_output=None,
                     round_index=next_round_index,
                 ),
                 timeout=retry_remaining,
@@ -711,27 +644,9 @@ async def run_summary_round_with_timeout(
             return _build_streamed_retry_failure(
                 request=request,
                 first_result=first_result,
-                retry_partial=retry_partial,
             )
         except StreamWriteTerminalError:
             raise
-        except Exception as error:
-            if not _streams_standard_plan_synthesis(request):
-                raise
-            partial_result = _build_streamed_retry_failure(
-                request=request,
-                first_result=first_result,
-                retry_partial=retry_partial,
-                finish_reason="stream_error_partial",
-            )
-            if not partial_result.reasoning_buf and not partial_result.content_buf:
-                raise
-            warning(
-                "流式计划综合重试异常中止，保留已发送的安全片段: "
-                f"conv_id={request.conversation_id}, run_id={request.run_id}, "
-                f"step={request.step_number}, error_type={type(error).__name__}"
-            )
-            return partial_result
 
         usage_data = _combine_optional_usage(first_result.usage_data, retry_result.usage_data)
         if _is_summary_tool_protocol_violation(retry_result):
@@ -746,26 +661,15 @@ async def run_summary_round_with_timeout(
                 retry_result=retry_result,
                 usage_data=usage_data,
             )
-        if _streams_standard_plan_synthesis(request):
-            result = LimitSummaryRoundResult(
-                reasoning_buf=first_result.reasoning_buf + retry_result.reasoning_buf,
-                content_buf=first_result.content_buf + retry_result.content_buf,
-                usage_data=usage_data,
-                context=retry_result.context,
-                tool_calls=(),
-                finish_reason=retry_result.finish_reason,
-                llm_lifecycle=retry_result.llm_lifecycle,
-            )
-        else:
-            result = LimitSummaryRoundResult(
-                reasoning_buf=first_result.reasoning_buf + retry_result.reasoning_buf,
-                content_buf=retry_result.content_buf,
-                usage_data=usage_data,
-                context=retry_result.context,
-                tool_calls=(),
-                finish_reason=retry_result.finish_reason,
-                llm_lifecycle=retry_result.llm_lifecycle,
-            )
+        result = LimitSummaryRoundResult(
+            reasoning_buf=first_result.reasoning_buf + retry_result.reasoning_buf,
+            content_buf=retry_result.content_buf,
+            usage_data=usage_data,
+            context=retry_result.context,
+            tool_calls=(),
+            finish_reason=retry_result.finish_reason,
+            llm_lifecycle=retry_result.llm_lifecycle,
+        )
 
     return await _repair_deep_research_summary_citations(
         request=request,
@@ -918,72 +822,27 @@ def _build_timeout_partial_result(partial_output: dict[str, str]) -> LimitSummar
     )
 
 
-def _build_stream_error_partial_result(
-    partial_output: dict[str, str],
-) -> LimitSummaryRoundResult | None:
-    reasoning_buf = partial_output.get("reasoning_buf", "")
-    content_buf = partial_output.get("content_buf", "")
-    if not reasoning_buf and not content_buf:
-        return None
-    return LimitSummaryRoundResult(
-        reasoning_buf=reasoning_buf,
-        content_buf=content_buf,
-        usage_data=None,
-        finish_reason="stream_error_partial",
-    )
-
-
 def _build_streamed_retry_failure(
     *,
     request: LimitSummaryStepRequest,
     first_result: LimitSummaryRoundResult,
-    retry_partial: dict[str, str] | None = None,
     retry_result: LimitSummaryRoundResult | None = None,
     usage_data: Usage | None = None,
-    finish_reason: str = "protocol_fallback",
 ) -> LimitSummaryRoundResult:
-    if not _streams_standard_plan_synthesis(request):
-        fallback_result = retry_result or first_result
-        if retry_result is not None:
-            fallback_result = LimitSummaryRoundResult(
-                reasoning_buf=first_result.reasoning_buf + retry_result.reasoning_buf,
-                content_buf=retry_result.content_buf,
-                usage_data=retry_result.usage_data,
-                context=retry_result.context,
-                tool_calls=(),
-                finish_reason=retry_result.finish_reason,
-                llm_lifecycle=retry_result.llm_lifecycle,
-            )
-        return _build_summary_protocol_fallback(
-            fallback_result,
-            usage_data=usage_data,
-        )
-    retry_reasoning = (
-        retry_result.reasoning_buf if retry_result is not None else (retry_partial or {}).get("reasoning_buf", "")
-    )
-    retry_content = (
-        retry_result.content_buf if retry_result is not None else (retry_partial or {}).get("content_buf", "")
-    )
-    reasoning_buf = first_result.reasoning_buf + retry_reasoning
-    content_buf = first_result.content_buf + retry_content
-    if not reasoning_buf and not content_buf:
-        return LimitSummaryRoundResult(
-            reasoning_buf="",
-            content_buf="",
-            usage_data=usage_data if usage_data is not None else first_result.usage_data,
-            context=(retry_result or first_result).context,
+    fallback_result = retry_result or first_result
+    if retry_result is not None:
+        fallback_result = LimitSummaryRoundResult(
+            reasoning_buf=first_result.reasoning_buf + retry_result.reasoning_buf,
+            content_buf=retry_result.content_buf,
+            usage_data=retry_result.usage_data,
+            context=retry_result.context,
             tool_calls=(),
-            finish_reason=finish_reason,
-            llm_lifecycle=None,
+            finish_reason=retry_result.finish_reason,
+            llm_lifecycle=retry_result.llm_lifecycle,
         )
-    return LimitSummaryRoundResult(
-        reasoning_buf=reasoning_buf,
-        content_buf=content_buf,
-        usage_data=usage_data if usage_data is not None else first_result.usage_data,
-        context=(retry_result or first_result).context,
-        tool_calls=(),
-        finish_reason=finish_reason,
-        llm_lifecycle=None,
+    return _build_summary_protocol_fallback(
+        fallback_result,
+        usage_data=usage_data,
     )
 
 
@@ -1190,67 +1049,6 @@ async def _commit_limit_summary_result(
         request.content_blocks.append(TextBlock(type="text", id=text_block_id, text=answer))
         await _emit_knowledge_summary_used_evidence(request=request, answer_text=answer)
         return not valid
-    elif request.summary_finish_reason == "plan_synthesis":
-        has_answer = bool(round_result.content_buf.strip())
-        has_streamed_content = _streams_standard_plan_synthesis(request) and has_answer
-        unsupported_fact_kind = None
-        incomplete = (
-            round_result.finish_reason
-            in {
-                "protocol_fallback",
-                "timeout",
-                "timeout_partial",
-                "stream_error_partial",
-            }
-            or not has_answer
-        )
-        if has_streamed_content:
-            # 正文已流式发出，只补落库；只有留下工具证据的综合才会走到这里。
-            answer = round_result.content_buf
-            if contains_tool_protocol_residue(answer):
-                # 有证据的综合走直发，来不及拦下正文；但落库与终态仍必须是非成功。
-                # 常规情况下流式清理已经把残留摘掉，走到这里说明又出现了新变体。
-                answer, _ = await _guard_protocol_residue(request, answer)
-                incomplete = True
-        else:
-            # 零证据的综合改走缓存输出，事实边界在正文送达用户之前生效（issue #31）。
-            answer = round_result.content_buf.strip()
-            if not answer or round_result.finish_reason == "protocol_fallback":
-                answer = await _safe_summary_fallback(request, "protocol_error")
-            answer, protocol_residue = await _guard_protocol_residue(request, answer)
-            answer, unsupported_fact_kind = await _guard_no_evidence_answer(request, answer)
-            if unsupported_fact_kind is not None or protocol_residue:
-                incomplete = True
-            await append_chunk(
-                request.conversation_id,
-                "answering",
-                answer,
-                text_block_id,
-                task_id=request.task_id,
-                run_id=request.run_id,
-                step_id=summary_context.step_id,
-            )
-            _record_summary_output(round_result, answer, "summary_guard")
-            if (
-                has_answer
-                and round_result.finish_reason != "protocol_fallback"
-                and unsupported_fact_kind is None
-                and not protocol_residue
-            ):
-                await _finish_summary_round_lifecycle(round_result, model_output_visible=True)
-        if answer:
-            request.content_blocks.append(TextBlock(type="text", id=text_block_id, text=answer))
-        if (
-            request.evidence_policy == "verified_web_v1"
-            and unsupported_fact_kind is None
-            and request.research_workset is not None
-        ):
-            await _emit_deep_summary_used_evidence(
-                request=request,
-                answer_text=answer,
-                workset=request.research_workset,
-            )
-        return incomplete
     else:
         answer = round_result.content_buf.strip()
         incomplete = round_result.finish_reason == "protocol_fallback" or not answer

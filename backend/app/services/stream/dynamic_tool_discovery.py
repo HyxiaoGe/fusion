@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -143,7 +143,6 @@ class DynamicToolDiscoverySession:
     bindings: list[dict[str, Any]] | None = None
     plan_mode: str = "off"
     budget_identities: dict[str, int] = field(default_factory=dict)
-    plan_coordinator: Any = None
 
     def catalog_names(self) -> list[str]:
         return [name for name in self.authorized if name not in self.denied_names]
@@ -253,10 +252,6 @@ class DynamicToolDiscoverySession:
             self._record_budget_identity(entry.handler)
             promoted.append(name)
             self.record(kind="promoted", name=name)
-        if promoted:
-            self._sync_plan_tool_schema()
-            if self.plan_coordinator is not None:
-                expand_plan_allowed_tools(self.plan_coordinator, promoted)
         return promoted
 
     def format_intercept(self, name: str) -> dict[str, Any]:
@@ -291,28 +286,9 @@ class DynamicToolDiscoverySession:
         existing = {_tool_definition_name(tool) for tool in tools if isinstance(tool, dict)}
         if entry.name in existing:
             return
-        schema = dict(entry.schema)
-        if self.plan_mode != "off":
-            from app.services.stream.agent_loop_request_prep import _with_plan_item_binding
-
-            schema = _with_plan_item_binding(schema, required=self.plan_mode == "on")
-        tools.append(schema)
+        tools.append(dict(entry.schema))
         self.call_kwargs["tools"] = tools
         self.call_kwargs["tool_choice"] = "auto"
-
-    def _sync_plan_tool_schema(self) -> None:
-        if self.call_kwargs is None or self.plan_mode == "off":
-            return
-        from app.services.stream.agent_loop_request_prep import build_update_plan_tool
-
-        allowed = [name for name in self.loaded_names if name != TOOL_SEARCH_NAME]
-        tools = []
-        for tool in self.call_kwargs.get("tools") or []:
-            if _tool_definition_name(tool) == "update_plan":
-                tools.append(build_update_plan_tool(allowed))
-            else:
-                tools.append(tool)
-        self.call_kwargs["tools"] = tools
 
     def _record_budget_identity(self, handler: Any) -> None:
         controls = getattr(handler, "controls", None) or getattr(handler, "budget", None)
@@ -477,15 +453,6 @@ def attach_session_runtime(
     session.handlers[TOOL_SEARCH_NAME] = ToolSearchHandler(session)
     for name, handler in handlers.items():
         session._record_budget_identity(handler)
-
-
-def expand_plan_allowed_tools(coordinator: Any, names: Iterable[str]) -> None:
-    extra = frozenset(name for name in names if name and name != TOOL_SEARCH_NAME)
-    current = getattr(coordinator, "allowed_tool_names", None)
-    if current is None:
-        coordinator.allowed_tool_names = extra
-    else:
-        coordinator.allowed_tool_names = frozenset(current) | extra
 
 
 def discovery_requires_external_evidence(session: DynamicToolDiscoverySession | None) -> bool:

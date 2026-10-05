@@ -11,7 +11,6 @@ from app.services.agent.plan_coordinator import PlanCoordinator
 from app.services.stream.agent_loop_policy import AgentLoopLimitReason
 from app.services.stream.capability_escalation import REQUEST_CAPABILITY_TOOL_NAME
 from app.services.stream.itinerary_observability import ItineraryToolObservation
-from app.services.stream.product_result_answer import has_product_result_blocks
 from app.services.stream.research_evidence import MAX_RESEARCH_REPAIRS, ResearchEvidenceWorkset
 from app.services.stream.run_finalizer import AgentRunStats
 from app.services.stream.tool_recovery_evidence import RecoveryEvidenceWorkset
@@ -70,7 +69,6 @@ class AgentLoopState:
     research_workset: ResearchEvidenceWorkset = field(default_factory=ResearchEvidenceWorkset)
     research_network_required: bool = False
     research_repair_attempts: int = 0
-    required_plan_repair_tool: str | None = None
     failed_tool_names: set[str] = field(default_factory=set)
     degraded_tool_names: set[str] = field(default_factory=set)
     attempted_tool_names: set[str] = field(default_factory=set)
@@ -169,20 +167,6 @@ class AgentLoopState:
 
     def should_summarize_no_progress_search(self) -> bool:
         return self.consecutive_no_progress_search_results >= NO_PROGRESS_SEARCH_SUMMARY_THRESHOLD
-
-    def ready_for_plan_synthesis(self) -> bool:
-        """产品结果与待修参数必须先走既有确定性门禁，不能被普通综合截走。"""
-
-        research_evidence_ready = not self.research_network_required or (
-            self.research_workset.successful_searches >= 1 and len(self.research_workset.successful_read_urls) >= 2
-        )
-        return (
-            self.plan_coordinator.execution_items_terminal()
-            and research_evidence_ready
-            and not has_product_result_blocks(self.content_blocks)
-            and not self.product_tool_attempted
-            and not self.pending_tool_repairs
-        )
 
     def has_document_block(self) -> bool:
         return any(

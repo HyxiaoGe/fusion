@@ -18,17 +18,13 @@ CURRENT_DOCUMENTS = "current_documents"
 DOCUMENT_DELIVERY_ROUND = "document_delivery_round"
 SKILLS_CATALOG = "skills_catalog"
 
-PLAN_REQUIRED_REPAIR = "plan_required_repair"
-PLAN_EXECUTION_REPAIR = "plan_execution_repair"
 RESEARCH_COMPLETION_REPAIR = "research_completion_repair"
 DEEP_RESEARCH_STAGE = "deep_research_stage"
 RESEARCH_EVIDENCE_WORKSET = "research_evidence_workset"
 PRODUCT_RESULT_ROUND = "product_result_round"
 PRODUCT_TOOL_REQUIRED_REPAIR = "product_tool_required_repair"
 
-PLAN_SYNTHESIS = "plan_synthesis"
 NO_PROGRESS_SUMMARY = "no_progress_summary"
-PLAN_REPAIR_SUMMARY = "plan_repair_summary"
 RESEARCH_EVIDENCE_SUMMARY = "research_evidence_summary"
 LIMIT_SUMMARY = "limit_summary"
 SUMMARY_TOOL_PROTOCOL_RETRY = "summary_tool_protocol_retry"
@@ -38,8 +34,6 @@ TERMINAL_CONTROL_SECTION_IDS = frozenset(
         TOOL_USAGE_CONTRACT,
         VERIFIED_WEB_EVIDENCE,
         AGENT_PLAN_CONTROL,
-        PLAN_REQUIRED_REPAIR,
-        PLAN_EXECUTION_REPAIR,
         PRODUCT_TOOL_REQUIRED_REPAIR,
         DOCUMENT_OUTPUT_CONTRACT,
         SKILLS_CATALOG,

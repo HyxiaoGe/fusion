@@ -739,11 +739,10 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(handlers["web_search"].execute_count, 1)
         self.assertIn("weather_forecast", execution.state.failed_tool_names)
 
-    async def test_p07_plan_enum_and_allow_set_stay_aligned(self):
+    async def test_p07_discovered_tool_runs_and_updates_display_plan(self):
         config, handlers, _shared, _calls = _discovery_config(message="杭州天气并做计划", plan_mode="on")
         self.assertEqual(config.plan_mode, "on")
         execution = _execution(config, run_id="run-p07")
-        self.assertEqual(execution.state.plan_coordinator.allowed_tool_names, frozenset())
         script = ScriptedRounds(
             [
                 [_tool_call("p1", TOOL_SEARCH_NAME, {"query": "select:weather_forecast"})],
@@ -786,13 +785,9 @@ class DynamicToolDiscoveryPrototypeTests(unittest.IsolatedAsyncioTestCase):
         )
         runtime = _runtime_from_execution(execution, script=script, emitter=RecordingEmitter())
         await run_agent_loop(db=None, messages=[], state=execution.state, runtime=runtime)
-        self.assertIn("weather_forecast", execution.state.plan_coordinator.allowed_tool_names)
-        update_plan = next(tool for tool in runtime.call_kwargs["tools"] if _fn_name(tool) == "update_plan")
-        enum_values = update_plan["function"]["parameters"]["properties"]["plan"]["items"]["properties"][
-            "planned_tools"
-        ]["items"].get("enum")
-        self.assertIn("weather_forecast", enum_values or [])
         self.assertGreaterEqual(handlers["weather_forecast"].execute_count, 1)
+        statuses = {item["id"]: item["status"] for item in execution.state.plan_coordinator.items}
+        self.assertEqual(statuses["s1"], "completed")
 
     async def test_p08_zero_tools_answer_is_not_parsed_for_facts(self):
         """一个工具都没加载时没有结构化事实需求，不用正则从回答里找班次、价格、气温。"""

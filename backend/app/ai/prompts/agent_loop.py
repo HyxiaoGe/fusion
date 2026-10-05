@@ -52,8 +52,6 @@ NETWORK_DECISION_PROMPT = TOOL_USAGE_CONTRACT_PROMPT.partition("\n\n[Tool-call c
 
 DEEP_RESEARCH_CONTRACT_PROMPT = render_runtime_prompt("agent_loop.deep_research_contract")
 
-AGENT_PLAN_CONTROL_AUTO_PROMPT = render_runtime_prompt("agent_loop.plan_control_auto")
-
 AGENT_PLAN_CONTROL_ON_PROMPT = render_runtime_prompt("agent_loop.plan_control_on")
 
 NO_TOOL_NETWORK_BOUNDARY_PROMPT = CODE_DEFAULT_PROMPT_TEMPLATES["no_tool_network_boundary"]
@@ -62,15 +60,11 @@ NO_VISION_FILE_BOUNDARY_PROMPT = CODE_DEFAULT_PROMPT_TEMPLATES["no_vision_file_b
 
 SUMMARY_NON_DISCLOSURE_PROMPT = render_runtime_prompt("agent_loop.summary_non_disclosure")
 
-PLAN_SYNTHESIS_PROMPT = render_runtime_prompt("agent_loop.plan_synthesis")
-
 LIMIT_SUMMARY_PROMPT = CODE_DEFAULT_PROMPT_TEMPLATES["limit_summary"]
 
 NO_PROGRESS_SUMMARY_PROMPT = render_runtime_prompt("agent_loop.no_progress_summary")
 
 NO_TOOL_EVIDENCE_SUMMARY_PROMPT = render_runtime_prompt("agent_loop.no_tool_evidence_summary")
-
-PLAN_REPAIR_SUMMARY_PROMPT = render_runtime_prompt("agent_loop.plan_repair_summary")
 
 RESEARCH_EVIDENCE_SUMMARY_PROMPT = render_runtime_prompt("agent_loop.research_evidence_summary")
 
@@ -105,12 +99,10 @@ def get_no_tool_network_boundary_prompt() -> str:
     return get_runtime_prompt_template("no_tool_network_boundary", NO_TOOL_NETWORK_BOUNDARY_PROMPT)
 
 
-def get_agent_plan_control_prompt(plan_mode: str) -> str:
+def get_agent_plan_control_prompt() -> str:
     """计划控制正文不在 catalog 内，本期继续由代码维护。"""
 
-    if plan_mode == "on":
-        return AGENT_PLAN_CONTROL_ON_PROMPT
-    return AGENT_PLAN_CONTROL_AUTO_PROMPT
+    return AGENT_PLAN_CONTROL_ON_PROMPT
 
 
 @register_prompt_consumer("no_vision_file_boundary")

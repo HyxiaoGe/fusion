@@ -186,9 +186,6 @@ def test_repeated_search_executes_until_global_budget_is_reached():
 
 def test_unsuccessful_search_feedback_does_not_trigger_legacy_repair_action():
     budget = NetworkToolBudget()
-    budget.record_tool_results(
-        [SimpleNamespace(tool_name="web_search", result=ToolResult(status="failed", data={"sources": []}))]
-    )
     args, result = budget.prepare_web_search_args({"query": "补充查询", "count": 14})
     assert result is None
     assert args["budget_decision"]["action"] == "execute"

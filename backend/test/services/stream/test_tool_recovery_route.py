@@ -87,69 +87,6 @@ class RecoveryRouteTests(unittest.TestCase):
             "url_read",
             "update_plan",
         }
-        assert config.required_initial_tool_counts == {"weather_forecast": 1}
-
-    def test_failed_primary_plan_can_add_search_and_read_recovery(self):
-        for mode in ["auto", "on"]:
-            with self.subTest(mode=mode):
-                from app.services.agent.plan_coordinator import PlanCoordinator
-
-                coordinator = PlanCoordinator(
-                    run_id="recovery-plan",
-                    mode=mode,
-                    allowed_tool_names=frozenset({"route_compare", "web_search", "url_read"}),
-                    required_initial_tool_counts={"route_compare": 1},
-                )
-                primary = {
-                    "id": "primary",
-                    "title": "查询路线",
-                    "status": "pending",
-                    "kind": "other",
-                    "depends_on": [],
-                    "planned_tools": ["route_compare"],
-                }
-                answer = {
-                    "id": "answer",
-                    "title": "整理答案",
-                    "status": "pending",
-                    "kind": "answer",
-                    "depends_on": ["primary"],
-                    "planned_tools": [],
-                }
-                assert coordinator.apply_model_update({"items": [primary, answer]}).accepted
-                coordinator.mark_tools_started(["primary"])
-                coordinator.mark_tool_results({"primary": "failed"})
-                search = {
-                    "id": "search",
-                    "title": "搜索替代来源",
-                    "status": "pending",
-                    "kind": "other",
-                    "depends_on": [],
-                    "planned_tools": ["web_search"],
-                }
-                read = {
-                    "id": "read",
-                    "title": "读取来源",
-                    "status": "pending",
-                    "kind": "other",
-                    "depends_on": ["search"],
-                    "planned_tools": ["url_read"],
-                }
-                updated = coordinator.apply_model_update(
-                    {
-                        "items": [
-                            {**primary, "status": "failed"},
-                            search,
-                            read,
-                            {**answer, "depends_on": ["primary", "read"]},
-                        ]
-                    }
-                )
-                assert updated.accepted, updated.reason
-                assert coordinator.plan_item_id_for_tool("web_search", requested_item_id="search") == "search"
-                coordinator.mark_tools_started(["search"])
-                coordinator.mark_tool_results({"search": "completed"})
-                assert coordinator.plan_item_id_for_tool("url_read", requested_item_id="read") == "read"
 
 
 class RecoveryPromptTests(unittest.IsolatedAsyncioTestCase):

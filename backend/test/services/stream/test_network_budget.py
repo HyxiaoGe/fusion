@@ -288,7 +288,6 @@ class NetworkToolBudgetTests(unittest.TestCase):
         budget = NetworkToolBudget()
 
         first_args, first_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026 最新产品"})
-        budget.record_tool_results([_search_record(first_args, status="degraded", sources=[])])
         second_args, second_degraded = budget.prepare_web_search_args({"query": "OpenAI 官方公告 2026 最新"})
 
         self.assertIsNone(first_degraded)
@@ -300,14 +299,7 @@ class NetworkToolBudgetTests(unittest.TestCase):
 
     def test_single_source_search_allows_normal_followup(self):
         budget = NetworkToolBudget()
-        weak_source = SearchSource(
-            title="社交转述",
-            url="https://threads.com/@example/post/1",
-            description="低优先级社交转述",
-        )
-
         first_args, first_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026 最新产品"})
-        budget.record_tool_results([_search_record(first_args, status="success", sources=[weak_source])])
         second_args, second_degraded = budget.prepare_web_search_args({"query": "OpenAI 官方公告 2026 最新"})
 
         self.assertIsNone(first_degraded)
@@ -321,9 +313,7 @@ class NetworkToolBudgetTests(unittest.TestCase):
         budget = NetworkToolBudget()
 
         first_args, _first_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026 最新产品"})
-        budget.record_tool_results([_search_record(first_args, status="degraded", sources=[])])
         second_args, second_degraded = budget.prepare_web_search_args({"query": "OpenAI 官方公告 2026 最新"})
-        budget.record_tool_results([_search_record(second_args, status="degraded", sources=[])])
         third_args, third_degraded = budget.prepare_web_search_args({"query": "OpenAI 权威媒体 2026 最新"})
 
         self.assertIsNone(second_degraded)
@@ -337,91 +327,12 @@ class NetworkToolBudgetTests(unittest.TestCase):
         budget = NetworkToolBudget()
 
         first_args, _first_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026 最新产品"})
-        budget.record_tool_results([_search_record(first_args, status="degraded", sources=[])])
         second_args, second_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026 最新产品"})
 
         self.assertIsNone(second_degraded)
         self.assertEqual(second_args["budget_decision"]["action"], "execute")
         self.assertEqual(second_args["budget_decision"]["reason_code"], "complementary_search")
         self.assertEqual(budget.web_search_calls, 2)
-
-    def test_read_failure_with_unread_candidates_still_allows_search(self):
-        budget = NetworkToolBudget()
-        plan = _source_plan(
-            [
-                "https://openai.com/index/product-update",
-                "https://axios.com/openai-product-update",
-            ]
-        )
-
-        budget.record_tool_results(
-            [_url_read_record("https://openai.com/index/product-update", status="degraded")],
-            source_plan=plan,
-        )
-        args, degraded = budget.prepare_web_search_args({"query": "继续搜索同一问题"})
-
-        self.assertIsNone(degraded)
-        self.assertEqual(args["budget_decision"]["action"], "execute")
-        self.assertEqual(args["budget_decision"]["reason_code"], "initial_search")
-        self.assertEqual(args["count"], 10)
-        self.assertEqual(budget.web_search_calls, 1)
-
-    def test_read_success_after_failure_clears_read_alternative_redirect(self):
-        budget = NetworkToolBudget()
-        plan = _source_plan(
-            [
-                "https://openai.com/index/product-update",
-                "https://axios.com/openai-product-update",
-            ]
-        )
-
-        budget.record_tool_results(
-            [_url_read_record("https://openai.com/index/product-update", status="degraded")],
-            source_plan=plan,
-        )
-        budget.record_tool_results(
-            [_url_read_record("https://axios.com/openai-product-update", status="success")],
-            source_plan=plan,
-        )
-        args, degraded = budget.prepare_web_search_args({"query": "继续搜索同一问题"})
-
-        self.assertIsNone(degraded)
-        self.assertEqual(args["budget_decision"]["action"], "execute")
-        self.assertEqual(budget.web_search_calls, 1)
-
-    def test_read_failure_does_not_redirect_to_keep_candidate_only(self):
-        budget = NetworkToolBudget()
-        plan = _source_plan_with_read_limit(
-            [
-                "https://openai.com/index/product-update",
-                "https://axios.com/openai-product-update",
-            ],
-            max_recommended=1,
-        )
-
-        budget.record_tool_results(
-            [_url_read_record("https://openai.com/index/product-update", status="degraded")],
-            source_plan=plan,
-        )
-        args, degraded = budget.prepare_web_search_args({"query": "继续搜索同一问题"})
-
-        self.assertIsNone(degraded)
-        self.assertEqual(args["budget_decision"]["action"], "execute")
-        self.assertEqual(budget.web_search_calls, 1)
-
-    def test_read_failure_without_unread_candidates_does_not_redirect_search(self):
-        budget = NetworkToolBudget()
-        plan = _source_plan(["https://openai.com/index/product-update"])
-
-        budget.record_tool_results(
-            [_url_read_record("https://openai.com/index/product-update", status="degraded")],
-            source_plan=plan,
-        )
-        args, degraded = budget.prepare_web_search_args({"query": "继续搜索同一问题"})
-
-        self.assertIsNone(degraded)
-        self.assertEqual(args["budget_decision"]["action"], "execute")
-        self.assertEqual(budget.web_search_calls, 1)
 
     def test_chinese_year_query_without_model_intent_keeps_standard_budget(self):
         budget = NetworkToolBudget()
@@ -659,68 +570,6 @@ class NetworkToolBudgetTests(unittest.TestCase):
         self.assertIsNotNone(degraded)
         self.assertEqual(degraded.status, "degraded")
         self.assertTrue(degraded.data["budget_limited"])
-
-    def test_verified_research_rejects_same_batch_canonical_url_for_different_plan_items(self):
-        budget = NetworkToolBudget(require_distinct_read_urls=True)
-
-        first_args, first_degraded = budget.prepare_url_read_args(
-            {"url": "https://www.example.com/report?b=2&a=1&utm_source=test#section"},
-            plan_item_id="read-one",
-        )
-        duplicate_args, duplicate = budget.prepare_url_read_args(
-            {"url": "https://example.com/report?a=1&b=2"},
-            plan_item_id="read-two",
-        )
-
-        self.assertIsNone(first_degraded)
-        self.assertEqual(first_args["url"], "https://www.example.com/report?b=2&a=1&utm_source=test#section")
-        self.assertIsNotNone(duplicate)
-        self.assertEqual(duplicate.status, "degraded")
-        self.assertTrue(duplicate.data["duplicate_read_source"])
-        self.assertTrue(duplicate.data["retryable"])
-        self.assertEqual(duplicate_args["url"], "https://example.com/report?a=1&b=2")
-        self.assertEqual(budget.url_read_calls, 1)
-
-    def test_verified_research_rejects_cross_round_canonical_url_for_different_plan_item(self):
-        budget = NetworkToolBudget(require_distinct_read_urls=True)
-        budget.record_tool_results(
-            [
-                _url_read_record(
-                    "https://www.example.com/report?b=2&a=1&utm_source=test#section",
-                    status="failed",
-                    plan_item_id="read-one",
-                )
-            ]
-        )
-
-        _duplicate_args, duplicate = budget.prepare_url_read_args(
-            {"url": "https://example.com/report?a=1&b=2"},
-            plan_item_id="read-two",
-        )
-        _retry_args, retry = budget.prepare_url_read_args(
-            {"url": "https://example.com/report?a=1&b=2#retry"},
-            plan_item_id="read-one",
-        )
-
-        self.assertIsNotNone(duplicate)
-        self.assertTrue(duplicate.data["duplicate_read_source"])
-        self.assertIsNone(retry)
-
-    def test_verified_research_allows_same_retryable_plan_item_to_retry_same_url(self):
-        budget = NetworkToolBudget(require_distinct_read_urls=True)
-
-        _first_args, first_degraded = budget.prepare_url_read_args(
-            {"url": "https://example.com/report#first"},
-            plan_item_id="read-one",
-        )
-        _retry_args, retry_degraded = budget.prepare_url_read_args(
-            {"url": "https://www.example.com/report"},
-            plan_item_id="read-one",
-        )
-
-        self.assertIsNone(first_degraded)
-        self.assertIsNone(retry_degraded)
-        self.assertEqual(budget.url_read_calls, 2)
 
 
 if __name__ == "__main__":

@@ -352,12 +352,6 @@ def configure_research_state(
         return
     if getattr(call_config, "task_mode", "standard") == "deep_research":
         state.configure_research_mode(network_required=True)
-        state.plan_coordinator.configure_initial_tool_requirements(
-            {
-                "web_search": 1,
-                "url_read": 2,
-            }
-        )
     research_blocks = [
         block
         for block in content_blocks
@@ -655,7 +649,6 @@ def _run_config(limits: AgentLoopLimits, call_config: AgentLoopCallConfig | None
             "authorized_tool_names": list(getattr(session, "catalog_names", lambda: [])()),
             "initial_visible_tools": list(getattr(call_config, "announced_tools", []) or []),
             "unsupported_scenes": list(getattr(session, "unsupported_scenes", ())),
-            "plan_tool_policy_reason": getattr(call_config, "plan_tool_policy_reason", None),
             "catalog_evidence_note": getattr(experiment, "catalog_evidence_note", None),
             "requires_catalog_evidence": bool(getattr(experiment, "requires_catalog_evidence", False)),
         }

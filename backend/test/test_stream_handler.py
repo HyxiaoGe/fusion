@@ -990,12 +990,12 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
         )
         lifecycle_call = SimpleNamespace(request=object(), execution=object(), dependencies=object())
         main_thread_id = threading.get_ident()
-        original_plan_policy = agent_loop_request_prep.resolve_product_package_plan_policy
+        original_configure_reasoning = agent_loop_request_prep.configure_reasoning_call_kwargs
 
-        def _stall_worker_plan_policy(**kwargs):
+        def _stall_worker_after_classification(*args, **kwargs):
             if threading.get_ident() != main_thread_id:
                 time.sleep(0.05)
-            return original_plan_policy(**kwargs)
+            return original_configure_reasoning(*args, **kwargs)
 
         with (
             patch(
@@ -1023,8 +1023,8 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
                 ),
             ) as completion,
             patch(
-                "app.services.stream.agent_loop_request_prep.resolve_product_package_plan_policy",
-                side_effect=_stall_worker_plan_policy,
+                "app.services.stream.agent_loop_request_prep.configure_reasoning_call_kwargs",
+                side_effect=_stall_worker_after_classification,
             ),
             patch("app.services.stream.run_capability_model_classifier.logger.info") as log_info,
         ):

@@ -7,13 +7,11 @@ from typing import get_args
 
 from app.ai.prompts.runtime_prompt_store import get_runtime_prompt_source
 from app.schemas.trajectory import CapabilityPackageId, CapabilityReasonCode
-from app.services.stream.agent_plan_tool_policy import _PRODUCT_PACKAGE_REQUIRED_TOOLS
 from app.utils.run_capability_contract import (
     CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER,
     CAPABILITY_MODEL_PACKAGE_IDS,
     CAPABILITY_PACKAGES,
     CAPABILITY_REASON_CODES,
-    CAPABILITY_RECOVERY_TOOL_NAMES,
 )
 
 _PLAN_MODES = frozenset({"auto", "on", "off"})
@@ -45,19 +43,6 @@ def test_reason_codes_are_not_shared_between_packages():
         for option in spec.reason_code_options:
             for code in option:
                 assert owners.setdefault(code, package_id) == package_id, code
-
-
-def test_product_plan_policy_covers_single_product_packages():
-    assert _PRODUCT_PACKAGE_REQUIRED_TOOLS == {
-        "weather": ("weather_forecast",),
-        "place_discovery": ("local_place_search",),
-        "mobility_route": ("route_compare",),
-        "flight": ("search_flights",),
-        "train": ("search_trains",),
-        "travel_air_rail": ("search_flights", "search_trains"),
-    }
-    for tools in _PRODUCT_PACKAGE_REQUIRED_TOOLS.values():
-        assert not set(tools).intersection(CAPABILITY_RECOVERY_TOOL_NAMES)
 
 
 def test_classifier_prompt_lists_every_model_package_with_its_tools():

@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.ai.prompts.section_ids import PLAN_EXECUTION_REPAIR
 from app.schemas.chat import PlaceResult, PlaceResultsBlock
 from app.services.agent.plan_coordinator import PlanCoordinator
 from app.services.stream.agent_loop_driver import AgentLoopExit, run_agent_loop
@@ -114,7 +113,6 @@ async def _run_limit_case(limit, unfinished_plan):
     if unfinished_plan:
         assert "天气" in answer and "未完成" in answer
         assert next(item for item in state.plan_coordinator.items if item["id"] == "weather")["status"] != "completed"
-    assert not any(getattr(message, "section_id", None) == PLAN_EXECUTION_REPAIR for message in messages)
     assert outcome.exit == AgentLoopExit.COMPLETED
     assert state.limit_reason == limit
     assert any(getattr(block, "text", None) == answer for block in state.content_blocks)

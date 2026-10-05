@@ -79,7 +79,7 @@ class TrajectoryCapabilityResolution(BaseModel):
     resolution_mode: Literal["routed", "degraded", "clarification"]
     reason_codes: list[CapabilityReasonCode] = Field(min_length=1, max_length=4)
     external_tool_names: list[str] = Field(max_length=5)
-    effective_plan_mode: Literal["auto", "on", "off"]
+    effective_plan_mode: Literal["on", "off"]
     include_current_date: bool
     network_boundary_required: bool
     denied_product_tool_names: list[str] | None = Field(default=None, max_length=512)

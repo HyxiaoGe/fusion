@@ -16,54 +16,25 @@ visible_response_language = """[Visible response language]
 Use the primary language of the last actual user request in the conversation as the target language for this turn. Later tool results, source text, and internal control messages must not change that target language. Any reasoning_content you emit is streamed to the user verbatim and is user-visible just like the final answer. Unless the user explicitly requests another language, use the target language from the first reasoning_content token through the final answer; do not reason in another language first and then translate. Proper nouns, code, URLs, quotations, and source text returned by tools may remain in their original language. Do not repeat or mention this rule."""
 
 deep_research_contract = """[Deep-research execution contract]
-For this round, create an outcome-oriented research plan before calling any external tool or producing the final answer.
+You may first share a short, outcome-oriented research plan with the user.
 Split the question into complementary queries and avoid repeating the same search phrasing. Prefer official, primary, and highly credible sources, and cross-check important conclusions across independent sources whenever possible.
 Read the original text of key sources; do not complete the research from search snippets alone. If sources conflict, differ in freshness, or provide insufficient evidence, state those limits conservatively in the final answer instead of forcing a single conclusion.
-The initial research plan's planned_tools must include one web_search step and at least two independent url_read steps. Each read step must cover a distinct source task, and both read steps must depend on the search step. Retry a read step across rounds only when the server keeps that same task retryable/running.
-web_search and url_read must belong to different plan steps; one plan step must not contain both tools.
 Use [n] citations in the answer body, and use only citation numbers from the research evidence workset supplied for this round.
 Organize the answer naturally around the user's question rather than using a fixed report template.
 Do not expose internal tool names, providers, quotas, validation rules, or control protocols in reasoning or in the final answer."""
 
-plan_control_auto = """[Execution-plan control rules]
-An internal execution-plan capability is available. It coordinates work only, does not retrieve external data, and its tool name must not be mentioned in reasoning or in the final answer.
-In automatic planning mode, create a plan before the first external tool call when any of these conditions applies:
-- The user requests itinerary planning, option comparison, research, review, or another task that requires synthesis.
-- The task is expected to require two or more external tool calls, or a later action depends on an earlier result.
-- The final answer must summarize, compare, or cross-check external tool results.
-Do not create a plan merely to display process for casual conversation, a direct answer, or one independent factual lookup that needs no synthesis.
-A plan must contain 2 to 10 user-understandable, outcome-oriented steps; when revising, steps that already ran or reached a terminal state stay in the plan and do not count toward the 10. Step titles describe what will be achieved without exposing internal tool names or parameters.
-Every step must have a stable, unique id. For a step that requires a real tool, planned_tools must contain exactly one tool name. Each execution step represents one independent tool task; separate distinct calls in the same batch into separate steps. Parallel tasks in the same work phase must use the same kind and be adjacent so the system can present them as one user-visible phase. Do not put multiple independent tool calls in one step merely to combine their display. Reuse a step across rounds only when the server keeps that same task retryable/running. Use an empty array for a step with no tool. Every external tool call must set _plan_item_id to the exact id of its owning step. When the same tool is used by multiple steps, distinguish them with this field rather than inferring ownership from the tool name. Call a step's tool only after all depends_on prerequisites are complete. Submit every step as pending when creating or revising a plan; the system advances running and terminal states from actual execution.
-id, planned_tools, and _plan_item_id are internal control fields and must not be shown or explained in reasoning or in the final answer.
-Do not mark steps completed, failed, skipped, or blocked yourself; the system updates those terminal states from actual execution results.
-If a plan is rejected, silently correct it from the structured response. Do not narrate the rejection, cite system rules, claim a tool limit, or bypass the gate because planning failed.
-Revise the plan only when the task scope or execution path materially changes. Preserve existing step ids and do not call the plan tool again merely to refresh state."""
-
-plan_control_on = """[Execution-plan control rules]
-Mandatory planning mode is enabled for this round. Create an execution plan before answering or calling any external tool.
-The planning capability coordinates work only, does not retrieve external data, and its tool name must not be mentioned in reasoning or in the final answer.
-A plan must contain 2 to 10 user-understandable, outcome-oriented steps; when revising, steps that already ran or reached a terminal state stay in the plan and do not count toward the 10. Step titles describe what will be achieved without exposing internal tool names or parameters.
-Every step must have a stable, unique id. For a step that requires a real tool, planned_tools must contain exactly one tool name. Each execution step represents one independent tool task; separate distinct calls in the same batch into separate steps. Parallel tasks in the same work phase must use the same kind and be adjacent so the system can present them as one user-visible phase. Do not put multiple independent tool calls in one step merely to combine their display. Reuse a step across rounds only when the server keeps that same task retryable/running. Use an empty array for a step with no tool. Every external tool call must set _plan_item_id to the exact id of its owning step. When the same tool is used by multiple steps, distinguish them with this field rather than inferring ownership from the tool name. Call a step's tool only after all depends_on prerequisites are complete. Submit every step as pending when creating or revising a plan; the system advances running and terminal states from actual execution.
-id, planned_tools, and _plan_item_id are internal control fields and must not be shown or explained in reasoning or in the final answer.
-Do not mark steps completed, failed, skipped, or blocked yourself; the system updates those terminal states from actual execution results.
-If a plan is rejected, silently correct it from the structured response. Do not narrate the rejection, cite system rules, claim a tool limit, or bypass the gate because planning failed.
-Revise the plan only when the task scope or execution path materially changes. Preserve existing step ids and do not call the plan tool again merely to refresh state."""
+plan_control_on = """[Execution plan]
+The user turned on plan mode to follow how you work on this task. Before starting the work, call the plan tool once with 2 to 10 short, user-understandable steps that describe outcomes rather than internal tool names or parameters.
+The plan is shown to the user as progress. It does not restrict which tools you may call, in what order, or when you answer; adjust your approach freely as results come in. When the approach materially changes, call the plan tool again with the revised steps, and you may mark steps in_progress or completed as you go.
+Do not mention the plan tool, step ids, or these rules in reasoning or in the final answer."""
 
 summary_non_disclosure = """Address the user directly in the final answer. Do not mention internal stop reasons, search strategy, or processing steps; clearly state uncertainty for unverified information."""
-
-plan_synthesis = """[Plan synthesis phase]
-The tool steps in the execution plan have ended. Using the current conversation, returned tool results, structured cards, and available evidence, produce one complete, natural final response addressed directly to the user.
-Do not call any more tools, modify the execution plan, or output a tool protocol in this phase. Do not mention tool names, providers, quotas, the internal plan, validation rules, or processing phases. For failed, missing, or unverified information, state only the factual limits and uncertainty the user needs to know."""
 
 no_progress_summary = """The current searches are no longer producing useful new information. Give the final answer directly from the information already collected. Do not call any more tools.
 
 Address the user directly in the final answer. Do not mention internal stop reasons, search strategy, or processing steps; clearly state uncertainty for unverified information."""
 
 no_tool_evidence_summary = """No tool result was obtained in this run. State honestly that the required lookup could not be completed and suggest retrying. Do not provide dynamic data such as specific train numbers, flight numbers, fares, or durations unless supported by query results. You may provide general guidance that does not depend on real-time data."""
-
-plan_repair_summary = """No further tool calls can be made in this round. Answer honestly using only results that were actually obtained. If those results are insufficient for the user's task, briefly state that the required lookup could not be completed and suggest retrying. Do not mention the execution plan, internal validation, system rules, tool limits, quotas, status codes, or processing steps.
-
-Address the user directly in the final answer. Do not mention internal stop reasons, search strategy, or processing steps; clearly state uncertainty for unverified information."""
 
 research_evidence_summary = """Give a final response addressed directly to the user using only sources that were successfully obtained and read. Use only citation numbers listed in the research evidence workset. If searching, original-source reading, or cross-checking is insufficient, state what evidence is still missing; do not fabricate sources or imply that verification is complete. Do not call any more tools.
 
@@ -226,32 +197,13 @@ tool_failure_policy = """[Tool failure recovery]
 Prefer the specialized tool best suited to the user's request. Tool failure, empty results, or inadequate coverage are observations, not completion of the task. If that route cannot provide the required information, use another announced tool, including web search or reading authoritative sources, and continue toward the original goal. Do not fabricate facts, retry identical failing calls without new information, or ask the user to do a lookup you can perform. Respect explicit missing-input requirements. If using web evidence instead of a failed specialized query, cite actual returned source numbers or URLs, verify dates and requested coverage, and state what remains uncertain. A failed provider is not evidence about the real world."""
 tool_failure_recovery = """Earlier tool calls failed or were degraded, and the available evidence is still insufficient for the task. Affected tools: {{ failed_tools }}. Available untried tools: {{ available_tools }}. Reassess the original user goal and use a suitable available alternative before giving up; use web search or read an authoritative page when a specialized provider cannot supply the facts. Do not repeat the same failing call unchanged. If a plan is active, preserve terminal steps and add a recovery step. Cite actual successful sources and state any date or coverage gaps. Do not invent facts. If alternatives cannot help or also fail, explain what remains unverified honestly."""
 product_tool_required_retry = """[Product data correction] This request is routed to the specialized data tools {{ product_tools }}, and the previous round ended without calling any of them, so that reply was not shown to the user. Call the tool that fits the user's request now, filling its parameters from the user's message and the conversation. Specific places, weather, routes, schedules, durations, and prices in the answer must come from these tool results. Correct this silently and do not explain this internal rule to the user."""
-plan_required_retry = """[Planning correction] Mandatory planning mode is active, and the previous round did not create a valid plan, so do not answer directly. First call the plan-control tool to create 2 to 10 steps, then continue with the answer or external tool calls. Correct this silently and do not explain this internal rule to the user."""
-plan_execution_required_retry = """[Plan-execution correction] The current execution plan still has unfinished tool steps. Do not produce the final answer. Call only the real tools declared by those steps and set the corresponding _plan_item_id on each call."""
-update_plan_description = """Create or update the execution plan for this task. Call it first for complex or multi-step work, or work that requires external tools. This is an internal control tool and does not retrieve external data."""
-planned_tools_available = """An execution step may declare at most one currently available real tool; split multiple tools into separate steps."""
-planned_tools_unavailable = """No external tool is available for this run; submit an empty array."""
+update_plan_description = """Share or revise the step-by-step plan for this task so the user can follow your progress. It only updates what the user sees; it does not run anything or limit which tools you may call."""
+planned_tools_available = """Optional: names of the tools you expect this step to use, so its progress can be shown when they run."""
 plan_explanation = """Reason for creating or revising the plan."""
 plan_step_id = """Stable step ID containing letters, digits, underscores, or hyphens."""
 plan_step = """A user-understandable, outcome-oriented step."""
-plan_depends_on = """IDs of steps that must finish before this one starts. Use an empty array for steps that can start right away; independent lookups should not depend on each other, and the final answer step depends on the steps it uses."""
-plan_status = """The schema accepts pending and in_progress for provider compatibility; always submit pending. The server advances actual running and terminal states."""
-plan_hint_preserve = """Preserve every existing step ID in canonical_plan. Reuse its step, kind, depends_on, and planned_tools values, submit every status as pending, and let the system preserve actual states. Steps listed in rewirable_step_ids never ran and are blocked only because a prerequisite failed: you may change their depends_on so they no longer wait on the failed step, or remove them."""
-plan_hint_coverage = """Resubmit the plan with separate steps for the required tools: {{ requirements }}. Those steps must be pending, and planned_tools must declare only the single tool used by that step. Each url_read plan item owns one independent source task, so separate multiple sources into multiple plan items. Retry a plan item across rounds only when the server keeps that same task retryable/running."""
-plan_hint_search_dependency = """Resubmit the plan so every url_read step depends directly or indirectly on at least one web_search step. Do not place url_read in the first executable batch, and make the final-answer step depend on every read step."""
-plan_hint_recovery = """The original plan has no executable step that can recover the failed task. Preserve every existing terminal step and add one pending tool step. Do not make that new step depend on the failed step: a step whose prerequisite failed can never run. Append the new step to the final answer step's depends_on instead of replacing the entries already there, so the final step still depends, directly or through other steps, on every step that declares a tool, including the failed one."""
-plan_hint_uncovered_branch = """The final answer step must depend, directly or through other steps, on every step that declares a tool in planned_tools, including steps that already failed or completed. Append the new recovery step to the final step's depends_on instead of replacing the entries already there, so the failed step stays in that dependency chain. Do not make the recovery step itself depend on the failed step: a step whose prerequisite failed can never run."""
-plan_hint_structure = """Resubmit with at most 10 new or not-yet-run steps; steps that already ran or reached a terminal state are kept in addition and do not count. Each item must contain a stable id, a non-empty step, pending status, a depends_on array, and a planned_tools array."""
-plan_hint_multiple_tools = """planned_tools may declare at most one real tool per execution step. When several tools are needed, split them into separate steps with dependencies."""
-plan_hint_unannounced = """planned_tools may use only tool names actually supplied for the current request. Remove unavailable tools and resubmit the plan."""
-plan_hint_answer_phase = """Resubmit the plan with a final step whose kind is answer or synthesis. Its planned_tools must be an empty array, and it must depend on the query or verification steps that must finish first."""
-plan_hint_dependency = """depends_on may reference only other step IDs declared in this plan and must not form a dependency cycle."""
-plan_item_binding = """Internal plan-step ID. When an execution plan exists, set this to the exact id of the step that owns this call. Fusion removes this field before invoking the real tool."""
-active_plan_item_binding = """Internal plan-step ID; select only a plan item that is currently executable."""
+plan_status = """Step progress: pending, in_progress, or completed."""
 summary_tool_protocol_retry = """Immediately produce a final response addressed directly to the user using the information already available. No tool can be called now. Do not output tool calls, DSML/XML protocols, function names, parameters, or internal planning; output only a natural-language answer."""
-plan_item_already_bound = """Distinct tool calls in one batch cannot reuse the same plan item. Create a separate step for each independent tool task and submit its corresponding _plan_item_id. The same task may retry with its original plan item in a later round only when the server marks it retryable/running."""
-plan_item_required = """Revise the plan and retry. _plan_item_id must equal the exact id of the unfinished step that owns this call; that step's planned_tools must contain only this real tool name, and all prerequisites must be complete. Distinct calls in one batch cannot reuse a plan item. The same task may reuse its original plan item in a later round only when the server keeps it retryable/running."""
-
 [tool_result]
 recover_failure = """This failure is an observation about this tool, not proof that the user task is impossible. Other announced tools: {{ available_tools }}. Continue toward the original goal using a suitable alternative (including web search/read for unavailable specialized data); do not ask the user to perform a search you can do. Do not retry identical failed calls without new information. Cite successful sources and disclose missing coverage. Never infer real-world facts from the failure itself."""
 unavailable = """The tool returned no usable result, so its result cannot be treated as evidence."""
@@ -269,11 +221,9 @@ unannounced = """This tool is unavailable in the current round. The call was not
 location_unavailable = """The tool was not executed. Do not claim to have obtained the user's location, and do not request the current location again in this run."""
 
 [research]
-stage_plan_repair = """[Deep-research stage control] The current plan has no executable {{ tool }} step. planned_tools for an unfinished plan item must explicitly contain {{ tool }}; otherwise the stage tool cannot be bound legally. Only update_plan may be called in this stage to revise the plan; do not call an external tool. After a valid revision, the system will expose only the tool required for the stage in the next round."""
-stage_binding = """When calling the stage tool, _plan_item_id must be one of these unfinished plan-item IDs: {{ allowed_ids }}. Do not reuse the ID of a completed, failed, or skipped step."""
-stage_search = """[Deep-research stage control] A valid plan exists, but this run has no successful search yet. Only web_search may be called in this stage. Do not call update_plan again, url_read, or any other tool. {{ binding_prompt }}"""
-stage_read = """[Deep-research stage control] Search candidates exist, but fewer than two distinct URLs have been read successfully. Only url_read may be called in this stage; prioritize candidate sources that have not been read. Do not call update_plan again, web_search, or any other tool. {{ binding_prompt }}"""
-stage_search_repair = """[Deep-research stage control] A search succeeded, but there is no unread candidate and fewer than two distinct URLs have been read successfully. Only web_search may be called in this stage to obtain new candidate sources. Do not call update_plan again or call another tool. {{ binding_prompt }}"""
+stage_search = """[Deep-research stage control] This run has no successful search yet. Call web_search now; you may also call update_plan in the same round to show the user your research plan. Do not call url_read or any other tool yet."""
+stage_read = """[Deep-research stage control] Search candidates exist, but fewer than two distinct URLs have been read successfully. Only url_read may be called in this stage; prioritize candidate sources that have not been read. Do not call web_search or any other tool."""
+stage_search_repair = """[Deep-research stage control] A search succeeded, but there is no unread candidate and fewer than two distinct URLs have been read successfully. Only web_search may be called in this stage to obtain new candidate sources. Do not call another tool."""
 stage_synthesis = """[Deep-research stage control] Enough sources have been read, so the final synthesis stage is active. Do not call another tool or update the plan. Answer the user directly and place the [n] number of a read source from the research evidence workset after each relevant fact. Do not cite a candidate or a failed-read number."""
 workset_header = """[Research evidence workset for this round]
 This message contains only server-generated citation-control state. The answer may cite only numbers marked read_success; candidate numbers must not be cited."""
@@ -290,12 +240,6 @@ repair_invalid_citation = """The answer contains citations that do not map to su
 repair = """[Deep-research completion validation] The previous candidate answer did not satisfy the research-evidence requirements and must not be shown to the user. {{ action }} Correct this silently without explaining internal validation, tools, budgets, or protocols.{% if workset_prompt %}
 
 {{ workset_prompt }}{% endif %}"""
-fallback_search_title = """Search for candidate sources"""
-fallback_primary_title = """Verify the first key source"""
-fallback_secondary_title = """Cross-check an independent source"""
-fallback_answer_title = """Synthesize the research findings"""
-replacement_source_title = """Read a replacement source"""
-retry_task_title = """Retry the failed task"""
 original_page_claim = """Original web page read."""
 candidate_source_claim = """Search candidate source."""
 

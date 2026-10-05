@@ -25,10 +25,6 @@ CAPABILITY_MAX_MCP_ALIASES = 3
 
 # 默认不开计划校验：模型自行规划，只有用户在前端选了计划模式才开启（2026-10-05 评测：行程类关闭后 11/12 vs 18/26）。
 _ON_OFF_PLAN_MODES = frozenset({"on", "off"})
-# 曾默认 auto 的包；只用于读回历史轨迹快照，新 Run 不再产生 auto。
-_LEGACY_AUTO_PLAN_PACKAGES = frozenset(
-    {"verified_web", "mobility_route", "travel_air_rail", "mobility_intercity", "mixed_itinerary"}
-)
 
 
 @dataclass(frozen=True)
@@ -306,8 +302,7 @@ def validate_capability_resolution_semantics(
         if package_id == "deep_research" and actual_tool_names != allowed_tool_name_set:
             raise ValueError("Deep Research 必须公告完整搜索与读取工具集合")
 
-    legacy_auto = effective_plan_mode == "auto" and package_id in _LEGACY_AUTO_PLAN_PACKAGES
-    if effective_plan_mode not in spec.plan_modes and not legacy_auto:
+    if effective_plan_mode not in spec.plan_modes:
         raise ValueError("能力包与有效计划模式不匹配")
 
     if (

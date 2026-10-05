@@ -7,13 +7,11 @@ from dataclasses import dataclass
 from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.ai.prompts.section_ids import (
-    PLAN_EXECUTION_REPAIR,
-    PLAN_REQUIRED_REPAIR,
     PRODUCT_TOOL_REQUIRED_REPAIR,
     RESEARCH_COMPLETION_REPAIR,
 )
 from app.core.logger import app_logger as logger
-from app.schemas.chat import KnowledgeEvidenceBlock, ThinkingBlock
+from app.schemas.chat import KnowledgeEvidenceBlock
 from app.services.final_answer_evidence import build_used_final_answer_evidence
 from app.services.knowledge.chat_grounding import (
     KNOWLEDGE_UNVERIFIABLE_ANSWER_TEXT,
@@ -47,9 +45,6 @@ from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream.tool_recovery_evidence import is_grounded_recovery_answer
 from app.services.stream.tool_round import ToolRoundOutcome
 from app.services.stream_state_service import StreamWriteTerminalError, append_chunk
-
-PLAN_REQUIRED_RETRY_PROMPT = render_runtime_prompt("stream.plan_required_retry")
-PLAN_EXECUTION_REQUIRED_RETRY_PROMPT = render_runtime_prompt("stream.plan_execution_required_retry")
 
 
 def requires_product_result_guard(runtime: AgentLoopRuntime) -> bool:
@@ -118,21 +113,11 @@ async def _handle_agent_round_outcome(
         if _requires_tool_failure_recovery(request):
             await _repair_tool_failure_stop(request)
             return None
-        if _requires_plan_before_stop(request):
-            return await _repair_missing_required_plan(request)
-        if _document_delivered_with_pending_execution(request):
-            await _skip_pending_execution_after_document(request)
-        if _requires_execution_before_stop(request):
-            await _repair_incomplete_execution(request)
-            return None
         if _requires_product_tool_before_stop(request):
             await _repair_missing_product_tool_stop(request)
             return None
         if _requires_research_completion_repair(request):
             return await _repair_research_completion(request)
-        if _requires_plan_synthesis(request):
-            await _complete_round_before_plan_synthesis(request)
-            return None
         if _needs_empty_answer_summary(request):
             await _complete_empty_round_before_summary(request)
             return AgentLoopOutcome(exit=AgentLoopExit.SUMMARY_REQUIRED)
@@ -146,18 +131,8 @@ async def _handle_agent_round_outcome(
     if finish_reason == "tool_calls" and request.round_result.tool_calls:
         return await _handle_tool_calls_round(request)
 
-    if _requires_plan_before_stop(request):
-        return await _repair_missing_required_plan(request)
-    if _document_delivered_with_pending_execution(request):
-        await _skip_pending_execution_after_document(request)
-    if _requires_execution_before_stop(request):
-        await _repair_incomplete_execution(request)
-        return None
     if _requires_research_completion_repair(request):
         return await _repair_research_completion(request)
-    if _requires_plan_synthesis(request):
-        await _complete_round_before_plan_synthesis(request)
-        return None
     if finish_reason == "tool_protocol_error":
         return await _complete_tool_protocol_error_round(request)
 
@@ -377,62 +352,9 @@ async def _complete_tool_protocol_error_round(
     )
     if _has_product_answer_context(request.state):
         return AgentLoopOutcome(exit=AgentLoopExit.PRODUCT_RESULT_READY)
-    summary_finish_reason = (
-        "plan_synthesis" if request.state.plan_coordinator.has_valid_model_plan else "tool_protocol_error"
-    )
     return AgentLoopOutcome(
         exit=AgentLoopExit.SUMMARY_REQUIRED,
-        summary_finish_reason=summary_finish_reason,
-    )
-
-
-def _requires_plan_before_stop(request: AgentRoundOutcomeRequest) -> bool:
-    return request.runtime.plan_mode == "on" and not request.state.plan_coordinator.has_valid_model_plan
-
-
-def _requires_execution_before_stop(request: AgentRoundOutcomeRequest) -> bool:
-    coordinator = request.state.plan_coordinator
-    return (
-        coordinator.has_valid_model_plan
-        and not coordinator.synthesis_started
-        and not coordinator.execution_items_terminal()
-    )
-
-
-def _document_delivered_with_pending_execution(request: AgentRoundOutcomeRequest) -> bool:
-    return _requires_execution_before_stop(request) and request.state.has_document_block()
-
-
-async def _skip_pending_execution_after_document(request: AgentRoundOutcomeRequest) -> None:
-    """文档已交付时，剩余查询步骤不再强制补跑，收为 skipped 后按正常路径收尾。"""
-
-    snapshot = request.state.plan_coordinator.skip_pending_execution(reason="document_delivered")
-    if snapshot is not None:
-        await request.runtime.emitter.plan_snapshot(**snapshot)
-
-
-def _requires_plan_synthesis(request: AgentRoundOutcomeRequest) -> bool:
-    coordinator = request.state.plan_coordinator
-    return (
-        coordinator.has_valid_model_plan
-        and not coordinator.synthesis_started
-        and request.state.ready_for_plan_synthesis()
-    )
-
-
-async def _complete_round_before_plan_synthesis(request: AgentRoundOutcomeRequest) -> None:
-    """计划执行完成后的普通回合只负责收 step，正文统一交给显式综合阶段。"""
-
-    _record_suppression(request, "plan_continues")
-
-    await complete_text_response_step(
-        context=request.step_context,
-        emitter=request.runtime.emitter,
-        session_cache=request.runtime.session_cache,
-        complete_step_fn=request.runtime.complete_step_fn,
-        completed_tool_calls=request.state.total_tool_calls,
-        max_tool_calls=request.runtime.limits.max_tool_calls,
-        clock=request.runtime.clock,
+        summary_finish_reason="tool_protocol_error",
     )
 
 
@@ -451,35 +373,6 @@ async def complete_round_without_answer(request: AgentRoundOutcomeRequest, *, re
         completed_tool_calls=request.state.total_tool_calls,
         max_tool_calls=request.runtime.limits.max_tool_calls,
         clock=request.runtime.clock,
-    )
-
-
-async def _repair_incomplete_execution(request: AgentRoundOutcomeRequest) -> None:
-    """计划执行未终态时丢弃正文，下一轮只允许继续执行既定工具步骤。"""
-
-    _record_suppression(request, "plan_continues")
-
-    await complete_text_response_step(
-        context=request.step_context,
-        emitter=request.runtime.emitter,
-        session_cache=request.runtime.session_cache,
-        complete_step_fn=request.runtime.complete_step_fn,
-        completed_tool_calls=request.state.total_tool_calls,
-        max_tool_calls=request.runtime.limits.max_tool_calls,
-        clock=request.runtime.clock,
-    )
-    pending_items = request.state.plan_coordinator.pending_execution_items()
-    pending_summary = [
-        {
-            "id": item.get("id"),
-            "planned_tools": list(item.get("planned_tools") or []),
-        }
-        for item in pending_items
-    ]
-    _replace_system_message(
-        request.messages,
-        section_id=PLAN_EXECUTION_REPAIR,
-        content=f"{PLAN_EXECUTION_REQUIRED_RETRY_PROMPT}\nPending steps: {pending_summary}",
     )
 
 
@@ -523,27 +416,6 @@ async def _repair_research_completion(
     return None
 
 
-async def _complete_plan_required_round(request: AgentRoundOutcomeRequest) -> None:
-    """丢弃未经过强制计划门禁的正文，并给下一轮加入内部修正指令。"""
-
-    _append_round_blocks(request)
-    _persist_visible_plan_reasoning_checkpoint(request)
-    await complete_text_response_step(
-        context=request.step_context,
-        emitter=request.runtime.emitter,
-        session_cache=request.runtime.session_cache,
-        complete_step_fn=request.runtime.complete_step_fn,
-        completed_tool_calls=request.state.total_tool_calls,
-        max_tool_calls=request.runtime.limits.max_tool_calls,
-        clock=request.runtime.clock,
-    )
-    _replace_system_message(
-        request.messages,
-        section_id=PLAN_REQUIRED_REPAIR,
-        content=PLAN_REQUIRED_RETRY_PROMPT,
-    )
-
-
 def _replace_system_message(
     messages: list[PromptMessage | dict],
     *,
@@ -566,61 +438,6 @@ def _replace_system_message(
             if message.section_id != section_id or index == existing_index
         ]
     messages[:] = normalized
-
-
-def _remove_plan_required_retry_prompt(messages: list[PromptMessage | dict]) -> None:
-    """兜底计划生效后移除已经过期的强制建计划指令。"""
-
-    messages[:] = [
-        message for message in ensure_prompt_messages(messages) if message.section_id != PLAN_REQUIRED_REPAIR
-    ]
-
-
-def _persist_visible_plan_reasoning_checkpoint(request: AgentRoundOutcomeRequest) -> None:
-    if (
-        not request.round_result.output_deferred
-        or not request.round_result.allow_deferred_reasoning_output
-        or not request.round_result.reasoning_buf
-    ):
-        return
-    request.state.content_blocks.append(
-        ThinkingBlock(
-            type="thinking",
-            id=request.step_context.thinking_block_id,
-            thinking=request.round_result.reasoning_buf,
-        )
-    )
-    persistence_kwargs = (
-        {"sequence": request.runtime.assistant_message_sequence}
-        if request.runtime.assistant_message_sequence is not None
-        else {}
-    )
-    request.runtime.persist_message_fn(
-        request.db,
-        request.runtime.assistant_message_id,
-        request.runtime.conversation_id,
-        request.runtime.model_id,
-        request.state.content_blocks,
-        partial=True,
-        **persistence_kwargs,
-    )
-
-
-async def _repair_missing_required_plan(
-    request: AgentRoundOutcomeRequest,
-) -> AgentLoopOutcome | None:
-    _record_suppression(request, "plan_continues")
-    await _complete_plan_required_round(request)
-    repair_result = request.state.plan_coordinator.record_repair_round_with_fallback()
-    if repair_result.fallback is not None and repair_result.fallback.snapshot is not None:
-        _remove_plan_required_retry_prompt(request.messages)
-        await request.runtime.emitter.plan_snapshot(**repair_result.fallback.snapshot)
-    if repair_result.exhausted:
-        return AgentLoopOutcome(
-            exit=AgentLoopExit.SUMMARY_REQUIRED,
-            summary_finish_reason="plan_repair_exhausted",
-        )
-    return None
 
 
 def _append_round_blocks(request: AgentRoundOutcomeRequest) -> None:
@@ -731,9 +548,6 @@ async def _commit_terminal_product_answer(request: AgentRoundOutcomeRequest) -> 
     if pending_items:
         titles = "、".join(str(item.get("title") or item.get("id")) for item in pending_items)
         incomplete = f"本次执行已达到上限，以下任务尚未完成：{titles}。以上仅包含已经取得的结果。"
-        snapshot = request.state.plan_coordinator.block_pending_execution(reason="limit_reached_execution_blocked")
-        if snapshot is not None:
-            await request.runtime.emitter.plan_snapshot(**snapshot)
     answer = "\n\n".join(part for part in (answer, clarification, incomplete) if part)
     answer = neutralize_product_provider_mentions(answer, request.state.content_blocks)
     await _append_committed_answer(request, answer)
@@ -807,10 +621,6 @@ async def _append_committed_answer(
     model_output_visible: bool = False,
     output_reason: str | None = None,
 ) -> None:
-    snapshot = request.state.plan_coordinator.begin_synthesis()
-    emit_snapshot = getattr(request.runtime.emitter, "plan_snapshot", None)
-    if snapshot is not None and emit_snapshot is not None:
-        await emit_snapshot(**snapshot)
     await append_chunk(
         request.runtime.conversation_id,
         "answering",
@@ -924,37 +734,10 @@ async def _handle_tool_calls_round(request: AgentRoundOutcomeRequest) -> AgentLo
                 for tool_call in request.round_result.tool_calls
             )
         )
-        if outcome.control_repair_exhausted:
-            return AgentLoopOutcome(
-                exit=AgentLoopExit.SUMMARY_REQUIRED,
-                summary_finish_reason="plan_repair_exhausted",
-            )
     if _requires_user_input(request.state):
         return AgentLoopOutcome(exit=AgentLoopExit.PRODUCT_RESULT_READY)
     if isinstance(outcome, ToolRoundOutcome) and outcome.product_result_count > 0:
         return None
-    unavailable_only = (
-        isinstance(outcome, ToolRoundOutcome)
-        and outcome.tool_call_count == 0
-        and outcome.unavailable_tool_call_count > 0
-        and request.state.plan_coordinator.has_valid_model_plan
-    )
-    if (
-        unavailable_only
-        and request.state.plan_coordinator.execution_items_terminal()
-        and _has_product_answer_context(request.state)
-    ):
-        return AgentLoopOutcome(exit=AgentLoopExit.PRODUCT_RESULT_READY)
-    if unavailable_only and request.state.ready_for_plan_synthesis():
-        request.runtime.warning_fn(
-            "计划执行完成后模型返回未公告工具，切换到无工具综合: "
-            f"conv_id={request.runtime.conversation_id}, run_id={request.runtime.run_id}, "
-            f"step={request.step_number}"
-        )
-        return AgentLoopOutcome(
-            exit=AgentLoopExit.SUMMARY_REQUIRED,
-            summary_finish_reason="plan_synthesis",
-        )
     should_summarize = request.state.should_summarize_no_progress_search()
     if should_summarize:
         request.runtime.warning_fn(

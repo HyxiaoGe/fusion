@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from copy import deepcopy
 from dataclasses import dataclass, field
 from functools import partial
 from typing import Any
@@ -46,10 +45,6 @@ from app.services.documents.agent_tools import DocumentToolSet, render_current_d
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_TOOL_NAMES
 from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_TOOL_NAMES
 from app.services.prompt_snapshot_service import freeze_runtime_prompt_bundle, with_call_config_prompt_snapshot
-from app.services.stream.agent_plan_tool_policy import (
-    AgentPlanToolPolicy,
-    resolve_product_package_plan_policy,
-)
 from app.services.stream.agent_task_policy import resolve_agent_task_policy
 from app.services.stream.capability_escalation import (
     ESCALATION_SOURCE_PACKAGES,
@@ -75,7 +70,6 @@ from app.services.stream.skill_loading import (
 )
 from app.utils.run_capability_contract import (
     CAPABILITY_PACKAGES,
-    CAPABILITY_PRIMARY_TOOL_PACKAGES,
     McpRouteTool,
     is_authorized_mcp_tool_alias,
 )
@@ -84,8 +78,6 @@ VOLCENGINE_PROVIDERS = {"volcengine"}
 MAX_CONTROLLED_OUTPUT_TOKENS = 4096
 # 文档正文整篇放在一次工具调用参数里，供应商默认输出上限可能截断 JSON；仅文档交付时显式放宽。
 DOCUMENT_OUTPUT_MAX_TOKENS = 16384
-PLAN_ITEM_ARGUMENT_NAME = "_plan_item_id"
-PLAN_ITEM_ID_PATTERN = "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
 
 
 @dataclass(frozen=True)
@@ -103,8 +95,6 @@ class AgentLoopCallConfig:
     task_mode: str = "standard"
     network_profile: str = "standard"
     evidence_policy: str = "standard"
-    required_initial_tool_counts: dict[str, int] = field(default_factory=dict)
-    plan_tool_policy_reason: str | None = None
     prompt_bundle_snapshot: PromptBundleSnapshot | None = None
     dynamic_tool_discovery: bool = False
     tool_discovery: Any = None
@@ -130,17 +120,8 @@ class AgentLoopCallConfig:
         return self.output_tool_names | self.skill_tool_names | self.escalation_tool_names
 
 
-def build_update_plan_tool(allowed_tool_names: list[str] | None = None) -> dict[str, Any]:
-    """仅供 Agent Loop 控制面消费，不映射到任何外部 handler。"""
-
-    planned_tool_schema: dict[str, Any] = {"type": "string"}
-    normalized_allowed_tool_names = list(dict.fromkeys(allowed_tool_names or []))
-    if normalized_allowed_tool_names:
-        planned_tool_schema["enum"] = normalized_allowed_tool_names
-    planned_tools_max_items = 1 if normalized_allowed_tool_names else 0
-    planned_tools_description = render_runtime_prompt(
-        "stream.planned_tools_available" if normalized_allowed_tool_names else "stream.planned_tools_unavailable"
-    )
+def build_update_plan_tool() -> dict[str, Any]:
+    """仅供 Agent Loop 控制面消费，不映射到任何外部 handler；计划只用于向用户展示进度。"""
 
     return {
         "type": "function",
@@ -149,47 +130,32 @@ def build_update_plan_tool(allowed_tool_names: list[str] | None = None) -> dict[
             "description": render_runtime_prompt("stream.update_plan_description"),
             "parameters": {
                 "type": "object",
-                "additionalProperties": False,
                 "properties": {
                     "explanation": {"type": "string", "description": render_runtime_prompt("stream.plan_explanation")},
                     "plan": {
                         "type": "array",
-                        "minItems": 2,
-                        # 与服务端未执行步骤上限一致；修订时保留的已执行步骤由服务端额外放行。
-                        # schema 若大于该上限，模型首版就会超额被拒（run bfd3f46c）。
-                        "maxItems": 10,
+                        "maxItems": 14,
                         "items": {
                             "type": "object",
-                            "additionalProperties": False,
                             "properties": {
-                                "id": {
-                                    "type": "string",
-                                    "pattern": PLAN_ITEM_ID_PATTERN,
-                                    "description": render_runtime_prompt("stream.plan_step_id"),
-                                },
+                                "id": {"type": "string", "description": render_runtime_prompt("stream.plan_step_id")},
                                 "step": {"type": "string", "description": render_runtime_prompt("stream.plan_step")},
                                 "status": {
                                     "type": "string",
-                                    "enum": ["pending", "in_progress"],
+                                    "enum": ["pending", "in_progress", "completed"],
                                     "description": render_runtime_prompt("stream.plan_status"),
                                 },
                                 "kind": {
                                     "type": "string",
                                     "enum": ["reasoning", "search", "read", "synthesis", "answer", "other"],
                                 },
-                                "depends_on": {
-                                    "type": "array",
-                                    "items": {"type": "string"},
-                                    "description": render_runtime_prompt("stream.plan_depends_on"),
-                                },
                                 "planned_tools": {
                                     "type": "array",
-                                    "items": planned_tool_schema,
-                                    "maxItems": planned_tools_max_items,
-                                    "description": planned_tools_description,
+                                    "items": {"type": "string"},
+                                    "description": render_runtime_prompt("stream.planned_tools_available"),
                                 },
                             },
-                            "required": ["id", "step", "status", "depends_on", "planned_tools"],
+                            "required": ["step", "status"],
                         },
                     },
                 },
@@ -251,33 +217,6 @@ def _mcp_route_catalog(
         ):
             catalog.setdefault(alias, McpRouteTool(alias=alias, service_id=service_id, label=label))
     return tuple(catalog.values())
-
-
-def _with_plan_item_binding(tool: dict, *, required: bool) -> dict:
-    """给外部工具增加仅供 Agent Loop 消费的计划项关联字段。"""
-
-    if _tool_definition_name(tool) == "update_plan":
-        return tool
-    prepared = deepcopy(tool)
-    function = prepared.get("function")
-    if not isinstance(function, dict):
-        return prepared
-    parameters = function.get("parameters")
-    if not isinstance(parameters, dict) or parameters.get("type") != "object":
-        return prepared
-    properties = parameters.setdefault("properties", {})
-    if not isinstance(properties, dict):
-        return prepared
-    properties[PLAN_ITEM_ARGUMENT_NAME] = {
-        "type": "string",
-        "pattern": PLAN_ITEM_ID_PATTERN,
-        "description": render_runtime_prompt("stream.plan_item_binding"),
-    }
-    if required:
-        required_fields = parameters.setdefault("required", [])
-        if isinstance(required_fields, list) and PLAN_ITEM_ARGUMENT_NAME not in required_fields:
-            required_fields.append(PLAN_ITEM_ARGUMENT_NAME)
-    return prepared
 
 
 def supports_search_tools(capabilities: dict) -> bool:
@@ -405,47 +344,10 @@ def build_agent_loop_call_config(
     external_tool_names = list(capability_resolution.external_tool_names)
     tools = [available_tools_by_name[name] for name in external_tool_names]
     plan_mode = capability_resolution.effective_plan_mode
-    if capability_resolution.package_id == "deep_research":
-        schedulable_names = frozenset({"web_search", "url_read"}).intersection(external_tool_names)
-        plan_tool_policy = AgentPlanToolPolicy(
-            allowed_tool_names=frozenset(schedulable_names),
-            reason="deep_research_schedulable_tools",
-        )
-    elif capability_resolution.package_id == "verified_web" and plan_mode != "off":
-        plan_tool_policy = AgentPlanToolPolicy(
-            required_initial_tool_counts={"web_search": 1, "url_read": 2},
-            reason="verified_research_request",
-        )
-    elif capability_resolution.package_id == "verified_web":
-        plan_tool_policy = AgentPlanToolPolicy()
-    elif capability_resolution.package_id in CAPABILITY_PRIMARY_TOOL_PACKAGES:
-        primary_name = capability_resolution.required_primary_tool_name
-        if primary_name is None or primary_name not in external_tool_names:
-            raise ValueError("跨产品能力包缺少已公告的主工具")
-        plan_tool_policy = AgentPlanToolPolicy(
-            required_initial_tool_counts={primary_name: 1},
-            allowed_tool_names=frozenset(external_tool_names),
-            reason=f"capability_primary:{capability_resolution.package_id}",
-        )
-    else:
-        # 计划门禁只消费已冻结的能力包，不从原文二次推断意图。
-        plan_tool_policy = (
-            resolve_product_package_plan_policy(
-                package_id=capability_resolution.package_id,
-                announced_tool_names=external_tool_names,
-            )
-            or AgentPlanToolPolicy()
-        )
     control_tool_names: frozenset[str] = frozenset()
     if plan_mode != "off":
-        tools.append(build_update_plan_tool(external_tool_names))
+        tools.append(build_update_plan_tool())
         control_tool_names = frozenset({"update_plan"})
-        tools = [
-            _with_plan_item_binding(tool, required=plan_mode == "on")
-            if _tool_definition_name(tool) not in control_tool_names
-            else tool
-            for tool in tools
-        ]
     document_handlers: dict[str, Any] = {}
     document_context: str | None = None
     if capability_resolution.output_mode == "document" and document_tools is not None and supports_dynamic_tools:
@@ -548,8 +450,6 @@ def build_agent_loop_call_config(
         task_mode=task_policy.task_mode,
         network_profile=task_policy.network_profile,
         evidence_policy="knowledge_grounded_v1" if knowledge_grounded else task_policy.evidence_policy,
-        required_initial_tool_counts=dict(plan_tool_policy.required_initial_tool_counts),
-        plan_tool_policy_reason=plan_tool_policy.reason,
         prompt_bundle_snapshot=prompt_bundle_snapshot,
         output_tool_names=frozenset(document_handlers),
         document_context=document_context,
@@ -619,14 +519,8 @@ def _build_discovery_call_config(
     tools = [build_tool_search_schema()]
     control_tool_names: frozenset[str] = frozenset({TOOL_SEARCH_NAME})
     if plan_mode != "off":
-        tools.append(build_update_plan_tool([]))
+        tools.append(build_update_plan_tool())
         control_tool_names = frozenset({TOOL_SEARCH_NAME, "update_plan"})
-        tools = [
-            _with_plan_item_binding(tool, required=plan_mode == "on")
-            if _tool_definition_name(tool) not in control_tool_names
-            else tool
-            for tool in tools
-        ]
     call_kwargs = dict(call_kwargs)
     call_kwargs["tools"] = tools
     call_kwargs["tool_choice"] = "auto"
@@ -672,8 +566,6 @@ def _build_discovery_call_config(
             # 按请求文本用正则选证据策略已删除（#132）；改为按实际工具结果判定，见 #127。
             "knowledge_grounded_v1" if knowledge_grounded else task_policy.evidence_policy
         ),
-        required_initial_tool_counts={},
-        plan_tool_policy_reason="dynamic_tool_discovery_no_package_min_calls",
         prompt_bundle_snapshot=prompt_bundle_snapshot,
         dynamic_tool_discovery=True,
         tool_discovery=session,
@@ -829,7 +721,7 @@ def _run_prompt_sections(
     if resolution.effective_plan_mode != "off":
         yield SystemPromptSection(
             AGENT_PLAN_CONTROL,
-            get_agent_plan_control_prompt(resolution.effective_plan_mode),
+            get_agent_plan_control_prompt(),
         )
     skill_session = getattr(call_config, "skill_session", None)
     if skill_session is not None:
@@ -965,7 +857,7 @@ def inject_plan_control_contract(
         insert_at += 1
     contract_msg = PromptMessage(
         role="system",
-        content=get_agent_plan_control_prompt(call_config.plan_mode),
+        content=get_agent_plan_control_prompt(),
         section_id=AGENT_PLAN_CONTROL,
     )
     messages.insert(insert_at, contract_msg)
