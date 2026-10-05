@@ -96,7 +96,7 @@ describe('deriveAssistantActivity', () => {
       suggestedQuestionsCount: 0,
     });
 
-    expect(activity.kind).toBe('waiting');
+    expect(activity.kind).toBe('preparing');
     expect(activity.shouldSuppressReasoning).toBe(true);
   });
 
@@ -863,8 +863,8 @@ describe('deriveAssistantActivity', () => {
     expect(interrupted.tool).toBeNull();
   });
 
-  it('执行模式下按模型轮次阶段区分思考与规划下一步', () => {
-    const toolStep = {
+  it('执行模式下按模型轮次阶段区分准备、思考与分析结果', () => {
+    const toolStep = (toolName: string) => ({
       stepId: 'step-1',
       stepNumber: 1,
       status: 'completed' as const,
@@ -873,21 +873,21 @@ describe('deriveAssistantActivity', () => {
       toolCalls: [
         {
           toolCallId: 'tool-1',
-          toolName: 'web_search',
+          toolName,
           arguments: { query: 'AI 新闻' },
           status: 'success' as const,
           startedAt: 1,
         },
       ],
-    };
-    const derive = (output: 'pending' | 'reasoning' | 'tool_call') => deriveAssistantActivity({
+    });
+    const derive = (toolName: string, output: 'pending' | 'reasoning' | 'tool_call') => deriveAssistantActivity({
       isStreaming: true,
       isCurrentlyStreaming: true,
       contentBlocks: [{ type: 'thinking', id: 'thinking-1', thinking: '上一轮的思考' }],
       currentRun: makeRun({
         status: 'running',
         totalToolCalls: 1,
-        steps: [toolStep],
+        steps: [toolStep(toolName)],
         llmPhase: { roundId: 'round-2', roundIndex: 1, output, sequence: 9 },
       }),
       messageStatus: null,
@@ -895,11 +895,12 @@ describe('deriveAssistantActivity', () => {
       suggestedQuestionsCount: 0,
     });
 
-    expect(derive('reasoning').kind).toBe('reasoning');
-    expect(derive('tool_call').kind).toBe('planning');
-    const pending = derive('pending');
-    expect(pending.kind).toBe('waiting');
-    expect(pending.hasCompletedTools).toBe(true);
+    expect(derive('web_search', 'reasoning').kind).toBe('reasoning');
+    expect(derive('web_search', 'pending').kind).toBe('analyzing');
+    // 工具调用要到整轮结束才通知，此时仍按“分析结果”展示。
+    expect(derive('web_search', 'tool_call').kind).toBe('analyzing');
+    // 加载技能只是准备，不算有结果待分析。
+    expect(derive('load_skill', 'pending').kind).toBe('preparing');
   });
 
   it('地名有多个候选时不算工具问题', () => {

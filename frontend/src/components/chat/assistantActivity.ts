@@ -6,10 +6,14 @@ import {
   isStructuredToolResultBlock,
 } from '@/lib/chat/structuredToolResults';
 
+/**
+ * 生成期活动阶段。新增阶段时：在 deriveKind 加推断规则，
+ * 并在 activityStatusView 的 MODEL_PHASE_VIEWS（或对应分支）补展示配置。
+ */
 export type AssistantActivityKind =
-  | 'waiting'
+  | 'preparing'
   | 'reasoning'
-  | 'planning'
+  | 'analyzing'
   | 'tool_running'
   | 'answering'
   | 'completed'
@@ -43,8 +47,6 @@ export interface AssistantToolIssue {
 
 export interface AssistantActivity {
   kind: AssistantActivityKind;
-  /** waiting 时是否已执行过工具：区分“准备回答”与“分析工具结果”。 */
-  hasCompletedTools: boolean;
   tool: AssistantToolActivity | null;
   issue: AssistantToolIssue | null;
   searchBlock: SearchBlock | null;
@@ -82,13 +84,15 @@ export function deriveAssistantActivity(input: DeriveAssistantActivityInput): As
     hasThinking: hasThinking && !shouldSuppressReasoning,
     hasRunningTool: runningToolActivity !== null,
     llmOutput: input.currentRun?.llmPhase?.output ?? null,
+    hasToolResults: findLatestToolCall(
+      input.currentRun,
+      call => isTerminalToolStatus(call.status) && !getToolMeta(call.toolName).preparatory,
+    ) !== null,
   });
-  const hasCompletedTools = findLatestToolCall(input.currentRun, call => isTerminalToolStatus(call.status)) !== null;
   const tool = kind === 'tool_running' ? runningToolActivity : null;
 
   return {
     kind,
-    hasCompletedTools,
     tool,
     issue,
     searchBlock,
@@ -136,6 +140,7 @@ function deriveKind(
     hasThinking: boolean;
     hasRunningTool: boolean;
     llmOutput: AgentLlmPhaseOutput | null;
+    hasToolResults: boolean;
   },
 ): AssistantActivityKind {
   if (input.messageStatus === 'failed' || input.currentRun?.status === 'failed') {
@@ -160,12 +165,13 @@ function deriveKind(
     return 'reasoning';
   }
 
-  if (isActiveStreaming && facts.llmOutput === 'tool_call') {
-    return 'planning';
+  const isPending = isActiveStreaming || input.messageStatus === 'pending' || input.currentRun?.status === 'running';
+  if (isPending && facts.hasToolResults) {
+    return 'analyzing';
   }
 
-  if (isActiveStreaming || input.messageStatus === 'pending' || input.currentRun?.status === 'running') {
-    return 'waiting';
+  if (isPending) {
+    return 'preparing';
   }
 
   return 'completed';

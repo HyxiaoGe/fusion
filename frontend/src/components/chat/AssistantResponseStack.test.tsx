@@ -38,8 +38,18 @@ vi.mock('./ReasoningContent', () => ({
 }));
 
 vi.mock('./AssistantActivityStatus', () => ({
-  default: ({ activity }: { activity: AssistantActivity }) => (
-    <section data-testid="stack-activity">{activity.kind}</section>
+  default: ({ activity, reasoningVisible, stopPending }: {
+    activity: AssistantActivity;
+    reasoningVisible?: boolean;
+    stopPending?: boolean;
+  }) => (
+    <section
+      data-testid="stack-activity"
+      data-reasoning-visible={String(Boolean(reasoningVisible))}
+      data-stop-pending={String(Boolean(stopPending))}
+    >
+      {activity.kind}
+    </section>
   ),
 }));
 
@@ -87,7 +97,6 @@ vi.mock('./MarkdownRenderer', () => ({
 function activity(overrides: Partial<AssistantActivity> = {}): AssistantActivity {
   return {
     kind: 'answering',
-    hasCompletedTools: false,
     tool: null,
     issue: null,
     searchBlock: null,
@@ -374,7 +383,7 @@ describe('AssistantResponseStack', () => {
     expect(screen.getByTestId('stack-reasoning')).toHaveTextContent('正在整理执行步骤');
   });
 
-  it('已有真实思考时不再同时显示正在准备回答占位', () => {
+  it('思考块可见时告知状态栏，由状态栏决定不重复展示', () => {
     render(
       <AssistantResponseStack
         reasoning={{
@@ -384,7 +393,7 @@ describe('AssistantResponseStack', () => {
           isStreaming: true,
           onToggle: vi.fn(),
         }}
-        activity={activity({ kind: 'waiting', hasText: false })}
+        activity={activity({ kind: 'preparing', hasText: false })}
         agentRun={agentRun}
         answerEvidence={null}
         onSourceClick={vi.fn()}
@@ -395,10 +404,10 @@ describe('AssistantResponseStack', () => {
     );
 
     expect(screen.getByTestId('stack-reasoning')).toHaveTextContent('正在核验问题边界');
-    expect(screen.queryByTestId('stack-activity')).not.toBeInTheDocument();
+    expect(screen.getByTestId('stack-activity')).toHaveAttribute('data-reasoning-visible', 'true');
   });
 
-  it('停止结果未确认时不展示正在准备回答占位', () => {
+  it('停止结果未确认时告知状态栏', () => {
     render(
       <AssistantResponseStack
         reasoning={{
@@ -408,7 +417,7 @@ describe('AssistantResponseStack', () => {
           isStreaming: true,
           onToggle: vi.fn(),
         }}
-        activity={activity({ kind: 'waiting', hasText: false })}
+        activity={activity({ kind: 'preparing', hasText: false })}
         agentRun={{...agentRun, status:'running', stopConfirmation:{status:'unconfirmed',requestedAt:1}}}
         answerEvidence={null}
         onSourceClick={vi.fn()}
@@ -418,7 +427,7 @@ describe('AssistantResponseStack', () => {
       />,
     );
 
-    expect(screen.queryByTestId('stack-activity')).not.toBeInTheDocument();
+    expect(screen.getByTestId('stack-activity')).toHaveAttribute('data-stop-pending', 'true');
   });
 
   it('移除消息内联执行过程后，仍把结构化工具结果放在 Markdown 正文之前', () => {

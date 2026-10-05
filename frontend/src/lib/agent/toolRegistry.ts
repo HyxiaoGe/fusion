@@ -17,6 +17,8 @@ export interface ToolMeta {
   color: SemanticColor;
   /** arguments → 单行摘要文案（如 query 或 url） */
   summarize: (args: Record<string, unknown>) => string;
+  /** 准备类工具（如加载技能说明）：完成后不算“有结果待分析”。 */
+  preparatory?: boolean;
 }
 
 export const TOOL_REGISTRY: Record<string, ToolMeta> = {
@@ -75,6 +77,7 @@ export const TOOL_REGISTRY: Record<string, ToolMeta> = {
     label: '加载技能',
     icon: BookOpen,
     color: 'neutral',
+    preparatory: true,
     summarize: (a) => joinSummaryParts(
       firstStringArgument(a, ['name']),
       firstStringArgument(a, ['file']),
