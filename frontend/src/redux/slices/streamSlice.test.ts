@@ -9,6 +9,8 @@ import streamSliceReducer, {
   upsertEvidenceItem,
   upsertToolDigest,
   pushStep,
+  setLlmPhase,
+  clearLlmPhase,
   pushToolCall,
   mergeToolCallDelta,
   finalizeToolCall,
@@ -545,6 +547,22 @@ describe('streamSlice — agent run timeline', () => {
     expect(slot(state, 'c1').currentRun?.steps).toHaveLength(0);
     expect(slot(state, 'c1').currentRun?.evidence).toEqual([]);
     expect(slot(state, 'c1').currentRun?.toolDigests).toEqual([]);
+  });
+
+  it('llmPhase 跟随模型轮次，且不推进 lastSequence', () => {
+    let s = reducer(startedAt('c1'), initRun({ conversationId: 'c1', runId: 'r1', messageId: 'm1', config: baseConfig, sequence: 0 }));
+    s = reducer(s, setLlmPhase({ conversationId: 'c1', runId: 'r1', roundId: 'round-1', roundIndex: 0, output: 'pending', sequence: 3 }));
+    s = reducer(s, setLlmPhase({ conversationId: 'c1', runId: 'r1', roundId: 'round-1', output: 'reasoning', sequence: 4 }));
+    expect(slot(s, 'c1').currentRun?.llmPhase).toMatchObject({ roundId: 'round-1', roundIndex: 0, output: 'reasoning' });
+    expect(slot(s, 'c1').currentRun?.lastSequence).toBe(0);
+
+    // 其他轮次的增量与旧序号都忽略
+    s = reducer(s, setLlmPhase({ conversationId: 'c1', runId: 'r1', roundId: 'round-x', output: 'tool_call', sequence: 5 }));
+    s = reducer(s, setLlmPhase({ conversationId: 'c1', runId: 'r1', roundId: 'round-1', output: 'content', sequence: 2 }));
+    expect(slot(s, 'c1').currentRun?.llmPhase?.output).toBe('reasoning');
+
+    s = reducer(s, clearLlmPhase({ conversationId: 'c1', runId: 'r1', roundId: 'round-1' }));
+    expect(slot(s, 'c1').currentRun?.llmPhase).toBeUndefined();
   });
 
   it('updateRunProgress 写入 progress 并按 sequence 幂等', () => {

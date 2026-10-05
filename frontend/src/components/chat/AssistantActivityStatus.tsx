@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertCircle, Globe, Loader2, Search, Square, Wrench } from 'lucide-react';
+import { AlertCircle, Brain, Globe, ListChecks, Loader2, Search, Square, Wrench } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import type { AssistantActivity } from './assistantActivity';
@@ -57,11 +57,27 @@ export default function AssistantActivityStatus({ activity, className }: Assista
     );
   }
 
-  if (activity.kind === 'waiting') {
+  if (activity.kind === 'reasoning' || activity.kind === 'planning' || activity.kind === 'waiting') {
+    const Icon = activity.kind === 'reasoning' ? Brain : activity.kind === 'planning' ? ListChecks : null;
+    const text = activity.kind === 'reasoning'
+      ? '正在思考'
+      : activity.kind === 'planning'
+        ? '正在规划下一步'
+        : activity.hasCompletedTools
+          ? '正在分析结果'
+          : '正在准备回答';
     return (
       <StatusShell tone="neutral" role="status" live="polite" className={className}>
-        <Loader2 className="h-4 w-4 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-        <span>正在准备回答</span>
+        {Icon
+          ? <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+          : <Loader2 className="h-4 w-4 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
+        <span>{text}</span>
+        {Icon ? (
+          <Loader2
+            className="ml-auto h-3.5 w-3.5 shrink-0 animate-spin motion-reduce:animate-none"
+            aria-hidden="true"
+          />
+        ) : null}
       </StatusShell>
     );
   }

@@ -6,6 +6,7 @@ import AssistantActivityStatus from './AssistantActivityStatus';
 function baseActivity(overrides: Partial<AssistantActivity>): AssistantActivity {
   return {
     kind: 'completed',
+    hasCompletedTools: false,
     tool: null,
     issue: null,
     searchBlock: null,
@@ -27,6 +28,17 @@ describe('AssistantActivityStatus', () => {
     const status = screen.getByRole('status');
     expect(status).toHaveAttribute('aria-live', 'polite');
     expect(status).toHaveAttribute('aria-atomic', 'true');
+  });
+
+  it('区分思考、规划下一步与工具后的分析阶段', () => {
+    const { rerender } = render(<AssistantActivityStatus activity={baseActivity({ kind: 'reasoning', shouldSuppressReasoning: true })} />);
+    expect(screen.getByText('正在思考')).toBeTruthy();
+
+    rerender(<AssistantActivityStatus activity={baseActivity({ kind: 'planning' })} />);
+    expect(screen.getByText('正在规划下一步')).toBeTruthy();
+
+    rerender(<AssistantActivityStatus activity={baseActivity({ kind: 'waiting', hasCompletedTools: true })} />);
+    expect(screen.getByText('正在分析结果')).toBeTruthy();
   });
 
   it('renders running web search with query', () => {

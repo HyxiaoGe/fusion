@@ -212,7 +212,19 @@ export interface AgentRunState {
   toolDigests?: AgentToolDigest[];
   /** 文档工具参数的实时草稿，仅生成期展示；落库后的 document 内容块到达即清除。 */
   documentDraft?: DocumentDraftState;
+  /** 当前模型轮次的输出阶段，仅生成期用于状态提示；轮次结束即清除。 */
+  llmPhase?: AgentLlmPhase;
   lastSequence: number;
+}
+
+/** pending：已发起请求、尚无输出；其余为首个输出增量的类型。 */
+export type AgentLlmPhaseOutput = 'pending' | 'reasoning' | 'content' | 'tool_call';
+
+export interface AgentLlmPhase {
+  roundId: string;
+  roundIndex: number;
+  output: AgentLlmPhaseOutput;
+  sequence: number;
 }
 
 export interface DocumentDraftState {

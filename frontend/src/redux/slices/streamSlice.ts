@@ -12,6 +12,7 @@ import { logout } from '@/redux/slices/authSlice';
 import { accountSessionSwitchStarted } from '@/redux/actions/authSessionActions';
 import type {
   AgentEvidenceItem,
+  AgentLlmPhaseOutput,
   AgentPlanItem,
   AgentPlanMode,
   AgentPlanSource,
@@ -561,6 +562,28 @@ const streamSlice = createSlice({
       run.totalSteps = Math.max(run.totalSteps, stepNumber);
     }),
 
+    /** 模型轮次阶段：只用于生成期状态提示，不推进 lastSequence，避免影响其他事件的去重。 */
+    setLlmPhase: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; roundId: string; roundIndex?: number; output: AgentLlmPhaseOutput; sequence: number }>) => {
+      const run = state.currentRun;
+      const { runId, roundId, roundIndex, output, sequence } = action.payload;
+      if (!run || run.runId !== runId) return;
+      const current = run.llmPhase;
+      if (current && sequence <= current.sequence) return;
+      if (output === 'pending') {
+        run.llmPhase = { roundId, roundIndex: roundIndex ?? 0, output, sequence };
+        return;
+      }
+      // 后端每轮只发一次首个输出增量；只认当前轮次。
+      if (current?.roundId !== roundId) return;
+      run.llmPhase = { ...current, output, sequence };
+    }),
+
+    clearLlmPhase: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; roundId: string }>) => {
+      const run = state.currentRun;
+      if (!run || run.runId !== action.payload.runId || run.llmPhase?.roundId !== action.payload.roundId) return;
+      run.llmPhase = undefined;
+    }),
+
     pushToolCall: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; stepId: string; toolCallId: string; planItemId?: string; toolName: string; arguments: Record<string, unknown>; sequence: number; }>) => {
       const run = state.currentRun;
       const {
@@ -1000,6 +1023,8 @@ export const {
   resetStreamState,
   pushStep,
   pushToolCall,
+  setLlmPhase,
+  clearLlmPhase,
   setLastEntryId,
   setStreamError,
   setStreamStatus,

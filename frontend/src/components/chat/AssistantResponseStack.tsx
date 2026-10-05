@@ -72,7 +72,9 @@ function AssistantResponseStack({
 }: AssistantResponseStackProps) {
   const showReasoning = reasoning.shouldRender;
   const stopAwaitingConfirmation = agentRun?.status === 'running' && Boolean(agentRun.stopConfirmation);
-  const showActivityStatus = !stopAwaitingConfirmation && (activity.kind !== 'waiting' || !showReasoning);
+  // 思考块可见时由它展示“正在深度思考”，状态栏不重复显示等待/思考类提示。
+  const showActivityStatus = !stopAwaitingConfirmation
+    && !(showReasoning && (activity.kind === 'waiting' || activity.kind === 'reasoning'));
 
   return (
     <div

@@ -863,6 +863,45 @@ describe('deriveAssistantActivity', () => {
     expect(interrupted.tool).toBeNull();
   });
 
+  it('执行模式下按模型轮次阶段区分思考与规划下一步', () => {
+    const toolStep = {
+      stepId: 'step-1',
+      stepNumber: 1,
+      status: 'completed' as const,
+      startedAt: 1,
+      contentBlockIds: [],
+      toolCalls: [
+        {
+          toolCallId: 'tool-1',
+          toolName: 'web_search',
+          arguments: { query: 'AI 新闻' },
+          status: 'success' as const,
+          startedAt: 1,
+        },
+      ],
+    };
+    const derive = (output: 'pending' | 'reasoning' | 'tool_call') => deriveAssistantActivity({
+      isStreaming: true,
+      isCurrentlyStreaming: true,
+      contentBlocks: [{ type: 'thinking', id: 'thinking-1', thinking: '上一轮的思考' }],
+      currentRun: makeRun({
+        status: 'running',
+        totalToolCalls: 1,
+        steps: [toolStep],
+        llmPhase: { roundId: 'round-2', roundIndex: 1, output, sequence: 9 },
+      }),
+      messageStatus: null,
+      isLoadingSuggestedQuestions: false,
+      suggestedQuestionsCount: 0,
+    });
+
+    expect(derive('reasoning').kind).toBe('reasoning');
+    expect(derive('tool_call').kind).toBe('planning');
+    const pending = derive('pending');
+    expect(pending.kind).toBe('waiting');
+    expect(pending.hasCompletedTools).toBe(true);
+  });
+
   it('地名有多个候选时不算工具问题', () => {
     const activity = deriveAssistantActivity({
       isStreaming: false,
