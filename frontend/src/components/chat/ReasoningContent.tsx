@@ -1,6 +1,6 @@
 'use client';
 
-import { CheckCircle, ChevronUp } from 'lucide-react';
+import { Brain, CheckCircle, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import React, { useRef, useEffect, useMemo, useState, useId } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -111,11 +111,12 @@ const ReasoningContent: React.FC<ReasoningContentProps> = ({
         className={styles.header}
       >
         <div className="flex min-w-0 items-center gap-2">
-          {isStreaming ? (
-            <span className="h-1.5 w-1.5 rounded-full bg-info animate-pulse motion-reduce:animate-none" />
-          ) : (
-            <CheckCircle className="h-3.5 w-3.5" aria-hidden="true" />
-          )}
+          {/* 与生成期状态栏共用图标徽标，思考中/已完成只换图标与色调。 */}
+          <span className={styles.statusIcon} data-done={isStreaming ? undefined : 'true'} aria-hidden="true">
+            {isStreaming
+              ? <Brain className="h-3.5 w-3.5 animate-pulse motion-reduce:animate-none" />
+              : <CheckCircle className="h-3.5 w-3.5" />}
+          </span>
           <span>
             {isStreaming
               ? '正在深度思考...'

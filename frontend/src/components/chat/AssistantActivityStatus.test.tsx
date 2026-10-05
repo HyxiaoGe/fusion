@@ -6,7 +6,6 @@ import AssistantActivityStatus from './AssistantActivityStatus';
 function baseActivity(overrides: Partial<AssistantActivity>): AssistantActivity {
   return {
     kind: 'completed',
-    hasCompletedTools: false,
     tool: null,
     issue: null,
     searchBlock: null,
@@ -21,8 +20,8 @@ function baseActivity(overrides: Partial<AssistantActivity>): AssistantActivity 
 }
 
 describe('AssistantActivityStatus', () => {
-  it('renders waiting state', () => {
-    render(<AssistantActivityStatus activity={baseActivity({ kind: 'waiting' })} />);
+  it('renders preparing state', () => {
+    render(<AssistantActivityStatus activity={baseActivity({ kind: 'preparing' })} />);
 
     expect(screen.getByText('正在准备回答')).toBeTruthy();
     const status = screen.getByRole('status');
@@ -30,15 +29,24 @@ describe('AssistantActivityStatus', () => {
     expect(status).toHaveAttribute('aria-atomic', 'true');
   });
 
-  it('区分思考、规划下一步与工具后的分析阶段', () => {
+  it('模型阶段统一按配置表渲染，并带进行中指示', () => {
     const { rerender } = render(<AssistantActivityStatus activity={baseActivity({ kind: 'reasoning', shouldSuppressReasoning: true })} />);
-    expect(screen.getByText('正在思考')).toBeTruthy();
+    expect(screen.getByText('正在深度思考')).toBeTruthy();
+    expect(screen.getByRole('status')).toHaveAttribute('data-tone', 'info');
 
-    rerender(<AssistantActivityStatus activity={baseActivity({ kind: 'planning' })} />);
-    expect(screen.getByText('正在规划下一步')).toBeTruthy();
-
-    rerender(<AssistantActivityStatus activity={baseActivity({ kind: 'waiting', hasCompletedTools: true })} />);
+    rerender(<AssistantActivityStatus activity={baseActivity({ kind: 'analyzing' })} />);
     expect(screen.getByText('正在分析结果')).toBeTruthy();
+    expect(screen.getByRole('status')).toHaveAttribute('data-tone', 'neutral');
+  });
+
+  it('思考块可见或停止待确认时不展示模型阶段', () => {
+    const { container, rerender } = render(
+      <AssistantActivityStatus activity={baseActivity({ kind: 'reasoning' })} reasoningVisible />,
+    );
+    expect(container).toBeEmptyDOMElement();
+
+    rerender(<AssistantActivityStatus activity={baseActivity({ kind: 'preparing' })} stopPending />);
+    expect(container).toBeEmptyDOMElement();
   });
 
   it('renders running web search with query', () => {
@@ -63,10 +71,11 @@ describe('AssistantActivityStatus', () => {
       />,
     );
 
-    const label = screen.getByText('正在搜索：AI 异常检测');
-    expect(label).toBeTruthy();
-    expect(label).toHaveClass('min-w-0', 'flex-1', 'truncate');
+    expect(screen.getByText('正在搜索')).toBeTruthy();
+    expect(screen.getByText('AI 异常检测')).toHaveClass('min-w-0', 'truncate');
     const status = screen.getByRole('status');
+    // 色调来自工具注册表
+    expect(status).toHaveAttribute('data-tone', 'info');
     expect(status).toHaveAttribute('aria-live', 'polite');
     expect(status).toHaveAttribute('aria-atomic', 'true');
   });
@@ -119,18 +128,20 @@ describe('AssistantActivityStatus', () => {
       />,
     );
 
-    expect(screen.getByText('正在读取网页：example.com')).toBeTruthy();
+    expect(screen.getByText('正在读取网页')).toBeTruthy();
+    expect(screen.getByText('example.com')).toBeTruthy();
+    expect(screen.getByRole('status')).toHaveAttribute('data-tone', 'teal');
     expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite');
   });
 
   it('renders failed state as alert', () => {
     render(<AssistantActivityStatus activity={baseActivity({ kind: 'failed' })} />);
 
-    expect(screen.getByText('生成失败，请重试')).toBeTruthy();
+    expect(screen.getByRole('alert')).toHaveTextContent('生成失败请重试');
     const alert = screen.getByRole('alert');
     expect(alert).toHaveAttribute('aria-live', 'assertive');
     expect(alert).toHaveAttribute('aria-atomic', 'true');
-    expect(alert).toHaveClass('border-danger/30', 'bg-danger/10', 'text-danger');
+    expect(alert).toHaveAttribute('data-tone', 'danger');
   });
 
   it('renders interrupted state', () => {
@@ -191,7 +202,7 @@ describe('AssistantActivityStatus', () => {
       />,
     );
 
-    expect(screen.getByRole('alert')).toHaveTextContent('生成失败，请重试');
+    expect(screen.getByRole('alert')).toHaveTextContent('生成失败');
     expect(screen.queryByText('搜索未取得可用结果')).toBeNull();
     expect(screen.queryByText('本轮回答未使用搜索结果')).toBeNull();
   });

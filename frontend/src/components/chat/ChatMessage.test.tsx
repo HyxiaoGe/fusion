@@ -447,7 +447,7 @@ describe('ChatMessage', () => {
       />,
     );
 
-    expect(screen.getByText('正在搜索：AI 异常检测')).toBeTruthy();
+    expect(screen.getByRole('status')).toHaveTextContent('正在搜索AI 异常检测');
     expect(screen.queryByTestId('reasoning-content')).toBeNull();
 
     selectorState.streamSlot.messageId = null;
@@ -610,7 +610,7 @@ describe('ChatMessage', () => {
       />,
     );
 
-    expect(screen.queryByText('生成失败，请重试')).toBeNull();
+    expect(screen.queryByText('生成失败')).toBeNull();
   });
 
   it('通过 AnswerEvidence 展示搜索结果，不再渲染旧来源面板和底部参考入口', () => {

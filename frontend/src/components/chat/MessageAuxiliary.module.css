@@ -53,7 +53,44 @@
 .fade { position: absolute; bottom: 12px; left: 12px; right: 12px; height: 20px; background: linear-gradient(to top, var(--background), transparent); pointer-events: none; }
 .streaming .fade { background: linear-gradient(to top, var(--info-bg), transparent); }
 
-.activity.activity { margin-bottom: 8px; min-height: 34px; border-radius: 10px; border-color: transparent; padding: 7px 10px; font-size: 12px; line-height: 20px; }
+/* 生成期状态栏与思考块共用一套外观：同圆角、同图标徽标，色调由 data-tone 决定。 */
+.activity {
+  --tone: var(--muted-foreground);
+  --tone-soft: var(--bg-subtle);
+  --tone-edge: color-mix(in oklab, var(--border) 65%, transparent);
+  margin-bottom: 8px;
+  min-height: 38px;
+  border: 1px solid var(--tone-edge);
+  border-radius: 12px;
+  padding: 7px 12px;
+  background: color-mix(in oklab, var(--tone-soft) 45%, var(--background));
+  color: var(--fg-secondary);
+  font-size: 12px;
+  line-height: 20px;
+  animation: activityEnter 160ms ease-out;
+}
+.activity[data-tone="info"] { --tone: var(--info); --tone-soft: var(--info-bg); --tone-edge: var(--info-border); }
+.activity[data-tone="success"] { --tone: var(--success); --tone-soft: var(--success-bg); --tone-edge: var(--success-border); }
+.activity[data-tone="warn"] { --tone: var(--warn); --tone-soft: var(--warn-bg); --tone-edge: var(--warn-border); }
+.activity[data-tone="danger"] { --tone: var(--danger); --tone-soft: var(--danger-bg); --tone-edge: var(--danger-border); }
+.activity[data-tone="teal"] {
+  --tone: var(--teal);
+  --tone-soft: color-mix(in oklab, var(--teal) 12%, var(--background));
+  --tone-edge: color-mix(in oklab, var(--teal) 30%, transparent);
+}
+.statusIcon {
+  display: flex;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: color-mix(in oklab, var(--tone-soft, var(--info-bg)) 80%, var(--background));
+  color: var(--tone, var(--info));
+}
+.statusIcon[data-done="true"] { background: var(--bg-subtle); color: var(--muted-foreground); }
+@keyframes activityEnter { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
 .trajectory { display: flex; min-width: 0; min-height: 32px; flex-wrap: wrap; align-items: center; column-gap: 8px; row-gap: 4px; margin-bottom: 10px; padding: 3px 0; color: var(--muted-foreground); font-size: 12px; line-height: 20px; }
 .trajectoryDetails { display: inline-flex; max-width: 100%; align-items: center; flex-wrap: wrap; gap: 6px; }
 .badge.badge { border-color: transparent; border-radius: 7px; padding: 2px 7px; font-size: 11px; line-height: 18px; }
@@ -76,5 +113,6 @@
 :global(.dark) .reasoning { --aux-sheen: rgb(255 255 255 / 5%); }
 @media (prefers-reduced-motion: reduce) {
   .header, .details, .detailButton { transition: none; }
+  .activity { animation: none; }
   .chevron > svg { transition: none; }
 }
