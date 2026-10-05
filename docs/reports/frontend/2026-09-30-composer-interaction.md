@@ -23,4 +23,27 @@
 - 独立审查复核首页草稿迁移、主动重置、账号边界、停止确认与绑定模型只读行为，未发现新的 P0/P1。
 - 全量 lint 通过；生产构建通过。仓库构建配置跳过类型检查，独立 tsc 检查仍在未改文件中报错，本轮改动文件未列入错误。
 - 7 个文件、248 项相关测试全部通过，包括发送/续跑 hook 的既有边界；新对话入口另有 4 项 layout 测试通过，共 252 项。
-- PR/master CI、实际部署身份与原有 Chrome 登录态验收待交付后补充。
+- PR [#211](https://github.com/HyxiaoGe/fusion/pull/211)，最终源提交 `5fe371772852f407d5758a5a314a0ce9855d1385`，合并为 `0c8e990a9fe92234461816b9a08b96bffad6cfe9`。最终 PR CI `36660352557` 所有 required checks 成功。
+
+## 发布核对
+
+- 台账文档触发仓库共享发布规则，dev 工作流 [36660828056](https://github.com/HyxiaoGe/fusion/actions/runs/36660828056) 先 API 后 UI，最终成功；master CI [36660827653](https://github.com/HyxiaoGe/fusion/actions/runs/36660827653) 成功。CLI watch 曾因网络 EOF 退出，随后直接查询确认工作流实际成功。
+- API 于 10:44:58 写入 accepted release（Asia/Shanghai）。只读 SSH 核对当前 SHA 为 `0c8e990a`，API 与 adapter 容器 running，ref/digest/image ID 与当前台账一致。
+- API digest：`sha256:07df0b5c152a6427016a811d726d9e8f8331f9c7eed35de6d04fa538c6dbf788`；image ID：`sha256:41c22eb16415c65c8c10e2c6db0560118da41df6093c43b08ad6c8aff6ea7d70`。
+- adapter digest：`sha256:5b1445222049ceb1126656cd52e5a2293da198efd2f7f1d3131c034668d2d0cc`；image ID：`sha256:88c9c43eb0c48e3509c04c43235768111b97b419bfa2ff375b07261a73cf2d15`。
+- UI 于 10:51:49 写入 accepted release（Asia/Shanghai）。只读 SSH 核对当前 SHA 为 `0c8e990a9fe92234461816b9a08b96bffad6cfe9`，容器 running，ref/digest/image ID 与当前台账一致；发布健康、browser smoke 和 accepted release 步骤成功。
+- UI digest：`sha256:8e4e285535999deef0b5aae86cb91c06e342fc5113fe7edae12d9d97ce438680`；image ID：`sha256:8e3cac4eff926373bdcdefe04aa683d71ea8e95884f1ccb1c34d6fdf30bc2cd8`。
+
+## 原有 Chrome 登录态实测
+
+复用官方扩展连接的原标签和 sean 登录态，页面为浅色；未启动本地服务或新建浏览器、配置目录和标签。验收后返回原会话并恢复空输入框。
+
+- 已绑定的 grok-4.7 入口能打开只读模型/供应商/能力说明和绑定原因。
+- 输入文字后 Shift+Enter 产生换行；刷新恢复相同草稿。切换到另一现有会话时输入为空，返回后原草稿恢复。
+- 新建验收对话 `3439c3a4-94e1-40ed-b37a-01778135f9c0`，10:55:20 正常发送输入法事件说明问题；自动路由实际展示 mimo-v2.6-pro。
+- 生成中填写下一条草稿并按 Enter，用户消息仍为 1 条，停止按钮仍存在，草稿未丢失。
+- 点击停止后实测“正在停止”禁用按钮、“停止中”文字和“正在确认停止结果，已输入的草稿会保留”提示；确认后 Agent 显示“已中断”，发送按钮恢复，下一条草稿保持。
+- 重新进入该验收会话后“Agent 已中断”仍存在，轨迹显示“仅运行摘要”；这次验证停止结果，不据此宣称完整轨迹持久化通过。
+- 在新对话页输入草稿，再点“新对话”后清空；刷新仍为空。仅清除本次自行输入的文字，验收对话保留。
+- 中文输入法真实合成态、极短的提交中状态和停止未确认分支由回归测试覆盖，本次没有真实输入法或故障注入实测。
+- 页面证据：`/private/tmp/fusion-composer-dev-optimized.jpg`，展示确认中断后下一条草稿仍在。发布后证据补记保存在本地报告与执行台账，未另触发一次共享部署。

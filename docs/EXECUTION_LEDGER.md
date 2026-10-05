@@ -11,6 +11,10 @@
 
 ## 已完成基线
 
+### 2026-10-05 管理中心第一轮 dev 发布与真实页面验收
+
+PR [#283](https://github.com/HyxiaoGe/fusion/pull/283) 已合并为 `9d79641d`，dev 发布 run `37325116546` 成功；只读检查确认运行 UI repository digest 与发布候选镜像相同。复用用户已打开的 Chrome 管理页，实测深浅色、模型和用户筛选、模型浮层及详情焦点恢复、Tabs 手动键盘激活、真实列表滚动、约 1280 桌面宽度与减少透明度降级，未发现本轮范围内阻断使用的问题，捕获的控制台 error/warn 为空。验收后恢复浅色 `/admin` 用户页及无筛选状态。压测导入未执行，详情正文与模型/压测布局仍待后续轮次；详见[真实验收记录](reports/frontend/2026-10-05-admin-center-v1-acceptance.md)。此追加记录本轮仅保存在独立 worktree，未提交或推送。
+
 ### 2026-10-05 管理中心第一轮界面改造（本地完成，PR 审查）
 
 独立 worktree 完成共用外框、导航和控件，以及用户/对话的可见筛选标签、两行筛选、列表层次、统计对齐和固定表头；Agent 状态文字/颜色及新标签走 i18n。16 个测试文件、126 项回归、目标 lint 和生产构建通过；TypeScript 与 `63c937c4` 起点的 39 个既有诊断逐条一致。真实组件加临时测试数据验证深浅色、滚动、模型键盘选择与焦点、1280 宽度和减少透明度降级。仅授权提交 PR，未合并、未部署，真实 dev 登录态验收未执行；详情正文与模型/压测布局留在后续轮次。详见[本轮记录](reports/frontend/2026-10-05-admin-center-v1.md)。
@@ -426,7 +430,185 @@ AGENTS/CLAUDE 收敛到当前单仓约定，开发与发布技能迁入仓库，
 - 本地 91 项相关测试、全量 lint、构建通过，深浅色静态快照比较和独立差异审查完成。PR [#209](https://github.com/HyxiaoGe/fusion/pull/209) 合并为 `4ad1b111`，PR/master CI 和 dev 发布 `36641595031` 成功；UI 台账、运行 digest/image ID 与目标版本一致，健康和 browser smoke 成功。
 - 原有 Chrome 登录态深色首页实测卡片悬停、模板预填与聚焦、模型面板开合；空草稿恢复，原标签已加载新版本。浅色仅做本地静态展示验证；用户反馈“可以，效果看上去还不错”，确认保留当前优化版本。详见[验收记录](reports/frontend/2026-09-30-liquid-glass-hierarchy.md)。
 
-## 2026-09-30 输入区交互优化（本地验证完成，发布待核对）
+## 2026-09-30 输入区交互优化（已发布，原登录态页面实测）
 
 - 输入法选词保护、稳定回车语义、发送/停止等待反馈与防重复；账号/会话文字草稿切换和刷新恢复、首页物化迁移；推理和执行模式说明、绑定模型只读信息入口。
-- 252 项相关测试、全量 lint、构建通过，独立复审未发现新的 P0/P1。完整类型检查仍在未改文件报错，不能称全量类型检查通过。发布和真实页面证据待补。详见[验收记录](reports/frontend/2026-09-30-composer-interaction.md)。
+- 252 项相关测试、全量 lint、构建通过，独立复审未发现新的 P0/P1。完整类型检查仍在未改文件报错，不能称全量类型检查通过。
+- PR [#211](https://github.com/HyxiaoGe/fusion/pull/211) 合并为 `0c8e990a`，最终 PR CI、master CI 和 dev 发布 [36660828056](https://github.com/HyxiaoGe/fusion/actions/runs/36660828056) 成功。API/adapter/UI 运行镜像身份与发布台账一致，UI 于 10:51:49 accepted（Asia/Shanghai）。
+- 原有 Chrome 登录态浅色页面实测绑定模型说明、换行、会话切换/刷新草稿恢复、主动新对话清空；新会话实测生成中 Enter 不误发/误停，停止等待反馈、确认中断后草稿保留和发送恢复，刷新后中断结果保持。真实输入法合成态和停止未确认分支仅有回归测试证据。发布后证据补记保存在本地，未另触发共享部署。详见[验收记录](reports/frontend/2026-09-30-composer-interaction.md)。
+
+## 2026-09-30 执行模式选择面板视觉补齐（已发布，原登录态页面实测）
+
+- 用户指出执行模式选择框遗漏视觉优化；在原有直接发布授权内，为触发器、浮层和三种模式选项补齐深浅色玻璃材质、边缘高光、选中与键盘高亮反馈，保持业务选择和禁用逻辑。
+- 85 项相关测试、目标 ESLint、本地构建通过，深浅色静态样式已检查。PR CI 的全量前端 lint、215 个测试文件通过/1 个跳过、Docker 生产构建成功。
+- PR [#212](https://github.com/HyxiaoGe/fusion/pull/212) 合并为 `0c02cdca`；PR/master CI 和 UI dev 发布 [36664365771](https://github.com/HyxiaoGe/fusion/actions/runs/36664365771) 成功。UI 于 11:31:54 accepted（Asia/Shanghai），运行 digest/image ID 与台账一致，API 正常跳过。
+- 原有 Chrome 登录态浅色页面实测玻璃面板、三态切换、键盘高亮/选择和 Escape 关闭后的焦点返回；恢复原自动模式和空输入框。深色仅有本地静态样式证据，报告补记保存在本地。详见[验收记录](reports/frontend/2026-09-30-execution-mode-glass.md)。
+
+## 2026-09-30 知识库选择区视觉统一（已发布，原登录态页面实测）
+
+- 入口、浮层、多选卡片、数量徽标、已选标签和严格模式提示补齐玻璃视觉；长描述最多两行，保留多选、数量上限、目录作用域和不可用/失败反馈。
+- 97 项相关测试、目标 ESLint、本地构建通过，深浅色静态样式已检查；PR CI 前端全量 lint、215 个测试文件通过/1 个跳过（2,637 项通过/35 项跳过）与 Docker 生产构建成功。
+- PR [#213](https://github.com/HyxiaoGe/fusion/pull/213) 合并为 `7bc191b2`；PR/master CI、UI dev 发布 [36667184389](https://github.com/HyxiaoGe/fusion/actions/runs/36667184389) 成功。UI 于 12:09:19 accepted（Asia/Shanghai），运行 digest/image ID 与台账一致，健康和 browser smoke 通过，API 正常跳过。
+- 原有 Chrome 登录态浅色页面实测键盘/鼠标勾选、数量徽标、已选标签、严格模式提示、移除与清空；恢复原空选择、空草稿和自动模式。深色仅有静态样式证据，限制与异常分支由回归测试覆盖，发布后证据补记保存在本地。详见[验收记录](reports/frontend/2026-09-30-knowledge-picker-glass.md)。
+
+
+## 2026-09-30 正文阅读第一版（已发布，原登录态页面实测）
+
+- 正文恢复标题、段落、列表和链接层次，16px/28px、普通文字最大 832px；表格保留宽布局并接入既有引用映射，代码块统一底材、工具条、行号对齐和系统等宽回退，修复无语言标记的 fenced code。
+- 103 项目标回归、目标 ESLint、本地构建通过，深浅色/390px 窄屏真实回答静态排版与实际 CodeBlock 离线渲染已检查；独立复审未发现新的可达 P0/P1。最终 PR CI 全量前端 lint、216 个测试文件通过/1 个跳过（2,642 项通过/35 项跳过）及 Docker 生产构建成功。
+- PR [#214](https://github.com/HyxiaoGe/fusion/pull/214) 合并为 `b2916971`；最终 PR/master CI 和 UI dev 发布 [36671821604](https://github.com/HyxiaoGe/fusion/actions/runs/36671821604) 成功。UI 于 13:10:53 accepted（Asia/Shanghai），运行 digest/image ID 与台账一致，健康和 browser smoke 通过，API 正常跳过。
+- 原有 Chrome 登录态浅色页面实测正文层次、832px 阅读宽度、宽表格、向上阅读/回到底部；六列真实表格中的引用 42 打开并高亮正确来源，占位符消失。已回到原会话文章开头，空草稿、空知识库选择和自动模式保持原状。深色、窄屏、代码块展示与生成中增量状态由本地证据覆盖，未把离线验证等同原登录态验收；发布后补记保存在本地。详见[验收记录](reports/frontend/2026-09-30-body-reading-v1.md)。
+
+## 2026-09-30 正文辅助界面与消息展示第二批（已发布，原登录态页面实测）
+
+- 推理、活动/轨迹状态、来源入口/侧栏与用户消息统一轻边缘和稳定阅读底色；推理折叠补齐 aria/inert 语义，消息操作控件统一 32px 并在键盘聚焦时显现。17 个前端文件，发送、SSE、状态、来源索引与持久化逻辑保持。
+- 178 项目标回归、目标 lint、本地构建及深浅色离线样本通过，独立复审未发现新增可达 P0/P1。PR [#215](https://github.com/HyxiaoGe/fusion/pull/215) 合并为 `975b4648`，PR/master CI 成功；首次 dev 发布与重跑均因既有首页手动轮换测试 5 秒超时失败，服务器未切换版本。
+- 补充 PR [#216](https://github.com/HyxiaoGe/fusion/pull/216) 仅减少该回归用例的重复全页语义查询和异步假计时开销，保留功能断言与 5 秒时限，并增加模板选择后弹窗关闭断言。13 项目标测试、目标 lint/diff 通过，独立复审未发现 P0/P1。PR CI 全量 2,643 项通过/35 项跳过及 Docker 构建成功，合并为 `16cff0c7`；最终 master CI 和 UI dev 发布 [36678180586](https://github.com/HyxiaoGe/fusion/actions/runs/36678180586) 均成功。
+- UI 于 14:32:38 accepted（Asia/Shanghai），健康与 browser smoke 通过，API 正常跳过。current SHA、运行 digest/image ID 与台账一致，容器 running。
+- 原有 Chrome 登录态浅色页面实测消息按钮键盘显现、进入编辑/取消、推理键盘开合与折叠导航、真实六列表格引用 42 的正确来源定位/高亮、侧栏 Escape 关闭焦点返回及全部依据入口。恢复原会话文章开头、推理折叠、空草稿/空知识库选择/自动模式。深色、多行/长串和生成中状态由本地证据覆盖；发布后记录保存在本地。详见[验收记录](reports/frontend/2026-09-30-body-support-v2.md)。
+
+## 2026-10-02 文档组件 Liquid Glass 第一版（已发布，原登录态浅色实测）
+
+- 完成文档卡片、面板标题/版本/导出工具栏统一 Glass；长文正文与流式草稿保持实色，无滤镜祖先。现有 Glass CSS 与 TabsList 补充减少透明度降级，保留选中/聚焦语义，使用现有 token/i18n。
+- 本地 154 项目标测试、目标 lint、生产构建及离线深浅色/草稿/媒体偏好检查通过。PR [#231](https://github.com/HyxiaoGe/fusion/pull/231) 合并为 `2f789406`，首次真实验收发现按钮底色与 TabsList 降级被生产样式覆盖；补充 PR [#232](https://github.com/HyxiaoGe/fusion/pull/232) 提高底色优先级并确保 filter none 优先于 Tailwind utility，同时保留减少动画规则。12 项文档回归与包含后加载覆盖规则的样本通过，独立复审未发现可达 P0/P1。
+- 最终合并 SHA `187fc28d1effae24ccc367cc716a8676fd71eed9`，PR/master CI 与 UI dev [36966000382](https://github.com/HyxiaoGe/fusion/actions/runs/36966000382) 成功，全量 2,663 项通过/35 项跳过。UI 于 12:51:31（Asia/Shanghai）accepted，健康和 browser smoke 通过；运行 SHA、digest/image ID 与台账一致，容器 running，API 正常跳过。
+- 原有 Chrome 登录态浅色实测 4,089 字文档阅读、正文独立滚动、v1/v2 内容切换和 Escape 焦点返回。稳定媒体偏好模拟下卡片/导出实色、TabsList 无模糊、装饰 lens 隐藏、按钮无过渡；临时偏好清除，空草稿/空知识库选择/自动模式保持，原前台标签恢复。
+- 真实长文生成待新增会话/模型调用授权；草稿增量、深色和滤镜约束有本地证据，低端机帧率未测。HTML 落地、导出文件内容与原生 select 键盘版本切换未确认，不记为通过。发布后补记在本地保留，详见[文档 UI 验收报告](reports/frontend/2026-10-02-document-glass-v1.md)。
+
+## 2026-10-02 文档富内容第一版（第 4 项已发布）
+
+- 统一提示块、时间线、统计卡、文档标签页与代码块；富内容实色阅读底材，玻璃反馈仅位于操作控件装饰子层。标签页增加方向键/Home/End/ARIA 关联，代码保留全文、独立滚动和复制反馈，HTML 展开全部标签页并同步静态样式。天气、地点卡片留待后续。
+- 本地 27 项相关测试、目标 lint、完整构建及深浅色/媒体偏好/增量草稿/键盘/复制/导出离线浏览器验证通过，独立审查无新增 P0/P1。PR [#233](https://github.com/HyxiaoGe/fusion/pull/233) required checks、master CI 与 UI dev [36973117744](https://github.com/HyxiaoGe/fusion/actions/runs/36973117744) 成功；PR 全量 2,672 项通过/35 项跳过。
+- 合并 SHA `f374ff2a3fdaad0d8ad1596a045ec212fb88b695`，dev 于 14:26:16（Asia/Shanghai）accepted，健康与 browser smoke 通过；实际容器 running，digest/image ID 与台账一致，API 正常跳过。
+- 原 Chrome 登录态浅色实测 5,137 字文档的提示、4 个统计卡与 6 节点时间线；22 行代码完整保留，End 可滚到代码末尾，v3/v1 内容正确切换，Escape 正常。正文无滤镜祖先、侧栏无横向溢出；减少透明度/动效下实色、无装饰滤镜/过渡，临时偏好清除，原杭州会话及空输入恢复。
+- 真实复制按钮显示成功，工具剪贴板读取为空，系统剪贴板内容未核验；HTML 真实文件内容、真实新文档生成和低端机流式帧率未测，已有文档无内容标签页，深色与相关交互有离线证据。发布后记录本地保留，详见[富内容验收报告](reports/frontend/2026-10-02-document-rich-content.md)。
+
+## 2026-10-02 正文表格、代码与天气地点卡片（已发布，原登录态深浅色实测）
+
+- 正文表格增加实际溢出提示、固定表头与键盘滚动；代码补齐复制等待/成功/失败重试和聚焦反馈。天气突出日期、今天与温度，地点分层展示评分/费用/地址/营业时间，隐藏供应商分类编号，详情和展开按钮接入 GlassLens。内容区域保持稳定实色，无模糊祖先，支持减少透明度/动画。
+- 本地 134 项目标回归、目标 lint、生产构建和深浅色/媒体偏好/增量样本通过，独立复审无新增可达 P0/P1。PR [#234](https://github.com/HyxiaoGe/fusion/pull/234) 初次 CI 暴露旧代码边界测试缺 i18n 初始化；保持原断言补齐后，最终全量 2682 项通过/35 项跳过，required gate、master CI 与 UI dev [36977921705](https://github.com/HyxiaoGe/fusion/actions/runs/36977921705) 均成功。
+- 合并 SHA `5276f28919bd314296322b116cb17c0cfd15dddd`，dev 于 15:24:28（Asia/Shanghai）accepted，健康和 browser smoke 通过；实际容器 running，运行 SHA/digest/image ID 与台账一致，API 正常跳过。
+- 原 Chrome 登录态实测天气/地点浅色和深色、键盘展开收起 3→5→3、图片预览与 Escape 焦点返回；减少透明度时操作控件实色、lens 隐藏。已有六列表格实际键盘双向滚动、表头固定、引用 42 正确来源定位；已有代码块复制成功反馈正常。已恢复原杭州会话、浅色、空输入、自动模式，临时媒体/视口均清除。
+- 系统剪贴板字节仍因工具虚拟剪贴板不可见而未核验；真实新回答流式生成与低端机帧率未测，相关增量与复制完整内容由本地证据覆盖。发布后记录本地保留，详见[本轮验收报告](reports/frontend/2026-10-02-body-tables-result-cards.md)。
+
+## 2026-10-02 UI 优化收尾验收（已补真实路径）
+
+- 用户明确授权补齐验收，复用官方 Chrome 原登录态与原标签。当前 dev UI 为 `5276f28919bd314296322b116cb17c0cfd15dddd`，实际运行镜像 ID 与台账一致，容器 running；本轮没有 UI 代码修改或新发布。
+- 原有 5,137 字文档的深色和原生版本菜单键盘切换 v3→v2→v1→v3 通过，正文变化正确；文档 191 字符代码经系统粘贴逐字核验。聊天代码 1013 字符经会话剪贴板与页面粘贴逐字核验，区分其与物理系统剪贴板证据。
+- 新会话 `3fce3479-4ae6-4e1f-8c10-84be4aab950f` 自然生成 11,568 字四周研发手册，耗时 713.27 秒；直接观察增量草稿、上滚后不抢阅读位置、下滚恢复跟随、正式卡片替换与刷新完整恢复。24 行任务表、两个内容标签页及 49 行代码完整，标签页方向键/Home/End/Tab 与 Escape 焦点返回、长文独立滚动和深浅色均有真实页面证据。
+- 原登录态实际下载两组 Markdown/HTML，由 Finder 复制本轮目标文件后检查：新版正文、两个标签页、表格及代码完整，实际 HTML 为无脚本静态文件。文档代码 1572 字符与两种导出原文逐字一致。
+- 四倍 CPU 模拟观察真实增量长内容，以及已有 18,614 字符、8 代码块长回答的上滚/回到底部。性能计数与交互结果已记录；这些属于 CPU 压力模拟，不代表低端真机 FPS 或任意规模多轮会话保证。模拟与采集均关闭，原杭州会话、浅色、原模型、自动模式与空草稿恢复。
+- 新测试会话、实际导出与证据保留；既有报告和预览目录未提交或删除。详见[收尾验收报告](reports/frontend/2026-10-02-ui-acceptance-closeout.md)。
+
+## 2026-10-02 轨迹入口与用户消息复制（已发布，原登录态实测）
+
+- “查看轨迹”改为紧跟轨迹状态标签的轻量入口，不再推到整行最右端；用户消息加入复制，复用原操作组件，保留换行和 Markdown 原文、成功反馈与失败重试。新增文案走中英文 i18n；消息编辑或卸载后旧异步复制结果不覆盖当前反馈。
+- 本地 92 项目标测试、全量 2,723 项前端测试、目标 lint、生产构建和差异空白检查通过。PR [#235](https://github.com/HyxiaoGe/fusion/pull/235)、PR CI [36985226789](https://github.com/HyxiaoGe/fusion/actions/runs/36985226789)、master CI [36985939740](https://github.com/HyxiaoGe/fusion/actions/runs/36985939740) 与 UI dev [36985940325](https://github.com/HyxiaoGe/fusion/actions/runs/36985940325) 成功。
+- 合并 SHA `58ca08834476096db9f70a2aee56cc65d5f9d4bf`，dev 于 16:52:30（Asia/Shanghai）accepted；健康和 browser smoke 通过，API 正常跳过。实际容器 running，digest/image ID 与当前发布台账一致。
+- 原 Chrome 登录态会话 `3fce3479-4ae6-4e1f-8c10-84be4aab950f` 实测用户复制键盘到达、Enter 激活、成功反馈和恢复、编辑取消；系统粘贴核验 286 字符与用户原文逐字一致。工具虚拟剪贴板残留旧内容，未作为本次复制证据。
+- 实测轨迹入口距标签 6px，能打开对应运行并加载详情；文档侧栏打开时入口仍贴近左侧状态，保留原有模态遮罩行为。真实深浅色与 1000×900 CSS 视口无横向溢出，键盘操作区可见。恢复原会话、浅色、原尺寸、自动模式与空输入，未创建新会话或再次调用模型。
+- 发布后报告与台账补记在本地保留，已有报告及 `glass-preview-check/` 未提交或删除。详见[本轮验收报告](reports/frontend/2026-10-02-message-copy-trajectory.md)。
+
+## 2026-10-02 文档目录与阅读恢复（已发布，原登录态实测）
+
+- 正式文档新增按需目录、当前章节提示、正文独立跳转和键盘焦点；按实际显示标题识别，排除代码、表格和未选中内容标签页。按认证身份、文档、版本保存章节偏移、坐标和内容标签页，关闭重开/刷新恢复；状态限当前浏览器标签页 sessionStorage，不复制正文。
+- 39 项文档相关测试、全量 2,735 项前端测试、lint、生产构建及 diff 检查通过，独立复审无新增可达 P0/P1。全仓 TypeScript 仍有 39 处既有错误，与实际 master 基线逐项一致，本轮无新增。
+- PR [#236](https://github.com/HyxiaoGe/fusion/pull/236) 合并为 `5129e418abaa692d2e9f69365f8370f18866a3b0`；PR CI [36991207774](https://github.com/HyxiaoGe/fusion/actions/runs/36991207774)、master CI [36992237775](https://github.com/HyxiaoGe/fusion/actions/runs/36992237775) 和 UI dev [36992238797](https://github.com/HyxiaoGe/fusion/actions/runs/36992238797) 均成功，候选 smoke、browser smoke 与 accepted 步骤成功，API 正常跳过。dev 台账于 17:57:39 记录目标 SHA，实际容器 running，运行 image ID/digest 与台账一致。
+- 原 Chrome 登录态 11,568 字文档的 32 个目录项、Enter 跳深层章节、Escape 返回目录、手动滚动章节反馈通过。第六章坐标 5955 与后端内容标签页在关闭重开、刷新后准确恢复；三版本清单分别恢复 v1 Day 2 / v2 Day 3 / v3 Day 5 的独立坐标。
+- 深浅色、1000×900 CSS 窗口和减少透明度/动画通过，无横向溢出，正文及祖先无背景模糊。媒体和视口覆盖已清除，原会话/浅色/原尺寸/空输入/自动模式保持，目录展开供查看；本轮没有新生成、下载或外部同步。
+- 仅 11 个前端任务文件合入，原有报告和 `glass-preview-check/` 保留；发布后报告与台账补记留在本地。异常存储、账号及请求竞态有回归证据，未做真实切号或故障注入。详见[本轮验收报告](reports/frontend/2026-10-02-document-reading-navigation.md)。
+
+## 2026-10-02 正文引用就近预览（第 2 项已发布）
+
+- 正文引用增加悬停/键盘聚焦预览，显示标题、域名/知识库与已有摘要，缺失时明确提示；Escape 收起，点击/Enter 保留原完整来源入口。每段回答共享按需浮层，悬停不联网、不重解析正文；按最终来源身份匹配摘要，滚动/失焦/来源替换/侧栏/卸载清理。
+- 185 项目标测试、全量 2745 项前端测试、lint、生产构建与 diff 检查通过，独立复审无新增可达 P0/P1。TypeScript 仍为基线已有的 39 个错误，错误集合无新增。
+- PR [#237](https://github.com/HyxiaoGe/fusion/pull/237) 合并为 `c6a00c4dcbbebf7d7202f31689d43e0c981807ca`；PR CI [36995324146](https://github.com/HyxiaoGe/fusion/actions/runs/36995324146)、master CI [36996237375](https://github.com/HyxiaoGe/fusion/actions/runs/36996237375) 与 UI dev [36996237871](https://github.com/HyxiaoGe/fusion/actions/runs/36996237871) 均成功。dev 于 18:40:08 accepted，实际 SHA/digest/image ID 与台账一致，容器 running，候选和 browser smoke 成功，API 正常跳过。
+- 原 Chrome 登录态刷新后实测表格引用 42/41/55 的编号、标题和域名，悬停与指针转移保持、Tab/Shift+Tab/Escape/Enter、点击完整来源与切换会话清理。悬停观察无新增请求。深浅色、1000×900 CSS 视口边缘避让、减少透明度/动画通过，临时覆盖全部清除，原手册会话/浅色/原尺寸/空草稿/自动模式恢复。
+- 历史样本未提供摘要，缺失提示有真实证据；非空摘要、知识库和新回答流式路径由回归覆盖，尚无本轮真实验收。离屏自动滚动后的持续预览未验证。仅 10 个前端文件合入，已有报告和预览保留，发布后补记在本地；第 3 项版本差异查看仍未实现。详见[本轮验收报告](reports/frontend/2026-10-02-citation-nearby-preview.md)。
+
+## 2026-10-02 回答依据侧栏与来源选中反馈（已发布，原登录态实测）
+
+- 来源卡片显示实际引用编号，选中时呈现实心编号、信息色边框/左侧条、完整标题与“当前查看”；点击及 Enter/空格可选择，外链保持独立。临时查看选择不修改已使用/候选分组和统计，新的正文定位优先，关闭或来源身份替换后不沿用旧选择。
+- 头部与操作控件复用 GlassHoverLens，关键词原生展开默认折叠；文案走中英文 i18n，支持减少透明度/动效。阅读区域保持稳定实色，无滤镜祖先。
+- 本地 56 项目标测试、全量 2750 项前端测试、lint、生产构建和 diff 检查通过，独立复审无新增可达 P0/P1。全仓 TypeScript 仍为 39 个既有错误，错误集合无新增，未标为通过。
+- PR [#238](https://github.com/HyxiaoGe/fusion/pull/238) 合并为 `b3a1769376a5c5364a4d6050e12bb13e2e1e3931`；PR CI [36999458822](https://github.com/HyxiaoGe/fusion/actions/runs/36999458822)、master CI [37000280385](https://github.com/HyxiaoGe/fusion/actions/runs/37000280385) 与 UI dev [37000281115](https://github.com/HyxiaoGe/fusion/actions/runs/37000281115) 均成功。dev 于 19:23:37 accepted，实际 SHA/digest/image ID 与台账一致，容器 running，候选和 browser smoke 成功，API 正常跳过。
+- 原 Chrome 登录态实测引用 55 定位、Tab 聚焦与选中区分、空格/Enter 选择、点击来源 42、候选来源 1 分组不变、9 条关键词展开收起、Escape 焦点返回和重开恢复 55。实际悬停光线随指针移动，深浅色、1000×900 CSS 视口、减少透明度/动效模拟通过。
+- 临时覆盖清除，原会话、浅色、原尺寸、空输入和自动模式恢复，侧栏保持引用 55 选中供查看。没有新会话、模型调用或外部页面跳转；真实知识库、来源替换和新流式路径尚未实测，相应回归覆盖。仅五个前端文件合入，既有文件和预览保留，发布后补记本地保留；文档版本差异查看仍待实施。详见[本轮验收报告](reports/frontend/2026-10-02-answer-evidence-sidebar.md)。
+
+### 同日修复：网站 favicon 恢复（已发布）
+
+- 用户指出编号替换了原网站图标；在域名旁恢复有编号来源的原 favicon，左侧保留引用编号和选中反馈。无编号旧来源仍仅显示一次图标。回归断言在修复前失败，修复后 56 项目标测试、目标 lint、生产构建和 diff 检查通过。
+- PR [#239](https://github.com/HyxiaoGe/fusion/pull/239) 合并为 `99a8a46d0e42785405e25784d8e0b05a1e98b4ea`；PR CI [37001765803](https://github.com/HyxiaoGe/fusion/actions/runs/37001765803)、master CI [37002574304](https://github.com/HyxiaoGe/fusion/actions/runs/37002574304) 和 UI dev [37002574747](https://github.com/HyxiaoGe/fusion/actions/runs/37002574747) 均成功。19:48:22 accepted，实际运行 SHA/digest/image ID 与台账一致，容器 running，健康与 browser smoke 成功，API 正常跳过。
+- 原登录态实测来源 42 的 32px 原图加载、约 16px 展示尺寸、编号/选中/域名/深读标签共存；切换来源 55 保持图标、统计不变，深浅色可见且卡片无横向溢出。恢复浅色、同一会话、验收前原尺寸与空输入，侧栏保持来源 42。
+- 页面 88 个图片节点中 64 个成功、24 个原始资源加载失败，没有等待项。第三方 favicon 地址失败仍沿用旧隐藏行为，未逐一修复；本次只修正图标被编号替换的渲染回归。两个前端文件合入，已有文件与预览保留，发布后补记在本地；详见[本轮报告的同日修复](reports/frontend/2026-10-02-answer-evidence-sidebar.md)。
+
+### 同日修复：来源整卡高光截断（已发布，原登录态实测）
+
+- 用户指出选中高光在外链按钮前收边；原页面测量确认 lens 右边缘与外链左边缘重合。将现有装饰高光及鼠标坐标移到完整来源行，键盘选择描边覆盖整卡，选择与外链仍为独立控件，知识库展开正文位于装饰行之外。
+- 56 项目标测试、目标 lint、生产构建与 diff 检查通过。PR [#240](https://github.com/HyxiaoGe/fusion/pull/240) 合并为 `d7e354f73720d1865020f636e894195ab1ece2d4`；PR CI [37004833007](https://github.com/HyxiaoGe/fusion/actions/runs/37004833007)、master CI [37005607437](https://github.com/HyxiaoGe/fusion/actions/runs/37005607437) 与 UI dev [37005608107](https://github.com/HyxiaoGe/fusion/actions/runs/37005608107) 均成功。20:20:20（Asia/Shanghai）accepted，容器 running，实际 SHA/digest/image ID 与台账一致，候选和 browser smoke 通过，API 正常跳过。
+- 原 Chrome 登录态引用 56 实测：高光宽由 361.51px 增至 403.50px，右边缘覆盖外链区域，鼠标进入外链仍保持整卡高光；键盘空格/Enter 选择、Tab 独立聚焦外链通过，唯一当前项和 41/47/2 统计不变。实际深浅色、减少透明度/动画降级通过，正文祖先无滤镜，卡片无内部横向溢出。
+- 临时媒体模拟清除，原深色、同一会话、原尺寸、空输入和自动模式恢复，来源 56 选中供查看。本轮未创建会话、调用模型或执行外链跳转；真实知识库展开与触摸设备未实测。仅两个前端文件合入，既有文件保留，发布后补记留在本地；详见[本轮报告](reports/frontend/2026-10-02-answer-evidence-sidebar.md)。
+
+## 2026-10-02 文档版本只读差异查看（已发布，原登录态实测）
+
+- 按用户限定范围实现只读标题/正文对比和变化导航。复用已有完整版本快照 API，不改后端或依赖；默认上一版，可选择更早版本，未变内容折叠，复杂 Markdown 两侧完整渲染，原文差异按需展开。导航按完整 Markdown 变化块计数，比较不写普通阅读位置。
+- 51 项目标测试、2778 项本地全量前端测试、lint、生产构建和 diff 检查通过，独立复核通过。全仓 TypeScript 仍为 39 项既有错误，本次错误集合无新增，未标记全仓类型通过。
+- PR [#241](https://github.com/HyxiaoGe/fusion/pull/241) 的 PR/master CI 通过，但首次 dev [37008602594](https://github.com/HyxiaoGe/fusion/actions/runs/37008602594) 暴露 Windows 下普通 effect 滚动重置与文末导航竞态，镜像未发布。保留原断言，PR [#242](https://github.com/HyxiaoGe/fusion/pull/242) 改为绘制前重置；其 PR/master/dev 全部通过，Windows 全量 2743 项通过 / 35 项跳过。21:09:26 accepted，运行 SHA `4768497dd31e2bb5988cf998aad3609d26b1f538` 与 digest/image ID 台账一致，容器 running，候选和 browser smoke 成功，API 正常跳过。
+- 原 Chrome 登录态、既有清单三版本实测：v2 → v3 只有午餐列表修改，v1 → v3 包含 Day 3 培训与午餐共 11 个变化块；键盘焦点和文末截短导航计数稳定，手动滚动跟踪通过，主区域不滚动。返回正文、刷新后及关闭重开均恢复 v3 阅读 4191.75px；首版禁用，切当前 v2 没有串入 v3 内容。标题变化/纯增删/账号与旧响应由回归覆盖，本次真实样本标题不变。
+- 深色、1000×900 CSS 窄屏、减少透明度/动效实测通过，无内部横向溢出或正文滤镜祖先；临时覆盖清除，原浅色、2205×1029、空草稿与自动模式保持。没有新会话、模型调用或文档改写，既有清单 v3 对比 v1 留作查看。
+- 浅色实际标签色暴露 12px 绿色对比度约 3.39:1，追加 PR [#243](https://github.com/HyxiaoGe/fusion/pull/243) 两条 CSS 颜色混合。其 PR CI [37012207269](https://github.com/HyxiaoGe/fusion/actions/runs/37012207269)、master CI [37013250113](https://github.com/HyxiaoGe/fusion/actions/runs/37013250113) 与 dev [37013250781](https://github.com/HyxiaoGe/fusion/actions/runs/37013250781) 全部成功，21:33:49 accepted，最终 SHA `bcdf003e7adadf41649aa0be37bbc9e2dff29563` 与运行 digest/image ID 台账一致，容器 running，API 正常跳过。原标签刷新后实际深浅色颜色计算为 8.23/6.26、9.26/11.58:1，均高于 4.5:1，最新截图已保存；重新进入正文仍恢复 4191.75px。
+- 最终保留原浅色、原尺寸和空草稿，已有清单 v3 对比 v1、变化 2/11 用于查看。仅任务前端文件合入，既有文件与预览保留，报告/台账补记留本地。详见[本轮报告](reports/frontend/2026-10-02-document-version-diff.md)。
+
+### 同日细节优化：差异实际改动高亮与变化分隔（已发布，原登录态实测）
+
+- 用户反馈未变正文入口多余、表格实际改动难定位、变化区域缺少明显分隔。移除未变内容入口，增绿删红改蓝；表格只突出改变的单元格，保留上下文行列。每个变化有类型图标、编号与独立分隔线。复用现有只读快照 API 和有预算 LCS，不改后端或依赖。
+- PR [#244](https://github.com/HyxiaoGe/fusion/pull/244) 实现提交 `012f40767976ff40ec1d08916ba0aacc58cb6eb8`，合并为 `696c03751448a2227a30db3151e0dd226fe9fc1d`。目标 59 项、全量 2800 项、lint、构建和 diff 检查通过；独立审查未见 P0/P1。全仓 TypeScript 仍为与基线逐条相同的 39 项既有问题。
+- PR CI [37016509863](https://github.com/HyxiaoGe/fusion/actions/runs/37016509863)、master CI [37017392856](https://github.com/HyxiaoGe/fusion/actions/runs/37017392856)、dev [37017393884](https://github.com/HyxiaoGe/fusion/actions/runs/37017393884) 均成功。Windows 2765 项通过、35 项跳过；22:10:59 accepted，运行 SHA/digest/image ID 与台账一致，容器 running，候选健康及 browser smoke 成功，API 正常跳过。
+- 原 Chrome 登录态既有清单 v1→v3：Day 3 前后各三格标蓝，其余行列不误标；实际删除项标红、新增项标绿。v2→v3 仅午餐条目绿色。未变入口不存在，11 个变化以 10 条分隔线区分；键盘聚焦、末尾导航和手动滚动 11/11 均通过。
+- 刷新重开及返回正文恢复 4191.75px。深浅色与减少透明度/动效实测，阅读区无 backdrop-filter，实际蓝色单元格文字对比度 15.58/15.55，绿色文字高亮 15.13/13.14。临时媒体清除，恢复原浅色、原尺寸、空输入与自动模式，保留 v3 对比 v1 变化 1/11 用于查看。
+- 只读验收未创建会话、调用模型或改写文档。统计卡及容器标签的细粒度高亮仍可从原文查看；触摸设备未测。仅本轮十一项前端文件合入，原文件与预览保留，报告和台账补记留本地。详见[本轮报告](reports/frontend/2026-10-02-document-diff-highlights.md)。
+
+### 同日尾项：统计字段与富内容标题差异高亮（已发布）
+
+- 补齐统计卡数值、标签，以及提示块、时间线、统计块、标签页标题的增绿、删红、改蓝高亮。解析时按需记录 LF/UTF-16 源位置，准确覆盖重复字段、强调符号、嵌套和非连续来源；普通阅读与流式预览不建字符映射，默认标题不误标，内容和导出结构不变。
+- 目标 65 项、全量 2813 项测试、lint、构建、diff 检查与独立审查通过；全量 TypeScript 为与基线逐项相同的 39 项既有错误。PR [#245](https://github.com/HyxiaoGe/fusion/pull/245) 合并为 `cfdf9e777814f2285b34daefafef15f048b68f5b`，PR CI [37025132751](https://github.com/HyxiaoGe/fusion/actions/runs/37025132751)、master CI [37026094095](https://github.com/HyxiaoGe/fusion/actions/runs/37026094095) 与 dev [37026095526](https://github.com/HyxiaoGe/fusion/actions/runs/37026095526) 全部成功。Windows 2778 项通过、35 项跳过，23:24:10 accepted，运行 SHA/digest/image ID 与台账一致、容器 running，健康和发布 browser smoke 通过，API 正常跳过。
+- 原 Chrome 登录态、既有清单 v1→v3 实测提示块标题从无高亮变为修改蓝/新增绿，保留六个表格单元格高亮；10/11 导航、深浅色与无正文滤镜通过。刷新/关闭重开/主题往返后阅读恢复 4191.75px，普通四张统计卡无差异 mark。v2→v3 仅午餐新增绿色；既有旅行文档两份未变标题均不误标。
+- 原清单、浅色、原尺寸、空草稿与自动模式恢复，保留 v3 对比 v1 变化 10/11。统计卡字段和其他容器标题的实际变更暂无既有版本样本，回归覆盖；触摸、新流式长文及新导出文件未实测。仅七个任务前端文件合入，既有文件和预览保留，报告/台账补记留本地。设置页只读确认编辑区过宽，下一轮转向设置布局和材质；尚未修改设置。详见[尾项报告](reports/frontend/2026-10-02-document-rich-diff-highlights.md)。
+
+## 2026-10-03 设置界面 Glass 第一版（已发布，原登录态实测）
+
+- 两个设置入口共用导航/卡片/操作材质，主题与模板沿用 GlassLens，编辑区保持实色，个人设置与数据管理限宽、管理员列表保留空间。补齐模板选中、字数、未保存/超限状态及保存中锁定/重复提交防护；数据恢复显示覆盖警告，沿用既有 API、权限和持久化。
+- PR [#246](https://github.com/HyxiaoGe/fusion/pull/246) 完成主版，真实窄窗口发现中英文分类宽度不足，由 [#247](https://github.com/HyxiaoGe/fusion/pull/247) 改为自然最小宽度。随后实际 Home 返回首项仍被裁切，由 [#248](https://github.com/HyxiaoGe/fusion/pull/248) 在两个设置入口局部补齐焦点水平滚动和旧回调守卫；最终合并为 `dd55a0301265f4348a7f3da8da71548347bab030`。
+- 最终目标 31 项、全量 2825 项、lint、生产构建、diff 检查及独立审查通过。全仓 TypeScript 仍为与基线逐条一致的 39 项旧错误，未标记全仓类型通过。最终 PR CI [37034768853](https://github.com/HyxiaoGe/fusion/actions/runs/37034768853)、master CI [37035589473](https://github.com/HyxiaoGe/fusion/actions/runs/37035589473)、dev [37035589897](https://github.com/HyxiaoGe/fusion/actions/runs/37035589897) 全部成功；Windows 2790 通过/35 跳过。
+- 00:46:50（Asia/Shanghai）accepted，运行 SHA/digest/image ID 与台账一致、容器 running，候选健康和发布 browser smoke 成功，API 正常跳过。原 Chrome 两入口、中英文长标签、801px 首末分类导航及正文不滚动实测通过；浅深色、模板草稿、1000/1001 字边界、固定导航和减少透明度/动效验证通过。
+- 原会话、中文、浅色、原尺寸、空草稿、自动模型与推理开启恢复。回答偏好未改写，数据未导入覆盖；保存成功/失败和并发由回归覆盖，普通账号三分类由现有测试覆盖，真实登录为管理员。复杂管理控件内部和触摸设备不在本轮实测范围。仅任务前端文件提交，已有文件及预览保留，报告与台账补记留本地。详见[本轮报告](reports/frontend/2026-10-03-settings-glass-v1.md)。
+
+### 同日设置控件：按钮、开关与语义状态配色（已发布）
+
+- 知识库、MCP、模型管理及嵌套弹窗复用设置专用控件：主操作蓝色、次操作柔和 Glass 边缘、危险操作红色；开关开启蓝色、健康绿色、可选择/启用蓝色、未检测中性灰。知识库选中侧线、分块分页和个人偏好保存对齐。原 API、认证、确认原因、CAS、授权与忙状态协议保持。
+- 目标 98 项、全量 234 文件 2829 项、lint、构建与 diff 检查通过，TypeScript 为与基线逐条一致的 39 项旧问题。独立审查发现搜索清空位置 P2 已修正，无 P0/P1。PR [#249](https://github.com/HyxiaoGe/fusion/pull/249) 合并为 `ad21cea3ffb2827fdcdbd197c32430f1491f2ec3`，PR CI [37039235243](https://github.com/HyxiaoGe/fusion/actions/runs/37039235243)、master CI [37040613282](https://github.com/HyxiaoGe/fusion/actions/runs/37040613282) 和 dev [37040614134](https://github.com/HyxiaoGe/fusion/actions/runs/37040614134) 全部成功，Windows 2794 通过/35 跳过。
+- 01:31:04（Asia/Shanghai）accepted，运行 SHA/digest/image ID 与台账一致，容器 running；健康与发布 browser smoke 成功，API 正常跳过。原 Chrome 标签三模块、新建/隐藏/删除确认取消、分块分页、搜索清空 absolute 和键盘焦点光层实测。浅深色实际主按钮对比度 4.98/6.94:1，状态文字最低 4.53:1，危险按钮 6.56/6.84:1；减少透明度/动效降级及 801px 无横向溢出通过。
+- 中文、浅色、原尺寸、原当前会话、空草稿、自动模型与推理开启恢复，个人偏好 0/1000 未改写，留在原知识库分类；知识库、服务授权和模型配置没有写入。MCP/模型受控弹窗退出后焦点落到 BODY，基线代码已有该结构，记录为后续交互项，未声称恢复焦点通过。普通账号、触摸和实际管理写入未实测。只合入十项任务文件，原文件与预览保留；报告/台账补记留本地，详见[本轮报告](reports/frontend/2026-10-03-settings-controls-glass.md)。
+### 同日设置表单与弹窗焦点（已发布，原登录态实测）
+
+- 用户授权同时完成焦点恢复与表单统一。MCP、模型、知识库编辑/确认/分块预览显式捕获入口；外层两个头像入口以局部 provider 连接，菜单转弹窗只抑制该次菜单恢复。卸载、重开、父层退出与入口失效有守卫；未改 API、权限、CAS、授权和保存协议。
+- 输入/多行/Select/checkbox/错误统一实色、蓝色焦点与选中、灰色禁用、红色校验；MCP 鉴权沿既有 Radix Select，保留四种枚举与参数。新增32项回归，236文件2861项本地通过，lint/build通过，39项旧类型诊断与基线逐条一致；独立源码审查无新增可达P0/P1。
+- PR [#250](https://github.com/HyxiaoGe/fusion/pull/250) 合并为 `04b3706e93e016dda68f3635afea4846cda51093`；PR CI、master CI与dev均success，API正常跳过。02:26:10（Asia/Shanghai）accepted，运行SHA/digest/image ID与台账一致，容器running，健康与发布browser smoke成功。
+- 原Chrome标签实测外层Esc返回头像、MCP新增/编辑返回本次按钮、鉴权第一下Esc只关菜单、第二下退出编辑器，字段顺序/错误关联/禁用与工具选中正常。知识库菜单转编辑保留初始焦点，确认取消和普通菜单Esc返回本次触发器；23分块分页与正确预览入口返回正常。模型搜索/筛选、禁用确认跳过与Tab循环、Esc返回对应行通过。
+- MCP浅深色与801px窗口实测，减少透明度/动效降级无字段或菜单模糊；恢复中文浅色、原尺寸、原会话、MCP分类、空草稿、自动模型/模式与推理开启，临时媒体偏好清除，console error为空。实际管理写入、普通账号和触摸未实测；真实配置/授权/数据未修改。19份任务前端文件已合入，既有文件与预览保留，报告/台账补记留本地。详见[本轮报告](reports/frontend/2026-10-03-settings-forms-focus.md)。
+
+### 同日设置剩余子页收口（第 3 项完成，已发布）
+
+- 服务用量与运行时配置沿用设置专用按钮、语义状态及统计材质，统一加载/空态/失败提示。配置刷新保留原列表和按钮、禁用重复刷新，失败明确说明上次快照并可再刷新；成功空列表分别显示生效配置与版本记录空态。未知用量、缓存、刷新注册表、API和配置只读边界保持。
+- 目标33项、ESLint、build、diff检查及独立审查通过；TypeScript与上一轮基线相同39条，无新增。PR [#251](https://github.com/HyxiaoGe/fusion/pull/251) 合并为 `560c314841596d9283cc5a9081bc3856f9b153d4`；PR CI [37076189511](https://github.com/HyxiaoGe/fusion/actions/runs/37076189511)、master CI [37076820567](https://github.com/HyxiaoGe/fusion/actions/runs/37076820567)、dev [37076821050](https://github.com/HyxiaoGe/fusion/actions/runs/37076821050) 均success。全量Docker测试2830通过/35平台专用跳过，PR发布契约另跑35项通过；API正常跳过。
+- 07:23:29（Asia/Shanghai）accepted；只读核对运行SHA/digest/image ID一致，容器running，候选健康和发布browser smoke通过。原Chrome真实初始加载、统一刷新、summary键盘展开与焦点、运行时刷新保留列表和焦点/恢复正常，配置统计仍3/19/0。浅深色、801px无溢出、减少透明度/动效降级通过，正文没有模糊祖先。
+- 原会话、中文浅色、原尺寸、设置关闭、空草稿、自动模型/模式、推理开启与头像焦点恢复，媒体模拟清除，console error=0。真实空配置/故障由回归覆盖，普通账号、触摸、独立设置路由未实测；真实配置/授权/数据未写入。仅10个任务前端文件提交，既有文件及预览保留，报告/台账留本地。设置美化按用户要求到此收口，详见[本轮报告](reports/frontend/2026-10-03-settings-subpages-closeout.md)。
+
+
+## 2026-10-03 文档阅读细节补齐（已发布，真实登录态待分工复验）
+
+- 用户接受 Codex 负责前端长数值、来源/双格式导出、版本工具栏占位和深色清单，Claude Code 负责后端短数值提示词与真实登录态复验。前端仅按字符数降低长值字号，provider 只映射结构化标识并走中英文 i18n，不扫描来源原文；正文先返回时仍能阅读和导出，清单保持只读。
+- 文档目标 13 文件 112 项、完整 ESLint、生产构建和 diff 检查通过；独立审查无新增可达 P0/P1。类型检查与 b0d70c9a 基线的 39 条诊断逐字一致，仍未记作全仓类型通过。离线真实组件在 880/601/600/390px 工具栏位置稳定且无溢出，深浅色清单和 HTML 长值排版通过；临时测试已移除。
+- PR [#254](https://github.com/HyxiaoGe/fusion/pull/254) 合并为 `d44c00592511812d7e9d3d97a96891aa40c0bbef`；PR CI [37113505871](https://github.com/HyxiaoGe/fusion/actions/runs/37113505871)、master CI [37113956241](https://github.com/HyxiaoGe/fusion/actions/runs/37113956241)、dev [37113956473](https://github.com/HyxiaoGe/fusion/actions/runs/37113956473) 全部 success，API 正常跳过。PR Docker 与 Windows 发布均 2840 项通过、35 项平台专用跳过。
+- 17:48:22（Asia/Shanghai）accepted，实际运行 SHA、摘要引用、内容 ID 与台账一致，容器 running；候选健康和发布 browser smoke 成功，首页跟随重定向为 HTTP 200，新长值/版本占位/服务商 i18n/深色清单打包资源确认存在。API 仍运行独立提示词 PR #253 的 b0d70c9a，本次未重发 API。
+- 官方 Chrome 扩展未连接，复核一次后未新开替代浏览器或复制登录态；真实登录页面不记作通过，按用户接受的分工留给 Claude Code。应用置顶保护阻止归档，本轮独立工作树及对应分支暂保留，未绕过保护；12 个前端文件合入，既有文件保留，报告/台账留本地。详见[本轮报告](reports/frontend/2026-10-03-document-reading-polish.md)。
