@@ -500,6 +500,41 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(config.announced_tools, ["web_search", "url_read"])
         self.assertNotIn("extra_body", config.call_kwargs)
 
+    def test_reasoning_off_disables_thinking_only_for_switchable_models(self):
+        switchable = build_agent_loop_call_config(
+            provider="openai",
+            options={"use_reasoning": False},
+            capabilities={
+                "functionCalling": True,
+                "searchCapable": True,
+                "deepThinking": True,
+                "thinkingSwitchable": True,
+            },
+        )
+        reasoning_on = build_agent_loop_call_config(
+            provider="openai",
+            options={"use_reasoning": True},
+            capabilities={
+                "functionCalling": True,
+                "searchCapable": True,
+                "deepThinking": True,
+                "thinkingSwitchable": True,
+            },
+        )
+        not_switchable = build_agent_loop_call_config(
+            provider="openai",
+            options={"use_reasoning": False},
+            capabilities={"functionCalling": True, "searchCapable": True, "deepThinking": True},
+        )
+
+        self.assertFalse(switchable.should_use_reasoning)
+        self.assertEqual(
+            switchable.call_kwargs["extra_body"],
+            {"extra_body": {"thinking": {"type": "disabled"}}},
+        )
+        self.assertNotIn("extra_body", reasoning_on.call_kwargs)
+        self.assertNotIn("extra_body", not_switchable.call_kwargs)
+
     def test_build_call_config_disables_agent_tools_when_agent_tools_capability_is_false(self):
         config = build_agent_loop_call_config(
             provider="qwen",

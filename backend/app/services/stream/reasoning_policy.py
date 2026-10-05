@@ -18,14 +18,23 @@ def configure_reasoning_call_kwargs(
     *,
     provider: str | None,
     should_use_reasoning: bool,
+    thinking_switchable: bool = False,
 ) -> dict:
-    """按当前回合的真实 tools 状态生成推理请求参数。"""
+    """按当前回合的真实 tools 状态生成推理请求参数。
+
+    thinking_switchable：模型元数据确认能用 thinking=disabled 真正关掉推理。
+    """
 
     configured = deepcopy(call_kwargs)
     normalized_provider = (provider or "").strip().lower()
     has_tools = bool(configured.get("tools"))
 
     if not should_use_reasoning:
+        if thinking_switchable:
+            # 用户关了推理就让模型真的不思考，否则模型照常推理、只是前端看不到，白等。
+            # 必须再包一层 extra_body：代理按 OpenAI 参数表校验顶层字段，顶层 thinking
+            # 会被拒（UnsupportedParamsError）；内层 extra_body 由代理原样转给供应商。
+            merge_extra_body(configured, {"extra_body": {"thinking": {"type": "disabled"}}})
         return configured
 
     if normalized_provider == "deepseek":

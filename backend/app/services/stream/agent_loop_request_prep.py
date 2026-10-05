@@ -300,6 +300,7 @@ def build_agent_loop_call_config(
         call_kwargs,
         provider=effective_provider,
         should_use_reasoning=should_use_reasoning,
+        thinking_switchable=supports_thinking and capabilities.get("thinkingSwitchable") is True,
     )
 
     active_handlers.update(document_handlers)
