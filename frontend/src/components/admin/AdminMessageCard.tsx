@@ -1,15 +1,18 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Bot, CheckCircle, ChevronDown, FileText, User } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import type { AdminJsonValue, AdminKnownContentBlock, AdminMessageRecord } from '@/types/adminAudit';
 import AdminSafeMarkdown from './AdminSafeMarkdown';
 import { formatAdminDate } from './AdminPanelPrimitives';
+import styles from './AdminSurface.module.css';
 
 const KNOWN_BLOCK_TYPES = new Set(['text', 'thinking', 'file', 'search', 'url_read']);
 
 export default function AdminMessageCard({ message }: { message: AdminMessageRecord }) {
+  const { t } = useTranslation();
   const [reasoningVisible, setReasoningVisible] = useState(false);
   const text = useMemo(
     () => message.content.filter(block => block.type === 'text').map(block => block.text ?? '').join(''),
@@ -23,12 +26,12 @@ export default function AdminMessageCard({ message }: { message: AdminMessageRec
   const isUser = message.role === 'user';
 
   return (
-    <article className="rounded-xl border border-border/70 bg-card p-4 shadow-sm" data-testid={`admin-message-${message.id}`}>
-      <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-sm font-medium">
+    <article className={styles.messageCard} data-role={message.role} data-testid={`admin-message-${message.id}`}>
+      <header className={styles.messageHeader}>
+        <div className={styles.messageIdentity}>
           {isUser ? <User className="h-4 w-4" aria-hidden="true" /> : <Bot className="h-4 w-4" aria-hidden="true" />}
-          <span>{isUser ? '用户' : '助手'}</span>
-          {message.model_id ? <Badge variant="outline">{message.model_id}</Badge> : null}
+          <h3 className="text-sm font-medium">{isUser ? '用户' : '助手'}</h3>
+          {message.model_id ? <Badge variant="outline" className="max-w-full whitespace-normal break-all">{message.model_id}</Badge> : null}
         </div>
         <div className="text-xs text-muted-foreground">
           {formatAdminDate(message.created_at)}
@@ -40,7 +43,7 @@ export default function AdminMessageCard({ message }: { message: AdminMessageRec
           <button
             type="button"
             onClick={() => setReasoningVisible(current => !current)}
-            className="flex w-full items-center justify-between px-3 py-2 text-xs text-muted-foreground"
+            className="flex w-full items-center justify-between gap-2 px-3 py-2 text-xs text-muted-foreground hover:bg-muted/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
             aria-expanded={reasoningVisible}
           >
             <span className="flex items-center gap-2"><CheckCircle className="h-3.5 w-3.5" />已深度思考</span>
@@ -48,24 +51,25 @@ export default function AdminMessageCard({ message }: { message: AdminMessageRec
           </button>
           {reasoningVisible ? (
             <div className="border-t border-border/40 px-3 py-2 text-xs text-muted-foreground">
-              <AdminSafeMarkdown content={thinking} />
+              <AdminSafeMarkdown content={thinking} className={styles.messageBody} />
             </div>
           ) : null}
         </div>
       ) : null}
 
-      {text ? <AdminSafeMarkdown content={text} /> : null}
+      {text ? <AdminSafeMarkdown content={text} className={styles.messageBody} /> : null}
 
       {metadataBlocks.length > 0 ? (
-        <div className="mt-3 space-y-2">
+        <section className={styles.messageMetadata} aria-label={t('admin.details.additionalContent')}>
+          <h4 className="text-xs font-medium text-muted-foreground">{t('admin.details.additionalContent')}</h4>
           {metadataBlocks.map((block, index) => (
             <MetadataBlock key={block.id ?? `${block.type}-${index}`} block={block} />
           ))}
-        </div>
+        </section>
       ) : null}
 
       {message.usage ? (
-        <footer className="mt-3 text-xs text-muted-foreground">
+        <footer className={styles.messageFooter}>
           输入 {message.usage.input_tokens} · 输出 {message.usage.output_tokens} tokens
         </footer>
       ) : null}
@@ -76,10 +80,10 @@ export default function AdminMessageCard({ message }: { message: AdminMessageRec
 function MetadataBlock({ block }: { block: AdminKnownContentBlock }) {
   if (block.type === 'file') {
     return (
-      <div className="flex items-center gap-2 rounded-md border border-border/60 bg-muted/15 px-3 py-2 text-sm">
-        <FileText className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-        <span className="font-medium">{block.filename || '未命名文件'}</span>
-        <span className="text-xs text-muted-foreground">{block.mime_type || '未知类型'}</span>
+      <div className={styles.fileMetadata}>
+        <FileText className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <span className={styles.fileName}>{block.filename || '未命名文件'}</span>
+        <span className="min-w-0 break-all text-xs text-muted-foreground">{block.mime_type || '未知类型'}</span>
       </div>
     );
   }
@@ -101,9 +105,9 @@ function MetadataBlock({ block }: { block: AdminKnownContentBlock }) {
 
 function SafeProjection({ title, value }: { title: string; value: AdminJsonValue | undefined }) {
   return (
-    <details className="rounded-md border border-border/60 bg-muted/10 px-3 py-2">
+    <details className={styles.rawDetails}>
       <summary className="cursor-pointer text-xs font-medium">{title}</summary>
-      <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-all text-xs text-muted-foreground">
+      <pre className={styles.rawContent}>
         {formatSafeJson(value)}
       </pre>
     </details>

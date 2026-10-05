@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useState } from 'react';
-import { ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { useCallback, useId, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { ChevronDown, ChevronUp, RefreshCw, Upload } from 'lucide-react';
 import { getAdminPerformanceRuns } from '@/lib/api/adminAudit';
 import { useAdminAuditResource } from '@/hooks/useAdminAuditResource';
 import { Badge } from '@/components/ui/badge';
@@ -10,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import PerformanceRunImport from './PerformanceRunImport';
 import AdminPerformanceRunDetail from './AdminPerformanceRunDetail';
 import { AdminEmpty, AdminError, AdminFilterActions, AdminLoading, AdminPagination, AdminPanelHeader, formatAdminDate } from './AdminPanelPrimitives';
+import styles from './AdminSurface.module.css';
 
 function performanceDetailId(runId: string): string {
   return `performance-run-detail-${runId.replace(/[^A-Za-z0-9_-]/g, '-')}`;
@@ -30,6 +32,9 @@ interface AdminPerformancePanelProps {
 export default function AdminPerformancePanel({
   onForbidden, selectedRunId, onToggle,
 }: AdminPerformancePanelProps) {
+  const { t } = useTranslation();
+  const importRegionId = useId();
+  const [importOpen, setImportOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [environmentDraft, setEnvironmentDraft] = useState('');
   const [environment, setEnvironment] = useState('');
@@ -65,8 +70,31 @@ export default function AdminPerformancePanel({
 
   return (
     <section>
-      <AdminPanelHeader title="压测记录" description="压测聊天清理后，脱敏汇总仍独立保留在这里。" action={<Button variant="outline" size="sm" aria-label="刷新压测列表" onClick={refreshList}><RefreshCw />刷新</Button>} />
-      <PerformanceRunImport onImported={refreshList} onForbidden={onForbidden} />
+      <AdminPanelHeader
+        title="压测记录"
+        description="压测聊天清理后，脱敏汇总仍独立保留在这里。"
+        action={(
+          <div className={styles.panelActions}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-label={t(importOpen ? 'admin.performanceImport.closeLabel' : 'admin.performanceImport.openLabel')}
+              aria-expanded={importOpen}
+              aria-controls={importRegionId}
+              onClick={() => setImportOpen(current => !current)}
+            >
+              {importOpen ? <ChevronUp /> : <Upload />}
+              {t(importOpen ? 'admin.performanceImport.collapse' : 'admin.performanceImport.expand')}
+            </Button>
+            <Button variant="outline" size="sm" aria-label="刷新压测列表" onClick={refreshList}><RefreshCw />刷新</Button>
+          </div>
+        )}
+      />
+      {/* 收起时保留组件状态，避免 JSON 草稿和导入结果随展开切换丢失。 */}
+      <div id={importRegionId} hidden={!importOpen} className={styles.importRegion}>
+        <PerformanceRunImport onImported={refreshList} onForbidden={onForbidden} />
+      </div>
       <form className="my-4 grid max-w-2xl gap-2 sm:grid-cols-[1fr_1fr_auto]" onSubmit={applyFilters}><Input aria-label="压测环境" placeholder="环境，例如 production" value={environmentDraft} onChange={event => setEnvironmentDraft(event.target.value)} /><Input aria-label="压测状态" placeholder="状态，例如 completed" value={statusDraft} onChange={event => setStatusDraft(event.target.value)} /><AdminFilterActions submitLabel="筛选" submitVariant="outline" onReset={resetFilters} /></form>
       {resource.loading ? <AdminLoading /> : resource.error ? <AdminError message={resource.error} onRetry={resource.reload} /> : null}
       {resource.data && resource.data.items.length === 0 ? <AdminEmpty>暂无压测记录</AdminEmpty> : null}

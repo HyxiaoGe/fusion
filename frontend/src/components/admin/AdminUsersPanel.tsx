@@ -178,11 +178,11 @@ export default function AdminUsersPanel({
             />
           ) : null}
           {selectedUser ? (
-            <aside aria-label={`用户详情 ${selectedUser.id}`} className="rounded-xl border border-border bg-card p-4">
+            <aside aria-label={`用户详情 ${selectedUser.id}`} className={styles.detailSummary}>
               <AdminUserIdentity user={selectedUser} />
-              <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2"><div><dt className="text-xs text-muted-foreground">完整邮箱</dt><dd>{selectedUser.email || '未采集'}</dd></div><div><dt className="text-xs text-muted-foreground">注册时间</dt><dd>{formatAdminDate(selectedUser.created_at)}</dd></div></dl>
+              <dl className={`mt-4 ${styles.detailMetadata}`}><div><dt>完整邮箱</dt><dd>{selectedUser.email || '未采集'}</dd></div><div><dt>注册时间</dt><dd>{formatAdminDate(selectedUser.created_at)}</dd></div></dl>
               {selectedUser.system_prompt?.trim() ? (
-                <details className="mt-4 rounded-md border border-border/60 p-3"><summary className="cursor-pointer text-sm font-medium">自定义提示词</summary><pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all text-xs text-muted-foreground">{selectedUser.system_prompt}</pre></details>
+                <details className={`mt-4 ${styles.rawDetails}`}><summary className="cursor-pointer text-sm font-medium">自定义提示词</summary><pre className={styles.rawContent}>{selectedUser.system_prompt}</pre></details>
               ) : null}
             </aside>
           ) : null}

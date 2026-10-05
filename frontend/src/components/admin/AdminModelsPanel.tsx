@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ArrowLeft, Filter, RefreshCw } from 'lucide-react';
 import { getAdminModel, getAdminModels } from '@/lib/api/adminAudit';
 import { useAdminAuditResource } from '@/hooks/useAdminAuditResource';
@@ -16,6 +17,7 @@ import {
   AdminEmpty, AdminError, AdminFilterActions, AdminLoading, AdminPagination, AdminPanelHeader, formatAdminDate, formatNumber,
 } from './AdminPanelPrimitives';
 import ItineraryStabilityPanel from './ItineraryStabilityPanel';
+import styles from './AdminSurface.module.css';
 
 interface AdminModelsPanelProps {
   active?: boolean;
@@ -98,6 +100,7 @@ export default function AdminModelsPanel({
 }
 
 function ModelRow({ active, model, onOpen }: { active: boolean; model: AdminModelSummary; onOpen: (modelId: string) => void }) {
+  const { t } = useTranslation();
   const checkedAt = formatModelHealthCheckedAt(model.health?.checked_at);
   const checkedAtCompact = formatCompactAdminDate(model.health?.checked_at);
   const recentActivity = formatCompactAdminDate(model.last_used_at);
@@ -109,7 +112,20 @@ function ModelRow({ active, model, onOpen }: { active: boolean; model: AdminMode
       <td className="px-3 py-3"><div className="truncate font-medium" title={model.name || model.model_id}>{model.name || model.model_id}</div><div className="mt-1 break-all text-xs text-muted-foreground">{model.model_id}</div><div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">{providerId ? <span aria-hidden="true"><ProviderIcon providerId={providerId} size={16} /></span> : null}<span className="truncate" title={providerLabel}>{providerLabel}</span></div></td>
       <td className="px-3 py-3"><div className="flex flex-wrap gap-1"><Badge variant="outline">{catalogStatusLabel(model.catalog_status, 'badge')}</Badge><Badge variant="outline">{healthLabel(model.health?.status)}</Badge></div></td>
       <td className="px-3 py-3"><CapabilityBadges active={active} capabilities={model.capabilities} maxVisible={2} /></td>
-      <td className="px-3 py-3"><dl className="grid grid-cols-3 gap-x-3 gap-y-2 text-xs"><Statistic label="对话" value={formatNumber(model.conversation_count)} /><Statistic label="用户" value={formatNumber(model.user_count)} /><Statistic label="回复" value={formatNumber(model.assistant_message_count)} /><Statistic label="持久化 Token" value={formatNumber(model.input_tokens + model.output_tokens)} /><Statistic label="Agent 运行" value={formatNumber(model.agent_run_count)} /><Statistic label="错误" value={formatNumber(model.agent_error_count)} /></dl></td>
+      <td className="px-3 py-3">
+        <div className={styles.modelListMetrics}>
+          <dl className="grid grid-cols-3 gap-x-3 text-xs" aria-label={t('admin.modelStatistics.conversations')}>
+            <Statistic label="对话" value={formatNumber(model.conversation_count)} />
+            <Statistic label="用户" value={formatNumber(model.user_count)} />
+            <Statistic label="回复" value={formatNumber(model.assistant_message_count)} />
+          </dl>
+          <dl className="grid grid-cols-3 gap-x-3 text-xs" aria-label={t('admin.modelStatistics.runtime')}>
+            <Statistic label="持久化 Token" value={formatNumber(model.input_tokens + model.output_tokens)} />
+            <Statistic label="Agent 运行" value={formatNumber(model.agent_run_count)} />
+            <Statistic label="错误" value={formatNumber(model.agent_error_count)} />
+          </dl>
+        </div>
+      </td>
       <td className="px-3 py-3 text-xs"><div className="text-muted-foreground">最近活动</div>{recentActivity.dateTime ? <time className="mt-0.5 block whitespace-nowrap" dateTime={recentActivity.dateTime} title={recentActivityFull} aria-label={`最近活动 ${recentActivityFull}`}>{recentActivity.text}</time> : <div className="mt-0.5 whitespace-nowrap" aria-label={`最近活动 ${recentActivityFull}`}>{recentActivity.text}</div>}<div className="mt-2 text-muted-foreground">健康检测</div>{checkedAt === '尚未检测' ? <div className="mt-0.5 whitespace-nowrap">尚未检测</div> : <time className="mt-0.5 block whitespace-nowrap" dateTime={checkedAtCompact.dateTime} title={checkedAt} aria-label={`检测时间 ${checkedAt}`}>{checkedAtCompact.text}</time>}</td>
       <td className="px-3 py-3 text-right"><Button variant="ghost" size="sm" className="whitespace-nowrap" aria-label={`查看模型详情 ${model.model_id}`} onClick={() => onOpen(model.model_id)}>查看详情</Button></td>
     </tr>
@@ -133,32 +149,93 @@ function AdminModelDetailView({ modelId, onBack, onForbidden, onViewConversation
 }
 
 function ModelDetail({ model, onViewConversations }: { model: AdminModelDetail; onViewConversations: (modelId: string) => void }) {
+  const { t } = useTranslation();
   const providerLabel = model.provider_display?.trim() || model.provider?.trim() || '未记录';
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-border bg-card p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="text-lg font-semibold">{model.name || model.model_id}</h1><div className="mt-1 text-xs text-muted-foreground">{model.model_id} · {providerLabel}</div></div><Button onClick={() => onViewConversations(model.model_id)}>查看该模型的对话</Button></div>{model.description ? <p className="mt-3 text-sm text-muted-foreground">{model.description}</p> : null}</div>
+    <div className="min-w-0 space-y-5">
+      <header className={styles.detailOverview}>
+        <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h1 className="break-words text-lg font-semibold">{model.name || model.model_id}</h1>
+            <div className="mt-1 break-all text-xs text-muted-foreground">{model.model_id} · {providerLabel}</div>
+          </div>
+          <Button className="shrink-0" onClick={() => onViewConversations(model.model_id)}>查看该模型的对话</Button>
+        </div>
+        {model.description ? <p className="mt-3 max-w-[80ch] break-words text-sm leading-relaxed text-muted-foreground">{model.description}</p> : null}
+      </header>
       {model.catalog_availability === 'degraded' ? <p className="text-xs text-muted-foreground">{CATALOG_DEGRADED_MESSAGE}</p> : null}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <DetailCard title="模型规格"><Metric label="目录状态" value={catalogStatusLabel(model.catalog_status, 'detail')} /><Metric label="健康状态" value={healthLabel(model.health?.status)} /><Metric label="检测时间" value={formatModelHealthCheckedAt(model.health?.checked_at)} />{model.health?.status === 'unhealthy' && model.health.error?.trim() ? <Metric label="异常说明" value={model.health.error.trim().slice(0, 300)} /> : null}<Metric label="上下文窗口" value={tokenLimit(model.context_window_tokens)} /><Metric label="单次输出上限" value={tokenLimit(model.max_output_tokens)} /><Metric label="知识截止" value={model.knowledge_cutoff || '未记录'} /><Metric label="成本层级" value={costTierLabel(model.cost_tier)} /></DetailCard>
-        <DetailCard title="能力"><CapabilityBadges capabilities={model.capabilities} />{model.recommended_for.length ? <div className="mt-3 text-sm"><div className="text-xs text-muted-foreground">推荐场景</div><div className="mt-1">{model.recommended_for.map(recommendedForLabel).join('、')}</div></div> : null}</DetailCard>
-        <DetailCard title="使用摘要"><p className="mb-3 text-xs text-muted-foreground">Token 仅为当前已持久化助手消息用量，不等同平台全部调用或计费账单。</p><Metric label="会话" value={`${formatNumber(model.conversation_count)} 个对话`} /><Metric label="用户" value={`${formatNumber(model.user_count)} 位用户`} /><Metric label="回复" value={`${formatNumber(model.assistant_message_count)} 条回复`} /><Metric label="输入 Token" value={formatNumber(model.input_tokens)} /><Metric label="输出 Token" value={formatNumber(model.output_tokens)} /><Metric label="最近活动" value={formatAdminDate(model.last_used_at)} /></DetailCard>
-        <DetailCard title="Agent 运行"><Metric label="运行次数" value={`${formatNumber(model.agent_run_count)} 次 Agent 运行`} /><Metric label="错误次数" value={`${formatNumber(model.agent_error_count)} 次错误`} /></DetailCard>
-        <DetailCard title="最近压测">{model.latest_performance_run ? <><Metric label="运行 ID" value={model.latest_performance_run.run_id} /><Metric label="状态" value={performanceStatusLabel(model.latest_performance_run.status)} /><Metric label="环境" value={performanceEnvironmentLabel(model.latest_performance_run.environment)} /><Metric label="开始时间" value={formatAdminDate(model.latest_performance_run.started_at)} /></> : <div className="text-sm text-muted-foreground">暂无关联压测</div>}</DetailCard>
+
+      <DetailCard title="使用摘要">
+        <dl className={`${styles.metricGrid} ${styles.metricGridPrimary}`}>
+          <Statistic label="会话" value={`${formatNumber(model.conversation_count)} 个对话`} prominent />
+          <Statistic label="用户" value={`${formatNumber(model.user_count)} 位用户`} prominent />
+          <Statistic label="回复" value={`${formatNumber(model.assistant_message_count)} 条回复`} prominent />
+        </dl>
+        <div className="mt-4 grid min-w-0 gap-4 border-t border-border pt-4 md:grid-cols-2">
+          <section className="min-w-0" aria-label={t('admin.modelStatistics.tokens')}>
+            <h3 className="mb-2 text-xs font-medium text-muted-foreground">持久化 Token</h3>
+            <dl className={styles.metricGrid}>
+              <Statistic label="输入 Token" value={formatNumber(model.input_tokens)} />
+              <Statistic label="输出 Token" value={formatNumber(model.output_tokens)} />
+            </dl>
+          </section>
+          <section className="min-w-0" aria-label={t('admin.modelStatistics.agent')}>
+            <h3 className="mb-2 text-xs font-medium text-muted-foreground">Agent 运行</h3>
+            <dl className={styles.metricGrid}>
+              <Statistic label="运行次数" value={`${formatNumber(model.agent_run_count)} 次 Agent 运行`} />
+              <Statistic label="错误次数" value={`${formatNumber(model.agent_error_count)} 次错误`} />
+            </dl>
+          </section>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-border pt-3 text-xs text-muted-foreground">
+          <p className="max-w-[80ch] leading-relaxed">Token 仅为当前已持久化助手消息用量，不等同平台全部调用或计费账单。</p>
+          <p>最近活动：<span className="text-foreground">{formatAdminDate(model.last_used_at)}</span></p>
+        </div>
+      </DetailCard>
+
+      <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+        <DetailCard title="模型规格">
+          <dl className={styles.detailMetrics}>
+            <Metric label="目录状态" value={catalogStatusLabel(model.catalog_status, 'detail')} />
+            <Metric label="健康状态" value={healthLabel(model.health?.status)} />
+            <Metric label="检测时间" value={formatModelHealthCheckedAt(model.health?.checked_at)} />
+            {model.health?.status === 'unhealthy' && model.health.error?.trim() ? <Metric label="异常说明" value={model.health.error.trim().slice(0, 300)} /> : null}
+            <Metric label="上下文窗口" value={tokenLimit(model.context_window_tokens)} />
+            <Metric label="单次输出上限" value={tokenLimit(model.max_output_tokens)} />
+            <Metric label="知识截止" value={model.knowledge_cutoff || '未记录'} />
+            <Metric label="成本层级" value={costTierLabel(model.cost_tier)} />
+          </dl>
+        </DetailCard>
+        <DetailCard title="能力">
+          <CapabilityBadges capabilities={model.capabilities} />
+          {model.recommended_for.length ? <div className="mt-3 text-sm"><div className="text-xs text-muted-foreground">推荐场景</div><div className="mt-1 break-words leading-relaxed">{model.recommended_for.map(recommendedForLabel).join('、')}</div></div> : null}
+          <section className="mt-4 min-w-0 border-t border-border pt-4" aria-label="最近压测">
+            <h3 className="mb-2 text-sm font-semibold">最近压测</h3>
+            {model.latest_performance_run ? (
+              <dl className={styles.detailMetrics}>
+                <Metric label="运行 ID" value={model.latest_performance_run.run_id} />
+                <Metric label="状态" value={performanceStatusLabel(model.latest_performance_run.status)} />
+                <Metric label="环境" value={performanceEnvironmentLabel(model.latest_performance_run.environment)} />
+                <Metric label="开始时间" value={formatAdminDate(model.latest_performance_run.started_at)} />
+              </dl>
+            ) : <p className="text-sm text-muted-foreground">暂无关联压测</p>}
+          </section>
+        </DetailCard>
       </div>
     </div>
   );
 }
 
 function DetailCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return <section className="rounded-xl border border-border bg-card p-4"><h2 className="mb-3 font-semibold">{title}</h2><div className="space-y-2">{children}</div></section>;
+  return <section className={styles.statisticsSection}><h2 className="mb-3 font-semibold">{title}</h2>{children}</section>;
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
-  return <div className="flex items-start justify-between gap-4 text-sm"><span className="text-muted-foreground">{label}</span><span className="text-right">{value}</span></div>;
+  return <div><dt>{label}</dt><dd>{value}</dd></div>;
 }
 
-function Statistic({ label, value }: { label: string; value: string }) {
-  return <div className="min-w-0" aria-label={`${label} ${value}`}><dt className="truncate text-muted-foreground">{label}</dt><dd className="mt-0.5 truncate text-sm font-medium" title={`${label} ${value}`}>{value}</dd></div>;
+function Statistic({ label, value, prominent = false }: { label: string; value: string; prominent?: boolean }) {
+  return <div className="min-w-0" aria-label={`${label} ${value}`}><dt className="text-muted-foreground">{label}</dt><dd className={cn('mt-0.5 break-words font-medium tabular-nums', prominent ? 'text-xl' : 'text-sm')} title={`${label} ${value}`}>{value}</dd></div>;
 }
 
 const CAPABILITY_LABELS: Record<string, string> = { imageGen: '图像生成', deepThinking: '深度思考', fileSupport: '文件处理', functionCalling: '工具调用', searchCapable: '联网搜索', agentTools: 'Agent 工具', vision: '图片理解', image_gen: '图像生成', deep_thinking: '深度思考', file_support: '文件处理', function_calling: '工具调用' };

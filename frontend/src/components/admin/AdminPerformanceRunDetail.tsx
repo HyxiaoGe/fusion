@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { getAdminPerformanceRun } from '@/lib/api/adminAudit';
 import { useAdminAuditResource } from '@/hooks/useAdminAuditResource';
 import { Badge } from '@/components/ui/badge';
@@ -11,6 +12,7 @@ import type {
   AdminPerformanceStageSummary,
 } from '@/types/adminAudit';
 import { AdminEmpty, AdminError, AdminLoading, formatAdminDate } from './AdminPanelPrimitives';
+import styles from './AdminSurface.module.css';
 
 type MetricFormat = 'number' | 'ms' | 'seconds' | 'rate' | 'percent' | 'boolean';
 type MetricDefinition = readonly [key: string, label: string, format?: MetricFormat];
@@ -121,6 +123,34 @@ const STAGE_METRICS: MetricDefinition[] = [
   ['consecutive_failures', '连续失败'],
 ];
 
+// 分组只整理既有白名单字段，不从原始压测数据扩展统计口径。
+const STAGE_METRIC_GROUPS: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ['admin.performanceStatistics.configuration', [
+    'concurrency', 'duration_seconds', 'elapsed_seconds', 'cadence_seconds', 'window_seconds',
+    'executed_ticks', 'skipped_ticks', 'window_count',
+  ]],
+  ['admin.performanceStatistics.results', [
+    'total', 'requests', 'flows', 'flows_with_output', 'successful', 'failed', 'success_rate',
+    'error_rate', 'timeout_rate', 'error_frames', 'consecutive_failures',
+  ]],
+  ['admin.performanceStatistics.latency', [
+    'requests_per_second', 'rps', 'p50_ms', 'p90_ms', 'p95_ms', 'p99_ms', 'max_ms',
+    'p50_ttft_ms', 'p95_ttft_ms', 'p99_ttft_ms', 'p95_total_ms',
+    'first_output_p50_ms', 'first_output_p95_ms', 'first_output_max_ms',
+    'chunk_interval_count', 'chunk_interval_p50_ms', 'chunk_interval_p95_ms', 'chunk_interval_max_ms',
+    'output_window_p50_ms', 'output_window_p95_ms', 'output_window_max_ms',
+    'tokens_per_second', 'tokens_per_second_p50', 'tokens_per_second_p95', 'tokens_per_second_max',
+    'recovery_latency_ms', 'recovery_latency_p50_ms', 'recovery_latency_p95_ms', 'recovery_latency_max_ms',
+    'stop_latency_ms', 'stop_latency_p50_ms', 'stop_latency_p95_ms', 'stop_latency_max_ms',
+  ]],
+  ['admin.performanceStatistics.output', [
+    'output_chunks', 'reasoning_chunks', 'answering_chunks', 'visible_chars',
+    'reasoning_visible_chars', 'answering_visible_chars', 'approx_tokens',
+    'initial_events', 'recovered_events', 'lost_events', 'ordering_errors', 'duplicate_events',
+  ]],
+];
+const GROUPED_STAGE_METRIC_KEYS = new Set(STAGE_METRIC_GROUPS.flatMap(([, keys]) => [...keys]));
+
 const SUMMARY_METRICS: MetricDefinition[] = [
   ['rps', '整体 RPS'],
   ['p50_ms', '整体 P50', 'ms'],
@@ -170,7 +200,12 @@ function formatMetric(value: AdminJsonValue | undefined, format: MetricFormat = 
   return number;
 }
 
-function MetricGrid({ source, definitions }: { source: object; definitions: MetricDefinition[] }) {
+function MetricGrid({ source, definitions, title, prominent = false }: {
+  source: object;
+  definitions: MetricDefinition[];
+  title?: string;
+  prominent?: boolean;
+}) {
   const values = source as Record<string, AdminJsonValue | undefined>;
   const items = definitions.flatMap(([key, label, format]) => {
     const value = formatMetric(values[key], format);
@@ -178,18 +213,22 @@ function MetricGrid({ source, definitions }: { source: object; definitions: Metr
   });
   if (items.length === 0) return null;
   return (
-    <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
-      {items.map(item => (
-        <div key={item.key} className="min-w-0 rounded-lg bg-muted/30 p-2.5">
-          <dt className="break-words text-[11px] text-muted-foreground">{item.label}</dt>
-          <dd className="mt-1 break-words text-sm font-medium tabular-nums">{item.value}</dd>
-        </div>
-      ))}
-    </dl>
+    <div className={prominent ? styles.statisticsSection : styles.metricGroup}>
+      {title ? prominent ? <h3 className="mb-3 text-sm font-semibold">{title}</h3> : <h5 className="mb-2 text-xs font-medium text-muted-foreground">{title}</h5> : null}
+      <dl className={`${styles.metricGrid}${prominent ? ` ${styles.metricGridPrimary}` : ''}`}>
+        {items.map(item => (
+          <div key={item.key} className="min-w-0">
+            <dt className="break-words text-xs leading-relaxed text-muted-foreground">{item.label}</dt>
+            <dd className={`mt-1 break-words font-medium tabular-nums ${prominent ? 'text-xl' : 'text-sm'}`}>{item.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
   );
 }
 
 function StageCard({ stage, index }: { stage: AdminPerformanceStageSummary; index: number }) {
+  const { t } = useTranslation();
   const kind = typeof stage.kind === 'string' ? stage.kind : '';
   const definitions = STAGE_METRICS.map(([key, label, format]): MetricDefinition => [
     key,
@@ -197,13 +236,18 @@ function StageCard({ stage, index }: { stage: AdminPerformanceStageSummary; inde
     format,
   ]);
   return (
-    <article className="min-w-0 rounded-xl border border-border/70 bg-card p-3 sm:p-4">
-      <header className="mb-3 flex min-w-0 flex-wrap items-center gap-2">
+    <article className={styles.statisticsSection}>
+      <header className="mb-4 flex min-w-0 flex-wrap items-center gap-2 border-b border-border pb-3">
         <Badge variant="outline">{STAGE_LEVEL[kind] || '阶段'}</Badge>
         <h4 className="font-medium">{STAGE_KIND_LABEL[kind] || kind || `阶段 ${index + 1}`}</h4>
         {typeof stage.scenario === 'string' ? <span className="min-w-0 break-all text-xs text-muted-foreground">{stage.scenario}</span> : null}
       </header>
-      <MetricGrid source={stage} definitions={definitions} />
+      <div className={styles.stageMetrics}>
+        {STAGE_METRIC_GROUPS.map(([labelKey, keys]) => (
+          <MetricGrid key={labelKey} source={stage} definitions={definitions.filter(([key]) => keys.includes(key))} title={t(labelKey)} />
+        ))}
+        <MetricGrid source={stage} definitions={definitions.filter(([key]) => !GROUPED_STAGE_METRIC_KEYS.has(key))} title={t('admin.performanceStatistics.checks')} />
+      </div>
     </article>
   );
 }
@@ -217,9 +261,9 @@ function Resources({ resources }: { resources: AdminPerformanceRunDetailData['sa
   });
   if (groups.length === 0) return <AdminEmpty>暂无资源汇总</AdminEmpty>;
   return (
-    <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+    <div className={styles.resourceGrid}>
       {groups.map(group => (
-        <article key={group.key} className="min-w-0 rounded-xl border border-border/70 p-3">
+        <article key={group.key} className="min-w-0">
           <h4 className="mb-2 text-sm font-medium">{group.label}</h4>
           {group.value === null ? <p className="text-sm text-muted-foreground">未采集</p> : (
             <MetricGrid
@@ -240,21 +284,24 @@ function statusLabel(run: AdminPerformanceRunDetailData): string {
 }
 
 function RunContent({ run }: { run: AdminPerformanceRunDetailData }) {
+  const { t } = useTranslation();
   const summary = run.safe_summary || {};
   const stages = Array.isArray(summary.stages) ? summary.stages : [];
   const stopReasons = Array.isArray(summary.stop_reasons) ? summary.stop_reasons : [];
   const cleanup = summary.cleanup;
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      <dl className={styles.runMetadata}>
         <Meta label="状态" value={statusLabel(run)} />
         <Meta label="环境" value={run.environment} />
         <Meta label="模型" value={run.model_id ?? '未采集'} />
         <Meta label="Schema" value={`v${run.schema_version}`} />
+      </dl>
+      <dl className={styles.runMetadata} data-layout="dates">
         <Meta label="开始时间" value={formatAdminDate(run.started_at)} />
         <Meta label="结束时间" value={formatAdminDate(run.finished_at)} />
         <Meta label="导入时间" value={formatAdminDate(run.created_at)} />
-      </div>
+      </dl>
       <p className="text-xs text-muted-foreground">状态仅表示压测流程结果，不等同于零错误或服务崩溃。</p>
 
       {!SUPPORTED_SCHEMA_VERSIONS.has(run.schema_version) ? (
@@ -262,7 +309,7 @@ function RunContent({ run }: { run: AdminPerformanceRunDetailData }) {
       ) : (
         <>
 
-          <MetricGrid source={summary} definitions={SUMMARY_METRICS} />
+          <MetricGrid source={summary} definitions={SUMMARY_METRICS} title={t('admin.performanceStatistics.summary')} prominent />
 
           <section>
             <h3 className="mb-2 text-sm font-semibold">停止原因</h3>
@@ -274,7 +321,7 @@ function RunContent({ run }: { run: AdminPerformanceRunDetailData }) {
           <section>
             <h3 className="mb-2 text-sm font-semibold">L1-L4 阶段</h3>
             {stages.length > 0 ? (
-              <div data-testid="performance-stage-grid" className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+              <div data-testid="performance-stage-grid" className="grid min-w-0 grid-cols-1 gap-3">
                 {stages.map((stage, index) => <StageCard key={`${stage.scenario || stage.kind || 'stage'}-${index}`} stage={stage} index={index} />)}
               </div>
             ) : <AdminEmpty>暂无阶段汇总</AdminEmpty>}
@@ -314,9 +361,9 @@ function RunContent({ run }: { run: AdminPerformanceRunDetailData }) {
 
 function Meta({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0 rounded-lg bg-muted/30 p-3">
-      <div className="text-[11px] text-muted-foreground">{label}</div>
-      <div className="mt-1 break-all text-sm font-medium">{value}</div>
+    <div className="min-w-0">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="mt-1 break-all text-sm font-medium tabular-nums">{value}</dd>
     </div>
   );
 }

@@ -112,6 +112,87 @@
 .status[data-tone="warning"] { color: color-mix(in oklab, var(--warn) 60%, var(--foreground)); background: var(--warn-bg); border-color: var(--warn-border); }
 .status[data-tone="danger"] { color: color-mix(in oklab, var(--danger) 75%, var(--foreground)); background: var(--danger-bg); border-color: var(--danger-border); }
 
+/* 详情与统计使用稳定的实色分区，正文和诊断数据各自限制阅读宽度。 */
+.panelActions { display: flex; flex-wrap: wrap; gap: 8px; }
+.detailSummary, .detailOverview { min-width: 0; margin-bottom: 22px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+.detailTitle { overflow-wrap: anywhere; font-size: 21px; font-weight: 600; line-height: 1.4; }
+.detailMetadata { display: grid; min-width: 0; gap: 10px; font-size: 13px; }
+.detailMetadata > div { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 12px; }
+.detailMetadata dt { color: var(--muted-foreground); }
+.detailMetadata dd { min-width: 0; overflow-wrap: anywhere; }
+.detailIdentity { min-width: 0; padding-left: 18px; border-left: 1px solid var(--border); }
+.conversationDetailGrid { display: grid; min-width: 0; gap: 24px; align-items: start; }
+.detailSection { min-width: 0; padding: 18px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-elevated); }
+.detailSectionHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.detailSectionHeader h2 { font-size: 15px; font-weight: 600; }
+.detailSectionHeader > span { color: var(--muted-foreground); font-size: 12px; font-variant-numeric: tabular-nums; }
+.detailSidebar, .messageList, .executionList { display: grid; min-width: 0; gap: 20px; }
+.messageCard { min-width: 0; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+.messageList > .messageCard:last-child { padding-bottom: 0; border-bottom: 0; }
+.messageHeader { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+.messageIdentity { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+.messageIdentity > svg { color: var(--info); }
+.messageBody.messageBody { min-width: 0; max-width: 80ch; overflow-wrap: anywhere; font-size: 14px; line-height: 1.75; }
+.messageBody :global(pre) { max-width: 100%; overflow-x: auto; white-space: pre; }
+.messageBody :global(table) { display: block; max-width: 100%; overflow-x: auto; }
+.messageMetadata { display: grid; min-width: 0; gap: 10px; margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border); }
+.messageFooter { margin-top: 16px; color: var(--muted-foreground); font-size: 11px; font-variant-numeric: tabular-nums; }
+.executionCard { min-width: 0; }
+.executionCard + .executionCard { padding-top: 18px; border-top: 1px solid var(--border); }
+.executionHeader { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 8px; }
+.executionHeader > h3, .executionHeader > h4 { flex: 1; min-width: 0; }
+.executionId { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; margin-top: 10px; font-size: 11px; color: var(--muted-foreground); }
+.executionId code { min-width: 0; overflow-wrap: anywhere; }
+.executionMetrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; padding: 12px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); font-size: 12px; }
+.executionMetrics dt { margin-bottom: 4px; color: var(--muted-foreground); }
+.executionMetrics dd { overflow-wrap: anywhere; font-weight: 500; font-variant-numeric: tabular-nums; }
+.executionSteps { display: grid; gap: 12px; margin-top: 14px; }
+.executionStep { min-width: 0; padding-left: 12px; border-left: 2px solid var(--border-strong); font-size: 12px; }
+.diagnosticGroup { display: grid; min-width: 0; gap: 8px; margin-top: 12px; }
+.rawDetails { min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-subtle); }
+.rawDetails > summary { overflow-wrap: anywhere; cursor: pointer; }
+.rawDetails > summary:focus-visible { outline: 2px solid var(--info); outline-offset: 3px; border-radius: 3px; }
+.rawContent { max-height: 256px; max-width: 100%; overflow: auto; margin-top: 10px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.65; color: var(--fg-secondary); }
+.fileMetadata { display: flex; min-width: 0; flex-wrap: wrap; align-items: start; gap: 8px; font-size: 13px; }
+.fileMetadata[data-layout="stack"] { flex-direction: column; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.fileName { min-width: 0; overflow-wrap: anywhere; font-weight: 500; }
+.statisticsSection { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-elevated); }
+.metricGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 0; gap: 14px 18px; }
+.metricGrid dt { color: var(--muted-foreground); font-size: 12px; }
+.metricGrid dd { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.metricGridPrimary { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 24px; }
+.metricGridPrimary dd { font-size: 20px; line-height: 1.4; }
+.detailMetrics { display: grid; min-width: 0; gap: 10px; }
+.detailMetrics > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 16px; font-size: 13px; }
+.detailMetrics dt { color: var(--muted-foreground); }
+.detailMetrics dd { min-width: 0; text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.modelListMetrics { display: grid; min-width: 0; gap: 9px; }
+.modelListMetrics > dl + dl { padding-top: 9px; border-top: 1px solid var(--border); }
+.modelListMetrics dd { font-variant-numeric: tabular-nums; }
+.stageMetrics { display: grid; min-width: 0; gap: 20px; }
+.metricGroup { min-width: 0; }
+.runMetadata { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); min-width: 0; gap: 14px 20px; }
+.runMetadata[data-layout="dates"] { grid-template-columns: repeat(3, minmax(0, 1fr)); padding-top: 14px; border-top: 1px solid var(--border); }
+.resourceGrid, .stabilitySummary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 0; gap: 20px 24px; }
+.resourceGrid > article, .stabilitySummary > section { min-width: 0; padding-top: 14px; border-top: 1px solid var(--border); }
+.importRegion { margin-bottom: 20px; }
+.importPanel { min-width: 0; padding: 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-subtle); }
+.importEditor.importEditor { min-height: 192px; max-height: 480px; width: 100%; margin-top: 8px; border-color: var(--border-strong); background: var(--bg-elevated); font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.6; }
+.importFooter { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 14px; }
+.importFooter > span { min-width: 0; overflow-wrap: anywhere; }
+
+@media (min-width: 1280px) {
+  .conversationDetailGrid { grid-template-columns: minmax(0, 1.8fr) minmax(340px, 0.8fr); }
+  .stageMetrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 767px) {
+  .detailIdentity { padding-left: 0; padding-top: 14px; border-left: 0; border-top: 1px solid var(--border); }
+  .detailSection, .statisticsSection, .importPanel { padding: 14px; }
+  .metricGridPrimary, .runMetadata { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .runMetadata[data-layout="dates"] { grid-template-columns: minmax(0, 1fr); }
+  .resourceGrid, .stabilitySummary { grid-template-columns: minmax(0, 1fr); }
+}
+
 @media (max-width: 1199px) {
   .usersFilters, .conversationFilters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .wideField { grid-column: span 2; }

@@ -1,3 +1,4 @@
+import i18n from '@/lib/i18n';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -41,6 +42,7 @@ function ControlledPerformancePanel({ initialRunId = null }: { initialRunId?: st
 
 describe('AdminPerformancePanel', () => {
   beforeEach(() => {
+    void i18n.changeLanguage('zh-CN');
     apiMocks.getAdminPerformanceRuns.mockReset().mockResolvedValue(emptyPage);
     apiMocks.getAdminPerformanceRun.mockReset();
     apiMocks.importAdminPerformanceRun.mockReset().mockResolvedValue({ run_id: 'perf-new', created: true });
@@ -55,6 +57,73 @@ describe('AdminPerformancePanel', () => {
     expect(screen.getByRole('status')).toHaveTextContent('正在读取');
     await act(async () => resolvePage(emptyPage));
     expect(await screen.findByText('暂无压测记录')).toBeInTheDocument();
+  });
+
+  it('导入默认收起，展开和收起保留草稿且不发起导入请求', async () => {
+    render(<ControlledPerformancePanel />);
+    await screen.findByText('暂无压测记录');
+    const toggle = screen.getByRole('button', { name: '展开压测导入' });
+    const editor = screen.getByLabelText('压测结果 JSON');
+    const region = document.getElementById(toggle.getAttribute('aria-controls')!);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(region).toContainElement(editor);
+    expect(editor).not.toBeVisible();
+
+    fireEvent.click(toggle);
+    expect(editor).toBeVisible();
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.change(editor, { target: { value: '{"run_id":"draft"}' } });
+    fireEvent.click(screen.getByRole('button', { name: '收起压测导入' }));
+    expect(editor).not.toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '展开压测导入' }));
+    expect(editor).toHaveValue('{"run_id":"draft"}');
+    expect(apiMocks.importAdminPerformanceRun).not.toHaveBeenCalled();
+    expect(apiMocks.getAdminPerformanceRuns).toHaveBeenCalledTimes(1);
+  });
+
+  it('导入途中收起不会重发请求，完成后的反馈在重新展开时保留', async () => {
+    let resolveImport!: (value: { run_id: string; created: boolean }) => void;
+    apiMocks.importAdminPerformanceRun.mockReturnValue(new Promise(resolve => { resolveImport = resolve; }));
+    render(<ControlledPerformancePanel />);
+    await screen.findByText('暂无压测记录');
+    fireEvent.click(screen.getByRole('button', { name: '展开压测导入' }));
+    const editor = screen.getByLabelText('压测结果 JSON');
+    const payload = JSON.stringify({ schema_version: 2, run_id: 'perf-pending', environment: 'prod', safe_summary: {} });
+    fireEvent.change(editor, { target: { value: payload } });
+    fireEvent.click(screen.getByRole('button', { name: '导入压测结果' }));
+    expect(editor).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '收起压测导入' }));
+    expect(editor).not.toBeVisible();
+    expect(editor).toHaveValue(payload);
+
+    await act(async () => resolveImport({ run_id: 'perf-pending', created: true }));
+    await waitFor(() => expect(apiMocks.getAdminPerformanceRuns).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole('button', { name: '展开压测导入' }));
+    expect(editor).toBeVisible();
+    expect(editor).not.toBeDisabled();
+    expect(editor).toHaveValue('');
+    expect(screen.getByRole('status')).toHaveTextContent('压测结果已导入');
+    expect(apiMocks.importAdminPerformanceRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('导入失败后收起再展开保留错误和草稿，重试成功只刷新一次列表', async () => {
+    apiMocks.importAdminPerformanceRun.mockRejectedValueOnce(new Error('导入暂时失败'));
+    render(<ControlledPerformancePanel />);
+    await screen.findByText('暂无压测记录');
+    fireEvent.click(screen.getByRole('button', { name: '展开压测导入' }));
+    const editor = screen.getByLabelText('压测结果 JSON');
+    const payload = JSON.stringify({ schema_version: 2, run_id: 'perf-retry', environment: 'prod', safe_summary: {} });
+    fireEvent.change(editor, { target: { value: payload } });
+    fireEvent.click(screen.getByRole('button', { name: '导入压测结果' }));
+    expect(await screen.findByText('导入暂时失败')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '收起压测导入' }));
+    fireEvent.click(screen.getByRole('button', { name: '展开压测导入' }));
+    expect(editor).toHaveValue(payload);
+    expect(screen.getByText('导入暂时失败')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '导入压测结果' }));
+    expect(await screen.findByText('压测结果已导入')).toBeVisible();
+    await waitFor(() => expect(apiMocks.getAdminPerformanceRuns).toHaveBeenCalledTimes(2));
+    expect(apiMocks.importAdminPerformanceRun).toHaveBeenCalledTimes(2);
   });
 
   it('展示列表错误并允许重试', async () => {
@@ -321,6 +390,7 @@ describe('AdminPerformancePanel', () => {
 
     await screen.findByText(listRun.run_id);
     await openDetail();
+    fireEvent.click(screen.getByRole('button', { name: '展开压测导入' }));
     fireEvent.change(screen.getByLabelText('压测结果 JSON'), {
       target: {
         value: JSON.stringify({

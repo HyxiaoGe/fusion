@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import i18n from '@/lib/i18n';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const importMock = vi.hoisted(() => vi.fn());
@@ -10,7 +11,20 @@ vi.mock('@/lib/api/adminAudit', () => ({
 import PerformanceRunImport from './PerformanceRunImport';
 
 describe('PerformanceRunImport', () => {
-  beforeEach(() => importMock.mockReset());
+  beforeEach(() => {
+    void i18n.changeLanguage('zh-CN');
+    importMock.mockReset();
+  });
+
+  it('导入表单文字随界面语言切换', async () => {
+    render(<PerformanceRunImport onImported={vi.fn()} onForbidden={vi.fn()} />);
+    expect(screen.getByLabelText('压测结果 JSON')).toBeInTheDocument();
+    await act(async () => { await i18n.changeLanguage('en-US'); });
+    expect(screen.getByLabelText('Performance result JSON')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import performance result' })).toBeDisabled();
+    await act(async () => { await i18n.changeLanguage('zh-CN'); });
+    expect(screen.getByRole('button', { name: '导入压测结果' })).toBeDisabled();
+  });
 
   it('在请求前拒绝无效 JSON', async () => {
     render(<PerformanceRunImport onImported={vi.fn()} onForbidden={vi.fn()} />);

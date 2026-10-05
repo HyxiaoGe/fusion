@@ -1,5 +1,40 @@
 {
     "admin": {
+      "details": {
+        "additionalContent": "附加内容",
+        "runId": "运行 ID",
+        "duration": "耗时"
+      },
+      "modelStatistics": {
+        "conversations": "对话使用统计",
+        "runtime": "Token 与 Agent 统计",
+        "tokens": "持久化 Token 统计",
+        "agent": "Agent 运行统计"
+      },
+      "performanceStatistics": {
+        "configuration": "执行配置",
+        "results": "执行结果",
+        "latency": "时延与吞吐",
+        "output": "输出与事件",
+        "checks": "场景校验",
+        "summary": "整体指标"
+      },
+      "performanceImport": {
+        "expand": "导入汇总",
+        "collapse": "收起导入",
+        "openLabel": "展开压测导入",
+        "closeLabel": "收起压测导入",
+        "title": "导入压测安全汇总",
+        "description": "只接受不含账号、令牌、正文和 conversation ID 清单的 JSON 汇总。",
+        "jsonLabel": "压测结果 JSON",
+        "placeholder": "支持 runner 原始 JSON，或 {\"schema_version\":1,\"run_id\":\"...\",\"environment\":\"prod\",\"safe_summary\":{}}",
+        "loading": "正在导入…",
+        "submit": "导入压测结果",
+        "success": "压测结果已导入",
+        "exists": "压测记录已存在",
+        "parseError": "压测结果无法解析",
+        "importError": "压测结果导入失败"
+      },
       "filters": {
         "userSearch": "搜索用户",
         "role": "管理员筛选",
