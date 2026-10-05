@@ -22,17 +22,10 @@ async def start_scheduler() -> None:
         return
 
     from app.services.agent.trajectory_reconciliation import reconcile_trajectory_best_effort
-    from app.services.prompt_examples_service import refresh_prompt_examples
 
     scheduler = AsyncIOScheduler()
 
-    # 每 12 小时刷新示例问题
-    scheduler.add_job(
-        refresh_prompt_examples,
-        trigger=IntervalTrigger(hours=12),
-        id="refresh_prompt_examples",
-        replace_existing=True,
-    )
+    # 首页示例问题由 dev 每日探针出题后写入（store_prompt_examples），这里不再定时生成
 
     scheduler.add_job(
         reconcile_trajectory_best_effort,

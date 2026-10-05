@@ -13,7 +13,6 @@ from app.ai.prompts import agent_loop, product_results
 from app.ai.prompts.local_templates import CODE_DEFAULT_PROMPT_TEMPLATES
 from app.ai.prompts.runtime_prompt_store import RUNTIME_PROMPT_FILE, render_runtime_prompt
 from app.processor import file_processor
-from app.services.external import kimi_search_service
 from app.services.knowledge import chat_grounding
 from app.services.mcp import amap_product_tools, flyai_travel_tools
 from app.services.mcp.tool_contract import build_agent_tool_definition
@@ -55,7 +54,6 @@ def test_static_system_prompts_are_english():
         agent_loop,
         product_results,
         chat_grounding,
-        kimi_search_service,
         flyai_travel_tools,
         agent_loop_round_outcome,
         limit_summary,
