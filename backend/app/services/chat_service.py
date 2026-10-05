@@ -180,11 +180,13 @@ class ChatService:
         *,
         is_new_conversation: bool,
         require_vision: bool = False,
+        allow_hidden_models: bool = False,
     ) -> ModelResolution:
         """把会话绑定解析成本轮实际调用的模型。
 
         绑定 auto 时按优先级挑；已有会话的绑定模型下线或被禁止调度时同样改走自动选择，
         不再让历史会话卡死。新会话显式选了不可用模型仍直接报错，由用户重新选择。
+        allow_hidden_models：管理员（含探针账号）可用隐藏模型开新会话，用于上线前试用。
         """
         if bound_model_id == AUTO_MODEL_ID:
             return ModelResolution(model_id=self._pick_auto_model_or_raise(require_vision=require_vision))
@@ -197,7 +199,7 @@ class ChatService:
                 raise ApiException.service_unavailable("当前模型尚未注册", code=ErrorCode.MODEL_UNAVAILABLE)
             if not routable:
                 raise ApiException.service_unavailable("当前模型暂不可调用", code=ErrorCode.MODEL_UNAVAILABLE)
-            if control is not None and getattr(control, "selectable", True) is False:
+            if control is not None and getattr(control, "selectable", True) is False and not allow_hidden_models:
                 raise ApiException.service_unavailable("当前模型不可用于新会话", code=ErrorCode.MODEL_UNAVAILABLE)
             return ModelResolution(model_id=bound_model_id)
         if registered and routable:
@@ -356,6 +358,7 @@ class ChatService:
         file_ids: Optional[List[str]] = None,
         knowledge_base_ids: Optional[List[str]] = None,
         trace_id: Optional[str] = None,
+        allow_hidden_models: bool = False,
     ) -> Union[StreamingResponse, ChatResponse]:
         """处理用户消息，路由到流式或非流式响应"""
         options = dict(options or {})
@@ -416,6 +419,7 @@ class ChatService:
             bound_model_id,
             is_new_conversation=existing_conversation is None or is_upload_placeholder,
             require_vision=any(is_image_file(file_id, self.file_repo) for file_id in file_ids or []),
+            allow_hidden_models=allow_hidden_models,
         )
         model_id = model_resolution.model_id
         if model_resolution.fallback_from is not None:
