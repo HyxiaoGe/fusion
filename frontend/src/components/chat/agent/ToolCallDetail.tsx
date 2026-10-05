@@ -52,6 +52,9 @@ export function ToolCallDetail({ call }: { call: ToolCallState }) {
       {repairState === 'exhausted' && (
         <div className="text-xs text-warn">参数未能自动修正，本次未使用工具结果</div>
       )}
+      {repairState === 'awaiting_choice' && (
+        <div className="text-xs text-muted-foreground">地点有多个候选，待确认</div>
+      )}
       {call.status === 'degraded' && !repairState && (
         <div className="text-xs text-warn">部分结果暂时无法使用</div>
       )}

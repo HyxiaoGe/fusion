@@ -226,6 +226,7 @@ function processDetailStatusText(detail: ToolCallGroupDetail): string {
   if (detail.repairState === 'retrying') return '修正中';
   if (detail.repairState === 'requires_user_input') return '待补充';
   if (detail.repairState === 'exhausted') return '未修正';
+  if (detail.repairState === 'awaiting_choice') return '待确认';
   if (detail.repairState === 'resolved') return '已修正';
   return statusText(detail.status);
 }
@@ -333,6 +334,7 @@ function digestStatusText(row: ExecutionProcessModel['digestRows'][number]): str
   if (row.repairState === 'retrying') return '修正中';
   if (row.repairState === 'requires_user_input') return '待补充';
   if (row.repairState === 'exhausted') return '未修正';
+  if (row.repairState === 'awaiting_choice') return '待确认';
   return statusText(row.status);
 }
 

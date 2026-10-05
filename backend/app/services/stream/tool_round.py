@@ -42,6 +42,7 @@ from app.services.stream.agent_loop_state import AgentLoopState, ProductToolOutc
 from app.services.stream.itinerary_observability import build_itinerary_tool_observation
 from app.services.stream.itinerary_result_composer import compose_itinerary_result
 from app.services.stream.llm_round_lifecycle import round_tool_names
+from app.services.stream.place_choice import pending_place_choice
 from app.services.stream.plan_control import UPDATE_PLAN_TOOL_NAME, process_plan_control_calls
 from app.services.stream.step_lifecycle import AgentStepContext, mark_tool_round_started
 from app.services.stream.tool_context import (
@@ -906,16 +907,7 @@ def _plan_item_statuses_from_results(
 def _pending_place_choice(result: Any) -> dict[str, Any] | None:
     """地名歧义失败且带候选时返回待用户选择的候选；修参通道（如天气）不走这里。"""
 
-    data = getattr(result, "data", None)
-    if getattr(result, "status", None) != "failed" or not isinstance(data, dict) or "repair" in data:
-        return None
-    details = data.get("error_details")
-    if data.get("error_code") != "ambiguous_location" or not isinstance(details, dict):
-        return None
-    candidates = details.get("candidates")
-    if not isinstance(candidates, list) or not candidates:
-        return None
-    return details
+    return pending_place_choice(getattr(result, "status", None), getattr(result, "data", None))
 
 
 def _record_tool_repairs(

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from app.services.source_evidence_ledger import build_search_source_evidence_item, build_url_read_evidence_item
+from app.services.stream.place_choice import PLACE_CHOICE_REPAIR_STATE, pending_place_choice
 
 if TYPE_CHECKING:
     from app.services.stream.tool_execution_result import ToolExecutionRecord
@@ -15,7 +16,14 @@ if TYPE_CHECKING:
 def build_tool_result_digest(record: ToolExecutionRecord) -> dict[str, Any]:
     evidence_items = build_evidence_items(record)
     summary = _result_summary(record)
-    status = "degraded" if summary.get("repairable") is True else _digest_status(record.result.status)
+    awaiting_place_choice = pending_place_choice(record.result.status, _result_data(record)) is not None
+    if awaiting_place_choice:
+        summary = {**summary, "awaiting_place_choice": True}
+    status = (
+        "degraded"
+        if summary.get("repairable") is True or awaiting_place_choice
+        else _digest_status(record.result.status)
+    )
     title = _digest_title(record.tool_name, status, summary)
 
     digest = {
@@ -110,6 +118,8 @@ def _digest_title(tool_name: str, status: str, summary: dict[str, Any]) -> str:
         return "正在修正工具参数"
     if summary.get("requires_user_input") is True:
         return "需要补充查询条件"
+    if summary.get("awaiting_place_choice") is True:
+        return "地点有多个候选，待确认"
     if status == "success" and tool_name == "web_search" and summary.get("kind") == "search":
         return "搜索完成"
     if tool_name == "url_read" and status != "success":
@@ -122,6 +132,8 @@ def _digest_summary(record: ToolExecutionRecord, status: str, summary: dict[str,
         return "参数可安全修正，Agent 将在下一轮补齐后重试。"
     if summary.get("requires_user_input") is True:
         return "现有信息不足以安全修正参数，需要用户补充查询条件。"
+    if summary.get("awaiting_place_choice") is True:
+        return "同名地点有多个候选，将按候选重新查询或请你确认。"
 
     if record.tool_name == "url_read":
         if status == "success":
@@ -190,6 +202,8 @@ def _repair_digest_state(record: ToolExecutionRecord) -> tuple[str | None, str |
             else "exhausted"
         )
         return state, _safe_repair_id(repair.get("repair_id"))
+    if pending_place_choice(record.result.status, data) is not None:
+        return PLACE_CHOICE_REPAIR_STATE, None
     resolves_repair_id = _safe_repair_id(data.get("resolves_repair_id"))
     return ("resolved", resolves_repair_id) if resolves_repair_id else (None, None)
 

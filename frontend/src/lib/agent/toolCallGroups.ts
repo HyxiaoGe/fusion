@@ -16,7 +16,7 @@ export interface ToolCallGroupDetail {
   primary: string;
   secondary?: string;
   status: ToolCallStatus;
-  repairState?: 'retrying' | 'requires_user_input' | 'exhausted' | 'resolved';
+  repairState?: 'retrying' | 'requires_user_input' | 'exhausted' | 'resolved' | 'awaiting_choice';
   truncated: boolean;
   fullValue?: string;
 }
@@ -154,6 +154,7 @@ function buildSummary(
   if (repairState === 'retrying') return `${repairLabel}参数正在自动修正`;
   if (repairState === 'requires_user_input') return `${repairLabel}需要补充查询条件`;
   if (repairState === 'exhausted') return `${repairLabel}参数未能自动修正`;
+  if (repairState === 'awaiting_choice') return `${repairLabel}地点有多个候选，待确认`;
   if (kind === 'web_search') {
     if (status === 'running') return `正在搜索 · ${count} 个查询`;
     if (status === 'partial') return `搜索 ${count} 次 · ${failedCount} 次未使用`;
@@ -231,6 +232,8 @@ function getRepairDetail(call: ToolCallState): string | undefined {
       return '参数未能自动修正';
     case 'resolved':
       return '参数已修正';
+    case 'awaiting_choice':
+      return '地点有多个候选，待确认';
     default:
       return undefined;
   }

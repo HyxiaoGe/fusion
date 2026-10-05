@@ -14,6 +14,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from app.services.stream.place_choice import PLACE_CHOICE_REPAIR_STATE, pending_place_choice
 from app.services.tool_handlers.base import ToolResult
 
 
@@ -96,12 +97,20 @@ async def emit_tool_call_result(
         return
     data = getattr(result, "data", None)
     repair = data.get("repair") if isinstance(data, dict) else None
-    event_status = "degraded" if isinstance(repair, dict) and repair.get("retryable") is True else result.status
+    awaiting_place_choice = pending_place_choice(result.status, data) is not None
+    event_status = (
+        "degraded"
+        if awaiting_place_choice or (isinstance(repair, dict) and repair.get("retryable") is True)
+        else result.status
+    )
     result_summary = _build_event_result_summary(
         result_summary_builder(result),
         data=data,
         repair=repair,
     )
+    if awaiting_place_choice:
+        # 地名有多个候选是待确认，不是故障：展示为中性状态，模型侧结果不变。
+        result_summary["repair_state"] = PLACE_CHOICE_REPAIR_STATE
     kwargs = dict(
         tool_call_id=tool_call_id,
         tool_name=tool_name,
@@ -110,7 +119,7 @@ async def emit_tool_call_result(
         result_summary=result_summary,
         error=(
             None
-            if isinstance(repair, dict) and repair.get("retryable") is True
+            if awaiting_place_choice or (isinstance(repair, dict) and repair.get("retryable") is True)
             else result.error_message
             if result.status != "success"
             else None

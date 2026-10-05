@@ -310,7 +310,7 @@ function findLatestOpenToolIssueCall(
 
     latestTerminalKeys.add(key);
 
-    if (call.status === 'failed' || call.status === 'degraded') {
+    if (isToolIssueCall(call)) {
       return call;
     }
   }
@@ -439,6 +439,8 @@ function isTerminalToolStatus(status: ToolCallState['status']): status is Termin
 }
 
 function isToolIssueCall(call: ToolCallState | null): call is ToolIssueCall {
+  // 地名有多个候选是待确认流程，不算工具问题。
+  if (call?.resultSummary?.repair_state === 'awaiting_choice') return false;
   return call?.status === 'failed' || call?.status === 'degraded';
 }
 
