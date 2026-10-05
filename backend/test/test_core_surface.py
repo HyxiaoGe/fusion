@@ -208,7 +208,24 @@ class ChatCoreSurfaceTests(unittest.TestCase):
             file_ids=["file-1"],
             knowledge_base_ids=None,
             trace_id=ANY,
+            allow_hidden_models=False,
         )
+
+    def test_send_message_lets_superuser_use_hidden_models(self):
+        self._enable_authenticated_overrides()
+        admin = SimpleNamespace(id="admin-1", is_superuser=True)
+        self.main.app.dependency_overrides[self._route_deps["get_current_user"]] = lambda: admin
+        service = SimpleNamespace(
+            process_message=AsyncMock(return_value={"conversation_id": "conv-1", "message": {"content": "hi"}})
+        )
+        self.main.app.dependency_overrides[self._route_deps["get_chat_service"]] = lambda: service
+
+        response = self.client.post(
+            "/api/chat/send", json={"model_id": "hidden/model", "message": "hi", "stream": False}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIs(service.process_message.await_args.kwargs["allow_hidden_models"], True)
 
     def test_send_message_can_return_streaming_response(self):
         self._enable_authenticated_overrides()
