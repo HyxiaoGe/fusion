@@ -23,7 +23,7 @@ import {
   formatNumber,
   toShanghaiIso,
 } from './AdminPanelPrimitives';
-import styles from './AdminWindowGlass.module.css';
+import styles from './AdminSurface.module.css';
 
 interface ItineraryStabilityPanelProps {
   onForbidden: () => void;

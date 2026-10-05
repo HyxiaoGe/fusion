@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Activity, Boxes, MessagesSquare, ScrollText, Users } from 'lucide-react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import * as TabsPrimitive from '@radix-ui/react-tabs';
+import { Tabs, TabsContent } from '@/components/ui/tabs';
+import { buttonVariants } from '@/components/ui/button';
 import styles from './AdminSurface.module.css';
 import AdminAuditEventsPanel from './AdminAuditEventsPanel';
 import AdminConversationsPanel from './AdminConversationsPanel';
@@ -201,13 +203,13 @@ export default function AdminAuditCenter() {
   return (
     <div className={`${styles.workspace} ${styles.controls}`}>
       <Tabs value={activeTab} onValueChange={handleTabChange} activationMode="manual" className="min-h-0">
-        <TabsList className={styles.navigation}>
-          <TabsTrigger value="users"><Users />用户</TabsTrigger>
-          <TabsTrigger value="conversations"><MessagesSquare />对话</TabsTrigger>
-          <TabsTrigger value="models"><Boxes />模型</TabsTrigger>
-          <TabsTrigger value="performance"><Activity />压测</TabsTrigger>
-          <TabsTrigger value="events"><ScrollText />访问审计</TabsTrigger>
-        </TabsList>
+        <TabsPrimitive.List className={styles.navigation}>
+          <TabsPrimitive.Trigger value="users" className={buttonVariants({ variant: 'ghost' })}><Users />用户</TabsPrimitive.Trigger>
+          <TabsPrimitive.Trigger value="conversations" className={buttonVariants({ variant: 'ghost' })}><MessagesSquare />对话</TabsPrimitive.Trigger>
+          <TabsPrimitive.Trigger value="models" className={buttonVariants({ variant: 'ghost' })}><Boxes />模型</TabsPrimitive.Trigger>
+          <TabsPrimitive.Trigger value="performance" className={buttonVariants({ variant: 'ghost' })}><Activity />压测</TabsPrimitive.Trigger>
+          <TabsPrimitive.Trigger value="events" className={buttonVariants({ variant: 'ghost' })}><ScrollText />访问审计</TabsPrimitive.Trigger>
+        </TabsPrimitive.List>
         {visitedTabs.has('users') ? <TabsContent value="users" forceMount hidden={activeTab !== 'users'} className={`${styles.panel} data-[state=inactive]:hidden`}>
           <AdminUsersPanel
             active={activeTab === 'users'}
