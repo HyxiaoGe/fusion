@@ -1,0 +1,131 @@
+.shell {
+  background: radial-gradient(ellipse at 12% 0%, var(--info-bg), transparent 48%), var(--bg-subtle);
+  color: var(--foreground);
+}
+
+.shellHeader {
+  min-height: 64px;
+  background: color-mix(in oklab, var(--bg-elevated) 92%, transparent);
+  border-bottom: 1px solid var(--border);
+}
+
+.brandIcon { color: var(--info); }
+.returnLink { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; background: var(--bg-elevated); }
+.returnLink:hover { color: var(--info); border-color: var(--info-border); background: var(--info-bg); }
+.returnLink:focus-visible { outline: 2px solid var(--info); outline-offset: 3px; }
+
+.workspace { max-width: 1600px; margin: 0 auto; padding: 20px 24px 32px; }
+.navigation.navigation {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  width: 100%;
+  height: auto;
+  padding: 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 17px;
+  background: color-mix(in oklab, var(--bg-elevated) 90%, transparent);
+  box-shadow: inset 0 1px 0 var(--bg-elevated), var(--shadow-fdv2-sm);
+  backdrop-filter: blur(12px) saturate(130%);
+  -webkit-backdrop-filter: blur(12px) saturate(130%);
+}
+.navigation :global([role="tab"]) { min-height: 40px; border-radius: 11px; }
+.panel.panel { margin-top: 18px; padding: 24px; border: 1px solid var(--border); border-radius: 20px; background: var(--bg-elevated); box-shadow: var(--shadow-fdv2-sm); }
+.panelHeader { margin-bottom: 22px; padding-bottom: 18px; border-bottom: 1px solid var(--border); }
+.panelHeader h1 { font-size: 20px; letter-spacing: -0.02em; }
+.panelHeader p { max-width: 80ch; line-height: 1.6; }
+
+/* 共用外观限定在管理中心，保留原按钮事件、ref 与 Radix 协议。 */
+.controls :global([data-slot="button"]) {
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--foreground);
+  background: linear-gradient(135deg, var(--bg-elevated), color-mix(in oklab, var(--info) 3%, var(--bg-subtle)));
+  box-shadow: inset 0 1px 0 var(--bg-elevated), 0 4px 12px -9px color-mix(in oklab, var(--foreground) 25%, transparent);
+  transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease;
+}
+.controls :global([data-slot="button"]):hover:not(:disabled) { border-color: var(--info-border); background: var(--info-bg); }
+.controls :global([data-slot="button"]):focus-visible { outline: 2px solid var(--info); outline-offset: 2px; box-shadow: none; }
+.controls :global([data-slot="button"]):disabled { color: var(--muted-foreground); background: var(--bg-subtle); opacity: 0.6; box-shadow: none; }
+.controls :global([data-slot="button"]).primaryAction { color: var(--bg-elevated); background: var(--info); border-color: var(--info); }
+.controls :global([data-slot="button"]).primaryAction:hover:not(:disabled) { background: color-mix(in oklab, var(--info) 88%, var(--foreground)); }
+
+.controls :global([data-slot="input"]),
+.controls :global([data-slot="select-trigger"]),
+.controls :global(select),
+.modelTrigger.modelTrigger {
+  min-height: 40px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  color: var(--foreground);
+  background: var(--bg-elevated);
+  box-shadow: inset 0 1px 2px color-mix(in oklab, var(--foreground) 3%, transparent);
+}
+.controls :global([data-slot="input"]):hover:not(:disabled),
+.controls :global([data-slot="select-trigger"]):hover:not(:disabled),
+.controls :global(select):hover:not(:disabled),
+.modelTrigger:hover { border-color: var(--info-border); }
+.controls :global([data-slot="input"]):focus-visible,
+.controls :global([data-slot="select-trigger"]):focus-visible,
+.controls :global(select):focus-visible,
+.modelTrigger:focus-visible { border-color: var(--info); outline: 2px solid var(--info); outline-offset: 2px; box-shadow: none; }
+.controls :global(input[type="date"]) { color-scheme: light; }
+:global(.dark) .controls :global(input[type="date"]) { color-scheme: dark; }
+
+.filters { display: grid; gap: 14px; margin-bottom: 20px; padding: 18px; border: 1px solid var(--border); border-radius: 15px; background: var(--bg-subtle); }
+.usersFilters { grid-template-columns: minmax(240px, 2fr) minmax(160px, 1fr) repeat(2, minmax(160px, 1fr)); }
+.conversationFilters { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.wideField { grid-column: span 2; }
+.filterField { display: flex; min-width: 0; flex-direction: column; gap: 7px; }
+.filterLabel { font-size: 12px; font-weight: 500; color: var(--fg-secondary); }
+.filterActions.filterActions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+
+/* 表格与生成正文保持实色；只有导航使用模糊，长列表不建立逐行合成层。 */
+.tableFrame { overflow: auto; max-height: min(65vh, 700px); border: 1px solid var(--border); border-radius: 14px; background: var(--bg-elevated); scrollbar-gutter: stable; }
+.tableFrame:focus-visible { outline: 2px solid var(--info); outline-offset: 3px; }
+.table { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; font-size: 13px; text-align: left; }
+.table th { position: sticky; top: 0; z-index: 2; padding: 12px 14px; background: var(--bg-subtle); color: var(--fg-secondary); font-size: 12px; font-weight: 500; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.table td { padding: 14px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
+.table tbody tr:last-child td { border-bottom: 0; }
+.table tbody tr:hover, .table tbody tr:focus-within { background: color-mix(in oklab, var(--info) 3%, var(--bg-elevated)); }
+.table .numeric { padding-left: 8px; padding-right: 8px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.table .actions { text-align: right; }
+.table :global([data-slot="button"]) { padding-left: 10px; padding-right: 10px; font-size: 12px; color: var(--info); border-color: transparent; background: transparent; box-shadow: none; }
+.recordTitle { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 14px; }
+.recordId { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted-foreground); }
+.recordTime { display: grid; gap: 3px; margin-top: 7px; color: var(--muted-foreground); font-size: 11px; line-height: 1.6; }
+.modelId { font-family: ui-monospace, monospace; font-size: 12px; }
+.pagination { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.menu.menu { border-color: var(--border-strong); border-radius: 14px; background: var(--bg-elevated); box-shadow: var(--shadow-popover); }
+.dialog.dialog { border-color: var(--border-strong); border-radius: 20px; background: var(--bg-elevated); }
+.status.status { font-weight: 500; white-space: nowrap; color: var(--muted-foreground); background: var(--bg-subtle); border-color: var(--border); }
+.status[data-tone="success"] { color: color-mix(in oklab, var(--success) 65%, var(--foreground)); background: var(--success-bg); border-color: var(--success-border); }
+.status[data-tone="info"] { color: color-mix(in oklab, var(--info) 75%, var(--foreground)); background: var(--info-bg); border-color: var(--info-border); }
+.status[data-tone="warning"] { color: color-mix(in oklab, var(--warn) 60%, var(--foreground)); background: var(--warn-bg); border-color: var(--warn-border); }
+.status[data-tone="danger"] { color: color-mix(in oklab, var(--danger) 75%, var(--foreground)); background: var(--danger-bg); border-color: var(--danger-border); }
+
+@media (max-width: 1199px) {
+  .usersFilters, .conversationFilters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 767px) {
+  .workspace { padding: 12px; }
+  .panel.panel { padding: 16px; }
+  .navigation.navigation { gap: 2px; padding: 5px; }
+  .navigation :global([role="tab"]) { flex-direction: column; gap: 4px; min-height: 54px; padding: 6px 2px; font-size: 12px; }
+  .usersFilters, .conversationFilters { grid-template-columns: minmax(0, 1fr); }
+  .wideField { grid-column: auto; }
+  .filters { padding: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .controls :global([data-slot="button"]) { transition: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .shell { background: var(--bg-subtle); }
+  .shellHeader, .navigation.navigation { background: var(--bg-elevated); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .controls :global([data-slot="button"]) { background: var(--bg-elevated); }
+  .controls :global([data-slot="button"]).primaryAction { background: var(--info); }
+}

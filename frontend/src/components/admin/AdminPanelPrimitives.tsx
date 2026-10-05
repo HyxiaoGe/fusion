@@ -1,12 +1,18 @@
+'use client';
+
 import type { ComponentProps, ReactNode } from 'react';
 import { AlertCircle, ChevronLeft, ChevronRight, Loader2, RefreshCw, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { useTranslation } from 'react-i18next';
+import '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { AdminPage } from '@/types/adminAudit';
+import styles from './AdminSurface.module.css';
 
 export function AdminPanelHeader({ title, description, action }: { title: string; description: string; action?: ReactNode }) {
   return (
-    <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
+    <header className={cn('flex flex-wrap items-start justify-between gap-3', styles.panelHeader)}>
       <div>
         <h1 className="text-lg font-semibold">{title}</h1>
         <p className="mt-1 text-sm text-muted-foreground">{description}</p>
@@ -31,10 +37,30 @@ export function AdminFilterActions({
 }) {
   return (
     <div className={cn('grid grid-cols-[minmax(max-content,1fr)_max-content] gap-2', className)}>
-      <Button type="submit" variant={submitVariant}>{submitIcon}{submitLabel}</Button>
+      <Button type="submit" variant={submitVariant} className={!submitVariant || submitVariant === 'default' ? styles.primaryAction : undefined}>{submitIcon}{submitLabel}</Button>
       <Button type="button" variant="outline" onClick={onReset} aria-label="重置筛选"><RotateCcw />重置</Button>
     </div>
   );
+}
+
+export function AdminFilterField({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
+  return <label className={cn(styles.filterField, className)}><span className={styles.filterLabel}>{label}</span>{children}</label>;
+}
+
+const AGENT_STATUSES: Record<string, { label: string; tone: string }> = {
+  running: { label: 'running', tone: 'info' },
+  completed: { label: 'completed', tone: 'success' },
+  limit_reached: { label: 'limitReached', tone: 'warning' },
+  incomplete: { label: 'incomplete', tone: 'warning' },
+  interrupted: { label: 'interrupted', tone: 'neutral' },
+  failed: { label: 'failed', tone: 'danger' },
+  error: { label: 'failed', tone: 'danger' },
+};
+
+export function AdminAgentStatus({ status }: { status: string }) {
+  const { t } = useTranslation();
+  const presentation = Object.prototype.hasOwnProperty.call(AGENT_STATUSES, status) ? AGENT_STATUSES[status] : undefined;
+  return <Badge variant="outline" className={styles.status} data-tone={presentation?.tone ?? 'neutral'} title={status}>{presentation ? t(`admin.status.${presentation.label}`) : status}</Badge>;
 }
 
 export function AdminLoading() {
@@ -57,7 +83,7 @@ export function AdminEmpty({ children }: { children: ReactNode }) {
 
 export function AdminPagination({ page, onPageChange }: { page: Pick<AdminPage<unknown>, 'page' | 'total_pages' | 'total'>; onPageChange: (page: number) => void }) {
   return (
-    <div className="mt-4 flex items-center justify-between gap-3 text-sm text-muted-foreground">
+    <div className={cn('flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground', styles.pagination)}>
       <span>共 {page.total} 条 · 第 {page.page}/{Math.max(page.total_pages, 1)} 页</span>
       <div className="flex gap-2">
         <Button variant="outline" size="sm" disabled={page.page <= 1} onClick={() => onPageChange(page.page - 1)}><ChevronLeft />上一页</Button>

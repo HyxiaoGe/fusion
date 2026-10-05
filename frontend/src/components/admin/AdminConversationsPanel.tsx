@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ArrowLeft, Check, ChevronsUpDown, Filter, History, RefreshCw } from 'lucide-react';
 import {
   getAdminConversation,
@@ -13,7 +14,6 @@ import {
   getAdminModels,
 } from '@/lib/api/adminAudit';
 import { useAdminAuditResource } from '@/hooks/useAdminAuditResource';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -24,10 +24,11 @@ import AdminExecutionInspector from './AdminExecutionInspector';
 import AdminMessageCard from './AdminMessageCard';
 import AdminUserIdentity from './AdminUserIdentity';
 import {
-  AdminEmpty, AdminError, AdminFilterActions, AdminLoading, AdminPagination, AdminPanelHeader, formatAdminDate, formatNumber,
+  AdminAgentStatus, AdminEmpty, AdminError, AdminFilterActions, AdminFilterField, AdminLoading, AdminPagination, AdminPanelHeader, formatAdminDate, formatNumber,
 } from './AdminPanelPrimitives';
 import { normalizeAdminAuditRouteId } from '@/lib/admin/adminAuditRoute';
 import { isAdminAccessError } from '@/lib/admin/adminAccess';
+import styles from './AdminSurface.module.css';
 
 interface ConversationFilterDraft {
   q: string;
@@ -56,6 +57,7 @@ interface AdminConversationsPanelProps {
 export default function AdminConversationsPanel({
   active = true, onForbidden, userIdFilter, modelIdFilter, selectedConversationId, onUserFilterChange, onFiltersChange, onOpen, onBack,
 }: AdminConversationsPanelProps) {
+  const { t } = useTranslation();
   const [page, setPage] = useState(1);
   const [draft, setDraft] = useState<ConversationFilterDraft>(() => ({ ...EMPTY_FILTER, user_id: userIdFilter ?? '', model_id: modelIdFilter ?? '' }));
   const [filters, setFilters] = useState<AdminConversationsQuery>(() => ({ ...(userIdFilter ? { user_id: userIdFilter } : {}), ...(modelIdFilter ? { model_id: modelIdFilter } : {}) }));
@@ -127,46 +129,49 @@ export default function AdminConversationsPanel({
   return (
     <section>
       <AdminPanelHeader title="全局对话" description="跨用户检索已持久化对话；管理页不会续写、停止或修改内容。" action={<Button variant="outline" size="sm" onClick={resource.reload} aria-label="刷新对话列表"><RefreshCw />刷新</Button>} />
-      <form onSubmit={applyFilters} className="mb-4 grid gap-2 rounded-xl border border-border bg-card p-3 md:grid-cols-2 xl:grid-cols-[repeat(7,minmax(0,1fr))_auto]">
-        <Input aria-label="搜索对话" value={draft.q} onChange={event => setDraft(current => ({ ...current, q: event.target.value }))} placeholder="标题或用户关键词" />
-        <Input aria-label="用户 ID" value={draft.user_id} onChange={event => setDraft(current => ({ ...current, user_id: event.target.value }))} placeholder="用户 ID" />
+      <form onSubmit={applyFilters} className={`${styles.filters} ${styles.conversationFilters}`}>
+        <AdminFilterField label={t('admin.filters.conversationSearch')} className={styles.wideField}><Input aria-label={t('admin.filters.conversationSearch')} value={draft.q} onChange={event => setDraft(current => ({ ...current, q: event.target.value }))} placeholder="标题或用户关键词" /></AdminFilterField>
+        <AdminFilterField label={t('admin.filters.userId')}><Input aria-label={t('admin.filters.userId')} value={draft.user_id} onChange={event => setDraft(current => ({ ...current, user_id: event.target.value }))} placeholder="用户 ID" /></AdminFilterField>
+        <AdminFilterField label={t('admin.filters.model')}>
         <AdminModelFilterCombobox
           active={active}
           value={draft.model_id}
           onForbidden={onForbidden}
           onChange={modelId => setDraft(current => ({ ...current, model_id: modelId }))}
         />
-        <select aria-label="是否有工具调用" className="h-9 rounded-md border border-input bg-background px-3 text-sm" value={draft.has_tools} onChange={event => setDraft(current => ({ ...current, has_tools: event.target.value as ConversationFilterDraft['has_tools'] }))}><option value="">工具不限</option><option value="true">有工具</option><option value="false">无工具</option></select>
-        <select aria-label="是否有文件" className="h-9 rounded-md border border-input bg-background px-3 text-sm" value={draft.has_files} onChange={event => setDraft(current => ({ ...current, has_files: event.target.value as ConversationFilterDraft['has_files'] }))}><option value="">文件不限</option><option value="true">有文件</option><option value="false">无文件</option></select>
-        <Input aria-label="创建开始日期" type="date" value={draft.created_from} onChange={event => setDraft(current => ({ ...current, created_from: event.target.value }))} />
-        <Input aria-label="创建结束日期" type="date" value={draft.created_to} onChange={event => setDraft(current => ({ ...current, created_to: event.target.value }))} />
-        <AdminFilterActions className="md:col-span-2 xl:col-span-1" submitLabel="应用筛选" submitIcon={<Filter />} onReset={resetFilters} />
+        </AdminFilterField>
+        <AdminFilterField label={t('admin.filters.tools')}><select aria-label={t('admin.filters.tools')} className="px-3 text-sm" value={draft.has_tools} onChange={event => setDraft(current => ({ ...current, has_tools: event.target.value as ConversationFilterDraft['has_tools'] }))}><option value="">工具不限</option><option value="true">有工具</option><option value="false">无工具</option></select></AdminFilterField>
+        <AdminFilterField label={t('admin.filters.files')}><select aria-label={t('admin.filters.files')} className="px-3 text-sm" value={draft.has_files} onChange={event => setDraft(current => ({ ...current, has_files: event.target.value as ConversationFilterDraft['has_files'] }))}><option value="">文件不限</option><option value="true">有文件</option><option value="false">无文件</option></select></AdminFilterField>
+        <AdminFilterField label={t('admin.filters.createdFrom')}><Input aria-label={t('admin.filters.createdFrom')} type="date" value={draft.created_from} onChange={event => setDraft(current => ({ ...current, created_from: event.target.value }))} /></AdminFilterField>
+        <AdminFilterField label={t('admin.filters.createdTo')}><Input aria-label={t('admin.filters.createdTo')} type="date" value={draft.created_to} onChange={event => setDraft(current => ({ ...current, created_to: event.target.value }))} /></AdminFilterField>
+        <AdminFilterActions className={styles.filterActions} submitLabel="应用筛选" submitIcon={<Filter />} onReset={resetFilters} />
       </form>
 
       {resource.loading ? <AdminLoading /> : resource.error ? <AdminError message={resource.error} onRetry={resource.reload} /> : null}
       {resource.data && resource.data.items.length === 0 ? <AdminEmpty>没有匹配的对话</AdminEmpty> : null}
       {resource.data && resource.data.items.length > 0 ? (
         <>
-          <div className="overflow-x-auto rounded-xl border border-border">
-            <table className="w-full min-w-[1100px] text-left text-sm">
-              <thead className="bg-muted/30 text-xs text-muted-foreground"><tr><th className="p-3">对话 / 时间</th><th>用户</th><th>模型</th><th>消息</th><th>工具</th><th>文件</th><th>Agent</th><th>Token</th><th className="pr-3 text-right">操作</th></tr></thead>
+          <div className={styles.tableFrame} role="region" aria-label={t('admin.conversationsList')} tabIndex={0}>
+            <table className={`${styles.table} min-w-[1280px]`}>
+              <colgroup><col style={{ width: '25%' }} /><col style={{ width: '21%' }} /><col style={{ width: '14%' }} /><col style={{ width: '5%' }} /><col style={{ width: '5%' }} /><col style={{ width: '5%' }} /><col style={{ width: '10%' }} /><col style={{ width: '7%' }} /><col style={{ width: '8%' }} /></colgroup>
+              <thead><tr><th scope="col">对话 / 时间</th><th scope="col">用户</th><th scope="col">模型</th><th scope="col" className={styles.numeric}>消息</th><th scope="col" className={styles.numeric}>工具</th><th scope="col" className={styles.numeric}>文件</th><th scope="col">Agent</th><th scope="col" className={styles.numeric}>Token</th><th scope="col" className={styles.actions}>操作</th></tr></thead>
               <tbody>{resource.data.items.map(conversation => (
-                <tr key={conversation.id} className="border-t border-border/60">
-                  <td className="p-3">
-                    <div className="max-w-xs truncate font-medium" title={conversation.title}>{conversation.title || '未命名对话'}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">{conversation.id}</div>
-                    <div className="mt-1 text-xs text-muted-foreground" aria-label={`对话时间 ${conversation.id}`}>
+                <tr key={conversation.id}>
+                  <td>
+                    <div className={styles.recordTitle} title={conversation.title}>{conversation.title || '未命名对话'}</div>
+                    <div className={`mt-1 ${styles.recordId}`} title={conversation.id}>{conversation.id}</div>
+                    <div className={styles.recordTime} aria-label={`对话时间 ${conversation.id}`}>
                       {conversation.created_at || conversation.updated_at ? (
-                        <><span>更新：{formatAdminDate(conversation.updated_at)}</span><span className="ml-2">创建：{formatAdminDate(conversation.created_at)}</span></>
+                        <><span>更新：{formatAdminDate(conversation.updated_at)}</span><span>创建：{formatAdminDate(conversation.created_at)}</span></>
                       ) : '时间未记录'}
                     </div>
                   </td>
-                  <td><AdminUserIdentity user={conversation.user} /></td>
-                  <td>{conversation.model_id || '—'}</td>
-                  <td>{conversation.message_count}</td><td>{conversation.tool_call_count}</td><td>{conversation.file_count}</td>
-                  <td>{conversation.latest_agent_status ? <Badge variant="outline">{conversation.latest_agent_status}</Badge> : '—'}</td>
-                  <td>{formatNumber(conversation.input_tokens + conversation.output_tokens)}</td>
-                  <td className="pr-3 text-right"><Button variant="ghost" size="sm" aria-label={`查看对话详情 ${conversation.id}`} onClick={() => onOpen(conversation.id)}>查看详情</Button></td>
+                  <td><AdminUserIdentity user={conversation.user} compact /></td>
+                  <td className={styles.modelId}>{conversation.model_id || '—'}</td>
+                  <td className={styles.numeric}>{formatNumber(conversation.message_count)}</td><td className={styles.numeric}>{formatNumber(conversation.tool_call_count)}</td><td className={styles.numeric}>{formatNumber(conversation.file_count)}</td>
+                  <td>{conversation.latest_agent_status ? <AdminAgentStatus status={conversation.latest_agent_status} /> : '—'}</td>
+                  <td className={styles.numeric}>{formatNumber(conversation.input_tokens + conversation.output_tokens)}</td>
+                  <td className={styles.actions}><Button variant="ghost" size="sm" aria-label={`查看对话详情 ${conversation.id}`} onClick={() => onOpen(conversation.id)}>查看详情</Button></td>
                 </tr>
               ))}</tbody>
             </table>
@@ -198,6 +203,7 @@ function AdminModelFilterCombobox({
   onForbidden: () => void;
   onChange: (modelId: string) => void;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -333,10 +339,10 @@ function AdminModelFilterCombobox({
         <button
           type="button"
           role="combobox"
-          aria-label="模型筛选"
+          aria-label={t('admin.filters.model')}
           aria-expanded={active && open}
           aria-controls="admin-model-filter-options"
-          className="flex h-9 min-w-0 items-center justify-between gap-2 rounded-md border border-input bg-background px-3 text-left text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          className={cn('flex min-w-0 items-center justify-between gap-2 px-3 text-left text-sm', styles.modelTrigger)}
         >
           {selected?.unresolved ? (
             <span className="min-w-0 truncate" title={selected.id}>{selected.id}</span>
@@ -353,7 +359,7 @@ function AdminModelFilterCombobox({
           <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-[min(28rem,calc(100vw-2rem))] p-0">
+      <PopoverContent align="start" className={cn('w-[min(28rem,calc(100vw-2rem))] p-0', styles.menu, styles.controls)}>
         <div className="border-b border-border p-2">
           <Input
             type="search"

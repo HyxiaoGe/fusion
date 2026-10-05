@@ -1,4 +1,29 @@
 {
+    "admin": {
+      "filters": {
+        "userSearch": "Search users",
+        "role": "User permissions",
+        "registeredFrom": "Registered from",
+        "registeredTo": "Registered to",
+        "conversationSearch": "Search conversations",
+        "userId": "User ID",
+        "model": "Model",
+        "tools": "Tool calls",
+        "files": "Related files",
+        "createdFrom": "Created from",
+        "createdTo": "Created to"
+      },
+      "usersList": "User list",
+      "conversationsList": "Conversation list",
+      "status": {
+        "running": "Running",
+        "completed": "Completed",
+        "limitReached": "Limit reached",
+        "incomplete": "Incomplete delivery",
+        "interrupted": "Interrupted",
+        "failed": "Failed"
+      }
+    },
     "app": {
       "title": "AI Assistant",
       "newChat": "New Chat",

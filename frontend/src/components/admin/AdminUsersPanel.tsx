@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { RefreshCw, Search, ShieldCheck } from 'lucide-react';
 import { getAdminUser, getAdminUsers } from '@/lib/api/adminAudit';
 import { useAdminAuditResource } from '@/hooks/useAdminAuditResource';
@@ -14,8 +15,9 @@ import type { AdminUserDetail } from '@/types/adminAudit';
 import { isAdminAccessError } from '@/lib/admin/adminAccess';
 import AdminUserIdentity from './AdminUserIdentity';
 import {
-  AdminEmpty, AdminError, AdminFilterActions, AdminLoading, AdminPagination, AdminPanelHeader, formatAdminDate, formatNumber,
+  AdminEmpty, AdminError, AdminFilterActions, AdminFilterField, AdminLoading, AdminPagination, AdminPanelHeader, formatAdminDate, formatNumber,
 } from './AdminPanelPrimitives';
+import styles from './AdminSurface.module.css';
 
 interface AdminUsersPanelProps {
   active?: boolean;
@@ -29,6 +31,7 @@ interface AdminUsersPanelProps {
 export default function AdminUsersPanel({
   active = true, onForbidden, selectedUserId, onOpen, onClose, onViewConversations,
 }: AdminUsersPanelProps) {
+  const { t } = useTranslation();
   const [page, setPage] = useState(1);
   const [searchDraft, setSearchDraft] = useState('');
   const [query, setQuery] = useState('');
@@ -120,29 +123,30 @@ export default function AdminUsersPanel({
         description="检索全部用户，查看活跃度、对话统计与 token 汇总。"
         action={<Button variant="outline" size="sm" onClick={refreshUsers} aria-label="刷新用户列表"><RefreshCw />刷新</Button>}
       />
-      <form onSubmit={submitSearch} className="mb-4 grid gap-2 rounded-xl border border-border bg-card p-3 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
-        <Input ref={searchInputRef} aria-label="搜索用户" value={searchDraft} onChange={event => setSearchDraft(event.target.value)} placeholder="用户 ID、用户名、昵称或邮箱" />
-        <select aria-label="管理员筛选" className="h-9 rounded-md border border-input bg-background px-3 text-sm" value={adminFilter} onChange={event => setAdminFilter(event.target.value as '' | 'true' | 'false')}><option value="">权限不限</option><option value="true">仅管理员</option><option value="false">仅普通用户</option></select>
-        <Input aria-label="注册开始日期" type="date" value={createdFrom} onChange={event => setCreatedFrom(event.target.value)} />
-        <Input aria-label="注册结束日期" type="date" value={createdTo} onChange={event => setCreatedTo(event.target.value)} />
-        <AdminFilterActions className="md:col-span-2 xl:col-span-1" submitLabel="搜索" submitIcon={<Search />} onReset={resetFilters} />
+      <form onSubmit={submitSearch} className={`${styles.filters} ${styles.usersFilters}`}>
+        <AdminFilterField label={t('admin.filters.userSearch')}><Input ref={searchInputRef} aria-label={t('admin.filters.userSearch')} value={searchDraft} onChange={event => setSearchDraft(event.target.value)} placeholder="用户 ID、用户名、昵称或邮箱" /></AdminFilterField>
+        <AdminFilterField label={t('admin.filters.role')}><select aria-label={t('admin.filters.role')} className="px-3 text-sm" value={adminFilter} onChange={event => setAdminFilter(event.target.value as '' | 'true' | 'false')}><option value="">权限不限</option><option value="true">仅管理员</option><option value="false">仅普通用户</option></select></AdminFilterField>
+        <AdminFilterField label={t('admin.filters.registeredFrom')}><Input aria-label={t('admin.filters.registeredFrom')} type="date" value={createdFrom} onChange={event => setCreatedFrom(event.target.value)} /></AdminFilterField>
+        <AdminFilterField label={t('admin.filters.registeredTo')}><Input aria-label={t('admin.filters.registeredTo')} type="date" value={createdTo} onChange={event => setCreatedTo(event.target.value)} /></AdminFilterField>
+        <AdminFilterActions className={styles.filterActions} submitLabel="搜索" submitIcon={<Search />} onReset={resetFilters} />
       </form>
 
       {resource.loading ? <AdminLoading /> : resource.error ? <AdminError message={resource.error} onRetry={refreshUsers} retryLabel="刷新用户列表" /> : null}
       {resource.data && resource.data.items.length === 0 ? <AdminEmpty>没有匹配的用户</AdminEmpty> : null}
       {resource.data && resource.data.items.length > 0 ? (
         <>
-          <div className="overflow-x-auto rounded-xl border border-border">
-            <table className="w-full min-w-[980px] text-left text-sm">
-              <thead className="bg-muted/30 text-xs text-muted-foreground"><tr><th className="p-3">用户</th><th>邮箱</th><th>活跃时间</th><th>对话</th><th>消息</th><th>工具</th><th>Token</th><th className="pr-3 text-right">操作</th></tr></thead>
+          <div className={styles.tableFrame} role="region" aria-label={t('admin.usersList')} tabIndex={0}>
+            <table className={`${styles.table} min-w-[1100px]`}>
+              <colgroup><col style={{ width: '25%' }} /><col style={{ width: '16%' }} /><col style={{ width: '19%' }} /><col style={{ width: '6%' }} /><col style={{ width: '6%' }} /><col style={{ width: '6%' }} /><col style={{ width: '11%' }} /><col style={{ width: '11%' }} /></colgroup>
+              <thead><tr><th scope="col">用户</th><th scope="col">邮箱</th><th scope="col">活跃时间</th><th scope="col" className={styles.numeric}>对话</th><th scope="col" className={styles.numeric}>消息</th><th scope="col" className={styles.numeric}>工具</th><th scope="col" className={styles.numeric}>Token</th><th scope="col" className={styles.actions}>操作</th></tr></thead>
               <tbody>
                 {resource.data.items.map(user => (
-                  <tr key={user.id} className="border-t border-border/60">
-                    <td className="p-3"><div className="flex items-start gap-2"><AdminUserIdentity user={user} showEmail={false} />{user.is_superuser ? <Badge variant="outline"><ShieldCheck className="mr-1 h-3 w-3" />管理员</Badge> : null}</div></td>
-                    <td>{user.email_masked || '—'}</td><td>{formatAdminDate(user.last_active_at)}</td>
-                    <td>{formatNumber(user.conversation_count)}</td><td>{formatNumber(user.message_count)}</td><td>{formatNumber(user.tool_call_count)}</td>
-                    <td>{formatNumber(user.input_tokens + user.output_tokens)}</td>
-                    <td className="pr-3 text-right"><Button variant="ghost" size="sm" aria-label={`查看用户详情 ${user.id}`} onClick={event => { detailTriggerRef.current = event.currentTarget; onOpen(user.id); }}>查看详情</Button></td>
+                  <tr key={user.id}>
+                    <td><div className="flex min-w-0 flex-wrap items-start gap-2"><div className="min-w-0 flex-1"><AdminUserIdentity user={user} showEmail={false} compact /></div>{user.is_superuser ? <Badge variant="outline" className={styles.status} data-tone="info"><ShieldCheck className="mr-1 h-3 w-3" />管理员</Badge> : null}</div></td>
+                    <td>{user.email_masked || '—'}</td><td className="text-xs text-muted-foreground">{formatAdminDate(user.last_active_at)}</td>
+                    <td className={styles.numeric}>{formatNumber(user.conversation_count)}</td><td className={styles.numeric}>{formatNumber(user.message_count)}</td><td className={styles.numeric}>{formatNumber(user.tool_call_count)}</td>
+                    <td className={styles.numeric}>{formatNumber(user.input_tokens + user.output_tokens)}</td>
+                    <td className={styles.actions}><Button variant="ghost" size="sm" aria-label={`查看用户详情 ${user.id}`} onClick={event => { detailTriggerRef.current = event.currentTarget; onOpen(user.id); }}>查看详情</Button></td>
                   </tr>
                 ))}
               </tbody>
@@ -154,7 +158,7 @@ export default function AdminUsersPanel({
 
       <Dialog open={active && Boolean(selectedUserId)} onOpenChange={open => { if (!open && active) onClose(); }}>
         <DialogContent
-          className="max-h-[85vh] overflow-y-auto sm:max-w-2xl"
+          className={`max-h-[85vh] overflow-y-auto sm:max-w-2xl ${styles.dialog} ${styles.controls}`}
           onCloseAutoFocus={event => {
             event.preventDefault();
             (detailTriggerRef.current ?? searchInputRef.current)?.focus();
@@ -184,7 +188,7 @@ export default function AdminUsersPanel({
           ) : null}
           {selectedUser ? (
             <DialogFooter>
-              <Button onClick={viewUserConversations}>查看该用户的对话</Button>
+              <Button className={styles.primaryAction} onClick={viewUserConversations}>查看该用户的对话</Button>
             </DialogFooter>
           ) : null}
         </DialogContent>
