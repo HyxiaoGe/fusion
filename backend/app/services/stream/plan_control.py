@@ -1,4 +1,4 @@
-"""Agent Loop 内部计划控制调用的解析、门禁与安全回执。"""
+"""Agent Loop 内部 update_plan 调用的处理：记录计划并回执，不拦截同轮其他工具。"""
 
 from __future__ import annotations
 
@@ -6,18 +6,10 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
-from app.core.logger import app_logger as logger
-from app.services.agent.plan_coordinator import PlanCoordinator, uncovered_execution_tool_names
+from app.services.agent.plan_coordinator import PlanCoordinator
 
 UPDATE_PLAN_TOOL_NAME = "update_plan"
 PLAN_ITEM_ARGUMENT_NAME = "_plan_item_id"
-_STATUS_DRIFT_REPAIR_REASONS = frozenset(
-    {
-        "multiple_running_items",
-        "terminal_status_regression",
-    }
-)
 
 
 @dataclass(frozen=True)
@@ -25,9 +17,6 @@ class PlanControlResult:
     external_tool_calls: list[dict]
     tool_responses: dict[str, str] = field(default_factory=dict)
     plan_item_ids: dict[str, str] = field(default_factory=dict)
-    repair_exhausted: bool = False
-    repair_attempt_count: int = 0
-    repair_attempt_limit: int = 0
 
 
 def _parse_arguments(raw: Any) -> dict[str, Any] | None:
@@ -42,98 +31,12 @@ def _parse_arguments(raw: Any) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
-def _response(
-    *,
-    status: str,
-    reason: str,
-    revision: int,
-    hint: str | None = None,
-    canonical_plan: list[dict[str, Any]] | None = None,
-    rewirable_step_ids: list[str] | None = None,
-) -> str:
-    payload = {
-        "status": status,
-        "reason": reason,
-        "revision": revision,
-    }
-    if hint:
-        payload["hint"] = hint
-    if canonical_plan:
-        payload["canonical_plan"] = canonical_plan
-    if rewirable_step_ids:
-        payload["rewirable_step_ids"] = rewirable_step_ids
+def _response(*, status: str, reason: str, revision: int) -> str:
     return json.dumps(
-        payload,
+        {"status": status, "reason": reason, "revision": revision},
         ensure_ascii=False,
         separators=(",", ":"),
     )
-
-
-def _control_rejection_hint(reason: str, coordinator: PlanCoordinator) -> str | None:
-    if reason in {"attempted_item_removed", "terminal_item_removed"}:
-        return render_runtime_prompt("stream.plan_hint_preserve")
-    if reason == "missing_required_initial_tool_coverage":
-        requirements = ", ".join(
-            f"{tool_name} x {count}" for tool_name, count in coordinator.required_initial_tool_counts.items()
-        )
-        return render_runtime_prompt("stream.plan_hint_coverage", requirements=requirements)
-    if reason == "research_read_missing_search_dependency":
-        return render_runtime_prompt("stream.plan_hint_search_dependency")
-    if reason == "missing_required_recovery_owner":
-        return render_runtime_prompt("stream.plan_hint_recovery")
-    if reason == "uncovered_execution_branch":
-        return render_runtime_prompt("stream.plan_hint_uncovered_branch")
-    if reason == "invalid_plan_structure":
-        return render_runtime_prompt("stream.plan_hint_structure")
-    if reason == "multiple_tools_per_item":
-        return render_runtime_prompt("stream.plan_hint_multiple_tools")
-    if reason == "unannounced_planned_tool":
-        return render_runtime_prompt("stream.plan_hint_unannounced")
-    if reason == "missing_answer_phase":
-        return render_runtime_prompt("stream.plan_hint_answer_phase")
-    if reason in {"unknown_dependency", "self_dependency", "dependency_cycle"}:
-        return render_runtime_prompt("stream.plan_hint_dependency")
-    return None
-
-
-def _uncovered_execution_tools(reason: str, items: Any, coordinator: PlanCoordinator) -> list[str] | None:
-    """uncovered_execution_branch 的可诊断补充：终局回答步骤漏掉了哪些执行工具。
-
-    错误码本身只说「存在没被覆盖的执行分支」。真实验收（Run 8139d99f）连续三次
-    被这个理由拒绝，却无法从日志判断模型提交了什么依赖结构。这里只回服务端声明
-    过的工具名，模型自定义的步骤 ID 与标题一律不入日志。
-    """
-
-    allowed_tool_names = coordinator.allowed_tool_names
-    if reason != "uncovered_execution_branch" or not isinstance(items, list) or allowed_tool_names is None:
-        return None
-    try:
-        return uncovered_execution_tool_names(items, allowed_tool_names=allowed_tool_names)
-    except Exception:  # noqa: BLE001 - 诊断日志不得影响拒绝回执
-        return None
-
-
-def _required_tool_coverage_summary(
-    items: list[Any] | None,
-    coordinator: PlanCoordinator,
-) -> dict[str, int]:
-    """只统计服务端声明的工具名，避免把未校验模型内容写入日志。"""
-
-    counts = {tool_name: 0 for tool_name in coordinator.required_initial_tool_counts}
-    if not items:
-        return counts
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        planned_tools = item.get("planned_tools")
-        if not isinstance(planned_tools, list):
-            continue
-        declared_tools = {tool_name for tool_name in planned_tools if isinstance(tool_name, str)}
-        for tool_name in counts:
-            other_required_tools = set(counts) - {tool_name}
-            if tool_name in declared_tools and not other_required_tools.intersection(declared_tools):
-                counts[tool_name] += 1
-    return counts
 
 
 def _extract_plan_item_binding(call: dict) -> tuple[dict, str | None]:
@@ -150,7 +53,7 @@ def _extract_plan_item_binding(call: dict) -> tuple[dict, str | None]:
         if isinstance(raw_arguments, str)
         else arguments
     )
-    return cleaned, requested_item_id if isinstance(requested_item_id, str) else ""
+    return cleaned, requested_item_id if isinstance(requested_item_id, str) else None
 
 
 async def process_plan_control_calls(
@@ -158,193 +61,41 @@ async def process_plan_control_calls(
     tool_calls: list[dict],
     coordinator: PlanCoordinator,
     emitter: Any,
-    required_recovery_tool_name: str | None = None,
-    discovery_control_tool: str | None = None,
 ) -> PlanControlResult:
-    """先应用控制调用，再决定同轮外部调用；回执只含安全状态码。"""
+    """先记录 update_plan，再把同轮外部调用原样放行，只尽力对应到计划步骤用于展示。"""
 
-    control_calls = [call for call in tool_calls if call.get("name") == UPDATE_PLAN_TOOL_NAME]
-    external_calls = [call for call in tool_calls if call.get("name") != UPDATE_PLAN_TOOL_NAME]
-    discovery_control = discovery_control_tool or getattr(coordinator, "discovery_control_tool", None)
     responses: dict[str, str] = {}
-    accepted_control = False
-    repairable_rejection = False
-    repair_reasons: set[str] = set()
-
-    for call in control_calls:
-        call_id = str(call.get("id", ""))
-        payload = _parse_arguments(call.get("arguments"))
-        result = coordinator.apply_model_update(
-            payload,
-            required_active_tool_name=required_recovery_tool_name,
-        )
-        accepted = result.accepted
-        reason = result.reason
-        if not accepted:
-            items = payload.get("plan") if isinstance(payload, dict) else None
-            if not isinstance(items, list) and isinstance(payload, dict):
-                items = payload.get("items")
-            logger.info(
-                "计划控制更新被拒绝: run_id=%s reason=%s item_count=%s required_tool_coverage=%s "
-                "uncovered_execution_tools=%s",
-                coordinator.run_id,
-                reason,
-                min(len(items), 11) if isinstance(items, list) else None,
-                _required_tool_coverage_summary(
-                    items if isinstance(items, list) else None,
-                    coordinator,
-                ),
-                _uncovered_execution_tools(reason, items, coordinator),
-            )
-        responses[call_id] = _response(
-            status="accepted" if accepted else "rejected",
-            reason=reason,
+    external_calls: list[dict] = []
+    requested_item_ids: list[str | None] = []
+    for call in tool_calls:
+        if call.get("name") != UPDATE_PLAN_TOOL_NAME:
+            prepared_call, requested_item_id = _extract_plan_item_binding(call)
+            external_calls.append(prepared_call)
+            requested_item_ids.append(requested_item_id)
+            continue
+        result = coordinator.apply_model_update(_parse_arguments(call.get("arguments")))
+        responses[str(call.get("id", ""))] = _response(
+            status="accepted" if result.accepted else "rejected",
+            reason=result.reason,
             revision=coordinator.revision,
-            hint=None if accepted else _control_rejection_hint(reason, coordinator),
-            canonical_plan=(
-                coordinator.canonical_plan_for_model() if not accepted and coordinator.has_valid_model_plan else None
-            ),
-            rewirable_step_ids=None if accepted else coordinator.rewirable_step_ids(),
         )
-        accepted_control = accepted_control or accepted
-        is_repairable_rejection = (
-            not accepted
-            and reason != "plan_mode_off"
-            and not (reason == "control_update_limit_reached" and coordinator.has_valid_model_plan)
-        )
-        repairable_rejection = repairable_rejection or is_repairable_rejection
-        if is_repairable_rejection:
-            repair_reasons.add(reason)
-        if accepted and result.snapshot is not None:
+        if result.snapshot is not None:
             await emitter.plan_snapshot(**result.snapshot)
 
-    round_failed = repairable_rejection and not accepted_control
-    unplanned_tool_names = frozenset(getattr(coordinator, "unplanned_tool_names", frozenset()) or ())
-
-    def is_unplanned_control(call: dict) -> bool:
-        name = call.get("name")
-        return bool(discovery_control and name == discovery_control) or name in unplanned_tool_names
-
-    discovery_calls = [call for call in external_calls if is_unplanned_control(call)]
-    other_external_calls = [call for call in external_calls if not is_unplanned_control(call)]
-    if coordinator.mode == "on" and other_external_calls and not coordinator.has_valid_model_plan:
-        round_failed = True
-        repair_reasons.add("plan_required")
-        for call in other_external_calls:
-            responses[str(call.get("id", ""))] = _response(
-                status="not_executed",
-                reason="plan_required",
-                revision=coordinator.revision,
-            )
-        external_calls = discovery_calls
-
-    prepared_external_calls: list[dict] = []
-    requested_item_ids: list[str | None] = []
-    for call in external_calls:
-        prepared_call, requested_item_id = _extract_plan_item_binding(call)
-        prepared_external_calls.append(prepared_call)
-        requested_item_ids.append(requested_item_id)
-    external_calls = prepared_external_calls
-
-    plan_item_ids: dict[str, str] = {}
     mapped_item_ids = coordinator.plan_item_ids_for_tools(
         [str(call.get("name", "")) for call in external_calls],
         requested_item_ids=requested_item_ids,
     )
-    executable_external_calls: list[dict] = []
-    # 只阻止同一模型批次把不同调用复用到同一任务；每轮重新建立，
-    # 不影响服务端保持 retryable/running 的同一任务跨轮有界重试。
-    round_bound_item_ids: set[str] = set()
-    for call, plan_item_id, requested_item_id in zip(
-        external_calls,
-        mapped_item_ids,
-        requested_item_ids,
-    ):
-        server_recovery_item_id = None
-        if plan_item_id is None or requested_item_id is None:
-            server_recovery_item_id = coordinator.sole_server_recovery_item_id_for_tool(str(call.get("name", "")))
-        if server_recovery_item_id is not None:
-            plan_item_id = server_recovery_item_id
-        if is_unplanned_control(call):
-            executable_external_calls.append(call)
+    plan_item_ids: dict[str, str] = {}
+    prepared: list[dict] = []
+    for call, plan_item_id in zip(external_calls, mapped_item_ids):
+        if plan_item_id is None:
+            prepared.append(call)
             continue
-        missing_required_binding = (
-            coordinator.mode == "on"
-            and coordinator.has_valid_model_plan
-            and requested_item_id is None
-            and server_recovery_item_id is None
-        )
-        if plan_item_id is not None and not missing_required_binding:
-            if plan_item_id in round_bound_item_ids:
-                round_failed = True
-                responses[str(call.get("id", ""))] = _response(
-                    status="not_executed",
-                    reason="plan_item_already_bound",
-                    revision=coordinator.revision,
-                    hint=render_runtime_prompt("stream.plan_item_already_bound"),
-                )
-                continue
-            round_bound_item_ids.add(plan_item_id)
-            plan_item_ids[str(call.get("id", ""))] = plan_item_id
-            executable_external_calls.append(call)
-            continue
-        invalid_explicit_binding = requested_item_id is not None and coordinator.has_valid_model_plan
-        if (
-            missing_required_binding
-            or invalid_explicit_binding
-            or (coordinator.mode == "on" and coordinator.has_valid_model_plan)
-        ):
-            round_failed = True
-            repair_reasons.add("plan_item_required")
-            responses[str(call.get("id", ""))] = _response(
-                status="not_executed",
-                reason="plan_item_required",
-                revision=coordinator.revision,
-                hint=render_runtime_prompt("stream.plan_item_required"),
-            )
-            continue
-        executable_external_calls.append(call)
-    external_calls = executable_external_calls
-
-    tolerate_status_drift = bool(repair_reasons) and repair_reasons.issubset(_STATUS_DRIFT_REPAIR_REASONS)
-    repair_result = (
-        coordinator.record_repair_round_with_fallback(
-            tolerate_status_drift=tolerate_status_drift,
-        )
-        if round_failed
-        else None
-    )
-    if repair_result is not None:
-        logger.info(
-            "计划修复轮次已记录: run_id=%s attempt=%s limit=%s threshold_reached=%s "
-            "fallback_adopted=%s has_valid_plan=%s",
-            coordinator.run_id,
-            repair_result.attempt_count,
-            repair_result.attempt_limit,
-            repair_result.attempt_count >= repair_result.attempt_limit,
-            repair_result.fallback is not None,
-            coordinator.has_valid_model_plan,
-        )
-    if repair_result is not None and repair_result.fallback is not None:
-        fallback = repair_result.fallback
-        if fallback.snapshot is not None:
-            await emitter.plan_snapshot(**fallback.snapshot)
-
+        plan_item_ids[str(call.get("id", ""))] = plan_item_id
+        prepared.append({**call, "plan_item_id": plan_item_id})
     return PlanControlResult(
-        external_tool_calls=[
-            {
-                **call,
-                **(
-                    {"plan_item_id": plan_item_ids[str(call.get("id", ""))]}
-                    if str(call.get("id", "")) in plan_item_ids
-                    else {}
-                ),
-            }
-            for call in external_calls
-        ],
+        external_tool_calls=prepared,
         tool_responses=responses,
         plan_item_ids=plan_item_ids,
-        repair_exhausted=repair_result.exhausted if repair_result is not None else False,
-        repair_attempt_count=repair_result.attempt_count if repair_result is not None else 0,
-        repair_attempt_limit=repair_result.attempt_limit if repair_result is not None else 0,
     )

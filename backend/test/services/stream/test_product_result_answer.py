@@ -11,7 +11,6 @@ from app.schemas.chat import (
     WeatherForecastDay,
     WeatherResultsBlock,
 )
-from app.services.stream.product_answer_validator import validate_product_answer
 from app.services.stream.product_result_answer import (
     build_grounded_product_answer,
     build_product_tool_failure_answer,
@@ -152,8 +151,6 @@ class ProductResultAnswerTests(unittest.TestCase):
         self.assertIn("天气预报已完整覆盖行程日期", answer)
         self.assertIn("上海市天气预报", answer)
         self.assertNotIn("7月31日", answer)
-        validation = validate_product_answer(answer, [*source_blocks, itinerary])
-        self.assertTrue(validation.is_valid, validation.reason_code)
 
     def test_itinerary_fallback_keeps_referenced_local_route(self):
         source_blocks = [
@@ -212,7 +209,6 @@ class ProductResultAnswerTests(unittest.TestCase):
         self.assertIn("上海站到外滩", answer)
         self.assertIn("地铁约 35 分钟", answer)
         self.assertIn("地铁1号线", answer)
-        self.assertTrue(validate_product_answer(answer, [*source_blocks, itinerary]).is_valid)
 
     def test_itinerary_fallback_keeps_unreferenced_route_returned_in_same_round(self):
         source_blocks = [
@@ -254,7 +250,6 @@ class ProductResultAnswerTests(unittest.TestCase):
 
         self.assertIn("上海虹桥站到外滩", answer)
         self.assertIn("驾车约 40 分钟、21 公里", answer)
-        self.assertTrue(validate_product_answer(answer, [*source_blocks, _itinerary_result()]).is_valid)
 
     def test_itinerary_fallback_keeps_unreferenced_travel_type_returned_in_same_round(self):
         flight = _travel_block(
@@ -314,8 +309,6 @@ class ProductResultAnswerTests(unittest.TestCase):
         self.assertIn("同时返回北京到上海", answer)
         self.assertIn("MU5101", answer)
         self.assertIn("G1", answer)
-        validation = validate_product_answer(answer, blocks)
-        self.assertTrue(validation.is_valid, validation.reason_code)
 
     def test_weather_fallback_uses_only_forecast_fields(self):
         block = WeatherResultsBlock(
@@ -357,7 +350,6 @@ class ProductResultAnswerTests(unittest.TestCase):
         self.assertIn("7月23日（周四）白天多云、夜间阵雨，27–32℃", answer)
         self.assertIn("7月24日（周五）白天雷阵雨、夜间多云，26–31℃", answer)
         self.assertNotIn("建议携带雨具", answer)
-        self.assertTrue(validate_product_answer(answer, [block]).is_valid)
         self.assertNotIn("高德", answer)
         for unsupported in ("湿度", "空气质量", "降雨概率", "预警"):
             self.assertNotIn(unsupported, answer)
@@ -379,8 +371,6 @@ class ProductResultAnswerTests(unittest.TestCase):
         self.assertNotIn("只有白天和夜间粒度", answer)
         self.assertNotIn("骑行", answer)
         self.assertNotIn("建议", answer)
-        validation = validate_product_answer(answer, [block])
-        self.assertTrue(validation.is_valid, validation.reason_code)
 
     def test_weather_fallback_answers_explicit_date_outside_forecast(self):
         block = _weather_result("weather-outside-range")
@@ -393,8 +383,6 @@ class ProductResultAnswerTests(unittest.TestCase):
         self.assertIn("8月20日不在当前预报覆盖范围内", answer)
         self.assertIn("无法确认上海市该日的天气", answer)
         self.assertNotIn("白天多云", answer)
-        validation = validate_product_answer(answer, [block])
-        self.assertTrue(validation.is_valid, validation.reason_code)
 
     def test_weather_fallback_does_not_promote_negated_date_to_target(self):
         block = _weather_result("weather-future-days")

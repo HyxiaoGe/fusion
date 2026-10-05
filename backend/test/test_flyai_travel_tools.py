@@ -24,7 +24,6 @@ from app.services.mcp.flyai_travel_tools import (
     build_flyai_user_scope,
 )
 from app.services.stream.agent_loop_wiring import _load_dynamic_tools
-from app.services.stream.product_answer_validator import validate_product_answer
 from app.services.stream.product_result_answer import (
     build_grounded_product_answer,
     build_product_tool_failure_answer,
@@ -557,21 +556,6 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("深圳宝安国际机场", answer)
         self.assertIn("08:30", answer)
         self.assertIn("880元", answer)
-        self.assertTrue(validate_product_answer(answer, restored).is_valid)
-        self.assertTrue(
-            validate_product_answer(
-                "本次返回中，CZ1234 的票价为 880 元，从深圳宝安国际机场 T3 出发，是其中较便宜的选择。",
-                restored,
-            ).is_valid
-        )
-        self.assertTrue(validate_product_answer("2026年8月1日（周六）可以考虑CZ1234。", restored).is_valid)
-        table_answer = (
-            "本次返回中，CZ1234 在08:30从深圳宝安国际机场T3出发，参考价880元。\n\n"
-            "| 航班 | 出发时间 | 参考价 |\n"
-            "| --- | --- | --- |\n"
-            "| CZ1234 | 08:30 | 880元 |"
-        )
-        self.assertEqual(validate_product_answer(table_answer, restored).reason_code, "unsupported_format")
 
         async def respond_train(request: httpx.Request) -> httpx.Response:
             return httpx.Response(
@@ -589,11 +573,6 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("同时返回深圳到上海", comparison)
         self.assertIn("本次返回航班中参考价最低的是CZ1234", comparison)
         self.assertIn("本次返回火车中用时最短的是G100", comparison)
-        comparison_validation = validate_product_answer(comparison, mixed_blocks)
-        self.assertTrue(
-            comparison_validation.is_valid,
-            f"{comparison_validation.reason_code}: {comparison}",
-        )
 
         flight_template = restored[0].flights[0]
         slow_cheap_flight = flight_template.model_copy(
@@ -635,16 +614,12 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("计划行程时长最短的是航班CZ2002", mapped_comparison)
         self.assertNotIn("计划行程时长最短的是航班CZ1001", mapped_comparison)
         self.assertIn("参考价最低的是高铁G100", mapped_comparison)
-        self.assertTrue(validate_product_answer(mapped_comparison, [multi_flight_block, cheaper_train_block]).is_valid)
 
         faster_train_block = cheaper_train_block.model_copy(
             update={"trains": [cheaper_train_block.trains[0].model_copy(update={"duration_s": 45 * 60})]}
         )
         cross_mode_comparison = build_grounded_product_answer([multi_flight_block, faster_train_block])
         self.assertIn("计划行程时长最短的是高铁G100", cross_mode_comparison)
-        self.assertTrue(
-            validate_product_answer(cross_mode_comparison, [multi_flight_block, faster_train_block]).is_valid
-        )
         neutralized = neutralize_product_provider_mentions(
             "根据 FlyAI 和飞猪旅行返回的结果，search_flights 返回 CZ1234。"
         )

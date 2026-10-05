@@ -18,7 +18,6 @@ from app.services.stream.agent_loop_request_prep import AgentLoopCallConfig
 from app.services.stream.agent_loop_run_completion import AgentLoopRunCompletionContext
 from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
-from app.services.stream.dynamic_tool_discovery import TOOL_SEARCH_NAME
 from app.services.stream.network_budget import NetworkToolBudget
 from app.services.stream.safe_fallback_response import FallbackResponseContext
 from app.services.stream.tool_executor import AgentEventCompositeWriter
@@ -132,36 +131,16 @@ def _build_execution_parts(
     state = AgentLoopState(
         plan_coordinator=PlanCoordinator(
             run_id=run_id,
-            mode=getattr(request.call_config, "plan_mode", "auto"),
-            allowed_tool_names=frozenset(
-                name for name in getattr(request.call_config, "announced_tools", []) if name != "tool_search"
-            ),
-            required_initial_tool_counts=dict(getattr(request.call_config, "required_initial_tool_counts", {})),
-            unplanned_tool_names=frozenset(getattr(request.call_config, "output_tool_names", frozenset()))
-            | frozenset(getattr(request.call_config, "skill_tool_names", frozenset()))
-            | frozenset(getattr(request.call_config, "escalation_tool_names", frozenset())),
+            mode=getattr(request.call_config, "plan_mode", "off"),
         ),
         tool_discovery=discovery,
     )
-    escalation = getattr(request.call_config, "escalation_session", None)
-    if escalation is not None:
-        # 计划一旦制定就按首判能力执行到底；升级只发生在计划之前。
-        escalation.blocked_reason = lambda: (
-            "plan_already_created" if state.plan_coordinator.has_valid_model_plan else None
-        )
-    if discovery is not None:
-        discovery.plan_coordinator = state.plan_coordinator
-        state.plan_coordinator.discovery_control_tool = TOOL_SEARCH_NAME
     return AgentLoopExecutionParts(
         run_id=run_id,
         run_start=dependencies.clock(),
         state=state,
         network_budget=NetworkToolBudget(
             profile=getattr(request.call_config, "network_profile", "standard"),
-            require_distinct_read_urls=(
-                "verified_research_request"
-                in set((getattr(request.call_config, "plan_tool_policy_reason", "") or "").split("+"))
-            ),
         ),
         emitter=emitter,
         trajectory_recorder=trajectory_recorder,

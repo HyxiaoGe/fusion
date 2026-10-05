@@ -122,9 +122,6 @@ class DocumentCallConfigTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("create_document", config.dynamic_tool_handlers)
         tools = {tool["function"]["name"]: tool for tool in config.call_kwargs["tools"]}
         self.assertIn("edit_document", tools)
-        self.assertIn("_plan_item_id", tools["web_search"]["function"]["parameters"]["properties"])
-        # 文档工具不属于计划步骤，不挂计划绑定参数。
-        self.assertNotIn("_plan_item_id", tools["create_document"]["function"]["parameters"]["properties"])
         self.assertEqual(config.call_kwargs["max_tokens"], DOCUMENT_OUTPUT_MAX_TOKENS)
         self.assertIn("doc-1", config.document_context)
 
@@ -231,7 +228,7 @@ class DocumentCallConfigTests(unittest.IsolatedAsyncioTestCase):
 
 class DocumentPlanControlTests(unittest.IsolatedAsyncioTestCase):
     async def test_document_tools_execute_without_plan_binding_in_on_mode(self):
-        coordinator = PlanCoordinator(run_id="run-doc", mode="on", unplanned_tool_names=frozenset({"create_document"}))
+        coordinator = PlanCoordinator(run_id="run-doc", mode="on")
         accepted = coordinator.apply_model_update(
             {
                 "reason": "先查天气再写攻略",

@@ -20,7 +20,7 @@ MAX_RESEARCH_SOURCE_CONTEXT_CHARS = 360
 MAX_RESEARCH_SOURCE_URL_CHARS = MAX_URL_LENGTH
 _CITATION_PATTERN = re.compile(r"(?:\[(\d{1,3})\]|⟦(\d{1,3})⟧)")
 _SAFE_EVIDENCE_ID_PATTERN = re.compile(r"^ev-[A-Za-z0-9_-]{1,80}$")
-DeepResearchStage = Literal["planning", "search", "read", "search_repair", "synthesis"]
+DeepResearchStage = Literal["search", "read", "search_repair", "synthesis"]
 
 
 @dataclass(frozen=True)
@@ -136,26 +136,12 @@ class ResearchEvidenceWorkset:
         return {source.url for source in self.sources.values() if source.url_key not in self.attempted_read_urls}
 
 
-def resolve_deep_research_stage(
-    workset: ResearchEvidenceWorkset,
-    *,
-    has_valid_plan: bool,
-    unexecuted_plan_tool_names: set[str] | None = None,
-) -> DeepResearchStage:
-    """只根据服务端状态决定下一轮工具阶段，不解析模型参数或外部正文。"""
+def resolve_deep_research_stage(workset: ResearchEvidenceWorkset) -> DeepResearchStage:
+    """只根据服务端取证状态决定下一轮工具阶段，不依赖计划，也不解析模型参数或外部正文。"""
 
-    if not has_valid_plan:
-        return "planning"
     if workset.successful_searches < 1:
         return "search"
     if len(workset.successful_read_urls) >= 2:
-        remaining_tools = unexecuted_plan_tool_names or set()
-        if remaining_tools - {"web_search", "url_read"}:
-            return "planning"
-        if "web_search" in remaining_tools:
-            return "search"
-        if "url_read" in remaining_tools:
-            return "read" if workset.unread_candidate_urls else "search_repair"
         return "synthesis"
     if workset.unread_candidate_urls:
         return "read"
@@ -183,26 +169,15 @@ def deep_research_stage_required_tool(stage: DeepResearchStage) -> str | None:
     return next(iter(allowed_tool_names))
 
 
-def build_deep_research_stage_prompt(
-    stage: DeepResearchStage,
-    *,
-    plan_repair_tool: str | None = None,
-    active_plan_item_ids: list[str] | None = None,
-) -> str:
+def build_deep_research_stage_prompt(stage: DeepResearchStage) -> str:
     """生成不含任何外部来源内容的确定性阶段控制语。"""
 
-    if plan_repair_tool:
-        return render_runtime_prompt("research.stage_plan_repair", tool=plan_repair_tool)
-    binding_prompt = ""
-    if active_plan_item_ids:
-        allowed_ids = ", ".join(f"`{item_id}`" for item_id in active_plan_item_ids)
-        binding_prompt = render_runtime_prompt("research.stage_binding", allowed_ids=allowed_ids)
     if stage == "search":
-        return render_runtime_prompt("research.stage_search", binding_prompt=binding_prompt)
+        return render_runtime_prompt("research.stage_search")
     if stage == "read":
-        return render_runtime_prompt("research.stage_read", binding_prompt=binding_prompt)
+        return render_runtime_prompt("research.stage_read")
     if stage == "search_repair":
-        return render_runtime_prompt("research.stage_search_repair", binding_prompt=binding_prompt)
+        return render_runtime_prompt("research.stage_search_repair")
     if stage == "synthesis":
         return render_runtime_prompt("research.stage_synthesis")
     return ""

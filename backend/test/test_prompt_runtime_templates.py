@@ -42,17 +42,6 @@ class PromptRuntimeTemplatesTests(unittest.TestCase):
                     self.assertEqual(consumers[key](), "运行时正文")
         self.assertEqual(resolver.call_count, 7)
 
-    def test_plan_control_prompt_stays_code_owned(self):
-        """计划控制不在 catalog 内，本期继续由代码维护。"""
-
-        from app.ai.prompts import agent_loop
-
-        with patch.object(agent_loop, "get_runtime_prompt_template", side_effect=AssertionError("不应读取运行时模板")):
-            self.assertEqual(agent_loop.get_agent_plan_control_prompt("on"), agent_loop.AGENT_PLAN_CONTROL_ON_PROMPT)
-            self.assertEqual(
-                agent_loop.get_agent_plan_control_prompt("auto"), agent_loop.AGENT_PLAN_CONTROL_AUTO_PROMPT
-            )
-
     def test_summary_and_url_description_keep_runtime_resolution(self):
         from app.ai.prompts import agent_loop
 

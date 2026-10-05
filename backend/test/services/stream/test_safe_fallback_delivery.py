@@ -9,51 +9,12 @@ from app.services.stream.agent_loop_round_outcome import AgentRoundOutcomeReques
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_round import AgentRoundResult
 from app.services.stream.limit_summary import run_limit_summary_step
-from app.services.stream.run_capability_router import RunCapabilityResolution
 from app.services.stream.safe_fallback_response import FallbackResponseContext
 from test.services.stream import test_limit_summary as summary_fixtures
 from test.services.stream.test_agent_loop_round_outcome import _runtime, _step_context
 
 
 class SafeFallbackDeliveryTests(unittest.IsolatedAsyncioTestCase):
-    async def test_无证据总结两种路径都在输出前使用日文安全文案(self):
-        for finish_reason in ("limit_summary", "plan_synthesis"):
-            with self.subTest(finish_reason=finish_reason):
-                request, prepare_context_fn = (
-                    summary_fixtures.LimitSummaryNoEvidenceFactBoundaryTests()._standard_request(
-                        answer="票价 280 元，全程 5 小时。",
-                        content_blocks=[],
-                        user_message="请查询班次，用日语回答。",
-                    )
-                )
-                request = replace(
-                    request,
-                    summary_finish_reason=finish_reason,
-                    capability_resolution=RunCapabilityResolution(
-                        schema_version=1,
-                        router_version="test",
-                        package_id="mobility_intercity",
-                        confidence="high",
-                        resolution_mode="routed",
-                        reason_codes=(),
-                        external_tool_names=("search_trains",),
-                        effective_plan_mode="off",
-                        include_current_date=False,
-                        network_boundary_required=False,
-                    ),
-                    fallback_response_context=FallbackResponseContext("请查询班次，用日语回答。", "ja"),
-                )
-                with (
-                    patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
-                    patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append,
-                ):
-                    result = await run_limit_summary_step(request=request)
-                text = append.await_args.args[2]
-                self.assertRegex(text, r"[ぁ-ゟァ-ヿ]")
-                self.assertNotIn("280", text)
-                self.assertEqual(request.content_blocks[-1].text, text)
-                self.assertTrue(result.incomplete)
-
     async def test_正常答案不触发兜底语言选择(self):
         request = AgentRoundOutcomeRequest(
             db=None,

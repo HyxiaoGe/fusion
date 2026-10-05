@@ -125,7 +125,7 @@ class SkillSessionTests(_SkillRootTestCase):
 
 
 class SkillCallConfigTests(_SkillRootTestCase):
-    def test_skills_join_tools_without_plan_binding_and_catalog_follows_route(self):
+    def test_skills_join_tools_and_catalog_follows_route(self):
         config = build_agent_loop_call_config(
             provider="openai",
             options={"plan_mode": "on"},
@@ -136,8 +136,7 @@ class SkillCallConfigTests(_SkillRootTestCase):
 
         tools = {tool["function"]["name"]: tool for tool in config.call_kwargs["tools"]}
         self.assertIn(LOAD_SKILL_TOOL_NAME, tools)
-        self.assertNotIn("_plan_item_id", tools[LOAD_SKILL_TOOL_NAME]["function"]["parameters"]["properties"])
-        self.assertIn("_plan_item_id", tools["web_search"]["function"]["parameters"]["properties"])
+        self.assertNotIn("_plan_item_id", tools["web_search"]["function"]["parameters"]["properties"])
         self.assertNotIn(LOAD_SKILL_TOOL_NAME, config.announced_tools)
         self.assertIsInstance(config.dynamic_tool_handlers[LOAD_SKILL_TOOL_NAME], LoadSkillHandler)
         self.assertEqual(config.skill_tool_names, frozenset({LOAD_SKILL_TOOL_NAME}))
@@ -250,53 +249,11 @@ class SkillPlanStageTests(unittest.IsolatedAsyncioTestCase):
         )
         return captured[0]
 
-    async def test_skill_is_offered_before_plan_without_forcing_update_plan(self):
+    async def test_plan_mode_offers_skill_and_tools_without_forcing_update_plan(self):
         call_kwargs = await self._offered(PlanCoordinator(run_id="run-skill-plan", mode="on"))
 
-        self.assertEqual(sorted(_tool_names(call_kwargs)), [LOAD_SKILL_TOOL_NAME, "update_plan"])
-        self.assertEqual(call_kwargs["tool_choice"], "required")
-        update_plan = next(tool for tool in call_kwargs["tools"] if tool["function"]["name"] == "update_plan")
-        self.assertNotIn("_plan_item_id", update_plan["function"].get("parameters", {}).get("properties", {}))
-
-    async def test_skill_is_hidden_while_a_plan_step_is_locked(self):
-        coordinator = PlanCoordinator(run_id="run-skill-locked", mode="on")
-        accepted = coordinator.apply_model_update(
-            {
-                "reason": "先搜索再回答",
-                "items": [
-                    {
-                        "id": "search",
-                        "title": "搜索景点",
-                        "status": "pending",
-                        "kind": "search",
-                        "depends_on": [],
-                        "planned_tools": ["web_search"],
-                    },
-                    {
-                        "id": "answer",
-                        "title": "整理行程",
-                        "status": "pending",
-                        "kind": "answer",
-                        "depends_on": ["search"],
-                        "planned_tools": [],
-                    },
-                ],
-            }
-        )
-        self.assertTrue(accepted.accepted, accepted.reason)
-
-        call_kwargs = await self._offered(coordinator)
-
-        self.assertEqual(_tool_names(call_kwargs), ["web_search"])
-
-    async def test_without_skills_plan_first_round_still_forces_update_plan(self):
-        call_kwargs = await self._offered(
-            PlanCoordinator(run_id="run-no-skill", mode="on"),
-            skill_tool_names=frozenset(),
-        )
-
-        self.assertEqual(_tool_names(call_kwargs), ["update_plan"])
-        self.assertEqual(call_kwargs["tool_choice"], {"type": "function", "function": {"name": "update_plan"}})
+        self.assertEqual(sorted(_tool_names(call_kwargs)), [LOAD_SKILL_TOOL_NAME, "update_plan", "web_search"])
+        self.assertEqual(call_kwargs["tool_choice"], "auto")
 
 
 def test_session_budget_property():

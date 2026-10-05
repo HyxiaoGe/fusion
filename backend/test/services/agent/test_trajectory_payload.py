@@ -487,7 +487,7 @@ class TrajectoryPayloadTests(unittest.TestCase):
             "confidence": "medium",
             "reason_codes": ["origin_destination_relation", "intercity_locations"],
             "external_tool_names": ["route_compare", "search_flights"],
-            "effective_plan_mode": "auto",
+            "effective_plan_mode": "off",
             "required_primary_tool_name": "route_compare",
             "denied_product_tool_names": ["url_read", "web_search"],
         }
@@ -652,7 +652,7 @@ class TrajectoryPayloadTests(unittest.TestCase):
             "confidence": "medium",
             "reason_codes": ["origin_destination_relation", "intercity_locations"],
             "external_tool_names": ["route_compare", "search_trains"],
-            "effective_plan_mode": "auto",
+            "effective_plan_mode": "off",
         }
         valid_payload = build_trajectory_payload(
             {

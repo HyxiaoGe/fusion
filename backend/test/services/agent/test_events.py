@@ -228,7 +228,7 @@ class AgentEventModelTests(unittest.TestCase):
                 "confidence": "high",
                 "reason_codes": ["origin_destination_relation", "intercity_locations"],
                 "external_tool_names": ["route_compare", "search_flights", "search_trains"],
-                "effective_plan_mode": "auto",
+                "effective_plan_mode": "off",
             },
             {**CAPABILITY_RESOLUTION, "reason_codes": ["verified_source_request"]},
         )
@@ -284,7 +284,7 @@ class AgentEventModelTests(unittest.TestCase):
                 "package_id": "travel_air_rail",
                 "reason_codes": ["air_rail_comparison"],
                 "external_tool_names": ["search_trains", "search_flights"],
-                "effective_plan_mode": "auto",
+                "effective_plan_mode": "off",
             },
             {
                 **CAPABILITY_RESOLUTION,
@@ -292,7 +292,7 @@ class AgentEventModelTests(unittest.TestCase):
                 "confidence": "medium",
                 "reason_codes": ["origin_destination_relation", "intercity_locations"],
                 "external_tool_names": ["search_trains", "route_compare"],
-                "effective_plan_mode": "auto",
+                "effective_plan_mode": "off",
             },
         )
 
@@ -317,7 +317,7 @@ class AgentEventModelTests(unittest.TestCase):
             "confidence": "medium",
             "reason_codes": ["origin_destination_relation", "intercity_locations"],
             "external_tool_names": ["route_compare", "search_trains"],
-            "effective_plan_mode": "auto",
+            "effective_plan_mode": "off",
         }
 
         event = RunStarted(

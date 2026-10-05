@@ -13,24 +13,14 @@ from app.ai.prompts import agent_loop, product_results
 from app.ai.prompts.local_templates import CODE_DEFAULT_PROMPT_TEMPLATES
 from app.ai.prompts.runtime_prompt_store import RUNTIME_PROMPT_FILE, render_runtime_prompt
 from app.processor import file_processor
-from app.services.agent.plan_coordinator import PlanCoordinator
 from app.services.external import kimi_search_service
 from app.services.knowledge import chat_grounding
 from app.services.mcp import amap_product_tools, flyai_travel_tools
 from app.services.mcp.tool_contract import build_agent_tool_definition
-from app.services.source_candidate_ranker import (
-    RankedSourceCandidate,
-    SourceReadDecision,
-    SourceSelectionPlan,
-    format_source_selection_guidance,
-)
-from app.services.source_context import UntrustedSourceContext, format_untrusted_source_context
 from app.services.stream import (
     agent_loop_request_prep,
     agent_loop_round_outcome,
     limit_summary,
-    research_evidence,
-    tool_round,
 )
 from app.services.stream.run_capability_model_classifier import _system_prompt
 from app.services.stream.safe_fallback_response import SUPPORTED_FALLBACK_LOCALES
@@ -84,8 +74,7 @@ def test_tool_definitions_are_english():
     values = (
         tools.build_web_search_tool(),
         tools.build_url_read_tool(),
-        agent_loop_request_prep.build_update_plan_tool(["web_search"]),
-        agent_loop_request_prep._with_plan_item_binding(tools.build_web_search_tool(), required=True),
+        agent_loop_request_prep.build_update_plan_tool(),
         amap_product_tools.AMAP_PRODUCT_DEFINITIONS,
         flyai_travel_tools.FLYAI_TRAVEL_DEFINITIONS,
     )
@@ -102,77 +91,6 @@ def test_tool_definitions_are_english():
     )
     _assert_schema_descriptions_are_english(mcp_definition, path="mcp_tool_definition")
     assert "Docs service / resolve-library-id" in mcp_definition["function"]["description"]
-
-
-def test_dynamic_research_and_tool_context_instructions_are_english():
-    stage_prompts = [
-        research_evidence.build_deep_research_stage_prompt(stage, active_plan_item_ids=["step-1"])
-        for stage in ("search", "read", "search_repair", "synthesis")
-    ]
-    stage_prompts.append(research_evidence.build_deep_research_stage_prompt("planning", plan_repair_tool="web_search"))
-    tool_contexts = [
-        limit_summary.SUMMARY_TOOL_PROTOCOL_RETRY_PROMPT,
-        agent_loop_round_outcome.PLAN_REQUIRED_RETRY_PROMPT,
-        agent_loop_round_outcome.PLAN_EXECUTION_REQUIRED_RETRY_PROMPT,
-        tool_round._format_missing_tool_result_context(),
-        tool_round._format_not_executed_tool_context(),
-        tool_round._format_reused_tool_context(),
-        tool_round._format_unavailable_tool_context(),
-    ]
-    source_context = format_untrusted_source_context(
-        UntrustedSourceContext(
-            source_id="S1",
-            source_type="search",
-            title="Example",
-            url="https://example.com",
-            content="Example content",
-        ),
-        max_chars=100,
-    )
-    candidate = RankedSourceCandidate(
-        rank=1,
-        title="Example",
-        url="https://example.com",
-        domain="example.com",
-        query="example",
-        tool_call_id="call-1",
-        source_index=1,
-        score=100,
-        priority="high",
-        reasons=("official source",),
-    )
-    source_guidance = format_source_selection_guidance(
-        SourceSelectionPlan(
-            total_source_count=1,
-            unique_source_count=1,
-            search_queries=("example",),
-            candidates=(candidate,),
-            recommended=(candidate,),
-            low_priority=(),
-            read_decisions=(SourceReadDecision(candidate, "recommend_read", "official_original"),),
-            decision_summary={},
-            recommended_read_limit=1,
-            read_required=True,
-            minimum_required_reads=1,
-        )
-    )
-    _assert_english(
-        stage_prompts + tool_contexts + [source_context, source_guidance],
-        path="dynamic_instructions",
-    )
-
-
-def test_server_generated_plan_text_exposed_to_the_model_is_english():
-    coordinator = PlanCoordinator(
-        run_id="run-english-fallback",
-        mode="on",
-        required_initial_tool_counts={"web_search": 1, "url_read": 2},
-    )
-
-    result = coordinator.adopt_research_fallback()
-
-    assert result.accepted
-    _assert_english(coordinator.canonical_plan_for_model(), path="server_generated_plan")
 
 
 def test_bundled_skill_files_are_english():

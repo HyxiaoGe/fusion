@@ -136,7 +136,6 @@ def test_granted_escalation_matches_a_run_routed_to_the_target_from_the_start():
         direct_target.call_kwargs
     )
     assert escalated.plan_mode == direct_target.plan_mode
-    assert escalated.required_initial_tool_counts == direct_target.required_initial_tool_counts
     assert escalated.escalation_session is None
     assert result.data["tool_names"] == list(escalated.announced_tools)
 
@@ -214,15 +213,6 @@ def test_only_one_escalation_and_limited_attempts_per_run():
     assert asyncio.run(handler.is_run_budget_exhausted())
 
 
-def test_escalation_is_blocked_once_a_plan_exists():
-    source = _config(_candidate("direct"))
-    source.escalation_session.blocked_reason = lambda: "plan_already_created"
-
-    result = _request(source, package_id="weather", reason="x")
-
-    assert result.data["reason_code"] == "plan_already_created"
-
-
 @dataclass
 class _RecordingEmitter:
     escalations: list[dict] = field(default_factory=list)
@@ -278,7 +268,6 @@ def test_pending_escalation_switches_tools_plan_prompt_and_records_the_event():
     assert switched.escalation_tool_names == frozenset()
     assert REQUEST_CAPABILITY_TOOL_NAME not in announced_tool_names_from_call_kwargs(switched.call_kwargs)
     assert "web_search" in announced_tool_names_from_call_kwargs(switched.call_kwargs)
-    assert state.plan_coordinator.allowed_tool_names == frozenset(switched.capability_resolution.external_tool_names)
     section_ids = [message.section_id for message in messages if message.role == "system"]
     assert TOOL_USAGE_CONTRACT in section_ids
     assert section_ids.count(VISIBLE_RESPONSE_LANGUAGE) == 1

@@ -39,7 +39,6 @@ from app.services.source_evidence_ledger import (
     stable_web_evidence_id,
 )
 from app.services.stream.agent_loop_state import AgentLoopState, ProductToolOutcome
-from app.services.stream.dynamic_tool_discovery import TOOL_SEARCH_NAME
 from app.services.stream.itinerary_observability import build_itinerary_tool_observation
 from app.services.stream.itinerary_result_composer import compose_itinerary_result
 from app.services.stream.llm_round_lifecycle import round_tool_names
@@ -74,7 +73,6 @@ class ToolRoundOutcome:
     product_result_count: int = 0
     itinerary_result_count: int = 0
     product_outcomes: tuple[ProductToolOutcome, ...] = ()
-    control_repair_exhausted: bool = False
     unavailable_tool_call_count: int = 0
 
 
@@ -283,9 +281,6 @@ def _failure_recovery_guidance(request: ToolRoundRequest, *, failed_tool_name: s
     if not alternatives:
         return ""
     guidance = render_runtime_prompt("tool_result.recover_failure", available_tools=", ".join(alternatives))
-    coordinator = request.agent_state.plan_coordinator if request.agent_state is not None else None
-    if coordinator is not None and coordinator.has_valid_model_plan:
-        guidance += "\n\n" + render_runtime_prompt("stream.plan_hint_recovery")
     return guidance
 
 
@@ -673,14 +668,6 @@ async def handle_tool_calls_round(*, request: ToolRoundRequest) -> ToolRoundOutc
         if request.agent_state is not None
         else AgentLoopState().plan_coordinator,
         emitter=request.emitter,
-        required_recovery_tool_name=(
-            request.agent_state.required_plan_repair_tool if request.agent_state is not None else None
-        ),
-        discovery_control_tool=(
-            TOOL_SEARCH_NAME
-            if request.agent_state is not None and getattr(request.agent_state, "tool_discovery", None) is not None
-            else None
-        ),
     )
     announced_tool_calls, unavailable_external_calls = _partition_tool_calls_by_announcement(
         request,
@@ -764,16 +751,6 @@ async def handle_tool_calls_round(*, request: ToolRoundRequest) -> ToolRoundOutc
             )
             request.agent_state.recovery_evidence.record_result(record.tool_name, record.result)
     executed_count = _actual_tool_execution_count(executable_tool_calls, results)
-    has_successful_tool_progress = any(not record.reused and record.result.status == "success" for record in results)
-    if request.agent_state is not None and has_successful_tool_progress:
-        if control_result.repair_attempt_count > 0:
-            logger.info(
-                "真实工具执行后重置计划修复计数: run_id=%s previous_attempt=%s limit=%s",
-                request.run_id,
-                control_result.repair_attempt_count,
-                control_result.repair_attempt_limit,
-            )
-        request.agent_state.plan_coordinator.reset_repair_attempts()
     reused_limited_tool_calls, not_executed_tool_calls = _partition_successfully_reusable_calls(
         request,
         selected_tool_calls[1],
@@ -799,7 +776,6 @@ async def handle_tool_calls_round(*, request: ToolRoundRequest) -> ToolRoundOutc
     _record_tool_repairs(request.agent_state, executed_results)
     _record_itinerary_tool_observations(request.agent_state, executed_results)
     source_plan = _build_source_selection_plan(executed_results)
-    record_network_budget_feedback(request, executed_results, source_plan=source_plan)
     await emit_selected_source_evidence(request, executed_results, source_plan=source_plan)
     built_content_blocks = build_tool_round_content_blocks(results)
     observations = append_tool_round_messages_with_plan(
@@ -858,7 +834,6 @@ async def handle_tool_calls_round(*, request: ToolRoundRequest) -> ToolRoundOutc
         product_result_count=sum(is_registered_rich_content_block(block) for block in built_content_blocks.values()),
         itinerary_result_count=1 if itinerary_result is not None else 0,
         product_outcomes=product_outcomes,
-        control_repair_exhausted=(control_result.repair_exhausted and not has_successful_tool_progress),
         unavailable_tool_call_count=len(unavailable_tool_calls),
     )
 
@@ -1316,18 +1291,6 @@ async def emit_selected_source_evidence(
             raise
         except Exception:
             logger.warning("发送推荐深读 evidence 失败", exc_info=True)
-
-
-def record_network_budget_feedback(
-    request: ToolRoundRequest,
-    results: list[ToolExecutionRecord],
-    *,
-    source_plan: SourceSelectionPlan | None,
-) -> None:
-    record_tool_results = getattr(request.network_budget, "record_tool_results", None)
-    if not callable(record_tool_results):
-        return
-    record_tool_results(results=results, source_plan=source_plan)
 
 
 def _completed_tool_calls_before_round(request: ToolRoundRequest) -> int | None:

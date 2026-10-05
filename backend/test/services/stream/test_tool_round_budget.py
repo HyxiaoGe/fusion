@@ -364,7 +364,6 @@ class ToolRoundBudgetTests(IsolatedAsyncioTestCase):
         state = AgentLoopState(total_tool_calls=19)
         on_tools_executed = Mock(wraps=state.record_executed_tool_calls)
         complete_step_fn = AsyncMock()
-        network_budget = SimpleNamespace(record_tool_results=Mock())
         request = _request(
             tool_calls=tool_calls,
             completed_tool_calls=19,
@@ -372,7 +371,6 @@ class ToolRoundBudgetTests(IsolatedAsyncioTestCase):
             execute_tools_fn=execute_tools_fn,
             on_tools_executed=on_tools_executed,
             complete_step_fn=complete_step_fn,
-            network_budget=network_budget,
         )
 
         with patch("app.services.stream.tool_round.mark_tool_round_started", new=AsyncMock()) as mark_started:
@@ -395,8 +393,6 @@ class ToolRoundBudgetTests(IsolatedAsyncioTestCase):
         complete_step_fn.assert_awaited_once()
         self.assertEqual(complete_step_fn.await_args.kwargs["tool_call_count"], 1)
         self.assertEqual(complete_step_fn.await_args.kwargs["completed_tool_calls"], 20)
-        network_budget.record_tool_results.assert_called_once()
-        self.assertEqual(network_budget.record_tool_results.call_args.kwargs["results"], [executed_record])
 
         self.assertEqual(
             [call["id"] for call in request.messages[1]["tool_calls"]], [call["id"] for call in tool_calls]
@@ -515,14 +511,12 @@ class ToolRoundBudgetTests(IsolatedAsyncioTestCase):
         first_record = _record(tool_calls[0])
         execute_tools_fn = AsyncMock(return_value=[first_record])
         on_tools_executed = Mock()
-        network_budget = SimpleNamespace(record_tool_results=Mock())
         request = _request(
             tool_calls=tool_calls,
             completed_tool_calls=17,
             max_tool_calls=20,
             execute_tools_fn=execute_tools_fn,
             on_tools_executed=on_tools_executed,
-            network_budget=network_budget,
         )
 
         with patch("app.services.stream.tool_round.mark_tool_round_started", new=AsyncMock()):
@@ -530,7 +524,6 @@ class ToolRoundBudgetTests(IsolatedAsyncioTestCase):
 
         self.assertEqual(outcome.tool_call_count, 3)
         on_tools_executed.assert_called_once_with(3)
-        self.assertEqual(network_budget.record_tool_results.call_args.kwargs["results"], [first_record])
         tool_messages = request.messages[2:]
         self.assertEqual([message["tool_call_id"] for message in tool_messages], ["tc-1", "tc-2", "tc-3"])
         for message in tool_messages[1:]:
@@ -548,13 +541,11 @@ class ToolRoundBudgetTests(IsolatedAsyncioTestCase):
         first_record = _record(tool_calls[0])
         duplicate_record = _record(tool_calls[0])
         second_record = _record(tool_calls[1])
-        network_budget = SimpleNamespace(record_tool_results=Mock())
         request = _request(
             tool_calls=tool_calls,
             completed_tool_calls=18,
             max_tool_calls=20,
             execute_tools_fn=AsyncMock(return_value=[first_record, duplicate_record, second_record]),
-            network_budget=network_budget,
         )
 
         with (
@@ -564,7 +555,6 @@ class ToolRoundBudgetTests(IsolatedAsyncioTestCase):
             outcome = await handle_tool_calls_round(request=request)
 
         self.assertEqual(outcome.tool_call_count, 2)
-        self.assertEqual(network_budget.record_tool_results.call_args.kwargs["results"], [first_record, second_record])
         self.assertEqual(emit_evidence.await_args.args[1], [first_record, second_record])
         self.assertEqual([message["tool_call_id"] for message in request.messages[2:]], ["tc-1", "tc-2"])
 
@@ -573,13 +563,11 @@ class ToolRoundBudgetTests(IsolatedAsyncioTestCase):
         selected_record = _record(tool_calls[0])
         excluded_record = _record(tool_calls[1])
         unknown_record = _record(_tool_calls(999)[-1])
-        network_budget = SimpleNamespace(record_tool_results=Mock())
         request = _request(
             tool_calls=tool_calls,
             completed_tool_calls=19,
             max_tool_calls=20,
             execute_tools_fn=AsyncMock(return_value=[selected_record, excluded_record, unknown_record]),
-            network_budget=network_budget,
         )
 
         with (
@@ -596,7 +584,6 @@ class ToolRoundBudgetTests(IsolatedAsyncioTestCase):
                 no_progress_search_results=(False,),
             ),
         )
-        self.assertEqual(network_budget.record_tool_results.call_args.kwargs["results"], [selected_record])
         self.assertEqual(emit_evidence.await_args.args[1], [selected_record])
         tool_messages = request.messages[2:]
         self.assertEqual([message["tool_call_id"] for message in tool_messages], ["tc-1", "tc-2", "tc-3"])

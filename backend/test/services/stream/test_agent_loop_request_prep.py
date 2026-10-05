@@ -4,7 +4,6 @@ from unittest.mock import patch
 
 from app.ai.prompts.prompt_message import PromptMessage
 from app.schemas.chat import TextBlock
-from app.services.agent.plan_coordinator import PlanCoordinator
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_DEFINITIONS
 from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_DEFINITIONS
 from app.services.stream.agent_loop_request_prep import (
@@ -107,28 +106,6 @@ def _classifier_for(package_id: str, **kwargs):
 
 
 class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
-    def test_multi_product_primary_is_required_in_first_plan_when_plan_is_on(self):
-        for package_id, explicit_tools in (
-            ("mobility_intercity", None),
-            ("mixed_itinerary", ("route_compare", "search_flights")),
-        ):
-            with self.subTest(package_id=package_id):
-                config = build_agent_loop_call_config(
-                    provider="openai",
-                    options={"plan_mode": "on"},
-                    capabilities={"functionCalling": True, "searchCapable": True},
-                    additional_tools=[*AMAP_PRODUCT_DEFINITIONS, *FLYAI_TRAVEL_DEFINITIONS],
-                    dynamic_tool_handlers={
-                        tool["function"]["name"]: object()
-                        for tool in [*AMAP_PRODUCT_DEFINITIONS, *FLYAI_TRAVEL_DEFINITIONS]
-                    },
-                    original_message="规划跨城出行",
-                    classify_fn=_classifier_for(package_id, explicit_tool_names=explicit_tools),
-                )
-
-                self.assertEqual(config.required_initial_tool_counts, {"route_compare": 1})
-                self.assertEqual(config.plan_tool_policy_reason, f"capability_primary:{package_id}")
-
     def test_verified_web_with_one_denied_required_tool_has_no_impossible_plan(self):
         config = build_agent_loop_call_config(
             provider="openai",
@@ -145,7 +122,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(config.capability_resolution.package_id, "tools_unavailable")
-        self.assertEqual(config.required_initial_tool_counts, {})
         self.assertEqual(config.announced_tools, [])
 
     def test_build_call_config_defaults_to_rule_classifier(self):
@@ -638,7 +614,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn("route_compare", config.announced_tools)
-        self.assertEqual(config.plan_tool_policy_reason, "capability_primary:mobility_intercity")
 
     async def test_io_failure_is_not_an_assembly_failure(self):
         from unittest.mock import patch
@@ -667,7 +642,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 )
             timer.assert_not_called()
 
-    def test_explicit_commute_plan_only_announces_route_tool_and_constrains_plan_schema(self):
+    def test_explicit_commute_plan_only_announces_route_tool(self):
         handlers = {tool["function"]["name"]: object() for tool in AMAP_PRODUCT_DEFINITIONS}
         config = build_agent_loop_call_config(
             provider="deepseek",
@@ -684,16 +659,8 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(config.announced_tools, ["web_search", "url_read", "route_compare"])
-        self.assertEqual(config.required_initial_tool_counts, {"route_compare": 1})
-        # 门禁改为派生自已冻结的能力包，reason 随之标注来源；required/allowed 行为不变。
-        self.assertEqual(config.plan_tool_policy_reason, "capability_package:mobility_route")
-        update_plan = next(tool for tool in config.call_kwargs["tools"] if tool["function"]["name"] == "update_plan")
-        planned_tool_schema = update_plan["function"]["parameters"]["properties"]["plan"]["items"]["properties"][
-            "planned_tools"
-        ]["items"]
-        self.assertEqual(planned_tool_schema["enum"], ["web_search", "url_read", "route_compare"])
 
-    def test_deep_research_only_announces_stage_executable_tools_and_rejects_route_plan(self):
+    def test_deep_research_only_announces_stage_executable_tools(self):
         handlers = {tool["function"]["name"]: object() for tool in AMAP_PRODUCT_DEFINITIONS}
         config = build_agent_loop_call_config(
             provider="openai",
@@ -710,70 +677,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(config.announced_tools, ["web_search", "url_read"])
         self.assertNotIn("route_compare", config.announced_tools)
-        self.assertEqual(config.required_initial_tool_counts, {})
-        self.assertEqual(config.plan_tool_policy_reason, "deep_research_schedulable_tools")
-        update_plan = next(tool for tool in config.call_kwargs["tools"] if tool["function"]["name"] == "update_plan")
-        planned_tool_schema = update_plan["function"]["parameters"]["properties"]["plan"]["items"]["properties"][
-            "planned_tools"
-        ]["items"]
-        self.assertEqual(planned_tool_schema["enum"], ["web_search", "url_read"])
-
-        coordinator = PlanCoordinator(
-            run_id="run-deep-tool-policy",
-            mode="on",
-            allowed_tool_names=frozenset(config.announced_tools),
-            required_initial_tool_counts={"web_search": 1, "url_read": 2},
-        )
-        route_plan = coordinator.apply_model_update(
-            {
-                "reason": "错误地把阶段调度器不会开放的路线工具写入研究计划",
-                "items": [
-                    {
-                        "id": "search",
-                        "title": "搜索候选来源",
-                        "status": "pending",
-                        "kind": "search",
-                        "depends_on": [],
-                        "planned_tools": ["web_search"],
-                    },
-                    {
-                        "id": "read-1",
-                        "title": "核验来源一",
-                        "status": "pending",
-                        "kind": "read",
-                        "depends_on": ["search"],
-                        "planned_tools": ["url_read"],
-                    },
-                    {
-                        "id": "read-2",
-                        "title": "核验来源二",
-                        "status": "pending",
-                        "kind": "read",
-                        "depends_on": ["search"],
-                        "planned_tools": ["url_read"],
-                    },
-                    {
-                        "id": "route",
-                        "title": "比较路线",
-                        "status": "pending",
-                        "kind": "other",
-                        "depends_on": [],
-                        "planned_tools": ["route_compare"],
-                    },
-                    {
-                        "id": "answer",
-                        "title": "整理研究结论",
-                        "status": "pending",
-                        "kind": "answer",
-                        "depends_on": ["read-1", "read-2", "route"],
-                        "planned_tools": [],
-                    },
-                ],
-            }
-        )
-
-        self.assertFalse(route_plan.accepted)
-        self.assertEqual(route_plan.reason, "unannounced_planned_tool")
 
     def test_plan_mode_defaults_off_without_plan_control_tool(self):
         for options in ({}, {"plan_mode": "auto"}):
@@ -796,8 +699,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertNotIn("_plan_item_id", web_tool["function"]["parameters"]["properties"])
 
-    def test_standard_verified_research_constrains_first_plan_to_search_and_reads(self):
-        # #132 第一波：来源请求由模型选包，计划门禁仍按最终包挂载。
+    def test_standard_verified_research_announces_search_and_read(self):
         config = build_agent_loop_call_config(
             provider="openai",
             options={"plan_mode": "on"},
@@ -807,16 +709,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(config.announced_tools, ["web_search", "url_read"])
-        self.assertEqual(
-            config.required_initial_tool_counts,
-            {"web_search": 1, "url_read": 2},
-        )
-        self.assertEqual(config.plan_tool_policy_reason, "verified_research_request")
-        update_plan = next(tool for tool in config.call_kwargs["tools"] if tool["function"]["name"] == "update_plan")
-        planned_tools = update_plan["function"]["parameters"]["properties"]["plan"]["items"]["properties"][
-            "planned_tools"
-        ]["items"]
-        self.assertEqual(planned_tools["enum"], ["web_search", "url_read"])
 
     def test_deep_research_forces_plan_mode_and_records_task_policy(self):
         config = build_agent_loop_call_config(
@@ -831,7 +723,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(config.evidence_policy, "deep_research_v1")
         tools = {tool["function"]["name"]: tool for tool in config.call_kwargs["tools"]}
         self.assertIn("url_read", tools)
-        self.assertIn("_plan_item_id", tools["url_read"]["function"]["parameters"]["required"])
+        self.assertNotIn("_plan_item_id", tools["url_read"]["function"]["parameters"]["properties"])
         self.assertEqual(config.announced_tools, ["web_search", "url_read"])
 
     def test_deep_research_contract_is_only_injected_for_research_mode(self):
@@ -852,14 +744,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("[Deep-research execution contract]", research_messages[0]["content"])
         self.assertIn("complementary queries", research_messages[0]["content"])
         self.assertIn("Use [n] citations in the answer body", research_messages[0]["content"])
-        self.assertIn("planned_tools must include one web_search step", research_messages[0]["content"])
-        self.assertIn("at least two independent url_read steps", research_messages[0]["content"])
-        self.assertNotIn("one read step may read multiple independent sources", research_messages[0]["content"])
-        self.assertIn("Each read step must cover a distinct source task", research_messages[0]["content"])
-        self.assertIn("only when the server keeps that same task retryable/running", research_messages[0]["content"])
-        self.assertIn("across rounds", research_messages[0]["content"])
-        self.assertNotIn("Each read step must read only one source", research_messages[0]["content"])
-        self.assertIn("web_search and url_read must belong to different plan steps", research_messages[0]["content"])
+        self.assertNotIn("planned_tools", research_messages[0]["content"])
         self.assertEqual(standard_messages, [{"role": "user", "content": "调研"}])
 
     def test_plan_mode_off_preserves_old_tools_without_control_tool(self):
@@ -878,7 +763,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         parameters = config.call_kwargs["tools"][0]["function"]["parameters"]
         self.assertNotIn("_plan_item_id", parameters["properties"])
 
-    def test_on_mode_requires_explicit_plan_item_binding_on_external_tools(self):
+    def test_on_mode_plan_tool_is_display_only_and_external_tools_stay_unbound(self):
         config = build_agent_loop_call_config(
             provider="openai",
             options={"plan_mode": "on"},
@@ -892,23 +777,10 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         plan_parameters = tools["update_plan"]["function"]["parameters"]
         plan_item = plan_parameters["properties"]["plan"]["items"]
 
-        self.assertIn("_plan_item_id", web_parameters["properties"])
-        self.assertIn("_plan_item_id", web_parameters["required"])
-        self.assertEqual(web_parameters["properties"]["_plan_item_id"]["type"], "string")
-        self.assertIn("id", plan_item["required"])
-        self.assertIn("planned_tools", plan_item["required"])
-        # 缺省依赖曾被服务端串成线性链，独立查询被迫串行；依赖必须由模型显式声明。
-        self.assertIn("depends_on", plan_item["required"])
-        self.assertEqual(plan_parameters["properties"]["plan"]["maxItems"], 10)
-        self.assertEqual(
-            plan_item["properties"]["id"]["pattern"],
-            "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
-        )
-        self.assertEqual(
-            web_parameters["properties"]["_plan_item_id"]["pattern"],
-            "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
-        )
-        self.assertNotIn("_plan_item_id", plan_parameters["properties"])
+        self.assertNotIn("_plan_item_id", web_parameters["properties"])
+        self.assertEqual(plan_item["required"], ["step", "status"])
+        self.assertNotIn("enum", plan_item["properties"]["planned_tools"]["items"])
+        self.assertEqual(plan_parameters["properties"]["plan"]["maxItems"], 14)
 
     def test_control_plan_tool_only_requires_function_calling_not_search_capability(self):
         config = build_agent_loop_call_config(
@@ -924,53 +796,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(config.announced_tools, [])
 
-    def test_on_mode_without_external_tools_constrains_planned_tools_to_empty_arrays(self):
-        for message, expected_package in (
-            ("你好", "direct"),
-            ("帮我查一下这个", "clarification_only"),
-        ):
-            with self.subTest(message=message):
-                config = build_agent_loop_call_config(
-                    provider="openai",
-                    options={"plan_mode": "on"},
-                    capabilities={"functionCalling": True, "searchCapable": True},
-                    original_message=message,
-                    classify_fn=_classifier_for_removed_literal(message),
-                )
-
-                update_plan = next(
-                    tool for tool in config.call_kwargs["tools"] if tool["function"]["name"] == "update_plan"
-                )
-                parameters = update_plan["function"]["parameters"]
-                planned_tools = parameters["properties"]["plan"]["items"]["properties"]["planned_tools"]
-                empty_plan = {
-                    "plan": [
-                        {"id": "step-1", "step": "理解请求", "status": "pending", "planned_tools": []},
-                        {"id": "step-2", "step": "直接回答", "status": "pending", "planned_tools": []},
-                    ]
-                }
-                invalid_plan = {
-                    "plan": [
-                        {
-                            "id": "step-1",
-                            "step": "错误调用未公告工具",
-                            "status": "pending",
-                            "planned_tools": ["web_search"],
-                        },
-                        {"id": "step-2", "step": "直接回答", "status": "pending", "planned_tools": []},
-                    ]
-                }
-
-                self.assertEqual(config.capability_resolution.package_id, expected_package)
-                self.assertEqual(config.announced_tools, [])
-                self.assertEqual(planned_tools["maxItems"], 0)
-                self.assertTrue(
-                    all(len(item["planned_tools"]) <= planned_tools["maxItems"] for item in empty_plan["plan"])
-                )
-                self.assertFalse(
-                    all(len(item["planned_tools"]) <= planned_tools["maxItems"] for item in invalid_plan["plan"])
-                )
-
     def test_requested_on_mode_defensively_disables_when_model_cannot_call_control_tool(self):
         config = build_agent_loop_call_config(
             provider="openai",
@@ -982,7 +807,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("tools", config.call_kwargs)
         self.assertEqual(config.control_tool_names, frozenset())
 
-    def test_on_plan_contract_requires_plan_before_any_answer_or_external_tool(self):
+    def test_on_plan_contract_describes_plan_as_display_only(self):
         config = build_agent_loop_call_config(
             provider="openai",
             options={"plan_mode": "on"},
@@ -991,8 +816,8 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
 
         prepared = inject_plan_control_contract([{"role": "user", "content": "你好"}], config)
 
-        self.assertIn("Mandatory planning mode is enabled for this round", prepared[0]["content"])
-        self.assertIn("before answering or calling any external tool", prepared[0]["content"])
+        self.assertIn("[Execution plan]", prepared[0]["content"])
+        self.assertIn("does not restrict which tools you may call", prepared[0]["content"])
 
     def test_plan_contract_is_not_injected_when_plan_mode_is_off(self):
         config = build_agent_loop_call_config(

@@ -1,63 +1,26 @@
-"""Agent Plan Mode 的单一计划状态所有者。"""
+"""Agent 计划的展示状态。
+
+计划只用于让用户看到模型打算怎么做、做到了哪一步：服务端记录模型提交的计划，
+随工具执行更新步骤状态，不校验计划结构、不要求工具绑定步骤、不据此拒绝或改写
+模型的行动（2026-10-05 计划校验层已拆除）。
+"""
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
-from functools import partial
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
-
-from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
-
 PlanMode = Literal["auto", "on", "off"]
-PlanSource = Literal["model"]
 PlanStatus = Literal["pending", "running", "completed", "failed", "skipped", "blocked"]
 PlanKind = Literal["reasoning", "search", "read", "synthesis", "answer", "other"]
 
-_PLAN_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
-_SYSTEM_FALLBACK_REASON = "system_fallback"
+_PLAN_STATUSES = frozenset({"pending", "running", "completed", "failed", "skipped", "blocked"})
+_PLAN_KINDS = frozenset({"reasoning", "search", "read", "synthesis", "answer", "other"})
 _TERMINAL_STATUSES = frozenset({"completed", "failed", "skipped", "blocked"})
-_FAILED_DEPENDENCY_STATUSES = frozenset({"failed", "skipped", "blocked"})
-_INITIAL_PLAN_REPAIR_ATTEMPT_LIMIT = 3
-_ACTIVE_PLAN_REPAIR_ATTEMPT_LIMIT = 5
-_MAX_SERVER_RECOVERY_ITEMS_PER_TOOL = 2
-# 新建或待执行的步骤上限；修订时保留下来的已执行/已终态步骤不占这个名额。
-_MAX_OPEN_PLAN_ITEMS = 10
+_STATUS_ALIASES = {"in_progress": "running", "done": "completed", "todo": "pending"}
 _MAX_PLAN_ITEMS = 14
-
-
-class ModelPlanItem(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    title: str = Field(min_length=1, max_length=120)
-    status: PlanStatus
-    kind: PlanKind
-    depends_on: list[str] = Field(default_factory=list, max_length=12)
-    planned_tools: list[str] = Field(default_factory=list, max_length=12)
-
-    @field_validator("id")
-    @classmethod
-    def validate_id(cls, value: str) -> str:
-        if not _PLAN_ID_RE.fullmatch(value):
-            raise ValueError("invalid_plan_item_id")
-        return value
-
-    @field_validator("depends_on", "planned_tools")
-    @classmethod
-    def validate_string_list(cls, values: list[str]) -> list[str]:
-        if any(not value or len(value) > 128 for value in values):
-            raise ValueError("invalid_string_list")
-        return list(dict.fromkeys(values))
-
-
-class ModelPlanUpdate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    reason: str = Field(min_length=1, max_length=240)
-    items: list[ModelPlanItem] = Field(min_length=2, max_length=_MAX_PLAN_ITEMS)
+_MAX_TITLE_LENGTH = 120
+_MAX_ID_LENGTH = 64
 
 
 @dataclass(frozen=True)
@@ -67,728 +30,43 @@ class PlanUpdateResult:
     snapshot: dict[str, Any] | None = None
 
 
-@dataclass(frozen=True)
-class PlanRepairResult:
-    exhausted: bool
-    fallback: PlanUpdateResult | None = None
-    attempt_count: int = 0
-    attempt_limit: int = 0
-
-
 @dataclass
 class PlanCoordinator:
-    """集中管理新运行中唯一权威的模型计划 revision。"""
+    """记录本次运行最新的模型计划，供轨迹与前端展示。"""
 
     run_id: str
-    mode: PlanMode = "auto"
-    max_valid_updates: int = 6
+    mode: PlanMode = "off"
     revision: int = 0
-    source: PlanSource = "model"
     reason: str = "not_started"
     items: list[dict[str, Any]] = field(default_factory=list)
-    valid_update_count: int = 0
-    repair_attempt_count: int = 0
-    consecutive_no_progress_updates: int = 0
-    required_initial_tool_counts: dict[str, int] = field(default_factory=dict)
-    allowed_tool_names: frozenset[str] | None = None
-    attempted_tool_item_ids: set[str] = field(default_factory=set)
-    successful_tool_item_ids: set[str] = field(default_factory=set)
-    failed_tool_item_ids: set[str] = field(default_factory=set)
-    # 只因上游失败被连带阻塞、自身从未执行的步骤；模型修订时可以改依赖或删除。
-    dependency_blocked_item_ids: set[str] = field(default_factory=set)
-    server_recovery_item_ids: set[str] = field(default_factory=set)
-    recovery_replanned_item_ids: set[str] = field(default_factory=set)
-    synthesis_started: bool = False
     terminal_outcome: str | None = None
-    # 文档写入与 Skill 加载不属于任何计划步骤，不要求也不消费计划绑定。
-    unplanned_tool_names: frozenset[str] = frozenset()
 
     @property
     def has_valid_model_plan(self) -> bool:
-        return self.source == "model" and self.revision > 0 and bool(self.items)
+        return self.revision > 0 and bool(self.items)
 
-    def apply_model_update(
-        self,
-        payload: Any,
-        *,
-        required_active_tool_name: str | None = None,
-    ) -> PlanUpdateResult:
+    def apply_model_update(self, payload: Any) -> PlanUpdateResult:
         if self.mode == "off":
             return PlanUpdateResult(False, "plan_mode_off")
         if self.terminal_outcome is not None:
             return PlanUpdateResult(False, "run_already_terminal")
-        if self.synthesis_started:
-            return PlanUpdateResult(False, "synthesis_already_started")
-        repairable_item_ids = self._repairable_blocked_item_ids()
-        locked_item_ids = set(self.attempted_tool_item_ids)
-        locked_item_ids.update(
-            str(item.get("id"))
-            for item in self.items
-            if item.get("status") in {"completed", "failed", "skipped", "blocked"}
-        )
-        locked_item_ids -= repairable_item_ids
-        payload = _normalize_model_plan_payload(
-            payload,
-            previous_items=self.items,
-            locked_item_ids=locked_item_ids,
-        )
-        try:
-            update = ModelPlanUpdate.model_validate(payload)
-        except ValidationError:
-            return self._reject_repair("invalid_plan_structure")
-
-        item_ids = [item.id for item in update.items]
-        if len(item_ids) - len(locked_item_ids.intersection(item_ids)) > _MAX_OPEN_PLAN_ITEMS:
-            return self._reject_repair("invalid_plan_structure")
-        if len(item_ids) != len(set(item_ids)):
-            return self._reject_repair("duplicate_item_id")
-        if any(len(item.planned_tools) > 1 for item in update.items):
-            return self._reject_repair("multiple_tools_per_item")
-        if self.allowed_tool_names is not None and any(
-            tool_name not in self.allowed_tool_names for item in update.items for tool_name in item.planned_tools
-        ):
-            return self._reject_repair("unannounced_planned_tool")
-        known_ids = set(item_ids)
-        if self.has_valid_model_plan:
-            previous_items_by_id = {str(item.get("id")): item for item in self.items}
-            previous_terminal_ids = {
-                item_id
-                for item_id, item in previous_items_by_id.items()
-                if item.get("status") in {"completed", "failed", "skipped", "blocked"}
-                and item_id not in repairable_item_ids
-            }
-            if previous_terminal_ids - known_ids:
-                return self._reject_repair("terminal_item_removed")
-            previous_attempted_ids = self.attempted_tool_item_ids.intersection(previous_items_by_id)
-            if previous_attempted_ids - known_ids:
-                return self._reject_repair("attempted_item_removed")
-        for item in update.items:
-            if item.id in item.depends_on:
-                return self._reject_repair("self_dependency")
-            if any(dependency not in known_ids for dependency in item.depends_on):
-                return self._reject_repair("unknown_dependency")
-        dependencies = {item.id: set(item.depends_on) for item in update.items}
-        if _has_dependency_cycle(dependencies):
-            return self._reject_repair("dependency_cycle")
-        structure_error, _ = _terminal_answer_phase(update.items)
-        if structure_error is not None:
-            return self._reject_repair(structure_error)
-        if not self.has_valid_model_plan and self.required_initial_tool_counts:
-            required_tool_names = set(self.required_initial_tool_counts)
-            planned_counts = {
-                tool_name: sum(
-                    tool_name in item.planned_tools
-                    and not (required_tool_names - {tool_name}).intersection(item.planned_tools)
-                    for item in update.items
-                )
-                for tool_name in self.required_initial_tool_counts
-            }
-            if any(
-                planned_counts.get(tool_name, 0) < required_count
-                for tool_name, required_count in self.required_initial_tool_counts.items()
-            ):
-                return self._reject_repair("missing_required_initial_tool_coverage")
-        if _research_dependency_error(update.items, self.required_initial_tool_counts) is not None:
-            return self._reject_repair("research_read_missing_search_dependency")
-        if self.has_valid_model_plan:
-            previous_status = {str(item.get("id")): item.get("status") for item in self.items}
-            previous_items_by_id = {str(item.get("id")): item for item in self.items}
-            previous_attempted_ids = self.attempted_tool_item_ids.intersection(previous_items_by_id)
-            for item in update.items:
-                previous_item = previous_items_by_id.get(item.id)
-                if item.id in repairable_item_ids:
-                    continue
-                if previous_status.get(item.id) in {"completed", "failed", "skipped", "blocked"} and previous_item:
-                    locked_fields = ("title", "kind", "depends_on", "planned_tools")
-                    if any(getattr(item, field) != previous_item.get(field) for field in locked_fields):
-                        return self._reject_repair("terminal_item_mutated")
-                elif item.id in previous_attempted_ids and previous_item:
-                    locked_fields = ("title", "kind", "depends_on", "planned_tools")
-                    if any(getattr(item, field) != previous_item.get(field) for field in locked_fields):
-                        return self._reject_repair("attempted_item_mutated")
-
-        normalized_items = _assign_user_visible_phases(
-            [item.model_dump() for item in update.items],
-            previous_items=self.items,
-        )
-        if required_active_tool_name and not self._items_have_active_tool_owner(
-            normalized_items,
-            required_active_tool_name,
-        ):
-            return self._reject_repair("missing_required_recovery_owner")
-        for item in normalized_items:
-            if str(item.get("id")) in repairable_item_ids:
-                item["status"] = "pending"
-        dependency_blocks = self._dependency_block_statuses_for(normalized_items)
-        for item in normalized_items:
-            if str(item.get("id")) in dependency_blocks:
-                item["status"] = "blocked"
-        if self.has_valid_model_plan and normalized_items == self.items:
-            self.consecutive_no_progress_updates += 1
-            self._mark_recovery_handled()
-            return PlanUpdateResult(True, "no_change", self.snapshot(reason="no_change"))
-        if self.valid_update_count >= min(6, self.max_valid_updates):
-            return PlanUpdateResult(False, "control_update_limit_reached")
-
+        items = _normalize_plan_items(payload, previous_items=self.items)
+        if not items:
+            return PlanUpdateResult(False, "invalid_plan_structure")
+        self.items = _assign_user_visible_phases(items, previous_items=self.items)
         self.revision += 1
-        self.valid_update_count += 1
-        self.source = "model"
         self.reason = "model_update"
-        self.items = normalized_items
-        self.failed_tool_item_ids.difference_update(repairable_item_ids)
-        self.dependency_blocked_item_ids.difference_update(repairable_item_ids)
-        self.failed_tool_item_ids.update(dependency_blocks)
-        self.dependency_blocked_item_ids.update(dependency_blocks)
-        self._mark_recovery_handled()
-        self.reset_repair_attempts()
         return PlanUpdateResult(True, "model_update", self.snapshot())
-
-    def _reject_repair(self, reason: str) -> PlanUpdateResult:
-        return PlanUpdateResult(False, reason)
-
-    def _repairable_blocked_item_ids(self) -> set[str]:
-        """只被失败依赖连带阻塞、自身从未执行的步骤没有执行事实需要保护。
-
-        把它们和真实失败的步骤一样锁死，会让模型既不能改依赖也不能删除，
-        补一个替代步骤又超出步骤上限，修复只能耗尽（真实验收 run 2781b2a9）。
-        """
-
-        return {
-            str(item.get("id"))
-            for item in self.items
-            if item.get("status") == "blocked"
-            and str(item.get("id")) in self.dependency_blocked_item_ids
-            and str(item.get("id")) not in self.attempted_tool_item_ids
-        }
-
-    def rewirable_step_ids(self) -> list[str]:
-        """按计划顺序返回可改依赖或删除的连带阻塞步骤，供拒绝回执告知模型。"""
-
-        repairable_item_ids = self._repairable_blocked_item_ids()
-        return [str(item.get("id")) for item in self.items if str(item.get("id")) in repairable_item_ids]
-
-    def _dependency_block_statuses_for(self, items: list[dict[str, Any]]) -> dict[str, PlanStatus]:
-        previous_items = self.items
-        self.items = items
-        try:
-            return self._dependency_block_statuses({})
-        finally:
-            self.items = previous_items
-
-    def repair_attempt_limit(self, *, tolerate_status_drift: bool = False) -> int:
-        """仅对已有计划的并发/终态漂移放宽阈值，其他错误保持原门禁。"""
-
-        if self.has_valid_model_plan and tolerate_status_drift:
-            return _ACTIVE_PLAN_REPAIR_ATTEMPT_LIMIT
-        return _INITIAL_PLAN_REPAIR_ATTEMPT_LIMIT
-
-    def record_repair_round(self, *, tolerate_status_drift: bool = False) -> bool:
-        self.repair_attempt_count += 1
-        return self.repair_attempt_count >= self.repair_attempt_limit(
-            tolerate_status_drift=tolerate_status_drift,
-        )
-
-    def reset_repair_attempts(self) -> None:
-        """有效计划更新或真实工具执行会打断连续修复失败。"""
-
-        self.repair_attempt_count = 0
-        self.consecutive_no_progress_updates = 0
-
-    @property
-    def plan_control_suppressed(self) -> bool:
-        """连续重复同一计划时暂停控制工具，强制模型推进当前真实任务。"""
-
-        return self.has_valid_model_plan and self.consecutive_no_progress_updates >= 2
-
-    def record_repair_round_with_fallback(
-        self,
-        *,
-        tolerate_status_drift: bool = False,
-    ) -> PlanRepairResult:
-        """记录一次计划修复，并仅在尚无有效计划时采用研究兜底计划。"""
-
-        exhausted = self.record_repair_round(
-            tolerate_status_drift=tolerate_status_drift,
-        )
-        attempt_count = self.repair_attempt_count
-        attempt_limit = self.repair_attempt_limit(
-            tolerate_status_drift=tolerate_status_drift,
-        )
-        if not exhausted:
-            return PlanRepairResult(
-                exhausted=False,
-                attempt_count=attempt_count,
-                attempt_limit=attempt_limit,
-            )
-        fallback = self.adopt_research_fallback()
-        if fallback.accepted:
-            return PlanRepairResult(
-                exhausted=False,
-                fallback=fallback,
-                attempt_count=attempt_count,
-                attempt_limit=attempt_limit,
-            )
-        return PlanRepairResult(
-            exhausted=True,
-            attempt_count=attempt_count,
-            attempt_limit=attempt_limit,
-        )
-
-    def adopt_research_fallback(self) -> PlanUpdateResult:
-        """连续计划修复失败后采用最小研究计划，避免无证据直接收尾。"""
-
-        if (
-            self.has_valid_model_plan
-            or self.mode != "on"
-            or self.required_initial_tool_counts
-            != {
-                "web_search": 1,
-                "url_read": 2,
-            }
-        ):
-            return PlanUpdateResult(False, "fallback_not_applicable")
-        update = ModelPlanUpdate.model_validate(
-            {
-                "reason": _SYSTEM_FALLBACK_REASON,
-                "items": [
-                    {
-                        "id": "research-search",
-                        "title": render_runtime_prompt("research.fallback_search_title"),
-                        "status": "pending",
-                        "kind": "search",
-                        "depends_on": [],
-                        "planned_tools": ["web_search"],
-                    },
-                    {
-                        "id": "research-read-primary",
-                        "title": render_runtime_prompt("research.fallback_primary_title"),
-                        "status": "pending",
-                        "kind": "read",
-                        "depends_on": ["research-search"],
-                        "planned_tools": ["url_read"],
-                    },
-                    {
-                        "id": "research-read-secondary",
-                        "title": render_runtime_prompt("research.fallback_secondary_title"),
-                        "status": "pending",
-                        "kind": "read",
-                        "depends_on": ["research-search"],
-                        "planned_tools": ["url_read"],
-                    },
-                    {
-                        "id": "research-answer",
-                        "title": render_runtime_prompt("research.fallback_answer_title"),
-                        "status": "pending",
-                        "kind": "answer",
-                        "depends_on": ["research-read-primary", "research-read-secondary"],
-                        "planned_tools": [],
-                    },
-                ],
-            }
-        )
-        self.revision += 1
-        self.source = "model"
-        self.reason = _SYSTEM_FALLBACK_REASON
-        self.items = _assign_user_visible_phases([item.model_dump() for item in update.items])
-        self.reset_repair_attempts()
-        return PlanUpdateResult(True, _SYSTEM_FALLBACK_REASON, self.snapshot())
-
-    def configure_initial_tool_requirements(self, requirements: dict[str, int]) -> None:
-        """配置首个模型计划必须预留的工具步骤数量。"""
-
-        self.required_initial_tool_counts = {
-            str(tool_name): int(count)
-            for tool_name, count in requirements.items()
-            if isinstance(tool_name, str)
-            and tool_name
-            and isinstance(count, int)
-            and not isinstance(count, bool)
-            and count > 0
-        }
 
     def snapshot(self, *, reason: str | None = None) -> dict[str, Any]:
         return {
-            "plan_id": f"plan-{self.run_id}-model" if self.source == "model" else f"plan-{self.run_id}",
+            "plan_id": f"plan-{self.run_id}-model",
             "mode": self.mode,
-            "source": self.source,
+            "source": "model",
             "revision": self.revision,
             "reason": reason or self.reason,
             "items": [dict(item) for item in self.items],
         }
-
-    def canonical_plan_for_model(self) -> list[dict[str, Any]]:
-        """返回可直接用于下一次 update_plan 的安全 canonical 计划。"""
-
-        return [
-            {
-                "id": str(item.get("id")),
-                "step": str(item.get("title", "")),
-                "status": "pending",
-                "kind": item.get("kind", "other"),
-                "depends_on": list(item.get("depends_on") or []),
-                "planned_tools": list(item.get("planned_tools") or []),
-            }
-            for item in self.items
-            if item.get("id") and item.get("title")
-        ]
-
-    def add_server_recovery_item(self, tool_name: str) -> dict[str, Any] | None:
-        """为失败后的同阶段工作补一个服务端可执行任务，不改写既有终态。"""
-
-        if (
-            not self.has_valid_model_plan
-            or self.synthesis_started
-            or self.terminal_outcome is not None
-            or self.active_plan_item_ids_for_tool(tool_name)
-            or (self.allowed_tool_names is not None and tool_name not in self.allowed_tool_names)
-        ):
-            return None
-        tool_owners = [item for item in self.items if item.get("planned_tools") == [tool_name]]
-        if not tool_owners:
-            return None
-        failed_owners = [item for item in tool_owners if item.get("status") in {"failed", "skipped", "blocked"}]
-        recovery_prefix = f"recovery-{tool_name.replace('_', '-')}"
-        recovery_count = sum(str(item.get("id", "")).startswith(recovery_prefix) for item in self.items)
-        if recovery_count >= _MAX_SERVER_RECOVERY_ITEMS_PER_TOOL:
-            return None
-
-        recovery_id = f"{recovery_prefix}-{recovery_count + 1}"
-        existing_ids = {str(item.get("id")) for item in self.items}
-        while recovery_id in existing_ids:
-            recovery_count += 1
-            recovery_id = f"{recovery_prefix}-{recovery_count + 1}"
-
-        template = failed_owners[-1] if failed_owners else tool_owners[-1]
-        recovery_depends_on = list(template.get("depends_on") or [])
-        insertion_template = template
-        if self._auto_completable_prerequisites(str(template.get("id"))) is None and tool_name == "url_read":
-            successful_search_owner = next(
-                (
-                    item
-                    for item in reversed(self.items)
-                    if item.get("planned_tools") == ["web_search"]
-                    and str(item.get("id")) in self.successful_tool_item_ids
-                ),
-                None,
-            )
-            if successful_search_owner is None:
-                return None
-            recovery_depends_on = [str(successful_search_owner.get("id"))]
-            insertion_template = successful_search_owner
-        recovery_item = {
-            "id": recovery_id,
-            "title": render_runtime_prompt(
-                "research.replacement_source_title" if tool_name == "url_read" else "research.retry_task_title"
-            ),
-            "status": "pending",
-            "kind": template.get("kind", "other"),
-            "depends_on": recovery_depends_on,
-            "planned_tools": [tool_name],
-        }
-        answer_item_id = self._answer_phase_item_id()
-        template_phase_id = insertion_template.get("phase_id")
-        template_index = self.items.index(insertion_template)
-        insertion_index = template_index + 1
-        if template_phase_id:
-            matching_phase_indexes = [
-                index for index, item in enumerate(self.items) if item.get("phase_id") == template_phase_id
-            ]
-            if matching_phase_indexes:
-                insertion_index = max(matching_phase_indexes) + 1
-        updated_items: list[dict[str, Any]] = []
-        for index, item in enumerate(self.items):
-            if index == insertion_index:
-                updated_items.append(recovery_item)
-            updated_item = dict(item)
-            if str(item.get("id")) == answer_item_id:
-                updated_item["depends_on"] = [
-                    *list(item.get("depends_on") or []),
-                    recovery_id,
-                ]
-            updated_items.append(updated_item)
-        if insertion_index == len(self.items):
-            updated_items.append(recovery_item)
-        if answer_item_id is None:
-            return None
-
-        self.items = _assign_user_visible_phases(
-            updated_items,
-            previous_items=self.items,
-        )
-        self.server_recovery_item_ids.add(recovery_id)
-        self.revision += 1
-        self.reason = "server_recovery_item_added"
-        self.reset_repair_attempts()
-        return self.snapshot()
-
-    def _items_have_active_tool_owner(
-        self,
-        items: list[dict[str, Any]],
-        tool_name: str,
-    ) -> bool:
-        previous_items = self.items
-        self.items = items
-        try:
-            return bool(self.active_plan_item_ids_for_tool(tool_name))
-        finally:
-            self.items = previous_items
-
-    def terminalize(self, outcome: str, *, has_final_answer: bool = False) -> dict[str, Any] | None:
-        if not self.has_valid_model_plan or self.terminal_outcome is not None:
-            return None
-        self.terminal_outcome = outcome
-        for item in self.items:
-            item_id = str(item.get("id"))
-            status = item.get("status")
-            if status in {"completed", "failed", "skipped", "blocked"}:
-                continue
-            if outcome in {"stop", "limit_reached", "incomplete"}:
-                if item_id in self.failed_tool_item_ids:
-                    item["status"] = "blocked"
-                elif item_id in self.successful_tool_item_ids:
-                    item["status"] = "completed"
-                elif item_id in self.attempted_tool_item_ids:
-                    item["status"] = "blocked"
-                elif has_final_answer and (
-                    item.get("kind") in {"reasoning", "synthesis", "answer"}
-                    or (item.get("kind") == "other" and not (item.get("planned_tools") or []))
-                ):
-                    item["status"] = "completed"
-                elif outcome in {"limit_reached", "incomplete"}:
-                    item["status"] = "blocked"
-                elif item.get("kind") in {"reasoning", "synthesis", "answer"}:
-                    item["status"] = "blocked"
-                elif status == "running":
-                    item["status"] = "blocked"
-                else:
-                    item["status"] = "skipped"
-            elif outcome in {"interrupted", "superseded"}:
-                item["status"] = "skipped"
-            elif outcome == "failed":
-                item["status"] = "failed" if status == "running" else "skipped"
-            else:
-                item["status"] = "blocked"
-        self.revision += 1
-        self.reason = f"terminal_{outcome}"
-        return self.snapshot()
-
-    def contains_item(self, item_id: str) -> bool:
-        return any(item.get("id") == item_id for item in self.items)
-
-    def _items_by_id(self) -> dict[str, dict[str, Any]]:
-        return {str(item.get("id")): item for item in self.items if item.get("id")}
-
-    def _running_item_id(self) -> str | None:
-        return next(
-            (str(item.get("id")) for item in self.items if item.get("status") == "running"),
-            None,
-        )
-
-    def _auto_completable_prerequisites(self, item_id: str) -> set[str] | None:
-        """返回工具启动时可同 revision 完成的无工具前置；None 表示依赖尚不可执行。"""
-
-        items_by_id = self._items_by_id()
-        auto_completed: set[str] = set()
-        visiting: set[str] = set()
-
-        def visit(dependency_id: str) -> bool:
-            dependency = items_by_id.get(dependency_id)
-            if dependency is None or dependency_id in visiting:
-                return False
-            status = dependency.get("status")
-            if status == "completed":
-                return True
-            if status in _FAILED_DEPENDENCY_STATUSES or status == "running":
-                return False
-            if dependency.get("planned_tools") or dependency.get("kind") not in {
-                "reasoning",
-                "other",
-            }:
-                return False
-            visiting.add(dependency_id)
-            dependencies_ready = all(visit(str(parent_id)) for parent_id in dependency.get("depends_on") or [])
-            visiting.remove(dependency_id)
-            if not dependencies_ready:
-                return False
-            auto_completed.add(dependency_id)
-            return True
-
-        item = items_by_id.get(item_id)
-        if item is None:
-            return None
-        if all(visit(str(dependency_id)) for dependency_id in item.get("depends_on") or []):
-            return auto_completed
-        return None
-
-    def _tool_item_is_bindable(
-        self,
-        item: dict[str, Any],
-        tool_name: str,
-    ) -> bool:
-        item_id = str(item.get("id"))
-        if item.get("planned_tools") != [tool_name]:
-            return False
-        if item.get("status") not in {"pending", "running"}:
-            return False
-        running_item_id = self._running_item_id()
-        if running_item_id is not None and running_item_id != item_id:
-            return False
-        return self._auto_completable_prerequisites(item_id) is not None
-
-    def _dependency_block_statuses(
-        self,
-        proposed_statuses: dict[str, PlanStatus],
-    ) -> dict[str, PlanStatus]:
-        """失败依赖只递归阻塞后继执行项，最终回答仍由综合阶段诚实收口。"""
-
-        statuses = {str(item.get("id")): str(item.get("status")) for item in self.items if item.get("id")}
-        statuses.update(proposed_statuses)
-        items_by_id = self._items_by_id()
-        blocked: dict[str, PlanStatus] = {}
-
-        def has_failed_ancestor(item_id: str, visiting: set[str]) -> bool:
-            if item_id in visiting:
-                return False
-            if statuses.get(item_id) in _FAILED_DEPENDENCY_STATUSES:
-                return True
-            item = items_by_id.get(item_id)
-            if item is None or statuses.get(item_id) == "completed":
-                return False
-            visiting.add(item_id)
-            failed = any(
-                has_failed_ancestor(str(dependency_id), visiting) for dependency_id in item.get("depends_on") or []
-            )
-            visiting.remove(item_id)
-            return failed
-
-        changed = True
-        while changed:
-            changed = False
-            for item in self.items:
-                item_id = str(item.get("id"))
-                if item.get("kind") in {"answer", "synthesis"} or statuses.get(item_id) in _TERMINAL_STATUSES:
-                    continue
-                if any(
-                    has_failed_ancestor(str(dependency_id), set()) for dependency_id in item.get("depends_on") or []
-                ):
-                    statuses[item_id] = "blocked"
-                    blocked[item_id] = "blocked"
-                    changed = True
-        return blocked
-
-    def has_active_tool_owner(self, tool_name: str) -> bool:
-        """判断当前计划是否存在可合法绑定该工具的未完成步骤。"""
-
-        return bool(self.active_plan_item_ids_for_tool(tool_name))
-
-    def active_plan_item_ids_for_tool(self, tool_name: str) -> list[str]:
-        """返回当前工具可绑定的未完成计划项 ID，供工具 schema 收窄取值。"""
-
-        return [str(item.get("id")) for item in self.items if self._tool_item_is_bindable(item, tool_name)]
-
-    def sole_server_recovery_item_id_for_tool(self, tool_name: str) -> str | None:
-        """唯一可执行项由服务端创建时，允许协议层纠正模型遗留的旧绑定。"""
-
-        active_item_ids = self.active_plan_item_ids_for_tool(tool_name)
-        if len(active_item_ids) != 1:
-            return None
-        item_id = active_item_ids[0]
-        return item_id if item_id in self.server_recovery_item_ids else None
-
-    def unexecuted_plan_item_ids_for_tool(self, tool_name: str) -> list[str]:
-        """返回尚未取得成功执行证据的未完成工具步骤。"""
-
-        return [
-            item_id
-            for item_id in self.active_plan_item_ids_for_tool(tool_name)
-            if item_id not in self.successful_tool_item_ids or item_id in self.failed_tool_item_ids
-        ]
-
-    def unexecuted_plan_tool_names(self) -> set[str]:
-        """返回仍有计划项未取得成功执行证据的工具名。"""
-
-        return {
-            str(tool_name)
-            for item in self.items
-            if (
-                str(item.get("id")) not in self.successful_tool_item_ids
-                or str(item.get("id")) in self.failed_tool_item_ids
-            )
-            and item.get("status") not in {"completed", "failed", "skipped", "blocked"}
-            for tool_name in (item.get("planned_tools") or [])
-            if isinstance(tool_name, str) and tool_name
-        }
-
-    def active_plan_tool_names(self) -> set[str]:
-        """返回当前依赖已经满足、可以进入下一轮执行的计划工具。"""
-
-        return {
-            tool_name
-            for item in self.items
-            for tool_name in (item.get("planned_tools") or [])
-            if isinstance(tool_name, str) and self._tool_item_is_bindable(item, tool_name)
-        }
-
-    def blocked_tool_item_ids(self) -> set[str]:
-        """因失败/跳过/阻塞而无法再执行的工具项。
-
-        这类项不再满足 _tool_item_is_bindable 的 pending/running 要求，于是
-        active_plan_tool_names() 收敛为空集，工具目录被整个摘掉。纯推理或回答项
-        失败不计入——它们本就不带工具。
-        """
-        return {
-            str(item.get("id"))
-            for item in self.items
-            if (item.get("planned_tools") or []) and item.get("status") in _FAILED_DEPENDENCY_STATUSES
-        }
-
-    def can_attempt_plan_revision(self) -> bool:
-        """修订预算：还允不允许模型再改一次计划。
-
-        这是「能改几次」，与「什么时候能改」无关。两者曾经绑在一起——预算被嵌在
-        needs_recovery_replan 内部，于是 update_plan 只在出现新失败时才可见；
-        搜索成功后才发现需要读原文的模型只能先制造一次失败才拿得回改计划权。
-
-        不另设低次数上限——那会压制正常恢复。复用既有的无进展与总修订约束：
-        模型一旦原样重交计划（no_change），说明它拿不出新方案，再给也没有意义；
-        总修订次数仍受 max_valid_updates 限制。
-        """
-        if self.consecutive_no_progress_updates > 0:
-            return False
-        return self.valid_update_count < min(6, self.max_valid_updates)
-
-    def needs_recovery_replan(self) -> bool:
-        """是否存在尚未处理的工具失败，需要把改计划权交还模型。
-
-        纯查询，不记账。记账必须发生在模型真正给出答复时（计划被接受，或原样
-        重交表明无方案）——只是「把 update_plan 摆出去」就标记已处理的话，模型
-        第一版恢复计划被结构校验拒绝后就再也拿不到工具去提交修正了。
-
-        失败项必须永久保留 failed 状态，所以这里按失败项 ID 记账而非判断「历史
-        上有没有失败」：恢复成功后旧失败仍在，但已记入已处理集合，不会把模型
-        反复推回改计划；恢复步骤自身失败会产生新的失败项，可以再次触发。
-        """
-        if not self.can_attempt_plan_revision():
-            return False
-        return bool(self.blocked_tool_item_ids() - self.recovery_replanned_item_ids)
-
-    def _mark_recovery_handled(self) -> None:
-        """模型已就当前这批失败给出答复，本次恢复机会结束。"""
-
-        self.recovery_replanned_item_ids |= self.blocked_tool_item_ids()
-
-    def plan_item_id_for_tool(
-        self,
-        tool_name: str,
-        *,
-        requested_item_id: str | None = None,
-    ) -> str | None:
-        matches = [
-            *self.active_plan_item_ids_for_tool(tool_name),
-        ]
-        if requested_item_id is not None:
-            return requested_item_id if requested_item_id in matches else None
-        return matches[0] if len(matches) == 1 else None
 
     def plan_item_ids_for_tools(
         self,
@@ -796,209 +74,72 @@ class PlanCoordinator:
         *,
         requested_item_ids: list[str | None] | None = None,
     ) -> list[str | None]:
-        if requested_item_ids is not None:
-            return [
-                self.plan_item_id_for_tool(tool_name, requested_item_id=requested_item_id)
-                for tool_name, requested_item_id in zip(tool_names, requested_item_ids)
+        """尽力把工具调用对应到计划步骤，只用于展示进度；对应不上就不对应。"""
+
+        requested = requested_item_ids or [None] * len(tool_names)
+        bound: set[str] = set()
+        result: list[str | None] = []
+        for tool_name, requested_item_id in zip(tool_names, requested):
+            candidates = [
+                str(item.get("id"))
+                for item in self.items
+                if tool_name in (item.get("planned_tools") or [])
+                and item.get("status") not in _TERMINAL_STATUSES
+                and str(item.get("id")) not in bound
             ]
-        result: list[str | None] = [None] * len(tool_names)
-        for tool_name in dict.fromkeys(tool_names):
-            call_indexes = [index for index, name in enumerate(tool_names) if name == tool_name]
-            candidates = self.active_plan_item_ids_for_tool(tool_name)
-            if len(candidates) == 1:
-                for index in call_indexes:
-                    result[index] = candidates[0]
+            item_id = requested_item_id if requested_item_id in candidates else next(iter(candidates), None)
+            if item_id is not None:
+                bound.add(item_id)
+            result.append(item_id)
         return result
 
     def mark_tools_started(self, plan_item_ids: list[str]) -> dict[str, Any] | None:
-        if self.synthesis_started or self.terminal_outcome is not None:
-            return None
-        items_by_id = self._items_by_id()
-        attempted_item_ids: list[str] = []
-        auto_completed_item_ids: set[str] = set()
-        for item_id in dict.fromkeys(plan_item_ids):
-            item = items_by_id.get(item_id)
-            planned_tools = item.get("planned_tools") if item is not None else None
-            tool_name = planned_tools[0] if isinstance(planned_tools, list) and len(planned_tools) == 1 else None
-            if not isinstance(tool_name, str) or item is None or not self._tool_item_is_bindable(item, tool_name):
-                continue
-            prerequisites = self._auto_completable_prerequisites(item_id)
-            if prerequisites is None:
-                continue
-            attempted_item_ids.append(item_id)
-            auto_completed_item_ids.update(prerequisites)
-        attempted_item_id_set = set(attempted_item_ids)
-        self.attempted_tool_item_ids.update(attempted_item_id_set)
-        self.successful_tool_item_ids.difference_update(attempted_item_id_set)
-        self.failed_tool_item_ids.difference_update(attempted_item_id_set)
-        statuses: dict[str, PlanStatus] = {item_id: "completed" for item_id in auto_completed_item_ids}
-        if self._running_item_id() is None and attempted_item_ids:
-            statuses[attempted_item_ids[0]] = "running"
-        return self._apply_tool_statuses(statuses)
+        return self._apply_statuses({item_id: "running" for item_id in plan_item_ids}, reason="tool_progress")
 
     def mark_tool_results(self, statuses: dict[str, PlanStatus]) -> dict[str, Any] | None:
-        if self.synthesis_started or self.terminal_outcome is not None:
-            return None
-        accepted_result_statuses = {
-            item_id: status
-            for item_id, status in statuses.items()
-            if any(
-                item.get("id") == item_id and item.get("status") not in {"completed", "failed", "skipped", "blocked"}
-                for item in self.items
-            )
-        }
-        dependency_blocks = self._dependency_block_statuses(accepted_result_statuses)
-        self.dependency_blocked_item_ids.update(dependency_blocks)
-        accepted_statuses = {
-            **accepted_result_statuses,
-            **dependency_blocks,
-        }
-        self.attempted_tool_item_ids.update(accepted_result_statuses)
-        for item_id, status in accepted_statuses.items():
-            if status == "completed":
-                self.successful_tool_item_ids.add(item_id)
-                self.failed_tool_item_ids.discard(item_id)
-            elif status in {"failed", "blocked"}:
-                self.failed_tool_item_ids.add(item_id)
-            elif status == "running":
-                self.successful_tool_item_ids.discard(item_id)
-                self.failed_tool_item_ids.discard(item_id)
-        snapshot = self._apply_statuses(
-            accepted_statuses,
-            reason="tool_result",
-        )
-        if snapshot is not None or not accepted_statuses:
-            return snapshot
-        self.revision += 1
-        self.reason = "tool_result"
-        return self.snapshot()
-
-    def execution_items_terminal(self) -> bool:
-        """所有声明真实工具的执行项都已经取得服务端终态。"""
-
-        if not self.has_valid_model_plan:
-            return False
-        return all(
-            item.get("status") in {"completed", "failed", "skipped", "blocked"}
-            for item in self.items
-            if item.get("planned_tools")
-        )
+        return self._apply_statuses(statuses, reason="tool_result")
 
     def pending_execution_items(self) -> list[dict[str, Any]]:
         return [
             dict(item)
             for item in self.items
-            if item.get("planned_tools") and item.get("status") not in {"completed", "failed", "skipped", "blocked"}
+            if item.get("planned_tools") and item.get("status") not in _TERMINAL_STATUSES
         ]
 
-    def block_pending_execution(self, *, reason: str) -> dict[str, Any] | None:
-        """在额度或协议收口前，将未取得结果的执行项单向收为 blocked。"""
-
-        if self.synthesis_started or self.terminal_outcome is not None:
+    def terminalize(self, outcome: str, *, has_final_answer: bool = False) -> dict[str, Any] | None:
+        if not self.has_valid_model_plan or self.terminal_outcome is not None:
             return None
-        statuses = {
-            str(item.get("id")): "blocked"
-            for item in self.items
-            if item.get("planned_tools") and item.get("status") not in {"completed", "failed", "skipped", "blocked"}
-        }
-        self.failed_tool_item_ids.update(statuses)
-        return self._apply_statuses(statuses, reason=reason)
-
-    def skip_pending_execution(self, *, reason: str) -> dict[str, Any] | None:
-        """交付物已产出后，尚未取得结果的执行项不再补跑，单向收为 skipped。"""
-
-        if self.synthesis_started or self.terminal_outcome is not None:
-            return None
-        statuses: dict[str, PlanStatus] = {
-            str(item.get("id")): "skipped"
-            for item in self.items
-            if item.get("planned_tools") and item.get("status") not in {"completed", "failed", "skipped", "blocked"}
-        }
-        return self._apply_statuses(statuses, reason=reason)
-
-    def block_tool_owners(
-        self,
-        tool_names: set[str] | frozenset[str],
-        *,
-        reason: str,
-    ) -> dict[str, Any] | None:
-        """把已确认无法再执行的工具 owner 及其下游执行项原子收为 blocked。"""
-
-        if self.synthesis_started or self.terminal_outcome is not None or not tool_names:
-            return None
-        statuses: dict[str, PlanStatus] = {
-            str(item.get("id")): "blocked"
-            for item in self.items
-            if item.get("status") in {"pending", "running"}
-            and any(tool_name in tool_names for tool_name in (item.get("planned_tools") or []))
-        }
-        if not statuses:
-            return None
-        dependency_blocks = self._dependency_block_statuses(statuses)
-        self.dependency_blocked_item_ids.update(dependency_blocks)
-        statuses.update(dependency_blocks)
-        self.failed_tool_item_ids.update(statuses)
-        return self._apply_statuses(statuses, reason=reason)
-
-    def begin_synthesis(self) -> dict[str, Any] | None:
-        """在所有执行项终态后不可逆地进入无工具综合阶段。"""
-
-        if (
-            not self.has_valid_model_plan
-            or self.synthesis_started
-            or self.terminal_outcome is not None
-            or not self.execution_items_terminal()
-        ):
-            return None
-        target_item_id = self._answer_phase_item_id()
-        if target_item_id is None:
-            self.synthesis_started = True
-            self.revision += 1
-            self.reason = "synthesis_started"
-            return self.snapshot()
-        statuses: dict[str, PlanStatus] = {}
+        self.terminal_outcome = outcome
         for item in self.items:
-            item_id = str(item.get("id"))
-            if item.get("status") in {"completed", "failed", "skipped", "blocked"}:
+            status = item.get("status")
+            if status in _TERMINAL_STATUSES:
                 continue
-            if item_id == target_item_id:
-                statuses[item_id] = "running"
-            elif item.get("planned_tools"):
-                statuses[item_id] = "blocked"
-            elif item.get("kind") in {"reasoning", "other"}:
-                statuses[item_id] = "completed"
+            if outcome == "failed":
+                item["status"] = "failed" if status == "running" else "skipped"
+            elif outcome in {"interrupted", "superseded"}:
+                item["status"] = "skipped"
+            elif has_final_answer and not item.get("planned_tools"):
+                # 不带工具的思考/回答步骤随最终回答完成。
+                item["status"] = "completed"
+            elif outcome == "stop" and has_final_answer:
+                # 已经回答时，模型没走到的工具步骤如实标为跳过。
+                item["status"] = "skipped"
             else:
-                statuses[item_id] = "skipped"
-        self.synthesis_started = True
-        return self._apply_statuses(statuses, reason="synthesis_started")
+                item["status"] = "blocked"
+        self.revision += 1
+        self.reason = f"terminal_{outcome}"
+        return self.snapshot()
 
-    def _answer_phase_item_id(self) -> str | None:
-        non_terminal_items = [
-            item for item in self.items if item.get("status") not in {"completed", "failed", "skipped", "blocked"}
-        ]
-        _, terminal_item_id = _terminal_answer_phase(non_terminal_items)
-        return terminal_item_id
-
-    def _apply_tool_statuses(self, statuses: dict[str, PlanStatus]) -> dict[str, Any] | None:
-        return self._apply_statuses(statuses, reason="tool_progress")
-
-    def _apply_statuses(
-        self,
-        statuses: dict[str, PlanStatus],
-        *,
-        reason: str,
-    ) -> dict[str, Any] | None:
+    def _apply_statuses(self, statuses: dict[str, PlanStatus], *, reason: str) -> dict[str, Any] | None:
         if not self.has_valid_model_plan or self.terminal_outcome is not None:
             return None
         changed = False
         for item in self.items:
-            item_id = str(item.get("id"))
-            status = statuses.get(item_id)
-            if item.get("status") in {"completed", "failed", "skipped", "blocked"}:
+            status = statuses.get(str(item.get("id")))
+            if status is None or item.get("status") in _TERMINAL_STATUSES or item.get("status") == status:
                 continue
-            if status is not None and item.get("status") != status:
-                item["status"] = status
-                changed = True
+            item["status"] = status
+            changed = True
         if not changed:
             return None
         self.revision += 1
@@ -1008,6 +149,67 @@ class PlanCoordinator:
 
 def normalize_plan_mode(value: Any) -> PlanMode:
     return value if value in {"auto", "on", "off"} else "auto"
+
+
+def _normalize_plan_items(payload: Any, *, previous_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """兼容 items/plan、title/step、in_progress 等常见写法；无法识别的条目直接丢弃。"""
+
+    if not isinstance(payload, dict):
+        return []
+    raw_items = payload.get("items")
+    if not isinstance(raw_items, list):
+        raw_items = payload.get("plan")
+    if not isinstance(raw_items, list):
+        return []
+
+    previous_by_id = {str(item.get("id")): item for item in previous_items if item.get("id")}
+    previous_id_by_title = {str(item.get("title")): str(item.get("id")) for item in previous_items if item.get("id")}
+    items: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for raw_item in raw_items[:_MAX_PLAN_ITEMS]:
+        if not isinstance(raw_item, dict):
+            continue
+        title = raw_item.get("title")
+        if not isinstance(title, str) or not title.strip():
+            title = raw_item.get("step")
+        if not isinstance(title, str) or not title.strip():
+            continue
+        title = title.strip()[:_MAX_TITLE_LENGTH]
+        item_id = raw_item.get("id")
+        if not isinstance(item_id, str) or not item_id.strip():
+            item_id = previous_id_by_title.get(title) or f"step-{len(items) + 1}"
+        item_id = item_id.strip()[:_MAX_ID_LENGTH]
+        if item_id in seen_ids:
+            continue
+        seen_ids.add(item_id)
+        previous = previous_by_id.get(item_id, {})
+
+        status = _STATUS_ALIASES.get(raw_item.get("status"), raw_item.get("status"))
+        if previous.get("status") in _TERMINAL_STATUSES or status not in _PLAN_STATUSES:
+            # 工具执行得出的终态以服务端记录为准；模型没给或给了无法识别的状态时沿用旧值。
+            status = previous.get("status", "pending")
+        kind = raw_item.get("kind")
+        if kind not in _PLAN_KINDS:
+            kind = previous.get("kind", "other")
+        depends_on = raw_item.get("depends_on")
+        if not isinstance(depends_on, list):
+            depends_on = [items[-1]["id"]] if items else []
+        planned_tools = raw_item.get("planned_tools")
+        if not isinstance(planned_tools, list):
+            planned_tools = raw_item.get("tools")
+        if not isinstance(planned_tools, list):
+            planned_tools = list(previous.get("planned_tools") or [])
+        items.append(
+            {
+                "id": item_id,
+                "title": title,
+                "status": status,
+                "kind": kind,
+                "depends_on": [str(value) for value in depends_on if isinstance(value, str) and value],
+                "planned_tools": [str(value) for value in planned_tools if isinstance(value, str) and value],
+            }
+        )
+    return items
 
 
 def _assign_user_visible_phases(
@@ -1113,249 +315,3 @@ def _user_visible_phase_title(group: list[dict[str, Any]]) -> str:
         "synthesis": "综合证据并输出结论",
         "other": "执行相关任务",
     }.get(phase_kind, "执行相关任务")
-
-
-def _plan_graph(items: list[ModelPlanItem] | list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    graph: dict[str, dict[str, Any]] = {}
-    for raw_item in items:
-        if isinstance(raw_item, ModelPlanItem):
-            item_id = raw_item.id
-            kind = raw_item.kind
-            depends_on = list(raw_item.depends_on)
-            planned_tools = list(raw_item.planned_tools)
-        else:
-            item_id = str(raw_item.get("id", ""))
-            kind = raw_item.get("kind")
-            depends_on = list(raw_item.get("depends_on") or [])
-            planned_tools = list(raw_item.get("planned_tools") or [])
-        if item_id:
-            graph[item_id] = {
-                "kind": kind,
-                "depends_on": depends_on,
-                "planned_tools": planned_tools,
-            }
-    return graph
-
-
-def _plan_ancestors(graph: dict[str, dict[str, Any]], item_id: str) -> set[str]:
-    result: set[str] = set()
-    stack = list(graph.get(item_id, {}).get("depends_on") or [])
-    while stack:
-        dependency_id = str(stack.pop())
-        if dependency_id in result:
-            continue
-        result.add(dependency_id)
-        stack.extend(graph.get(dependency_id, {}).get("depends_on") or [])
-    return result
-
-
-def _terminal_answer_phase_ids(graph: dict[str, dict[str, Any]], answer_phase_ids: set[str]) -> list[str]:
-    depended_on_ids = {str(dependency_id) for item in graph.values() for dependency_id in item.get("depends_on") or []}
-    return [item_id for item_id in graph if item_id in answer_phase_ids and item_id not in depended_on_ids]
-
-
-def uncovered_execution_tool_names(
-    items: list[ModelPlanItem] | list[dict[str, Any]],
-    *,
-    allowed_tool_names: frozenset[str] | None,
-) -> list[str]:
-    """覆盖率最高的终局回答步骤还漏掉哪些执行工具。
-
-    uncovered_execution_branch 只说「存在没被覆盖的执行分支」，不说是哪一条，
-    真实验收因此无法判断模型究竟提交了什么依赖结构。这里只回服务端声明过的
-    工具名，不把模型自定义的步骤 ID 或标题写进日志。
-    """
-
-    graph = _plan_graph(items)
-    answer_phase_ids = {item_id for item_id, item in graph.items() if item.get("kind") in {"answer", "synthesis"}}
-    execution_item_ids = {item_id for item_id, item in graph.items() if item.get("planned_tools")}
-    terminal_phase_ids = _terminal_answer_phase_ids(graph, answer_phase_ids)
-    if not execution_item_ids or not terminal_phase_ids:
-        return []
-    best_uncovered = min(
-        (execution_item_ids - _plan_ancestors(graph, item_id) for item_id in terminal_phase_ids),
-        key=len,
-    )
-    return sorted(
-        {
-            tool_name
-            for item_id in best_uncovered
-            for tool_name in graph[item_id]["planned_tools"]
-            if allowed_tool_names is None or tool_name in allowed_tool_names
-        }
-    )
-
-
-def _terminal_answer_phase(
-    items: list[ModelPlanItem] | list[dict[str, Any]],
-) -> tuple[str | None, str | None]:
-    """校验计划终局可调度性，并返回覆盖全部执行分支的最终回答项。"""
-
-    graph = _plan_graph(items)
-    answer_phase_ids = {item_id for item_id, item in graph.items() if item.get("kind") in {"answer", "synthesis"}}
-    if not answer_phase_ids:
-        return "missing_answer_phase", None
-    if any(graph[item_id]["planned_tools"] for item_id in answer_phase_ids):
-        return "answer_phase_has_tools", None
-
-    ancestors = partial(_plan_ancestors, graph)
-    execution_item_ids = {item_id for item_id, item in graph.items() if item.get("planned_tools")}
-    if any(answer_phase_ids.intersection(ancestors(item_id)) for item_id in execution_item_ids):
-        return "execution_depends_on_answer_phase", None
-
-    terminal_phase_ids = _terminal_answer_phase_ids(graph, answer_phase_ids)
-    if not terminal_phase_ids:
-        return "missing_terminal_answer_phase", None
-
-    covering_phase_ids = [item_id for item_id in terminal_phase_ids if execution_item_ids.issubset(ancestors(item_id))]
-    if not covering_phase_ids:
-        return "uncovered_execution_branch", None
-
-    for kind in ("answer", "synthesis"):
-        candidates = [item_id for item_id in covering_phase_ids if graph[item_id].get("kind") == kind]
-        if candidates:
-            return None, candidates[-1]
-    return "missing_terminal_answer_phase", None
-
-
-def _research_dependency_error(
-    items: list[ModelPlanItem],
-    required_initial_tool_counts: dict[str, int],
-) -> str | None:
-    """研究证据计划中的读取步骤必须位于搜索步骤之后。"""
-
-    if not {"web_search", "url_read"}.issubset(required_initial_tool_counts):
-        return None
-    items_by_id = {item.id: item for item in items}
-    search_item_ids = {item.id for item in items if "web_search" in item.planned_tools}
-
-    def has_search_ancestor(item: ModelPlanItem) -> bool:
-        visited: set[str] = set()
-        stack = list(item.depends_on)
-        while stack:
-            dependency_id = stack.pop()
-            if dependency_id in visited:
-                continue
-            visited.add(dependency_id)
-            if dependency_id in search_item_ids:
-                return True
-            dependency = items_by_id.get(dependency_id)
-            if dependency is not None:
-                stack.extend(dependency.depends_on)
-        return False
-
-    if any("url_read" in item.planned_tools and not has_search_ancestor(item) for item in items):
-        return "research_read_missing_search_dependency"
-    return None
-
-
-def _normalize_model_plan_payload(
-    payload: Any,
-    *,
-    previous_items: list[dict[str, Any]],
-    locked_item_ids: set[str] | None = None,
-) -> Any:
-    """兼容主流 update_plan 的 explanation/plan/step/in_progress 形态。
-
-    归一化后仍进入严格的 ModelPlanUpdate 校验；这里只处理字段别名、缺省的
-    展示元数据和线性计划的显式依赖，不接受任意嵌套 payload。
-    """
-
-    if not isinstance(payload, dict):
-        return payload
-    raw_items = payload.get("items")
-    if not isinstance(raw_items, list):
-        raw_items = payload.get("plan")
-    if not isinstance(raw_items, list):
-        return payload
-
-    previous_ids_by_title = {
-        str(item.get("title")): str(item.get("id")) for item in previous_items if item.get("title") and item.get("id")
-    }
-    previous_items_by_id = {str(item.get("id")): item for item in previous_items if item.get("id")}
-    canonical_item_ids = locked_item_ids or set()
-    normalized_items: list[dict[str, Any]] = []
-    for index, raw_item in enumerate(raw_items):
-        if not isinstance(raw_item, dict):
-            return payload
-        title = raw_item.get("title")
-        if not isinstance(title, str) or not title.strip():
-            title = raw_item.get("step")
-        if not isinstance(title, str) or not title.strip():
-            return payload
-        title = title.strip()
-
-        item_id = raw_item.get("id")
-        if not isinstance(item_id, str) or not _PLAN_ID_RE.fullmatch(item_id):
-            item_id = previous_ids_by_title.get(title, f"step-{index + 1}")
-        previous_item = previous_items_by_id.get(item_id)
-        locked_item = previous_item if item_id in canonical_item_ids else None
-        if locked_item is not None:
-            title = str(locked_item.get("title", title))
-
-        previous_status = previous_item.get("status") if previous_item is not None else None
-        status = previous_status if previous_status is not None else "pending"
-
-        kind = raw_item.get("kind")
-        if kind not in {"reasoning", "search", "read", "synthesis", "answer", "other"}:
-            kind = (
-                previous_item.get("kind")
-                if previous_item is not None
-                else ("answer" if index == len(raw_items) - 1 else "other")
-            )
-        if locked_item is not None:
-            kind = locked_item.get("kind", kind)
-
-        depends_on = raw_item.get("depends_on")
-        if not isinstance(depends_on, list):
-            depends_on = (
-                list(previous_item.get("depends_on") or [])
-                if previous_item is not None
-                else ([normalized_items[-1]["id"]] if normalized_items else [])
-            )
-        if locked_item is not None:
-            depends_on = list(locked_item.get("depends_on") or [])
-        planned_tools = raw_item.get("planned_tools")
-        if not isinstance(planned_tools, list):
-            planned_tools = raw_item.get("tools")
-        if not isinstance(planned_tools, list):
-            planned_tools = list(previous_item.get("planned_tools") or []) if previous_item is not None else []
-        if locked_item is not None:
-            planned_tools = list(locked_item.get("planned_tools") or [])
-
-        normalized_items.append(
-            {
-                "id": item_id,
-                "title": title,
-                "status": status,
-                "kind": kind,
-                "depends_on": depends_on,
-                "planned_tools": planned_tools,
-            }
-        )
-
-    reason = payload.get("reason")
-    if not isinstance(reason, str) or not reason.strip():
-        reason = payload.get("explanation")
-    if not isinstance(reason, str) or not reason.strip():
-        reason = "model_update"
-    return {"reason": reason, "items": normalized_items}
-
-
-def _has_dependency_cycle(dependencies: dict[str, set[str]]) -> bool:
-    visiting: set[str] = set()
-    visited: set[str] = set()
-
-    def visit(item_id: str) -> bool:
-        if item_id in visiting:
-            return True
-        if item_id in visited:
-            return False
-        visiting.add(item_id)
-        if any(visit(dependency) for dependency in dependencies[item_id]):
-            return True
-        visiting.remove(item_id)
-        visited.add(item_id)
-        return False
-
-    return any(visit(item_id) for item_id in dependencies)

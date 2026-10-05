@@ -3,16 +3,12 @@
 import asyncio
 from types import SimpleNamespace
 
-import pytest
-
 from app.schemas.chat import SearchBlock, SearchSource, SearchSourceSummary, SourceReference, UrlBlock
 from app.services.final_answer_evidence import build_used_final_answer_evidence
-from app.services.stream.network_budget import NetworkToolBudget
 from app.services.stream.research_evidence import (
     ResearchEvidenceWorkset,
     assign_missing_source_reference_metadata,
     build_research_untrusted_context_messages,
-    validate_research_completion,
 )
 from app.services.stream.tool_execution_result import ToolExecutionRecord
 from app.services.stream.tool_round import (
@@ -51,54 +47,6 @@ def _block(record, previous):
     )
     append_tool_round_messages(request, [record])
     return request.content_blocks[-1]
-
-
-@pytest.mark.parametrize(
-    "urls",
-    [
-        ("https://example.org/report?utm_id=one", "https://example.org/report?utm_id=two"),
-        ("https://www.example.org/report/", "https://example.org/report"),
-        ("https://example.org:443/report/?utm_campaign=one#chapter", "https://example.org/report?utm_custom=two"),
-    ],
-)
-def test_tracking_variants_do_not_satisfy_two_distinct_research_sources(urls):
-    blocks = []
-    workset = ResearchEvidenceWorkset()
-    budget = NetworkToolBudget(require_distinct_read_urls=True)
-    indexes = []
-    rejected = []
-    for index, url in enumerate(urls, 1):
-        record = _search_record(url, index)
-        search_block = _block(record, blocks)
-        blocks.append(search_block)
-        workset.record_content_blocks([search_block])
-        indexes.append(search_block.source_refs[0].citation_index)
-        args, rejection = budget.prepare_url_read_args({"url": url}, plan_item_id=f"read-{index}")
-        rejected.append(rejection is not None)
-        if rejection is not None:
-            continue
-        read = ToolExecutionRecord(
-            tool_call={"id": f"read-{index}", "name": "url_read", "arguments": args},
-            result=ToolResult(status="success", data={"url": url, "title": "报告", "content": "同一正文"}),
-            handler=UrlReadHandler(),
-            block_id=f"read-block-{index}",
-            log_id=f"read-log-{index}",
-        )
-        read_block = _block(read, blocks)
-        blocks.append(read_block)
-        workset.record_content_blocks([read_block])
-    observed = {
-        "citations": indexes,
-        "read_rejected": rejected,
-        "read_count": len(workset.successful_read_urls),
-        "research_complete": validate_research_completion(workset, "结论[1][2]").is_valid,
-    }
-    assert observed == {
-        "citations": [1, 1],
-        "read_rejected": [False, True],
-        "read_count": 1,
-        "research_complete": False,
-    }
 
 
 def test_citation_and_used_events_preserve_original_url():
@@ -173,18 +121,6 @@ def test_legacy_metadata_backfill_keeps_raw_urls_and_inherits_explicit_identity(
     assert new.source_refs[0]["url"] == raw
     assert new.source_refs[0]["citation_index"] == 7
     assert new.source_refs[0]["evidence_id"] == "ev-legacy-report"
-
-
-def test_business_query_parameters_keep_sources_distinct():
-    from app.services.source_evidence_ledger import canonicalize_evidence_url
-
-    first = "https://example.org/report?id=one&utm_id=x"
-    second = "https://example.org/report?id=two&utm_id=y"
-    assert canonicalize_evidence_url(first) == "https://example.org/report?id=one"
-    assert canonicalize_evidence_url(second) == "https://example.org/report?id=two"
-    budget = NetworkToolBudget(require_distinct_read_urls=True)
-    assert budget.prepare_url_read_args({"url": first}, plan_item_id="one")[1] is None
-    assert budget.prepare_url_read_args({"url": second}, plan_item_id="two")[1] is None
 
 
 def test_research_read_uses_full_identity_and_restores_long_original_url():

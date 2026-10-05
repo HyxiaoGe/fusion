@@ -345,13 +345,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertTrue(execution.state.research_network_required)
-        self.assertEqual(
-            execution.state.plan_coordinator.required_initial_tool_counts,
-            {
-                "web_search": 1,
-                "url_read": 2,
-            },
-        )
         result = execution.state.plan_coordinator.apply_model_update(
             {
                 "reason": "按研究阶段组织计划",
@@ -680,7 +673,7 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             resolution_mode="routed",
             reason_codes=("origin_destination_relation", "intercity_locations"),
             external_tool_names=("route_compare", "search_trains"),
-            effective_plan_mode="auto",
+            effective_plan_mode="off",
             include_current_date=True,
             network_boundary_required=False,
             required_primary_tool_name="route_compare",
