@@ -464,6 +464,21 @@ class ChatServiceTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "MODEL_UNAVAILABLE")
         resolve_model.assert_not_called()
 
+    def test_admin_can_start_conversation_with_hidden_model(self):
+        service = ChatService(MagicMock())
+        service.model_control_repository = MagicMock()
+        service.model_control_repository.get.return_value = SimpleNamespace(selectable=False, routable=True)
+
+        with patch("app.services.chat_service.is_model_registered", return_value=True):
+            resolution = service._resolve_turn_model(
+                "hidden/model",
+                is_new_conversation=True,
+                allow_hidden_models=True,
+            )
+
+        self.assertEqual(resolution.model_id, "hidden/model")
+        self.assertIsNone(resolution.fallback_from)
+
     def _existing_conversation_service(self, bound_model_id, control=None):
         service = ChatService(MagicMock())
         service.conversation_service = MagicMock()

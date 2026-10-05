@@ -82,6 +82,7 @@ async def send_message(
         file_ids=chat_request.file_ids,
         knowledge_base_ids=chat_request.knowledge_base_ids,
         trace_id=request.state.request_id,
+        allow_hidden_models=bool(getattr(current_user, "is_superuser", False)),
     )
     if isinstance(result, StreamingResponse):
         return result
