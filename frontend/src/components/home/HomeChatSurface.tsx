@@ -17,6 +17,7 @@ import { useAppDispatch, useAppSelector } from '@/redux/hooks';
 import { selectStreamSlot } from '@/redux/slices/streamSlice';
 import { selectAuthSessionKey } from '@/redux/selectors';
 import { setSelectedModel } from '@/redux/slices/modelsSlice';
+import { setPendingConversationId } from '@/redux/slices/conversationSlice';
 import { deleteFile, type FileInfo } from '@/lib/api/files';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import { useConversationFiles } from '@/hooks/useConversationFiles';
@@ -117,6 +118,8 @@ export default function HomeChatSurface() {
   const ownsNewChatNavigationRef = useRef(true);
   const navigationGenerationRef = useRef(0);
   const prefillRequestIdRef = useRef(0);
+  // 新建会话时仍在等服务端会话 ID 的草稿：转正后立刻转后台，不跳回、不停止。
+  const backgroundedDraftIdsRef = useRef(new Set<string>());
   const isAuthenticated = useAppSelector((state) => state.auth.isAuthenticated);
   const authSessionKey = useAppSelector(selectAuthSessionKey);
   const models = useAppSelector((state) => state.models.models);
@@ -128,7 +131,7 @@ export default function HomeChatSurface() {
   const isDisplayConversationStreaming = useAppSelector(
     (state) => selectStreamSlot(state, displayConversationId).isStreaming
   );
-  const { sendMessage, stopStreaming } = useSendMessage();
+  const { sendMessage, stopStreaming, detachStreaming } = useSendMessage();
   const {
     files: conversationFiles,
     isLoading: conversationFilesLoading,
@@ -165,8 +168,15 @@ export default function HomeChatSurface() {
     navigationGenerationRef.current += 1;
     writeComposerDraft(authSessionKey, null, '');
     if (displayConversationId) writeComposerDraft(authSessionKey, displayConversationId, '');
+    // 离开不等于放弃：进行中的运行转到后台继续，侧栏显示进度，点回去由对话页续流。
     if (displayConversationId && isDisplayConversationStreaming) {
-      void stopStreaming();
+      if (pendingConversationId) {
+        // 还没拿到服务端会话 ID 时断开就再也找不回这条运行，先让出页面，转正时再断开。
+        backgroundedDraftIdsRef.current.add(pendingConversationId);
+        dispatch(setPendingConversationId(null));
+      } else {
+        detachStreaming();
+      }
     }
     setInputKey((current) => current + 1);
     setHandoffConversationId(null);
@@ -175,7 +185,14 @@ export default function HomeChatSurface() {
     setFilesConversationId(null);
     setConversationAttachmentState({ chatId: NEW_CHAT_ATTACHMENT_SCOPE, attachments: [] });
     setPendingAutoAttachState({ chatId: NEW_CHAT_ATTACHMENT_SCOPE, fileIds: [] });
-  }, [authSessionKey, displayConversationId, isDisplayConversationStreaming, stopStreaming]);
+  }, [
+    authSessionKey,
+    detachStreaming,
+    dispatch,
+    displayConversationId,
+    isDisplayConversationStreaming,
+    pendingConversationId,
+  ]);
 
   const handleSelectPrompt = useCallback((content: string) => {
     prefillRequestIdRef.current += 1;
@@ -436,6 +453,11 @@ export default function HomeChatSurface() {
           }
         },
         onMaterialized: (serverConversationId) => {
+          if (draftConversationId && backgroundedDraftIdsRef.current.delete(draftConversationId)) {
+            // 此刻这条发送仍是本 hook 的当前发送，同步断开不会误伤后来的发送。
+            detachStreaming();
+            return;
+          }
           if (
             !acceptedRequest || !ownsNewChatNavigationRef.current ||
             navigationGenerationRef.current !== navigationGeneration
@@ -459,7 +481,7 @@ export default function HomeChatSurface() {
       },
       attachments
     );
-  }, [authSessionKey, displayConversationId, router, sendMessage, shouldShowPendingConversation]);
+  }, [authSessionKey, detachStreaming, displayConversationId, router, sendMessage, shouldShowPendingConversation]);
 
   return (
     <div className="h-full flex flex-col relative">

@@ -1730,5 +1730,9 @@ export function useSendMessage(activeConversationId?: string | null) {
 
   const retryMessage = useRetryMessage(sendMessage, activeConversationId);
 
-  return { sendMessage, stopStreaming, retryMessage };
+  // 只断开本页对这条流的接收，不通知服务端停止：运行在后台继续，
+  // 侧栏按服务端登记显示进度，回到该对话时由对话页查 stream-status 从头续流。
+  const detachStreaming = invalidateFrontendSend;
+
+  return { sendMessage, stopStreaming, detachStreaming, retryMessage };
 }
