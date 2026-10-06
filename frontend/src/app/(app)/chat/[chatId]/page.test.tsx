@@ -327,6 +327,7 @@ vi.mock('@/redux/slices/conversationSlice', () => ({
     payload,
   })),
   removeMessage: vi.fn((payload?: unknown) => ({ type: 'conversation/removeMessage', payload })),
+  setHydrationStatus: vi.fn((payload?: unknown) => ({ type: 'conversation/setHydrationStatus', payload })),
   requestSuggestedQuestionsObservation: vi.fn((payload?: unknown) => ({
     type: 'conversation/requestSuggestedQuestionsObservation',
     payload,
@@ -1259,6 +1260,35 @@ describe('ChatPage 会话切换体验', () => {
     await waitFor(() => expect(reconnectSignal?.aborted).toBe(true));
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(reconnectStreamMock).toHaveBeenCalledTimes(callsBeforeAbort);
+    if (mode === 'unmount') {
+      // 卸载后没人再推进槽位：收掉生成中状态，回来时重新拉详情，侧栏不再残留转圈。
+      expect(dispatchMock).toHaveBeenCalledWith({
+        type: 'stream/endStream',
+        payload: { conversationId: 'chat-a', messageId: 'assistant-1' },
+      });
+      expect(dispatchMock).toHaveBeenCalledWith({
+        type: 'stream/clearCurrentRun',
+        payload: { conversationId: 'chat-a' },
+      });
+      expect(dispatchMock).toHaveBeenCalledWith({
+        type: 'conversation/setHydrationStatus',
+        payload: { id: 'chat-a', status: 'idle' },
+      });
+    }
+  });
+
+  it('还在查 stream-status 时卸载，不动槽位与加载状态', async () => {
+    conversationsById.set('chat-a', createConversation('chat-a', [textMessage('user-1')]));
+    hydrationById.set('chat-a', { view: 'ready' });
+    fetchStreamStatusMock.mockImplementation(() => new Promise(() => {}));
+
+    const view = render(<ChatPage />);
+    await waitFor(() => expect(fetchStreamStatusMock).toHaveBeenCalledTimes(1));
+    view.unmount();
+
+    const types = dispatchMock.mock.calls.map(([action]) => action?.type);
+    expect(types).not.toContain('conversation/setHydrationStatus');
+    expect(types).not.toContain('stream/clearCurrentRun');
   });
 
   it('恢复流的 reconnecting 状态在槽位建立之后才写', async () => {

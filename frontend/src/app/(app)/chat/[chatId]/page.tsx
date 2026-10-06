@@ -32,6 +32,7 @@ import {
   clearConversationMessages,
   removeMessage,
   requestSuggestedQuestionsObservation,
+  setHydrationStatus,
   setLastReadyConversationSnapshot,
   updateConversationTitle,
   updateMessage,
@@ -192,7 +193,11 @@ export default function ChatPage() {
   const reconnectControllerRef = useRef<AbortController | null>(null);
   // 切会话不再掐断恢复流，所以离开聊天页时没人收尾了：这里记住本页面还活着的
   // 恢复流，真正卸载时统一停写并中止，避免留下无人认领的 SSE。
-  const liveRecoveryStreamsRef = useRef<Set<{ controller: AbortController; detach: () => void }>>(new Set());
+  const liveRecoveryStreamsRef = useRef<Set<{
+    controller: AbortController;
+    detach: () => void;
+    releaseSlot?: () => void;
+  }>>(new Set());
   const isMountedRef = useRef(true);
   const recoveryStopPendingRef = useRef<{
     controller: AbortController;
@@ -382,15 +387,31 @@ export default function ChatPage() {
     // 恢复流登记在本会话名下：停止时按会话查表命中它，而不是靠「ref 非空」推断。
     // stream_mode / task_id 随后由 updateStreamController 补进同一条目。
     registerStreamController({ conversationId: chatId, kind: 'recovery', controller });
-    const liveRecoveryStream = { controller, detach: () => { cancelled = true; } };
-    liveRecoveryStreamsRef.current.add(liveRecoveryStream);
     // 外层 catch 够不到 try 内的 messageId，但 endStream 需要归属：在这里记住本次恢复的那条消息。
     let recoveredMessageId: string | null = null;
+    // 只有真正建立了槽位才归本次恢复收尾；还在查 stream-status 时卸载，槽位不归它管。
+    let recoverySlotStarted = false;
     // 同一会话内本会话的新一轮发送会换掉槽位；换掉后再写入或读取都会串到那一轮头上。
     const ownsRecoverySlot = () => ownsStreamSlot(
       selectStreamSlot(store.getState() as { stream: StreamState }, chatId),
       recoveredMessageId,
     );
+    const liveRecoveryStream = {
+      controller,
+      detach: () => { cancelled = true; },
+      // 页面卸载时恢复流随之中止，此后再没人推进槽位。留着 isStreaming 会让侧栏
+      // 一直转圈到用户点回来；收掉槽位与 running 快照，并退回 idle，回来时重新拉详情，
+      // 仍在运行则照常查 stream-status 续流。
+      releaseSlot: () => {
+        if (!recoverySlotStarted || !ownsRecoverySlot()) return;
+        // 停止请求在途时槽位由停止流程收口，这里不插手。
+        if (recoveryStopPendingRef.current?.controller === controller) return;
+        dispatch(endStream({ conversationId: chatId, messageId: recoveredMessageId }));
+        dispatch(clearCurrentRun({ conversationId: chatId }));
+        dispatch(setHydrationStatus({ id: chatId, status: 'idle' }));
+      },
+    };
+    liveRecoveryStreamsRef.current.add(liveRecoveryStream);
     const checkAndReconnect = async () => {
       try {
         // 直接查后端流状态，由后端 meta 决定是否重连
@@ -448,6 +469,7 @@ export default function ChatPage() {
           messageId,
           ...(continuationStaticBlocks ? { staticBlocks: continuationStaticBlocks } : {}),
         }));
+        recoverySlotStarted = true;
         // 有进行中的流 → 建立 SSE 重连，从头读取。
         // 必须排在 startStream 之后：槽位由它建立，之前派发的槽位 action 没有落点会被丢弃。
         dispatch(setStreamStatus({ conversationId: chatId, status: 'reconnecting' }));
@@ -678,9 +700,10 @@ export default function ChatPage() {
     const liveRecoveryStreams = liveRecoveryStreamsRef.current;
     return () => {
       isMountedRef.current = false;
-      liveRecoveryStreams.forEach(({ controller, detach }) => {
+      liveRecoveryStreams.forEach(({ controller, detach, releaseSlot }) => {
         detach();
         controller.abort();
+        releaseSlot?.();
       });
       liveRecoveryStreams.clear();
     };
