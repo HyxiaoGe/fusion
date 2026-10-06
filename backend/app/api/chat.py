@@ -18,6 +18,10 @@ from app.schemas.chat import (
 )
 from app.schemas.response import ApiException, ErrorCode, success
 from app.services.chat_service import ChatService
+from app.services.conversation_activity_service import (
+    get_conversation_activity,
+    mark_conversation_read,
+)
 from app.services.network_diagnostics_service import NetworkDiagnosticsService
 from app.services.stream import stream_redis_as_sse
 from app.services.stream.persistence import filter_authoritative_partial_content
@@ -150,6 +154,35 @@ def search_conversations(
     """按标题模糊搜索当前用户的对话，按 updated_at 倒序。"""
     items = chat_service.search_conversations_by_title(current_user.id, q, limit)
     return success(data={"items": items}, request_id=request.state.request_id)
+
+
+@router.get("/conversations/activity")
+async def get_conversations_activity(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """当前用户正在生成、以及生成完还没打开过的对话 ID，供侧栏跨标签页显示状态。"""
+    try:
+        data = await get_conversation_activity(str(current_user.id))
+    except Exception as error:
+        logger.warning("读取对话活动状态失败: user_id=%s, error=%s", current_user.id, error)
+        raise ApiException.service_unavailable("对话状态暂不可用") from error
+    return success(data=data, request_id=request.state.request_id)
+
+
+@router.post("/conversations/{conversation_id}/read")
+async def mark_conversation_as_read(
+    conversation_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """用户已查看该对话，清除完成未读标记。只动当前用户自己的集合，无需校验对话归属。"""
+    try:
+        await mark_conversation_read(str(current_user.id), conversation_id)
+    except Exception as error:
+        logger.warning("清除对话未读标记失败: conv_id=%s, error=%s", conversation_id, error)
+        raise ApiException.service_unavailable("对话状态暂不可用") from error
+    return success(request_id=request.state.request_id)
 
 
 @router.get("/conversations/{conversation_id}")

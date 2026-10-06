@@ -21,6 +21,7 @@ interface ChatItemProps {
   chat: ConversationListItem;
   isActive: boolean;
   isStreaming?: boolean;
+  hasUnread?: boolean;
   modelNameById: Map<string, string>;
   onSelectChat: (chatId: string) => void;
   onPrefetchChat?: (chatId: string) => void;
@@ -52,6 +53,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
   chat,
   isActive,
   isStreaming = false,
+  hasUnread = false,
   modelNameById,
   onSelectChat,
   onPrefetchChat,
@@ -153,6 +155,15 @@ const ChatItem: React.FC<ChatItemProps> = ({
               className="animate-spin motion-reduce:animate-none"
               aria-hidden="true"
             />
+          </span>
+        ) : hasUnread ? (
+          <span
+            role="status"
+            aria-label={`${chat.title || "新对话"} 已完成，未查看`}
+            title="已完成，未查看"
+            className="pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity group-hover:opacity-0"
+          >
+            <span className="h-2 w-2 rounded-full bg-primary" aria-hidden="true" />
           </span>
         ) : null}
         <DropdownMenu>

@@ -44,6 +44,16 @@ def stream_stop_guard_key(conversation_id: str) -> str:
     return f"stream:stop_guard:{conversation_id}"
 
 
+def user_active_streams_key(user_id: str) -> str:
+    """Redis Set key：该用户正在生成的对话。"""
+    return f"stream:user_active:{user_id}"
+
+
+def user_unread_conversations_key(user_id: str) -> str:
+    """Redis Set key：该用户生成完成但还没打开过的对话。"""
+    return f"conversation:unread:{user_id}"
+
+
 def agent_context_request_key(request_id: str) -> str:
     """等待前端补充运行上下文的短期请求状态。"""
     return f"agent:context:request:{request_id}"
