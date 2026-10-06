@@ -112,6 +112,8 @@ class LLMStreamRequest:
     allow_deferred_reasoning_output: bool = False
     partial_output: dict[str, str] | None = None
     on_visible_output: Callable[[str], Awaitable[None]] | None = None
+    # 输出延迟发布时，正文不推送，只用它通知“模型已开始思考”，供前端显示生成阶段。
+    on_deferred_output_signal: Callable[[str], Awaitable[None]] | None = None
     on_output_candidate: Callable[[str, float | None], None] | None = None
     capture_output_candidate_time: Callable[[], float | None] | None = None
     # 工具调用参数片段（index, name, arguments 片段）的旁路观察者，用于文档草稿预览；不影响累积结果。
@@ -763,6 +765,8 @@ async def append_reasoning_and_content(
             )
             if request.on_visible_output is not None:
                 await request.on_visible_output("reasoning")
+        elif request.on_deferred_output_signal is not None:
+            await request.on_deferred_output_signal("reasoning")
         if request.partial_output is not None:
             request.partial_output["reasoning_buf"] = state.reasoning_buf
     if content_delta:
@@ -928,6 +932,7 @@ async def stream_round(
     allow_deferred_reasoning_output: bool = False,
     partial_output: dict[str, str] | None = None,
     on_visible_output: Callable[[str], Awaitable[None]] | None = None,
+    on_deferred_output_signal: Callable[[str], Awaitable[None]] | None = None,
     on_output_candidate: Callable[[str, float | None], None] | None = None,
     capture_output_candidate_time: Callable[[], float | None] | None = None,
     on_tool_call_delta: Callable[[int, str | None, str], Awaitable[None]] | None = None,
@@ -957,6 +962,7 @@ async def stream_round(
             allow_deferred_reasoning_output=allow_deferred_reasoning_output,
             partial_output=partial_output,
             on_visible_output=on_visible_output,
+            on_deferred_output_signal=on_deferred_output_signal,
             on_output_candidate=on_output_candidate,
             capture_output_candidate_time=capture_output_candidate_time,
             on_tool_call_delta=on_tool_call_delta,

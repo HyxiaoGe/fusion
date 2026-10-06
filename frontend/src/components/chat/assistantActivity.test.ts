@@ -903,6 +903,34 @@ describe('deriveAssistantActivity', () => {
     expect(derive('load_skill', 'pending').kind).toBe('preparing');
   });
 
+  it('文档草稿生成期显示撰写文档，而不是分析结果', () => {
+    const activity = deriveAssistantActivity({
+      isStreaming: true,
+      isCurrentlyStreaming: true,
+      contentBlocks: [],
+      currentRun: makeRun({
+        status: 'running',
+        totalToolCalls: 1,
+        steps: [{
+          stepId: 'step-1',
+          stepNumber: 1,
+          status: 'completed',
+          startedAt: 1,
+          contentBlockIds: [],
+          toolCalls: [{ toolCallId: 'tool-1', toolName: 'weather_forecast', arguments: {}, status: 'success', startedAt: 1 }],
+        }],
+        llmPhase: { roundId: 'round-5', roundIndex: 4, output: 'pending', sequence: 9 },
+        documentDraft: { draftId: 'd1', toolName: 'create_document', title: '三亚五日游攻略', content: '# 第一天', documentId: '' },
+      }),
+      messageStatus: null,
+      isLoadingSuggestedQuestions: false,
+      suggestedQuestionsCount: 0,
+    });
+
+    expect(activity.kind).toBe('drafting');
+    expect(activity.draft).toEqual({ toolName: 'create_document', title: '三亚五日游攻略' });
+  });
+
   it('地名有多个候选时不算工具问题', () => {
     const activity = deriveAssistantActivity({
       isStreaming: false,

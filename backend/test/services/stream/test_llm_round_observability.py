@@ -404,6 +404,92 @@ class LLMRoundObservabilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(emitter.llm_round_first_output_delta.await_args.kwargs["delta_kind"], "tool_call")
         self.assertEqual(emitter.llm_round_first_output_delta.await_args.kwargs["ttft_ms"], 500)
 
+    async def test_deferred_reasoning_signal_emits_reasoning_without_content(self):
+        from app.ai.llm_round_observability import LLMRoundObservation, RoundMetadata
+        from app.services.stream.llm_round_lifecycle import LLMRoundLifecycle
+
+        now = [20.0]
+        observation = LLMRoundObservation(
+            metadata=RoundMetadata("conv", "run", 1, "step", "agent", "model", "provider"),
+            litellm_model="test/model",
+            messages=[],
+            call_kwargs={},
+            clock=lambda: now[0],
+            token_estimator=lambda *_args, **_kwargs: 1,
+            context_window_resolver=lambda _model_id: (4096, "test", "known"),
+            run_context_in_thread=False,
+        )
+        observation.start()
+        now[0] = 20.1
+        observation.observe_chunk(
+            SimpleNamespace(
+                choices=[
+                    SimpleNamespace(delta=SimpleNamespace(reasoning_content="隐藏", content=None, tool_calls=None))
+                ]
+            )
+        )
+        observation.observe_output_candidate("reasoning")
+        now[0] = 20.4
+        observation.observe_chunk(
+            SimpleNamespace(
+                choices=[
+                    SimpleNamespace(delta=SimpleNamespace(reasoning_content=None, content="正文", tool_calls=None))
+                ]
+            )
+        )
+        observation.observe_output_candidate("content")
+        emitter = AsyncMock()
+        lifecycle = LLMRoundLifecycle(emitter, observation, "round", "step")
+
+        await lifecycle.publish_visible_output("content")
+
+        self.assertEqual(emitter.llm_round_first_output_delta.await_args.kwargs["delta_kind"], "content")
+        self.assertEqual(emitter.llm_round_first_output_delta.await_args.kwargs["ttft_ms"], 400)
+
+        observation = LLMRoundObservation(
+            metadata=RoundMetadata("conv", "run", 2, "step", "agent", "model", "provider"),
+            litellm_model="test/model",
+            messages=[],
+            call_kwargs={},
+            clock=lambda: now[0],
+            token_estimator=lambda *_args, **_kwargs: 1,
+            context_window_resolver=lambda _model_id: (4096, "test", "known"),
+            run_context_in_thread=False,
+        )
+        observation.start()
+        now[0] = 20.6
+        observation.observe_chunk(
+            SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        delta=SimpleNamespace(reasoning_content="隐藏", content="隐藏正文", tool_calls=None)
+                    )
+                ]
+            )
+        )
+        observation.observe_output_candidate("reasoning")
+        observation.observe_output_candidate("content")
+        now[0] = 20.9
+        observation.observe_chunk(
+            SimpleNamespace(
+                choices=[
+                    SimpleNamespace(delta=SimpleNamespace(reasoning_content=None, content=None, tool_calls=[object()]))
+                ]
+            )
+        )
+        observation.observe_output_candidate("tool_call")
+        emitter = AsyncMock()
+        lifecycle = LLMRoundLifecycle(emitter, observation, "round-2", "step")
+
+        await lifecycle.publish_deferred_reasoning_signal("reasoning")
+        await lifecycle.publish_deferred_reasoning_signal("reasoning")
+        await lifecycle.publish_tool_output()
+
+        # 延迟发布时只提前发一次“已开始思考”，后续工具调用不再重复首个输出。
+        emitter.llm_round_first_output_delta.assert_awaited_once()
+        self.assertEqual(emitter.llm_round_first_output_delta.await_args.kwargs["delta_kind"], "reasoning")
+        self.assertIsNone(lifecycle.output_provenance)
+
     async def test_empty_stream_keeps_first_output_measurement_unknown(self):
         from app.ai.llm_round_observability import LLMRoundObservation, RoundMetadata
 

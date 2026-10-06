@@ -193,6 +193,19 @@ class LLMRoundLifecycle:
             return
         await self._publish_first(delta_kind=delta_kind, ttft_ms=ttft_ms)
 
+    async def publish_deferred_reasoning_signal(self, delta_kind: str = "reasoning") -> None:
+        """输出延迟发布时，仅发送“已开始思考”的首次输出事件，不推送思考正文。
+
+        耗时取自观测层记录的思考到达时刻，与可见流式路径一致；不记录输出采用来源。
+        """
+
+        if self.first_output_emitted or self.terminal_emitted or delta_kind != "reasoning":
+            return
+        ttft_ms = _measured_delta_ms(self.observation, "reasoning")
+        if ttft_ms is None:
+            return
+        await self._publish_first(delta_kind="reasoning", ttft_ms=ttft_ms)
+
     async def publish_tool_output(self) -> None:
         if self.first_output_emitted or self.terminal_emitted:
             return

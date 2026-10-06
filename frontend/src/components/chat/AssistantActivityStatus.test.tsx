@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { act, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import type { AssistantActivity } from './assistantActivity';
 import AssistantActivityStatus from './AssistantActivityStatus';
 
@@ -7,6 +7,7 @@ function baseActivity(overrides: Partial<AssistantActivity>): AssistantActivity 
   return {
     kind: 'completed',
     tool: null,
+    draft: null,
     issue: null,
     searchBlock: null,
     urlBlocks: [],
@@ -47,6 +48,50 @@ describe('AssistantActivityStatus', () => {
 
     rerender(<AssistantActivityStatus activity={baseActivity({ kind: 'preparing' })} stopPending />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('文档草稿生成期按工具注册表展示撰写文档与标题', () => {
+    render(
+      <AssistantActivityStatus
+        activity={baseActivity({ kind: 'drafting', draft: { toolName: 'edit_document', title: '三亚攻略' } })}
+        reasoningVisible
+      />,
+    );
+
+    expect(screen.getByText('正在修改文档')).toBeTruthy();
+    expect(screen.getByText('三亚攻略')).toBeTruthy();
+  });
+
+  it('进行中状态只在底部位置渲染，结论性状态只在顶部渲染', () => {
+    const { container, rerender } = render(
+      <AssistantActivityStatus activity={baseActivity({ kind: 'analyzing' })} placement="top" />,
+    );
+    expect(container).toBeEmptyDOMElement();
+
+    rerender(<AssistantActivityStatus activity={baseActivity({ kind: 'analyzing' })} placement="bottom" />);
+    expect(screen.getByText('正在分析结果')).toBeTruthy();
+
+    rerender(<AssistantActivityStatus activity={baseActivity({ kind: 'failed' })} placement="bottom" />);
+    expect(container).toBeEmptyDOMElement();
+
+    rerender(<AssistantActivityStatus activity={baseActivity({ kind: 'failed' })} placement="top" />);
+    expect(screen.getByRole('alert')).toBeTruthy();
+  });
+
+  it('同一阶段持续超过 3 秒后显示计时，切换阶段重新计时', () => {
+    vi.useFakeTimers();
+    try {
+      const { rerender } = render(<AssistantActivityStatus activity={baseActivity({ kind: 'analyzing' })} />);
+      expect(screen.queryByText(/秒$/)).toBeNull();
+
+      act(() => { vi.advanceTimersByTime(4000); });
+      expect(screen.getByText('4 秒')).toBeTruthy();
+
+      rerender(<AssistantActivityStatus activity={baseActivity({ kind: 'reasoning' })} />);
+      expect(screen.queryByText(/秒$/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('renders running web search with query', () => {
