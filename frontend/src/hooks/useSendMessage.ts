@@ -1732,7 +1732,15 @@ export function useSendMessage(activeConversationId?: string | null) {
 
   // 只断开本页对这条流的接收，不通知服务端停止：运行在后台继续，
   // 侧栏按服务端登记显示进度，回到该对话时由对话页查 stream-status 从头续流。
-  const detachStreaming = invalidateFrontendSend;
+  const detachStreaming = useCallback(() => {
+    const detachedConversationId = activeConvIdRef.current;
+    invalidateFrontendSend();
+    // 本地只剩发送时的占位消息，且物化时已标为加载完成。退回 idle，
+    // 回到该对话时重新拉详情，否则会一直显示空回答。
+    if (detachedConversationId) {
+      dispatch(setHydrationStatus({ id: detachedConversationId, status: 'idle' }));
+    }
+  }, [dispatch, invalidateFrontendSend]);
 
   return { sendMessage, stopStreaming, detachStreaming, retryMessage };
 }

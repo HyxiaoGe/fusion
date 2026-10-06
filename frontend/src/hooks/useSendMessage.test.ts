@@ -832,6 +832,42 @@ describe('useSendMessage', () => {
     expect(store.getState().conversation.byId['conv-a']?.title).toBe('新标题');
   });
 
+  it('detaches a materialized draft without stopping and marks it for rehydration', async () => {
+    const store = createStore();
+    let streamSignal: AbortSignal | undefined;
+    sendMessageStreamMock.mockImplementation(
+      (_payload: any, callbacks: StreamCallbacks, signal?: AbortSignal) => {
+        streamSignal = signal;
+        callbacks.onReady({ messageId: 'assistant-1', conversationId: 'server-conv', taskId: 'task-1' });
+        return new Promise<void>((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+        });
+      }
+    );
+
+    const { result } = renderHook(() => useSendMessage(), {
+      wrapper: createWrapper(store),
+    });
+
+    let sending: Promise<unknown> | undefined;
+    await act(async () => {
+      sending = result.current.sendMessage('hello', { conversationId: null, isDraft: true });
+    });
+    await waitFor(() => {
+      expect(store.getState().conversation.hydrationStatus['server-conv']).toBe('done');
+    });
+
+    await act(async () => {
+      result.current.detachStreaming();
+      await sending;
+    });
+
+    expect(streamSignal?.aborted).toBe(true);
+    expect(stopStreamMock).not.toHaveBeenCalled();
+    expect(store.getState().conversation.hydrationStatus['server-conv']).toBe('idle');
+    expect(theSlot(store.getState()).isStreaming).toBe(false);
+  });
+
   it('materializes a draft conversation and migrates the active stream', async () => {
     const store = createStore();
     const onMaterialized = vi.fn();
