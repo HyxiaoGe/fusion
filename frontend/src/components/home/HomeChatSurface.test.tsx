@@ -8,6 +8,7 @@ const {
   routerReplaceMock,
   sendMessageMock,
   stopStreamingMock,
+  detachStreamingMock,
   useConversationFilesMock,
   useConversationFilesState,
   deleteFileMock,
@@ -24,6 +25,7 @@ const {
   routerReplaceMock: vi.fn(),
   sendMessageMock: vi.fn(),
   stopStreamingMock: vi.fn(),
+  detachStreamingMock: vi.fn(),
   useConversationFilesMock: vi.fn(),
   useConversationFilesState: {
     files: [] as any[],
@@ -113,6 +115,7 @@ vi.mock('@/hooks/useSendMessage', () => ({
   useSendMessage: () => ({
     sendMessage: sendMessageMock,
     stopStreaming: stopStreamingMock,
+    detachStreaming: detachStreamingMock,
   }),
 }));
 
@@ -323,6 +326,7 @@ describe('HomeChatSurface 会话资料交互', () => {
       return Promise.resolve();
     });
     stopStreamingMock.mockReset();
+    detachStreamingMock.mockReset();
     useConversationFilesMock.mockClear();
     useConversationFilesState.files = [];
     useConversationFilesState.isLoading = false;
@@ -377,6 +381,68 @@ describe('HomeChatSurface 会话资料交互', () => {
     expect(options.canStart()).toBe(false);
     act(() => { options.onAccepted(); options.onMaterialized('old-server-chat'); });
     expect(routerReplaceMock).not.toHaveBeenCalledWith('/chat/old-server-chat');
+  });
+
+  it('新建会话时尚未转正的草稿先让出页面，转正后转后台且不跳回', () => {
+    let options: any;
+    sendMessageMock.mockImplementation((_content, nextOptions) => {
+      options = nextOptions;
+      return new Promise(() => {});
+    });
+    const { rerender } = render(<HomeChatSurface />);
+    const send = chatInputRenderMock.mock.lastCall?.[0].onSendMessage;
+    act(() => { void send('长任务'); });
+    act(() => { options.onAccepted(); options.onDraftCreated('draft-chat-1'); });
+    pendingConversationState.id = 'draft-chat-1';
+    pendingConversationState.byId = {
+      'draft-chat-1': {
+        id: 'draft-chat-1',
+        title: '即时草稿',
+        model_id: 'model-vision',
+        createdAt: 1,
+        updatedAt: 1,
+        messages: [],
+      },
+    };
+    streamState.isStreaming = true;
+    streamState.conversationId = 'draft-chat-1';
+    rerender(<HomeChatSurface />);
+    dispatchMock.mockClear();
+
+    act(() => requestNewChatDraftReset());
+
+    expect(dispatchMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'conversation/setPendingConversationId', payload: null }),
+    );
+    expect(stopStreamingMock).not.toHaveBeenCalled();
+    expect(detachStreamingMock).not.toHaveBeenCalled();
+
+    act(() => { options.onMaterialized('server-chat-1'); });
+
+    expect(detachStreamingMock).toHaveBeenCalledTimes(1);
+    expect(stopStreamingMock).not.toHaveBeenCalled();
+    expect(routerReplaceMock).not.toHaveBeenCalledWith('/chat/server-chat-1');
+  });
+
+  it('新建会话时已转为服务端会话的流转到后台继续，不发停止', () => {
+    let options: any;
+    sendMessageMock.mockImplementation((_content, nextOptions) => {
+      options = nextOptions;
+      return new Promise(() => {});
+    });
+    const { rerender } = render(<HomeChatSurface />);
+    const send = chatInputRenderMock.mock.lastCall?.[0].onSendMessage;
+    act(() => { void send('长任务'); });
+    act(() => { options.onAccepted(); options.onMaterialized('server-chat-1'); });
+    // 物化后 pendingConversationId 已清空，流挂在服务端会话 ID 下。
+    streamState.isStreaming = true;
+    streamState.conversationId = 'server-chat-1';
+    rerender(<HomeChatSurface />);
+
+    act(() => requestNewChatDraftReset());
+
+    expect(detachStreamingMock).toHaveBeenCalledTimes(1);
+    expect(stopStreamingMock).not.toHaveBeenCalled();
   });
 
   it('新对话本地草稿阶段也在消息区顶部装配定位授权提示', () => {
