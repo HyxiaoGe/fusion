@@ -1737,7 +1737,10 @@ export function useSendMessage(activeConversationId?: string | null) {
     invalidateFrontendSend();
     // 本地只剩发送时的占位消息，且物化时已标为加载完成。退回 idle，
     // 回到该对话时重新拉详情，否则会一直显示空回答。
+    // endStream 会保留 currentRun 供流后摘要使用，但断开时它停在 running，
+    // 会盖住重新拉到的终态，一并清掉，运行状态以详情和续流为准。
     if (detachedConversationId) {
+      dispatch(clearCurrentRun({ conversationId: detachedConversationId }));
       dispatch(setHydrationStatus({ id: detachedConversationId, status: 'idle' }));
     }
   }, [dispatch, invalidateFrontendSend]);
