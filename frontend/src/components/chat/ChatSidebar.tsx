@@ -15,6 +15,7 @@ import { useConversationActivity } from "@/hooks/useConversationActivity";
 import { useAppSelector, useAppDispatch } from "@/redux/hooks";
 import { shallowEqual } from "react-redux";
 import { selectStreamingConversationIds } from "@/redux/slices/streamSlice";
+import { selectAuthSessionKey } from "@/redux/selectors";
 import { setThemeMode } from "@/redux/slices/themeSlice";
 import { useResolvedTheme } from "@/lib/hooks/useResolvedTheme";
 import { useHasMounted } from "@/hooks/useHasMounted";
@@ -92,7 +93,9 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ onNewChat, activeChatIdOverri
   const [pendingChatId, setPendingChatId] = useState<string | null>(null);
   const activeChatId = pendingChatId ?? routeActiveChatId;
   // 本页 Redux 只知道本页发起或重连的流；刷新、换标签页后以服务端登记为准。
+  const authSessionKey = useAppSelector(selectAuthSessionKey);
   const { streamingConversationIds, unreadConversationIds } = useConversationActivity(
+    authSessionKey,
     routeActiveChatId,
     localStreamingConversationIds,
   );
