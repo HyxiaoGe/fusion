@@ -839,6 +839,7 @@ describe('useSendMessage', () => {
       (_payload: any, callbacks: StreamCallbacks, signal?: AbortSignal) => {
         streamSignal = signal;
         callbacks.onReady({ messageId: 'assistant-1', conversationId: 'server-conv', taskId: 'task-1' });
+        emitRunStarted(callbacks);
         return new Promise<void>((_resolve, reject) => {
           signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
         });
@@ -855,6 +856,7 @@ describe('useSendMessage', () => {
     });
     await waitFor(() => {
       expect(store.getState().conversation.hydrationStatus['server-conv']).toBe('done');
+      expect(theSlot(store.getState()).currentRun?.status).toBe('running');
     });
 
     await act(async () => {
@@ -866,6 +868,7 @@ describe('useSendMessage', () => {
     expect(stopStreamMock).not.toHaveBeenCalled();
     expect(store.getState().conversation.hydrationStatus['server-conv']).toBe('idle');
     expect(theSlot(store.getState()).isStreaming).toBe(false);
+    expect(theSlot(store.getState()).currentRun).toBeNull();
   });
 
   it('materializes a draft conversation and migrates the active stream', async () => {
