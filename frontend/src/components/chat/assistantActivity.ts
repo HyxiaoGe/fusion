@@ -14,6 +14,7 @@ export type AssistantActivityKind =
   | 'preparing'
   | 'reasoning'
   | 'analyzing'
+  | 'drafting'
   | 'tool_running'
   | 'answering'
   | 'completed'
@@ -36,6 +37,11 @@ export interface AssistantToolActivity {
   call: ToolCallState;
 }
 
+export interface AssistantDraftActivity {
+  toolName: string;
+  title: string;
+}
+
 export interface AssistantToolIssue {
   kind: 'failed' | 'degraded' | 'empty';
   toolKind: AssistantToolKind;
@@ -48,6 +54,8 @@ export interface AssistantToolIssue {
 export interface AssistantActivity {
   kind: AssistantActivityKind;
   tool: AssistantToolActivity | null;
+  /** drafting 时正在生成的文档草稿（工具参数流式预览）。 */
+  draft: AssistantDraftActivity | null;
   issue: AssistantToolIssue | null;
   searchBlock: SearchBlock | null;
   urlBlocks: UrlBlock[];
@@ -83,6 +91,7 @@ export function deriveAssistantActivity(input: DeriveAssistantActivityInput): As
     hasText,
     hasThinking: hasThinking && !shouldSuppressReasoning,
     hasRunningTool: runningToolActivity !== null,
+    hasDraft: Boolean(input.currentRun?.documentDraft),
     llmOutput: input.currentRun?.llmPhase?.output ?? null,
     hasToolResults: findLatestToolCall(
       input.currentRun,
@@ -94,6 +103,9 @@ export function deriveAssistantActivity(input: DeriveAssistantActivityInput): As
   return {
     kind,
     tool,
+    draft: kind === 'drafting' && input.currentRun?.documentDraft
+      ? { toolName: input.currentRun.documentDraft.toolName, title: input.currentRun.documentDraft.title }
+      : null,
     issue,
     searchBlock,
     urlBlocks,
@@ -139,6 +151,7 @@ function deriveKind(
     hasText: boolean;
     hasThinking: boolean;
     hasRunningTool: boolean;
+    hasDraft: boolean;
     llmOutput: AgentLlmPhaseOutput | null;
     hasToolResults: boolean;
   },
@@ -156,6 +169,11 @@ function deriveKind(
   }
 
   const isActiveStreaming = input.isStreaming || input.isCurrentlyStreaming;
+  // 文档内容以工具参数流式生成，期间模型轮次尚未结束，需单独识别。
+  if (isActiveStreaming && facts.hasDraft) {
+    return 'drafting';
+  }
+
   if (isActiveStreaming && facts.hasText) {
     return 'answering';
   }

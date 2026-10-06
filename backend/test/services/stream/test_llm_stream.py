@@ -2257,6 +2257,33 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
             step_id=None,
         )
 
+    async def test_deferred_reasoning_signals_phase_without_streaming_text(self):
+        signal = AsyncMock()
+        visible = AsyncMock()
+        request = llm_stream_module.LLMStreamRequest(
+            conversation_id="conv-deferred",
+            task_id="task-deferred",
+            should_use_reasoning=True,
+            thinking_block_id="blk-thinking",
+            text_block_id="blk-text",
+            defer_output=True,
+            on_visible_output=visible,
+            on_deferred_output_signal=signal,
+        )
+        append_chunk = AsyncMock()
+
+        with patch("app.services.stream.llm_stream.append_chunk", append_chunk):
+            await llm_stream_module.append_reasoning_and_content(
+                request=request,
+                state=llm_stream_module.LLMStreamState(),
+                reasoning_delta="先比较路线",
+                content_delta="延迟正文",
+            )
+
+        signal.assert_awaited_once_with("reasoning")
+        visible.assert_not_awaited()
+        append_chunk.assert_not_awaited()
+
     async def test_minimax_split_think_tags_stream_reasoning_and_keep_answer_deferred(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-minimax",

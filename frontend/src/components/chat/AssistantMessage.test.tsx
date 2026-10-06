@@ -157,6 +157,7 @@ function defaultViewModel(overrides: Record<string, unknown> = {}) {
     activity: {
       kind: 'answering',
       tool: null,
+      draft: null,
       issue: null,
       searchBlock: null,
       urlBlocks: [],

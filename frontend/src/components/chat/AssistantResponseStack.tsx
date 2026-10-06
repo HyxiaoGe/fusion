@@ -92,6 +92,7 @@ function AssistantResponseStack({
 
         <AssistantActivityStatus
           activity={activity}
+          placement="top"
           reasoningVisible={showReasoning}
           stopPending={stopAwaitingConfirmation}
         />
@@ -140,6 +141,14 @@ function AssistantResponseStack({
             ▌
           </span>
         ) : null}
+
+        {/* 进行中的状态跟在最新内容之后，避免用户要滚回顶部才能看到进度。 */}
+        <AssistantActivityStatus
+          activity={activity}
+          placement="bottom"
+          reasoningVisible={showReasoning}
+          stopPending={stopAwaitingConfirmation}
+        />
       </div>
     </div>
   );

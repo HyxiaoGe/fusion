@@ -112,6 +112,7 @@ async def collect_agent_round_stream(
     defer_output: bool = False,
     allow_deferred_reasoning_output: bool = False,
     on_visible_output: Callable[[str], Awaitable[None]] | None = None,
+    on_deferred_output_signal: Callable[[str], Awaitable[None]] | None = None,
     on_output_candidate: Callable[..., None] | None = None,
     capture_output_candidate_time: Callable[[], float | None] | None = None,
     partial_output: dict[str, str] | None = None,
@@ -139,6 +140,8 @@ async def collect_agent_round_stream(
         stream_kwargs["allow_deferred_reasoning_output"] = True
     if on_visible_output is not None and _accepts_keyword(stream_round_fn, "on_visible_output"):
         stream_kwargs["on_visible_output"] = on_visible_output
+    if on_deferred_output_signal is not None and _accepts_keyword(stream_round_fn, "on_deferred_output_signal"):
+        stream_kwargs["on_deferred_output_signal"] = on_deferred_output_signal
     if on_output_candidate is not None and _accepts_keyword(stream_round_fn, "on_output_candidate"):
         stream_kwargs["on_output_candidate"] = on_output_candidate
     if capture_output_candidate_time is not None and _accepts_keyword(
@@ -356,6 +359,9 @@ async def run_agent_round(
             allow_deferred_reasoning_output=defer_output and allow_deferred_reasoning_output,
             on_visible_output=(
                 lifecycle.publish_visible_output if lifecycle is not None and not defer_output else None
+            ),
+            on_deferred_output_signal=(
+                lifecycle.publish_deferred_reasoning_signal if lifecycle is not None and defer_output else None
             ),
             on_output_candidate=getattr(observation, "observe_output_candidate", None),
             capture_output_candidate_time=getattr(observation, "capture_output_candidate_time", None),

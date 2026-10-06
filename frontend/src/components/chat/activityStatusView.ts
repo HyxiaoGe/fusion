@@ -64,6 +64,19 @@ export function resolveActivityStatus(
     };
   }
 
+  if (activity.kind === 'drafting' && activity.draft) {
+    const meta = getToolMeta(activity.draft.toolName);
+    return {
+      key: `draft:${activity.draft.toolName}`,
+      tone: meta.color,
+      icon: meta.icon,
+      title: `正在${meta.label}`,
+      detail: activity.draft.title || undefined,
+      busy: true,
+      role: 'status',
+    };
+  }
+
   if (isModelPhase(activity.kind)) {
     if (reasoningVisible) return null;
     return { key: activity.kind, ...MODEL_PHASE_VIEWS[activity.kind], busy: true, role: 'status' };

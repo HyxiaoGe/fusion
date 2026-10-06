@@ -38,13 +38,14 @@ vi.mock('./ReasoningContent', () => ({
 }));
 
 vi.mock('./AssistantActivityStatus', () => ({
-  default: ({ activity, reasoningVisible, stopPending }: {
+  default: ({ activity, placement, reasoningVisible, stopPending }: {
     activity: AssistantActivity;
+    placement?: 'top' | 'bottom';
     reasoningVisible?: boolean;
     stopPending?: boolean;
   }) => (
     <section
-      data-testid="stack-activity"
+      data-testid={placement === 'bottom' ? 'stack-activity-bottom' : 'stack-activity'}
       data-reasoning-visible={String(Boolean(reasoningVisible))}
       data-stop-pending={String(Boolean(stopPending))}
     >
@@ -98,6 +99,7 @@ function activity(overrides: Partial<AssistantActivity> = {}): AssistantActivity
   return {
     kind: 'answering',
     tool: null,
+    draft: null,
     issue: null,
     searchBlock: null,
     urlBlocks: [],
@@ -502,6 +504,11 @@ describe('AssistantResponseStack', () => {
     expect(screen.getByTestId('stack-evidence')).toBeInTheDocument();
     expect(screen.getByTestId('stack-markdown')).toBeInTheDocument();
     expect(screen.getByTestId('streaming-cursor')).toBeInTheDocument();
+    // 进行中状态的底部位置排在正文之后，跟随最新内容。
+    const bottomStatus = screen.getByTestId('stack-activity-bottom');
+    expect(
+      screen.getByTestId('stack-markdown').compareDocumentPosition(bottomStatus) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(stack.querySelectorAll('.max-w-6xl')).toHaveLength(2);
   });
 
