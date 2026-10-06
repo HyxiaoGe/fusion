@@ -102,6 +102,24 @@ describe('useConversationActivity', () => {
     expect(result.current.unreadConversationIds).toEqual([]);
   });
 
+  it('reports conversations that leave the streaming set, but not on logout', async () => {
+    mockedGet.mockResolvedValue({ streaming: [], unread: [] });
+    const onSettled = vi.fn();
+    const { rerender } = renderHook(
+      ({ session, local }: { session: string | null; local: readonly string[] }) =>
+        useConversationActivity(session, null, local, onSettled),
+      { initialProps: { session: 'user-1' as string | null, local: ['conv-1', 'conv-2'] as readonly string[] } },
+    );
+    await waitFor(() => expect(mockedGet).toHaveBeenCalled());
+
+    rerender({ session: 'user-1', local: ['conv-2'] });
+    expect(onSettled).toHaveBeenCalledWith(['conv-1']);
+
+    onSettled.mockClear();
+    rerender({ session: null, local: [] });
+    expect(onSettled).not.toHaveBeenCalled();
+  });
+
   it('keeps the last state when a refresh fails', async () => {
     mockedGet.mockResolvedValueOnce({ streaming: ['conv-1'], unread: [] });
     const { result } = renderHook(() => useConversationActivity('user-1', null, NO_LOCAL));
