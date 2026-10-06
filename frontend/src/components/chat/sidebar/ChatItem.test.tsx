@@ -159,4 +159,15 @@ describe("ChatItem", () => {
 
     expect(screen.queryByRole("status", { name: "待预取对话 正在输出" })).toBeNull();
   });
+
+  it("shows an unread dot only when not streaming", () => {
+    const { rerender } = render(<ChatItem {...baseProps} hasUnread />);
+
+    expect(screen.getByRole("status", { name: "待预取对话 已完成，未查看" })).toBeInTheDocument();
+
+    rerender(<ChatItem {...baseProps} hasUnread isStreaming />);
+
+    expect(screen.queryByRole("status", { name: "待预取对话 已完成，未查看" })).toBeNull();
+    expect(screen.getByRole("status", { name: "待预取对话 正在输出" })).toBeInTheDocument();
+  });
 });

@@ -12,6 +12,7 @@ interface ChatListProps {
   sortedAndGroupedChats: { groupLabel: string; groupChats: ConversationListItem[] }[];
   activeChatId: string | null;
   streamingConversationIds?: readonly string[];
+  unreadConversationIds?: readonly string[];
   modelNameById: Map<string, string>;
   isLoadingServerList: boolean;
   isLoadingMoreServer: boolean;
@@ -32,6 +33,7 @@ const ChatList: React.FC<ChatListProps> = ({
   sortedAndGroupedChats,
   activeChatId,
   streamingConversationIds = EMPTY_STREAMING_IDS,
+  unreadConversationIds = EMPTY_STREAMING_IDS,
   modelNameById,
   isLoadingServerList,
   isLoadingMoreServer,
@@ -243,6 +245,7 @@ const ChatList: React.FC<ChatListProps> = ({
                 chat={chat}
                 isActive={chat.id === activeChatId}
                 isStreaming={streamingConversationIds.includes(chat.id)}
+                hasUnread={unreadConversationIds.includes(chat.id)}
                 modelNameById={modelNameById}
                 onSelectChat={handleSelectChat}
                 onPrefetchChat={handlePrefetchChat}
@@ -267,6 +270,7 @@ const ChatList: React.FC<ChatListProps> = ({
                       chat={chat}
                       isActive={chat.id === activeChatId}
                       isStreaming={streamingConversationIds.includes(chat.id)}
+                      hasUnread={unreadConversationIds.includes(chat.id)}
                       modelNameById={modelNameById}
                       onSelectChat={handleSelectChat}
                       onPrefetchChat={handlePrefetchChat}

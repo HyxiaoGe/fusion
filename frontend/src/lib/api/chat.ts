@@ -1049,6 +1049,27 @@ export async function searchConversations(query: string, limit = 50, signal?: Ab
   return data.items || [];
 }
 
+export interface ConversationActivity {
+  /** 服务端仍在生成的对话（跨标签页、跨刷新都能拿到）。 */
+  streaming: string[];
+  /** 生成完成但用户还没打开过的对话。 */
+  unread: string[];
+}
+
+export async function getConversationActivity(signal?: AbortSignal): Promise<ConversationActivity> {
+  const data = await apiRequest<Partial<ConversationActivity>>(
+    `${API_BASE_URL}/api/chat/conversations/activity`,
+    signal ? { signal } : undefined,
+  );
+  return { streaming: data?.streaming ?? [], unread: data?.unread ?? [] };
+}
+
+export async function markConversationRead(conversationId: string) {
+  return apiRequest(`${API_BASE_URL}/api/chat/conversations/${conversationId}/read`, {
+    method: 'POST',
+  });
+}
+
 export async function getConversation(conversationId: string, signal?: AbortSignal) {
   const url = `${API_BASE_URL}/api/chat/conversations/${conversationId}`;
   return signal ? apiRequest(url, { signal }) : apiRequest(url);

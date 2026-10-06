@@ -11,6 +11,7 @@ import ChatSidebarHeader from "./sidebar/ChatSidebarHeader";
 import ChatList from "./sidebar/ChatList";
 import { useConversationList } from "@/hooks/useConversationList";
 import { useSidebarActions } from "@/hooks/useSidebarActions";
+import { useConversationActivity } from "@/hooks/useConversationActivity";
 import { useAppSelector, useAppDispatch } from "@/redux/hooks";
 import { shallowEqual } from "react-redux";
 import { selectStreamingConversationIds } from "@/redux/slices/streamSlice";
@@ -66,7 +67,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ onNewChat, activeChatIdOverri
   const themeMode = useAppSelector((state) => state.theme.mode);
   // 此前只能给出"那一个"正在生成的会话，因为全局只有一个槽位。
   // 槽位按会话拆开后这是一组，侧边栏可以同时转多个圈。
-  const streamingConversationIds = useAppSelector(selectStreamingConversationIds, shallowEqual);
+  const localStreamingConversationIds = useAppSelector(selectStreamingConversationIds, shallowEqual);
   const resolvedTheme = useResolvedTheme(themeMode);
   const hasMounted = useHasMounted();
   // SSR 无法读取 localStorage 里的主题。首个 hydration 帧固定按浅色渲染，
@@ -90,6 +91,11 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ onNewChat, activeChatIdOverri
   // 路由落定后再交还给它。内容仍按原来的节奏加载，只是不再挡着反馈。
   const [pendingChatId, setPendingChatId] = useState<string | null>(null);
   const activeChatId = pendingChatId ?? routeActiveChatId;
+  // 本页 Redux 只知道本页发起或重连的流；刷新、换标签页后以服务端登记为准。
+  const { streamingConversationIds, unreadConversationIds } = useConversationActivity(
+    routeActiveChatId,
+    localStreamingConversationIds,
+  );
 
   // 路由一旦落定——无论是落到刚点的那个，还是用户去了别处（新对话、后退）——
   // 都把选中态交还给路由，避免点击残留把高亮卡在错的位置。
@@ -303,6 +309,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ onNewChat, activeChatIdOverri
         sortedAndGroupedChats={isSearchMode ? EMPTY_GROUPED_CONVERSATIONS : sortedAndGroupedChats}
         activeChatId={activeChatId}
         streamingConversationIds={streamingConversationIds}
+        unreadConversationIds={unreadConversationIds}
         modelNameById={modelNameById}
         isLoadingServerList={isLoadingList}
         isLoadingMoreServer={isLoadingMore}

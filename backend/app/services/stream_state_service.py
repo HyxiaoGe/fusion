@@ -34,6 +34,7 @@ from app.core.redis import (
     stream_meta_key,
     stream_stop_guard_key,
 )
+from app.services.conversation_activity_service import mark_stream_finished, mark_stream_started
 
 # ──────────────────────────────────────────────
 # 写端（后台任务调用）
@@ -133,6 +134,7 @@ async def init_stream(
 
         logger.debug(f"Stream 初始化: conv_id={conversation_id}, msg_id={message_id}")
         _clear_append_failures(conversation_id, task_id)
+        await mark_stream_started(user_id, conversation_id)
         return StreamInitResult(ok=True)
     except Exception as e:
         logger.warning(f"Stream 初始化失败: {e}")
@@ -252,6 +254,8 @@ async def finalize_stream(
 
         if not result:
             logger.debug(f"finalize 跳过（Lua 原子检查）：锁不匹配 conv_id={conversation_id}")
+        else:
+            await mark_stream_finished(conversation_id, notify=True)
         return bool(result)
     except Exception as e:
         logger.warning(f"finalize stream 失败: {e}")
@@ -287,6 +291,7 @@ async def cancel_stream(
         )
         if result:
             logger.info(f"流已通过 Redis 取消: conv_id={conversation_id}")
+            await mark_stream_finished(conversation_id, notify=False)
         else:
             logger.debug(f"cancel_stream 跳过（CAS 不匹配或流已结束）: conv_id={conversation_id}")
         return bool(result)
