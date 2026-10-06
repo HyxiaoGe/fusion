@@ -315,13 +315,58 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertIsNotNone(result.llm_lifecycle)
-        self.assertNotIn("on_visible_output", stream_round_fn.await_args.kwargs)
+        # 延迟模式下可见回调只负责思考信号，正文候选不会提前发出首个输出。
+        await stream_round_fn.await_args.kwargs["on_visible_output"]("content")
         emitter.llm_round_first_output_delta.assert_not_awaited()
         emitter.llm_round_completed.assert_not_awaited()
 
         await result.llm_lifecycle.finish_success(output_visible=False)
         emitter.llm_round_first_output_delta.assert_not_awaited()
         self.assertIsNone(emitter.llm_round_completed.await_args.kwargs["ttft_ms"])
+
+    async def test_deferred_round_streaming_reasoning_signals_thinking_phase(self):
+        emitter = AsyncMock()
+        observation = MagicMock(first_output_delta_kind="reasoning", duration_ms=200)
+        observation.output_delta_ms.side_effect = lambda kind: 120 if kind == "reasoning" else None
+        observation.finish_success = AsyncMock()
+        observation.finish_error = AsyncMock()
+        observation.wrap_response.side_effect = lambda response: response
+        context_plan = MagicMock(messages=[], estimated_tokens_after=10)
+        context_plan.telemetry.return_value = {"context_management_status": "no_op"}
+
+        async def stream_round_fn(*_args, on_visible_output=None, **_kwargs):
+            # 默认允许延迟轮次推送思考：思考分片走可见分支并回调 reasoning。
+            await on_visible_output("reasoning")
+            return "先比较路线", "", [], "tool_calls", Usage()
+
+        with (
+            patch("app.services.stream.agent_round.prepare_context", new=AsyncMock(return_value=context_plan)),
+            patch("app.services.stream.agent_round.create_llm_round_observation", return_value=observation),
+        ):
+            await run_agent_round(
+                conversation_id="conv-deferred-reasoning",
+                task_id="task-deferred-reasoning",
+                run_id="run-deferred-reasoning",
+                step_number=3,
+                model_id="gpt-4",
+                provider="openai",
+                litellm_model="openai/gpt-4",
+                litellm_kwargs={},
+                messages=[],
+                should_use_reasoning=True,
+                call_kwargs={},
+                accumulated_usage=Usage(),
+                step_context=AgentStepContext("step-deferred-reasoning", 3, 0.0, "thinking", "text"),
+                llm_call_fn=AsyncMock(return_value="response"),
+                stream_round_fn=stream_round_fn,
+                log_round_summary_fn=lambda **_kwargs: None,
+                emitter=emitter,
+                defer_output=True,
+            )
+
+        emitter.llm_round_first_output_delta.assert_awaited_once()
+        self.assertEqual(emitter.llm_round_first_output_delta.await_args.kwargs["delta_kind"], "reasoning")
+        self.assertEqual(emitter.llm_round_first_output_delta.await_args.kwargs["ttft_ms"], 120)
 
     async def test_post_stream_context_error_and_cancel_close_llm_round(self):
         for primary in (

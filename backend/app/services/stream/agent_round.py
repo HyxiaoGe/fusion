@@ -357,8 +357,14 @@ async def run_agent_round(
             observation=observation,
             defer_output=defer_output,
             allow_deferred_reasoning_output=defer_output and allow_deferred_reasoning_output,
+            # 延迟发布时正文不可见，但允许推送的思考仍需通知“已开始思考”；
+            # 不允许推送思考时（如知识依据模式）改由 on_deferred_output_signal 通知。
             on_visible_output=(
-                lifecycle.publish_visible_output if lifecycle is not None and not defer_output else None
+                None
+                if lifecycle is None
+                else lifecycle.publish_deferred_reasoning_signal
+                if defer_output
+                else lifecycle.publish_visible_output
             ),
             on_deferred_output_signal=(
                 lifecycle.publish_deferred_reasoning_signal if lifecycle is not None and defer_output else None
