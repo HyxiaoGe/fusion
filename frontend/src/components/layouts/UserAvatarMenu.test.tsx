@@ -11,6 +11,7 @@ import modelsReducer from '@/redux/slices/modelsSlice';
 import settingsReducer from '@/redux/slices/settingsSlice';
 import streamReducer from '@/redux/slices/streamSlice';
 import { useHasMounted } from '@/hooks/useHasMounted';
+import i18n from '@/lib/i18n';
 import { UserAvatarMenu } from './UserAvatarMenu';
 
 const pushMock = vi.hoisted(() => vi.fn());
@@ -61,7 +62,8 @@ function renderMenu(preloadedAuth: unknown) {
 }
 
 describe('UserAvatarMenu', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('zh-CN');
     vi.mocked(useHasMounted).mockReturnValue(true);
     pushMock.mockReset();
     // Radix Avatar 只在 Image() onload 后挂载 <img>；jsdom 默认不会对仓库内 SVG 触发 load。
@@ -280,5 +282,6 @@ describe('UserAvatarMenu', () => {
 
     fireEvent.pointerDown(screen.getByRole('button'), { button: 0, ctrlKey: false });
     expect(screen.queryByText('管理中心')).toBeNull();
+    expect(screen.getByRole('menuitem', { name: '更新日志' })).toHaveAttribute('href', '/updates');
   });
 });

@@ -770,6 +770,7 @@
     }
   },
   "notifications": {
+    "businessTypes": { "ai_conversation": "AI 对话生成", "changelog": "更新日志" },
     "title": "通知",
     "triggerUnread": "通知，{{count}} 条未读",
     "close": "关闭通知",
@@ -788,5 +789,15 @@
     "readFailed": "未能标记已读，请重试。",
     "retry": "重试",
     "loadMore": "加载更多"
+  },
+  "changelogs": {
+    "title": "更新日志",
+    "description": "查看 Fusion 的新功能与改进。",
+    "loading": "正在加载更新日志…",
+    "loginRequired": "请先登录后查看更新日志。",
+    "empty": "暂无更新日志",
+    "loadFailed": "更新日志加载失败，请重试。",
+    "missing": "这篇更新日志不存在。",
+    "back": "返回更新日志"
   }
 }

@@ -776,6 +776,7 @@
     }
   },
   "notifications": {
+    "businessTypes": { "ai_conversation": "AI conversations", "changelog": "Product updates" },
     "title": "Notifications",
     "triggerUnread": "Notifications, {{count}} unread",
     "close": "Close notifications",
@@ -794,5 +795,15 @@
     "readFailed": "Could not mark notifications as read. Try again.",
     "retry": "Retry",
     "loadMore": "Load more"
+  },
+  "changelogs": {
+    "title": "Product updates",
+    "description": "Explore new features and improvements in Fusion.",
+    "loading": "Loading product updates…",
+    "loginRequired": "Sign in to view product updates.",
+    "empty": "No product updates yet",
+    "loadFailed": "Could not load this update. Try again.",
+    "missing": "This update does not exist.",
+    "back": "Back to product updates"
   }
 }

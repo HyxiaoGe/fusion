@@ -2,12 +2,13 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertCircle, Bell, CheckCircle2, Info, Loader2, X } from 'lucide-react';
+import { AlertCircle, Bell, CheckCircle2, Info, Loader2, ScrollText, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useHasMounted } from '@/hooks/useHasMounted';
 import { buildChatConversationPath } from '@/lib/routes/chatRoutes';
+import { buildChangelogPath } from '@/lib/routes/changelogRoutes';
 import { cn } from '@/lib/utils';
 import type { NotificationItem } from '@/lib/api/notifications';
 import { useNotifications } from './NotificationsProvider';
@@ -33,12 +34,16 @@ export default function NotificationCenter() {
   const onOpenChange = (nextOpen: boolean) => {
     navigatingRef.current = false;
     setOpen(nextOpen);
-    if (nextOpen) notifications.refresh();
+    if (nextOpen) notifications.ensureFresh();
   };
   const selectNotification = (item: NotificationItem) => {
     // 跳转只关闭面板；对应结果成功展示后的已读回执由聊天页负责。
     navigatingRef.current = true;
     setOpen(false);
+    if (item.target.type === 'changelog') {
+      router.push(buildChangelogPath(item.target.changelog_id));
+      return;
+    }
     // 同一记录再次点击也要重新定位，不能被相同 URL 的展示状态吞掉。
     navigationSequenceRef.current += 1;
     const requestId = `${Date.now()}-${navigationSequenceRef.current}`;
@@ -109,7 +114,7 @@ export default function NotificationCenter() {
           {notifications.items.length > 0 && (
             <ul className="divide-y divide-border/60">
               {notifications.items.map((item) => {
-                const Icon = item.kind === 'run_completed' ? CheckCircle2 : item.kind === 'run_failed' ? AlertCircle : Info;
+                const Icon = item.target.type === 'changelog' ? ScrollText : item.kind === 'run_completed' ? CheckCircle2 : item.kind === 'run_failed' ? AlertCircle : Info;
                 const date = new Date(item.created_at);
                 const dateLabel = Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat(i18n.language, {
                   timeZone: 'Asia/Shanghai', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
@@ -122,7 +127,8 @@ export default function NotificationCenter() {
                       <span className="min-w-0 flex-1">
                         <span className={cn('block break-words text-sm', !item.read_at && 'font-semibold')}>{item.title}</span>
                         {item.body && <span className="mt-1 block break-words text-xs leading-5 text-muted-foreground">{item.body}</span>}
-                        <span className="mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                        <span className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                          <span>{t(`notifications.businessTypes.${item.business_type ?? 'ai_conversation'}`)}</span>
                           <time dateTime={item.created_at}>{dateLabel}</time>
                           <span>{t(item.read_at ? 'notifications.read' : 'notifications.notRead')}</span>
                         </span>

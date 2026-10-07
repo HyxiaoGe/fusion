@@ -7,6 +7,7 @@ from app.db.models import AgentSession, Conversation, Notification
 from app.db.notification_repository import NotificationRepository
 from app.schemas.notification import (
     MAX_NOTIFICATION_REVISION,
+    ChangelogNotificationTarget,
     NotificationFilter,
     NotificationItem,
     NotificationPage,
@@ -61,13 +62,18 @@ def get_unread_conversation_ids(db: Session, user_id: str) -> list[str]:
 def _item(row: Notification) -> NotificationItem:
     return NotificationItem(
         id=row.id,
+        business_type=row.business_type,
         kind=row.kind,
         title=row.title,
         body=row.body,
         created_at=as_utc(row.created_at),
         read_at=as_utc(row.read_at) if row.read_at is not None else None,
         created_revision=row.created_revision,
-        target=NotificationTarget(conversation_id=row.conversation_id, message_id=row.message_id, run_id=row.run_id),
+        target=(
+            ChangelogNotificationTarget(changelog_id=row.changelog_id)
+            if row.business_type == "changelog"
+            else NotificationTarget(conversation_id=row.conversation_id, message_id=row.message_id, run_id=row.run_id)
+        ),
     )
 
 
@@ -147,6 +153,7 @@ class NotificationService:
             raise ApiException.conflict("结果尚未保存，请稍后重试")
         return self._mark_read(
             user_id,
+            Notification.business_type == "ai_conversation",
             Notification.conversation_id == conversation_id,
             tuple_(Notification.run_id, Notification.message_id).in_(references),
         )

@@ -875,6 +875,24 @@ class NotificationUserState(Base):
     __table_args__ = (CheckConstraint("revision >= 0", name="ck_notification_user_states_revision"),)
 
 
+class Changelog(Base):
+    """已发布的更新日志正文；版本唯一，发布后不提供原位编辑。"""
+
+    __tablename__ = "changelogs"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    version = Column(String(64), nullable=False)
+    title = Column(String(120), nullable=False)
+    summary = Column(String(500), nullable=False)
+    content = Column(Text, nullable=False)
+    published_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("version", name="uq_changelogs_version"),
+        Index("ix_changelogs_published_id", "published_at", "id"),
+    )
+
+
 class Notification(Base):
     """用户站内通知；对话删除时级联移除通知，普通已读记录继续保留。"""
 
@@ -882,10 +900,12 @@ class Notification(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    run_id = Column(String, nullable=False)
+    business_type = Column(String(32), nullable=False, default="ai_conversation", server_default="ai_conversation")
+    run_id = Column(String, nullable=True)
     kind = Column(String(32), nullable=False)
-    conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
-    message_id = Column(String, nullable=False)
+    conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=True, index=True)
+    message_id = Column(String, nullable=True)
+    changelog_id = Column(String, ForeignKey("changelogs.id"), nullable=True)
     title = Column(String(120), nullable=False)
     body = Column(String(500), nullable=False)
     created_revision = Column(BigInteger, nullable=False)
@@ -894,8 +914,17 @@ class Notification(Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", "run_id", "kind", name="uq_notifications_user_run_kind"),
+        UniqueConstraint("user_id", "changelog_id", name="uq_notifications_user_changelog"),
         UniqueConstraint("user_id", "created_revision", name="uq_notifications_user_created_revision"),
         CheckConstraint("created_revision > 0", name="ck_notifications_created_revision"),
+        CheckConstraint(
+            "(business_type = 'ai_conversation' AND kind IN "
+            "('run_completed', 'run_failed', 'run_limit_reached', 'run_incomplete', 'run_interrupted') "
+            "AND conversation_id IS NOT NULL AND message_id IS NOT NULL AND run_id IS NOT NULL AND changelog_id IS NULL) "
+            "OR (business_type = 'changelog' AND kind = 'changelog_published' AND changelog_id IS NOT NULL "
+            "AND conversation_id IS NULL AND message_id IS NULL AND run_id IS NULL)",
+            name="ck_notifications_source",
+        ),
         Index(
             "ix_notifications_user_unread_revision",
             "user_id",
