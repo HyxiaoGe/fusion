@@ -1,4 +1,4 @@
-# 用户通知中心 P1 实施与本地验证
+# 用户通知中心 P1 实施、发布与验证
 
 日期：2026-10-07，Asia/Shanghai。分支：`codex/notification-center`；基线：`b4dddae30c45bcde25f7e53501d766e8872be881`。实施位于独立工作树 `/Users/sean/.codex/worktrees/notification-center/fusion`。
 
@@ -39,10 +39,34 @@
 - 构建：最终 `next build` 成功。现有构建跳过类型与 lint 验证，另行执行目标 lint 和完整 `tsc --noEmit --incremental false`。仍有 39 条既有类型诊断，除行号位移外与原工作树逐项一致，没有新增；不记作全仓类型检查通过。
 - 代码审查：独立复核事务、锁顺序、精确已读、隐藏/缓存路径和旧请求恢复，未发现新增可达 P0/P1。
 
-## 剩余验收
+## 本地完成时的边界
 
 没有提交、推送、PR、合并或部署，没有启动 Fusion 服务或应用真实数据库迁移。原工作树已有台账和报告改动保持原样。
 
 SQLite 回归及 PostgreSQL SQL 编译不等于真实 PostgreSQL 并发验证。发布前需验证实际迁移、创建与全部已读并发、删除与收尾竞争，并用用户现有 Chrome 登录态复验 A 后台完成、停留 B、手动进入 A、隐藏/恢复、刷新重进、双对话错峰完成、旧尝试及重复点击，以及深浅色和窄窗口面板布局。
 
 15 秒轮询为本阶段同步方式，SSE 和桌面提醒尚未实现；未发布代码或单元测试不记作真实页面验收通过。
+
+## 授权发布与真实验收
+
+用户随后明确授权“发布吧”。发布前将通知提交移至最新 `origin/master`（`5f999ed376aff48fdd3cb0b143e23b46abf04172`），排除原工作树基线中尚未合入的 URL 阅读修复。移基后 355 项后端测试、65 个子测试通过；独立代码复核未发现新增 P0/P1。
+
+完整 CI 首次发现 `test_prompt_run_identity[continue]` 的旧准备方式先提交 `error` 再改为 `limit_reached`，与终态不可变规则冲突。调整首次运行进入生命周期后，从 `running` 保存合法接续终态；运行身份及持久化相关 43 项、3 个子测试通过。生产终态防覆盖逻辑保持有效。
+
+- PR：[#312](https://github.com/HyxiaoGe/fusion/pull/312)，最终分支提交 `a40e855aee7c687cb7a7294f8895ea7e7d638dda`。
+- [PR CI 37594584446](https://github.com/HyxiaoGe/fusion/actions/runs/37594584446)：API、UI、工作流安全和 `Fusion required gate` 全部通过。合并前即时核对 HEAD、门禁和无未解决审查。
+- 合并时间：2026-10-07 16:43:18，Asia/Shanghai；合并提交 `6de5c58da18c6536ce528ab74c3567abd4c43c0b`。
+- [master CI 37595659738](https://github.com/HyxiaoGe/fusion/actions/runs/37595659738)：API、UI、工作流安全和 required gate 全部通过。
+- [dev 发布 37595660482](https://github.com/HyxiaoGe/fusion/actions/runs/37595660482)：API、UI 发布及 smoke 均成功；发布后的 Agent eval gate 在本条记录时仍运行中，不能记作整条工作流成功。
+
+API 运行实测：容器 repository digest 为 `sha256:c6dae0926199f00064125aa93982d04651d9b8807e4c679edb8e2e6461c5dc6b`，image ID 为 `sha256:6b9e8708876cc897736e34467aa2b76f934ebc3fcad2ac80c9fd8b218a5dfafa`，与 API 发布台账的 `current_sha=6de5c58d…`、run `37595660482` 一致，健康接口 200。真实 PostgreSQL 的 Alembic head 为 `6a1e9f3c8b20`，两表、两项唯一约束、未读索引和对话 FK `ON DELETE CASCADE` 核对通过。
+
+在已发布 API 内以唯一临时 schema 运行生产 ORM/服务方法，不读取 public 用户数据。6 个真实 PostgreSQL 场景全部通过：8 路首次创建生成连续修订；8 路同运行收尾及入队仍仅一条通知；旧水位全部已读与新入队的两种锁顺序均保留新通知未读；删除与终态的两种锁顺序均没有运行、通知或未读投影残留，并保留其他对话通知。锁竞争采用实际 SQL 执行事件和第二事务在短窗口内未完成的证据，未读取 `pg_locks`，不记作服务端锁监控。末行 `acceptance_passed=true`、`cleanup_passed=true`、`case_count=6`，临时 schema `notification_acceptance_1fff8a89f8ff47eeb29aaee369f694cc` 已清理；未删除真实用户对话。
+
+UI 运行实测：repository digest 为 `sha256:30d4eb73d1dc03c9ff980e02e5ff3d96d3106d7a829332ca604859987a9f7cb7`，image ID 为 `sha256:704e4bea6afc2b941a1f09ba649c560e4c01f7bd4dc4b0e6a9e147a5e536dbb2`，与 UI 台账的同一合并提交、发布 run 一致，健康检查 200。
+
+复用用户原 Chrome 标签和登录态，错峰创建两条通知验收对话 A、B。既有深度研究模式使两次运行均以 `incomplete` 收尾；这里验证的是未完成终态通知，不记作成功答案生成验收。B 结果在当前可见页面出现后，其精确 run/message 的 `read-result` 返回 200、更新 1 条；随后 A 在后台结束，列表保持 A 未读、B 已读，铃铛显示 1，打开通知面板未改变 A 的状态。通过普通侧栏手动进入 A、加载并展示对应结果后，A 的精确回执返回 200、更新 1 条，未读归零且已读历史保留，未读筛选显示空态。点击 B 历史通知打开带 message/run 参数的地址，焦点位于目标消息。
+
+窄窗口实测 CSS 800 宽、无横向溢出，通知面板位于视口内；发现重复点击当前 B 的历史通知时，查询参数和定位更新，但移动侧栏遮罩仍打开。补丁仅在通知记录导航点击时收起侧栏，筛选保持打开，兼容 Portal 传播和同一路径导航；三个相关测试文件 21 项、目标 ESLint、生产构建与 diff 检查通过，独立复核未发现 P0/P1。该补丁发布后的真实点击、按键及刷新验收另行追加。
+
+初次发布后刷新捕获一条 React #418 hydration 诊断，页面恢复且上述路径可用；尚未归因，不记录为控制台完全无错。深色、隐藏页面恢复及旧运行真实跳转尚未做登录态页面验证，保留自动化证据与真实验收的区别。
