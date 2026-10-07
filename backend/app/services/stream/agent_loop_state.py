@@ -68,6 +68,7 @@ class AgentLoopState:
     research_workset: ResearchEvidenceWorkset = field(default_factory=ResearchEvidenceWorkset)
     research_network_required: bool = False
     research_repair_attempts: int = 0
+    research_plan_update_requires_evidence: bool = False
     failed_tool_names: set[str] = field(default_factory=set)
     degraded_tool_names: set[str] = field(default_factory=set)
     attempted_tool_names: set[str] = field(default_factory=set)

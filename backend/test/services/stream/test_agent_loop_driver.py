@@ -9,10 +9,12 @@ from app.schemas.chat import PlaceResult, PlaceResultsBlock, SourceReference, Te
 from app.services.agent.plan_coordinator import PlanCoordinator
 from app.services.stream.agent_loop_driver import AgentLoopExit, _run_limit_summary, _run_round, run_agent_loop
 from app.services.stream.agent_loop_policy import AgentLoopLimits, map_run_terminal_state
+from app.services.stream.agent_loop_round_outcome import AgentRoundOutcomeRequest, handle_agent_round_outcome
 from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_round import AgentRoundResult
 from app.services.stream.limit_summary import LimitSummaryOutcome
+from app.services.stream.plan_control import process_plan_control_calls
 from app.services.stream.research_evidence import ResearchSource
 from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream.tool_round import ToolRoundOutcome
@@ -90,6 +92,46 @@ def _tool_definition(name: str) -> dict:
 
 def _tool_names(call_kwargs: dict) -> list[str]:
     return [tool["function"]["name"] for tool in call_kwargs.get("tools", [])]
+
+
+async def _capture_research_round(state, *, tool_calls=(), plan_mode="on", provider="openai"):
+    captured = []
+
+    async def run_round_fn(**kwargs):
+        captured.append(kwargs)
+        return AgentRoundResult(
+            reasoning_buf="",
+            content_buf="",
+            tool_calls=list(tool_calls),
+            finish_reason="tool_calls" if tool_calls else "stop",
+            accumulated_usage=Usage(input_tokens=1, output_tokens=1),
+            announced_tool_names=frozenset(_tool_names(kwargs["call_kwargs"])),
+            output_deferred=True,
+        )
+
+    tools = ["web_search", "url_read", "local_place_search"]
+    if plan_mode == "on":
+        tools.insert(0, "update_plan")
+    result = await _run_round(
+        messages=[{"role": "user", "content": "研究固态电池量产进展"}],
+        state=state,
+        runtime=_runtime(
+            task_mode="deep_research",
+            plan_mode=plan_mode,
+            provider=provider,
+            call_kwargs={"tools": [_tool_definition(name) for name in tools], "tool_choice": "auto"},
+            run_round_fn=run_round_fn,
+        ),
+        step_number=1,
+        step_context=AgentStepContext(
+            step_id="step-research",
+            step_number=1,
+            started_at=1.0,
+            thinking_block_id="thinking-research",
+            text_block_id="text-research",
+        ),
+    )
+    return captured[0], result
 
 
 def _planned_research_state(
@@ -404,7 +446,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(state.unknown_terminated)
 
-    async def test_deep_research_search_stage_offers_plan_tool_only_until_a_plan_exists(self):
+    async def test_deep_research_search_stage_keeps_plan_tool_after_a_plan_exists(self):
         async def offered_tools(state):
             captured = []
 
@@ -447,9 +489,136 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
 
         without_plan = AgentLoopState(plan_coordinator=PlanCoordinator(run_id="run-stage", mode="on"))
         self.assertEqual(await offered_tools(without_plan), ["update_plan", "web_search"])
-        self.assertEqual(await offered_tools(_planned_research_state()), ["web_search"])
+        self.assertEqual(await offered_tools(_planned_research_state()), ["update_plan", "web_search"])
 
-    async def test_deep_research_with_unread_candidates_only_exposes_read(self):
+    async def test_research_plan_without_tool_bindings_updates_before_final_answer(self):
+        """#278：没有 planned_tools 也能在取证途中更新五步计划，而非只在结束时收尾。"""
+        state = AgentLoopState(plan_coordinator=PlanCoordinator(run_id="run-278", mode="on"))
+        emitter = DummyEmitter(limit_reasons=[])
+        titles = ["搜索量产进展", "核验关键来源", "比较厂商路线", "整理风险", "输出结论"]
+
+        def plan_call(statuses):
+            return {
+                "id": f"plan-{state.plan_coordinator.revision}",
+                "name": "update_plan",
+                "arguments": {
+                    "plan": [
+                        {"id": f"p-{index}", "step": title, "status": status}
+                        for index, (title, status) in enumerate(zip(titles, statuses))
+                    ],
+                },
+            }
+
+        async def handle_tools(*, request):
+            control = await process_plan_control_calls(
+                tool_calls=request.tool_calls,
+                coordinator=state.plan_coordinator,
+                emitter=emitter,
+            )
+            count = len(control.external_tool_calls)
+            request.on_tools_executed(count)
+            return ToolRoundOutcome(
+                tool_call_count=count, tool_names=[call["name"] for call in control.external_tool_calls]
+            )
+
+        async def round_with(calls, expected_tools):
+            captured, result = await _capture_research_round(state, tool_calls=calls)
+            self.assertEqual(sorted(_tool_names(captured["call_kwargs"])), sorted(expected_tools))
+            self.assertTrue(all(call["name"] in result.announced_tool_names for call in calls))
+            await handle_agent_round_outcome(
+                request=AgentRoundOutcomeRequest(
+                    db="db",
+                    messages=[],
+                    state=state,
+                    runtime=_runtime(
+                        task_mode="deep_research", emitter=emitter, handle_tool_calls_round_fn=handle_tools
+                    ),
+                    step_number=1,
+                    step_context=captured["step_context"],
+                    round_result=result,
+                )
+            )
+
+        await round_with(
+            [
+                plan_call(["in_progress", "pending", "pending", "pending", "pending"]),
+                {"id": "search", "name": "web_search", "arguments": {"query": "固态电池"}},
+            ],
+            ["update_plan", "web_search"],
+        )
+        state.research_workset.successful_searches = 1
+        state.research_workset.sources["ev-1"] = ResearchSource(
+            evidence_id="ev-1",
+            citation_index=1,
+            title="量产进展",
+            url="https://example.com/report",
+            kind="search",
+        )
+        await round_with(
+            [plan_call(["completed", "in_progress", "pending", "pending", "pending"])], ["update_plan", "url_read"]
+        )
+        self.assertEqual(emitter.plan_snapshots[-1]["items"][0]["status"], "completed")
+        self.assertEqual(emitter.plan_snapshots[-1]["items"][1]["status"], "running")
+        await round_with(
+            [{"id": "read", "name": "url_read", "arguments": {"url": "https://example.com/report"}}], ["url_read"]
+        )
+        await round_with(
+            [plan_call(["completed", "completed", "in_progress", "pending", "pending"])], ["update_plan", "url_read"]
+        )
+        self.assertEqual([snapshot["revision"] for snapshot in emitter.plan_snapshots], [1, 2, 3])
+        self.assertEqual(emitter.plan_snapshots[-1]["items"][2]["status"], "running")
+        self.assertTrue(all(not item["planned_tools"] for item in state.plan_coordinator.items))
+        self.assertIsNone(state.plan_coordinator.terminal_outcome)
+        self.assertEqual(state.total_tool_calls, 2)
+
+    async def test_research_plan_off_and_evidence_only_round_do_not_require_plan_updates(self):
+        for provider in ("openai", "moonshot"):
+            with self.subTest(provider=provider):
+                state = AgentLoopState()
+                captured, _ = await _capture_research_round(state, plan_mode="off", provider=provider)
+                self.assertEqual(_tool_names(captured["call_kwargs"]), ["web_search"])
+                system_text = "\n".join(
+                    message["content"] for message in captured["messages"] if message["role"] == "system"
+                )
+                self.assertNotIn("call update_plan", system_text)
+                captured, _ = await _capture_research_round(state, provider=provider)
+                self.assertEqual(sorted(_tool_names(captured["call_kwargs"])), ["update_plan", "web_search"])
+                self.assertEqual(captured["call_kwargs"]["tool_choice"], "required")
+
+    async def test_plan_only_guard_keeps_stage_evidence_tool_and_hides_plan_instruction(self):
+        for stage in ("search", "read", "search_repair"):
+            for provider in ("openai", "moonshot"):
+                with self.subTest(stage=stage, provider=provider):
+                    state = AgentLoopState()
+                    state.research_plan_update_requires_evidence = True
+                    if stage != "search":
+                        state.research_workset.successful_searches = 1
+                    if stage == "read":
+                        state.research_workset.sources["ev-1"] = ResearchSource(
+                            evidence_id="ev-1",
+                            citation_index=1,
+                            title="报告",
+                            url="https://example.com/report",
+                            kind="search",
+                        )
+                    captured, _ = await _capture_research_round(state, provider=provider)
+                    expected_tool = "url_read" if stage == "read" else "web_search"
+                    self.assertEqual(_tool_names(captured["call_kwargs"]), [expected_tool])
+                    expected_choice = (
+                        "required"
+                        if provider == "moonshot"
+                        else {
+                            "type": "function",
+                            "function": {"name": expected_tool},
+                        }
+                    )
+                    self.assertEqual(captured["call_kwargs"]["tool_choice"], expected_choice)
+                    system_text = "\n".join(
+                        message["content"] for message in captured["messages"] if message["role"] == "system"
+                    )
+                    self.assertNotIn("call update_plan", system_text)
+
+    async def test_deep_research_with_unread_candidates_exposes_read_and_optional_plan(self):
         captured = []
         state = _planned_research_state(read_steps=2)
         state.plan_coordinator.mark_tools_started(["search"])
@@ -500,14 +669,14 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-        self.assertEqual(_tool_names(captured[0]["call_kwargs"]), ["url_read"])
-        self.assertNotIn(
-            "_plan_item_id", captured[0]["call_kwargs"]["tools"][0]["function"]["parameters"]["properties"]
-        )
+        self.assertEqual(_tool_names(captured[0]["call_kwargs"]), ["update_plan", "url_read"])
+        read_tool = next(tool for tool in captured[0]["call_kwargs"]["tools"] if tool["function"]["name"] == "url_read")
+        self.assertNotIn("_plan_item_id", read_tool["function"]["parameters"]["properties"])
         system_text = "\n".join(
             message["content"] for message in captured[0]["messages"] if message["role"] == "system"
         )
-        self.assertIn("Only url_read may be called in this stage", system_text)
+        self.assertIn("Only url_read may fetch evidence in this stage", system_text)
+        self.assertIn("may also call update_plan", system_text)
         self.assertNotIn("不应进入阶段控制提示的外部标题", system_text)
         self.assertNotIn("outside.example", system_text)
 
@@ -554,7 +723,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-        self.assertEqual(_tool_names(captured[0]["call_kwargs"]), ["web_search"])
+        self.assertEqual(_tool_names(captured[0]["call_kwargs"]), ["update_plan", "web_search"])
         system_text = "\n".join(
             message["content"] for message in captured[0]["messages"] if message["role"] == "system"
         )
