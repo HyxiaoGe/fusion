@@ -72,6 +72,12 @@ function AssistantResponseStack({
 }: AssistantResponseStackProps) {
   const showReasoning = reasoning.shouldRender;
   const stopAwaitingConfirmation = agentRun?.status === 'running' && Boolean(agentRun.stopConfirmation);
+  // 模型只输出了思考、没写正文时如实说明，不拿思考冒充回答。
+  const answerMissing = activity.kind === 'completed'
+    && !activity.hasText
+    && structuredResults.length === 0
+    && documentBlocks.length === 0
+    && !documentDraft;
 
   return (
     <div
@@ -132,6 +138,12 @@ function AssistantResponseStack({
           sources={markdown.sources}
           onCitationClick={markdown.onCitationClick}
         />
+
+        {answerMissing ? (
+          <p data-testid="assistant-answer-missing" className="text-sm text-muted-foreground">
+            模型这次没有给出回答。
+          </p>
+        ) : null}
 
         {showStreamingCursor ? (
           <span

@@ -52,23 +52,23 @@ class RoundCompletionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(content_blocks[0].type, "thinking")
         self.assertEqual(content_blocks[0].thinking, "调用路线比较，并检查对应计划步骤。")
 
-    def test_append_round_content_blocks_recovers_reasoning_only_as_text(self):
-        """provider 只返回 reasoning 时，最终消息不能只有思考块而没有正文。"""
+    def test_append_round_content_blocks_keeps_reasoning_only_as_thinking(self):
+        """模型只返回思考时按思考保存，不改写成正文。"""
         module = _subject(self)
         content_blocks = []
 
         module.append_round_content_blocks(
             content_blocks,
-            "你好！我是 DeepSeek。",
+            "只有思考，没有正文。",
             "",
             "blk_thinking",
             "blk_text",
         )
 
         self.assertEqual(len(content_blocks), 1)
-        self.assertEqual(content_blocks[0].type, "text")
-        self.assertEqual(content_blocks[0].id, "blk_text")
-        self.assertEqual(content_blocks[0].text, "你好！我是 DeepSeek。")
+        self.assertEqual(content_blocks[0].type, "thinking")
+        self.assertEqual(content_blocks[0].id, "blk_thinking")
+        self.assertEqual(content_blocks[0].thinking, "只有思考，没有正文。")
 
     def test_append_round_content_blocks_skips_empty_buffers(self):
         """空 reasoning/text buffer 不应追加内容块。"""
