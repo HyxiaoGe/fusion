@@ -221,8 +221,8 @@ class UrlReadHandler(BaseToolHandler):
             )
             return f"{request_context}\n{context}"
 
-        # 规范 reader 包装中优先从精确标题对应的正文取窗口，原始结果仍完整保留。
-        content = select_article_body(content, title)
+        # 普通 Markdown 的明确站内导航也可跳过，原始结果仍完整保留。
+        content = select_article_body(content, title, url=url)
         truncated = False
         max_content_chars = _tool_context_int("url_read_max_content_chars", MAX_CONTENT_CHARS)
         if len(content) > max_content_chars:

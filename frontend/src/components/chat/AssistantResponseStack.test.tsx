@@ -609,4 +609,38 @@ describe('AssistantResponseStack', () => {
 
     expect(screen.getByTestId('streaming-cursor')).toHaveTextContent('▌');
   });
+
+  it('只有思考、没有正文的已完成回答如实提示，思考仍按思考展示', () => {
+    const renderStack = (overrides: Partial<AssistantActivity>, documentBlocks = []) => (
+      <AssistantResponseStack
+        reasoning={{
+          shouldRender: true,
+          content: '只有思考',
+          isVisible: false,
+          isStreaming: false,
+          onToggle: vi.fn(),
+        }}
+        activity={activity({ kind: 'completed', hasText: false, ...overrides })}
+        answerEvidence={null}
+        documentBlocks={documentBlocks}
+        onSourceClick={vi.fn()}
+        onOpenSources={vi.fn()}
+        markdown={{ content: '', sources: [], onCitationClick: undefined }}
+        showStreamingCursor={false}
+      />
+    );
+    const { rerender } = render(renderStack({}));
+
+    expect(screen.getByTestId('stack-reasoning')).toHaveTextContent('只有思考');
+    expect(screen.getByTestId('assistant-answer-missing')).toHaveTextContent('模型这次没有给出回答');
+
+    rerender(renderStack({ hasText: true }));
+    expect(screen.queryByTestId('assistant-answer-missing')).toBeNull();
+
+    rerender(renderStack({ kind: 'interrupted' }));
+    expect(screen.queryByTestId('assistant-answer-missing')).toBeNull();
+
+    rerender(renderStack({ kind: 'reasoning' }));
+    expect(screen.queryByTestId('assistant-answer-missing')).toBeNull();
+  });
 });

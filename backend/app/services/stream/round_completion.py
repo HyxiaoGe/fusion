@@ -18,14 +18,11 @@ def append_round_content_blocks(
     thinking_block_id: str,
     text_block_id: str,
 ) -> None:
-    if content_buf:
-        if reasoning_buf:
-            content_blocks.append(ThinkingBlock(type="thinking", id=thinking_block_id, thinking=reasoning_buf))
-        content_blocks.append(TextBlock(type="text", id=text_block_id, text=content_buf))
-        return
-
+    # 思考只按思考保存：模型没写正文就是没有正文，不拿思考冒充回答。
     if reasoning_buf:
-        content_blocks.append(TextBlock(type="text", id=text_block_id, text=reasoning_buf))
+        content_blocks.append(ThinkingBlock(type="thinking", id=thinking_block_id, thinking=reasoning_buf))
+    if content_buf:
+        content_blocks.append(TextBlock(type="text", id=text_block_id, text=content_buf))
 
 
 async def complete_text_response_step(
