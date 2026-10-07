@@ -62,6 +62,15 @@ class AmapWeatherCacheTests(unittest.IsolatedAsyncioTestCase):
         restored = await cache.get("440300")
         self.assertEqual(restored["resolved_location"], "深圳市")
 
+    async def test_fetched_at_is_stored_and_returned_in_beijing_time(self):
+        redis = FakeRedis()
+        cache = AmapWeatherCache(service_identity="server:1:def", redis_getter=lambda: redis)
+
+        await cache.set("440300", cache_core())
+
+        self.assertEqual(json.loads(redis.setex_calls[0][2])["fetched_at"], "2026-07-23T16:00:00+08:00")
+        self.assertEqual((await cache.get("440300"))["fetched_at"], "2026-07-23T16:00:00+08:00")
+
     async def test_cache_rejects_unknown_fields_unsorted_days_and_backend_failures(self):
         redis = FakeRedis()
         cache = AmapWeatherCache(service_identity="service", redis_getter=lambda: redis)

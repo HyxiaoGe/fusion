@@ -158,6 +158,21 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured["request"]["sort_by"], "departure_asc")
         self.assertEqual([item["transport_no"] for item in result.data["result"]["items"]], ["G100"])
 
+    async def test_utc_observed_at_is_presented_in_beijing_time(self):
+        """适配器给 UTC 查询时刻时换成北京时间，模型不会把 UTC 当本地时间念。"""
+
+        async def respond(request: httpx.Request) -> httpx.Response:
+            payload = _adapter_payload(transport_no="G100", request=json.loads(request.content))
+            payload["observed_at"] = "2026-10-06T21:41:53Z"
+            return httpx.Response(200, json=payload)
+
+        handler = _handler(FLYAI_SEARCH_TRAINS, httpx.MockTransport(respond))
+        result = await handler.execute({"origin": "深圳", "destination": "上海", "departure_date": "2026-08-01"})
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(result.data["result"]["observed_at"], "2026-10-07T05:41:53+08:00")
+        self.assertIn("2026-10-07T05:41:53+08:00", handler.format_llm_context(result))
+
     async def test_high_speed_category_filters_regular_trains_and_is_not_forwarded_to_adapter(self):
         captured: dict = {}
 

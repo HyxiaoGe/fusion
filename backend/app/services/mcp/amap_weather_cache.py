@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from app.core.logger import app_logger as logger
 from app.core.redis import get_redis_pool
 from app.schemas.chat import WeatherForecastDay
+from app.utils.time import as_china_time
 
 WEATHER_CACHE_TTL_SECONDS = 1800
 _ADCODE_PATTERN = re.compile(r"^\d{6}$")
@@ -40,7 +41,7 @@ class WeatherCacheRecord(BaseModel):
     def validate_fetched_at_timezone(cls, value: datetime) -> datetime:
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("天气缓存时间必须包含时区")
-        return value
+        return as_china_time(value)
 
     @field_validator("limitations")
     @classmethod
