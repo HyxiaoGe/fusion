@@ -168,15 +168,15 @@ def deep_research_stage_required_tool(stage: DeepResearchStage) -> str | None:
     return next(iter(allowed_tool_names))
 
 
-def build_deep_research_stage_prompt(stage: DeepResearchStage) -> str:
+def build_deep_research_stage_prompt(stage: DeepResearchStage, *, allow_plan_update: bool = False) -> str:
     """生成不含任何外部来源内容的确定性阶段控制语。"""
 
     if stage == "search":
-        return render_runtime_prompt("research.stage_search")
+        return render_runtime_prompt("research.stage_search", allow_plan_update=allow_plan_update)
     if stage == "read":
-        return render_runtime_prompt("research.stage_read")
+        return render_runtime_prompt("research.stage_read", allow_plan_update=allow_plan_update)
     if stage == "search_repair":
-        return render_runtime_prompt("research.stage_search_repair")
+        return render_runtime_prompt("research.stage_search_repair", allow_plan_update=allow_plan_update)
     if stage == "synthesis":
         return render_runtime_prompt("research.stage_synthesis")
     return ""

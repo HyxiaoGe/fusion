@@ -105,6 +105,77 @@ def _step_context(step_id="step-outcome"):
 
 
 class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_plan_only_research_round_requires_actual_evidence_attempt_before_more_plan_updates(self):
+        """畸形计划、未公告调用和预算拒绝不能伪装成已执行取证。"""
+        for extra_call in (None, "url_read", "unannounced_tool"):
+            with self.subTest(extra_call=extra_call):
+                state = AgentLoopState()
+                calls = [{"id": "plan", "name": "update_plan", "arguments": '{"plan":[]}'}]
+                if extra_call:
+                    calls.append({"id": "external", "name": extra_call, "arguments": "{}"})
+                handler = AsyncMock(return_value=ToolRoundOutcome(tool_call_count=0, tool_names=[]))
+                runtime = _runtime(task_mode="deep_research", emitter=AsyncMock(), handle_tool_calls_round_fn=handler)
+                request = AgentRoundOutcomeRequest(
+                    db="db",
+                    messages=[],
+                    state=state,
+                    runtime=runtime,
+                    step_number=1,
+                    step_context=_step_context(),
+                    round_result=AgentRoundResult(
+                        reasoning_buf="",
+                        content_buf="",
+                        tool_calls=calls,
+                        finish_reason="tool_calls",
+                        accumulated_usage=Usage(input_tokens=1, output_tokens=1),
+                        output_deferred=True,
+                    ),
+                )
+                await handle_agent_round_outcome(request=request)
+                self.assertTrue(state.research_plan_update_requires_evidence)
+                handler.return_value = ToolRoundOutcome(tool_call_count=0, tool_names=[])
+                await handle_agent_round_outcome(
+                    request=replace(
+                        request,
+                        round_result=replace(
+                            request.round_result,
+                            tool_calls=[{"id": "blocked", "name": "url_read", "arguments": "{}"}],
+                        ),
+                    )
+                )
+                self.assertTrue(state.research_plan_update_requires_evidence)
+                # 实际执行的失败尝试也让模型有机会调整计划；无需等到取证成功。
+                handler.return_value = ToolRoundOutcome(tool_call_count=1, tool_names=["url_read"])
+                await handle_agent_round_outcome(request=request)
+                self.assertFalse(state.research_plan_update_requires_evidence)
+
+    async def test_standard_plan_only_round_does_not_enable_research_guard(self):
+        state = AgentLoopState()
+        await handle_agent_round_outcome(
+            request=AgentRoundOutcomeRequest(
+                db="db",
+                messages=[],
+                state=state,
+                runtime=_runtime(
+                    emitter=AsyncMock(),
+                    handle_tool_calls_round_fn=AsyncMock(
+                        return_value=ToolRoundOutcome(tool_call_count=0, tool_names=[])
+                    ),
+                ),
+                step_number=1,
+                step_context=_step_context(),
+                round_result=AgentRoundResult(
+                    reasoning_buf="",
+                    content_buf="",
+                    tool_calls=[{"id": "plan", "name": "update_plan", "arguments": "{}"}],
+                    finish_reason="tool_calls",
+                    accumulated_usage=Usage(input_tokens=1, output_tokens=1),
+                    output_deferred=True,
+                ),
+            )
+        )
+        self.assertFalse(state.research_plan_update_requires_evidence)
+
     @staticmethod
     def _deferred_lifecycle_request(lifecycle) -> AgentRoundOutcomeRequest:
         return AgentRoundOutcomeRequest(

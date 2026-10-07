@@ -25,6 +25,7 @@ from app.services.stream.agent_loop_step_requests import build_tool_round_reques
 from app.services.stream.agent_round import AgentRoundResult
 from app.services.stream.llm_round_lifecycle import round_tool_names
 from app.services.stream.llm_stream import contains_tool_protocol_residue
+from app.services.stream.plan_control import UPDATE_PLAN_TOOL_NAME
 from app.services.stream.product_result_answer import (
     build_grounded_product_answer,
     build_place_choice_clarification,
@@ -642,6 +643,12 @@ async def _handle_tool_calls_round(request: AgentRoundOutcomeRequest) -> AgentLo
         ),
     )
     if isinstance(outcome, ToolRoundOutcome):
+        if request.runtime.task_mode == "deep_research":
+            if outcome.tool_call_count > 0:
+                request.state.research_plan_update_requires_evidence = False
+            elif any(call.get("name") == UPDATE_PLAN_TOOL_NAME for call in request.round_result.tool_calls):
+                # 计划只用于展示；未实际执行取证时，下一轮不能继续靠更新计划空转。
+                request.state.research_plan_update_requires_evidence = True
         request.state.record_no_progress_search_results(outcome.no_progress_search_results)
         request.state.record_product_tool_attempt(
             outcome.tool_call_count > 0

@@ -24,6 +24,7 @@ from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_loop_step_requests import build_limit_summary_step_request
 from app.services.stream.agent_round import AgentRoundResult
+from app.services.stream.plan_control import UPDATE_PLAN_TOOL_NAME
 from app.services.stream.product_result_answer import has_product_result_blocks
 from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
 from app.services.stream.research_evidence import (
@@ -208,20 +209,19 @@ async def _run_round(
         dynamic_tool_handlers=runtime.dynamic_tool_handlers,
     )
     research_stage = None
+    allow_plan_update = False
     if runtime.task_mode == "deep_research":
         research_stage = resolve_deep_research_stage(state.research_workset)
         allowed_tool_names = deep_research_stage_tool_names(research_stage)
-        if (
-            research_stage == "search"
-            and allowed_tool_names is not None
-            and not state.plan_coordinator.has_valid_model_plan
-        ):
-            # 首轮可以同时提交计划供用户查看；计划只做展示，不参与阶段推进。
-            # 计划交过一次后不再提供，避免必须调用工具时模型只反复更新计划。
-            allowed_tool_names = allowed_tool_names | {"update_plan"}
+        if allowed_tool_names and not state.research_plan_update_requires_evidence:
+            # 取证期间可更新展示进度；只更新计划后，下一轮暂时只开放取证工具。
+            allowed_tool_names = allowed_tool_names | {UPDATE_PLAN_TOOL_NAME}
         call_kwargs = _require_tool_call(
             _filter_tools_for_research_stage(call_kwargs, allowed_tool_names=allowed_tool_names),
             provider=runtime.provider,
+        )
+        allow_plan_update = any(
+            tool.get("function", {}).get("name") == UPDATE_PLAN_TOOL_NAME for tool in call_kwargs.get("tools", [])
         )
     call_kwargs = configure_reasoning_call_kwargs(
         call_kwargs,
@@ -233,6 +233,7 @@ async def _run_round(
         state=state,
         runtime=runtime,
         research_stage=research_stage,
+        allow_plan_update=allow_plan_update,
     )
     effective_messages = _messages_with_product_result_constraint(
         effective_messages,
@@ -434,6 +435,7 @@ def _messages_with_research_workset(
     runtime: AgentLoopRuntime,
     include_candidates: bool = True,
     research_stage: str | None = None,
+    allow_plan_update: bool = False,
     terminal_summary: bool = False,
 ) -> list[PromptMessage]:
     normalized = ensure_prompt_messages(messages)
@@ -472,7 +474,9 @@ def _messages_with_research_workset(
             *untrusted_messages,
             *normalized[insert_at:],
         ]
-    stage_prompt = build_deep_research_stage_prompt(research_stage) if research_stage else ""
+    stage_prompt = (
+        build_deep_research_stage_prompt(research_stage, allow_plan_update=allow_plan_update) if research_stage else ""
+    )
     prompt = build_research_workset_prompt(
         state.research_workset,
         include_candidates=include_candidates,
