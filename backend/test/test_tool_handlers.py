@@ -562,6 +562,30 @@ class UrlReadHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.status, "success")
         self.assertEqual(result.data["reason"], reason[:20])
 
+    async def test_execute_passes_full_page_and_extracted_flag(self):
+        from app.services.external.reader_client import UrlReadResponse, UrlReadResult
+
+        read_result = UrlReadResult(
+            url="https://example.com",
+            title="T",
+            content="正文",
+            favicon=None,
+            content_length=2,
+            fetch_ms=1,
+            extracted=True,
+        )
+        with patch(
+            "app.services.tool_handlers.url_read.read_url_with_diagnostics",
+            new_callable=AsyncMock,
+            return_value=UrlReadResponse(result=read_result),
+        ) as mock_read:
+            result = await self.handler.execute({"url": "https://example.com", "full_page": True})
+            await self.handler.execute({"url": "https://example.com", "full_page": "yes"})
+
+        self.assertTrue(result.data["extracted"])
+        self.assertTrue(mock_read.await_args_list[0].kwargs["full_page"])
+        self.assertFalse(mock_read.await_args_list[1].kwargs["full_page"])
+
     async def test_execute_empty_url_returns_degraded(self):
         """url 为空返回 degraded"""
         result = await self.handler.execute({"url": ""})
@@ -603,7 +627,7 @@ class UrlReadHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.data["reader_duration_ms"], 18000)
         self.assertNotIn("failure_detail", result.data)
         self.assertEqual(result.data["safe_log_url"], "https://example.com")
-        mock_read.assert_awaited_once_with("https://example.com", timeout=20.0)
+        mock_read.assert_awaited_once_with("https://example.com", timeout=20.0, full_page=False)
 
     async def test_execute_unexpected_reader_error_stays_degraded_and_safe(self):
         with patch(
@@ -647,6 +671,15 @@ class UrlReadHandlerTests(unittest.IsolatedAsyncioTestCase):
         context = self.handler.format_llm_context(result)
         self.assertLess(len(context), 15000)
         self.assertIn("Content truncated", context)
+
+    def test_format_llm_context_marks_extracted_content(self):
+        """提取的正文告诉模型可用 full_page 读整页；整页结果不加提示。"""
+        data = {"url": "https://example.com", "title": "Test", "content": "正文"}
+        extracted = self.handler.format_llm_context(ToolResult(status="success", data={**data, "extracted": True}))
+        whole = self.handler.format_llm_context(ToolResult(status="success", data=data))
+
+        self.assertIn("full_page=true", extracted)
+        self.assertNotIn("full_page", whole)
 
     def test_format_llm_context_short_content_not_truncated(self):
         """短内容不会被截断"""

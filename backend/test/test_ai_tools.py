@@ -75,6 +75,7 @@ class AiToolSchemaTests(unittest.TestCase):
 
         self.assertIn("url", properties)
         self.assertIn("reason", properties)
+        self.assertEqual(properties["full_page"]["type"], "boolean")
         self.assertEqual(parameters["required"], ["url"])
         self.assertFalse(parameters["additionalProperties"])
 

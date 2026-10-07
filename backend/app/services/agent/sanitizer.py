@@ -143,6 +143,8 @@ def sanitize_url_read_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
         normalized_reason = reason.strip()
         if normalized_reason:
             sanitized["reason"] = normalized_reason[:URL_READ_REASON_MAX_CHARS]
+    if source.get("full_page") is True:
+        sanitized["full_page"] = True
     return sanitized
 
 
