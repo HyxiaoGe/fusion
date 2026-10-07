@@ -66,6 +66,36 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.attempts, 1)
         mock_ctor.assert_called_once_with(timeout=20.0)
 
+    async def test_full_page_requests_whole_page_and_direct_provider_marks_extracted(self):
+        response = real_httpx.Response(
+            200,
+            json={"url": "https://example.com", "content": "正文", "provider": "direct"},
+            request=real_httpx.Request("GET", "https://reader.local/read"),
+        )
+        mock_client = self._mock_client_for_response(response)
+        with patch("app.services.external.reader_client.httpx.AsyncClient", return_value=mock_client):
+            extracted = await reader_client.read_url_with_diagnostics("https://example.com")
+            await reader_client.read_url_with_diagnostics("https://example.com", full_page=True)
+
+        self.assertTrue(extracted.result.extracted)
+        first, second = mock_client.get.await_args_list
+        self.assertEqual(first.kwargs["params"], {"url": "https://example.com"})
+        self.assertEqual(second.kwargs["params"], {"url": "https://example.com", "full": "true"})
+
+    async def test_non_direct_provider_is_not_marked_extracted(self):
+        response = real_httpx.Response(
+            200,
+            json={"url": "https://example.com", "content": "整页", "provider": "tavily"},
+            request=real_httpx.Request("GET", "https://reader.local/read"),
+        )
+        with patch(
+            "app.services.external.reader_client.httpx.AsyncClient",
+            return_value=self._mock_client_for_response(response),
+        ):
+            result = await reader_client.read_url_with_diagnostics("https://example.com")
+
+        self.assertFalse(result.result.extracted)
+
     async def test_read_url_success_accepts_reader_attempts(self):
         response = self._http_error_response(
             200,

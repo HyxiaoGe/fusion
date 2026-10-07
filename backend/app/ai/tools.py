@@ -92,6 +92,10 @@ def build_url_read_tool() -> dict:
                         "type": "string",
                         "description": render_runtime_prompt("ai_tools.url_reason"),
                     },
+                    "full_page": {
+                        "type": "boolean",
+                        "description": render_runtime_prompt("ai_tools.url_full_page"),
+                    },
                 },
                 "required": ["url"],
                 "additionalProperties": False,

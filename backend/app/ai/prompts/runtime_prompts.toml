@@ -107,6 +107,7 @@ web_search_domains = """Optional domain filters: at most 5 valid domains, for ex
 web_search_recency = """Optional recency window in days, from 1 through 365. Omit for no time filter; do not exclude older original reporting needed to explain a current event."""
 url = """Complete URL to read, including http:// or https://."""
 url_reason = """Reason for reading this URL, shown in network diagnostics; the backend retains at most 160 characters."""
+url_full_page = """Optional. Omit to receive the page's extracted main content. Set to true to re-read the whole page when an extracted read is missing tables, lists, or data the task needs, such as forecast tables or release lists."""
 
 [file_processor]
 default_analysis = """Analyze the contents of these files and provide a detailed description."""
@@ -231,6 +232,7 @@ search_query = """Search query: {{ query }}"""
 url_read_request = """Read URL: {{ url }}
 Reading purpose: {{ reason }}"""
 url_read_failure_reason = """Read failure: {{ failure_kind }}. No article body was obtained. Continue with an alternative source; do not count this page as successfully read or cite its wrapper metadata as evidence."""
+url_read_extracted_note = """[Main content extracted; navigation and other page parts were omitted. If tables, lists, or data you need are missing, call url_read again with full_page=true.]"""
 url_read_unavailable = """The page was not read successfully and cannot be used as evidence. State that the source is unavailable, or answer only from other available information."""
 search_unavailable = """The search returned no usable result and cannot support the answer. State that search sources are unavailable, or answer only from other available information."""
 search_truncated = """The search returned {{ source_count }} results; only the first {{ context_count }} are included with snippets. Remaining entries contain candidate metadata only: read their URLs before using their claims as evidence.

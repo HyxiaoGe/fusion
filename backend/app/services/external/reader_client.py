@@ -27,6 +27,8 @@ class UrlReadResult:
     attempts: int = 1
     published_at: str | None = None
     site_name: str | None = None
+    # reader-service 直接提取了正文（导航等已省略，表格/列表可能不全）
+    extracted: bool = False
 
 
 @dataclass
@@ -61,6 +63,7 @@ def _build_result(data: dict) -> UrlReadResult:
         content_length=data.get("content_length", 0),
         fetch_ms=data.get("fetch_ms", 0),
         attempts=_bounded_int(data.get("attempts"), default=1, minimum=1, maximum=10),
+        extracted=data.get("provider") == "direct",
     )
 
 
@@ -252,7 +255,9 @@ def _safe_log_domain(url: str) -> str:
         return ""
 
 
-async def read_url_with_diagnostics(url: str, timeout: float | None = None) -> UrlReadResponse:
+async def read_url_with_diagnostics(
+    url: str, timeout: float | None = None, *, full_page: bool = False
+) -> UrlReadResponse:
     """
     调用 reader-service 读取网页内容。
     返回读取结果或结构化失败原因；失败时不阻断对话。
@@ -263,7 +268,7 @@ async def read_url_with_diagnostics(url: str, timeout: float | None = None) -> U
         async with httpx.AsyncClient(timeout=effective_timeout) as client:
             resp = await client.get(
                 f"{settings.READER_SERVICE_URL}/read",
-                params={"url": url},
+                params={"url": url, "full": "true"} if full_page else {"url": url},
             )
             resp.raise_for_status()
             try:

@@ -68,6 +68,7 @@ class UrlReadHandler(BaseToolHandler):
         raw_url = args.get("url", "")
         url = raw_url.strip() if isinstance(raw_url, str) else ""
         reason = _normalize_reason(args.get("reason"))
+        full_page = args.get("full_page") is True
         if not url:
             return ToolResult(
                 status="degraded",
@@ -104,6 +105,7 @@ class UrlReadHandler(BaseToolHandler):
             response = await read_url_with_diagnostics(
                 policy.normalized_url or url,
                 timeout=settings.READER_SERVICE_TIMEOUT,
+                full_page=full_page,
             )
             duration_ms = int((time.monotonic() - start) * 1000)
             result = response.result
@@ -141,6 +143,7 @@ class UrlReadHandler(BaseToolHandler):
                     "reader_fetch_ms": result.fetch_ms,
                     "attempts": result.attempts,
                     "reason": reason,
+                    "extracted": getattr(result, "extracted", False),
                 },
             )
         except Exception:
@@ -221,8 +224,8 @@ class UrlReadHandler(BaseToolHandler):
             )
             return f"{request_context}\n{context}"
 
-        # 普通 Markdown 的明确站内导航也可跳过，原始结果仍完整保留。
-        content = select_article_body(content, title, url=url)
+        # 规范 reader 包装中优先从精确标题对应的正文取窗口，原始结果仍完整保留。
+        content = select_article_body(content, title)
         truncated = False
         max_content_chars = _tool_context_int("url_read_max_content_chars", MAX_CONTENT_CHARS)
         if len(content) > max_content_chars:
@@ -231,6 +234,8 @@ class UrlReadHandler(BaseToolHandler):
 
         if truncated:
             content = f"{content}\n{render_runtime_prompt('shared.truncated')}"
+        if result.data.get("extracted"):
+            content = f"{content}\n{render_runtime_prompt('tool_handlers.url_read_extracted_note')}"
 
         # 编号由运行期注册表分配，并与持久化 source_refs 共享，不能按读页次数重置。
         citation_number = citation_numbers[0] if citation_numbers else None

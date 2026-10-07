@@ -27,6 +27,15 @@ class SanitizeArgumentsTests(unittest.TestCase):
         self.assertEqual(sanitized["url"], "")
         self.assertEqual(sanitized["url_policy_reason"], "invalid_url")
 
+    def test_url_read_keeps_only_boolean_full_page(self):
+        self.assertTrue(sanitize_arguments("url_read", {"url": "https://example.com", "full_page": True})["full_page"])
+        self.assertNotIn(
+            "full_page", sanitize_arguments("url_read", {"url": "https://example.com", "full_page": "true"})
+        )
+        self.assertNotIn(
+            "full_page", sanitize_arguments("url_read", {"url": "https://example.com", "full_page": False})
+        )
+
     def test_url_read_whitelists_fields_and_normalizes_reason(self):
         args = {
             "url": "https://example.com/page?token=secret&safe=1",
