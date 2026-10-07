@@ -233,7 +233,7 @@ async def _judge_turn(
     judge_snapshot = None
     if judge is not None and any(isinstance(check, JudgeCheck) for check in case.checks):
         with session_factory() as db:
-            judge_snapshot = load_snapshot(db, turn.run_id, result_limit=JUDGE_TOOL_RESULT_CHAR_LIMIT)
+            judge_snapshot = load_snapshot(db, turn.run_id, result_limit=JUDGE_TOOL_RESULT_CHAR_LIMIT, model_view=True)
     outcome.checks = await evaluate(case, snapshot, judge, judge_snapshot=judge_snapshot)
     outcome.status = overall_status(outcome.checks)
 
