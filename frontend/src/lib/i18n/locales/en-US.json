@@ -349,6 +349,8 @@
       "remaining": "Remaining",
       "actualTokens": "Actual this round",
       "latestActualTokens": "Latest actual input",
+      "conversationTotal": "Conversation total",
+      "conversationTotalValue": "In {{input}} · Out {{output}}",
       "estimatedTokens": "Estimated this round",
       "calculating": "Calculating",
       "updating": "Updating",
