@@ -80,7 +80,15 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children, sidebar, rightPanel }
               aria-label="关闭对话侧栏"
               onClick={() => setIsMobileSidebarOpen(false)}
             />
-            <aside className="absolute inset-y-0 left-0 w-[min(85vw,320px)] border-r bg-bg-subtle shadow-xl">
+            <aside
+              className="absolute inset-y-0 left-0 w-[min(85vw,320px)] border-r bg-bg-subtle shadow-xl"
+              onClickCapture={(event) => {
+                // 通知通过 Portal 展示；同一对话的定位也要先收起遮罩，让结果可见。
+                if (event.target instanceof Element && event.target.closest('[data-sidebar-navigation]')) {
+                  setIsMobileSidebarOpen(false);
+                }
+              }}
+            >
               <div className="absolute right-3 top-3 z-10">
                 <Button
                   type="button"

@@ -113,7 +113,7 @@ export default function NotificationCenter() {
                 }).format(date);
                 return (
                   <li key={item.id}>
-                    <button type="button" onClick={() => selectNotification(item)}
+                    <button type="button" data-sidebar-navigation onClick={() => selectNotification(item)}
                       className={cn('flex w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring', !item.read_at && 'bg-primary/5')}>
                       <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', item.read_at ? 'text-muted-foreground' : 'text-primary')} aria-hidden="true" />
                       <span className="min-w-0 flex-1">

@@ -2,6 +2,7 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import MainLayout from './MainLayout';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 
 const { useAppSelectorMock, usePathnameMock } = vi.hoisted(() => ({
   useAppSelectorMock: vi.fn(),
@@ -75,5 +76,41 @@ describe('MainLayout', () => {
 
     expect(screen.queryByRole('button', { name: '打开对话侧栏' })).toBeNull();
     expect(screen.getByText('Sidebar Content')).toBeTruthy();
+  });
+
+  it.each([1, 0])('同一路径的 Portal 通知点击收起遮罩并执行导航（detail=%s）', (detail) => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 390 });
+    const navigate = vi.fn();
+    render(
+      <MainLayout sidebar={(
+        <>
+          <div>Sidebar Content</div>
+          <Popover>
+            <PopoverTrigger asChild><button type="button">通知入口</button></PopoverTrigger>
+            <PopoverContent aria-label="通知记录">
+              <button type="button">未读筛选</button>
+              <button type="button" data-sidebar-navigation onClick={navigate}>
+                <span>定位当前结果</span>
+              </button>
+            </PopoverContent>
+          </Popover>
+        </>
+      )}>
+        <div>Main Content</div>
+      </MainLayout>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '打开对话侧栏' }));
+    fireEvent.click(screen.getByRole('button', { name: '通知入口' }));
+    const dialog = screen.getByRole('dialog', { name: '通知记录' });
+    expect(screen.getByRole('complementary').contains(dialog)).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: '未读筛选' }));
+    expect(screen.getByText('Sidebar Content')).toBeTruthy();
+    fireEvent.click(screen.getByText('定位当前结果'), { detail });
+
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Sidebar Content')).toBeNull();
+    expect(screen.queryByRole('dialog', { name: '通知记录' })).toBeNull();
+    expect(usePathnameMock()).toBe('/chat/test');
   });
 });
