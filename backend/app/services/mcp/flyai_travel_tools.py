@@ -41,6 +41,7 @@ from app.schemas.chat import (
 from app.services.mcp.server_service import MCP_TOOL_UNAVAILABLE_MESSAGE
 from app.services.mcp.tool_contract import canonical_json_bytes
 from app.services.tool_handlers.base import BaseToolHandler, ToolResult
+from app.utils.time import as_china_time
 
 FLYAI_SEARCH_FLIGHTS = "search_flights"
 FLYAI_SEARCH_TRAINS = "search_trains"
@@ -196,7 +197,8 @@ class _AdapterResponse(BaseModel):
     @field_validator("observed_at", mode="before")
     @classmethod
     def parse_observed_at(cls, value: Any) -> Any:
-        return _parse_aware_datetime(value)
+        # 适配器给的是 UTC，统一成北京时间，与班次时刻同一时区
+        return as_china_time(_parse_aware_datetime(value))
 
 
 _COMBINED_ITINERARY_CALL_GUARD = render_runtime_prompt("flyai.combined_guard")

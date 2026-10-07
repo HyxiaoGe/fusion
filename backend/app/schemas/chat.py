@@ -7,7 +7,7 @@ from uuid import RFC_4122, UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from app.utils.time import utc_now
+from app.utils.time import as_china_time, utc_now
 from app.utils.user_visible_content import sanitize_user_visible_reasoning
 
 # ============================================================
@@ -470,7 +470,7 @@ class WeatherResultsBlock(BaseModel):
     def validate_fetched_at_timezone(cls, value: datetime) -> datetime:
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("天气获取时间必须包含时区")
-        return value
+        return as_china_time(value)
 
     @field_validator("limitations")
     @classmethod
