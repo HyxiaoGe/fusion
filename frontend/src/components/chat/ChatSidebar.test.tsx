@@ -12,6 +12,7 @@ const {
   mockChatListProps,
   selectorState,
   themeRuntimeState,
+  notificationRuntimeState,
 } = vi.hoisted(() => ({
   mockUseConversationList: vi.fn(),
   mockUseSidebarActions: vi.fn(),
@@ -35,10 +36,19 @@ const {
     resolvedTheme: 'light' as 'light' | 'dark',
     hasMounted: true,
   },
+  notificationRuntimeState: { unreadConversationIds: [] as string[] },
 }));
 
 vi.mock('next/navigation', () => ({
   usePathname: mockUsePathname,
+}));
+
+vi.mock('@/components/notifications/NotificationCenter', () => ({
+  default: () => <button type="button" aria-label="通知" />,
+}));
+
+vi.mock('@/components/notifications/NotificationsProvider', () => ({
+  useNotifications: () => notificationRuntimeState,
 }));
 
 vi.mock('@/hooks/useConversationList', () => ({
@@ -92,6 +102,7 @@ vi.mock('./sidebar/ChatList', () => ({
     sentinelRef,
     searchQuery,
     streamingConversationIds,
+    unreadConversationIds,
     handleSelectChat,
   }: {
     chats: ConversationListItem[];
@@ -101,6 +112,7 @@ vi.mock('./sidebar/ChatList', () => ({
     sentinelRef?: React.RefObject<HTMLDivElement | null>;
     searchQuery?: string;
     streamingConversationIds?: readonly string[];
+    unreadConversationIds?: readonly string[];
     handleSelectChat?: (id: string) => void;
   }) => {
     mockChatListProps({
@@ -108,6 +120,7 @@ vi.mock('./sidebar/ChatList', () => ({
       sortedAndGroupedChats,
       searchQuery,
       streamingConversationIds,
+      unreadConversationIds,
     });
 
     return (
@@ -189,6 +202,7 @@ describe('ChatSidebar', () => {
       setRenameValue: vi.fn(),
     });
     mockChatListProps.mockClear();
+    notificationRuntimeState.unreadConversationIds = [];
     selectorState.streamState.isStreaming = false;
     selectorState.streamState.conversationId = null;
     themeRuntimeState.resolvedTheme = 'light';
@@ -483,11 +497,14 @@ describe('ChatSidebar', () => {
     expect(screen.getByRole('button', { name: '切换到亮色模式' })).toBeTruthy();
   });
 
-  it('在主题按钮旁提供语言切换入口', () => {
+  it('在主题按钮旁提供语言和通知入口，并沿通知快照显示当前会话未读', () => {
+    notificationRuntimeState.unreadConversationIds = ['chat-a', 'not-loaded-conversation'];
     render(<ChatSidebar onNewChat={vi.fn()} />);
 
     const displayControls = screen.getByTestId('sidebar-display-controls');
     expect(within(displayControls).getByRole('button', { name: '切换到英文' })).toHaveTextContent('中');
     expect(within(displayControls).getByRole('button', { name: '切换到暗色模式' })).toBeTruthy();
+    expect(within(displayControls).getByRole('button', { name: '通知' })).toBeTruthy();
+    expect(mockChatListProps.mock.calls.at(-1)?.[0].unreadConversationIds).toEqual(['chat-a', 'not-loaded-conversation']);
   });
 });

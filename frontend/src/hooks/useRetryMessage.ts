@@ -110,9 +110,6 @@ export function useRetryMessage(
       const knowledgeScopeOptions = knowledgeBaseIds === undefined
         ? {}
         : { knowledgeBaseIds };
-      const runLineageOptions = previousRunId === undefined
-        ? {}
-        : { previousRunId };
       let modelResolution = resolveSendModel(state, conversationId);
       if (modelResolution.status !== 'ready') {
         dispatch(setGlobalError(getSendModelErrorMessage(modelResolution)));
@@ -174,9 +171,18 @@ export function useRetryMessage(
       }
       const effectiveKnowledgeBaseIds = knowledgeBaseIds
         ?? refreshedConversation.knowledge_base_ids;
+      const retryAssistant = refreshedTargetMsg.role === 'assistant'
+        ? refreshedTargetMsg
+        : refreshedNextMessage?.role === 'assistant' ? refreshedNextMessage : undefined;
+      // 只读失败投影没有可复用的消息记录，只继承其运行身份；显式选择的运行优先。
+      const effectivePreviousRunId = previousRunId
+        ?? (retryAssistant?.persisted === false ? retryAssistant.agent_run?.runId : undefined);
+      const runLineageOptions = effectivePreviousRunId === undefined
+        ? {}
+        : { previousRunId: effectivePreviousRunId };
 
       if (refreshedTargetMsg.role === 'assistant') {
-        // 重新生成：复用原 user/assistant ID，由服务端原位替换回答。
+        // 重新生成：复用原 user；已有持久化回答由服务端原位替换。
         let userMessage: Message | null = null;
         for (let i = refreshedTargetIndex - 1; i >= 0; i--) {
           if (refreshedMessages[i].role === 'user') {
@@ -204,7 +210,9 @@ export function useRetryMessage(
               resolvedModelId: modelResolution.model.id,
               ...knowledgeScopeOptions,
               retryUserMessageId: userMessage.id,
-              retryAssistantMessageId: refreshedTargetMsg.id,
+              ...(refreshedTargetMsg.persisted === false
+                ? {}
+                : { retryAssistantMessageId: refreshedTargetMsg.id }),
               ...runLineageOptions,
               ...(control ? {
                 canStart,
@@ -216,7 +224,7 @@ export function useRetryMessage(
           );
         }
       } else if (refreshedTargetMsg.role === 'user') {
-        // 重新发送：复用原 user；若已有回答则同时复用 assistant。
+        // 重新发送：复用原 user；若已有持久化回答则同时复用 assistant。
         const nextMsg = refreshedNextMessage;
 
         const { text, attachments } = extractMessageContent(refreshedTargetMsg);
@@ -237,7 +245,7 @@ export function useRetryMessage(
               resolvedModelId: modelResolution.model.id,
               ...knowledgeScopeOptions,
               retryUserMessageId: refreshedTargetMsg.id,
-              ...(nextMsg?.role === 'assistant'
+              ...(nextMsg?.role === 'assistant' && nextMsg.persisted !== false
                 ? { retryAssistantMessageId: nextMsg.id }
                 : {}),
               ...runLineageOptions,

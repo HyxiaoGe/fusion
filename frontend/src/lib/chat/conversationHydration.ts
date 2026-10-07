@@ -108,6 +108,7 @@ interface ServerMessage {
   id: string;
   role: 'user' | 'assistant';
   content: unknown[];
+  persisted?: boolean;
   sequence?: number | null;
   model_id?: string | null;
   usage?: ServerUsage | null;
@@ -145,6 +146,7 @@ function buildMessage(serverMessage: ServerMessage, conversationId: string): Mes
     id: serverMessage.id,
     role: serverMessage.role,
     content,
+    persisted: serverMessage.persisted ?? true,
     ...(typeof serverMessage.sequence === 'number' ? { sequence: serverMessage.sequence } : {}),
     chatId: conversationId,
     model_id: serverMessage.model_id ?? null,

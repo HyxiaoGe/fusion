@@ -91,7 +91,7 @@ class RunFinalizerTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
-    async def test_complete_agent_run_emits_completed_before_session_status(self):
+    async def test_complete_agent_run_persists_before_emitting_completed(self):
         emitter, cache, order = self._deps()
         duration_ms_factory = self._duration_factory(order)
 
@@ -108,7 +108,6 @@ class RunFinalizerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             order.mock_calls,
             [
-                call.run_completed(total_steps=3, total_tool_calls=2, finish_reason="limit_reached"),
                 call.duration_ms_factory(),
                 call.write_session_status(
                     run_id="run-1",
@@ -118,6 +117,7 @@ class RunFinalizerTests(unittest.IsolatedAsyncioTestCase):
                     total_duration_ms=1234,
                     limit_reason="max_steps",
                 ),
+                call.run_completed(total_steps=3, total_tool_calls=2, finish_reason="limit_reached"),
             ],
         )
         emitter.seal_and_get_last_sequence.assert_not_awaited()
@@ -286,7 +286,6 @@ class RunFinalizerTests(unittest.IsolatedAsyncioTestCase):
             order.mock_calls,
             [
                 call.write_step_terminal(step_id="step-1", status="failed"),
-                call.run_failed(error_code="RuntimeError", message="upstream LLM 5xx"),
                 call.duration_ms_factory(),
                 call.write_session_status(
                     run_id="run-1",
@@ -295,6 +294,7 @@ class RunFinalizerTests(unittest.IsolatedAsyncioTestCase):
                     total_tool_calls=2,
                     total_duration_ms=1234,
                 ),
+                call.run_failed(error_code="RuntimeError", message="upstream LLM 5xx"),
             ],
         )
 
@@ -325,3 +325,32 @@ class RunFinalizerTests(unittest.IsolatedAsyncioTestCase):
                 ),
             ],
         )
+
+    async def test_completion_event_failure_keeps_the_committed_terminal(self):
+        emitter, cache, _ = self._deps()
+        emitter.run_completed.side_effect = RuntimeError("通知通道断开")
+        await complete_agent_run(
+            emitter=emitter,
+            session_cache=cache,
+            stats=self._stats(),
+            duration_ms_factory=lambda: 1,
+            session_status="completed",
+            finish_reason="stop",
+        )
+        cache.write_session_status.assert_awaited_once()
+        self.assertEqual(cache.write_session_status.call_args.kwargs["status"], "completed")
+        emitter.run_failed.assert_not_awaited()
+
+    async def test_status_failure_does_not_emit_completion(self):
+        emitter, cache, _ = self._deps()
+        cache.write_session_status.side_effect = RuntimeError("保存失败")
+        with self.assertRaises(RuntimeError):
+            await complete_agent_run(
+                emitter=emitter,
+                session_cache=cache,
+                stats=self._stats(),
+                duration_ms_factory=lambda: 1,
+                session_status="completed",
+                finish_reason="stop",
+            )
+        emitter.run_completed.assert_not_awaited()

@@ -11,6 +11,7 @@ import { PerfProbe, useRenderProbe } from '@/lib/debug/perfProbe';
 import { requestNewChatDraftReset } from '@/lib/chat/newChatDraftReset';
 import { writeComposerDraft } from '@/lib/chat/composerDraftStorage';
 import { selectAuthSessionKey } from '@/redux/selectors';
+import { NotificationsProvider } from '@/components/notifications/NotificationsProvider';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   useRenderProbe('AppLayout');
@@ -31,11 +32,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, [authSessionKey, models, pathname, router]);
 
   return (
-    <MainLayout
-      sidebar={<ChatSidebar onNewChat={handleNewChat} isNewChatActive={isChatNewPath(pathname)} />}
-    >
-      <PerfProbe />
-      {children}
-    </MainLayout>
+    <NotificationsProvider sessionKey={authSessionKey}>
+      <MainLayout
+        sidebar={<ChatSidebar onNewChat={handleNewChat} isNewChatActive={isChatNewPath(pathname)} />}
+      >
+        <PerfProbe />
+        {children}
+      </MainLayout>
+    </NotificationsProvider>
   );
 }

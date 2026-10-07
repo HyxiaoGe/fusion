@@ -27,6 +27,11 @@ from app.services.agent.session_cache import (  # noqa: E402
 
 
 class SessionCacheTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        notification_patch = patch("app.services.notification_service.enqueue_run_notification")
+        notification_patch.start()
+        self.addCleanup(notification_patch.stop)
+
     async def test_prompt_snapshot_is_deleted_with_its_run_or_conversation(self):
         engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
 
@@ -1011,7 +1016,7 @@ class SessionCacheTests(unittest.IsolatedAsyncioTestCase):
         with patch("app.services.agent.session_cache.SessionLocal") as mock_sl:
             session = MagicMock()
             mock_sl.return_value.__enter__.return_value = session
-            row = MagicMock()
+            row = MagicMock(status="running")
             session.get.return_value = row
             with patch("app.services.agent.session_cache.utc_now", return_value=terminal_at):
                 await write_session_status(run_id="r1", status="interrupted", total_steps=2, total_tool_calls=3)
@@ -1024,7 +1029,7 @@ class SessionCacheTests(unittest.IsolatedAsyncioTestCase):
         with patch("app.services.agent.session_cache.SessionLocal") as mock_sl:
             session = MagicMock()
             mock_sl.return_value.__enter__.return_value = session
-            row = MagicMock()
+            row = MagicMock(status="running")
             session.get.return_value = row
             await write_session_status(run_id="r1", status="incomplete", total_steps=1, total_tool_calls=0)
             self.assertEqual(row.status, "incomplete")
@@ -1073,7 +1078,7 @@ class SessionCacheTests(unittest.IsolatedAsyncioTestCase):
         with patch("app.services.agent.session_cache.SessionLocal") as mock_sl:
             session = MagicMock()
             mock_sl.return_value.__enter__.return_value = session
-            row = MagicMock()
+            row = MagicMock(status="running")
             session.get.return_value = row
             await write_session_status(
                 run_id="r1", status="completed", total_steps=2, total_tool_calls=3, total_duration_ms=12345
@@ -1084,7 +1089,7 @@ class SessionCacheTests(unittest.IsolatedAsyncioTestCase):
         with patch("app.services.agent.session_cache.SessionLocal") as mock_sl:
             session = MagicMock()
             mock_sl.return_value.__enter__.return_value = session
-            row = MagicMock()
+            row = MagicMock(status="running")
             session.get.return_value = row
             await write_session_status(
                 run_id="r1",

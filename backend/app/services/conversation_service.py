@@ -26,9 +26,11 @@ class ConversationService:
             self.repo.create(conversation)
         return True
 
-    def get_conversation(self, conversation_id: str, user_id: str) -> Optional[Conversation]:
+    def get_conversation(
+        self, conversation_id: str, user_id: str, *, project_terminal_failures: bool = False
+    ) -> Optional[Conversation]:
         """获取特定对话"""
-        return self.repo.get_by_id(conversation_id, user_id)
+        return self.repo.get_by_id(conversation_id, user_id, project_terminal_failures=project_terminal_failures)
 
     def get_all_conversations(self, user_id: str) -> List[Conversation]:
         """获取指定用户的所有对话"""

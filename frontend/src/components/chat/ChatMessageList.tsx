@@ -22,6 +22,8 @@ import {
   type TrajectorySnapshotCacheEntry,
 } from '@/redux/slices/trajectorySlice';
 import type { TrajectoryRunSummary } from '@/types/trajectory';
+import { useReadPresentedNotifications } from '@/hooks/useReadPresentedNotifications';
+import { getChatMessageDomId } from '@/lib/chat/messageDom';
 
 interface ChatMessageListProps {
   messages: Message[];
@@ -37,6 +39,10 @@ interface ChatMessageListProps {
   onSelectQuestion?: (question: string) => void;
   onRefreshQuestions?: () => void;
   completionStateVisible?: boolean;
+  notificationReadEnabled?: boolean;
+  notificationSessionKey?: string | null;
+  notificationMessageId?: string | null;
+  notificationRequestId?: string;
   emptyState?: {
     title: string;
     description: string;
@@ -182,6 +188,10 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
   onSelectQuestion,
   onRefreshQuestions,
   completionStateVisible = false,
+  notificationReadEnabled = false,
+  notificationSessionKey = null,
+  notificationMessageId = null,
+  notificationRequestId = '',
   emptyState = DEFAULT_EMPTY_STATE,
 }) => {
   useRenderProbe('ChatMessageList');
@@ -405,6 +415,33 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
     }
     return index === messages.length - 1;
   };
+
+  const presentedResults = messages.flatMap((message, index) => {
+    const run = message.agent_run;
+    if (message.role !== 'assistant' || !run || getMessageRun(message, currentRun) !== run
+      || run.status === 'running' || isStreamingForMessage(message, index)) return [];
+    return [{ run_id: run.runId, message_id: run.serverMessageId ?? message.id, domMessageId: message.id }];
+  });
+  useReadPresentedNotifications(messageListRef, notificationSessionKey, conversationId, notificationReadEnabled, presentedResults);
+  const revealedNotificationRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!notificationMessageId || !notificationReadEnabled || !conversationId) return;
+    const key = `${conversationId}:${notificationMessageId}:${notificationRequestId}`;
+    if (revealedNotificationRef.current === key) return;
+    const target = document.getElementById(getChatMessageDomId(notificationMessageId));
+    if (!target || !messageListRef.current?.contains(target)) return;
+    revealedNotificationRef.current = key;
+    shouldStickToBottomRef.current = false;
+    setIsAwayFromBottom(true);
+    target.scrollIntoView({ behavior: 'auto', block: 'center' });
+    target.focus({ preventScroll: true });
+    target.dataset.notificationFocus = 'true';
+    const timer = window.setTimeout(() => { delete target.dataset.notificationFocus; }, 1400);
+    return () => {
+      window.clearTimeout(timer);
+      delete target.dataset.notificationFocus;
+    };
+  }, [conversationId, messages, notificationMessageId, notificationReadEnabled, notificationRequestId, setIsAwayFromBottom]);
 
   useEffect(() => {
     if (messages.length === 0) {

@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
+from app.core.logger import app_logger as logger
 from app.services.stream.agent_loop_policy import AgentSessionStatus, RunCompletedFinishReason
 from app.services.stream_state_service import StreamOwnershipLostError, StreamWriteTerminalError
 
@@ -139,11 +140,6 @@ async def complete_agent_run(
     finish_reason: RunCompletedFinishReason,
     limit_reason: str | None = None,
 ) -> None:
-    await emitter.run_completed(
-        total_steps=stats.total_steps,
-        total_tool_calls=stats.total_tool_calls,
-        finish_reason=finish_reason,
-    )
     await _write_session_status(
         session_cache=session_cache,
         stats=stats,
@@ -151,6 +147,14 @@ async def complete_agent_run(
         status=session_status,
         limit_reason=limit_reason,
     )
+    try:
+        await emitter.run_completed(
+            total_steps=stats.total_steps,
+            total_tool_calls=stats.total_tool_calls,
+            finish_reason=finish_reason,
+        )
+    except Exception as error:  # noqa: BLE001 — 已持久化终态不能因提示通道失败而翻转
+        logger.warning(f"已保存完成结果，终态事件未送达: run_id={stats.run_id}, error_type={type(error).__name__}")
 
 
 async def interrupt_agent_run(
@@ -202,13 +206,16 @@ async def fail_agent_run(
 ) -> None:
     if current_step_id is not None:
         await session_cache.write_step_terminal(step_id=current_step_id, status="failed")
-    await emitter.run_failed(error_code=error_code, message=message)
     await _write_session_status(
         session_cache=session_cache,
         stats=stats,
         duration_ms_factory=duration_ms_factory,
         status="error",
     )
+    try:
+        await emitter.run_failed(error_code=error_code, message=message)
+    except Exception as error:  # noqa: BLE001 — 失败终态与通知已提交，等待历史恢复
+        logger.warning(f"已保存失败状态，终态事件未送达: run_id={stats.run_id}, error_type={type(error).__name__}")
 
 
 async def write_fallback_error_status(

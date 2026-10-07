@@ -18,16 +18,28 @@ const {
   getTrajectoryLlmNodeDetailMock,
   getTrajectoryRunsMock,
   getTrajectorySnapshotMock,
+  markNotificationResultsReadMock,
+  notifyNotificationsChangedMock,
 } = vi.hoisted(() => ({
   getTrajectoryLlmNodeDetailMock: vi.fn(),
   getTrajectoryRunsMock: vi.fn(),
   getTrajectorySnapshotMock: vi.fn(),
+  markNotificationResultsReadMock: vi.fn(),
+  notifyNotificationsChangedMock: vi.fn(),
 }));
 
 vi.mock('@/lib/api/trajectory', () => ({
   getTrajectoryLlmNodeDetail: getTrajectoryLlmNodeDetailMock,
   getTrajectoryRuns: getTrajectoryRunsMock,
   getTrajectorySnapshot: getTrajectorySnapshotMock,
+}));
+
+vi.mock('@/lib/api/notifications', () => ({
+  markNotificationResultsRead: markNotificationResultsReadMock,
+}));
+
+vi.mock('@/lib/notifications/events', () => ({
+  notifyNotificationsChanged: notifyNotificationsChangedMock,
 }));
 
 import TrajectoryTabView from './TrajectoryTabView';
@@ -413,6 +425,42 @@ function installCanvasMocks() {
     return 1;
   });
   vi.stubGlobal('cancelAnimationFrame', vi.fn());
+}
+
+function installNotificationObservation() {
+  const observers: Array<{
+    callback: IntersectionObserverCallback;
+    targets: Set<Element>;
+    disconnected: boolean;
+  }> = [];
+  vi.stubGlobal('IntersectionObserver', class {
+    private readonly record;
+
+    constructor(callback: IntersectionObserverCallback) {
+      this.record = { callback, targets: new Set<Element>(), disconnected: false };
+      observers.push(this.record);
+    }
+
+    observe(target: Element) { this.record.targets.add(target); }
+    unobserve(target: Element) { this.record.targets.delete(target); }
+    disconnect() { this.record.disconnected = true; }
+  });
+  // 保留真实 hook 的帧调度，不能用同步 RAF 代替进入视口后的异步展示顺序。
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => (
+    window.setTimeout(() => callback(0), 0)
+  ));
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => window.clearTimeout(id));
+  return {
+    observers,
+    async intersect(target: Element, isIntersecting = true) {
+      const observer = observers.find((item) => !item.disconnected && item.targets.has(target));
+      expect(observer).toBeDefined();
+      await act(async () => {
+        observer!.callback([{ target, isIntersecting } as IntersectionObserverEntry], {} as IntersectionObserver);
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 1));
+      });
+    },
+  };
 }
 
 describe('TrajectoryTabView', () => {
@@ -1138,5 +1186,158 @@ describe('TrajectoryTabView', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '在聊天中查看' }));
     expect(onRevealInChat).toHaveBeenCalledWith('assistant-1');
+  });
+
+  describe('通知目标运行详情的真实展示回执', () => {
+    let observation: ReturnType<typeof installNotificationObservation>;
+    let pageVisibility: DocumentVisibilityState;
+    let originalVisibility: PropertyDescriptor | undefined;
+    const target = { runId: 'run/失败', messageId: 'server-result', sessionKey: 'account-a' };
+    const targetDomId = `notification-run-result-${encodeURIComponent(target.runId)}`;
+
+    function targetRun(overrides: Partial<TrajectoryRunSummary> = {}) {
+      return runSummary({
+        run_id: target.runId,
+        message_id: target.messageId,
+        status: 'failed',
+        total_steps: 0,
+        total_tool_calls: 0,
+        ...overrides,
+      });
+    }
+
+    function inspectRun(store: ReturnType<typeof createStore>, run: TrajectoryRunSummary, spanId: string | null = null) {
+      store.dispatch(requestTrajectoryInspect({
+        conversationId: 'chat-a',
+        requestId: `notification-inspect-${run.run_id}`,
+        messageId: run.message_id,
+        runId: run.run_id,
+        spanId,
+      }));
+    }
+
+    function emptyResultSnapshot(run: TrajectoryRunSummary) {
+      return snapshot({
+        run,
+        records: [],
+        spans: [],
+        completeness: {
+          status: 'complete', degraded_reason: null, event_count: 0,
+          expected_last_sequence: null, loaded_event_count: 0, first_sequence: null, last_sequence: null,
+        },
+      });
+    }
+
+    beforeEach(() => {
+      observation = installNotificationObservation();
+      pageVisibility = 'visible';
+      originalVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => pageVisibility });
+      markNotificationResultsReadMock.mockReset();
+      notifyNotificationsChangedMock.mockReset();
+      markNotificationResultsReadMock.mockResolvedValue({
+        updated_count: 1, unread_count: 0, unread_conversation_ids: [], revision: 2,
+      });
+    });
+
+    afterEach(() => {
+      if (originalVisibility) Object.defineProperty(document, 'visibilityState', originalVisibility);
+      else Reflect.deleteProperty(document, 'visibilityState');
+    });
+
+    it('零正文失败运行仅在精确目标快照就绪且详情进入视口后确认 run/message 已读', async () => {
+      const store = createStore();
+      const run = targetRun();
+      const snapshotRequest = deferred<TrajectorySnapshot>();
+      getTrajectoryRunsMock.mockResolvedValue({ items: [run], truncated: false });
+      getTrajectorySnapshotMock.mockReturnValue(snapshotRequest.promise);
+      inspectRun(store, run);
+
+      render(
+        <TrajectoryTabView conversationId="chat-a" messages={[]} notificationTarget={target} />,
+        { wrapper: wrapper(store) },
+      );
+      await waitFor(() => expect(getTrajectorySnapshotMock).toHaveBeenCalledWith('chat-a', target.runId, expect.any(AbortSignal)));
+      expect(document.getElementById(targetDomId)).toBeNull();
+      expect(markNotificationResultsReadMock).not.toHaveBeenCalled();
+
+      await act(async () => {
+        snapshotRequest.resolve(emptyResultSnapshot(run));
+        await snapshotRequest.promise;
+      });
+      await waitFor(() => expect(document.getElementById(targetDomId)).not.toBeNull());
+      const detail = document.getElementById(targetDomId)!;
+      expect(detail).toContainElement(screen.getByLabelText('轨迹节点详情'));
+      expect(markNotificationResultsReadMock).not.toHaveBeenCalled();
+      await observation.intersect(detail, false);
+      expect(markNotificationResultsReadMock).not.toHaveBeenCalled();
+
+      await observation.intersect(detail);
+      expect(markNotificationResultsReadMock).toHaveBeenCalledWith({
+        conversation_id: 'chat-a', results: [{ run_id: target.runId, message_id: target.messageId }],
+      }, expect.any(AbortSignal));
+      expect(notifyNotificationsChangedMock).toHaveBeenCalledWith(target.sessionKey);
+    });
+
+    it.each([
+      { name: '轨迹标签隐藏', visible: false, ancestorHidden: false, pageHidden: false },
+      { name: '详情位于 hidden 容器', visible: true, ancestorHidden: true, pageHidden: false },
+      { name: '浏览器页面隐藏', visible: true, ancestorHidden: false, pageHidden: true },
+    ])('$name 时快照已加载也不确认已读', async ({ visible, ancestorHidden, pageHidden }) => {
+      const store = createStore();
+      const run = targetRun();
+      pageVisibility = pageHidden ? 'hidden' : 'visible';
+      getTrajectoryRunsMock.mockResolvedValue({ items: [run], truncated: false });
+      getTrajectorySnapshotMock.mockResolvedValue(emptyResultSnapshot(run));
+      inspectRun(store, run);
+
+      render(
+        <div hidden={ancestorHidden}>
+          <TrajectoryTabView conversationId="chat-a" messages={[]} visible={visible} notificationTarget={target} />
+        </div>,
+        { wrapper: wrapper(store) },
+      );
+      await waitFor(() => expect(store.getState().trajectory.byConversationId['chat-a'].reconciliationByRunId[target.runId]?.status).toBe('ready'));
+      if (visible) {
+        await waitFor(() => expect(document.getElementById(targetDomId)).not.toBeNull());
+        await observation.intersect(document.getElementById(targetDomId)!);
+      } else {
+        expect(document.getElementById(targetDomId)).toBeNull();
+        expect(observation.observers).toHaveLength(0);
+      }
+      expect(markNotificationResultsReadMock).not.toHaveBeenCalled();
+      expect(notifyNotificationsChangedMock).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { name: '显示另一次运行', mode: 'other-run' },
+      { name: '目标仍在运行', mode: 'running' },
+      { name: '目标快照加载失败', mode: 'snapshot-failed' },
+      { name: '只显示同运行的工具节点', mode: 'tool-cell' },
+    ] as const)('$name 不把列表或非目标详情当成目标结果', async ({ mode }) => {
+      const store = createStore();
+      const run = targetRun(mode === 'running' ? { status: 'running', ended_at: null } : {});
+      const displayedRun = mode === 'other-run'
+        ? runSummary({ run_id: 'run-other', message_id: 'message-other', attempt_index: 2 }) : run;
+      getTrajectoryRunsMock.mockResolvedValue({
+        items: mode === 'other-run' ? [run, displayedRun] : [run], truncated: false,
+      });
+      if (mode === 'snapshot-failed') getTrajectorySnapshotMock.mockRejectedValue(new Error('目标快照暂时不可用'));
+      else getTrajectorySnapshotMock.mockResolvedValue(mode === 'tool-cell'
+        ? snapshot({ run }) : emptyResultSnapshot(displayedRun));
+      inspectRun(store, displayedRun, mode === 'tool-cell' ? 'tool:tool-1' : null);
+
+      render(
+        <TrajectoryTabView conversationId="chat-a" messages={[]} notificationTarget={target} />,
+        { wrapper: wrapper(store) },
+      );
+      await waitFor(() => expect(store.getState().trajectory.byConversationId['chat-a'].reconciliationByRunId[displayedRun.run_id]?.status)
+        .toBe(mode === 'snapshot-failed' ? 'failed' : 'ready'));
+      await act(async () => { await new Promise<void>((resolve) => window.setTimeout(resolve, 1)); });
+      expect(document.getElementById(targetDomId)).toBeNull();
+      expect(observation.observers).toHaveLength(0);
+      expect(markNotificationResultsReadMock).not.toHaveBeenCalled();
+      expect(notifyNotificationsChangedMock).not.toHaveBeenCalled();
+    });
   });
 });

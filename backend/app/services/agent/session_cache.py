@@ -512,10 +512,40 @@ async def write_session_status(
     """
     if status not in ("completed", "limit_reached", "incomplete", "interrupted", "error"):
         raise ValueError(f"invalid session terminal status: {status!r}")
+    await asyncio.to_thread(
+        _write_session_status,
+        run_id=run_id,
+        status=status,
+        total_steps=total_steps,
+        total_tool_calls=total_tool_calls,
+        total_duration_ms=total_duration_ms,
+        limit_reason=limit_reason,
+    )
+
+
+def _write_session_status(
+    *,
+    run_id: str,
+    status: str,
+    total_steps: int,
+    total_tool_calls: int,
+    total_duration_ms: int | None,
+    limit_reason: str | None,
+) -> None:
+    from app.services.notification_service import enqueue_run_notification
+
     with SessionLocal() as session:
         row = session.get(AgentSession, run_id)
         if row is None:
             logger.warning(f"write_session_status: agent_sessions row missing run_id={run_id}")
+            return
+        # 与删除及新 attempt 分配统一为对话、运行、通知用户锁的顺序。
+        _lock_conversation(session, row.conversation_id)
+        row = session.get(AgentSession, run_id, with_for_update=True, populate_existing=True)
+        if row is None:
+            return
+        # 已提交的终态不能被迟到的失败、取消或旧收尾覆盖。
+        if row.status != "running":
             return
         row.status = status
         row.terminal_at = utc_now()
@@ -524,4 +554,5 @@ async def write_session_status(
         row.limit_reason = limit_reason if status == "limit_reached" else None
         if total_duration_ms is not None:
             row.total_duration_ms = total_duration_ms
+        enqueue_run_notification(session, row)
         session.commit()

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from 'react-redux';
 import { useAppDispatch, useAppSelector } from '@/redux/hooks';
 import {
@@ -8,6 +8,7 @@ import {
 import {
   getConversationDetailRequestMetadata,
   isStaleConversationDetailRequestError,
+  invalidateConversationDetail,
   loadConversationDetail,
 } from '@/lib/chat/conversationDetailResource';
 import {
@@ -21,6 +22,7 @@ export type ConversationHydrationView = 'loading' | 'error' | 'ready';
 export function useConversation(conversationId: string | null | undefined) {
   const dispatch = useAppDispatch();
   const reduxStore = useStore<RootState>();
+  const [hydrationRevision, setHydrationRevision] = useState(0);
   const attachedRequestRef = useRef<{
     conversationId: string;
     promise: ReturnType<typeof loadConversationDetail>;
@@ -37,13 +39,14 @@ export function useConversation(conversationId: string | null | undefined) {
     conversationId ? state.conversation.hydrationError[conversationId] : undefined
   );
 
-  const hydrateConversation = useCallback(() => {
+  const hydrateConversation = useCallback((force = false) => {
     if (!conversationId) {
       return;
     }
-    if (attachedRequestRef.current?.conversationId === conversationId) {
+    if (!force && attachedRequestRef.current?.conversationId === conversationId) {
       return;
     }
+    if (force) invalidateConversationDetail(conversationId);
 
     const request = loadConversationDetail(conversationId, {
       requestMetadata: getConversationHydrationMetadata(reduxStore.getState(), conversationId),
@@ -54,14 +57,17 @@ export function useConversation(conversationId: string | null | undefined) {
     dispatch(setHydrationStatus({ id: conversationId, status: 'loading' }));
     void request
       .then((serverConversation) => {
+        if (attachedRequestRef.current?.promise !== request) return;
         const state = reduxStore.getState();
         dispatch(mergeHydratedConversation({
           conversation: serverConversation,
           preserveMessageIds: getProtectedHydrationMessageIds(state, conversationId, requestMetadata),
           requestMetadata,
         }));
+        setHydrationRevision(previous => previous + 1);
       })
       .catch((error) => {
+        if (attachedRequestRef.current?.promise !== request) return;
         if (isStaleConversationDetailRequestError(error)) {
           requestBecameStale = true;
           return;
@@ -94,6 +100,9 @@ export function useConversation(conversationId: string | null | undefined) {
   const retryHydration = useCallback(() => {
     hydrateConversation();
   }, [hydrateConversation]);
+  const refreshHydration = useCallback(() => {
+    hydrateConversation(true);
+  }, [hydrateConversation]);
 
   const hydrationView: ConversationHydrationView = (() => {
     if (!conversationId || hydrationStatus === 'done') return 'ready';
@@ -105,7 +114,10 @@ export function useConversation(conversationId: string | null | undefined) {
   return {
     conversation: conversation ?? null,
     hydrationView,
+    hydrationStatus,
+    hydrationRevision,
     hydrationError: hydrationError ?? null,
     retryHydration,
+    refreshHydration,
   };
 }

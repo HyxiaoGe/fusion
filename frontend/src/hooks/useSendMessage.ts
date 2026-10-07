@@ -369,6 +369,29 @@ export function useSendMessage(activeConversationId?: string | null) {
     activeConvIdRef.current ?? explicitConversationId ?? null
   ), []);
 
+  const restoreRetryAssistant = useCallback((
+    conversationId: string,
+    placeholderId: string,
+    originalAssistant?: Message,
+  ) => {
+    // 只读失败投影的 ID 不能复用；原位恢复旧 ID，避免把失败结果追加到后续轮次末尾。
+    const messages = store.getState().conversation.byId[conversationId]?.messages ?? [];
+    const present = originalAssistant && messages.some((message) => message.id === originalAssistant.id);
+    if (originalAssistant && !present && messages.some((message) => message.id === placeholderId)) {
+      dispatch(replaceMessage({ conversationId, messageId: placeholderId, message: originalAssistant }));
+      return;
+    }
+    if (!originalAssistant || originalAssistant.id !== placeholderId) {
+      dispatch(removeMessage({ conversationId, messageId: placeholderId }));
+    }
+    if (!originalAssistant) return;
+    if (present) {
+      dispatch(replaceMessage({ conversationId, messageId: originalAssistant.id, message: originalAssistant }));
+    } else {
+      dispatch(appendMessage({ conversationId, message: originalAssistant }));
+    }
+  }, [dispatch, store]);
+
   // conversationId 由调用方给出要停哪个会话；不传时用本 hook 自己那条。
   const stopStreaming = useCallback((conversationId?: string | null): Promise<void> => {
     if (stopInFlightPromiseRef.current) {
@@ -515,21 +538,8 @@ export function useSendMessage(activeConversationId?: string | null) {
 
       // 把 streamSlice 已有内容写回 assistant 消息，防止 endStream 清空后丢失
       if (convId && assistantMsgId) {
-        const retryAssistant = retryTurnSnapshot?.conversationId === convId
-          && retryTurnSnapshot.assistant?.id === assistantMsgId
-          ? retryTurnSnapshot.assistant
-          : undefined;
-        if (retryAssistant) {
-          dispatch(replaceMessage({
-            conversationId: convId,
-            messageId: assistantMsgId,
-            message: retryAssistant,
-          }));
-        } else if (retryTurnSnapshot?.conversationId === convId) {
-          dispatch(removeMessage({
-            conversationId: convId,
-            messageId: assistantMsgId,
-          }));
+        if (retryTurnSnapshot?.conversationId === convId) {
+          restoreRetryAssistant(convId, assistantMsgId, retryTurnSnapshot.assistant);
         } else {
           const partialBlocks = selectFullStreamContentBlocks(getSlot(convId));
           if (partialBlocks.length > 0) {
@@ -636,7 +646,7 @@ export function useSendMessage(activeConversationId?: string | null) {
 
       const stateConvId = teardownConvId ?? convId;
       const hydrationAnchorIds = new Set(
-        [userMsgId, assistantMsgId, serverMsgId, remoteMsgId, stoppedSlotMessageId].filter(
+        [userMsgId, assistantMsgId, serverMsgId, remoteMsgId, stoppedSlotMessageId, retryTurnSnapshot?.assistant?.id].filter(
           (messageId): messageId is string => Boolean(messageId),
         ),
       );
@@ -753,7 +763,7 @@ export function useSendMessage(activeConversationId?: string | null) {
       }
     );
     return stopOperation;
-  }, [dispatch, store, getSlot, getStreamingConvId, hydrateAuthoritativeConversation]);
+  }, [dispatch, store, getSlot, getStreamingConvId, hydrateAuthoritativeConversation, restoreRetryAssistant]);
 
   const sendMessage = useCallback(
     async (content: string, options: SendMessageOptions, attachments?: FileAttachment[]) => {
@@ -910,16 +920,26 @@ export function useSendMessage(activeConversationId?: string | null) {
       const retryConversation = options.retryUserMessageId
         ? currentState.conversation.byId[tempConvId]
         : undefined;
+      const retryUserIndex = retryConversation?.messages.findIndex(
+        (message) => message.id === options.retryUserMessageId,
+      ) ?? -1;
+      const requestedRetryAssistant = options.retryAssistantMessageId
+        ? retryConversation?.messages.find((message) => message.id === options.retryAssistantMessageId)
+        : undefined;
+      const nextRetryMessage = retryUserIndex >= 0 ? retryConversation?.messages[retryUserIndex + 1] : undefined;
+      const retryProjection = requestedRetryAssistant?.persisted === false
+        ? requestedRetryAssistant
+        : nextRetryMessage?.role === 'assistant' && nextRetryMessage.persisted === false
+          ? nextRetryMessage : undefined;
+      const retryAssistantMessageId = requestedRetryAssistant?.persisted === false
+        ? undefined : options.retryAssistantMessageId;
+      const previousRunId = options.previousRunId ?? retryProjection?.agent_run?.runId;
       const retryTurnSnapshot = options.retryUserMessageId
         ? {
             user: retryConversation?.messages.find(
               (message) => message.id === options.retryUserMessageId,
             ),
-            assistant: options.retryAssistantMessageId
-              ? retryConversation?.messages.find(
-                  (message) => message.id === options.retryAssistantMessageId,
-                )
-              : undefined,
+            assistant: requestedRetryAssistant ?? retryProjection,
           }
         : null;
       activeRetryTurnSnapshotRef.current = retryTurnSnapshot?.user
@@ -974,7 +994,7 @@ export function useSendMessage(activeConversationId?: string | null) {
 
       const isMessageRetry = Boolean(options.retryUserMessageId);
       const userMessageId = options.retryUserMessageId ?? uuidv4();
-      const assistantMessageId = options.retryAssistantMessageId ?? uuidv4();
+      const assistantMessageId = retryAssistantMessageId ?? uuidv4();
       userMessageIdRef.current = userMessageId;
       assistantMessageIdRef.current = assistantMessageId;
       // 清理上一轮残留的 server message id，等本轮 onReady 重新写入
@@ -1022,7 +1042,7 @@ export function useSendMessage(activeConversationId?: string | null) {
           messageId: userMessageId,
           patch: { status: 'pending' },
         }));
-        if (options.retryAssistantMessageId) {
+        if (retryAssistantMessageId) {
           dispatch(updateMessage({
             conversationId: tempConvId,
             messageId: assistantMessageId,
@@ -1037,6 +1057,7 @@ export function useSendMessage(activeConversationId?: string | null) {
             },
           }));
         } else {
+          if (retryProjection) dispatch(removeMessage({ conversationId: tempConvId, messageId: retryProjection.id }));
           dispatch(appendMessage({ conversationId: tempConvId, message: assistantPlaceholder }));
         }
       } else {
@@ -1391,8 +1412,8 @@ export function useSendMessage(activeConversationId?: string | null) {
               user_message_id: userMessageId,
               assistant_message_id: assistantMessageId,
               retry_user_message_id: options.retryUserMessageId,
-              retry_assistant_message_id: options.retryAssistantMessageId,
-              previous_run_id: options.previousRunId,
+              retry_assistant_message_id: retryAssistantMessageId,
+              previous_run_id: previousRunId,
               stream: true,
               options: {
                 use_reasoning: useReasoning,
@@ -1426,6 +1447,31 @@ export function useSendMessage(activeConversationId?: string | null) {
           // 另一处页面中止了这条流时，本实例的 generation 可能还没作废。
           // 先作废再返回，迟到的 run 事件不能落到下一轮。
           if (controller.signal.aborted && isActiveSendCurrent()) {
+            const stoppedConversationId = activeConvIdRef.current ?? tempConvId;
+            const stoppedMessages = store.getState().conversation.byId[stoppedConversationId]?.messages ?? [];
+            const stoppedSlot = getSlot(stoppedConversationId);
+            const stoppedPlaceholder = stoppedMessages.at(-1);
+            const currentController = getStreamController(stoppedConversationId);
+            // 跨页面停止没有共享本实例的备份。仅恢复仍属于本轮的乐观尾消息，
+            // 不能覆盖已水合的服务端结果或另一条新流。
+            if (
+              retryTurnSnapshot?.user
+              && retryTurnSnapshot.assistant?.persisted === false
+              && stoppedPlaceholder?.id === assistantMessageId
+              && stoppedPlaceholder.persisted === undefined
+              && (!stoppedSlot.isStreaming || stoppedSlot.messageId === assistantMessageId)
+              && (!currentController || currentController.controller === controller)
+            ) {
+              dispatch(replaceMessage({
+                conversationId: stoppedConversationId,
+                messageId: retryTurnSnapshot.user.id,
+                message: retryTurnSnapshot.user,
+              }));
+              restoreRetryAssistant(stoppedConversationId, assistantMessageId, retryTurnSnapshot.assistant);
+              if (stoppedSlot.currentRun?.messageId === assistantMessageId) {
+                dispatch(clearCurrentRun({ conversationId: stoppedConversationId }));
+              }
+            }
             sendGenerationRef.current += 1;
             activeSendContextRef.current = null;
             activeConvIdRef.current = null;
@@ -1454,18 +1500,7 @@ export function useSendMessage(activeConversationId?: string | null) {
               messageId: retryTurnSnapshot.user.id,
               message: retryTurnSnapshot.user,
             }));
-            if (retryTurnSnapshot.assistant) {
-              dispatch(replaceMessage({
-                conversationId: effectiveConvIdOnError,
-                messageId: retryTurnSnapshot.assistant.id,
-                message: retryTurnSnapshot.assistant,
-              }));
-            } else {
-              dispatch(removeMessage({
-                conversationId: effectiveConvIdOnError,
-                messageId: assistantMessageId,
-              }));
-            }
+            restoreRetryAssistant(effectiveConvIdOnError, assistantMessageId, retryTurnSnapshot.assistant);
           } else if (partialBlocks.length > 0) {
             dispatch(
               updateMessage({
@@ -1495,7 +1530,7 @@ export function useSendMessage(activeConversationId?: string | null) {
             }));
           }
           const interruptedHydrationAnchorIds = new Set(
-            [userMessageId, assistantMessageId, serverMessageIdRef.current].filter(
+            [userMessageId, assistantMessageId, serverMessageIdRef.current, retryTurnSnapshot?.assistant?.id].filter(
               (messageId): messageId is string => Boolean(messageId),
             ),
           );
@@ -1601,21 +1636,7 @@ export function useSendMessage(activeConversationId?: string | null) {
             messageId: retryTurnSnapshot.user.id,
             message: retryTurnSnapshot.user,
           }));
-          const assistantStillPresent = store.getState().conversation.byId[
-            effectiveConvIdOnError
-          ]?.messages.some((message) => message.id === retryTurnSnapshot.assistant?.id);
-          if (assistantStillPresent) {
-            dispatch(replaceMessage({
-              conversationId: effectiveConvIdOnError,
-              messageId: retryTurnSnapshot.assistant.id,
-              message: retryTurnSnapshot.assistant,
-            }));
-          } else {
-            dispatch(appendMessage({
-              conversationId: effectiveConvIdOnError,
-              message: retryTurnSnapshot.assistant,
-            }));
-          }
+          restoreRetryAssistant(effectiveConvIdOnError, assistantMessageId, retryTurnSnapshot.assistant);
         }
 
         if (assistantHasContentRef.current && !shouldRestoreRetryAnswer) {
@@ -1656,27 +1677,7 @@ export function useSendMessage(activeConversationId?: string | null) {
             messageId: retryTurnSnapshot.user.id,
             message: retryTurnSnapshot.user,
           }));
-          if (retryTurnSnapshot.assistant) {
-            const assistantStillPresent = store.getState().conversation.byId[
-              effectiveConvId
-            ]?.messages.some((message) => message.id === retryTurnSnapshot.assistant?.id);
-            if (assistantStillPresent) {
-              dispatch(replaceMessage({
-                conversationId: effectiveConvId,
-                messageId: retryTurnSnapshot.assistant.id,
-                message: retryTurnSnapshot.assistant,
-              }));
-            } else {
-              dispatch(appendMessage({
-                conversationId: effectiveConvId,
-                message: retryTurnSnapshot.assistant,
-              }));
-            }
-          } else {
-            dispatch(
-              removeMessage({ conversationId: effectiveConvId, messageId: assistantMessageId })
-            );
-          }
+          restoreRetryAssistant(effectiveConvId, assistantMessageId, retryTurnSnapshot.assistant);
         } else if (materializedOnce || !isDraft) {
           dispatch(
             updateMessage({
@@ -1723,6 +1724,7 @@ export function useSendMessage(activeConversationId?: string | null) {
       getSlot,
       hydrateAuthoritativeConversation,
       reasoningEnabled,
+      restoreRetryAssistant,
       stopStreaming,
       store,
     ]

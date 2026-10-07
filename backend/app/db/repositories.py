@@ -13,12 +13,14 @@ from app.db.models import (
     ConversationFile,
     ConversationKnowledgeBase,
     File,
+    Notification,
     message_order_sequence,
 )
 from app.db.models import Conversation as ConversationModel
 from app.db.models import Message as MessageModel
 from app.db.models import SocialAccount as SocialAccountModel
 from app.db.models import User as UserModel
+from app.db.notification_repository import NotificationRepository
 from app.schemas.chat import (
     AgentRunSummary,
     Conversation,
@@ -162,7 +164,22 @@ class ConversationRepository:
     def delete(self, conversation_id: str, user_id: str) -> bool:
         """删除对话"""
         try:
-            # 查找对话
+            # 与终态写入共用对话 → 用户修订锁顺序，删除和未读变化同事务提交。
+            conversation = self.lock_owned_model(conversation_id, user_id)
+            if conversation is None:
+                self.db.commit()
+                return False
+            state = NotificationRepository(self.db).lock_state(user_id)
+            if (
+                state is not None
+                and self.db.scalar(
+                    select(Notification.id)
+                    .where(Notification.user_id == user_id, Notification.conversation_id == conversation_id)
+                    .limit(1)
+                )
+                is not None
+            ):
+                state.revision += 1
             result = (
                 self.db.query(ConversationModel)
                 .filter(ConversationModel.id == conversation_id, ConversationModel.user_id == user_id)
@@ -176,7 +193,9 @@ class ConversationRepository:
             logger.error(f"删除对话失败: {e}")
             return False
 
-    def get_by_id(self, conversation_id: str, user_id: str) -> Optional[Conversation]:
+    def get_by_id(
+        self, conversation_id: str, user_id: str, *, project_terminal_failures: bool = False
+    ) -> Optional[Conversation]:
         """根据ID获取对话"""
         try:
             db_conversation = (
@@ -189,7 +208,7 @@ class ConversationRepository:
             if not db_conversation:
                 return None
 
-            return self._convert_to_schema(db_conversation)
+            return self._convert_to_schema(db_conversation, project_terminal_failures=project_terminal_failures)
         except Exception as e:
             logger.error(f"获取对话失败: {e}")
             return None
@@ -642,7 +661,9 @@ class ConversationRepository:
         self.db.query(MessageModel).filter(MessageModel.id == message_id).update({"suggested_questions": questions})
         self.db.flush()
 
-    def _convert_to_schema(self, db_conversation: ConversationModel) -> Conversation:
+    def _convert_to_schema(
+        self, db_conversation: ConversationModel, *, project_terminal_failures: bool = False
+    ) -> Conversation:
         """将数据库模型转换为业务模型"""
         agent_runs = self._latest_agent_runs_for_messages(
             db_conversation.id,
@@ -651,6 +672,8 @@ class ConversationRepository:
         messages = [
             self._convert_message_to_schema(msg, agent_run=agent_runs.get(msg.id)) for msg in db_conversation.messages
         ]
+        if project_terminal_failures:
+            messages = self._project_terminal_failures(db_conversation, messages)
         return Conversation(
             id=db_conversation.id,
             user_id=db_conversation.user_id,
@@ -661,6 +684,76 @@ class ConversationRepository:
             created_at=db_conversation.created_at,
             updated_at=db_conversation.updated_at,
         )
+
+    def _project_terminal_failures(self, conversation: ConversationModel, messages: list[Message]) -> list[Message]:
+        """只读展示缺少正文的最新失败轮次；不写库，也不替换已有回答。"""
+        user_message_ids = [message.id for message in messages if message.role == "user"]
+        if not user_message_ids:
+            return messages
+        rows = (
+            self.db.query(AgentSession)
+            .filter(
+                AgentSession.conversation_id == conversation.id,
+                AgentSession.user_id == conversation.user_id,
+                AgentSession.turn_message_id.in_(user_message_ids),
+            )
+            .order_by(
+                AgentSession.turn_message_id.asc(),
+                AgentSession.attempt_index.desc().nullslast(),
+                AgentSession.created_at.desc(),
+                AgentSession.id.desc(),
+            )
+            .all()
+        )
+        latest_by_turn: dict[str, AgentSession] = {}
+        for row in rows:
+            latest_by_turn.setdefault(row.turn_message_id, row)
+        existing_ids = {message.id for message in messages}
+        candidates = {
+            turn_id: run
+            for turn_id, run in latest_by_turn.items()
+            if run.status in ("error", "interrupted")
+            and run.terminal_at is not None
+            and run.message_id
+            and run.message_id not in existing_ids
+        }
+        interrupted_ids = [run.id for run in candidates.values() if run.status == "interrupted"]
+        orphan_ids = (
+            set(
+                self.db.scalars(
+                    select(Notification.run_id).where(
+                        Notification.user_id == conversation.user_id,
+                        Notification.run_id.in_(interrupted_ids),
+                        Notification.kind == "run_interrupted",
+                    )
+                )
+            )
+            if interrupted_ids
+            else set()
+        )
+        candidates = {
+            turn_id: run for turn_id, run in candidates.items() if run.status == "error" or run.id in orphan_ids
+        }
+        summaries = self._agent_run_summaries(list(candidates.values()))
+        displayed: list[Message] = []
+        for index, message in enumerate(messages):
+            displayed.append(message)
+            run = candidates.get(message.id)
+            if run is None or index + 1 < len(messages) and messages[index + 1].role == "assistant":
+                continue
+            displayed.append(
+                Message(
+                    id=run.message_id,
+                    persisted=False,
+                    sequence=message.sequence + 1 if message.sequence is not None else None,
+                    role="assistant",
+                    content=[],
+                    model_id=run.model_id,
+                    agent_run=summaries[run.id],
+                    created_at=run.created_at,
+                )
+            )
+        return displayed
 
     @staticmethod
     def _knowledge_base_ids(db_conversation: ConversationModel) -> list[str]:
@@ -690,7 +783,12 @@ class ConversationRepository:
                 continue
             latest_rows_by_message_id[row.message_id] = row
 
-        run_ids = [row.id for row in latest_rows_by_message_id.values()]
+        summaries = self._agent_run_summaries(list(latest_rows_by_message_id.values()))
+        return {message_id: summaries[row.id] for message_id, row in latest_rows_by_message_id.items()}
+
+    def _agent_run_summaries(self, rows: list[AgentSession]) -> dict[str, AgentRunSummary]:
+        """正文水合与终态展示共用安全摘要，不返回原始错误或提示词正文。"""
+        run_ids = [row.id for row in rows]
         snapshots = (
             self.db.query(AgentProgressSnapshot).filter(AgentProgressSnapshot.run_id.in_(run_ids)).all()
             if run_ids
@@ -698,10 +796,10 @@ class ConversationRepository:
         )
         snapshots_by_run_id = {snapshot.run_id: snapshot for snapshot in snapshots}
 
-        latest_by_message_id: dict[str, AgentRunSummary] = {}
-        for message_id, row in latest_rows_by_message_id.items():
+        summaries: dict[str, AgentRunSummary] = {}
+        for row in rows:
             snapshot = snapshots_by_run_id.get(row.id)
-            latest_by_message_id[message_id] = AgentRunSummary(
+            summaries[row.id] = AgentRunSummary(
                 run_id=row.id,
                 status=row.status,
                 config={key: value for key, value in (row.run_config or {}).items() if key != "system_prompt_snapshot"},
@@ -710,7 +808,7 @@ class ConversationRepository:
                 limit_reason=row.limit_reason if row.status == "limit_reached" else None,
                 progress=snapshot.state if snapshot else None,
             )
-        return latest_by_message_id
+        return summaries
 
 
 class FileRepository:

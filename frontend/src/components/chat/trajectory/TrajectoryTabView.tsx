@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 
 import { useConversationTrajectory } from '@/hooks/useConversationTrajectory';
+import { useReadPresentedNotifications } from '@/hooks/useReadPresentedNotifications';
 import {
   projectTrajectoryCells,
   type TrajectoryCell,
@@ -93,6 +94,7 @@ export interface TrajectoryTabViewProps {
   onRevealInChat?: (messageId: string) => void;
   runActions?: TrajectoryRunActionContext;
   contentBottomInset?: number;
+  notificationTarget?: { runId: string; messageId: string; sessionKey: string };
 }
 
 const EMPTY_PROJECTION: TrajectoryCellProjection = {
@@ -175,10 +177,12 @@ export function TrajectoryTabView({
   onRevealInChat,
   runActions,
   contentBottomInset = 0,
+  notificationTarget,
 }: TrajectoryTabViewProps) {
   const dispatch = useAppDispatch();
   const store = useStore<RootState>();
   const trajectory = useConversationTrajectory(conversationId);
+  const notificationContainerRef = useRef<HTMLElement>(null);
   const normalizedContentBottomInset = Number.isFinite(contentBottomInset)
     ? Math.max(0, contentBottomInset)
     : 0;
@@ -260,6 +264,36 @@ export function TrajectoryTabView({
     selectedSpan,
   });
   const selectedRunCell = runCell(cells, trajectory.selectedRunId);
+  const notificationTargetReady = Boolean(
+    visible
+    && notificationTarget
+    && trajectory.selectedRunId === notificationTarget.runId
+    && selectedCell?.type === 'run'
+    && selectedCell?.runId === notificationTarget.runId
+    && trajectory.snapshot?.run.run_id === notificationTarget.runId
+    && trajectory.snapshot.run.status !== 'running'
+    && trajectory.reconciliation?.status === 'ready',
+  );
+  const notificationDomId = notificationTargetReady && notificationTarget
+    ? `notification-run-result-${encodeURIComponent(notificationTarget.runId)}` : undefined;
+  const presentedNotificationResults = useMemo(() => (
+    notificationTargetReady && notificationTarget && notificationDomId
+      ? [{
+          run_id: notificationTarget.runId,
+          message_id: notificationTarget.messageId,
+          domMessageId: notificationTarget.messageId,
+          domId: notificationDomId,
+        }]
+      : []
+  ), [notificationDomId, notificationTarget, notificationTargetReady]);
+  // 精确旧运行的快照成功展示后才确认；打开轨迹页或显示另一次尝试不能清掉通知。
+  useReadPresentedNotifications(
+    notificationContainerRef,
+    notificationTarget?.sessionKey,
+    conversationId,
+    notificationTargetReady,
+    presentedNotificationResults,
+  );
   const focusedRunEvents = useMemo(() => (
     selectedRunCell
       ? [...selectedRunCell.records, ...selectedRunCell.liveTail]
@@ -852,7 +886,7 @@ export function TrajectoryTabView({
               />
             </div>
 
-            <div className="min-h-0 overflow-y-auto border-l border-border/60">
+            <div id={notificationDomId} className="min-h-0 overflow-y-auto border-l border-border/60">
               <TrajectoryNodeDetailPanel
                 conversationId={conversationId}
                 cell={selectedCell}
@@ -873,6 +907,7 @@ export function TrajectoryTabView({
 
   return (
     <section
+      ref={notificationContainerRef}
       aria-label="会话轨迹"
       data-conversation-id={conversationId}
       className="flex h-full min-h-0 flex-col"

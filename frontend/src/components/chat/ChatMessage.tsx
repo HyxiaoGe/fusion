@@ -66,7 +66,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, files, isLastMessage
       data-chat-message-id={message.id}
       tabIndex={-1}
       className={cn(
-        'flex w-full gap-3 py-2 px-4 group',
+        'flex w-full gap-3 py-2 px-4 group rounded-lg transition-colors data-[notification-focus=true]:bg-accent/40 motion-reduce:transition-none',
         isUser ? 'justify-end' : 'justify-start'
       )}
     >

@@ -24,16 +24,16 @@ describe('useConversationActivity', () => {
     vi.useRealTimers();
   });
 
-  it('merges server streaming ids with local ones and hides unread for streaming and active chats', async () => {
+  it('merges streams without hiding unread merely because the conversation is open', async () => {
     mockedGet.mockResolvedValue({ streaming: ['remote'], unread: ['done', 'remote', 'active'] });
 
     const { result } = renderHook(() => useConversationActivity('user-1', 'active', ['local']));
 
     await waitFor(() => expect(result.current.streamingConversationIds).toEqual(['local', 'remote']));
-    expect(result.current.unreadConversationIds).toEqual(['done']);
+    expect(result.current.unreadConversationIds).toEqual(['done', 'remote', 'active']);
   });
 
-  it('marks the open conversation as read once', async () => {
+  it('does not mark a conversation read on route entry', async () => {
     mockedGet.mockResolvedValue({ streaming: [], unread: ['conv-1'] });
 
     const { result, rerender } = renderHook(
@@ -43,15 +43,15 @@ describe('useConversationActivity', () => {
     await waitFor(() => expect(result.current.unreadConversationIds).toEqual(['conv-1']));
 
     rerender({ active: 'conv-1' });
-    await waitFor(() => expect(mockedRead).toHaveBeenCalledWith('conv-1'));
+    expect(mockedRead).not.toHaveBeenCalled();
 
     // 服务端还没来得及清掉时再拉到同一条，不重复请求。
     await act(async () => {
       await result.current.refresh();
     });
-    expect(mockedRead).toHaveBeenCalledTimes(1);
+    expect(mockedRead).not.toHaveBeenCalled();
     rerender({ active: null });
-    expect(result.current.unreadConversationIds).toEqual([]);
+    expect(result.current.unreadConversationIds).toEqual(['conv-1']);
   });
 
   it('refreshes when a local stream ends', async () => {

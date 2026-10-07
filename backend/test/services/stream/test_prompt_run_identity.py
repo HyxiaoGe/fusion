@@ -192,17 +192,24 @@ async def test_new_attempt_refreezes_source_and_preserves_lineage(session_factor
         patch.object(runner, "freeze_runtime_prompt_bundle", side_effect=[snapshot_a, snapshot_b]),
         patch.object(runner, "prepare_agent_loop_call_config_inputs", return_value=SimpleNamespace()),
         patch.object(runner, "build_agent_loop_call_config_from_inputs", return_value=SimpleNamespace()),
-        patch.object(runner, "assemble_agent_loop_lifecycle_call", side_effect=RuntimeError("组装失败")),
+        patch.object(
+            runner, "assemble_agent_loop_lifecycle_call", side_effect=[SimpleNamespace(), RuntimeError("组装失败")]
+        ),
+        patch.object(runner, "_run_agent_loop_lifecycle_call", AsyncMock()),
         patch.object(runner, "finalize_stream", AsyncMock()),
     ):
-        with pytest.raises(RuntimeError, match="组装失败"):
-            await runner.StreamHandler().generate_to_redis(**run_kwargs())
+        # 首次运行进入生命周期后保存可接续终态，不能把已提交的 error 改成 limit_reached。
+        await runner.StreamHandler().generate_to_redis(**run_kwargs())
         await session_cache.write_session_status(
             run_id="r1",
             status="limit_reached" if attempt_kind == "continue" else "interrupted",
             total_steps=0,
             total_tool_calls=0,
         )
+        with session_factory() as db:
+            assert db.get(AgentSession, "r1").status == (
+                "limit_reached" if attempt_kind == "continue" else "interrupted"
+            )
         with pytest.raises(RuntimeError, match="组装失败"):
             await runner.StreamHandler().generate_to_redis(
                 **{**run_kwargs(), "trace_id": "r2", "previous_run_id": "r1", "run_attempt_kind": attempt_kind}

@@ -774,5 +774,25 @@
       "warning": "Warning",
       "price": "Cost"
     }
+  },
+  "notifications": {
+    "title": "Notifications",
+    "triggerUnread": "Notifications, {{count}} unread",
+    "close": "Close notifications",
+    "filters": "Filter notifications",
+    "all": "All",
+    "unread": "Unread",
+    "readAll": "Read all",
+    "read": "Read",
+    "notRead": "Unread",
+    "loading": "Loading notifications…",
+    "empty": "No notifications yet",
+    "emptyUnread": "No unread notifications",
+    "loadFailed": "Could not load notifications. Try again.",
+    "refreshFailed": "Could not refresh notifications. Previous results are still shown.",
+    "loadMoreFailed": "Could not load more notifications. Try again.",
+    "readFailed": "Could not mark notifications as read. Try again.",
+    "retry": "Retry",
+    "loadMore": "Load more"
   }
 }

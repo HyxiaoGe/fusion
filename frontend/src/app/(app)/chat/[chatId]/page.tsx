@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Files } from 'lucide-react';
 import { ChatMessageListLazy } from '@/components/lazy/LazyComponents';
 import ChatInput, { type ChatUploadCompleteFile } from '@/components/chat/ChatInput';
@@ -66,6 +66,7 @@ import { fetchStreamStatus } from '@/lib/api/streamStatus';
 import { reconnectStream, stopStream, type StreamCallbacks } from '@/lib/api/chat';
 import { runResumableStream } from '@/lib/api/resumableStream';
 import { useConversation } from '@/hooks/useConversation';
+import { useNotifications } from '@/components/notifications/NotificationsProvider';
 import { useContinueAgentRun } from '@/hooks/useContinueAgentRun';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import { useSuggestedQuestions } from '@/hooks/useSuggestedQuestions';
@@ -171,6 +172,11 @@ function uploadResultToConversationAttachment(file: ChatUploadCompleteFile): Con
 export default function ChatPage() {
   const params = useParams();
   const router = useRouter();
+  const notificationSearchParams = useSearchParams();
+  const notificationMessageId = notificationSearchParams?.get('message') ?? null;
+  const notificationRunId = notificationSearchParams?.get('run') ?? null;
+  const notificationRequestId = notificationSearchParams?.get('notification') ?? '';
+  const notificationState = useNotifications();
   const dispatch = useAppDispatch();
   const store = useStore();
   const chatId = params?.chatId as string;
@@ -214,7 +220,25 @@ export default function ChatPage() {
   const latestAuthSessionKeyRef = useRef(authSessionKey);
   latestAuthSessionKeyRef.current = authSessionKey;
   const [stopOutcomeNotice, setStopOutcomeNotice] = useState<StopOutcomeNotice | null>(null);
-  const { conversation, hydrationView, hydrationError, retryHydration } = useConversation(chatId);
+  const { conversation, hydrationView, hydrationStatus, hydrationRevision, hydrationError, retryHydration, refreshHydration } = useConversation(chatId);
+  const notificationHydrationRef = useRef<{ key: string; revision: number } | null>(null);
+  const hasUnreadResult = notificationState.unreadConversationIds.includes(chatId);
+  const notificationHydrationKey = !authSessionKey ? null : notificationMessageId
+    ? `${authSessionKey}:${chatId}:${notificationMessageId}:${notificationRunId ?? ''}:${notificationRequestId}`
+    : hasUnreadResult ? `${authSessionKey}:${chatId}:${notificationState.revision}` : null;
+  useEffect(() => {
+    if (!notificationHydrationKey) {
+      notificationHydrationRef.current = null;
+      return;
+    }
+    if (notificationHydrationRef.current?.key === notificationHydrationKey) return;
+    notificationHydrationRef.current = { key: notificationHydrationKey, revision: hydrationRevision + 1 };
+    refreshHydration();
+  }, [hydrationRevision, notificationHydrationKey, refreshHydration]);
+  const notificationReadReady = !notificationHydrationKey || Boolean(
+    notificationHydrationRef.current?.key === notificationHydrationKey
+    && hydrationRevision >= notificationHydrationRef.current.revision
+  );
   useEffect(() => {
     const notice = readStopOutcomeNotice(chatId, authSessionKey);
     setStopOutcomeNotice(notice);
@@ -1213,6 +1237,8 @@ export default function ChatPage() {
     dispatch(setTrajectoryActiveSurface({ conversationId: chatId, surface }));
   }, [chatId, dispatch]);
 
+  const notificationInspectKeyRef = useRef<string | null>(null);
+
   const handleInspectTrajectory = useCallback((messageId: string, runId: string) => {
     trajectoryInspectSequenceRef.current += 1;
     dispatch(requestTrajectoryInspect({
@@ -1223,6 +1249,19 @@ export default function ChatPage() {
       spanId: null,
     }));
   }, [chatId, dispatch]);
+
+  useEffect(() => {
+    if (!notificationMessageId || !notificationRunId || hydrationStatus !== 'done' || !notificationReadReady) return;
+    const key = `${authSessionKey}:${chatId}:${notificationMessageId}:${notificationRunId}:${notificationRequestId}`;
+    if (notificationInspectKeyRef.current === key) return;
+    notificationInspectKeyRef.current = key;
+    const target = conversation?.messages.find(message => message.id === notificationMessageId);
+    if (target?.agent_run?.runId === notificationRunId) {
+      dispatch(setTrajectoryActiveSurface({ conversationId: chatId, surface: 'chat' }));
+    } else {
+      handleInspectTrajectory(notificationMessageId, notificationRunId);
+    }
+  }, [authSessionKey, chatId, conversation?.messages, dispatch, handleInspectTrajectory, hydrationStatus, notificationMessageId, notificationReadReady, notificationRequestId, notificationRunId]);
 
   const handleRevealInChat = useCallback((messageId: string) => {
     dispatch(setTrajectoryActiveSurface({ conversationId: chatId, surface: 'chat' }));
@@ -1322,6 +1361,10 @@ export default function ChatPage() {
                     onSelectQuestion={shouldKeepPreviousContent || isHydratingWithoutContent ? undefined : handleSelectQuestion}
                     onRefreshQuestions={shouldKeepPreviousContent || isHydratingWithoutContent ? undefined : handleRefreshQuestions}
                     completionStateVisible={shouldKeepPreviousContent || isHydratingWithoutContent ? false : showCompletionState}
+                    notificationReadEnabled={notificationReadReady && hydrationStatus === 'done' && !shouldKeepPreviousContent && activeSurface === 'chat'}
+                    notificationSessionKey={authSessionKey}
+                    notificationMessageId={notificationMessageId}
+                    notificationRequestId={notificationRequestId}
                     emptyState={CHAT_EMPTY_STATE}
                   />
                 </div>
@@ -1338,6 +1381,8 @@ export default function ChatPage() {
                 conversationId={chatId}
                 messages={isHydratingWithoutContent ? [] : displayMessages}
                 visible={activeSurface === 'trajectory'}
+                notificationTarget={notificationReadReady && notificationMessageId && notificationRunId && authSessionKey
+                  ? { runId: notificationRunId, messageId: notificationMessageId, sessionKey: authSessionKey } : undefined}
                 contentBottomInset={trajectoryComposerInset}
                 onRevealInChat={handleRevealInChat}
               />

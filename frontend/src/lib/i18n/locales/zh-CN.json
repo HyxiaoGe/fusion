@@ -768,5 +768,25 @@
       "warning": "注意",
       "price": "费用"
     }
+  },
+  "notifications": {
+    "title": "通知",
+    "triggerUnread": "通知，{{count}} 条未读",
+    "close": "关闭通知",
+    "filters": "通知筛选",
+    "all": "全部",
+    "unread": "未读",
+    "readAll": "全部已读",
+    "read": "已读",
+    "notRead": "未读",
+    "loading": "正在加载通知…",
+    "empty": "暂无通知",
+    "emptyUnread": "没有未读通知",
+    "loadFailed": "通知加载失败，请重试。",
+    "refreshFailed": "通知刷新失败，已保留上次内容。",
+    "loadMoreFailed": "更多通知加载失败，请重试。",
+    "readFailed": "未能标记已读，请重试。",
+    "retry": "重试",
+    "loadMore": "加载更多"
   }
 }
