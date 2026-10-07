@@ -343,6 +343,8 @@
       "remaining": "剩余",
       "actualTokens": "本轮输入（实际）",
       "latestActualTokens": "最近一次实际输入",
+      "conversationTotal": "本对话累计",
+      "conversationTotalValue": "输入 {{input}} · 输出 {{output}}",
       "estimatedTokens": "本轮输入（预计）",
       "calculating": "计算中",
       "updating": "更新中",
