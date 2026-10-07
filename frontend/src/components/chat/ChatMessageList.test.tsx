@@ -82,6 +82,8 @@ vi.mock('./ChatMessage', () => ({
     chatMessageRenderMock(message.id, agentRun?.runId ?? null);
     return (
       <div
+        id={`chat-message-${message.id}`}
+        tabIndex={-1}
         data-testid={`chat-message-${message.id}`}
         data-run-id={agentRun?.runId ?? ''}
         data-run-status={agentRun?.status ?? ''}
@@ -200,6 +202,54 @@ describe('ChatMessageList', () => {
       .toHaveAttribute('data-trajectory-status', 'summary-only');
     fireEvent.click(screen.getByRole('button', { name: '查看轨迹' }));
     expect(onInspectTrajectory).toHaveBeenCalledWith('assistant-summary', 'run-summary');
+  });
+
+  it('较早通知结果定位后不会被自动滚底或尺寸变化覆盖', () => {
+    const scroll = vi.fn();
+    window.HTMLElement.prototype.scrollIntoView = scroll;
+    const messages = [
+      { id: 'old-result', role: 'assistant' as const, content: [{ type: 'text' as const, id: 'old', text: '较早结果' }], timestamp: 1 },
+      { id: 'latest-result', role: 'assistant' as const, content: [{ type: 'text' as const, id: 'new', text: '最新结果' }], timestamp: 2 },
+    ];
+    const { rerender } = render(<div data-chat-scroll-container="true"><ChatMessageList
+      conversationId="chat-1"
+      notificationReadEnabled
+      notificationMessageId="old-result"
+      messages={messages}
+    /></div>);
+    expect(scroll).toHaveBeenCalledOnce();
+    expect(scroll).toHaveBeenCalledWith({ behavior: 'auto', block: 'center' });
+    expect(document.activeElement).toBe(screen.getByTestId('chat-message-old-result'));
+    act(() => resizeObserverState.callback?.([], {} as ResizeObserver));
+    expect(scroll).toHaveBeenCalledOnce();
+    rerender(<div data-chat-scroll-container="true"><ChatMessageList
+      conversationId="chat-1" notificationReadEnabled notificationMessageId="old-result"
+      notificationRequestId="再次点击" messages={messages}
+    /></div>);
+    expect(scroll).toHaveBeenCalledTimes(2);
+  });
+
+  it('新运行已替代缓存摘要时不能确认旧缓存，权威消息与呈现run一致后才观察', () => {
+    const observe = vi.fn();
+    vi.stubGlobal('IntersectionObserver', class {
+      observe = observe;
+      disconnect = vi.fn();
+    });
+    const oldRun: AgentRunState = {
+      runId: 'run-old', messageId: 'assistant-same', status: 'completed',
+      config: { maxSteps: 8, maxToolCalls: 16, timeoutS: 300 },
+      totalSteps: 1, totalToolCalls: 0, steps: [], lastSequence: 1,
+    };
+    const newRun: AgentRunState = { ...oldRun, runId: 'run-new' };
+    selectorState.streamSlot.currentRun = newRun;
+    const { rerender } = render(<ChatMessageList conversationId="chat-1"
+      notificationReadEnabled notificationSessionKey="user-a"
+      messages={[{ id: 'assistant-same', role: 'assistant', content: [], agent_run: oldRun }]} />);
+    expect(screen.getByTestId('chat-message-assistant-same')).toHaveAttribute('data-run-id', 'run-new');
+    expect(observe).not.toHaveBeenCalled();
+    rerender(<ChatMessageList conversationId="chat-1" notificationReadEnabled notificationSessionKey="user-a"
+      messages={[{ id: 'assistant-same', role: 'assistant', content: [], agent_run: newRun }]} />);
+    expect(observe).toHaveBeenCalledWith(screen.getByTestId('chat-message-assistant-same'));
   });
 
   it('通过唯一轨迹投影将已水合的截断快照映射为 truncated badge', () => {

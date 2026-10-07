@@ -864,6 +864,48 @@ class AgentSession(Base):
     )
 
 
+class NotificationUserState(Base):
+    """按用户串行分配通知修订，保证分页与全部已读使用已提交水位。"""
+
+    __tablename__ = "notification_user_states"
+
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    revision = Column(BigInteger, nullable=False, default=0, server_default="0")
+
+    __table_args__ = (CheckConstraint("revision >= 0", name="ck_notification_user_states_revision"),)
+
+
+class Notification(Base):
+    """用户站内通知；对话删除时级联移除通知，普通已读记录继续保留。"""
+
+    __tablename__ = "notifications"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    run_id = Column(String, nullable=False)
+    kind = Column(String(32), nullable=False)
+    conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
+    message_id = Column(String, nullable=False)
+    title = Column(String(120), nullable=False)
+    body = Column(String(500), nullable=False)
+    created_revision = Column(BigInteger, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
+    read_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "run_id", "kind", name="uq_notifications_user_run_kind"),
+        UniqueConstraint("user_id", "created_revision", name="uq_notifications_user_created_revision"),
+        CheckConstraint("created_revision > 0", name="ck_notifications_created_revision"),
+        Index(
+            "ix_notifications_user_unread_revision",
+            "user_id",
+            "created_revision",
+            postgresql_where=text("read_at IS NULL"),
+            sqlite_where=text("read_at IS NULL"),
+        ),
+    )
+
+
 class AgentSystemPromptSnapshot(Base):
     """与 Run 精确关联、不会被旧版会话投影或重入覆盖的提示词正文。"""
 

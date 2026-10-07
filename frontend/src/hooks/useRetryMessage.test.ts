@@ -8,6 +8,7 @@ import conversationReducer, {
   upsertConversation,
 } from '@/redux/slices/conversationSlice';
 import modelsReducer, { updateModels } from '@/redux/slices/modelsSlice';
+import type { Message } from '@/types/conversation';
 import { useRetryMessage } from './useRetryMessage';
 
 const { getChatCapabilitiesMock } = vi.hoisted(() => ({
@@ -77,6 +78,28 @@ function createWrapper(store: ReturnType<typeof createStore>) {
     }>;
     return React.createElement(TypedProvider, { store }, children);
   };
+}
+
+function setAssistantPersistence(
+  store: ReturnType<typeof createStore>,
+  persisted: boolean | undefined,
+  runId = 'run-projection',
+) {
+  const conversation = store.getState().conversation.byId['existing-conv'];
+  store.dispatch(upsertConversation({
+    ...conversation,
+    messages: conversation.messages.map((message): Message => message.role === 'assistant'
+      ? {
+          ...message,
+          persisted,
+          agent_run: {
+            runId, messageId: message.id, serverMessageId: message.id, status: 'failed',
+            config: { maxSteps: 10, maxToolCalls: 10, timeoutS: 60 },
+            totalSteps: 0, totalToolCalls: 0, steps: [], lastSequence: 1,
+          },
+        }
+      : message),
+  }));
 }
 
 function deferred<T>() {
@@ -221,6 +244,115 @@ describe('useRetryMessage', () => {
       },
       undefined,
     );
+  });
+
+  it.each(['assistant-1', 'user-1'])('从 %s 重试只读投影时保留 user ID，省略未持久化 assistant ID 并继承运行', async (messageId) => {
+    const store = createStore('hidden');
+    setAssistantPersistence(store, false);
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() => useRetryMessage(sendMessage), { wrapper: createWrapper(store) });
+
+    await act(async () => { await result.current(messageId, 'existing-conv'); });
+
+    expect(sendMessage).toHaveBeenCalledWith('原始问题', {
+      conversationId: 'existing-conv', resolvedModelId: 'disabled-model',
+      retryUserMessageId: 'user-1', previousRunId: 'run-projection',
+    }, undefined);
+    expect(store.getState().conversation.byId['existing-conv'].messages.map((message) => message.id))
+      .toEqual(['user-1', 'assistant-1']);
+    expect(store.getState().conversation.byId['existing-conv'].messages[1].persisted).toBe(false);
+  });
+
+  it.each(['assistant-1', 'user-1'])('从 %s 重试只读投影时显式 previous run 优先于投影运行', async (messageId) => {
+    const store = createStore('hidden');
+    setAssistantPersistence(store, false);
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() => useRetryMessage(sendMessage), { wrapper: createWrapper(store) });
+
+    await act(async () => { await result.current(messageId, 'existing-conv', undefined, 'run-selected'); });
+
+    expect(sendMessage).toHaveBeenCalledWith('原始问题', {
+      conversationId: 'existing-conv', resolvedModelId: 'disabled-model',
+      retryUserMessageId: 'user-1', previousRunId: 'run-selected',
+    }, undefined);
+  });
+
+  it.each([
+    { messageId: 'assistant-1', persisted: true },
+    { messageId: 'user-1', persisted: true },
+    { messageId: 'assistant-1', persisted: undefined },
+    { messageId: 'user-1', persisted: undefined },
+  ])('普通消息 persisted=$persisted 从 $messageId 重试继续复用 assistant ID，不隐式继承运行', async ({ messageId, persisted }) => {
+    const store = createStore('hidden');
+    setAssistantPersistence(store, persisted);
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() => useRetryMessage(sendMessage), { wrapper: createWrapper(store) });
+
+    await act(async () => { await result.current(messageId, 'existing-conv'); });
+
+    expect(sendMessage).toHaveBeenCalledWith('原始问题', {
+      conversationId: 'existing-conv', resolvedModelId: 'disabled-model',
+      retryUserMessageId: 'user-1', retryAssistantMessageId: 'assistant-1',
+    }, undefined);
+  });
+
+  it.each(['assistant-1', 'user-1'])('重试能力被拒绝时不提前删除 %s 所属只读投影', async (messageId) => {
+    const store = createStore('hidden');
+    setAssistantPersistence(store, false);
+    getChatCapabilitiesMock.mockResolvedValueOnce({ message_retry_v1: false });
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() => useRetryMessage(sendMessage), { wrapper: createWrapper(store) });
+
+    await act(async () => { await result.current(messageId, 'existing-conv'); });
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(store.getState().conversation.byId['existing-conv'].messages.map((message) => message.id))
+      .toEqual(['user-1', 'assistant-1']);
+    expect(store.getState().conversation.byId['existing-conv'].messages[1].persisted).toBe(false);
+  });
+
+  it.each(['assistant-1', 'user-1'])('旧轮次 %s 的只读投影被拒绝且保留原消息', async (messageId) => {
+    const store = createStore('hidden');
+    setAssistantPersistence(store, false);
+    const conversation = store.getState().conversation.byId['existing-conv'];
+    store.dispatch(upsertConversation({
+      ...conversation,
+      messages: [...conversation.messages, {
+        id: 'latest-user', role: 'user', content: [{ type: 'text', id: 'latest-question', text: '新问题' }],
+      }],
+    }));
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() => useRetryMessage(sendMessage), { wrapper: createWrapper(store) });
+
+    await act(async () => { await result.current(messageId, 'existing-conv'); });
+
+    expect(getChatCapabilitiesMock).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(store.getState().conversation.byId['existing-conv'].messages.map((message) => message.id))
+      .toEqual(['user-1', 'assistant-1', 'latest-user']);
+    expect(store.getState().conversation.byId['existing-conv'].messages[1].persisted).toBe(false);
+  });
+
+  it('能力预检后从刷新后的投影推导 previous run，避免沿用旧运行身份', async () => {
+    const store = createStore('hidden');
+    setAssistantPersistence(store, false, 'run-old');
+    const capabilities = deferred<{ message_retry_v1: boolean }>();
+    getChatCapabilitiesMock.mockReturnValueOnce(capabilities.promise);
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() => useRetryMessage(sendMessage), { wrapper: createWrapper(store) });
+    let retryPromise!: Promise<void>;
+    act(() => { retryPromise = result.current('user-1', 'existing-conv'); });
+    setAssistantPersistence(store, false, 'run-refreshed');
+
+    await act(async () => {
+      capabilities.resolve({ message_retry_v1: true });
+      await retryPromise;
+    });
+
+    expect(sendMessage).toHaveBeenCalledWith('原始问题', {
+      conversationId: 'existing-conv', resolvedModelId: 'disabled-model',
+      retryUserMessageId: 'user-1', previousRunId: 'run-refreshed',
+    }, undefined);
   });
 
   it('Agent retry 能力等待期间 eligibility 失效时不进入 sendMessage', async () => {

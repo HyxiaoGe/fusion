@@ -29,6 +29,7 @@ const {
   currentRoute,
   conversationsById,
   hydrationById,
+  notificationTestState,
   dispatchMock,
   routerPushMock,
   chatInputMountMock,
@@ -58,9 +59,10 @@ const {
   getStopSnapshotMock,
   getChatCapabilitiesMock,
 } = vi.hoisted(() => ({
-  currentRoute: { chatId: 'chat-a' },
+  currentRoute: { chatId: 'chat-a', query: '' },
   conversationsById: new Map<string, Conversation>(),
-  hydrationById: new Map<string, { view: 'loading' | 'ready' | 'error'; error?: string }>(),
+  hydrationById: new Map<string, { view: 'loading' | 'ready' | 'error'; status?: string; revision?: number; error?: string }>(),
+  notificationTestState: { unreadConversationIds: [] as string[], revision: 0 },
   lastReadyConversationSnapshotState: {
     value: null as { chatId: string; messages: Message[] } | null,
   },
@@ -119,6 +121,11 @@ vi.mock('@/lib/api/trajectory', () => ({ getTrajectorySnapshot: getStopSnapshotM
 vi.mock('next/navigation', () => ({
   useParams: () => ({ chatId: currentRoute.chatId }),
   useRouter: () => ({ push: routerPushMock }),
+  useSearchParams: () => new URLSearchParams(currentRoute.query),
+}));
+
+vi.mock('@/components/notifications/NotificationsProvider', () => ({
+  useNotifications: () => notificationTestState,
 }));
 
 vi.mock('@/redux/hooks', () => ({
@@ -182,8 +189,11 @@ vi.mock('@/hooks/useConversation', () => ({
     return {
       conversation: conversationsById.get(chatId),
       hydrationView: hydration.view,
+      hydrationStatus: hydration.status ?? (hydration.view === 'ready' ? 'done' : hydration.view),
+      hydrationRevision: hydration.revision ?? 0,
       hydrationError: hydration.error,
       retryHydration: retryHydrationMock,
+      refreshHydration: retryHydrationMock,
     };
   },
 }));
@@ -684,6 +694,9 @@ function countSnapshotDispatches() {
 describe('ChatPage 会话切换体验', () => {
   beforeEach(() => {
     currentRoute.chatId = 'chat-a';
+    currentRoute.query = '';
+    notificationTestState.unreadConversationIds = [];
+    notificationTestState.revision = 0;
     conversationsById.clear();
     hydrationById.clear();
     trajectoryState = trajectoryReducer(undefined, { type: '@@init' });
@@ -746,6 +759,66 @@ describe('ChatPage 会话切换体验', () => {
       message_retry_v1: true,
     });
     window.sessionStorage.clear();
+  });
+
+  it('手动进入有未读结果的缓存会话，最新快照成功前不确认已读', () => {
+    conversationsById.set('chat-a', createConversation('chat-a', [textMessage('old-cache')]));
+    hydrationById.set('chat-a', { view: 'ready', revision: 0 });
+    notificationTestState.unreadConversationIds = ['chat-a'];
+    notificationTestState.revision = 3;
+    const { rerender } = render(<ChatPage />);
+    expect(retryHydrationMock).toHaveBeenCalledOnce();
+    expect(chatMessageListMock.mock.lastCall?.[0].notificationReadEnabled).toBe(false);
+    hydrationById.set('chat-a', { view: 'ready', status: 'error', revision: 0 });
+    rerender(<ChatPage />);
+    expect(chatMessageListMock.mock.lastCall?.[0].notificationReadEnabled).toBe(false);
+    hydrationById.set('chat-a', { view: 'ready', revision: 1 });
+    rerender(<ChatPage />);
+    expect(chatMessageListMock.mock.lastCall?.[0].notificationReadEnabled).toBe(true);
+    expect(retryHydrationMock).toHaveBeenCalledOnce();
+  });
+
+  it('新通知到达已打开的缓存会话后重新验证快照，再恢复可见结果确认', () => {
+    conversationsById.set('chat-a', createConversation('chat-a', [textMessage('old-cache')]));
+    hydrationById.set('chat-a', { view: 'ready', revision: 1 });
+    const { rerender } = render(<ChatPage />);
+    notificationTestState.unreadConversationIds = ['chat-a'];
+    notificationTestState.revision = 4;
+    rerender(<ChatPage />);
+    expect(retryHydrationMock).toHaveBeenCalledOnce();
+    expect(chatMessageListMock.mock.lastCall?.[0].notificationReadEnabled).toBe(false);
+    hydrationById.set('chat-a', { view: 'ready', revision: 2 });
+    rerender(<ChatPage />);
+    expect(chatMessageListMock.mock.lastCall?.[0].notificationReadEnabled).toBe(true);
+  });
+
+  it('旧运行通知在最新快照确认后打开指定运行，而非同消息的新尝试', () => {
+    currentRoute.query = 'message=assistant-1&run=run-old';
+    conversationsById.set('chat-a', createConversation('chat-a', [{
+      id: 'assistant-1', role: 'assistant', content: [],
+      agent_run: {
+        runId: 'run-new', messageId: 'assistant-1', status: 'completed',
+        config: { maxSteps: 8, maxToolCalls: 16, timeoutS: 300 },
+        totalSteps: 1, totalToolCalls: 0, steps: [], lastSequence: 1,
+      },
+    }]));
+    hydrationById.set('chat-a', { view: 'ready', revision: 0 });
+    const { rerender } = render(<ChatPage />);
+    expect(dispatchMock.mock.calls.some(([action]) => action?.type === 'trajectory/requestTrajectoryInspect')).toBe(false);
+    hydrationById.set('chat-a', { view: 'ready', revision: 1 });
+    rerender(<ChatPage />);
+    expect(dispatchMock).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'trajectory/requestTrajectoryInspect',
+      payload: expect.objectContaining({ conversationId: 'chat-a', messageId: 'assistant-1', runId: 'run-old' }),
+    }));
+    expect(trajectoryState.byConversationId['chat-a'].activeSurface).toBe('trajectory');
+    activateConversationTab('聊天');
+    currentRoute.query = 'message=assistant-1&run=run-old&notification=second';
+    rerender(<ChatPage />);
+    hydrationById.set('chat-a', { view: 'ready', revision: 2 });
+    rerender(<ChatPage />);
+    expect(dispatchMock.mock.calls.filter(([action]) => action?.type === 'trajectory/requestTrajectoryInspect')).toHaveLength(2);
+    expect(trajectoryState.byConversationId['chat-a'].activeSurface).toBe('trajectory');
   });
 
   it('以受控 Chat 和 Trajectory 双 Tab 装配会话正文且只有一个 Composer', () => {

@@ -8,13 +8,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.core.config import settings
 from app.core.logger import app_logger
-from app.db.models import AgentEvent, AgentSession, RunTrajectoryMeta, TrajectoryLedgerSettings
+from app.db.models import AgentEvent, AgentSession, Conversation, RunTrajectoryMeta, TrajectoryLedgerSettings
 from app.schemas.trajectory import UserTrajectoryMetaRow
 
 DEFAULT_RECONCILIATION_BATCH_SIZE = 100
@@ -407,22 +407,41 @@ def reconcile_trajectory_batch(
 
 def _interrupt_orphaned_runs(*, session_factory: Callable[[], Any], now: datetime, created_before: datetime) -> int:
     """把所属进程已退出的 running run 标为 interrupted，之后按普通终态 run 收敛轨迹。"""
+    from app.services.notification_service import enqueue_run_notification
+
     session = session_factory()
     try:
-        result = session.execute(
-            update(AgentSession)
+        candidate_ids = session.scalars(
+            select(AgentSession.conversation_id)
+            .where(AgentSession.status == "running", AgentSession.created_at <= created_before)
+            .distinct()
+            .order_by(AgentSession.conversation_id)
+            .limit(DEFAULT_RECONCILIATION_BATCH_SIZE)
+        ).all()
+        # 先锁本批全部来源，之后才申请运行与用户锁；跳过仍有活跃写者的对话。
+        locked_ids = session.scalars(
+            select(Conversation.id)
+            .where(Conversation.id.in_(candidate_ids))
+            .order_by(Conversation.id)
+            .with_for_update(skip_locked=True)
+        ).all()
+        runs = session.scalars(
+            select(AgentSession)
+            .where(AgentSession.conversation_id.in_(locked_ids))
             .where(AgentSession.status == "running")
             .where(AgentSession.created_at <= created_before)
-            .values(
-                status="interrupted",
-                terminal_at=now,
-                limit_reason=None,
-                error_message=ORPHANED_RUN_ERROR_MESSAGE,
-            )
-            .execution_options(synchronize_session=False)
-        )
+            .order_by(AgentSession.user_id, AgentSession.id)
+            .limit(DEFAULT_RECONCILIATION_BATCH_SIZE)
+            .with_for_update(skip_locked=True)
+        ).all()
+        for run in runs:
+            run.status = "interrupted"
+            run.terminal_at = now
+            run.limit_reason = None
+            run.error_message = ORPHANED_RUN_ERROR_MESSAGE
+            enqueue_run_notification(session, run, notify_interrupted=True)
         session.commit()
-        return int(result.rowcount or 0)
+        return len(runs)
     except BaseException:
         session.rollback()
         raise

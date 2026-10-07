@@ -26,6 +26,8 @@ import { formatInTimeZone } from 'date-fns-tz';
 import { LanguageToggle } from "@/components/ui/language-toggle";
 import glassSurface from "@/components/ui/GlassSurface.module.css";
 import GlassHoverLens, { pointGlassLight, resetGlassLight } from "@/components/ui/GlassHoverLens";
+import NotificationCenter from "@/components/notifications/NotificationCenter";
+import { useNotifications } from "@/components/notifications/NotificationsProvider";
 
 interface ChatSidebarProps {
   onNewChat: () => void;
@@ -98,7 +100,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ onNewChat, activeChatIdOverri
   const refreshSettledConversations = useCallback((conversationIds: string[]) => {
     conversationIds.forEach((id) => dispatch(requestConversationListRefresh(id)));
   }, [dispatch]);
-  const { streamingConversationIds, unreadConversationIds } = useConversationActivity(
+  const { unreadConversationIds } = useNotifications();
+  const { streamingConversationIds } = useConversationActivity(
     authSessionKey,
     routeActiveChatId,
     localStreamingConversationIds,
@@ -337,6 +340,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ onNewChat, activeChatIdOverri
         <UserAvatarMenu />
         <div className="flex items-center gap-1" data-testid="sidebar-display-controls">
           <LanguageToggle />
+          <NotificationCenter />
           <button
             type="button"
             onClick={toggleTheme}

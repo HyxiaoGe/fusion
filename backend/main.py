@@ -25,6 +25,7 @@ from app.api import (
     files,
     knowledge_bases,
     models,
+    notifications,
     prompts,
     trajectory,
 )
@@ -250,7 +251,7 @@ async def add_request_id(request: Request, call_next):
 @app.middleware("http")
 async def prevent_admin_audit_caching(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith(("/api/admin", "/api/models")):
+    if request.url.path.startswith(("/api/admin", "/api/models", "/api/notifications")):
         response.headers["Cache-Control"] = "private, no-store"
         response.headers["Pragma"] = "no-cache"
     return response
@@ -404,6 +405,7 @@ app.include_router(files.router, prefix="/api/files", tags=["files"])
 app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
 app.include_router(knowledge_bases.router, prefix="/api/knowledge-bases", tags=["knowledge-bases"])
 app.include_router(models.router, prefix="/api/models", tags=["models"])
+app.include_router(notifications.router, prefix="/api/notifications", tags=["notifications"])
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(prompts.router, prefix="/api/prompts", tags=["prompts"])
 app.include_router(trajectory.router, prefix="/api", tags=["trajectory"])

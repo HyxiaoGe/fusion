@@ -51,6 +51,27 @@ function itineraryPayload() {
 }
 
 describe('conversationHydration', () => {
+  it.each([
+    { name: '只读运行投影', persisted: false, expected: false },
+    { name: '已持久化消息', persisted: true, expected: true },
+    { name: '缺少标记的旧消息', persisted: undefined, expected: true },
+  ])('恢复 $name 的持久化语义及失败运行身份', ({ persisted, expected }) => {
+    const conversation = buildChatFromServerConversation({
+      id: 'chat-projection',
+      title: '失败运行',
+      model_id: 'model-1',
+      messages: [{
+        id: 'server-assistant', role: 'assistant', content: [], persisted,
+        agent_run: { run_id: 'failed-run', status: 'failed' },
+      }],
+    });
+
+    expect(conversation.messages[0]).toMatchObject({
+      id: 'server-assistant', persisted: expected, content: [],
+      agent_run: { runId: 'failed-run', serverMessageId: 'server-assistant', status: 'failed' },
+    });
+  });
+
   it('恢复服务端保存的会话知识库选择并忽略重复或非法 ID', () => {
     const conversation = buildChatFromServerConversation({
       id: 'chat-knowledge',

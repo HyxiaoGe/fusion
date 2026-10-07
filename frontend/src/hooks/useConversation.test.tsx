@@ -17,16 +17,19 @@ import { useConversation } from './useConversation';
 const {
   getConversationDetailRequestMetadataMock,
   isStaleConversationDetailRequestErrorMock,
+  invalidateConversationDetailMock,
   loadConversationDetailMock,
 } = vi.hoisted(() => ({
   getConversationDetailRequestMetadataMock: vi.fn(),
   isStaleConversationDetailRequestErrorMock: vi.fn(),
+  invalidateConversationDetailMock: vi.fn(),
   loadConversationDetailMock: vi.fn(),
 }));
 
 vi.mock('@/lib/chat/conversationDetailResource', () => ({
   getConversationDetailRequestMetadata: getConversationDetailRequestMetadataMock,
   isStaleConversationDetailRequestError: isStaleConversationDetailRequestErrorMock,
+  invalidateConversationDetail: invalidateConversationDetailMock,
   loadConversationDetail: loadConversationDetailMock,
 }));
 
@@ -59,10 +62,12 @@ function conversation(messages: Conversation['messages'] = []): Conversation {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((promiseResolve) => {
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
     resolve = promiseResolve;
+    reject = promiseReject;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 function textMessage(
@@ -87,6 +92,53 @@ describe('useConversation', () => {
     getConversationDetailRequestMetadataMock.mockReturnValue(null);
     isStaleConversationDetailRequestErrorMock.mockReset();
     isStaleConversationDetailRequestErrorMock.mockReturnValue(false);
+    invalidateConversationDetailMock.mockReset();
+  });
+
+  it('缓存已完成时通知刷新仍取得新快照，成功后才推进展示版本', async () => {
+    const store = createStore();
+    store.dispatch(upsertConversation(conversation([textMessage('old', 'assistant', '缓存回答')])));
+    store.dispatch(setHydrationStatus({ id: 'chat-1', status: 'done' }));
+    const fresh = deferred<Conversation>();
+    loadConversationDetailMock.mockReturnValue(fresh.promise);
+    const { result } = renderHook(() => useConversation('chat-1'), { wrapper: createWrapper(store) });
+    expect(loadConversationDetailMock).not.toHaveBeenCalled();
+    act(() => result.current.refreshHydration());
+    expect(invalidateConversationDetailMock).toHaveBeenCalledWith('chat-1');
+    expect(result.current.hydrationView).toBe('ready');
+    expect(result.current.hydrationStatus).toBe('loading');
+    expect(result.current.hydrationRevision).toBe(0);
+    await act(async () => fresh.resolve(conversation([textMessage('new', 'assistant', '最新回答')])));
+    expect(result.current.hydrationStatus).toBe('done');
+    expect(result.current.hydrationRevision).toBe(1);
+    expect(result.current.conversation?.messages.map(message => message.id)).toEqual(['new']);
+  });
+
+  it('强制刷新成功后旧请求迟到失败不能覆盖新版本或状态', async () => {
+    const store = createStore();
+    const old = deferred<Conversation>();
+    const fresh = deferred<Conversation>();
+    loadConversationDetailMock.mockReturnValueOnce(old.promise).mockReturnValueOnce(fresh.promise);
+    const { result } = renderHook(() => useConversation('chat-1'), { wrapper: createWrapper(store) });
+    act(() => result.current.refreshHydration());
+    await act(async () => fresh.resolve(conversation([textMessage('new', 'assistant', '新回答')])));
+    await act(async () => old.reject(new Error('迟到旧错误')));
+    expect(result.current.hydrationStatus).toBe('done');
+    expect(result.current.hydrationError).toBeNull();
+    expect(result.current.hydrationRevision).toBe(1);
+    expect(result.current.conversation?.messages[0].id).toBe('new');
+  });
+
+  it('通知刷新失败保留缓存展示，但不推进可确认已读的版本', async () => {
+    const store = createStore();
+    store.dispatch(upsertConversation(conversation([textMessage('old', 'assistant', '缓存回答')])));
+    store.dispatch(setHydrationStatus({ id: 'chat-1', status: 'done' }));
+    loadConversationDetailMock.mockRejectedValue(new Error('刷新失败'));
+    const { result } = renderHook(() => useConversation('chat-1'), { wrapper: createWrapper(store) });
+    act(() => result.current.refreshHydration());
+    await waitFor(() => expect(result.current.hydrationStatus).toBe('error'));
+    expect(result.current.hydrationView).toBe('ready');
+    expect(result.current.hydrationRevision).toBe(0);
   });
 
   it('成功水合真实空会话后进入 ready 而不是永久 loading', async () => {

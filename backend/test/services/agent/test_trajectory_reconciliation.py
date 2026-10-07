@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import sessionmaker
 
 from app.db.database import Base
-from app.db.models import AgentEvent, AgentSession, RunTrajectoryMeta, TrajectoryLedgerSettings
+from app.db.models import AgentEvent, AgentSession, Conversation, RunTrajectoryMeta, TrajectoryLedgerSettings, User
 from app.services.agent.trajectory_reconciliation import (
     DEFAULT_RECONCILIATION_STALE_GRACE,
     TERMINAL_OUTCOME_UNKNOWN_REASON,
@@ -49,6 +49,10 @@ class TrajectoryReconciliationTests(unittest.TestCase):
         )
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine, expire_on_commit=False)
+        with self.Session() as db:
+            db.add(User(id="user-1", username="通知用户", email="notice@example.com"))
+            db.add(Conversation(id="conv-1", user_id="user-1", title="通知测试", model_id="model-1"))
+            db.commit()
         self.now = datetime(2026, 8, 22, 4, 0, tzinfo=UTC)
         self.stale_before = self.now - DEFAULT_RECONCILIATION_STALE_GRACE
 

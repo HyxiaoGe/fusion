@@ -1212,7 +1212,8 @@ class ChatService:
     # ==================== CRUD 代理方法 ====================
 
     def get_conversation(self, conversation_id: str, user_id: str):
-        return self.conversation_service.get_conversation(conversation_id, user_id)
+        # 展示接口补充未落库的失败结果；内部模型历史仍走普通读取，不加入展示行。
+        return self.conversation_service.get_conversation(conversation_id, user_id, project_terminal_failures=True)
 
     def get_all_conversations(self, user_id: str):
         return self.conversation_service.get_all_conversations(user_id)

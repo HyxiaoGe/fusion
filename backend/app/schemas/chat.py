@@ -920,6 +920,8 @@ class AgentRunSummary(BaseModel):
 
 class Message(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
+    # 未落库终态只在只读响应投影，客户端重试不能把它当作可替换的正文。
+    persisted: bool = True
     sequence: Optional[int] = None
     role: Literal["user", "assistant"]
     # content 为 content blocks 数组

@@ -1454,6 +1454,177 @@ describe('useSendMessage', () => {
     ]);
   });
 
+  describe('只读失败投影的重试与恢复', () => {
+    function setupProjectionRetry() {
+      const store = createStore();
+      const user: Message = {
+        id: 'retry-user', role: 'user',
+        content: [{ type: 'text', id: 'question', text: '原始问题' }],
+      };
+      const projection: Message = {
+        id: 'failed-projection', role: 'assistant', content: [], persisted: false,
+        agent_run: {
+          runId: 'failed-run', messageId: 'failed-projection', serverMessageId: 'failed-projection',
+          status: 'failed', config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300 },
+          totalSteps: 0, totalToolCalls: 0, steps: [], lastSequence: 0,
+        },
+      };
+      store.dispatch(upsertConversation({
+        id: 'existing-conv', title: '失败会话', model_id: 'model-1',
+        messages: [user, projection], createdAt: 1, updatedAt: 2,
+      }));
+      uuidMock.mockReset().mockReturnValue('new-assistant');
+      return { store, user, projection };
+    }
+
+    it('新重试只留新占位并防御性省略不存在的assistant实体，显式run优先', async () => {
+      const { store } = setupProjectionRetry();
+      sendMessageStreamMock.mockResolvedValueOnce(undefined);
+      const { result } = renderHook(() => useSendMessage(), { wrapper: createWrapper(store) });
+      await act(async () => {
+        await result.current.sendMessage('原始问题', {
+          conversationId: 'existing-conv', retryUserMessageId: 'retry-user',
+          retryAssistantMessageId: 'failed-projection', previousRunId: 'explicit-run',
+        });
+      });
+      const payload = sendMessageStreamMock.mock.calls[0][0];
+      expect(payload).toMatchObject({
+        user_message_id: 'retry-user', retry_user_message_id: 'retry-user',
+        assistant_message_id: 'new-assistant', previous_run_id: 'explicit-run',
+      });
+      expect(payload.retry_assistant_message_id).toBeUndefined();
+      expect(store.getState().conversation.byId['existing-conv'].messages.map((message: Message) => message.id))
+        .toEqual(['retry-user', 'new-assistant']);
+    });
+
+    it.each([false, true])('请求失败时恢复原投影且移除新占位（服务端已接管：%s）', async (accepted) => {
+      const { store, user, projection } = setupProjectionRetry();
+      sendMessageStreamMock.mockImplementationOnce(async (_payload: unknown, callbacks: StreamCallbacks) => {
+        if (accepted) {
+          callbacks.onReady({ conversationId: 'existing-conv', messageId: 'new-assistant', taskId: 'new-task' });
+          callbacks.onAnswering({ block_id: 'partial', delta: '半截新结果' });
+        }
+        throw new Error('重试请求失败');
+      });
+      const { result } = renderHook(() => useSendMessage(), { wrapper: createWrapper(store) });
+      await act(async () => {
+        await result.current.sendMessage('原始问题', {
+          conversationId: 'existing-conv', retryUserMessageId: 'retry-user',
+        });
+      });
+      expect(sendMessageStreamMock.mock.calls[0][0]).toMatchObject({
+        retry_user_message_id: 'retry-user', previous_run_id: 'failed-run',
+      });
+      expect(sendMessageStreamMock.mock.calls[0][0].retry_assistant_message_id).toBeUndefined();
+      expect(store.getState().conversation.byId['existing-conv'].messages).toEqual([
+        expect.objectContaining(user), projection,
+      ]);
+      expect(theSlot(store.getState()).isStreaming).toBe(false);
+    });
+
+    it('停止投影重试且权威刷新失败时恢复原失败展示，清除半截新结果', async () => {
+      const { store, user, projection } = setupProjectionRetry();
+      stopStreamMock.mockResolvedValue(true);
+      sendMessageStreamMock.mockImplementationOnce(async (_payload: unknown, callbacks: StreamCallbacks) => {
+        callbacks.onReady({ conversationId: 'existing-conv', messageId: 'new-assistant', taskId: 'new-task' });
+        callbacks.onAnswering({ block_id: 'partial', delta: '半截新结果' });
+        await new Promise<void>(() => {});
+      });
+      const { result } = renderHook(() => useSendMessage(), { wrapper: createWrapper(store) });
+      await act(async () => {
+        void result.current.sendMessage('原始问题', {
+          conversationId: 'existing-conv', retryUserMessageId: 'retry-user',
+        });
+      });
+      expect(store.getState().conversation.byId['existing-conv'].messages.map((message: Message) => message.id))
+        .toEqual(['retry-user', 'new-assistant']);
+      await act(async () => { await result.current.stopStreaming(); });
+      expect(store.getState().conversation.byId['existing-conv'].messages).toEqual([user, projection]);
+      expect(theSlot(store.getState()).isStreaming).toBe(false);
+    });
+
+    it('导航后另一个实例停止原发送，原发送的abort回调仍恢复失败投影', async () => {
+      const { store, user, projection } = setupProjectionRetry();
+      stopStreamMock.mockResolvedValue(true);
+      sendMessageStreamMock.mockImplementationOnce(async (_payload: unknown, callbacks: StreamCallbacks, signal: AbortSignal) => {
+        callbacks.onReady({ conversationId: 'existing-conv', messageId: 'new-assistant', taskId: 'new-task' });
+        callbacks.onAnswering({ block_id: 'partial', delta: '半截新结果' });
+        await new Promise<void>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new DOMException('已停止', 'AbortError')), { once: true });
+        });
+      });
+      const sender = renderHook(() => useSendMessage(), { wrapper: createWrapper(store) });
+      const stopper = renderHook(() => useSendMessage(), { wrapper: createWrapper(store) });
+      let pendingSend!: Promise<void>;
+      await act(async () => {
+        pendingSend = sender.result.current.sendMessage('原始问题', {
+          conversationId: 'existing-conv', retryUserMessageId: 'retry-user',
+        });
+      });
+      await act(async () => {
+        await stopper.result.current.stopStreaming('existing-conv');
+        await pendingSend;
+      });
+      expect(store.getState().conversation.byId['existing-conv'].messages).toEqual([user, projection]);
+      expect(theSlot(store.getState()).isStreaming).toBe(false);
+    });
+
+    it('停止后权威快照已有新结果时以新结果替换投影，不误把恢复投影当后续消息保留', async () => {
+      const { store, user } = setupProjectionRetry();
+      const finalMessage: Message = {
+        id: 'new-assistant', role: 'assistant', persisted: true,
+        content: [{ type: 'text', id: 'final', text: '新的完整结果' }],
+      };
+      stopStreamMock.mockResolvedValue(true);
+      getConversationMock.mockResolvedValue({
+        id: 'existing-conv', title: '失败会话', model_id: 'model-1',
+        messages: [user, finalMessage], createdAt: 1, updatedAt: 3,
+      });
+      sendMessageStreamMock.mockImplementationOnce(async (_payload: unknown, callbacks: StreamCallbacks) => {
+        callbacks.onReady({ conversationId: 'existing-conv', messageId: 'new-assistant', taskId: 'new-task' });
+        await new Promise<void>(() => {});
+      });
+      const { result } = renderHook(() => useSendMessage(), { wrapper: createWrapper(store) });
+      await act(async () => {
+        void result.current.sendMessage('原始问题', { conversationId: 'existing-conv', retryUserMessageId: 'retry-user' });
+      });
+      await act(async () => { await result.current.stopStreaming(); });
+      expect(store.getState().conversation.byId['existing-conv'].messages).toEqual([
+        expect.objectContaining(user), expect.objectContaining(finalMessage),
+      ]);
+    });
+
+    it('跨实例停止后同消息的新控制器已启动，迟到abort不能恢复旧投影覆盖新流', async () => {
+      const { store } = setupProjectionRetry();
+      let rejectStoppedSend!: (error: Error) => void;
+      stopStreamMock.mockResolvedValue(true);
+      sendMessageStreamMock.mockImplementationOnce(async (_payload: unknown, callbacks: StreamCallbacks) => {
+        callbacks.onReady({ conversationId: 'existing-conv', messageId: 'new-assistant', taskId: 'new-task' });
+        await new Promise<void>((_resolve, reject) => { rejectStoppedSend = reject; });
+      }).mockResolvedValueOnce(undefined);
+      const sender = renderHook(() => useSendMessage(), { wrapper: createWrapper(store) });
+      const nextSender = renderHook(() => useSendMessage(), { wrapper: createWrapper(store) });
+      let pendingSend!: Promise<void>;
+      await act(async () => {
+        pendingSend = sender.result.current.sendMessage('原始问题', { conversationId: 'existing-conv', retryUserMessageId: 'retry-user' });
+      });
+      await act(async () => { await nextSender.result.current.stopStreaming('existing-conv'); });
+      await act(async () => {
+        await nextSender.result.current.sendMessage('原始问题', {
+          conversationId: 'existing-conv', retryUserMessageId: 'retry-user', retryAssistantMessageId: 'new-assistant',
+        });
+      });
+      await act(async () => {
+        rejectStoppedSend(new DOMException('迟到的停止回调', 'AbortError'));
+        await pendingSend;
+      });
+      expect(store.getState().conversation.byId['existing-conv'].messages.map((message: Message) => message.id))
+        .toEqual(['retry-user', 'new-assistant']);
+      expect(theSlot(store.getState()).isStreaming).toBe(true);
+      expect(theSlot(store.getState()).messageId).toBe('new-assistant');
+    });
+  });
+
   it('完成后权威水合保留请求发出后新增的本地消息', async () => {
     const store = createStore();
     store.dispatch(
