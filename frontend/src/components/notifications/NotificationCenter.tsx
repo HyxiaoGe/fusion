@@ -6,12 +6,14 @@ import { AlertCircle, Bell, CheckCircle2, Info, Loader2, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useHasMounted } from '@/hooks/useHasMounted';
 import { buildChatConversationPath } from '@/lib/routes/chatRoutes';
 import { cn } from '@/lib/utils';
 import type { NotificationItem } from '@/lib/api/notifications';
 import { useNotifications } from './NotificationsProvider';
 
 export default function NotificationCenter() {
+  const hasMounted = useHasMounted();
   const notifications = useNotifications();
   const router = useRouter();
   const { t, i18n } = useTranslation();
@@ -25,7 +27,8 @@ export default function NotificationCenter() {
     navigatingRef.current = false;
   }, [notifications.sessionKey]);
 
-  if (!notifications.sessionKey) return null;
+  // 认证会从浏览器存储同步恢复；服务端与客户端首帧都先隐藏入口，挂载后再显示。
+  if (!hasMounted || !notifications.sessionKey) return null;
 
   const onOpenChange = (nextOpen: boolean) => {
     navigatingRef.current = false;

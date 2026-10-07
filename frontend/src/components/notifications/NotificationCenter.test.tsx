@@ -1,5 +1,7 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { hydrateRoot } from 'react-dom/client';
+import { renderToString } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '@/lib/i18n';
 import type { NotificationItem } from '@/lib/api/notifications';
@@ -36,6 +38,27 @@ describe('通知中心交互', () => {
     vi.clearAllMocks();
   });
   afterEach(cleanup);
+
+  it('服务端无身份、浏览器恢复身份时首帧一致，挂载后再显示铃铛', async () => {
+    state.sessionKey = '';
+    const container = document.createElement('div');
+    container.innerHTML = renderToString(<NotificationCenter />);
+    document.body.appendChild(container);
+    expect(container.querySelector('button')).toBeNull();
+    state.sessionKey = 'user-a';
+    const recoverableError = vi.fn();
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+    try {
+      await act(async () => {
+        root = hydrateRoot(container, <NotificationCenter />, { onRecoverableError: recoverableError });
+      });
+      expect(screen.getByRole('button', { name: '通知，1 条未读' })).toBeVisible();
+      expect(recoverableError).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => root?.unmount());
+      container.remove();
+    }
+  });
 
   it('打开只刷新，点通知关闭并跳到编码后的精确消息，不触发已读', async () => {
     render(<NotificationCenter />);
