@@ -20,6 +20,16 @@ MAX_CONTENT_CHARS = 8000
 MAX_REASON_CHARS = URL_READ_REASON_MAX_CHARS
 
 
+def model_visible_page_content(content: str, title: str | None) -> tuple[str, bool]:
+    """模型实际看到的正文窗口；评测裁判按同一窗口核对回答依据。"""
+    # 规范 reader 包装中优先从精确标题对应的正文取窗口，原始结果仍完整保留。
+    content = select_article_body(content, title)
+    max_content_chars = _tool_context_int("url_read_max_content_chars", MAX_CONTENT_CHARS)
+    if len(content) > max_content_chars:
+        return content[:max_content_chars], True
+    return content, False
+
+
 class UrlReadHandler(BaseToolHandler):
     supports_run_level_citations = True
 
@@ -224,14 +234,7 @@ class UrlReadHandler(BaseToolHandler):
             )
             return f"{request_context}\n{context}"
 
-        # 规范 reader 包装中优先从精确标题对应的正文取窗口，原始结果仍完整保留。
-        content = select_article_body(content, title)
-        truncated = False
-        max_content_chars = _tool_context_int("url_read_max_content_chars", MAX_CONTENT_CHARS)
-        if len(content) > max_content_chars:
-            content = content[:max_content_chars]
-            truncated = True
-
+        content, truncated = model_visible_page_content(content, title)
         if truncated:
             content = f"{content}\n{render_runtime_prompt('shared.truncated')}"
         if result.data.get("extracted"):
@@ -252,7 +255,8 @@ class UrlReadHandler(BaseToolHandler):
                 published_at=result.data.get("published_at"),
                 site_name=result.data.get("site_name"),
             ),
-            max_chars=max_content_chars + 100,
+            # 正文已按窗口截好，这里不再截断，免得截掉末尾的截断/整页提示
+            max_chars=len(content),
         )
         numbered_context = f"[{citation_number}]\n{context}" if citation_number is not None else context
         return f"{request_context}\n{numbered_context}"

@@ -20,6 +20,8 @@ from app.services.source_url_identity import canonicalize_source_url
 from app.services.tool_handlers.base import BaseToolHandler, ToolResult
 
 MAX_CONTEXT_SOURCES = 10
+# 每条搜索来源进入模型上下文的字数上限；评测裁判按同一上限核对
+SOURCE_CONTEXT_CHARS = 1000
 
 
 class WebSearchHandler(BaseToolHandler):
@@ -224,7 +226,7 @@ class WebSearchHandler(BaseToolHandler):
                         published_at=source.published_at,
                         site_name=source.site_name,
                     ),
-                    max_chars=1000,
+                    max_chars=SOURCE_CONTEXT_CHARS,
                     include_rules=False,
                 )
             )

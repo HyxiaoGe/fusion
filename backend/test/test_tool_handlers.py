@@ -681,6 +681,17 @@ class UrlReadHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("full_page=true", extracted)
         self.assertNotIn("full_page", whole)
 
+    def test_format_llm_context_keeps_full_page_note_on_long_extracted_content(self):
+        result = ToolResult(
+            status="success",
+            data={"url": "https://example.com", "title": "Test", "content": "x" * 20000, "extracted": True},
+        )
+        context = self.handler.format_llm_context(result)
+
+        self.assertIn("Content truncated", context)
+        self.assertIn("call url_read again with full_page=true.]", context)
+        self.assertEqual(context.count("Content truncated"), 1)
+
     def test_format_llm_context_short_content_not_truncated(self):
         """短内容不会被截断"""
         result = ToolResult(

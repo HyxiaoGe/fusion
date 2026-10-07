@@ -109,6 +109,78 @@ class BuildSnapshotTests(unittest.TestCase):
 
         self.assertEqual(snapshot["tool_calls"][0]["result"], big)
 
+    def test_judge_view_matches_model_context_with_citations(self):
+        """裁判看到的来源与模型一致：带回答用的引用编号、按同一上限截取，轨迹缺的来源仍列出。"""
+        raw_sources = [
+            {"url": "https://a.example/1", "title": "A", "content": "长原文" * 20000},
+            {"url": "https://b.example/2", "title": "B", "description": "B 的摘要"},
+        ]
+        refs = [
+            {"url": "https://a.example/1", "title": "A", "citation_index": 11},
+            {"url": "https://b.example/2", "title": "B", "citation_index": 12},
+            {"url": "https://c.example/3", "title": "C", "citation_index": 13},
+        ]
+        snapshot = self._snapshot(
+            tool_logs=[
+                {
+                    "id": "log-search",
+                    "tool_name": "web_search",
+                    "status": "success",
+                    "detail": {
+                        "payload": {"query": "q", "context_source_limit": 10},
+                        "result": {"sources": raw_sources},
+                    },
+                },
+                {
+                    "id": "log-read",
+                    "tool_name": "url_read",
+                    "status": "success",
+                    "detail": {
+                        "payload": {"url": "https://a.example/1"},
+                        "result": {"url": "https://a.example/1", "title": "A", "content": "正" * 9000},
+                    },
+                },
+            ],
+            answer_content=[
+                {"type": "search", "tool_call_log_id": "log-search", "source_refs": refs},
+                {"type": "url_read", "tool_call_log_id": "log-read", "source_refs": refs[:1]},
+                {"type": "text", "text": "见 [11][13]。"},
+            ],
+            result_limit=JUDGE_TOOL_RESULT_CHAR_LIMIT,
+            model_view=True,
+        )
+
+        search, page = (call["result"] for call in snapshot["tool_calls"])
+        self.assertEqual([source["citation"] for source in search["sources"]], [11, 12, 13])
+        self.assertEqual(len(search["sources"][0]["content"]), 1000)
+        self.assertEqual(search["sources"][1]["content"], "B 的摘要")
+        self.assertTrue(search["sources"][2]["content_unavailable"])
+        self.assertEqual(page["citation"], 11)
+        self.assertEqual(len(page["content"]), 8000)
+        self.assertTrue(page["content_truncated"])
+
+    def test_judge_view_marks_sources_beyond_context_limit_as_title_only(self):
+        snapshot = self._snapshot(
+            tool_logs=[
+                {
+                    "id": "log-search",
+                    "tool_name": "web_search",
+                    "status": "success",
+                    "detail": {
+                        "payload": {"query": "q", "context_source_limit": 1},
+                        "result": {"sources": [{"url": "u1", "content": "c1"}, {"url": "u2", "content": "c2"}]},
+                    },
+                }
+            ],
+            answer_content=None,
+            result_limit=JUDGE_TOOL_RESULT_CHAR_LIMIT,
+            model_view=True,
+        )
+
+        sources = snapshot["tool_calls"][0]["result"]["sources"]
+        self.assertEqual([source["content"] for source in sources], ["c1", None])
+        self.assertEqual([source["citation"] for source in sources], [None, None])
+
     def test_missing_answer_and_resolution_are_tolerated(self):
         snapshot = self._snapshot(events=[("run_started", {"capability_resolution": None})], answer_content=None)
 
