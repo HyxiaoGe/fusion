@@ -1,4 +1,5 @@
 import React from 'react';
+import { flushSync } from 'react-dom';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import MainLayout from './MainLayout';
@@ -89,7 +90,9 @@ describe('MainLayout', () => {
             <PopoverTrigger asChild><button type="button">通知入口</button></PopoverTrigger>
             <PopoverContent aria-label="通知记录">
               <button type="button">未读筛选</button>
-              <button type="button" data-sidebar-navigation onClick={navigate}>
+              <button type="button" data-sidebar-navigation onClick={navigate}
+                // 模拟浏览器在捕获与冒泡之间提交离散更新，避免 act 批处理掩盖提前卸载。
+                onClickCapture={() => flushSync(() => undefined)}>
                 <span>定位当前结果</span>
               </button>
             </PopoverContent>

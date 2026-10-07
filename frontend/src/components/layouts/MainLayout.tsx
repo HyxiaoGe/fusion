@@ -82,8 +82,8 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children, sidebar, rightPanel }
             />
             <aside
               className="absolute inset-y-0 left-0 w-[min(85vw,320px)] border-r bg-bg-subtle shadow-xl"
-              onClickCapture={(event) => {
-                // 通知通过 Portal 展示；同一对话的定位也要先收起遮罩，让结果可见。
+              onClick={(event) => {
+                // 通知通过 Portal 展示；按钮先完成导航，再收起遮罩，避免提前卸载吞掉点击。
                 if (event.target instanceof Element && event.target.closest('[data-sidebar-navigation]')) {
                   setIsMobileSidebarOpen(false);
                 }
