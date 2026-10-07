@@ -6,18 +6,21 @@ export type NotificationKind =
   | 'run_failed'
   | 'run_limit_reached'
   | 'run_incomplete'
-  | 'run_interrupted';
+  | 'run_interrupted'
+  | 'changelog_published';
 export type NotificationFilter = 'all' | 'unread';
+export type NotificationBusinessType = 'ai_conversation' | 'changelog';
 
-export interface NotificationTarget {
+export type NotificationTarget = {
   type: 'conversation';
   conversation_id: string;
   message_id: string;
   run_id: string;
-}
+} | { type: 'changelog'; changelog_id: string };
 
 export interface NotificationItem {
   id: string;
+  business_type: NotificationBusinessType;
   kind: NotificationKind;
   title: string;
   body: string;

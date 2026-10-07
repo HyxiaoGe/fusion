@@ -12,7 +12,7 @@ const { push, state } = vi.hoisted(() => ({
     sessionKey: 'user-a', filter: 'all', items: [] as NotificationItem[], unreadCount: 0,
     unreadConversationIds: [] as string[], revision: 5, nextCursor: null as string | null,
     loaded: true, loading: false, error: false, loadingMore: false, pageError: false,
-    readingAll: false, readError: false, refresh: vi.fn(), setFilter: vi.fn(), loadMore: vi.fn(), markAllRead: vi.fn(),
+    readingAll: false, readError: false, ensureFresh: vi.fn(), refresh: vi.fn(), setFilter: vi.fn(), loadMore: vi.fn(), markAllRead: vi.fn(),
   },
 }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
@@ -21,7 +21,7 @@ import NotificationCenter from './NotificationCenter';
 
 function item(read = false): NotificationItem {
   return {
-    id: 'notice-a', kind: 'run_completed', title: '研究已完成', body: '点此查看结果',
+    id: 'notice-a', business_type: 'ai_conversation', kind: 'run_completed', title: '研究已完成', body: '点此查看结果',
     created_at: '2026-10-07T02:00:00Z', read_at: read ? '2026-10-07T03:00:00Z' : null,
     created_revision: 5, target: { type: 'conversation', conversation_id: 'a/一', run_id: 'run-a', message_id: 'message/一' },
   };
@@ -60,10 +60,12 @@ describe('通知中心交互', () => {
     }
   });
 
-  it('打开只刷新，点通知关闭并跳到编码后的精确消息，不触发已读', async () => {
+  it('打开检查缓存新鲜度，点通知关闭并跳到编码后的精确消息，不触发已读', async () => {
     render(<NotificationCenter />);
     fireEvent.click(screen.getByRole('button', { name: '通知，1 条未读' }));
-    expect(state.refresh).toHaveBeenCalledOnce();
+    expect(state.ensureFresh).toHaveBeenCalledOnce();
+    expect(state.refresh).not.toHaveBeenCalled();
+    expect(screen.getByText('AI 对话生成')).toBeVisible();
     expect(screen.getByText('研究已完成')).toBeVisible();
     expect(state.markAllRead).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: /研究已完成/ }));
@@ -81,6 +83,17 @@ describe('通知中心交互', () => {
     fireEvent.click(screen.getByRole('button', { name: /研究已完成/ }));
     expect(push).toHaveBeenCalledTimes(2);
     expect(push.mock.calls[0][0]).not.toBe(push.mock.calls[1][0]);
+  });
+
+  it('更新日志显示业务类型，点击关闭并进入详情，阅读回执留给正文页面', async () => {
+    state.items = [{ ...item(), business_type: 'changelog', kind: 'changelog_published', title: '通知中心上线', target: { type: 'changelog', changelog_id: 'update/一' } }];
+    render(<NotificationCenter />);
+    fireEvent.click(screen.getByRole('button', { name: '通知，1 条未读' }));
+    expect(screen.getByText('更新日志')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: /通知中心上线/ }));
+    expect(push).toHaveBeenCalledWith('/updates/update%2F%E4%B8%80');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(state.markAllRead).not.toHaveBeenCalled();
   });
 
   it('全部已读后无角标，已读历史仍可查看，Escape 返回铃铛焦点', async () => {
@@ -109,7 +122,7 @@ describe('通知中心交互', () => {
     expect(screen.getByText('未能标记已读，请重试。')).toBeVisible();
     expect(screen.getByText('研究已完成')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
-    expect(state.refresh).toHaveBeenCalledTimes(2);
+    expect(state.refresh).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole('button', { name: '全部已读' }));
     expect(state.markAllRead).toHaveBeenCalledOnce();
   });

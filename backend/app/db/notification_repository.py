@@ -33,11 +33,32 @@ class NotificationRepository:
         ).scalar_one_or_none()
 
     def enqueue(self, *, user_id: str, run_id: str, kind: str, **values) -> Notification:
+        return self._enqueue(
+            user_id=user_id,
+            kind=kind,
+            source_clause=Notification.run_id == run_id,
+            business_type="ai_conversation",
+            run_id=run_id,
+            **values,
+        )
+
+    def enqueue_changelog(self, *, user_id: str, changelog_id: str, title: str, body: str) -> Notification:
+        return self._enqueue(
+            user_id=user_id,
+            kind="changelog_published",
+            source_clause=Notification.changelog_id == changelog_id,
+            business_type="changelog",
+            changelog_id=changelog_id,
+            title=title,
+            body=body,
+        )
+
+    def _enqueue(self, *, user_id: str, kind: str, source_clause, **values) -> Notification:
         state = self.lock_state(user_id, create=True)
         existing = self.db.execute(
             select(Notification).where(
                 Notification.user_id == user_id,
-                Notification.run_id == run_id,
+                source_clause,
                 Notification.kind == kind,
             )
         ).scalar_one_or_none()
@@ -46,7 +67,6 @@ class NotificationRepository:
         state.revision += 1
         notification = Notification(
             user_id=user_id,
-            run_id=run_id,
             kind=kind,
             created_revision=state.revision,
             **values,
@@ -60,7 +80,10 @@ class NotificationRepository:
             self.db.scalar(
                 select(func.count())
                 .select_from(Notification)
-                .where(Notification.user_id == user_id, Notification.read_at.is_(None))
+                .where(
+                    Notification.user_id == user_id,
+                    Notification.read_at.is_(None),
+                )
             )
             or 0
         )
@@ -69,7 +92,12 @@ class NotificationRepository:
         return list(
             self.db.scalars(
                 select(Notification.conversation_id)
-                .where(Notification.user_id == user_id, Notification.read_at.is_(None))
+                .where(
+                    Notification.user_id == user_id,
+                    Notification.read_at.is_(None),
+                    Notification.business_type == "ai_conversation",
+                    Notification.conversation_id.is_not(None),
+                )
                 .distinct()
                 .order_by(Notification.conversation_id)
             )

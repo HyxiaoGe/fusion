@@ -15,7 +15,10 @@ import { logoutWithSso } from "@/redux/slices/authSlice";
 import { resetConversationState } from "@/redux/slices/conversationSlice";
 import { resetFileUploadState } from "@/redux/slices/fileUploadSlice";
 import { resetStreamState } from "@/redux/slices/streamSlice";
-import { Settings, LogOut, LogIn, ShieldCheck } from "lucide-react";
+import { Settings, LogOut, LogIn, ShieldCheck, ScrollText } from "lucide-react";
+import Link from "next/link";
+import { useTranslation } from "react-i18next";
+import { CHANGELOG_PATH } from "@/lib/routes/changelogRoutes";
 import { useRef, useState } from "react";
 import { useSettingsDialogOpener } from "@/components/settings/SettingsDialogFocusContext";
 import { LoginDialog } from "@/components/auth/LoginDialog";
@@ -23,6 +26,7 @@ import { DEFAULT_USER_AVATAR_SRC, proxiedAvatar } from "@/lib/auth/avatar";
 import { useHasMounted } from "@/hooks/useHasMounted";
 
 export function UserAvatarMenu() {
+  const { t } = useTranslation();
   const dispatch = useAppDispatch();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const openingSettings = useRef(false);
@@ -127,6 +131,13 @@ export function UserAvatarMenu() {
           <DropdownMenuItem onSelect={handleOpenSettings} className="flex items-center cursor-pointer">
             <Settings className="mr-2 h-4 w-4" />
             <span>设置</span>
+          </DropdownMenuItem>
+
+          <DropdownMenuItem asChild>
+            <Link href={CHANGELOG_PATH} data-sidebar-navigation className="flex cursor-pointer items-center">
+              <ScrollText className="mr-2 h-4 w-4" aria-hidden="true" />
+              <span>{t('changelogs.title')}</span>
+            </Link>
           </DropdownMenuItem>
 
           {authStatus === 'succeeded' && user?.is_superuser ? (

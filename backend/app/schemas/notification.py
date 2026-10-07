@@ -1,12 +1,15 @@
 """站内通知的分页、已读与精确结果定位协议。"""
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 MAX_NOTIFICATION_REVISION = 2**63 - 1
-NotificationKind = Literal["run_completed", "run_failed", "run_limit_reached", "run_incomplete", "run_interrupted"]
+NotificationKind = Literal[
+    "run_completed", "run_failed", "run_limit_reached", "run_incomplete", "run_interrupted", "changelog_published"
+]
+NotificationBusinessType = Literal["ai_conversation", "changelog"]
 NotificationFilter = Literal["all", "unread"]
 
 
@@ -17,15 +20,21 @@ class NotificationTarget(BaseModel):
     run_id: str
 
 
+class ChangelogNotificationTarget(BaseModel):
+    type: Literal["changelog"] = "changelog"
+    changelog_id: str
+
+
 class NotificationItem(BaseModel):
     id: str
+    business_type: NotificationBusinessType
     kind: NotificationKind
     title: str
     body: str
     created_at: datetime
     read_at: datetime | None
     created_revision: int
-    target: NotificationTarget
+    target: Annotated[NotificationTarget | ChangelogNotificationTarget, Field(discriminator="type")]
 
 
 class NotificationReadResult(BaseModel):

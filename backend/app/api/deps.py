@@ -18,6 +18,7 @@ from app.db.models import User as UserModel
 from app.db.repositories import UserRepository
 from app.db.trajectory_repository import TrajectoryRepository
 from app.services.admin_audit_service import AdminAuditService
+from app.services.changelog_service import ChangelogService
 from app.services.chat_service import ChatService
 from app.services.file_service import FileService
 from app.services.knowledge.service import KnowledgeService
@@ -47,6 +48,10 @@ def get_network_diagnostics_service(db: Session = Depends(get_db)) -> NetworkDia
 
 def get_notification_service(db: Session = Depends(get_db)) -> NotificationService:
     return NotificationService(db)
+
+
+def get_changelog_service(db: Session = Depends(get_db)) -> ChangelogService:
+    return ChangelogService(db)
 
 
 def get_trajectory_query_service(db: Session = Depends(get_db)) -> TrajectoryQueryService:

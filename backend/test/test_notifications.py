@@ -18,7 +18,7 @@ from sqlalchemy.pool import StaticPool
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from app.db.database import Base
-from app.db.models import AgentSession, Conversation, Notification, NotificationUserState, User
+from app.db.models import AgentSession, Changelog, Conversation, Notification, NotificationUserState, User
 from app.db.notification_repository import NotificationRepository
 from app.db.repositories import ConversationRepository
 from app.schemas.response import ApiException
@@ -40,6 +40,7 @@ def db():
             User.__table__,
             Conversation.__table__,
             AgentSession.__table__,
+            Changelog.__table__,
             NotificationUserState.__table__,
             Notification.__table__,
         ],
@@ -438,18 +439,9 @@ def test_notification_migration_round_trip_and_constraints():
             assert references["users"]["options"]["ondelete"] == "CASCADE"
             connection.exec_driver_sql("INSERT INTO users (id) VALUES ('user')")
             connection.exec_driver_sql("INSERT INTO conversations (id) VALUES ('conv')")
-            connection.execute(
-                Notification.__table__.insert().values(
-                    id="notice",
-                    user_id="user",
-                    run_id="run",
-                    kind="run_completed",
-                    conversation_id="conv",
-                    message_id="message",
-                    title="标题",
-                    body="正文",
-                    created_revision=1,
-                )
+            connection.exec_driver_sql(
+                "INSERT INTO notifications (id,user_id,run_id,kind,conversation_id,message_id,title,body,created_revision) "
+                "VALUES ('notice','user','run','run_completed','conv','message','标题','正文',1)"
             )
             connection.exec_driver_sql("DELETE FROM conversations WHERE id = 'conv'")
             assert connection.scalar(select(Notification.id)) is None
