@@ -1,5 +1,6 @@
 import type {
   ContentBlock,
+  ContentFilteredBlock,
   DocumentBlock,
   FileBlock,
   GeneratedImageBlock,
@@ -36,6 +37,7 @@ const CONTENT_BLOCK_CONTRACTS: readonly ContentBlockContract[] = [
   { type: 'knowledge_evidence', schemaVersion: 1, decode: decodeKnowledgeEvidenceBlock },
   { type: 'document', schemaVersion: 1, decode: decodeDocumentBlock },
   { type: 'generated_image', schemaVersion: 1, decode: decodeGeneratedImageBlock },
+  { type: 'content_filtered', schemaVersion: 1, decode: decodeContentFilteredBlock },
   ...STRUCTURED_TOOL_RESULT_CONTRACTS.map(contract => ({
     type: contract.type,
     schemaVersion: contract.schemaVersion,
@@ -359,6 +361,12 @@ function decodeDocumentBlock(source: Record<string, unknown>): DocumentBlock | n
     char_count: charCount,
     ...optionalField('tool_call_log_id', optionalString(source.tool_call_log_id)),
   };
+}
+
+function decodeContentFilteredBlock(source: Record<string, unknown>): ContentFilteredBlock | null {
+  const id = requiredString(source.id);
+  if (!id) return null;
+  return { type: 'content_filtered', id, schema_version: 1 };
 }
 
 function decodeGeneratedImageBlock(source: Record<string, unknown>): GeneratedImageBlock | null {

@@ -462,6 +462,12 @@ export type StructuredToolResultBlock =
   | WeatherResultsBlock
   | ItineraryResultsBlock
   | UnsupportedResultBlock;
+/** 模型服务商内容审核拦截了这一轮：整条回复只显示固定提示，不支持重新生成。 */
+export interface ContentFilteredBlock {
+  type: 'content_filtered';
+  id: string;
+  schema_version: 1;
+}
 
 export type ContentBlock =
   | TextBlock
@@ -472,7 +478,12 @@ export type ContentBlock =
   | KnowledgeEvidenceBlock
   | DocumentBlock
   | GeneratedImageBlock
+  | ContentFilteredBlock
   | StructuredToolResultBlock;
+
+export function isContentFilteredMessage(blocks: readonly ContentBlock[]): boolean {
+  return blocks.some(block => block.type === 'content_filtered');
+}
 
 // ============================================================
 // Usage

@@ -120,6 +120,11 @@ class ConversationService:
         assistant_message = (
             self.repo.convert_message_model(expected_assistant) if expected_assistant is not None else None
         )
+        if assistant_message is not None and any(
+            block.type == "content_filtered" for block in assistant_message.content
+        ):
+            # 服务商内容审核拦截按熔断处理：同一问题重试只会再次被拦
+            raise ApiException.conflict("这个问题暂时无法回答，不支持重新生成")
         return user_message, assistant_message
 
     def lock_conversation_for_message_write(self, conversation_id: str, user_id: str) -> Conversation:

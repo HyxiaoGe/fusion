@@ -46,6 +46,11 @@ from app.services.stream.llm_round_lifecycle import (
     round_tool_names,
 )
 from app.services.stream.llm_stream import contains_tool_protocol_residue
+from app.services.stream.provider_content_filter import (
+    CONTENT_FILTER_FINISH_REASON,
+    is_content_filter_error,
+    replace_with_content_filtered_block,
+)
 from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
 from app.services.stream.research_evidence import (
     ResearchEvidenceWorkset,
@@ -456,6 +461,13 @@ async def _call_limit_summary_round_once(
             lifecycle=lifecycle,
             error=exc,
         )
+        if is_content_filter_error(exc):
+            return LimitSummaryRoundResult(
+                reasoning_buf="",
+                content_buf="",
+                usage_data=None,
+                finish_reason=CONTENT_FILTER_FINISH_REASON,
+            )
         raise
     try:
         freeze = getattr(observation, "freeze", None)
@@ -706,7 +718,7 @@ async def _repair_deep_research_summary_citations(
 ) -> LimitSummaryRoundResult:
     """证据充足但最终引用缺失或越界时，允许一次无工具引用修正。"""
 
-    if request.task_mode != "deep_research":
+    if request.task_mode != "deep_research" or result.finish_reason == CONTENT_FILTER_FINISH_REASON:
         return result
     workset = request.research_workset or ResearchEvidenceWorkset()
     validation = validate_research_completion(workset, result.content_buf)
@@ -972,6 +984,16 @@ async def _commit_limit_summary_result(
     thinking_block_id: str,
     text_block_id: str,
 ) -> bool:
+    if round_result.finish_reason == CONTENT_FILTER_FINISH_REASON:
+        if request.warning_fn is not None:
+            request.warning_fn(
+                "收尾总结被模型服务商内容审核拦截，整条回复替换为固定提示: "
+                f"conv_id={request.conversation_id} run_id={request.run_id} model_id={request.model_id}"
+            )
+        if round_result.llm_lifecycle is not None:
+            round_result.llm_lifecycle.record_output(disposition="replaced", source="server", reason="content_filtered")
+        await replace_with_content_filtered_block(content_blocks=request.content_blocks, emitter=request.emitter)
+        return False
     if round_result.reasoning_buf:
         request.content_blocks.append(
             ThinkingBlock(

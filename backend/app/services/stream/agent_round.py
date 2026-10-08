@@ -24,6 +24,7 @@ from app.services.stream.llm_round_lifecycle import (
     accumulate_token_usage,
     round_tool_names,
 )
+from app.services.stream.provider_content_filter import CONTENT_FILTER_FINISH_REASON, is_content_filter_error
 from app.services.stream.tool_ban import callable_tools
 from app.services.stream_state_service import StreamOwnershipLostError, append_chunk
 from app.utils.prompt_fingerprint import fingerprint_system_messages
@@ -399,6 +400,23 @@ async def run_agent_round(
                 content_text=partial_output.get("content_buf", ""),
             )
         await _close_round_after_primary_error(observation=observation, lifecycle=lifecycle, error=exc)
+        if is_content_filter_error(exc):
+            # 服务商审核拦截不是服务故障：不让整个 Run 失败成“稍后重试”，交给收尾按拦截熔断
+            logger.warning(
+                "模型服务商内容审核拦截（调用报错）: conv_id=%s run_id=%s step=%s model_id=%s",
+                conversation_id,
+                run_id,
+                step_number,
+                model_id,
+            )
+            return AgentRoundResult(
+                reasoning_buf="",
+                content_buf="",
+                tool_calls=[],
+                finish_reason=CONTENT_FILTER_FINISH_REASON,
+                accumulated_usage=accumulated_usage,
+                announced_tool_names=_announced_tool_names(call_kwargs),
+            )
         raise
     try:
         reasoning_buf, content_buf, tool_calls, finish_reason, usage_data = stream_result

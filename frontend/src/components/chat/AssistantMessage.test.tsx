@@ -293,6 +293,22 @@ describe('AssistantMessage', () => {
     expect(onRetry).toHaveBeenCalledWith('assistant-1');
   });
 
+  it('服务商内容审核拦截的回复只显示固定提示，不渲染正文、重新生成和推荐问题', () => {
+    const filteredBlocks = [
+      { type: 'text' as const, id: 'text-1', text: '已流出的半截回答' },
+      { type: 'content_filtered' as const, id: 'blk_filtered', schema_version: 1 as const },
+    ];
+    deriveStaticAssistantMessageViewModelMock.mockReturnValue(defaultViewModel({ blocksToRender: filteredBlocks }));
+
+    renderAssistant({ message: assistantMessage({ content: filteredBlocks }), onRetry: vi.fn(), onSelectQuestion: vi.fn() });
+
+    expect(screen.getByTestId('content-filtered-notice')).toHaveTextContent('chat.contentFiltered');
+    expect(screen.queryByTestId('assistant-response-stack')).toBeNull();
+    expect(screen.queryByText('已流出的半截回答')).toBeNull();
+    expect(screen.queryByTestId('suggested-questions')).toBeNull();
+    expect(messageActionsMock.mock.calls.at(-1)?.[0].onRetry).toBeUndefined();
+  });
+
   it('流式占位消息缺少模型 ID 时把会话模型与提供商显式传给思考派生链路', () => {
     renderAssistant({
       message: assistantMessage({ content: [], model_id: null }),

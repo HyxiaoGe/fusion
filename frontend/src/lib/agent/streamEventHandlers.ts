@@ -340,6 +340,7 @@ export function createAgentStreamEventHandlers({
         && !isKnowledgeEvidenceBlock(block)
         && block.type !== 'document'
         && block.type !== 'generated_image'
+        && block.type !== 'content_filtered'
       ) return;
       const conversationId = resolveConversationId();
       if (!conversationId) return;

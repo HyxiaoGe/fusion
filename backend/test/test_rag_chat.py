@@ -212,6 +212,38 @@ class ConversationKnowledgeSelectionTests(unittest.TestCase):
         self.assertEqual(user_message.id, "retry-user")
         self.assertEqual(assistant_message.id, "retry-assistant")
 
+    def test_message_retry_rejects_provider_content_filtered_turn(self):
+        self.db.add_all(
+            [
+                MessageModel(
+                    id="filtered-user",
+                    conversation_id="conv-1",
+                    sequence=905,
+                    role="user",
+                    content=[{"type": "text", "id": "q1", "text": "被拦的问题"}],
+                ),
+                MessageModel(
+                    id="filtered-assistant",
+                    conversation_id="conv-1",
+                    sequence=906,
+                    role="assistant",
+                    content=[{"type": "content_filtered", "id": "blk_filtered", "schema_version": 1}],
+                ),
+            ]
+        )
+        self.db.commit()
+
+        with self.assertRaises(ApiException) as raised:
+            self.service.prepare_message_retry(
+                conversation_id="conv-1",
+                user_id="user-1",
+                user_message_id="filtered-user",
+                assistant_message_id="filtered-assistant",
+            )
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertIn("不支持重新生成", raised.exception.message)
+
     def test_message_retry_rejects_historical_turn_with_later_messages(self):
         self.db.add_all(
             [

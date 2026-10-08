@@ -270,7 +270,7 @@ export function normalizeOutputProvenance(value: unknown): LlmOutputProvenance |
   const candidate = value as Record<string, unknown>;
   const disposition = (['emitted', 'suppressed', 'replaced'] as const).find(item => item === candidate.disposition);
   const source = (['model', 'server', 'none'] as const).find(item => item === candidate.source);
-  const reason = (['streamed', 'deferred', 'server_rewrite', 'product_guard', 'knowledge_guard', 'plan_continues', 'tool_round', 'tool_retracted', 'research_guard', 'summary_guard', 'no_content', 'not_committed', 'round_failed', 'round_cancelled'] as const).find(item => item === candidate.reason);
+  const reason = (['streamed', 'deferred', 'server_rewrite', 'product_guard', 'knowledge_guard', 'plan_continues', 'tool_round', 'tool_retracted', 'content_filtered', 'research_guard', 'summary_guard', 'no_content', 'not_committed', 'round_failed', 'round_cancelled'] as const).find(item => item === candidate.reason);
   const blockId = candidate.block_id ?? null;
   if (!disposition || !source || !reason
     || (blockId !== null && (typeof blockId !== 'string' || blockId.length < 1 || blockId.length > 128))) return null;

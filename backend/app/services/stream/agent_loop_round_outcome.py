@@ -34,6 +34,10 @@ from app.services.stream.product_result_answer import (
     has_product_result_blocks,
     neutralize_product_provider_mentions,
 )
+from app.services.stream.provider_content_filter import (
+    CONTENT_FILTER_FINISH_REASON,
+    replace_with_content_filtered_block,
+)
 from app.services.stream.research_evidence import (
     build_research_repair_prompt,
     validate_research_completion,
@@ -91,6 +95,10 @@ async def _handle_agent_round_outcome(
     *,
     request: AgentRoundOutcomeRequest,
 ) -> AgentLoopOutcome | None:
+    if request.round_result.finish_reason == CONTENT_FILTER_FINISH_REASON:
+        await _complete_content_filtered_round(request)
+        return AgentLoopOutcome(exit=AgentLoopExit.COMPLETED)
+
     if request.terminal:
         # 服务器确定性收尾不再请求模型补计划、修参或继续执行。
         await _complete_text_round(request)
@@ -695,6 +703,33 @@ async def _discard_streamed_tool_round_content(request: AgentRoundOutcomeRequest
     lifecycle = request.round_result.llm_lifecycle
     if lifecycle is not None:
         lifecycle.record_output(disposition="suppressed", source="none", reason="tool_retracted")
+
+
+async def _complete_content_filtered_round(request: AgentRoundOutcomeRequest) -> None:
+    """服务商审核拦截了这一轮：整条回复熔断为固定提示，不再请求模型，也不留工具记录供后续回放。"""
+
+    request.runtime.warning_fn(
+        "模型服务商内容审核拦截，整条回复替换为固定提示: "
+        f"conv_id={request.runtime.conversation_id} run_id={request.runtime.run_id} "
+        f"step={request.step_number} model_id={request.runtime.model_id}"
+    )
+    lifecycle = request.round_result.llm_lifecycle
+    if lifecycle is not None:
+        lifecycle.record_output(disposition="replaced", source="server", reason="content_filtered")
+    await complete_text_response_step(
+        context=request.step_context,
+        emitter=request.runtime.emitter,
+        session_cache=request.runtime.session_cache,
+        complete_step_fn=request.runtime.complete_step_fn,
+        completed_tool_calls=request.state.total_tool_calls,
+        max_tool_calls=request.runtime.limits.max_tool_calls,
+        clock=request.runtime.clock,
+    )
+    await replace_with_content_filtered_block(
+        content_blocks=request.state.content_blocks,
+        emitter=request.runtime.emitter,
+    )
+    request.state.tool_transcript = []
 
 
 async def _complete_unknown_round(request: AgentRoundOutcomeRequest) -> None:

@@ -316,6 +316,7 @@ class LlmOutputProvenance(BaseModel):
         "plan_continues",
         "tool_round",
         "tool_retracted",
+        "content_filtered",
         "research_guard",
         "summary_guard",
         "no_content",

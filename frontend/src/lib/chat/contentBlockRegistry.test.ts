@@ -116,6 +116,7 @@ describe('contentBlockRegistry', () => {
       { type: 'knowledge_evidence', schemaVersion: 1 },
       { type: 'document', schemaVersion: 1 },
       { type: 'generated_image', schemaVersion: 1 },
+      { type: 'content_filtered', schemaVersion: 1 },
       { type: 'place_results', schemaVersion: 1 },
       { type: 'route_results', schemaVersion: 1 },
       { type: 'flight_results', schemaVersion: 1 },
@@ -124,6 +125,15 @@ describe('contentBlockRegistry', () => {
       { type: 'itinerary_results', schemaVersion: 1 },
       { type: 'unsupported_result', schemaVersion: null },
     ]);
+  });
+
+  it('解码服务商内容审核拦截块，只保留标识字段', () => {
+    expect(normalizeContentBlock({ type: 'content_filtered', id: 'blk_filtered', schema_version: 1, extra: 'x' })).toEqual({
+      type: 'content_filtered',
+      id: 'blk_filtered',
+      schema_version: 1,
+    });
+    expect(normalizeContentBlock({ type: 'content_filtered', schema_version: 1 })?.type).toBe('unsupported_result');
   });
 
   it('保留知识库依据的稳定引用与版本定位字段，并丢弃内部错误细节', () => {

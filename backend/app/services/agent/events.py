@@ -7,6 +7,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.chat import (
+    ContentFilteredBlock,
     ContextStatus,
     DocumentBlock,
     GeneratedImageBlock,
@@ -349,7 +350,9 @@ class ContentBlockUpserted(AgentEventBase):
 
     type: Literal["content_block_upserted"]
     protocol_version: Literal[2]
-    content_block: ProductResultBlock | KnowledgeEvidenceBlock | DocumentBlock | GeneratedImageBlock
+    content_block: (
+        ProductResultBlock | KnowledgeEvidenceBlock | DocumentBlock | GeneratedImageBlock | ContentFilteredBlock
+    )
 
 
 class ContentBlockDiscarded(AgentEventBase):

@@ -1,6 +1,7 @@
 'use client';
 
 import type { Message } from '@/types/conversation';
+import { isContentFilteredMessage } from '@/types/conversation';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '@/redux/hooks';
@@ -241,6 +242,10 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
     }
     if (lastMessage.role === 'user') {
       ids.add(lastMessage.id);
+      return ids;
+    }
+    // 服务商内容审核拦截按熔断处理：同一问题重试只会再次被拦
+    if (isContentFilteredMessage(lastMessage.content)) {
       return ids;
     }
     ids.add(lastMessage.id);

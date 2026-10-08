@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Bot } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import type { FileWithPreview } from '@/lib/utils/fileHelpers';
 import { useAppDispatch, useAppSelector } from '@/redux/hooks';
@@ -10,6 +11,7 @@ import { selectTrajectoryRunSummary } from '@/redux/slices/trajectorySlice';
 import type { AgentRunState } from '@/types/agentRun';
 import type { TrajectoryBadgeStatus } from '@/lib/trajectory/TrajectoryCellProjection';
 import type { Message } from '@/types/conversation';
+import { isContentFilteredMessage } from '@/types/conversation';
 
 import ProviderIcon from '../models/ProviderIcon';
 import AssistantResponseStack from './AssistantResponseStack';
@@ -163,6 +165,7 @@ function AssistantMessageFrame({
   viewModel,
 }: AssistantMessageProps & { viewModel: AssistantMessageViewModel }) {
   const dispatch = useAppDispatch();
+  const { t } = useTranslation();
   const conversationId = message.chatId ?? activeChatId;
   const trajectoryRunSummary = useAppSelector(state => (
     conversationId && agentRun
@@ -302,18 +305,39 @@ function AssistantMessageFrame({
     }
   }, [activeChatId, dispatch, displayText, hasThinking, isStreaming, message.id, message.isReasoningVisible]);
 
+  const header = (
+    <div className="flex items-center gap-1.5 mb-0.5">
+      {providerId ? (
+        <ProviderIcon providerId={providerId} size={16} />
+      ) : (
+        <Bot className="h-4 w-4 text-muted-foreground" />
+      )}
+      <span className="text-xs text-muted-foreground">
+        {modelName}
+      </span>
+    </div>
+  );
+
+  // 服务商内容审核拦截：已流出的思考、正文与工具结果整体收回，只留固定提示；不提供重新生成与推荐问题
+  if (isContentFilteredMessage(viewModel.blocksToRender)) {
+    return (
+      <>
+        {header}
+        <div className="w-full min-w-0">
+          <p className="text-sm leading-relaxed text-foreground" data-testid="content-filtered-notice">
+            {t('chat.contentFiltered')}
+          </p>
+          {!isStreaming && (
+            <MessageActions timestamp={message.timestamp} retryLabel="重新生成" />
+          )}
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
-      <div className="flex items-center gap-1.5 mb-0.5">
-        {providerId ? (
-          <ProviderIcon providerId={providerId} size={16} />
-        ) : (
-          <Bot className="h-4 w-4 text-muted-foreground" />
-        )}
-        <span className="text-xs text-muted-foreground">
-          {modelName}
-        </span>
-      </div>
+      {header}
 
       <div className="w-full min-w-0">
         <div className="w-full min-w-0">
