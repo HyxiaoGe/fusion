@@ -58,7 +58,7 @@ describe('ContextStatus', () => {
       'overflow-y-auto',
     );
     expect(screen.getByText('会话 ID')).toBeInTheDocument();
-    expect(screen.getByText('本轮输入（实际）')).toBeInTheDocument();
+    expect(screen.getByText('当前上下文（实际）')).toBeInTheDocument();
     const conversationSection = screen.getByTestId('context-conversation-section');
     const conversationValue = screen.getByTestId('context-conversation-id');
     expect(conversationSection).toContainElement(conversationValue);
@@ -145,7 +145,7 @@ describe('ContextStatus', () => {
       phase="final"
       latestActualUnavailable
     />);
-    expect(screen.getByText('最近一次实际输入')).toBeInTheDocument();
+    expect(screen.getByText('最近一次上下文（实际）')).toBeInTheDocument();
     expect(screen.getByText('147,811 / 256K Token')).toBeInTheDocument();
     expect(screen.getByText('本轮未返回实际用量，当前显示最近一次实际结果。')).toBeInTheDocument();
 
