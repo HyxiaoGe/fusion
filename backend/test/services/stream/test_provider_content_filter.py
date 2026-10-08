@@ -88,7 +88,7 @@ class StreamSignalTests(unittest.IsolatedAsyncioTestCase):
 
 
 class AgentRoundErrorTests(unittest.IsolatedAsyncioTestCase):
-    async def _run(self, error, emitter=None):
+    async def _run(self, error, emitter=None, stream_round_fn=None):
         observation = MagicMock()
         observation.finish_success = AsyncMock()
         observation.finish_error = AsyncMock()
@@ -96,7 +96,7 @@ class AgentRoundErrorTests(unittest.IsolatedAsyncioTestCase):
         context_plan = MagicMock(messages=[], estimated_tokens_after=10)
         context_plan.telemetry.return_value = {"context_management_status": "no_op"}
 
-        async def stream_round_fn(*_args, **_kwargs):
+        async def raising_stream_round_fn(*_args, **_kwargs):
             raise error
 
         with (
@@ -118,7 +118,7 @@ class AgentRoundErrorTests(unittest.IsolatedAsyncioTestCase):
                 accumulated_usage=Usage(input_tokens=5, output_tokens=1),
                 step_context=AgentStepContext("step-filter", 1, 0.0, "thinking", "text"),
                 llm_call_fn=AsyncMock(return_value="response"),
-                stream_round_fn=stream_round_fn,
+                stream_round_fn=stream_round_fn or raising_stream_round_fn,
                 log_round_summary_fn=lambda **_kwargs: None,
                 emitter=emitter or AsyncMock(),
             )
@@ -139,6 +139,22 @@ class AgentRoundErrorTests(unittest.IsolatedAsyncioTestCase):
             completed["output_provenance"],
             {"disposition": "replaced", "source": "server", "reason": "content_filtered", "block_id": "text"},
         )
+
+    async def test_streamed_refusal_round_is_attributed_as_content_filtered(self):
+        """非延迟轮次在流结束时就发终态：已流式写出的拒绝原文也要归因为审核拦截。"""
+        emitter = AsyncMock()
+
+        async def stream_round_fn(*_args, on_visible_output, **_kwargs):
+            await on_visible_output("content")
+            return "", MIMO_REFUSAL, [], CONTENT_FILTER_FINISH_REASON, None
+
+        result = await self._run(None, emitter, stream_round_fn)
+
+        self.assertEqual(result.finish_reason, CONTENT_FILTER_FINISH_REASON)
+        completed = emitter.llm_round_completed.await_args.kwargs
+        self.assertEqual(completed["finish_reason"], CONTENT_FILTER_FINISH_REASON)
+        self.assertEqual(completed["output_provenance"]["reason"], "content_filtered")
+        self.assertEqual(completed["output_provenance"]["disposition"], "replaced")
 
     async def test_other_provider_errors_still_fail_the_round(self):
         emitter = AsyncMock()

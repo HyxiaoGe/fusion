@@ -1,6 +1,6 @@
 import i18n from '@/lib/i18n';
 import { getToolMeta } from '@/lib/agent/toolRegistry';
-import { extractTextFromBlocks } from '@/types/conversation';
+import { extractTextFromBlocks, isContentFilteredMessage } from '@/types/conversation';
 import type { TrajectoryCell } from './TrajectoryCellProjection';
 
 export interface TrajectoryCellPresentation {
@@ -156,7 +156,9 @@ export function getTrajectoryCellPresentation(cell: TrajectoryCell): TrajectoryC
     case 'message':
       return {
         kindLabel: '回答',
-        summary: boundedSummary(extractTextFromBlocks(cell.message.content)) || '回答内容待生成',
+        summary: isContentFilteredMessage(cell.message.content)
+          ? '被模型服务商内容审核拦截，显示固定提示'
+          : boundedSummary(extractTextFromBlocks(cell.message.content)) || '回答内容待生成',
         statusLabel: cell.message.status === 'failed' ? '失败' : null,
         durationMs: null,
         tone: cell.message.status === 'failed' ? 'danger' : 'neutral',

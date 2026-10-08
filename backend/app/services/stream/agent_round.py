@@ -437,6 +437,10 @@ async def run_agent_round(
             lifecycle.record_result(usage=usage_data, finish_reason=finish_reason)
             if finish_reason == "cancelled":
                 await lifecycle.finish_cancelled(reason="superseded")
+            elif finish_reason == CONTENT_FILTER_FINISH_REASON and not defer_output:
+                # 非延迟轮次在这里就发终态，收尾处再记归因已来不及
+                lifecycle.record_output(disposition="replaced", source="server", reason="content_filtered")
+                await lifecycle.finish_success(output_visible=False)
             elif not defer_output or tool_calls:
                 if tool_calls:
                     await lifecycle.publish_tool_output()
