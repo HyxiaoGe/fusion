@@ -18,7 +18,7 @@ import { useAppDispatch, useAppSelector } from "@/redux/hooks";
 import { selectStreamSlot } from '@/redux/slices/streamSlice';
 import type { RootState } from "@/redux/store";
 import { selectAuthSessionKey, selectIsAuthenticated } from "@/redux/selectors";
-import { setComposerAgentMode, setReasoningEnabled } from "@/redux/slices/conversationSlice";
+import { selectComposerAgentMode, setComposerAgentMode, setReasoningEnabled } from "@/redux/slices/conversationSlice";
 import {
   addFileId,
   clearFiles,
@@ -65,11 +65,8 @@ import {
 import {
   COMPOSER_AGENT_MODE_LABELS,
   getComposerAgentModeAvailability,
+  NEW_CHAT_AGENT_MODE_KEY,
 } from "@/lib/agent/composerAgentMode";
-import {
-  readComposerAgentMode,
-  writeComposerAgentMode,
-} from "@/lib/agent/composerAgentModeStorage";
 import type { ComposerAgentMode } from "@/types/agentRun";
 import { PlanTimeline } from "./agent/PlanTimeline";
 import KnowledgeBaseComposerControl, {
@@ -256,7 +253,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const previousAuthIdentityRef = useRef<string | null>(authIdentity);
   const processingFiles = useAppSelector((state) => state.fileUpload.processingFiles);
   const reasoningEnabled = useAppSelector((state) => state.conversation.reasoningEnabled);
-  const composerAgentMode = useAppSelector((state) => state.conversation.composerAgentMode);
+  // 执行模式按对话记：新对话默认自动，已有对话保持它自己的模式。
+  const agentModeKey = activeChatId || NEW_CHAT_AGENT_MODE_KEY;
+  const composerAgentMode = useAppSelector((state) => selectComposerAgentMode(state, activeChatId));
   const activeComposerAgentMode = COMPOSER_AGENT_MODES.find(
     (mode) => mode.value === composerAgentMode,
   )!;
@@ -405,23 +404,13 @@ const ChatInput: React.FC<ChatInputProps> = ({
     if (selectedKnowledgeBaseIds.length === 0 || composerAgentMode !== 'deep_research') {
       return;
     }
-    writeComposerAgentMode('auto');
-    dispatch(setComposerAgentMode('auto'));
+    dispatch(setComposerAgentMode({ chatId: agentModeKey, mode: 'auto' }));
     toast({
       message: '已切换到自动模式：严格知识库模式不能与深度研究同时使用',
       type: 'warning',
       duration: 3000,
     });
-  }, [composerAgentMode, dispatch, selectedKnowledgeBaseIds.length, toast]);
-
-  useEffect(() => {
-    const storedMode = readComposerAgentMode();
-    if (storedMode && storedMode !== composerAgentMode) {
-      dispatch(setComposerAgentMode(storedMode));
-    }
-    // 只在当前标签页首次挂载时恢复；后续变更由选择与能力降级路径同步写入。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dispatch]);
+  }, [agentModeKey, composerAgentMode, dispatch, selectedKnowledgeBaseIds.length, toast]);
 
   useEffect(() => {
     if (!hasHydrated || !selectedModel || composerAgentMode === "auto") {
@@ -436,14 +425,13 @@ const ChatInput: React.FC<ChatInputProps> = ({
       return;
     }
 
-    writeComposerAgentMode("auto");
-    dispatch(setComposerAgentMode("auto"));
+    dispatch(setComposerAgentMode({ chatId: agentModeKey, mode: "auto" }));
     toast({
       message: `已切换到自动模式：${availability.unavailableReason ?? "当前模型不支持所选模式"}`,
       type: "warning",
       duration: 3000,
     });
-  }, [composerAgentMode, dispatch, hasHydrated, selectedModel, toast]);
+  }, [agentModeKey, composerAgentMode, dispatch, hasHydrated, selectedModel, toast]);
 
   useLayoutEffect(() => {
     currentChatIdRef.current = chatId;
@@ -1578,9 +1566,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                   className={agentModeStyles.options}
                   value={composerAgentMode}
                   onValueChange={(value) => {
-                    const nextMode = value as ComposerAgentMode;
-                    writeComposerAgentMode(nextMode);
-                    dispatch(setComposerAgentMode(nextMode));
+                    dispatch(setComposerAgentMode({ chatId: agentModeKey, mode: value as ComposerAgentMode }));
                   }}
                 >
                   {COMPOSER_AGENT_MODES.map((mode) => {

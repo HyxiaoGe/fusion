@@ -18,6 +18,8 @@ import {
   setAnimatingTitleId,
   setGlobalError,
   setHydrationStatus,
+  adoptNewChatAgentMode,
+  selectComposerAgentMode,
   setPendingConversationId,
   updateConversationTitle,
   updateConversationKnowledgeBaseIds,
@@ -241,7 +243,6 @@ export function useSendMessage(activeConversationId?: string | null) {
   const dispatch = useAppDispatch();
   const store = useStore<RootState>();
   const reasoningEnabled = useAppSelector((state) => state.conversation.reasoningEnabled);
-  const composerAgentMode = useAppSelector((state) => state.conversation.composerAgentMode);
   const authSessionKey = useAppSelector(selectAuthSessionKey);
   const conversationEpoch = useAppSelector(
     (state) => state.conversation.conversationListEpoch
@@ -886,8 +887,13 @@ export function useSendMessage(activeConversationId?: string | null) {
           return;
         }
       }
+      // 执行模式按对话取：新对话用新对话页的选择，已有对话用它自己的模式。
+      const conversationAgentMode = selectComposerAgentMode(
+        store.getState(),
+        isDraft ? null : options.conversationId,
+      );
       const agentModeResolution = resolveComposerAgentMode(
-        strictKnowledgeMode ? 'auto' : composerAgentMode,
+        strictKnowledgeMode ? 'auto' : conversationAgentMode,
         enabledModel.capabilities,
       );
 
@@ -968,6 +974,7 @@ export function useSendMessage(activeConversationId?: string | null) {
       }
 
       if (isDraft) {
+        dispatch(adoptNewChatAgentMode(tempConvId));
         dispatch(setPendingConversationId(tempConvId));
         dispatch(
           upsertConversation({
@@ -1720,7 +1727,6 @@ export function useSendMessage(activeConversationId?: string | null) {
     },
     [
       dispatch,
-      composerAgentMode,
       getSlot,
       hydrateAuthoritativeConversation,
       reasoningEnabled,
