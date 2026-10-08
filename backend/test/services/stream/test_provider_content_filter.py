@@ -88,7 +88,7 @@ class StreamSignalTests(unittest.IsolatedAsyncioTestCase):
 
 
 class AgentRoundErrorTests(unittest.IsolatedAsyncioTestCase):
-    async def _run(self, error):
+    async def _run(self, error, emitter=None):
         observation = MagicMock()
         observation.finish_success = AsyncMock()
         observation.finish_error = AsyncMock()
@@ -120,19 +120,32 @@ class AgentRoundErrorTests(unittest.IsolatedAsyncioTestCase):
                 llm_call_fn=AsyncMock(return_value="response"),
                 stream_round_fn=stream_round_fn,
                 log_round_summary_fn=lambda **_kwargs: None,
-                emitter=AsyncMock(),
+                emitter=emitter or AsyncMock(),
             )
 
     async def test_provider_moderation_error_becomes_content_filter_round(self):
-        result = await self._run(_ProviderError("InternalError.Algo.DataInspectionFailed", 400))
+        emitter = AsyncMock()
+        result = await self._run(_ProviderError("InternalError.Algo.DataInspectionFailed", 400), emitter)
 
         self.assertEqual(result.finish_reason, CONTENT_FILTER_FINISH_REASON)
         self.assertEqual(result.content_buf, "")
         self.assertEqual(result.accumulated_usage.input_tokens, 5)
+        # 轨迹里按审核拦截完成，而不是记成服务故障
+        emitter.llm_round_failed.assert_not_awaited()
+        emitter.llm_round_completed.assert_awaited_once()
+        completed = emitter.llm_round_completed.await_args.kwargs
+        self.assertEqual(completed["finish_reason"], CONTENT_FILTER_FINISH_REASON)
+        self.assertEqual(
+            completed["output_provenance"],
+            {"disposition": "replaced", "source": "server", "reason": "content_filtered", "block_id": "text"},
+        )
 
     async def test_other_provider_errors_still_fail_the_round(self):
+        emitter = AsyncMock()
         with self.assertRaisesRegex(_ProviderError, "Invalid parameter"):
-            await self._run(_ProviderError("Invalid parameter", 400))
+            await self._run(_ProviderError("Invalid parameter", 400), emitter)
+        emitter.llm_round_failed.assert_awaited_once()
+        self.assertEqual(emitter.llm_round_failed.await_args.kwargs["error_code"], "provider_error")
 
 
 class RoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
