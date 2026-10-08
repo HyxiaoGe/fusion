@@ -28,13 +28,7 @@ export interface ContextUsageView {
 interface ContextMessageLike {
   id?: string;
   role?: string;
-  usage?: { context?: unknown; input_tokens?: unknown; output_tokens?: unknown } | null;
-}
-
-/** 整个会话累计消耗：每轮回答 usage 里的输入/输出总和（含 Agent 多次模型调用）。 */
-export interface ConversationTokenTotals {
-  inputTokens: number;
-  outputTokens: number;
+  usage?: { context?: unknown } | null;
 }
 
 /** 流槽位里与上下文用量有关的那部分（结构化子集，避免把整个 StreamSlot 拖进来）。 */
@@ -334,37 +328,6 @@ export function makeSelectConversationContextStatus(
         ? { byId: { [conversationId]: { messages } } }
         : undefined,
     }, conversationId),
-  );
-}
-
-export function sumConversationTokens(
-  messages: readonly ContextMessageLike[],
-): ConversationTokenTotals | null {
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let counted = false;
-  for (const message of messages) {
-    if (message.role !== 'assistant' || !message.usage) continue;
-    const input = nullableTokenCount(message.usage.input_tokens);
-    const output = nullableTokenCount(message.usage.output_tokens);
-    if (input === null && output === null) continue;
-    inputTokens += input ?? 0;
-    outputTokens += output ?? 0;
-    counted = true;
-  }
-  return counted ? { inputTokens, outputTokens } : null;
-}
-
-export function makeSelectConversationTokenTotals(
-  conversationId: string | null | undefined,
-) {
-  return createSelector(
-    [
-      (state: ContextStateLike) => conversationId
-        ? (state.conversation?.byId?.[conversationId]?.messages ?? EMPTY_CONTEXT_MESSAGES)
-        : EMPTY_CONTEXT_MESSAGES,
-    ],
-    sumConversationTokens,
   );
 }
 

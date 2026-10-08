@@ -5,7 +5,6 @@ import {
   makeSelectConversationContextStatus,
   normalizeContextUsage,
   selectConversationContextStatus,
-  sumConversationTokens,
   selectConversationContextUsage,
 } from './contextUsage';
 
@@ -529,23 +528,5 @@ describe('contextUsage', () => {
       ...state,
       stream: { byConversation: { 'chat-a': { ...state.stream.byConversation['chat-a'] } } },
     })).not.toBe(first);
-  });
-
-  it('累计整个会话所有回答的输入和输出 Token，跳过用户消息和无用量的回答', () => {
-    expect(sumConversationTokens([
-      { role: 'user', usage: null },
-      { role: 'assistant', usage: { input_tokens: 40_423, output_tokens: 1_200 } },
-      { role: 'assistant', usage: null },
-      { role: 'assistant', usage: { input_tokens: 77_315, output_tokens: 2_300 } },
-      { role: 'assistant', usage: { input_tokens: 9_184, output_tokens: 600 } },
-    ])).toEqual({ inputTokens: 126_922, outputTokens: 4_100 });
-  });
-
-  it('没有任何用量记录时不给累计值', () => {
-    expect(sumConversationTokens([])).toBeNull();
-    expect(sumConversationTokens([
-      { role: 'user' },
-      { role: 'assistant', usage: { input_tokens: 'bad', output_tokens: -1 } },
-    ])).toBeNull();
   });
 });
