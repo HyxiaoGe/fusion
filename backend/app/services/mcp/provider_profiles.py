@@ -17,7 +17,6 @@ AMAP_READ_ONLY_TOOL_ALLOWLIST = frozenset(
     {
         "maps_geo",
         "maps_regeocode",
-        "maps_weather",
         "maps_direction_bicycling",
         "maps_direction_walking",
         "maps_direction_driving",

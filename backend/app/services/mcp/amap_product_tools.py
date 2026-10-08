@@ -7,20 +7,15 @@ import hashlib
 import json
 import re
 import time
-import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import date as CalendarDate
-from datetime import datetime, timedelta
 from html import escape
 from typing import Any, Protocol
 from urllib.parse import urlencode, urlsplit
-from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
 
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
-from app.core.logger import app_logger as logger
 from app.schemas.chat import (
     PlacePhoto,
     PlaceResult,
@@ -32,25 +27,20 @@ from app.schemas.chat import (
     StructuredResultAttribution,
     TransitAlternative,
     TransitLeg,
-    WeatherForecastDay,
-    WeatherResultsBlock,
 )
 from app.services.agent.context_broker import Geolocation
 from app.services.mcp.amap_coordinate_converter import (
     AmapCoordinateConversionError,
     convert_wgs84_to_gcj02,
 )
-from app.services.mcp.amap_weather_cache import AmapWeatherCache, WeatherCacheBackend, WeatherCacheRecord
 from app.services.mcp.client import McpClientError
 from app.services.mcp.server_service import MCP_TOOL_UNAVAILABLE_MESSAGE
 from app.services.mcp.tool_contract import canonical_json_bytes
 from app.services.tool_handlers.base import BaseToolHandler, ToolResult
-from app.utils.time import utc_now
 
 AMAP_LOCAL_PLACE_SEARCH = "local_place_search"
 AMAP_ROUTE_COMPARE = "route_compare"
-AMAP_WEATHER_FORECAST = "weather_forecast"
-AMAP_PRODUCT_TOOL_NAMES = frozenset({AMAP_LOCAL_PLACE_SEARCH, AMAP_ROUTE_COMPARE, AMAP_WEATHER_FORECAST})
+AMAP_PRODUCT_TOOL_NAMES = frozenset({AMAP_LOCAL_PLACE_SEARCH, AMAP_ROUTE_COMPARE})
 AMAP_PRODUCT_REMOTE_DEPENDENCIES = {
     AMAP_LOCAL_PLACE_SEARCH: frozenset({"maps_geo", "maps_text_search", "maps_around_search", "maps_search_detail"}),
     AMAP_ROUTE_COMPARE: frozenset(
@@ -65,7 +55,6 @@ AMAP_PRODUCT_REMOTE_DEPENDENCIES = {
             "maps_direction_bicycling",
         }
     ),
-    AMAP_WEATHER_FORECAST: frozenset({"maps_geo", "maps_regeocode", "maps_weather"}),
 }
 
 _MODE_TO_REMOTE_TOOL = {
@@ -84,27 +73,14 @@ _MAX_RESULT_BYTES = 32_000
 _MAX_REQUESTED_DEPARTURE_TIME_CHARS = 80
 _TRUNCATED = "[TRUNCATED]"
 _AMAP_COORDINATE_CONVERT_ATTEMPT = "amap_coordinate_convert"
-_ADCODE_PATTERN = re.compile(r"^\d{6}$")
 
-# 高德地理编码覆盖港澳台，天气接口不覆盖：maps_geo 能解析出 adcode，随后的
-# maps_weather 固定回 UNKNOWN_ERROR。这是稳定的覆盖范围边界，不是瞬时故障，
-# 报成「暂时不可用」会让模型以为重试或改用其它工具取同一份数据还有希望。
-# 判据按行政区划前缀给出，而不是匹配地名，并且只在 maps_weather 真的失败后
-# 才生效——高德若哪天补上覆盖，调用直接成功，这条判据自然不再触发。
-WEATHER_REGION_UNSUPPORTED_ERROR_CODE = "weather_region_unsupported"
-AMAP_WEATHER_REGION_UNSUPPORTED_MESSAGE = "高德天气服务未覆盖该地区，无法取得当地预报"
-_WEATHER_UNSUPPORTED_ADCODE_PREFIXES = ("71", "81", "82")  # 台湾、香港、澳门
 # 地点搜索的锚点地名对应多处分散位置。与上游故障分开报，模型才知道补城市或换更具体
 # 的地名能解决，而不是反复重试同一组参数。
 PLACE_ANCHOR_AMBIGUOUS_ERROR_CODE = "ambiguous_location"
 AMAP_PLACE_ANCHOR_AMBIGUOUS_MESSAGE = "地点名称对应多个位置，需要补充城市或更具体的地点"
 _PRODUCT_FAILURE_MESSAGES = {
-    WEATHER_REGION_UNSUPPORTED_ERROR_CODE: AMAP_WEATHER_REGION_UNSUPPORTED_MESSAGE,
     PLACE_ANCHOR_AMBIGUOUS_ERROR_CODE: AMAP_PLACE_ANCHOR_AMBIGUOUS_MESSAGE,
 }
-_SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
-_WEATHER_CACHE_MAX_AGE = timedelta(minutes=30)
-_WEATHER_CACHE_TIMEOUT_SECONDS = 0.3
 _INLINE_SECRET_VALUE = r'"(?:\\.|[^"\\])+"|\'(?:\\.|[^\'\\])+\'|[a-z0-9._~+/=-]{4,}'
 _INLINE_SECRET_PATTERN = re.compile(
     rf"(?P<key_prefix>\b(?:api[ _-]*key|client[ _-]*secret|password|access[ _-]*token|token|cookie|session[ _-]*id)\s*[:=]\s*)"
@@ -116,7 +92,6 @@ _INLINE_SECRET_PATTERN = re.compile(
 
 _LOCAL_PLACE_RESULT_USAGE_CONTRACT = render_runtime_prompt("amap.local_usage")
 _ROUTE_RESULT_USAGE_CONTRACT = render_runtime_prompt("amap.route_usage")
-_WEATHER_RESULT_USAGE_CONTRACT = render_runtime_prompt("amap.weather_usage")
 _PRODUCT_FINAL_ANSWER_CONTRACT = render_runtime_prompt("amap.final_answer")
 _CANDIDATE_CHOICE_SCHEMA = {
     "type": "integer",
@@ -207,35 +182,6 @@ AMAP_PRODUCT_DEFINITIONS = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": AMAP_WEATHER_FORECAST,
-            "description": render_runtime_prompt("amap.weather_description"),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "location": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 120,
-                        "description": render_runtime_prompt("amap.location"),
-                    },
-                    "location_source": {
-                        "type": "string",
-                        "enum": ["named", "current_location"],
-                    },
-                    "requested_date": {
-                        "type": "string",
-                        "format": "date",
-                        "description": render_runtime_prompt("amap.requested_weather_date"),
-                    },
-                },
-                "required": ["location", "location_source"],
-                "additionalProperties": False,
-            },
-        },
-    },
 ]
 _DEFINITION_BY_NAME = {item["function"]["name"]: item for item in AMAP_PRODUCT_DEFINITIONS}
 
@@ -253,20 +199,6 @@ class AmapRemoteExecutor(Protocol):
     async def remaining_run_budget(self) -> int: ...
 
     async def try_consume_run_budget(self) -> bool: ...
-
-
-@dataclass(frozen=True)
-class _WeatherLocationResolution:
-    adcode: str | None
-    label: str
-    city: str | None
-
-
-@dataclass(frozen=True)
-class _WeatherGeoResolution:
-    adcode: str | None = None
-    label: str | None = None
-    candidate_count: int = 0
 
 
 class AmapRunCoordinateConversion:
@@ -343,7 +275,6 @@ def build_amap_product_binding(
     labels = {
         AMAP_LOCAL_PLACE_SEARCH: "高德地点搜索",
         AMAP_ROUTE_COMPARE: "高德路线对比",
-        AMAP_WEATHER_FORECAST: "高德天气预报",
     }
     return AmapProductToolBinding(
         alias=product_name,
@@ -370,8 +301,6 @@ class AmapProductToolHandler(BaseToolHandler):
         timeout_seconds: float = _PRODUCT_TIMEOUT_SECONDS,
         coordinate_converter: Callable[[Geolocation], Awaitable[str]] = convert_wgs84_to_gcj02,
         coordinate_conversion: AmapRunCoordinateConversion | None = None,
-        weather_cache: WeatherCacheBackend | None = None,
-        now: Callable[[], datetime] = utc_now,
     ) -> None:
         self.binding = binding
         self.remote_executor = remote_executor
@@ -381,10 +310,6 @@ class AmapProductToolHandler(BaseToolHandler):
         self.timeout_seconds = timeout_seconds
         self.coordinate_converter = coordinate_converter
         self.coordinate_conversion = coordinate_conversion or AmapRunCoordinateConversion()
-        self.weather_cache = weather_cache or AmapWeatherCache(
-            service_identity=(f"{binding.server_id}:{binding.config_version}:{binding.definition_sha256}")
-        )
-        self.now = now
 
     @property
     def tool_name(self) -> str:
@@ -409,7 +334,6 @@ class AmapProductToolHandler(BaseToolHandler):
                 "destination_source",
                 "modes",
             ),
-            AMAP_WEATHER_FORECAST: ("location", "location_source"),
         }.get(self.tool_name)
         if required_fields is None:
             return [{"field": "request", "code": "invalid_arguments"}]
@@ -424,8 +348,6 @@ class AmapProductToolHandler(BaseToolHandler):
                 _validate_local_args(args)
             elif self.tool_name == AMAP_ROUTE_COMPARE:
                 _validate_route_args(args)
-            elif self.tool_name == AMAP_WEATHER_FORECAST:
-                _validate_weather_args(args)
         except _InvalidArguments:
             return [{"field": "request", "code": "invalid_arguments"}]
         return []
@@ -483,8 +405,6 @@ class AmapProductToolHandler(BaseToolHandler):
                 normalized = _validate_local_args(input_params)
             elif self.tool_name == AMAP_ROUTE_COMPARE:
                 normalized = _validate_route_args(input_params)
-            elif self.tool_name == AMAP_WEATHER_FORECAST:
-                normalized = _validate_weather_args(input_params)
             else:
                 return None
         except (_InvalidArguments, TypeError, ValueError):
@@ -512,8 +432,6 @@ class AmapProductToolHandler(BaseToolHandler):
                         result = await self._execute_local(args, stats, partial, runtime_context=runtime_context)
                     elif self.tool_name == AMAP_ROUTE_COMPARE:
                         result = await self._execute_route(args, stats, partial, runtime_context=runtime_context)
-                    elif self.tool_name == AMAP_WEATHER_FORECAST:
-                        result = await self._execute_weather(args, stats, runtime_context=runtime_context)
                     else:
                         return self._failed_result(started_at, stats, "invalid_tool")
         except asyncio.TimeoutError:
@@ -694,159 +612,6 @@ class AmapProductToolHandler(BaseToolHandler):
             places=places,
             anchor=partial.get("anchor") if isinstance(partial.get("anchor"), dict) else None,
             detail_degraded=True,
-        )
-
-    async def _execute_weather(
-        self,
-        args: dict,
-        stats: "_RemoteCallStats",
-        *,
-        runtime_context: Any,
-    ) -> ToolResult:
-        normalized = _validate_weather_args(args)
-        query = normalized["location"]
-        source = normalized["location_source"]
-        requested_date = normalized.get("requested_date")
-        resolved_hint: str | None = None
-
-        if source == "current_location":
-            minimum_calls = 3
-            if await self.coordinate_conversion.needs_attempt():
-                minimum_calls += 1
-            await self._require_remaining_budget(minimum_calls)
-            coordinate = await self._convert_current_location(runtime_context, stats)
-            reverse_payload = await self._call("maps_regeocode", {"location": coordinate}, stats)
-            reverse_location = _extract_weather_reverse_location(reverse_payload)
-            if reverse_location is None:
-                raise McpClientError("invalid_response", MCP_TOOL_UNAVAILABLE_MESSAGE)
-            adcode = reverse_location.adcode
-            resolved_hint = reverse_location.label
-            if adcode is None:
-                geo_payload = await self._call(
-                    "maps_geo",
-                    {
-                        "address": reverse_location.label,
-                        **({"city": reverse_location.city} if reverse_location.city else {}),
-                    },
-                    stats,
-                )
-                resolved = _extract_weather_geo_location(
-                    geo_payload,
-                    requested_city=reverse_location.city,
-                )
-                if resolved.adcode is None or resolved.label is None:
-                    raise McpClientError("invalid_response", MCP_TOOL_UNAVAILABLE_MESSAGE)
-                adcode, resolved_hint = resolved.adcode, resolved.label
-        else:
-            await self._require_remaining_budget(2)
-            geo_payload = await self._call(
-                "maps_geo",
-                {"address": query},
-                stats,
-            )
-            resolved = _extract_weather_geo_location(
-                geo_payload,
-                requested_city=None,
-            )
-            if resolved.adcode is None or resolved.label is None:
-                if resolved.candidate_count > 1:
-                    raise _ArgumentRepairRequired(
-                        error_code="ambiguous_location",
-                        required_fields=("location",),
-                        allowed_values={},
-                        retryable=False,
-                        requires_user_input=True,
-                        retry_exhausted=False,
-                        candidate_count=resolved.candidate_count,
-                        repair_id=_new_weather_repair_id(),
-                    )
-                raise McpClientError("invalid_response", MCP_TOOL_UNAVAILABLE_MESSAGE)
-            adcode, resolved_hint = resolved.adcode, resolved.label
-
-        cached = await self._read_weather_cache(adcode)
-        if cached is not None:
-            result = self._build_weather_result(query=query, core=cached, requested_date=requested_date)
-            return result
-
-        try:
-            weather_payload = await self._call("maps_weather", {"city": adcode}, stats)
-        except McpClientError as error:
-            # 只改写上游业务错误。超时、无效响应等其它错误码在未覆盖地区上同样可能
-            # 是真故障，掩盖掉会让排查失去线索。
-            if error.code == "tool_error" and adcode.startswith(_WEATHER_UNSUPPORTED_ADCODE_PREFIXES):
-                raise McpClientError(
-                    WEATHER_REGION_UNSUPPORTED_ERROR_CODE,
-                    AMAP_WEATHER_REGION_UNSUPPORTED_MESSAGE,
-                    safe_details=error.safe_details,
-                ) from error
-            raise
-        core = _extract_weather_core(
-            weather_payload,
-            expected_adcode=adcode,
-            resolved_location_hint=resolved_hint,
-            fetched_at=self._weather_now(),
-        )
-        if core is None:
-            raise McpClientError("invalid_response", MCP_TOOL_UNAVAILABLE_MESSAGE)
-        await self._write_weather_cache(adcode, core)
-        return self._build_weather_result(query=query, core=core, requested_date=requested_date)
-
-    def _weather_now(self) -> datetime:
-        value = self.now()
-        if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
-            raise RuntimeError("天气时钟必须包含时区")
-        return value
-
-    async def _read_weather_cache(self, adcode: str) -> dict[str, Any] | None:
-        try:
-            async with asyncio.timeout(_WEATHER_CACHE_TIMEOUT_SECONDS):
-                value = await self.weather_cache.get(adcode)
-        except Exception as error:  # noqa: BLE001 — 注入缓存同样必须旁路
-            logger.warning("天气缓存读取失败，已旁路: adcode=%s error=%s", adcode, type(error).__name__)
-            return None
-        if not isinstance(value, dict):
-            return None
-        try:
-            record = WeatherCacheRecord.model_validate(value)
-        except ValidationError:
-            return None
-        now = self._weather_now()
-        fetched_at = record.fetched_at
-        if fetched_at > now or now - fetched_at > _WEATHER_CACHE_MAX_AGE:
-            return None
-        if fetched_at.astimezone(_SHANGHAI_TZ).date() != now.astimezone(_SHANGHAI_TZ).date():
-            return None
-        return record.model_dump(mode="json")
-
-    async def _write_weather_cache(self, adcode: str, core: dict[str, Any]) -> None:
-        try:
-            async with asyncio.timeout(_WEATHER_CACHE_TIMEOUT_SECONDS):
-                await self.weather_cache.set(adcode, core)
-        except Exception as error:  # noqa: BLE001 — 缓存故障不能影响真实天气结果
-            logger.warning("天气缓存写入失败，已旁路: adcode=%s error=%s", adcode, type(error).__name__)
-
-    def _build_weather_result(
-        self,
-        *,
-        query: str,
-        core: dict[str, Any],
-        requested_date: str | None,
-    ) -> ToolResult:
-        day_count = len(core["forecast_days"])
-        public_query = core["resolved_location"] if _ADCODE_PATTERN.fullmatch(query) else query
-        product_result = {
-            "query": _redact_product_text(public_query)[:120],
-            "resolved_location": core["resolved_location"],
-            "day_count": day_count,
-            "forecast_days": core["forecast_days"],
-            "fetched_at": core["fetched_at"],
-            "limitations": core["limitations"],
-        }
-        if requested_date:
-            product_result["requested_date"] = requested_date
-        return ToolResult(
-            status="success" if day_count == 4 else "degraded",
-            data={"result": _bound_result(product_result)},
         )
 
     async def _enrich_places(self, places: list[dict[str, Any]], stats: "_RemoteCallStats") -> bool:
@@ -1153,38 +918,6 @@ class AmapProductToolHandler(BaseToolHandler):
                     limitations=_safe_string_list(product_result.get("limitations"), max_items=8, max_chars=240),
                     tool_call_log_id=log_id,
                 )
-            if self.tool_name == AMAP_WEATHER_FORECAST:
-                raw_days = product_result.get("forecast_days")
-                if not isinstance(raw_days, list):
-                    return None
-                days: list[WeatherForecastDay] = []
-                for raw_day in raw_days[:4]:
-                    try:
-                        days.append(WeatherForecastDay.model_validate(raw_day))
-                    except (ValidationError, TypeError, ValueError):
-                        return None
-                if not days:
-                    return None
-                query = _safe_block_text(product_result.get("query"), 120)
-                resolved_location = _safe_block_text(product_result.get("resolved_location"), 120)
-                if not query or not resolved_location:
-                    return None
-                return WeatherResultsBlock(
-                    type="weather_results",
-                    id=block_id,
-                    schema_version=1,
-                    provider="amap",
-                    attribution=StructuredResultAttribution(label="高德地图"),
-                    status=result.status,
-                    query=query,
-                    resolved_location=resolved_location,
-                    requested_date=product_result.get("requested_date"),
-                    day_count=len(days),
-                    forecast_days=days,
-                    fetched_at=product_result.get("fetched_at"),
-                    limitations=_safe_string_list(product_result.get("limitations"), max_items=8, max_chars=240),
-                    tool_call_log_id=log_id,
-                )
             if self.tool_name != AMAP_ROUTE_COMPARE:
                 return None
             raw_routes = product_result.get("routes")
@@ -1243,13 +976,7 @@ class AmapProductToolHandler(BaseToolHandler):
                     sort_keys=True,
                 )
                 return render_runtime_prompt("amap.repair", payload=repair_payload)
-            if self.tool_name == AMAP_WEATHER_FORECAST:
-                # 覆盖范围之外与真故障对模型是两件事：前者重试不可能成功，直接换公开来源。
-                if result.data.get("error_code") == WEATHER_REGION_UNSUPPORTED_ERROR_CODE:
-                    failure_contract = render_runtime_prompt("amap.weather_region_unsupported")
-                else:
-                    failure_contract = render_runtime_prompt("amap.weather_unavailable")
-            elif (
+            if (
                 self.tool_name in {AMAP_LOCAL_PLACE_SEARCH, AMAP_ROUTE_COMPARE}
                 and result.data.get("error_code") == PLACE_ANCHOR_AMBIGUOUS_ERROR_CODE
             ):
@@ -1277,8 +1004,6 @@ class AmapProductToolHandler(BaseToolHandler):
             usage_contract = _LOCAL_PLACE_RESULT_USAGE_CONTRACT
         elif self.tool_name == AMAP_ROUTE_COMPARE:
             usage_contract = _ROUTE_RESULT_USAGE_CONTRACT
-        elif self.tool_name == AMAP_WEATHER_FORECAST:
-            usage_contract = _WEATHER_RESULT_USAGE_CONTRACT
         else:
             return render_runtime_prompt("amap.unknown_product")
         return _format_untrusted_context(
@@ -1337,8 +1062,6 @@ class AmapProductToolHandler(BaseToolHandler):
                 summary["result_count"] = _safe_int(product_result.get("result_count")) or 0
             elif self.tool_name == AMAP_ROUTE_COMPARE:
                 summary["mode_count"] = len(product_result.get("routes", []))
-            elif self.tool_name == AMAP_WEATHER_FORECAST:
-                summary["day_count"] = _safe_int(product_result.get("day_count")) or 0
         return summary
 
     def _binding_metadata(self) -> dict[str, Any]:
@@ -1450,10 +1173,6 @@ class _ArgumentRepairRequired(Exception):
         self.retry_exhausted = retry_exhausted
 
 
-def _new_weather_repair_id() -> str:
-    return f"repair_{uuid.uuid4().hex[:16]}"
-
-
 def _normalize_amap_search_keywords(query: str) -> str:
     """仅把显式标点分隔的备选词转换为高德 OR 语法，保留空格短语。"""
     if "|" in query:
@@ -1559,34 +1278,6 @@ def _validate_route_args(args: Any) -> dict[str, Any]:
             _MAX_REQUESTED_DEPARTURE_TIME_CHARS,
         ),
         "modes": list(raw_modes),
-    }
-
-
-def _validate_weather_args(args: Any) -> dict[str, Any]:
-    source = _validate_closed_object(args, {"location", "location_source", "requested_date"})
-    location = _required_text(source, "location", 120)
-    if _COORDINATE_PATTERN.fullmatch(location) or _ADCODE_PATTERN.fullmatch(location):
-        raise _InvalidArguments
-    location_source = source.get("location_source")
-    if location_source not in {"named", "current_location"}:
-        raise _InvalidArguments
-    if location_source == "current_location" and location in {"current_location", "当前位置"}:
-        location = "当前位置"
-    elif location_source == "current_location" or location in {"current_location", "当前位置"}:
-        raise _InvalidArguments
-    requested_date = source.get("requested_date")
-    if requested_date is not None:
-        if not isinstance(requested_date, str):
-            raise _InvalidArguments
-        try:
-            if CalendarDate.fromisoformat(requested_date).isoformat() != requested_date:
-                raise _InvalidArguments
-        except ValueError as error:
-            raise _InvalidArguments from error
-    return {
-        "location": location,
-        "location_source": location_source,
-        **({"requested_date": requested_date} if requested_date else {}),
     }
 
 
@@ -1753,162 +1444,6 @@ def _extract_reverse_city(payload: Any) -> str | None:
         if city:
             return city
     return None
-
-
-def _extract_weather_geo_location(
-    payload: Any,
-    *,
-    requested_city: str | None,
-) -> _WeatherGeoResolution:
-    candidates: list[tuple[str, str, str | None]] = []
-    for root in _structured_data_roots(payload):
-        for list_key in ("geocodes", "results"):
-            raw_candidates = root.get(list_key)
-            if not isinstance(raw_candidates, list):
-                continue
-            for candidate in raw_candidates[:20]:
-                if not isinstance(candidate, dict):
-                    continue
-                adcode = _first_text(candidate, ("adcode",), 6)
-                if not adcode or not _ADCODE_PATTERN.fullmatch(adcode):
-                    continue
-                city = _first_text(candidate, ("city", "cityname"), 40)
-                if requested_city and not _city_matches(requested_city, city):
-                    continue
-                resolved = _weather_location_label(candidate)
-                if resolved:
-                    candidates.append((adcode, resolved, city))
-    grouped: dict[str, list[tuple[str, str, str | None]]] = {}
-    for candidate in candidates:
-        grouped.setdefault(candidate[0], []).append(candidate)
-    if len(grouped) != 1:
-        return _WeatherGeoResolution(candidate_count=len(grouped))
-    adcode, matches = next(iter(grouped.items()))
-    return _WeatherGeoResolution(
-        adcode=adcode,
-        label=matches[0][1],
-        candidate_count=1,
-    )
-
-
-def _extract_weather_reverse_location(payload: Any) -> _WeatherLocationResolution | None:
-    roots = list(_structured_data_roots(payload))
-    if len(roots) != 1:
-        return None
-    root = roots[0]
-    regeocode = root.get("regeocode") if isinstance(root.get("regeocode"), dict) else root
-    component = regeocode.get("addressComponent")
-    if not isinstance(component, dict):
-        component = regeocode.get("address_component")
-    if not isinstance(component, dict):
-        component = regeocode
-    adcode = _first_text(component, ("adcode",), 6)
-    if adcode and not _ADCODE_PATTERN.fullmatch(adcode):
-        return None
-    resolved = _first_text(regeocode, ("formatted_address", "formattedAddress"), 120)
-    if not resolved:
-        resolved = _weather_location_label(component)
-    if not resolved:
-        return None
-    return _WeatherLocationResolution(
-        adcode=adcode,
-        label=resolved,
-        city=_first_text(component, ("city", "cityname"), 40),
-    )
-
-
-def _weather_location_label(source: dict[str, Any]) -> str | None:
-    formatted = _first_text(source, ("formatted_address", "formattedAddress"), 120)
-    if formatted:
-        return formatted
-    parts = [
-        _first_text(source, ("province",), 40),
-        _first_text(source, ("city", "cityname"), 40),
-        _first_text(source, ("district", "adname"), 40),
-    ]
-    label = "".join(part for index, part in enumerate(parts) if part and part not in parts[:index])
-    return label[:120] or None
-
-
-def _extract_weather_core(
-    payload: Any,
-    *,
-    expected_adcode: str,
-    resolved_location_hint: str | None,
-    fetched_at: datetime,
-) -> dict[str, Any] | None:
-    roots = [root for root in _structured_data_roots(payload) if isinstance(root.get("forecasts"), list)]
-    if len(roots) != 1:
-        return None
-    root = roots[0]
-    forecasts = root["forecasts"]
-    city = _first_text(root, ("city",), 120)
-    raw_casts: Any = forecasts
-    if len(forecasts) == 1 and isinstance(forecasts[0], dict) and isinstance(forecasts[0].get("casts"), list):
-        legacy_forecast = forecasts[0]
-        city = _first_text(legacy_forecast, ("city",), 120) or city
-        response_adcode = _first_text(legacy_forecast, ("adcode",), 6)
-        if response_adcode and (not _ADCODE_PATTERN.fullmatch(response_adcode) or response_adcode != expected_adcode):
-            return None
-        raw_casts = legacy_forecast["casts"]
-    if not city:
-        return None
-    if not isinstance(raw_casts, list):
-        return None
-    del resolved_location_hint  # 地理解析明细不得进入按 adcode 共享的公共缓存。
-    local_today = fetched_at.astimezone(_SHANGHAI_TZ).date()
-    by_date: dict[CalendarDate, WeatherForecastDay] = {}
-    for raw in raw_casts[:20]:
-        parsed = _build_weather_forecast_day(raw)
-        if parsed is not None and parsed.date >= local_today and parsed.date not in by_date:
-            by_date[parsed.date] = parsed
-    days = [by_date[key] for key in sorted(by_date)[:4]]
-    if not days:
-        return None
-    limitations = ["天气预报按行政区提供，不代表具体建筑物"]
-    if len(days) < 4:
-        limitations.append(f"仅返回 {len(days)} 天有效预报")
-    record = WeatherCacheRecord(
-        resolved_location=city,
-        forecast_days=days,
-        fetched_at=fetched_at,
-        limitations=limitations,
-    )
-    return record.model_dump(mode="json")
-
-
-def _build_weather_forecast_day(raw: Any) -> WeatherForecastDay | None:
-    if not isinstance(raw, dict):
-        return None
-    raw_date = raw.get("date")
-    if not isinstance(raw_date, str):
-        return None
-    try:
-        forecast_date = CalendarDate.fromisoformat(raw_date)
-    except ValueError:
-        return None
-    weekday = _safe_int(raw.get("week") if "week" in raw else raw.get("weekday"))
-    day_weather = _first_text(raw, ("dayweather", "day_weather"), 80)
-    night_weather = _first_text(raw, ("nightweather", "night_weather"), 80)
-    high_c = _safe_temperature(raw.get("daytemp") if "daytemp" in raw else raw.get("high_c"))
-    low_c = _safe_temperature(raw.get("nighttemp") if "nighttemp" in raw else raw.get("low_c"))
-    if weekday is None or not day_weather or not night_weather or high_c is None or low_c is None:
-        return None
-    try:
-        return WeatherForecastDay(
-            date=forecast_date,
-            weekday=weekday,
-            day_weather=day_weather,
-            night_weather=night_weather,
-            high_c=high_c,
-            low_c=low_c,
-            day_wind_direction=_first_text(raw, ("daywind", "day_wind_direction"), 40),
-            night_wind_direction=_first_text(raw, ("nightwind", "night_wind_direction"), 40),
-            day_wind_power=_first_text(raw, ("daypower", "day_wind_power"), 40),
-            night_wind_power=_first_text(raw, ("nightpower", "night_wind_power"), 40),
-        )
-    except ValidationError:
-        return None
 
 
 def _select_endpoint_poi_id(payload: Any, *, label: str) -> str | None:
@@ -2540,18 +2075,6 @@ def _safe_number(value: Any) -> int | float | None:
     return int(parsed) if parsed.is_integer() else round(parsed, 2)
 
 
-def _safe_temperature(value: Any) -> int | float | None:
-    if isinstance(value, bool):
-        return None
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError, OverflowError):
-        return None
-    if parsed != parsed or parsed in {float("inf"), float("-inf")} or not -100 <= parsed <= 100:
-        return None
-    return int(parsed) if parsed.is_integer() else round(parsed, 2)
-
-
 def _safe_remote_tools(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -2607,11 +2130,10 @@ def _duration_ms(started_at: float) -> int:
     return int((time.monotonic() - started_at) * 1_000)
 
 
-# 天气预报的工具契约与供应商无关：换用其它天气供应商时复用同一定义、参数校验与上下文包装。
-WEATHER_FORECAST_DEFINITION = _DEFINITION_BY_NAME[AMAP_WEATHER_FORECAST]
-WEATHER_RESULT_USAGE_CONTRACT = _WEATHER_RESULT_USAGE_CONTRACT
-InvalidWeatherArguments = _InvalidArguments
-validate_weather_arguments = _validate_weather_args
+# 产品工具通用的参数校验与上下文包装，供其它供应商的产品工具复用。
+InvalidProductArguments = _InvalidArguments
+validate_closed_object = _validate_closed_object
+required_product_text = _required_text
 format_product_context = _format_untrusted_context
 redact_product_text = _redact_product_text
 bound_product_result = _bound_result

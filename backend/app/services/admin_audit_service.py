@@ -32,6 +32,7 @@ from app.services.agent_strategy_config import get_agent_tools_disabled_aliases
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_TOOL_NAMES
 from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_TOOL_NAMES
 from app.services.stream.itinerary_observability import aggregate_itinerary_stability
+from app.services.weather import WEATHER_TOOL_NAMES
 
 
 class AdminAuditService:
@@ -675,7 +676,7 @@ class AdminAuditService:
                 )
                 if key in raw_output
             }
-        elif tool.tool_name.startswith("mcp_") or tool.tool_name in AMAP_PRODUCT_TOOL_NAMES:
+        elif tool.tool_name.startswith("mcp_") or tool.tool_name in AMAP_PRODUCT_TOOL_NAMES | WEATHER_TOOL_NAMES:
             binding_fields = (
                 "mcp_server_id",
                 "remote_tool_name",

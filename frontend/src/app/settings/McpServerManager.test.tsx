@@ -51,7 +51,6 @@ const server = {
 const recommendedAmapReadOnlyTools = [
   'maps_geo',
   'maps_regeocode',
-  'maps_weather',
   'maps_direction_bicycling',
   'maps_direction_walking',
   'maps_direction_driving',
@@ -372,7 +371,7 @@ describe('McpServerManager', () => {
 
   it('编辑已发现高德服务时一键只选择发现快照中的推荐只读工具', async () => {
     const discoveredRecommendedTools = recommendedAmapReadOnlyTools.filter(
-      (name) => name !== 'maps_weather',
+      (name) => name !== 'maps_distance',
     );
     const discoveredTools = [
       ...discoveredRecommendedTools.map((name) => ({ name, description: `只读工具 ${name}` })),
@@ -394,7 +393,7 @@ describe('McpServerManager', () => {
     discoveredRecommendedTools.forEach((toolName) => {
       expect(screen.getByRole('checkbox', { name: new RegExp(toolName) })).toBeChecked();
     });
-    expect(screen.queryByRole('checkbox', { name: /maps_weather/ })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: /maps_distance/ })).toBeNull();
     expect(screen.getByRole('checkbox', { name: /maps_ip_location/ })).not.toBeChecked();
     expect(screen.getByRole('checkbox', { name: /maps_schema_personal_map/ })).not.toBeChecked();
 

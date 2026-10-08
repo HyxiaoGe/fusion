@@ -4,11 +4,12 @@ import unittest
 
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_DEFINITIONS
 from app.services.stream.agent_loop_request_prep import build_agent_loop_call_config
+from app.services.weather.qweather_forecast_tool import WEATHER_FORECAST_DEFINITION
 
 
 class RecoveryRouteTests(unittest.TestCase):
     def test_weather_request_schemas_include_recovery_without_requiring_it(self):
-        weather = next(tool for tool in AMAP_PRODUCT_DEFINITIONS if tool["function"]["name"] == "weather_forecast")
+        weather = WEATHER_FORECAST_DEFINITION
         config = build_agent_loop_call_config(
             provider="openai",
             options={"plan_mode": "on"},
@@ -32,13 +33,14 @@ class RecoveryPromptTests(unittest.IsolatedAsyncioTestCase):
         async def messages(*args, **kwargs):
             return [{"role": "user", "content": "查询"}]
 
+        product_tools = [*AMAP_PRODUCT_DEFINITIONS, WEATHER_FORECAST_DEFINITION]
         for message in ("香港三天天气", "核验 OpenAI 最新公告，给出官方原文和交叉来源"):
             config = build_agent_loop_call_config(
                 provider="openai",
                 options={"plan_mode": "off"},
                 capabilities={"functionCalling": True, "searchCapable": True},
-                additional_tools=AMAP_PRODUCT_DEFINITIONS,
-                dynamic_tool_handlers={tool["function"]["name"]: lambda _: None for tool in AMAP_PRODUCT_DEFINITIONS},
+                additional_tools=product_tools,
+                dynamic_tool_handlers={tool["function"]["name"]: lambda _: None for tool in product_tools},
             )
             prepared = await prepare_agent_loop_messages(
                 db=object(),

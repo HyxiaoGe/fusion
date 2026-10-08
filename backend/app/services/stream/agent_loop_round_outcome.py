@@ -44,6 +44,7 @@ from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream.tool_recovery_evidence import is_grounded_recovery_answer
 from app.services.stream.tool_round import ToolRoundOutcome
 from app.services.stream_state_service import StreamWriteTerminalError, append_chunk
+from app.services.weather import WEATHER_TOOL_NAMES
 
 
 @dataclass(frozen=True)
@@ -653,7 +654,7 @@ async def _handle_tool_calls_round(request: AgentRoundOutcomeRequest) -> AgentLo
         request.state.record_product_tool_attempt(
             outcome.tool_call_count > 0
             and any(
-                str(tool_call.get("name", "")) in AMAP_PRODUCT_TOOL_NAMES | FLYAI_TRAVEL_TOOL_NAMES
+                str(tool_call.get("name", "")) in AMAP_PRODUCT_TOOL_NAMES | WEATHER_TOOL_NAMES | FLYAI_TRAVEL_TOOL_NAMES
                 for tool_call in request.round_result.tool_calls
             )
         )

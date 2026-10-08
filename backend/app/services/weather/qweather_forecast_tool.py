@@ -1,6 +1,5 @@
 """和风天气提供的 weather_forecast 产品工具。
 
-工具定义、参数校验、结果块与模型上下文契约与原高德天气一致，只换数据来源。
 城市查询是模糊匹配（随意输入也会返回城市），因此候选必须满足：
 - 城市名出现在用户给的地名里；
 - 国外且 rank 大于 80 的低重要度地点不参与；
@@ -12,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 import time
 from dataclasses import dataclass
 from datetime import date as CalendarDate
@@ -30,15 +30,16 @@ from app.schemas.chat import (
     WeatherResultsBlock,
 )
 from app.services.mcp.amap_product_tools import (
-    WEATHER_FORECAST_DEFINITION,
-    InvalidWeatherArguments,
+    InvalidProductArguments,
     bound_product_result,
     format_product_context,
     redact_product_text,
-    validate_weather_arguments,
+    required_product_text,
+    validate_closed_object,
 )
 from app.services.mcp.tool_contract import canonical_json_bytes
 from app.services.tool_handlers.base import BaseToolHandler, ToolResult
+from app.services.weather import WEATHER_FORECAST_TOOL_NAME
 from app.services.weather.qweather_client import (
     QWeatherCity,
     QWeatherClient,
@@ -48,7 +49,6 @@ from app.services.weather.qweather_client import (
 )
 
 QWEATHER_PROVIDER = "qweather"
-WEATHER_FORECAST_TOOL_NAME = "weather_forecast"
 FORECAST_DAYS = 4
 HOURLY_POINTS = 24
 MAX_CANDIDATES_SHOWN = 5
@@ -59,8 +59,72 @@ _TOOL_TIMEOUT_SECONDS = 20.0
 _CACHE_TTL_SECONDS = 30 * 60
 _SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 LABEL_SEPARATOR = "·"
+_COORDINATE_PATTERN = re.compile(r"^\s*[+-]?(?:\d+(?:\.\d+)?|\.\d+)\s*,\s*[+-]?(?:\d+(?:\.\d+)?|\.\d+)\s*$")
+_ADCODE_PATTERN = re.compile(r"^\d{6}$")
 # 只用于从上级行政区名里取出用户常写的简称（浙江省→浙江），不判断语义。
 _ADMIN_SUFFIXES = ("特别行政区", "维吾尔自治区", "壮族自治区", "回族自治区", "自治区", "省", "市")
+
+
+WEATHER_FORECAST_DEFINITION: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": WEATHER_FORECAST_TOOL_NAME,
+        "description": render_runtime_prompt("qweather.weather_description"),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "location": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120,
+                    "description": render_runtime_prompt("qweather.location"),
+                },
+                "location_source": {
+                    "type": "string",
+                    "enum": ["named", "current_location"],
+                },
+                "requested_date": {
+                    "type": "string",
+                    "format": "date",
+                    "description": render_runtime_prompt("qweather.requested_weather_date"),
+                },
+            },
+            "required": ["location", "location_source"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+InvalidWeatherArguments = InvalidProductArguments
+
+
+def validate_weather_arguments(args: Any) -> dict[str, Any]:
+    """闭合参数校验：只接受地名或当前位置，不接受坐标与行政区编码；日期须是规范的 YYYY-MM-DD。"""
+    source = validate_closed_object(args, {"location", "location_source", "requested_date"})
+    location = required_product_text(source, "location", 120)
+    if _COORDINATE_PATTERN.fullmatch(location) or _ADCODE_PATTERN.fullmatch(location):
+        raise InvalidWeatherArguments
+    location_source = source.get("location_source")
+    if location_source not in {"named", "current_location"}:
+        raise InvalidWeatherArguments
+    if location_source == "current_location" and location in {"current_location", "当前位置"}:
+        location = "当前位置"
+    elif location_source == "current_location" or location in {"current_location", "当前位置"}:
+        raise InvalidWeatherArguments
+    requested_date = source.get("requested_date")
+    if requested_date is not None:
+        if not isinstance(requested_date, str):
+            raise InvalidWeatherArguments
+        try:
+            if CalendarDate.fromisoformat(requested_date).isoformat() != requested_date:
+                raise InvalidWeatherArguments
+        except ValueError as error:
+            raise InvalidWeatherArguments from error
+    return {
+        "location": location,
+        "location_source": location_source,
+        **({"requested_date": requested_date} if requested_date else {}),
+    }
 
 
 @dataclass(frozen=True)
@@ -148,11 +212,27 @@ class QWeatherForecastToolHandler(BaseToolHandler):
         return "mcp"
 
     def validate_arguments(self, args: dict) -> list[dict[str, str]]:
+        if not isinstance(args, dict):
+            return [{"field": "request", "code": "invalid_arguments"}]
+        missing = [
+            {"field": field, "code": "required"} for field in ("location", "location_source") if field not in args
+        ]
+        if missing:
+            return missing
         try:
             validate_weather_arguments(args)
         except InvalidWeatherArguments:
             return [{"field": "request", "code": "invalid_arguments"}]
         return []
+
+    def build_successful_call_signature(self, input_params: dict) -> str | None:
+        """同一地点与日期的成功预报可在当前 Agent run 内直接复用。"""
+        try:
+            normalized = validate_weather_arguments(input_params)
+        except (InvalidWeatherArguments, TypeError, ValueError):
+            return None
+        payload = {"tool_name": self.tool_name, "arguments": normalized}
+        return hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
 
     async def execute(self, args: dict) -> ToolResult:
         return await self._execute(args, runtime_context=None)
@@ -309,7 +389,7 @@ class QWeatherForecastToolHandler(BaseToolHandler):
                 )
             if error_code == "location_not_found":
                 return render_runtime_prompt("qweather.location_not_found")
-            return render_runtime_prompt("amap.weather_unavailable")
+            return render_runtime_prompt("qweather.weather_unavailable")
         # 逐小时明细只给卡片画图，模型只拿摘要，避免逐条复述。
         model_result = {key: value for key, value in data["result"].items() if key != "hourly"}
         hourly_summary = summarize_hourly(data["result"].get("hourly") or [])

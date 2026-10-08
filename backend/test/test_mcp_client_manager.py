@@ -1337,7 +1337,7 @@ class RealSdkPathAuthFailureTests(unittest.IsolatedAsyncioTestCase):
             auth_type="query",
             auth_name="key",
             credential_ref="AMAP_MCP_API_KEY",
-            allowed_tools=["maps_weather"],
+            allowed_tools=["maps_geo"],
         )
 
     async def _run_operation(self, coroutine_factory):
@@ -1360,7 +1360,7 @@ class RealSdkPathAuthFailureTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(error.code, "auth_failed")
 
     async def test_tools_call_同样判为_auth_failed(self):
-        error = await self._run_operation(lambda m: m.call_tool(self._config(), "maps_weather", {"city": "北京"}))
+        error = await self._run_operation(lambda m: m.call_tool(self._config(), "maps_geo", {"address": "北京"}))
 
         self.assertEqual(error.code, "auth_failed")
 
@@ -1440,7 +1440,7 @@ class GzippedProviderErrorTests(unittest.IsolatedAsyncioTestCase):
             auth_type="query",
             auth_name="key",
             credential_ref="AMAP_MCP_API_KEY",
-            allowed_tools=["maps_weather"],
+            allowed_tools=["maps_geo"],
         )
         return manager, config, factory
 
@@ -1455,7 +1455,7 @@ class GzippedProviderErrorTests(unittest.IsolatedAsyncioTestCase):
                 elif operation == "tools_list":
                     await manager.list_tools(config)
                 else:
-                    await manager.call_tool(config, "maps_weather", {"city": "北京"})
+                    await manager.call_tool(config, "maps_geo", {"address": "北京"})
         return ctx.exception.code
 
     async def test_gzip_压缩的鉴权错误仍判为_auth_failed(self):
@@ -1560,7 +1560,7 @@ class SuccessPathThroughRealTransportTests(unittest.IsolatedAsyncioTestCase):
         from app.services.mcp.client import HttpExchangeRecord, _http_exchange_record
         from app.services.mcp.client import _RecordingTransport as RealRecordingTransport
 
-        payload = b'{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"maps_weather"}]}}'
+        payload = b'{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"maps_geo"}]}}'
 
         def handler(request):
             return httpx.Response(

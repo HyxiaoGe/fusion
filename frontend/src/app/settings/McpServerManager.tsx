@@ -82,7 +82,6 @@ const context7SafePreset: ServerFormState = {
 const recommendedAmapReadOnlyTools = [
   "maps_geo",
   "maps_regeocode",
-  "maps_weather",
   "maps_direction_bicycling",
   "maps_direction_walking",
   "maps_direction_driving",
