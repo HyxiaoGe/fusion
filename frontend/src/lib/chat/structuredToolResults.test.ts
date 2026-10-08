@@ -746,6 +746,23 @@ describe('normalizeStructuredToolResultBlock', () => {
 
     const block = normalizeStructuredToolResultBlock(source);
     expect(block).toMatchObject({ provider: 'qweather', attribution: { label: '和风天气' } });
+    expect(block).not.toHaveProperty('hourly');
+
+    const hourly = [
+      { time: '2026-10-08T16:00:00+08:00', temp_c: 25, weather: '晴', pop: 0, precip_mm: 0, extra: 'x' },
+      { time: '2026-10-08T17:00:00+08:00', temp_c: 24, weather: '多云', pop: null },
+    ];
+    expect(normalizeStructuredToolResultBlock({ ...source, hourly })).toMatchObject({
+      hourly: [
+        { time: '2026-10-08T16:00:00+08:00', temp_c: 25, weather: '晴', pop: 0, precip_mm: 0 },
+        { time: '2026-10-08T17:00:00+08:00', temp_c: 24, weather: '多云' },
+      ],
+    });
+    const unordered = normalizeStructuredToolResultBlock({ ...source, hourly: [hourly[1], hourly[0]] });
+    expect(unordered).not.toBeNull();
+    expect(unordered).not.toHaveProperty('hourly');
+    const invalid = normalizeStructuredToolResultBlock({ ...source, hourly: [{ ...hourly[0], pop: 120 }, hourly[1]] });
+    expect(invalid).not.toHaveProperty('hourly');
     expect(normalizeStructuredToolResultBlock({ ...source, provider: 'other' })).toBeNull();
   });
 });

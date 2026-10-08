@@ -248,6 +248,13 @@
         "daytime": "白天",
         "nighttime": "夜间",
         "fetchedAt": "获取于 {{value}}",
+        "hourly": {
+          "title": "未来 24 小时",
+          "temperature": "温度",
+          "precipitationChance": "降水概率",
+          "hour": "{{hour}}时",
+          "summary": "未来 24 小时气温 {{min}} 至 {{max}}，降水概率最高 {{pop}}%"
+        },
         "weekdays": {
           "1": "星期一",
           "2": "星期二",

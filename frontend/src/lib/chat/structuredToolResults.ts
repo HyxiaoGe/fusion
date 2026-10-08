@@ -27,6 +27,7 @@ import type {
   TravelEndpoint,
   TravelMoney,
   UnsupportedResultBlock,
+  WeatherHourlyPoint,
   WeatherResultsBlock,
 } from '@/types/conversation';
 
@@ -683,10 +684,47 @@ function normalizeWeatherResultBlock(
     resolved_location: resolvedLocation,
     day_count: dayCount as WeatherResultsBlock['day_count'],
     forecast_days: forecastDays,
+    ...optionalField('hourly', normalizeHourly(source.hourly)),
     fetched_at: fetchedAt,
     limitations: normalizeBoundedStringArray(source.limitations, 8, 240),
     ...optionalField('tool_call_log_id', boundedString(source.tool_call_log_id, 160)),
   };
+}
+
+/** 逐小时只用于趋势图：任一点不合法就整体丢弃，不影响逐日预报展示。 */
+function normalizeHourly(value: unknown): WeatherHourlyPoint[] | undefined {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 24) return undefined;
+  const points: WeatherHourlyPoint[] = [];
+  for (const item of value) {
+    const source = asRecord(item);
+    if (!source) return undefined;
+    const time = boundedString(source.time, 40);
+    const tempC = finiteNumberInRange(source.temp_c, -100, 100);
+    const weather = boundedString(source.weather, 80);
+    const pop = source.pop === null || source.pop === undefined ? undefined : integerInRange(source.pop, 0, 100);
+    const precip = source.precip_mm === null || source.precip_mm === undefined
+      ? undefined
+      : finiteNumberInRange(source.precip_mm, 0, 500);
+    if (
+      !time
+      || !isZonedIsoDateTime(time)
+      || tempC === undefined
+      || !weather
+      || (source.pop !== null && source.pop !== undefined && pop === undefined)
+      || (source.precip_mm !== null && source.precip_mm !== undefined && precip === undefined)
+    ) {
+      return undefined;
+    }
+    if (points.length > 0 && Date.parse(time) <= Date.parse(points[points.length - 1].time)) return undefined;
+    points.push({
+      time,
+      temp_c: tempC,
+      weather,
+      ...optionalField('pop', pop),
+      ...optionalField('precip_mm', precip),
+    });
+  }
+  return points;
 }
 
 function normalizeForecastDay(value: unknown): ForecastDay | null {
