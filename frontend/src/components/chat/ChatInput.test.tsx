@@ -43,7 +43,7 @@ const {
       },
       conversation: {
         reasoningEnabled: false,
-        composerAgentMode: 'auto',
+        composerAgentModeByChat: {},
         byId: {},
         hydrationStatus: {},
       },
@@ -125,7 +125,10 @@ vi.mock('@/components/ui/toast', () => ({
   }),
 }));
 
-vi.mock('@/redux/slices/conversationSlice', () => ({
+vi.mock('@/redux/slices/conversationSlice', async () => ({
+  selectComposerAgentMode: (
+    await vi.importActual<typeof import('@/redux/slices/conversationSlice')>('@/redux/slices/conversationSlice')
+  ).selectComposerAgentMode,
   setReasoningEnabled: setReasoningEnabledMock,
   setComposerAgentMode: setComposerAgentModeMock,
 }));
@@ -296,7 +299,7 @@ describe('ChatInput', () => {
     currentState.models.isLoading = false;
     currentState.models.loadStatus = 'ready';
     currentState.conversation.reasoningEnabled = false;
-    currentState.conversation.composerAgentMode = 'auto';
+    currentState.conversation.composerAgentModeByChat = {};
     currentState.conversation.byId = {
       'chat-1': createConversationBoundToSelectedModel('chat-1'),
       'chat-a': createConversationBoundToSelectedModel('chat-a'),
@@ -664,7 +667,7 @@ describe('ChatInput', () => {
     ['deep_research', 'lucide-search'],
   ] as const)('外层触发器在 %s 模式下显示对应图标', (mode, iconClass) => {
     configureAuthenticatedVisionModel();
-    currentState.conversation.composerAgentMode = mode;
+    currentState.conversation.composerAgentModeByChat = { 'chat-a': mode };
 
     render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
 
@@ -691,12 +694,12 @@ describe('ChatInput', () => {
     expect(deepResearchItem).toHaveFocus();
     await user.keyboard('{Enter}');
 
-    expect(setComposerAgentModeMock).toHaveBeenCalledWith('deep_research');
+    expect(setComposerAgentModeMock).toHaveBeenCalledWith({ chatId: 'chat-a', mode: 'deep_research' });
   });
 
   it('恢复会话知识库选择后进入严格模式、退出深度研究并随消息发送', async () => {
     configureAuthenticatedVisionModel();
-    currentState.conversation.composerAgentMode = 'deep_research';
+    currentState.conversation.composerAgentModeByChat = { 'chat-a': 'deep_research' };
     listKnowledgeBasesMock.mockResolvedValue({
       items: [{
         id: 'kb-1',
@@ -734,7 +737,7 @@ describe('ChatInput', () => {
     await screen.findByText('产品手册');
     expect(screen.getByText(/严格知识库模式|Strict knowledge mode/)).toBeInTheDocument();
     await waitFor(() => {
-      expect(setComposerAgentModeMock).toHaveBeenCalledWith('auto');
+      expect(setComposerAgentModeMock).toHaveBeenCalledWith({ chatId: 'chat-a', mode: 'auto' });
     });
     expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
       message: '已切换到自动模式：严格知识库模式不能与深度研究同时使用',
@@ -1163,7 +1166,7 @@ describe('ChatInput', () => {
 
   it('模型切换导致能力降级时回退自动模式并通过 toast 轻提示', async () => {
     configureAuthenticatedVisionModel();
-    currentState.conversation.composerAgentMode = 'deep_research';
+    currentState.conversation.composerAgentModeByChat = { 'chat-a': 'deep_research' };
 
     const { rerender } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
     setComposerAgentModeMock.mockClear();
@@ -1182,8 +1185,7 @@ describe('ChatInput', () => {
     rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
 
     await waitFor(() => {
-      expect(setComposerAgentModeMock).toHaveBeenCalledWith('auto');
-      expect(sessionStorage.getItem('fusion:composer-agent-mode')).toBe('auto');
+      expect(setComposerAgentModeMock).toHaveBeenCalledWith({ chatId: 'chat-a', mode: 'auto' });
       expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
         message: '已切换到自动模式：深度研究需要支持联网工具',
         type: 'warning',
@@ -1192,15 +1194,26 @@ describe('ChatInput', () => {
     expect(screen.queryByTestId('composer-agent-mode-status')).toBeNull();
   });
 
-  it('从当前标签页恢复执行模式并继续交由模型能力检查', async () => {
+  it('执行模式按对话显示：切换对话恢复各自模式，新对话为自动', () => {
     configureAuthenticatedVisionModel();
-    sessionStorage.setItem('fusion:composer-agent-mode', 'plan');
+    currentState.conversation.composerAgentModeByChat = { 'chat-a': 'deep_research' };
+    currentState.conversation.byId['chat-1'].messages = [{
+      id: 'assistant-1',
+      role: 'assistant',
+      content: [],
+      timestamp: 1,
+      agent_run: { config: { taskMode: 'standard', planMode: 'on' } },
+    }] as never;
 
-    render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
+    const { rerender } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
+    expect(screen.getByRole('button', { name: '执行模式：深度研究' })).toBeInTheDocument();
 
-    await waitFor(() => {
-      expect(setComposerAgentModeMock).toHaveBeenCalledWith('plan');
-    });
+    rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-1" />);
+    expect(screen.getByRole('button', { name: '执行模式：计划' })).toBeInTheDocument();
+
+    rerender(<ChatInput onSendMessage={vi.fn()} activeChatId={null} />);
+    expect(screen.getByRole('button', { name: '执行模式：自动' })).toBeInTheDocument();
+    expect(setComposerAgentModeMock).not.toHaveBeenCalled();
   });
 
   it('深度研究运行中的停止按钮使用研究语义', () => {
@@ -2360,8 +2373,7 @@ describe('ChatInput', () => {
       pointerType: 'mouse',
     });
     fireEvent.click(screen.getByRole('menuitemradio', { name: /计划/ }));
-    expect(setComposerAgentModeMock).toHaveBeenCalledWith('plan');
-    expect(sessionStorage.getItem('fusion:composer-agent-mode')).toBe('plan');
+    expect(setComposerAgentModeMock).toHaveBeenCalledWith({ chatId: 'chat-1', mode: 'plan' });
 
     fireEvent.change(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）'), {
       target: {
@@ -2381,7 +2393,7 @@ describe('ChatInput', () => {
     );
 
     currentState.conversation.reasoningEnabled = true;
-    currentState.conversation.composerAgentMode = 'plan';
+    currentState.conversation.composerAgentModeByChat = { 'chat-1': 'plan' };
     rerender(
       <ChatInput
         onSendMessage={onSendMessage}

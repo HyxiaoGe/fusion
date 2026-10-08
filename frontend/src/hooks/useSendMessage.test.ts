@@ -14,6 +14,7 @@ import authReducer, { logout } from '@/redux/slices/authSlice';
 import conversationReducer, {
   appendMessage,
   updateMessage,
+  selectComposerAgentMode,
   setComposerAgentMode,
   setHydrationStatus,
 } from '@/redux/slices/conversationSlice';
@@ -27,6 +28,7 @@ import streamReducer, {
   EMPTY_STREAM_SLOT,
 } from '@/redux/slices/streamSlice';
 import type { StreamSlot, StreamState } from '@/redux/slices/streamSlice';
+import { NEW_CHAT_AGENT_MODE_KEY } from '@/lib/agent/composerAgentMode';
 
 /** 按会话取流槽位。 */
 function slotOf(state: { stream: StreamState }, conversationId: string): StreamSlot {
@@ -345,7 +347,7 @@ describe('useSendMessage', () => {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }));
-    store.dispatch(setComposerAgentMode('deep_research'));
+    store.dispatch(setComposerAgentMode({ chatId: 'existing-conv', mode: 'deep_research' }));
     sendMessageStreamMock.mockResolvedValue(undefined);
 
     const { result } = renderHook(() => useSendMessage(), {
@@ -686,7 +688,7 @@ describe('useSendMessage', () => {
       createdAt: 100,
       updatedAt: 200,
     }));
-    store.dispatch(setComposerAgentMode('deep_research'));
+    store.dispatch(setComposerAgentMode({ chatId: 'existing-conv', mode: 'deep_research' }));
     sendMessageStreamMock.mockResolvedValue(undefined);
 
     const { result } = renderHook(() => useSendMessage(), {
@@ -1033,7 +1035,7 @@ describe('useSendMessage', () => {
 
   it('把用户开启的计划模式作为受控请求选项发送给后端', async () => {
     const store = createStore();
-    store.dispatch(setComposerAgentMode('plan'));
+    store.dispatch(setComposerAgentMode({ chatId: NEW_CHAT_AGENT_MODE_KEY, mode: 'plan' }));
     sendMessageStreamMock.mockImplementation(
       async (_payload: any, callbacks: StreamCallbacks) => {
         callbacks.onReady({ messageId: 'assistant-1', conversationId: 'server-conv' });
@@ -1065,7 +1067,7 @@ describe('useSendMessage', () => {
 
   it('切换到不支持工具调用的模型后不会发送不可满足的强制计划模式', async () => {
     const store = createStore({ functionCalling: false });
-    store.dispatch(setComposerAgentMode('plan'));
+    store.dispatch(setComposerAgentMode({ chatId: NEW_CHAT_AGENT_MODE_KEY, mode: 'plan' }));
     sendMessageStreamMock.mockImplementation(
       async (_payload: any, callbacks: StreamCallbacks) => {
         callbacks.onReady({ messageId: 'assistant-1', conversationId: 'server-conv' });
@@ -1096,7 +1098,7 @@ describe('useSendMessage', () => {
 
   it('深度研究发送强制计划并携带任务模式', async () => {
     const store = createStore();
-    store.dispatch(setComposerAgentMode('deep_research'));
+    store.dispatch(setComposerAgentMode({ chatId: NEW_CHAT_AGENT_MODE_KEY, mode: 'deep_research' }));
     sendMessageStreamMock.mockImplementation(
       async (_payload: any, callbacks: StreamCallbacks) => {
         callbacks.onReady({ messageId: 'assistant-1', conversationId: 'server-conv' });
@@ -1125,9 +1127,69 @@ describe('useSendMessage', () => {
     );
   });
 
+  it('新对话页的模式选择随首条消息转给新对话，新对话页回到自动模式', async () => {
+    const store = createStore();
+    store.dispatch(setComposerAgentMode({ chatId: NEW_CHAT_AGENT_MODE_KEY, mode: 'deep_research' }));
+    sendMessageStreamMock.mockImplementation(
+      async (_payload: any, callbacks: StreamCallbacks) => {
+        callbacks.onReady({ messageId: 'assistant-1', conversationId: 'server-conv' });
+        callbacks.onDone({ messageId: 'assistant-1', conversationId: 'server-conv' });
+      }
+    );
+
+    const { result } = renderHook(() => useSendMessage(), {
+      wrapper: createWrapper(store),
+    });
+
+    await act(async () => {
+      await result.current.sendMessage('深入调查这个问题', { conversationId: null });
+    });
+
+    const { composerAgentModeByChat } = store.getState().conversation;
+    expect(composerAgentModeByChat).toEqual({ 'server-conv': 'deep_research' });
+    expect(selectComposerAgentMode(store.getState(), null)).toBe('auto');
+  });
+
+  it('已有对话按自己的模式发送，不受其他对话选择影响', async () => {
+    const store = createStore();
+    store.dispatch(upsertConversation({
+      id: 'existing-conv',
+      title: 'Existing',
+      model_id: 'model-1',
+      messages: [{
+        id: 'assistant-old',
+        role: 'assistant',
+        content: [],
+        timestamp: 1,
+        agent_run: { config: { taskMode: 'deep_research', planMode: 'on' } } as any,
+      }],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }));
+    store.dispatch(setComposerAgentMode({ chatId: 'other-conv', mode: 'plan' }));
+    store.dispatch(setComposerAgentMode({ chatId: NEW_CHAT_AGENT_MODE_KEY, mode: 'auto' }));
+    sendMessageStreamMock.mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useSendMessage(), {
+      wrapper: createWrapper(store),
+    });
+
+    await act(async () => {
+      await result.current.sendMessage('继续研究', { conversationId: 'existing-conv' });
+    });
+
+    expect(sendMessageStreamMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({ plan_mode: 'on', task_mode: 'deep_research' }),
+      }),
+      expect.any(Object),
+      expect.any(AbortSignal),
+    );
+  });
+
   it('深度研究在模型缺少联网工具时发送前安全回退自动模式', async () => {
     const store = createStore({ searchCapable: false, agentTools: false });
-    store.dispatch(setComposerAgentMode('deep_research'));
+    store.dispatch(setComposerAgentMode({ chatId: NEW_CHAT_AGENT_MODE_KEY, mode: 'deep_research' }));
     sendMessageStreamMock.mockImplementation(
       async (_payload: any, callbacks: StreamCallbacks) => {
         callbacks.onReady({ messageId: 'assistant-1', conversationId: 'server-conv' });

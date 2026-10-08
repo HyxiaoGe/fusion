@@ -1,9 +1,13 @@
 import type { ModelCapability } from '@/lib/config/modelConfig';
 import type {
   AgentPlanMode,
+  AgentRunConfig,
   AgentTaskMode,
   ComposerAgentMode,
 } from '@/types/agentRun';
+
+// 新对话页还没有对话 id，执行模式的选择先记在这个键下，首条消息发出后转给新对话。
+export const NEW_CHAT_AGENT_MODE_KEY = '__new_chat__';
 
 export interface ComposerAgentModeAvailability {
   enabled: boolean;
@@ -84,4 +88,15 @@ export function resolveComposerAgentMode(
     planMode: requestedMode === 'plan' ? 'on' : 'auto',
     taskMode: 'standard',
   };
+}
+
+/**
+ * 由一次运行的配置还原用户当时选的执行模式：深度研究固定记为 deep_research，
+ * 计划模式只在用户选择“计划”时记为 plan_mode=on，自动模式记为 off。
+ */
+export function composerAgentModeFromRunConfig(
+  config: Pick<AgentRunConfig, 'taskMode' | 'planMode'>,
+): ComposerAgentMode {
+  if (config.taskMode === 'deep_research') return 'deep_research';
+  return config.planMode === 'on' ? 'plan' : 'auto';
 }

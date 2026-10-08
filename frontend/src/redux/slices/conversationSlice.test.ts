@@ -11,6 +11,7 @@ import reducer, {
   requestSuggestedQuestionsObservation,
   resetConversationState,
   acknowledgeConversationListRefresh,
+  selectComposerAgentMode,
   setComposerAgentMode,
   setConversationList,
   setHydrationStatus,
@@ -43,12 +44,32 @@ function textMessage(id: string): Message {
 }
 
 describe('conversationSlice', () => {
-  it('切换深度研究模式并在会话状态重置后保留用户选择', () => {
-    const enabled = reducer(undefined, setComposerAgentMode('deep_research'));
+  it('执行模式按对话记录，会话状态重置后保留各对话的选择', () => {
+    const enabled = reducer(undefined, setComposerAgentMode({ chatId: 'conv-a', mode: 'deep_research' }));
     const reset = reducer(enabled, resetConversationState());
 
-    expect(enabled.composerAgentMode).toBe('deep_research');
-    expect(reset.composerAgentMode).toBe('deep_research');
+    expect(selectComposerAgentMode({ conversation: reset }, 'conv-a')).toBe('deep_research');
+    expect(selectComposerAgentMode({ conversation: reset }, 'conv-b')).toBe('auto');
+    expect(selectComposerAgentMode({ conversation: reset }, null)).toBe('auto');
+  });
+
+  it('未手动选择的对话按最近一次运行配置还原模式', () => {
+    const run = (taskMode: string, planMode: string) => ({ config: { taskMode, planMode } }) as any;
+    const state = reducer(undefined, upsertConversation({
+      id: 'conv-a',
+      title: 'A',
+      model_id: 'model-1',
+      messages: [
+        { id: 'a1', role: 'assistant', content: [], timestamp: 1, agent_run: run('deep_research', 'on') },
+        { id: 'a2', role: 'assistant', content: [], timestamp: 2, agent_run: run('standard', 'on') },
+      ],
+      createdAt: 1,
+      updatedAt: 1,
+    }));
+
+    expect(selectComposerAgentMode({ conversation: state }, 'conv-a')).toBe('plan');
+    const selected = reducer(state, setComposerAgentMode({ chatId: 'conv-a', mode: 'auto' }));
+    expect(selectComposerAgentMode({ conversation: selected }, 'conv-a')).toBe('auto');
   });
 
   it('会话列表 dirty id 去重排队，并只确认已完成的 id', () => {
@@ -500,7 +521,7 @@ describe('conversationSlice', () => {
       pendingConversationId: null,
       animatingTitleId: null,
       reasoningEnabled: true,
-      composerAgentMode: 'auto',
+      composerAgentModeByChat: {},
       globalError: null,
       searchResults: null,
       isSearching: false,
@@ -561,7 +582,7 @@ describe('conversationSlice', () => {
       pendingConversationId: null,
       animatingTitleId: null,
       reasoningEnabled: true,
-      composerAgentMode: 'auto',
+      composerAgentModeByChat: {},
       globalError: null,
       searchResults: null,
       isSearching: false,
@@ -612,7 +633,7 @@ describe('conversationSlice', () => {
       pendingConversationId: 'temp',
       animatingTitleId: null,
       reasoningEnabled: true,
-      composerAgentMode: 'auto',
+      composerAgentModeByChat: {},
       globalError: null,
       searchResults: null,
       isSearching: false,

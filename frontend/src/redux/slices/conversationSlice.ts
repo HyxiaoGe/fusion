@@ -7,6 +7,7 @@ import type {
   Pagination,
 } from '@/types/conversation';
 import type { ComposerAgentMode } from '@/types/agentRun';
+import { composerAgentModeFromRunConfig, NEW_CHAT_AGENT_MODE_KEY } from '@/lib/agent/composerAgentMode';
 import {
   mergeSuggestedQuestionsState,
   resolveSuggestedQuestionsStatus,
@@ -76,7 +77,9 @@ export interface ConversationState {
   pendingConversationId: string | null;
   animatingTitleId: string | null;
   reasoningEnabled: boolean;
-  composerAgentMode: ComposerAgentMode;
+  // 用户在各对话里手动选的执行模式（键为对话 id；新对话页用 NEW_CHAT_AGENT_MODE_KEY）。
+  // 未选过的对话按最近一次运行的配置还原，见 selectComposerAgentMode。
+  composerAgentModeByChat: Record<string, ComposerAgentMode>;
   globalError: string | null;
   searchResults: Conversation[] | null;  // null = 未搜索；[] = 搜了但无结果
   isSearching: boolean;
@@ -101,7 +104,7 @@ const initialState: ConversationState = {
   pendingConversationId: null,
   animatingTitleId: null,
   reasoningEnabled: true,
-  composerAgentMode: 'auto',
+  composerAgentModeByChat: {},
   globalError: null,
   searchResults: null,
   isSearching: false,
@@ -257,11 +260,10 @@ const conversationSlice = createSlice({
       });
     },
     resetConversationListForAuthChange(state) {
-      const { reasoningEnabled, composerAgentMode, conversationListEpoch } = state;
+      const { reasoningEnabled, conversationListEpoch } = state;
       Object.assign(state, {
         ...initialState,
         reasoningEnabled,
-        composerAgentMode,
         conversationListEpoch: conversationListEpoch + 1,
       });
     },
@@ -654,6 +656,11 @@ const conversationSlice = createSlice({
       if (pendingObservation) {
         state.suggestedQuestionsObservations[serverConversation.id] = pendingObservation;
       }
+      const pendingAgentMode = state.composerAgentModeByChat[pendingId];
+      delete state.composerAgentModeByChat[pendingId];
+      if (pendingAgentMode !== undefined) {
+        state.composerAgentModeByChat[serverConversation.id] = pendingAgentMode;
+      }
       state.listIds.unshift(serverConversation.id);
       state.hydrationStatus[serverConversation.id] = 'done';
       state.pendingConversationId = null;
@@ -676,29 +683,36 @@ const conversationSlice = createSlice({
     setReasoningEnabled(state, action: PayloadAction<boolean>) {
       state.reasoningEnabled = action.payload;
     },
-    setComposerAgentMode(state, action: PayloadAction<ComposerAgentMode>) {
-      state.composerAgentMode = action.payload;
+    setComposerAgentMode(state, action: PayloadAction<{ chatId: string; mode: ComposerAgentMode }>) {
+      state.composerAgentModeByChat[action.payload.chatId] = action.payload.mode;
+    },
+    // 新对话发出首条消息后，新对话页的选择转给刚创建的对话，新对话页回到自动模式。
+    adoptNewChatAgentMode(state, action: PayloadAction<string>) {
+      const mode = state.composerAgentModeByChat[NEW_CHAT_AGENT_MODE_KEY];
+      if (mode !== undefined) {
+        state.composerAgentModeByChat[action.payload] = mode;
+      }
+      delete state.composerAgentModeByChat[NEW_CHAT_AGENT_MODE_KEY];
     },
     setGlobalError(state, action: PayloadAction<string | null>) {
       state.globalError = action.payload;
     },
     resetConversationState(state) {
-      const { reasoningEnabled, composerAgentMode, conversationListEpoch } = state;
+      const { reasoningEnabled, composerAgentModeByChat, conversationListEpoch } = state;
       Object.assign(state, {
         ...initialState,
         reasoningEnabled,
-        composerAgentMode,
+        composerAgentModeByChat,
         conversationListEpoch: conversationListEpoch + 1,
       });
     },
   },
   extraReducers: (builder) => {
     builder.addCase(accountSessionSwitchStarted, (state) => {
-      const { reasoningEnabled, composerAgentMode, conversationListEpoch } = state;
+      const { reasoningEnabled, conversationListEpoch } = state;
       Object.assign(state, {
         ...initialState,
         reasoningEnabled,
-        composerAgentMode,
         conversationListEpoch: conversationListEpoch + 1,
       });
     });
@@ -734,6 +748,7 @@ export const {
   setLoadingMore,
   setPendingConversationId,
   setComposerAgentMode,
+  adoptNewChatAgentMode,
   setReasoningEnabled,
   setSearchError,
   setSearchLoading,
@@ -748,3 +763,24 @@ export const {
 } = conversationSlice.actions;
 
 export default conversationSlice.reducer;
+
+/**
+ * 当前对话的执行模式：用户在该对话里选过就用选择；否则按该对话最近一次运行的配置还原；
+ * 新对话与没有运行记录的对话为自动模式。不同对话之间互不影响。
+ */
+export function selectComposerAgentMode(
+  state: { conversation: Pick<ConversationState, 'composerAgentModeByChat' | 'byId'> },
+  chatId: string | null | undefined,
+): ComposerAgentMode {
+  const key = chatId || NEW_CHAT_AGENT_MODE_KEY;
+  const selected = state.conversation.composerAgentModeByChat[key];
+  if (selected) return selected;
+  const messages = chatId ? state.conversation.byId[chatId]?.messages ?? [] : [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const run = messages[index].agent_run;
+    if (messages[index].role === 'assistant' && run) {
+      return composerAgentModeFromRunConfig(run.config);
+    }
+  }
+  return 'auto';
+}
