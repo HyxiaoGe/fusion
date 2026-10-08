@@ -190,6 +190,21 @@ class ProductResultSchemaTests(unittest.TestCase):
                 with self.assertRaises(ValidationError):
                     WeatherResultsBlock.model_validate(invalid)
 
+        # 只给所问那一天时是完整结果；单日但不是所问日期仍算降级
+        single = {**payload, "day_count": 1, "forecast_days": [payload["forecast_days"][1]]}
+        self.assertEqual(
+            WeatherResultsBlock.model_validate({**single, "status": "success", "requested_date": "2026-07-24"}).status,
+            "success",
+        )
+        for invalid in (
+            {**single, "status": "degraded", "requested_date": "2026-07-24"},
+            {**single, "status": "success", "requested_date": "2026-07-23"},
+            {**single, "status": "success"},
+        ):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValidationError):
+                    WeatherResultsBlock.model_validate(invalid)
+
     def test_route_transit_extension_keeps_schema_v1_and_old_payload_compatibility(self):
         old_payload = route_block().model_dump(mode="json")
         for key in ("transit_type", "walking_distance_m", "legs", "alternatives"):

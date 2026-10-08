@@ -379,6 +379,7 @@ export interface WeatherResultsBlock {
   status: 'success' | 'degraded';
   query: string;
   resolved_location: string;
+  requested_date?: string | null;
   day_count: 1 | 2 | 3 | 4;
   forecast_days: ForecastDay[];
   hourly?: WeatherHourlyPoint[];

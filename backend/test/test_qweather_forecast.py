@@ -278,7 +278,7 @@ class QWeatherHandlerTests(unittest.IsolatedAsyncioTestCase):
         fake = FakeQWeather()
         handler = build_handler(fake)
 
-        result = await handler.execute({"location": "杭州", "location_source": "named", "requested_date": "2026-10-10"})
+        result = await handler.execute({"location": "杭州", "location_source": "named"})
 
         self.assertEqual(result.status, "success")
         block = handler.build_content_block(result, "blk", "log")
@@ -288,9 +288,33 @@ class QWeatherHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(block.day_count, 4)
         self.assertEqual(block.forecast_days[0].day_wind_power, "1-3级")
         self.assertEqual(block.forecast_days[0].weekday, 4)
-        self.assertEqual(str(block.requested_date), "2026-10-10")
+        self.assertIsNone(block.requested_date)
         self.assertIn("forecast_days", handler.format_llm_context(result))
         self.assertEqual(fake.requests[-1].url.params["location"], "101210101")
+
+    async def test_requested_date_in_window_returns_only_that_day(self):
+        handler = build_handler(FakeQWeather())
+
+        result = await handler.execute({"location": "杭州", "location_source": "named", "requested_date": "2026-10-10"})
+
+        self.assertEqual(result.status, "success")
+        block = handler.build_content_block(result, "blk", "log")
+        self.assertEqual(block.day_count, 1)
+        self.assertEqual([str(day.date) for day in block.forecast_days], ["2026-10-10"])
+        self.assertEqual(str(block.requested_date), "2026-10-10")
+        context = handler.format_llm_context(result)
+        self.assertIn("2026-10-10", context)
+        self.assertNotIn("2026-10-11", context)
+
+    async def test_requested_date_outside_window_keeps_whole_window(self):
+        handler = build_handler(FakeQWeather())
+
+        result = await handler.execute({"location": "杭州", "location_source": "named", "requested_date": "2026-10-20"})
+
+        self.assertEqual(result.status, "success")
+        block = handler.build_content_block(result, "blk", "log")
+        self.assertEqual(block.day_count, 4)
+        self.assertEqual(str(block.requested_date), "2026-10-20")
 
     async def test_hourly_goes_to_card_and_only_summary_to_model(self):
         fake = FakeQWeather()

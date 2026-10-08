@@ -509,9 +509,15 @@ class WeatherResultsBlock(BaseModel):
         times = [item.time for item in self.hourly]
         if times != sorted(times) or len(times) != len(set(times)):
             raise ValueError("hourly 必须按时间升序且时间唯一")
-        expected_status = "success" if self.day_count == 4 else "degraded"
+        # 只给所问那一天的单日预报同样是完整结果
+        single_requested_day = (
+            self.requested_date is not None
+            and self.day_count == 1
+            and self.forecast_days[0].date == self.requested_date
+        )
+        expected_status = "success" if self.day_count == 4 or single_requested_day else "degraded"
         if self.status != expected_status:
-            raise ValueError("四天完整预报必须为 success，其余可用预报必须为 degraded")
+            raise ValueError("四天完整预报或所问单日预报必须为 success，其余可用预报必须为 degraded")
         return self
 
 
