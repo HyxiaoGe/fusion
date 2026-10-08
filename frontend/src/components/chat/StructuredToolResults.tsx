@@ -695,6 +695,10 @@ function WeatherResults({ block }: { block: WeatherResultsBlock }) {
   const requestedDay = count === 1 && block.requested_date && forecastDays[0].date === block.requested_date
     ? forecastDays[0]
     : null;
+  // 逐小时按当地日期截到所问那天；后端已截取，这里兼容截取前存下的消息
+  const hourly = requestedDay
+    ? block.hourly?.filter(point => point.time.slice(0, 10) === requestedDay.date)
+    : block.hourly;
   return (
     <section
       aria-label={t('structuredResults.weather.region')}
@@ -738,7 +742,7 @@ function WeatherResults({ block }: { block: WeatherResultsBlock }) {
         ))}
       </div>
 
-      {block.hourly && block.hourly.length > 1 && <WeatherHourlyTrend hourly={block.hourly} />}
+      {hourly && hourly.length > 1 && <WeatherHourlyTrend hourly={hourly} dayRange={Boolean(requestedDay)} />}
 
       <div className={styles.resultFooter}>
         <WeatherFreshness fetchedAt={block.fetched_at} language={i18n.language} />

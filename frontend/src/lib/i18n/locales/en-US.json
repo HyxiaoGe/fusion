@@ -257,6 +257,8 @@
         "nighttime": "Night",
         "fetchedAt": "Fetched at {{value}}",
         "hourly": {
+          "dayTitle": "That day {{start}}:00–{{end}}:00",
+          "daySummary": "That day {{start}}:00–{{end}}:00: {{min}} to {{max}}, precipitation chance up to {{pop}}%",
           "title": "Next 24 hours",
           "temperature": "Temperature",
           "precipitationChance": "Chance of precipitation",

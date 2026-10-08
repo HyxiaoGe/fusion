@@ -251,6 +251,8 @@
         "nighttime": "夜间",
         "fetchedAt": "获取于 {{value}}",
         "hourly": {
+          "dayTitle": "当日 {{start}}–{{end}} 时",
+          "daySummary": "当日 {{start}}–{{end}} 时气温 {{min}} 至 {{max}}，降水概率最高 {{pop}}%",
           "title": "未来 24 小时",
           "temperature": "温度",
           "precipitationChance": "降水概率",

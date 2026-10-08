@@ -286,6 +286,9 @@ class QWeatherForecastToolHandler(BaseToolHandler):
         if normalized.get("requested_date"):
             product_result["requested_date"] = normalized["requested_date"]
         hourly = _build_hourly(hours)
+        if requested_day is not None:
+            # 逐小时是“此刻起 24 小时”，问具体某天时只保留落在那天（当地日期）的小时
+            hourly = [point for point in hourly if point.time.date() == requested_day.date]
         if hourly:
             product_result["hourly"] = [point.model_dump(mode="json") for point in hourly]
         return ToolResult(
