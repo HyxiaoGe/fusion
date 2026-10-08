@@ -410,6 +410,23 @@ describe('StructuredToolResults', () => {
     }
   });
 
+  it('天气只返回所问那一天时，标题写日期并只显示一天', () => {
+    const base = weatherBlock();
+    render(
+      <StructuredToolResults
+        blocks={[weatherBlock({ requested_date: '2026-07-25', day_count: 1, forecast_days: [base.forecast_days[2]] })]}
+      />,
+    );
+
+    const region = screen.getByRole('region', { name: '天气预报结果' });
+    expect(within(region).getByText('龙华区 · 7月25日天气')).toBeInTheDocument();
+    expect(within(region).getByText('所问日期预报')).toBeInTheDocument();
+    const grid = within(region).getByTestId('weather-results-grid');
+    expect(grid).toHaveClass('grid-cols-1');
+    expect(grid).not.toHaveClass('lg:grid-cols-4');
+    expect(within(grid).getAllByTestId('weather-forecast-day')).toHaveLength(1);
+  });
+
   it('天气带逐小时数据时显示 24 小时趋势图，按当地小时标注', () => {
     const hourly = Array.from({ length: 24 }, (_, index) => ({
       time: `2026-07-${String(23 + Math.floor((16 + index) / 24)).padStart(2, '0')}T${String((16 + index) % 24).padStart(2, '0')}:00:00+08:00`,

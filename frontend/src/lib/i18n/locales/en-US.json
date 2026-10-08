@@ -248,6 +248,8 @@
       "weather": {
         "region": "Weather forecast results",
         "title": "{{location}} · {{dayLabel}}-day forecast",
+        "titleDate": "{{location}} · {{date}} forecast",
+        "requestedDay": "Requested date",
         "count": "{{count}}-day forecast",
         "degraded": "Partial forecast available",
         "today": "Today",

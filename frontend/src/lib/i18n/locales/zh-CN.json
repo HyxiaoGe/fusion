@@ -242,6 +242,8 @@
       "weather": {
         "region": "天气预报结果",
         "title": "{{location}} · {{dayLabel}}天天气",
+        "titleDate": "{{location}} · {{date}}天气",
+        "requestedDay": "所问日期预报",
         "count": "{{count}} 天预报",
         "degraded": "部分预报可用",
         "today": "今天",

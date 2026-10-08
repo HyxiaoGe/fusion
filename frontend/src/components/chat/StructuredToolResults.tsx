@@ -691,6 +691,10 @@ function WeatherResults({ block }: { block: WeatherResultsBlock }) {
   const forecastDays = block.forecast_days.slice(0, 4);
   const count = forecastDays.length;
   const dayLabel = localizedWeatherDayCount(count, i18n.language);
+  // 用户问的是预报范围内的某一天时，后端只返回那一天
+  const requestedDay = count === 1 && block.requested_date && forecastDays[0].date === block.requested_date
+    ? forecastDays[0]
+    : null;
   return (
     <section
       aria-label={t('structuredResults.weather.region')}
@@ -698,22 +702,32 @@ function WeatherResults({ block }: { block: WeatherResultsBlock }) {
     >
       <ResultHeader
         icon={<CloudSun className="h-4 w-4 text-info" aria-hidden="true" />}
-        title={t('structuredResults.weather.title', {
-          location: safeText(block.resolved_location),
-          dayLabel,
-        })}
+        title={requestedDay
+          ? t('structuredResults.weather.titleDate', {
+            location: safeText(block.resolved_location),
+            date: formatWeatherDate(requestedDay.date, i18n.language),
+          })
+          : t('structuredResults.weather.title', {
+            location: safeText(block.resolved_location),
+            dayLabel,
+          })}
         attribution={block.attribution}
         fallbackAttribution={t('structuredResults.place.mapService')}
         status={block.status}
         statusText={block.status === 'degraded'
           ? t('structuredResults.weather.degraded')
-          : t('structuredResults.weather.count', { count })}
+          : requestedDay
+            ? t('structuredResults.weather.requestedDay')
+            : t('structuredResults.weather.count', { count })}
         polished
       />
 
       <div
         data-testid="weather-results-grid"
-        className={cn(styles.weatherGrid, 'grid grid-cols-2 gap-2 lg:grid-cols-4')}
+        className={cn(
+          styles.weatherGrid,
+          requestedDay ? 'grid max-w-xs grid-cols-1 gap-2' : 'grid grid-cols-2 gap-2 lg:grid-cols-4',
+        )}
       >
         {forecastDays.map(day => (
           <WeatherForecastDay

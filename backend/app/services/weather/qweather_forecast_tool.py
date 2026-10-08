@@ -269,7 +269,11 @@ class QWeatherForecastToolHandler(BaseToolHandler):
         if not forecast_days:
             return self._failed(started_at, "invalid_response")
         limitations = ["天气预报按城市或区县提供，不代表具体建筑物"]
-        if len(forecast_days) < FORECAST_DAYS:
+        # 用户问了预报范围内的某一天，就只给那一天；不在范围内时保留整段，如实呈现覆盖范围。
+        requested_day = _requested_day(forecast_days, normalized.get("requested_date"))
+        if requested_day is not None:
+            forecast_days = [requested_day]
+        elif len(forecast_days) < FORECAST_DAYS:
             limitations.append(f"仅返回 {len(forecast_days)} 天有效预报")
         product_result: dict[str, Any] = {
             "query": redact_product_text(normalized["location"])[:120],
@@ -285,7 +289,7 @@ class QWeatherForecastToolHandler(BaseToolHandler):
         if hourly:
             product_result["hourly"] = [point.model_dump(mode="json") for point in hourly]
         return ToolResult(
-            status="success" if len(forecast_days) == FORECAST_DAYS else "degraded",
+            status="success" if requested_day is not None or len(forecast_days) == FORECAST_DAYS else "degraded",
             duration_ms=_duration_ms(self.monotonic, started_at),
             data={**self._metadata(), "result": bound_product_result(product_result)},
         )
@@ -516,6 +520,12 @@ def _build_forecast_days(days: list[QWeatherDay], *, today: CalendarDate) -> lis
         if len(built) == FORECAST_DAYS:
             break
     return built
+
+
+def _requested_day(forecast_days: list[WeatherForecastDay], requested_date: Any) -> WeatherForecastDay | None:
+    if not requested_date:
+        return None
+    return next((day for day in forecast_days if day.date.isoformat() == str(requested_date)), None)
 
 
 def _wants_hourly(requested_date: Any, today: CalendarDate) -> bool:
