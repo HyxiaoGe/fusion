@@ -2605,3 +2605,13 @@ def _format_untrusted_context(
 
 def _duration_ms(started_at: float) -> int:
     return int((time.monotonic() - started_at) * 1_000)
+
+
+# 天气预报的工具契约与供应商无关：换用其它天气供应商时复用同一定义、参数校验与上下文包装。
+WEATHER_FORECAST_DEFINITION = _DEFINITION_BY_NAME[AMAP_WEATHER_FORECAST]
+WEATHER_RESULT_USAGE_CONTRACT = _WEATHER_RESULT_USAGE_CONTRACT
+InvalidWeatherArguments = _InvalidArguments
+validate_weather_arguments = _validate_weather_args
+format_product_context = _format_untrusted_context
+redact_product_text = _redact_product_text
+bound_product_result = _bound_result

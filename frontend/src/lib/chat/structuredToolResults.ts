@@ -642,7 +642,8 @@ function normalizeWeatherResultBlock(
   source: Record<string, unknown>,
   id: string,
 ): WeatherResultsBlock | null {
-  if (source.provider !== 'amap') return null;
+  if (source.provider !== 'amap' && source.provider !== 'qweather') return null;
+  const provider = source.provider;
   const status = productResultStatus(source.status);
   const query = boundedString(source.query, 120);
   const resolvedLocation = boundedString(source.resolved_location, 120);
@@ -674,7 +675,7 @@ function normalizeWeatherResultBlock(
     type: 'weather_results',
     id,
     schema_version: 1,
-    provider: 'amap',
+    provider,
     attribution: normalizeAttribution(source.attribution)
       ?? normalizeLegacyAttribution(source.provider),
     status,
@@ -825,6 +826,7 @@ function normalizeAttribution(value: unknown): StructuredResultAttribution | und
 function normalizeLegacyAttribution(value: unknown): StructuredResultAttribution | undefined {
   const provider = optionalString(value)?.toLowerCase();
   if (!provider) return undefined;
+  if (provider === 'qweather') return { label: '和风天气' };
   return { label: provider === 'amap' ? '高德地图' : '地图服务' };
 }
 

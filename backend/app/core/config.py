@@ -426,6 +426,15 @@ class Settings(BaseSettings):
     FLYAI_TRAVEL_TOOL_TIMEOUT_SECONDS: float = float(os.getenv("FLYAI_TRAVEL_TOOL_TIMEOUT_SECONDS", "20"))
     FLYAI_TRAVEL_MAX_TOOL_CALLS_PER_RUN: int = int(os.getenv("FLYAI_TRAVEL_MAX_TOOL_CALLS_PER_RUN", "4"))
 
+    # 和风天气：配置齐全时 weather_forecast 改由和风提供，高德只保留地点与路线。
+    # 私钥为 Ed25519 PKCS8，可填 PEM 全文或去掉首尾行的单行 base64。
+    QWEATHER_API_HOST: str = os.getenv("QWEATHER_API_HOST", "")
+    QWEATHER_KEY_ID: str = os.getenv("QWEATHER_KEY_ID", "")
+    QWEATHER_PROJECT_ID: str = os.getenv("QWEATHER_PROJECT_ID", "")
+    QWEATHER_DEVELOPER_ID: str = os.getenv("QWEATHER_DEVELOPER_ID", "")
+    QWEATHER_PRIVATE_KEY: str = os.getenv("QWEATHER_PRIVATE_KEY", "")
+    QWEATHER_TIMEOUT_SECONDS: float = float(os.getenv("QWEATHER_TIMEOUT_SECONDS", "8"))
+
     # 文档站点开关（生产关掉减少攻击面）
     ENABLE_DOCS: bool = True
 
