@@ -2,7 +2,7 @@ import asyncio
 import unittest
 from dataclasses import dataclass, field
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.ai.prompts.section_ids import PRODUCT_RESULT_ROUND, RESEARCH_EVIDENCE_WORKSET
 from app.schemas.chat import PlaceResult, PlaceResultsBlock, SourceReference, TextBlock, UrlBlock, Usage
@@ -14,6 +14,7 @@ from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_round import AgentRoundResult
 from app.services.stream.limit_summary import LimitSummaryOutcome
+from app.services.stream.llm_round_lifecycle import round_tool_names
 from app.services.stream.plan_control import process_plan_control_calls
 from app.services.stream.research_evidence import ResearchSource
 from app.services.stream.step_lifecycle import AgentStepContext
@@ -729,7 +730,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("obtain new candidate sources", system_text)
 
-    async def test_deep_research_synthesis_stage_removes_all_tools_after_two_distinct_reads(self):
+    async def test_deep_research_synthesis_stage_forbids_tool_calls_after_two_distinct_reads(self):
         captured = []
         state = _planned_research_state()
         state.plan_coordinator.mark_tools_started(["search"])
@@ -772,14 +773,89 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-        self.assertEqual(_tool_names(captured[0]["call_kwargs"]), [])
-        self.assertNotIn("tool_choice", captured[0]["call_kwargs"])
+        # 成文轮仍公告 run 的工具定义，但禁止调用，历史工具事务因此可以留在上下文里。
+        self.assertEqual(_tool_names(captured[0]["call_kwargs"]), tools)
+        self.assertEqual(captured[0]["call_kwargs"]["tool_choice"], "none")
+        self.assertEqual(round_tool_names(captured[0]["call_kwargs"]), [])
         system_text = "\n".join(
             message["content"] for message in captured[0]["messages"] if message["role"] == "system"
         )
         self.assertIn("final synthesis stage is active", system_text)
         self.assertIn("Do not call another tool", system_text)
         self.assertIn("[n] number of a read source", system_text)
+
+    async def test_round_ignoring_tool_ban_is_discarded_and_redone_without_tools_or_history(self):
+        state = AgentLoopState(history_tool_call_sequences={"history-call": 2})
+        captured = []
+        lifecycle = MagicMock()
+        lifecycle.finish_success = AsyncMock()
+
+        async def run_round_fn(**kwargs):
+            captured.append(kwargs)
+            if len(captured) == 1:
+                return AgentRoundResult(
+                    reasoning_buf="",
+                    content_buf="",
+                    tool_calls=[{"id": "c1", "name": "web_search", "arguments": "{}"}],
+                    finish_reason="tool_calls",
+                    accumulated_usage=Usage(input_tokens=5, output_tokens=1),
+                    llm_lifecycle=lifecycle,
+                )
+            return AgentRoundResult(
+                reasoning_buf="",
+                content_buf="答复",
+                tool_calls=[],
+                finish_reason="stop",
+                accumulated_usage=Usage(input_tokens=8, output_tokens=3),
+            )
+
+        history = [
+            {"role": "user", "content": "q1"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {"id": "history-call", "type": "function", "function": {"name": "web_search", "arguments": "{}"}}
+                ],
+            },
+            {"role": "tool", "tool_call_id": "history-call", "content": "旧结果"},
+            {"role": "assistant", "content": "a1"},
+            {"role": "user", "content": "q2"},
+        ]
+        warnings = []
+        with patch(
+            "app.services.stream.agent_loop_driver._filter_exhausted_dynamic_tools",
+            new=AsyncMock(return_value={}),
+        ):
+            result = await _run_round(
+                messages=history,
+                state=state,
+                runtime=_runtime(
+                    call_kwargs={"tools": [_tool_definition("web_search")], "tool_choice": "auto"},
+                    run_round_fn=run_round_fn,
+                    warning_fn=warnings.append,
+                ),
+                step_number=2,
+                step_context=AgentStepContext(
+                    step_id="step-ban",
+                    step_number=2,
+                    started_at=1.0,
+                    thinking_block_id="thinking-ban",
+                    text_block_id="text-ban",
+                ),
+            )
+
+        self.assertEqual(len(captured), 2)
+        self.assertEqual(captured[0]["call_kwargs"]["tool_choice"], "none")
+        self.assertIn("history-call", [message.get("tool_call_id") for message in captured[0]["messages"]])
+        self.assertNotIn("tools", captured[1]["call_kwargs"])
+        self.assertNotIn("tool_choice", captured[1]["call_kwargs"])
+        self.assertNotIn("history-call", [message.get("tool_call_id") for message in captured[1]["messages"]])
+        lifecycle.suppress_output.assert_called_once_with("tool_round")
+        lifecycle.finish_success.assert_awaited_once_with(output_visible=False)
+        self.assertEqual(result.content_buf, "答复")
+        self.assertEqual(captured[1]["accumulated_usage"], Usage(input_tokens=5, output_tokens=1))
+        self.assertEqual(len(warnings), 1)
 
     async def test_deep_research_always_defers_output_and_injects_bounded_workset(self):
         captured = []

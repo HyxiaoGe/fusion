@@ -19,14 +19,13 @@ class RoundToolNamesTests(unittest.TestCase):
         """驱动层按研究阶段裁剪后，事件必须反映裁剪结果而不是开跑时的宣告目录。"""
         announced = {"tools": [_tool("web_search"), _tool("url_read"), _tool("map_query")]}
         allowed = frozenset({"web_search"})
-        filtered = {
-            "tools": [
-                tool for tool in announced["tools"]
-                if tool["function"]["name"] in allowed
-            ]
-        }
+        filtered = {"tools": [tool for tool in announced["tools"] if tool["function"]["name"] in allowed]}
         self.assertEqual(round_tool_names(filtered), ["web_search"])
         self.assertNotEqual(round_tool_names(filtered), round_tool_names(announced))
+
+    def test_禁止调用的轮次只公告定义不算可调用工具(self):
+        forbidden = {"tools": [_tool("web_search")], "tool_choice": "none"}
+        self.assertEqual(round_tool_names(forbidden), [])
 
     def test_无工具轮返回空表而非报错(self):
         self.assertEqual(round_tool_names({}), [])

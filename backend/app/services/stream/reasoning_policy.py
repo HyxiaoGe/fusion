@@ -9,6 +9,7 @@ from __future__ import annotations
 from copy import deepcopy
 
 from app.ai.litellm_utils import merge_extra_body
+from app.services.stream.tool_ban import callable_tools
 
 _VOLCENGINE_PROVIDERS = frozenset({"volcengine"})
 
@@ -27,7 +28,8 @@ def configure_reasoning_call_kwargs(
 
     configured = deepcopy(call_kwargs)
     normalized_provider = (provider or "").strip().lower()
-    has_tools = bool(configured.get("tools"))
+    # 禁止调用工具的轮次只公告定义，推理参数按无工具处理（实测各家均接受）。
+    has_tools = bool(callable_tools(configured))
 
     if not should_use_reasoning:
         if not thinking_switchable:

@@ -37,6 +37,7 @@ from app.services.stream.research_evidence import (
     resolve_deep_research_stage,
 )
 from app.services.stream.step_lifecycle import AgentStepContext
+from app.services.stream.tool_ban import forbid_tool_calls, ignored_tool_ban, without_tool_definitions
 
 
 async def run_agent_loop(
@@ -224,6 +225,13 @@ async def _run_round(
         allow_plan_update = any(
             tool.get("function", {}).get("name") == UPDATE_PLAN_TOOL_NAME for tool in call_kwargs.get("tools", [])
         )
+    # 本轮不开放工具（深研成文、动态工具耗尽）时仍公告 run 的工具定义并禁止调用，
+    # 历史工具事务才能原样留在上下文里，见 tool_ban。
+    run_tools = list(runtime.call_kwargs.get("tools") or [])
+    tools_forbidden = bool(run_tools) and not call_kwargs.get("tools")
+    if tools_forbidden:
+        call_kwargs = forbid_tool_calls(call_kwargs, run_tools)
+    unconfigured_call_kwargs = call_kwargs
     call_kwargs = configure_reasoning_call_kwargs(
         call_kwargs,
         provider=runtime.provider,
@@ -240,8 +248,6 @@ async def _run_round(
         effective_messages,
         content_blocks=state.content_blocks,
     )
-    if not call_kwargs.get("tools"):
-        effective_messages = without_tool_transactions(effective_messages, state.history_tool_call_sequences)
     run_round_kwargs = dict(
         conversation_id=runtime.conversation_id,
         task_id=runtime.task_id,
@@ -287,10 +293,38 @@ async def _run_round(
     if runtime.output_tool_names and _accepts_keyword(runtime.run_round_fn, "draft_tool_names"):
         run_round_kwargs["draft_tool_names"] = runtime.output_tool_names
     round_result = await runtime.run_round_fn(**run_round_kwargs)
+    if tools_forbidden and ignored_tool_ban(
+        tool_calls=round_result.tool_calls,
+        finish_reason=round_result.finish_reason,
+    ):
+        runtime.warning_fn(
+            "禁止调用工具的轮次仍返回工具调用，丢弃该轮并改用无工具请求重做: "
+            f"conv_id={runtime.conversation_id}, run_id={runtime.run_id}, step={step_number}, "
+            f"finish_reason={round_result.finish_reason}"
+        )
+        await _discard_round(round_result)
+        run_round_kwargs.update(
+            messages=without_tool_transactions(effective_messages, state.history_tool_call_sequences),
+            call_kwargs=configure_reasoning_call_kwargs(
+                without_tool_definitions(unconfigured_call_kwargs),
+                provider=runtime.provider,
+                should_use_reasoning=runtime.should_use_reasoning,
+            ),
+            accumulated_usage=round_result.accumulated_usage,
+        )
+        round_result = await runtime.run_round_fn(**run_round_kwargs)
     state.finish_reason = round_result.finish_reason
     state.update_usage(round_result.accumulated_usage)
     state.update_context(round_result.context)
     return round_result
+
+
+async def _discard_round(round_result: AgentRoundResult) -> None:
+    lifecycle = round_result.llm_lifecycle
+    if lifecycle is None:
+        return
+    lifecycle.suppress_output("tool_round")
+    await lifecycle.finish_success(output_visible=False)
 
 
 def _filter_tools_for_research_stage(

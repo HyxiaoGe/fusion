@@ -183,7 +183,7 @@ class LimitSummaryHelpersTests(unittest.TestCase):
         self.assertNotIn("quota", content)
         self.assertNotIn("budget", content)
 
-    def test_build_limit_summary_call_kwargs_copies_and_removes_tool_controls(self):
+    def test_build_limit_summary_call_kwargs_forbids_tool_calls_but_keeps_definitions(self):
         tools = [{"function": {"name": "web_search"}}]
         call_kwargs = {
             "tools": tools,
@@ -200,9 +200,12 @@ class LimitSummaryHelpersTests(unittest.TestCase):
             {
                 "temperature": 0.2,
                 "extra_body": {"thinking": {"type": "disabled"}},
+                "tools": tools,
+                "tool_choice": "none",
             },
         )
-        self.assertEqual(call_kwargs["tools"], tools)
+        self.assertEqual(call_kwargs["tool_choice"], "auto")
+        self.assertEqual(build_limit_summary_call_kwargs({"temperature": 0.2}), {"temperature": 0.2})
         self.assertEqual(call_kwargs["tool_choice"], "auto")
 
     def test_compute_summary_timeout_uses_remaining_budget(self):
@@ -456,7 +459,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             defer_output=True,
         )
 
-    async def test_summary_drops_replayed_history_tool_transactions_before_cleanup(self):
+    async def test_summary_keeps_history_under_tool_ban_and_strips_it_only_for_retry(self):
         def transaction(call_id):
             return [
                 {
@@ -469,8 +472,10 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
                 {"role": "tool", "tool_call_id": call_id, "content": "结果"},
             ]
 
+        tools = [{"function": {"name": "web_search"}}]
         request = replace(
             self._deferred_commit_request(),
+            call_kwargs={"tools": tools, "tool_choice": "auto", "temperature": 0.1},
             messages=[
                 {"role": "user", "content": "q1"},
                 *transaction("history-call"),
@@ -482,18 +487,31 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
         )
         seen = []
 
-        def capture(messages, **_kwargs):
-            seen.append([message.get("tool_call_id") for message in messages if message.get("role") == "tool"])
-            raise RuntimeError("stop after cleanup")
+        async def capture(**kwargs):
+            seen.append(
+                (
+                    kwargs["call_kwargs"],
+                    [message.get("tool_call_id") for message in kwargs["messages"] if message.get("role") == "tool"],
+                )
+            )
 
-        with (
-            patch("app.services.stream.limit_summary.start_limit_summary_step", new=AsyncMock()),
-            patch("app.services.stream.limit_summary.remove_conflicting_tool_usage_contract", side_effect=capture),
-        ):
-            with self.assertRaisesRegex(RuntimeError, "stop after cleanup"):
-                await limit_summary_module.run_limit_summary_step(request=request)
+        with patch.object(limit_summary_module, "_call_limit_summary_round_once", side_effect=capture):
+            for forbid_tools in (True, False):
+                await limit_summary_module.call_limit_summary_round(
+                    request=request,
+                    thinking_block_id="t",
+                    text_block_id="x",
+                    step_id="s",
+                    forbid_tools=forbid_tools,
+                )
 
-        self.assertEqual(seen, [["current-call"]])
+        self.assertEqual(
+            seen,
+            [
+                ({"temperature": 0.1, "tools": tools, "tool_choice": "none"}, ["history-call", "current-call"]),
+                ({"temperature": 0.1}, ["current-call"]),
+            ],
+        )
 
     async def test_summary_stream_failure_persists_visible_partial_round_detail(self):
         detail_scheduler = MagicMock()
@@ -1147,9 +1165,11 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             ]
         )
         sent_snapshots = []
+        sent_tool_choices = []
 
         async def llm_call_fn(_model, _kwargs, call_messages, **_call_kwargs):
             sent_snapshots.append([dict(message) for message in call_messages])
+            sent_tool_choices.append(_call_kwargs.get("tool_choice"))
             return f"response-{len(sent_snapshots)}"
 
         request = LimitSummaryStepRequest(
@@ -1194,6 +1214,8 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             )
         )
         self.assertIn("Do not output tool calls", sent_snapshots[1][-1]["content"])
+        # 首次总结带工具定义并禁止调用；模型无视禁令后，重做不再带工具定义。
+        self.assertEqual(sent_tool_choices, ["none", None])
         self.assertTrue(sent_snapshots[1][-1]["content"].endswith(VISIBLE_RESPONSE_LANGUAGE_PROMPT))
         self.assertFalse(
             any(VISIBLE_RESPONSE_LANGUAGE_PROMPT in str(item.get("content") or "") for item in request.messages)
@@ -1693,7 +1715,10 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
                 "complete",
             ],
         )
-        self.assertEqual(events[2][4], {"temperature": 0.1})
+        self.assertEqual(
+            events[2][4],
+            {"temperature": 0.1, "tools": [{"function": {"name": "web_search"}}], "tool_choice": "none"},
+        )
         self.assertEqual(
             events[3],
             (
