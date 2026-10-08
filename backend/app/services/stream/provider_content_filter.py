@@ -46,6 +46,14 @@ def is_content_filter_error(error: BaseException) -> bool:
     return any(code in message for code in _PROVIDER_ERROR_CODES)
 
 
+async def finish_content_filtered_round(lifecycle: Any) -> None:
+    """调用报错形式的审核拦截：这一轮在轨迹里按拦截完成，而不是记成服务故障。"""
+
+    lifecycle.record_output(disposition="replaced", source="server", reason="content_filtered")
+    lifecycle.record_result(usage=None, finish_reason=CONTENT_FILTER_FINISH_REASON)
+    await lifecycle.finish_success()
+
+
 async def replace_with_content_filtered_block(*, content_blocks: list[Any], emitter: Any) -> ContentFilteredBlock:
     """整条回复只保留拦截块；已流式显示的思考、正文与工具结果由前端按此块整体隐藏。"""
 

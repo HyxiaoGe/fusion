@@ -24,7 +24,11 @@ from app.services.stream.llm_round_lifecycle import (
     accumulate_token_usage,
     round_tool_names,
 )
-from app.services.stream.provider_content_filter import CONTENT_FILTER_FINISH_REASON, is_content_filter_error
+from app.services.stream.provider_content_filter import (
+    CONTENT_FILTER_FINISH_REASON,
+    finish_content_filtered_round,
+    is_content_filter_error,
+)
 from app.services.stream.tool_ban import callable_tools
 from app.services.stream_state_service import StreamOwnershipLostError, append_chunk
 from app.utils.prompt_fingerprint import fingerprint_system_messages
@@ -221,6 +225,8 @@ async def _close_round_after_primary_error(
     try:
         if isinstance(error, (asyncio.CancelledError, StreamOwnershipLostError)):
             await lifecycle.finish_cancelled(reason="shutdown")
+        elif is_content_filter_error(error):
+            await finish_content_filtered_round(lifecycle)
         else:
             await lifecycle.finish_failed(error)
     except BaseException as secondary:

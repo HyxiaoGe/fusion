@@ -1304,6 +1304,9 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual([block.type for block in content_blocks], ["content_filtered"])
                 self.assertNotIn(refusal, [call.args[2] for call in append_chunk.await_args_list])
                 emitter.content_block_upserted.assert_awaited_once()
+                emitter.llm_round_failed.assert_not_awaited()
+                completed = emitter.llm_round_completed.await_args.kwargs
+                self.assertEqual(completed["output_provenance"]["reason"], "content_filtered")
 
     async def test_no_progress_summary_uses_safe_fallback_after_repeated_tool_protocol(self):
         content_blocks = []
