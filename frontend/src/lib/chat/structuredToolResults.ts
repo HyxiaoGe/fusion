@@ -650,6 +650,14 @@ function normalizeWeatherResultBlock(
   const resolvedLocation = boundedString(source.resolved_location, 120);
   const dayCount = integerInRange(source.day_count, 1, 4);
   const fetchedAt = boundedString(source.fetched_at, 48);
+  const requestedDate = typeof source.requested_date === 'string' && isoWeekday(source.requested_date)
+    ? source.requested_date
+    : undefined;
+  // 只给所问那一天的单日预报同样是完整结果，与后端 WeatherResultsBlock 校验一致
+  const singleRequestedDay = requestedDate !== undefined
+    && dayCount === 1
+    && Array.isArray(source.forecast_days)
+    && asRecord(source.forecast_days[0])?.date === requestedDate;
   if (
     !status
     || !query
@@ -660,7 +668,7 @@ function normalizeWeatherResultBlock(
     || !Array.isArray(source.forecast_days)
     || source.forecast_days.length !== dayCount
     || source.forecast_days.length > 4
-    || status !== (dayCount === 4 ? 'success' : 'degraded')
+    || status !== (dayCount === 4 || singleRequestedDay ? 'success' : 'degraded')
   ) {
     return null;
   }
@@ -682,6 +690,7 @@ function normalizeWeatherResultBlock(
     status,
     query,
     resolved_location: resolvedLocation,
+    ...optionalField('requested_date', requestedDate),
     day_count: dayCount as WeatherResultsBlock['day_count'],
     forecast_days: forecastDays,
     ...optionalField('hourly', normalizeHourly(source.hourly)),
