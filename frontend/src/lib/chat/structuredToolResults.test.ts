@@ -727,6 +727,34 @@ describe('normalizeStructuredToolResultBlock', () => {
     expect(JSON.stringify(block)).not.toMatch(/internal_code|raw_payload|hidden-/);
   });
 
+  it('天气只返回所问那一天时按完整结果保留，并带上所问日期', () => {
+    const source = {
+      type: 'weather_results',
+      id: 'weather-day',
+      schema_version: 1,
+      provider: 'qweather',
+      status: 'success',
+      query: '深圳湾公园',
+      resolved_location: '广东省·深圳',
+      requested_date: '2026-10-10',
+      day_count: 1,
+      forecast_days: [
+        { date: '2026-10-10', weekday: 6, day_weather: '晴', night_weather: '晴', high_c: 32, low_c: 24 },
+      ],
+      fetched_at: '2026-10-08T20:00:00+08:00',
+      limitations: [],
+    };
+
+    expect(normalizeStructuredToolResultBlock(source)).toMatchObject({
+      status: 'success',
+      requested_date: '2026-10-10',
+      day_count: 1,
+    });
+    expect(normalizeStructuredToolResultBlock({ ...source, requested_date: '2026-10-11' })).toBeNull();
+    expect(normalizeStructuredToolResultBlock({ ...source, requested_date: undefined })).toBeNull();
+    expect(normalizeStructuredToolResultBlock({ ...source, requested_date: '2026-13-40' })).toBeNull();
+  });
+
   it('天气结果接受和风天气来源，未知来源仍被拒绝', () => {
     const source = {
       type: 'weather_results',
