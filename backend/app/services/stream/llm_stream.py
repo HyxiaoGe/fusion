@@ -20,6 +20,7 @@ import litellm
 from app.ai.llm_observability import merge_litellm_kwargs
 from app.core.logger import app_logger as logger
 from app.schemas.chat import Usage
+from app.services.stream.provider_content_filter import CONTENT_FILTER_FINISH_REASON, is_refusal_reply
 from app.services.stream.reasoning_transport import (
     ReasoningTransportMode,
     initial_reasoning_transport_mode,
@@ -849,6 +850,8 @@ async def process_stream_choice(*, request: LLMStreamRequest, state: LLMStreamSt
         state.finish_reason = "tool_calls"
     elif finish_reason == "stop":
         state.finish_reason = "stop"
+    elif finish_reason == CONTENT_FILTER_FINISH_REASON:
+        state.finish_reason = CONTENT_FILTER_FINISH_REASON
 
     return await maybe_check_lock_owner(request=request, state=state)
 
@@ -904,6 +907,11 @@ async def consume_stream_round(response, request: LLMStreamRequest) -> LLMStream
                 f"conv_id={request.conversation_id} step_id={request.step_id}"
             )
             state.finish_reason = "tool_protocol_error"
+
+    if state.finish_reason == "stop" and is_refusal_reply(
+        content=state.content_buf, reasoning=state.reasoning_buf, tool_calls=tool_calls
+    ):
+        state.finish_reason = CONTENT_FILTER_FINISH_REASON
 
     return LLMStreamOutcome(
         reasoning_buf=state.reasoning_buf,

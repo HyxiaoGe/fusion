@@ -77,6 +77,7 @@ async def build_llm_messages(
     将 content blocks 消息列表转为携带内部段落身份的不可变消息。
 
     - thinking / search block 不传给 LLM（避免污染上下文）
+    - 被服务商内容审核拦截的那一轮（用户问题与拦截提示）整轮跳过
     - tool_transcripts 按 assistant 消息 id 提供该轮工具调用与结果，插在该轮回答前原样回放
     - 当 has_vision=True 时，图片 FileBlock 转为 base64 image_url 内容块
     - 历史消息中的图片仅保留最近 MAX_VISION_HISTORY_TURNS 轮
@@ -108,7 +109,10 @@ async def build_llm_messages(
                     vision_cutoff_idx = i
                     break
 
+    filtered_turns = _content_filtered_turn_indexes(messages)
     for idx, msg in enumerate(messages):
+        if idx in filtered_turns:
+            continue
         content_parts = []
         has_image = False
         # 仅在最近几轮中注入图片 base64
@@ -153,6 +157,23 @@ async def build_llm_messages(
             result.append(PromptMessage(role=msg.role, content=content_parts))
 
     return result
+
+
+def _content_filtered_turn_indexes(messages) -> set[int]:
+    """被服务商内容审核拦截的那一轮（拦截提示及其对应的用户问题）不进入后续上下文，免得再次触发拦截。"""
+
+    skipped: set[int] = set()
+    for idx, msg in enumerate(messages):
+        if msg.role != "assistant" or not any(block.type == "content_filtered" for block in msg.content):
+            continue
+        skipped.add(idx)
+        for previous in range(idx - 1, -1, -1):
+            if messages[previous].role == "user":
+                skipped.add(previous)
+                break
+            if messages[previous].role == "assistant":
+                break
+    return skipped
 
 
 def inject_file_content(

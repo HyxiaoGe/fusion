@@ -125,7 +125,8 @@
       "send": "发送",
       "typing": "AI正在思考...",
       "placeholder": "输入您的问题...",
-      "newChatTitle": "新的对话"
+      "newChatTitle": "新的对话",
+      "contentFiltered": "你好，这个问题我暂时无法回答，让我们换个话题再聊聊吧。"
     },
     "chatBody": {
       "evidencePanel": {
@@ -618,6 +619,7 @@
         "plan_continues": "计划仍需继续，候选未采用",
         "tool_round": "该轮进入工具调用，正文候选未采用",
         "tool_retracted": "工具调用前展示的正文已撤回",
+        "content_filtered": "模型服务商内容审核拦截，回复已替换为固定提示",
         "research_guard": "研究证据校验未通过，候选未采用或被替换",
         "summary_guard": "总结安全策略未采用或替换了候选",
         "no_content": "该轮没有正文候选",

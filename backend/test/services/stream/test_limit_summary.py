@@ -1235,6 +1235,76 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(emitter.llm_round_completed.await_count, 2)
         self.assertIsNone(emitter.llm_round_completed.await_args_list[0].kwargs["ttft_ms"])
 
+    async def test_summary_blocked_by_provider_content_review_becomes_filtered_notice(self):
+        class _ProviderError(Exception):
+            status_code = 400
+
+        refusal = "The request was rejected because it was considered high risk"
+        for name, stream_round_fn in (
+            ("refusal_reply", AsyncMock(return_value=("", refusal, [], "content_filter", None))),
+            ("error", AsyncMock(side_effect=_ProviderError("InternalError.Algo.DataInspectionFailed"))),
+        ):
+            with self.subTest(name):
+                content_blocks = [{"type": "search", "status": "success"}]
+                emitter = AsyncMock()
+
+                async def start_step_fn(**_kwargs):
+                    return AgentStepContext(
+                        step_id="step-summary",
+                        step_number=3,
+                        started_at=100.0,
+                        thinking_block_id="blk-thinking",
+                        text_block_id="blk-text",
+                    )
+
+                async def prepare_context_fn(**kwargs):
+                    return ContextPlan(
+                        messages=list(kwargs["messages"]),
+                        status="no_op",
+                        context_window_tokens=1000,
+                        context_window_source="test",
+                        context_window_status="known",
+                        estimated_tokens_before=100,
+                        estimated_tokens_after=100,
+                    )
+
+                request = LimitSummaryStepRequest(
+                    conversation_id="conv-1",
+                    task_id="task-1",
+                    run_id="run-1",
+                    step_number=3,
+                    model_id="mimo-v2.6-pro",
+                    provider="xiaomi",
+                    litellm_model="openai/mimo-v2.6-pro",
+                    litellm_kwargs={},
+                    messages=[{"role": "user", "content": "今天国际新闻有啥大事？"}],
+                    should_use_reasoning=False,
+                    content_blocks=content_blocks,
+                    call_kwargs={},
+                    accumulated_usage=Usage(input_tokens=0, output_tokens=0),
+                    emitter=emitter,
+                    session_cache=object(),
+                    total_timeout_s=300,
+                    run_start=100.0,
+                    start_step_fn=start_step_fn,
+                    complete_step_fn=AsyncMock(),
+                    llm_call_fn=AsyncMock(return_value="response"),
+                    stream_round_fn=stream_round_fn,
+                    log_round_summary_fn=lambda **_kwargs: None,
+                    clock=lambda: 120.0,
+                    summary_finish_reason="limit_reached",
+                )
+
+                with (
+                    patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
+                    patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append_chunk,
+                ):
+                    await run_limit_summary_step(request=request)
+
+                self.assertEqual([block.type for block in content_blocks], ["content_filtered"])
+                self.assertNotIn(refusal, [call.args[2] for call in append_chunk.await_args_list])
+                emitter.content_block_upserted.assert_awaited_once()
+
     async def test_no_progress_summary_uses_safe_fallback_after_repeated_tool_protocol(self):
         content_blocks = []
         emitter = AsyncMock()

@@ -353,6 +353,28 @@ describe('ChatMessageList', () => {
     expect(screen.getByTestId('retry-assistant-2')).toBeInTheDocument();
   });
 
+  it('最后一轮被服务商内容审核拦截时不暴露任何重试入口', () => {
+    render(
+      <ChatMessageList
+        conversationId="chat-1"
+        onRetry={vi.fn()}
+        messages={[
+          { id: 'user-1', role: 'user', content: [], sequence: 1, timestamp: 1_000 },
+          {
+            id: 'assistant-1',
+            role: 'assistant',
+            content: [{ type: 'content_filtered', id: 'blk_filtered', schema_version: 1 }],
+            sequence: 2,
+            timestamp: 1_500,
+          },
+        ]}
+      />
+    );
+
+    expect(screen.queryByTestId('retry-user-1')).toBeNull();
+    expect(screen.queryByTestId('retry-assistant-1')).toBeNull();
+  });
+
   it('时间戳异常反转时仍按服务端传入顺序渲染 user 再 assistant', () => {
     render(
       <ChatMessageList

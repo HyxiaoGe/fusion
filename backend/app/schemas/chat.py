@@ -860,6 +860,16 @@ class GeneratedImageBlock(BaseModel):
     tool_call_log_id: str = Field(default="", max_length=160)
 
 
+class ContentFilteredBlock(BaseModel):
+    """模型服务商的内容审核拦截了这一轮：整条回复只保留这一块，前端显示固定提示，不支持重新生成。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["content_filtered"]
+    id: str = Field(default_factory=lambda: f"blk_{uuid4().hex[:12]}", max_length=160)
+    schema_version: Literal[1]
+
+
 ProductResultBlock = Union[
     PlaceResultsBlock,
     RouteResultsBlock,
@@ -887,6 +897,7 @@ ContentBlock = Union[
     ItineraryResultsBlock,
     DocumentBlock,
     GeneratedImageBlock,
+    ContentFilteredBlock,
 ]
 
 # stop 接口只接受客户端实际流式渲染的文本类 block；工具与富结果由服务端持久化。
