@@ -159,11 +159,11 @@ class AmapProductDefinitionTests(unittest.TestCase):
         route_description = definitions["route_compare"]["function"]["description"]
         self.assertIn("only places and fields actually returned", local_description)
         self.assertIn("do not cite unreturned places", local_description)
-        self.assertIn("missing fields cannot be confirmed", local_description)
+        self.assertIn("do not fill in missing fields", local_description)
         self.assertIn("reference_cost_yuan is not per-person spending", local_description)
         self.assertIn("only routes and fields actually returned", route_description)
         self.assertIn("do not cite an unreturned route or mode", route_description)
-        self.assertIn("missing fields cannot be confirmed", route_description)
+        self.assertIn("do not fill in missing fields", route_description)
         self.assertIn("City fields are optional", route_description)
         self.assertIn("Do not search the web first to guess a city", route_description)
         self.assertIn("When the user specifies a date or time, pass", route_description)
