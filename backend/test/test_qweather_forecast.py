@@ -268,6 +268,7 @@ class QWeatherHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('"max_pop_percent": 70', context)
         self.assertIn('"first_precipitation_time": "2026-10-08T19:00:00+08:00"', context)
         self.assertIn('"precipitation_hours": 3', context)
+        self.assertIn("result.hourly_summary", context)
 
     async def test_hourly_only_for_today_tomorrow_or_unspecified(self):
         for requested_date, expected in (("2026-10-08", True), ("2026-10-09", True), ("2026-10-10", False)):

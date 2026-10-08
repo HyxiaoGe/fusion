@@ -1,12 +1,15 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { WeatherHourlyPoint } from '@/types/conversation';
 
 import styles from './StructuredToolResults.module.css';
 
-const WIDTH = 720;
+// 图按容器实际像素宽度绘制（1:1），文字不随卡片宽度放大；窄于最小宽度时横向滚动。
+const DEFAULT_WIDTH = 720;
+const MIN_WIDTH = 520;
 const HEIGHT = 150;
 const PAD_X = 18;
 const TEMP_TOP = 22;
@@ -25,8 +28,27 @@ function formatTemp(value: number): string {
   return `${Math.round(value)}°`;
 }
 
+function useContainerWidth() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(DEFAULT_WIDTH);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || typeof ResizeObserver === 'undefined') return undefined;
+    const update = () => {
+      const next = Math.floor(element.clientWidth);
+      if (next > 0) setWidth(Math.max(MIN_WIDTH, next));
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return { ref, width };
+}
+
 export function WeatherHourlyTrend({ hourly }: { hourly: WeatherHourlyPoint[] }) {
   const { t } = useTranslation();
+  const { ref, width: WIDTH } = useContainerWidth();
   if (hourly.length < 2) return null;
 
   const temps = hourly.map(point => point.temp_c);
@@ -63,9 +85,11 @@ export function WeatherHourlyTrend({ hourly }: { hourly: WeatherHourlyPoint[] })
           )}
         </span>
       </div>
-      <div className={styles.weatherHourlyScroll}>
+      <div ref={ref} className={styles.weatherHourlyScroll}>
         <svg
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+          width={WIDTH}
+          height={HEIGHT}
           className={styles.weatherHourlyChart}
           role="img"
           aria-label={summary}

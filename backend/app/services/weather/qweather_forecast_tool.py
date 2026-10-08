@@ -31,7 +31,6 @@ from app.schemas.chat import (
 )
 from app.services.mcp.amap_product_tools import (
     WEATHER_FORECAST_DEFINITION,
-    WEATHER_RESULT_USAGE_CONTRACT,
     InvalidWeatherArguments,
     bound_product_result,
     format_product_context,
@@ -320,7 +319,7 @@ class QWeatherForecastToolHandler(BaseToolHandler):
             tool_name=self.tool_name,
             payload_text=json.dumps(model_result, ensure_ascii=False, sort_keys=True),
             max_bytes=self.max_llm_context_bytes,
-            usage_contract=WEATHER_RESULT_USAGE_CONTRACT,
+            usage_contract=render_runtime_prompt("qweather.weather_usage"),
         )
 
     def sanitize_output_data_for_log(self, result: ToolResult) -> dict:
