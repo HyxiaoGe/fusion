@@ -145,8 +145,10 @@ jobs:
     name: Agent eval gate
     # dev 只有一台 Linux runner：排在 UI 部署之后，避免长时间评测把 UI 部署堵在队列里。
     needs: [changes, deploy-api, deploy-ui]
+    # 仓库变量 EVAL_GATE_ENABLED=false 可暂停门禁（如高德等外部额度耗尽时），不影响部署。
     if: >-
       always() &&
+      vars.EVAL_GATE_ENABLED != 'false' &&
       needs.changes.outputs.agent_eval == 'true' &&
       needs.deploy-api.result == 'success' &&
       contains(fromJSON('["success", "skipped"]'), needs.deploy-ui.result)
