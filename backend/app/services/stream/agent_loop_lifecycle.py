@@ -21,6 +21,8 @@ from app.schemas.trajectory import TrajectoryCapabilityResolution
 from app.services.agent.session_cache import write_system_prompt_snapshot
 from app.services.agent_strategy_config import get_agent_strategy_config
 from app.services.chat.model_call_language_policy import finalize_model_call_language_policy
+from app.services.chat.tool_transcript import max_citation_index
+from app.services.chat.tool_transcript_store import ToolTranscriptHistory
 from app.services.knowledge.chat_grounding import (
     KnowledgeGroundingStreamError,
     inject_knowledge_grounding_messages,
@@ -227,6 +229,7 @@ async def _run_success_path(
     )
     execution.state.content_blocks.extend(request.initial_content_blocks)
     execution.state.content_blocks.extend(prepared_messages.initial_content_blocks)
+    _bind_tool_history(execution, getattr(prepared_messages, "tool_history", None), request.raw_messages)
     # 预读成功的正文已注入本轮 messages，与工具读页同等入账；续跑带回的历史块不登记，
     # 与下方 configure_research_state 的 allow_read_success 口径保持一致。
     for block in prepared_messages.initial_content_blocks:
@@ -271,6 +274,24 @@ async def _run_success_path(
         execution=execution,
         dependencies=dependencies,
         generate_suggestions=grounding is None,
+    )
+
+
+def _bind_tool_history(execution: Any, history: ToolTranscriptHistory | None, raw_messages: list[Any]) -> None:
+    """续写同一条回答时，本轮记录接在已保存的记录之后，整体覆盖保存。"""
+    if history is None:
+        return
+    state = execution.state
+    state.tool_transcript = list(history.transcripts.get(execution.completion_context.assistant_message_id, []))
+    state.history_tool_call_sequences = dict(history.sequences)
+    state.tool_transcript_cutoff_sequence = history.cutoff_sequence
+    state.history_citation_floor = max(
+        (
+            max_citation_index(getattr(message, "content", None))
+            for message in raw_messages or []
+            if str(getattr(message, "id", "")) in history.transcripts
+        ),
+        default=0,
     )
 
 
@@ -401,6 +422,7 @@ async def _prepare_messages(
         messages=prepared.messages,
         initial_content_blocks=prepared.initial_content_blocks,
         final_tool_names=getattr(prepared, "final_tool_names", []),
+        tool_history=getattr(prepared, "tool_history", None) or ToolTranscriptHistory(),
         run_prompt_snapshot=run_snapshot,
         prompt_snapshot=snapshot_data,
         prompt_assembly={

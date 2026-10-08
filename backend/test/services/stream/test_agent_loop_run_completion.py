@@ -390,6 +390,37 @@ class AgentLoopRunCompletionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls[2], ("finalize", ("conv-1",), {"success": True, "task_id": "task-1"}))
         self.assertTrue(state.terminal_emitted)
 
+    async def test_finalize_completed_saves_tool_transcript_only_after_persist_succeeds(self):
+        for persisted, expected_calls in ((True, 1), (None, 0)):
+            state = AgentLoopState()
+            state.content_blocks.append(TextBlock(type="text", id="txt-1", text="回答"))
+            state.tool_transcript.append({"role": "tool", "tool_call_id": "c1", "content": "结果"})
+            state.tool_transcript_cutoff_sequence = 3
+            with patch("app.services.stream.agent_loop_run_completion.save_tool_transcript") as save:
+                try:
+                    await finalize_completed_run(
+                        context=replace(_context(state), emitter=AsyncMock(), session_cache=AsyncMock()),
+                        terminal_state=SimpleNamespace(session_status="completed", run_finish_reason="stop"),
+                        persist_message_fn=lambda *_args, result=persisted: result,
+                        complete_agent_run_fn=AsyncMock(),
+                        finalize_stream_fn=AsyncMock(return_value=True),
+                    )
+                except Exception:
+                    # 终态写入失败分支可能继续抛错；这里只关心工具记录是否被保存。
+                    self.assertIsNone(persisted)
+
+            self.assertEqual(save.call_count, expected_calls)
+            if expected_calls:
+                self.assertEqual(
+                    save.call_args.kwargs,
+                    {
+                        "conversation_id": "conv-1",
+                        "message_id": "msg-1",
+                        "transcript": [{"role": "tool", "tool_call_id": "c1", "content": "结果"}],
+                        "cutoff_sequence": 3,
+                    },
+                )
+
     async def test_finalize_completed_superseded_write_interrupts_session_and_closes_owned_stream(self):
         state = AgentLoopState()
         state.content_blocks.append(TextBlock(type="text", id="txt-1", text="迟到回答"))

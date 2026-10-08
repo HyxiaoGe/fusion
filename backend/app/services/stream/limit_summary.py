@@ -32,6 +32,7 @@ from app.core.logger import app_logger as logger
 from app.schemas.chat import ContextUsage, KnowledgeEvidenceBlock, TextBlock, ThinkingBlock, Usage
 from app.services.chat.context_manager import ContextManagementError, ContextPlan, prepare_context
 from app.services.chat.model_call_language_policy import finalize_model_call_language_policy
+from app.services.chat.tool_transcript import without_tool_transactions
 from app.services.final_answer_evidence import build_used_final_answer_evidence
 from app.services.knowledge.chat_grounding import (
     KNOWLEDGE_UNVERIFIABLE_ANSWER_TEXT,
@@ -129,6 +130,8 @@ class LimitSummaryStepRequest:
     fallback_response_context: FallbackResponseContext | None = None
     # 本次 run 已写出文档时，总结只做简短回复，不再复述文档正文。
     document_delivered: bool = False
+    # 历史轮次回放的工具调用 id；总结请求不带工具定义，这些事务先移除。
+    history_tool_call_ids: frozenset[str] = frozenset()
 
 
 def _should_defer_summary_output(request: LimitSummaryStepRequest) -> bool:
@@ -826,6 +829,7 @@ async def run_limit_summary_step(
 ) -> LimitSummaryOutcome:
     summary_context = await start_limit_summary_step(request=request)
 
+    request.messages[:] = without_tool_transactions(request.messages, request.history_tool_call_ids)
     remove_conflicting_tool_usage_contract(
         request.messages,
         task_mode=request.task_mode,

@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from app.schemas.chat import ContextUsage, Usage
 from app.services.agent.plan_coordinator import PlanCoordinator
+from app.services.chat.tool_transcript import advance_cutoff
 from app.services.stream.agent_loop_policy import AgentLoopLimitReason
 from app.services.stream.itinerary_observability import ItineraryToolObservation
 from app.services.stream.research_evidence import MAX_RESEARCH_REPAIRS, ResearchEvidenceWorkset
@@ -77,6 +78,22 @@ class AgentLoopState:
     pending_place_choices: dict[str, dict[str, Any]] = field(default_factory=dict)
     recovery_evidence: RecoveryEvidenceWorkset = field(default_factory=RecoveryEvidenceWorkset)
     tool_discovery: Any = None
+    # 本轮发给模型的工具调用与结果（续写同一回答时以已保存的记录为基础）。
+    tool_transcript: list[dict[str, Any]] = field(default_factory=list)
+    # 历史回放的工具调用 id → 所属 assistant 消息 sequence，用来判断上下文管理删掉了哪几轮。
+    history_tool_call_sequences: dict[str, int] = field(default_factory=dict)
+    tool_transcript_cutoff_sequence: int | None = None
+    # 回放历史中已用过的最大引用编号，本轮新来源从其后编号。
+    history_citation_floor: int = 0
+
+    def record_context_plan(self, before_messages: list[Any], after_messages: list[Any]) -> None:
+        """上下文管理删掉了历史工具记录时推进截断点，下一轮起这些记录不再回放。"""
+        self.tool_transcript_cutoff_sequence = advance_cutoff(
+            self.tool_transcript_cutoff_sequence,
+            history_sequences=self.history_tool_call_sequences,
+            before_messages=before_messages,
+            after_messages=after_messages,
+        )
 
     def record_tool_outcome(
         self,

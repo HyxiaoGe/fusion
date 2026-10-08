@@ -360,7 +360,14 @@ async def _trim_to_budget(
     estimated_before: int,
 ) -> ContextPlan:
     turns = _turn_indices(messages)
-    groups = [_RemovalGroup(tuple(turn), "turn") for turn in turns[:-1]]
+    # 删减顺序：先删最早几轮回放的工具记录（保留问答文字），再删最早的整轮，
+    # 最后才动当前这一轮内部的工具事务（始终保留最近一次）。
+    groups = [
+        _RemovalGroup(tuple(indices), "tool_transaction")
+        for turn in turns[:-1]
+        for indices in _tool_transaction_groups(messages, turn)
+    ]
+    groups.extend(_RemovalGroup(tuple(turn), "turn") for turn in turns[:-1])
     if turns:
         transactions = _tool_transaction_groups(messages, turns[-1])
         groups.extend(_RemovalGroup(tuple(indices), "tool_transaction") for indices in transactions[:-1])

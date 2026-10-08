@@ -456,6 +456,45 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             defer_output=True,
         )
 
+    async def test_summary_drops_replayed_history_tool_transactions_before_cleanup(self):
+        def transaction(call_id):
+            return [
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {"id": call_id, "type": "function", "function": {"name": "amap", "arguments": "{}"}}
+                    ],
+                },
+                {"role": "tool", "tool_call_id": call_id, "content": "结果"},
+            ]
+
+        request = replace(
+            self._deferred_commit_request(),
+            messages=[
+                {"role": "user", "content": "q1"},
+                *transaction("history-call"),
+                {"role": "assistant", "content": "a1"},
+                {"role": "user", "content": "q2"},
+                *transaction("current-call"),
+            ],
+            history_tool_call_ids=frozenset({"history-call"}),
+        )
+        seen = []
+
+        def capture(messages, **_kwargs):
+            seen.append([message.get("tool_call_id") for message in messages if message.get("role") == "tool"])
+            raise RuntimeError("stop after cleanup")
+
+        with (
+            patch("app.services.stream.limit_summary.start_limit_summary_step", new=AsyncMock()),
+            patch("app.services.stream.limit_summary.remove_conflicting_tool_usage_contract", side_effect=capture),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "stop after cleanup"):
+                await limit_summary_module.run_limit_summary_step(request=request)
+
+        self.assertEqual(seen, [["current-call"]])
+
     async def test_summary_stream_failure_persists_visible_partial_round_detail(self):
         detail_scheduler = MagicMock()
         emitter = AsyncMock()

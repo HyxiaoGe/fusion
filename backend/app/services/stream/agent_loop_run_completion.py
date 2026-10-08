@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from app.services.chat.tool_transcript_store import save_tool_transcript
 from app.services.stream.agent_loop_policy import AgentRunTerminalState
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.itinerary_observability import build_itinerary_run_payload, emit_itinerary_run_log
@@ -87,6 +88,22 @@ def persist_run_message(
     )
 
 
+def _save_tool_transcript(context: AgentLoopRunCompletionContext) -> None:
+    """回答落库后保存本轮工具记录与推进后的截断点，供后续轮次回放。"""
+    state = context.state
+    transcript = getattr(state, "tool_transcript", None)
+    cutoff = getattr(state, "tool_transcript_cutoff_sequence", None)
+    if not transcript and cutoff is None:
+        return
+    save_tool_transcript(
+        context.db,
+        conversation_id=context.conversation_id,
+        message_id=context.assistant_message_id,
+        transcript=list(transcript or []),
+        cutoff_sequence=cutoff,
+    )
+
+
 async def finalize_completed_run(
     *,
     context: AgentLoopRunCompletionContext,
@@ -115,6 +132,8 @@ async def finalize_completed_run(
                 error_code="generation_superseded",
             )
             return
+        if persisted is True:
+            _save_tool_transcript(context)
         if persisted is not True:
             if warning_fn is not None:
                 warning_fn("assistant 终态写入失败，不发布成功终态")

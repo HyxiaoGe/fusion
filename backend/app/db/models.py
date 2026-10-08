@@ -93,6 +93,9 @@ class Conversation(Base):
     title = Column(String, nullable=False)
     # model_id 对应 model_sources 表中的 model_id，支持中途切换模型
     model_id = Column(String, nullable=False)
+    # 该 sequence 及之前的 assistant 工具记录不再回放：超出上下文阈值时成批推进，
+    # 两次推进之间历史前缀保持不变，供应商前缀缓存可持续命中。
+    tool_transcript_cutoff_sequence = Column(BigInteger, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
@@ -577,6 +580,10 @@ class Message(Base):
     # 仅 assistant 消息填充，记录本次请求的 token 消耗
     # 结构: {"input_tokens": 312, "output_tokens": 876}
     usage = Column(JSONB, nullable=True)
+
+    # 仅 assistant 消息填充：本轮发给模型的工具调用与工具结果（不含思考），后续轮次原样回放。
+    # 结构: [{"role": "assistant", "content": "", "tool_calls": [...]}, {"role": "tool", "tool_call_id": "...", "content": "..."}]
+    tool_transcript = deferred(Column(JSONB, nullable=True))
 
     # 当前有权完成该消息轮次的 Redis 生成任务。
     # assistant 重生成直接保护原回答；未回答 user 重试则保护后续唯一回答的创建。

@@ -180,7 +180,7 @@ class ContextManagerTests(unittest.IsolatedAsyncioTestCase):
             [canonical[0], canonical[3], canonical[4], canonical[5]],
         )
 
-    async def test_old_tool_transaction_is_removed_as_one_turn_without_orphans(self):
+    async def test_old_tool_transaction_is_removed_before_old_turn_text_without_orphans(self):
         canonical = [
             {"role": "system", "content": "s" * 5},
             {"role": "user", "content": "q" * 20},
@@ -209,7 +209,7 @@ class ContextManagerTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(plan.status, "trimmed")
-        self.assertEqual(plan.messages, [canonical[0], canonical[5]])
+        self.assertEqual(plan.messages, [canonical[0], canonical[1], canonical[5]])
         self.assertFalse(any(message.get("role") == "tool" for message in plan.messages))
         self.assertFalse(any(message.get("tool_calls") for message in plan.messages))
 
