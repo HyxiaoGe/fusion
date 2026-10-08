@@ -144,7 +144,7 @@
 .legendTemp { height: 2px; background: var(--warn); }
 .legendPop { height: 8px; margin-left: 6px; background: color-mix(in oklab, var(--info) 45%, transparent); }
 .weatherHourlyScroll { overflow-x: auto; margin-top: 4px; }
-.weatherHourlyChart { display: block; width: 100%; min-width: 520px; height: auto; }
+.weatherHourlyChart { display: block; max-width: none; }
 .hourlyTempLine { fill: none; stroke: var(--warn); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .hourlyTempDot { fill: var(--bg-elevated); stroke: var(--warn); stroke-width: 1.5; }
 .hourlyPopBar { fill: color-mix(in oklab, var(--info) 45%, transparent); }
