@@ -24,7 +24,7 @@ export interface ComposerAgentModeResolution {
 
 export const COMPOSER_AGENT_MODE_LABELS: Record<ComposerAgentMode, string> = {
   auto: '自动',
-  plan: '计划',
+  plan: '规划执行',
   deep_research: '深度研究',
 };
 
@@ -92,7 +92,7 @@ export function resolveComposerAgentMode(
 
 /**
  * 由一次运行的配置还原用户当时选的执行模式：深度研究固定记为 deep_research，
- * 计划模式只在用户选择“计划”时记为 plan_mode=on，自动模式记为 off。
+ * 计划模式只在用户选择“规划执行”时记为 plan_mode=on，自动模式记为 off。
  */
 export function composerAgentModeFromRunConfig(
   config: Pick<AgentRunConfig, 'taskMode' | 'planMode'>,

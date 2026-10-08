@@ -19,7 +19,7 @@ from app.db.model_catalog_control_repository import ModelCatalogControlRepositor
 from app.db.models import ModelCatalogControl
 from app.schemas.response import success
 from app.services.agent_strategy_config import get_agent_tools_disabled_aliases
-from app.services.auto_model import AUTO_MODEL_ID, get_auto_model_candidates, pick_auto_model
+from app.services.auto_model import AUTO_MODEL_ID, get_all_auto_model_candidates, pick_auto_model
 from app.services.model_presentation import build_model_capability_presentation
 
 router = APIRouter()
@@ -104,12 +104,12 @@ def _entry_to_card(
 
 
 def _build_auto_card(cards: List[Dict[str, Any]], controls: ModelCatalogControlRepository) -> Dict[str, Any]:
-    """虚拟的「自动选择」卡片：能力取优先级候选里可用模型的并集，因为每轮会按需挑具备该能力的模型。"""
+    """虚拟的「自动选择」卡片：能力取各执行模式候选里可用模型的并集，因为每轮会按需挑具备该能力的模型。"""
     picked = pick_auto_model(controls)
     cards_by_id = {card["modelId"]: card for card in cards}
     usable = [
         cards_by_id[model_id]
-        for model_id in [*get_auto_model_candidates(), picked]
+        for model_id in [*get_all_auto_model_candidates(), picked]
         if model_id in cards_by_id
         and cards_by_id[model_id]["selectable"]
         and cards_by_id[model_id]["health"].get("status") != "unhealthy"
@@ -136,7 +136,7 @@ def _build_auto_card(cards: List[Dict[str, Any]], controls: ModelCatalogControlR
             if picked
             else {"status": "unhealthy", "error": "当前没有可用模型", "checked_at": None}
         ),
-        "description": "按管理员配置的优先级，每轮自动选择当前可用的模型；带图片时优先选能读图的模型",
+        "description": "按执行模式和管理员配置的优先级，每轮自动选择当前可用的模型；带图片时优先选能读图的模型",
         "cost_tier": "low",
         "recommended_for": [],
         "autoResolvedModelId": picked,

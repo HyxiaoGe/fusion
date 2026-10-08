@@ -129,36 +129,57 @@ def _validate_model_presentation(payload: dict[str, Any], issues: list[str]) -> 
 
 def _validate_auto_model_routing(payload: dict[str, Any], issues: list[str]) -> None:
     # 写入时会与默认值合并，旧的 candidates 等多余字段不拒绝就会被静默忽略
-    unknown = sorted(set(payload) - {"providers"})
+    unknown = sorted(set(payload) - {"providers", "modes"})
     if unknown:
         issues.append(f"不支持的字段：{', '.join(unknown)}（优先级改用 providers 分组）")
-    groups = payload.get("providers")
+    _validate_auto_provider_groups(payload.get("providers"), issues, prefix="providers")
+    modes = payload.get("modes")
+    if modes is None:
+        return
+    if not isinstance(modes, dict):
+        issues.append("modes 必须是对象")
+        return
+    for mode, mode_payload in modes.items():
+        prefix = f"modes.{mode}"
+        if mode not in {"auto", "plan", "deep_research"}:
+            issues.append(f"{prefix} 不是支持的执行模式（auto/plan/deep_research）")
+            continue
+        if not isinstance(mode_payload, dict):
+            issues.append(f"{prefix} 必须是对象")
+            continue
+        mode_unknown = sorted(set(mode_payload) - {"providers"})
+        if mode_unknown:
+            issues.append(f"{prefix} 不支持的字段：{', '.join(mode_unknown)}")
+        _validate_auto_provider_groups(mode_payload.get("providers"), issues, prefix=f"{prefix}.providers")
+
+
+def _validate_auto_provider_groups(groups: Any, issues: list[str], *, prefix: str) -> None:
     if not isinstance(groups, list) or not groups:
-        issues.append("providers 必须是非空数组")
+        issues.append(f"{prefix} 必须是非空数组")
         return
     seen_providers: set[str] = set()
     seen_models: set[str] = set()
     for index, group in enumerate(groups):
-        prefix = f"providers[{index}]"
+        group_prefix = f"{prefix}[{index}]"
         if not isinstance(group, dict):
-            issues.append(f"{prefix} 必须是对象")
+            issues.append(f"{group_prefix} 必须是对象")
             continue
         provider = group.get("provider")
         if not isinstance(provider, str) or not provider:
-            issues.append(f"{prefix}.provider 必须是非空字符串")
+            issues.append(f"{group_prefix}.provider 必须是非空字符串")
         elif provider in seen_providers:
-            issues.append(f"{prefix}.provider 重复：{provider}")
+            issues.append(f"{group_prefix}.provider 重复：{provider}")
         else:
             seen_providers.add(provider)
         models = group.get("models")
         if not isinstance(models, list) or not models or not all(isinstance(item, str) and item for item in models):
-            issues.append(f"{prefix}.models 必须是非空字符串数组")
+            issues.append(f"{group_prefix}.models 必须是非空字符串数组")
             continue
         for model in models:
             if model == "auto":
-                issues.append(f"{prefix}.models 不能包含 auto")
+                issues.append(f"{group_prefix}.models 不能包含 auto")
             elif model in seen_models:
-                issues.append(f"{prefix}.models 重复：{model}")
+                issues.append(f"{group_prefix}.models 重复：{model}")
             else:
                 seen_models.add(model)
 

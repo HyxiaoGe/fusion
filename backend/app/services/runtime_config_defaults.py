@@ -47,12 +47,23 @@ DEFAULT_MODEL_PRESENTATION_CONFIG = {
 
 
 # 自动选择模型的优先级：按提供商分组，组与组内模型都按顺序取第一个已注册、可调度、健康的模型
+# 规划执行/深度研究要多轮工具调用和长时间综合，组内 pro/reasoner 优先；自动模式求快，flash 优先
+_AUTO_MODEL_HEAVY_MODE_PROVIDERS = [
+    {"provider": "mimo", "models": ["mimo-v2.6-pro", "mimo-v2.6-flash"]},
+    {"provider": "deepseek", "models": ["deepseek-reasoner", "deepseek-chat"]},
+    {"provider": "qwen", "models": ["qwen3.8-flash"]},
+]
+
 DEFAULT_AUTO_MODEL_CONFIG = {
     "providers": [
         {"provider": "mimo", "models": ["mimo-v2.6-flash", "mimo-v2.6-pro"]},
         {"provider": "deepseek", "models": ["deepseek-chat", "deepseek-reasoner"]},
         {"provider": "qwen", "models": ["qwen3.8-flash"]},
     ],
+    "modes": {
+        "plan": {"providers": _AUTO_MODEL_HEAVY_MODE_PROVIDERS},
+        "deep_research": {"providers": _AUTO_MODEL_HEAVY_MODE_PROVIDERS},
+    },
 }
 
 
