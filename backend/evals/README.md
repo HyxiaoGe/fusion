@@ -14,7 +14,7 @@
 
 `master` 部署成功后，若本次改动涉及 Agent 行为（流式与 Agent loop、对话服务、工具、MCP、`app/ai` 下的提示词与 Skills、评测本身，
 范围见 `.github/scripts/detect_changes.py` 的 `AGENT_EVAL_PATH_PREFIXES`），`Fusion dev deploy` 的 `Agent eval gate`
-会在 dev 的 fusion-api 容器内跑全部用例。默认模型 `mimo-v2.6-pro,qwen3.8-flash`，可用仓库变量 `EVAL_GATE_MODELS` 调整。
+会在 dev 的 fusion-api 容器内跑全部用例。默认模型 `mimo-v2.6-pro,qwen3.8-flash`，可用仓库变量 `EVAL_GATE_MODELS` 调整；仓库变量 `EVAL_GATE_ENABLED=false` 暂停门禁（部署照常）。
 
 - 出现退步（同一用例在同一模型上此前通过、本轮失败）、当场复核一次仍失败时工作流标红，不自动回滚，由人判断。
 - 复核通过的记为"不稳定"，列在报告里但不标红；两次运行都入库（`attempt` 1/2），对比基准取复核结果。
