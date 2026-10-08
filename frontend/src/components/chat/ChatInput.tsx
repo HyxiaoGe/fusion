@@ -51,10 +51,7 @@ import { v4 as uuidv4 } from "uuid";
 import { useRenderProbe } from "@/lib/debug/perfProbe";
 import ComposerAttachmentList from "./ComposerAttachmentList";
 import ContextStatus from "./ContextStatus";
-import {
-  makeSelectConversationContextStatus,
-  makeSelectConversationTokenTotals,
-} from "@/lib/chat/contextUsage";
+import { makeSelectConversationContextStatus } from "@/lib/chat/contextUsage";
 import { resolveSendModel } from "@/lib/chat/sendModelResolution";
 import { clearComposerDraftIfUnchanged, readComposerDraft, readComposerDraftRevision, writeComposerDraft } from "@/lib/chat/composerDraftStorage";
 import {
@@ -271,11 +268,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
     [activeChatId],
   );
   const contextStatus = useAppSelector(selectContextStatus);
-  const selectTokenTotals = useMemo(
-    () => makeSelectConversationTokenTotals(activeChatId),
-    [activeChatId],
-  );
-  const tokenTotals = useAppSelector(selectTokenTotals);
   const isCurrentConversationStreaming = useAppSelector(
     (state) => selectStreamSlot(state, activeChatId).isStreaming
   );
@@ -1412,7 +1404,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
             isFirstConversationTurn={isFirstConversationTurn}
             isConversationHydrated={activeConversationHydrationStatus === 'done'}
             activeRunId={isCurrentConversationStreaming ? (currentRun?.runId ?? null) : null}
-            tokenTotals={tokenTotals}
           />
         </div>
       ) : null}

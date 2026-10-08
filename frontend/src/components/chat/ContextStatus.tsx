@@ -10,7 +10,6 @@ import {
   buildContextUsageView,
   type ContextUsageErrorKind,
   type ContextUsagePhase,
-  type ConversationTokenTotals,
 } from '@/lib/chat/contextUsage';
 import { cn } from '@/lib/utils';
 import type { ContextUsage } from '@/types/conversation';
@@ -44,7 +43,6 @@ interface ContextStatusProps {
   isFirstConversationTurn?: boolean;
   isConversationHydrated?: boolean;
   activeRunId?: string | null;
-  tokenTotals?: ConversationTokenTotals | null;
 }
 
 export {
@@ -115,7 +113,6 @@ export default function ContextStatus({
   isFirstConversationTurn = false,
   isConversationHydrated = true,
   activeRunId = null,
-  tokenTotals = null,
 }: ContextStatusProps) {
   // Fusion 聊天界面当前固定使用中文，避免浏览器语言探测让单个组件混入英文。
   const t = i18n.getFixedT('zh-CN');
@@ -511,20 +508,6 @@ export default function ContextStatus({
                 {tokenValue}
               </dd>
             </div>
-            {tokenTotals ? (
-              <div
-                data-testid="context-conversation-totals"
-                className="mt-2 flex items-center justify-between gap-4 border-t border-border/60 pt-2"
-              >
-                <dt className="shrink-0 text-muted-foreground">{t('contextStatus.conversationTotal')}</dt>
-                <dd className="text-right font-medium tabular-nums text-foreground">
-                  {t('contextStatus.conversationTotalValue', {
-                    input: formatTokens(tokenTotals.inputTokens),
-                    output: formatTokens(tokenTotals.outputTokens),
-                  })}
-                </dd>
-              </div>
-            ) : null}
           </dl>
 
           <section

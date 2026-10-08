@@ -40,30 +40,6 @@ describe('ContextStatus', () => {
     await i18n.changeLanguage('zh-CN');
   });
 
-  it('展示本对话累计输入和输出 Token', () => {
-    render(
-      <ContextStatus
-        conversationId="chat-total"
-        usage={actualUsage}
-        tokenTotals={{ inputTokens: 195_736, outputTokens: 12_345 }}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: '查看上下文状态，剩余 43%' }));
-
-    const totals = screen.getByTestId('context-conversation-totals');
-    expect(totals).toHaveTextContent('本对话累计');
-    expect(totals).toHaveTextContent('输入 195,736 · 输出 12,345');
-  });
-
-  it('没有累计值时不显示累计行', () => {
-    render(<ContextStatus conversationId="chat-empty" usage={actualUsage} />);
-
-    fireEvent.click(screen.getByRole('button', { name: '查看上下文状态，剩余 43%' }));
-
-    expect(screen.queryByTestId('context-conversation-totals')).not.toBeInTheDocument();
-  });
-
   it('以低干扰入口展示剩余比例，会话 ID 独占一行且不生硬换行', () => {
     const conversationId = '40e593b8-81c4-4932-b05b-f0265bab2379';
     render(<ContextStatus conversationId={conversationId} usage={actualUsage} />);
@@ -82,7 +58,7 @@ describe('ContextStatus', () => {
       'overflow-y-auto',
     );
     expect(screen.getByText('会话 ID')).toBeInTheDocument();
-    expect(screen.getByText('本轮输入（实际）')).toBeInTheDocument();
+    expect(screen.getByText('当前上下文（实际）')).toBeInTheDocument();
     const conversationSection = screen.getByTestId('context-conversation-section');
     const conversationValue = screen.getByTestId('context-conversation-id');
     expect(conversationSection).toContainElement(conversationValue);
@@ -169,7 +145,7 @@ describe('ContextStatus', () => {
       phase="final"
       latestActualUnavailable
     />);
-    expect(screen.getByText('最近一次实际输入')).toBeInTheDocument();
+    expect(screen.getByText('最近一次上下文（实际）')).toBeInTheDocument();
     expect(screen.getByText('147,811 / 256K Token')).toBeInTheDocument();
     expect(screen.getByText('本轮未返回实际用量，当前显示最近一次实际结果。')).toBeInTheDocument();
 
