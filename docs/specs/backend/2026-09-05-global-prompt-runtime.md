@@ -318,7 +318,7 @@ leader-only 轮询需要额外的选主与故障接管逻辑，不是纯减法�
 
 深度研究阶段：阶段控制各段、研究证据工作集、完成校验。
 
-产品结果事实边界：`app/ai/prompts/product_results.py` 六段。
+产品结果事实边界：写在各产品工具的 description 与工具结果的使用约束里（不再按轮临时追加 system 消息）。
 
 知识库：`KNOWLEDGE_GROUNDED_SYSTEM_PROMPT`。
 

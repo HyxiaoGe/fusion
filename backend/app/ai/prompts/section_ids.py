@@ -19,7 +19,6 @@ SKILLS_CATALOG = "skills_catalog"
 RESEARCH_COMPLETION_REPAIR = "research_completion_repair"
 DEEP_RESEARCH_STAGE = "deep_research_stage"
 RESEARCH_EVIDENCE_WORKSET = "research_evidence_workset"
-PRODUCT_RESULT_ROUND = "product_result_round"
 
 NO_PROGRESS_SUMMARY = "no_progress_summary"
 RESEARCH_EVIDENCE_SUMMARY = "research_evidence_summary"

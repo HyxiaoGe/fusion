@@ -9,7 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from app.ai import tools
-from app.ai.prompts import agent_loop, product_results
+from app.ai.prompts import agent_loop
 from app.ai.prompts.local_templates import CODE_DEFAULT_PROMPT_TEMPLATES
 from app.ai.prompts.runtime_prompt_store import RUNTIME_PROMPT_FILE, render_runtime_prompt
 from app.processor import file_processor
@@ -52,7 +52,6 @@ def _assert_schema_descriptions_are_english(value, *, path: str) -> None:
 def test_static_system_prompts_are_english():
     modules = (
         agent_loop,
-        product_results,
         chat_grounding,
         flyai_travel_tools,
         agent_loop_round_outcome,

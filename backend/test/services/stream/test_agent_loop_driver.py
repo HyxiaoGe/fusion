@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.ai.prompts.section_ids import PRODUCT_RESULT_ROUND, RESEARCH_EVIDENCE_WORKSET
+from app.ai.prompts.section_ids import RESEARCH_EVIDENCE_WORKSET
 from app.schemas.chat import PlaceResult, PlaceResultsBlock, SourceReference, TextBlock, UrlBlock, Usage
 from app.services.agent.plan_coordinator import PlanCoordinator
 from app.services.stream.agent_loop_driver import AgentLoopExit, _run_limit_summary, _run_round, run_agent_loop
@@ -249,115 +249,6 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
 
                 # 服务端不再替换回答，模型没调工具时直接流式交付，不先缓存。
                 self.assertEqual(observed, [None])
-
-    async def test_weather_result_adds_temporary_round_constraint_without_mutating_run_messages(self):
-        captured = []
-
-        async def run_round_fn(**kwargs):
-            captured.append(kwargs)
-            return AgentRoundResult(
-                reasoning_buf="",
-                content_buf="",
-                tool_calls=[],
-                finish_reason="stop",
-                accumulated_usage=Usage(input_tokens=1, output_tokens=1),
-            )
-
-        messages = [
-            {"role": "system", "content": "Run 初始系统提示词"},
-            {"role": "user", "content": "2026年8月29日上午适合骑行吗？"},
-            {"role": "tool", "content": "天气结构化结果"},
-        ]
-        original_messages = [dict(message) for message in messages]
-
-        await _run_round(
-            messages=messages,
-            state=AgentLoopState(content_blocks=[{"type": "weather_results"}]),
-            runtime=_runtime(run_round_fn=run_round_fn),
-            step_number=2,
-            step_context=AgentStepContext(
-                step_id="step-weather-answer",
-                step_number=2,
-                started_at=1.0,
-                thinking_block_id="thinking-weather-answer",
-                text_block_id="text-weather-answer",
-            ),
-        )
-
-        self.assertEqual(messages, original_messages)
-        system_text = "\n".join(
-            message["content"] for message in captured[0]["messages"] if message["role"] == "system"
-        )
-        self.assertIn("[Product-result synthesis contract for this round]", system_text)
-        self.assertIn("do not infer road conditions, safety, or comfort", system_text)
-        self.assertIn("morning precipitation cannot be confirmed", system_text)
-        self.assertIn("give a conditional conclusion", system_text)
-        self.assertIn("Do not judge whether temperature or wind is suitable, acceptable, or comfortable", system_text)
-        self.assertIn(
-            "do not claim that weather will affect the activity experience, road conditions, or safety", system_text
-        )
-        self.assertIn(
-            "without directly rating the activity as suitable, unsuitable, recommended, or not recommended", system_text
-        )
-        self.assertIn(
-            "State only returned facts, time-granularity limits, and whether the user's condition is met", system_text
-        )
-        self.assertEqual(
-            [message.section_id for message in captured[0]["messages"]].count(PRODUCT_RESULT_ROUND),
-            1,
-        )
-
-    async def test_mixed_flight_and_train_results_require_both_types_without_markdown_table(self):
-        captured = []
-
-        async def run_round_fn(**kwargs):
-            captured.append(kwargs)
-            return AgentRoundResult(
-                reasoning_buf="",
-                content_buf="",
-                tool_calls=[],
-                finish_reason="stop",
-                accumulated_usage=Usage(input_tokens=1, output_tokens=1),
-            )
-
-        await _run_round(
-            messages=[
-                {"role": "system", "content": "Run 初始系统提示词"},
-                {"role": "user", "content": "高铁和飞机都查，比较最省钱和最快方案"},
-                {"role": "tool", "content": "航班与高铁结构化结果"},
-            ],
-            state=AgentLoopState(
-                content_blocks=[
-                    {"type": "flight_results"},
-                    {"type": "train_results"},
-                    {"type": "itinerary_results"},
-                ]
-            ),
-            runtime=_runtime(run_round_fn=run_round_fn),
-            step_number=3,
-            step_context=AgentStepContext(
-                step_id="step-mixed-travel-answer",
-                step_number=3,
-                started_at=1.0,
-                thinking_block_id="thinking-mixed-travel-answer",
-                text_block_id="text-mixed-travel-answer",
-            ),
-        )
-
-        system_text = "\n".join(
-            message["content"] for message in captured[0]["messages"] if message["role"] == "system"
-        )
-        self.assertIn("[Product-result synthesis contract for this round]", system_text)
-        self.assertIn("The current results contain both flights and trains", system_text)
-        self.assertIn("omit neither type", system_text)
-        self.assertIn("Do not use Markdown tables", system_text)
-        self.assertIn("Compare only reference prices and scheduled service durations", system_text)
-        self.assertIn(
-            "Do not compare total door-to-door time, connection convenience, check-in, security screening, or waiting",
-            system_text,
-        )
-        self.assertIn("Do not omit trains even when an itinerary card displays only flights", system_text)
-        self.assertIn("overall conclusion, flight summary, train summary, and factual limits", system_text)
 
     async def _deliver_document_scenario(self, *, round_result, capability_resolution=None, content_blocks=()):
         state = AgentLoopState(content_blocks=list(content_blocks))
