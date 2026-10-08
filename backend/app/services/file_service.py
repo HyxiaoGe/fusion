@@ -277,6 +277,65 @@ class FileService:
 
         return results
 
+    async def store_generated_image(
+        self,
+        *,
+        content: bytes,
+        mime_type: str,
+        user_id: str,
+        conversation_id: str,
+        filename: str,
+    ) -> Dict[str, Any]:
+        """保存 Agent 生成的图片，与上传图片同一预处理与存储链路。
+
+        生成图属于助手回复，不挂到会话附件列表：不占用户的上传配额，也不会被当作
+        用户附件再次送进模型。
+        """
+        if not is_image_mime(mime_type) or mime_type not in settings.ALLOWED_FILE_TYPES:
+            raise ValueError(f"不支持的图片类型: {mime_type}")
+        if not content or len(content) > settings.MAX_FILE_SIZE:
+            raise ValueError("生成图片为空或超过大小上限")
+        if ConversationRepository(self.db).get_by_id(conversation_id, user_id) is None:
+            raise ValueError("会话不存在或无权访问")
+
+        file_id = str(uuid.uuid4())
+        safe_filename = self._safe_filename(filename)
+        upload_lifecycles: list[GuardedStorageUpload] = []
+        try:
+            stored = await self._process_and_store_image(content, mime_type, user_id, conversation_id, file_id)
+            upload_lifecycles.extend(stored.pop("upload_lifecycles"))
+            file_record = {
+                "id": file_id,
+                "user_id": user_id,
+                "filename": os.path.basename(f"{file_id}_{safe_filename}"),
+                "original_filename": safe_filename,
+                "mimetype": stored["mime_type"],
+                "size": len(content),
+                "path": stored["storage_key"],
+                "status": "processed",
+                "processing_result": None,
+                "storage_key": stored["storage_key"],
+                "thumbnail_key": stored["thumbnail_key"],
+                "storage_backend": settings.STORAGE_BACKEND,
+                "width": stored["width"],
+                "height": stored["height"],
+            }
+            await self._commit_new_file_with_upload_fences(
+                file_record=file_record,
+                conversation_id=conversation_id,
+                lifecycles=upload_lifecycles,
+                link_conversation=False,
+            )
+        except BaseException:
+            self._detach_file_upload_lifecycles(upload_lifecycles)
+            raise
+        return {
+            "file_id": file_id,
+            "mime_type": stored["mime_type"],
+            "width": stored["width"],
+            "height": stored["height"],
+        }
+
     async def create_direct_upload(
         self,
         user_id: str,
@@ -541,6 +600,7 @@ class FileService:
         file_record: dict[str, Any],
         conversation_id: str,
         lifecycles: list[GuardedStorageUpload],
+        link_conversation: bool = True,
     ) -> None:
         cleanup_repo = StorageCleanupRepository(self.db)
         try:
@@ -548,7 +608,8 @@ class FileService:
                 [lifecycle.registration for lifecycle in lifecycles]
             )
             self.file_repo.stage_file(file_record)
-            self.file_repo.stage_conversation_link(conversation_id, str(file_record["id"]))
+            if link_conversation:
+                self.file_repo.stage_conversation_link(conversation_id, str(file_record["id"]))
             cleanup_repo.complete_reference_writes_locked(locked)
             self.db.commit()
         except StorageUploadFenceConflict as exc:

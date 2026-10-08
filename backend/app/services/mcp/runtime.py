@@ -10,6 +10,7 @@ def get_mcp_client_manager() -> McpClientManager:
 
     policy = McpClientPolicy(
         allowed_hosts=frozenset(settings.RESOLVED_MCP_ALLOWED_HOSTS),
+        allowed_internal_endpoints=frozenset(settings.RESOLVED_MCP_ALLOWED_INTERNAL_ENDPOINTS),
         allowed_credential_refs=frozenset(settings.RESOLVED_MCP_ALLOWED_CREDENTIAL_REFS),
         connect_timeout_seconds=max(0.1, settings.MCP_CONNECT_TIMEOUT_SECONDS),
         call_timeout_seconds=max(0.1, settings.MCP_CALL_TIMEOUT_SECONDS),

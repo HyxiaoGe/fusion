@@ -8,6 +8,7 @@ import type { AgentEvidenceItem, AgentRunState, DocumentDraftState } from '@/typ
 import type {
   ContentBlock,
   DocumentBlock,
+  GeneratedImageBlock,
   KnowledgeEvidenceBlock,
   Message,
   SearchBlock,
@@ -52,6 +53,7 @@ export interface AssistantMessageViewModel {
   structuredResults: StructuredToolResultBlock[];
   rawStructuredResults?: StructuredToolResultBlock[];
   documentBlocks?: DocumentBlock[];
+  generatedImages?: GeneratedImageBlock[];
   documentDraft?: DocumentDraftState | null;
   displayText: string;
   displayThinking: string;
@@ -114,6 +116,7 @@ export function deriveStaticAssistantMessageViewModel({
   const structuredResults = collectStructuredToolResultBlocks(blocksToRender);
   const rawStructuredResults = blocksToRender.filter(isStructuredToolResultBlock);
   const documentBlocks = collectDocumentBlocks(blocksToRender);
+  const generatedImages = collectGeneratedImageBlocks(blocksToRender);
   const suppressThinking = activity.shouldSuppressReasoning;
 
   return {
@@ -127,6 +130,7 @@ export function deriveStaticAssistantMessageViewModel({
     structuredResults,
     rawStructuredResults,
     documentBlocks,
+    generatedImages,
     documentDraft: null,
     displayText,
     displayThinking,
@@ -263,6 +267,7 @@ export function useAssistantMessageViewModel({
     [blocksToRender],
   );
   const documentBlocks = useMemo(() => collectDocumentBlocks(blocksToRender), [blocksToRender]);
+  const generatedImages = useMemo(() => collectGeneratedImageBlocks(blocksToRender), [blocksToRender]);
   const documentDraft = isCurrentlyStreaming ? ownedRun?.documentDraft ?? null : null;
   const suppressThinking = activity.shouldSuppressReasoning;
   const hasThinking = !suppressThinking && displayThinking.length > 0;
@@ -278,6 +283,7 @@ export function useAssistantMessageViewModel({
     structuredResults,
     rawStructuredResults,
     documentBlocks,
+    generatedImages,
     documentDraft,
     displayText,
     displayThinking,
@@ -296,6 +302,10 @@ function collectSearchBlocks(contentBlocks: ContentBlock[]): SearchBlock[] {
 
 function collectDocumentBlocks(contentBlocks: ContentBlock[]): DocumentBlock[] {
   return contentBlocks.filter((block): block is DocumentBlock => block.type === 'document');
+}
+
+function collectGeneratedImageBlocks(contentBlocks: ContentBlock[]): GeneratedImageBlock[] {
+  return contentBlocks.filter((block): block is GeneratedImageBlock => block.type === 'generated_image');
 }
 
 function collectKnowledgeEvidenceBlocks(contentBlocks: ContentBlock[]): KnowledgeEvidenceBlock[] {

@@ -125,6 +125,7 @@ class DeployAuthConfigTests(unittest.TestCase):
         )
         for variable in (
             "MCP_ALLOWED_HOSTS",
+            "MCP_ALLOWED_INTERNAL_ENDPOINTS",
             "MCP_ALLOWED_CREDENTIAL_REFS",
             "MCP_CONNECT_TIMEOUT_SECONDS",
             "MCP_CALL_TIMEOUT_SECONDS",
@@ -143,6 +144,10 @@ class DeployAuthConfigTests(unittest.TestCase):
             "CONTEXT7_API_KEY",
         ):
             self.assertIn(f"- {variable}=${{{variable}", self.workflow)
+        self.assertIn(
+            'export MCP_ALLOWED_INTERNAL_ENDPOINTS="${DEPLOY_MCP_ALLOWED_INTERNAL_ENDPOINTS:-${MCP_ALLOWED_INTERNAL_ENDPOINTS:-}}"',
+            self.workflow,
+        )
         self.assertNotIn("echo ${DASHSCOPE_API_KEY}", self.workflow)
         self.assertNotIn("echo ${AMAP_MCP_API_KEY}", self.workflow)
         self.assertNotIn("echo ${CONTEXT7_API_KEY}", self.workflow)

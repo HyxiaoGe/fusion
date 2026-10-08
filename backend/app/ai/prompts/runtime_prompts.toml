@@ -437,3 +437,11 @@ catalog_preamble = """Skills are instruction packages for specific kinds of task
 When a skill fits the user's request, call `load_skill` with its name before starting the work, then follow the loaded instructions alongside the rest of this system prompt. If none fits, ignore this list.
 A loaded skill may list reference files; load one with `load_skill` and its `file` argument only when the instructions point to it."""
 tool_description = "Load a skill's instructions by name, or one of its reference files with `file`. Returns the text to follow for the current task."
+
+[image_service]
+tool_description = """Generate a new image from a text description and show it to the user in this reply. Call it only when the user asks you to create, draw, or design an image, such as an illustration, poster, icon, avatar, or scene. Do not call it to find existing photos, to look up facts, or to illustrate an answer the user did not ask to visualize. Each call has a real cost: generate one image per request unless the user explicitly asks for several."""
+prompt = """Detailed visual description of the image: subject, setting, composition, lighting, colors, and any text that must appear in the image. Write it in the user's language or in English."""
+aspect_ratio = """Image aspect ratio. Use 1:1 unless the user asks for a landscape image (16:9 or 4:3) or a portrait image (9:16 or 3:4)."""
+style = """Optional style hint, such as watercolor, photorealistic, flat illustration, oil painting, or pixel art."""
+success_context = """The image was generated and is shown to the user as an image card in this reply{% if model %} (model: {{ model }}){% endif %}. Do not output an image link, a markdown image, or the file id. Reply briefly in the user's language: say what was drawn in one or two sentences and offer to adjust it."""
+failed_context = """Image generation failed (error code: {{ error_code }}). Tell the user plainly that the image could not be generated this time and that they can try again. Do not describe the image as if it exists and do not output any image link."""

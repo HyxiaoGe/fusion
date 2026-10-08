@@ -580,6 +580,37 @@ class ProductResultEventTests(unittest.IsolatedAsyncioTestCase):
                 },
             )
 
+    async def test_generated_image_block_is_upserted_and_round_trips_registry(self):
+        from app.schemas.chat import GeneratedImageBlock
+        from app.schemas.content_block_registry import deserialize_content_blocks
+
+        writer = AsyncMock()
+        emitter = AgentEventEmitter(
+            run_id="run-1",
+            trace_id="trace-1",
+            conversation_id="conv-1",
+            task_id="task-1",
+            redis_writer=writer,
+        )
+        block = GeneratedImageBlock(
+            type="generated_image",
+            schema_version=1,
+            provider="image-service",
+            file_id="file-1",
+            mime_type="image/jpeg",
+            width=1024,
+            height=1024,
+            prompt="a red fox",
+            aspect_ratio="1:1",
+            model="gemini-3.1-flash-image-preview",
+        )
+
+        await emitter.content_block_upserted(tool_call_id="tc-img", content_block=block)
+
+        payload = writer.append_chunk.await_args.args[3]
+        self.assertEqual(payload["content_block"], block.model_dump(mode="json"))
+        self.assertEqual(deserialize_content_blocks([block.model_dump(mode="json")]), [block])
+
     async def test_document_block_is_upserted_for_live_document_card(self):
         from app.schemas.chat import DocumentBlock
 

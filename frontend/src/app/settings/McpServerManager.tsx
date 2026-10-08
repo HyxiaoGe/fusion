@@ -242,12 +242,13 @@ function validateForm(form: ServerFormState): FormErrors {
     errors.endpointUrl = "Endpoint URL 不能为空";
   } else {
     try {
+      // 公网服务须 HTTPS；内网自建 MCP 可用 HTTP，是否放行以后端白名单为准。
       const endpoint = new URL(form.endpointUrl);
-      if (endpoint.protocol !== "https:") {
-        errors.endpointUrl = "MCP Endpoint 必须使用 HTTPS";
+      if (endpoint.protocol !== "https:" && endpoint.protocol !== "http:") {
+        errors.endpointUrl = "MCP Endpoint 必须使用 HTTP(S)";
       }
     } catch {
-      errors.endpointUrl = "请输入有效的 HTTPS URL";
+      errors.endpointUrl = "请输入有效的 URL";
     }
   }
 

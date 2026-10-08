@@ -709,6 +709,61 @@ class McpClientManagerTests(unittest.TestCase):
                     asyncio.run(manager.test_connection(build_config(endpoint_url=endpoint_url)))
                 self.assertEqual(raised.exception.code, "invalid_endpoint")
 
+    def test_internal_endpoint_allowlist_permits_exact_http_url_only(self):
+        internal = "http://192.168.1.11:8090/mcp"
+        connector = FakeConnector(FakeSession())
+        manager = McpClientManager(
+            policy=build_policy(allowed_internal_endpoints=frozenset({internal})),
+            connector=connector,
+            environ={},
+        )
+        internal_config = build_config(
+            provider="image-service", endpoint_url=internal, auth_type="none", credential_ref=None
+        )
+
+        asyncio.run(manager.test_connection(internal_config))
+        self.assertEqual(connector.connections[0]["endpoint_url"], internal)
+
+        rejected = [
+            ("http://192.168.1.11:8090/mcp/", "endpoint_not_allowed"),
+            ("http://192.168.1.12:8090/mcp", "endpoint_not_allowed"),
+            ("http://192.168.1.11:8091/mcp", "endpoint_not_allowed"),
+        ]
+        for endpoint_url, code in rejected:
+            with self.subTest(endpoint_url=endpoint_url):
+                with self.assertRaises(McpClientError) as raised:
+                    asyncio.run(manager.test_connection(build_config(
+                        provider="image-service", endpoint_url=endpoint_url, auth_type="none", credential_ref=None
+                    )))
+                self.assertIn(raised.exception.code, {code, "invalid_endpoint"})
+
+    def test_internal_endpoint_allowlist_ignores_entries_with_query_or_userinfo(self):
+        for internal in ("http://u:p@192.168.1.11:8090/mcp", "http://192.168.1.11:8090/mcp?x=1"):
+            with self.subTest(internal=internal):
+                manager = McpClientManager(
+                    policy=build_policy(allowed_internal_endpoints=frozenset({internal})),
+                    connector=FakeConnector(FakeSession()),
+                    environ={},
+                )
+                with self.assertRaises(McpClientError):
+                    asyncio.run(manager.test_connection(build_config(
+                        provider="image-service", endpoint_url=internal, auth_type="none", credential_ref=None
+                    )))
+
+    def test_call_tool_minimum_timeout_raises_call_timeout_only_upward(self):
+        session = FakeSession()
+        manager = McpClientManager(
+            policy=build_policy(call_timeout_seconds=2.5),
+            connector=FakeConnector(session),
+            environ={"DASHSCOPE_API_KEY": "test-secret"},
+        )
+        config = build_config(allowed_tools=["search"])
+
+        asyncio.run(manager.call_tool(config, "search", {"query": "a"}, min_call_timeout_seconds=120))
+        asyncio.run(manager.call_tool(config, "search", {"query": "b"}, min_call_timeout_seconds=1))
+
+        self.assertEqual(session.call_read_timeouts, [timedelta(seconds=120), timedelta(seconds=2.5)])
+
     def test_query_credential_is_injected_only_into_transport_parameters(self):
         connector = FakeConnector(FakeSession())
         manager = McpClientManager(

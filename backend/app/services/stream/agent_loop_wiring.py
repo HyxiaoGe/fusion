@@ -224,7 +224,12 @@ def prepare_agent_loop_call_config_inputs(
         and dependencies.load_dynamic_tools_fn is not None
     )
     dynamic_tool_set = (
-        _load_dynamic_tools(dependencies.load_dynamic_tools_fn, db=db, user_id=run_input.user_id)
+        _load_dynamic_tools(
+            dependencies.load_dynamic_tools_fn,
+            db=db,
+            user_id=run_input.user_id,
+            conversation_id=run_input.conversation_id,
+        )
         if should_load_dynamic_tools
         else None
     )
@@ -340,16 +345,21 @@ def build_agent_loop_lifecycle_call(
     )
 
 
-def _load_dynamic_tools(load_fn: Callable[..., Any], *, db: Any, user_id: str) -> Any:
-    """新加载器接收 user_id；旧测试替身和兼容扩展仍可保持单参数签名。"""
+def _load_dynamic_tools(
+    load_fn: Callable[..., Any],
+    *,
+    db: Any,
+    user_id: str,
+    conversation_id: str | None = None,
+) -> Any:
+    """新加载器接收 user_id / conversation_id；旧测试替身和兼容扩展仍可保持单参数签名。"""
 
-    parameters = inspect.signature(load_fn).parameters.values()
-    supports_user_id = any(parameter.name == "user_id" for parameter in parameters) or any(
-        parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters
-    )
-    if supports_user_id:
-        return load_fn(db, user_id=user_id)
-    return load_fn(db)
+    kwargs: dict[str, Any] = {}
+    if _accepts_keyword(load_fn, "user_id"):
+        kwargs["user_id"] = user_id
+    if conversation_id is not None and _accepts_keyword(load_fn, "conversation_id"):
+        kwargs["conversation_id"] = conversation_id
+    return load_fn(db, **kwargs)
 
 
 def _accepts_keyword(fn: Callable[..., Any], keyword: str) -> bool:

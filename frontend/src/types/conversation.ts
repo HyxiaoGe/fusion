@@ -152,6 +152,22 @@ export interface DocumentBlock {
   tool_call_log_id?: string;
 }
 
+/** 模型通过 generate_image 生成的图片；图片已转存到 Fusion 文件存储，按 file_id 取签名地址。 */
+export interface GeneratedImageBlock {
+  type: 'generated_image';
+  id: string;
+  schema_version: 1;
+  provider: string;
+  file_id: string;
+  mime_type: string;
+  width: number | null;
+  height: number | null;
+  prompt: string;
+  aspect_ratio: string | null;
+  model: string | null;
+  tool_call_log_id?: string;
+}
+
 export interface ProviderPlacePhoto {
   url?: string;
   title?: string | null;
@@ -444,6 +460,7 @@ export type ContentBlock =
   | UrlBlock
   | KnowledgeEvidenceBlock
   | DocumentBlock
+  | GeneratedImageBlock
   | StructuredToolResultBlock;
 
 // ============================================================

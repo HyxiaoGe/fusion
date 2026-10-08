@@ -321,7 +321,7 @@ async def execute_tool_with_retry(
         try:
             return await asyncio.wait_for(
                 _execute_handler(handler, args, runtime_context),
-                timeout=AGENT_TOOL_TIMEOUT,
+                timeout=_handler_timeout_seconds(handler),
             )
         except asyncio.TimeoutError:
             return ToolResult(
@@ -348,7 +348,7 @@ async def execute_tool_once(
         try:
             return await asyncio.wait_for(
                 _execute_handler(handler, args, runtime_context),
-                timeout=AGENT_TOOL_TIMEOUT,
+                timeout=_handler_timeout_seconds(handler),
             )
         except asyncio.TimeoutError:
             return ToolResult(
@@ -360,6 +360,14 @@ async def execute_tool_once(
     if attempt_lifecycle is None:
         return await execute_attempt()
     return await attempt_lifecycle.execute(execute_attempt)
+
+
+def _handler_timeout_seconds(handler: Any) -> float:
+    """已知慢工具（如生图）可声明更长的单次超时，其余沿用统一上限。"""
+    declared = getattr(handler, "execution_timeout_seconds", None)
+    if isinstance(declared, (int, float)) and not isinstance(declared, bool) and declared > AGENT_TOOL_TIMEOUT:
+        return float(declared)
+    return AGENT_TOOL_TIMEOUT
 
 
 def new_tool_execution_ids() -> ToolExecutionIds:
