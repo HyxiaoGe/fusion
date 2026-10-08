@@ -22,6 +22,8 @@ function deferred<T>() {
   return { promise, resolve };
 }
 async function present() {
+  // 观察器在正文渲染后的 effect 里才创建并挂载，先等它就绪再模拟进入视口。
+  await waitFor(() => expect(observers.at(-1)?.target).toBeDefined());
   await act(async () => {
     const observer = observers.at(-1)!;
     observer.callback([{ target: observer.target, isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
