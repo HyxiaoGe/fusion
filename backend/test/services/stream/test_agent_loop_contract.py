@@ -457,7 +457,7 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.session_status_calls[-1]["total_tool_calls"], 1)
         self.assertIn("不可信外部数据", str(result.llm_calls[1]["messages"]))
 
-    async def test_product_result_constraint_changes_only_the_post_tool_round_fingerprint(self):
+    async def test_product_result_round_keeps_system_messages_unchanged(self):
         alias = "local_place_search"
         definition = {
             "type": "function",
@@ -529,8 +529,8 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
         second_system_text = "\n".join(
             message["content"] for message in result.llm_calls[1]["messages"] if message["role"] == "system"
         )
-        self.assertNotIn("[Product-result synthesis contract for this round]", first_system_text)
-        self.assertIn("[Product-result synthesis contract for this round]", second_system_text)
+        # 产品结果的使用规则写在工具说明和工具结果里，拿到结果后的轮次不再临时追加 system 消息
+        self.assertEqual(first_system_text, second_system_text)
 
         round_events = [event for event in result.events if event["type"] == "llm_round_started"]
         self.assertEqual(len(round_events), 2)
@@ -542,7 +542,7 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
             round_events[1]["system_prompt_fingerprint"],
             fingerprint_system_messages(result.llm_calls[1]["messages"]),
         )
-        self.assertNotEqual(
+        self.assertEqual(
             round_events[0]["system_prompt_fingerprint"],
             round_events[1]["system_prompt_fingerprint"],
         )

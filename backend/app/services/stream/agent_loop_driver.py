@@ -7,11 +7,9 @@ from copy import deepcopy
 from dataclasses import replace
 from inspect import Parameter, signature
 
-from app.ai.prompts.product_results import build_product_result_round_prompt
 from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
 from app.ai.prompts.section_ids import (
     DEEP_RESEARCH_STAGE,
-    PRODUCT_RESULT_ROUND,
     RESEARCH_EVIDENCE_WORKSET,
 )
 from app.services.chat.tool_transcript import without_tool_transactions
@@ -243,10 +241,6 @@ async def _run_round(
         runtime=runtime,
         research_stage=research_stage,
         allow_plan_update=allow_plan_update,
-    )
-    effective_messages = _messages_with_product_result_constraint(
-        effective_messages,
-        content_blocks=state.content_blocks,
     )
     run_round_kwargs = dict(
         conversation_id=runtime.conversation_id,
@@ -537,27 +531,6 @@ def _messages_with_research_workset(
         *([PromptMessage(role="system", content=stage_prompt, section_id=DEEP_RESEARCH_STAGE)] if stage_prompt else []),
         *([PromptMessage(role="system", content=prompt, section_id=RESEARCH_EVIDENCE_WORKSET)] if prompt else []),
         *untrusted_messages,
-        *normalized[insert_at:],
-    ]
-
-
-def _messages_with_product_result_constraint(
-    messages: list[PromptMessage | dict],
-    *,
-    content_blocks: list,
-) -> list[PromptMessage]:
-    """只为当前模型轮次添加静态约束，不修改 Run 的持久消息与初始提示词快照。"""
-
-    prompt = build_product_result_round_prompt(content_blocks)
-    normalized = ensure_prompt_messages(messages)
-    if not prompt or any(message.section_id == PRODUCT_RESULT_ROUND for message in normalized):
-        return normalized
-    insert_at = 0
-    while insert_at < len(normalized) and normalized[insert_at].role == "system":
-        insert_at += 1
-    return [
-        *normalized[:insert_at],
-        PromptMessage(role="system", content=prompt, section_id=PRODUCT_RESULT_ROUND),
         *normalized[insert_at:],
     ]
 
