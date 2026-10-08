@@ -445,6 +445,25 @@ class WeatherForecastDay(BaseModel):
         return self
 
 
+class WeatherHourlyPoint(BaseModel):
+    """逐小时预报点；时间保留地点当地时区，不换算成北京时间。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    time: datetime
+    temp_c: float = Field(ge=-100, le=100)
+    weather: str = Field(min_length=1, max_length=80)
+    pop: Optional[int] = Field(default=None, ge=0, le=100)
+    precip_mm: Optional[float] = Field(default=None, ge=0, le=500)
+
+    @field_validator("time")
+    @classmethod
+    def validate_time_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("逐小时预报时间必须包含时区")
+        return value
+
+
 class WeatherResultsBlock(BaseModel):
     """天气预报产品结果块。"""
 
@@ -461,6 +480,7 @@ class WeatherResultsBlock(BaseModel):
     requested_date: Optional[CalendarDate] = None
     day_count: int = Field(ge=1, le=4)
     forecast_days: List[WeatherForecastDay] = Field(min_length=1, max_length=4)
+    hourly: List[WeatherHourlyPoint] = Field(default_factory=list, max_length=24)
     fetched_at: datetime
     limitations: List[str] = Field(default_factory=list, max_length=8)
     tool_call_log_id: str = Field(default="", max_length=160)
@@ -486,6 +506,9 @@ class WeatherResultsBlock(BaseModel):
         dates = [item.date for item in self.forecast_days]
         if dates != sorted(dates) or len(dates) != len(set(dates)):
             raise ValueError("forecast_days 必须按日期升序且日期唯一")
+        times = [item.time for item in self.hourly]
+        if times != sorted(times) or len(times) != len(set(times)):
+            raise ValueError("hourly 必须按时间升序且时间唯一")
         expected_status = "success" if self.day_count == 4 else "degraded"
         if self.status != expected_status:
             raise ValueError("四天完整预报必须为 success，其余可用预报必须为 degraded")

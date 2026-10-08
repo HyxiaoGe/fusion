@@ -88,6 +88,15 @@ class QWeatherDay:
     wind_scale_night: str | None
 
 
+@dataclass(frozen=True)
+class QWeatherHour:
+    time: str
+    temp: str
+    text: str
+    pop: str | None
+    precip: str | None
+
+
 class QWeatherClient:
     def __init__(
         self,
@@ -125,6 +134,15 @@ class QWeatherClient:
             if day is not None:
                 days.append(day)
         return days
+
+    async def hourly_forecast(self, location_id: str) -> list[QWeatherHour]:
+        payload = await self._get("/v7/weather/24h", {"location": location_id, "lang": "zh"})
+        hours: list[QWeatherHour] = []
+        for raw in payload.get("hourly") or []:
+            hour = _parse_hour(raw)
+            if hour is not None:
+                hours.append(hour)
+        return hours
 
     async def _get(self, path: str, params: dict[str, str], *, not_found_is_empty: bool = False) -> dict[str, Any]:
         token = self._bearer_token()
@@ -255,4 +273,21 @@ def _parse_day(raw: Any) -> QWeatherDay | None:
         wind_dir_night=_text(raw, "windDirNight", 40),
         wind_scale_day=_text(raw, "windScaleDay", 20),
         wind_scale_night=_text(raw, "windScaleNight", 20),
+    )
+
+
+def _parse_hour(raw: Any) -> QWeatherHour | None:
+    if not isinstance(raw, dict):
+        return None
+    time_text = _text(raw, "fxTime", 40)
+    temp = _text(raw, "temp", 10)
+    text = _text(raw, "text", 80)
+    if not time_text or not temp or not text:
+        return None
+    return QWeatherHour(
+        time=time_text,
+        temp=temp,
+        text=text,
+        pop=_text(raw, "pop", 4),
+        precip=_text(raw, "precip", 10),
     )

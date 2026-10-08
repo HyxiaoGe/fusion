@@ -79,11 +79,24 @@ DAILY = [
 ]
 
 
+HOURLY = [
+    {
+        "fxTime": f"2026-10-{8 + (16 + hour) // 24:02d}T{(16 + hour) % 24:02d}:00+08:00",
+        "temp": str(20 - hour // 4),
+        "text": "小雨" if 3 <= hour <= 5 else "多云",
+        "pop": str(70 if 3 <= hour <= 5 else 10),
+        "precip": "0.6" if 3 <= hour <= 5 else "0.0",
+    }
+    for hour in range(24)
+]
+
+
 class FakeQWeather:
-    def __init__(self, *, cities=None, daily=None, status=200):
+    def __init__(self, *, cities=None, daily=None, status=200, hourly_status=200):
         self.cities = cities if cities is not None else [city("杭州", "杭州", "浙江省", location_id="101210101")]
         self.daily = daily if daily is not None else DAILY
         self.status = status
+        self.hourly_status = hourly_status
         self.requests = []
 
     def transport(self):
@@ -109,6 +122,10 @@ class FakeQWeather:
                         ],
                     },
                 )
+            if request.url.path == "/v7/weather/24h":
+                if self.hourly_status != 200:
+                    return httpx.Response(self.hourly_status, json={"code": str(self.hourly_status)})
+                return httpx.Response(200, json={"code": "200", "hourly": HOURLY})
             return httpx.Response(200, json={"code": "200", "daily": self.daily})
 
         return httpx.MockTransport(handle)
@@ -234,6 +251,39 @@ class QWeatherHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(str(block.requested_date), "2026-10-10")
         self.assertIn("forecast_days", handler.format_llm_context(result))
         self.assertEqual(fake.requests[-1].url.params["location"], "101210101")
+
+    async def test_hourly_goes_to_card_and_only_summary_to_model(self):
+        fake = FakeQWeather()
+        handler = build_handler(fake)
+
+        result = await handler.execute({"location": "杭州", "location_source": "named"})
+
+        block = handler.build_content_block(result, "blk", "log")
+        self.assertEqual(len(block.hourly), 24)
+        self.assertEqual(block.hourly[0].pop, 10)
+        self.assertEqual(block.hourly[0].time.isoformat(), "2026-10-08T16:00:00+08:00")
+        context = handler.format_llm_context(result)
+        self.assertNotIn('"hourly"', context)
+        self.assertIn('"hourly_summary"', context)
+        self.assertIn('"max_pop_percent": 70', context)
+        self.assertIn('"first_precipitation_time": "2026-10-08T19:00:00+08:00"', context)
+        self.assertIn('"precipitation_hours": 3', context)
+
+    async def test_hourly_only_for_today_tomorrow_or_unspecified(self):
+        for requested_date, expected in (("2026-10-08", True), ("2026-10-09", True), ("2026-10-10", False)):
+            with self.subTest(requested_date=requested_date):
+                fake = FakeQWeather()
+                result = await build_handler(fake).execute(
+                    {"location": "杭州", "location_source": "named", "requested_date": requested_date}
+                )
+                self.assertEqual("hourly" in result.data["result"], expected)
+                self.assertEqual(any(r.url.path == "/v7/weather/24h" for r in fake.requests), expected)
+
+    async def test_hourly_failure_keeps_daily_forecast(self):
+        handler = build_handler(FakeQWeather(hourly_status=500))
+        result = await handler.execute({"location": "杭州", "location_source": "named"})
+        self.assertEqual(result.status, "success")
+        self.assertEqual(handler.build_content_block(result, "blk", "log").hourly, [])
 
     async def test_forecast_is_cached_per_location(self):
         fake = FakeQWeather()

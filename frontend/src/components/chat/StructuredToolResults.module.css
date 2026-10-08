@@ -115,6 +115,47 @@
   overflow-wrap: anywhere;
 }
 
+.weatherHourly {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--bg-elevated);
+  padding: 11px 13px 8px;
+}
+.weatherHourlyHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.weatherHourlyTitle { color: var(--foreground); font-weight: 600; }
+.weatherHourlyLegend {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.legendTemp,
+.legendPop { display: inline-block; width: 10px; border-radius: 2px; }
+.legendTemp { height: 2px; background: var(--warn); }
+.legendPop { height: 8px; margin-left: 6px; background: color-mix(in oklab, var(--info) 45%, transparent); }
+.weatherHourlyScroll { overflow-x: auto; margin-top: 4px; }
+.weatherHourlyChart { display: block; width: 100%; min-width: 520px; height: auto; }
+.hourlyTempLine { fill: none; stroke: var(--warn); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.hourlyTempDot { fill: var(--bg-elevated); stroke: var(--warn); stroke-width: 1.5; }
+.hourlyPopBar { fill: color-mix(in oklab, var(--info) 45%, transparent); }
+.hourlyBaseline { stroke: var(--border); stroke-width: 1; }
+.hourlyTempLabel,
+.hourlyPopLabel,
+.hourlyTimeLabel { text-anchor: middle; font-variant-numeric: tabular-nums; }
+.hourlyTempLabel { fill: var(--foreground); font-size: 11px; font-weight: 600; }
+.hourlyPopLabel { fill: var(--info); font-size: 9px; }
+.hourlyTimeLabel { fill: var(--muted-foreground); font-size: 10px; }
+
 .placeCard {
   display: flex;
   min-width: 0;

@@ -254,6 +254,13 @@
         "daytime": "Day",
         "nighttime": "Night",
         "fetchedAt": "Fetched at {{value}}",
+        "hourly": {
+          "title": "Next 24 hours",
+          "temperature": "Temperature",
+          "precipitationChance": "Chance of precipitation",
+          "hour": "{{hour}}:00",
+          "summary": "Next 24 hours: {{min}} to {{max}}, precipitation chance up to {{pop}}%"
+        },
         "weekdays": {
           "1": "Monday",
           "2": "Tuesday",

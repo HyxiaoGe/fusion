@@ -80,6 +80,7 @@ import {
   type TransportIconKind,
   type TransportTone,
 } from './transportModePresentation';
+import { WeatherHourlyTrend } from './WeatherHourlyTrend';
 import styles from './StructuredToolResults.module.css';
 
 interface StructuredToolResultsProps {
@@ -722,6 +723,8 @@ function WeatherResults({ block }: { block: WeatherResultsBlock }) {
           />
         ))}
       </div>
+
+      {block.hourly && block.hourly.length > 1 && <WeatherHourlyTrend hourly={block.hourly} />}
 
       <div className={styles.resultFooter}>
         <WeatherFreshness fetchedAt={block.fetched_at} language={i18n.language} />

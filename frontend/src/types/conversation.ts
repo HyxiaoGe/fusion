@@ -361,6 +361,15 @@ export interface ForecastDay {
   night_wind_power?: string | null;
 }
 
+export interface WeatherHourlyPoint {
+  /** 地点当地时区的 ISO 时间。 */
+  time: string;
+  temp_c: number;
+  weather: string;
+  pop?: number | null;
+  precip_mm?: number | null;
+}
+
 export interface WeatherResultsBlock {
   type: 'weather_results';
   id: string;
@@ -372,6 +381,7 @@ export interface WeatherResultsBlock {
   resolved_location: string;
   day_count: 1 | 2 | 3 | 4;
   forecast_days: ForecastDay[];
+  hourly?: WeatherHourlyPoint[];
   fetched_at: string;
   limitations?: string[] | null;
   tool_call_log_id?: string | null;

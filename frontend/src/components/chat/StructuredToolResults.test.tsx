@@ -410,6 +410,28 @@ describe('StructuredToolResults', () => {
     }
   });
 
+  it('天气带逐小时数据时显示 24 小时趋势图，按当地小时标注', () => {
+    const hourly = Array.from({ length: 24 }, (_, index) => ({
+      time: `2026-07-${String(23 + Math.floor((16 + index) / 24)).padStart(2, '0')}T${String((16 + index) % 24).padStart(2, '0')}:00:00+08:00`,
+      temp_c: 30 - (index % 6),
+      weather: '多云',
+      pop: index === 4 ? 80 : 10,
+    }));
+    render(<StructuredToolResults blocks={[weatherBlock({ hourly })]} />);
+
+    const trend = screen.getByTestId('weather-hourly-trend');
+    expect(within(trend).getByText('未来 24 小时')).toBeInTheDocument();
+    expect(within(trend).getByRole('img', { name: '未来 24 小时气温 25° 至 30°，降水概率最高 80%' })).toBeInTheDocument();
+    expect(within(trend).getAllByTestId('weather-hourly-pop')).toHaveLength(24);
+    expect(within(trend).getByText('16时')).toBeInTheDocument();
+    expect(within(trend).getByText('80%')).toBeInTheDocument();
+  });
+
+  it('天气没有逐小时数据时不显示趋势图', () => {
+    render(<StructuredToolResults blocks={[weatherBlock()]} />);
+    expect(screen.queryByTestId('weather-hourly-trend')).not.toBeInTheDocument();
+  });
+
   it('天气部分结果显示降级状态和实际天数，缺少风字段时不制造占位信息', () => {
     const allDays = weatherBlock().forecast_days;
     render(<StructuredToolResults blocks={[weatherBlock({

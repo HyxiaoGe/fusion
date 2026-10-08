@@ -23,7 +23,12 @@ from pydantic import ValidationError
 
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.core.logger import app_logger as logger
-from app.schemas.chat import StructuredResultAttribution, WeatherForecastDay, WeatherResultsBlock
+from app.schemas.chat import (
+    StructuredResultAttribution,
+    WeatherForecastDay,
+    WeatherHourlyPoint,
+    WeatherResultsBlock,
+)
 from app.services.mcp.amap_product_tools import (
     WEATHER_FORECAST_DEFINITION,
     WEATHER_RESULT_USAGE_CONTRACT,
@@ -35,11 +40,18 @@ from app.services.mcp.amap_product_tools import (
 )
 from app.services.mcp.tool_contract import canonical_json_bytes
 from app.services.tool_handlers.base import BaseToolHandler, ToolResult
-from app.services.weather.qweather_client import QWeatherCity, QWeatherClient, QWeatherDay, QWeatherError
+from app.services.weather.qweather_client import (
+    QWeatherCity,
+    QWeatherClient,
+    QWeatherDay,
+    QWeatherError,
+    QWeatherHour,
+)
 
 QWEATHER_PROVIDER = "qweather"
 WEATHER_FORECAST_TOOL_NAME = "weather_forecast"
 FORECAST_DAYS = 4
+HOURLY_POINTS = 24
 MAX_CANDIDATES_SHOWN = 5
 # 国外地点 rank 大于该值时视为低重要度，不参与匹配（实测乱写的地名与同名小地方都在 83–85）。
 FOREIGN_MAX_RANK = 80
@@ -81,21 +93,21 @@ def build_qweather_binding() -> QWeatherToolBinding:
 
 
 class _ForecastCache:
-    """进程内短缓存：同一城市 30 分钟内复用预报，减少重复调用。"""
+    """进程内短缓存：同一城市 30 分钟内复用逐日/逐小时预报，减少重复调用。"""
 
     def __init__(self) -> None:
-        self._entries: dict[str, tuple[float, list[QWeatherDay]]] = {}
+        self._entries: dict[tuple[str, str], tuple[float, list[Any]]] = {}
 
-    def get(self, location_id: str, now: float) -> list[QWeatherDay] | None:
-        entry = self._entries.get(location_id)
+    def get(self, key: tuple[str, str], now: float) -> list[Any] | None:
+        entry = self._entries.get(key)
         if entry is None or now - entry[0] > _CACHE_TTL_SECONDS:
             return None
         return entry[1]
 
-    def set(self, location_id: str, days: list[QWeatherDay], now: float) -> None:
-        if len(self._entries) > 512:
+    def set(self, key: tuple[str, str], values: list[Any], now: float) -> None:
+        if len(self._entries) > 1024:
             self._entries.clear()
-        self._entries[location_id] = (now, days)
+        self._entries[key] = (now, values)
 
 
 _FORECAST_CACHE = _ForecastCache()
@@ -158,7 +170,14 @@ class QWeatherForecastToolHandler(BaseToolHandler):
         try:
             async with asyncio.timeout(_TOOL_TIMEOUT_SECONDS):
                 city = await self._resolve_city(normalized, runtime_context)
-                days = await self._forecast(city.location_id)
+                today = self.now().astimezone(_SHANGHAI_TZ).date()
+                if _wants_hourly(normalized.get("requested_date"), today):
+                    days, hours = await asyncio.gather(
+                        self._forecast(city.location_id),
+                        self._hourly_or_empty(city.location_id),
+                    )
+                else:
+                    days, hours = await self._forecast(city.location_id), []
         except _Unresolved as unresolved:
             return self._failed(started_at, unresolved.code, candidates=unresolved.candidates)
         except QWeatherError as error:
@@ -183,6 +202,9 @@ class QWeatherForecastToolHandler(BaseToolHandler):
         }
         if normalized.get("requested_date"):
             product_result["requested_date"] = normalized["requested_date"]
+        hourly = _build_hourly(hours)
+        if hourly:
+            product_result["hourly"] = [point.model_dump(mode="json") for point in hourly]
         return ToolResult(
             status="success" if len(forecast_days) == FORECAST_DAYS else "degraded",
             duration_ms=_duration_ms(self.monotonic, started_at),
@@ -209,14 +231,26 @@ class QWeatherForecastToolHandler(BaseToolHandler):
         return select_city(query, await self.client.lookup_city(lookup_query, lang=lang))
 
     async def _forecast(self, location_id: str) -> list[QWeatherDay]:
+        return await self._cached(("daily", location_id), self.client.daily_forecast)
+
+    async def _hourly_or_empty(self, location_id: str) -> list[QWeatherHour]:
+        """逐小时只用于卡片趋势图，取不到时不影响逐日预报。"""
+
+        try:
+            return await self._cached(("hourly", location_id), self.client.hourly_forecast)
+        except QWeatherError as error:
+            logger.warning("和风逐小时预报获取失败: error_code=%s", error.code)
+            return []
+
+    async def _cached(self, key: tuple[str, str], fetch: Any) -> list[Any]:
         now = self.monotonic()
-        cached = self.cache.get(location_id, now)
+        cached = self.cache.get(key, now)
         if cached is not None:
             return cached
-        days = await self.client.daily_forecast(location_id)
-        if days:
-            self.cache.set(location_id, days, now)
-        return days
+        values = await fetch(key[1])
+        if values:
+            self.cache.set(key, values, now)
+        return values
 
     def _metadata(self) -> dict[str, Any]:
         return {
@@ -257,6 +291,7 @@ class QWeatherForecastToolHandler(BaseToolHandler):
                 day_count=len(days),
                 forecast_days=days,
                 fetched_at=product_result["fetched_at"],
+                hourly=[WeatherHourlyPoint.model_validate(point) for point in product_result.get("hourly") or []],
                 limitations=product_result.get("limitations") or [],
                 tool_call_log_id=log_id,
             )
@@ -276,9 +311,14 @@ class QWeatherForecastToolHandler(BaseToolHandler):
             if error_code == "location_not_found":
                 return render_runtime_prompt("qweather.location_not_found")
             return render_runtime_prompt("amap.weather_unavailable")
+        # 逐小时明细只给卡片画图，模型只拿摘要，避免逐条复述。
+        model_result = {key: value for key, value in data["result"].items() if key != "hourly"}
+        hourly_summary = summarize_hourly(data["result"].get("hourly") or [])
+        if hourly_summary:
+            model_result["hourly_summary"] = hourly_summary
         return format_product_context(
             tool_name=self.tool_name,
-            payload_text=json.dumps(data["result"], ensure_ascii=False, sort_keys=True),
+            payload_text=json.dumps(model_result, ensure_ascii=False, sort_keys=True),
             max_bytes=self.max_llm_context_bytes,
             usage_contract=WEATHER_RESULT_USAGE_CONTRACT,
         )
@@ -397,6 +437,62 @@ def _build_forecast_days(days: list[QWeatherDay], *, today: CalendarDate) -> lis
         if len(built) == FORECAST_DAYS:
             break
     return built
+
+
+def _wants_hourly(requested_date: Any, today: CalendarDate) -> bool:
+    """逐小时只覆盖未来 24 小时：未指定日期、今天或明天时才取。"""
+
+    if not requested_date:
+        return True
+    try:
+        target = CalendarDate.fromisoformat(str(requested_date))
+    except ValueError:
+        return False
+    return 0 <= (target - today).days <= 1
+
+
+def _build_hourly(hours: list[QWeatherHour]) -> list[WeatherHourlyPoint]:
+    points: list[WeatherHourlyPoint] = []
+    for hour in hours[:HOURLY_POINTS]:
+        try:
+            point = WeatherHourlyPoint(
+                time=datetime.fromisoformat(hour.time),
+                temp_c=float(hour.temp),
+                weather=hour.text,
+                pop=int(hour.pop) if hour.pop and hour.pop.isdigit() else None,
+                precip_mm=float(hour.precip) if hour.precip else None,
+            )
+        except (ValueError, ValidationError):
+            continue
+        if points and point.time <= points[-1].time:
+            continue
+        points.append(point)
+    return points
+
+
+def summarize_hourly(hourly: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """把逐小时明细压缩成模型可用的摘要：时间窗、温度区间、降水概率峰值与降水时段。"""
+
+    if not hourly:
+        return None
+    temps = [point["temp_c"] for point in hourly]
+    summary: dict[str, Any] = {
+        "window": f"{hourly[0]['time']} ~ {hourly[-1]['time']}",
+        "temp_min_c": min(temps),
+        "temp_max_c": max(temps),
+    }
+    with_pop = [point for point in hourly if point.get("pop") is not None]
+    if with_pop:
+        peak = max(with_pop, key=lambda point: point["pop"])
+        summary["max_pop_percent"] = peak["pop"]
+        summary["max_pop_time"] = peak["time"]
+    wet = [point for point in hourly if (point.get("precip_mm") or 0) > 0]
+    summary["precipitation_hours"] = len(wet)
+    if wet:
+        summary["first_precipitation_time"] = wet[0]["time"]
+        summary["last_precipitation_time"] = wet[-1]["time"]
+        summary["total_precip_mm"] = round(sum(point["precip_mm"] for point in wet), 1)
+    return summary
 
 
 def _wind_power(scale: str | None) -> str | None:
