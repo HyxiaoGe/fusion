@@ -2,6 +2,7 @@ import type {
   ContentBlock,
   DocumentBlock,
   FileBlock,
+  GeneratedImageBlock,
   KnowledgeEvidenceBlock,
   KnowledgeEvidenceStatus,
   KnowledgeSourceReference,
@@ -34,6 +35,7 @@ const CONTENT_BLOCK_CONTRACTS: readonly ContentBlockContract[] = [
   { type: 'url_read', schemaVersion: null, decode: decodeUrlBlock },
   { type: 'knowledge_evidence', schemaVersion: 1, decode: decodeKnowledgeEvidenceBlock },
   { type: 'document', schemaVersion: 1, decode: decodeDocumentBlock },
+  { type: 'generated_image', schemaVersion: 1, decode: decodeGeneratedImageBlock },
   ...STRUCTURED_TOOL_RESULT_CONTRACTS.map(contract => ({
     type: contract.type,
     schemaVersion: contract.schemaVersion,
@@ -355,6 +357,29 @@ function decodeDocumentBlock(source: Record<string, unknown>): DocumentBlock | n
     operation,
     change_summary: optionalNullableString(source.change_summary) ?? null,
     char_count: charCount,
+    ...optionalField('tool_call_log_id', optionalString(source.tool_call_log_id)),
+  };
+}
+
+function decodeGeneratedImageBlock(source: Record<string, unknown>): GeneratedImageBlock | null {
+  const id = requiredString(source.id);
+  const provider = boundedRequiredString(source.provider, 40);
+  const fileId = boundedRequiredString(source.file_id, 64);
+  const mimeType = boundedRequiredString(source.mime_type, 40);
+  const prompt = boundedRequiredString(source.prompt, 1000);
+  if (!id || !provider || !fileId || !mimeType || !mimeType.startsWith('image/') || !prompt) return null;
+  return {
+    type: 'generated_image',
+    id,
+    schema_version: 1,
+    provider,
+    file_id: fileId,
+    mime_type: mimeType,
+    width: positiveInteger(source.width) ?? null,
+    height: positiveInteger(source.height) ?? null,
+    prompt,
+    aspect_ratio: optionalNullableString(source.aspect_ratio) ?? null,
+    model: optionalNullableString(source.model) ?? null,
     ...optionalField('tool_call_log_id', optionalString(source.tool_call_log_id)),
   };
 }

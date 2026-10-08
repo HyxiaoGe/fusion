@@ -39,6 +39,13 @@ from app.services.mcp.flyai_travel_tools import (
     build_flyai_travel_binding,
     build_flyai_user_scope,
 )
+from app.services.mcp.image_service_tools import (
+    IMAGE_SERVICE_REMOTE_TOOL_NAME,
+    ImageGenerationToolHandler,
+    build_generate_image_definition,
+    build_image_service_binding,
+    is_image_service_row,
+)
 from app.services.mcp.provider_profiles import (
     is_official_amap_endpoint,
     is_official_context7_endpoint,
@@ -429,6 +436,8 @@ class McpAgentRemoteExecutor:
         remote_tool_name: str,
         expected_definition_sha256: str,
         arguments: dict[str, Any],
+        *,
+        min_call_timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
         permit: _McpCircuitPermit | None = None
         try:
@@ -457,7 +466,16 @@ class McpAgentRemoteExecutor:
                     permit = None
                     raise McpClientError("server_run_budget_exhausted", MCP_AGENT_TOOL_ERROR_MESSAGE)
                 try:
-                    payload = await self.client_manager.call_tool(config, remote_tool_name, arguments)
+                    payload = await self.client_manager.call_tool(
+                        config,
+                        remote_tool_name,
+                        arguments,
+                        **(
+                            {"min_call_timeout_seconds": min_call_timeout_seconds}
+                            if min_call_timeout_seconds is not None
+                            else {}
+                        ),
+                    )
                 except McpClientError as error:
                     if error.code in _LOCAL_NO_NETWORK_ERROR_CODES:
                         await self.run_budget.refund(self.server_id)
@@ -863,6 +881,7 @@ def load_mcp_agent_tools(
     db: Any,
     *,
     user_id: str | None = None,
+    conversation_id: str | None = None,
     limits: McpAgentToolLimits | None = None,
     client_manager: McpClientManager | None = None,
     session_factory: Callable[[], Any] = SessionLocal,
@@ -870,6 +889,7 @@ def load_mcp_agent_tools(
     concurrency_limiter: McpAgentToolConcurrencyLimiter = _DEFAULT_CONCURRENCY_LIMITER,
     circuit_breaker: McpAgentServerCircuitBreaker | None = None,
     flyai_client: FlyAiTravelAdapterClient | None = None,
+    store_generated_image: Callable[..., Any] | None = None,
 ) -> McpAgentToolSet:
     """从持久化发现快照构建一次 Agent run 专属的 MCP 工具集合。"""
 
@@ -922,6 +942,21 @@ def load_mcp_agent_tools(
             run_budget=run_budget,
             is_official_amap=official_amap,
         )
+        if is_image_service_row(row):
+            # 生图要把图片写进本会话归属：缺用户或会话时不注册，也不退化为通用 MCP 工具。
+            if user_id and conversation_id:
+                _append_image_service_tool(
+                    row=row,
+                    definitions=definitions,
+                    handlers=handlers,
+                    audit_bindings=audit_bindings,
+                    remote_executor=remote_executor,
+                    limits=resolved_limits,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    store_generated_image=store_generated_image or _store_generated_image,
+                )
+            continue
         if official_amap:
             if len(official_amap_rows) == 1:
                 _append_amap_product_tools(
@@ -1047,6 +1082,55 @@ def _append_amap_product_tools(
             max_llm_context_bytes=limits.max_llm_context_bytes,
         )
         audit_bindings.append(binding.to_audit_dict())
+
+
+def _append_image_service_tool(
+    *,
+    row: Any,
+    definitions: list[dict[str, Any]],
+    handlers: dict[str, BaseToolHandler],
+    audit_bindings: list[dict[str, Any]],
+    remote_executor: McpAgentRemoteExecutor,
+    limits: McpAgentToolLimits,
+    user_id: str,
+    conversation_id: str,
+    store_generated_image: Callable[..., Any],
+) -> None:
+    snapshots = {snapshot["name"]: snapshot for snapshot in _iter_authorized_snapshots(row)}
+    snapshot = snapshots.get(IMAGE_SERVICE_REMOTE_TOOL_NAME)
+    if snapshot is None or len(definitions) >= limits.max_tools:
+        return
+    definition = build_generate_image_definition()
+    if len(canonical_json_bytes([*definitions, definition])) > limits.max_definition_bytes:
+        return
+    alias = definition["function"]["name"]
+    if alias in handlers:
+        raise RuntimeError("MCP 工具别名冲突")
+    remote_definition_sha256 = agent_tool_definition_sha256(row, snapshot)
+    binding = build_image_service_binding(
+        row=row,
+        remote_definition_sha256=remote_definition_sha256,
+        conversation_id=conversation_id,
+        user_id=user_id,
+    )
+    definitions.append(definition)
+    handlers[alias] = ImageGenerationToolHandler(
+        binding=binding,
+        remote_executor=remote_executor,
+        remote_definition_sha256=remote_definition_sha256,
+        store_image=store_generated_image,
+    )
+    audit_bindings.append(binding.to_audit_dict())
+
+
+async def _store_generated_image(**kwargs: Any) -> dict[str, Any]:
+    from app.services.file_service import FileService
+
+    db = SessionLocal()
+    try:
+        return await FileService(db, session_factory=SessionLocal).store_generated_image(**kwargs)
+    finally:
+        db.close()
 
 
 def _iter_authorized_snapshots(row) -> list[dict[str, Any]]:

@@ -1,7 +1,12 @@
 'use client';
 
 import { memo } from 'react';
-import type { DocumentBlock, SearchSourceSummary, StructuredToolResultBlock } from '@/types/conversation';
+import type {
+  DocumentBlock,
+  GeneratedImageBlock,
+  SearchSourceSummary,
+  StructuredToolResultBlock,
+} from '@/types/conversation';
 import type { AgentRunState, DocumentDraftState } from '@/types/agentRun';
 import type { TrajectoryRunSummary } from '@/types/trajectory';
 import type { TrajectoryBadgeStatus } from '@/lib/trajectory/TrajectoryCellProjection';
@@ -15,6 +20,7 @@ import MarkdownRenderer from './MarkdownRenderer';
 import StructuredToolResults from './StructuredToolResults';
 import DocumentCards from '@/components/documents/DocumentCards';
 import DocumentDraftCard from '@/components/documents/DocumentDraftCard';
+import GeneratedImages from './GeneratedImages';
 import TrajectoryStatusLine from './trajectory/TrajectoryStatusLine';
 
 interface AssistantResponseStackProps {
@@ -36,6 +42,7 @@ interface AssistantResponseStackProps {
   structuredResults?: StructuredToolResultBlock[];
   structuredResultsLoading?: boolean;
   documentBlocks?: DocumentBlock[];
+  generatedImages?: GeneratedImageBlock[];
   documentDraft?: DocumentDraftState | null;
   onStructuredResultFollowUp?: (question: string) => void;
   answerEvidenceSidebar?: AnswerEvidenceSidebarModel | null;
@@ -50,6 +57,7 @@ interface AssistantResponseStackProps {
 }
 
 const EMPTY_DOCUMENT_BLOCKS: DocumentBlock[] = [];
+const EMPTY_GENERATED_IMAGES: GeneratedImageBlock[] = [];
 
 function AssistantResponseStack({
   reasoning,
@@ -62,6 +70,7 @@ function AssistantResponseStack({
   structuredResults = [],
   structuredResultsLoading = false,
   documentBlocks = EMPTY_DOCUMENT_BLOCKS,
+  generatedImages = EMPTY_GENERATED_IMAGES,
   documentDraft = null,
   onStructuredResultFollowUp,
   answerEvidenceSidebar,
@@ -77,6 +86,7 @@ function AssistantResponseStack({
     && !activity.hasText
     && structuredResults.length === 0
     && documentBlocks.length === 0
+    && generatedImages.length === 0
     && !documentDraft;
 
   return (
@@ -123,6 +133,8 @@ function AssistantResponseStack({
       {documentDraft ? <DocumentDraftCard draft={documentDraft} /> : null}
 
       <DocumentCards blocks={documentBlocks} />
+
+      <GeneratedImages blocks={generatedImages} />
 
       <div className="w-full max-w-6xl">
         <AnswerEvidence

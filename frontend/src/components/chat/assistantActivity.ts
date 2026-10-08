@@ -139,6 +139,7 @@ function isExecutionMode(
   return contentBlocks.some(block => (
     block.type === 'knowledge_evidence'
     || block.type === 'document'
+    || block.type === 'generated_image'
     || block.type === 'search'
     || block.type === 'url_read'
     || isStructuredToolResultBlock(block)

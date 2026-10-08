@@ -63,6 +63,7 @@ _FORBIDDEN_AUTH_HEADERS = {
 class McpClientPolicy:
     allowed_hosts: frozenset[str]
     allowed_credential_refs: frozenset[str]
+    allowed_internal_endpoints: frozenset[str] = frozenset()
     connect_timeout_seconds: float = 5.0
     call_timeout_seconds: float = 15.0
     idempotent_max_attempts: int = 2
@@ -377,7 +378,11 @@ class McpClientManager:
     def validate_configuration(self, config: McpConnectionConfig) -> None:
         """只校验静态安全边界，不要求部署环境此刻已有凭证值。"""
 
-        _validate_endpoint(config.endpoint_url, self.policy.allowed_hosts)
+        _validate_endpoint(
+            config.endpoint_url,
+            self.policy.allowed_hosts,
+            internal_endpoints=self.policy.allowed_internal_endpoints,
+        )
         if not endpoint_auth_binding_is_allowed(
             config.endpoint_url,
             auth_type=config.auth_type,
@@ -426,6 +431,8 @@ class McpClientManager:
         config: McpConnectionConfig,
         tool_name: str,
         arguments: dict[str, Any],
+        *,
+        min_call_timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
         if not _TOOL_NAME_PATTERN.fullmatch(tool_name) or tool_name not in config.allowed_tools:
             raise McpClientError("tool_not_allowed", "MCP 工具未获授权")
@@ -465,12 +472,24 @@ class McpClientManager:
                 )
             return payload
 
-        return await self._run(config, "tools_call", operation)
+        return await self._run(
+            config,
+            "tools_call",
+            operation,
+            min_call_timeout_seconds=min_call_timeout_seconds,
+        )
 
     async def close(self) -> None:
         await self.connector.close()
 
-    async def _run(self, config: McpConnectionConfig, operation_name: str, operation):
+    async def _run(
+        self,
+        config: McpConnectionConfig,
+        operation_name: str,
+        operation,
+        *,
+        min_call_timeout_seconds: float | None = None,
+    ):
         started_at = time.perf_counter()
         is_idempotent = operation_name in _IDEMPOTENT_OPERATIONS
         max_attempts = max(1, self.policy.idempotent_max_attempts) if is_idempotent else 1
@@ -483,6 +502,9 @@ class McpClientManager:
             connect_timeout_seconds = max(connect_timeout_seconds, connect_floor)
             call_timeout_seconds = max(call_timeout_seconds, call_floor)
             idempotent_total_timeout_seconds = max(idempotent_total_timeout_seconds, idempotent_total_floor)
+        if min_call_timeout_seconds is not None:
+            # 单次已知慢调用（如生图）放宽读超时，不改变全局默认。
+            call_timeout_seconds = max(call_timeout_seconds, min_call_timeout_seconds)
 
         async def run_attempts():
             for attempt in range(1, max_attempts + 1):
@@ -662,7 +684,14 @@ class McpClientManager:
         return credential
 
 
-def _validate_endpoint(endpoint_url: str, allowed_hosts: frozenset[str]) -> str:
+def _validate_endpoint(
+    endpoint_url: str,
+    allowed_hosts: frozenset[str],
+    *,
+    internal_endpoints: frozenset[str] = frozenset(),
+) -> str:
+    if _is_allowed_internal_endpoint(endpoint_url, internal_endpoints):
+        return endpoint_url
     try:
         parsed = urlsplit(endpoint_url)
         port = parsed.port
@@ -688,6 +717,26 @@ def _validate_endpoint(endpoint_url: str, allowed_hosts: frozenset[str]) -> str:
     if not _host_is_allowed(hostname, allowed_hosts):
         raise McpClientError("endpoint_not_allowed", "MCP 服务地址未获授权")
     return endpoint_url
+
+
+def _is_allowed_internal_endpoint(endpoint_url: str, internal_endpoints: frozenset[str]) -> bool:
+    """内网自建服务只按部署配置的完整地址精确放行，仍拒绝凭据、查询串与片段。"""
+
+    if endpoint_url not in internal_endpoints:
+        return False
+    try:
+        parsed = urlsplit(endpoint_url)
+        parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme in {"http", "https"}
+        and bool(parsed.hostname)
+        and parsed.username is None
+        and parsed.password is None
+        and not parsed.query
+        and not parsed.fragment
+    )
 
 
 def _host_is_allowed(hostname: str, allowed_hosts: frozenset[str]) -> bool:

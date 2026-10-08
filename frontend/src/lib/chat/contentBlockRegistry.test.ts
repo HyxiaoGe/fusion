@@ -115,6 +115,7 @@ describe('contentBlockRegistry', () => {
       { type: 'url_read', schemaVersion: null },
       { type: 'knowledge_evidence', schemaVersion: 1 },
       { type: 'document', schemaVersion: 1 },
+      { type: 'generated_image', schemaVersion: 1 },
       { type: 'place_results', schemaVersion: 1 },
       { type: 'route_results', schemaVersion: 1 },
       { type: 'flight_results', schemaVersion: 1 },
@@ -791,6 +792,31 @@ describe('contentBlockRegistry', () => {
     expect(normalizeContentBlock(payload)).toEqual(payload);
     expect(normalizeContentBlock({ ...payload, version: 0 })).toMatchObject({ type: 'unsupported_result' });
     expect(normalizeContentBlock({ ...payload, format: 'html' })).toMatchObject({ type: 'unsupported_result' });
+    expect(normalizeContentBlock({ ...payload, schema_version: 2 })).toMatchObject({ type: 'unsupported_result' });
+  });
+
+  it('decodes generated image blocks and rejects malformed ones', () => {
+    const payload = {
+      type: 'generated_image',
+      id: 'blk-img',
+      schema_version: 1,
+      provider: 'image-service',
+      file_id: 'file-1',
+      mime_type: 'image/jpeg',
+      width: 1024,
+      height: 768,
+      prompt: '一只红狐狸',
+      aspect_ratio: '4:3',
+      model: 'gemini-3.1-flash-image-preview',
+      tool_call_log_id: 'log-1',
+    };
+    expect(normalizeContentBlock(payload)).toEqual(payload);
+    expect(normalizeContentBlock({ ...payload, width: undefined, model: null })).toMatchObject({
+      width: null,
+      model: null,
+    });
+    expect(normalizeContentBlock({ ...payload, file_id: '' })).toMatchObject({ type: 'unsupported_result' });
+    expect(normalizeContentBlock({ ...payload, mime_type: 'text/html' })).toMatchObject({ type: 'unsupported_result' });
     expect(normalizeContentBlock({ ...payload, schema_version: 2 })).toMatchObject({ type: 'unsupported_result' });
   });
 });

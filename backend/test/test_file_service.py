@@ -795,5 +795,65 @@ class FileServiceTests(unittest.IsolatedAsyncioTestCase):
         self.service.file_repo.delete_file.assert_called_once_with("file-large", "user-1")
 
 
+
+class StoreGeneratedImageTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        with patch("app.services.file_service.get_storage", return_value=MagicMock()):
+            self.service = FileService(MagicMock())
+        self.service._process_and_store_image = AsyncMock(
+            return_value={
+                "storage_key": "processed-key",
+                "thumbnail_key": "thumb-key",
+                "mime_type": "image/jpeg",
+                "width": 1024,
+                "height": 768,
+                "upload_lifecycles": ["lifecycle"],
+            }
+        )
+        self.service._commit_new_file_with_upload_fences = AsyncMock()
+        self.service._detach_file_upload_lifecycles = MagicMock()
+
+    async def test_stores_image_without_linking_conversation(self):
+        with patch("app.services.file_service.ConversationRepository") as repo_class:
+            repo_class.return_value.get_by_id.return_value = SimpleNamespace(id="conv-1")
+            stored = await self.service.store_generated_image(
+                content=b"jpeg", mime_type="image/jpeg", user_id="user-1", conversation_id="conv-1", filename="a.jpeg"
+            )
+
+        repo_class.return_value.get_by_id.assert_called_once_with("conv-1", "user-1")
+        kwargs = self.service._commit_new_file_with_upload_fences.await_args.kwargs
+        self.assertFalse(kwargs["link_conversation"])
+        self.assertEqual(kwargs["file_record"]["status"], "processed")
+        self.assertEqual(kwargs["file_record"]["user_id"], "user-1")
+        self.assertEqual(stored["mime_type"], "image/jpeg")
+        self.assertEqual((stored["width"], stored["height"]), (1024, 768))
+        self.assertEqual(stored["file_id"], kwargs["file_record"]["id"])
+
+    async def test_rejects_foreign_conversation_and_bad_content_before_storage(self):
+        with patch("app.services.file_service.ConversationRepository") as repo_class:
+            repo_class.return_value.get_by_id.return_value = None
+            cases = [
+                dict(content=b"jpeg", mime_type="image/jpeg"),
+                dict(content=b"", mime_type="image/jpeg"),
+                dict(content=b"pdf", mime_type="application/pdf"),
+            ]
+            for case in cases:
+                with self.subTest(case=case["mime_type"], empty=not case["content"]):
+                    with self.assertRaises(ValueError):
+                        await self.service.store_generated_image(
+                            **case, user_id="user-1", conversation_id="conv-x", filename="a"
+                        )
+        self.service._process_and_store_image.assert_not_awaited()
+
+    async def test_commit_failure_detaches_uploaded_objects(self):
+        self.service._commit_new_file_with_upload_fences.side_effect = RuntimeError("db down")
+        with patch("app.services.file_service.ConversationRepository") as repo_class:
+            repo_class.return_value.get_by_id.return_value = SimpleNamespace(id="conv-1")
+            with self.assertRaises(RuntimeError):
+                await self.service.store_generated_image(
+                    content=b"jpeg", mime_type="image/jpeg", user_id="user-1", conversation_id="conv-1", filename="a"
+                )
+        self.service._detach_file_upload_lifecycles.assert_called_once_with(["lifecycle"])
+
 if __name__ == "__main__":
     unittest.main()

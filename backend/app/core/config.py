@@ -360,6 +360,14 @@ class Settings(BaseSettings):
         return list(dict.fromkeys(host.strip().lower() for host in self.MCP_ALLOWED_HOSTS.split(",") if host.strip()))
 
     @property
+    def RESOLVED_MCP_ALLOWED_INTERNAL_ENDPOINTS(self) -> List[str]:
+        return list(
+            dict.fromkeys(
+                endpoint.strip() for endpoint in self.MCP_ALLOWED_INTERNAL_ENDPOINTS.split(",") if endpoint.strip()
+            )
+        )
+
+    @property
     def RESOLVED_MCP_ALLOWED_CREDENTIAL_REFS(self) -> List[str]:
         return list(dict.fromkeys(ref.strip() for ref in self.MCP_ALLOWED_CREDENTIAL_REFS.split(",") if ref.strip()))
 
@@ -388,6 +396,9 @@ class Settings(BaseSettings):
         "MCP_ALLOWED_HOSTS",
         "learn.microsoft.com,dashscope.aliyuncs.com,mcp.amap.com,mcp.context7.com",
     )
+    # 部署在内网的自建 MCP（如 image-service）按完整地址逐个放行，可用 HTTP 与内网 IP；
+    # 只认精确匹配，不放开整个网段。
+    MCP_ALLOWED_INTERNAL_ENDPOINTS: str = os.getenv("MCP_ALLOWED_INTERNAL_ENDPOINTS", "")
     MCP_ALLOWED_CREDENTIAL_REFS: str = os.getenv(
         "MCP_ALLOWED_CREDENTIAL_REFS",
         "DASHSCOPE_API_KEY,AMAP_MCP_API_KEY,CONTEXT7_API_KEY",

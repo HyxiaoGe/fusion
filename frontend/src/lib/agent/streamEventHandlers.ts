@@ -335,7 +335,12 @@ export function createAgentStreamEventHandlers({
       if (!isActive()) return;
       const block = normalizeContentBlock(ev.content_block ?? ev.block);
       if (!block) return;
-      if (!isStructuredToolResultBlock(block) && !isKnowledgeEvidenceBlock(block) && block.type !== 'document') return;
+      if (
+        !isStructuredToolResultBlock(block)
+        && !isKnowledgeEvidenceBlock(block)
+        && block.type !== 'document'
+        && block.type !== 'generated_image'
+      ) return;
       const conversationId = resolveConversationId();
       if (!conversationId) return;
       dispatch(upsertStaticContentBlock({

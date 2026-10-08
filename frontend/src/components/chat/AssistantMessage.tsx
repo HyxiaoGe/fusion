@@ -183,6 +183,7 @@ function AssistantMessageFrame({
     structuredResults,
     rawStructuredResults,
     documentBlocks,
+    generatedImages,
     documentDraft,
     displayText,
     displayThinking,
@@ -327,6 +328,7 @@ function AssistantMessageFrame({
             structuredResults={renderableStructuredResults}
             structuredResultsLoading={isCurrentMessageStreaming}
             documentBlocks={documentBlocks}
+            generatedImages={generatedImages}
             documentDraft={documentDraft}
             onStructuredResultFollowUp={
               isLastMessage && !isCurrentMessageStreaming ? onSelectQuestion : undefined
