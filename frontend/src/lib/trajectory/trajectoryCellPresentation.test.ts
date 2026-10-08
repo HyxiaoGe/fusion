@@ -92,4 +92,24 @@ describe('轨迹单元格展示', () => {
     expect(presentation.summary).toBe('上下文充足 · 实际 8,459 / 1,000,000 Token');
     expect(presentation.summary).not.toContain('final');
   });
+
+  it('被服务商内容审核拦截的回答行写明拦截，而不是显示待生成', () => {
+    const cell = {
+      key: 'message:assistant-1',
+      type: 'message',
+      runId: null,
+      userMessageId: null,
+      assistantMessageId: 'assistant-1',
+      completenessSources: ['message'],
+      sourceSequences: [],
+      message: {
+        id: 'assistant-1',
+        role: 'assistant',
+        content: [{ type: 'content_filtered', id: 'blk_filtered', schema_version: 1 }],
+        timestamp: 1,
+      },
+    } as Extract<TrajectoryCell, { type: 'message' }>;
+
+    expect(getTrajectoryCellPresentation(cell).summary).toBe('被模型服务商内容审核拦截，显示固定提示');
+  });
 });
