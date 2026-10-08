@@ -57,6 +57,20 @@ class ReasoningPolicyTests(unittest.TestCase):
         )
         self.assertEqual(synthesis_round["extra_body"], {"trace": "kept"})
 
+    def test_forbidden_tool_round_is_configured_as_tool_free(self):
+        forbidden = {"tools": [{"function": {"name": "web_search"}}], "tool_choice": "none"}
+
+        deepseek = configure_reasoning_call_kwargs(forbidden, provider="deepseek", should_use_reasoning=True)
+        volcengine = configure_reasoning_call_kwargs(
+            {**forbidden, "extra_body": {"trace": "kept"}},
+            provider="volcengine",
+            should_use_reasoning=True,
+        )
+
+        # 禁止调用只公告定义：DeepSeek 保留 tool_choice=none，豆包不因工具定义关闭思考。
+        self.assertEqual(deepseek["tool_choice"], "none")
+        self.assertEqual(volcengine["extra_body"], {"trace": "kept"})
+
     def test_reasoning_override_off_leaves_provider_parameters_untouched(self):
         original = {"tools": [{"function": {"name": "web_search"}}], "tool_choice": "auto"}
 

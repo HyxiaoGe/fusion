@@ -53,6 +53,7 @@ from app.services.stream.research_evidence import (
     validate_research_completion,
 )
 from app.services.stream.safe_fallback_response import default_safe_fallback, render_safe_fallback
+from app.services.stream.tool_ban import forbid_tool_calls, without_tool_definitions
 from app.services.stream.tool_recovery_evidence import RecoveryEvidenceWorkset
 from app.services.stream_state_service import StreamOwnershipLostError, StreamWriteTerminalError, append_chunk
 from app.utils.prompt_fingerprint import fingerprint_system_messages
@@ -130,7 +131,7 @@ class LimitSummaryStepRequest:
     fallback_response_context: FallbackResponseContext | None = None
     # 本次 run 已写出文档时，总结只做简短回复，不再复述文档正文。
     document_delivered: bool = False
-    # 历史轮次回放的工具调用 id；总结请求不带工具定义，这些事务先移除。
+    # 历史轮次回放的工具调用 id；总结无视工具禁令后的重做不带工具定义，需移除这些事务。
     history_tool_call_ids: frozenset[str] = frozenset()
 
 
@@ -139,7 +140,10 @@ def _should_defer_summary_output(request: LimitSummaryStepRequest) -> bool:
 
 
 def build_limit_summary_call_kwargs(call_kwargs: dict) -> dict:
-    return {key: value for key, value in call_kwargs.items() if key not in ("tools", "tool_choice")}
+    """总结不允许调用工具：有工具定义时照常公告并禁止调用，保留历史工具事务，见 tool_ban。"""
+    tools = call_kwargs.get("tools")
+    base = without_tool_definitions(call_kwargs)
+    return forbid_tool_calls(base, tools) if tools else base
 
 
 def compute_summary_timeout(*, total_timeout_s: int, run_start: float, clock: Callable[[], float]) -> float:
@@ -296,13 +300,43 @@ async def call_limit_summary_round(
     step_id: str,
     partial_output: dict[str, str] | None = None,
     round_index: int | None = None,
+    forbid_tools: bool = True,
+) -> LimitSummaryRoundResult:
+    """forbid_tools=False 用于模型已无视工具禁令后的重做：不带工具定义，去掉历史工具事务。"""
+    call_kwargs = build_limit_summary_call_kwargs(request.call_kwargs)
+    messages = request.messages
+    if not forbid_tools:
+        call_kwargs = without_tool_definitions(call_kwargs)
+        messages = without_tool_transactions(messages, request.history_tool_call_ids)
+    return await _call_limit_summary_round_once(
+        request=request,
+        thinking_block_id=thinking_block_id,
+        text_block_id=text_block_id,
+        step_id=step_id,
+        call_kwargs=call_kwargs,
+        messages=messages,
+        partial_output=partial_output,
+        round_index=round_index,
+    )
+
+
+async def _call_limit_summary_round_once(
+    *,
+    request: LimitSummaryStepRequest,
+    thinking_block_id: str,
+    text_block_id: str,
+    step_id: str,
+    call_kwargs: dict,
+    messages: list[PromptMessage],
+    partial_output: dict[str, str] | None = None,
+    round_index: int | None = None,
 ) -> LimitSummaryRoundResult:
     final_call_kwargs = configure_reasoning_call_kwargs(
-        build_limit_summary_call_kwargs(request.call_kwargs),
+        call_kwargs,
         provider=request.provider,
         should_use_reasoning=request.should_use_reasoning,
     )
-    finalized_messages = finalize_model_call_language_policy(request.messages)
+    finalized_messages = finalize_model_call_language_policy(messages)
     try:
         context_plan = await prepare_context(
             messages=finalized_messages,
@@ -609,6 +643,7 @@ async def run_summary_round_with_timeout(
                     step_id=summary_context.step_id,
                     partial_output=None,
                     round_index=next_round_index,
+                    forbid_tools=False,
                 ),
                 timeout=retry_remaining,
             )
@@ -829,7 +864,6 @@ async def run_limit_summary_step(
 ) -> LimitSummaryOutcome:
     summary_context = await start_limit_summary_step(request=request)
 
-    request.messages[:] = without_tool_transactions(request.messages, request.history_tool_call_ids)
     remove_conflicting_tool_usage_contract(
         request.messages,
         task_mode=request.task_mode,

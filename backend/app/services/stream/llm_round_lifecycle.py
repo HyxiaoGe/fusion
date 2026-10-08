@@ -11,6 +11,7 @@ from typing import Any
 from app.core.logger import app_logger as logger
 from app.schemas.chat import Usage
 from app.services.agent.llm_round_detail_recorder import LlmRoundDetailDraft
+from app.services.stream.tool_ban import callable_tools
 from app.services.stream_state_service import StreamOwnershipLostError
 
 
@@ -69,7 +70,7 @@ def round_tool_names(call_kwargs: Any) -> list[str]:
     if not isinstance(call_kwargs, dict):
         return []
     names: list[str] = []
-    for tool in call_kwargs.get("tools") or []:
+    for tool in callable_tools(call_kwargs):
         function = tool.get("function") if isinstance(tool, dict) else None
         name = function.get("name") if isinstance(function, dict) else None
         if isinstance(name, str) and name:

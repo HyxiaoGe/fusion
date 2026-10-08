@@ -24,6 +24,7 @@ from app.services.stream.llm_round_lifecycle import (
     accumulate_token_usage,
     round_tool_names,
 )
+from app.services.stream.tool_ban import callable_tools
 from app.services.stream_state_service import StreamOwnershipLostError, append_chunk
 from app.utils.prompt_fingerprint import fingerprint_system_messages
 
@@ -85,7 +86,7 @@ def accumulate_usage(accumulated_usage: Usage, usage_data: Usage | None) -> Usag
 
 def _announced_tool_names(call_kwargs: dict) -> frozenset[str]:
     names: set[str] = set()
-    for tool in call_kwargs.get("tools", []) or []:
+    for tool in callable_tools(call_kwargs):
         function = tool.get("function") if isinstance(tool, dict) else None
         name = function.get("name") if isinstance(function, dict) else None
         if name:
