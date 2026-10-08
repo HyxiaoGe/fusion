@@ -102,6 +102,11 @@ class RuntimeConfigGovernanceTests(unittest.TestCase):
             ]
         }
         self.assertTrue(validate_runtime_config_candidate("model_routing", "auto", valid)["valid"])
+        with_modes = {
+            **valid,
+            "modes": {"plan": {"providers": [{"provider": "mimo", "models": ["mimo-v2.6-pro"]}]}},
+        }
+        self.assertTrue(validate_runtime_config_candidate("model_routing", "auto", with_modes)["valid"])
         invalid_payloads = (
             {"candidates": ["deepseek-chat"]},
             {"providers": []},
@@ -112,6 +117,11 @@ class RuntimeConfigGovernanceTests(unittest.TestCase):
             {"providers": [{"provider": "mimo", "models": [""]}]},
             {"providers": [{"provider": "mimo", "models": ["a"]}, {"provider": "mimo", "models": ["b"]}]},
             {"providers": [{"provider": "mimo", "models": ["a"]}, {"provider": "qwen", "models": ["a"]}]},
+            {**valid, "modes": []},
+            {**valid, "modes": {"unknown": {"providers": valid["providers"]}}},
+            {**valid, "modes": {"plan": {"providers": []}}},
+            {**valid, "modes": {"plan": {"providers": valid["providers"], "extra": 1}}},
+            {**valid, "modes": {"plan": {"providers": [{"provider": "mimo", "models": ["auto"]}]}}},
         )
         for payload in invalid_payloads:
             with self.subTest(payload=payload):

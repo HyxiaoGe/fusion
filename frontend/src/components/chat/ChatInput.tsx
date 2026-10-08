@@ -1542,8 +1542,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
                           : ""
                     }`}
                   />
-                  <span className="max-w-[4.5rem] truncate text-xs">
-                    模式：{COMPOSER_AGENT_MODE_LABELS[composerAgentMode]}
+                  {/* 模式名最长四个字，完整展示；窄屏省掉“模式：”前缀让出空间 */}
+                  <span className="whitespace-nowrap text-xs">
+                    <span className="hidden min-[420px]:inline">模式：</span>
+                    {COMPOSER_AGENT_MODE_LABELS[composerAgentMode]}
                   </span>
                   <ChevronDown className={`size-3 opacity-60 ${agentModeStyles.chevron}`} />
                 </Button>

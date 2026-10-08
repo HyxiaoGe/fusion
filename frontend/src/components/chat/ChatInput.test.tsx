@@ -657,7 +657,9 @@ describe('ChatInput', () => {
     const toolbar = screen.getByRole('toolbar', { name: '消息工具栏' });
     expect(toolbar).toHaveClass('min-w-0');
     expect(screen.getByText('推理')).toHaveClass('hidden', 'min-[420px]:inline');
-    expect(screen.getByText('模式：自动')).toHaveClass('max-w-[4.5rem]', 'truncate');
+    // 模式名不截断，窄屏只省掉“模式：”前缀
+    expect(screen.getByText('模式：')).toHaveClass('hidden', 'min-[420px]:inline');
+    expect(screen.getByRole('button', { name: '执行模式：自动' })).toHaveTextContent('模式：自动');
     expect(screen.getByTestId('model-selector-trigger')).toHaveClass('max-w-[112px]', 'sm:max-w-none');
   });
 
@@ -1158,7 +1160,7 @@ describe('ChatInput', () => {
       pointerType: 'mouse',
     });
 
-    expect(await screen.findByRole('menuitemradio', { name: /计划/ })).toBeEnabled();
+    expect(await screen.findByRole('menuitemradio', { name: /规划执行/ })).toBeEnabled();
     const deepResearchItem = screen.getByRole('menuitemradio', { name: /深度研究/ });
     expect(deepResearchItem).toHaveAttribute('data-disabled');
     expect(deepResearchItem).toHaveTextContent('深度研究需要支持联网工具');
@@ -1209,7 +1211,7 @@ describe('ChatInput', () => {
     expect(screen.getByRole('button', { name: '执行模式：深度研究' })).toBeInTheDocument();
 
     rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-1" />);
-    expect(screen.getByRole('button', { name: '执行模式：计划' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '执行模式：规划执行' })).toBeInTheDocument();
 
     rerender(<ChatInput onSendMessage={vi.fn()} activeChatId={null} />);
     expect(screen.getByRole('button', { name: '执行模式：自动' })).toBeInTheDocument();
@@ -2372,7 +2374,7 @@ describe('ChatInput', () => {
       ctrlKey: false,
       pointerType: 'mouse',
     });
-    fireEvent.click(screen.getByRole('menuitemradio', { name: /计划/ }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /规划执行/ }));
     expect(setComposerAgentModeMock).toHaveBeenCalledWith({ chatId: 'chat-1', mode: 'plan' });
 
     fireEvent.change(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）'), {
@@ -2403,7 +2405,7 @@ describe('ChatInput', () => {
     );
 
     expect(screen.getByRole('button', { name: '思考模式' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: '执行模式：计划' })).toHaveTextContent('计划');
+    expect(screen.getByRole('button', { name: '执行模式：规划执行' })).toHaveTextContent('规划执行');
 
     currentState.streamSlot.isStreaming = true;
     currentState.streamSlot.conversationId = 'chat-1';

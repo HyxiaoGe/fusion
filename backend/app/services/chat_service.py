@@ -33,6 +33,7 @@ from app.services.agent.context_broker import submit_context_result
 from app.services.agent.continuation import (
     build_continuation_context,
 )
+from app.services.agent.plan_coordinator import normalize_plan_mode
 from app.services.agent.session_cache import (
     InvalidPreviousRunError,
     RunAttemptKind,
@@ -40,7 +41,13 @@ from app.services.agent.session_cache import (
     validate_latest_previous_run_candidate,
 )
 from app.services.agent_strategy_config import get_agent_tools_disabled_aliases
-from app.services.auto_model import AUTO_MODEL_ID, ModelResolution, is_model_registered, pick_auto_model
+from app.services.auto_model import (
+    AUTO_MODEL_ID,
+    AutoModelMode,
+    ModelResolution,
+    is_model_registered,
+    pick_auto_model,
+)
 from app.services.chat.context_manager import (
     ContextBudgetExceededError,
     ContextEstimationUnavailableError,
@@ -68,7 +75,7 @@ from app.services.stream.agent_loop_request_prep import (
     inject_no_vision_file_boundary,
     normalize_controlled_max_tokens,
 )
-from app.services.stream.agent_task_policy import resolve_agent_task_policy
+from app.services.stream.agent_task_policy import normalize_task_mode, resolve_agent_task_policy
 from app.services.stream.persistence import acquire_message_persistence_lock, merge_partial_content_blocks
 from app.services.stream.runner import _agent_loop_limits
 from app.services.stream_state_service import StreamInitResult, finalize_stream, get_stream_meta, init_stream
@@ -105,6 +112,17 @@ def _get_model_capabilities(model_id: str) -> dict[str, Any]:
         model_id,
         agent_tools_disabled_aliases=get_agent_tools_disabled_aliases(),
     )
+
+
+def _auto_model_mode(options: dict[str, Any] | None) -> AutoModelMode:
+    """把本轮执行模式映射成自动选择的优先级档位；与前端执行模式选择一一对应。"""
+
+    opts = options or {}
+    if normalize_task_mode(opts.get("task_mode")) == "deep_research":
+        return "deep_research"
+    if normalize_plan_mode(opts.get("plan_mode")) == "on":
+        return "plan"
+    return "auto"
 
 
 def _continuation_original_user_text(
@@ -181,15 +199,18 @@ class ChatService:
         is_new_conversation: bool,
         require_vision: bool = False,
         allow_hidden_models: bool = False,
+        auto_mode: AutoModelMode = "auto",
     ) -> ModelResolution:
         """把会话绑定解析成本轮实际调用的模型。
 
-        绑定 auto 时按优先级挑；已有会话的绑定模型下线或被禁止调度时同样改走自动选择，
-        不再让历史会话卡死。新会话显式选了不可用模型仍直接报错，由用户重新选择。
+        绑定 auto 时按本轮执行模式的优先级挑；已有会话的绑定模型下线或被禁止调度时同样改走
+        自动选择，不再让历史会话卡死。新会话显式选了不可用模型仍直接报错，由用户重新选择。
         allow_hidden_models：管理员（含探针账号）可用隐藏模型开新会话，用于上线前试用。
         """
         if bound_model_id == AUTO_MODEL_ID:
-            return ModelResolution(model_id=self._pick_auto_model_or_raise(require_vision=require_vision))
+            return ModelResolution(
+                model_id=self._pick_auto_model_or_raise(require_vision=require_vision, mode=auto_mode)
+            )
 
         control = self.model_control_repository.get(bound_model_id)
         registered = is_model_registered(bound_model_id)
@@ -205,12 +226,12 @@ class ChatService:
         if registered and routable:
             return ModelResolution(model_id=bound_model_id)
         return ModelResolution(
-            model_id=self._pick_auto_model_or_raise(require_vision=require_vision),
+            model_id=self._pick_auto_model_or_raise(require_vision=require_vision, mode=auto_mode),
             fallback_from=bound_model_id,
         )
 
-    def _pick_auto_model_or_raise(self, *, require_vision: bool) -> str:
-        picked = pick_auto_model(self.model_control_repository, require_vision=require_vision)
+    def _pick_auto_model_or_raise(self, *, require_vision: bool, mode: AutoModelMode) -> str:
+        picked = pick_auto_model(self.model_control_repository, require_vision=require_vision, mode=mode)
         if picked is None:
             raise ApiException.service_unavailable("当前没有可用模型", code=ErrorCode.MODEL_UNAVAILABLE)
         return picked
@@ -415,11 +436,18 @@ class ChatService:
         is_upload_placeholder = (
             existing_conversation is not None and isinstance(existing_messages, list) and not existing_messages
         )
+        effective_knowledge_base_ids = list(
+            knowledge_base_ids
+            if knowledge_base_ids is not None
+            else (getattr(existing_conversation, "knowledge_base_ids", None) or [])
+        )
         model_resolution = self._resolve_turn_model(
             bound_model_id,
             is_new_conversation=existing_conversation is None or is_upload_placeholder,
             require_vision=any(is_image_file(file_id, self.file_repo) for file_id in file_ids or []),
             allow_hidden_models=allow_hidden_models,
+            # 知识库问答会关掉工具和计划，按自动模式选模型
+            auto_mode="auto" if effective_knowledge_base_ids else _auto_model_mode(options),
         )
         model_id = model_resolution.model_id
         if model_resolution.fallback_from is not None:
@@ -430,11 +458,6 @@ class ChatService:
                 model_id,
             )
 
-        effective_knowledge_base_ids = list(
-            knowledge_base_ids
-            if knowledge_base_ids is not None
-            else (getattr(existing_conversation, "knowledge_base_ids", None) or [])
-        )
         if effective_knowledge_base_ids:
             validate_knowledge_query(message)
         # 解析模型调用参数（薄代理 LiteLLM，不再走本地 DB）
@@ -766,16 +789,20 @@ class ChatService:
         if meta and meta.get("status") == "streaming":
             raise ApiException.conflict("当前会话已有回答正在生成，请结束后再继续")
 
-        model_id = self._resolve_turn_model(conversation.model_id, is_new_conversation=False).model_id
-        litellm_model, provider, litellm_kwargs = llm_manager.resolve_model(model_id)
-        capabilities = _get_model_capabilities(model_id)
-        has_vision = capabilities.get("vision", False)
         stored_task_policy = getattr(continuation, "task_policy", None)
         continuation_options = (
             stored_task_policy.apply_to_options()
             if stored_task_policy is not None
             else {"plan_mode": continuation.plan_mode}
         )
+        model_id = self._resolve_turn_model(
+            conversation.model_id,
+            is_new_conversation=False,
+            auto_mode=_auto_model_mode(continuation_options),
+        ).model_id
+        litellm_model, provider, litellm_kwargs = llm_manager.resolve_model(model_id)
+        capabilities = _get_model_capabilities(model_id)
+        has_vision = capabilities.get("vision", False)
         continuation_policy = resolve_agent_task_policy(
             options=continuation_options,
             capabilities=capabilities,
