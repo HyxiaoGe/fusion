@@ -5,11 +5,11 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.schemas.chat import SearchSource
-from app.services.mcp.amap_product_tools import AMAP_PRODUCT_DEFINITIONS
-from app.services.mcp.client import McpClientError
 from app.services.tool_handlers.url_read import UrlReadHandler
 from app.services.tool_handlers.web_search import WebSearchHandler
+from app.services.weather.qweather_forecast_tool import WEATHER_FORECAST_DEFINITION
 
 
 def _tool_round(tool_id, name, arguments):
@@ -19,45 +19,15 @@ def _tool_round(tool_id, name, arguments):
 async def _run_recovery(*, search_success, answer_suffix="[1]", degrade_read=False):
     # 复用隔离持久化/LLM fixture，执行器、真实处理器和恢复决策均不替换。
     from test.services.stream.test_agent_loop_contract import AgentLoopContractTests
-    from test.test_amap_product_tools import build_handler, mcp_payload
+    from test.test_qweather_forecast import FakeQWeather, build_handler
 
     harness = AgentLoopContractTests()
     harness.setUp()
-    cache = SimpleNamespace(get=AsyncMock(return_value=None), set=AsyncMock())
-    weather, remote = build_handler(
-        "weather_forecast",
-        {
-            "maps_geo": [
-                mcp_payload(
-                    {
-                        "geocodes": [
-                            {
-                                "formatted_address": "香港特别行政区",
-                                "province": "香港特别行政区",
-                                "city": [],
-                                "district": [],
-                                "adcode": "810000",
-                                "location": "114.17,22.28",
-                                "level": "省",
-                            }
-                        ]
-                    }
-                )
-            ],
-            "maps_weather": [
-                McpClientError(
-                    "tool_error", "MCP 工具执行失败", safe_details={"upstream_message": "API 调用失败：UNKNOWN_ERROR"}
-                )
-            ],
-        },
-        weather_cache=cache,
-    )
+    # 和风上游不可用：城市查询直接 503，工具失败后由模型改用通用搜索。
+    remote = FakeQWeather(status=503)
+    weather = build_handler(remote)
     tools = SimpleNamespace(
-        definitions=[
-            definition
-            for definition in AMAP_PRODUCT_DEFINITIONS
-            if definition["function"]["name"] == "weather_forecast"
-        ],
+        definitions=[WEATHER_FORECAST_DEFINITION],
         handlers={"weather_forecast": weather, "web_search": WebSearchHandler(), "url_read": UrlReadHandler()},
         audit_bindings=[],
     )
@@ -122,7 +92,7 @@ class ToolRecoveryIntegrationTests(unittest.TestCase):
         for search_success in [True, False]:
             with self.subTest(search_success=search_success):
                 result, answer, remote = asyncio.run(_run_recovery(search_success=search_success))
-                assert [name for name, _, _ in remote.calls] == ["maps_geo", "maps_weather"]
+                assert [request.url.path for request in remote.requests] == ["/geo/v2/city/lookup"]
                 assert [call["args"][0][0]["name"] for call in result.tool_execute_calls] == [
                     "weather_forecast",
                     "web_search",
@@ -132,7 +102,7 @@ class ToolRecoveryIntegrationTests(unittest.TestCase):
                 observation = "\n".join(
                     message["content"] for message in result.llm_calls[1]["messages"] if message["role"] == "tool"
                 )
-                assert "UNKNOWN_ERROR" in observation
+                assert render_runtime_prompt("qweather.weather_unavailable") in observation
                 assert "alternative" in observation.lower()
                 recovery_context = "\n".join(str(message["content"]) for message in result.llm_calls[2]["messages"])
                 assert "web_search" in recovery_context

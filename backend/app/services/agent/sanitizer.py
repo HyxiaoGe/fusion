@@ -10,6 +10,7 @@ from typing import Any
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_TOOL_NAMES
 from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_TOOL_NAMES
 from app.services.security.url_policy import evaluate_url_policy
+from app.services.weather import WEATHER_TOOL_NAMES
 
 URL_READ_REASON_MAX_CHARS = 160
 EXTERNAL_TOOL_ARGUMENT_MAX_BYTES = 4096
@@ -47,7 +48,7 @@ def sanitize_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[str, A
         return sanitize_url_read_arguments(arguments)
     if tool_name in FLYAI_TRAVEL_TOOL_NAMES:
         return {"argument_count": len(arguments) if isinstance(arguments, dict) else 0}
-    if tool_name in AMAP_PRODUCT_TOOL_NAMES:
+    if tool_name in AMAP_PRODUCT_TOOL_NAMES | WEATHER_TOOL_NAMES:
         return sanitize_external_tool_arguments(arguments, redact_inline_credentials=True)
     if tool_name.startswith("mcp_"):
         return sanitize_external_tool_arguments(arguments)

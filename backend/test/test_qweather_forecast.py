@@ -21,6 +21,7 @@ from app.services.weather.qweather_client import (  # noqa: E402
     sign_qweather_jwt,
 )
 from app.services.weather.qweather_forecast_tool import (  # noqa: E402
+    WEATHER_FORECAST_DEFINITION,
     QWeatherForecastToolHandler,
     _ForecastCache,
     _Unresolved,
@@ -233,6 +234,45 @@ class SelectCityTests(unittest.TestCase):
         self.assertEqual(city_label(city("东京", "东京", "东京都", country="日本")), "日本·东京都·东京")
 
 
+class WeatherContractTests(unittest.TestCase):
+    def test_definition_is_a_closed_contract_that_allows_hourly_summary(self):
+        function = WEATHER_FORECAST_DEFINITION["function"]
+        schema = function["parameters"]
+        self.assertEqual(function["name"], "weather_forecast")
+        self.assertEqual(set(schema["required"]), {"location", "location_source"})
+        self.assertEqual(set(schema["properties"]), {"location", "location_source", "requested_date"})
+        self.assertFalse(schema["additionalProperties"])
+        self.assertEqual(schema["properties"]["requested_date"]["format"], "date")
+        description = function["description"]
+        self.assertIn("result.hourly_summary", description)
+        self.assertIn("do not add a city the user did not provide", description)
+        self.assertIn("Omit requested_date for negated", description)
+        self.assertNotIn("precipitation probability, or alerts", description)
+
+    def test_arguments_are_validated_before_any_request(self):
+        handler = build_handler(FakeQWeather())
+        named = {"location": "深圳市", "location_source": "named"}
+        self.assertEqual(handler.validate_arguments({**named, "requested_date": "2026-10-20"}), [])
+        invalid = [{"field": "request", "code": "invalid_arguments"}]
+        for args in (
+            {**named, "requested_date": "2026-02-30"},
+            {**named, "city": "深圳市"},
+            {"location": "114.05,22.54", "location_source": "named"},
+            {"location": "440300", "location_source": "named"},
+            {"location": "深圳市", "location_source": "current_location"},
+        ):
+            with self.subTest(args=args):
+                self.assertEqual(handler.validate_arguments(args), invalid)
+        self.assertEqual(
+            {error["field"] for error in handler.validate_arguments({"location": "深圳南山区"})},
+            {"location_source"},
+        )
+        first = handler.build_successful_call_signature({"location": "上海市", "location_source": "named"})
+        second = handler.build_successful_call_signature({"location_source": "named", "location": "上海市"})
+        self.assertIsNotNone(first)
+        self.assertEqual(first, second)
+
+
 class QWeatherHandlerTests(unittest.IsolatedAsyncioTestCase):
     async def test_named_location_returns_four_day_block(self):
         fake = FakeQWeather()
@@ -352,7 +392,7 @@ class QWeatherHandlerTests(unittest.IsolatedAsyncioTestCase):
 
 
 def build_amap_row():
-    tools = ["maps_text_search", "maps_search_detail", "maps_geo", "maps_regeocode", "maps_weather"]
+    tools = ["maps_text_search", "maps_search_detail", "maps_geo", "maps_regeocode"]
     tools += ["maps_direction_walking", "maps_direction_driving", "maps_direction_transit_integrated"]
     tools += ["maps_direction_bicycling", "maps_around_search", "maps_distance"]
     return build_row(
@@ -379,7 +419,7 @@ class QWeatherRegistrationTests(unittest.TestCase):
             qweather_client=qweather_client,
         )
 
-    def test_qweather_replaces_amap_weather_only(self):
+    def test_qweather_provides_the_only_weather_tool(self):
         with_qweather = self.load(QWeatherClient(credentials()))
         self.assertIsInstance(with_qweather.handlers["weather_forecast"], QWeatherForecastToolHandler)
         self.assertIn("local_place_search", with_qweather.handlers)
@@ -389,9 +429,10 @@ class QWeatherRegistrationTests(unittest.TestCase):
         providers = {b["alias"]: b["provider"] for b in with_qweather.audit_bindings}
         self.assertEqual(providers["weather_forecast"], "qweather")
 
-    def test_without_qweather_amap_keeps_weather(self):
+    def test_without_qweather_no_weather_tool_is_registered(self):
         without = self.load(None)
-        self.assertNotIsInstance(without.handlers.get("weather_forecast"), QWeatherForecastToolHandler)
+        self.assertNotIn("weather_forecast", without.handlers)
+        self.assertIn("local_place_search", without.handlers)
 
 
 if __name__ == "__main__":

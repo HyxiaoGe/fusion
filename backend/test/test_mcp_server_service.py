@@ -16,7 +16,6 @@ NOW = datetime(2026, 7, 16, 8, 0, tzinfo=UTC)
 AMAP_READ_ONLY_TOOLS = [
     "maps_geo",
     "maps_regeocode",
-    "maps_weather",
     "maps_direction_bicycling",
     "maps_direction_walking",
     "maps_direction_driving",

@@ -67,6 +67,7 @@ from app.services.stream.skill_loading import (
     build_load_skill_schema,
     build_skill_session,
 )
+from app.services.weather import WEATHER_TOOL_NAMES
 from app.utils.run_capability_contract import is_authorized_mcp_tool_alias
 
 VOLCENGINE_PROVIDERS = {"volcengine"}
@@ -690,6 +691,7 @@ def inject_no_tool_network_boundary(
     if (
         network_tool_names.intersection(announced_tools)
         or AMAP_PRODUCT_TOOL_NAMES.intersection(announced_tools)
+        or WEATHER_TOOL_NAMES.intersection(announced_tools)
         or FLYAI_TRAVEL_TOOL_NAMES.intersection(announced_tools)
         or any(name.startswith("mcp_") for name in announced_tools)
     ):

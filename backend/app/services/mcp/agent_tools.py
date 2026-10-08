@@ -21,7 +21,6 @@ from app.db.mcp_server_repository import McpServerRepository
 from app.services.mcp.amap_product_tools import (
     AMAP_PRODUCT_DEFINITIONS,
     AMAP_PRODUCT_REMOTE_DEPENDENCIES,
-    WEATHER_FORECAST_DEFINITION,
     AmapProductToolHandler,
     AmapRunCoordinateConversion,
     build_amap_product_binding,
@@ -66,7 +65,7 @@ from app.services.mcp.tool_contract import (
 from app.services.tool_handlers.base import BaseToolHandler, ToolResult
 from app.services.weather.qweather_client import QWeatherClient, QWeatherCredentials
 from app.services.weather.qweather_forecast_tool import (
-    WEATHER_FORECAST_TOOL_NAME,
+    WEATHER_FORECAST_DEFINITION,
     QWeatherForecastToolHandler,
     build_qweather_binding,
 )
@@ -937,7 +936,7 @@ def load_mcp_agent_tools(
             )
         except ValueError:
             logger.warning("FlyAI 出行工具配置无效，本次 Agent run 不注册相关工具")
-    # 和风天气配置齐全时由它提供 weather_forecast，高德只保留地点搜索与路线对比。
+    # weather_forecast 只由和风天气提供；配置不全时不注册天气工具。
     resolved_qweather_client = qweather_client or _build_qweather_client()
     if resolved_qweather_client is not None:
         _append_qweather_forecast_tool(
@@ -985,11 +984,6 @@ def load_mcp_agent_tools(
                     audit_bindings=audit_bindings,
                     remote_executor=remote_executor,
                     limits=resolved_limits,
-                    excluded_products=(
-                        frozenset({WEATHER_FORECAST_TOOL_NAME})
-                        if WEATHER_FORECAST_TOOL_NAME in handlers
-                        else frozenset()
-                    ),
                 )
             continue
         for snapshot in _iter_authorized_snapshots(row):
@@ -1074,15 +1068,12 @@ def _append_amap_product_tools(
     audit_bindings: list[dict[str, Any]],
     remote_executor: McpAgentRemoteExecutor,
     limits: McpAgentToolLimits,
-    excluded_products: frozenset[str] = frozenset(),
 ) -> None:
     snapshots = {snapshot["name"]: snapshot for snapshot in _iter_authorized_snapshots(row)}
     orchestration_lock = asyncio.Lock()
     coordinate_conversion = AmapRunCoordinateConversion()
     for product_definition in AMAP_PRODUCT_DEFINITIONS:
         product_name = product_definition["function"]["name"]
-        if product_name in excluded_products:
-            continue
         dependency_names = AMAP_PRODUCT_REMOTE_DEPENDENCIES[product_name]
         if not dependency_names.issubset(snapshots):
             continue
@@ -1136,7 +1127,7 @@ def _build_qweather_client() -> QWeatherClient | None:
             private_key=settings.QWEATHER_PRIVATE_KEY,
         )
     except ValueError:
-        logger.warning("和风天气配置无效，本次 Agent run 继续使用高德天气")
+        logger.warning("和风天气配置无效，本次 Agent run 不注册天气工具")
         return None
     if credentials is None:
         return None

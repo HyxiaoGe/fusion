@@ -566,7 +566,7 @@ class TrajectoryNodeDetailServiceTests(unittest.TestCase):
                 alias="weather_forecast",
                 server_id="amap-1",
                 provider="amap",
-                remote_tool_name="maps_weather",
+                remote_tool_name="adapter:weather_forecast",
                 config_version=1,
                 tool_label="查询天气",
                 definition_sha256="a" * 64,
