@@ -356,3 +356,26 @@ async def test_blocked_observation_database_isolated_from_default_executor_and_k
         release.set()
         await asyncio.gather(*list(tool_round._PENDING_OBSERVATION_WRITES), return_exceptions=True)
         unrelated_workers.shutdown(wait=True)
+
+
+def test_new_search_sources_number_after_replayed_history_citations():
+    handler = SimpleNamespace(
+        supports_run_level_citations=True,
+        format_llm_context=lambda result, citation_numbers=None: f"来源编号 {citation_numbers}",
+        build_content_block=lambda *args: None,
+    )
+    record = ToolExecutionRecord(
+        tool_call={"id": "call-1", "name": "web_search", "arguments": {}},
+        result=ToolResult(status="success", data={"sources": [{"url": "https://example.com/a", "title": "A"}]}),
+        handler=handler,
+        block_id="block-1",
+        log_id="log-1",
+    )
+    request = _request(record)
+    request.agent_state = SimpleNamespace(history_citation_floor=6, tool_transcript=[])
+
+    tool_round.append_tool_round_messages_with_plan(request, [record], source_plan=None)
+
+    tool_message = next(message for message in request.messages if message.get("role") == "tool")
+    assert tool_message["content"].startswith("来源编号 [7]")
+    assert [entry["role"] for entry in request.agent_state.tool_transcript] == ["assistant", "tool"]

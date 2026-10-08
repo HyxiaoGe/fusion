@@ -14,6 +14,7 @@ from app.ai.prompts.section_ids import (
     PRODUCT_RESULT_ROUND,
     RESEARCH_EVIDENCE_WORKSET,
 )
+from app.services.chat.tool_transcript import without_tool_transactions
 from app.services.stream.agent_loop_outcome import AgentLoopExit, AgentLoopOutcome
 from app.services.stream.agent_loop_policy import check_agent_loop_limit
 from app.services.stream.agent_loop_round_outcome import (
@@ -239,6 +240,8 @@ async def _run_round(
         effective_messages,
         content_blocks=state.content_blocks,
     )
+    if not call_kwargs.get("tools"):
+        effective_messages = without_tool_transactions(effective_messages, state.history_tool_call_sequences)
     run_round_kwargs = dict(
         conversation_id=runtime.conversation_id,
         task_id=runtime.task_id,
@@ -279,6 +282,8 @@ async def _run_round(
         "llm_round_detail_scheduler",
     ):
         run_round_kwargs["llm_round_detail_scheduler"] = runtime.llm_round_detail_scheduler
+    if _accepts_keyword(runtime.run_round_fn, "on_context_trimmed"):
+        run_round_kwargs["on_context_trimmed"] = state.record_context_plan
     if runtime.output_tool_names and _accepts_keyword(runtime.run_round_fn, "draft_tool_names"):
         run_round_kwargs["draft_tool_names"] = runtime.output_tool_names
     round_result = await runtime.run_round_fn(**run_round_kwargs)

@@ -270,6 +270,7 @@ async def run_agent_round(
     assistant_message_id: str | None = None,
     emitter: Any | None = None,
     on_context_updated: Callable[[ContextUsage], None] | None = None,
+    on_context_trimmed: Callable[[list[PromptMessage], list[PromptMessage]], None] | None = None,
     defer_output: bool = False,
     allow_deferred_reasoning_output: bool = True,
     llm_round_detail_scheduler: Callable[[LlmRoundDetailDraft], Any] | None = None,
@@ -305,6 +306,8 @@ async def run_agent_round(
         await observation.finish_error(error)
         raise
     effective_messages = context_plan.messages
+    if on_context_trimmed is not None and context_plan.status.startswith("trimmed"):
+        on_context_trimmed(finalized_messages, effective_messages)
     estimated_context = build_context_usage(context_plan, round_index=step_number)
     if on_context_updated is not None:
         on_context_updated(estimated_context)

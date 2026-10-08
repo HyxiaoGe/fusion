@@ -32,6 +32,7 @@ from app.ai.prompts.section_ids import (
 )
 from app.ai.prompts.system_prompt import SystemPromptSection, assemble_system_prompt
 from app.ai.tools import build_url_read_tool, build_web_search_tool
+from app.core.logger import app_logger as logger
 from app.core.prompt_snapshot import PromptBundleSnapshot, use_prompt_snapshot
 from app.db.repositories import FileRepository
 from app.services.agent.plan_coordinator import PlanMode
@@ -40,6 +41,7 @@ from app.services.chat.message_builder import (
     inject_file_content,
     is_image_file,
 )
+from app.services.chat.tool_transcript_store import ToolTranscriptHistory, load_tool_transcripts
 from app.services.documents.agent_tools import DocumentToolSet, render_current_documents_context
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_TOOL_NAMES
 from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_TOOL_NAMES
@@ -162,6 +164,7 @@ class AgentLoopPreparedMessages:
     prompt_assembly: dict[str, Any] | None = None
     prompt_snapshot: dict[str, Any] | None = None
     run_prompt_snapshot: RunPromptSnapshot | None = None
+    tool_history: ToolTranscriptHistory = field(default_factory=ToolTranscriptHistory)
 
 
 def announced_tool_names_from_call_kwargs(call_kwargs: dict) -> list[str]:
@@ -394,6 +397,13 @@ async def prepare_agent_loop_messages(
 
     file_repo = file_repo_factory(db)
     user_system_prompt = load_user_system_prompt_fn(db, user_id)
+    # 本次请求不带工具定义时不回放工具协议消息（部分模型会返回空回答），历史只带问答文字。
+    tool_history = (
+        _load_tool_history(db, conversation_id, raw_messages)
+        if call_config.supports_function_calling and call_config.call_kwargs.get("tools")
+        else ToolTranscriptHistory()
+    )
+    history_kwargs = {"tool_transcripts": tool_history.transcripts} if tool_history.transcripts else {}
     messages = ensure_prompt_messages(
         await build_llm_messages_fn(
             raw_messages,
@@ -403,6 +413,7 @@ async def prepare_agent_loop_messages(
             include_base_system=False,
             user_id=user_id,
             conversation_id=conversation_id,
+            **history_kwargs,
         )
     )
 
@@ -462,7 +473,20 @@ async def prepare_agent_loop_messages(
         prompt_snapshot=run_snapshot.to_storage(),
         run_prompt_snapshot=run_snapshot,
         final_tool_names=list(call_config.announced_tools),
+        tool_history=tool_history,
     )
+
+
+def _load_tool_history(db, conversation_id: str | None, raw_messages: list) -> ToolTranscriptHistory:
+    """读取需要回放的历史工具记录；读取失败时这些轮次只带问答文字。"""
+    if not conversation_id:
+        return ToolTranscriptHistory()
+    assistant_ids = [str(message.id) for message in raw_messages if getattr(message, "role", None) == "assistant"]
+    try:
+        return load_tool_transcripts(db, conversation_id, assistant_ids)
+    except Exception as error:
+        logger.warning("历史工具记录读取失败: conv_id=%s, error_type=%s", conversation_id, type(error).__name__)
+        return ToolTranscriptHistory()
 
 
 def _run_prompt_sections(

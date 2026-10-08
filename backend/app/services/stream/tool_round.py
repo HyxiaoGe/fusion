@@ -28,6 +28,7 @@ from app.schemas.content_block_registry import is_registered_rich_content_block
 from app.services.agent.progress_digest import build_evidence_items, build_tool_result_digest
 from app.services.agent.trajectory_recorder import TrajectoryRecorder
 from app.services.agent_logger import attach_tool_observation
+from app.services.chat.tool_transcript import transcript_entries
 from app.services.search_read_planner import build_search_read_plan, format_search_read_plan_guidance
 from app.services.source_candidate_ranker import (
     SearchResultForRanking,
@@ -317,6 +318,9 @@ def append_tool_round_messages_with_plan(
         source_plan=source_plan,
     )
     citation_registry = _build_search_citation_registry(request.content_blocks)
+    history_citation_floor = getattr(getattr(request, "agent_state", None), "history_citation_floor", 0)
+    if history_citation_floor:
+        citation_registry.reserved_indexes.add(history_citation_floor)
     records_by_id = {str(record.tool_call.get("id", "")): record for record in results}
     missing_result_ids = {str(tool_call.get("id", "")) for tool_call in missing_result_tool_calls or []}
     not_executed_ids = {str(tool_call.get("id", "")) for tool_call in not_executed_tool_calls or []}
@@ -409,6 +413,9 @@ def append_tool_round_messages_with_plan(
                 )
             )
 
+    agent_state = getattr(request, "agent_state", None)
+    if agent_state is not None:
+        agent_state.tool_transcript.extend(transcript_entries(request.messages[first_message:]))
     return {
         str(message.get("tool_call_id")): message.get("content")
         for message in request.messages[first_message:]
@@ -509,7 +516,7 @@ class _CitationRegistry(dict[str, int]):
         self.reserved_indexes: set[int] = set()
 
 
-def _build_search_citation_registry(content_blocks: list[Any]) -> dict[str, int]:
+def _build_search_citation_registry(content_blocks: list[Any]) -> _CitationRegistry:
     search_blocks = [block for block in content_blocks if _value(block, "type") in {"search", "url_read"}]
     sources = [
         source

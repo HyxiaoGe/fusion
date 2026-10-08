@@ -8,13 +8,15 @@ LLM 消息构建模块
 """
 
 import base64
-from typing import Dict, List, Optional
+from collections.abc import Mapping
+from typing import Any, Dict, List, Optional
 
 from app.ai.prompts.prompt_manager import prompt_manager
 from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
 from app.ai.prompts.system_prompt import build_base_sections
 from app.core.logger import app_logger as logger
 from app.db.repositories import FileRepository
+from app.services.chat.tool_transcript import replay_messages
 from app.services.file_service import is_image_mime
 from app.services.storage import get_storage_for_backend
 
@@ -69,11 +71,13 @@ async def build_llm_messages(
     user_id: Optional[str] = None,
     conversation_id: Optional[str] = None,
     include_base_system: bool = True,
+    tool_transcripts: Optional[Mapping[str, Any]] = None,
 ) -> List[PromptMessage]:
     """
     将 content blocks 消息列表转为携带内部段落身份的不可变消息。
 
     - thinking / search block 不传给 LLM（避免污染上下文）
+    - tool_transcripts 按 assistant 消息 id 提供该轮工具调用与结果，插在该轮回答前原样回放
     - 当 has_vision=True 时，图片 FileBlock 转为 base64 image_url 内容块
     - 历史消息中的图片仅保留最近 MAX_VISION_HISTORY_TURNS 轮
     - 默认注入 Fusion 身份一致性规则，避免模型自称为上游供应商身份
@@ -138,6 +142,9 @@ async def build_llm_messages(
 
         if not content_parts:
             continue
+
+        if msg.role == "assistant" and tool_transcripts:
+            result.extend(replay_messages(tool_transcripts.get(msg.id)))
 
         # 无图片时退化为纯文本（节省 token 开销）
         if not has_image and len(content_parts) == 1 and content_parts[0]["type"] == "text":

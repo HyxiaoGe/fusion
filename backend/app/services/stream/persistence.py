@@ -255,6 +255,8 @@ def persist_message(
                 existing.usage = None
             if replace_on_success and not partial:
                 existing.model_id = model_id
+                # 重新生成的回答由本次 run 收尾时写入新记录，旧记录与新正文不对应。
+                existing.tool_transcript = None
                 existing.suggested_questions = None
                 existing.suggested_questions_revision = (existing.suggested_questions_revision or 0) + 1
                 existing.suggested_questions_status = "idle"

@@ -117,6 +117,7 @@ def build_limit_summary_step_request(
         on_context_updated=state.update_context,
         assistant_message_id=runtime.assistant_message_id,
         summary_finish_reason=summary_finish_reason,
+        history_tool_call_ids=frozenset(state.history_tool_call_sequences),
         task_mode=runtime.task_mode,
         evidence_policy=runtime.evidence_policy,
         research_workset=state.research_workset,

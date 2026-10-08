@@ -171,6 +171,13 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
         )
         assistant_message = next(message for message in request.messages if message.get("role") == "assistant")
         self.assertEqual(assistant_message["reasoning_content"], "内部 _plan_item_id 推理")
+        transcript_calls = [entry for entry in state.tool_transcript if entry["role"] == "assistant"]
+        self.assertEqual(len(transcript_calls), 1)
+        self.assertNotIn("reasoning_content", transcript_calls[0])
+        self.assertEqual(
+            [entry["tool_call_id"] for entry in state.tool_transcript if entry["role"] == "tool"],
+            [call["id"] for call in transcript_calls[0]["tool_calls"]],
+        )
 
     def test_non_k3_deferred_round_adds_visible_reasoning_block(self):
         request = SimpleNamespace(
