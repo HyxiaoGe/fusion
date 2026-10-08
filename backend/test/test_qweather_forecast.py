@@ -344,6 +344,23 @@ class QWeatherHandlerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual("hourly" in result.data["result"], expected)
                 self.assertEqual(any(r.url.path == "/v7/weather/24h" for r in fake.requests), expected)
 
+    async def test_hourly_keeps_only_requested_day_hours(self):
+        # 逐小时从 2026-10-08 16:00 起 24 点：今天 16–23 时 8 点，明天 0–15 时 16 点
+        for requested_date, count, first, last in (
+            ("2026-10-08", 8, "2026-10-08T16:00:00+08:00", "2026-10-08T23:00:00+08:00"),
+            ("2026-10-09", 16, "2026-10-09T00:00:00+08:00", "2026-10-09T15:00:00+08:00"),
+        ):
+            with self.subTest(requested_date=requested_date):
+                handler = build_handler(FakeQWeather())
+                result = await handler.execute(
+                    {"location": "杭州", "location_source": "named", "requested_date": requested_date}
+                )
+                block = handler.build_content_block(result, "blk", "log")
+                self.assertEqual(len(block.hourly), count)
+                self.assertEqual(block.hourly[0].time.isoformat(), first)
+                self.assertEqual(block.hourly[-1].time.isoformat(), last)
+                self.assertIn(f'"window": "{first} ~ {last}"', handler.format_llm_context(result))
+
     async def test_hourly_failure_keeps_daily_forecast(self):
         handler = build_handler(FakeQWeather(hourly_status=500))
         result = await handler.execute({"location": "杭州", "location_source": "named"})

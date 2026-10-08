@@ -444,6 +444,28 @@ describe('StructuredToolResults', () => {
     expect(within(trend).getByText('80%')).toBeInTheDocument();
   });
 
+  it('只展示所问那一天时，趋势图标题写当天的实际时段', () => {
+    // 前 8 点落在前一天：兼容后端截取前存下的消息，卡片只画所问那天
+    const hourly = Array.from({ length: 24 }, (_, index) => ({
+      time: `2026-07-${index < 8 ? '24' : '25'}T${String((index + 16) % 24).padStart(2, '0')}:00:00+08:00`,
+      temp_c: index < 8 ? 40 : 26 + (index % 5),
+      weather: '晴',
+      pop: 10,
+    }));
+    render(<StructuredToolResults blocks={[weatherBlock({
+      status: 'success',
+      requested_date: '2026-07-25',
+      day_count: 1,
+      forecast_days: [weatherBlock().forecast_days[2]],
+      hourly,
+    })]} />);
+
+    const trend = screen.getByTestId('weather-hourly-trend');
+    expect(within(trend).getByText('当日 0–15 时')).toBeInTheDocument();
+    expect(within(trend).queryByText('未来 24 小时')).not.toBeInTheDocument();
+    expect(within(trend).getByRole('img', { name: '当日 0–15 时气温 26° 至 30°，降水概率最高 10%' })).toBeInTheDocument();
+  });
+
   it('天气没有逐小时数据时不显示趋势图', () => {
     render(<StructuredToolResults blocks={[weatherBlock()]} />);
     expect(screen.queryByTestId('weather-hourly-trend')).not.toBeInTheDocument();

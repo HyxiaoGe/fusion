@@ -46,7 +46,14 @@ function useContainerWidth() {
   return { ref, width };
 }
 
-export function WeatherHourlyTrend({ hourly }: { hourly: WeatherHourlyPoint[] }) {
+/** dayRange：卡片只展示所问那一天时，逐小时也只剩那天的时段，标题按实际起止小时写。 */
+export function WeatherHourlyTrend({
+  hourly,
+  dayRange = false,
+}: {
+  hourly: WeatherHourlyPoint[];
+  dayRange?: boolean;
+}) {
   const { t } = useTranslation();
   const { ref, width: WIDTH } = useContainerWidth();
   if (hourly.length < 2) return null;
@@ -64,7 +71,12 @@ export function WeatherHourlyTrend({ hourly }: { hourly: WeatherHourlyPoint[] })
   const barWidth = Math.min(step * 0.6, 16);
   const hasPop = hourly.some(point => typeof point.pop === 'number');
   const maxPop = Math.max(0, ...hourly.map(point => point.pop ?? 0));
-  const summary = t('structuredResults.weather.hourly.summary', {
+  const range = { start: localHour(hourly[0].time), end: localHour(hourly[hourly.length - 1].time) };
+  const title = dayRange
+    ? t('structuredResults.weather.hourly.dayTitle', range)
+    : t('structuredResults.weather.hourly.title');
+  const summary = t(dayRange ? 'structuredResults.weather.hourly.daySummary' : 'structuredResults.weather.hourly.summary', {
+    ...range,
     min: formatTemp(minTemp),
     max: formatTemp(maxTemp),
     pop: maxPop,
@@ -73,7 +85,7 @@ export function WeatherHourlyTrend({ hourly }: { hourly: WeatherHourlyPoint[] })
   return (
     <div className={styles.weatherHourly} data-testid="weather-hourly-trend">
       <div className={styles.weatherHourlyHeader}>
-        <span className={styles.weatherHourlyTitle}>{t('structuredResults.weather.hourly.title')}</span>
+        <span className={styles.weatherHourlyTitle}>{title}</span>
         <span className={styles.weatherHourlyLegend}>
           <span className={styles.legendTemp} aria-hidden="true" />
           {t('structuredResults.weather.hourly.temperature')}
