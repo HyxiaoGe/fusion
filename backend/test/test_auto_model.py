@@ -3,7 +3,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from app.api.models import _build_auto_card, _entry_to_card
-from app.services.auto_model import pick_auto_model
+from app.services.auto_model import get_auto_model_candidates, get_auto_provider_groups, pick_auto_model
+from app.services.runtime_config_defaults import DEFAULT_AUTO_MODEL_CONFIG
 
 CATALOG = {
     "mimo-v2.6-pro": {"db_model": True, "metadata": {"cost_tier": "mid", "capabilities": {"vision": True}}},
@@ -67,6 +68,37 @@ class PickAutoModelTests(unittest.TestCase):
 
     def test_empty_catalog_trusts_first_candidate(self):
         self.assertEqual(self._pick(catalog={}), "mimo-v2.6-pro")
+
+
+class AutoProviderGroupTests(unittest.TestCase):
+    def _groups(self, payload):
+        with patch("app.services.auto_model.get_runtime_config_payload", return_value=(payload, None)):
+            return get_auto_provider_groups(), get_auto_model_candidates()
+
+    def test_default_prefers_flash_then_pro_within_each_provider(self):
+        groups, candidates = self._groups(DEFAULT_AUTO_MODEL_CONFIG)
+        self.assertEqual([group.provider for group in groups], ["mimo", "deepseek", "qwen"])
+        self.assertEqual(
+            candidates,
+            ["mimo-v2.6-flash", "mimo-v2.6-pro", "deepseek-chat", "deepseek-reasoner", "qwen3.8-flash"],
+        )
+
+    def test_groups_flatten_in_configured_order(self):
+        payload = {
+            "providers": [
+                {"provider": "deepseek", "models": ["deepseek-chat"]},
+                {"provider": "mimo", "models": ["mimo-v2.6-pro", "", 3]},
+            ]
+        }
+        groups, candidates = self._groups(payload)
+        self.assertEqual(groups[1].models, ("mimo-v2.6-pro",))
+        self.assertEqual(candidates, ["deepseek-chat", "mimo-v2.6-pro"])
+
+    def test_unusable_payload_uses_built_in_default(self):
+        for payload in ({"candidates": ["deepseek-chat"]}, {"providers": []}, None):
+            with self.subTest(payload=payload):
+                _, candidates = self._groups(payload)
+                self.assertEqual(candidates[0], "mimo-v2.6-flash")
 
 
 class AutoModelCardTests(unittest.TestCase):

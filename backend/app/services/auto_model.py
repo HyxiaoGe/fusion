@@ -1,7 +1,8 @@
 """自动选择模型。
 
 会话绑定 `auto`，或绑定的模型已从目录下线/被禁止调用时，每轮在服务端按管理员配置的
-优先级挑一个当前可调用的具体模型。只看目录、调度开关、健康状态和本轮的硬性需求（带图
+优先级挑一个当前可调用的具体模型。优先级按「提供商 → 模型 ID」分组配置，目前组与组内
+都按顺序取第一个可用模型。只看目录、调度开关、健康状态和本轮的硬性需求（带图
 就要读图），不根据问题内容猜模型。候选全部不可用时退到目录里其余可用模型，保证只要
 目录里还有模型，对话就不会因为模型下线而卡死。
 """
@@ -32,12 +33,42 @@ class ModelResolution:
     fallback_from: str | None = None
 
 
-def get_auto_model_candidates() -> list[str]:
+@dataclass(frozen=True)
+class AutoProviderGroup:
+    """一个提供商下参与自动选择的模型，按优先级排列。"""
+
+    provider: str
+    models: tuple[str, ...]
+
+
+def get_auto_provider_groups() -> list[AutoProviderGroup]:
     payload, _ = get_runtime_config_payload("model_routing", "auto", DEFAULT_AUTO_MODEL_CONFIG)
-    candidates = payload.get("candidates") if isinstance(payload, Mapping) else None
-    if not isinstance(candidates, list):
-        candidates = DEFAULT_AUTO_MODEL_CONFIG["candidates"]
-    return [str(item) for item in candidates if isinstance(item, str) and item]
+    groups = _parse_provider_groups(payload)
+    return groups or _parse_provider_groups(DEFAULT_AUTO_MODEL_CONFIG)
+
+
+def get_auto_model_candidates() -> list[str]:
+    """把提供商分组按顺序展开成候选列表；组内目前同样按顺序取第一个可用模型。"""
+
+    return [model for group in get_auto_provider_groups() for model in group.models]
+
+
+def _parse_provider_groups(payload: Any) -> list[AutoProviderGroup]:
+    raw_groups = payload.get("providers") if isinstance(payload, Mapping) else None
+    if not isinstance(raw_groups, list):
+        return []
+    groups: list[AutoProviderGroup] = []
+    for raw in raw_groups:
+        if not isinstance(raw, Mapping):
+            continue
+        provider = raw.get("provider")
+        models = raw.get("models")
+        if not isinstance(provider, str) or not provider or not isinstance(models, list):
+            continue
+        model_ids = tuple(str(item) for item in models if isinstance(item, str) and item)
+        if model_ids:
+            groups.append(AutoProviderGroup(provider=provider, models=model_ids))
+    return groups
 
 
 def is_model_registered(model_id: str) -> bool:

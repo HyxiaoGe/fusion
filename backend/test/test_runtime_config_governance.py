@@ -92,16 +92,30 @@ class RuntimeConfigGovernanceTests(unittest.TestCase):
             {("agent_strategy", "default"), ("model_presentation", "default"), ("model_routing", "auto")},
         )
 
-    def test_auto_model_routing_rejects_empty_or_self_referencing_candidates(self):
+    def test_auto_model_routing_requires_provider_groups(self):
         from app.services.runtime_config_governance import validate_runtime_config_candidate
 
-        self.assertTrue(
-            validate_runtime_config_candidate("model_routing", "auto", {"candidates": ["deepseek-chat"]})["valid"]
+        valid = {
+            "providers": [
+                {"provider": "mimo", "models": ["mimo-v2.6-flash", "mimo-v2.6-pro"]},
+                {"provider": "deepseek", "models": ["deepseek-chat"]},
+            ]
+        }
+        self.assertTrue(validate_runtime_config_candidate("model_routing", "auto", valid)["valid"])
+        invalid_payloads = (
+            {"candidates": ["deepseek-chat"]},
+            {"providers": []},
+            {"providers": ["mimo"]},
+            {"providers": [{"provider": "", "models": ["mimo-v2.6-pro"]}]},
+            {"providers": [{"provider": "mimo", "models": []}]},
+            {"providers": [{"provider": "mimo", "models": ["auto"]}]},
+            {"providers": [{"provider": "mimo", "models": [""]}]},
+            {"providers": [{"provider": "mimo", "models": ["a"]}, {"provider": "mimo", "models": ["b"]}]},
+            {"providers": [{"provider": "mimo", "models": ["a"]}, {"provider": "qwen", "models": ["a"]}]},
         )
-        for candidates in ([], ["auto"], [""], "deepseek-chat"):
-            with self.subTest(candidates=candidates):
-                result = validate_runtime_config_candidate("model_routing", "auto", {"candidates": candidates})
-                self.assertFalse(result["valid"])
+        for payload in invalid_payloads:
+            with self.subTest(payload=payload):
+                self.assertFalse(validate_runtime_config_candidate("model_routing", "auto", payload)["valid"])
 
     def test_create_runtime_config_entry_creates_inactive_version(self):
         from app.services.runtime_config_governance import create_runtime_config_entry

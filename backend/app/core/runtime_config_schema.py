@@ -128,14 +128,39 @@ def _validate_model_presentation(payload: dict[str, Any], issues: list[str]) -> 
 
 
 def _validate_auto_model_routing(payload: dict[str, Any], issues: list[str]) -> None:
-    candidates = payload.get("candidates")
-    if not isinstance(candidates, list) or not candidates:
-        issues.append("candidates 必须是非空数组")
+    # 写入时会与默认值合并，旧的 candidates 等多余字段不拒绝就会被静默忽略
+    unknown = sorted(set(payload) - {"providers"})
+    if unknown:
+        issues.append(f"不支持的字段：{', '.join(unknown)}（优先级改用 providers 分组）")
+    groups = payload.get("providers")
+    if not isinstance(groups, list) or not groups:
+        issues.append("providers 必须是非空数组")
         return
-    if not all(isinstance(item, str) and item for item in candidates):
-        issues.append("candidates 必须是非空字符串数组")
-    elif "auto" in candidates:
-        issues.append("candidates 不能包含 auto")
+    seen_providers: set[str] = set()
+    seen_models: set[str] = set()
+    for index, group in enumerate(groups):
+        prefix = f"providers[{index}]"
+        if not isinstance(group, dict):
+            issues.append(f"{prefix} 必须是对象")
+            continue
+        provider = group.get("provider")
+        if not isinstance(provider, str) or not provider:
+            issues.append(f"{prefix}.provider 必须是非空字符串")
+        elif provider in seen_providers:
+            issues.append(f"{prefix}.provider 重复：{provider}")
+        else:
+            seen_providers.add(provider)
+        models = group.get("models")
+        if not isinstance(models, list) or not models or not all(isinstance(item, str) and item for item in models):
+            issues.append(f"{prefix}.models 必须是非空字符串数组")
+            continue
+        for model in models:
+            if model == "auto":
+                issues.append(f"{prefix}.models 不能包含 auto")
+            elif model in seen_models:
+                issues.append(f"{prefix}.models 重复：{model}")
+            else:
+                seen_models.add(model)
 
 
 def _require_dict(payload: dict[str, Any], field: str, issues: list[str], *, prefix: str = "") -> None:
