@@ -13,9 +13,7 @@ class DeployAuthConfigTests(unittest.TestCase):
         monorepo_root = root.parent
         self.app_config = (root / "app" / "core" / "config.py").read_text(encoding="utf-8")
         self.env_example = (root / ".env.example").read_text(encoding="utf-8")
-        self.workflow = read_expanded_workflow(
-            monorepo_root / ".github" / "workflows" / "_deploy-api.yml"
-        )
+        self.workflow = read_expanded_workflow(monorepo_root / ".github" / "workflows" / "_deploy-api.yml")
         self.ci_build_script = (root / ".github" / "scripts" / "windows-build-and-test.ps1").read_text(encoding="utf-8")
         self.compose = (root / "docker-compose.yml").read_text(encoding="utf-8")
         self.ci_requirements = (root / "requirements-ci.txt").read_text(encoding="utf-8")
@@ -37,8 +35,7 @@ class DeployAuthConfigTests(unittest.TestCase):
     def test_deploy_runs_api_surface_smoke_after_health(self):
         self.assertIn("Run deployment smoke", self.workflow)
         self.assertIn(
-            'python3 "${GITHUB_WORKSPACE}/backend/scripts/deployment_smoke.py" '
-            "--base-url http://127.0.0.1:8002",
+            'python3 "${GITHUB_WORKSPACE}/backend/scripts/deployment_smoke.py" --base-url http://127.0.0.1:8002',
             self.workflow,
         )
         self.assertIn(
@@ -142,8 +139,18 @@ class DeployAuthConfigTests(unittest.TestCase):
             "DASHSCOPE_API_KEY",
             "AMAP_MCP_API_KEY",
             "CONTEXT7_API_KEY",
+            "QWEATHER_API_HOST",
+            "QWEATHER_KEY_ID",
+            "QWEATHER_PROJECT_ID",
+            "QWEATHER_DEVELOPER_ID",
+            "QWEATHER_PRIVATE_KEY",
         ):
             self.assertIn(f"- {variable}=${{{variable}", self.workflow)
+        self.assertIn("DEPLOY_QWEATHER_PRIVATE_KEY: ${{ secrets.QWEATHER_PRIVATE_KEY }}", self.workflow)
+        self.assertIn(
+            'export QWEATHER_PRIVATE_KEY="${DEPLOY_QWEATHER_PRIVATE_KEY:-${QWEATHER_PRIVATE_KEY:-}}"',
+            self.workflow,
+        )
         self.assertIn(
             'export MCP_ALLOWED_INTERNAL_ENDPOINTS="${DEPLOY_MCP_ALLOWED_INTERNAL_ENDPOINTS:-${MCP_ALLOWED_INTERNAL_ENDPOINTS:-}}"',
             self.workflow,

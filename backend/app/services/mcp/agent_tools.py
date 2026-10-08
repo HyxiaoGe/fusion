@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 import time
@@ -20,6 +21,7 @@ from app.db.mcp_server_repository import McpServerRepository
 from app.services.mcp.amap_product_tools import (
     AMAP_PRODUCT_DEFINITIONS,
     AMAP_PRODUCT_REMOTE_DEPENDENCIES,
+    WEATHER_FORECAST_DEFINITION,
     AmapProductToolHandler,
     AmapRunCoordinateConversion,
     build_amap_product_binding,
@@ -62,6 +64,12 @@ from app.services.mcp.tool_contract import (
     validate_tool_arguments,
 )
 from app.services.tool_handlers.base import BaseToolHandler, ToolResult
+from app.services.weather.qweather_client import QWeatherClient, QWeatherCredentials
+from app.services.weather.qweather_forecast_tool import (
+    WEATHER_FORECAST_TOOL_NAME,
+    QWeatherForecastToolHandler,
+    build_qweather_binding,
+)
 
 MCP_AGENT_TOOL_ERROR_MESSAGE = MCP_TOOL_UNAVAILABLE_MESSAGE
 
@@ -890,6 +898,7 @@ def load_mcp_agent_tools(
     circuit_breaker: McpAgentServerCircuitBreaker | None = None,
     flyai_client: FlyAiTravelAdapterClient | None = None,
     store_generated_image: Callable[..., Any] | None = None,
+    qweather_client: QWeatherClient | None = None,
 ) -> McpAgentToolSet:
     """从持久化发现快照构建一次 Agent run 专属的 MCP 工具集合。"""
 
@@ -928,6 +937,16 @@ def load_mcp_agent_tools(
             )
         except ValueError:
             logger.warning("FlyAI 出行工具配置无效，本次 Agent run 不注册相关工具")
+    # 和风天气配置齐全时由它提供 weather_forecast，高德只保留地点搜索与路线对比。
+    resolved_qweather_client = qweather_client or _build_qweather_client()
+    if resolved_qweather_client is not None:
+        _append_qweather_forecast_tool(
+            definitions=definitions,
+            handlers=handlers,
+            audit_bindings=audit_bindings,
+            client=resolved_qweather_client,
+            limits=resolved_limits,
+        )
     official_amap_rows = [row for row in rows if is_official_amap_endpoint(str(row.endpoint_url))]
 
     for row in rows:
@@ -966,6 +985,11 @@ def load_mcp_agent_tools(
                     audit_bindings=audit_bindings,
                     remote_executor=remote_executor,
                     limits=resolved_limits,
+                    excluded_products=(
+                        frozenset({WEATHER_FORECAST_TOOL_NAME})
+                        if WEATHER_FORECAST_TOOL_NAME in handlers
+                        else frozenset()
+                    ),
                 )
             continue
         for snapshot in _iter_authorized_snapshots(row):
@@ -1050,12 +1074,15 @@ def _append_amap_product_tools(
     audit_bindings: list[dict[str, Any]],
     remote_executor: McpAgentRemoteExecutor,
     limits: McpAgentToolLimits,
+    excluded_products: frozenset[str] = frozenset(),
 ) -> None:
     snapshots = {snapshot["name"]: snapshot for snapshot in _iter_authorized_snapshots(row)}
     orchestration_lock = asyncio.Lock()
     coordinate_conversion = AmapRunCoordinateConversion()
     for product_definition in AMAP_PRODUCT_DEFINITIONS:
         product_name = product_definition["function"]["name"]
+        if product_name in excluded_products:
+            continue
         dependency_names = AMAP_PRODUCT_REMOTE_DEPENDENCIES[product_name]
         if not dependency_names.issubset(snapshots):
             continue
@@ -1082,6 +1109,66 @@ def _append_amap_product_tools(
             max_llm_context_bytes=limits.max_llm_context_bytes,
         )
         audit_bindings.append(binding.to_audit_dict())
+
+
+_QWEATHER_CLIENT_CACHE: dict[tuple[str, ...], QWeatherClient] = {}
+
+
+def _build_qweather_client() -> QWeatherClient | None:
+    """按当前配置构建（并在进程内复用）和风客户端，复用以共享 JWT 缓存。"""
+
+    config_key = (
+        settings.QWEATHER_API_HOST,
+        settings.QWEATHER_KEY_ID,
+        settings.QWEATHER_PROJECT_ID,
+        settings.QWEATHER_DEVELOPER_ID,
+        hashlib.sha256(settings.QWEATHER_PRIVATE_KEY.encode()).hexdigest(),
+    )
+    cached = _QWEATHER_CLIENT_CACHE.get(config_key)
+    if cached is not None:
+        return cached
+    try:
+        credentials = QWeatherCredentials.from_settings(
+            api_host=settings.QWEATHER_API_HOST,
+            key_id=settings.QWEATHER_KEY_ID,
+            project_id=settings.QWEATHER_PROJECT_ID,
+            developer_id=settings.QWEATHER_DEVELOPER_ID,
+            private_key=settings.QWEATHER_PRIVATE_KEY,
+        )
+    except ValueError:
+        logger.warning("和风天气配置无效，本次 Agent run 继续使用高德天气")
+        return None
+    if credentials is None:
+        return None
+    client = QWeatherClient(credentials, timeout_seconds=max(1.0, settings.QWEATHER_TIMEOUT_SECONDS))
+    _QWEATHER_CLIENT_CACHE.clear()
+    _QWEATHER_CLIENT_CACHE[config_key] = client
+    return client
+
+
+def _append_qweather_forecast_tool(
+    *,
+    definitions: list[dict[str, Any]],
+    handlers: dict[str, BaseToolHandler],
+    audit_bindings: list[dict[str, Any]],
+    client: QWeatherClient,
+    limits: McpAgentToolLimits,
+) -> None:
+    if len(definitions) >= limits.max_tools:
+        return
+    definition = json.loads(json.dumps(WEATHER_FORECAST_DEFINITION, ensure_ascii=False))
+    if len(canonical_json_bytes([*definitions, definition])) > limits.max_definition_bytes:
+        return
+    binding = build_qweather_binding()
+    if binding.alias in handlers:
+        raise RuntimeError("MCP 工具别名冲突")
+    definitions.append(definition)
+    handlers[binding.alias] = QWeatherForecastToolHandler(
+        binding=binding,
+        client=client,
+        max_llm_context_bytes=limits.max_llm_context_bytes,
+    )
+    audit_bindings.append(binding.to_audit_dict())
 
 
 def _append_image_service_tool(

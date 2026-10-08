@@ -726,4 +726,26 @@ describe('normalizeStructuredToolResultBlock', () => {
     });
     expect(JSON.stringify(block)).not.toMatch(/internal_code|raw_payload|hidden-/);
   });
+
+  it('天气结果接受和风天气来源，未知来源仍被拒绝', () => {
+    const source = {
+      type: 'weather_results',
+      id: 'weather-qw',
+      schema_version: 1,
+      provider: 'qweather',
+      status: 'degraded',
+      query: '杭州',
+      resolved_location: '浙江省·杭州',
+      day_count: 1,
+      forecast_days: [
+        { date: '2026-10-08', weekday: 4, day_weather: '晴', night_weather: '多云', high_c: 26, low_c: 17 },
+      ],
+      fetched_at: '2026-10-08T16:00:00+08:00',
+      limitations: [],
+    };
+
+    const block = normalizeStructuredToolResultBlock(source);
+    expect(block).toMatchObject({ provider: 'qweather', attribution: { label: '和风天气' } });
+    expect(normalizeStructuredToolResultBlock({ ...source, provider: 'other' })).toBeNull();
+  });
 });

@@ -453,7 +453,7 @@ class WeatherResultsBlock(BaseModel):
     type: Literal["weather_results"]
     id: str = Field(default_factory=lambda: f"blk_{uuid4().hex[:12]}", max_length=160)
     schema_version: Literal[1]
-    provider: Literal["amap"]
+    provider: Literal["amap", "qweather"]
     attribution: Optional[StructuredResultAttribution] = None
     status: Literal["success", "degraded"]
     query: str = Field(min_length=1, max_length=120)

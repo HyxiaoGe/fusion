@@ -365,7 +365,7 @@ export interface WeatherResultsBlock {
   type: 'weather_results';
   id: string;
   schema_version: 1;
-  provider: 'amap';
+  provider: 'amap' | 'qweather';
   attribution?: StructuredResultAttribution | null;
   status: 'success' | 'degraded';
   query: string;
