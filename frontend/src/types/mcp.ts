@@ -41,11 +41,13 @@ export interface McpModelTool {
   kind: 'product' | 'generic';
   mode: McpModelToolMode;
   source_tools: string[];
+  description?: string;
 }
 
 export interface McpHiddenModelTool {
   name: string;
   label: string;
+  description?: string;
   reason: 'quota_exhausted';
   resets_in_seconds: number;
 }

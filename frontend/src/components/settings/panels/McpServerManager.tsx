@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   CircleHelp,
   Edit3,
+  Eye,
   Loader2,
   Plus,
   RefreshCw,
@@ -22,6 +23,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Select, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import controlStyles from "@/components/settings/SettingsControls.module.css";
+import McpToolPreviewDialog from "./McpToolPreviewDialog";
 import {
   createMcpServerAPI,
   fetchMcpModelViewAPI,
@@ -383,6 +385,7 @@ export default function McpServerManager() {
   const [servers, setServers] = useState<McpServer[]>([]);
   const [modelView, setModelView] = useState<McpModelView | null>(null);
   const [modelViewError, setModelViewError] = useState(false);
+  const [previewServer, setPreviewServer] = useState<McpServer | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -657,6 +660,9 @@ export default function McpServerManager() {
                             `${server.name} 状态更新失败`,
                           )}
                         />
+                        <Button aria-label={`预览${server.name}工具说明`} title="预览工具说明" size="icon" variant="ghost" onClick={() => setPreviewServer(server)}>
+                          <Eye className="h-4 w-4" />
+                        </Button>
                         <Button aria-label={`编辑${server.name}`} size="icon" variant="ghost" onClick={(event) => openEdit(server, event.currentTarget)} disabled={isBusy}>
                           <Edit3 className="h-4 w-4" />
                         </Button>
@@ -733,6 +739,15 @@ export default function McpServerManager() {
           )}
         </CardContent>
       </Card>
+
+      <McpToolPreviewDialog
+        server={previewServer}
+        view={previewServer ? modelView?.servers[previewServer.id] : undefined}
+        open={previewServer !== null}
+        onOpenChange={(open) => {
+          if (!open) setPreviewServer(null);
+        }}
+      />
 
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
         <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto" onOpenAutoFocus={editorFocus.onOpenAutoFocus} onCloseAutoFocus={editorFocus.onCloseAutoFocus}>

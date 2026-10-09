@@ -61,8 +61,10 @@ class McpModelViewTests(unittest.TestCase):
             amap["tools"][0]["source_tools"], sorted(AMAP_PRODUCT_REMOTE_DEPENDENCIES["local_place_search"])
         )
         self.assertEqual(amap["hidden_tools"], [])
+        self.assertIn("关键词", amap["tools"][0]["description"])
         tencent = result["servers"]["a-tencent"]["tools"]
         self.assertEqual(tencent[0]["name"], "tool_0")
+        self.assertEqual(tencent[0]["description"], "tool_0")
         self.assertEqual({tool["mode"] for tool in tencent}, {"on_demand"})
         self.assertTrue(result["deferral"]["on_demand"])
         self.assertEqual(result["deferral"]["generic_tool_count"], MAX_DIRECT_MCP_TOOLS + 1)
@@ -84,11 +86,13 @@ class McpModelViewTests(unittest.TestCase):
                 {
                     "name": "local_place_search",
                     "label": "高德地点搜索",
+                    "description": amap["hidden_tools"][0]["description"],
                     "reason": "quota_exhausted",
                     "resets_in_seconds": 3600,
                 }
             ],
         )
+        self.assertIn("关键词", amap["hidden_tools"][0]["description"])
         self.assertEqual(amap["quota_exhausted"], [{"group": "search", "resets_in_seconds": 3600}])
         self.assertEqual({tool["mode"] for tool in result["servers"]["a-tencent"]["tools"]}, {"direct"})
         self.assertEqual(result["deferral"]["generic_tool_count"], 1)

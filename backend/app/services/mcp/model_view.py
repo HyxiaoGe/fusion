@@ -28,6 +28,12 @@ from app.utils.run_capability_contract import is_authorized_mcp_tool_alias
 _PREVIEW_SCOPE = "admin-model-view"
 _ALL_AMAP_QUOTA_GROUPS = frozenset().union(*AMAP_PRODUCT_REQUIRED_QUOTA_GROUPS.values())
 _PRODUCT_LABELS = {"local_place_search": "高德地点搜索", "route_compare": "高德路线比较"}
+# 产品工具给模型的定义是英文，管理页预览用这份中文简介。
+_PRODUCT_DESCRIPTIONS = {
+    "local_place_search": "按关键词在城市内或某个地点周边搜索，返回候选地点的名称、地址、距离和地点编号；地名有歧义时交给模型确认或问用户。",
+    "route_compare": "比较两地之间驾车、公交地铁、步行、骑行的耗时和距离；起终点可以是地名，也可以是地点搜索结果里的地点编号。",
+    "generate_image": "根据文字描述生成图片，可指定画面比例和风格，生成的图片直接显示在回答里。",
+}
 
 
 def build_mcp_model_view(
@@ -59,6 +65,14 @@ def build_mcp_model_view(
     on_demand = should_defer_mcp_tools(generic)
 
     servers: dict[str, dict[str, Any]] = {str(row.id): {"tools": [], "hidden_tools": []} for row in rows}
+    remote_descriptions = {
+        str(row.id): {
+            tool["name"]: str(tool.get("description") or "")
+            for tool in (row.discovered_tools or [])
+            if isinstance(tool, dict) and tool.get("name")
+        }
+        for row in rows
+    }
     for binding in tool_set.audit_bindings:
         server = servers.get(str(binding.get("server_id")))
         alias = binding.get("alias")
@@ -77,6 +91,9 @@ def build_mcp_model_view(
                 "kind": "product" if is_product else "generic",
                 "mode": "on_demand" if not is_product and on_demand and alias not in direct_names else "direct",
                 "source_tools": source_tools,
+                "description": _PRODUCT_DESCRIPTIONS.get(alias, "")
+                if is_product
+                else remote_descriptions.get(str(binding.get("server_id")), {}).get(remote, ""),
             }
         )
 
@@ -92,6 +109,7 @@ def build_mcp_model_view(
                     {
                         "name": product,
                         "label": _PRODUCT_LABELS.get(product, product),
+                        "description": _PRODUCT_DESCRIPTIONS.get(product, ""),
                         "reason": "quota_exhausted",
                         "resets_in_seconds": max(quota[group] for group in exhausted),
                     }
