@@ -186,10 +186,6 @@ vi.mock('next/image', () => ({
   },
 }));
 
-vi.mock('./FilePreviewList', () => ({
-  default: () => null,
-}));
-
 import ChatInput from './ChatInput';
 import { resetKnowledgeBaseCatalogResource } from '@/lib/chat/knowledgeBaseCatalogResource';
 

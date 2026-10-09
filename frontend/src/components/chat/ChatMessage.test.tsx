@@ -120,14 +120,6 @@ vi.mock('./FileCard', () => ({
   default: () => null,
 }));
 
-vi.mock('./SourcesPanel', () => ({
-  default: () => <div data-testid="old-sources-panel">旧来源入口</div>,
-}));
-
-vi.mock('./UrlCard', () => ({
-  default: () => <div data-testid="old-url-card">旧 URL 卡片</div>,
-}));
-
 vi.mock('../models/ProviderIcon', () => ({
   default: () => <span>icon</span>,
 }));
@@ -641,7 +633,6 @@ describe('ChatMessage', () => {
 
     expect(screen.getByText('回答依据 · 搜索候选 1 条')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '查看来源：Global AI Standards Forum G7 functions governance' })).toBeInTheDocument();
-    expect(screen.queryByTestId('old-sources-panel')).toBeNull();
     expect(screen.queryByText(/参考 \d+ 篇资料/)).toBeNull();
   });
 
@@ -668,7 +659,6 @@ describe('ChatMessage', () => {
 
     expect(screen.getByText('回答依据 · 深读 1 个网页')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '打开网页：Example Article' })).toHaveAttribute('href', 'https://example.com/article');
-    expect(screen.queryByTestId('old-url-card')).toBeNull();
   });
 
   it('URL-only 回答通过真实回答依据入口打开统一侧栏', () => {

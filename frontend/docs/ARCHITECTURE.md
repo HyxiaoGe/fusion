@@ -5,13 +5,11 @@
 | 层面 | 技术 |
 |------|------|
 | 框架 | Next.js 15 (App Router) + React 19 |
-| 桌面端 | Electron 34 |
 | 状态管理 | Redux Toolkit |
 | 本地缓存 | Dexie.js (IndexedDB) |
 | UI 组件 | Radix UI + Tailwind CSS |
 | 国际化 | i18next (zh-CN / en-US) |
-| 文件上传 | FilePond |
-| Markdown | react-markdown + remark-gfm + rehype-katex |
+| Markdown | react-markdown + remark-gfm + rehype-raw |
 | 代码高亮 | highlight.js |
 | 动画 | framer-motion |
 | 测试 | Vitest + Testing Library |
@@ -79,10 +77,7 @@ src/
 │   ├── middleware/          # 自定义中间件
 │   ├── store.ts            # Store 配置
 │   └── providers.tsx       # Redux Provider
-├── types/conversation.ts   # TypeScript 类型定义
-└── electron/               # Electron 主进程
-    ├── main.js             # 窗口创建、IPC
-    └── preload.js          # Context Isolation API
+└── types/conversation.ts   # TypeScript 类型定义
 ```
 
 ## 核心数据类型
@@ -99,12 +94,6 @@ Conversation { id, title, messages[], model_id, createdAt, updatedAt }
 - Token 存储在 localStorage（`auth_token`、`auth_refresh_token`）
 - `fetchWithAuth` 自动注入 Bearer token，401 时自动 refresh
 
-## Electron 集成
-
-- 主进程：`src/electron/main.js`（窗口 1200x800，Context Isolation）
-- 开发模式加载 `http://localhost:3000`，生产模式用 `electron-serve`
-- 通过 `window.electron` 暴露 IPC API（platform、openExternal 等）
-
 ## Next.js 配置要点
 
 - API 请求通过 rewrites 代理到后端（`/api/*` → `NEXT_PUBLIC_API_BASE_URL`）
@@ -116,7 +105,6 @@ Conversation { id, title, messages[], model_id, createdAt, updatedAt }
 | 平台 | 说明 |
 |------|------|
 | Docker | Web 版本，`Dockerfile` / `docker-compose.yml` |
-| Electron | 桌面版本，`npm run build:electron` 打包 |
 
 环境变量：
 ```bash

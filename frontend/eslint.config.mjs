@@ -30,7 +30,6 @@ const eslintConfig = [
     files: [
       "next.config.js",
       "tailwind.config.js",
-      "src/electron/**/*.js",
       "src/scripts/**/*.js",
     ],
     rules: {

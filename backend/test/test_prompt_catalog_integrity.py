@@ -31,7 +31,7 @@ class PromptCatalogConsumerRegistryTests(unittest.TestCase):
                 prompt_catalog.register_prompt_consumer("app_identity")(lambda: "second")
 
     def test_catalog_count_is_derived_not_hardcoded(self):
-        from app.ai.prompts.defaults import DEFAULT_PROMPT_TEMPLATES
+        from app.ai.prompts.local_templates import CODE_DEFAULT_PROMPT_TEMPLATES as DEFAULT_PROMPT_TEMPLATES
         from app.core.prompt_catalog import PROMPT_SPECS
 
         self.assertEqual(len(DEFAULT_PROMPT_TEMPLATES), len(PROMPT_SPECS))

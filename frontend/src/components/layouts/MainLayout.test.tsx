@@ -20,10 +20,6 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 
-vi.mock('./Header', () => ({
-  default: ({ title }: { title?: string }) => <div>{title || 'Header'}</div>,
-}));
-
 vi.mock('../ui/error-toast', () => ({
   default: () => null,
 }));

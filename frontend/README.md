@@ -1,6 +1,6 @@
 # Fusion Frontend
 
-Fusion Frontend 是 Fusion 的 Next.js / Electron 客户端，负责把模型输出、Agent 执行、回答依据和历史状态组织成完整的任务体验。
+Fusion Frontend 是 Fusion 的 Next.js Web 客户端，负责把模型输出、Agent 执行、回答依据和历史状态组织成完整的任务体验。
 
 [返回项目首页](../README.md) · [聊天数据流](CHAT_UI_DATA_FLOW.md) · [前端架构](docs/ARCHITECTURE.md)
 
@@ -14,8 +14,8 @@ Fusion Frontend 是 Fusion 的 Next.js / Electron 客户端，负责把模型输
 - 独立轨迹视图，以及聊天与轨迹之间的双向定位
 - 会话历史、搜索、重命名、刷新恢复与上下文状态
 - AI 个性化、数据管理和知识库设置
-- 管理员模型、运行配置、MCP、用量与审计入口
-- 中文 / 英文、亮色 / 暗色主题，以及 Electron 桌面构建
+- 管理员模型、MCP、用量与审计入口
+- 中文 / 英文、亮色 / 暗色主题
 
 ## 主要技术
 
@@ -23,7 +23,7 @@ Fusion Frontend 是 Fusion 的 Next.js / Electron 客户端，负责把模型输
 - Redux Toolkit、Dexie
 - Tailwind CSS、Radix UI、shadcn/ui
 - Vitest、Testing Library、ESLint
-- Electron、Docker
+- Docker
 
 ## 本地开发
 
@@ -44,10 +44,6 @@ cp .env.example .env.local
 ### 3. 启动客户端
 
 ```bash
-# Web
-npm run dev:next
-
-# Next.js + Electron
 npm run dev
 ```
 
@@ -57,12 +53,10 @@ Web 默认地址为 `http://localhost:3000`。登录、模型和工具链路需�
 
 | 命令 | 作用 |
 | --- | --- |
-| `npm run dev:next` | 启动 Next.js 开发服务器 |
-| `npm run dev` | 启动 Next.js 与 Electron |
+| `npm run dev` | 启动 Next.js 开发服务器 |
 | `npm run lint` | 运行 ESLint，禁止 warning |
 | `npm test` | 运行 Vitest 测试 |
 | `npm run build` | 构建 Next.js 生产产物 |
-| `npm run build:electron` | 构建 Next.js 与 Electron 安装包 |
 | `npm run analyze` | 分析已有 bundle |
 
 ## 代码结构
@@ -71,7 +65,6 @@ Web 默认地址为 `http://localhost:3000`。登录、模型和工具链路需�
 src/
 ├── app/           # 页面、布局和路由
 ├── components/    # 聊天、轨迹、设置、管理与通用组件
-├── electron/      # Electron 主进程
 ├── hooks/         # 聊天、认证、知识库和轨迹行为
 ├── lib/           # API、SSE 协议、路由与工具函数
 ├── redux/         # 全局状态与聊天状态机

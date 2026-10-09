@@ -8,7 +8,7 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 from app.ai.prompts.agent_loop import get_app_identity_prompt, get_limit_summary_prompt
-from app.ai.prompts.defaults import DEFAULT_PROMPT_TEMPLATES
+from app.ai.prompts.local_templates import CODE_DEFAULT_PROMPT_TEMPLATES as DEFAULT_PROMPT_TEMPLATES
 from app.core import prompt_bundle
 from app.core.prompt_catalog import CATALOG_VERSION, PROMPT_SPECS
 

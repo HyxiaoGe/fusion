@@ -76,7 +76,6 @@ vi.mock('./ReasoningContent', () => ({
   ),
 }));
 vi.mock('./AssistantActivityStatus', () => ({ default: () => null }));
-vi.mock('./agent', () => ({ AgentRunTimeline: () => null }));
 vi.mock('./AnswerEvidence', () => ({ default: () => null }));
 vi.mock('./MarkdownRenderer', () => ({ default: () => null }));
 vi.mock('./StructuredToolResults', () => ({ default: () => null }));

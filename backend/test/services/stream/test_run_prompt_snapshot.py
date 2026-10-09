@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.ai.prompts.agent_loop import get_limit_summary_prompt
-from app.ai.prompts.defaults import DEFAULT_PROMPT_TEMPLATES
+from app.ai.prompts.local_templates import CODE_DEFAULT_PROMPT_TEMPLATES as DEFAULT_PROMPT_TEMPLATES
 from app.ai.prompts.section_ids import CONTINUATION_SYSTEM
 from app.core import prompt_bundle
 from app.services.stream.agent_loop_request_prep import build_agent_loop_call_config, prepare_agent_loop_messages

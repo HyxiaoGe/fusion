@@ -9,7 +9,6 @@ import themeReducer from '@/redux/slices/themeSlice';
 import { SettingsDialog } from './SettingsDialog';
 import { SettingsDialogFocusProvider } from './SettingsDialogFocusContext';
 import { UserAvatarMenu } from '@/components/layouts/UserAvatarMenu';
-import { UserMenu } from '@/components/layouts/UserMenu';
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('@/hooks/useHasMounted', () => ({ useHasMounted: () => true }));
@@ -35,7 +34,7 @@ beforeAll(() => {
 });
 
 describe('真实头像入口与设置弹窗的焦点交接', () => {
-  it('两个入口依次打开设置，关闭后分别返回本次入口', async () => {
+  it('头像入口打开设置，关闭后焦点返回入口', async () => {
     const user = userEvent.setup();
     const authState = authReducer(undefined, { type: '测试初始化' });
     // 只建立测试登录态，不访问认证接口或持久化用户数据。
@@ -48,11 +47,11 @@ describe('真实头像入口与设置弹窗的焦点交接', () => {
     });
     render(<Provider store={store}><SettingsDialogFocusProvider>
       <div data-testid="sidebar-entry"><UserAvatarMenu /></div>
-      <div data-testid="header-entry"><UserMenu /></div>
       <SettingsDialog />
     </SettingsDialogFocusProvider></Provider>);
 
-    for (const id of ['sidebar-entry', 'header-entry']) {
+    {
+      const id = 'sidebar-entry';
       const opener = within(screen.getByTestId(id)).getByRole('button');
       opener.focus();
       await user.keyboard('{Enter}');
