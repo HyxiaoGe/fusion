@@ -205,6 +205,7 @@ class AgentLoopCallConfigInputs:
     tool_bindings: list[Any]
     previous_run_id: str | None = None
     document_tools: Any | None = None
+    direct_tool_names: tuple[str, ...] = ()
 
 
 def prepare_agent_loop_call_config_inputs(
@@ -258,6 +259,7 @@ def prepare_agent_loop_call_config_inputs(
         tool_bindings=list(getattr(dynamic_tool_set, "audit_bindings", []) or []),
         previous_run_id=run_input.previous_run_id,
         document_tools=document_tools,
+        direct_tool_names=tuple(getattr(dynamic_tool_set, "direct_tool_names", ()) or ()),
     )
 
 
@@ -290,6 +292,11 @@ def build_agent_loop_call_config_from_inputs(
         **(
             {"document_tools": inputs.document_tools}
             if inputs.document_tools is not None and _accepts_keyword(build_call_config_fn, "document_tools")
+            else {}
+        ),
+        **(
+            {"direct_tool_names": inputs.direct_tool_names}
+            if inputs.direct_tool_names and _accepts_keyword(build_call_config_fn, "direct_tool_names")
             else {}
         ),
     )

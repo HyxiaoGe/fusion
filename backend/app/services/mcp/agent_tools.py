@@ -22,6 +22,7 @@ from app.schemas.chat import DataSourceBlock
 from app.services.mcp.amap_product_tools import (
     AMAP_PRODUCT_DEFINITIONS,
     AMAP_PRODUCT_REMOTE_DEPENDENCIES,
+    AMAP_PRODUCT_REQUIRED_QUOTA_GROUPS,
     AmapProductToolHandler,
     AmapRunCoordinateConversion,
     build_amap_product_binding,
@@ -54,6 +55,7 @@ from app.services.mcp.provider_profiles import (
     is_official_context7_endpoint,
     tool_is_allowed_for_endpoint,
 )
+from app.services.mcp.provider_quota import read_exhausted_quota_groups
 from app.services.mcp.runtime import get_mcp_client_manager
 from app.services.mcp.server_service import MCP_TOOL_UNAVAILABLE_MESSAGE, McpServerService
 from app.services.mcp.tool_contract import (
@@ -228,6 +230,8 @@ class McpAgentToolSet:
     definitions: list[dict[str, Any]]
     handlers: dict[str, BaseToolHandler]
     audit_bindings: list[dict[str, Any]]
+    # 必须直接公告、不走 tool_search 按需加载的通用 MCP 工具（高德产品工具缺席时的地图工具）。
+    direct_tool_names: tuple[str, ...] = ()
 
 
 class McpAgentToolConcurrencyLimiter:
@@ -914,6 +918,7 @@ def load_mcp_agent_tools(
     flyai_client: FlyAiTravelAdapterClient | None = None,
     store_generated_image: Callable[..., Any] | None = None,
     qweather_client: QWeatherClient | None = None,
+    quota_state_reader: Callable[[str, frozenset[str]], frozenset[str]] = read_exhausted_quota_groups,
 ) -> McpAgentToolSet:
     """从持久化发现快照构建一次 Agent run 专属的 MCP 工具集合。"""
 
@@ -970,6 +975,8 @@ def load_mcp_agent_tools(
             limits=resolved_limits,
         )
     official_amap_rows = [row for row in rows if is_official_amap_endpoint(str(row.endpoint_url))]
+    amap_products_hidden = False
+    map_tool_aliases: list[str] = []
 
     for row in rows:
         official_amap = is_official_amap_endpoint(str(row.endpoint_url))
@@ -1000,15 +1007,21 @@ def load_mcp_agent_tools(
             continue
         if official_amap:
             if len(official_amap_rows) == 1:
-                _append_amap_product_tools(
+                exhausted_quota_groups = quota_state_reader(
+                    str(row.id),
+                    frozenset().union(*AMAP_PRODUCT_REQUIRED_QUOTA_GROUPS.values()),
+                )
+                amap_products_hidden = _append_amap_product_tools(
                     row=row,
                     definitions=definitions,
                     handlers=handlers,
                     audit_bindings=audit_bindings,
                     remote_executor=remote_executor,
                     limits=resolved_limits,
+                    exhausted_quota_groups=exhausted_quota_groups,
                 )
             continue
+        data_source = endpoint_data_source(str(row.endpoint_url))
         for snapshot in _iter_authorized_snapshots(row):
             if len(definitions) >= resolved_limits.max_tools:
                 logger.warning("MCP 工具数量达到上限，服务 %s 的其余工具本次 run 不注册", row.id)
@@ -1023,6 +1036,8 @@ def load_mcp_agent_tools(
             definition_sha256 = agent_tool_definition_sha256(row, snapshot)
             binding = _build_binding(row, snapshot["name"], alias, definition_sha256)
             definitions.append(definition)
+            if data_source is not None and data_source[0] == "map":
+                map_tool_aliases.append(alias)
             handler_kwargs = {
                 "binding": binding,
                 "remote_executor": remote_executor,
@@ -1046,6 +1061,8 @@ def load_mcp_agent_tools(
         definitions=definitions,
         handlers=handlers,
         audit_bindings=audit_bindings,
+        # 高德产品工具因额度用尽缺席时，其他地图服务直接公告，模型不必先 tool_search 才找得到。
+        direct_tool_names=tuple(map_tool_aliases) if amap_products_hidden else (),
     )
 
 
@@ -1093,17 +1110,24 @@ def _append_amap_product_tools(
     audit_bindings: list[dict[str, Any]],
     remote_executor: McpAgentRemoteExecutor,
     limits: McpAgentToolLimits,
-) -> None:
+    exhausted_quota_groups: frozenset[str] = frozenset(),
+) -> bool:
+    """注册高德产品工具；返回是否有产品工具因当天额度用尽而未公告。"""
+
     snapshots = {snapshot["name"]: snapshot for snapshot in _iter_authorized_snapshots(row)}
     orchestration_lock = asyncio.Lock()
     coordinate_conversion = AmapRunCoordinateConversion()
+    hidden_for_quota = False
     for product_definition in AMAP_PRODUCT_DEFINITIONS:
         product_name = product_definition["function"]["name"]
         dependency_names = AMAP_PRODUCT_REMOTE_DEPENDENCIES[product_name]
         if not dependency_names.issubset(snapshots):
             continue
+        if AMAP_PRODUCT_REQUIRED_QUOTA_GROUPS[product_name] & exhausted_quota_groups:
+            hidden_for_quota = True
+            continue
         if len(definitions) >= limits.max_tools:
-            return
+            return hidden_for_quota
         definition = json.loads(json.dumps(product_definition, ensure_ascii=False))
         if len(canonical_json_bytes([*definitions, definition])) > limits.max_definition_bytes:
             continue
@@ -1125,6 +1149,7 @@ def _append_amap_product_tools(
             max_llm_context_bytes=limits.max_llm_context_bytes,
         )
         audit_bindings.append(binding.to_audit_dict())
+    return hidden_for_quota
 
 
 _QWEATHER_CLIENT_CACHE: dict[tuple[str, ...], QWeatherClient] = {}

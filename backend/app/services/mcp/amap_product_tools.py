@@ -34,6 +34,12 @@ from app.services.mcp.amap_coordinate_converter import (
     convert_wgs84_to_gcj02,
 )
 from app.services.mcp.client import McpClientError
+from app.services.mcp.provider_quota import (
+    AMAP_SEARCH_QUOTA_GROUP,
+    amap_quota_group,
+    is_daily_quota_exhausted,
+    mark_quota_exhausted,
+)
 from app.services.mcp.server_service import MCP_TOOL_UNAVAILABLE_MESSAGE
 from app.services.mcp.tool_contract import canonical_json_bytes
 from app.services.tool_handlers.base import BaseToolHandler, ToolResult
@@ -41,6 +47,11 @@ from app.services.tool_handlers.base import BaseToolHandler, ToolResult
 AMAP_LOCAL_PLACE_SEARCH = "local_place_search"
 AMAP_ROUTE_COMPARE = "route_compare"
 AMAP_PRODUCT_TOOL_NAMES = frozenset({AMAP_LOCAL_PLACE_SEARCH, AMAP_ROUTE_COMPARE})
+# 产品工具离不开的日额度组：任一组当天用尽就不再公告该产品工具（见 provider_quota）。
+AMAP_PRODUCT_REQUIRED_QUOTA_GROUPS = {
+    AMAP_LOCAL_PLACE_SEARCH: frozenset({AMAP_SEARCH_QUOTA_GROUP}),
+    AMAP_ROUTE_COMPARE: frozenset({"maps_geo"}),
+}
 AMAP_PRODUCT_REMOTE_DEPENDENCIES = {
     AMAP_LOCAL_PLACE_SEARCH: frozenset({"maps_geo", "maps_text_search", "maps_around_search", "maps_search_detail"}),
     AMAP_ROUTE_COMPARE: frozenset(
@@ -896,11 +907,16 @@ class AmapProductToolHandler(BaseToolHandler):
         stats: "_RemoteCallStats",
     ) -> dict[str, Any]:
         stats.record(remote_tool_name)
-        return await self.remote_executor.call(
-            remote_tool_name,
-            self.dependency_hashes[remote_tool_name],
-            arguments,
-        )
+        try:
+            return await self.remote_executor.call(
+                remote_tool_name,
+                self.dependency_hashes[remote_tool_name],
+                arguments,
+            )
+        except McpClientError as error:
+            if is_daily_quota_exhausted(error):
+                await mark_quota_exhausted(self.binding.server_id, amap_quota_group(remote_tool_name))
+            raise
 
     async def _convert_current_location(
         self,

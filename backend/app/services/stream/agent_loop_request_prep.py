@@ -228,6 +228,7 @@ def build_agent_loop_call_config(
     prompt_bundle_snapshot: PromptBundleSnapshot | None = None,
     previous_run_id: str | None = None,
     document_tools: DocumentToolSet | None = None,
+    direct_tool_names: tuple[str, ...] = (),
 ) -> AgentLoopCallConfig:
     prompt_bundle_snapshot = prompt_bundle_snapshot or freeze_runtime_prompt_bundle()
     options = options or {}
@@ -257,7 +258,13 @@ def build_agent_loop_call_config(
             tool for tool in (additional_tools or []) if _tool_definition_name(tool) in provided_handlers
         )
     available_tools_by_name = {name: tool for tool in available_tools if (name := _tool_definition_name(tool))}
-    mcp_tools = [tool for name, tool in available_tools_by_name.items() if is_authorized_mcp_tool_alias(name)]
+    # 加载器指定必须直接公告的工具（如高德额度用尽时的其他地图工具）不参与按需加载。
+    direct_names = set(direct_tool_names)
+    mcp_tools = [
+        tool
+        for name, tool in available_tools_by_name.items()
+        if is_authorized_mcp_tool_alias(name) and name not in direct_names
+    ]
     deferred_tool_names = (
         [_tool_definition_name(tool) for tool in mcp_tools]
         if task_policy.task_mode != "deep_research" and _defer_mcp_tools(mcp_tools)

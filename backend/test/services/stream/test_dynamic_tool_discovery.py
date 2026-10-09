@@ -41,7 +41,13 @@ def _names(tools: list[dict]) -> list[str]:
     return [tool["function"]["name"] for tool in tools]
 
 
-def _config(mcp_count: int, *, description: str = "", options: dict | None = None):
+def _config(
+    mcp_count: int,
+    *,
+    description: str = "",
+    options: dict | None = None,
+    direct_tool_names: tuple[str, ...] = (),
+):
     mcp_tools = [_tool(f"mcp_docs_tool_{index}", description) for index in range(mcp_count)]
     additional = [_tool("weather_forecast"), *mcp_tools]
     handlers = {_names([tool])[0]: object() for tool in additional}
@@ -53,6 +59,7 @@ def _config(mcp_count: int, *, description: str = "", options: dict | None = Non
         additional_tools=additional,
         dynamic_tool_handlers=handlers,
         tool_bindings=bindings,
+        direct_tool_names=direct_tool_names,
     )
 
 
@@ -77,6 +84,25 @@ def test_too_many_mcp_tools_are_deferred_behind_tool_search():
     assert TOOL_SEARCH_NAME in config.dynamic_tool_handlers
 
 
+def test_direct_tools_stay_announced_while_others_are_deferred():
+    # 高德产品工具因额度缺席时，地图工具直接公告，其余通用工具照常按需加载。
+    direct = ("mcp_docs_tool_0", "mcp_docs_tool_1")
+    config = _config(MAX_DIRECT_MCP_TOOLS + 3, direct_tool_names=direct)
+    tool_names = _names(config.call_kwargs["tools"])
+
+    assert set(direct) <= set(tool_names)
+    assert TOOL_SEARCH_NAME in tool_names
+    assert not set(direct) & set(config.capability_resolution.deferred_tool_names)
+    assert len(config.capability_resolution.deferred_tool_names) == MAX_DIRECT_MCP_TOOLS + 1
+
+
+def test_direct_tools_do_not_count_toward_deferral_threshold():
+    config = _config(MAX_DIRECT_MCP_TOOLS + 2, direct_tool_names=("mcp_docs_tool_0", "mcp_docs_tool_1"))
+
+    assert config.tool_discovery is None
+    assert config.capability_resolution.deferred_tool_names == ()
+
+
 def test_large_mcp_schemas_are_deferred_even_when_few():
     config = _config(2, description="x" * (MAX_DIRECT_MCP_SCHEMA_CHARS // 2 + 1))
 
@@ -88,6 +114,7 @@ def test_deep_research_never_defers_and_never_announces_mcp():
     config = _config(
         MAX_DIRECT_MCP_TOOLS + 1,
         options={"task_mode": "deep_research", "use_web_search": True},
+        direct_tool_names=("mcp_docs_tool_0",),
     )
 
     assert config.tool_discovery is None

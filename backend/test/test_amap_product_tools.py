@@ -3,7 +3,7 @@ import json
 import unittest
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.services.agent.context_broker import Geolocation
@@ -1695,6 +1695,44 @@ class AmapRouteCompareTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.data["error_code"], "tool_error")
         self.assertEqual([call[0] for call in executor.calls], ["maps_search_detail"])
         self.assertIn(render_runtime_prompt("amap.place_route_unavailable"), handler.format_llm_context(result))
+
+    async def test_daily_quota_error_marks_quota_group_exhausted(self):
+        quota_error = McpClientError(
+            "tool_error",
+            "远端工具失败",
+            safe_details={"upstream_message": '{"info":"USER_DAILY_QUERY_OVER_LIMIT","infocode":"10044"}'},
+        )
+        cases = (
+            ("maps_search_detail", quota_error, [("server-1", "search")]),
+            ("maps_search_detail", McpClientError("tool_error", "boom"), []),
+            (
+                "maps_search_detail",
+                McpClientError("network_error", "x", safe_details={"upstream_message": "USER_DAILY_QUERY_OVER_LIMIT"}),
+                [],
+            ),
+        )
+        for remote_tool, error, expected in cases:
+            with self.subTest(error=error.code, details=error.safe_details):
+                handler, _executor = build_handler("route_compare", {remote_tool: [error]})
+                marks = []
+
+                async def record(server_id, group, **_kwargs):
+                    marks.append((server_id, group))
+
+                with patch("app.services.mcp.amap_product_tools.mark_quota_exhausted", record):
+                    result = await handler.execute(
+                        route_compare_args(
+                            {
+                                "origin": "外滩",
+                                "origin_place_id": "B00155FMEM",
+                                "destination": "人民广场",
+                                "modes": ["driving"],
+                            }
+                        )
+                    )
+
+                self.assertEqual(result.status, "failed")
+                self.assertEqual(marks, [(handler.binding.server_id, group) for _, group in expected])
 
     async def test_route_place_id_arguments_are_validated(self):
         for extra in (
