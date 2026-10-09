@@ -14,7 +14,7 @@ class DeployAuthConfigTests(unittest.TestCase):
         self.app_config = (root / "app" / "core" / "config.py").read_text(encoding="utf-8")
         self.env_example = (root / ".env.example").read_text(encoding="utf-8")
         self.workflow = read_expanded_workflow(monorepo_root / ".github" / "workflows" / "_deploy-api.yml")
-        self.ci_build_script = (root / ".github" / "scripts" / "windows-build-and-test.ps1").read_text(encoding="utf-8")
+        self.ci_build_script = (root / ".github" / "scripts" / "linux-build-and-test.sh").read_text(encoding="utf-8")
         self.compose = (root / "docker-compose.yml").read_text(encoding="utf-8")
         self.ci_requirements = (root / "requirements-ci.txt").read_text(encoding="utf-8")
 

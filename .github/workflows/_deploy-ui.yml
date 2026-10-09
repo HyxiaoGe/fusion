@@ -143,7 +143,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Test and build Docker image
+      - name: Build Docker image
         uses: ./frontend/.github/actions/windows-docker-build
         with:
           image-name: ${{ env.IMAGE_NAME }}

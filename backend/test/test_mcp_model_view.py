@@ -87,6 +87,7 @@ class McpModelViewTests(unittest.TestCase):
                     "name": "local_place_search",
                     "label": "高德地点搜索",
                     "description": amap["hidden_tools"][0]["description"],
+                    "source_tools": sorted(AMAP_PRODUCT_REMOTE_DEPENDENCIES["local_place_search"]),
                     "reason": "quota_exhausted",
                     "resets_in_seconds": 3600,
                 }

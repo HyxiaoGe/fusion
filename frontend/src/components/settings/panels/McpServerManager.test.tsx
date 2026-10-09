@@ -134,7 +134,7 @@ describe('McpServerManager', () => {
       servers: {
         'mcp-1': {
           tools: [{ name: 'route_compare', label: '高德路线比较', kind: 'product', mode: 'direct', source_tools: ['maps_text_search'], description: '比较两地之间的耗时和距离' }],
-          hidden_tools: [{ name: 'local_place_search', label: '高德地点搜索', description: '按关键词搜索地点', reason: 'quota_exhausted', resets_in_seconds: 600 }],
+          hidden_tools: [{ name: 'local_place_search', label: '高德地点搜索', description: '按关键词搜索地点', source_tools: ['maps_around_search'], reason: 'quota_exhausted', resets_in_seconds: 600 }],
         },
       },
     });
@@ -148,9 +148,9 @@ describe('McpServerManager', () => {
     expect(within(dialog).getByText('暂不提供')).toBeInTheDocument();
     expect(within(dialog).getByText('今日额度已用完，约 10 分钟后恢复')).toBeInTheDocument();
     expect(within(dialog).getByText('关键词搜索')).toBeInTheDocument();
-    expect(within(dialog).getByText('供产品工具调用')).toBeInTheDocument();
+    expect(within(dialog).getAllByText('供产品工具调用')).toHaveLength(2);
     expect(within(dialog).getByText('周边搜索')).toBeInTheDocument();
-    expect(within(dialog).getByText('未授权')).toBeInTheDocument();
+    expect(within(dialog).queryByText('未授权')).not.toBeInTheDocument();
   });
 
   it('模型可用工具取不到时服务列表照常显示', async () => {

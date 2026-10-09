@@ -48,6 +48,7 @@ export interface McpHiddenModelTool {
   name: string;
   label: string;
   description?: string;
+  source_tools?: string[];
   reason: 'quota_exhausted';
   resets_in_seconds: number;
 }

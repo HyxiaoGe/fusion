@@ -110,6 +110,7 @@ def build_mcp_model_view(
                         "name": product,
                         "label": _PRODUCT_LABELS.get(product, product),
                         "description": _PRODUCT_DESCRIPTIONS.get(product, ""),
+                        "source_tools": sorted(AMAP_PRODUCT_REMOTE_DEPENDENCIES.get(product, ())),
                         "reason": "quota_exhausted",
                         "resets_in_seconds": max(quota[group] for group in exhausted),
                     }

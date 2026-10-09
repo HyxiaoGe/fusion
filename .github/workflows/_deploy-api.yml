@@ -112,11 +112,11 @@ jobs:
             Write-Host "The runner cannot access Docker Engine."
             exit $LASTEXITCODE
           }
-      - name: Test and build Docker image
+      - name: Build Docker images
         timeout-minutes: 15
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
-          & "backend/.github/scripts/windows-build-and-test.ps1" `
+          & "backend/.github/scripts/windows-build.ps1" `
             -ImageName "${env:IMAGE_NAME}" `
             -AdapterImageName "${env:FLYAI_ADAPTER_IMAGE_NAME}" `
             -ImageTag "${env:DEPLOY_SHA}"

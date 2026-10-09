@@ -19,7 +19,7 @@ RELEASE_SAFETY_MANIFEST = ROOT / "release-safety.yml"
 RELEASE_SAFETY_CONTRACT = MONOREPO_ROOT / ".github" / "scripts" / "release-safety-contract.sh"
 DRIFT_AUDIT_WORKFLOW = MONOREPO_ROOT / ".github" / "workflows" / "baseline-drift-audit.yml"
 CLEANUP_SCRIPT = ROOT / ".github" / "scripts" / "windows-cleanup.ps1"
-BUILD_SCRIPT = ROOT / ".github" / "scripts" / "windows-build-and-test.ps1"
+BUILD_SCRIPT = ROOT / ".github" / "scripts" / "windows-build.ps1"
 LINUX_BUILD_SCRIPT = ROOT / ".github" / "scripts" / "linux-build-and-test.sh"
 COMPONENT_README = ROOT / "README.md"
 RELEASE_SAFETY_DOC = ROOT / "docs" / "RELEASE_SAFETY.md"
@@ -706,7 +706,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
             normalized_condition(publish_job["if"]),
             "github.ref == 'refs/heads/master' && needs.prepare.outputs.rollback_requested != 'true'",
         )
-        for step_name in ("Test and build Docker image", "Login to ACR", "Push Docker image"):
+        for step_name in ("Build Docker images", "Login to ACR", "Push Docker image"):
             self.assertNotIn("if", workflow_step(publish_job, step_name))
 
         deploy_job = jobs["deploy-dev"]

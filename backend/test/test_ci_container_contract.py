@@ -54,7 +54,7 @@ class CIContainerContractTest(unittest.TestCase):
 
     def test_ci_scripts_collect_the_whole_test_directory(self) -> None:
         # unittest discover 只收 TestCase，手写 pytest 白名单会漏掉新增的顶层测试函数（#143）。
-        for script in ("linux-build-and-test.sh", "windows-build-and-test.ps1"):
+        for script in ("linux-build-and-test.sh",):
             content = (ROOT / ".github/scripts" / script).read_text(encoding="utf-8")
             with self.subTest(script=script):
                 self.assertIn('python -u -m pytest -v -p no:cacheprovider test"', content)
@@ -114,63 +114,40 @@ class CIContainerContractTest(unittest.TestCase):
         self.assertIn("pip install --retries 5 --timeout 60 -r requirements.txt", pip_install)
         self.assertIn('if [ "$attempt" -eq 5 ]', pip_install)
 
-    def test_pr_and_release_workflows_run_equivalent_container_tests(self) -> None:
+    def test_release_only_builds_images_and_ci_runs_container_tests(self) -> None:
+        # 部署不重跑测试：同一提交的检查由 Fusion CI 在 PR 与 push master 时执行。
         release_workflow = (MONOREPO_ROOT / ".github/workflows/_deploy-api.yml").read_text(encoding="utf-8")
         pr_workflow = (MONOREPO_ROOT / ".github/workflows/pr-ci.yml").read_text(encoding="utf-8")
-        windows_build_script = (ROOT / ".github/scripts/windows-build-and-test.ps1").read_text(encoding="utf-8")
+        windows_build_script = (ROOT / ".github/scripts/windows-build.ps1").read_text(encoding="utf-8")
         linux_build_script = (ROOT / ".github/scripts/linux-build-and-test.sh").read_text(encoding="utf-8")
 
-        self.assertIn("backend/.github/scripts/windows-build-and-test.ps1", release_workflow)
+        self.assertIn("backend/.github/scripts/windows-build.ps1", release_workflow)
         self.assertIn("backend/.github/scripts/linux-build-and-test.sh", pr_workflow)
-        for build_script in (windows_build_script, linux_build_script):
-            self.assertIn("docker build --target production", build_script)
-            self.assertIn(
-                "pip install --default-timeout=30 --no-cache-dir -r requirements-ci.txt",
-                build_script,
-            )
-            self.assertIn("python scripts/check_architecture.py", build_script)
-            self.assertIn("ruff check .", build_script)
-            self.assertIn("python -u -m pytest -v -p no:cacheprovider test", build_script)
-
+        self.assertIn("push:\n    branches: [master]", pr_workflow)
+        self.assertIn("docker build --target production", windows_build_script)
+        self.assertNotIn("pytest", windows_build_script)
+        self.assertIn("docker build --target production", linux_build_script)
+        self.assertIn(
+            "pip install --default-timeout=30 --no-cache-dir -r requirements-ci.txt",
+            linux_build_script,
+        )
+        self.assertIn("python scripts/check_architecture.py", linux_build_script)
+        self.assertIn("ruff check .", linux_build_script)
+        self.assertIn("python -u -m pytest -v -p no:cacheprovider test", linux_build_script)
         self.assertIn(
             '--mount "type=bind,source=${app_root}/README.md,target=/app/README.md,readonly"',
             linux_build_script,
         )
-        self.assertIn(
-            '--mount "type=bind,source=$appRoot\\README.md,target=/app/README.md,readonly"',
-            windows_build_script,
-        )
-        self.assertIn(
-            '--mount "type=bind,source=$monorepoRoot\\.github,target=/.github,readonly"',
-            windows_build_script,
-        )
-        self.assertIn(
-            '--mount "type=bind,source=$monorepoRoot\\ops,target=/ops,readonly"',
-            windows_build_script,
-        )
 
     def test_windows_release_build_disables_registry_incompatible_attestations(self) -> None:
-        windows_build_script = (ROOT / ".github/scripts/windows-build-and-test.ps1").read_text(encoding="utf-8")
+        windows_build_script = (ROOT / ".github/scripts/windows-build.ps1").read_text(encoding="utf-8")
         build_commands = [
             line.strip() for line in windows_build_script.splitlines() if line.strip().startswith("docker build ")
         ]
 
-        self.assertEqual(3, len(build_commands))
+        self.assertEqual(2, len(build_commands))
         for command in build_commands:
             self.assertIn("--provenance=false", command)
-
-    def test_windows_release_normalizes_bash_contract_before_running_tests(self) -> None:
-        windows_build_script = (ROOT / ".github/scripts/windows-build-and-test.ps1").read_text(encoding="utf-8")
-
-        self.assertIn("linux-build-and-test.sh", windows_build_script)
-        self.assertIn('.Replace("`r`n", "`n").Replace("`r", "`n")', windows_build_script)
-        self.assertIn("[System.Text.UTF8Encoding]::new($false)", windows_build_script)
-        self.assertIn(
-            "target=/app/.github/scripts/linux-build-and-test.sh,readonly",
-            windows_build_script,
-        )
-        self.assertIn("finally", windows_build_script)
-        self.assertIn("Remove-Item -LiteralPath $normalizedLinuxScript", windows_build_script)
 
 
 if __name__ == "__main__":
