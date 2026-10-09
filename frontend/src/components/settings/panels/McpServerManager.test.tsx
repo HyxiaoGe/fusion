@@ -119,7 +119,7 @@ describe('McpServerManager', () => {
     expect(within(amap).getByText('组合 maps_geo、maps_direction_driving')).toBeInTheDocument();
     expect(within(amap).getByText('高德地点搜索')).toBeInTheDocument();
     expect(within(amap).getByText('暂不提供')).toBeInTheDocument();
-    expect(within(amap).getByText('今日搜索类（关键字/周边/详情）额度已用完，约 2 小时后恢复')).toBeInTheDocument();
+    expect(within(amap).getByText('本月搜索类（关键字/周边/详情）额度已用完，约 2 小时后恢复')).toBeInTheDocument();
     const tencentCard = screen.getByTestId('mcp-server-mcp-2');
     const tencentModelTools = within(tencentCard).getByRole('region', { name: '腾讯地图提供给模型的工具' });
     expect(within(tencentModelTools).getByText('placeSuggestion')).toBeInTheDocument();
@@ -146,7 +146,7 @@ describe('McpServerManager', () => {
     expect(within(dialog).getByText('比较两地之间的耗时和距离')).toBeInTheDocument();
     expect(within(dialog).getByText('调用远端工具：maps_text_search')).toBeInTheDocument();
     expect(within(dialog).getByText('暂不提供')).toBeInTheDocument();
-    expect(within(dialog).getByText('今日额度已用完，约 10 分钟后恢复')).toBeInTheDocument();
+    expect(within(dialog).getByText('本月额度已用完，约 10 分钟后恢复')).toBeInTheDocument();
     expect(within(dialog).getByText('关键词搜索')).toBeInTheDocument();
     expect(within(dialog).getAllByText('供产品工具调用')).toHaveLength(2);
     expect(within(dialog).getByText('周边搜索')).toBeInTheDocument();

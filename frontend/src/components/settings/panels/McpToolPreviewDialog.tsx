@@ -24,7 +24,9 @@ const statusPresentation: Record<PreviewStatus, { label: string; tone: SettingsS
   unauthorized: { label: "未授权", tone: "neutral" },
 };
 
-function formatResetIn(seconds: number): string {
+// 高德个人配额按月计，恢复时间可能是几分钟到几十天。
+export function formatResetIn(seconds: number): string {
+  if (seconds >= 86400) return `约 ${Math.round(seconds / 86400)} 天后恢复`;
   if (seconds >= 3600) return `约 ${Math.round(seconds / 3600)} 小时后恢复`;
   return `约 ${Math.max(1, Math.round(seconds / 60))} 分钟后恢复`;
 }
@@ -66,7 +68,7 @@ export function buildToolPreview(server: McpServer, view: McpServerModelView | u
       subtitle: tool.name,
       description: tool.description ?? "",
       status: "hidden",
-      note: `今日额度已用完，${formatResetIn(tool.resets_in_seconds)}`,
+      note: `本月额度已用完，${formatResetIn(tool.resets_in_seconds)}`,
     });
   }
   const allowed = new Set(server.allowed_tools);

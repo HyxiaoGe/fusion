@@ -1112,7 +1112,7 @@ def _append_amap_product_tools(
     limits: McpAgentToolLimits,
     exhausted_quota_groups: frozenset[str] = frozenset(),
 ) -> bool:
-    """注册高德产品工具；返回是否有产品工具因当天额度用尽而未公告。"""
+    """注册高德产品工具；返回是否有产品工具因额度用尽而未公告。"""
 
     snapshots = {snapshot["name"]: snapshot for snapshot in _iter_authorized_snapshots(row)}
     orchestration_lock = asyncio.Lock()
