@@ -14,13 +14,13 @@ import { UserMenu } from '@/components/layouts/UserMenu';
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('@/hooks/useHasMounted', () => ({ useHasMounted: () => true }));
 vi.mock('@/components/auth/LoginDialog', () => ({ LoginDialog: () => null }));
-vi.mock('@/app/settings/SystemPrompt', () => ({ default: () => <div>个性化设置</div> }));
-vi.mock('@/app/settings/DataManagement', () => ({ default: () => null }));
+vi.mock('@/components/settings/panels/SystemPrompt', () => ({ default: () => <div>个性化设置</div> }));
+vi.mock('@/components/settings/panels/DataManagement', () => ({ default: () => null }));
 vi.mock('@/components/settings/KnowledgeBaseManager', () => ({ default: () => null }));
-vi.mock('@/app/settings/McpServerManager', () => ({ default: () => null }));
-vi.mock('@/app/settings/ModelManagementPanel', () => ({ default: () => null }));
-vi.mock('@/app/settings/RuntimeConfigManager', () => ({ default: () => null }));
-vi.mock('@/app/settings/ServiceUsagePanel', () => ({ default: () => null }));
+vi.mock('@/components/settings/panels/McpServerManager', () => ({ default: () => null }));
+vi.mock('@/components/settings/panels/ModelManagementPanel', () => ({ default: () => null }));
+vi.mock('@/components/settings/panels/RuntimeConfigManager', () => ({ default: () => null }));
+vi.mock('@/components/settings/panels/ServiceUsagePanel', () => ({ default: () => null }));
 vi.mock('react-i18next', async () => {
   const { default: messages } = await import('@/lib/i18n/locales/zh-CN.json');
   return { useTranslation: () => ({ t: (key: string) => key.split('.').reduce<unknown>((value, part) =>

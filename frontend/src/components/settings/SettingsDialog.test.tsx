@@ -21,11 +21,11 @@ vi.mock('react-i18next', async () => {
     value && typeof value === 'object' ? (value as Record<string, unknown>)[part] : undefined, messages) ?? key }) };
 });
 
-vi.mock('@/app/settings/SystemPrompt', () => ({
+vi.mock('@/components/settings/panels/SystemPrompt', () => ({
   default: () => <div>系统提示词设置</div>,
 }));
 
-vi.mock('@/app/settings/DataManagement', () => ({
+vi.mock('@/components/settings/panels/DataManagement', () => ({
   default: () => <div>数据管理内容</div>,
 }));
 
@@ -33,19 +33,19 @@ vi.mock('@/components/settings/KnowledgeBaseManager', () => ({
   default: () => <div>知识库管理内容</div>,
 }));
 
-vi.mock('@/app/settings/ServiceUsagePanel', () => ({
+vi.mock('@/components/settings/panels/ServiceUsagePanel', () => ({
   default: () => <div>服务用量统一面板</div>,
 }));
 
-vi.mock('@/app/settings/RuntimeConfigManager', () => ({
+vi.mock('@/components/settings/panels/RuntimeConfigManager', () => ({
   default: () => <div>运行时配置管理面板</div>,
 }));
 
-vi.mock('@/app/settings/McpServerManager', () => ({
+vi.mock('@/components/settings/panels/McpServerManager', () => ({
   default: () => <div>MCP 服务管理面板</div>,
 }));
 
-vi.mock('@/app/settings/ModelManagementPanel', () => ({
+vi.mock('@/components/settings/panels/ModelManagementPanel', () => ({
   default: () => <div>模型管理面板</div>,
 }));
 

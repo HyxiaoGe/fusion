@@ -158,7 +158,7 @@ SSE 客户端在：
 
 模型设置和模型列表已经回到后端真源：
 
-- [`src/app/settings/ModelManagementPanel.tsx`](src/app/settings/ModelManagementPanel.tsx)
+- [`src/components/settings/panels/ModelManagementPanel.tsx`](src/components/settings/panels/ModelManagementPanel.tsx)
 - [`src/redux/slices/modelsSlice.ts`](src/redux/slices/modelsSlice.ts)
 - [`src/lib/config/modelConfig.ts`](src/lib/config/modelConfig.ts)
 
@@ -194,7 +194,7 @@ SSE 客户端在：
 5. [`src/hooks/useConversation.ts`](src/hooks/useConversation.ts)
 6. [`src/hooks/useSendMessage.ts`](src/hooks/useSendMessage.ts)
 7. [`src/lib/api/chat.ts`](src/lib/api/chat.ts)
-8. [`src/app/settings/ModelManagementPanel.tsx`](src/app/settings/ModelManagementPanel.tsx)
+8. [`src/components/settings/panels/ModelManagementPanel.tsx`](src/components/settings/panels/ModelManagementPanel.tsx)
 9. [`src/app/auth/callback/page.tsx`](src/app/auth/callback/page.tsx)
 
 读完这几处，应该能讲清当前前端聊天主产品的数据流。

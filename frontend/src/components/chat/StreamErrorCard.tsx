@@ -1,8 +1,10 @@
 "use client";
 
 import { AlertTriangle } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { useSettingsDialogOpener } from "@/components/settings/SettingsDialogFocusContext";
+import { useAppDispatch } from "@/redux/hooks";
+import { openSettingsDialog } from "@/redux/slices/settingsSlice";
 
 interface Props {
   message: string;
@@ -14,11 +16,12 @@ interface Props {
 /**
  * 流式调用错误卡片：附在消息底部。
  *
- * 当 code === "PROVIDER_OFFLINE" 时额外显示「去管理 Key」CTA，跳转到设置页的
- * 「模型与 Key」tab，便于用户排查（key 失效 / 余额耗尽 / ToS 违规等）。
+ * 当 code === "PROVIDER_OFFLINE" 时额外显示「去管理 Key」CTA，打开设置窗口，
+ * 便于用户排查（key 失效 / 余额耗尽 / ToS 违规等）。
  */
 export default function StreamErrorCard({ message, code, data, onDismiss }: Props) {
-  const router = useRouter();
+  const dispatch = useAppDispatch();
+  const { captureOpener } = useSettingsDialogOpener();
   const isProviderOffline = code === "PROVIDER_OFFLINE";
   const providerId = typeof data?.provider_id === "string" ? data.provider_id : null;
   const reason = typeof data?.reason === "string" ? data.reason : null;
@@ -37,7 +40,10 @@ export default function StreamErrorCard({ message, code, data, onDismiss }: Prop
           )}
           <div className="flex gap-2 mt-2">
             {isProviderOffline && (
-              <Button size="sm" variant="outline" onClick={() => router.push("/settings")}>
+              <Button size="sm" variant="outline" onClick={(event) => {
+                  captureOpener(event.currentTarget);
+                  dispatch(openSettingsDialog({}));
+                }}>
                 去管理 Key
               </Button>
             )}
