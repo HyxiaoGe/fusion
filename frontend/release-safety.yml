@@ -40,12 +40,15 @@ needs:
 conditions:
   prepare: null
   publish: >-
-    github.ref == 'refs/heads/master' && inputs.rollback_sha == ''
+    github.ref == 'refs/heads/master' && inputs.rollback_sha == '' &&
+    inputs.stage != 'deploy'
   deploy: >-
     always() && github.ref == 'refs/heads/master' &&
     needs.validate-parameters.result == 'success' &&
+    inputs.stage != 'publish' &&
     (needs.publish.result == 'success' ||
-    (needs.publish.result == 'skipped' && inputs.rollback_sha != ''))
+    (needs.publish.result == 'skipped' &&
+    (inputs.rollback_sha != '' || inputs.stage == 'deploy')))
   migration: null
   rollback: >-
     failure() && steps.capture_previous.outcome == 'success' &&

@@ -39,6 +39,10 @@ on:
         description: 手动回滚原因；设置 rollback_sha 时必填
         required: false
         type: string
+      stage:
+        description: all=构建并部署；UI 可拆为 publish（只构建推送镜像）与 deploy（只部署已推送镜像）两次调用
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -81,7 +85,8 @@ jobs:
     name: Publish master image on Windows runner
     if: >-
       github.ref == 'refs/heads/master' &&
-      inputs.rollback_sha == ''
+      inputs.rollback_sha == '' &&
+      inputs.stage != 'deploy'
     needs: validate-parameters
     runs-on: [self-hosted, Windows, X64, fusion-ui]
     timeout-minutes: 30
@@ -240,9 +245,10 @@ jobs:
       always() &&
       github.ref == 'refs/heads/master' &&
       needs.validate-parameters.result == 'success' &&
+      inputs.stage != 'publish' &&
       (needs.publish.result == 'success' ||
       (needs.publish.result == 'skipped' &&
-      inputs.rollback_sha != ''))
+      (inputs.rollback_sha != '' || inputs.stage == 'deploy')))
     needs: [validate-parameters, publish]
     runs-on: [self-hosted, Linux, X64, fusion-ui]
     timeout-minutes: 25

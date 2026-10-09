@@ -116,15 +116,36 @@ jobs:
       deploy_sha: ${{ github.sha }}
       rollback_sha: ${{ inputs.api_rollback_sha || '' }}
       rollback_reason: ${{ inputs.api_rollback_sha != '' && inputs.rollback_reason || '' }}
+      stage: all
+    secrets: inherit
+
+  # UI 镜像构建不等 API：两台 Windows runner 上与 API 构建并行；上线仍在 API 部署成功之后。
+  publish-ui:
+    name: Publish UI
+    needs: changes
+    if: needs.changes.outputs.ui == 'true'
+    uses: ./.github/workflows/_deploy-app.yml
+    with:
+      app: ui
+      image_repository: seanfield/fusion-ui
+      health_check_endpoint: http://127.0.0.1:3000/
+      migration_enabled: false
+      dependency_services: api
+      rollback_anchor_policy: ui-image-identity
+      deploy_sha: ${{ github.sha }}
+      rollback_sha: ${{ inputs.ui_rollback_sha || '' }}
+      rollback_reason: ${{ inputs.ui_rollback_sha != '' && inputs.rollback_reason || '' }}
+      stage: publish
     secrets: inherit
 
   deploy-ui:
     name: Deploy UI
-    needs: [changes, deploy-api]
+    needs: [changes, deploy-api, publish-ui]
     if: >-
       always() &&
       needs.changes.result == 'success' &&
       needs.changes.outputs.ui == 'true' &&
+      needs.publish-ui.result == 'success' &&
       (needs.changes.outputs.api != 'true' || needs.deploy-api.result == 'success')
     uses: ./.github/workflows/_deploy-app.yml
     with:
@@ -137,6 +158,7 @@ jobs:
       deploy_sha: ${{ github.sha }}
       rollback_sha: ${{ inputs.ui_rollback_sha || '' }}
       rollback_reason: ${{ inputs.ui_rollback_sha != '' && inputs.rollback_reason || '' }}
+      stage: deploy
     secrets: inherit
 
   # 回放评测门禁：端到端真实调用模型，按轨迹判分，结果入库（scripts/run_eval_suite.py）。

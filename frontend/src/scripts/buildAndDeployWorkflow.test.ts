@@ -82,10 +82,11 @@ const releaseWorkflowDocument = parse(releaseWorkflow) as WorkflowDocument;
 const pullRequestWorkflowDocument = parse(pullRequestWorkflow) as WorkflowDocument;
 const releaseSafetyDocument = parse(releaseSafetyManifest);
 
+// stage=publish 只构建推送镜像，stage=deploy 只部署已推送镜像（与 API 构建并行，见 deploy-dev.yml）。
 const expectedPublishCondition =
-  "github.ref == 'refs/heads/master' && inputs.rollback_sha == ''";
+  "github.ref == 'refs/heads/master' && inputs.rollback_sha == '' && inputs.stage != 'deploy'";
 const expectedDeployCondition =
-  "always() && github.ref == 'refs/heads/master' && needs.validate-parameters.result == 'success' && (needs.publish.result == 'success' || (needs.publish.result == 'skipped' && inputs.rollback_sha != ''))";
+  "always() && github.ref == 'refs/heads/master' && needs.validate-parameters.result == 'success' && inputs.stage != 'publish' && (needs.publish.result == 'success' || (needs.publish.result == 'skipped' && (inputs.rollback_sha != '' || inputs.stage == 'deploy')))";
 const expectedRollbackCondition =
   "${{ failure() && steps.capture_previous.outcome == 'success' && steps.deploy_candidate.outcome != 'skipped' }}";
 
