@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -40,12 +40,5 @@ describe('Trajectory P3 旧过程迁移闸门', () => {
 
     const responseStack = source('src/components/chat/AssistantResponseStack.tsx');
     expect(responseStack).not.toMatch(/onRetry|onContinueAgentRun|searchQueries/);
-  });
-
-  it('公共 agent 入口不再导出旧过程，旧实现仍保留到 dev 真实 run 回归后的 cleanup PR', () => {
-    expect(source('src/components/chat/agent/index.ts')).not.toContain('AgentRunTimeline');
-    expect(existsSync(resolve(root, 'src/components/chat/agent/AgentRunTimeline.tsx'))).toBe(true);
-    expect(existsSync(resolve(root, 'src/components/chat/agent/ExecutionProcess.tsx'))).toBe(true);
-    expect(existsSync(resolve(root, 'src/components/chat/agent/executionProcessModel.ts'))).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Message, SearchSourceSummary } from '@/types/conversation';
 import type { AnswerEvidenceSidebarModel } from './answerEvidenceSidebarModel';
@@ -9,14 +9,12 @@ const {
   assistantResponseStackMock,
   messageActionsMock,
   deriveStaticAssistantMessageViewModelMock,
-  getMessageNetworkDiagnosticsMock,
   useAssistantMessageViewModelMock,
 } = vi.hoisted(() => ({
   dispatchMock: vi.fn(),
   assistantResponseStackMock: vi.fn(),
   messageActionsMock: vi.fn(),
   deriveStaticAssistantMessageViewModelMock: vi.fn(),
-  getMessageNetworkDiagnosticsMock: vi.fn(),
   useAssistantMessageViewModelMock: vi.fn(),
 }));
 
@@ -140,10 +138,6 @@ vi.mock('./useAssistantMessageViewModel', () => ({
   useAssistantMessageViewModel: useAssistantMessageViewModelMock,
 }));
 
-vi.mock('@/lib/api/chatDiagnostics', () => ({
-  getMessageNetworkDiagnostics: getMessageNetworkDiagnosticsMock,
-}));
-
 import AssistantMessage from './AssistantMessage';
 
 const sources: SearchSourceSummary[] = [
@@ -215,35 +209,6 @@ describe('AssistantMessage', () => {
     messageActionsMock.mockReset();
     deriveStaticAssistantMessageViewModelMock.mockReset();
     deriveStaticAssistantMessageViewModelMock.mockReturnValue(defaultViewModel());
-    getMessageNetworkDiagnosticsMock.mockReset();
-    getMessageNetworkDiagnosticsMock.mockResolvedValue({
-      conversation_id: 'chat-1',
-      message_id: 'assistant-1',
-      run_id: 'run-1',
-      visibility: 'user',
-      is_empty: false,
-      summary: {
-        total_duration_ms: 1200,
-        total_steps: 1,
-        total_tool_calls: 1,
-        search_calls: 1,
-        url_read_calls: 0,
-        success_count: 1,
-        failed_count: 0,
-        degraded_count: 0,
-        interrupted_count: 0,
-      },
-      tools: [
-        {
-          tool_call_log_id: 'log-1',
-          tool_name: 'web_search',
-          status: 'success',
-          duration_ms: 1200,
-          target: 'redis',
-          result_count: 5,
-        },
-      ],
-    });
     useAssistantMessageViewModelMock.mockReset();
     useAssistantMessageViewModelMock.mockReturnValue(defaultViewModel());
   });
@@ -541,43 +506,6 @@ describe('AssistantMessage', () => {
 
     expect(screen.getByTestId('answer-evidence-sidebar')).toBeInTheDocument();
     expect(screen.getByText('读取来源')).toBeInTheDocument();
-  });
-
-  it('打开回答依据侧栏时不再请求联网诊断', async () => {
-    deriveStaticAssistantMessageViewModelMock.mockReturnValue(defaultViewModel({
-      answerEvidence: {
-        items: [
-          {
-            id: 'search-0',
-            kind: 'search_source',
-            title: '来源一',
-            url: 'https://example.com/source-1',
-            domain: 'example.com',
-            sourceIndex: 0,
-          },
-        ],
-        previewItems: [],
-        searchCount: 1,
-        urlCount: 0,
-        totalCount: 1,
-        hiddenSearchCount: 0,
-        hiddenUrlCount: 0,
-        summary: '回答依据 · 搜索候选 1 条',
-        hasSearchSources: true,
-      },
-    }));
-
-    renderAssistant();
-
-    expect(getMessageNetworkDiagnosticsMock).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole('button', { name: '全部来源' }));
-
-    await waitFor(() => {
-      expect(screen.getByTestId('answer-evidence-sidebar')).toBeInTheDocument();
-    });
-    expect(getMessageNetworkDiagnosticsMock).not.toHaveBeenCalled();
-    expect(screen.queryByText('联网诊断 · 搜索 1 次 · 用时 1.2s')).not.toBeInTheDocument();
   });
 
   it('只有异常来源时也能打开统一回答依据侧栏查看原因', () => {

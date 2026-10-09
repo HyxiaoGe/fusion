@@ -38,8 +38,7 @@ Fusion 让 AI 从“回答问题”走向“完成任务”：它会根据用户
 - **回答依据与执行轨迹**：将“答案用了什么材料”和“Agent 做了哪些步骤”分层呈现，避免把工具日志或内部推理混进正文。
 - **结构化任务工具**：支持网页搜索与读取，以及天气、地点、路线、航班、高铁和综合行程等结构化结果。
 - **文件与知识库**：文件可随会话使用；启用知识库后，可异步解析、切片、向量化文档，并在回答中定位引用分块。
-- **模型与运行治理**：模型目录由 LiteLLM 统一提供；管理员可以查看模型状态、运行配置、MCP 服务、使用量和脱敏审计数据。
-- **Web 与桌面客户端**：前端以 Next.js 提供 Web 体验，并保留 Electron 桌面构建入口。
+- **模型与运行治理**：模型目录由 LiteLLM 统一提供；管理员可以查看模型状态、MCP 服务、使用量和脱敏审计数据。
 
 ## 工作方式
 
@@ -66,7 +65,7 @@ Fusion 在每个 Run 开始前冻结能力边界，再让模型和工具在同�
 | 目录 | 作用 | 主要技术 |
 | --- | --- | --- |
 | [`backend/`](backend/) | API、Agent runtime、能力路由、工具、文件、知识库与治理 | FastAPI、PostgreSQL、Redis、LiteLLM、Milvus |
-| [`frontend/`](frontend/) | Web / Electron 客户端、流式会话、回答依据与轨迹界面 | Next.js、React、Redux Toolkit、Dexie |
+| [`frontend/`](frontend/) | Web 客户端、流式会话、回答依据与轨迹界面 | Next.js、React、Redux Toolkit、Dexie |
 | [`ops/`](ops/) | 服务部署与运行脚本 | Docker、Bash |
 | [`docs/`](docs/) | 设计、实施与验证记录 | Markdown |
 

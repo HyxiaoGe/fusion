@@ -25,7 +25,6 @@ from app.services.knowledge.service import KnowledgeService
 from app.services.mcp.runtime import get_mcp_client_manager
 from app.services.mcp.server_service import McpServerService
 from app.services.model_management_service import ModelManagementConfig, ModelManagementService
-from app.services.network_diagnostics_service import NetworkDiagnosticsService
 from app.services.notification_service import NotificationService
 from app.services.trajectory_query_service import TrajectoryQueryService
 
@@ -40,10 +39,6 @@ def get_file_service(db: Session = Depends(get_db)) -> FileService:
 
 def get_knowledge_service(db: Session = Depends(get_db)) -> KnowledgeService:
     return KnowledgeService(db)
-
-
-def get_network_diagnostics_service(db: Session = Depends(get_db)) -> NetworkDiagnosticsService:
-    return NetworkDiagnosticsService(db)
 
 
 def get_notification_service(db: Session = Depends(get_db)) -> NotificationService:

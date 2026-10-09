@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.ai.prompts.defaults import DEFAULT_PROMPT_TEMPLATES
+from app.ai.prompts.local_templates import CODE_DEFAULT_PROMPT_TEMPLATES as DEFAULT_PROMPT_TEMPLATES
 from app.core.prompt_catalog import PROMPT_SPECS
 from app.core.prompt_template_engine import render_prompt_template, template_contract_is_valid
 
