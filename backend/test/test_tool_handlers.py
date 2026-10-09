@@ -308,15 +308,12 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(
             web_search_module,
             "get_agent_strategy_config",
-            return_value=(
-                {
-                    "tool_context": {
-                        "max_context_sources": 3,
-                        "max_sources_per_domain": 2,
-                    }
-                },
-                {"source": "test"},
-            ),
+            return_value={
+                "tool_context": {
+                    "max_context_sources": 3,
+                    "max_sources_per_domain": 2,
+                }
+            },
             create=True,
         ):
             context = self.handler.format_llm_context(result)
@@ -541,15 +538,12 @@ class UrlReadHandlerTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(
             url_read_module,
             "get_agent_strategy_config",
-            return_value=(
-                {
-                    "tool_context": {
-                        "url_read_max_content_chars": 8000,
-                        "url_read_max_reason_chars": 20,
-                    }
-                },
-                {"source": "test"},
-            ),
+            return_value={
+                "tool_context": {
+                    "url_read_max_content_chars": 8000,
+                    "url_read_max_reason_chars": 20,
+                }
+            },
             create=True,
         ):
             with patch(
