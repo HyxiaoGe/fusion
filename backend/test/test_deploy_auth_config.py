@@ -138,6 +138,7 @@ class DeployAuthConfigTests(unittest.TestCase):
             "MCP_SERVER_CIRCUIT_COOLDOWN_SECONDS",
             "DASHSCOPE_API_KEY",
             "AMAP_MCP_API_KEY",
+            "TENCENT_MAP_MCP_API_KEY",
             "CONTEXT7_API_KEY",
             "QWEATHER_API_HOST",
             "QWEATHER_KEY_ID",
@@ -146,6 +147,20 @@ class DeployAuthConfigTests(unittest.TestCase):
             "QWEATHER_PRIVATE_KEY",
         ):
             self.assertIn(f"- {variable}=${{{variable}", self.workflow)
+        self.assertIn("DEPLOY_TENCENT_MAP_MCP_API_KEY: ${{ secrets.TENCENT_MAP_MCP_API_KEY }}", self.workflow)
+        self.assertIn(
+            'export TENCENT_MAP_MCP_API_KEY="${DEPLOY_TENCENT_MAP_MCP_API_KEY:-${TENCENT_MAP_MCP_API_KEY:-}}"',
+            self.workflow,
+        )
+        self.assertIn(
+            'export MCP_ALLOWED_HOSTS="$(append_csv_value "${MCP_ALLOWED_HOSTS}" "mcp.map.qq.com")"',
+            self.workflow,
+        )
+        self.assertIn(
+            'export MCP_ALLOWED_CREDENTIAL_REFS="$(append_csv_value "${MCP_ALLOWED_CREDENTIAL_REFS}" "TENCENT_MAP_MCP_API_KEY")"',
+            self.workflow,
+        )
+        self.assertNotIn("echo ${TENCENT_MAP_MCP_API_KEY}", self.workflow)
         self.assertIn("DEPLOY_QWEATHER_PRIVATE_KEY: ${{ secrets.QWEATHER_PRIVATE_KEY }}", self.workflow)
         self.assertIn(
             'export QWEATHER_PRIVATE_KEY="${DEPLOY_QWEATHER_PRIVATE_KEY:-${QWEATHER_PRIVATE_KEY:-}}"',
