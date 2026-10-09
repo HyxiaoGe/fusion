@@ -102,7 +102,8 @@ class MilvusKnowledgeStoreTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.code, "KNOWLEDGE_VECTOR_CONFIG_INVALID")
 
-    def test_persisted_profile_route_selects_historical_milvus_database(self):
+    def test_persisted_profile_uri_is_record_only_and_connects_current_cluster(self):
+        # 版本落库的旧地址（Milvus 换 IP 前写入）不能再用来连接，database 仍按版本定位数据。
         profile = EmbeddingProfile(
             "litellm",
             "embed-v1",
@@ -116,7 +117,7 @@ class MilvusKnowledgeStoreTests(unittest.TestCase):
         pymilvus = ModuleType("pymilvus")
         with (
             patch("app.services.knowledge.milvus.settings.MILVUS_URI", "http://current-milvus:19530"),
-            patch("app.services.knowledge.milvus.settings.MILVUS_CONNECT_URI", "http://127.0.0.1:19530"),
+            patch("app.services.knowledge.milvus.settings.MILVUS_CONNECT_URI", ""),
             patch("app.services.knowledge.milvus.settings.MILVUS_USERNAME", "fusion_app"),
             patch("app.services.knowledge.milvus.settings.MILVUS_PASSWORD", "secret"),
             patch("app.services.knowledge.milvus.settings.MILVUS_TIMEOUT_SECONDS", 17),
@@ -126,7 +127,7 @@ class MilvusKnowledgeStoreTests(unittest.TestCase):
             MilvusKnowledgeStore._build_client(profile)
 
         client.assert_called_once_with(
-            uri="http://historical-milvus:19530",
+            uri="http://current-milvus:19530",
             user="fusion_app",
             password="secret",
             db_name="historical_knowledge",
@@ -247,6 +248,18 @@ class MilvusKnowledgeStoreBatchTests(unittest.IsolatedAsyncioTestCase):
 
         def close(self):
             return None
+
+    async def test_unavailable_error_keeps_underlying_cause_in_logs(self):
+        def unreachable():
+            raise ConnectionError("No route to host 192.168.1.54:19530")
+
+        store = MilvusKnowledgeStore(client_factory=unreachable)
+        with self.assertLogs("app.services.knowledge.milvus", level="WARNING") as logs:
+            with self.assertRaises(KnowledgeVectorError) as raised:
+                await store.health()
+
+        self.assertEqual(raised.exception.code, "KNOWLEDGE_VECTOR_UNAVAILABLE")
+        self.assertIn("ConnectionError: No route to host 192.168.1.54:19530", logs.output[0])
 
     async def test_upsert_payload_and_strong_readback_are_bounded_by_embedding_batch_size(self):
         client = self.FakeClient()

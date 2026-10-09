@@ -310,6 +310,8 @@ class MilvusKnowledgeStore:
             except KnowledgeVectorError:
                 raise
             except Exception as exc:
+                # 对外统一为可重试的不可用错误，但真实原因必须留在日志里，否则地址错误会伪装成临时故障。
+                logger.warning("Milvus 调用失败: %s: %s", type(exc).__name__, str(exc)[:300])
                 raise KnowledgeVectorError(
                     "KNOWLEDGE_VECTOR_UNAVAILABLE",
                     "Milvus 暂时不可用",
@@ -539,10 +541,9 @@ class MilvusKnowledgeStore:
 
     @staticmethod
     def _build_client(profile: EmbeddingProfile | None = None) -> Any:
-        canonical_uri = profile.milvus_uri if profile is not None and profile.milvus_uri else settings.MILVUS_URI
-        milvus_uri = canonical_uri
-        if settings.MILVUS_CONNECT_URI and canonical_uri == settings.MILVUS_URI:
-            milvus_uri = settings.MILVUS_CONNECT_URI
+        # 索引版本落库的 milvus_uri 只是写入时的记录；Milvus 换主机（如 IP 变化）后
+        # 旧地址必然不通，所以连接一律走当前配置，database/collection 仍按版本定位数据。
+        milvus_uri = settings.MILVUS_CONNECT_URI or settings.MILVUS_URI
         milvus_database = (
             profile.milvus_database if profile is not None and profile.milvus_database else settings.MILVUS_DATABASE
         )
