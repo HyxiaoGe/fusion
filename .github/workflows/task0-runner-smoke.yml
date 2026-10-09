@@ -38,9 +38,18 @@ jobs:
         run: |
           Write-Output "application=fusion-api"
           Write-Output "platform=windows"
-      - name: 验证 Docker daemon 访问
+      - name: 输出服务身份与 Docker 连接
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
-        run: docker version --format '{{.Server.Version}}'
+        run: |
+          Write-Output "RUNNER_NAME=$env:RUNNER_NAME"
+          whoami
+          Write-Output "DOCKER_HOST=$env:DOCKER_HOST DOCKER_CONTEXT=$env:DOCKER_CONTEXT"
+          docker context show
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          docker version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          docker info --format "{{.ServerVersion}} {{.OperatingSystem}} cpus={{.NCPU}} mem={{.MemTotal}}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   ui-linux:
     name: UI Linux runner
@@ -63,3 +72,15 @@ jobs:
         run: |
           Write-Output "application=fusion-ui"
           Write-Output "platform=windows"
+      - name: 输出服务身份与 Docker 连接
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          Write-Output "RUNNER_NAME=$env:RUNNER_NAME"
+          whoami
+          Write-Output "DOCKER_HOST=$env:DOCKER_HOST DOCKER_CONTEXT=$env:DOCKER_CONTEXT"
+          docker context show
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          docker version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          docker info --format "{{.ServerVersion}} {{.OperatingSystem}} cpus={{.NCPU}} mem={{.MemTotal}}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
