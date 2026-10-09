@@ -91,7 +91,7 @@ describe('通知中心交互', () => {
     fireEvent.click(screen.getByRole('button', { name: '通知，1 条未读' }));
     expect(screen.getByText('更新日志')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: /通知中心上线/ }));
-    expect(push).toHaveBeenCalledWith('/updates/update%2F%E4%B8%80');
+    expect(push).toHaveBeenCalledWith('/updates?entry=update%2F%E4%B8%80');
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(state.markAllRead).not.toHaveBeenCalled();
   });

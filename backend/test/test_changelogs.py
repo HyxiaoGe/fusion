@@ -102,7 +102,7 @@ def test_same_version_retries_are_idempotent_and_new_users_do_not_receive_old_un
     assert history.content == PAYLOAD["content"]
     assert history.notification_id is None
     assert NotificationService(db).list_notifications("new").unread_count == 0
-    assert ChangelogService(db).list_changelogs().items[0].id == first.id
+    assert ChangelogService(db).list_changelogs("user-1").items[0].id == first.id
 
 
 @pytest.mark.parametrize("field", ["title", "summary", "content"])
@@ -207,18 +207,23 @@ def test_mixed_ai_and_changelog_total_count_read_result_and_source_deletion(db):
     assert ChangelogService(db).get_changelog("user-1", changelog.id).content == PAYLOAD["content"]
 
 
-def test_changelog_pagination_does_not_leak_body(db):
+def test_changelog_pagination_carries_body_and_user_scoped_notification(db):
     ids = [publish(db, version=f"v{index}").id for index in range(3)]
     service = ChangelogService(db)
-    first = service.list_changelogs(limit=1)
-    second = service.list_changelogs(cursor=first.next_cursor, limit=1)
-    third = service.list_changelogs(cursor=second.next_cursor, limit=1)
+    first = service.list_changelogs("user-1", limit=1)
+    second = service.list_changelogs("user-1", cursor=first.next_cursor, limit=1)
+    third = service.list_changelogs("user-1", cursor=second.next_cursor, limit=1)
     assert [first.items[0].id, second.items[0].id, third.items[0].id] == ids[::-1]
     assert third.next_cursor is None
-    assert "content" not in first.items[0].model_dump()
-    assert "notification_id" not in first.items[0].model_dump()
+    assert first.items[0].content == PAYLOAD["content"]
+    assert first.items[0].notification_id == service.get_changelog("user-1", ids[-1]).notification_id
+    assert first.items[0].notification_id != service.list_changelogs("user-2", limit=1).items[0].notification_id
+    # 发布后才注册的用户没有对应通知，列表照常可读。
+    db.add(User(id="late", username="late"))
+    db.commit()
+    assert service.list_changelogs("late", limit=1).items[0].notification_id is None
     with pytest.raises(ApiException) as error:
-        service.list_changelogs(cursor="unknown")
+        service.list_changelogs("user-1", cursor="unknown")
     assert error.value.status_code == 400
 
 
@@ -313,12 +318,13 @@ def test_api_publish_summary_details_and_private_cache(client, db):
     assert summary.status_code == 200
     assert summary.headers["cache-control"] == "private, no-store"
     assert summary.json()["data"]["items"][0]["id"] == data["id"]
-    assert "content" not in summary.json()["data"]["items"][0]
+    assert summary.json()["data"]["items"][0]["content"] == PAYLOAD["content"]
     detail = client.get(f"/api/changelogs/{data['id']}")
     assert detail.status_code == 200
     assert detail.headers["cache-control"] == "private, no-store"
     assert detail.json()["data"]["content"] == PAYLOAD["content"]
     assert detail.json()["data"]["notification_id"] != data["notification_id"]
+    assert summary.json()["data"]["items"][0]["notification_id"] == detail.json()["data"]["notification_id"]
     assert NotificationService(db).list_notifications("user-1").unread_count == 1
     assert (
         client.post("/api/notifications/read", json={"ids": [detail.json()["data"]["notification_id"]]}).json()["data"][

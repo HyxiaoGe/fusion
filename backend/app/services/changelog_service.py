@@ -40,15 +40,23 @@ class ChangelogService:
             self.db.rollback()
             raise
 
-    def list_changelogs(self, *, cursor: str | None = None, limit: int = 20) -> ChangelogPage:
+    def list_changelogs(self, user_id: str, *, cursor: str | None = None, limit: int = 20) -> ChangelogPage:
         if not 1 <= limit <= 100:
             raise ApiException.bad_request("更新日志分页参数无效")
         before = self.repository.get(cursor) if cursor else None
         if cursor is not None and before is None:
             raise ApiException.bad_request("更新日志分页游标无效")
         rows = self.repository.list(before, limit + 1)
+        page = rows[:limit]
+        notification_ids = self.repository.notification_ids([row.id for row in page], user_id)
         return ChangelogPage(
-            items=[_summary(row) for row in rows[:limit]], next_cursor=rows[limit - 1].id if len(rows) > limit else None
+            items=[
+                ChangelogDetail(
+                    **_summary(row).model_dump(), content=row.content, notification_id=notification_ids.get(row.id)
+                )
+                for row in page
+            ],
+            next_cursor=rows[limit - 1].id if len(rows) > limit else None,
         )
 
     def get_changelog(self, user_id: str, changelog_id: str) -> ChangelogDetail:

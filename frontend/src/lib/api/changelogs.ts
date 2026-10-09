@@ -15,7 +15,7 @@ export interface ChangelogDetail extends ChangelogSummary {
 }
 
 export interface ChangelogPage {
-  items: ChangelogSummary[];
+  items: ChangelogDetail[];
   next_cursor: string | null;
 }
 
@@ -25,8 +25,4 @@ export function getChangelogs(params: { cursor?: string; limit?: number } = {}, 
   const query = new URLSearchParams({ limit: String(params.limit ?? 20) });
   if (params.cursor) query.set('cursor', params.cursor);
   return apiRequest<ChangelogPage>(`${changelogsPath}?${query}`, { signal });
-}
-
-export function getChangelog(id: string, signal?: AbortSignal): Promise<ChangelogDetail> {
-  return apiRequest<ChangelogDetail>(`${changelogsPath}/${encodeURIComponent(id)}`, { signal });
 }

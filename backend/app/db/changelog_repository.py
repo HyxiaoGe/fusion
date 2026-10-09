@@ -1,6 +1,7 @@
-"""更新日志不可变发布记录与稳定摘要分页。"""
+"""更新日志不可变发布记录与稳定分页。"""
 
 import uuid
+from collections.abc import Sequence
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
@@ -56,3 +57,15 @@ class ChangelogRepository:
                 Notification.changelog_id == changelog_id,
             )
         )
+
+    def notification_ids(self, changelog_ids: Sequence[str], user_id: str) -> dict[str, str]:
+        if not changelog_ids:
+            return {}
+        rows = self.db.execute(
+            select(Notification.changelog_id, Notification.id).where(
+                Notification.user_id == user_id,
+                Notification.business_type == "changelog",
+                Notification.changelog_id.in_(changelog_ids),
+            )
+        )
+        return {changelog_id: notification_id for changelog_id, notification_id in rows}
