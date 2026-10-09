@@ -564,7 +564,7 @@ const actionDocuments = [
     expect(deployJob?.if).toContain('inputs.rollback_sha');
 
     expect(releasePublishBlock).toContain('Login to ACR');
-    expect(releasePublishBlock).toContain('Test and build Docker image');
+    expect(releasePublishBlock).toContain('Build Docker image');
     expect(releasePublishBlock).toContain('Push Docker image');
   });
 
@@ -836,13 +836,13 @@ docker() {
     expect(windowsDockerBuildAction).toContain('docker build 失败，第 $attempt 次');
   });
 
-  it('Windows 发布只在 Docker targets 中安装依赖、测试和构建', () => {
+  it('Windows 发布只在 Docker production target 中安装依赖和构建', () => {
     expect(windowsDockerBuildAction).not.toContain('Setup Node.js');
     expect(windowsDockerBuildAction).not.toContain('npm ci --no-audit --no-fund --cache');
     expect(windowsDockerBuildAction).not.toContain('run: npm run build');
     expect(windowsDockerBuildAction).not.toContain('run: npm test');
-    expect(windowsDockerBuildAction).toContain('"--target", "test"');
-    expect(windowsDockerBuildAction).toContain('"--no-cache-filter", "test"');
+    // 部署不重跑测试：lint/Vitest 由 Fusion CI 在 PR 与 push master 时执行。
+    expect(windowsDockerBuildAction).not.toContain('"--target", "test"');
     expect(windowsDockerBuildAction).toContain('"--target", "production"');
   });
 

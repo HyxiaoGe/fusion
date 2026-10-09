@@ -9,7 +9,7 @@ param(
     [string]$ImageTag
 )
 
-# 部署只构建镜像：同一提交的检查和测试由 Fusion CI（push master）跑，见 linux-build-and-test.sh。
+# Release only builds images; Fusion CI runs checks and tests for the same commit (linux-build-and-test.sh).
 $ErrorActionPreference = "Stop"
 $image = "${ImageName}:${ImageTag}"
 $adapterImage = "${AdapterImageName}:${ImageTag}"
