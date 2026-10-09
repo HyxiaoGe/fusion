@@ -128,6 +128,31 @@ describe('McpServerManager', () => {
     expect(screen.getByText('通用 MCP 工具共 15 个，超过直接提供上限 10 个，模型需要先用工具搜索按需加载')).toBeInTheDocument();
   });
 
+  it('眼睛按钮打开工具说明预览，按模型可用、产品调用、未授权分组', async () => {
+    apiMocks.fetchModelView.mockResolvedValue({
+      ...modelView,
+      servers: {
+        'mcp-1': {
+          tools: [{ name: 'route_compare', label: '高德路线比较', kind: 'product', mode: 'direct', source_tools: ['maps_text_search'], description: '比较两地之间的耗时和距离' }],
+          hidden_tools: [{ name: 'local_place_search', label: '高德地点搜索', description: '按关键词搜索地点', reason: 'quota_exhausted', resets_in_seconds: 600 }],
+        },
+      },
+    });
+
+    render(<McpServerManager />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '预览高德地图工具说明' }));
+    const dialog = await screen.findByRole('dialog', { name: '高德地图 · 工具说明' });
+    expect(within(dialog).getByText('比较两地之间的耗时和距离')).toBeInTheDocument();
+    expect(within(dialog).getByText('调用远端工具：maps_text_search')).toBeInTheDocument();
+    expect(within(dialog).getByText('暂不提供')).toBeInTheDocument();
+    expect(within(dialog).getByText('今日额度已用完，约 10 分钟后恢复')).toBeInTheDocument();
+    expect(within(dialog).getByText('关键词搜索')).toBeInTheDocument();
+    expect(within(dialog).getByText('供产品工具调用')).toBeInTheDocument();
+    expect(within(dialog).getByText('周边搜索')).toBeInTheDocument();
+    expect(within(dialog).getByText('未授权')).toBeInTheDocument();
+  });
+
   it('模型可用工具取不到时服务列表照常显示', async () => {
     apiMocks.fetchModelView.mockRejectedValue(new Error('boom'));
 
