@@ -1,5 +1,5 @@
 name: Windows Docker build
-description: 在 Windows Runner 上复用 Fusion UI 的测试与生产镜像构建逻辑
+description: 在 Windows Runner 上构建 Fusion UI 生产镜像（测试由 Fusion CI 跑，部署不重复）
 
 inputs:
   image-name:
@@ -96,7 +96,7 @@ runs:
         docker ps
         exit 1
 
-    - name: Test and build Docker image
+    - name: Build Docker image
       shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
       env:
         BUILD_IMAGE_NAME: ${{ inputs.image-name }}
@@ -124,19 +124,6 @@ runs:
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
         docker buildx inspect --builder $builder --bootstrap
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-        $testArgs = @(
-          "buildx", "build",
-          "--builder", $builder,
-          "--target", "test",
-          "--no-cache-filter", "test",
-          "--progress", "plain",
-          "--provenance=false",
-          $context
-        )
-
-        docker @testArgs
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
         $buildArgs = @(

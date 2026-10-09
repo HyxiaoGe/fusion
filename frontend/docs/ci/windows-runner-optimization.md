@@ -18,6 +18,8 @@ GitHub Actions 的 Windows Job 先构建 `test` target。测试通过后再构�
 
 测试构建显式使用 `--no-cache-filter test`。因此依赖和源码层仍可复用缓存，但 `RUN npm test` 每次 CI 都会实际执行，不会因为相同源码命中构建缓存而跳过 Vitest。
 
+2026-10-09 起部署流程（`_deploy-ui.yml`）的 Windows Job 只构建 `production` target：同一提交的 lint 与 Vitest 已由 Fusion CI 在 PR 和 push master 时执行，部署不再重复。下面的 `test` target 命令仍可用于本地验证。
+
 ## 本地验证
 
 在仓库根目录执行：

@@ -59,6 +59,7 @@ export function buildToolPreview(server: McpServer, view: McpServerModelView | u
     }
   }
   for (const tool of view?.hidden_tools ?? []) {
+    tool.source_tools?.forEach((name) => productSources.add(name));
     modelTools.push({
       key: tool.name,
       title: tool.label,
