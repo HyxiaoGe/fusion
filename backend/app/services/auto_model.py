@@ -18,8 +18,7 @@ from typing import Any, Literal, get_args
 from app.ai import litellm_catalog, litellm_health
 from app.db.model_catalog_control_repository import ModelCatalogControlRepository
 from app.services.agent_strategy_config import get_agent_tools_disabled_aliases
-from app.services.runtime_config_defaults import DEFAULT_AUTO_MODEL_CONFIG
-from app.services.runtime_config_service import get_runtime_config_payload
+from app.services.config_defaults import DEFAULT_AUTO_MODEL_CONFIG
 
 AUTO_MODEL_ID = "auto"
 
@@ -55,8 +54,7 @@ class AutoProviderGroup:
 
 
 def get_auto_provider_groups(mode: AutoModelMode = "auto") -> list[AutoProviderGroup]:
-    payload, _ = get_runtime_config_payload("model_routing", "auto", DEFAULT_AUTO_MODEL_CONFIG)
-    return _mode_provider_groups(payload, mode) or _mode_provider_groups(DEFAULT_AUTO_MODEL_CONFIG, mode)
+    return _mode_provider_groups(DEFAULT_AUTO_MODEL_CONFIG, mode)
 
 
 def get_auto_model_candidates(mode: AutoModelMode = "auto") -> list[str]:

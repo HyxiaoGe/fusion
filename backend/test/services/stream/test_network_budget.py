@@ -3,7 +3,7 @@ from copy import deepcopy
 from unittest.mock import Mock, patch
 
 from app.schemas.chat import SearchSource
-from app.services.runtime_config_defaults import DEFAULT_AGENT_STRATEGY_CONFIG
+from app.services.config_defaults import DEFAULT_AGENT_STRATEGY_CONFIG
 from app.services.source_candidate_ranker import SearchResultForRanking, rank_search_sources
 from app.services.stream import network_budget as network_budget_module
 from app.services.stream.network_budget import NetworkToolBudget
@@ -20,7 +20,7 @@ def _low_network_budget():
         deep_research_planned_search_calls=3,
         max_url_read_calls=5,
     )
-    return patch.object(network_budget_module, "get_agent_strategy_config", return_value=(config, None))
+    return patch.object(network_budget_module, "get_agent_strategy_config", return_value=config)
 
 
 def _search_record(args: dict, *, status: str, sources: list[SearchSource] | None = None) -> ToolExecutionRecord:
@@ -105,7 +105,7 @@ class NetworkToolBudgetTests(unittest.TestCase):
             for profile in ("standard", "deep_research"):
                 with (
                     self.subTest(configured=bool(config), profile=profile),
-                    patch.object(network_budget_module, "get_agent_strategy_config", return_value=(config, None)),
+                    patch.object(network_budget_module, "get_agent_strategy_config", return_value=config),
                 ):
                     budget = NetworkToolBudget(profile=profile)
                     for index in range(40):
@@ -127,7 +127,7 @@ class NetworkToolBudgetTests(unittest.TestCase):
             for profile in ("standard", "deep_research"):
                 with (
                     self.subTest(configured=bool(config), profile=profile),
-                    patch.object(network_budget_module, "get_agent_strategy_config", return_value=(config, None)),
+                    patch.object(network_budget_module, "get_agent_strategy_config", return_value=config),
                 ):
                     budget = NetworkToolBudget(profile=profile)
                     for index in range(100):
@@ -172,50 +172,6 @@ class NetworkToolBudgetTests(unittest.TestCase):
         budget = NetworkToolBudget()
 
         args, degraded = budget.prepare_web_search_args({"query": "redis"})
-
-        self.assertIsNone(degraded)
-        self.assertEqual(args["count"], 10)
-        self.assertEqual(args["context_source_limit"], 10)
-        self.assertEqual(args["search_budget"], "standard")
-
-    def test_web_search_ignores_legacy_configured_standard_count(self):
-        with patch.object(
-            network_budget_module,
-            "get_agent_strategy_config",
-            return_value=(
-                {
-                    "search": {
-                        "standard_budget": {
-                            "name": "standard",
-                            "requested_count": 7,
-                            "context_source_limit": 6,
-                        },
-                        "budgets_by_intent": {},
-                        "followup_budgets_by_name": {},
-                        "thresholds": {
-                            "similar_followup": 0.55,
-                            "duplicate_search": 0.82,
-                        },
-                    },
-                    "network": {
-                        "max_search_calls": 4,
-                        "default_planned_search_calls": 2,
-                        "deep_research_planned_search_calls": 3,
-                        "max_url_read_calls": 5,
-                        "max_domains": 5,
-                        "repair_search_count": 3,
-                        "repair_context_source_limit": 3,
-                        "weak_search_result_threshold": 2,
-                        "min_recency_days": 1,
-                        "max_recency_days": 365,
-                    },
-                },
-                {"source": "test"},
-            ),
-            create=True,
-        ):
-            budget = NetworkToolBudget()
-            args, degraded = budget.prepare_web_search_args({"query": "redis"})
 
         self.assertIsNone(degraded)
         self.assertEqual(args["count"], 10)

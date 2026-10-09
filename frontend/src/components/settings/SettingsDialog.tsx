@@ -6,12 +6,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAppDispatch, useAppSelector } from "@/redux/hooks";
 import { closeSettingsDialog, setActiveSettingsTab } from "@/redux/slices/settingsSlice";
 import { setThemeMode } from "@/redux/slices/themeSlice";
-import { Activity, BookOpen, Bot, Database, Settings, Sun, Moon, Laptop, Network, SlidersHorizontal } from "lucide-react";
+import { Activity, BookOpen, Bot, Database, Settings, Sun, Moon, Laptop, Network } from "lucide-react";
 import DataManagement from "@/components/settings/panels/DataManagement";
 import KnowledgeBaseManager from "@/components/settings/KnowledgeBaseManager";
 import McpServerManager from "@/components/settings/panels/McpServerManager";
 import ModelManagementPanel from "@/components/settings/panels/ModelManagementPanel";
-import RuntimeConfigManager from "@/components/settings/panels/RuntimeConfigManager";
 import ServiceUsagePanel from "@/components/settings/panels/ServiceUsagePanel";
 import SystemPrompt from "@/components/settings/panels/SystemPrompt";
 import { useEffect, useId, useState } from "react";
@@ -39,7 +38,7 @@ export const SettingsDialog = () => {
   const showAdminTabs = isMounted && isAdmin;
   const knowledgeBaseTitle = isMounted ? t("knowledgeBase.title") : "知识库";
   const knowledgeBaseShortTitle = isMounted ? t("knowledgeBase.shortTitle") : "知识";
-  const selectedSettingsTab = showAdminTabs || !["usage", "runtime-config", "mcp-servers", "model-management"].includes(activeSettingsTab) ? activeSettingsTab : "general";
+  const selectedSettingsTab = showAdminTabs || !["usage", "mcp-servers", "model-management"].includes(activeSettingsTab) ? activeSettingsTab : "general";
 
   const handleClose = () => {
     dispatch(closeSettingsDialog());
@@ -97,11 +96,6 @@ export const SettingsDialog = () => {
                       <Activity className="h-4 w-4" />
                       <span className="hidden md:inline">{t("settings.tabs.usage")}</span>
                       <span className="md:hidden">{t("settings.tabs.usageShort")}</span>
-                    </TabsTrigger>
-                    <TabsTrigger value="runtime-config" className={styles.navTrigger}>
-                      <SlidersHorizontal className="h-4 w-4" />
-                      <span className="hidden md:inline">{t("settings.tabs.runtime")}</span>
-                      <span className="md:hidden">{t("settings.tabs.runtimeShort")}</span>
                     </TabsTrigger>
                     <TabsTrigger value="mcp-servers" className={styles.navTrigger}>
                       <Network className="h-4 w-4" />
@@ -176,10 +170,6 @@ export const SettingsDialog = () => {
               <>
                 <TabsContent value="usage" className={styles.panel}>
                   <ServiceUsagePanel />
-                </TabsContent>
-
-                <TabsContent value="runtime-config" className={styles.panel}>
-                  <RuntimeConfigManager />
                 </TabsContent>
 
                 <TabsContent value="mcp-servers" className={styles.panel}>

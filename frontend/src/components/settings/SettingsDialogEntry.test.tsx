@@ -19,7 +19,6 @@ vi.mock('@/components/settings/panels/DataManagement', () => ({ default: () => n
 vi.mock('@/components/settings/KnowledgeBaseManager', () => ({ default: () => null }));
 vi.mock('@/components/settings/panels/McpServerManager', () => ({ default: () => null }));
 vi.mock('@/components/settings/panels/ModelManagementPanel', () => ({ default: () => null }));
-vi.mock('@/components/settings/panels/RuntimeConfigManager', () => ({ default: () => null }));
 vi.mock('@/components/settings/panels/ServiceUsagePanel', () => ({ default: () => null }));
 vi.mock('react-i18next', async () => {
   const { default: messages } = await import('@/lib/i18n/locales/zh-CN.json');

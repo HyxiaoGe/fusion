@@ -2,20 +2,22 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
-from app.services.runtime_config_defaults import DEFAULT_MODEL_PRESENTATION_CONFIG
-from app.services.runtime_config_service import deep_merge_config, get_runtime_config_payload
+from app.services.config_defaults import DEFAULT_MODEL_PRESENTATION_CONFIG
 
 CapabilityPresentation = dict[str, Any]
 
 
-def get_model_presentation_config() -> tuple[dict[str, Any], dict[str, Any]]:
-    return get_runtime_config_payload(
-        "model_presentation",
-        "default",
-        DEFAULT_MODEL_PRESENTATION_CONFIG,
-    )
+def _deep_merge(default: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged = deepcopy(default)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = deepcopy(value)
+    return merged
 
 
 def build_model_capability_presentation(
@@ -104,10 +106,7 @@ def build_model_capability_presentation(
 
 
 def _resolve_config(config: dict[str, Any] | None) -> dict[str, Any]:
-    if config is None:
-        payload, _meta = get_model_presentation_config()
-        return payload
-    return deep_merge_config(DEFAULT_MODEL_PRESENTATION_CONFIG, config)
+    return _deep_merge(DEFAULT_MODEL_PRESENTATION_CONFIG, config or {})
 
 
 def _supports_agent_tools(capabilities: dict[str, Any]) -> bool:

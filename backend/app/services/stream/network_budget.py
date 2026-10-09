@@ -32,7 +32,7 @@ class NetworkToolBudget:
     web_search_queries: list[str] = field(default_factory=list)
 
     def prepare_web_search_args(self, args: dict) -> tuple[dict, ToolResult | None]:
-        strategy_config, _meta = get_agent_strategy_config()
+        strategy_config = get_agent_strategy_config()
         network_config = _network_config(strategy_config)
         normalized = dict(args or {})
 
@@ -123,7 +123,7 @@ class NetworkToolBudget:
         self,
         args: dict,
     ) -> tuple[dict, ToolResult | None]:
-        strategy_config, _meta = get_agent_strategy_config()
+        strategy_config = get_agent_strategy_config()
         network_config = _network_config(strategy_config)
         normalized = dict(args or {})
         max_url_read_calls = _network_int(network_config, "max_url_read_calls", MAX_URL_READ_CALLS)

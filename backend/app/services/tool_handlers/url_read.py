@@ -290,7 +290,6 @@ def _normalize_reason(value) -> str | None:
 
 def _tool_context_int(key: str, fallback: int) -> int:
     try:
-        strategy_config, _meta = get_agent_strategy_config()
-        return max(1, int((strategy_config.get("tool_context") or {}).get(key, fallback)))
+        return max(1, int((get_agent_strategy_config().get("tool_context") or {}).get(key, fallback)))
     except (TypeError, ValueError):
         return fallback

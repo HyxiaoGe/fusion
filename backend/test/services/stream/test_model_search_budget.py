@@ -27,7 +27,7 @@ class ModelSearchBudgetTests(unittest.TestCase):
             },
         }
         self.enterContext(
-            patch("app.services.stream.network_budget.get_agent_strategy_config", return_value=(self.config, None))
+            patch("app.services.stream.network_budget.get_agent_strategy_config", return_value=self.config)
         )
 
     def test_legacy_config_cannot_override_requested_count(self):

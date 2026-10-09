@@ -8,9 +8,8 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
-from app.core.runtime_config_schema import validate_runtime_config_payload
 from app.schemas.chat import SearchSource
-from app.services.runtime_config_defaults import DEFAULT_AGENT_STRATEGY_CONFIG
+from app.services.config_defaults import DEFAULT_AGENT_STRATEGY_CONFIG
 from app.services.search_read_planner import build_search_read_plan, format_search_read_plan_guidance
 from app.services.source_candidate_ranker import SearchResultForRanking
 from app.services.stream.network_budget import NetworkToolBudget
@@ -172,7 +171,7 @@ def test_candidates_keep_first_provider_order_without_prescribing_reads():
 def test_repeated_search_executes_until_global_budget_is_reached():
     config = deepcopy(DEFAULT_AGENT_STRATEGY_CONFIG)
     config["network"]["max_search_calls"] = 3
-    with patch("app.services.stream.network_budget.get_agent_strategy_config", return_value=(config, {})):
+    with patch("app.services.stream.network_budget.get_agent_strategy_config", return_value=config):
         budget = NetworkToolBudget()
         for _ in range(3):
             args, result = budget.prepare_web_search_args({"query": "同一个查询", "count": 14})
@@ -189,37 +188,6 @@ def test_unsuccessful_search_feedback_does_not_trigger_legacy_repair_action():
     assert result is None
     assert args["budget_decision"]["action"] == "execute"
     assert args["search_budget"] != "repair"
-
-
-def test_compact_and_legacy_strategy_json_both_validate():
-    legacy = deepcopy(DEFAULT_AGENT_STRATEGY_CONFIG)
-    legacy.update(
-        read_planner={"read_limits": {"quick_fact": 1}},
-        source_ranker={"weights": {"official": 38}, "priority_thresholds": {"high": 60}},
-    )
-    legacy["search"].update(
-        standard_budget={"requested_count": 3},
-        budgets_by_intent={"quick_fact": {"requested_count": 3}},
-        followup_budgets_by_name={"standard": {"requested_count": 2}},
-        thresholds={"duplicate_search": 0.82},
-    )
-    legacy["network"].update(default_planned_search_calls=2, repair_search_count=3, weak_search_result_threshold=2)
-    compact = deepcopy(legacy)
-    compact.pop("read_planner", None)
-    compact.pop("source_ranker", None)
-    for name in ("standard_budget", "budgets_by_intent", "followup_budgets_by_name", "thresholds"):
-        compact["search"].pop(name, None)
-    for name in (
-        "default_planned_search_calls",
-        "deep_research_planned_search_calls",
-        "repair_search_count",
-        "repair_context_source_limit",
-        "weak_search_result_threshold",
-    ):
-        compact["network"].pop(name, None)
-    for config in (compact, legacy):
-        result = validate_runtime_config_payload("agent_strategy", "default", json.loads(json.dumps(config)))
-        assert result.valid, result.issues
 
 
 @pytest.mark.anyio

@@ -551,7 +551,6 @@
         "personalization": "AI preferences", "personalizationShort": "AI",
         "data": "Data management", "dataShort": "Data",
         "usage": "Service usage", "usageShort": "Usage",
-        "runtime": "Runtime configuration", "runtimeShort": "Config",
         "mcp": "MCP services", "mcpShort": "MCP",
         "models": "Model management", "modelsShort": "Models"
       },
@@ -562,14 +561,9 @@
         "emailLoading": "Loading Resend usage",
         "officialBalance": "Official balance",
         "usageSnapshot": "Usage snapshot",
-        "runtimeLoading": "Loading runtime configuration",
         "retry": "Retry",
         "refresh": "Refresh",
-        "refreshing": "Refreshing",
-        "runtimeRefresh": "Refresh runtime configuration",
-        "noEffective": "No effective configuration",
-        "noVersions": "No configuration versions",
-        "previousSnapshot": "Showing the last loaded configuration. You can refresh again."
+        "refreshing": "Refreshing"
       },
       "appearance": {
         "title": "Appearance", "description": "Choose a comfortable appearance for reading and work.",
