@@ -24,6 +24,7 @@ import { Label } from "@/components/ui/label";
 import controlStyles from "@/components/settings/SettingsControls.module.css";
 import {
   createMcpServerAPI,
+  fetchMcpModelViewAPI,
   fetchMcpServersAPI,
   refreshMcpServerToolsAPI,
   setMcpServerEnabledAPI,
@@ -33,7 +34,9 @@ import {
 import type {
   McpAuthType,
   McpHealthStatus,
+  McpModelView,
   McpServer,
+  McpServerModelView,
   McpServerPayload,
 } from "@/types/mcp";
 
@@ -209,6 +212,92 @@ function formatCheckedAt(value: string | null): string {
   }).format(date);
 }
 
+function formatResetIn(seconds: number): string {
+  if (seconds >= 3600) return `约 ${Math.round(seconds / 3600)} 小时后恢复`;
+  return `约 ${Math.max(1, Math.round(seconds / 60))} 分钟后恢复`;
+}
+
+const quotaGroupLabels: Record<string, string> = {
+  search: "搜索类（关键字/周边/详情）",
+  maps_geo: "地理编码",
+};
+
+function describeDeferral(view: McpModelView | null, viewError: boolean): string | null {
+  if (viewError) return "模型可用工具暂时无法获取";
+  if (!view) return null;
+  const { deferral } = view;
+  if (deferral.generic_tool_count === 0) return null;
+  if (!deferral.on_demand) {
+    return `通用 MCP 工具共 ${deferral.generic_tool_count} 个，全部直接提供给模型`;
+  }
+  return deferral.generic_tool_count > deferral.max_direct_tools
+    ? `通用 MCP 工具共 ${deferral.generic_tool_count} 个，超过直接提供上限 ${deferral.max_direct_tools} 个，模型需要先用工具搜索按需加载`
+    : `通用 MCP 工具定义共 ${deferral.schema_chars} 字符，超过直接提供上限 ${deferral.max_schema_chars}，模型需要先用工具搜索按需加载`;
+}
+
+function ModelToolsSection({
+  server,
+  view,
+  viewError,
+}: {
+  server: McpServer;
+  view: McpServerModelView | undefined;
+  viewError: boolean;
+}) {
+  if (!server.is_enabled) {
+    return <p className="text-sm text-muted-foreground">服务已停用，不会提供给模型</p>;
+  }
+  if (viewError || !view) {
+    return <p className="text-sm text-muted-foreground">暂时无法获取模型可用工具</p>;
+  }
+  return (
+    <div className="space-y-2">
+      {view.quota_exhausted && view.quota_exhausted.length > 0 && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-xs text-amber-700 dark:text-amber-400" role="status">
+          {view.quota_exhausted.map((quota) => (
+            <p key={quota.group}>
+              今日{quotaGroupLabels[quota.group] ?? quota.group}额度已用完，{formatResetIn(quota.resets_in_seconds)}
+            </p>
+          ))}
+        </div>
+      )}
+      {view.tools.length > 0 ? (
+        <ul className="space-y-1.5">
+          {view.tools.map((tool) => (
+            <li key={tool.name} className="flex flex-wrap items-center gap-1.5 text-sm">
+              <span className="font-medium">{tool.kind === "product" ? tool.label : tool.name}</span>
+              <Badge tone={tool.mode === "direct" ? "success" : "neutral"}>
+                {tool.mode === "direct" ? "直接提供" : "按需加载"}
+              </Badge>
+              {tool.kind === "product" && (
+                <span className="text-xs text-muted-foreground">
+                  组合 {tool.source_tools.join("、")}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : view.hidden_tools.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          {server.allowed_tools.length > 0 ? "本次没有工具提供给模型" : "尚未授权工具，不会提供给模型"}
+        </p>
+      ) : null}
+      {view.hidden_tools.map((tool) => (
+        <p key={tool.name} className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
+          <span className="line-through">{tool.label}</span>
+          <Badge tone="warning">暂不提供</Badge>
+          <span className="text-xs">额度用完，{formatResetIn(tool.resets_in_seconds)}</span>
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function unauthorizedTools(server: McpServer): string[] {
+  const allowed = new Set(server.allowed_tools);
+  return server.discovered_tools.map((tool) => tool.name).filter((name) => !allowed.has(name));
+}
+
 function parseAllowedTools(value: string): string[] {
   return Array.from(
     new Set(
@@ -292,6 +381,8 @@ function hasConnectionIdentityChanged(form: ServerFormState, server: McpServer):
 
 export default function McpServerManager() {
   const [servers, setServers] = useState<McpServer[]>([]);
+  const [modelView, setModelView] = useState<McpModelView | null>(null);
+  const [modelViewError, setModelViewError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -316,9 +407,15 @@ export default function McpServerManager() {
     setLoadError(null);
     setActionError(null);
     try {
-      const nextServers = await fetchMcpServersAPI();
+      // 模型可用工具只是辅助视图，取不到时服务列表照常显示。
+      const [nextServers, nextView] = await Promise.all([
+        fetchMcpServersAPI(),
+        fetchMcpModelViewAPI().catch(() => null),
+      ]);
       if (requestId === loadRequestId.current) {
         setServers(nextServers);
+        setModelView(nextView);
+        setModelViewError(nextView === null);
       }
     } catch (error) {
       if (requestId !== loadRequestId.current) return;
@@ -436,6 +533,7 @@ export default function McpServerManager() {
       : undefined,
     [editingServer],
   );
+  const deferralSummary = describeDeferral(modelView, modelViewError);
   const titleDetail = useMemo(
     () => hasServers ? `${servers.length} 个已配置服务` : "管理员专属配置",
     [hasServers, servers.length],
@@ -467,6 +565,7 @@ export default function McpServerManager() {
                 MCP 服务
               </h2>
               <p className="mt-1 text-xs text-muted-foreground">{titleDetail}</p>
+              {deferralSummary && <p className="mt-1 text-xs text-muted-foreground">{deferralSummary}</p>}
             </div>
             <div className="flex flex-wrap gap-2">
               <Button aria-label="刷新列表" size="sm" variant="outline" onClick={() => void load(true)} disabled={loading || refreshing || busyAction !== null}>
@@ -564,33 +663,31 @@ export default function McpServerManager() {
                       </div>
                     </div>
 
-                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                      <div className="rounded-md border bg-muted/10 p-3">
-                        <p className="text-xs text-muted-foreground">发现工具</p>
-                        <p className="mt-1 font-medium">{server.discovered_tools.length} 个已发现工具</p>
-                      </div>
-                      <div className="rounded-md border bg-muted/10 p-3">
-                        <p className="text-xs text-muted-foreground">工具授权</p>
-                        <p className="mt-1 font-medium">已授权 {server.allowed_tools.length} 个工具</p>
-                      </div>
-                      <div className="rounded-md border bg-muted/10 p-3">
-                        <p className="text-xs text-muted-foreground">最近检测</p>
-                        <p className="mt-1 text-sm font-medium">{formatCheckedAt(server.last_checked_at)}</p>
-                      </div>
-                    </div>
+                    <section className="mt-4 rounded-md border p-3" aria-label={`${server.name}提供给模型的工具`}>
+                      <p className="mb-2 text-xs text-muted-foreground">模型可用工具</p>
+                      <ModelToolsSection server={server} view={modelView?.servers[server.id]} viewError={modelViewError} />
+                    </section>
 
-                    <div className="mt-3 rounded-md border p-3">
-                      <p className="mb-2 flex items-center gap-1 text-xs text-muted-foreground">
-                        <ShieldCheck className="h-3.5 w-3.5" />允许工具白名单
-                      </p>
-                      {server.allowed_tools.length > 0 ? (
-                        <div className="flex flex-wrap gap-1.5">
-                          {server.allowed_tools.map((tool) => <Badge key={tool} variant="secondary">{tool}</Badge>)}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">尚未设置白名单，不会向模型开放工具</p>
-                      )}
-                    </div>
+                    <details className="mt-3 rounded-md border p-3">
+                      <summary className="cursor-pointer text-xs text-muted-foreground">
+                        <ShieldCheck className="mr-1 inline h-3.5 w-3.5" />
+                        远端工具：已授权 {server.allowed_tools.length} / 已发现 {server.discovered_tools.length} · 最近检测 {formatCheckedAt(server.last_checked_at)}
+                      </summary>
+                      <div className="mt-2 space-y-2">
+                        {server.allowed_tools.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {server.allowed_tools.map((tool) => <Badge key={tool} variant="secondary">{tool}</Badge>)}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">尚未授权工具</p>
+                        )}
+                        {unauthorizedTools(server).length > 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            未授权：{unauthorizedTools(server).join("、")}
+                          </p>
+                        )}
+                      </div>
+                    </details>
 
                     {server.last_error_message && (
                       <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">

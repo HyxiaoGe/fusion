@@ -32,3 +32,37 @@ export interface McpServer extends McpServerPayload {
   created_at?: string | null;
   updated_at?: string | null;
 }
+
+export type McpModelToolMode = 'direct' | 'on_demand';
+
+export interface McpModelTool {
+  name: string;
+  label: string;
+  kind: 'product' | 'generic';
+  mode: McpModelToolMode;
+  source_tools: string[];
+}
+
+export interface McpHiddenModelTool {
+  name: string;
+  label: string;
+  reason: 'quota_exhausted';
+  resets_in_seconds: number;
+}
+
+export interface McpServerModelView {
+  tools: McpModelTool[];
+  hidden_tools: McpHiddenModelTool[];
+  quota_exhausted?: { group: string; resets_in_seconds: number }[];
+}
+
+export interface McpModelView {
+  servers: Record<string, McpServerModelView>;
+  deferral: {
+    on_demand: boolean;
+    generic_tool_count: number;
+    max_direct_tools: number;
+    schema_chars: number;
+    max_schema_chars: number;
+  };
+}

@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event';
 const apiMocks = vi.hoisted(() => ({
   create: vi.fn(),
   fetch: vi.fn(),
+  fetchModelView: vi.fn(),
   refreshTools: vi.fn(),
   setEnabled: vi.fn(),
   testConnection: vi.fn(),
@@ -14,6 +15,7 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/api/mcpServers', () => ({
   createMcpServerAPI: apiMocks.create,
+  fetchMcpModelViewAPI: apiMocks.fetchModelView,
   fetchMcpServersAPI: apiMocks.fetch,
   refreshMcpServerToolsAPI: apiMocks.refreshTools,
   setMcpServerEnabledAPI: apiMocks.setEnabled,
@@ -48,6 +50,17 @@ const server = {
   last_error_message: null,
 };
 
+const modelView = {
+  servers: {
+    'mcp-1': {
+      tools: [{ name: 'local_place_search', label: '高德地点搜索', kind: 'product', mode: 'direct', source_tools: ['maps_text_search'] }],
+      hidden_tools: [],
+      quota_exhausted: [],
+    },
+  },
+  deferral: { on_demand: false, generic_tool_count: 0, max_direct_tools: 10, schema_chars: 0, max_schema_chars: 20000 },
+};
+
 const recommendedAmapReadOnlyTools = [
   'maps_geo',
   'maps_regeocode',
@@ -70,6 +83,59 @@ describe('McpServerManager', () => {
   beforeEach(() => {
     Object.values(apiMocks).forEach((mock) => mock.mockReset());
     apiMocks.fetch.mockResolvedValue([server]);
+    apiMocks.fetchModelView.mockResolvedValue(modelView);
+  });
+
+  it('按服务展示模型实际可用的工具、加载方式和额度用尽暂不提供的工具', async () => {
+    const tencent = {
+      ...server,
+      id: 'mcp-2',
+      name: '腾讯地图',
+      provider: 'tencent_map',
+      allowed_tools: ['placeSuggestion'],
+      discovered_tools: [{ name: 'placeSuggestion' }, { name: 'ipLocation' }],
+    };
+    apiMocks.fetch.mockResolvedValue([server, tencent]);
+    apiMocks.fetchModelView.mockResolvedValue({
+      servers: {
+        'mcp-1': {
+          tools: [{ name: 'route_compare', label: '高德路线比较', kind: 'product', mode: 'direct', source_tools: ['maps_geo', 'maps_direction_driving'] }],
+          hidden_tools: [{ name: 'local_place_search', label: '高德地点搜索', reason: 'quota_exhausted', resets_in_seconds: 7200 }],
+          quota_exhausted: [{ group: 'search', resets_in_seconds: 7200 }],
+        },
+        'mcp-2': {
+          tools: [{ name: 'placeSuggestion', label: '腾讯地图 · placeSuggestion', kind: 'generic', mode: 'on_demand', source_tools: ['placeSuggestion'] }],
+          hidden_tools: [],
+        },
+      },
+      deferral: { on_demand: true, generic_tool_count: 15, max_direct_tools: 10, schema_chars: 9000, max_schema_chars: 20000 },
+    });
+
+    render(<McpServerManager />);
+
+    const amap = await screen.findByTestId('mcp-server-mcp-1');
+    expect(within(amap).getByText('高德路线比较')).toBeInTheDocument();
+    expect(within(amap).getByText('直接提供')).toBeInTheDocument();
+    expect(within(amap).getByText('组合 maps_geo、maps_direction_driving')).toBeInTheDocument();
+    expect(within(amap).getByText('高德地点搜索')).toBeInTheDocument();
+    expect(within(amap).getByText('暂不提供')).toBeInTheDocument();
+    expect(within(amap).getByText('今日搜索类（关键字/周边/详情）额度已用完，约 2 小时后恢复')).toBeInTheDocument();
+    const tencentCard = screen.getByTestId('mcp-server-mcp-2');
+    const tencentModelTools = within(tencentCard).getByRole('region', { name: '腾讯地图提供给模型的工具' });
+    expect(within(tencentModelTools).getByText('placeSuggestion')).toBeInTheDocument();
+    expect(within(tencentCard).getByText('按需加载')).toBeInTheDocument();
+    expect(within(tencentCard).getByText('未授权：ipLocation')).toBeInTheDocument();
+    expect(screen.getByText('通用 MCP 工具共 15 个，超过直接提供上限 10 个，模型需要先用工具搜索按需加载')).toBeInTheDocument();
+  });
+
+  it('模型可用工具取不到时服务列表照常显示', async () => {
+    apiMocks.fetchModelView.mockRejectedValue(new Error('boom'));
+
+    render(<McpServerManager />);
+
+    const card = await screen.findByTestId('mcp-server-mcp-1');
+    expect(within(card).getByText('暂时无法获取模型可用工具')).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: '测试高德地图连接' })).toBeInTheDocument();
   });
 
   it('加载期间保持稳定的管理区域占位', () => {
@@ -124,9 +190,10 @@ describe('McpServerManager', () => {
     expect(within(card).getByText('amap')).toBeInTheDocument();
     expect(within(card).getByText('连接健康')).toBeInTheDocument();
     expect(within(card).getByText('已启用')).toBeInTheDocument();
-    expect(within(card).getByText('2 个已发现工具')).toBeInTheDocument();
-    expect(within(card).getByText('已授权 1 个工具')).toBeInTheDocument();
+    expect(within(card).getByText(/远端工具：已授权 1 \/ 已发现 2/)).toBeInTheDocument();
     expect(within(card).getByText('maps_text_search')).toBeInTheDocument();
+    expect(within(card).getByText('未授权：maps_around_search')).toBeInTheDocument();
+    expect(within(card).getByText('高德地点搜索')).toBeInTheDocument();
     expect(within(card).getByText(/https:\/\/mcp\.amap\.com\/.*tenant/)).toBeInTheDocument();
     expect(within(card).queryByText(server.endpoint_url)).not.toBeInTheDocument();
     expect(within(card).getByText(/最近检测/)).toBeInTheDocument();
@@ -143,13 +210,16 @@ describe('McpServerManager', () => {
 
   it('已发现工具不会自动获得授权', async () => {
     apiMocks.fetch.mockResolvedValue([{ ...server, allowed_tools: [] }]);
+    apiMocks.fetchModelView.mockResolvedValue({
+      ...modelView,
+      servers: { 'mcp-1': { tools: [], hidden_tools: [] } },
+    });
 
     render(<McpServerManager />);
 
     const card = await screen.findByTestId('mcp-server-mcp-1');
-    expect(within(card).getByText('2 个已发现工具')).toBeInTheDocument();
-    expect(within(card).getByText('已授权 0 个工具')).toBeInTheDocument();
-    expect(within(card).getByText('尚未设置白名单，不会向模型开放工具')).toBeInTheDocument();
+    expect(within(card).getByText(/远端工具：已授权 0 \/ 已发现 2/)).toBeInTheDocument();
+    expect(within(card).getByText('尚未授权工具，不会提供给模型')).toBeInTheDocument();
 
     fireEvent.click(within(card).getByRole('button', { name: '编辑高德地图' }));
     expect(screen.getByRole('checkbox', { name: /maps_text_search/ })).not.toBeChecked();

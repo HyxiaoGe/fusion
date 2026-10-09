@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from functools import partial
@@ -45,6 +44,11 @@ from app.services.chat.tool_transcript_store import ToolTranscriptHistory, load_
 from app.services.documents.agent_tools import DocumentToolSet, render_current_documents_context
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_TOOL_NAMES
 from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_TOOL_NAMES
+from app.services.mcp.tool_deferral import (  # noqa: F401 — 阈值常量供测试从本模块引用
+    MAX_DIRECT_MCP_SCHEMA_CHARS,
+    MAX_DIRECT_MCP_TOOLS,
+    should_defer_mcp_tools,
+)
 from app.services.prompt_snapshot_service import freeze_runtime_prompt_bundle, with_call_config_prompt_snapshot
 from app.services.stream.agent_task_policy import resolve_agent_task_policy
 from app.services.stream.dynamic_tool_discovery import (
@@ -74,9 +78,6 @@ VOLCENGINE_PROVIDERS = {"volcengine"}
 MAX_CONTROLLED_OUTPUT_TOKENS = 4096
 # 文档正文整篇放在一次工具调用参数里，供应商默认输出上限可能截断 JSON；仅文档交付时显式放宽。
 DOCUMENT_OUTPUT_MAX_TOKENS = 16384
-# 授权 MCP 工具超过任一阈值时改由 tool_search 按需加载，避免每轮工具列表过长稀释模型注意力。
-MAX_DIRECT_MCP_TOOLS = 10
-MAX_DIRECT_MCP_SCHEMA_CHARS = 20000
 
 
 @dataclass(frozen=True)
@@ -205,15 +206,6 @@ def normalize_controlled_max_tokens(value: Any) -> int | None:
     return min(value, MAX_CONTROLLED_OUTPUT_TOKENS)
 
 
-def _defer_mcp_tools(mcp_tools: list[dict]) -> bool:
-    """MCP 工具过多时改为按需加载；只看数量和体积，不看用户意图。"""
-
-    if len(mcp_tools) > MAX_DIRECT_MCP_TOOLS:
-        return True
-    schema_chars = sum(len(json.dumps(tool, ensure_ascii=False)) for tool in mcp_tools)
-    return schema_chars > MAX_DIRECT_MCP_SCHEMA_CHARS
-
-
 def build_agent_loop_call_config(
     *,
     provider: str,
@@ -267,7 +259,7 @@ def build_agent_loop_call_config(
     ]
     deferred_tool_names = (
         [_tool_definition_name(tool) for tool in mcp_tools]
-        if task_policy.task_mode != "deep_research" and _defer_mcp_tools(mcp_tools)
+        if task_policy.task_mode != "deep_research" and should_defer_mcp_tools(mcp_tools)
         else []
     )
     capability_resolution = resolve_run_capability_route(

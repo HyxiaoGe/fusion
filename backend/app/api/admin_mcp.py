@@ -1,9 +1,11 @@
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_admin_user, get_mcp_server_service
 from app.core.config import settings
+from app.db.database import get_db
 from app.db.models import User as UserModel
 from app.schemas.mcp import (
     McpServerCreate,
@@ -13,6 +15,7 @@ from app.schemas.mcp import (
 )
 from app.schemas.response import success
 from app.services.mcp.agent_tools import default_circuit_breaker
+from app.services.mcp.model_view import build_mcp_model_view
 from app.services.mcp.server_service import McpServerService
 
 router = APIRouter()
@@ -24,6 +27,17 @@ async def list_mcp_servers(
     service: McpServerService = Depends(get_mcp_server_service),
 ):
     return success([_serialize(row) for row in service.list_servers()])
+
+
+@router.get("/model-view")
+def get_mcp_model_view(
+    _admin: UserModel = Depends(get_current_admin_user),
+    db: Session = Depends(get_db),
+    service: McpServerService = Depends(get_mcp_server_service),
+):
+    """各服务此刻实际给模型的工具：直接公告还是按需加载、哪些因额度用尽暂不提供。"""
+
+    return success(build_mcp_model_view(db, rows=list(service.list_servers())))
 
 
 @router.post("/servers")

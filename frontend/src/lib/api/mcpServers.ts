@@ -1,5 +1,5 @@
 import { API_CONFIG } from '../config';
-import type { McpServer, McpServerPayload } from '@/types/mcp';
+import type { McpModelView, McpServer, McpServerPayload } from '@/types/mcp';
 import { apiRequest } from './fetchWithAuth';
 
 const jsonHeaders = { 'Content-Type': 'application/json' };
@@ -7,6 +7,10 @@ const serversPath = `${API_CONFIG.BASE_URL}/api/admin/mcp/servers`;
 
 export const fetchMcpServersAPI = async (): Promise<McpServer[]> => {
   return apiRequest<McpServer[]>(serversPath);
+};
+
+export const fetchMcpModelViewAPI = async (): Promise<McpModelView> => {
+  return apiRequest<McpModelView>(`${API_CONFIG.BASE_URL}/api/admin/mcp/model-view`);
 };
 
 export const createMcpServerAPI = async (payload: McpServerPayload): Promise<McpServer> => {
