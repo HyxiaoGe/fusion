@@ -40,5 +40,6 @@ class ChangelogDetail(ChangelogSummary):
 
 
 class ChangelogPage(BaseModel):
-    items: list[ChangelogSummary]
+    # 更新日志页按时间线完整展开，列表项直接带正文和当前用户的通知 id。
+    items: list[ChangelogDetail]
     next_cursor: str | None

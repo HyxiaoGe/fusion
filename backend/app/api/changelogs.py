@@ -31,7 +31,7 @@ def list_changelogs(
     service: ChangelogService = Depends(get_changelog_service),
     user: User = Depends(get_current_user),
 ):
-    result = service.list_changelogs(cursor=cursor, limit=limit)
+    result = service.list_changelogs(str(user.id), cursor=cursor, limit=limit)
     return success(data=result.model_dump(mode="json"), request_id=request.state.request_id)
 
 
