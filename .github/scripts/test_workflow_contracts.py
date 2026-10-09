@@ -234,11 +234,21 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertEqual(jobs["deploy-api"]["needs"], "changes")
         self.assertEqual(jobs["deploy-api"]["uses"], "./.github/workflows/_deploy-app.yml")
         self.assertEqual(jobs["deploy-api"]["secrets"], "inherit")
-        self.assertEqual(jobs["deploy-ui"]["needs"], ["changes", "deploy-api"])
+        self.assertEqual(jobs["deploy-api"]["with"]["stage"], "all")
+        # UI 镜像构建与 API 并行；UI 上线必须等 API 部署成功且 UI 镜像已推送。
+        self.assertEqual(jobs["publish-ui"]["needs"], "changes")
+        self.assertEqual(jobs["publish-ui"]["uses"], "./.github/workflows/_deploy-app.yml")
+        self.assertEqual(jobs["publish-ui"]["secrets"], "inherit")
+        self.assertEqual(jobs["publish-ui"]["with"]["stage"], "publish")
+        self.assertEqual(jobs["deploy-ui"]["needs"], ["changes", "deploy-api", "publish-ui"])
         self.assertEqual(jobs["deploy-ui"]["uses"], "./.github/workflows/_deploy-app.yml")
         self.assertEqual(jobs["deploy-ui"]["secrets"], "inherit")
+        self.assertEqual(jobs["deploy-ui"]["with"]["stage"], "deploy")
         self.assertIn("always()", jobs["deploy-ui"]["if"])
         self.assertIn("needs.deploy-api.result == 'success'", jobs["deploy-ui"]["if"])
+        self.assertIn("needs.publish-ui.result == 'success'", jobs["deploy-ui"]["if"])
+        for key in ("deploy_sha", "rollback_sha", "rollback_reason"):
+            self.assertEqual(jobs["publish-ui"]["with"][key], jobs["deploy-ui"]["with"][key])
 
     def test_task4_parameterized_workflow_preserves_per_app_contracts(self) -> None:
         self.assertTrue(APP_WORKFLOW_PATH.exists(), "Task 4 必须提供参数化 _deploy-app.yml")
@@ -255,6 +265,7 @@ class WorkflowContractTests(unittest.TestCase):
                 "deploy_sha",
                 "rollback_sha",
                 "rollback_reason",
+                "stage",
             },
         )
 
@@ -273,6 +284,15 @@ class WorkflowContractTests(unittest.TestCase):
                 True,
                 "postgres,redis,litellm,flyai-adapter,knowledge-worker",
                 "api-and-adapter-image-identities",
+            ),
+            (
+                "publish-ui",
+                "ui",
+                "seanfield/fusion-ui",
+                "http://127.0.0.1:3000/",
+                False,
+                "api",
+                "ui-image-identity",
             ),
             (
                 "deploy-ui",
@@ -368,6 +388,9 @@ class WorkflowContractTests(unittest.TestCase):
             self.ui_raw["jobs"]["deploy-dev"]["needs"],
             ["validate-parameters", "publish"],
         )
+        self.assertIn("inputs.stage != 'deploy'", self.ui_raw["jobs"]["publish"]["if"])
+        self.assertIn("inputs.stage != 'publish'", self.ui_raw["jobs"]["deploy-dev"]["if"])
+        self.assertIn("inputs.stage == 'deploy'", self.ui_raw["jobs"]["deploy-dev"]["if"])
         self.assertIn(
             "needs.validate-parameters.result == 'success'",
             self.ui_raw["jobs"]["deploy-dev"]["if"],

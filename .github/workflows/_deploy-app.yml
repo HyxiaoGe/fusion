@@ -39,6 +39,10 @@ on:
         description: 手动回滚原因；设置 rollback_sha 时必填
         required: false
         type: string
+      stage:
+        description: all=构建并部署；UI 可拆为 publish（只构建推送镜像）与 deploy（只部署已推送镜像）两次调用
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -54,6 +58,15 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: Validate deployment stage
+        env:
+          DEPLOY_APP: ${{ inputs.app }}
+          DEPLOY_STAGE: ${{ inputs.stage }}
+        run: |
+          case "${DEPLOY_APP}:${DEPLOY_STAGE}" in
+            api:all | ui:all | ui:publish | ui:deploy) ;;
+            *) printf 'stage 与应用不匹配: %s:%s\n' "${DEPLOY_APP}" "${DEPLOY_STAGE}" >&2; exit 1 ;;
+          esac
       - name: Validate application deployment contract
         env:
           DEPLOY_APP: ${{ inputs.app }}
@@ -96,4 +109,5 @@ jobs:
       deploy_sha: ${{ inputs.deploy_sha }}
       rollback_sha: ${{ inputs.rollback_sha }}
       rollback_reason: ${{ inputs.rollback_reason }}
+      stage: ${{ inputs.stage }}
     secrets: inherit
