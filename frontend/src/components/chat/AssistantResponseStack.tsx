@@ -60,6 +60,8 @@ interface AssistantResponseStackProps {
 const EMPTY_DOCUMENT_BLOCKS: DocumentBlock[] = [];
 const EMPTY_GENERATED_IMAGES: GeneratedImageBlock[] = [];
 const EMPTY_MAP_DATA_SOURCES: string[] = [];
+// 地图来源只在回答结束后标注，生成中（含思考、调用工具阶段）不提前出现。
+const TERMINAL_ACTIVITY_KINDS: ReadonlySet<AssistantActivity['kind']> = new Set(['completed', 'failed', 'interrupted']);
 
 function AssistantResponseStack({
   reasoning,
@@ -154,7 +156,7 @@ function AssistantResponseStack({
           onCitationClick={markdown.onCitationClick}
         />
 
-        {mapDataSources.length > 0 && !showStreamingCursor ? (
+        {mapDataSources.length > 0 && TERMINAL_ACTIVITY_KINDS.has(activity.kind) ? (
           <p data-testid="assistant-map-data-sources" className="mt-2 text-xs text-muted-foreground">
             地图数据由 {mapDataSources.join('、')} 提供
           </p>

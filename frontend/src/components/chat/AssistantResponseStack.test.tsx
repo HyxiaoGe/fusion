@@ -645,24 +645,29 @@ describe('AssistantResponseStack', () => {
   });
 
   it('回答结束后在正文下方标注地图数据来源，生成中不显示', () => {
-    const renderStack = (mapDataSources: string[], showStreamingCursor = false) => (
+    const renderStack = (mapDataSources: string[], kind: AssistantActivity['kind'] = 'completed') => (
       <AssistantResponseStack
         reasoning={{ shouldRender: false, content: '', isVisible: false, isStreaming: false, onToggle: vi.fn() }}
-        activity={activity({ kind: 'completed', hasText: true })}
+        activity={activity({ kind, hasText: true })}
         answerEvidence={null}
         mapDataSources={mapDataSources}
         onSourceClick={vi.fn()}
         onOpenSources={vi.fn()}
         markdown={{ content: '回答', sources: [], onCitationClick: undefined }}
-        showStreamingCursor={showStreamingCursor}
+        showStreamingCursor={false}
       />
     );
     const { rerender } = render(renderStack(['高德地图', '腾讯地图']));
 
     expect(screen.getByTestId('assistant-map-data-sources')).toHaveTextContent('地图数据由 高德地图、腾讯地图 提供');
 
-    rerender(renderStack(['腾讯地图'], true));
-    expect(screen.queryByTestId('assistant-map-data-sources')).toBeNull();
+    for (const kind of ['reasoning', 'tool_running', 'analyzing', 'answering'] as const) {
+      rerender(renderStack(['腾讯地图'], kind));
+      expect(screen.queryByTestId('assistant-map-data-sources')).toBeNull();
+    }
+
+    rerender(renderStack(['腾讯地图'], 'interrupted'));
+    expect(screen.getByTestId('assistant-map-data-sources')).toHaveTextContent('地图数据由 腾讯地图 提供');
 
     rerender(renderStack([]));
     expect(screen.queryByTestId('assistant-map-data-sources')).toBeNull();
