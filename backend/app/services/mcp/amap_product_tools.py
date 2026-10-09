@@ -792,22 +792,14 @@ class AmapProductToolHandler(BaseToolHandler):
     ) -> dict[str, Any]:
         """模型从地点搜索结果里选定的地点按编号取坐标，不再按名称重新解析。"""
 
-        try:
-            payload = await self._call("maps_search_detail", {"id": place_id}, stats)
-        except McpClientError as error:
-            if error.code != "tool_error":
-                raise
-            payload = None
-        endpoint = (
-            _extract_endpoint_detail(
-                payload,
-                label=label,
-                expected_poi_id=place_id,
-                expected_city=city,
-                require_detail_city=city is None,
-            )
-            if payload is not None
-            else None
+        # 远端失败（含额度用尽）照常按工具不可用上报，不能说成编号无效误导模型。
+        payload = await self._call("maps_search_detail", {"id": place_id}, stats)
+        endpoint = _extract_endpoint_detail(
+            payload,
+            label=label,
+            expected_poi_id=place_id,
+            expected_city=city,
+            require_detail_city=city is None,
         )
         if endpoint is None:
             raise McpClientError(
