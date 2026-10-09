@@ -392,7 +392,17 @@ const actionDocuments = [
     expect(releasePublishBlock).toContain('name: dev');
     expect(releasePublishBlock).toContain('deployment: false');
     expect(releasePublishBlock).toContain(loginAction);
-    expect(releasePublishBlock).toContain('docker push $image');
+    // 构建直接推送镜像：ACR 登录必须在构建之前写入本 job 的 DOCKER_CONFIG。
+    expect(windowsDockerBuildAction).toContain('"--push"');
+    expect(windowsDockerBuildAction).not.toContain('"--load"');
+    expect(releasePublishBlock.indexOf('name: Configure Docker directories')).toBeGreaterThan(-1);
+    expect(releasePublishBlock.indexOf('name: Configure Docker directories')).toBeLessThan(
+      releasePublishBlock.indexOf('name: Login to ACR'),
+    );
+    expect(releasePublishBlock.indexOf('name: Login to ACR')).toBeLessThan(
+      releasePublishBlock.indexOf('name: Build and push Docker image'),
+    );
+    expect(releasePublishBlock).not.toContain('name: Push Docker image');
     expect(releasePublishBlock).toContain('persist-credentials: false');
   });
 
@@ -565,8 +575,7 @@ const actionDocuments = [
     expect(deployJob?.if).toContain('inputs.rollback_sha');
 
     expect(releasePublishBlock).toContain('Login to ACR');
-    expect(releasePublishBlock).toContain('Build Docker image');
-    expect(releasePublishBlock).toContain('Push Docker image');
+    expect(releasePublishBlock).toContain('Build and push Docker image');
   });
 
   it('候选部署前 fail-closed 捕获旧容器镜像引用与镜像 ID', () => {
