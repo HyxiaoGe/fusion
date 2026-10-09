@@ -148,14 +148,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Build Docker image
-        uses: ./frontend/.github/actions/windows-docker-build
-        with:
-          image-name: ${{ env.IMAGE_NAME }}
-          image-tag: ${{ inputs.deploy_sha }}
-          auth-service-base-url: ${{ vars.NEXT_PUBLIC_AUTH_SERVICE_BASE_URL }}
-          auth-service-client-id: ${{ vars.NEXT_PUBLIC_AUTH_SERVICE_CLIENT_ID }}
-          auth-callback-url: ${{ vars.NEXT_PUBLIC_AUTH_CALLBACK_URL }}
+      - name: Configure Docker directories
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          $dockerConfig = Join-Path $env:RUNNER_TEMP ".docker-$env:GITHUB_RUN_ID-$env:GITHUB_JOB"
+          $buildxConfig = Join-Path (Split-Path $env:RUNNER_TEMP -Parent) ".buildx-fusion-ui"
+          New-Item -ItemType Directory -Force -Path $dockerConfig | Out-Null
+          New-Item -ItemType Directory -Force -Path $buildxConfig | Out-Null
+          "DOCKER_CONFIG=$dockerConfig" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "BUILDX_CONFIG=$buildxConfig" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Login to ACR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -165,26 +166,14 @@ jobs:
           password: ${{ secrets.ACR_PASSWORD }}
           logout: false
 
-      - name: Push Docker image
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
-        run: |
-          $image = "${env:IMAGE_NAME}:${env:DEPLOY_SHA}"
-          for ($attempt = 1; $attempt -le 4; $attempt++) {
-            docker push $image
-            $exitCode = $LASTEXITCODE
-
-            if ($exitCode -eq 0) {
-              exit 0
-            }
-
-            if ($attempt -eq 4) {
-              exit $exitCode
-            }
-
-            $delay = 15 * $attempt
-            Write-Host "docker push 失败，第 $attempt 次，${delay}s 后重试..."
-            Start-Sleep -Seconds $delay
-          }
+      - name: Build and push Docker image
+        uses: ./frontend/.github/actions/windows-docker-build
+        with:
+          image-name: ${{ env.IMAGE_NAME }}
+          image-tag: ${{ inputs.deploy_sha }}
+          auth-service-base-url: ${{ vars.NEXT_PUBLIC_AUTH_SERVICE_BASE_URL }}
+          auth-service-client-id: ${{ vars.NEXT_PUBLIC_AUTH_SERVICE_CLIENT_ID }}
+          auth-callback-url: ${{ vars.NEXT_PUBLIC_AUTH_CALLBACK_URL }}
 
       - name: Cleanup local Docker artifacts
         if: always()

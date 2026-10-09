@@ -1,12 +1,12 @@
 name: Windows Docker build
-description: 在 Windows Runner 上构建 Fusion UI 生产镜像（测试由 Fusion CI 跑，部署不重复）
+description: 在 Windows Runner 上构建并直接推送 Fusion UI 生产镜像（测试由 Fusion CI 跑，部署不重复）
 
 inputs:
   image-name:
-    description: 本地镜像名称
+    description: 推送的镜像名称
     required: true
   image-tag:
-    description: 本地镜像标签
+    description: 推送的镜像标签
     required: true
   auth-service-base-url:
     description: 认证服务公开地址
@@ -24,15 +24,13 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Configure Docker credential directory
+    - name: Require prepared Docker directories
       shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
       run: |
-        $dockerConfig = Join-Path $env:RUNNER_TEMP ".docker-$env:GITHUB_RUN_ID-$env:GITHUB_JOB"
-        $buildxConfig = Join-Path (Split-Path $env:RUNNER_TEMP -Parent) ".buildx-fusion-ui"
-        New-Item -ItemType Directory -Force -Path $dockerConfig | Out-Null
-        New-Item -ItemType Directory -Force -Path $buildxConfig | Out-Null
-        "DOCKER_CONFIG=$dockerConfig" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-        "BUILDX_CONFIG=$buildxConfig" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+        # 构建直接推送镜像，ACR 登录必须先写入本 job 的 DOCKER_CONFIG（见 _deploy-ui.yml）。
+        if (-not $env:DOCKER_CONFIG -or -not $env:BUILDX_CONFIG) {
+          throw "DOCKER_CONFIG / BUILDX_CONFIG 未配置，需先执行 Configure Docker directories 与 Login to ACR"
+        }
 
     - name: Verify Docker access
       shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
@@ -96,7 +94,7 @@ runs:
         docker ps
         exit 1
 
-    - name: Build Docker image
+    - name: Build and push Docker image
       shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
       env:
         BUILD_IMAGE_NAME: ${{ inputs.image-name }}
@@ -130,7 +128,7 @@ runs:
           "buildx", "build",
           "--builder", $builder,
           "--target", "production",
-          "--load",
+          "--push",
           "--progress", "plain",
           "--provenance=false",
           "--build-arg", "NEXT_PUBLIC_AUTH_SERVICE_BASE_URL=$env:NEXT_PUBLIC_AUTH_SERVICE_BASE_URL",

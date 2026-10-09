@@ -46,7 +46,8 @@ ENV NEXT_PUBLIC_AUTH_SERVICE_BASE_URL=${NEXT_PUBLIC_AUTH_SERVICE_BASE_URL} \
     NEXT_PUBLIC_AUTH_CALLBACK_URL=${NEXT_PUBLIC_AUTH_CALLBACK_URL} \
     API_BACKEND_URL=${API_BACKEND_URL}
 
-RUN npm run build
+# .next/cache 走 BuildKit 缓存挂载：同一 builder 的下次构建可复用编译缓存，且不进入镜像层。
+RUN --mount=type=cache,target=/app/.next/cache npm run build
 
 
 FROM node:20-alpine AS production-deps
