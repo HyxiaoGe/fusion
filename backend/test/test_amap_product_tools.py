@@ -1653,7 +1653,6 @@ class AmapRouteCompareTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_route_unresolved_place_id_fails_with_its_own_error(self):
         cases = (
-            ("tool_error", McpClientError("tool_error", "boom")),
             ("other_id", mcp_payload({"id": "other", "location": "121.490,31.240", "city": "上海市"})),
             ("city_mismatch", mcp_payload({"id": "B00155FMEM", "location": "121.490,31.240", "city": "上海市"})),
         )
@@ -1678,6 +1677,24 @@ class AmapRouteCompareTests(unittest.IsolatedAsyncioTestCase):
                 context = handler.format_llm_context(result)
                 self.assertIn(render_runtime_prompt("amap.place_id_unresolved"), context)
                 self.assertIn("B00155FMEM", context)
+
+    async def test_route_place_id_upstream_failure_is_reported_as_unavailable(self):
+        # 高德搜索类额度用尽时详情接口返回 USER_DAILY_QUERY_OVER_LIMIT，不能报成编号无效。
+        handler, executor = build_handler(
+            "route_compare",
+            {"maps_search_detail": [McpClientError("tool_error", "boom")]},
+        )
+
+        result = await handler.execute(
+            route_compare_args(
+                {"origin": "外滩", "origin_place_id": "B00155FMEM", "destination": "人民广场", "modes": ["driving"]}
+            )
+        )
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.data["error_code"], "tool_error")
+        self.assertEqual([call[0] for call in executor.calls], ["maps_search_detail"])
+        self.assertIn(render_runtime_prompt("amap.place_route_unavailable"), handler.format_llm_context(result))
 
     async def test_route_place_id_arguments_are_validated(self):
         for extra in (

@@ -378,6 +378,39 @@ class McpAgentToolCatalogTests(unittest.TestCase):
             ["product:local_place_search", "product:route_compare"],
         )
 
+    def test_generic_mcp_tools_cannot_crowd_out_amap_products(self):
+        # dev 实例：腾讯地图 12 个通用工具的 id 排在高德前面，按 id 顺序注册会占满上限，
+        # 高德产品工具被静默丢弃。产品化工具先注册，通用工具只用剩余名额。
+        from app.services.mcp.amap_product_tools import AMAP_PRODUCT_REMOTE_DEPENDENCIES
+
+        amap_names = sorted(set().union(*AMAP_PRODUCT_REMOTE_DEPENDENCIES.values()))
+        amap = build_row(
+            id="z-amap",
+            provider="amap",
+            endpoint_url="https://mcp.amap.com/mcp",
+            allowed_tools=amap_names,
+            discovered_tools=[
+                {"name": name, "description": name, "input_schema": {"type": "object"}} for name in amap_names
+            ],
+        )
+        generic_names = [f"tool_{index}" for index in range(4)]
+        generic = build_row(
+            id="a-generic",
+            provider="tencent_map",
+            endpoint_url="https://mcp.map.qq.com/mcp",
+            allowed_tools=generic_names,
+            discovered_tools=[
+                {"name": name, "description": name, "input_schema": {"type": "object"}} for name in generic_names
+            ],
+        )
+
+        tool_set = load_tools([generic, amap], limits=McpAgentToolLimits(max_tools=3))
+
+        names = [definition["function"]["name"] for definition in tool_set.definitions]
+        self.assertEqual(names[:2], ["local_place_search", "route_compare"])
+        self.assertEqual(len(names), 3)
+        self.assertEqual(tool_set.audit_bindings[2]["server_id"], "a-generic")
+
     def test_multiple_enabled_official_amap_rows_fail_closed_without_affecting_other_providers(self):
         amap_rows = [
             build_row(

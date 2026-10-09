@@ -174,7 +174,8 @@ _LOCAL_NO_NETWORK_ERROR_CODES = frozenset(
 class McpAgentToolLimits:
     """单次 Agent run 的 MCP 工具与上下文硬预算。"""
 
-    max_tools: int = 16
+    # 通用 MCP 工具超过直连阈值时改为 tool_search 按需加载，这里只是总量硬上限。
+    max_tools: int = 32
     max_definition_bytes: int = 65_536
     max_llm_context_bytes: int = 12_000
     max_tool_calls_per_server_per_run: int = 64
@@ -924,7 +925,14 @@ def load_mcp_agent_tools(
     run_budget = McpAgentToolRunBudget(
         max_calls_per_server=resolved_limits.max_tool_calls_per_server_per_run,
     )
-    rows = sorted(repository_factory(db).list_enabled(), key=lambda row: str(row.id))
+    # 产品化工具（高德、生图）先占位，通用 MCP 工具再多也不能把它们挤出本次 run。
+    rows = sorted(
+        repository_factory(db).list_enabled(),
+        key=lambda row: (
+            not (is_image_service_row(row) or is_official_amap_endpoint(str(row.endpoint_url))),
+            str(row.id),
+        ),
+    )
     definitions: list[dict[str, Any]] = []
     handlers: dict[str, BaseToolHandler] = {}
     audit_bindings: list[dict[str, Any]] = []
@@ -1003,9 +1011,11 @@ def load_mcp_agent_tools(
             continue
         for snapshot in _iter_authorized_snapshots(row):
             if len(definitions) >= resolved_limits.max_tools:
+                logger.warning("MCP 工具数量达到上限，服务 %s 的其余工具本次 run 不注册", row.id)
                 break
             definition = build_agent_tool_definition(row, snapshot)
             if len(canonical_json_bytes([*definitions, definition])) > resolved_limits.max_definition_bytes:
+                logger.warning("MCP 工具定义体积超出上限，服务 %s 的工具 %s 本次 run 不注册", row.id, snapshot["name"])
                 continue
             alias = definition["function"]["name"]
             if alias in handlers:
