@@ -8,15 +8,17 @@ import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useHasMounted } from '@/hooks/useHasMounted';
 import { buildChatConversationPath } from '@/lib/routes/chatRoutes';
-import { buildChangelogPath } from '@/lib/routes/changelogRoutes';
 import { cn } from '@/lib/utils';
 import type { NotificationItem } from '@/lib/api/notifications';
+import { useAppDispatch } from '@/redux/hooks';
+import { openChangelogDialog } from '@/redux/slices/settingsSlice';
 import { useNotifications } from './NotificationsProvider';
 
 export default function NotificationCenter() {
   const hasMounted = useHasMounted();
   const notifications = useNotifications();
   const router = useRouter();
+  const dispatch = useAppDispatch();
   const { t, i18n } = useTranslation();
   const [open, setOpen] = useState(false);
   const navigatingRef = useRef(false);
@@ -41,7 +43,7 @@ export default function NotificationCenter() {
     navigatingRef.current = true;
     setOpen(false);
     if (item.target.type === 'changelog') {
-      router.push(buildChangelogPath(item.target.changelog_id));
+      dispatch(openChangelogDialog({ changelogId: item.target.changelog_id }));
       return;
     }
     // 同一记录再次点击也要重新定位，不能被相同 URL 的展示状态吞掉。

@@ -810,7 +810,7 @@
     "loginRequired": "Sign in to view product updates.",
     "empty": "No product updates yet",
     "loadFailed": "Could not load this update. Try again.",
-    "backToChat": "Back to chat",
+    "close": "Close product updates",
     "contents": "Versions"
   }
 }

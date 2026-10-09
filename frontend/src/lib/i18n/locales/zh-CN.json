@@ -804,7 +804,7 @@
     "loginRequired": "请先登录后查看更新日志。",
     "empty": "暂无更新日志",
     "loadFailed": "更新日志加载失败，请重试。",
-    "backToChat": "返回对话",
+    "close": "关闭更新日志",
     "contents": "版本目录"
   }
 }
