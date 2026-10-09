@@ -1,6 +1,7 @@
 import type {
   ContentBlock,
   ContentFilteredBlock,
+  DataSourceBlock,
   DocumentBlock,
   FileBlock,
   GeneratedImageBlock,
@@ -37,6 +38,7 @@ const CONTENT_BLOCK_CONTRACTS: readonly ContentBlockContract[] = [
   { type: 'knowledge_evidence', schemaVersion: 1, decode: decodeKnowledgeEvidenceBlock },
   { type: 'document', schemaVersion: 1, decode: decodeDocumentBlock },
   { type: 'generated_image', schemaVersion: 1, decode: decodeGeneratedImageBlock },
+  { type: 'data_source', schemaVersion: 1, decode: decodeDataSourceBlock },
   { type: 'content_filtered', schemaVersion: 1, decode: decodeContentFilteredBlock },
   ...STRUCTURED_TOOL_RESULT_CONTRACTS.map(contract => ({
     type: contract.type,
@@ -367,6 +369,22 @@ function decodeContentFilteredBlock(source: Record<string, unknown>): ContentFil
   const id = requiredString(source.id);
   if (!id) return null;
   return { type: 'content_filtered', id, schema_version: 1 };
+}
+
+function decodeDataSourceBlock(source: Record<string, unknown>): DataSourceBlock | null {
+  const id = requiredString(source.id);
+  const provider = boundedRequiredString(source.provider, 40);
+  const label = boundedRequiredString(source.label, 40);
+  if (!id || source.category !== 'map' || !provider || !label) return null;
+  return {
+    type: 'data_source',
+    id,
+    schema_version: 1,
+    category: 'map',
+    provider,
+    label,
+    ...optionalField('tool_call_log_id', optionalString(source.tool_call_log_id)),
+  };
 }
 
 function decodeGeneratedImageBlock(source: Record<string, unknown>): GeneratedImageBlock | null {

@@ -116,6 +116,7 @@ describe('contentBlockRegistry', () => {
       { type: 'knowledge_evidence', schemaVersion: 1 },
       { type: 'document', schemaVersion: 1 },
       { type: 'generated_image', schemaVersion: 1 },
+      { type: 'data_source', schemaVersion: 1 },
       { type: 'content_filtered', schemaVersion: 1 },
       { type: 'place_results', schemaVersion: 1 },
       { type: 'route_results', schemaVersion: 1 },
@@ -125,6 +126,31 @@ describe('contentBlockRegistry', () => {
       { type: 'itinerary_results', schemaVersion: 1 },
       { type: 'unsupported_result', schemaVersion: null },
     ]);
+  });
+
+  it('解码地图来源署名块，拒绝未知类别与缺字段', () => {
+    expect(normalizeContentBlock({
+      type: 'data_source',
+      id: 'blk_src',
+      schema_version: 1,
+      category: 'map',
+      provider: 'tencent_map',
+      label: '腾讯地图',
+      tool_call_log_id: 'log-1',
+      payload: 'ignored',
+    })).toEqual({
+      type: 'data_source',
+      id: 'blk_src',
+      schema_version: 1,
+      category: 'map',
+      provider: 'tencent_map',
+      label: '腾讯地图',
+      tool_call_log_id: 'log-1',
+    });
+    expect(normalizeContentBlock({ type: 'data_source', id: 'x', schema_version: 1, category: 'docs', provider: 'p', label: 'l' })?.type)
+      .toBe('unsupported_result');
+    expect(normalizeContentBlock({ type: 'data_source', id: 'x', schema_version: 1, category: 'map', provider: 'p' })?.type)
+      .toBe('unsupported_result');
   });
 
   it('解码服务商内容审核拦截块，只保留标识字段', () => {

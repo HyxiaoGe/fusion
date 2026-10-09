@@ -860,6 +860,20 @@ class GeneratedImageBlock(BaseModel):
     tool_call_log_id: str = Field(default="", max_length=160)
 
 
+class DataSourceBlock(BaseModel):
+    """本轮某次外部数据工具调用的服务商署名；只记来源，不持久化远端返回内容。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["data_source"]
+    id: str = Field(default_factory=lambda: f"blk_{uuid4().hex[:12]}", max_length=160)
+    schema_version: Literal[1]
+    category: Literal["map"]
+    provider: str = Field(min_length=1, max_length=40)
+    label: str = Field(min_length=1, max_length=40)
+    tool_call_log_id: str = Field(default="", max_length=160)
+
+
 class ContentFilteredBlock(BaseModel):
     """模型服务商的内容审核拦截了这一轮：整条回复只保留这一块，前端显示固定提示，不支持重新生成。"""
 
@@ -897,6 +911,7 @@ ContentBlock = Union[
     ItineraryResultsBlock,
     DocumentBlock,
     GeneratedImageBlock,
+    DataSourceBlock,
     ContentFilteredBlock,
 ]
 

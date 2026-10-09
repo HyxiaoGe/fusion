@@ -18,6 +18,7 @@ from app.core.config import settings
 from app.core.logger import app_logger as logger
 from app.db.database import SessionLocal
 from app.db.mcp_server_repository import McpServerRepository
+from app.schemas.chat import DataSourceBlock
 from app.services.mcp.amap_product_tools import (
     AMAP_PRODUCT_DEFINITIONS,
     AMAP_PRODUCT_REMOTE_DEPENDENCIES,
@@ -48,6 +49,7 @@ from app.services.mcp.image_service_tools import (
     is_image_service_row,
 )
 from app.services.mcp.provider_profiles import (
+    endpoint_data_source,
     is_official_amap_endpoint,
     is_official_context7_endpoint,
     tool_is_allowed_for_endpoint,
@@ -203,6 +205,8 @@ class McpAgentToolBinding:
     config_version: int
     tool_label: str
     definition_sha256: str
+    # (category, provider, label)：仅按端点域名认定的数据服务商才有，用于回答里的来源署名
+    data_source: tuple[str, str, str] | None = None
 
     def to_audit_dict(self) -> dict[str, Any]:
         """只输出允许持久化的绑定元数据。"""
@@ -607,9 +611,20 @@ class McpAgentToolHandler(BaseToolHandler):
             return self._failed_result(started_at, error_code="internal_error")
 
     def build_content_block(self, result: ToolResult, block_id: str, log_id: str):
-        """MVP 不持久化任意 MCP 返回内容。"""
+        """不持久化任意 MCP 返回内容；已知数据服务商只留一条来源署名。"""
 
-        return None
+        if result.status != "success" or self.binding.data_source is None:
+            return None
+        category, provider, label = self.binding.data_source
+        return DataSourceBlock(
+            type="data_source",
+            id=block_id,
+            schema_version=1,
+            category=category,
+            provider=provider,
+            label=label,
+            tool_call_log_id=log_id,
+        )
 
     def format_llm_context(
         self,
@@ -1240,6 +1255,7 @@ def _build_binding(row, remote_tool_name: str, alias: str, definition_sha256: st
         config_version=int(row.config_version),
         tool_label=build_tool_label(row.name, remote_tool_name),
         definition_sha256=definition_sha256,
+        data_source=endpoint_data_source(str(row.endpoint_url)),
     )
 
 

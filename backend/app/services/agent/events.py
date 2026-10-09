@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.schemas.chat import (
     ContentFilteredBlock,
     ContextStatus,
+    DataSourceBlock,
     DocumentBlock,
     GeneratedImageBlock,
     KnowledgeEvidenceBlock,
@@ -351,7 +352,12 @@ class ContentBlockUpserted(AgentEventBase):
     type: Literal["content_block_upserted"]
     protocol_version: Literal[2]
     content_block: (
-        ProductResultBlock | KnowledgeEvidenceBlock | DocumentBlock | GeneratedImageBlock | ContentFilteredBlock
+        ProductResultBlock
+        | KnowledgeEvidenceBlock
+        | DocumentBlock
+        | GeneratedImageBlock
+        | DataSourceBlock
+        | ContentFilteredBlock
     )
 
 

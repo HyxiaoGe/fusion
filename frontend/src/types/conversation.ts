@@ -168,6 +168,17 @@ export interface GeneratedImageBlock {
   tool_call_log_id?: string;
 }
 
+/** 外部数据工具（目前只有腾讯地图 MCP）的来源署名；不含远端返回内容。 */
+export interface DataSourceBlock {
+  type: 'data_source';
+  id: string;
+  schema_version: 1;
+  category: 'map';
+  provider: string;
+  label: string;
+  tool_call_log_id?: string;
+}
+
 export interface ProviderPlacePhoto {
   url?: string;
   title?: string | null;
@@ -478,6 +489,7 @@ export type ContentBlock =
   | KnowledgeEvidenceBlock
   | DocumentBlock
   | GeneratedImageBlock
+  | DataSourceBlock
   | ContentFilteredBlock
   | StructuredToolResultBlock;
 
