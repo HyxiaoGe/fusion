@@ -39,6 +39,8 @@ vi.mock('@/components/layouts/MainLayout', () => ({
   ),
 }));
 
+vi.mock('@/components/changelogs/ChangelogDialog', () => ({ default: () => null }));
+
 vi.mock('@/components/chat/ChatSidebar', () => ({
   default: ({ onNewChat, isNewChatActive }: { onNewChat: () => void; isNewChatActive?: boolean }) => {
     chatSidebarMock({ isNewChatActive });

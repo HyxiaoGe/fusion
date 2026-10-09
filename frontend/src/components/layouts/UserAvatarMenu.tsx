@@ -10,15 +10,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { openSettingsDialog } from "@/redux/slices/settingsSlice";
+import { openChangelogDialog, openSettingsDialog } from "@/redux/slices/settingsSlice";
 import { logoutWithSso } from "@/redux/slices/authSlice";
 import { resetConversationState } from "@/redux/slices/conversationSlice";
 import { resetFileUploadState } from "@/redux/slices/fileUploadSlice";
 import { resetStreamState } from "@/redux/slices/streamSlice";
 import { Settings, LogOut, LogIn, ShieldCheck, ScrollText } from "lucide-react";
-import Link from "next/link";
 import { useTranslation } from "react-i18next";
-import { CHANGELOG_PATH } from "@/lib/routes/changelogRoutes";
 import { useRef, useState } from "react";
 import { useSettingsDialogOpener } from "@/components/settings/SettingsDialogFocusContext";
 import { LoginDialog } from "@/components/auth/LoginDialog";
@@ -29,7 +27,7 @@ export function UserAvatarMenu() {
   const { t } = useTranslation();
   const dispatch = useAppDispatch();
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const openingSettings = useRef(false);
+  const openingDialog = useRef(false);
   const { captureOpener } = useSettingsDialogOpener();
   const { isAuthenticated, user, sessionResolved, status: authStatus } = useAppSelector((state) => state.auth);
   const [isLoginDialogOpen, setIsLoginDialogOpen] = useState(false);
@@ -57,8 +55,13 @@ export function UserAvatarMenu() {
 
   const handleOpenSettings = () => {
     captureOpener(triggerRef.current);
-    openingSettings.current = true;
+    openingDialog.current = true;
     dispatch(openSettingsDialog({}));
+  };
+
+  const handleOpenChangelog = () => {
+    openingDialog.current = true;
+    dispatch(openChangelogDialog({}));
   };
 
   const handleLogout = () => {
@@ -102,7 +105,7 @@ export function UserAvatarMenu() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-56" align="end" forceMount onCloseAutoFocus={(event) => {
-            if (openingSettings.current) { event.preventDefault(); openingSettings.current = false; }
+            if (openingDialog.current) { event.preventDefault(); openingDialog.current = false; }
           }}>
           {/* 用户信息 */}
           <DropdownMenuItem>
@@ -133,11 +136,9 @@ export function UserAvatarMenu() {
             <span>设置</span>
           </DropdownMenuItem>
 
-          <DropdownMenuItem asChild>
-            <Link href={CHANGELOG_PATH} data-sidebar-navigation className="flex cursor-pointer items-center">
-              <ScrollText className="mr-2 h-4 w-4" aria-hidden="true" />
-              <span>{t('changelogs.title')}</span>
-            </Link>
+          <DropdownMenuItem onSelect={handleOpenChangelog} className="flex cursor-pointer items-center">
+            <ScrollText className="mr-2 h-4 w-4" aria-hidden="true" />
+            <span>{t('changelogs.title')}</span>
           </DropdownMenuItem>
 
           {authStatus === 'succeeded' && user?.is_superuser ? (

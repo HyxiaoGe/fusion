@@ -4,6 +4,9 @@ export interface SettingsState {
   // 弹窗相关状态
   isSettingsDialogOpen: boolean;
   activeSettingsTab: string;
+  // 更新日志弹窗：focusChangelogId 为从通知进入时要定位的版本
+  isChangelogDialogOpen: boolean;
+  focusChangelogId: string | null;
   // 其他设置项...
 }
 
@@ -11,6 +14,8 @@ const initialState: SettingsState = {
   // 弹窗相关状态
   isSettingsDialogOpen: false,
   activeSettingsTab: 'general',
+  isChangelogDialogOpen: false,
+  focusChangelogId: null,
   // 其他设置的初始值...
 };
 
@@ -34,6 +39,14 @@ const settingsSlice = createSlice({
     closeSettingsDialog: (state) => {
       state.isSettingsDialogOpen = false;
     },
+    openChangelogDialog: (state, action: PayloadAction<{ changelogId?: string }>) => {
+      state.isChangelogDialogOpen = true;
+      state.focusChangelogId = action.payload.changelogId ?? null;
+    },
+    closeChangelogDialog: (state) => {
+      state.isChangelogDialogOpen = false;
+      state.focusChangelogId = null;
+    },
     // 其他设置的reducer...
   },
 });
@@ -43,5 +56,7 @@ export const {
   setActiveSettingsTab,
   openSettingsDialog,
   closeSettingsDialog,
+  openChangelogDialog,
+  closeChangelogDialog,
 } = settingsSlice.actions;
 export default settingsSlice.reducer;

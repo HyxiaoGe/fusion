@@ -282,6 +282,16 @@ describe('UserAvatarMenu', () => {
 
     fireEvent.pointerDown(screen.getByRole('button'), { button: 0, ctrlKey: false });
     expect(screen.queryByText('管理中心')).toBeNull();
-    expect(screen.getByRole('menuitem', { name: '更新日志' })).toHaveAttribute('href', '/updates');
+    expect(screen.getByRole('menuitem', { name: '更新日志' })).not.toHaveAttribute('href');
+  });
+
+  it('更新日志在当前页面打开弹窗，不跳转页面', () => {
+    const { store } = renderMenu({
+      isAuthenticated: true, status: 'succeeded', error: null, sessionResolved: true,
+      user: { id: 'user-1', username: 'user', nickname: '普通用户', avatar: null, email: 'user@example.com', mobile: null, system_prompt: '', is_superuser: false },
+    });
+    fireEvent.pointerDown(screen.getByRole('button'), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole('menuitem', { name: '更新日志' }));
+    expect(store.getState().settings).toMatchObject({ isChangelogDialogOpen: true, focusChangelogId: null });
   });
 });

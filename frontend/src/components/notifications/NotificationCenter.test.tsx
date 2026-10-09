@@ -6,8 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '@/lib/i18n';
 import type { NotificationItem } from '@/lib/api/notifications';
 
-const { push, state } = vi.hoisted(() => ({
+const { push, dispatch, state } = vi.hoisted(() => ({
   push: vi.fn(),
+  dispatch: vi.fn(),
   state: {
     sessionKey: 'user-a', filter: 'all', items: [] as NotificationItem[], unreadCount: 0,
     unreadConversationIds: [] as string[], revision: 5, nextCursor: null as string | null,
@@ -17,7 +18,9 @@ const { push, state } = vi.hoisted(() => ({
 }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
 vi.mock('./NotificationsProvider', () => ({ useNotifications: () => state }));
+vi.mock('@/redux/hooks', () => ({ useAppDispatch: () => dispatch }));
 import NotificationCenter from './NotificationCenter';
+import { openChangelogDialog } from '@/redux/slices/settingsSlice';
 
 function item(read = false): NotificationItem {
   return {
@@ -85,13 +88,14 @@ describe('通知中心交互', () => {
     expect(push.mock.calls[0][0]).not.toBe(push.mock.calls[1][0]);
   });
 
-  it('更新日志显示业务类型，点击关闭并进入详情，阅读回执留给正文页面', async () => {
+  it('更新日志显示业务类型，点击关闭面板并在弹窗中定位该版本，阅读回执留给正文', async () => {
     state.items = [{ ...item(), business_type: 'changelog', kind: 'changelog_published', title: '通知中心上线', target: { type: 'changelog', changelog_id: 'update/一' } }];
     render(<NotificationCenter />);
     fireEvent.click(screen.getByRole('button', { name: '通知，1 条未读' }));
     expect(screen.getByText('更新日志')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: /通知中心上线/ }));
-    expect(push).toHaveBeenCalledWith('/updates?entry=update%2F%E4%B8%80');
+    expect(dispatch).toHaveBeenCalledWith(openChangelogDialog({ changelogId: 'update/一' }));
+    expect(push).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(state.markAllRead).not.toHaveBeenCalled();
   });
