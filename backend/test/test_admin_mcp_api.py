@@ -116,6 +116,27 @@ class AdminMcpApiTests(unittest.TestCase):
         self.assertNotIn("secret", response.text.lower())
         self.assertEqual(response.headers["cache-control"], "private, no-store")
 
+    def test_model_view_passes_all_servers_and_returns_view(self):
+        from unittest.mock import patch
+
+        from app.db.database import get_db
+
+        self.main.app.dependency_overrides[get_db] = lambda: "db-session"
+        captured = {}
+
+        def fake_view(db, *, rows):
+            captured["db"] = db
+            captured["rows"] = rows
+            return {"servers": {}, "deferral": {"on_demand": False}}
+
+        with patch("app.api.admin_mcp.build_mcp_model_view", fake_view):
+            response = self.client.get("/api/admin/mcp/model-view")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"], {"servers": {}, "deferral": {"on_demand": False}})
+        self.assertEqual(captured["db"], "db-session")
+        self.assertEqual([row.id for row in captured["rows"]], ["server-1"])
+
     def test_mcp_admin_api_rejects_non_admin_user(self):
         from app.api.deps import get_current_admin_user, get_current_user
 

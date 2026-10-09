@@ -98,3 +98,19 @@ def read_exhausted_quota_groups(server_id: str, quota_groups: frozenset[str]) ->
         logger.warning("读取 MCP 日额度状态失败 server_id=%s error_type=%s", server_id, type(error).__name__)
         return frozenset()
     return frozenset(group for group, value in zip(groups, values, strict=True) if value)
+
+
+def read_quota_reset_seconds(server_id: str, quota_groups: frozenset[str]) -> dict[str, int]:
+    """管理页用：已用尽的额度组及距离重置的秒数；读不到时返回空。"""
+
+    client = _get_sync_client()
+    if client is None or not quota_groups:
+        return {}
+    groups = sorted(quota_groups)
+    try:
+        ttls = [client.ttl(_key(server_id, group)) for group in groups]
+    except Exception as error:  # noqa: BLE001 — 只影响展示
+        logger.warning("读取 MCP 日额度状态失败 server_id=%s error_type=%s", server_id, type(error).__name__)
+        return {}
+    # ttl：-2 表示没有标记，-1 表示没有过期时间（不应出现，按仍用尽处理）。
+    return {group: max(int(ttl), 0) for group, ttl in zip(groups, ttls, strict=True) if ttl != -2}
