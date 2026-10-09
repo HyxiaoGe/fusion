@@ -9,7 +9,7 @@ from app.services.auto_model import (
     get_auto_provider_groups,
     pick_auto_model,
 )
-from app.services.runtime_config_defaults import DEFAULT_AUTO_MODEL_CONFIG
+from app.services.config_defaults import DEFAULT_AUTO_MODEL_CONFIG
 
 CATALOG = {
     "mimo-v2.6-pro": {"db_model": True, "metadata": {"cost_tier": "mid", "capabilities": {"vision": True}}},
@@ -100,7 +100,7 @@ class PickAutoModelTests(unittest.TestCase):
 
 class AutoProviderGroupTests(unittest.TestCase):
     def _groups(self, payload, mode="auto"):
-        with patch("app.services.auto_model.get_runtime_config_payload", return_value=(payload, None)):
+        with patch("app.services.auto_model.DEFAULT_AUTO_MODEL_CONFIG", payload):
             return get_auto_provider_groups(mode), get_auto_model_candidates(mode)
 
     def test_default_prefers_flash_then_pro_within_each_provider(self):
@@ -138,7 +138,7 @@ class AutoProviderGroupTests(unittest.TestCase):
                 "deep_research": {"providers": [{"provider": "qwen", "models": ["qwen3.8-max", "deepseek-chat"]}]}
             },
         }
-        with patch("app.services.auto_model.get_runtime_config_payload", return_value=(payload, None)):
+        with patch("app.services.auto_model.DEFAULT_AUTO_MODEL_CONFIG", payload):
             self.assertEqual(get_all_auto_model_candidates(), ["deepseek-chat", "qwen3.8-max"])
 
     def test_groups_flatten_in_configured_order(self):
@@ -151,12 +151,6 @@ class AutoProviderGroupTests(unittest.TestCase):
         groups, candidates = self._groups(payload)
         self.assertEqual(groups[1].models, ("mimo-v2.6-pro",))
         self.assertEqual(candidates, ["deepseek-chat", "mimo-v2.6-pro"])
-
-    def test_unusable_payload_uses_built_in_default(self):
-        for payload in ({"candidates": ["deepseek-chat"]}, {"providers": []}, None):
-            with self.subTest(payload=payload):
-                _, candidates = self._groups(payload)
-                self.assertEqual(candidates[0], "mimo-v2.6-flash")
 
 
 class AutoModelCardTests(unittest.TestCase):

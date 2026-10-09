@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 class PromptCatalogServiceTests(unittest.TestCase):
     def test_default_catalog_covers_home_starters_and_library_templates(self):
-        from app.services.runtime_config_defaults import DEFAULT_HOME_PROMPT_CATALOG
+        from app.services.config_defaults import DEFAULT_HOME_PROMPT_CATALOG
 
         items = DEFAULT_HOME_PROMPT_CATALOG["items"]
         ids = [item["id"] for item in items]
@@ -158,15 +158,12 @@ class PromptCatalogServiceTests(unittest.TestCase):
             ]
         }
 
-        with patch(
-            "app.services.prompt_catalog_service.get_runtime_config_payload",
-            return_value=(payload, {"source": "db", "version": "2026-07-14.v2"}),
-        ):
+        with patch("app.services.prompt_catalog_service.DEFAULT_HOME_PROMPT_CATALOG", payload):
             result = get_home_prompt_catalog()
 
         self.assertEqual([item["id"] for item in result["items"]], ["enabled"])
-        self.assertEqual(result["source"], "db")
-        self.assertEqual(result["version"], "2026-07-14.v2")
+        self.assertEqual(result["source"], "default")
+        self.assertEqual(result["version"], "code-default")
 
     def test_public_templates_endpoint_uses_unified_response(self):
         from app.api import prompts

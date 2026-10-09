@@ -37,10 +37,6 @@ vi.mock('@/components/settings/panels/ServiceUsagePanel', () => ({
   default: () => <div>服务用量统一面板</div>,
 }));
 
-vi.mock('@/components/settings/panels/RuntimeConfigManager', () => ({
-  default: () => <div>运行时配置管理面板</div>,
-}));
-
 vi.mock('@/components/settings/panels/McpServerManager', () => ({
   default: () => <div>MCP 服务管理面板</div>,
 }));
@@ -123,15 +119,6 @@ describe('SettingsDialog 管理员用量入口', () => {
     expect(screen.getByRole('tabpanel', { name: /常规设置/ })).toBeInTheDocument();
   });
 
-  it('普通用户残留运行时配置选中状态时回退到常规设置', () => {
-    mockSettingsDialogState(false, 'runtime-config');
-
-    render(<SettingsDialog />);
-
-    expect(screen.queryByRole('tab', { name: /运行时配置/ })).toBeNull();
-    expect(screen.getByRole('tabpanel', { name: /常规设置/ })).toBeInTheDocument();
-  });
-
   it('普通用户残留 MCP 服务选中状态时回退到常规设置', () => {
     mockSettingsDialogState(false, 'mcp-servers');
 
@@ -156,15 +143,15 @@ describe('SettingsDialog 管理员用量入口', () => {
     render(<SettingsDialog />);
 
     expect(screen.getByRole('tab', { name: /服务用量/ })).toBeInTheDocument();
-    expect(screen.getAllByRole('tab')).toHaveLength(7);
+    expect(screen.getAllByRole('tab')).toHaveLength(6);
   });
 
-  it('管理员在设置弹窗中可以看到运行时配置页签', () => {
+  it('管理员设置弹窗不再有运行时配置页签', () => {
     mockSettingsDialogState(true);
 
     render(<SettingsDialog />);
 
-    expect(screen.getByRole('tab', { name: /运行时配置/ })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /运行时配置/ })).toBeNull();
   });
 
   it('管理员在设置弹窗中可以看到 MCP 服务页签', () => {
@@ -190,14 +177,6 @@ describe('SettingsDialog 管理员用量入口', () => {
     render(<SettingsDialog />);
 
     expect(screen.getByText('服务用量统一面板')).toBeInTheDocument();
-  });
-
-  it('管理员切到运行时配置页签时渲染管理面板', () => {
-    mockSettingsDialogState(true, 'runtime-config');
-
-    render(<SettingsDialog />);
-
-    expect(screen.getByText('运行时配置管理面板')).toBeInTheDocument();
   });
 
   it('管理员切到 MCP 服务页签时渲染管理面板', () => {

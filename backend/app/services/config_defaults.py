@@ -1,12 +1,9 @@
-"""运行时配置默认值。
+"""代码内置的产品配置：Agent 联网策略、模型能力展示、自动选择模型、首页任务卡。
 
-这些默认值是 DB 配置不可用时的稳定 fallback，也是 Alembic seed 的来源说明。
+调整这些值走代码与发布流程；不再有数据库覆盖层。
 """
 
 from __future__ import annotations
-
-from collections.abc import Iterator
-from uuid import NAMESPACE_URL, uuid5
 
 DEFAULT_MODEL_PRESENTATION_CONFIG = {
     "long_context_threshold_tokens": 128000,
@@ -280,47 +277,10 @@ DEFAULT_HOME_PROMPT_CATALOG = {
 }
 
 
-def iter_default_runtime_config_seed_rows() -> Iterator[dict]:
-    """生成 runtime_config_entries v1 seed rows。"""
-
-    yield {
-        "id": _seed_id("agent_strategy", "default"),
-        "namespace": "agent_strategy",
-        "key": "default",
-        "version": "2026-07-02.v1",
-        "payload": DEFAULT_AGENT_STRATEGY_CONFIG,
-        "is_active": True,
-        "description": "Agent 搜索、深读、来源排序、工具上下文默认策略",
-    }
-    yield {
-        "id": _seed_id("model_presentation", "default"),
-        "namespace": "model_presentation",
-        "key": "default",
-        "version": "2026-07-02.v1",
-        "payload": DEFAULT_MODEL_PRESENTATION_CONFIG,
-        "is_active": True,
-        "description": "模型能力展示默认文案和评分规则",
-    }
-    yield {
-        "id": _seed_id("ui_prompt_catalog", "home", "2026-07-14.v1"),
-        "namespace": "ui_prompt_catalog",
-        "key": "home",
-        "version": "2026-07-14.v1",
-        "payload": DEFAULT_HOME_PROMPT_CATALOG,
-        "is_active": True,
-        "description": "首页任务卡与系统提示词模板目录",
-    }
-
-
-def _seed_id(namespace: str, key: str, version: str = "2026-07-02.v1") -> str:
-    return str(uuid5(NAMESPACE_URL, f"fusion/runtime-config/{namespace}/{key}/{version}"))
-
-
 DEFAULT_AGENT_STRATEGY_CONFIG = {
     "model_runtime": {
         "agent_tools_disabled_aliases": ["qwen-vl-max"],
     },
-    "search": {},
     "network": {
         "max_search_calls": 40,
         "max_url_read_calls": 100,

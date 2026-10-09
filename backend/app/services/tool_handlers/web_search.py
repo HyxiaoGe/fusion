@@ -323,8 +323,7 @@ def _post_process_sources(sources: List[SearchSource], intent: Optional[str], do
 
 
 def _tool_context_config() -> dict:
-    strategy_config, _meta = get_agent_strategy_config()
-    return strategy_config.get("tool_context") or {}
+    return get_agent_strategy_config().get("tool_context") or {}
 
 
 def _tool_context_int(tool_context: dict, key: str, fallback: int) -> int:

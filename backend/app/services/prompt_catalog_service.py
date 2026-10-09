@@ -5,26 +5,20 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from app.core.runtime_config import get_runtime_config_payload
-from app.services.runtime_config_defaults import DEFAULT_HOME_PROMPT_CATALOG
+from app.services.config_defaults import DEFAULT_HOME_PROMPT_CATALOG
 
 
 def get_home_prompt_catalog() -> dict[str, Any]:
-    """读取首页任务卡和系统模板，配置异常时自动回退代码默认值。"""
+    """首页任务卡和系统模板，来自代码内置目录。"""
 
-    payload, meta = get_runtime_config_payload(
-        "ui_prompt_catalog",
-        "home",
-        DEFAULT_HOME_PROMPT_CATALOG,
-    )
     items = [
         copy.deepcopy(item)
-        for item in payload.get("items", [])
+        for item in DEFAULT_HOME_PROMPT_CATALOG.get("items", [])
         if isinstance(item, dict) and item.get("enabled") is True
     ]
     items.sort(key=lambda item: (item.get("sort_order", 0), item.get("id", "")))
     return {
         "items": items,
-        "source": meta.get("source", "default"),
-        "version": meta.get("version", "code-default"),
+        "source": "default",
+        "version": "code-default",
     }

@@ -846,7 +846,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 "network_profile": "standard",
                 "evidence_policy": "standard",
                 "runtime_config_versions": {
-                    "agent_strategy/default": "code-default",
                     "prompt_bundle/fusion": call_config.prompt_bundle_snapshot.effective_revision,
                 },
                 "prompt_bundle": call_config.prompt_bundle_snapshot.identity(),
@@ -1770,16 +1769,11 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             configs.append(kwargs["config"])
             await _start_event_run(**kwargs)
 
-        with patch(
-            "app.services.stream.agent_loop_lifecycle.get_agent_strategy_config",
-            return_value=({"search": {}}, {"source": "db", "version": "agent-strategy-v7"}),
-            create=True,
-        ):
-            await run_agent_loop_lifecycle(
-                request=self._request(),
-                execution=self._execution(),
-                dependencies=self._dependencies(start_agent_run_fn=start_agent_run_fn),
-            )
+        await run_agent_loop_lifecycle(
+            request=self._request(),
+            execution=self._execution(),
+            dependencies=self._dependencies(start_agent_run_fn=start_agent_run_fn),
+        )
 
         self.assertEqual(
             configs[0],
@@ -1792,7 +1786,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 "network_profile": "standard",
                 "evidence_policy": "standard",
                 "runtime_config_versions": {
-                    "agent_strategy/default": "agent-strategy-v7",
                     "prompt_bundle/fusion": self._call_config().prompt_bundle_snapshot.effective_revision,
                 },
                 "prompt_bundle": self._call_config().prompt_bundle_snapshot.identity(),

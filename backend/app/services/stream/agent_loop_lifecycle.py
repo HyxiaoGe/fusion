@@ -19,7 +19,6 @@ from app.schemas.chat import TextBlock
 from app.schemas.response import ApiException
 from app.schemas.trajectory import TrajectoryCapabilityResolution
 from app.services.agent.session_cache import write_system_prompt_snapshot
-from app.services.agent_strategy_config import get_agent_strategy_config
 from app.services.chat.model_call_language_policy import finalize_model_call_language_policy
 from app.services.chat.tool_transcript import max_citation_index
 from app.services.chat.tool_transcript_store import ToolTranscriptHistory
@@ -629,10 +628,7 @@ async def _write_fallback(
 
 
 def _run_config(limits: AgentLoopLimits, call_config: AgentLoopCallConfig | None = None) -> dict:
-    _strategy_config, strategy_meta = get_agent_strategy_config()
-    runtime_config_versions = {
-        "agent_strategy/default": strategy_meta.get("version", "code-default"),
-    }
+    runtime_config_versions: dict[str, str] = {}
     bundle_snapshot = getattr(call_config, "prompt_bundle_snapshot", None)
     prompt_revision = bundle_snapshot.effective_revision if bundle_snapshot is not None else None
     if prompt_revision is not None:
