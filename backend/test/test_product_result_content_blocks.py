@@ -626,6 +626,33 @@ class ProductResultEventTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["content_block"], block.model_dump(mode="json"))
         self.assertEqual(deserialize_content_blocks([block.model_dump(mode="json")]), [block])
 
+    async def test_data_source_block_is_upserted_and_round_trips_registry(self):
+        from app.schemas.chat import DataSourceBlock
+        from app.schemas.content_block_registry import deserialize_content_blocks
+
+        writer = AsyncMock()
+        emitter = AgentEventEmitter(
+            run_id="run-1",
+            trace_id="trace-1",
+            conversation_id="conv-1",
+            task_id="task-1",
+            redis_writer=writer,
+        )
+        block = DataSourceBlock(
+            type="data_source",
+            schema_version=1,
+            category="map",
+            provider="tencent_map",
+            label="腾讯地图",
+            tool_call_log_id="log-1",
+        )
+
+        await emitter.content_block_upserted(tool_call_id="tc-map", content_block=block)
+
+        payload = writer.append_chunk.await_args.args[3]
+        self.assertEqual(payload["content_block"], block.model_dump(mode="json"))
+        self.assertEqual(deserialize_content_blocks([block.model_dump(mode="json")]), [block])
+
     async def test_document_block_is_upserted_for_live_document_card(self):
         from app.schemas.chat import DocumentBlock
 

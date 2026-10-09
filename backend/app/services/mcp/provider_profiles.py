@@ -8,6 +8,7 @@ from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 
 AMAP_MCP_HOST = "mcp.amap.com"
 CONTEXT7_MCP_HOST = "mcp.context7.com"
+TENCENT_MAP_MCP_HOST = "mcp.map.qq.com"
 AMAP_CREDENTIAL_REF = "AMAP_MCP_API_KEY"
 CONTEXT7_CREDENTIAL_REF = "CONTEXT7_API_KEY"
 CONTEXT7_CONNECT_TIMEOUT_FLOOR_SECONDS = 20.0
@@ -104,6 +105,16 @@ def endpoint_tool_allowlist(endpoint_url: str) -> frozenset[str] | None:
     if hostname == CONTEXT7_MCP_HOST:
         return CONTEXT7_READ_ONLY_TOOL_ALLOWLIST
     return None
+
+
+# 按端点域名认定的数据服务商署名 (category, provider, label)；不采信管理员填写的 provider 文本。
+_ENDPOINT_DATA_SOURCES: dict[str, tuple[str, str, str]] = {
+    TENCENT_MAP_MCP_HOST: ("map", "tencent_map", "腾讯地图"),
+}
+
+
+def endpoint_data_source(endpoint_url: str) -> tuple[str, str, str] | None:
+    return _ENDPOINT_DATA_SOURCES.get(_endpoint_hostname(endpoint_url))
 
 
 def is_official_amap_endpoint(endpoint_url: str) -> bool:

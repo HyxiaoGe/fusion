@@ -54,6 +54,8 @@ export interface AssistantMessageViewModel {
   rawStructuredResults?: StructuredToolResultBlock[];
   documentBlocks?: DocumentBlock[];
   generatedImages?: GeneratedImageBlock[];
+  /** 本条回答用到的地图数据服务商（按首次出现排序、去重），如 ['高德地图', '腾讯地图']。 */
+  mapDataSources?: string[];
   documentDraft?: DocumentDraftState | null;
   displayText: string;
   displayThinking: string;
@@ -117,6 +119,7 @@ export function deriveStaticAssistantMessageViewModel({
   const rawStructuredResults = blocksToRender.filter(isStructuredToolResultBlock);
   const documentBlocks = collectDocumentBlocks(blocksToRender);
   const generatedImages = collectGeneratedImageBlocks(blocksToRender);
+  const mapDataSources = collectMapDataSources(blocksToRender);
   const suppressThinking = activity.shouldSuppressReasoning;
 
   return {
@@ -131,6 +134,7 @@ export function deriveStaticAssistantMessageViewModel({
     rawStructuredResults,
     documentBlocks,
     generatedImages,
+    mapDataSources,
     documentDraft: null,
     displayText,
     displayThinking,
@@ -268,6 +272,7 @@ export function useAssistantMessageViewModel({
   );
   const documentBlocks = useMemo(() => collectDocumentBlocks(blocksToRender), [blocksToRender]);
   const generatedImages = useMemo(() => collectGeneratedImageBlocks(blocksToRender), [blocksToRender]);
+  const mapDataSources = useMemo(() => collectMapDataSources(blocksToRender), [blocksToRender]);
   const documentDraft = isCurrentlyStreaming ? ownedRun?.documentDraft ?? null : null;
   const suppressThinking = activity.shouldSuppressReasoning;
   const hasThinking = !suppressThinking && displayThinking.length > 0;
@@ -284,6 +289,7 @@ export function useAssistantMessageViewModel({
     rawStructuredResults,
     documentBlocks,
     generatedImages,
+    mapDataSources,
     documentDraft,
     displayText,
     displayThinking,
@@ -306,6 +312,22 @@ function collectDocumentBlocks(contentBlocks: ContentBlock[]): DocumentBlock[] {
 
 function collectGeneratedImageBlocks(contentBlocks: ContentBlock[]): GeneratedImageBlock[] {
   return contentBlocks.filter((block): block is GeneratedImageBlock => block.type === 'generated_image');
+}
+
+/** 地图来源：腾讯等通用 MCP 只留 data_source 署名，高德产品工具的地点/路线卡片自带 attribution。 */
+export function collectMapDataSources(contentBlocks: ContentBlock[]): string[] {
+  const labels: string[] = [];
+  for (const block of contentBlocks) {
+    let label: string | null | undefined;
+    if (block.type === 'data_source') {
+      label = block.category === 'map' ? block.label : null;
+    } else if (block.type === 'place_results' || block.type === 'route_results') {
+      label = block.attribution?.label;
+    }
+    const trimmed = label?.trim();
+    if (trimmed && !labels.includes(trimmed)) labels.push(trimmed);
+  }
+  return labels;
 }
 
 function collectKnowledgeEvidenceBlocks(contentBlocks: ContentBlock[]): KnowledgeEvidenceBlock[] {

@@ -133,6 +133,47 @@ describe('useAssistantMessageViewModel', () => {
     expect(result.current.structuredResults).toEqual([placeResult]);
   });
 
+  it('汇总高德卡片与腾讯署名块的地图来源，按出现顺序去重', () => {
+    const message: Message = {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: [
+        {
+          type: 'place_results',
+          id: 'places-1',
+          schema_version: 1,
+          provider: 'amap',
+          attribution: { label: '高德地图' },
+          status: 'success',
+          result_count: 0,
+          places: [],
+          limitations: [],
+        },
+        { type: 'data_source', id: 'src-1', schema_version: 1, category: 'map', provider: 'tencent_map', label: '腾讯地图' },
+        { type: 'data_source', id: 'src-2', schema_version: 1, category: 'map', provider: 'tencent_map', label: '腾讯地图' },
+        { type: 'text', id: 'text-1', text: '回答' },
+      ],
+    };
+
+    const staticModel = deriveStaticAssistantMessageViewModel({
+      message,
+      isLoadingQuestions: false,
+      suggestedQuestionsCount: 0,
+    });
+    expect(staticModel.mapDataSources).toEqual(['高德地图', '腾讯地图']);
+    expect(renderViewModel(message).result.current.mapDataSources).toEqual(['高德地图', '腾讯地图']);
+  });
+
+  it('没有地图工具结果时不派生地图来源', () => {
+    const message: Message = {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: [{ type: 'text', id: 'text-1', text: '回答' }],
+    };
+
+    expect(renderViewModel(message).result.current.mapDataSources).toEqual([]);
+  });
+
   it('静态消息与流式 staticBlocks 都派生天气预报结果', () => {
     const weatherResult = {
       type: 'weather_results',

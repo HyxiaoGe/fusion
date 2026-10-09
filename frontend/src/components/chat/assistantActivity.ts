@@ -140,6 +140,7 @@ function isExecutionMode(
     block.type === 'knowledge_evidence'
     || block.type === 'document'
     || block.type === 'generated_image'
+    || block.type === 'data_source'
     || block.type === 'search'
     || block.type === 'url_read'
     || isStructuredToolResultBlock(block)

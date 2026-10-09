@@ -187,6 +187,7 @@ function AssistantMessageFrame({
     rawStructuredResults,
     documentBlocks,
     generatedImages,
+    mapDataSources,
     documentDraft,
     displayText,
     displayThinking,
@@ -353,6 +354,7 @@ function AssistantMessageFrame({
             structuredResultsLoading={isCurrentMessageStreaming}
             documentBlocks={documentBlocks}
             generatedImages={generatedImages}
+            mapDataSources={mapDataSources}
             documentDraft={documentDraft}
             onStructuredResultFollowUp={
               isLastMessage && !isCurrentMessageStreaming ? onSelectQuestion : undefined

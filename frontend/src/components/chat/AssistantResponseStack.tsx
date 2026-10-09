@@ -43,6 +43,7 @@ interface AssistantResponseStackProps {
   structuredResultsLoading?: boolean;
   documentBlocks?: DocumentBlock[];
   generatedImages?: GeneratedImageBlock[];
+  mapDataSources?: string[];
   documentDraft?: DocumentDraftState | null;
   onStructuredResultFollowUp?: (question: string) => void;
   answerEvidenceSidebar?: AnswerEvidenceSidebarModel | null;
@@ -58,6 +59,7 @@ interface AssistantResponseStackProps {
 
 const EMPTY_DOCUMENT_BLOCKS: DocumentBlock[] = [];
 const EMPTY_GENERATED_IMAGES: GeneratedImageBlock[] = [];
+const EMPTY_MAP_DATA_SOURCES: string[] = [];
 
 function AssistantResponseStack({
   reasoning,
@@ -71,6 +73,7 @@ function AssistantResponseStack({
   structuredResultsLoading = false,
   documentBlocks = EMPTY_DOCUMENT_BLOCKS,
   generatedImages = EMPTY_GENERATED_IMAGES,
+  mapDataSources = EMPTY_MAP_DATA_SOURCES,
   documentDraft = null,
   onStructuredResultFollowUp,
   answerEvidenceSidebar,
@@ -150,6 +153,12 @@ function AssistantResponseStack({
           sources={markdown.sources}
           onCitationClick={markdown.onCitationClick}
         />
+
+        {mapDataSources.length > 0 && !showStreamingCursor ? (
+          <p data-testid="assistant-map-data-sources" className="mt-2 text-xs text-muted-foreground">
+            地图数据由 {mapDataSources.join('、')} 提供
+          </p>
+        ) : null}
 
         {answerMissing ? (
           <p data-testid="assistant-answer-missing" className="text-sm text-muted-foreground">

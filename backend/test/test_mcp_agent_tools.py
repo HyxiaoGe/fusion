@@ -1301,6 +1301,39 @@ class McpAgentToolHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertLessEqual(len(context.encode("utf-8")), handler.max_llm_context_bytes + 1_500)
         self.assertIsNone(handler.build_content_block(result, "block", "log"))
 
+    async def test_known_data_provider_endpoint_records_only_source_attribution(self):
+        client = FakeClientManager(result={"content": [{"type": "text", "text": "找到约10条结果"}]})
+        handler = self.build_handler(
+            build_row(name="腾讯地图", provider="admin-typed", endpoint_url="https://mcp.map.qq.com/mcp"),
+            client,
+        )
+
+        result = await handler.execute({"query": "断桥 咖啡"})
+        block = handler.build_content_block(result, "blk-source", "log-source")
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(
+            block.model_dump(),
+            {
+                "type": "data_source",
+                "id": "blk-source",
+                "schema_version": 1,
+                "category": "map",
+                "provider": "tencent_map",
+                "label": "腾讯地图",
+                "tool_call_log_id": "log-source",
+            },
+        )
+
+    async def test_known_data_provider_failure_records_no_source_attribution(self):
+        client = FakeClientManager(error=McpClientError("upstream_unavailable", "MCP 服务暂不可用"))
+        handler = self.build_handler(build_row(endpoint_url="https://mcp.map.qq.com/mcp"), client)
+
+        result = await handler.execute({"query": "断桥 咖啡"})
+
+        self.assertEqual(result.status, "failed")
+        self.assertIsNone(handler.build_content_block(result, "blk-source", "log-source"))
+
     async def test_parses_json_text_into_clear_safe_bounded_model_context(self):
         secret = "nested-json-secret"
         structured_result = {
