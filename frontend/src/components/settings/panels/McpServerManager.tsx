@@ -23,7 +23,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Select, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import controlStyles from "@/components/settings/SettingsControls.module.css";
-import McpToolPreviewDialog from "./McpToolPreviewDialog";
+import McpToolPreviewDialog, { formatResetIn } from "./McpToolPreviewDialog";
 import {
   createMcpServerAPI,
   fetchMcpModelViewAPI,
@@ -214,10 +214,6 @@ function formatCheckedAt(value: string | null): string {
   }).format(date);
 }
 
-function formatResetIn(seconds: number): string {
-  if (seconds >= 3600) return `约 ${Math.round(seconds / 3600)} 小时后恢复`;
-  return `约 ${Math.max(1, Math.round(seconds / 60))} 分钟后恢复`;
-}
 
 const quotaGroupLabels: Record<string, string> = {
   search: "搜索类（关键字/周边/详情）",
@@ -258,7 +254,7 @@ function ModelToolsSection({
         <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-xs text-amber-700 dark:text-amber-400" role="status">
           {view.quota_exhausted.map((quota) => (
             <p key={quota.group}>
-              今日{quotaGroupLabels[quota.group] ?? quota.group}额度已用完，{formatResetIn(quota.resets_in_seconds)}
+              本月{quotaGroupLabels[quota.group] ?? quota.group}额度已用完，{formatResetIn(quota.resets_in_seconds)}
             </p>
           ))}
         </div>

@@ -412,7 +412,7 @@ class McpAgentToolCatalogTests(unittest.TestCase):
         self.assertEqual(tool_set.audit_bindings[2]["server_id"], "a-generic")
 
     def test_quota_exhausted_amap_product_is_hidden_and_map_tools_go_direct(self):
-        # 高德搜索类日额度用尽：只隐藏 local_place_search，route_compare 照常；
+        # 高德搜索类额度用尽：只隐藏 local_place_search，route_compare 照常；
         # 腾讯地图工具直接公告，不再藏在 tool_search 后面。
         from app.services.mcp.amap_product_tools import AMAP_PRODUCT_REMOTE_DEPENDENCIES
 

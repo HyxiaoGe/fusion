@@ -42,11 +42,16 @@ class ProviderQuotaTests(unittest.TestCase):
             self.assertEqual(provider_quota.amap_quota_group(name), provider_quota.AMAP_SEARCH_QUOTA_GROUP)
         self.assertEqual(provider_quota.amap_quota_group("maps_geo"), "maps_geo")
 
-    def test_ttl_runs_to_next_beijing_midnight(self):
-        now = datetime(2026, 10, 9, 23, 30, tzinfo=ZoneInfo("Asia/Shanghai"))
+    def test_ttl_runs_to_first_of_next_month_beijing_midnight(self):
+        # 高德个人配额按月计，错误码叫 DAILY 也要等到下月 1 日才恢复。
+        now = datetime(2026, 10, 31, 23, 30, tzinfo=ZoneInfo("Asia/Shanghai"))
         self.assertEqual(provider_quota.seconds_until_quota_reset(now), 30 * 60 + 60)
-        utc_now = datetime(2026, 10, 9, 15, 30, tzinfo=ZoneInfo("UTC"))
+        utc_now = datetime(2026, 10, 31, 15, 30, tzinfo=ZoneInfo("UTC"))
         self.assertEqual(provider_quota.seconds_until_quota_reset(utc_now), 30 * 60 + 60)
+        mid_month = datetime(2026, 10, 10, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+        self.assertEqual(provider_quota.seconds_until_quota_reset(mid_month), 22 * 86400 + 60)
+        december = datetime(2026, 12, 15, 12, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+        self.assertEqual(provider_quota.seconds_until_quota_reset(december), (16 * 86400 + 12 * 3600) + 60)
 
     def test_mark_then_read_round_trip(self):
         client = FakeAsyncRedis()

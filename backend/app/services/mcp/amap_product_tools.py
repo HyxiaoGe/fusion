@@ -47,7 +47,7 @@ from app.services.tool_handlers.base import BaseToolHandler, ToolResult
 AMAP_LOCAL_PLACE_SEARCH = "local_place_search"
 AMAP_ROUTE_COMPARE = "route_compare"
 AMAP_PRODUCT_TOOL_NAMES = frozenset({AMAP_LOCAL_PLACE_SEARCH, AMAP_ROUTE_COMPARE})
-# 产品工具离不开的日额度组：任一组当天用尽就不再公告该产品工具（见 provider_quota）。
+# 产品工具离不开的额度组：任一组用尽就到下月重置前不再公告该产品工具（见 provider_quota）。
 AMAP_PRODUCT_REQUIRED_QUOTA_GROUPS = {
     AMAP_LOCAL_PLACE_SEARCH: frozenset({AMAP_SEARCH_QUOTA_GROUP}),
     AMAP_ROUTE_COMPARE: frozenset({"maps_geo"}),
