@@ -78,9 +78,14 @@ _AMAP_COORDINATE_CONVERT_ATTEMPT = "amap_coordinate_convert"
 # 的地名能解决，而不是反复重试同一组参数。
 PLACE_ANCHOR_AMBIGUOUS_ERROR_CODE = "ambiguous_location"
 AMAP_PLACE_ANCHOR_AMBIGUOUS_MESSAGE = "地点名称对应多个位置，需要补充城市或更具体的地点"
+# 模型传入的地点编号查不到或与城市不符。单独报出，模型才知道改用地点搜索返回的编号或按名称查询。
+PLACE_ID_UNRESOLVED_ERROR_CODE = "place_id_unresolved"
+AMAP_PLACE_ID_UNRESOLVED_MESSAGE = "地点编号无法识别，需要改用地点搜索结果中的地点或按名称查询"
 _PRODUCT_FAILURE_MESSAGES = {
     PLACE_ANCHOR_AMBIGUOUS_ERROR_CODE: AMAP_PLACE_ANCHOR_AMBIGUOUS_MESSAGE,
+    PLACE_ID_UNRESOLVED_ERROR_CODE: AMAP_PLACE_ID_UNRESOLVED_MESSAGE,
 }
+_PLACE_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,64}")
 _INLINE_SECRET_VALUE = r'"(?:\\.|[^"\\])+"|\'(?:\\.|[^\'\\])+\'|[a-z0-9._~+/=-]{4,}'
 _INLINE_SECRET_PATTERN = re.compile(
     rf"(?P<key_prefix>\b(?:api[ _-]*key|client[ _-]*secret|password|access[ _-]*token|token|cookie|session[ _-]*id)\s*[:=]\s*)"
@@ -98,6 +103,12 @@ _CANDIDATE_CHOICE_SCHEMA = {
     "minimum": 1,
     "maximum": _AMBIGUOUS_CANDIDATE_LIMIT,
     "description": render_runtime_prompt("amap.candidate_choice"),
+}
+_PLACE_ID_SCHEMA = {
+    "type": "string",
+    "minLength": 1,
+    "maxLength": 64,
+    "description": render_runtime_prompt("amap.place_id"),
 }
 AMAP_PRODUCT_DEFINITIONS = [
     {
@@ -149,6 +160,8 @@ AMAP_PRODUCT_DEFINITIONS = [
                     "destination_city": {"type": "string", "minLength": 1, "maxLength": 40},
                     "origin_candidate": _CANDIDATE_CHOICE_SCHEMA,
                     "destination_candidate": _CANDIDATE_CHOICE_SCHEMA,
+                    "origin_place_id": _PLACE_ID_SCHEMA,
+                    "destination_place_id": _PLACE_ID_SCHEMA,
                     "origin_source": {
                         "type": "string",
                         "enum": ["named", "current_location"],
@@ -368,7 +381,7 @@ class AmapProductToolHandler(BaseToolHandler):
         allowed_values: dict[str, list[str]] = {}
         mismatch_detected = False
         for endpoint_field in ("origin", "destination"):
-            if args.get(f"{endpoint_field}_source") != "named":
+            if args.get(f"{endpoint_field}_source") != "named" or args.get(f"{endpoint_field}_place_id"):
                 continue
             city_field = f"{endpoint_field}_city"
             label = args.get(endpoint_field)
@@ -676,6 +689,13 @@ class AmapProductToolHandler(BaseToolHandler):
         origin = (
             dict(current_endpoint)
             if normalized["origin_source"] == "current_location"
+            else await self._place_id_endpoint(
+                normalized["origin"],
+                normalized["origin_place_id"],
+                normalized.get("origin_city"),
+                stats,
+            )
+            if normalized.get("origin_place_id")
             else await self._geocode_endpoint(
                 normalized["origin"],
                 normalized.get("origin_city"),
@@ -688,6 +708,13 @@ class AmapProductToolHandler(BaseToolHandler):
         destination = (
             dict(current_endpoint)
             if normalized["destination_source"] == "current_location"
+            else await self._place_id_endpoint(
+                normalized["destination"],
+                normalized["destination_place_id"],
+                normalized.get("destination_city"),
+                stats,
+            )
+            if normalized.get("destination_place_id")
             else await self._geocode_endpoint(
                 normalized["destination"],
                 normalized.get("destination_city"),
@@ -754,6 +781,40 @@ class AmapProductToolHandler(BaseToolHandler):
         city = _extract_reverse_city(payload)
         if city:
             endpoint["city"] = city
+        return endpoint
+
+    async def _place_id_endpoint(
+        self,
+        label: str,
+        place_id: str,
+        city: str | None,
+        stats: "_RemoteCallStats",
+    ) -> dict[str, Any]:
+        """模型从地点搜索结果里选定的地点按编号取坐标，不再按名称重新解析。"""
+
+        try:
+            payload = await self._call("maps_search_detail", {"id": place_id}, stats)
+        except McpClientError as error:
+            if error.code != "tool_error":
+                raise
+            payload = None
+        endpoint = (
+            _extract_endpoint_detail(
+                payload,
+                label=label,
+                expected_poi_id=place_id,
+                expected_city=city,
+                require_detail_city=city is None,
+            )
+            if payload is not None
+            else None
+        )
+        if endpoint is None:
+            raise McpClientError(
+                PLACE_ID_UNRESOLVED_ERROR_CODE,
+                AMAP_PLACE_ID_UNRESOLVED_MESSAGE,
+                safe_details={"place_name": _redact_product_text(label)[:120], "place_id": place_id},
+            )
         return endpoint
 
     async def _geocode_endpoint(
@@ -981,6 +1042,8 @@ class AmapProductToolHandler(BaseToolHandler):
                 and result.data.get("error_code") == PLACE_ANCHOR_AMBIGUOUS_ERROR_CODE
             ):
                 failure_contract = render_runtime_prompt("amap.place_anchor_ambiguous")
+            elif result.data.get("error_code") == PLACE_ID_UNRESOLVED_ERROR_CODE:
+                failure_contract = render_runtime_prompt("amap.place_id_unresolved")
             elif self.tool_name in {AMAP_LOCAL_PLACE_SEARCH, AMAP_ROUTE_COMPARE}:
                 failure_contract = render_runtime_prompt("amap.place_route_unavailable")
             else:
@@ -1226,6 +1289,8 @@ def _validate_route_args(args: Any) -> dict[str, Any]:
             "destination_city",
             "origin_candidate",
             "destination_candidate",
+            "origin_place_id",
+            "destination_place_id",
             "origin_source",
             "destination_source",
             "requested_departure_time",
@@ -1256,6 +1321,13 @@ def _validate_route_args(args: Any) -> dict[str, Any]:
         raise _InvalidArguments
     if destination_candidate is not None and destination_source != "named":
         raise _InvalidArguments
+    origin_place_id = _optional_place_id(source, "origin_place_id")
+    destination_place_id = _optional_place_id(source, "destination_place_id")
+    # 编号已指定具体地点，不再与名称歧义的候选编号同用。
+    if origin_place_id is not None and (origin_source != "named" or origin_candidate is not None):
+        raise _InvalidArguments
+    if destination_place_id is not None and (destination_source != "named" or destination_candidate is not None):
+        raise _InvalidArguments
     raw_modes = source.get("modes")
     if not isinstance(raw_modes, list) or not 1 <= len(raw_modes) <= 3:
         raise _InvalidArguments
@@ -1270,6 +1342,8 @@ def _validate_route_args(args: Any) -> dict[str, Any]:
         "destination_city": _optional_text(source, "destination_city", 40),
         "origin_candidate": origin_candidate,
         "destination_candidate": destination_candidate,
+        "origin_place_id": origin_place_id,
+        "destination_place_id": destination_place_id,
         "origin_source": origin_source,
         "destination_source": destination_source,
         "requested_departure_time": _normalized_optional_text(
@@ -1279,6 +1353,15 @@ def _validate_route_args(args: Any) -> dict[str, Any]:
         ),
         "modes": list(raw_modes),
     }
+
+
+def _optional_place_id(source: dict[str, Any], key: str) -> str | None:
+    if key not in source:
+        return None
+    value = source.get(key)
+    if not isinstance(value, str) or not _PLACE_ID_PATTERN.fullmatch(value.strip()):
+        raise _InvalidArguments
+    return value.strip()
 
 
 def _runtime_geolocation(runtime_context: Any) -> Geolocation:

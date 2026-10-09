@@ -9,6 +9,7 @@ from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.services.agent.context_broker import Geolocation
 from app.services.mcp.amap_product_tools import (
     AMAP_PLACE_ANCHOR_AMBIGUOUS_MESSAGE,
+    AMAP_PLACE_ID_UNRESOLVED_MESSAGE,
     AMAP_PRODUCT_DEFINITIONS,
     AmapProductToolHandler,
     AmapRunCoordinateConversion,
@@ -129,12 +130,17 @@ class AmapProductDefinitionTests(unittest.TestCase):
                 "destination_city",
                 "origin_candidate",
                 "destination_candidate",
+                "origin_place_id",
+                "destination_place_id",
                 "origin_source",
                 "destination_source",
                 "requested_departure_time",
                 "modes",
             },
         )
+        for key in ("origin_place_id", "destination_place_id"):
+            self.assertEqual(route_schema["properties"][key]["maxLength"], 64)
+            self.assertIn("local_place_search", route_schema["properties"][key]["description"])
         for schema, key in (
             (local_schema, "near_candidate"),
             (route_schema, "origin_candidate"),
@@ -1578,6 +1584,120 @@ class AmapRouteCompareTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(route["transit_type"], "public_transit")
         self.assertNotIn("transfers", route)
         self.assertEqual(route["legs"], [{"kind": "walking"}])
+
+    async def test_route_place_ids_use_poi_detail_without_geocoding_names(self):
+        # 高德真实情况：「外滩」「灵隐寺」按地址解析会返回同名住宅区或外区同名点；模型已从地点
+        # 搜索拿到具体地点时按编号取坐标，不再按名称重新解析。
+        handler, executor = build_handler(
+            "route_compare",
+            {
+                "maps_search_detail": [
+                    mcp_payload({"id": "B00155LKDG", "location": "121.312,31.194", "city": "上海市"}),
+                    mcp_payload({"id": "B00155FMEM", "location": "121.490,31.240", "city": "上海市"}),
+                ],
+                "maps_direction_driving": [mcp_payload({"paths": [{"distance": "21000", "duration": "1800"}]})],
+            },
+        )
+
+        result = await handler.execute(
+            route_compare_args(
+                {
+                    "origin": "上海虹桥站",
+                    "origin_place_id": "B00155LKDG",
+                    "destination": "外滩",
+                    "destination_place_id": "B00155FMEM",
+                    "modes": ["driving"],
+                }
+            )
+        )
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(
+            [call[0] for call in executor.calls],
+            ["maps_search_detail", "maps_search_detail", "maps_direction_driving"],
+        )
+        self.assertEqual(executor.calls[0][2], {"id": "B00155LKDG"})
+        self.assertEqual(executor.calls[1][2], {"id": "B00155FMEM"})
+        self.assertEqual(executor.calls[2][2], {"origin": "121.312,31.194", "destination": "121.490,31.240"})
+        self.assertEqual(result.data["result"]["destination"], {"label": "外滩", "city": "上海市"})
+        self.assertNotIn("121.490", json.dumps(result.data["result"], ensure_ascii=False))
+
+    async def test_route_place_id_mixes_with_named_geocode_endpoint(self):
+        handler, executor = build_handler(
+            "route_compare",
+            {
+                "maps_geo": [mcp_payload({"geocodes": [{"location": "120.212,30.291", "city": "杭州市"}]})],
+                "maps_search_detail": [
+                    mcp_payload({"id": "B023B05MJE", "location": "120.101,30.241", "city": "杭州市"}),
+                ],
+                "maps_direction_walking": [mcp_payload({"paths": [{"distance": "900", "duration": "700"}]})],
+            },
+        )
+
+        result = await handler.execute(
+            route_compare_args(
+                {
+                    "origin": "杭州东站",
+                    "destination": "灵隐寺",
+                    "destination_place_id": "B023B05MJE",
+                    "modes": ["walking"],
+                }
+            )
+        )
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(
+            [call[0] for call in executor.calls],
+            ["maps_geo", "maps_search_detail", "maps_direction_walking"],
+        )
+
+    async def test_route_unresolved_place_id_fails_with_its_own_error(self):
+        cases = (
+            ("tool_error", McpClientError("tool_error", "boom")),
+            ("other_id", mcp_payload({"id": "other", "location": "121.490,31.240", "city": "上海市"})),
+            ("city_mismatch", mcp_payload({"id": "B00155FMEM", "location": "121.490,31.240", "city": "上海市"})),
+        )
+        for name, detail in cases:
+            with self.subTest(case=name):
+                handler, executor = build_handler("route_compare", {"maps_search_detail": [detail]})
+                args = {
+                    "origin": "外滩",
+                    "origin_place_id": "B00155FMEM",
+                    "destination": "人民广场",
+                    "modes": ["driving"],
+                }
+                if name == "city_mismatch":
+                    args["origin_city"] = "杭州市"
+
+                result = await handler.execute(route_compare_args(args))
+
+                self.assertEqual(result.status, "failed")
+                self.assertEqual(result.data["error_code"], "place_id_unresolved")
+                self.assertEqual(result.error_message, AMAP_PLACE_ID_UNRESOLVED_MESSAGE)
+                self.assertEqual([call[0] for call in executor.calls], ["maps_search_detail"])
+                context = handler.format_llm_context(result)
+                self.assertIn(render_runtime_prompt("amap.place_id_unresolved"), context)
+                self.assertIn("B00155FMEM", context)
+
+    async def test_route_place_id_arguments_are_validated(self):
+        for extra in (
+            {"origin_place_id": ""},
+            {"origin_place_id": "B0 0155"},
+            {"origin_place_id": "x" * 65},
+            {"origin_place_id": 123},
+            {"origin_place_id": "B00155FMEM", "origin_candidate": 1},
+            {"destination": "当前位置", "destination_place_id": "B00155FMEM"},
+        ):
+            with self.subTest(extra=extra):
+                handler, executor = build_handler("route_compare", {})
+                args = route_compare_args({"origin": "外滩", "destination": "人民广场", "modes": ["driving"], **extra})
+                self.assertEqual(handler.validate_arguments(args), [{"field": "request", "code": "invalid_arguments"}])
+                result = await handler.execute(args)
+                self.assertEqual(result.data["error_code"], "invalid_arguments")
+                self.assertEqual(executor.calls, [])
+
+    def test_ambiguity_contract_points_route_to_place_search_poi_id(self):
+        self.assertIn("poi_id", render_runtime_prompt("amap.place_anchor_ambiguous"))
 
     async def test_destination_geo_ambiguity_falls_back_to_city_limited_poi_detail(self):
         handler, executor = build_handler(
