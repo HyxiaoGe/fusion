@@ -7,6 +7,11 @@ import { ApiError } from '@/types/api';
 
 const hookState = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
 const toastMock = vi.hoisted(() => vi.fn());
+const getChatCapabilitiesMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@/lib/api/chat', () => ({
+  getChatCapabilities: getChatCapabilitiesMock,
+}));
 
 vi.mock('@/hooks/useKnowledgeBaseSettings', () => ({
   useKnowledgeBaseSettings: () => hookState.current,
@@ -29,7 +34,10 @@ vi.mock('./KnowledgeChunkPreviewDialog', () => ({
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     i18n: { language: 'zh-CN' },
-    t: (key: string, options?: { defaultValue?: string; count?: number; name?: string }) => {
+    t: (
+      key: string,
+      options?: { defaultValue?: string; count?: number; name?: string; size?: string },
+    ) => {
       const labels: Record<string, string> = {
         'knowledgeBase.title': '知识库',
         'knowledgeBase.description': '管理知识库',
@@ -52,6 +60,8 @@ vi.mock('react-i18next', () => ({
         'knowledgeBase.documentCount': `${options?.count ?? 0} 个文档`,
         'knowledgeBase.documents': '文档',
         'knowledgeBase.supportedTypes': '支持文件类型',
+        'knowledgeBase.supportedTypesWithLimit': `支持文件类型，单个不超过 ${options?.size ?? ''}`,
+        'knowledgeBase.toast.fileTooLargeWithLimit': `${options?.name ?? ''} 超过 ${options?.size ?? ''} 上限`,
         'knowledgeBase.upload': '上传文档',
         'knowledgeBase.retry': '重试',
         'knowledgeBase.rebuild': '重建索引',
@@ -196,6 +206,8 @@ function makeState() {
 describe('KnowledgeBaseManager', () => {
   beforeEach(() => {
     toastMock.mockReset();
+    getChatCapabilitiesMock.mockReset();
+    getChatCapabilitiesMock.mockResolvedValue({});
     hookState.current = makeState();
   });
 
@@ -453,6 +465,20 @@ describe('KnowledgeBaseManager', () => {
       message: 'knowledgeBase.toast.uploadFailed',
       type: 'error',
     });
+  });
+
+  it('按服务端返回的大小上限提示并在本地拦下超限文件', async () => {
+    getChatCapabilitiesMock.mockResolvedValue({ knowledge_max_file_size_bytes: 10 * 1024 * 1024 });
+    render(<KnowledgeBaseManager />);
+    await screen.findByText('支持文件类型，单个不超过 10 MB');
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const largeFile = new File([], 'manual.pdf', { type: 'application/pdf' });
+    Object.defineProperty(largeFile, 'size', { value: 10 * 1024 * 1024 + 1 });
+
+    fireEvent.change(input, { target: { files: [largeFile] } });
+
+    expect(hookState.current.uploadDocument).not.toHaveBeenCalled();
+    expect(toastMock).toHaveBeenCalledWith({ message: 'manual.pdf 超过 10 MB 上限', type: 'error' });
   });
 
   it('在发请求前拒绝不支持的扩展名', () => {

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import get_chat_service, get_current_user
+from app.core.config import settings
 from app.core.logger import app_logger as logger
 from app.core.redis import get_redis_pool, stream_chunks_key, stream_meta_key
 from app.db.models import User
@@ -103,6 +104,7 @@ def get_chat_capabilities(
         data={
             "knowledge_grounding_v1": True,
             "knowledge_grounding_max_bases": 5,
+            "knowledge_max_file_size_bytes": settings.KNOWLEDGE_MAX_FILE_SIZE,
             "message_retry_v1": True,
         },
         request_id=request.state.request_id,
