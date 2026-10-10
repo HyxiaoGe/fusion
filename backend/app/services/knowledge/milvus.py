@@ -16,6 +16,10 @@ from app.services.knowledge.chunker import KnowledgeChunk, knowledge_index_text
 logger = logging.getLogger(__name__)
 
 
+# Milvus merr.ErrParameterInvalid：请求参数或数据不合法。
+_MILVUS_PARAMETER_INVALID = 1100
+
+
 class KnowledgeVectorError(RuntimeError):
     def __init__(self, code: str, summary: str, *, retryable: bool):
         self.code = code
@@ -345,6 +349,14 @@ class MilvusKnowledgeStore:
             except KnowledgeVectorError:
                 raise
             except Exception as exc:
+                if getattr(exc, "code", None) == _MILVUS_PARAMETER_INVALID:
+                    # Milvus 拒收请求（如字段超长）是数据或代码问题，重试不会成功，不能报成服务不可用。
+                    logger.warning("Milvus 拒绝请求: %s", str(exc)[:300])
+                    raise KnowledgeVectorError(
+                        "KNOWLEDGE_VECTOR_REQUEST_REJECTED",
+                        "Milvus 拒绝了索引请求",
+                        retryable=False,
+                    ) from exc
                 # 对外统一为可重试的不可用错误，但真实原因必须留在日志里，否则地址错误会伪装成临时故障。
                 logger.warning("Milvus 调用失败: %s: %s", type(exc).__name__, str(exc)[:300])
                 raise KnowledgeVectorError(

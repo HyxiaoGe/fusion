@@ -42,7 +42,10 @@ vi.mock('react-i18next', () => ({
 }));
 
 import KnowledgeBaseComposerControl from './KnowledgeBaseComposerControl';
-import { resetKnowledgeBaseCatalogResource } from '@/lib/chat/knowledgeBaseCatalogResource';
+import {
+  KNOWLEDGE_BASE_CATALOG_TTL_MS,
+  resetKnowledgeBaseCatalogResource,
+} from '@/lib/chat/knowledgeBaseCatalogResource';
 
 function page(items: Array<Record<string, unknown>>) {
   return {
@@ -125,6 +128,27 @@ describe('KnowledgeBaseComposerControl', () => {
     }
 
     expect(screen.getByRole('checkbox', { name: '知识库 kb-6' })).toBeDisabled();
+  });
+
+  it('打开选择器时重新拉取已过期的知识库列表', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    listKnowledgeBasesMock.mockResolvedValueOnce(page([base('kb-old')]));
+    render(
+      <KnowledgeBaseComposerControl selectedIds={[]} onChange={vi.fn()} disabled={false} />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '知识库' }));
+    await screen.findByText('知识库 kb-old');
+    fireEvent.click(screen.getByRole('button', { name: '知识库' }));
+    expect(listKnowledgeBasesMock).toHaveBeenCalledTimes(1);
+
+    listKnowledgeBasesMock.mockResolvedValueOnce(page([base('kb-old'), base('kb-new')]));
+    now.mockReturnValue(1_000_000 + KNOWLEDGE_BASE_CATALOG_TTL_MS);
+    fireEvent.click(screen.getByRole('button', { name: '知识库' }));
+
+    await screen.findByText('知识库 kb-new');
+    expect(listKnowledgeBasesMock).toHaveBeenCalledTimes(2);
+    now.mockRestore();
   });
 
   it('使用服务端协商的数量上限限制新选择', async () => {
