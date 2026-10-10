@@ -483,6 +483,8 @@ async def persist_tool_observations(
         pending_log = getattr(record.result, "trajectory_log_task", None)
         if record.reused or tool_call_id not in observations or pending_log is None:
             continue
+        if not getattr(record.handler, "persists_model_observation", True):
+            continue
         if len(_PENDING_OBSERVATION_WRITES) >= _MAX_PENDING_OBSERVATION_WRITES:
             logger.warning("工具模型反馈未采集: 补写队列已满")
             continue

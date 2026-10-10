@@ -88,6 +88,8 @@ class BaseToolHandler(ABC):
 
     supports_run_level_citations = False
     supports_automatic_retry = True
+    # 回填给模型的工具消息是否原文存进工具日志供轨迹查看；含用户文档正文的工具关掉。
+    persists_model_observation = True
 
     @property
     @abstractmethod
