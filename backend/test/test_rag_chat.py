@@ -43,12 +43,14 @@ from app.services.chat.tool_transcript import transcript_entries
 from app.services.conversation_service import ConversationService
 from app.services.final_answer_evidence import build_used_final_answer_evidence
 from app.services.knowledge.agent_tool import (
+    MAX_KNOWLEDGE_BASE_DESCRIPTION_CHARS,
     MAX_KNOWLEDGE_CONTEXT_CHARS,
     KnowledgeBaseScope,
     KnowledgeSearchHandler,
     KnowledgeToolSet,
     _select_context_hits,
     build_knowledge_search_tool,
+    load_knowledge_tool_set,
 )
 from app.services.stream.agent_loop_request_prep import build_agent_loop_call_config
 from app.services.stream.persistence import persist_message
@@ -874,6 +876,41 @@ class KnowledgeSearchToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(config.dynamic_tool_handlers["knowledge_search"], handler)
         self.assertEqual(config.plan_mode, "on")
         self.assertEqual(config.evidence_policy, "standard")
+
+    def test_knowledge_tool_announces_each_selected_base_with_its_description(self):
+        description = build_knowledge_search_tool(
+            (
+                KnowledgeBaseScope(id="kb-1", name="电商售后与商品", description="Apple 退款条款\n iPhone 16 规格"),
+                KnowledgeBaseScope(id="kb-2", name="政务热线问答"),
+                KnowledgeBaseScope(id="kb-3", name="长描述", description="字" * 500),
+            )
+        )["function"]["description"]
+
+        self.assertIn("- 电商售后与商品: Apple 退款条款 iPhone 16 规格\n", description)
+        self.assertIn("- 政务热线问答\n", description)
+        long_line = next(line for line in description.splitlines() if line.startswith("- 长描述: "))
+        self.assertEqual(len(long_line.removeprefix("- 长描述: ")), MAX_KNOWLEDGE_BASE_DESCRIPTION_CHARS)
+        self.assertTrue(long_line.endswith("…"))
+        self.assertIn("the user selected for this conversation", description)
+
+    def test_loaded_tool_set_carries_base_descriptions_in_selection_order(self):
+        rows = [
+            SimpleNamespace(id="kb-2", name="政务热线问答", description=None),
+            SimpleNamespace(id="kb-1", name="电商售后与商品", description="iPhone 16 规格"),
+        ]
+        with patch("app.services.knowledge.agent_tool.KnowledgeRepository") as repository:
+            repository.return_value.get_knowledge_bases_by_ids.return_value = rows
+            tool_set = load_knowledge_tool_set(
+                MagicMock(), user_id="user-1", knowledge_base_ids=["kb-1", "kb-2"], session_factory=MagicMock
+            )
+
+        self.assertEqual(
+            tool_set.bases,
+            (
+                KnowledgeBaseScope(id="kb-1", name="电商售后与商品", description="iPhone 16 规格"),
+                KnowledgeBaseScope(id="kb-2", name="政务热线问答", description=""),
+            ),
+        )
 
     def test_tool_transcript_does_not_keep_knowledge_passages(self):
         entries = transcript_entries(

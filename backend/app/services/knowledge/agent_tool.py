@@ -28,12 +28,15 @@ KNOWLEDGE_SEARCH_TOP_K = 8
 MAX_KNOWLEDGE_CONTEXT_CHARS = 30_000
 MAX_KNOWLEDGE_CHUNK_CONTEXT_CHARS = 6_000
 MAX_KNOWLEDGE_QUERY_CHARS = 4_000
+# 描述写进工具公告帮模型判断库里有什么；多个库同时选中时控制公告总长。
+MAX_KNOWLEDGE_BASE_DESCRIPTION_CHARS = 300
 
 
 @dataclass(frozen=True)
 class KnowledgeBaseScope:
     id: str
     name: str
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -56,7 +59,9 @@ def load_knowledge_tool_set(
         return None
     rows = {row.id: row for row in KnowledgeRepository(db).get_knowledge_bases_by_ids(user_id, knowledge_base_ids)}
     bases = tuple(
-        KnowledgeBaseScope(id=base_id, name=rows[base_id].name) for base_id in knowledge_base_ids if base_id in rows
+        KnowledgeBaseScope(id=base_id, name=rows[base_id].name, description=rows[base_id].description or "")
+        for base_id in knowledge_base_ids
+        if base_id in rows
     )
     if not bases:
         return None
@@ -68,6 +73,13 @@ def load_knowledge_tool_set(
     )
 
 
+def _tool_description_text(description: str) -> str:
+    text = " ".join(description.split())
+    if len(text) <= MAX_KNOWLEDGE_BASE_DESCRIPTION_CHARS:
+        return text
+    return text[: MAX_KNOWLEDGE_BASE_DESCRIPTION_CHARS - 1] + "…"
+
+
 def build_knowledge_search_tool(bases: tuple[KnowledgeBaseScope, ...]) -> dict:
     return {
         "type": "function",
@@ -75,7 +87,9 @@ def build_knowledge_search_tool(bases: tuple[KnowledgeBaseScope, ...]) -> dict:
             "name": KNOWLEDGE_SEARCH_TOOL_NAME,
             "description": render_runtime_prompt(
                 "knowledge.tool_description",
-                knowledge_base_names=[base.name for base in bases],
+                knowledge_bases=[
+                    {"name": base.name, "description": _tool_description_text(base.description)} for base in bases
+                ],
             ),
             "parameters": {
                 "type": "object",
