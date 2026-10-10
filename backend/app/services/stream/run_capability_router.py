@@ -1,7 +1,7 @@
 """在首个 LLM Round 前确定 Run 的工具边界。
 
 不再调用分类模型，也不按预判收走工具：普通 Run 公告本次可用的全部工具，由回答模型
-自行选择。这里只处理真实边界——用户选择的模式（深度研究、知识库）与运行环境
+自行选择。这里只处理真实边界——用户选择的模式（深度研究）与运行环境
 （工具被关闭、模型不支持工具调用）。
 """
 
@@ -20,7 +20,7 @@ from app.utils.run_capability_contract import (
 SCHEMA_VERSION = 3
 
 
-ROUTER_VERSION = "2026-10-05.1"
+ROUTER_VERSION = "2026-10-10.1"
 
 
 @dataclass(frozen=True)
@@ -43,7 +43,6 @@ def resolve_run_capability_route(
     task_policy: AgentTaskPolicy,
     capabilities: dict,
     tools_disabled: bool,
-    knowledge_grounded: bool,
     deferred_tool_names: list[str] | None = None,
 ) -> RunCapabilityResolution:
     """按用户选择的模式与运行环境确定本次公告的工具。"""
@@ -52,8 +51,6 @@ def resolve_run_capability_route(
     deferred = tuple(name for name in deferred_tool_names or () if name not in available)
     function_calling = capabilities.get("functionCalling") is True
 
-    if knowledge_grounded:
-        return _resolution("knowledge_grounded", ("knowledge_grounded_mode",), plan_mode="off")
     if tools_disabled:
         return _unavailable("tools_disabled")
     if not function_calling:

@@ -18,8 +18,6 @@ from sqlalchemy.orm import sessionmaker
 from app.db.database import Base
 from app.db.models import AgentEvent, AgentSession, RunTrajectoryMeta
 from app.schemas.chat import (
-    KnowledgeEvidenceBlock,
-    KnowledgeSourceReference,
     SearchBlock,
     SearchSourceSummary,
     SourceReference,
@@ -27,7 +25,6 @@ from app.schemas.chat import (
     UrlBlock,
 )
 from app.services.agent.trajectory_recorder import TrajectoryRecorder
-from app.services.knowledge.chat_grounding import KnowledgeGroundingResult
 from app.services.prompt_snapshot_service import freeze_runtime_prompt_bundle
 from app.services.stream.agent_loop_driver import AgentLoopExit, AgentLoopOutcome
 from app.services.stream.agent_loop_execution import (
@@ -40,14 +37,13 @@ from app.services.stream.agent_loop_execution import (
 from app.services.stream.agent_loop_lifecycle import (
     AgentLoopLifecycleDependencies,
     AgentLoopLifecycleRequest,
-    _prepare_knowledge_grounding,
     _run_config,
     commit_trajectory_barrier,
     configure_research_state,
     run_agent_loop_lifecycle,
 )
 from app.services.stream.agent_loop_policy import AgentLoopLimits
-from app.services.stream.agent_loop_request_prep import AgentLoopPreparedMessages, build_agent_loop_call_config
+from app.services.stream.agent_loop_request_prep import AgentLoopPreparedMessages
 from app.services.stream.agent_loop_run_completion import (
     finalize_completed_run,
     write_fallback_run_error,
@@ -215,114 +211,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(prompt_events[0]["status"], "failed")
                     self.assertEqual(prompt_events[0]["error_code"], "assembly_failed")
                 self.assertNotIn("不应披露的偏好内容", str(emitted))
-
-    async def test_knowledge_retrieval_emits_started_and_completed_around_real_call(self):
-        emitted = []
-
-        class CaptureWriter:
-            async def append_chunk(self, _conversation_id, _task_id, _chunk_type, payload):
-                emitted.append(payload)
-
-        execution = self._execution(redis_writer=CaptureWriter())
-        request = AgentLoopLifecycleRequest(
-            raw_messages=[],
-            has_vision=False,
-            file_ids=None,
-            original_message="不能写入轨迹的原始检索问题",
-            call_config=self._call_config(),
-            limits=self._limits(),
-            knowledge_base_ids=["kb-1"],
-        )
-        grounding = SimpleNamespace(evidence_block=SimpleNamespace(source_count=2))
-
-        with patch(
-            "app.services.stream.agent_loop_lifecycle.prepare_knowledge_grounding",
-            new=AsyncMock(return_value=grounding),
-        ):
-            result = await _prepare_knowledge_grounding(request=request, execution=execution)
-
-        self.assertIs(result, grounding)
-        retrieval_events = [event for event in emitted if event["type"].startswith("retrieval_")]
-        self.assertEqual(
-            [event["type"] for event in retrieval_events],
-            ["retrieval_started", "retrieval_completed"],
-        )
-        self.assertEqual(retrieval_events[0]["query_summary"], "已发起知识库检索")
-        self.assertEqual(retrieval_events[1]["document_count"], 2)
-        self.assertGreaterEqual(retrieval_events[1]["duration_ms"], 0)
-
-    async def test_knowledge_retrieval_error_and_cancel_close_the_span(self):
-        emitted = []
-
-        class CaptureWriter:
-            async def append_chunk(self, _conversation_id, _task_id, _chunk_type, payload):
-                emitted.append(payload)
-
-        execution = self._execution(redis_writer=CaptureWriter())
-        request = AgentLoopLifecycleRequest(
-            raw_messages=[],
-            has_vision=False,
-            file_ids=None,
-            original_message="敏感问题",
-            call_config=self._call_config(),
-            limits=self._limits(),
-            knowledge_base_ids=["kb-1"],
-        )
-
-        with patch(
-            "app.services.stream.agent_loop_lifecycle.prepare_knowledge_grounding",
-            new=AsyncMock(side_effect=RuntimeError("上游敏感报错")),
-        ):
-            with self.assertRaisesRegex(Exception, "knowledge_retrieval_unavailable"):
-                await _prepare_knowledge_grounding(request=request, execution=execution)
-
-        retrieval_events = [event for event in emitted if event["type"].startswith("retrieval_")]
-        self.assertEqual(
-            [event["type"] for event in retrieval_events],
-            ["retrieval_started", "retrieval_failed"],
-        )
-        self.assertNotIn("上游敏感报错", str(retrieval_events[-1]))
-
-        emitted.clear()
-        with patch(
-            "app.services.stream.agent_loop_lifecycle.prepare_knowledge_grounding",
-            new=AsyncMock(side_effect=asyncio.CancelledError),
-        ):
-            with self.assertRaises(asyncio.CancelledError):
-                await _prepare_knowledge_grounding(request=request, execution=execution)
-
-        retrieval_events = [event for event in emitted if event["type"].startswith("retrieval_")]
-        self.assertEqual(
-            [event["type"] for event in retrieval_events],
-            ["retrieval_started", "retrieval_cancelled"],
-        )
-
-    async def test_retrieval_terminal_sink_failure_does_not_replace_primary_error_or_cancel(self):
-        execution = self._execution()
-        request = AgentLoopLifecycleRequest(
-            raw_messages=[],
-            has_vision=False,
-            file_ids=None,
-            original_message="敏感问题",
-            call_config=self._call_config(),
-            limits=self._limits(),
-            knowledge_base_ids=["kb-1"],
-        )
-        execution.emitter.retrieval_failed = AsyncMock(side_effect=RuntimeError("sink failed"))
-        with patch(
-            "app.services.stream.agent_loop_lifecycle.prepare_knowledge_grounding",
-            new=AsyncMock(side_effect=RuntimeError("upstream failed")),
-        ):
-            with self.assertRaisesRegex(Exception, "knowledge_retrieval_unavailable"):
-                await _prepare_knowledge_grounding(request=request, execution=execution)
-
-        execution.emitter.retrieval_cancelled = AsyncMock(side_effect=RuntimeError("sink failed"))
-        with patch(
-            "app.services.stream.agent_loop_lifecycle.prepare_knowledge_grounding",
-            new=AsyncMock(side_effect=asyncio.CancelledError),
-        ):
-            with self.assertRaises(asyncio.CancelledError):
-                await _prepare_knowledge_grounding(request=request, execution=execution)
 
     def test_deep_research_with_files_still_requires_network_gate(self):
         execution = self._execution(
@@ -1636,131 +1524,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
         release_barrier.set()
         await asyncio.wait_for(barrier_finished.wait(), timeout=0.5)
         execution.trajectory_recorder.finalize.assert_awaited_once_with(6)
-
-    async def test_empty_knowledge_retrieval_completes_without_preparing_or_running_llm(self):
-        call_config = build_agent_loop_call_config(
-            provider="openai",
-            options={"knowledge_grounded": True},
-            capabilities={"functionCalling": True, "searchCapable": True},
-        )
-        execution = self._execution(call_config=call_config)
-        evidence = KnowledgeEvidenceBlock(
-            type="knowledge_evidence",
-            query="未知问题",
-            status="empty",
-            source_count=0,
-            knowledge_base_ids=["kb-1"],
-            source_refs=[],
-        )
-        grounding = KnowledgeGroundingResult(
-            evidence_block=evidence,
-            context_messages=[],
-            no_evidence=True,
-            deterministic_answer="未在所选知识库中找到足够依据",
-        )
-        prepare_messages = AsyncMock(side_effect=AssertionError("无命中不应准备 LLM 上下文"))
-        run_loop = AsyncMock(side_effect=AssertionError("无命中不应调用 LLM"))
-        finalized = []
-
-        async def finalize_completed_run_fn(**kwargs):
-            finalized.append(kwargs)
-
-        request = self._request(call_config=call_config)
-        request = AgentLoopLifecycleRequest(
-            raw_messages=request.raw_messages,
-            has_vision=False,
-            file_ids=None,
-            original_message="未知问题",
-            call_config=request.call_config,
-            limits=request.limits,
-            knowledge_base_ids=["kb-1"],
-        )
-        with patch(
-            "app.services.stream.agent_loop_lifecycle.prepare_knowledge_grounding",
-            new=AsyncMock(return_value=grounding),
-        ):
-            await run_agent_loop_lifecycle(
-                request=request,
-                execution=execution,
-                dependencies=self._dependencies(
-                    prepare_messages_fn=prepare_messages,
-                    run_agent_loop_fn=run_loop,
-                    finalize_completed_run_fn=finalize_completed_run_fn,
-                    claim_suggested_questions_fn=lambda **_kwargs: object(),
-                    generate_suggested_questions_fn=lambda **_kwargs: None,
-                ),
-            )
-
-        prepare_messages.assert_not_awaited()
-        run_loop.assert_not_awaited()
-        self.assertEqual([block.type for block in execution.state.content_blocks], ["knowledge_evidence", "text"])
-        self.assertIsNone(finalized[0]["claim_suggested_questions_fn"])
-        self.assertIsNone(finalized[0]["generate_suggested_questions_fn"])
-
-    async def test_successful_knowledge_run_also_disables_ungrounded_suggestions(self):
-        call_config = build_agent_loop_call_config(
-            provider="openai",
-            options={"knowledge_grounded": True},
-            capabilities={"functionCalling": True, "searchCapable": True},
-        )
-        execution = self._execution(call_config=call_config)
-        evidence = KnowledgeEvidenceBlock(
-            type="knowledge_evidence",
-            query="怎么发布",
-            status="success",
-            source_count=1,
-            knowledge_base_ids=["kb-1"],
-            source_refs=[
-                KnowledgeSourceReference(
-                    evidence_id="ev-knowledge-1",
-                    citation_index=1,
-                    knowledge_base_id="kb-1",
-                    knowledge_base_name="产品手册",
-                    document_id="doc-1",
-                    index_version="version-1",
-                    chunk_id="chunk-1",
-                    ordinal=1,
-                    filename="manual.md",
-                    char_start=0,
-                    char_end=10,
-                )
-            ],
-        )
-        grounding = KnowledgeGroundingResult(
-            evidence_block=evidence,
-            context_messages=[{"role": "user", "content": "不可信知识上下文"}],
-            no_evidence=False,
-        )
-        finalized = []
-
-        async def finalize_completed_run_fn(**kwargs):
-            finalized.append(kwargs)
-
-        request = AgentLoopLifecycleRequest(
-            raw_messages=[{"role": "user", "content": "怎么发布"}],
-            has_vision=False,
-            file_ids=None,
-            original_message="怎么发布",
-            call_config=call_config,
-            limits=self._limits(),
-            knowledge_base_ids=["kb-1"],
-        )
-        with patch(
-            "app.services.stream.agent_loop_lifecycle.prepare_knowledge_grounding",
-            new=AsyncMock(return_value=grounding),
-        ):
-            await run_agent_loop_lifecycle(
-                request=request,
-                execution=execution,
-                dependencies=self._dependencies(
-                    finalize_completed_run_fn=finalize_completed_run_fn,
-                    claim_suggested_questions_fn=lambda **_kwargs: object(),
-                    generate_suggested_questions_fn=lambda **_kwargs: None,
-                ),
-            )
-
-        self.assertIsNone(finalized[0]["claim_suggested_questions_fn"])
-        self.assertIsNone(finalized[0]["generate_suggested_questions_fn"])
 
     async def test_start_run_records_runtime_config_versions(self):
         configs = []

@@ -6,7 +6,7 @@
  * icon 用 Lucide component reference 而不是字符串——保证类型安全 + tree-shaking 友好。
  */
 
-import { BookOpen, CloudSun, FilePen, FilePenLine, Search, Globe, ImagePlus, MapPin, Plane, Route, Train, Wrench } from 'lucide-react';
+import { BookOpen, CloudSun, FilePen, FilePenLine, Library, Search, Globe, ImagePlus, MapPin, Plane, Route, Train, Wrench } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 export type SemanticColor = 'info' | 'success' | 'warn' | 'danger' | 'teal' | 'neutral';
@@ -33,6 +33,12 @@ export const TOOL_REGISTRY: Record<string, ToolMeta> = {
     icon: Globe,
     color: 'teal',
     summarize: (a) => String(a.url ?? ''),
+  },
+  knowledge_search: {
+    label: '检索知识库',
+    icon: Library,
+    color: 'success',
+    summarize: (a) => String(a.query ?? ''),
   },
   local_place_search: {
     label: '搜索附近地点',

@@ -211,7 +211,7 @@ class DocumentToolWiringTests(unittest.TestCase):
             calls,
             [("db", {"conversation_id": "conv-1", "user_id": "user-1", "message_id": "msg-1", "run_id": "run-1"})],
         )
-        for capabilities, options in (({"functionCalling": False}, {}), (CAPABILITIES, {"knowledge_grounded": True})):
+        for capabilities, options in (({"functionCalling": False}, {}), (CAPABILITIES, {"disable_tools": True})):
             inputs, _ = self._inputs(capabilities=capabilities, options=options, loader=loader)
             self.assertIsNone(inputs.document_tools)
         self.assertEqual(len(calls), 1)

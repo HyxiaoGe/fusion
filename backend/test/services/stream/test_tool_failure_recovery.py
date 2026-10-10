@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from app.schemas.chat import SearchBlock, SourceReference, Usage
-from app.services.knowledge.chat_grounding import KNOWLEDGE_UNVERIFIABLE_ANSWER_TEXT
 from app.services.stream.agent_loop_round_outcome import AgentRoundOutcomeRequest, handle_agent_round_outcome
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_round import AgentRoundResult
@@ -95,21 +94,6 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(state.unknown_terminated)
                 self.assertFalse(state.tool_recovery_prompted)
                 self.assertEqual(state.content_blocks[-1].text, answer)
-
-    async def test_web_recovery_cannot_bypass_knowledge_evidence_contract(self):
-        state = AgentLoopState()
-        state.record_tool_outcome("mcp_lookup", "failed")
-        self.record_search(state)
-        request = self.request(state)
-        request = replace(
-            request,
-            runtime=replace(request.runtime, evidence_policy="knowledge_grounded_v1"),
-            round_result=replace(request.round_result, content_buf="香港未来三天有骤雨。"),
-        )
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()):
-            await handle_agent_round_outcome(request=request)
-        self.assertFalse(state.tool_recovery_prompted)
-        self.assertEqual(state.content_blocks[-1].text, KNOWLEDGE_UNVERIFIABLE_ANSWER_TEXT)
 
     async def test_web_recovery_cannot_bypass_deep_research_completion_contract(self):
         state = AgentLoopState()

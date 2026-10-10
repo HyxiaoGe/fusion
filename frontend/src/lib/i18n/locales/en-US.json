@@ -441,7 +441,7 @@
         "selectedCount": "{{count}} selected",
         "limit": "You can select up to {{count}} knowledge bases",
         "limitExceededHint": "The current selection exceeds the server limit of {{count}}. Remove some knowledge bases before sending.",
-        "strict": "Strict knowledge mode",
+        "strict": "Searchable when answering",
         "remove": "Remove knowledge base {{name}}",
         "validating": "Checking knowledge base",
         "validationFailed": "Knowledge status unknown",

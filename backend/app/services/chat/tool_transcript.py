@@ -12,16 +12,25 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from app.ai.prompts.prompt_message import PromptMessage
+from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 
 _THINK_SEGMENT = re.compile(r"<think\b[^>]*>.*?</think>", re.IGNORECASE | re.DOTALL)
+# 知识库正文不随会话永久保存（删除文档后不能再被回放），历史轮只留说明，需要时重新检索。
+_KNOWLEDGE_SEARCH_TOOL_NAME = "knowledge_search"
 
 
 def transcript_entries(messages: Iterable[PromptMessage | Mapping[str, Any]]) -> list[dict[str, Any]]:
     """把本轮追加的协议消息转成可存储记录，去掉思考内容。"""
     entries: list[dict[str, Any]] = []
+    knowledge_call_ids: set[str] = set()
     for message in messages:
         role = message.get("role")
         if role == "assistant" and message.get("tool_calls"):
+            knowledge_call_ids.update(
+                str(call.get("id"))
+                for call in message.get("tool_calls") or []
+                if isinstance(call, Mapping) and _call_name(call) == _KNOWLEDGE_SEARCH_TOOL_NAME
+            )
             content = message.get("content")
             entries.append(
                 {
@@ -32,6 +41,8 @@ def transcript_entries(messages: Iterable[PromptMessage | Mapping[str, Any]]) ->
             )
         elif role == "tool" and message.get("tool_call_id"):
             content = message.get("content")
+            if str(message.get("tool_call_id")) in knowledge_call_ids:
+                content = render_runtime_prompt("knowledge.result_not_replayed")
             entries.append(
                 {
                     "role": "tool",
@@ -89,7 +100,7 @@ def max_citation_index(content_blocks: Iterable[Any]) -> int:
     """历史回答里已用过的最大引用编号；新一轮从其后编号，避免和回放的工具结果撞号。"""
     highest = 0
     for block in content_blocks or []:
-        if _field(block, "type") not in {"search", "url_read"}:
+        if _field(block, "type") not in {"search", "url_read", "knowledge_evidence"}:
             continue
         for source in [*(_field(block, "source_refs") or []), *(_field(block, "sources") or [])]:
             index = _field(source, "citation_index")
@@ -176,3 +187,8 @@ def _valid_tool_call(call: Any) -> bool:
         and bool(function["name"])
         and isinstance(function.get("arguments"), str)
     )
+
+
+def _call_name(call: Mapping[str, Any]) -> str:
+    function = call.get("function") if isinstance(call.get("function"), Mapping) else {}
+    return str(function.get("name") or call.get("name") or "")

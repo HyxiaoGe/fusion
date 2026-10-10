@@ -62,9 +62,6 @@ def build_used_final_answer_evidence(
             allowed_citation_indexes=allowed,
         )
         return [_to_evidence_item(source) for source in _dedupe_sources(used)]
-    if evidence_policy == "knowledge_grounded_v1":
-        used = _sources_from_citations(normalized_answer, search_sources, citation_sources)
-        return [_to_evidence_item(source) for source in _dedupe_sources(used)]
 
     used: list[_AnswerSource] = []
     _extend_unique(used, _sources_from_citations(normalized_answer, search_sources, citation_sources))
@@ -226,6 +223,9 @@ def _sources_from_url_mentions(answer_text: str, sources: list[_AnswerSource]) -
     for source in sources:
         canonical = source.canonical_url.lower()
         raw = source.url.lower()
+        # 知识库来源没有网址，空串会命中任何文本。
+        if not canonical:
+            continue
         if canonical in mentioned_urls or canonical in lowered or (raw and raw in lowered):
             matched.append(source)
     return matched

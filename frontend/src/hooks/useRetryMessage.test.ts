@@ -613,7 +613,7 @@ describe('useRetryMessage', () => {
   });
 
   it.each(['user-1', 'assistant-1'])(
-    '严格知识库会话重试带附件历史轮次 %s 时保留原消息',
+    '知识库会话重试带附件历史轮次 %s 时照常带上附件',
     async (messageId) => {
       const store = createStore('hidden');
       store.dispatch(upsertConversation({
@@ -654,13 +654,11 @@ describe('useRetryMessage', () => {
         await result.current(messageId, 'existing-conv');
       });
 
-      expect(sendMessage).not.toHaveBeenCalled();
-      expect(
-        store.getState().conversation.byId['existing-conv'].messages.map((message) => message.id),
-      ).toEqual(['user-1', 'assistant-1']);
-      expect(store.getState().conversation.globalError).toBe(
-        '严格知识库模式不能重试带附件的历史消息，请先清空知识库选择',
-      );
+      // 知识库是模型可调用的工具，不再与附件互斥。
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      expect(sendMessage.mock.calls[0][0]).toBe('读取旧附件');
+      expect(sendMessage.mock.calls[0][2]).toHaveLength(1);
+      expect(store.getState().conversation.globalError).toBeFalsy();
     },
   );
 

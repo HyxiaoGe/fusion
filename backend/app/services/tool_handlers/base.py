@@ -70,12 +70,12 @@ def _task_done_callback(task: asyncio.Task):
         logger.error("日志写入异步任务异常: error_type=%s", type(exc).__name__)
 
 
-def _capture_trajectory_detail(input_params: dict, result: ToolResult) -> dict:
+def _capture_trajectory_detail(input_params: dict, result: ToolResult, output_data: dict) -> dict:
     """从执行侧对象复制业务详情；辅助记录失败不改变工具执行结果。"""
     try:
         return build_tool_detail_snapshot(
             _serialize_for_json(input_params),
-            _serialize_for_json(result.data),
+            _serialize_for_json(output_data),
             result.error_message,
         )
     except Exception as exc:
@@ -148,7 +148,11 @@ class BaseToolHandler(ABC):
                 provider=provider,
                 input_params=safe_input_params,
                 output_data=_serialize_for_json(safe_output_data),
-                metadata={"trajectory_detail": _capture_trajectory_detail(input_params, result)},
+                metadata={
+                    "trajectory_detail": _capture_trajectory_detail(
+                        input_params, result, self.trajectory_output_data(result)
+                    )
+                },
                 error_message=result.error_message,
                 trace_id=trace_id,
                 tool_call_id=tool_call_id,
@@ -168,6 +172,10 @@ class BaseToolHandler(ABC):
 
     def sanitize_output_data_for_log(self, result: ToolResult) -> dict:
         """子类可覆盖以限制即将持久化的工具输出。"""
+        return result.data
+
+    def trajectory_output_data(self, result: ToolResult) -> dict:
+        """子类可覆盖以排除不应随轨迹永久保存的输出（如用户文档正文）。"""
         return result.data
 
     def build_successful_call_signature(self, input_params: dict) -> str | None:

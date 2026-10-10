@@ -21,8 +21,9 @@ CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER = (
 )
 
 # agent：普通对话，公告本次可用的全部工具。
-# deep_research / knowledge_grounded：用户在前端选择的模式。
+# deep_research：用户在前端选择的模式。
 # tools_unavailable：模型不支持工具调用或工具被关闭，只能直接回答。
+# knowledge_grounded：已下线的知识库严格模式（2026-10 改为 knowledge_search 工具），仅为读取历史轨迹保留。
 CAPABILITY_MODES = ("agent", "deep_research", "knowledge_grounded", "tools_unavailable")
 DEEP_RESEARCH_TOOL_NAMES = ("web_search", "url_read")
 

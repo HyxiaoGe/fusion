@@ -94,7 +94,6 @@ class AgentLoopRunInput:
             initial_content_blocks=self.initial_content_blocks or [],
             extra_system_prompts=self.extra_system_prompts or [],
             preprocess_user_input=self.preprocess_user_input,
-            knowledge_base_ids=self.knowledge_base_ids or [],
             prompt_identity_persisted=self.prompt_identity_persisted,
         )
 
@@ -140,6 +139,7 @@ class AgentLoopWiringDependencies:
     load_dynamic_tools_fn: Callable[..., Any] | None = None
     llm_round_detail_scheduler: Callable[[Any], Any] | None = None
     load_document_tools_fn: Callable[..., Any] | None = None
+    load_knowledge_tools_fn: Callable[..., Any] | None = None
 
     def to_execution_dependencies(self) -> AgentLoopDependencies:
         return AgentLoopDependencies(
@@ -205,6 +205,7 @@ class AgentLoopCallConfigInputs:
     tool_bindings: list[Any]
     previous_run_id: str | None = None
     document_tools: Any | None = None
+    knowledge_tools: Any | None = None
     direct_tool_names: tuple[str, ...] = ()
 
 
@@ -221,7 +222,6 @@ def prepare_agent_loop_call_config_inputs(
     should_load_dynamic_tools = (
         supports_dynamic_agent_tools(capabilities)
         and options.get("disable_tools") is not True
-        and options.get("knowledge_grounded") is not True
         and dependencies.load_dynamic_tools_fn is not None
     )
     dynamic_tool_set = (
@@ -239,7 +239,6 @@ def prepare_agent_loop_call_config_inputs(
         dependencies.load_document_tools_fn is not None
         and supports_dynamic_agent_tools(capabilities)
         and options.get("disable_tools") is not True
-        and options.get("knowledge_grounded") is not True
     ):
         try:
             document_tools = dependencies.load_document_tools_fn(
@@ -251,6 +250,19 @@ def prepare_agent_loop_call_config_inputs(
             )
         except Exception as error:  # noqa: BLE001 — 文档工具不可用时退回聊天交付，不阻断本轮
             dependencies.warning_fn(f"文档工具装配失败，本轮按聊天交付: error_type={type(error).__name__}")
+    knowledge_tools = None
+    if (
+        run_input.knowledge_base_ids
+        and dependencies.load_knowledge_tools_fn is not None
+        and supports_dynamic_agent_tools(capabilities)
+        and options.get("disable_tools") is not True
+    ):
+        # 装配失败直接抛出：用户选了知识库却静默不检索，会被当成「知识库里没有」。
+        knowledge_tools = dependencies.load_knowledge_tools_fn(
+            db,
+            user_id=run_input.user_id,
+            knowledge_base_ids=list(run_input.knowledge_base_ids),
+        )
     return AgentLoopCallConfigInputs(
         options=options,
         capabilities=capabilities,
@@ -259,6 +271,7 @@ def prepare_agent_loop_call_config_inputs(
         tool_bindings=list(getattr(dynamic_tool_set, "audit_bindings", []) or []),
         previous_run_id=run_input.previous_run_id,
         document_tools=document_tools,
+        knowledge_tools=knowledge_tools,
         direct_tool_names=tuple(getattr(dynamic_tool_set, "direct_tool_names", ()) or ()),
     )
 
@@ -292,6 +305,11 @@ def build_agent_loop_call_config_from_inputs(
         **(
             {"document_tools": inputs.document_tools}
             if inputs.document_tools is not None and _accepts_keyword(build_call_config_fn, "document_tools")
+            else {}
+        ),
+        **(
+            {"knowledge_tools": inputs.knowledge_tools}
+            if inputs.knowledge_tools is not None and _accepts_keyword(build_call_config_fn, "knowledge_tools")
             else {}
         ),
         **(

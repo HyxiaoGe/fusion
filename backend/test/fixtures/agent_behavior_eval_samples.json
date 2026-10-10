@@ -313,16 +313,6 @@
     }
   },
   {
-    "id": "run-route-main-knowledge-grounded",
-    "category": "run_capability_router",
-    "question": "根据知识库解释项目规范",
-    "expected_tool_policy": "no_search",
-    "expected_surface": "direct_answer",
-    "options": {
-      "knowledge_grounded": true
-    }
-  },
-  {
     "id": "run-route-main-vague-lookup",
     "category": "run_capability_router",
     "question": "帮我查一下这个",
