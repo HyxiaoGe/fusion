@@ -1,12 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from app.services.knowledge.chunker import (
-    DeterministicKnowledgeChunker,
-    KnowledgeChunkLimitExceeded,
-    LegacyKnowledgeChunkerV1,
-    knowledge_chunker_for_version,
-)
+from app.services.knowledge.chunker import DeterministicKnowledgeChunker, KnowledgeChunkLimitExceeded
 from app.services.knowledge.parser import ParsedSection
 
 
@@ -66,42 +61,6 @@ class DeterministicKnowledgeChunkerTests(unittest.TestCase):
             )
 
         self.assertEqual(raised.exception.max_chunks, 5)
-
-    def test_legacy_v1_keeps_original_boundaries_for_inflight_versions(self):
-        chunker = knowledge_chunker_for_version("chunker-v1", chunk_size=200, overlap=150)
-        self.assertIsInstance(chunker, LegacyKnowledgeChunkerV1)
-        text = "第一句。" * 80
-
-        first = chunker.chunk(
-            [ParsedSection(text, page=1, section="legacy")],
-            document_id="doc-v1",
-            index_version="version-v1",
-            max_chunks=100,
-        )
-        second = chunker.chunk(
-            [ParsedSection(text, page=1, section="legacy")],
-            document_id="doc-v1",
-            index_version="version-v1",
-            max_chunks=100,
-        )
-
-        self.assertEqual(first, second)
-        self.assertEqual(chunker.VERSION, "chunker-v1")
-        self.assertGreater(len(first), 1)
-        self.assertTrue(
-            all(current.char_start - previous.char_start <= 50 for previous, current in zip(first, first[1:]))
-        )
-
-    def test_legacy_v1_can_stream_past_current_new_document_limit(self):
-        chunker = LegacyKnowledgeChunkerV1(chunk_size=100, overlap=99)
-
-        streamed = chunker.iter_chunks(
-            [ParsedSection("x" * 106, page=None, section="legacy")],
-            document_id="doc-v1-stream",
-            index_version="version-v1-stream",
-        )
-
-        self.assertEqual([chunk.ordinal for chunk in streamed], list(range(7)))
 
 
 if __name__ == "__main__":

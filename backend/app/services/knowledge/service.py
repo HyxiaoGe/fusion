@@ -770,6 +770,7 @@ class KnowledgeService:
         hits = await self.vector_store.search(
             profile=profile,
             query_vector=query_vector,
+            query_text=query,
             user_id=user_id,
             knowledge_base_ids=sorted({document.knowledge_base_id for document in documents}),
             index_versions=sorted({str(document.active_index_version) for document in documents}),

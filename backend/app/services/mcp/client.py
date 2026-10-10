@@ -28,6 +28,9 @@ _sdk_transport_logger.handlers.clear()
 _sdk_transport_logger.addHandler(logging.NullHandler())
 _sdk_transport_logger.propagate = False
 _sdk_transport_logger.disabled = True
+# 第三方库（如 pymilvus 导入时）调用 dictConfig(disable_existing_loggers=False) 会把 disabled 重置为 False；
+# 级别不受影响，作为第二道屏蔽。
+_sdk_transport_logger.setLevel(logging.CRITICAL + 1)
 
 _TOOL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.:/-]+$")
 _AUTH_NAME_PATTERN = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")

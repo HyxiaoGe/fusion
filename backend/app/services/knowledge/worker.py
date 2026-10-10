@@ -5,10 +5,8 @@ import hashlib
 import logging
 import math
 import uuid
-from collections.abc import Iterator
 from contextlib import suppress
 from dataclasses import dataclass
-from itertools import islice
 from typing import Callable
 
 from sqlalchemy.orm import Session
@@ -26,8 +24,7 @@ from app.db.models import KnowledgeDocument, KnowledgeIndexVersion
 from app.services.knowledge.chunker import (
     DeterministicKnowledgeChunker,
     KnowledgeChunkLimitExceeded,
-    LegacyKnowledgeChunkerV1,
-    knowledge_chunker_for_version,
+    knowledge_index_text,
 )
 from app.services.knowledge.milvus import (
     KnowledgeVectorError,
@@ -205,10 +202,10 @@ class KnowledgeWorker:
         version = context.version
         if document is None or version is None or context.index_version is None:
             raise KnowledgeWorkerError("KNOWLEDGE_TASK_RESOURCE_MISSING", "索引任务资源不存在", retryable=False)
-        if version.parser_version != self.parser.VERSION or version.chunker_version not in {
-            LegacyKnowledgeChunkerV1.VERSION,
-            DeterministicKnowledgeChunker.VERSION,
-        }:
+        if (
+            version.parser_version != self.parser.VERSION
+            or version.chunker_version != DeterministicKnowledgeChunker.VERSION
+        ):
             raise KnowledgeWorkerError(
                 "KNOWLEDGE_INDEX_VERSION_UNSUPPORTED",
                 "Worker 不支持该解析或切片版本",
@@ -245,30 +242,14 @@ class KnowledgeWorker:
                 filename=document.original_filename,
             )
         self._phase(context.task_id, lease_token, "chunking")
-        version_chunker = knowledge_chunker_for_version(
-            version.chunker_version,
-            chunk_size=version.chunk_size,
-            overlap=version.chunk_overlap,
+        version_chunker = DeterministicKnowledgeChunker(chunk_size=version.chunk_size, overlap=version.chunk_overlap)
+        chunks = await asyncio.to_thread(
+            version_chunker.chunk,
+            sections,
+            document_id=document.id,
+            index_version=context.index_version,
+            max_chunks=settings.KNOWLEDGE_MAX_CHUNKS_PER_DOCUMENT,
         )
-        legacy_stream = version.chunker_version == LegacyKnowledgeChunkerV1.VERSION
-        chunk_iterator = None
-        chunks = None
-        if legacy_stream:
-            # v1 曾允许 overlap=chunk_size-1。旧任务必须保留原边界/ID，但不能把
-            # 可能远超当前新文档上限的切片一次性留在内存中。
-            chunk_iterator = version_chunker.iter_chunks(
-                sections,
-                document_id=document.id,
-                index_version=context.index_version,
-            )
-        else:
-            chunks = await asyncio.to_thread(
-                version_chunker.chunk,
-                sections,
-                document_id=document.id,
-                index_version=context.index_version,
-                max_chunks=settings.KNOWLEDGE_MAX_CHUNKS_PER_DOCUMENT,
-            )
         self._phase(context.task_id, lease_token, "embedding")
         profile = self._version_profile(version)
         write_state = self._index_write_state(context, lease_token)
@@ -279,21 +260,13 @@ class KnowledgeWorker:
             raise KnowledgeWorkerError("KNOWLEDGE_TASK_LEASE_LOST", "知识库任务租约已失效", retryable=True)
         with self.session_factory() as db:
             repo = KnowledgeRepository(db)
-            manifest_ready = (
-                repo.reset_chunk_manifest(
-                    task_id=context.task_id,
-                    lease_token=lease_token,
-                    index_version=version.id,
-                )
-                if legacy_stream
-                else repo.replace_chunk_manifest(
-                    task_id=context.task_id,
-                    lease_token=lease_token,
-                    version=version,
-                    filename=document.original_filename,
-                    chunks=chunks,
-                    batch_size=settings.KNOWLEDGE_EMBEDDING_BATCH_SIZE,
-                )
+            manifest_ready = repo.replace_chunk_manifest(
+                task_id=context.task_id,
+                lease_token=lease_token,
+                version=version,
+                filename=document.original_filename,
+                chunks=chunks,
+                batch_size=settings.KNOWLEDGE_EMBEDDING_BATCH_SIZE,
             )
             if not manifest_ready:
                 raise KnowledgeWorkerError("KNOWLEDGE_TASK_LEASE_LOST", "知识库任务租约已失效", retryable=True)
@@ -301,29 +274,9 @@ class KnowledgeWorker:
         writing_phase_started = False
         batch_size = settings.KNOWLEDGE_EMBEDDING_BATCH_SIZE
         chunk_count = 0
-        while True:
-            if chunk_iterator is not None:
-                batch = await asyncio.to_thread(self._take_chunk_batch, chunk_iterator, batch_size)
-                if not batch:
-                    break
-                with self.session_factory() as db:
-                    if not KnowledgeRepository(db).append_chunk_manifest(
-                        task_id=context.task_id,
-                        lease_token=lease_token,
-                        version=version,
-                        filename=document.original_filename,
-                        chunks=batch,
-                    ):
-                        raise KnowledgeWorkerError(
-                            "KNOWLEDGE_TASK_LEASE_LOST",
-                            "知识库任务租约已失效",
-                            retryable=True,
-                        )
-            else:
-                if chunks is None or chunk_count >= len(chunks):
-                    break
-                batch = chunks[chunk_count : chunk_count + batch_size]
-            vectors = await self.embedding.embed([chunk.text for chunk in batch], profile)
+        while chunk_count < len(chunks):
+            batch = chunks[chunk_count : chunk_count + batch_size]
+            vectors = await self.embedding.embed([knowledge_index_text(chunk) for chunk in batch], profile)
             records = [
                 KnowledgeVectorRecord(
                     chunk=chunk,
@@ -364,10 +317,6 @@ class KnowledgeWorker:
             return False
         # lease 被新 Worker 接管时，旧 Worker 不能删除同一 version 的幂等 upsert。
         raise KnowledgeWorkerError("KNOWLEDGE_TASK_LEASE_LOST", "知识库任务租约已失效", retryable=True)
-
-    @staticmethod
-    def _take_chunk_batch(iterator: Iterator, batch_size: int) -> list:
-        return list(islice(iterator, batch_size))
 
     async def _delete_document(self, context: TaskContext, lease_token: str) -> None:
         self._phase(context.task_id, lease_token, "deleting")

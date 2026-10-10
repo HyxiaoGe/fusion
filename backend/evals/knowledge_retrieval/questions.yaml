@@ -1,0 +1,123 @@
+# 知识库检索评测题。expected 中 document 为 documents/ 下的文件名，answer 为命中分块必须包含的原文片段。
+# kind: exact = 型号、版本号、地址、错误码等精确词；paraphrase = 换种说法；heading = 答案所在段落正文不含主语，要靠标题定位。
+questions:
+  - id: x3-firmware-version-codename
+    kind: exact
+    query: 3.7.12 版本的代号是什么
+    expected: {document: xingcha-x3-manual.md, answer: 青鸾}
+  - id: x3-error-e417
+    kind: exact
+    query: E-417 是什么意思
+    expected: {document: xingcha-x3-manual.md, answer: E-417 表示 WAN 口协商速率异常}
+  - id: x5-error-e602
+    kind: exact
+    query: 错误码 E-602 怎么处理
+    expected: {document: xingcha-x5-manual.md, answer: E-602 表示 10G 光模块未识别}
+  - id: x3-admin-address
+    kind: exact
+    query: 192.168.77.1 是哪个设备的管理地址
+    expected: {document: xingcha-x3-manual.md, answer: 192.168.77.1}
+  - id: x5-model-number
+    kind: exact
+    query: XC-X5-2026 的内存多大
+    expected: {document: xingcha-x5-manual.md, answer: 内存 2 GB}
+  - id: x5-firmware-version
+    kind: exact
+    query: 5.2.4 修复了什么问题
+    expected: {document: xingcha-x5-manual.md, answer: 修复 10G 口降速问题}
+  - id: x3-hotline
+    kind: exact
+    query: 400-820-7733 的服务时间
+    expected: {document: xingcha-x3-manual.md, answer: 每天 9:00 至 21:00}
+  - id: handbook-it-extension
+    kind: exact
+    query: 分机 8086 是做什么的
+    expected: {document: employee-handbook.docx.md, answer: 分机 8086}
+  - id: x3-max-clients
+    kind: paraphrase
+    query: 星槎 X3 最多能同时连多少台设备
+    expected: {document: xingcha-x3-manual.md, answer: 最大并发终端数为 173 台}
+  - id: x5-max-clients
+    kind: paraphrase
+    query: X5 能带多少个终端
+    expected: {document: xingcha-x5-manual.md, answer: 最大并发终端数为 412 台}
+  - id: x3-reset
+    kind: paraphrase
+    query: X3 忘了后台密码怎么办
+    expected: {document: xingcha-x3-manual.md, answer: 长按 RESET 键 13 秒}
+  - id: x5-reset
+    kind: paraphrase
+    query: 星槎 X5 怎么恢复出厂设置
+    expected: {document: xingcha-x5-manual.md, answer: 长按 RESET 键 20 秒}
+  - id: x3-upgrade-duration
+    kind: paraphrase
+    query: X3 刷固件要多久
+    expected: {document: xingcha-x3-manual.md, answer: 升级过程约需 4 分钟}
+  - id: x3-overheat
+    kind: paraphrase
+    query: 路由器太烫报错了怎么办
+    expected: {document: xingcha-x3-manual.md, answer: E-520 表示设备温度过高}
+  - id: x3-pppoe-fail
+    kind: paraphrase
+    query: X3 宽带拨号老是失败
+    expected: {document: xingcha-x3-manual.md, answer: 光猫是否处于桥接模式}
+  - id: handbook-late
+    kind: paraphrase
+    query: 一个月能迟到几次
+    expected: {document: employee-handbook.docx.md, answer: 每月允许 3 次核心时间内迟到}
+  - id: handbook-password-rotation
+    kind: paraphrase
+    query: 密码多久必须改一次
+    expected: {document: employee-handbook.docx.md, answer: 密码每 90 天强制更换一次}
+  - id: handbook-reimburse-payment
+    kind: paraphrase
+    query: 报销的钱什么时候到账
+    expected: {document: employee-handbook.docx.md, answer: 第 2 个周四统一打款}
+  - id: handbook-laptop
+    kind: paraphrase
+    query: 研发同学发什么配置的电脑
+    expected: {document: employee-handbook.docx.md, answer: 研发岗为 32 GB 内存的笔记本}
+  - id: x3-extended-warranty-price
+    kind: heading
+    query: X3 延保一年多少钱
+    expected: {document: xingcha-x3-manual.md, answer: 每年 89 元}
+  - id: x5-extended-warranty-price
+    kind: heading
+    query: X5 延保怎么收费
+    expected: {document: xingcha-x5-manual.md, answer: 每年 149 元}
+  - id: x3-warranty-period
+    kind: heading
+    query: 星槎 X3 保修多久
+    expected: {document: xingcha-x3-manual.md, answer: 整机保修期为 26 个月}
+  - id: x5-warranty-period
+    kind: heading
+    query: 星槎 X5 保修多久
+    expected: {document: xingcha-x5-manual.md, answer: 整机保修期为 36 个月}
+  - id: x3-guest-network-timeout
+    kind: heading
+    query: X3 访客网络多久自动关闭
+    expected: {document: xingcha-x3-manual.md, answer: 开启 8 小时后自动关闭}
+  - id: x5-guest-network-timeout
+    kind: heading
+    query: X5 访客网络多久自动关闭
+    expected: {document: xingcha-x5-manual.md, answer: 开启 24 小时后自动关闭}
+  - id: x5-release-cadence
+    kind: heading
+    query: X5 多久升级一次
+    expected: {document: xingcha-x5-manual.md, answer: 每 60 天发布一次稳定版}
+  - id: handbook-hotel-tier1
+    kind: heading
+    query: 普通员工去一线城市出差住酒店每晚能报多少
+    expected: {document: employee-handbook.docx.md, answer: 一线城市 | 600 元}
+  - id: handbook-meal-allowance
+    kind: heading
+    query: 出差每天的伙食补贴标准
+    expected: {document: employee-handbook.docx.md, answer: 每天发放餐补 120 元}
+  - id: handbook-sick-leave-pay
+    kind: heading
+    query: 请病假工资怎么算
+    expected: {document: employee-handbook.docx.md, answer: 第 6 天起按基本工资的 80% 发放}
+  - id: handbook-annual-leave-carryover
+    kind: heading
+    query: 没休完的年假能留到明年吗
+    expected: {document: employee-handbook.docx.md, answer: 顺延至次年 3 月 31 日}

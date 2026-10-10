@@ -95,13 +95,20 @@ Embedding 请求会按每个索引版本的持久化键解析 registry 后再调
 发布 preflight 会把候选 registry 与部署前从 API/Worker 捕获的 registry 对账，任何历史键删除或值改写都会
 fail closed；pre-#41 镜像按空 registry 兼容，自动回滚仍恢复部署前完整快照。
 
-当前边界偏好与最小推进算法的不可变标识是 `chunker-v2`。候选部署始终从 Environment Variable 注入
-该版本，不继承服务器旧 `.env` 中的 `chunker-v1`；配置为其他值时 preflight fail closed。历史 active
-`chunker-v1` 索引仍可检索；升级时尚未领取或正在重试的 building v1 任务由 Worker 内保留的 v1 执行器
-按原始边界与确定性 ID 继续处理。为兼容历史上允许的极端 overlap，这类 v1 任务以受控 Embedding batch
-流式解析、写 manifest 和写向量，不受 v2 的单文档 chunk 总量限制，也不会一次把全部切片保留在内存；
-新写入只使用 v2。自动回滚使用部署前快照中的版本；对没有知识库
-环境变量的旧镜像，快照兼容默认仍为 `chunker-v1`。
+当前切片器版本为 `chunker-v2`，解析器版本为 `parser-v2`。候选部署从 Environment Variable 注入切片器版本，
+不继承服务器旧 `.env`；配置为其他值时 preflight fail closed。Worker 只处理当前版本的索引任务，旧版本的
+索引不再兼容，升级后需要 rebuild。自动回滚使用部署前快照中的版本；对没有知识库环境变量的旧镜像，
+快照默认仍为 `chunker-v1`。
+
+解析：Markdown 按 ATX 标题（跳过代码块内的 `#`）、DOCX 按标题样式或大纲级别切分，表格按正文顺序留在
+所属标题下，每段的 `section` 记录 `一级 > 二级 > …` 标题路径（超过 120 字符时保留末端）；txt/csv/pdf
+不按标题切分。
+
+Milvus collection 为 `{prefix}_v2_d{dim}`：`text` 启用中文分词，由内置 BM25 Function 生成 `sparse` 稀疏向量
+（`SPARSE_INVERTED_INDEX`），`knowledge_base_id` 为分区键。检索时稠密向量与 BM25 各召回 `limit` 条，由
+Milvus `RRFRanker(60)` 合并，返回的 `similarity` 是 RRF 分数，仅用于排序。写入 Milvus 的 `text` 与用于
+Embedding 的文本是「标题路径 + 换行 + 正文」，PostgreSQL manifest 保存原始正文，引用与字符偏移不受影响。
+检索评测：`python -m scripts.knowledge_retrieval_eval`（语料与题目在 `evals/knowledge_retrieval/`）。
 
 启用时会集中校验上传上限、chunk 大小/重叠比例/最小步长/单文档总量、batch、搜索 profile 总量、
 Worker poll、lease/heartbeat/retry、

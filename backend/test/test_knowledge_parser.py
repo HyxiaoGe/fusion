@@ -123,3 +123,77 @@ class KnowledgeDocumentParserTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StructuredKnowledgeParserTests(unittest.TestCase):
+    def setUp(self):
+        self.parser = KnowledgeDocumentParser()
+
+    def test_markdown_sections_carry_heading_path_and_skip_fenced_headings(self):
+        content = "\n".join(
+            [
+                "# 星槎 X3 手册",
+                "",
+                "## 售后",
+                "### 延保",
+                "两年延保 199 元。",
+                "```bash",
+                "# 不是标题",
+                "```",
+                "## 网络设置",
+                "默认地址 192.168.77.1。",
+            ]
+        ).encode()
+
+        sections = self.parser.parse(content, mimetype="text/markdown", filename="x3.md")
+
+        self.assertEqual(
+            [section.section for section in sections],
+            ["星槎 X3 手册 > 售后 > 延保", "星槎 X3 手册 > 网络设置"],
+        )
+        self.assertTrue(sections[0].text.startswith("# 星槎 X3 手册"))
+        self.assertIn("# 不是标题", sections[0].text)
+        self.assertIn("192.168.77.1", sections[1].text)
+
+    def test_markdown_without_headings_stays_single_unlabeled_section(self):
+        sections = self.parser.parse("正文一\n\n正文二".encode(), mimetype="text/markdown", filename="note.md")
+
+        self.assertEqual(len(sections), 1)
+        self.assertIsNone(sections[0].section)
+
+    def test_long_heading_path_keeps_most_specific_tail_within_label_limit(self):
+        content = ("# " + "长" * 200 + "\n## 末级标题\n正文").encode()
+
+        sections = self.parser.parse(content, mimetype="text/markdown", filename="note.md")
+
+        self.assertEqual(len(sections[0].section), 120)
+        self.assertTrue(sections[0].section.endswith(" > 末级标题"))
+
+    def test_docx_groups_paragraphs_and_tables_under_headings_in_body_order(self):
+        import docx
+
+        document = docx.Document()
+        document.add_heading("售后", level=1)
+        document.add_paragraph("保修一年。")
+        table = document.add_table(rows=2, cols=2)
+        table.cell(0, 0).text = "套餐"
+        table.cell(0, 1).text = "价格"
+        table.cell(1, 0).text = "两年延保"
+        table.cell(1, 1).text = "199 元"
+        document.add_heading("延保", level=2)
+        document.add_paragraph("线上购买。")
+        document.add_heading("网络设置", level=1)
+        document.add_paragraph("默认地址 192.168.77.1。")
+        stream = io.BytesIO()
+        document.save(stream)
+
+        sections = self.parser.parse(
+            stream.getvalue(),
+            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            filename="x3.docx",
+        )
+
+        self.assertEqual([section.section for section in sections], ["售后", "售后 > 延保", "网络设置"])
+        self.assertIn("保修一年。", sections[0].text)
+        self.assertIn("两年延保 | 199 元", sections[0].text)
+        self.assertIn("线上购买。", sections[1].text)
