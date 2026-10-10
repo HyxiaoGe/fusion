@@ -732,8 +732,12 @@ describe('ChatInput', () => {
       />,
     );
 
-    await screen.findByText('产品手册');
+    const chip = await screen.findByText('产品手册');
     expect(screen.getByText(/回答时可检索|Searchable when answering/)).toBeInTheDocument();
+    // 已选标签在输入框上方，选择按钮在工具栏里
+    const toolbar = screen.getByRole('toolbar', { name: '消息工具栏' });
+    expect(toolbar).not.toContainElement(chip);
+    expect(toolbar).toContainElement(screen.getByTestId('knowledge-base-composer-trigger'));
     await waitFor(() => {
       expect(setComposerAgentModeMock).toHaveBeenCalledWith({ chatId: 'chat-a', mode: 'auto' });
     });
@@ -3090,6 +3094,15 @@ describe('ChatInput', () => {
     await waitFor(() => {
       expect(screen.getByTestId('knowledge-base-composer-trigger')).not.toBeDisabled();
     });
+  });
+
+  it('知识库按钮在工具栏里，未选择知识库时输入框上方不占一行', async () => {
+    configureAuthenticatedVisionModel();
+    render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
+
+    const trigger = await screen.findByTestId('knowledge-base-composer-trigger');
+    expect(screen.getByRole('toolbar', { name: '消息工具栏' })).toContainElement(trigger);
+    expect(screen.queryByText('回答时可检索')).toBeNull();
   });
 
   it('中文输入法确认选词时不发送，兼容组合状态和 229 键码', () => {

@@ -69,7 +69,10 @@ import {
 } from "@/lib/agent/composerAgentMode";
 import type { ComposerAgentMode } from "@/types/agentRun";
 import { PlanTimeline } from "./agent/PlanTimeline";
-import KnowledgeBaseComposerControl, {
+import {
+  KnowledgeBaseComposerSelection,
+  KnowledgeBaseComposerTrigger,
+  useKnowledgeBaseComposer,
   type KnowledgeSelectionStatus,
 } from "./KnowledgeBaseComposerControl";
 import {
@@ -148,6 +151,8 @@ const COMPOSER_AGENT_MODES: Array<{
     icon: Search,
   },
 ];
+
+const EMPTY_KNOWLEDGE_BASE_IDS: string[] = [];
 
 function normalizeSelectedKnowledgeBaseIds(ids: string[] | undefined): string[] {
   return Array.from(new Set((ids ?? []).filter(Boolean)));
@@ -607,6 +612,16 @@ const ChatInput: React.FC<ChatInputProps> = ({
     setKnowledgeSelectionStatus(status);
     onKnowledgeSelectionStatusChange?.(status);
   }, [onKnowledgeSelectionStatusChange]);
+
+  const knowledgeBaseComposer = useKnowledgeBaseComposer({
+    selectedIds: hasHydrated ? selectedKnowledgeBaseIds : EMPTY_KNOWLEDGE_BASE_IDS,
+    onChange: handleKnowledgeBaseIdsChange,
+    disabled: isComposerBlocked || isCurrentConversationStreaming,
+    enabled: hasHydrated && isAuthenticated,
+    scopeKey: authIdentity,
+    refreshKey: knowledgeSelectionScope,
+    onSelectionStatusChange: handleKnowledgeSelectionStatusChange,
+  });
 
   const promptLogin = (messageText: string) => {
     toast({
@@ -1388,15 +1403,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
           onViewImage={(url) => setViewingImageUrl(url)}
         />
 
-        <KnowledgeBaseComposerControl
-          selectedIds={hasHydrated ? selectedKnowledgeBaseIds : []}
-          onChange={handleKnowledgeBaseIdsChange}
-          disabled={isComposerBlocked || isCurrentConversationStreaming}
-          enabled={hasHydrated && isAuthenticated}
-          scopeKey={authIdentity}
-          refreshKey={knowledgeSelectionScope}
-          onSelectionStatusChange={handleKnowledgeSelectionStatusChange}
-        />
+        <KnowledgeBaseComposerSelection state={knowledgeBaseComposer} />
 
         {/* 模型不支持 vision 但有图片时的内嵌提示 */}
         {hasImagesButNoVision && (
@@ -1579,6 +1586,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
               </DropdownMenuContent>
             </DropdownMenu>
 
+            <KnowledgeBaseComposerTrigger state={knowledgeBaseComposer} />
           </div>
 
           {/* 右侧：模型选择器 + 发送按钮 */}
