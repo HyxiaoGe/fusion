@@ -19,7 +19,7 @@ import styles from './KnowledgeBaseComposerControl.module.css';
 type LoadState = 'idle' | 'loading' | 'ready' | 'failed';
 export type { KnowledgeSelectionStatus } from '@/lib/chat/knowledgeBaseCatalogResource';
 
-interface KnowledgeBaseComposerControlProps {
+interface KnowledgeBaseComposerOptions {
   selectedIds: string[];
   onChange: (ids: string[]) => void;
   disabled: boolean;
@@ -29,7 +29,12 @@ interface KnowledgeBaseComposerControlProps {
   onSelectionStatusChange?: (status: KnowledgeSelectionStatus) => void;
 }
 
-export default function KnowledgeBaseComposerControl({
+export type KnowledgeBaseComposerState = ReturnType<typeof useKnowledgeBaseComposer>;
+
+/**
+ * 知识库选择状态只在这里维护一份；选择按钮放在工具栏，已选标签放在输入框上方，两处共用同一状态。
+ */
+export function useKnowledgeBaseComposer({
   selectedIds,
   onChange,
   disabled,
@@ -37,8 +42,7 @@ export default function KnowledgeBaseComposerControl({
   refreshKey = null,
   enabled = true,
   onSelectionStatusChange,
-}: KnowledgeBaseComposerControlProps) {
-  const { t } = useTranslation();
+}: KnowledgeBaseComposerOptions) {
   const [open, setOpen] = useState(false);
   const catalogScopeKey = enabled ? scopeKey : null;
   const subscribeToCatalog = useCallback(
@@ -122,142 +126,179 @@ export default function KnowledgeBaseComposerControl({
     onChange([...selectedIds, knowledgeBaseId]);
   }, [maxSelectedKnowledgeBases, onChange, selectedIds]);
 
+  return {
+    selectedIds,
+    onChange,
+    disabled,
+    enabled,
+    open,
+    handleOpenChange,
+    catalogScopeKey,
+    bases,
+    baseById,
+    maxSelectedKnowledgeBases,
+    loadState,
+    hasUnavailable,
+    selectionLimitExceeded,
+    selectionStatus,
+    toggleKnowledgeBase,
+  };
+}
+
+/** 工具栏里的知识库按钮与选择面板。 */
+export function KnowledgeBaseComposerTrigger({ state }: { state: KnowledgeBaseComposerState }) {
+  const { t } = useTranslation();
+  const {
+    selectedIds, onChange, disabled, enabled, open, handleOpenChange, catalogScopeKey,
+    bases, maxSelectedKnowledgeBases, loadState, toggleKnowledgeBase,
+  } = state;
   if (!enabled) return null;
+  return (
+    <Popover open={open} onOpenChange={handleOpenChange}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={disabled}
+          data-testid="knowledge-base-composer-trigger"
+          data-selected={selectedIds.length > 0}
+          aria-label={t('knowledgeBase.composer.trigger')}
+          className={`h-8 shrink-0 gap-1.5 px-2 text-muted-foreground hover:text-foreground ${styles.trigger}`}
+        >
+          <BookOpen className={`h-4 w-4 ${selectedIds.length > 0 ? 'text-info' : ''}`} aria-hidden="true" />
+          <span className="hidden text-xs min-[420px]:inline">{t('knowledgeBase.composer.trigger')}</span>
+          {selectedIds.length > 0 ? (
+            <span className={styles.count}>
+              {selectedIds.length}
+            </span>
+          ) : null}
+          <ChevronDown className={`size-3 opacity-60 ${styles.chevron}`} aria-hidden="true" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        side="top"
+        sideOffset={8}
+        className={styles.panel}
+        aria-label={t('knowledgeBase.composer.title')}
+      >
+        <div className={styles.header}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className={styles.title}>
+                {t('knowledgeBase.composer.title')}
+              </p>
+              <p className={styles.hint}>
+                {t('knowledgeBase.composer.description')}
+              </p>
+            </div>
+            {selectedIds.length > 0 ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className={`h-7 shrink-0 px-2 text-xs ${styles.clearButton}`}
+                onClick={() => onChange([])}
+              >
+                {t('knowledgeBase.composer.clear')}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className={styles.body}>
+          {loadState === 'loading' ? (
+            <div role="status" className="flex min-h-24 items-center justify-center text-xs text-muted-foreground">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+              {t('knowledgeBase.composer.loading')}
+            </div>
+          ) : loadState === 'failed' ? (
+            <div role="alert" className="flex min-h-24 flex-col items-center justify-center gap-2 px-3 text-center text-xs text-muted-foreground">
+              <AlertCircle className="h-4 w-4 text-destructive" aria-hidden="true" />
+              <span>{t('knowledgeBase.composer.failed')}</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1.5 text-xs"
+                onClick={() => {
+                  if (!catalogScopeKey) return;
+                  void ensureKnowledgeBaseCatalog(catalogScopeKey, true).catch(() => {});
+                }}
+              >
+                <RotateCw className="h-3.5 w-3.5" aria-hidden="true" />
+                {t('knowledgeBase.composer.retry')}
+              </Button>
+            </div>
+          ) : bases.length === 0 ? (
+            <div className="flex min-h-24 items-center justify-center px-3 text-center text-xs text-muted-foreground">
+              {t('knowledgeBase.composer.empty')}
+            </div>
+          ) : (
+            <div className={styles.options}>
+              {bases.map((base) => {
+                const checked = selectedIds.includes(base.id);
+                const selectionLimitReached = !checked && (
+                  maxSelectedKnowledgeBases === null
+                  || selectedIds.length >= maxSelectedKnowledgeBases
+                );
+                return (
+                  <label
+                    key={base.id}
+                    className={styles.option}
+                    data-selected={checked}
+                    data-disabled={disabled || selectionLimitReached}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={disabled || selectionLimitReached}
+                      aria-label={base.name}
+                      onChange={() => toggleKnowledgeBase(base.id)}
+                      className="peer sr-only"
+                    />
+                    <span className={styles.checkbox}>
+                      {checked ? <Check className="h-3 w-3" aria-hidden="true" /> : null}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className={styles.optionTitle} title={base.name}>{base.name}</span>
+                      {base.description ? (
+                        <span className={styles.optionDescription} title={base.description}>
+                          {base.description}
+                        </span>
+                      ) : null}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {maxSelectedKnowledgeBases !== null
+        && selectedIds.length >= maxSelectedKnowledgeBases ? (
+          <p className={styles.limit}>
+            {t('knowledgeBase.composer.limit', { count: maxSelectedKnowledgeBases })}
+          </p>
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** 已选知识库标签与可用性提示；未选择且无提示时不占位。 */
+export function KnowledgeBaseComposerSelection({ state }: { state: KnowledgeBaseComposerState }) {
+  const { t } = useTranslation();
+  const {
+    selectedIds, onChange, disabled, enabled, baseById, maxSelectedKnowledgeBases,
+    loadState, hasUnavailable, selectionLimitExceeded, selectionStatus,
+  } = state;
+  if (!enabled || selectedIds.length === 0) return null;
 
   return (
     <div className={`border-b px-3 py-2 ${styles.bar}`}>
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        <Popover open={open} onOpenChange={handleOpenChange}>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant={selectedIds.length > 0 ? 'secondary' : 'ghost'}
-              size="sm"
-              disabled={disabled}
-              data-testid="knowledge-base-composer-trigger"
-              data-selected={selectedIds.length > 0}
-              aria-label={t('knowledgeBase.composer.trigger')}
-              className={`h-7 shrink-0 gap-1.5 px-2 text-xs ${styles.trigger}`}
-            >
-              <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
-              {t('knowledgeBase.composer.trigger')}
-              {selectedIds.length > 0 ? (
-                <span className={styles.count}>
-                  {selectedIds.length}
-                </span>
-              ) : null}
-              <ChevronDown className={`size-3 opacity-60 ${styles.chevron}`} aria-hidden="true" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent
-            align="start"
-            side="top"
-            sideOffset={8}
-            className={styles.panel}
-            aria-label={t('knowledgeBase.composer.title')}
-          >
-            <div className={styles.header}>
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className={styles.title}>
-                    {t('knowledgeBase.composer.title')}
-                  </p>
-                  <p className={styles.hint}>
-                    {t('knowledgeBase.composer.description')}
-                  </p>
-                </div>
-                {selectedIds.length > 0 ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className={`h-7 shrink-0 px-2 text-xs ${styles.clearButton}`}
-                    onClick={() => onChange([])}
-                  >
-                    {t('knowledgeBase.composer.clear')}
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-
-            <div className={styles.body}>
-              {loadState === 'loading' ? (
-                <div role="status" className="flex min-h-24 items-center justify-center text-xs text-muted-foreground">
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
-                  {t('knowledgeBase.composer.loading')}
-                </div>
-              ) : loadState === 'failed' ? (
-                <div role="alert" className="flex min-h-24 flex-col items-center justify-center gap-2 px-3 text-center text-xs text-muted-foreground">
-                  <AlertCircle className="h-4 w-4 text-destructive" aria-hidden="true" />
-                  <span>{t('knowledgeBase.composer.failed')}</span>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="h-7 gap-1.5 text-xs"
-                    onClick={() => {
-                      if (!catalogScopeKey) return;
-                      void ensureKnowledgeBaseCatalog(catalogScopeKey, true).catch(() => {});
-                    }}
-                  >
-                    <RotateCw className="h-3.5 w-3.5" aria-hidden="true" />
-                    {t('knowledgeBase.composer.retry')}
-                  </Button>
-                </div>
-              ) : bases.length === 0 ? (
-                <div className="flex min-h-24 items-center justify-center px-3 text-center text-xs text-muted-foreground">
-                  {t('knowledgeBase.composer.empty')}
-                </div>
-              ) : (
-                <div className={styles.options}>
-                  {bases.map((base) => {
-                    const checked = selectedIds.includes(base.id);
-                    const selectionLimitReached = !checked && (
-                      maxSelectedKnowledgeBases === null
-                      || selectedIds.length >= maxSelectedKnowledgeBases
-                    );
-                    return (
-                      <label
-                        key={base.id}
-                        className={styles.option}
-                        data-selected={checked}
-                        data-disabled={disabled || selectionLimitReached}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          disabled={disabled || selectionLimitReached}
-                          aria-label={base.name}
-                          onChange={() => toggleKnowledgeBase(base.id)}
-                          className="peer sr-only"
-                        />
-                        <span className={styles.checkbox}>
-                          {checked ? <Check className="h-3 w-3" aria-hidden="true" /> : null}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className={styles.optionTitle} title={base.name}>{base.name}</span>
-                          {base.description ? (
-                            <span className={styles.optionDescription} title={base.description}>
-                              {base.description}
-                            </span>
-                          ) : null}
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {maxSelectedKnowledgeBases !== null
-            && selectedIds.length >= maxSelectedKnowledgeBases ? (
-              <p className={styles.limit}>
-                {t('knowledgeBase.composer.limit', { count: maxSelectedKnowledgeBases })}
-              </p>
-            ) : null}
-          </PopoverContent>
-        </Popover>
-
         {selectedIds.map((id) => {
           const base = baseById.get(id);
           const unavailable = loadState === 'ready' && !base;
@@ -318,7 +359,7 @@ export default function KnowledgeBaseComposerControl({
       ) : selectionLimitExceeded ? (
         <p role="alert" className="mt-1.5 text-xs text-destructive">
           {t('knowledgeBase.composer.limitExceededHint', {
-            count: maxSelectedKnowledgeBases,
+            count: maxSelectedKnowledgeBases ?? 0,
           })}
         </p>
       ) : hasUnavailable ? (

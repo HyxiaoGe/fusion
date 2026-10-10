@@ -41,7 +41,22 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-import KnowledgeBaseComposerControl from './KnowledgeBaseComposerControl';
+import {
+  KnowledgeBaseComposerSelection,
+  KnowledgeBaseComposerTrigger,
+  useKnowledgeBaseComposer,
+} from './KnowledgeBaseComposerControl';
+
+// 生产中按钮在工具栏、标签在输入框上方；这里把两部分放在一起测同一份状态。
+function KnowledgeBaseComposerControl(props: Parameters<typeof useKnowledgeBaseComposer>[0]) {
+  const state = useKnowledgeBaseComposer(props);
+  return (
+    <>
+      <KnowledgeBaseComposerTrigger state={state} />
+      <KnowledgeBaseComposerSelection state={state} />
+    </>
+  );
+}
 import {
   KNOWLEDGE_BASE_CATALOG_TTL_MS,
   resetKnowledgeBaseCatalogResource,
