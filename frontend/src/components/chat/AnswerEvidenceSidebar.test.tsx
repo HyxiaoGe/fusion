@@ -405,8 +405,8 @@ describe('AnswerEvidenceSidebar 来源分组', () => {
     expect(documents).toHaveLength(2);
     expect(within(documents[0]).getByText('specs.md')).toBeInTheDocument();
     expect(within(documents[0]).getByText('电商售后与商品 · 2 段')).toBeInTheDocument();
-    expect(within(documents[0]).getByText('重量')).toBeInTheDocument();
-    expect(within(documents[0]).getByText('电池')).toBeInTheDocument();
+    expect(within(documents[0]).getByText('重量 · 第 1 块')).toBeInTheDocument();
+    expect(within(documents[0]).getByText('电池 · 第 5 块')).toBeInTheDocument();
     expect(within(documents[1]).getByText('第 3 块')).toBeInTheDocument();
     expect(within(used).getByText('网页 1')).toBeInTheDocument();
   });
@@ -442,6 +442,6 @@ describe('AnswerEvidenceSidebar 来源分组', () => {
     );
 
     expect(screen.queryByText(/知识库候选/)).not.toBeInTheDocument();
-    expect(screen.getByText('教育优惠')).toBeInTheDocument();
+    expect(screen.getByText('教育优惠 · 第 2 块')).toBeInTheDocument();
   });
 });
