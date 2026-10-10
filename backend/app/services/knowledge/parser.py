@@ -88,7 +88,8 @@ def parse_document_isolated(
 _MARKDOWN_HEADING = re.compile(r"^ {0,3}(#{1,6})[ \t]+(.*?)[ \t#]*$")
 _MARKDOWN_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _DOCX_HEADING_STYLE = re.compile(r"^(?:heading|标题)\s*(\d)$", re.IGNORECASE)
-MAX_SECTION_LABEL_CHARACTERS = 120
+# Milvus VARCHAR 按 UTF-8 字节计长度，中文一字 3 字节；同时满足 PostgreSQL String(120)。
+MAX_SECTION_LABEL_BYTES = 120
 
 
 class _HeadingSections:
@@ -128,9 +129,16 @@ class _HeadingSections:
 
     def _label(self) -> str | None:
         label = " > ".join(title for _level, title in self._path)
-        if len(label) > MAX_SECTION_LABEL_CHARACTERS:
+        if len(label.encode()) > MAX_SECTION_LABEL_BYTES:
             # 过长时保留最具体的末端标题。
-            label = "…" + label[-(MAX_SECTION_LABEL_CHARACTERS - 1) :]
+            budget = MAX_SECTION_LABEL_BYTES - len("…".encode())
+            tail: list[str] = []
+            for character in reversed(label):
+                budget -= len(character.encode())
+                if budget < 0:
+                    break
+                tail.append(character)
+            label = "…" + "".join(reversed(tail))
         return label or None
 
 
