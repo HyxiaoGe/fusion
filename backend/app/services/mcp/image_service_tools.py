@@ -28,7 +28,23 @@ IMAGE_SERVICE_PROVIDER = "image-service"
 GENERATE_IMAGE_TOOL_NAME = "generate_image"
 IMAGE_SERVICE_REMOTE_TOOL_NAME = "generate_image"
 
-ASPECT_RATIOS = ("1:1", "16:9", "9:16", "4:3", "3:4")
+# image-service 所有 Gemini 模型都接受的比例；Seedream 接受任意比例。
+ASPECT_RATIOS = ("1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9")
+# 主模型被内容审核拦截时，由 image-service 换这个模型重试一次（其他错误不切换）。
+FALLBACK_MODEL = "doubao-seedream-4-5"
+# image-service 结构化错误码（P0 设计 §2.1）；不认识的码按通用上游失败处理。
+KNOWN_ERROR_CODES = frozenset({
+    "invalid_params",
+    "model_not_found",
+    "content_filtered",
+    "upstream_timeout",
+    "upstream_unavailable",
+    "upstream_error",
+    "no_image_returned",
+    "config_missing",
+    "generation_in_progress",
+    "internal_error",
+})
 MAX_PROMPT_CHARS = 1_000
 MAX_STYLE_CHARS = 60
 # 生图有真实费用：同一 run 最多生成的张数。
@@ -42,6 +58,7 @@ MAX_IMAGE_BYTES = 10 * 1024 * 1024
 # image-service 的 MCP 文本返回协议（src/mcp/server.py），按行解析。
 _GENERATED_LINE = re.compile(r"^Generated image:\s*(\S+)\s*$", re.MULTILINE)
 _MODEL_LINE = re.compile(r"^Model:\s*([A-Za-z0-9._:-]{1,80})\s*$", re.MULTILINE)
+_MODEL_ID = re.compile(r"[A-Za-z0-9._:-]{1,80}")
 _ERROR_PREFIX = "Error"
 _IMAGE_PATH = re.compile(r"^/static/images/[A-Za-z0-9_-]{1,128}\.(?:png|jpe?g|webp)$")
 _IMAGE_MIME_TYPES = frozenset({"image/png", "image/jpeg", "image/webp"})
@@ -77,9 +94,20 @@ class ImageServiceToolBinding:
 
 
 class ImageGenerationError(Exception):
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, *, retryable: bool = False, fallback_from: str | None = None) -> None:
         super().__init__(code)
         self.code = code
+        self.retryable = retryable
+        # 主模型被拦截后备用模型也失败时，记主模型的失败码。
+        self.fallback_from = fallback_from
+
+
+@dataclass(frozen=True)
+class GeneratedImageOutcome:
+    image_path: str
+    model: str | None
+    requested_model: str | None = None
+    fallback_used: bool = False
 
 
 def is_image_service_row(row: Any) -> bool:
@@ -110,6 +138,10 @@ def build_generate_image_definition() -> dict[str, Any]:
                         "type": "string",
                         "maxLength": MAX_STYLE_CHARS,
                         "description": render_runtime_prompt("image_service.style"),
+                    },
+                    "regenerate": {
+                        "type": "boolean",
+                        "description": render_runtime_prompt("image_service.regenerate"),
                     },
                 },
                 "required": ["prompt"],
@@ -148,6 +180,47 @@ def build_image_service_binding(
     )
 
 
+def parse_generate_image_payload(payload: Any) -> GeneratedImageOutcome:
+    """优先读 image-service 的结构化结果；旧版本只有文本时按文本协议解析。"""
+    structured = payload.get("structuredContent") if isinstance(payload, dict) else None
+    if not isinstance(structured, dict) or not isinstance(structured.get("ok"), bool):
+        image_path, model = parse_generate_image_text(_payload_text(payload))
+        return GeneratedImageOutcome(image_path=image_path, model=model)
+    if not structured["ok"]:
+        error = structured.get("error") if isinstance(structured.get("error"), dict) else {}
+        code = error.get("code")
+        fallback_from = error.get("fallback_from")
+        fallback_code = fallback_from.get("code") if isinstance(fallback_from, dict) else None
+        raise ImageGenerationError(
+            code if code in KNOWN_ERROR_CODES else "upstream_generation_failed",
+            retryable=error.get("retryable") is True,
+            fallback_from=fallback_code if fallback_code in KNOWN_ERROR_CODES else None,
+        )
+    image_path = _image_path(structured.get("image_url"))
+    return GeneratedImageOutcome(
+        image_path=image_path,
+        model=_model_id(structured.get("model")),
+        requested_model=_model_id(structured.get("requested_model")),
+        fallback_used=structured.get("fallback_used") is True,
+    )
+
+
+def _image_path(url: Any) -> str:
+    if not isinstance(url, str):
+        raise ImageGenerationError("invalid_response")
+    try:
+        path = urlsplit(url).path
+    except ValueError:
+        raise ImageGenerationError("invalid_response") from None
+    if not _IMAGE_PATH.fullmatch(path):
+        raise ImageGenerationError("invalid_response")
+    return path
+
+
+def _model_id(value: Any) -> str | None:
+    return value if isinstance(value, str) and _MODEL_ID.fullmatch(value) else None
+
+
 def parse_generate_image_text(text: str) -> tuple[str, str | None]:
     """从 image-service 返回文本取出图片路径与模型；只接受该服务静态目录下的图片文件。"""
 
@@ -156,12 +229,7 @@ def parse_generate_image_text(text: str) -> tuple[str, str | None]:
     match = _GENERATED_LINE.search(text)
     if match is None:
         raise ImageGenerationError("invalid_response")
-    try:
-        path = urlsplit(match.group(1)).path
-    except ValueError:
-        raise ImageGenerationError("invalid_response") from None
-    if not _IMAGE_PATH.fullmatch(path):
-        raise ImageGenerationError("invalid_response")
+    path = _image_path(match.group(1))
     model_match = _MODEL_LINE.search(text)
     return path, model_match.group(1) if model_match else None
 
@@ -232,19 +300,24 @@ class ImageGenerationToolHandler(BaseToolHandler):
                 arguments,
                 min_call_timeout_seconds=MCP_CALL_TIMEOUT_SECONDS,
             )
-            image_path, model = parse_generate_image_text(_payload_text(payload))
-            content, mime_type = await self._download(image_path)
+            outcome = parse_generate_image_payload(payload)
+            content, mime_type = await self._download(outcome.image_path)
             stored = await self.store_image(
                 content=content,
                 mime_type=mime_type,
                 user_id=self.binding.user_id,
                 conversation_id=self.binding.conversation_id,
-                filename=image_path.rsplit("/", 1)[-1],
+                filename=outcome.image_path.rsplit("/", 1)[-1],
             )
         except McpClientError as error:
             return self._failed(error.code, started_at)
         except ImageGenerationError as error:
-            return self._failed(error.code, started_at)
+            return self._failed(
+                error.code,
+                started_at,
+                retryable=error.retryable,
+                fallback_from=error.fallback_from,
+            )
         except ValueError:
             return self._failed("image_store_rejected", started_at)
         except Exception as error:  # noqa: BLE001 — 存储等基础设施故障如实报失败，不中断本轮
@@ -261,7 +334,9 @@ class ImageGenerationToolHandler(BaseToolHandler):
                 "height": stored.get("height"),
                 "prompt": arguments["prompt"],
                 "aspect_ratio": arguments["aspect_ratio"],
-                "model": model,
+                "model": outcome.model,
+                "requested_model": outcome.requested_model,
+                "fallback_used": outcome.fallback_used,
             },
         )
 
@@ -298,11 +373,21 @@ class ImageGenerationToolHandler(BaseToolHandler):
             "definition_sha256": self.binding.definition_sha256,
         }
 
-    def _failed(self, error_code: str, started_at: float) -> ToolResult:
+    def _failed(
+        self,
+        error_code: str,
+        started_at: float,
+        *,
+        retryable: bool = False,
+        fallback_from: str | None = None,
+    ) -> ToolResult:
+        data = {**self._metadata(), "error_code": error_code, "retryable": retryable}
+        if fallback_from:
+            data["fallback_from"] = fallback_from
         return ToolResult(
             status="failed",
             duration_ms=_duration_ms(started_at),
-            data={**self._metadata(), "error_code": error_code, "retryable": False},
+            data=data,
             error_message="图片生成失败",
         )
 
@@ -332,8 +417,15 @@ class ImageGenerationToolHandler(BaseToolHandler):
             return render_runtime_prompt(
                 "image_service.failed_context",
                 error_code=data.get("error_code") or "image_generation_failed",
+                retryable=data.get("retryable") is True,
+                fallback_from=data.get("fallback_from"),
             )
-        return render_runtime_prompt("image_service.success_context", model=data.get("model"))
+        return render_runtime_prompt(
+            "image_service.success_context",
+            model=data.get("model"),
+            requested_model=data.get("requested_model"),
+            fallback_used=data.get("fallback_used") is True,
+        )
 
     def _build_result_summary(self, result: ToolResult) -> dict:
         data = result.data or {}
@@ -346,7 +438,7 @@ class ImageGenerationToolHandler(BaseToolHandler):
 
 
 def _normalized_arguments(args: Any) -> dict[str, Any]:
-    if not isinstance(args, dict) or set(args) - {"prompt", "aspect_ratio", "style"}:
+    if not isinstance(args, dict) or set(args) - {"prompt", "aspect_ratio", "style", "regenerate"}:
         raise ImageGenerationError("invalid_arguments")
     prompt = args.get("prompt")
     if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > MAX_PROMPT_CHARS:
@@ -354,7 +446,16 @@ def _normalized_arguments(args: Any) -> dict[str, Any]:
     aspect_ratio = args.get("aspect_ratio", "1:1")
     if aspect_ratio not in ASPECT_RATIOS:
         raise ImageGenerationError("invalid_arguments")
-    arguments: dict[str, Any] = {"prompt": prompt.strip(), "aspect_ratio": aspect_ratio}
+    regenerate = args.get("regenerate", False)
+    if not isinstance(regenerate, bool):
+        raise ImageGenerationError("invalid_arguments")
+    arguments: dict[str, Any] = {
+        "prompt": prompt.strip(),
+        "aspect_ratio": aspect_ratio,
+        "fallback_model": FALLBACK_MODEL,
+    }
+    if regenerate:
+        arguments["no_cache"] = True
     style = args.get("style")
     if style is not None:
         if not isinstance(style, str) or len(style) > MAX_STYLE_CHARS:

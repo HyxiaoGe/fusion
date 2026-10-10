@@ -12,6 +12,7 @@ from app.services.mcp.agent_tools import (  # noqa: E402
 )
 from app.services.mcp.image_service_tools import (  # noqa: E402
     EXECUTION_TIMEOUT_SECONDS,
+    FALLBACK_MODEL,
     MCP_CALL_TIMEOUT_SECONDS,
     ImageGenerationError,
     parse_generate_image_text,
@@ -147,7 +148,10 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.status, "success")
         self.assertEqual(client.calls[0][1], "generate_image")
-        self.assertEqual(client.calls[0][2], {"prompt": "a red fox", "aspect_ratio": "16:9"})
+        self.assertEqual(
+            client.calls[0][2],
+            {"prompt": "a red fox", "aspect_ratio": "16:9", "fallback_model": FALLBACK_MODEL},
+        )
         self.assertEqual(client.min_timeouts, [MCP_CALL_TIMEOUT_SECONDS])
         self.assertEqual(server.requested_urls, [f"http://192.168.1.11:8090/static/images/{IMAGE_NAME}"])
         self.assertEqual(store.calls[0]["conversation_id"], "conv-1")
@@ -185,12 +189,91 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_invalid_arguments_fail_before_remote_call(self):
         handler, client, *_ = self.build_handler()
-        for args in ({}, {"prompt": " "}, {"prompt": "x", "aspect_ratio": "2:1"}, {"prompt": "x", "size": "4k"}):
+        for args in (
+            {},
+            {"prompt": " "},
+            {"prompt": "x", "aspect_ratio": "2:1"},
+            {"prompt": "x", "size": "4k"},
+            {"prompt": "x", "regenerate": "yes"},
+        ):
             with self.subTest(args=args):
                 self.assertTrue(handler.validate_arguments(args))
                 result = await handler.execute(args)
                 self.assertEqual(result.data["error_code"], "invalid_arguments")
         self.assertEqual(client.calls, [])
+
+    def structured_client(self, structured, text="Error generating image [x]: y"):
+        return TimeoutAwareClientManager(
+            result={"content": [{"type": "text", "text": text}], "structuredContent": structured, "isError": False}
+        )
+
+    async def test_regenerate_skips_service_cache(self):
+        handler, client, *_ = self.build_handler()
+
+        await handler.execute({"prompt": "a fox", "regenerate": True})
+        await handler.execute({"prompt": "a fox", "regenerate": False})
+
+        self.assertTrue(client.calls[0][2]["no_cache"])
+        self.assertNotIn("no_cache", client.calls[1][2])
+
+    async def test_structured_success_reports_fallback_model(self):
+        client = self.structured_client(
+            {
+                "ok": True,
+                "image_url": f"http://image-service.dev.seanfield.org/static/images/{IMAGE_NAME}",
+                "model": "doubao-seedream-4-5",
+                "requested_model": "gemini-3.1-flash-image-preview",
+                "fallback_used": True,
+                "cached": False,
+                "id": "gen-1",
+            },
+            text=SUCCESS_TEXT,
+        )
+        handler, _, _, server = self.build_handler(client=client)
+
+        result = await handler.execute({"prompt": "a fox"})
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(server.requested_urls, [f"http://192.168.1.11:8090/static/images/{IMAGE_NAME}"])
+        self.assertEqual(result.data["model"], "doubao-seedream-4-5")
+        self.assertTrue(result.data["fallback_used"])
+        self.assertEqual(handler.build_content_block(result, "blk", "log").model, "doubao-seedream-4-5")
+        context = handler.format_llm_context(result)
+        self.assertIn("fallback model", context)
+        self.assertIn("gemini-3.1-flash-image-preview", context)
+
+    async def test_structured_failures_map_error_codes_and_guidance(self):
+        cases = {
+            "content_filtered": (
+                {"code": "content_filtered", "retryable": False},
+                "content_filtered",
+                "will not help",
+            ),
+            "both_filtered": (
+                {"code": "content_filtered", "retryable": False,
+                 "fallback_from": {"model": "gemini", "code": "content_filtered"}},
+                "content_filtered",
+                "fallback model also refused",
+            ),
+            "fallback_timeout": (
+                {"code": "upstream_timeout", "retryable": True,
+                 "fallback_from": {"model": "gemini", "code": "content_filtered"}},
+                "upstream_timeout",
+                "fallback model then failed",
+            ),
+            "timeout": ({"code": "upstream_timeout", "retryable": True}, "upstream_timeout", "can try again"),
+            "unknown": ({"code": "weird_new_code", "retryable": True}, "upstream_generation_failed", "can try again"),
+        }
+        for name, (error, expected_code, guidance) in cases.items():
+            with self.subTest(name):
+                handler, *_ = self.build_handler(client=self.structured_client({"ok": False, "error": error}))
+                result = await handler.execute({"prompt": "a fox"})
+                self.assertEqual(result.status, "failed")
+                self.assertEqual(result.data["error_code"], expected_code)
+                context = handler.format_llm_context(result)
+                self.assertIn(guidance, context)
+                if expected_code == "content_filtered":
+                    self.assertNotIn("try again", context)
 
     async def test_run_image_limit_stops_further_generation(self):
         handler, client, *_ = self.build_handler()
