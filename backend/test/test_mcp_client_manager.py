@@ -577,13 +577,18 @@ class McpClientManagerTests(unittest.TestCase):
         root_logger = logging.getLogger()
         handler = CaptureHandler()
         root_logger.addHandler(handler)
+        was_disabled = sdk_logger.disabled
         try:
-            sdk_logger.info("Received session ID: %s", session_id)
-            sdk_logger.exception(raw_exception)
+            for disabled in (True, False):
+                # False 模拟第三方 dictConfig(disable_existing_loggers=False) 重新启用该 logger。
+                sdk_logger.disabled = disabled
+                sdk_logger.info("Received session ID: %s", session_id)
+                sdk_logger.exception(raw_exception)
+                self.assertFalse(sdk_logger.isEnabledFor(logging.CRITICAL))
         finally:
+            sdk_logger.disabled = was_disabled
             root_logger.removeHandler(handler)
 
-        self.assertTrue(sdk_logger.disabled)
         self.assertFalse(sdk_logger.propagate)
         self.assertEqual(records, [])
 
