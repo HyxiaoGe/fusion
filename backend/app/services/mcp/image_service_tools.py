@@ -420,12 +420,7 @@ class ImageGenerationToolHandler(BaseToolHandler):
                 retryable=data.get("retryable") is True,
                 fallback_from=data.get("fallback_from"),
             )
-        return render_runtime_prompt(
-            "image_service.success_context",
-            model=data.get("model"),
-            requested_model=data.get("requested_model"),
-            fallback_used=data.get("fallback_used") is True,
-        )
+        return render_runtime_prompt("image_service.success_context")
 
     def _build_result_summary(self, result: ToolResult) -> dict:
         data = result.data or {}
