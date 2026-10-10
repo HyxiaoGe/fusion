@@ -314,6 +314,60 @@
   }
 }
 
+/* 生图占位点阵：底层暗点 + 主色亮点，亮区随耗时扩散并缓慢漂移；出图后图片由模糊淡入替换点阵 */
+.image-gen-dots,
+.image-gen-dots-glow {
+  position: absolute;
+  inset: 0;
+  background-size: 14px 14px;
+  background-position: 7px 7px;
+}
+
+.image-gen-dots {
+  background-image: radial-gradient(circle, color-mix(in oklch, var(--muted-foreground) 30%, transparent) 1.1px, transparent 1.7px);
+}
+
+.image-gen-dots-glow {
+  background-image: radial-gradient(circle, var(--info) 1.4px, transparent 2px);
+  -webkit-mask-image: radial-gradient(closest-side, #000 35%, transparent 100%);
+  mask-image: radial-gradient(closest-side, #000 35%, transparent 100%);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: var(--image-gen-reveal, 70%) var(--image-gen-reveal, 70%);
+  mask-size: var(--image-gen-reveal, 70%) var(--image-gen-reveal, 70%);
+  transition: -webkit-mask-size 1s linear, mask-size 1s linear, opacity 0.5s ease-out;
+  animation: image-gen-drift 9s ease-in-out infinite alternate, image-gen-breathe 2.4s ease-in-out infinite;
+}
+
+.image-gen-image {
+  opacity: 0;
+  filter: blur(14px);
+  transform: scale(1.015);
+  transition: opacity 0.7s ease-out, filter 0.9s ease-out, transform 0.9s ease-out;
+}
+
+.image-gen-image[data-loaded='true'] {
+  opacity: 1;
+  filter: blur(0);
+  transform: scale(1);
+}
+
+@keyframes image-gen-drift {
+  0% { -webkit-mask-position: 20% 25%; mask-position: 20% 25%; }
+  50% { -webkit-mask-position: 70% 55%; mask-position: 70% 55%; }
+  100% { -webkit-mask-position: 35% 80%; mask-position: 35% 80%; }
+}
+
+@keyframes image-gen-breathe {
+  0%, 100% { opacity: 0.75; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .image-gen-dots-glow { animation: none; transition: none; }
+  .image-gen-image { transition: opacity 0.2s linear; filter: none; transform: none; }
+}
+
 @layer base {
   * {
     @apply border-border;

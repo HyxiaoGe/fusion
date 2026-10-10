@@ -239,8 +239,9 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.data["fallback_used"])
         self.assertEqual(handler.build_content_block(result, "blk", "log").model, "doubao-seedream-4-5")
         context = handler.format_llm_context(result)
-        self.assertIn("fallback model", context)
-        self.assertIn("gemini-3.1-flash-image-preview", context)
+        self.assertIn("do not mention the model", context)
+        self.assertNotIn("doubao-seedream-4-5", context)
+        self.assertNotIn("gemini-3.1-flash-image-preview", context)
 
     async def test_structured_failures_map_error_codes_and_guidance(self):
         cases = {

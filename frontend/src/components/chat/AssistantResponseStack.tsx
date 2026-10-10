@@ -1,6 +1,6 @@
 'use client';
 
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import type {
   DocumentBlock,
   GeneratedImageBlock,
@@ -21,6 +21,7 @@ import StructuredToolResults from './StructuredToolResults';
 import DocumentCards from '@/components/documents/DocumentCards';
 import DocumentDraftCard from '@/components/documents/DocumentDraftCard';
 import GeneratedImages from './GeneratedImages';
+import { collectPendingImageGenerations } from './generatedImageModel';
 import TrajectoryStatusLine from './trajectory/TrajectoryStatusLine';
 
 interface AssistantResponseStackProps {
@@ -85,6 +86,10 @@ function AssistantResponseStack({
   showStreamingCursor,
 }: AssistantResponseStackProps) {
   const showReasoning = reasoning.shouldRender;
+  const pendingImages = useMemo(
+    () => collectPendingImageGenerations(agentRun, generatedImages),
+    [agentRun, generatedImages],
+  );
   const stopAwaitingConfirmation = agentRun?.status === 'running' && Boolean(agentRun.stopConfirmation);
   // 模型只输出了思考、没写正文时如实说明，不拿思考冒充回答。
   const answerMissing = activity.kind === 'completed'
@@ -139,7 +144,11 @@ function AssistantResponseStack({
 
       <DocumentCards blocks={documentBlocks} />
 
-      <GeneratedImages blocks={generatedImages} />
+      <GeneratedImages
+        blocks={generatedImages}
+        pending={pendingImages}
+        onRegenerate={onStructuredResultFollowUp}
+      />
 
       <div className="w-full max-w-6xl">
         <AnswerEvidence

@@ -129,6 +129,25 @@
       "contentFiltered": "你好，这个问题我暂时无法回答，让我们换个话题再聊聊吧。"
     },
     "chatBody": {
+      "generatedImage": {
+        "creating": "正在生成图片",
+        "elapsed": "{{seconds}} 秒",
+        "providedBy": "本次生图由 {{model}} 提供",
+        "showPrompt": "查看描述",
+        "hidePrompt": "收起描述",
+        "download": "下载",
+        "regenerate": "重新生成",
+        "regenerateRequest": "用同样的描述再生成一张",
+        "loadFailed": "图片加载失败",
+        "retryLoad": "重试",
+        "interrupted": "已停止生成",
+        "failed": {
+          "content_filtered": "图片内容未通过模型审核",
+          "upstream_timeout": "生成超时",
+          "generation_in_progress": "相同的请求正在生成",
+          "default": "图片生成失败"
+        }
+      },
       "evidencePanel": {
         "title": "回答依据",
         "close": "关闭回答依据",
