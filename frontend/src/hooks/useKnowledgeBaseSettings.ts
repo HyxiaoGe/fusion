@@ -18,6 +18,7 @@ import {
 import { invalidateKnowledgeBaseCatalog } from '@/lib/chat/knowledgeBaseCatalogResource';
 import { useAppSelector } from '@/redux/hooks';
 import { selectAuthSessionKey } from '@/redux/selectors';
+import { ApiError } from '@/types/api';
 import type {
   KnowledgeBase,
   KnowledgeBaseCreatePayload,
@@ -154,6 +155,8 @@ export function useKnowledgeBaseSettings(): KnowledgeBaseSettingsState {
   const taskRequestRef = useRef<AbortController | null>(null);
   const mutationRequestRef = useRef<AbortController | null>(null);
   const pollFailuresRef = useRef(0);
+  const basePageRef = useRef(1);
+  basePageRef.current = basePage;
 
   const beginRequest = useCallback((slot: MutableRefObject<AbortController | null>) => {
     slot.current?.abort();
@@ -259,6 +262,15 @@ export function useKnowledgeBaseSettings(): KnowledgeBaseSettingsState {
         return true;
       } catch (requestError) {
         if (isAbortError(requestError) || !isCurrent(boundary)) return true;
+        if (
+          requestError instanceof ApiError &&
+          requestError.code === 'NOT_FOUND' &&
+          selectedBaseIdRef.current === knowledgeBaseId
+        ) {
+          // 选中的知识库已被删除：这是状态变化，不是故障，重拉列表换选中。
+          setDocuments(emptyDocumentPage());
+          return fetchBases(basePageRef.current, true);
+        }
         if (quiet) setPollingWarning(requestError);
         else setError(requestError);
         return false;
@@ -268,7 +280,7 @@ export function useKnowledgeBaseSettings(): KnowledgeBaseSettingsState {
         if (!quiet && ownsSlot && isCurrent(boundary)) setLoadingDocuments(false);
       }
     },
-    [beginRequest, captureBoundary, endRequest, isCurrent],
+    [beginRequest, captureBoundary, endRequest, fetchBases, isCurrent],
   );
 
   const refreshTrackedTasks = useCallback(async () => {
