@@ -95,6 +95,8 @@ def build_knowledge_search_tool(bases: tuple[KnowledgeBaseScope, ...]) -> dict:
 
 class KnowledgeSearchHandler(BaseToolHandler):
     supports_run_level_citations = True
+    # 模型看到的检索上下文就是文档正文，不随轨迹落库。
+    persists_model_observation = False
 
     def __init__(
         self,

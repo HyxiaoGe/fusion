@@ -379,3 +379,19 @@ def test_new_search_sources_number_after_replayed_history_citations():
     tool_message = next(message for message in request.messages if message.get("role") == "tool")
     assert tool_message["content"].startswith("来源编号 [7]")
     assert [entry["role"] for entry in request.agent_state.tool_transcript] == ["assistant", "tool"]
+
+
+@pytest.mark.anyio
+async def test_handler_can_opt_out_of_persisting_model_observation():
+    record = _record()
+    record.handler.persists_model_observation = False
+    request = _request(record)
+    record.result.trajectory_log_task = asyncio.create_task(asyncio.sleep(0))
+    observations = tool_round.append_tool_round_messages_with_plan(request, [record], source_plan=None)
+
+    with patch.object(tool_round, "attach_tool_observation") as attach:
+        await tool_round.persist_tool_observations(request, [record], observations)
+
+    # 模型仍拿到工具消息，只是不写进工具日志。
+    assert observations["call-1"] == request.messages[-1]["content"]
+    attach.assert_not_called()

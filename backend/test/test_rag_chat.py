@@ -745,6 +745,7 @@ class KnowledgeSearchToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(hit.text, str(serialized))
         self.assertIsInstance(deserialize_content_blocks([serialized])[0], KnowledgeEvidenceBlock)
         self.assertNotIn(hit.text, str(handler.sanitize_output_data_for_log(result)))
+        self.assertFalse(handler.persists_model_observation)
         self.assertNotIn(hit.text, str(handler.trajectory_output_data(result)))
 
     async def test_empty_search_is_reported_to_model_without_server_answer(self):
