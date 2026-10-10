@@ -737,6 +737,8 @@ class KnowledgeSearchToolTests(unittest.IsolatedAsyncioTestCase):
 
         context = handler.format_llm_context(result, citation_numbers=[4])
         self.assertIn("untrusted", context)
+        self.assertIn("tell the user that the selected knowledge bases do not cover it", context)
+        self.assertLess(context.index("do not cover it"), context.index(hit.text))
         self.assertIn("[4]", context)
         self.assertIn(hit.text, context)
 
@@ -892,7 +894,6 @@ class KnowledgeSearchToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(long_line.removeprefix("- 长描述: ")), MAX_KNOWLEDGE_BASE_DESCRIPTION_CHARS)
         self.assertTrue(long_line.endswith("…"))
         self.assertIn("the user selected for this conversation", description)
-        self.assertIn("tell the user that the selected knowledge bases do not cover it", description)
 
     def test_loaded_tool_set_carries_base_descriptions_in_selection_order(self):
         rows = [
