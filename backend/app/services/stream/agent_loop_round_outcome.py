@@ -10,12 +10,7 @@ from app.ai.prompts.section_ids import (
     RESEARCH_COMPLETION_REPAIR,
 )
 from app.core.logger import app_logger as logger
-from app.schemas.chat import KnowledgeEvidenceBlock
 from app.services.final_answer_evidence import build_used_final_answer_evidence
-from app.services.knowledge.chat_grounding import (
-    KNOWLEDGE_UNVERIFIABLE_ANSWER_TEXT,
-    validate_grounded_answer,
-)
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_TOOL_NAMES
 from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_TOOL_NAMES
 from app.services.stream.agent_loop_outcome import AgentLoopExit, AgentLoopOutcome
@@ -194,7 +189,6 @@ def _is_web_recovery_answer(request: AgentRoundOutcomeRequest) -> bool:
         bool(request.state.tool_issue_names)
         and not has_product_result_blocks(request.state.content_blocks)
         and request.runtime.task_mode != "deep_research"
-        and request.runtime.evidence_policy != "knowledge_grounded_v1"
         and is_grounded_recovery_answer(
             request.round_result.content_buf,
             request.state.content_blocks,
@@ -215,7 +209,6 @@ def _requires_tool_failure_recovery(request: AgentRoundOutcomeRequest) -> bool:
         )
         and not _is_web_recovery_answer(request)
         and request.runtime.task_mode != "deep_research"
-        and request.runtime.evidence_policy != "knowledge_grounded_v1"
     )
 
 
@@ -435,9 +428,6 @@ def _build_user_clarification(state: AgentLoopState) -> str:
 async def _commit_deferred_answer(
     request: AgentRoundOutcomeRequest,
 ) -> AgentRoundOutcomeRequest:
-    if request.runtime.evidence_policy == "knowledge_grounded_v1":
-        return await _commit_deferred_knowledge_answer(request)
-
     if request.terminal and request.state.limit_reason is not None:
         return await _commit_terminal_product_answer(request)
 
@@ -477,36 +467,6 @@ async def _commit_terminal_product_answer(request: AgentRoundOutcomeRequest) -> 
     answer = "\n\n".join(part for part in (answer, clarification, incomplete) if part)
     answer = neutralize_product_provider_mentions(answer, request.state.content_blocks)
     await _append_committed_answer(request, answer)
-    return _with_replaced_answer(request, answer)
-
-
-async def _commit_deferred_knowledge_answer(
-    request: AgentRoundOutcomeRequest,
-) -> AgentRoundOutcomeRequest:
-    """知识库回答只有通过显式引用校验后才写入用户可见流。"""
-
-    evidence_block = next(
-        (block for block in reversed(request.state.content_blocks) if isinstance(block, KnowledgeEvidenceBlock)),
-        None,
-    )
-    candidate = request.round_result.content_buf.strip()
-    if evidence_block is not None and validate_grounded_answer(candidate, evidence_block):
-        answer = candidate
-        model_output_visible = True
-    else:
-        request.runtime.warning_fn(
-            "知识库回答缺少有效引用，使用确定性兜底: "
-            f"conv_id={request.runtime.conversation_id} run_id={request.runtime.run_id} "
-            f"step={request.step_number}"
-        )
-        answer = KNOWLEDGE_UNVERIFIABLE_ANSWER_TEXT
-        model_output_visible = False
-    await _append_committed_answer(
-        request,
-        answer,
-        model_output_visible=model_output_visible,
-        output_reason="deferred" if model_output_visible else "knowledge_guard",
-    )
     return _with_replaced_answer(request, answer)
 
 

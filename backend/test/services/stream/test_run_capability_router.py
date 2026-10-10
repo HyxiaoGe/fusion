@@ -48,7 +48,6 @@ def _resolve(
     task_mode: str = "standard",
     capabilities: dict | None = None,
     tools_disabled: bool = False,
-    knowledge_grounded: bool = False,
 ) -> RunCapabilityResolution:
     return resolve_run_capability_route(
         available_tool_names=ALL_TOOLS if available_tool_names is None else available_tool_names,
@@ -57,7 +56,6 @@ def _resolve(
         task_policy=_task_policy(task_mode=task_mode, plan_mode=requested_plan_mode),
         capabilities=CAPABILITIES if capabilities is None else capabilities,
         tools_disabled=tools_disabled,
-        knowledge_grounded=knowledge_grounded,
     )
 
 
@@ -144,16 +142,6 @@ def test_runtime_boundaries_leave_no_tools(kwargs, reason):
     assert resolution.external_tool_names == ()
     assert resolution.effective_plan_mode == "off"
     assert resolution.network_boundary_required is True
-    _trajectory(resolution)
-
-
-def test_knowledge_grounded_mode_has_no_external_tools():
-    resolution = _resolve(knowledge_grounded=True, requested_plan_mode="on")
-
-    assert resolution.package_id == "knowledge_grounded"
-    assert resolution.reason_codes == ("knowledge_grounded_mode",)
-    assert resolution.external_tool_names == ()
-    assert resolution.effective_plan_mode == "off"
     _trajectory(resolution)
 
 

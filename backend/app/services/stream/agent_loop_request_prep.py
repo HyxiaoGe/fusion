@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.ai.prompts.agent_loop import (
     DEEP_RESEARCH_CONTRACT_PROMPT,
@@ -73,6 +73,9 @@ from app.services.stream.skill_loading import (
 )
 from app.services.weather import WEATHER_TOOL_NAMES
 from app.utils.run_capability_contract import is_authorized_mcp_tool_alias
+
+if TYPE_CHECKING:
+    from app.services.knowledge.agent_tool import KnowledgeToolSet
 
 VOLCENGINE_PROVIDERS = {"volcengine"}
 MAX_CONTROLLED_OUTPUT_TOKENS = 4096
@@ -220,20 +223,20 @@ def build_agent_loop_call_config(
     prompt_bundle_snapshot: PromptBundleSnapshot | None = None,
     previous_run_id: str | None = None,
     document_tools: DocumentToolSet | None = None,
+    knowledge_tools: KnowledgeToolSet | None = None,
     direct_tool_names: tuple[str, ...] = (),
 ) -> AgentLoopCallConfig:
     prompt_bundle_snapshot = prompt_bundle_snapshot or freeze_runtime_prompt_bundle()
     options = options or {}
     capabilities = capabilities or {}
-    knowledge_grounded = options.get("knowledge_grounded") is True
 
     use_reasoning = options.get("use_reasoning")
     supports_thinking = bool(capabilities.get("deepThinking", False))
     should_use_reasoning = use_reasoning is True or (use_reasoning is None and supports_thinking)
 
-    tools_disabled = options.get("disable_tools") is True or knowledge_grounded
+    tools_disabled = options.get("disable_tools") is True
     task_policy = resolve_agent_task_policy(options=options, capabilities=capabilities)
-    requested_plan_mode = "off" if knowledge_grounded else task_policy.plan_mode
+    requested_plan_mode = task_policy.plan_mode
     supports_function_calling = supports_search_tools(capabilities) and not tools_disabled
     supports_dynamic_tools = supports_dynamic_agent_tools(capabilities) and not tools_disabled
     call_kwargs: dict = {}
@@ -269,7 +272,6 @@ def build_agent_loop_call_config(
         task_policy=task_policy,
         capabilities=capabilities,
         tools_disabled=tools_disabled,
-        knowledge_grounded=knowledge_grounded,
     )
     agent_mode = capability_resolution.package_id == "agent"
     external_tool_names = list(capability_resolution.external_tool_names)
@@ -288,6 +290,11 @@ def build_agent_loop_call_config(
             document_context = render_current_documents_context(document_tools.existing_documents)
         document_handlers = dict(document_tools.handlers)
         call_kwargs.setdefault("max_tokens", DOCUMENT_OUTPUT_MAX_TOKENS)
+    knowledge_handlers: dict[str, Any] = {}
+    if agent_mode and knowledge_tools is not None and supports_dynamic_tools:
+        with use_prompt_snapshot(prompt_bundle_snapshot):
+            tools.extend(knowledge_tools.definitions_factory())
+        knowledge_handlers = dict(knowledge_tools.handlers)
     # 深度研究有自己的取证与综合契约，不叠加 Skill 方法论。
     skill_session = build_skill_session(external_tool_names) if agent_mode and supports_dynamic_tools else None
     skill_handlers: dict[str, Any] = {}
@@ -307,6 +314,7 @@ def build_agent_loop_call_config(
     )
 
     active_handlers.update(document_handlers)
+    active_handlers.update(knowledge_handlers)
     active_handlers.update(skill_handlers)
     bindings_by_alias = {
         str(binding.get("alias", "")): binding
@@ -346,7 +354,7 @@ def build_agent_loop_call_config(
         control_tool_names=frozenset(control_tool_names),
         task_mode=task_policy.task_mode,
         network_profile=task_policy.network_profile,
-        evidence_policy="knowledge_grounded_v1" if knowledge_grounded else task_policy.evidence_policy,
+        evidence_policy=task_policy.evidence_policy,
         prompt_bundle_snapshot=prompt_bundle_snapshot,
         tool_discovery=tool_discovery,
         output_tool_names=frozenset(document_handlers),
@@ -434,15 +442,12 @@ async def prepare_agent_loop_messages(
             )
         )
 
-        if call_config.evidence_policy == "knowledge_grounded_v1":
-            initial_content_blocks = []
-        else:
-            messages, initial_content_blocks = await _prepare_url_context(
-                messages=messages,
-                original_message=original_message,
-                call_config=call_config,
-                preprocess_url_in_message_fn=preprocess_url_in_message_fn,
-            )
+        messages, initial_content_blocks = await _prepare_url_context(
+            messages=messages,
+            original_message=original_message,
+            call_config=call_config,
+            preprocess_url_in_message_fn=preprocess_url_in_message_fn,
+        )
     else:
         initial_content_blocks = []
         has_image_attachment = False

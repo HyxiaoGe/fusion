@@ -49,17 +49,13 @@ class OutputProvenanceTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(provenance["source"], "model")
                 self.assertEqual(provenance["block_id"], "step-outcome-text")
 
-    async def test_deferred_adoption_and_knowledge_replacement(self):
-        for mode, disposition, source, reason in (
-            ("adopt", "emitted", "model", "deferred"),
-            ("knowledge", "replaced", "server", "knowledge_guard"),
-        ):
+    async def test_deferred_adoption(self):
+        for mode, disposition, source, reason in (("adopt", "emitted", "model", "deferred"),):
             with self.subTest(mode=mode):
                 lifecycle = await self._lifecycle()
                 lifecycle.record_detail(reasoning_text="", content_text="原始模型候选")
                 runtime = _runtime(
                     emitter=lifecycle.emitter,
-                    evidence_policy="knowledge_grounded_v1" if mode == "knowledge" else None,
                 )
                 request = AgentRoundOutcomeRequest(
                     db=None,
@@ -261,22 +257,18 @@ class OutputProvenanceTests(unittest.IsolatedAsyncioTestCase):
         lifecycle.emitter.llm_round_completed.assert_awaited_once()
 
     async def test_summary_adoption_and_replacement_compare_original_candidate(self):
-        for mode in ("adopt", "knowledge", "research"):
+        for mode in ("adopt", "research"):
             with self.subTest(mode=mode):
                 lifecycle = await self._lifecycle()
                 lifecycle.record_detail(reasoning_text="", content_text="模型总结候选")
                 request = replace(
                     summary_tests.LimitSummaryStepTests._deferred_commit_request(),
-                    evidence_policy="knowledge_grounded_v1" if mode == "knowledge" else None,
                     task_mode="deep_research" if mode == "research" else "normal",
                 )
                 result = LimitSummaryRoundResult(
                     reasoning_buf="", content_buf="模型总结候选", usage_data=None, llm_lifecycle=lifecycle
                 )
-                with (
-                    patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append,
-                    patch("app.services.stream.limit_summary._emit_knowledge_summary_used_evidence", new=AsyncMock()),
-                ):
+                with patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append:
                     await _commit_limit_summary_result(
                         request=request,
                         round_result=result,

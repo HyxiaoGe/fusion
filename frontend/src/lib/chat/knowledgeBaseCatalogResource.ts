@@ -59,7 +59,7 @@ async function loadKnowledgeBaseCatalog(signal: AbortSignal): Promise<KnowledgeB
     || !Number.isSafeInteger(capabilities.knowledge_grounding_max_bases)
     || capabilities.knowledge_grounding_max_bases < 1
   ) {
-    throw new Error('当前服务端不支持严格知识库问答');
+    throw new Error('当前服务端不支持知识库问答');
   }
 
   const items: KnowledgeBase[] = [];

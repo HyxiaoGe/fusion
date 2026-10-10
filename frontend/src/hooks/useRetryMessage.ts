@@ -169,8 +169,6 @@ export function useRetryMessage(
         dispatch(setGlobalError(getSendModelErrorMessage(modelResolution)));
         return;
       }
-      const effectiveKnowledgeBaseIds = knowledgeBaseIds
-        ?? refreshedConversation.knowledge_base_ids;
       const retryAssistant = refreshedTargetMsg.role === 'assistant'
         ? refreshedTargetMsg
         : refreshedNextMessage?.role === 'assistant' ? refreshedNextMessage : undefined;
@@ -193,13 +191,6 @@ export function useRetryMessage(
         if (!userMessage) return;
 
         const { text, attachments } = extractMessageContent(userMessage);
-
-        if (effectiveKnowledgeBaseIds?.length && attachments.length > 0) {
-          dispatch(setGlobalError(
-            '严格知识库模式不能重试带附件的历史消息，请先清空知识库选择',
-          ));
-          return;
-        }
 
         if (text || attachments.length > 0) {
           if (!canStart()) return;
@@ -228,13 +219,6 @@ export function useRetryMessage(
         const nextMsg = refreshedNextMessage;
 
         const { text, attachments } = extractMessageContent(refreshedTargetMsg);
-
-        if (effectiveKnowledgeBaseIds?.length && attachments.length > 0) {
-          dispatch(setGlobalError(
-            '严格知识库模式不能重试带附件的历史消息，请先清空知识库选择',
-          ));
-          return;
-        }
 
         if (text || attachments.length > 0) {
           if (!canStart()) return;

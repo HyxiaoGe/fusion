@@ -13,7 +13,7 @@ from app.ai.prompts import agent_loop
 from app.ai.prompts.local_templates import CODE_DEFAULT_PROMPT_TEMPLATES
 from app.ai.prompts.runtime_prompt_store import RUNTIME_PROMPT_FILE, render_runtime_prompt
 from app.processor import file_processor
-from app.services.knowledge import chat_grounding
+from app.services.knowledge.agent_tool import KnowledgeBaseScope, build_knowledge_search_tool
 from app.services.mcp import amap_product_tools, flyai_travel_tools
 from app.services.mcp.tool_contract import build_agent_tool_definition
 from app.services.stream import (
@@ -52,7 +52,6 @@ def _assert_schema_descriptions_are_english(value, *, path: str) -> None:
 def test_static_system_prompts_are_english():
     modules = (
         agent_loop,
-        chat_grounding,
         flyai_travel_tools,
         agent_loop_round_outcome,
         limit_summary,
@@ -72,6 +71,7 @@ def test_tool_definitions_are_english():
         agent_loop_request_prep.build_update_plan_tool(),
         amap_product_tools.AMAP_PRODUCT_DEFINITIONS,
         flyai_travel_tools.FLYAI_TRAVEL_DEFINITIONS,
+        build_knowledge_search_tool((KnowledgeBaseScope(id="kb-1", name="Manual"),)),
     )
     for index, value in enumerate(values):
         _assert_schema_descriptions_are_english(value, path=f"tool_definition[{index}]")

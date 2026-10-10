@@ -5,30 +5,18 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import time
-import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 from app.ai.prompts.run_prompt_snapshot import RunPromptSnapshot
 from app.ai.prompts.system_prompt import TEMPLATE_VERSION, SystemPromptAssemblyError
-from app.core.logger import app_logger as logger
 from app.core.prompt_snapshot import use_prompt_snapshot
-from app.schemas.chat import TextBlock
-from app.schemas.response import ApiException
 from app.schemas.trajectory import TrajectoryCapabilityResolution
 from app.services.agent.session_cache import write_system_prompt_snapshot
 from app.services.chat.model_call_language_policy import finalize_model_call_language_policy
 from app.services.chat.tool_transcript import max_citation_index
 from app.services.chat.tool_transcript_store import ToolTranscriptHistory
-from app.services.knowledge.chat_grounding import (
-    KnowledgeGroundingStreamError,
-    inject_knowledge_grounding_messages,
-    max_explicit_citation_index,
-    prepare_knowledge_grounding,
-    to_stream_grounding_error,
-)
 from app.services.stream.agent_loop_execution import AgentLoopExecutionContext
 from app.services.stream.agent_loop_outcome import AgentLoopExit
 from app.services.stream.agent_loop_policy import AgentLoopLimits, map_run_terminal_state
@@ -54,7 +42,6 @@ class AgentLoopLifecycleRequest:
     initial_content_blocks: list[Any] = field(default_factory=list)
     extra_system_prompts: list[str] = field(default_factory=list)
     preprocess_user_input: bool = True
-    knowledge_base_ids: list[str] = field(default_factory=list)
     prompt_identity_persisted: bool = False
 
 
@@ -194,38 +181,7 @@ async def _run_success_path(
     dependencies: AgentLoopLifecycleDependencies,
 ) -> None:
     await _start_run(request=request, execution=execution, dependencies=dependencies)
-    grounding = await _prepare_knowledge_grounding(request=request, execution=execution)
-    if grounding is not None:
-        execution.state.content_blocks.append(grounding.evidence_block)
-        await execution.emitter.content_block_upserted(
-            tool_call_id="knowledge_retrieval",
-            content_block=grounding.evidence_block,
-        )
-        if grounding.no_evidence:
-            answer = grounding.deterministic_answer or "未在所选知识库中找到足够依据"
-            block_id = f"blk_knowledge_empty_{execution.run_id[:12]}"
-            await execution.emitter.run_progress_updated(
-                phase="answering",
-                label="未找到足够依据",
-            )
-            await dependencies.append_chunk_fn(
-                execution.completion_context.conversation_id,
-                "answering",
-                answer,
-                block_id,
-                task_id=execution.completion_context.task_id,
-                run_id=execution.run_id,
-            )
-            execution.state.content_blocks.append(TextBlock(type="text", id=block_id, text=answer))
-            await _finalize_completed(
-                execution=execution,
-                dependencies=dependencies,
-                generate_suggestions=False,
-            )
-            return
-    prepared_messages = await _prepare_messages(
-        request=request, execution=execution, dependencies=dependencies, grounding=grounding
-    )
+    prepared_messages = await _prepare_messages(request=request, execution=execution, dependencies=dependencies)
     execution.state.content_blocks.extend(request.initial_content_blocks)
     execution.state.content_blocks.extend(prepared_messages.initial_content_blocks)
     _bind_tool_history(execution, getattr(prepared_messages, "tool_history", None), request.raw_messages)
@@ -234,11 +190,6 @@ async def _run_success_path(
     for block in prepared_messages.initial_content_blocks:
         if getattr(block, "type", None) == "url_read" and getattr(block, "status", None) == "success":
             execution.state.recovery_evidence.record_prefetched_page(getattr(block, "url", None))
-    if grounding is not None:
-        await execution.emitter.run_progress_updated(
-            phase="synthesizing",
-            label="正在基于知识库整理回答",
-        )
     configure_research_state(
         state=execution.state,
         call_config=request.call_config,
@@ -269,11 +220,7 @@ async def _run_success_path(
         )
         return
 
-    await _finalize_completed(
-        execution=execution,
-        dependencies=dependencies,
-        generate_suggestions=grounding is None,
-    )
+    await _finalize_completed(execution=execution, dependencies=dependencies)
 
 
 def _bind_tool_history(execution: Any, history: ToolTranscriptHistory | None, raw_messages: list[Any]) -> None:
@@ -382,7 +329,6 @@ async def _prepare_messages(
     request: AgentLoopLifecycleRequest,
     execution: AgentLoopExecutionContext,
     dependencies: AgentLoopLifecycleDependencies,
-    grounding: Any = None,
 ) -> Any:
     try:
         prepared = await dependencies.prepare_messages_fn(
@@ -408,8 +354,6 @@ async def _prepare_messages(
     if bundle_snapshot is None:
         raise ValueError("Run 缺少分类前冻结的 PromptBundleSnapshot")
     with use_prompt_snapshot(bundle_snapshot):
-        if grounding is not None:
-            prepared.messages[:] = inject_knowledge_grounding_messages(prepared.messages, grounding)
         prepared.messages[:] = finalize_model_call_language_policy(prepared.messages)
         run_snapshot = RunPromptSnapshot(
             bundle_snapshot=bundle_snapshot,
@@ -458,93 +402,10 @@ async def _prepare_messages(
     return prepared
 
 
-async def _prepare_knowledge_grounding(
-    *,
-    request: AgentLoopLifecycleRequest,
-    execution: AgentLoopExecutionContext,
-) -> Any | None:
-    if not request.knowledge_base_ids:
-        return None
-    await execution.emitter.run_progress_updated(
-        phase="researching",
-        label="正在检索所选知识库",
-    )
-    retrieval_id = str(uuid.uuid4())
-    started_at = time.monotonic()
-    await execution.emitter.retrieval_started(
-        retrieval_id=retrieval_id,
-        query_summary=request.original_message,
-        parent_step_id=None,
-    )
-    try:
-        grounding = await prepare_knowledge_grounding(
-            db=execution.completion_context.db,
-            user_id=execution.runtime.user_id,
-            query=request.original_message,
-            knowledge_base_ids=request.knowledge_base_ids,
-            citation_start=max_explicit_citation_index(request.initial_content_blocks) + 1,
-        )
-    except asyncio.CancelledError:
-        await _emit_retrieval_terminal_preserving_primary(
-            execution.emitter.retrieval_cancelled,
-            retrieval_id=retrieval_id,
-            reason="shutdown",
-            parent_step_id=None,
-        )
-        raise
-    except ApiException as error:
-        mapped_error = to_stream_grounding_error(error)
-        await _emit_retrieval_terminal_preserving_primary(
-            execution.emitter.retrieval_failed,
-            retrieval_id=retrieval_id,
-            error_code=mapped_error.error_code,
-            message=None,
-            parent_step_id=None,
-        )
-        raise mapped_error from error
-    except KnowledgeGroundingStreamError as error:
-        await _emit_retrieval_terminal_preserving_primary(
-            execution.emitter.retrieval_failed,
-            retrieval_id=retrieval_id,
-            error_code=error.error_code,
-            message=None,
-            parent_step_id=None,
-        )
-        raise
-    except Exception as error:
-        mapped_error = KnowledgeGroundingStreamError("knowledge_retrieval_unavailable")
-        await _emit_retrieval_terminal_preserving_primary(
-            execution.emitter.retrieval_failed,
-            retrieval_id=retrieval_id,
-            error_code=mapped_error.error_code,
-            message=None,
-            parent_step_id=None,
-        )
-        raise mapped_error from error
-    await execution.emitter.retrieval_completed(
-        retrieval_id=retrieval_id,
-        document_count=grounding.evidence_block.source_count,
-        duration_ms=max(0, int(round((time.monotonic() - started_at) * 1000))),
-        parent_step_id=None,
-    )
-    return grounding
-
-
-async def _emit_retrieval_terminal_preserving_primary(emit: AsyncFn, **kwargs: Any) -> None:
-    try:
-        await emit(**kwargs)
-    except BaseException as secondary:
-        logger.warning(
-            "知识检索生命周期收尾失败，保留主异常: error_type=%s",
-            type(secondary).__name__,
-        )
-
-
 async def _finalize_completed(
     *,
     execution: AgentLoopExecutionContext,
     dependencies: AgentLoopLifecycleDependencies,
-    generate_suggestions: bool = True,
 ) -> None:
     terminal_state = map_run_terminal_state(
         unknown_terminated=execution.state.unknown_terminated,
@@ -557,11 +418,9 @@ async def _finalize_completed(
         complete_agent_run_fn=dependencies.complete_agent_run_fn,
         finalize_stream_fn=dependencies.finalize_stream_fn,
         interrupt_agent_run_fn=dependencies.interrupt_agent_run_fn,
-        claim_suggested_questions_fn=(dependencies.claim_suggested_questions_fn if generate_suggestions else None),
-        generate_suggested_questions_fn=(
-            dependencies.generate_suggested_questions_fn if generate_suggestions else None
-        ),
-        fail_suggested_questions_fn=(dependencies.fail_suggested_questions_fn if generate_suggestions else None),
+        claim_suggested_questions_fn=dependencies.claim_suggested_questions_fn,
+        generate_suggested_questions_fn=dependencies.generate_suggested_questions_fn,
+        fail_suggested_questions_fn=dependencies.fail_suggested_questions_fn,
         warning_fn=dependencies.warning_fn,
     )
 

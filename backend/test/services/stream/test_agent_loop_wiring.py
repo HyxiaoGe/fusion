@@ -262,22 +262,6 @@ class AgentLoopWiringTests(unittest.TestCase):
                 self.assertTrue(real_call_config.capability_resolution.network_boundary_required)
                 self.assertEqual(real_call_config.announced_tools, [])
 
-        captured.clear()
-        strict_call = build_agent_loop_lifecycle_call(
-            run_input=replace(
-                run_input,
-                options={"knowledge_grounded": True},
-                capabilities={"functionCalling": True, "agentTools": True},
-                knowledge_base_ids=["kb-1"],
-            ),
-            db="db-wiring",
-            limits=limits,
-            dependencies=dependencies,
-        )
-        self.assertNotIn("dynamic_tools_db", captured)
-        self.assertEqual(captured["call_config_kwargs"]["additional_tools"], [])
-        self.assertEqual(strict_call.request.knowledge_base_ids, ["kb-1"])
-
     def test_run_input_and_dependencies_expose_builder_helpers(self):
         call_config = SimpleNamespace(
             should_use_reasoning=False,

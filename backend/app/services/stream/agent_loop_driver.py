@@ -269,14 +269,9 @@ async def _run_round(
         or bool(state.tool_issue_names)
         or state.pending_tool_repairs
         or runtime.task_mode == "deep_research"
-        or runtime.evidence_policy == "knowledge_grounded_v1"
     )
     if should_defer_output and _accepts_keyword(runtime.run_round_fn, "defer_output"):
         run_round_kwargs["defer_output"] = True
-    if runtime.evidence_policy == "knowledge_grounded_v1" and _accepts_keyword(
-        runtime.run_round_fn, "allow_deferred_reasoning_output"
-    ):
-        run_round_kwargs["allow_deferred_reasoning_output"] = False
     if runtime.llm_round_detail_scheduler is not None and _accepts_keyword(
         runtime.run_round_fn,
         "llm_round_detail_scheduler",

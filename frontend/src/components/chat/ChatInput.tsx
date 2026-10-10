@@ -357,7 +357,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const supportsFileUpload = hasHydrated && Boolean(selectedModel?.capabilities?.vision);
   // 登录态与会话选择会在客户端从持久状态恢复。SSR 与 hydration 首帧先保持
   // 中性输入框结构，挂载后再显示严格知识库控件，避免整棵 composer 被重建。
-  const hasKnowledgeSelection = hasHydrated && selectedKnowledgeBaseIds.length > 0;
   // 只读当前会话的生成状态：全局 stream.isStreaming 会把别的会话的流算到本会话头上
   // （issue #74 的同一类缺陷），而 currentRun 始终属于正在生成的那个会话。
   const isDeepResearchStreaming = Boolean(
@@ -406,7 +405,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
     dispatch(setComposerAgentMode({ chatId: agentModeKey, mode: 'auto' }));
     toast({
-      message: '已切换到自动模式：严格知识库模式不能与深度研究同时使用',
+      message: '已切换到自动模式：深度研究暂不检索知识库',
       type: 'warning',
       duration: 3000,
     });
@@ -599,28 +598,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
     [composerAttachments],
   );
   const hasImagesButNoVision = hasImageAttachments && !supportsFileUpload;
-  const hasKnowledgeAttachmentConflict = hasKnowledgeSelection && composerAttachments.length > 0;
-
   const handleKnowledgeBaseIdsChange = useCallback((nextIds: string[]) => {
-    if (
-      composerAttachments.length > 0
-      && nextIds.length > selectedKnowledgeBaseIds.length
-    ) {
-      toast({
-        message: '严格知识库模式不能同时使用附件，请先移除附件',
-        type: 'warning',
-        duration: 3000,
-      });
-      return;
-    }
     setSelectedKnowledgeBaseIds(nextIds);
     onKnowledgeBaseIdsChange?.(nextIds);
-  }, [
-    composerAttachments.length,
-    onKnowledgeBaseIdsChange,
-    selectedKnowledgeBaseIds.length,
-    toast,
-  ]);
+  }, [onKnowledgeBaseIdsChange]);
 
   const handleKnowledgeSelectionStatusChange = useCallback((status: KnowledgeSelectionStatus) => {
     setKnowledgeSelectionStatus(status);
@@ -657,15 +638,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
       toast({
         message: "请先选择可用模型再上传图片",
         type: "error",
-        duration: 3000,
-      });
-      return false;
-    }
-
-    if (hasKnowledgeSelection) {
-      toast({
-        message: '严格知识库模式不能同时使用附件，请先清空知识库',
-        type: 'warning',
         duration: 3000,
       });
       return false;
@@ -1123,15 +1095,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
       return;
     }
 
-    if (hasKnowledgeAttachmentConflict) {
-      toast({
-        message: '严格知识库模式不能同时使用附件，请先移除附件',
-        type: 'warning',
-        duration: 3000,
-      });
-      return;
-    }
-
     if (knowledgeSelectionStatus !== 'ready') {
       const statusMessage = knowledgeSelectionStatus === 'loading'
         ? '正在确认所选知识库状态，请稍后'
@@ -1370,7 +1333,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
     && !isComposerBlocked
     && !hasProcessingFiles
     && !hasImagesButNoVision
-    && !hasKnowledgeAttachmentConflict
     && knowledgeSelectionStatus === 'ready';
 
   return (
@@ -1443,12 +1405,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
           </div>
         )}
 
-        {hasKnowledgeAttachmentConflict ? (
-          <div role="alert" className="mx-3 mt-1 text-xs text-amber-600 dark:text-amber-400">
-            严格知识库模式不能同时使用附件，请先移除附件
-          </div>
-        ) : null}
-
         {/* Textarea 区域 */}
         <Textarea
           id="chat-message-input"
@@ -1478,7 +1434,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
           onChange={handleFileChange}
           accept="image/*"
           className="hidden"
-          disabled={isComposerBlocked || hasKnowledgeSelection}
+          disabled={isComposerBlocked}
           multiple
         />
 
@@ -1493,12 +1449,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
             {/* 图片上传按钮 */}
             <Button
               onClick={handleFileSelect}
-              disabled={isComposerBlocked || !supportsFileUpload || hasKnowledgeSelection}
+              disabled={isComposerBlocked || !supportsFileUpload}
               variant="ghost"
               size="sm"
               className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
               aria-label="上传图片"
-              title={hasKnowledgeSelection ? '严格知识库模式不能同时使用附件' : '上传图片'}
+              title="上传图片"
             >
               <PaperclipIcon className="h-4 w-4" />
             </Button>

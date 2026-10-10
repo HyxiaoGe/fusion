@@ -293,10 +293,10 @@ class ChatServiceTests(unittest.TestCase):
             )
 
         self.assertEqual(raised.exception.status_code, 400)
-        self.assertEqual(raised.exception.message, "知识库问答不能与深度研究模式同时使用")
+        self.assertEqual(raised.exception.message, "深度研究模式暂不检索知识库，请取消选择知识库后再试")
         service.conversation_service.create_message.assert_not_called()
 
-    def test_knowledge_mode_rejects_message_attachments_before_writes(self):
+    def test_knowledge_base_rejects_model_without_tool_calling_before_writes(self):
         service = ChatService(MagicMock())
         service.conversation_service = MagicMock()
         service.conversation_service.get_conversation.return_value = SimpleNamespace(
@@ -315,57 +315,23 @@ class ChatServiceTests(unittest.TestCase):
             ),
             patch(
                 "app.services.chat_service.litellm_catalog.get_capabilities",
-                return_value={"functionCalling": True},
+                return_value={"functionCalling": False},
             ),
             self.assertRaises(ApiException) as raised,
         ):
             asyncio.run(
                 service.process_message(
                     model_id="saved/model",
-                    message="结合附件回答",
+                    message="手册里怎么说",
                     user_id="user-1",
                     conversation_id="conv-knowledge",
-                    file_ids=["file-1"],
                 )
             )
 
         self.assertEqual(raised.exception.status_code, 400)
-        self.assertEqual(raised.exception.message, "知识库问答暂不支持同时附加文件")
+        self.assertEqual(raised.exception.message, "当前模型不支持工具调用，无法检索知识库，请换用其他模型")
         service.conversation_service.create_message.assert_not_called()
 
-    def test_knowledge_mode_rejects_invalid_query_before_writes(self):
-        for message in ("   ", "问题\x00注入", "问" * 4_001):
-            with self.subTest(message_length=len(message)):
-                service = ChatService(MagicMock())
-                service.conversation_service = MagicMock()
-                service.conversation_service.get_conversation.return_value = SimpleNamespace(
-                    id="conv-knowledge",
-                    model_id="saved/model",
-                    messages=[SimpleNamespace(role="user")],
-                    knowledge_base_ids=["kb-1"],
-                )
-                service.model_control_repository = MagicMock()
-                service.model_control_repository.get.return_value = None
-
-                with (
-                    patch(
-                        "app.services.chat_service.llm_manager.resolve_model",
-                        return_value=("openai/saved-model", "openai", {}),
-                    ) as resolve_model,
-                    self.assertRaises(ApiException) as raised,
-                ):
-                    asyncio.run(
-                        service.process_message(
-                            model_id="saved/model",
-                            message=message,
-                            user_id="user-1",
-                            conversation_id="conv-knowledge",
-                        )
-                    )
-
-                self.assertEqual(raised.exception.status_code, 400)
-                resolve_model.assert_not_called()
-                service.conversation_service.create_message.assert_not_called()
 
     def test_new_conversation_rejects_hidden_or_unregistered_model_before_generation(self):
         hidden = ChatService(MagicMock())
@@ -562,14 +528,12 @@ class ChatServiceTests(unittest.TestCase):
                     self.assertEqual(self._run_until_model_resolved(service, options=options), "picked/model")
                 pick.assert_called_once_with(service.model_control_repository, require_vision=False, mode=mode)
 
-    def test_knowledge_base_turn_picks_with_auto_mode_even_when_plan_requested(self):
+    def test_knowledge_base_turn_keeps_requested_auto_mode(self):
+        # 知识库改为工具后不再关闭计划，自动选模型按用户选择的执行模式。
         service = self._existing_conversation_service("auto")
-        with (
-            patch("app.services.chat_service.validate_knowledge_query"),
-            patch("app.services.chat_service.pick_auto_model", return_value="picked/model") as pick,
-        ):
+        with patch("app.services.chat_service.pick_auto_model", return_value="picked/model") as pick:
             self._run_until_model_resolved(service, options={"plan_mode": "on"}, knowledge_base_ids=["kb-1"])
-        pick.assert_called_once_with(service.model_control_repository, require_vision=False, mode="auto")
+        pick.assert_called_once_with(service.model_control_repository, require_vision=False, mode="plan")
 
     def test_auto_without_any_usable_model_is_model_unavailable(self):
         service = self._existing_conversation_service("auto")

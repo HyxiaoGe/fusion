@@ -29,6 +29,7 @@ from app.services.agent.progress_digest import build_evidence_items, build_tool_
 from app.services.agent.trajectory_recorder import TrajectoryRecorder
 from app.services.agent_logger import attach_tool_observation
 from app.services.chat.tool_transcript import transcript_entries
+from app.services.knowledge.evidence import KNOWLEDGE_SEARCH_TOOL_NAME, knowledge_evidence_id
 from app.services.search_read_planner import build_search_read_plan, format_search_read_plan_guidance
 from app.services.source_candidate_ranker import (
     SearchResultForRanking,
@@ -517,7 +518,9 @@ class _CitationRegistry(dict[str, int]):
 
 
 def _build_search_citation_registry(content_blocks: list[Any]) -> _CitationRegistry:
-    search_blocks = [block for block in content_blocks if _value(block, "type") in {"search", "url_read"}]
+    search_blocks = [
+        block for block in content_blocks if _value(block, "type") in {"search", "url_read", "knowledge_evidence"}
+    ]
     sources = [
         source
         for block in search_blocks
@@ -546,9 +549,17 @@ def _assign_search_citation_numbers(
     registry: dict[str, int],
     record: ToolExecutionRecord,
 ) -> list[int] | None:
-    if record.tool_name not in {"web_search", "url_read"} or record.result.status != "success":
+    if record.tool_name not in {"web_search", "url_read", KNOWLEDGE_SEARCH_TOOL_NAME}:
+        return None
+    if record.result.status != "success":
         return None
     result_data = _value(record.result, "data") or {}
+    if record.tool_name == KNOWLEDGE_SEARCH_TOOL_NAME:
+        sources = [
+            {"kind": "knowledge", "evidence_id": knowledge_evidence_id(hit)}
+            for hit in _value(result_data, "hits") or []
+        ]
+        return _number_sources(registry, record, sources)
     sources = (
         _value(result_data, "sources") or []
         if record.tool_name == "web_search"
@@ -560,9 +571,16 @@ def _assign_search_citation_numbers(
         ]
     )
     sources = [source for source in sources if _value(source, "url")]
+    return _number_sources(registry, record, sources)
+
+
+def _number_sources(
+    registry: dict[str, int],
+    record: ToolExecutionRecord,
+    sources: list[Any],
+) -> list[int] | None:
     if not sources:
         return None
-
     numbers: list[int] = []
     next_number = max([*registry.values(), *getattr(registry, "reserved_indexes", ())], default=0) + 1
     for source_index, source in enumerate(sources, 1):
@@ -614,7 +632,12 @@ def _attach_source_reference_metadata(
         )
         update = {
             "evidence_id": evidence_id,
-            "citation_index": _value(ref, "citation_index") or citation_index,
+            # 知识库块里的编号只是命中顺序占位，以统一编号为准。
+            "citation_index": (
+                citation_index or _value(ref, "citation_index")
+                if _value(ref, "kind") == "knowledge"
+                else _value(ref, "citation_index") or citation_index
+            ),
         }
         if hasattr(ref, "model_copy"):
             enriched_refs.append(ref.model_copy(update=update))
@@ -628,6 +651,8 @@ def _attach_source_reference_metadata(
 
 
 def _citation_source_key(source: Any) -> str:
+    if _value(source, "kind") == "knowledge":
+        return f"knowledge:{_value(source, 'evidence_id') or ''}"
     raw_url = str(_value(source, "url") or "").strip()
     canonical_url = canonicalize_evidence_url(raw_url)
     if canonical_url:

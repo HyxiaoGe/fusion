@@ -695,7 +695,7 @@ describe('ChatInput', () => {
     expect(setComposerAgentModeMock).toHaveBeenCalledWith({ chatId: 'chat-a', mode: 'deep_research' });
   });
 
-  it('恢复会话知识库选择后进入严格模式、退出深度研究并随消息发送', async () => {
+  it('恢复会话知识库选择后退出深度研究并随消息发送', async () => {
     configureAuthenticatedVisionModel();
     currentState.conversation.composerAgentModeByChat = { 'chat-a': 'deep_research' };
     listKnowledgeBasesMock.mockResolvedValue({
@@ -733,12 +733,12 @@ describe('ChatInput', () => {
     );
 
     await screen.findByText('产品手册');
-    expect(screen.getByText(/严格知识库模式|Strict knowledge mode/)).toBeInTheDocument();
+    expect(screen.getByText(/回答时可检索|Searchable when answering/)).toBeInTheDocument();
     await waitFor(() => {
       expect(setComposerAgentModeMock).toHaveBeenCalledWith({ chatId: 'chat-a', mode: 'auto' });
     });
     expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
-      message: '已切换到自动模式：严格知识库模式不能与深度研究同时使用',
+      message: '已切换到自动模式：深度研究暂不检索知识库',
       type: 'warning',
     }));
 
@@ -943,7 +943,7 @@ describe('ChatInput', () => {
     fireEvent.click(screen.getByRole('button', { name: /知识库|Knowledge/ }));
     fireEvent.click(await screen.findByRole('checkbox', { name: '产品手册' }));
     await waitFor(() => {
-      expect(screen.getByText(/严格知识库模式|Strict knowledge mode/)).toBeInTheDocument();
+      expect(screen.getByText(/回答时可检索|Searchable when answering/)).toBeInTheDocument();
     });
 
     rerender(
@@ -967,7 +967,7 @@ describe('ChatInput', () => {
     );
   });
 
-  it('严格知识库模式禁用附件并阻止已有附件与知识库一起发送', async () => {
+  it('知识库可以和已有附件一起发送', async () => {
     configureAuthenticatedVisionModel();
     listKnowledgeBasesMock.mockResolvedValue({
       items: [{
@@ -1011,28 +1011,21 @@ describe('ChatInput', () => {
       />,
     );
 
-    expect(await screen.findByText((content) => (
-      content === '严格知识库模式' || content === 'Strict knowledge mode'
-    ))).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '上传图片' })).toBeDisabled();
-    expect(screen.getByText('严格知识库模式不能同时使用附件，请先移除附件')).toBeInTheDocument();
+    expect(await screen.findByText(/回答时可检索|Searchable when answering/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '上传图片' })).toBeEnabled();
 
     fireEvent.change(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）'), {
       target: { value: '分析资料' },
     });
-    fireEvent.keyDown(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）'), {
-      key: 'Enter',
-      code: 'Enter',
-    });
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
 
-    expect(onSendMessage).not.toHaveBeenCalled();
-    expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
-      message: '严格知识库模式不能同时使用附件，请先移除附件',
-      type: 'warning',
-    }));
+    expect(onSendMessage).toHaveBeenCalledTimes(1);
+    expect(onSendMessage.mock.calls[0][0]).toBe('分析资料');
+    expect(onSendMessage.mock.calls[0][1]).toHaveLength(1);
+    expect(onSendMessage.mock.calls[0][3]).toEqual(['kb-1']);
   });
 
-  it('已有附件时拒绝新增知识库选择', async () => {
+  it('已有附件时也能新增知识库选择', async () => {
     configureAuthenticatedVisionModel();
     listKnowledgeBasesMock.mockResolvedValue({
       items: [{
@@ -1076,64 +1069,8 @@ describe('ChatInput', () => {
     fireEvent.click(screen.getByRole('button', { name: /知识库|Knowledge/ }));
     fireEvent.click(await screen.findByRole('checkbox', { name: '产品手册' }));
 
-    expect(screen.queryByText(/严格知识库模式|Strict knowledge mode/)).toBeNull();
-    expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
-      message: '严格知识库模式不能同时使用附件，请先移除附件',
-      type: 'warning',
-    }));
-  });
-
-  it('已选知识库时粘贴和拖放图片都不会开始上传', async () => {
-    configureAuthenticatedVisionModel();
-    listKnowledgeBasesMock.mockResolvedValue({
-      items: [{
-        id: 'kb-1',
-        name: '产品手册',
-        description: '',
-        business_type: '',
-        status: 'active',
-        document_stats: { total: 1, ready: 1, processing: 0, failed: 0 },
-        embedding_provider: 'dashscope',
-        embedding_model: 'text-embedding-v4',
-        embedding_revision: 'v1',
-        embedding_dimension: 1024,
-        distance_metric: 'COSINE',
-        created_at: '2026-08-15T00:00:00Z',
-        updated_at: '2026-08-15T00:00:00Z',
-        deleted_at: null,
-      }],
-      page: 1,
-      page_size: 100,
-      total: 1,
-      total_pages: 1,
-      has_next: false,
-      has_prev: false,
-    });
-    render(
-      <ChatInput
-        onSendMessage={vi.fn()}
-        activeChatId="chat-a"
-        initialKnowledgeBaseIds={['kb-1']}
-      />,
-    );
-    await screen.findByText(/严格知识库模式|Strict knowledge mode/);
-    const file = new File(['image'], 'diagram.png', { type: 'image/png' });
-    const input = screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）');
-
-    fireEvent.paste(input, {
-      clipboardData: {
-        items: [{ kind: 'file', getAsFile: () => file }],
-      },
-    });
-    fireEvent.drop(screen.getByRole('group', { name: '消息输入区' }), {
-      dataTransfer: { files: [file] },
-    });
-
-    expect(uploadFilesMock).not.toHaveBeenCalled();
-    expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
-      message: '严格知识库模式不能同时使用附件，请先清空知识库',
-      type: 'warning',
-    }));
+    expect(await screen.findByText(/回答时可检索|Searchable when answering/)).toBeInTheDocument();
+    expect(toastMock).not.toHaveBeenCalled();
   });
 
   it('按模型能力禁用不兼容模式并说明原因', async () => {
