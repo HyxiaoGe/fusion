@@ -56,6 +56,8 @@ export interface ChatRequest {
 export interface ChatCapabilities {
   knowledge_grounding_v1: boolean;
   knowledge_grounding_max_bases: number;
+  /** 知识库单个文件上限；旧服务端不返回。 */
+  knowledge_max_file_size_bytes?: number;
   message_retry_v1: boolean;
 }
 

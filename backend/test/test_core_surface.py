@@ -259,6 +259,8 @@ class ChatCoreSurfaceTests(unittest.TestCase):
         self.assertIsNone(service.process_message.await_args.kwargs["assistant_message_id"])
 
     def test_chat_capabilities_advertise_strict_knowledge_protocol(self):
+        from app.core.config import settings
+
         self._enable_authenticated_overrides()
 
         response = self.client.get("/api/chat/capabilities")
@@ -267,6 +269,7 @@ class ChatCoreSurfaceTests(unittest.TestCase):
         body = response.json()
         self.assertTrue(body["data"]["knowledge_grounding_v1"])
         self.assertEqual(body["data"]["knowledge_grounding_max_bases"], 5)
+        self.assertEqual(body["data"]["knowledge_max_file_size_bytes"], settings.KNOWLEDGE_MAX_FILE_SIZE)
         self.assertTrue(body["data"]["message_retry_v1"])
 
     def test_get_conversations_uses_authenticated_user_id(self):

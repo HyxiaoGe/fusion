@@ -18,7 +18,7 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { SettingsBadge as Badge, SettingsButton as Button, SettingsInput as Input, SettingsTextarea as Textarea } from './SettingsControls';
@@ -44,6 +44,7 @@ import {
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/toast';
 import { useKnowledgeBaseSettings } from '@/hooks/useKnowledgeBaseSettings';
+import { getChatCapabilities } from '@/lib/api/chat';
 import { cn } from '@/lib/utils';
 import { ApiError } from '@/types/api';
 import type { KnowledgeBase, KnowledgeDocument } from '@/types/knowledge';
@@ -59,6 +60,7 @@ const acceptedFileTypes = {
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 } as const;
 
+// 服务端配置的硬上限；实际上限以 capabilities 返回为准。
 const maxFileSize = 50 * 1024 * 1024;
 
 interface BaseFormState {
@@ -147,11 +149,16 @@ function fileSuffix(filename: string): string {
   return index >= 0 ? filename.slice(index).toLowerCase() : '';
 }
 
-export function prepareKnowledgeFile(file: File): File {
+export function formatFileSizeLimit(bytes: number): string {
+  return `${Number((bytes / (1024 * 1024)).toFixed(1))} MB`;
+}
+
+export function prepareKnowledgeFile(file: File, sizeLimit: number = maxFileSize): File {
   const suffix = fileSuffix(file.name);
   const mimetype = acceptedFileTypes[suffix as keyof typeof acceptedFileTypes];
   if (!mimetype) throw new Error('UNSUPPORTED_FILE_TYPE');
-  if (file.size > maxFileSize) throw new Error('FILE_TOO_LARGE');
+  // 超限文件必须在本地拦下：服务端提前返回 413 时浏览器仍在发送请求体，经 CDN 后连接被断开，前端收不到响应。
+  if (file.size > sizeLimit) throw new Error('FILE_TOO_LARGE');
   if (file.type === mimetype) return file;
   return new File([file], file.name, { type: mimetype, lastModified: file.lastModified });
 }
@@ -282,6 +289,20 @@ export default function KnowledgeBaseManager() {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const state = useKnowledgeBaseSettings();
+  const [serverFileSizeLimit, setServerFileSizeLimit] = useState<number | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getChatCapabilities(controller.signal)
+      .then((capabilities) => {
+        const limit = capabilities.knowledge_max_file_size_bytes;
+        if (typeof limit === 'number' && Number.isSafeInteger(limit) && limit > 0) {
+          setServerFileSizeLimit(Math.min(limit, maxFileSize));
+        }
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
   const [formMode, setFormMode] = useState<'create' | 'edit' | null>(null);
   const [form, setForm] = useState<BaseFormState>(emptyForm);
   const [confirmTarget, setConfirmTarget] = useState<ConfirmTarget>(null);
@@ -374,12 +395,17 @@ export default function KnowledgeBaseManager() {
     for (const selected of selectedFiles) {
       let file: File;
       try {
-        file = prepareKnowledgeFile(selected);
+        file = prepareKnowledgeFile(selected, serverFileSizeLimit ?? maxFileSize);
       } catch (validationError) {
         toast({
           message:
             validationError instanceof Error && validationError.message === 'FILE_TOO_LARGE'
-              ? t('knowledgeBase.toast.fileTooLarge')
+              ? serverFileSizeLimit
+                ? t('knowledgeBase.toast.fileTooLargeWithLimit', {
+                  name: selected.name,
+                  size: formatFileSizeLimit(serverFileSizeLimit),
+                })
+                : t('knowledgeBase.toast.fileTooLarge')
               : t('knowledgeBase.toast.unsupportedFile'),
           type: 'error',
         });
@@ -687,7 +713,11 @@ export default function KnowledgeBaseManager() {
                     <div>
                       <h4 className="font-medium">{t('knowledgeBase.documents')}</h4>
                       <p className="text-xs text-muted-foreground">
-                        {t('knowledgeBase.supportedTypes')}
+                        {serverFileSizeLimit
+                          ? t('knowledgeBase.supportedTypesWithLimit', {
+                            size: formatFileSizeLimit(serverFileSizeLimit),
+                          })
+                          : t('knowledgeBase.supportedTypes')}
                       </p>
                     </div>
                     <div>
