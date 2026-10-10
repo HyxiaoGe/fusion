@@ -193,11 +193,27 @@ describe('MarkdownRenderer — citation 行为（contract §9）', () => {
       />,
     );
 
-    const citation = screen.getByRole('button', { name: '查看参考资料 1：安装手册.md' });
+    const citation = screen.getByRole('button', { name: '查看知识库参考资料 1：安装手册.md' });
     fireEvent.click(citation);
     expect(onCite).toHaveBeenCalledWith(0);
     expect(container.querySelector('a[href=""]')).toBeNull();
     expect(citation).not.toHaveAttribute('title');
+    expect(citation.className).toContain('knowledgeChip');
+    expect(citation.querySelector('svg')).not.toBeNull();
+  });
+
+  it('网页引用保持原样式，不带知识库标记', () => {
+    render(
+      <MarkdownRenderer
+        content="见官网[1]。"
+        sources={[{ title: '官网', url: 'https://example.com', citation_index: 1, kind: 'web' }]}
+        onCitationClick={vi.fn()}
+      />,
+    );
+
+    const citation = screen.getByRole('button', { name: '查看参考资料 1：官网' });
+    expect(citation.className).not.toContain('knowledgeChip');
+    expect(citation.querySelector('svg')).toBeNull();
   });
 
   it('h2 标题内的 [1] 也渲染为 chip（processChildren 覆盖标题）', () => {

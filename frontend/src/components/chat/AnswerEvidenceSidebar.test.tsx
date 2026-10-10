@@ -2,7 +2,8 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '@/lib/i18n';
-import type { AnswerEvidenceSidebarModel } from './answerEvidenceSidebarModel';
+import type { KnowledgeAnswerEvidenceItem } from './answerEvidenceModel';
+import type { AnswerEvidenceSidebarModel, AnswerEvidenceSidebarUsedItem } from './answerEvidenceSidebarModel';
 import AnswerEvidenceSidebar from './AnswerEvidenceSidebar';
 
 const model: AnswerEvidenceSidebarModel = {
@@ -54,6 +55,68 @@ const model: AnswerEvidenceSidebarModel = {
     'AI 标准',
     'OpenAI 最新融资',
   ],
+  isRenderable: true,
+};
+
+const knowledgeSource = (
+  documentId: string,
+  ordinal: number,
+  citationIndex: number,
+  section: string | null = null,
+): AnswerEvidenceSidebarUsedItem => {
+  const knowledge: KnowledgeAnswerEvidenceItem = {
+    id: `knowledge-${documentId}-${ordinal}`,
+    kind: 'knowledge',
+    citationIndex,
+    sourceIndex: citationIndex - 1,
+    title: `${documentId}.md`,
+    url: '',
+    domain: '电商售后与商品',
+    knowledgeBaseId: 'kb-1',
+    knowledgeBaseName: '电商售后与商品',
+    documentId,
+    indexVersion: 'v1',
+    chunkId: `${documentId}-${ordinal}`,
+    ordinal,
+    filename: `${documentId}.md`,
+    page: null,
+    section,
+    charStart: 0,
+    charEnd: 10,
+  };
+  return {
+    id: knowledge.id,
+    kind: 'knowledge',
+    title: knowledge.title,
+    url: '',
+    domain: knowledge.domain,
+    sourceIndex: knowledge.sourceIndex,
+    citationIndex,
+    knowledge,
+  };
+};
+
+const webSource = (index: number, citationIndex: number): AnswerEvidenceSidebarUsedItem => ({
+  id: `web-${index}`,
+  kind: 'search',
+  title: `网页 ${index}`,
+  url: `https://web-${index}.example.com`,
+  domain: `web-${index}.example.com`,
+  sourceIndex: citationIndex - 1,
+  citationIndex,
+});
+
+const mixedModel: AnswerEvidenceSidebarModel = {
+  summary: { usedCount: 4, candidateCount: 3, searchCount: 3, urlCount: 0, knowledgeCount: 4, issueCount: 0 },
+  usedItems: [
+    knowledgeSource('specs', 0, 1, '重量'),
+    webSource(1, 2),
+    knowledgeSource('specs', 4, 3, '电池'),
+    knowledgeSource('refund', 2, 5),
+  ],
+  candidateItems: [webSource(2, 6), webSource(3, 7), knowledgeSource('edu', 1, 8, '教育优惠')],
+  issueItems: [],
+  searchQueries: [],
   isRenderable: true,
 };
 
@@ -329,4 +392,56 @@ it('新增选中和面板文字随语言切换', async () => {
   expect(screen.getByText('Currently viewing')).toBeVisible();
   expect(screen.getByRole('heading', { name: 'Used sources' })).toBeVisible();
   await i18n.changeLanguage('zh-CN');
+});
+
+describe('AnswerEvidenceSidebar 来源分组', () => {
+  it('知识库与网页分组，知识库段落按文件归并只显示位置', () => {
+    render(<AnswerEvidenceSidebar model={mixedModel} isOpen={true} onClose={vi.fn()} />);
+
+    const used = screen.getByRole('heading', { name: '已使用来源' }).closest('section') as HTMLElement;
+    const labels = within(used).getAllByText(/^(知识库|网页)$/).map(node => node.textContent);
+    expect(labels).toEqual(['知识库', '网页']);
+    const documents = within(used).getAllByTestId('answer-evidence-knowledge-document');
+    expect(documents).toHaveLength(2);
+    expect(within(documents[0]).getByText('specs.md')).toBeInTheDocument();
+    expect(within(documents[0]).getByText('电商售后与商品 · 2 段')).toBeInTheDocument();
+    expect(within(documents[0]).getByText('重量')).toBeInTheDocument();
+    expect(within(documents[0]).getByText('电池')).toBeInTheDocument();
+    expect(within(documents[1]).getByText('第 3 块')).toBeInTheDocument();
+    expect(within(used).getByText('网页 1')).toBeInTheDocument();
+  });
+
+  it('有其他来源时知识库候选默认收起，引用指向其中段落时自动展开', () => {
+    const { rerender } = render(<AnswerEvidenceSidebar model={mixedModel} isOpen={true} onClose={vi.fn()} />);
+
+    const collapsed = screen.getByText('知识库候选 · 1 份文件 · 1 段').closest('details') as HTMLElement;
+    expect(collapsed).not.toHaveAttribute('open');
+    expect(screen.getByText('网页 2')).toBeVisible();
+
+    rerender(
+      <AnswerEvidenceSidebar
+        model={mixedModel}
+        isOpen={true}
+        onClose={vi.fn()}
+        highlightCitationIndex={8}
+        highlightTick={1}
+      />,
+    );
+
+    expect(collapsed).toHaveAttribute('open');
+    expect(screen.getByRole('button', { name: '选择来源 8：edu.md' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('只有知识库候选时不收起', () => {
+    render(
+      <AnswerEvidenceSidebar
+        model={{ ...mixedModel, usedItems: [], candidateItems: [knowledgeSource('edu', 1, 8, '教育优惠')] }}
+        isOpen={true}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText(/知识库候选/)).not.toBeInTheDocument();
+    expect(screen.getByText('教育优惠')).toBeInTheDocument();
+  });
 });

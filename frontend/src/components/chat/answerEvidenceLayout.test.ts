@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AnswerEvidenceItem } from './answerEvidenceModel';
-import { layoutAnswerEvidenceItems } from './answerEvidenceLayout';
+import { groupAnswerEvidenceItems, layoutAnswerEvidenceItems } from './answerEvidenceLayout';
 
 const searchItem = (index: number): AnswerEvidenceItem => ({
   id: `search-${index}`,
@@ -17,6 +17,49 @@ const urlItem = (index: number): AnswerEvidenceItem => ({
   title: `网页 ${index + 1}`,
   url: `https://url-${index + 1}.example.com`,
   domain: `url-${index + 1}.example.com`,
+});
+
+const knowledgeItem = (documentId: string, ordinal: number, citationIndex: number): AnswerEvidenceItem => ({
+  id: `knowledge-${documentId}-${ordinal}`,
+  kind: 'knowledge',
+  citationIndex,
+  sourceIndex: citationIndex - 1,
+  title: `${documentId}.md`,
+  url: '',
+  domain: '电商售后与商品',
+  knowledgeBaseId: 'kb-1',
+  knowledgeBaseName: '电商售后与商品',
+  documentId,
+  indexVersion: 'v1',
+  chunkId: `${documentId}-${ordinal}`,
+  ordinal,
+  filename: `${documentId}.md`,
+  page: null,
+  section: null,
+  charStart: 0,
+  charEnd: 10,
+});
+
+describe('groupAnswerEvidenceItems', () => {
+  it('知识库按文件合并并排在网页前，网页保持原顺序', () => {
+    const grouped = groupAnswerEvidenceItems([
+      searchItem(0),
+      knowledgeItem('specs', 0, 2),
+      urlItem(0),
+      knowledgeItem('specs', 3, 4),
+      knowledgeItem('refund', 1, 5),
+      knowledgeItem('specs', 5, 6),
+    ]);
+
+    expect(grouped.map(item => item.id)).toEqual([
+      'knowledge-specs-0',
+      'knowledge-refund-1',
+      'search-0',
+      'url-0',
+    ]);
+    expect(grouped[0]).toMatchObject({ sourceIndex: 1, documentChunkCount: 3 });
+    expect(grouped[1]).toMatchObject({ documentChunkCount: 1 });
+  });
 });
 
 describe('layoutAnswerEvidenceItems', () => {

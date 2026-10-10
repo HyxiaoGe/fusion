@@ -5,10 +5,12 @@ import { AlertTriangle, BookOpen, Check, ChevronDown, ExternalLink, Globe2, Sear
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import GlassHoverLens, { pointGlassLight, resetGlassLight } from '@/components/ui/GlassHoverLens';
-import type {
-  AnswerEvidenceSidebarIssueItem,
-  AnswerEvidenceSidebarModel,
-  AnswerEvidenceSidebarUsedItem,
+import {
+  groupAnswerEvidenceSources,
+  type AnswerEvidenceKnowledgeDocument,
+  type AnswerEvidenceSidebarIssueItem,
+  type AnswerEvidenceSidebarModel,
+  type AnswerEvidenceSidebarUsedItem,
 } from './answerEvidenceSidebarModel';
 import { useChatDetailOverlayRegistration } from './ChatDetailOverlayContext';
 import { ChatDetailOverlayPortal } from './ChatDetailOverlayPortal';
@@ -46,7 +48,21 @@ export default function AnswerEvidenceSidebar({
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const usedItems = model?.usedItems ?? EMPTY_USED_ITEMS;
   const candidateItems = model?.candidateItems ?? EMPTY_USED_ITEMS;
-  const sourceItems = [...usedItems, ...candidateItems];
+  // 展示顺序即定位顺序：已使用的知识库文件在前、网页在后；候选里网页在前，知识库段落收在末尾。
+  const usedGroups = groupAnswerEvidenceSources(usedItems);
+  const candidateGroups = groupAnswerEvidenceSources(candidateItems);
+  const orderedUsed = [...usedGroups.knowledgeDocuments.flatMap(document => document.items), ...usedGroups.webItems];
+  const candidateKnowledgeStart = orderedUsed.length + candidateGroups.webItems.length;
+  const sourceItems = [
+    ...orderedUsed,
+    ...candidateGroups.webItems,
+    ...candidateGroups.knowledgeDocuments.flatMap(document => document.items),
+  ];
+  const flatIndexes = new Map(sourceItems.map((item, index) => [item, index]));
+  // 只有还有其他来源可看时才折叠知识库候选，避免整栏只剩一个收起的分组。
+  const collapseKnowledgeCandidates = candidateGroups.knowledgeDocuments.length > 0
+    && (orderedUsed.length > 0 || candidateGroups.webItems.length > 0);
+  const [knowledgeCandidatesOpen, setKnowledgeCandidatesOpen] = useState(false);
   const selectionRequest = JSON.stringify([isOpen, highlightCitationIndex, highlightIndex, highlightTick]);
   const [selection, setSelection] = useState<{ key: string; request: string; tick: number } | null>(null);
   const incomingIndex = highlightCitationIndex != null || (typeof highlightIndex === 'number' && highlightIndex >= 0)
@@ -63,8 +79,17 @@ export default function AnswerEvidenceSidebar({
   useChatDetailOverlayRegistration(isOpen && Boolean(model?.isRenderable));
 
   useEffect(() => {
-    if (!isOpen) setSelection(null);
+    if (!isOpen) {
+      setSelection(null);
+      setKnowledgeCandidatesOpen(false);
+    }
   }, [isOpen]);
+
+  const selectedInKnowledgeCandidates = selectedIndex >= candidateKnowledgeStart;
+  useEffect(() => {
+    // 引用指向被收起的知识库候选时先展开，滚动定位在其后执行。
+    if (isOpen && selectedInKnowledgeCandidates) setKnowledgeCandidatesOpen(true);
+  }, [isOpen, selectedInKnowledgeCandidates, selectionTick, highlightTick]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -100,11 +125,26 @@ export default function AnswerEvidenceSidebar({
       element.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
     }, 100);
     return () => clearTimeout(timer);
-  }, [selectedIndex, selectionTick, highlightTick, isOpen, usedItems, candidateItems]);
+  }, [selectedIndex, selectionTick, highlightTick, isOpen, usedItems, candidateItems, knowledgeCandidatesOpen]);
 
   if (!isOpen || !model?.isRenderable) {
     return null;
   }
+
+  const renderSourceItem = (item: AnswerEvidenceSidebarUsedItem, compact: boolean) => {
+    const index = flatIndexes.get(item) ?? -1;
+    return (
+      <UsedSourceItem
+        key={item.id}
+        ref={(element) => { if (index >= 0) itemRefs.current[index] = element; }}
+        item={item}
+        compact={compact}
+        highlighted={index >= 0 && index === selectedIndex}
+        highlightTick={(highlightTick ?? 0) + selectionTick}
+        onSelect={() => selectSource(item)}
+      />
+    );
+  };
 
   const summary = [
     model.summary.usedCount > 0 ? t('chatBody.evidencePanel.usedCount', { count: model.summary.usedCount })
@@ -166,45 +206,64 @@ export default function AnswerEvidenceSidebar({
         <div className={cn('min-h-0 flex-1 overflow-y-auto px-4 py-4', styles.body)}>
           <SearchQuerySection queries={model.searchQueries} />
 
-          {usedItems.length > 0 ? (
+          {orderedUsed.length > 0 ? (
             <section>
               <div className={styles.sectionHeading}>
                 <h4>{t('chatBody.evidencePanel.usedSources')}</h4>
-                <span className={styles.sectionCount}>{usedItems.length}</span>
+                <span className={styles.sectionCount}>{orderedUsed.length}</span>
               </div>
-              <div className={styles.sourceList}>
-                {usedItems.map((item, index) => (
-                  <UsedSourceItem
-                    key={item.id}
-                    ref={(element) => { itemRefs.current[index] = element; }}
-                    item={item}
-                    highlighted={index === selectedIndex}
-                    highlightTick={(highlightTick ?? 0) + selectionTick}
-                    onSelect={() => selectSource(item)}
-                  />
-                ))}
-              </div>
+              <SourceGroupList
+                knowledgeDocuments={usedGroups.knowledgeDocuments}
+                webItems={usedGroups.webItems}
+                labelGroups={usedGroups.knowledgeDocuments.length > 0 && usedGroups.webItems.length > 0}
+                renderItem={renderSourceItem}
+              />
             </section>
           ) : null}
 
           {candidateItems.length > 0 ? (
-            <section className={usedItems.length > 0 ? 'mt-5' : undefined}>
+            <section className={orderedUsed.length > 0 ? 'mt-5' : undefined}>
               <div className={styles.sectionHeading}>
                 <h4>{t('chatBody.evidencePanel.candidateSources')}</h4>
                 <span className={styles.sectionCount}>{candidateItems.length}</span>
               </div>
-              <div className={styles.sourceList}>
-                {candidateItems.map((item, index) => (
-                  <UsedSourceItem
-                    key={item.id}
-                    ref={(element) => { itemRefs.current[usedItems.length + index] = element; }}
-                    item={item}
-                    highlighted={usedItems.length + index === selectedIndex}
-                    highlightTick={(highlightTick ?? 0) + selectionTick}
-                    onSelect={() => selectSource(item)}
-                  />
-                ))}
-              </div>
+              {collapseKnowledgeCandidates ? (
+                <>
+                  <div className={styles.sourceList}>
+                    {candidateGroups.webItems.map(item => renderSourceItem(item, false))}
+                  </div>
+                  <details
+                    className={cn(styles.queryBox, styles.collapsedKnowledge)}
+                    open={knowledgeCandidatesOpen}
+                    onToggle={event => setKnowledgeCandidatesOpen(event.currentTarget.open)}
+                  >
+                    <summary tabIndex={0} className={styles.queryToggle} onPointerMove={pointGlassLight} onPointerLeave={resetGlassLight}>
+                      <GlassHoverLens corners={false} />
+                      <BookOpen size={14} aria-hidden="true" />
+                      <span>{t('chatBody.evidencePanel.knowledgeCandidates', {
+                        files: candidateGroups.knowledgeDocuments.length,
+                        count: candidateItems.length - candidateGroups.webItems.length,
+                      })}</span>
+                      <ChevronDown className={styles.queryChevron} size={14} aria-hidden="true" />
+                    </summary>
+                    <div className={styles.collapsedKnowledgeBody}>
+                      <SourceGroupList
+                        knowledgeDocuments={candidateGroups.knowledgeDocuments}
+                        webItems={EMPTY_USED_ITEMS}
+                        labelGroups={false}
+                        renderItem={renderSourceItem}
+                      />
+                    </div>
+                  </details>
+                </>
+              ) : (
+                <SourceGroupList
+                  knowledgeDocuments={candidateGroups.knowledgeDocuments}
+                  webItems={candidateGroups.webItems}
+                  labelGroups={candidateGroups.knowledgeDocuments.length > 0 && candidateGroups.webItems.length > 0}
+                  renderItem={renderSourceItem}
+                />
+              )}
             </section>
           ) : null}
 
@@ -231,6 +290,43 @@ export default function AnswerEvidenceSidebar({
         </div>
       </aside>
     </ChatDetailOverlayPortal>
+  );
+}
+
+function SourceGroupList({
+  knowledgeDocuments,
+  webItems,
+  labelGroups,
+  renderItem,
+}: {
+  knowledgeDocuments: AnswerEvidenceKnowledgeDocument[];
+  webItems: AnswerEvidenceSidebarUsedItem[];
+  labelGroups: boolean;
+  renderItem: (item: AnswerEvidenceSidebarUsedItem, compact: boolean) => React.ReactNode;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className={styles.sourceList}>
+      {labelGroups ? <p className={styles.groupLabel}>{t('chatBody.evidencePanel.knowledgeGroup')}</p> : null}
+      {knowledgeDocuments.map(document => (
+        <div key={document.key} className={styles.documentGroup} data-testid="answer-evidence-knowledge-document">
+          <div className={styles.documentHeader}>
+            <BookOpen className={styles.documentIcon} size={15} aria-hidden="true" />
+            <span className="min-w-0 flex-1">
+              <span className={styles.documentTitle} title={document.filename}>{document.filename}</span>
+              <span className={styles.documentMeta}>
+                {document.knowledgeBaseName} · {t('chatBody.evidencePanel.documentChunks', { count: document.items.length })}
+              </span>
+            </span>
+          </div>
+          <div className={styles.documentChunks}>
+            {document.items.map(item => renderItem(item, true))}
+          </div>
+        </div>
+      ))}
+      {labelGroups ? <p className={styles.groupLabel}>{t('chatBody.evidencePanel.webGroup')}</p> : null}
+      {webItems.map(item => renderItem(item, false))}
+    </div>
   );
 }
 
@@ -267,11 +363,16 @@ function SearchQuerySection({ queries }: { queries: string[] }) {
 
 const UsedSourceItem = React.forwardRef<HTMLDivElement, {
   item: AnswerEvidenceSidebarUsedItem;
+  compact?: boolean;
   highlighted: boolean;
   highlightTick?: number;
   onSelect: () => void;
-}>(({ item, highlighted, highlightTick = 0, onSelect }, ref) => {
+}>(({ item, compact = false, highlighted, highlightTick = 0, onSelect }, ref) => {
   const { t } = useTranslation();
+  const knowledgeLocation = item.knowledge
+    ? `${item.knowledge.section || t('chatBody.evidencePanel.chunk', { number: item.knowledge.ordinal + 1 })}${
+      item.knowledge.page !== null ? ` · ${t('chatBody.evidencePanel.page', { number: item.knowledge.page })}` : ''}`
+    : '';
   return (
     <div
       ref={ref}
@@ -282,7 +383,7 @@ const UsedSourceItem = React.forwardRef<HTMLDivElement, {
           : undefined}
       data-highlighted={highlighted}
       aria-current={highlighted ? 'true' : undefined}
-      className={styles.sourceCard}
+      className={cn(styles.sourceCard, compact && styles.compactCard)}
     >
       <div className={styles.sourceRow} onPointerMove={pointGlassLight} onPointerLeave={resetGlassLight}>
         <GlassHoverLens />
@@ -299,6 +400,9 @@ const UsedSourceItem = React.forwardRef<HTMLDivElement, {
             {item.citationIndex != null ? <span className={styles.citationNumber}>{item.citationIndex}</span> : <UsedSourceIcon item={item} />}
           </span>
           <span className={styles.sourceText}>
+            {compact ? (
+              <span className={styles.compactTitle} title={knowledgeLocation}>{knowledgeLocation}</span>
+            ) : (<>
             <span className={styles.sourceMeta}>
               <span className={cn('shrink-0', styles.kindBadge)}>
                 {t(`chatBody.evidencePanel.kinds.${item.kind}`)}
@@ -317,11 +421,9 @@ const UsedSourceItem = React.forwardRef<HTMLDivElement, {
             </span>
             <span className={styles.title} title={item.title}>{item.title}</span>
             {item.knowledge ? (
-              <span className={styles.knowledgeLocation}>
-                {item.knowledge.section || t('chatBody.evidencePanel.chunk', { number: item.knowledge.ordinal + 1 })}
-                {item.knowledge.page !== null ? ` · ${t('chatBody.evidencePanel.page', { number: item.knowledge.page })}` : ''}
-              </span>
+              <span className={styles.knowledgeLocation}>{knowledgeLocation}</span>
             ) : null}
+            </>)}
             {highlighted ? <span className={styles.currentMark}><Check size={12} aria-hidden="true" />{t('chatBody.evidencePanel.current')}</span> : null}
           </span>
         </button>

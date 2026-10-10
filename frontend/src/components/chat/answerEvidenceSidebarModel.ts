@@ -55,6 +55,43 @@ export interface AnswerEvidenceSidebarModel {
   isRenderable: boolean;
 }
 
+export interface AnswerEvidenceKnowledgeDocument {
+  key: string;
+  filename: string;
+  knowledgeBaseName: string;
+  items: AnswerEvidenceSidebarUsedItem[];
+}
+
+export interface AnswerEvidenceSourceGroups {
+  knowledgeDocuments: AnswerEvidenceKnowledgeDocument[];
+  webItems: AnswerEvidenceSidebarUsedItem[];
+}
+
+/** 侧栏按来源类型分组：知识库段落按文件归并（保持首次出现顺序），网页保持原顺序。 */
+export function groupAnswerEvidenceSources(items: AnswerEvidenceSidebarUsedItem[]): AnswerEvidenceSourceGroups {
+  const documents = new Map<string, AnswerEvidenceKnowledgeDocument>();
+  const webItems: AnswerEvidenceSidebarUsedItem[] = [];
+  for (const item of items) {
+    if (!item.knowledge) {
+      webItems.push(item);
+      continue;
+    }
+    const key = `${item.knowledge.knowledgeBaseId}:${item.knowledge.documentId}`;
+    const document = documents.get(key);
+    if (document) {
+      document.items.push(item);
+    } else {
+      documents.set(key, {
+        key,
+        filename: item.knowledge.filename,
+        knowledgeBaseName: item.knowledge.knowledgeBaseName,
+        items: [item],
+      });
+    }
+  }
+  return { knowledgeDocuments: [...documents.values()], webItems };
+}
+
 interface DeriveAnswerEvidenceSidebarInput {
   answerEvidence: AnswerEvidenceModel | null;
   searchBlock?: SearchBlock | null;

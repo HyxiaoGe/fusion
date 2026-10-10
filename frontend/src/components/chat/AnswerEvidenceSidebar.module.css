@@ -148,6 +148,27 @@
 .currentMark { display: inline-flex; align-items: center; gap: 4px; margin-top: 8px; border: 1px solid var(--info-border); border-radius: 6px; padding: 2px 5px; background: var(--bg-elevated); color: var(--info); font-size: 10px; font-weight: 500; }
 .externalLink { margin: 10px 10px 0 0; }
 
+/* 知识库按文件归组：文件头 + 内嵌段落行，段落行只显示位置。 */
+.groupLabel { margin: 2px 0 -2px; color: var(--fg-secondary); font-size: 11px; font-weight: 500; }
+.documentGroup {
+  border: 1px solid color-mix(in oklch, var(--primary) 16%, var(--border));
+  border-radius: 16px;
+  background: color-mix(in oklch, var(--primary) 3%, var(--bg-elevated));
+  overflow: hidden;
+}
+.documentHeader { display: flex; min-width: 0; align-items: flex-start; gap: 8px; padding: 10px 12px 8px; }
+.documentIcon { margin-top: 3px; flex-shrink: 0; color: var(--primary); }
+.documentTitle { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--foreground); font-size: 13px; font-weight: 600; line-height: 1.6; }
+.documentMeta { display: block; color: var(--fg-secondary); font-size: 11px; }
+.documentChunks { display: flex; flex-direction: column; gap: 6px; padding: 0 8px 8px; }
+.compactCard { border-radius: 12px; box-shadow: none; }
+.compactCard .sourceSelect { padding: 8px 8px; align-items: center; }
+.compactCard .sourceIcon { width: 24px; height: 24px; }
+.compactCard .citationNumber { min-width: 24px; min-height: 24px; border-radius: 8px; }
+.compactTitle { display: block; overflow-wrap: anywhere; color: var(--foreground); font-size: 12px; line-height: 1.55; }
+.collapsedKnowledge { margin: 10px 0 0; }
+.collapsedKnowledgeBody { padding: 10px; border-top: 1px solid var(--border); background: var(--bg-elevated); }
+
 .kindBadge {
   border: 1px solid var(--border);
   border-radius: 7px;
