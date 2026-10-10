@@ -485,6 +485,27 @@ class MilvusKnowledgeStoreBatchTests(unittest.IsolatedAsyncioTestCase):
             [{"field_name": "vector", "index_type": "AUTOINDEX", "metric_type": "COSINE"}],
         )
 
+    async def test_rejected_request_is_not_reported_as_retryable_outage(self):
+        from pymilvus.exceptions import MilvusException
+
+        rejection = MilvusException(1100, "length of varchar field section exceeds max length")
+
+        class RejectingClient:
+            def list_collections(self, **_kwargs):
+                raise rejection
+
+            def close(self):
+                return None
+
+        store = MilvusKnowledgeStore(client_factory=RejectingClient)
+
+        with self.assertRaises(KnowledgeVectorError) as raised:
+            await store.health()
+
+        self.assertEqual(raised.exception.code, "KNOWLEDGE_VECTOR_REQUEST_REJECTED")
+        self.assertFalse(raised.exception.retryable)
+        self.assertIs(raised.exception.__cause__, rejection)
+
     async def test_client_close_failure_does_not_override_successful_operation(self):
         class CloseFailureClient:
             def list_collections(self, **_kwargs):

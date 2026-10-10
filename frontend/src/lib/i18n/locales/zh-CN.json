@@ -478,6 +478,7 @@
         "disabled": "知识库功能尚未启用，请联系管理员开启后重试。",
         "unavailable": "知识库服务暂时不可用，请稍后刷新重试。",
         "storageBusy": "文件存储正在处理上一请求，请稍后重试。",
+        "indexRejected": "索引写入被拒绝，重试无法解决，请联系管理员处理。",
         "indexingUnavailable": "索引服务暂时不可用，已保留任务状态，请稍后重试。",
         "duplicateDocument": "该知识库中已存在内容相同的文档。",
         "notRetryable": "当前文档状态不支持重试，请刷新查看最新状态。",

@@ -484,6 +484,7 @@
         "disabled": "Knowledge bases are not enabled. Ask an administrator to enable the feature and try again.",
         "unavailable": "The knowledge base service is temporarily unavailable. Refresh and try again later.",
         "storageBusy": "File storage is still handling the previous request. Try again shortly.",
+        "indexRejected": "The index rejected this document. Retrying will not help; contact an administrator.",
         "indexingUnavailable": "The indexing service is temporarily unavailable. Task state was preserved; try again later.",
         "duplicateDocument": "A document with the same content already exists in this knowledge base.",
         "notRetryable": "This document cannot be retried in its current state. Refresh to see the latest status.",

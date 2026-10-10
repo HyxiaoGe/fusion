@@ -60,6 +60,17 @@ export default function KnowledgeBaseComposerControl({
     void ensureKnowledgeBaseCatalog(catalogScopeKey).catch(() => {});
   }, [catalogScopeKey, catalogSnapshot.updatedAt, refreshKey]);
 
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      // 列表只在挂载时加载；打开时按 TTL 复核，覆盖别处新建或刚处理完文档的知识库。
+      if (nextOpen && catalogScopeKey) {
+        void ensureKnowledgeBaseCatalog(catalogScopeKey).catch(() => {});
+      }
+    },
+    [catalogScopeKey],
+  );
+
   const bases = useMemo(
     () => catalogSnapshot.data?.items ?? [],
     [catalogSnapshot.data],
@@ -116,7 +127,7 @@ export default function KnowledgeBaseComposerControl({
   return (
     <div className={`border-b px-3 py-2 ${styles.bar}`}>
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover open={open} onOpenChange={handleOpenChange}>
           <PopoverTrigger asChild>
             <Button
               type="button"

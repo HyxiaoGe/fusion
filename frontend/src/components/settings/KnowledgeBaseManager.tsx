@@ -133,6 +133,9 @@ function documentFailureMessage(errorCode: string | null, translate: (key: strin
   if (errorCode.includes('UNSUPPORTED') || errorCode.includes('TYPE_MISMATCH')) {
     return translate('knowledgeBase.toast.unsupportedFile');
   }
+  if (errorCode === 'KNOWLEDGE_VECTOR_REQUEST_REJECTED') {
+    return translate('knowledgeBase.errors.indexRejected');
+  }
   if (errorCode.includes('EMBEDDING') || errorCode.includes('VECTOR')) {
     return translate('knowledgeBase.errors.indexingUnavailable');
   }
