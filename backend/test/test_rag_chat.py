@@ -892,6 +892,7 @@ class KnowledgeSearchToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(long_line.removeprefix("- 长描述: ")), MAX_KNOWLEDGE_BASE_DESCRIPTION_CHARS)
         self.assertTrue(long_line.endswith("…"))
         self.assertIn("the user selected for this conversation", description)
+        self.assertIn("tell the user that the selected knowledge bases do not cover it", description)
 
     def test_loaded_tool_set_carries_base_descriptions_in_selection_order(self):
         rows = [
