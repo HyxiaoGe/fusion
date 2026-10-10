@@ -369,9 +369,13 @@ const UsedSourceItem = React.forwardRef<HTMLDivElement, {
   onSelect: () => void;
 }>(({ item, compact = false, highlighted, highlightTick = 0, onSelect }, ref) => {
   const { t } = useTranslation();
+  // 同一章节下常有多个段落，章节名之外总带块序号，段落之间才分得开。
   const knowledgeLocation = item.knowledge
-    ? `${item.knowledge.section || t('chatBody.evidencePanel.chunk', { number: item.knowledge.ordinal + 1 })}${
-      item.knowledge.page !== null ? ` · ${t('chatBody.evidencePanel.page', { number: item.knowledge.page })}` : ''}`
+    ? [
+      item.knowledge.section,
+      t('chatBody.evidencePanel.chunk', { number: item.knowledge.ordinal + 1 }),
+      item.knowledge.page !== null ? t('chatBody.evidencePanel.page', { number: item.knowledge.page }) : null,
+    ].filter(Boolean).join(' · ')
     : '';
   return (
     <div
