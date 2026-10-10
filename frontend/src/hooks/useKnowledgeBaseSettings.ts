@@ -453,6 +453,14 @@ export function useKnowledgeBaseSettings(): KnowledgeBaseSettingsState {
       const created = await runMutation('create-base', (signal) =>
         createKnowledgeBase(payload, signal),
       );
+      // 先落选中：轮询的列表请求会取消下面这次刷新，选中不能依赖它的返回。
+      documentRequestRef.current?.abort();
+      selectedBaseIdRef.current = created.id;
+      setSelectedBaseIdState(created.id);
+      setBases((current) => ({
+        ...current,
+        items: [created, ...current.items.filter((item) => item.id !== created.id)],
+      }));
       setBasePageState(1);
       await fetchBases(1, true, created.id);
       invalidateKnowledgeBaseCatalog(authSessionKey);

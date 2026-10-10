@@ -213,6 +213,44 @@ describe('useKnowledgeBaseSettings', () => {
     expect(result.current.bases.items.map((item) => item.id)).toEqual(['base-b']);
   });
 
+  it('新建后的列表刷新被其它请求取消时仍选中新知识库', async () => {
+    const baseA = makeBase('base-a');
+    const baseNew = makeBase('base-new');
+    const { result } = renderHook(() => useKnowledgeBaseSettings());
+    await waitFor(() => expect(result.current.selectedBaseId).toBe('base-a'));
+
+    api.createKnowledgeBase.mockResolvedValue(baseNew);
+    api.listKnowledgeBases.mockImplementationOnce(
+      (_params, signal: AbortSignal) =>
+        new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () =>
+            reject(new DOMException('aborted', 'AbortError')),
+          );
+        }),
+    );
+    api.listKnowledgeBases.mockResolvedValue({
+      ...pageFor(baseNew),
+      items: [baseNew, baseA],
+      total: 2,
+    });
+
+    let created: Promise<unknown> | undefined;
+    act(() => {
+      created = result.current.createBase({ name: 'base-new' });
+    });
+    await waitFor(() => expect(api.listKnowledgeBases).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    expect(result.current.selectedBaseId).toBe('base-new');
+    expect(result.current.selectedBase?.id).toBe('base-new');
+    await act(async () => {
+      await created;
+    });
+    expect(result.current.selectedBaseId).toBe('base-new');
+  });
+
   it('上传返回 202 任务后展示排队文档并跟踪任务', async () => {
     const document = { ...makeDocument('document-a', 'base-a'), status: 'queued' as const };
     const task = makeTask('task-a');
