@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ApiError } from '@/types/api';
 import type { KnowledgeBase, KnowledgeDocument, KnowledgeTask } from '@/types/knowledge';
 
 const api = vi.hoisted(() => ({
@@ -249,6 +250,26 @@ describe('useKnowledgeBaseSettings', () => {
       await created;
     });
     expect(result.current.selectedBaseId).toBe('base-new');
+  });
+
+  it('选中的知识库删除完成后改选其它知识库，不报告不存在错误', async () => {
+    const { result } = renderHook(() => useKnowledgeBaseSettings());
+    await waitFor(() => expect(result.current.selectedBaseId).toBe('base-a'));
+
+    api.listKnowledgeDocuments.mockImplementation((baseId: string) =>
+      baseId === 'base-a'
+        ? Promise.reject(new ApiError('NOT_FOUND', '知识库不存在或无权访问', 'req-1'))
+        : Promise.resolve(documentPageFor(makeDocument('document-b', 'base-b'))),
+    );
+    api.listKnowledgeBases.mockResolvedValue(pageFor(makeBase('base-b')));
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    await waitFor(() => expect(result.current.selectedBaseId).toBe('base-b'));
+    expect(result.current.error).toBeNull();
+    expect(result.current.pollingWarning).toBeNull();
   });
 
   it('上传返回 202 任务后展示排队文档并跟踪任务', async () => {
