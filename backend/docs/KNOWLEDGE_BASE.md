@@ -101,7 +101,7 @@ fail closed；pre-#41 镜像按空 registry 兼容，自动回滚仍恢复部署
 快照默认仍为 `chunker-v1`。
 
 解析：Markdown 按 ATX 标题（跳过代码块内的 `#`）、DOCX 按标题样式或大纲级别切分，表格按正文顺序留在
-所属标题下，每段的 `section` 记录 `一级 > 二级 > …` 标题路径（超过 120 字符时保留末端）；txt/csv/pdf
+所属标题下，每段的 `section` 记录 `一级 > 二级 > …` 标题路径（超过 120 字节时保留末端，Milvus VARCHAR 按 UTF-8 字节计长）；txt/csv/pdf
 不按标题切分。
 
 Milvus collection 为 `{prefix}_v2_d{dim}`：`text` 启用中文分词，由内置 BM25 Function 生成 `sparse` 稀疏向量

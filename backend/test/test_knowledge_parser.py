@@ -161,13 +161,24 @@ class StructuredKnowledgeParserTests(unittest.TestCase):
         self.assertEqual(len(sections), 1)
         self.assertIsNone(sections[0].section)
 
-    def test_long_heading_path_keeps_most_specific_tail_within_label_limit(self):
+    def test_long_heading_path_keeps_most_specific_tail_within_byte_limit(self):
         content = ("# " + "长" * 200 + "\n## 末级标题\n正文").encode()
 
         sections = self.parser.parse(content, mimetype="text/markdown", filename="note.md")
 
-        self.assertEqual(len(sections[0].section), 120)
-        self.assertTrue(sections[0].section.endswith(" > 末级标题"))
+        label = sections[0].section
+        self.assertLessEqual(len(label.encode()), 120)
+        self.assertGreater(len(label.encode()), 117)
+        self.assertTrue(label.startswith("…长"))
+        self.assertTrue(label.endswith(" > 末级标题"))
+
+    def test_heading_path_within_byte_limit_is_kept_whole(self):
+        title = "长" * 38
+        content = f"# {title}\n正文".encode()
+
+        sections = self.parser.parse(content, mimetype="text/markdown", filename="note.md")
+
+        self.assertEqual(sections[0].section, title)
 
     def test_docx_groups_paragraphs_and_tables_under_headings_in_body_order(self):
         import docx
