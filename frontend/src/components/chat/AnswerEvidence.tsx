@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { BookOpen, ExternalLink, FileSearch, Globe2, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { AnswerEvidenceItem, AnswerEvidenceModel } from './answerEvidenceModel';
-import { layoutAnswerEvidenceItems } from './answerEvidenceLayout';
+import { groupAnswerEvidenceItems, layoutAnswerEvidenceItems } from './answerEvidenceLayout';
 import styles from './AnswerEvidence.module.css';
 
 interface AnswerEvidenceProps {
@@ -72,7 +72,7 @@ function AnswerEvidenceContent({
   const [containerWidth, setContainerWidth] = useState(0);
   const layout = useMemo(
     () => layoutAnswerEvidenceItems({
-      items: evidence.items,
+      items: groupAnswerEvidenceItems(evidence.items),
       containerWidth,
     }),
     [containerWidth, evidence.items],
@@ -124,7 +124,7 @@ function AnswerEvidenceContent({
             <EvidenceMetaChip>未预览 {layout.hiddenUrlCount} 个网页</EvidenceMetaChip>
           ) : null}
           {showHiddenKnowledge ? (
-            <EvidenceMetaChip>未预览 {layout.hiddenKnowledgeCount} 条知识依据</EvidenceMetaChip>
+            <EvidenceMetaChip>未预览 {layout.hiddenKnowledgeCount} 份知识库文件</EvidenceMetaChip>
           ) : null}
           {showOpenAll ? (
             <button
@@ -209,7 +209,9 @@ function EvidenceItemContent({ item }: { item: AnswerEvidenceItem }) {
       <EvidenceItemIcon item={item} />
       <span className="flex min-w-0 flex-col">
         <span className="min-w-0 truncate text-[10px] leading-3 text-muted-foreground">
-          {item.domain}
+          {item.kind === 'knowledge' && (item.documentChunkCount ?? 1) > 1
+            ? `${item.domain} · ${item.documentChunkCount} 段`
+            : item.domain}
         </span>
         <span
           title={item.title}

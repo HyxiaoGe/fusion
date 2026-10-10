@@ -43,6 +43,8 @@ export type KnowledgeAnswerEvidenceItem = BaseAnswerEvidenceItem & {
   section: string | null;
   charStart: number;
   charEnd: number;
+  /** 依据条按文件合并时，同一文件被合并的段落数。 */
+  documentChunkCount?: number;
 };
 
 export type AnswerEvidenceItem = SearchAnswerEvidenceItem | UrlReadAnswerEvidenceItem | KnowledgeAnswerEvidenceItem;

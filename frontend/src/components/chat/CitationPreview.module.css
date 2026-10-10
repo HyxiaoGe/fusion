@@ -23,6 +23,19 @@
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 65%), 0 2px 7px -4px var(--info);
 }
 .chip:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+.knowledgeChip {
+  gap: 1px;
+  border-color: color-mix(in oklch, var(--primary) 30%, var(--border));
+  background: color-mix(in oklch, var(--primary) 8%, var(--bg-elevated));
+  color: var(--primary);
+}
+.knowledgeChip:hover,
+.knowledgeChip[aria-describedby] {
+  background: color-mix(in oklch, var(--primary) 15%, var(--bg-elevated));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 65%), 0 2px 7px -4px var(--primary);
+}
+.knowledgeChip:focus-visible { outline-color: var(--primary); }
+.chipIcon { width: 9px; height: 9px; flex-shrink: 0; }
 
 .preview {
   z-index: 60;
@@ -53,5 +66,7 @@
 .hint { margin: 12px 0 0; padding-top: 9px; border-top: 1px solid var(--border); color: var(--fg-secondary); font-size: 11px; }
 :global(.dark) .preview { box-shadow: 0 12px 36px -16px rgb(0 0 0 / 65%), inset 0 1px 0 rgb(255 255 255 / 8%); }
 :global(.dark) .chip:hover,
-:global(.dark) .chip[aria-describedby] { box-shadow: inset 0 1px 0 rgb(255 255 255 / 10%); }
+:global(.dark) .chip[aria-describedby],
+:global(.dark) .knowledgeChip:hover,
+:global(.dark) .knowledgeChip[aria-describedby] { box-shadow: inset 0 1px 0 rgb(255 255 255 / 10%); }
 @media (prefers-reduced-motion: reduce) { .chip { transition: none; } }

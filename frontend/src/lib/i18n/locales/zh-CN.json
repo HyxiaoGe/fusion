@@ -149,6 +149,10 @@
         "deepRead": "已深读",
         "chunk": "第 {{number}} 块",
         "page": "第 {{number}} 页",
+        "knowledgeGroup": "知识库",
+        "webGroup": "网页",
+        "documentChunks": "{{count}} 段",
+        "knowledgeCandidates": "知识库候选 · {{files}} 份文件 · {{count}} 段",
         "kinds": { "search": "搜索", "url_read": "读取", "knowledge": "知识库" },
         "status": { "unused": "未使用", "degraded": "部分可用", "interrupted": "中断" }
       },

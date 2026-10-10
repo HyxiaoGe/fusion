@@ -1,4 +1,4 @@
-import type { AnswerEvidenceItem } from './answerEvidenceModel';
+import type { AnswerEvidenceItem, KnowledgeAnswerEvidenceItem } from './answerEvidenceModel';
 
 const DEFAULT_ITEM_WIDTH = 176;
 const DEFAULT_ITEM_GAP = 8;
@@ -16,6 +16,27 @@ export interface AnswerEvidenceLayout {
   hiddenUrlCount: number;
   hiddenKnowledgeCount: number;
   hasHiddenItems: boolean;
+}
+
+/**
+ * 依据条展示单位：知识库按文件合并（同一文件的多个段落只占一个位置），排在网页前，
+ * 网页保持原顺序。点击合并项定位到该文件第一个段落。
+ */
+export function groupAnswerEvidenceItems(items: AnswerEvidenceItem[]): AnswerEvidenceItem[] {
+  const documents = new Map<string, KnowledgeAnswerEvidenceItem>();
+  const webItems: AnswerEvidenceItem[] = [];
+  for (const item of items) {
+    if (item.kind !== 'knowledge') {
+      webItems.push(item);
+      continue;
+    }
+    const key = `${item.knowledgeBaseId}:${item.documentId}`;
+    const existing = documents.get(key);
+    documents.set(key, existing
+      ? { ...existing, documentChunkCount: (existing.documentChunkCount ?? 1) + 1 }
+      : { ...item, documentChunkCount: 1 });
+  }
+  return [...documents.values(), ...webItems];
 }
 
 export function layoutAnswerEvidenceItems({

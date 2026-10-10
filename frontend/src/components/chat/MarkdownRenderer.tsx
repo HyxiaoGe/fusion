@@ -2,6 +2,7 @@
 
 import React, { useContext, useMemo } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
+import { BookOpen } from 'lucide-react';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import type { SearchSourceSummary } from '@/types/conversation';
@@ -80,7 +81,12 @@ function renderWithCitations(
     const source = sourceIndex >= 0 ? sources[sourceIndex] : undefined;
 
     if (source) {
-      const sharedClass = `${citationStyles.chip} no-underline`;
+      const knowledge = source.kind === 'knowledge';
+      // 知识库引用与网页引用分色并带书本图标，编号仍沿用统一的引用注册表。
+      const sharedClass = `${citationStyles.chip}${knowledge ? ` ${citationStyles.knowledgeChip}` : ''} no-underline`;
+      const label = knowledge ? (
+        <><BookOpen className={citationStyles.chipIcon} aria-hidden="true" />{num}</>
+      ) : num;
       const previewProps = { 'data-citation-index': sourceIndex, 'data-citation-number': num };
 
       const trigger = onCitationClick ? (
@@ -93,9 +99,9 @@ function renderWithCitations(
             onCitationClick(sourceIndex);
           }}
           className={sharedClass}
-          aria-label={`查看参考资料 ${num}：${source.title}`}
+          aria-label={`查看${knowledge ? '知识库' : ''}参考资料 ${num}：${source.title}`}
         >
-          {num}
+          {label}
         </button>
       ) : source.kind !== 'knowledge' ? (
         <a
@@ -108,7 +114,7 @@ function renderWithCitations(
           {num}
         </a>
       ) : (
-        <span {...previewProps} className={sharedClass} tabIndex={0} aria-label={source.title}>{num}</span>
+        <span {...previewProps} className={sharedClass} tabIndex={0} aria-label={source.title}>{label}</span>
       );
 
       parts.push(<React.Fragment key={`cite-${match.index}`}>{trigger}</React.Fragment>);
