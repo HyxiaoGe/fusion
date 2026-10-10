@@ -26,7 +26,7 @@ class ParsedSection:
     section: str | None = None
 
 
-def _isolated_parse_child(connection, content: bytes, mimetype: str, filename: str, version: str) -> None:
+def _isolated_parse_child(connection, content: bytes, mimetype: str, filename: str) -> None:
     try:
         import resource
 
@@ -35,9 +35,7 @@ def _isolated_parse_child(connection, content: bytes, mimetype: str, filename: s
             resource.setrlimit(resource.RLIMIT_AS, (memory_limit, memory_limit))
         with suppress(Exception):
             resource.setrlimit(resource.RLIMIT_CPU, (45, 45))
-        connection.send(
-            ("ok", KnowledgeDocumentParser().parse(content, mimetype=mimetype, filename=filename, version=version))
-        )
+        connection.send(("ok", KnowledgeDocumentParser().parse(content, mimetype=mimetype, filename=filename)))
     except KnowledgeParseError as exc:
         connection.send(("error", (exc.code, exc.summary)))
     except Exception:
@@ -52,14 +50,13 @@ def parse_document_isolated(
     mimetype: str,
     filename: str,
     timeout_seconds: int,
-    version: str,
 ) -> list[ParsedSection]:
     """在有限资源子进程中解析复杂容器格式。"""
     context = multiprocessing.get_context("spawn")
     parent, child = context.Pipe(duplex=False)
     process = context.Process(
         target=_isolated_parse_child,
-        args=(child, content, mimetype, filename, version),
+        args=(child, content, mimetype, filename),
         daemon=True,
     )
     process.start()
@@ -138,14 +135,9 @@ class _HeadingSections:
 
 
 class KnowledgeDocumentParser:
-    """确定性文本解析器；不调用 LLM、视觉模型或 OCR。
-
-    parser-v2 按 Markdown/DOCX 标题切分并记录标题路径；parser-v1 保留给升级前已创建的索引版本。
-    """
+    """确定性文本解析器；不调用 LLM、视觉模型或 OCR。Markdown/DOCX 按标题切分并记录标题路径。"""
 
     VERSION = "parser-v2"
-    LEGACY_VERSION = "parser-v1"
-    SUPPORTED_VERSIONS = frozenset({LEGACY_VERSION, VERSION})
     MAX_CHARACTERS = 2_000_000
     MAX_PAGES = 1000
     MAX_DOCX_ENTRIES = 5000
@@ -158,10 +150,7 @@ class KnowledgeDocumentParser:
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {".docx"},
     }
 
-    def parse(self, content: bytes, *, mimetype: str, filename: str, version: str = VERSION) -> list[ParsedSection]:
-        if version not in self.SUPPORTED_VERSIONS:
-            raise KnowledgeParseError("KNOWLEDGE_INDEX_VERSION_UNSUPPORTED", "Worker 不支持该解析版本")
-        structured = version == self.VERSION
+    def parse(self, content: bytes, *, mimetype: str, filename: str) -> list[ParsedSection]:
         suffix = PurePath(filename).suffix.lower()
         allowed_suffixes = self.MIME_SUFFIXES.get(mimetype)
         if allowed_suffixes is None:
@@ -172,16 +161,16 @@ class KnowledgeDocumentParser:
             raise KnowledgeParseError("KNOWLEDGE_DOCUMENT_TYPE_MISMATCH", "PDF 文件签名无效")
         if mimetype.endswith("wordprocessingml.document") and not content.startswith(b"PK"):
             raise KnowledgeParseError("KNOWLEDGE_DOCUMENT_TYPE_MISMATCH", "DOCX 文件签名无效")
-        if mimetype == "text/markdown" and structured:
+        if mimetype == "text/markdown":
             sections = self._parse_markdown(self._decode_text(content))
-        elif mimetype in {"text/plain", "text/markdown"}:
+        elif mimetype == "text/plain":
             sections = [ParsedSection(self._decode_text(content))]
         elif mimetype == "text/csv":
             sections = [ParsedSection(self._parse_csv(content))]
         elif mimetype == "application/pdf":
             sections = self._parse_pdf(content)
         elif mimetype == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-            sections = self._parse_docx_structured(content) if structured else self._parse_docx(content)
+            sections = self._parse_docx(content)
         else:
             raise KnowledgeParseError("KNOWLEDGE_DOCUMENT_UNSUPPORTED", "当前知识库版本不支持该文档格式")
         normalized = []
@@ -238,23 +227,6 @@ class KnowledgeDocumentParser:
         except Exception as exc:
             raise KnowledgeParseError("KNOWLEDGE_DOCUMENT_INVALID", "PDF 文档无法解析") from exc
 
-    @classmethod
-    def _parse_docx(cls, content: bytes) -> list[ParsedSection]:
-        import docx
-
-        try:
-            cls._validate_docx_archive(content)
-            document = docx.Document(io.BytesIO(content))
-            sections = [ParsedSection(paragraph.text, section="paragraph") for paragraph in document.paragraphs]
-            for table in document.tables:
-                for row in table.rows:
-                    sections.append(ParsedSection("\t".join(cell.text for cell in row.cells), section="table"))
-            return sections
-        except KnowledgeParseError:
-            raise
-        except Exception as exc:
-            raise KnowledgeParseError("KNOWLEDGE_DOCUMENT_INVALID", "DOCX 文档无法解析") from exc
-
     @staticmethod
     def _parse_markdown(text: str) -> list[ParsedSection]:
         builder = _HeadingSections()
@@ -277,7 +249,7 @@ class KnowledgeDocumentParser:
         return builder.finish()
 
     @classmethod
-    def _parse_docx_structured(cls, content: bytes) -> list[ParsedSection]:
+    def _parse_docx(cls, content: bytes) -> list[ParsedSection]:
         import docx
         from docx.oxml.ns import qn
         from docx.table import Table

@@ -91,7 +91,6 @@ class KnowledgeDocumentParserTests(unittest.TestCase):
                 mimetype="application/pdf",
                 filename="manual.pdf",
                 timeout_seconds=60,
-                version=KnowledgeDocumentParser.VERSION,
             )
 
         self.assertEqual(raised.exception.code, "KNOWLEDGE_DOCUMENT_INVALID")
@@ -117,7 +116,6 @@ class KnowledgeDocumentParserTests(unittest.TestCase):
                 mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 filename="manual.docx",
                 timeout_seconds=60,
-                version=KnowledgeDocumentParser.VERSION,
             )
 
         self.assertEqual(raised.exception.code, "KNOWLEDGE_DOCUMENT_PARSE_TIMEOUT")
@@ -170,25 +168,6 @@ class StructuredKnowledgeParserTests(unittest.TestCase):
 
         self.assertEqual(len(sections[0].section), 120)
         self.assertTrue(sections[0].section.endswith(" > 末级标题"))
-
-    def test_legacy_version_keeps_whole_markdown_document(self):
-        content = "# 标题\n正文\n## 小节\n更多".encode()
-
-        sections = self.parser.parse(
-            content,
-            mimetype="text/markdown",
-            filename="note.md",
-            version=KnowledgeDocumentParser.LEGACY_VERSION,
-        )
-
-        self.assertEqual(len(sections), 1)
-        self.assertIsNone(sections[0].section)
-
-    def test_unknown_version_is_rejected(self):
-        with self.assertRaises(KnowledgeParseError) as raised:
-            self.parser.parse(b"text", mimetype="text/plain", filename="note.txt", version="parser-v9")
-
-        self.assertEqual(raised.exception.code, "KNOWLEDGE_INDEX_VERSION_UNSUPPORTED")
 
     def test_docx_groups_paragraphs_and_tables_under_headings_in_body_order(self):
         import docx

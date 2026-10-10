@@ -1,9 +1,9 @@
-"""知识库检索评测：在真实 Embedding 与 Milvus 上比较「解析版本 × 检索方式」的命中率。
+"""知识库检索评测：在真实 Embedding 与 Milvus 上比较纯稠密检索与混合检索的命中率。
 
-语料与题目在 evals/knowledge_retrieval/。每个解析版本建一个临时 collection（schema v2，含 BM25），
-同一份数据分别跑纯稠密检索与稠密 + BM25 混合检索；结束后删除临时 collection。
+语料与题目在 evals/knowledge_retrieval/。按线上流程解析、切块、嵌入后写入一个临时 collection，
+同一份数据分别跑纯稠密检索与稠密 + BM25 混合检索（线上用后者）；结束后删除临时 collection。
 
-    python -m scripts.knowledge_retrieval_eval [--limit 24] [--show-misses]
+    python -m scripts.knowledge_retrieval_eval [--limit 24] [--show-misses] [--show-ranks]
 
 需要与 Worker 相同的知识库 Embedding 与 Milvus 配置；不读写 PostgreSQL。
 """
@@ -33,7 +33,9 @@ EVAL_DIR = Path(__file__).resolve().parent.parent / "evals" / "knowledge_retriev
 DOCX_MIMETYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 EVAL_USER_ID = "knowledge-eval"
 EVAL_KNOWLEDGE_BASE_ID = "knowledge-eval-kb"
+EVAL_INDEX_VERSION = "knowledge-eval"
 TOOL_TOP_K = 8
+MODES = ("dense", "hybrid")
 
 
 @dataclass
@@ -45,10 +47,9 @@ class EvalDocument:
 
 
 @dataclass
-class Variant:
-    parser_version: str
+class Corpus:
     collection: str
-    index_version: str
+    index_version: str = EVAL_INDEX_VERSION
     chunks: dict[str, tuple[str, KnowledgeChunk]] = field(default_factory=dict)
 
 
@@ -110,7 +111,7 @@ def load_questions() -> list[dict[str, Any]]:
 
 
 def _comparable(text: str) -> str:
-    # 表格单元格分隔符在 v1（制表符折叠为空格）与 v2（竖线）中不同，比较时一并忽略。
+    # 题目里的答案片段忽略空白与表格单元格分隔符。
     return "".join(
         character for character in unicodedata.normalize("NFKC", text) if not character.isspace() and character != "|"
     )
@@ -135,65 +136,54 @@ async def _embed(adapter: LiteLLMEmbeddingAdapter, profile: EmbeddingProfile, te
     return vectors
 
 
-async def populate_variant(
+async def populate(
     client: Any,
     adapter: LiteLLMEmbeddingAdapter,
     profile: EmbeddingProfile,
     documents: list[EvalDocument],
-    variant: Variant,
+    corpus: Corpus,
 ) -> None:
-    parser_version = variant.parser_version
     parser = KnowledgeDocumentParser()
     chunker = DeterministicKnowledgeChunker(
         chunk_size=settings.KNOWLEDGE_CHUNK_SIZE,
         overlap=settings.KNOWLEDGE_CHUNK_OVERLAP,
     )
-    structured = parser_version == KnowledgeDocumentParser.VERSION
-    records: list[tuple[KnowledgeVectorRecord, str]] = []
+    records: list[KnowledgeVectorRecord] = []
     for document in documents:
-        sections = parser.parse(
-            document.content,
-            mimetype=document.mimetype,
-            filename=document.filename,
-            version=parser_version,
-        )
-        for chunk in chunker.chunk(sections, document_id=document.name, index_version=variant.index_version):
-            variant.chunks[chunk.chunk_id] = (document.name, chunk)
-            # 与生产一致：v2 写入并嵌入「标题路径 + 正文」，v1 只用正文。
-            index_text = knowledge_index_text(chunk) if structured else chunk.text
-            record = KnowledgeVectorRecord(
-                chunk=chunk,
-                vector=[],
-                user_id=EVAL_USER_ID,
-                knowledge_base_id=EVAL_KNOWLEDGE_BASE_ID,
-                document_id=document.name,
-                index_version=variant.index_version,
-                filename=document.filename,
+        sections = parser.parse(document.content, mimetype=document.mimetype, filename=document.filename)
+        for chunk in chunker.chunk(sections, document_id=document.name, index_version=corpus.index_version):
+            corpus.chunks[chunk.chunk_id] = (document.name, chunk)
+            records.append(
+                KnowledgeVectorRecord(
+                    chunk=chunk,
+                    vector=[],
+                    user_id=EVAL_USER_ID,
+                    knowledge_base_id=EVAL_KNOWLEDGE_BASE_ID,
+                    document_id=document.name,
+                    index_version=corpus.index_version,
+                    filename=document.filename,
+                )
             )
-            records.append((record, index_text))
-    vectors = await _embed(adapter, profile, [index_text for _record, index_text in records])
-    MilvusKnowledgeStore._create_collection(
-        client, variant.collection, profile.dimension, profile.distance_metric, hybrid=True
-    )
+    vectors = await _embed(adapter, profile, [knowledge_index_text(record.chunk) for record in records])
+    MilvusKnowledgeStore._create_collection(client, corpus.collection, profile.dimension, profile.distance_metric)
     payload = []
-    for (record, index_text), vector in zip(records, vectors, strict=True):
+    for record, vector in zip(records, vectors, strict=True):
         row = MilvusKnowledgeStore._record_payload(record)
         row["vector"] = vector
-        row["text"] = index_text
         payload.append(row)
-    client.insert(collection_name=variant.collection, data=payload)
-    client.flush(collection_name=variant.collection)
-    client.load_collection(collection_name=variant.collection)
+    client.insert(collection_name=corpus.collection, data=payload)
+    client.flush(collection_name=corpus.collection)
+    client.load_collection(collection_name=corpus.collection)
 
 
-def _search(client: Any, variant: Variant, mode: str, query: str, vector: list[float], limit: int) -> list[str]:
+def _search(client: Any, corpus: Corpus, mode: str, query: str, vector: list[float], limit: int) -> list[str]:
     search_filter = MilvusKnowledgeStore.build_search_filter(
-        EVAL_USER_ID, [EVAL_KNOWLEDGE_BASE_ID], [variant.index_version]
+        EVAL_USER_ID, [EVAL_KNOWLEDGE_BASE_ID], [corpus.index_version]
     )
     output_fields = ["document_id"]
     if mode == "dense":
         result = client.search(
-            collection_name=variant.collection,
+            collection_name=corpus.collection,
             data=[vector],
             anns_field="vector",
             filter=search_filter,
@@ -205,7 +195,7 @@ def _search(client: Any, variant: Variant, mode: str, query: str, vector: list[f
     else:
         result = MilvusKnowledgeStore._hybrid_search(
             client,
-            collection=variant.collection,
+            collection=corpus.collection,
             query_vector=vector,
             query_text=query,
             search_filter=search_filter,
@@ -217,10 +207,10 @@ def _search(client: Any, variant: Variant, mode: str, query: str, vector: list[f
     return [str(row.get("id") or row.get("chunk_id")) for row in rows]
 
 
-def _rank(variant: Variant, chunk_ids: list[str], expected: dict[str, str]) -> int | None:
+def _rank(corpus: Corpus, chunk_ids: list[str], expected: dict[str, str]) -> int | None:
     answer = _comparable(expected["answer"])
     for rank, chunk_id in enumerate(chunk_ids, start=1):
-        document_name, chunk = variant.chunks[chunk_id]
+        document_name, chunk = corpus.chunks[chunk_id]
         if document_name == expected["document"] and answer in _comparable(chunk.text):
             return rank
     return None
@@ -240,7 +230,7 @@ async def main() -> None:
     arguments = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     arguments.add_argument("--limit", type=int, default=TOOL_TOP_K * 3, help="每路召回条数，默认与工具 overfetch 一致")
     arguments.add_argument("--show-misses", action="store_true", help="列出 top 8 未命中的题目")
-    arguments.add_argument("--show-ranks", action="store_true", help="最后输出每道题在各组合下的名次")
+    arguments.add_argument("--show-ranks", action="store_true", help="最后输出每道题在两种检索方式下的名次")
     options = arguments.parse_args()
 
     documents = load_documents()
@@ -249,51 +239,40 @@ async def main() -> None:
     adapter = LiteLLMEmbeddingAdapter()
     client = MilvusKnowledgeStore._build_client()
     run_id = os.environ.get("KNOWLEDGE_EVAL_RUN_ID") or uuid.uuid4().hex[:8]
-    variants: list[Variant] = []
+    corpus = Corpus(collection=f"zz_eval_{run_id}_v2_d{profile.dimension}")
     try:
-        for parser_version in (KnowledgeDocumentParser.LEGACY_VERSION, KnowledgeDocumentParser.VERSION):
-            # 先登记再建库，建库中途失败也会在 finally 里清掉。
-            variant = Variant(
-                parser_version=parser_version,
-                collection=f"zz_eval_{run_id}_{parser_version.replace('-', '_')}_v2_d{profile.dimension}",
-                index_version=f"eval-{parser_version}",
-            )
-            variants.append(variant)
-            await populate_variant(client, adapter, profile, documents, variant)
+        await populate(client, adapter, profile, documents, corpus)
         query_vectors = await _embed(adapter, profile, [question["query"] for question in questions])
-
-        print(f"语料 {len(documents)} 篇，题目 {len(questions)} 道，每路召回 {options.limit} 条")
-        for variant in variants:
-            print(f"{variant.parser_version}: {len(variant.chunks)} 个分块")
+        print(
+            f"语料 {len(documents)} 篇 {len(corpus.chunks)} 个分块，题目 {len(questions)} 道，每路召回 {options.limit} 条"
+        )
         kinds = sorted({question["kind"] for question in questions})
         rank_table: dict[str, list[int | None]] = {}
-        for variant in variants:
-            for mode in ("dense", "hybrid"):
-                ranks = [
-                    _rank(
-                        variant,
-                        _search(client, variant, mode, question["query"], vector, options.limit),
-                        question["expected"],
-                    )
-                    for question, vector in zip(questions, query_vectors, strict=True)
-                ]
-                rank_table[f"{variant.parser_version}+{mode}"] = ranks
-                print(f"\n[{variant.parser_version} + {mode}] 全部 {_summary(ranks)}")
-                for kind in kinds:
-                    kind_ranks = [rank for rank, question in zip(ranks, questions) if question["kind"] == kind]
-                    print(f"  {kind:<10} ({len(kind_ranks):>2}) {_summary(kind_ranks)}")
-                if options.show_misses:
-                    for rank, question in zip(ranks, questions, strict=True):
-                        if rank is None or rank > TOOL_TOP_K:
-                            print(f"    未进前 {TOOL_TOP_K}: {question['id']}（名次 {rank or '-'}）")
+        for mode in MODES:
+            ranks = [
+                _rank(
+                    corpus,
+                    _search(client, corpus, mode, question["query"], vector, options.limit),
+                    question["expected"],
+                )
+                for question, vector in zip(questions, query_vectors, strict=True)
+            ]
+            rank_table[mode] = ranks
+            print(f"\n[{mode}] 全部 {_summary(ranks)}")
+            for kind in kinds:
+                kind_ranks = [rank for rank, question in zip(ranks, questions) if question["kind"] == kind]
+                print(f"  {kind:<10} ({len(kind_ranks):>2}) {_summary(kind_ranks)}")
+            if options.show_misses:
+                for rank, question in zip(ranks, questions, strict=True):
+                    if rank is None or rank > TOOL_TOP_K:
+                        print(f"    未进前 {TOOL_TOP_K}: {question['id']}（名次 {rank or '-'}）")
         if options.show_ranks:
             print("\n" + "\t".join(["题目", *rank_table]))
             for index, question in enumerate(questions):
                 print("\t".join([question["id"], *(str(ranks[index] or "-") for ranks in rank_table.values())]))
     finally:
-        for variant in variants:
-            if client.has_collection(collection_name=variant.collection):
-                client.drop_collection(collection_name=variant.collection)
+        if client.has_collection(collection_name=corpus.collection):
+            client.drop_collection(collection_name=corpus.collection)
         client.close()
 
 

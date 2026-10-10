@@ -713,29 +713,6 @@ class KnowledgeServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.hits, [])
         self.vector_store.search.assert_awaited_once()
 
-    async def test_active_legacy_v1_index_remains_retrievable(self):
-        knowledge_base, document = await self._create_ready_document(
-            base_name="旧版切片手册",
-            content=b"legacy chunker index",
-            embedding_model="embed-a",
-        )
-        version = next(item for item in document.index_versions if item.id == document.active_index_version)
-        version.chunker_version = "chunker-v1"
-        self._add_chunk(document, chunk_id="legacy-v1", ordinal=0, text="旧版索引仍可检索")
-        self.db.commit()
-        self.vector_store.search.return_value = [self._vector_hit(document, chunk_id="legacy-v1", similarity=0.9)]
-
-        result = await self.service.retrieve(
-            "user-1",
-            KnowledgeRetrievalRequest(
-                knowledge_base_ids=[knowledge_base.id],
-                query="旧版",
-                top_k=1,
-            ),
-        )
-
-        self.assertEqual([hit.chunk_id for hit in result.hits], ["legacy-v1"])
-
     async def test_multi_profile_retrieval_uses_deterministic_rank_fusion(self):
         base_a, document_a = await self._create_ready_document(
             base_name="模型 A 手册",

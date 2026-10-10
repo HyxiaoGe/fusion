@@ -17,7 +17,7 @@ from app.db.models import (
     KnowledgeIndexVersion,
     User,
 )
-from app.services.knowledge.milvus import KnowledgeVectorError, MilvusKnowledgeStore
+from app.services.knowledge.milvus import KnowledgeVectorError
 from app.services.knowledge.worker import KnowledgeWorker
 
 
@@ -60,7 +60,7 @@ class KnowledgeWorkerTests(unittest.IsolatedAsyncioTestCase):
                 storage_backend="local",
                 storage_key="knowledge/doc-1",
                 status="queued",
-                parser_version="parser-v1",
+                parser_version="parser-v2",
                 chunker_version="chunker-v2",
                 embedding_provider="litellm",
                 embedding_model="embed-v1",
@@ -79,7 +79,7 @@ class KnowledgeWorkerTests(unittest.IsolatedAsyncioTestCase):
                 document_id="doc-1",
                 user_id="user-1",
                 status="building",
-                parser_version="parser-v1",
+                parser_version="parser-v2",
                 chunker_version="chunker-v2",
                 chunk_size=1200,
                 chunk_overlap=200,
@@ -110,7 +110,6 @@ class KnowledgeWorkerTests(unittest.IsolatedAsyncioTestCase):
         self.embedding.embed = AsyncMock(side_effect=lambda texts, profile: [[1.0, 0.5] for _ in texts])
         self.vector_store = MagicMock()
         self.vector_store.ensure_collection = AsyncMock(return_value="knowledge_v1_d2")
-        self.vector_store.index_text = MilvusKnowledgeStore.index_text
         self.vector_store.upsert_prepared = AsyncMock()
         self.vector_store.delete_index_version = AsyncMock()
         self.vector_store.delete_knowledge_base = AsyncMock()
@@ -175,69 +174,6 @@ class KnowledgeWorkerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(task.status, "completed")
             self.assertEqual(version.status, "active")
             self.assertGreater(document.chunk_count, 0)
-
-    async def test_legacy_building_v1_is_processed_by_compatible_chunker(self):
-        with self.Session() as db:
-            document = db.query(KnowledgeDocument).filter_by(id="doc-1").one()
-            version = db.query(KnowledgeIndexVersion).filter_by(id="version-1").one()
-            document.chunker_version = "chunker-v1"
-            version.chunker_version = "chunker-v1"
-            version.chunk_size = 200
-            version.chunk_overlap = 150
-            db.commit()
-        worker = KnowledgeWorker(
-            self.Session,
-            worker_id="worker-1",
-            embedding=self.embedding,
-            vector_store=self.vector_store,
-        )
-
-        with patch("app.services.knowledge.worker.get_storage_for_backend", return_value=self.storage):
-            handled = await worker.run_once()
-
-        self.assertTrue(handled)
-        self.storage.download.assert_awaited_once()
-        self.embedding.embed.assert_awaited()
-        self.vector_store.ensure_collection.assert_awaited_once()
-        self.vector_store.upsert_prepared.assert_awaited()
-        with self.Session() as db:
-            original = db.query(KnowledgeIndexTask).filter_by(id="task-1").one()
-            document = db.query(KnowledgeDocument).filter_by(id="doc-1").one()
-            version = db.query(KnowledgeIndexVersion).filter_by(id="version-1").one()
-            self.assertEqual(original.status, "completed")
-            self.assertEqual(document.status, "ready")
-            self.assertEqual(document.active_index_version, version.id)
-            self.assertEqual(version.status, "active")
-
-    async def test_legacy_extreme_overlap_streams_in_batches_beyond_new_document_limit(self):
-        self._set_document_content(b"x" * 106, chunk_size=100, chunk_overlap=99)
-        with self.Session() as db:
-            document = db.query(KnowledgeDocument).filter_by(id="doc-1").one()
-            version = db.query(KnowledgeIndexVersion).filter_by(id="version-1").one()
-            document.chunker_version = "chunker-v1"
-            version.chunker_version = "chunker-v1"
-            db.commit()
-        worker = KnowledgeWorker(
-            self.Session,
-            worker_id="worker-legacy-stream",
-            embedding=self.embedding,
-            vector_store=self.vector_store,
-        )
-
-        with (
-            patch("app.services.knowledge.worker.get_storage_for_backend", return_value=self.storage),
-            patch("app.services.knowledge.worker.settings.KNOWLEDGE_MAX_CHUNKS_PER_DOCUMENT", 5),
-            patch("app.services.knowledge.worker.settings.KNOWLEDGE_EMBEDDING_BATCH_SIZE", 2),
-        ):
-            await worker.run_once()
-
-        self.assertEqual(self.embedding.embed.await_count, 4)
-        self.assertEqual(self.vector_store.upsert_prepared.await_count, 4)
-        with self.Session() as db:
-            self.assertEqual(db.query(KnowledgeChunkManifest).count(), 7)
-            document = db.query(KnowledgeDocument).filter_by(id="doc-1").one()
-            self.assertEqual(document.chunk_count, 7)
-            self.assertEqual(document.status, "ready")
 
     async def test_heartbeat_failure_waits_for_uncancellable_external_work_before_retry(self):
         external_started = Event()
@@ -404,19 +340,14 @@ class KnowledgeWorkerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(db.query(KnowledgeChunkManifest).count(), 5)
             self.assertEqual(db.query(KnowledgeDocument).filter_by(id="doc-1").one().status, "ready")
 
-    async def test_structured_parser_version_embeds_heading_path_into_hybrid_collection(self):
+    async def test_markdown_chunks_embed_heading_path_and_keep_it_in_manifest(self):
         content = "# X3 手册\n## 售后\n两年延保 199 元。\n## 网络\n默认地址 192.168.77.1。".encode()
         self._set_document_content(content, chunk_size=1200, chunk_overlap=200)
         with self.Session() as db:
             document = db.query(KnowledgeDocument).filter_by(id="doc-1").one()
             document.original_filename = "manual.md"
             document.mimetype = "text/markdown"
-            document.parser_version = "parser-v2"
-            version = db.query(KnowledgeIndexVersion).filter_by(id="version-1").one()
-            version.parser_version = "parser-v2"
-            version.collection_name = "knowledge_v2_d2"
             db.commit()
-        self.vector_store.ensure_collection = AsyncMock(return_value="knowledge_v2_d2")
         embedded = []
 
         async def embed(texts, _profile):
@@ -553,7 +484,7 @@ class KnowledgeWorkerTests(unittest.IsolatedAsyncioTestCase):
                         storage_backend="local",
                         storage_key=f"knowledge/doc-{index}",
                         status="deleting",
-                        parser_version="parser-v1",
+                        parser_version="parser-v2",
                         chunker_version="chunker-v2",
                         embedding_provider="litellm",
                         embedding_model="embed-v1",
@@ -569,7 +500,7 @@ class KnowledgeWorkerTests(unittest.IsolatedAsyncioTestCase):
                         document_id=document.id,
                         user_id="user-1",
                         status="active",
-                        parser_version="parser-v1",
+                        parser_version="parser-v2",
                         chunker_version="chunker-v2",
                         chunk_size=1200,
                         chunk_overlap=200,

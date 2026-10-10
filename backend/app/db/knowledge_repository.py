@@ -614,45 +614,6 @@ class KnowledgeRepository:
             self.db.rollback()
             raise
 
-    def reset_chunk_manifest(self, *, task_id: str, lease_token: str, index_version: str) -> bool:
-        """v1 流式重试前清空未激活版本的部分 manifest。"""
-        task = self._lock_task(task_id)
-        if not self._lease_matches(task, lease_token, utc_now()) or task.index_version != index_version:
-            self.db.rollback()
-            return False
-        self.db.query(KnowledgeChunkManifest).filter(KnowledgeChunkManifest.index_version == index_version).delete(
-            synchronize_session=False
-        )
-        self.db.commit()
-        return True
-
-    def append_chunk_manifest(
-        self,
-        *,
-        task_id: str,
-        lease_token: str,
-        version: KnowledgeIndexVersion,
-        filename: str,
-        chunks: Sequence[object],
-    ) -> bool:
-        """在租约保护下追加一个有界 v1 manifest 批次。"""
-        if not chunks:
-            return True
-        task = self._lock_task(task_id)
-        if (
-            not self._lease_matches(task, lease_token, utc_now())
-            or task.index_version != version.id
-            or task.task_type != "index_document"
-        ):
-            self.db.rollback()
-            return False
-        self.db.execute(
-            insert(KnowledgeChunkManifest.__table__),
-            self._chunk_manifest_rows(version=version, filename=filename, chunks=chunks),
-        )
-        self.db.commit()
-        return True
-
     @staticmethod
     def _chunk_manifest_rows(
         *,
