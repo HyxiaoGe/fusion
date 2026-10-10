@@ -61,7 +61,7 @@ class MilvusKnowledgeStoreTests(unittest.TestCase):
                 "1024",
             ),
         ):
-            self.assertEqual(MilvusKnowledgeStore.collection_name(1024), "fusion_knowledge_v1_d1024")
+            self.assertEqual(MilvusKnowledgeStore.collection_name(1024), "fusion_knowledge_v2_d1024")
             with self.assertRaises(KnowledgeVectorError):
                 MilvusKnowledgeStore.collection_name(768)
 
@@ -198,7 +198,7 @@ class MilvusKnowledgeStoreTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, "KNOWLEDGE_VECTOR_SCHEMA_MISMATCH")
 
     def test_existing_collection_vector_index_contract_is_validated(self):
-        MilvusKnowledgeStore._validate_vector_indexes(
+        MilvusKnowledgeStore._validate_indexes(
             [{"field_name": "vector", "index_type": "AUTOINDEX", "metric_type": "COSINE"}],
             "COSINE",
         )
@@ -210,8 +210,83 @@ class MilvusKnowledgeStoreTests(unittest.TestCase):
             [{"field_name": "vector", "index_type": "HNSW", "metric_type": "COSINE"}],
         ):
             with self.subTest(invalid=invalid), self.assertRaises(KnowledgeVectorError) as raised:
-                MilvusKnowledgeStore._validate_vector_indexes(invalid, "COSINE")
+                MilvusKnowledgeStore._validate_indexes(invalid, "COSINE")
             self.assertEqual(raised.exception.code, "KNOWLEDGE_VECTOR_SCHEMA_MISMATCH")
+
+    @classmethod
+    def _valid_hybrid_collection_description(cls, dimension=1024):
+        description = cls._valid_collection_description(dimension)
+        fields = {field["name"]: field for field in description["fields"]}
+        fields["knowledge_base_id"]["is_partition_key"] = True
+        fields["text"]["params"].update({"enable_analyzer": "true", "analyzer_params": '{"type":"chinese"}'})
+        description["fields"].append(
+            {"name": "sparse", "type": 104, "params": {}, "is_primary": False, "is_function_output": True}
+        )
+        description["functions"] = [
+            {
+                "name": "text_bm25",
+                "type": 1,
+                "input_field_names": ["text"],
+                "output_field_names": ["sparse"],
+            }
+        ]
+        return description
+
+    def test_schema_version_is_read_from_controlled_collection_name(self):
+        self.assertFalse(MilvusKnowledgeStore.is_hybrid_collection("fusion_knowledge_chunks_v1_d1024"))
+        self.assertTrue(MilvusKnowledgeStore.is_hybrid_collection("fusion_knowledge_chunks_v2_d1024"))
+        self.assertFalse(MilvusKnowledgeStore.is_hybrid_collection("unrelated"))
+
+    def test_index_text_prefixes_heading_path_only_for_hybrid_collections(self):
+        chunk = KnowledgeChunk("a" * 64, 0, "两年延保 199 元。", 0, 10, None, "X3 手册 > 售后")
+
+        self.assertEqual(
+            MilvusKnowledgeStore.index_text("knowledge_v2_d2", chunk),
+            "X3 手册 > 售后\n两年延保 199 元。",
+        )
+        self.assertEqual(MilvusKnowledgeStore.index_text("knowledge_v1_d2", chunk), "两年延保 199 元。")
+
+    def test_hybrid_collection_schema_contract_is_accepted(self):
+        MilvusKnowledgeStore._validate_collection(self._valid_hybrid_collection_description(), 1024, hybrid=True)
+
+    def test_hybrid_collection_schema_mismatches_fail_closed(self):
+        cases = {}
+        missing_analyzer = self._valid_hybrid_collection_description()
+        next(field for field in missing_analyzer["fields"] if field["name"] == "text")["params"].pop("enable_analyzer")
+        cases["analyzer disabled"] = missing_analyzer
+        wrong_analyzer = self._valid_hybrid_collection_description()
+        next(field for field in wrong_analyzer["fields"] if field["name"] == "text")["params"]["analyzer_params"] = (
+            '{"type":"english"}'
+        )
+        cases["analyzer changed"] = wrong_analyzer
+        no_partition_key = self._valid_hybrid_collection_description()
+        next(field for field in no_partition_key["fields"] if field["name"] == "knowledge_base_id").pop(
+            "is_partition_key"
+        )
+        cases["partition key missing"] = no_partition_key
+        no_function = self._valid_hybrid_collection_description()
+        no_function["functions"] = []
+        cases["bm25 function missing"] = no_function
+        wrong_output = self._valid_hybrid_collection_description()
+        wrong_output["functions"][0]["output_field_names"] = "['vector']"
+        cases["bm25 output changed"] = wrong_output
+
+        for name, description in cases.items():
+            with self.subTest(name=name), self.assertRaises(KnowledgeVectorError) as raised:
+                MilvusKnowledgeStore._validate_collection(description, 1024, hybrid=True)
+            self.assertEqual(raised.exception.code, "KNOWLEDGE_VECTOR_SCHEMA_MISMATCH")
+
+        with self.assertRaises(KnowledgeVectorError):
+            MilvusKnowledgeStore._validate_collection(self._valid_hybrid_collection_description(), 1024)
+
+    def test_hybrid_collection_requires_dense_and_bm25_indexes(self):
+        dense = {"field_name": "vector", "index_type": "AUTOINDEX", "metric_type": "COSINE"}
+        sparse = {"field_name": "sparse", "index_type": "SPARSE_INVERTED_INDEX", "metric_type": "BM25"}
+        MilvusKnowledgeStore._validate_indexes([dense, sparse], "COSINE", hybrid=True)
+
+        for invalid in ([dense], [dense, {**sparse, "metric_type": "IP"}]):
+            with self.subTest(invalid=invalid), self.assertRaises(KnowledgeVectorError):
+                MilvusKnowledgeStore._validate_indexes(invalid, "COSINE", hybrid=True)
 
     @staticmethod
     def _hit_row(*, similarity=0.8, char_start=0, char_end=7, page=0, suffix="1"):
@@ -509,6 +584,7 @@ class MilvusKnowledgeStoreBatchTests(unittest.IsolatedAsyncioTestCase):
             hits = await store.search(
                 profile=profile,
                 query_vector=[1.0, 0.5],
+                query_text="question",
                 user_id="user-1",
                 knowledge_base_ids=["kb-1"],
                 index_versions=[f"version-{index}" for index in range(5)],
@@ -545,6 +621,71 @@ class MilvusKnowledgeStoreBatchTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([name for name, _kwargs in client.events], ["load", "delete"])
         self.assertEqual(client.events[1][1]["filter"], 'index_version == "version-1"')
+
+    async def test_hybrid_collection_fuses_dense_and_bm25_requests_with_rrf(self):
+        from pymilvus import RRFRanker
+
+        class HybridClient:
+            def __init__(self):
+                self.calls = []
+
+            def load_collection(self, **_kwargs):
+                return None
+
+            def search(self, **_kwargs):
+                raise AssertionError("v2 collection must not use dense-only search")
+
+            def hybrid_search(self, **kwargs):
+                self.calls.append(kwargs)
+                return [[MilvusKnowledgeStoreTests._hit_row(similarity=0.03)]]
+
+            def close(self):
+                return None
+
+        client = HybridClient()
+        store = MilvusKnowledgeStore(client_factory=lambda: client)
+        profile = EmbeddingProfile("litellm", "embed-v1", 2, "COSINE", "knowledge_v2_d2", "r1")
+
+        hits = await store.search(
+            profile=profile,
+            query_vector=[1.0, 0.5],
+            query_text="X3 固件 3.7.12",
+            user_id="user-1",
+            knowledge_base_ids=["kb-1"],
+            index_versions=["version-1"],
+            limit=4,
+        )
+
+        self.assertEqual(len(hits), 1)
+        call = client.calls[0]
+        self.assertIsInstance(call["ranker"], RRFRanker)
+        self.assertEqual(call["limit"], 4)
+        dense, sparse = call["reqs"]
+        self.assertEqual((dense.anns_field, sparse.anns_field), ("vector", "sparse"))
+        self.assertEqual(dense.data, [[1.0, 0.5]])
+        self.assertEqual(sparse.data, ["X3 固件 3.7.12"])
+        self.assertEqual(sparse.param["metric_type"], "BM25")
+        self.assertEqual(dense.expr, sparse.expr)
+        self.assertIn('user_id == "user-1"', dense.expr)
+
+    async def test_hybrid_payload_stores_index_text_without_sparse_field(self):
+        record = self._record(0)
+        record = KnowledgeVectorRecord(
+            chunk=KnowledgeChunk(**{**record.chunk.__dict__, "section": "售后"}),
+            vector=record.vector,
+            user_id=record.user_id,
+            knowledge_base_id=record.knowledge_base_id,
+            document_id=record.document_id,
+            index_version=record.index_version,
+            filename=record.filename,
+        )
+
+        hybrid = MilvusKnowledgeStore._record_payload(record, hybrid=True)
+        legacy = MilvusKnowledgeStore._record_payload(record)
+
+        self.assertEqual(hybrid["text"], "售后\nchunk-0")
+        self.assertNotIn("sparse", hybrid)
+        self.assertEqual(legacy["text"], "chunk-0")
 
     @staticmethod
     def _record(index: int) -> KnowledgeVectorRecord:

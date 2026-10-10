@@ -95,7 +95,7 @@ class Settings(BaseSettings):
             )
         ),
     )
-    KNOWLEDGE_PARSER_VERSION: str = os.getenv("KNOWLEDGE_PARSER_VERSION", "parser-v1")
+    KNOWLEDGE_PARSER_VERSION: str = os.getenv("KNOWLEDGE_PARSER_VERSION", "parser-v2")
     KNOWLEDGE_CHUNKER_VERSION: str = os.getenv("KNOWLEDGE_CHUNKER_VERSION", "chunker-v2")
     KNOWLEDGE_CHUNK_SIZE: int = int(os.getenv("KNOWLEDGE_CHUNK_SIZE", "1200"))
     KNOWLEDGE_CHUNK_OVERLAP: int = int(os.getenv("KNOWLEDGE_CHUNK_OVERLAP", "200"))
@@ -195,7 +195,7 @@ class Settings(BaseSettings):
             errors.append("KNOWLEDGE_EMBEDDING_ALLOWED_DIMENSIONS 必须是整数列表")
         if self.KNOWLEDGE_EMBEDDING_PROVIDER != "litellm":
             errors.append("KNOWLEDGE_EMBEDDING_PROVIDER 必须为 litellm")
-        if self.KNOWLEDGE_PARSER_VERSION != "parser-v1":
+        if self.KNOWLEDGE_PARSER_VERSION != "parser-v2":
             errors.append("KNOWLEDGE_PARSER_VERSION 必须与当前解析器实现一致")
         if self.KNOWLEDGE_CHUNKER_VERSION != "chunker-v2":
             errors.append("KNOWLEDGE_CHUNKER_VERSION 必须与当前切片器实现一致")

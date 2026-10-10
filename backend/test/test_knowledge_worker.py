@@ -17,7 +17,7 @@ from app.db.models import (
     KnowledgeIndexVersion,
     User,
 )
-from app.services.knowledge.milvus import KnowledgeVectorError
+from app.services.knowledge.milvus import KnowledgeVectorError, MilvusKnowledgeStore
 from app.services.knowledge.worker import KnowledgeWorker
 
 
@@ -110,6 +110,7 @@ class KnowledgeWorkerTests(unittest.IsolatedAsyncioTestCase):
         self.embedding.embed = AsyncMock(side_effect=lambda texts, profile: [[1.0, 0.5] for _ in texts])
         self.vector_store = MagicMock()
         self.vector_store.ensure_collection = AsyncMock(return_value="knowledge_v1_d2")
+        self.vector_store.index_text = MilvusKnowledgeStore.index_text
         self.vector_store.upsert_prepared = AsyncMock()
         self.vector_store.delete_index_version = AsyncMock()
         self.vector_store.delete_knowledge_base = AsyncMock()
@@ -401,6 +402,48 @@ class KnowledgeWorkerTests(unittest.IsolatedAsyncioTestCase):
         self.vector_store.ensure_collection.assert_awaited_once()
         with self.Session() as db:
             self.assertEqual(db.query(KnowledgeChunkManifest).count(), 5)
+            self.assertEqual(db.query(KnowledgeDocument).filter_by(id="doc-1").one().status, "ready")
+
+    async def test_structured_parser_version_embeds_heading_path_into_hybrid_collection(self):
+        content = "# X3 手册\n## 售后\n两年延保 199 元。\n## 网络\n默认地址 192.168.77.1。".encode()
+        self._set_document_content(content, chunk_size=1200, chunk_overlap=200)
+        with self.Session() as db:
+            document = db.query(KnowledgeDocument).filter_by(id="doc-1").one()
+            document.original_filename = "manual.md"
+            document.mimetype = "text/markdown"
+            document.parser_version = "parser-v2"
+            version = db.query(KnowledgeIndexVersion).filter_by(id="version-1").one()
+            version.parser_version = "parser-v2"
+            version.collection_name = "knowledge_v2_d2"
+            db.commit()
+        self.vector_store.ensure_collection = AsyncMock(return_value="knowledge_v2_d2")
+        embedded = []
+
+        async def embed(texts, _profile):
+            embedded.extend(texts)
+            return [[1.0, 0.5] for _ in texts]
+
+        self.embedding.embed.side_effect = embed
+        worker = KnowledgeWorker(
+            self.Session,
+            worker_id="worker-1",
+            embedding=self.embedding,
+            vector_store=self.vector_store,
+        )
+
+        with patch("app.services.knowledge.worker.get_storage_for_backend", return_value=self.storage):
+            await worker.run_once()
+
+        self.assertEqual(
+            embedded,
+            [
+                "X3 手册 > 售后\n# X3 手册\n## 售后\n两年延保 199 元。",
+                "X3 手册 > 网络\n## 网络\n默认地址 192.168.77.1。",
+            ],
+        )
+        with self.Session() as db:
+            manifests = db.query(KnowledgeChunkManifest).order_by(KnowledgeChunkManifest.ordinal).all()
+            self.assertEqual([manifest.section for manifest in manifests], ["X3 手册 > 售后", "X3 手册 > 网络"])
             self.assertEqual(db.query(KnowledgeDocument).filter_by(id="doc-1").one().status, "ready")
 
     async def test_non_retryable_later_vector_batch_failure_schedules_partial_write_cleanup(self):

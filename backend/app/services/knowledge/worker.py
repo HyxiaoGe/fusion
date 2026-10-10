@@ -205,7 +205,7 @@ class KnowledgeWorker:
         version = context.version
         if document is None or version is None or context.index_version is None:
             raise KnowledgeWorkerError("KNOWLEDGE_TASK_RESOURCE_MISSING", "索引任务资源不存在", retryable=False)
-        if version.parser_version != self.parser.VERSION or version.chunker_version not in {
+        if version.parser_version not in self.parser.SUPPORTED_VERSIONS or version.chunker_version not in {
             LegacyKnowledgeChunkerV1.VERSION,
             DeterministicKnowledgeChunker.VERSION,
         }:
@@ -236,6 +236,7 @@ class KnowledgeWorker:
                 mimetype=document.mimetype,
                 filename=document.original_filename,
                 timeout_seconds=settings.KNOWLEDGE_PARSE_TIMEOUT_SECONDS,
+                version=version.parser_version,
             )
         else:
             sections = await asyncio.to_thread(
@@ -243,6 +244,7 @@ class KnowledgeWorker:
                 content,
                 mimetype=document.mimetype,
                 filename=document.original_filename,
+                version=version.parser_version,
             )
         self._phase(context.task_id, lease_token, "chunking")
         version_chunker = knowledge_chunker_for_version(
@@ -323,7 +325,10 @@ class KnowledgeWorker:
                 if chunks is None or chunk_count >= len(chunks):
                     break
                 batch = chunks[chunk_count : chunk_count + batch_size]
-            vectors = await self.embedding.embed([chunk.text for chunk in batch], profile)
+            vectors = await self.embedding.embed(
+                [self.vector_store.index_text(collection, chunk) for chunk in batch],
+                profile,
+            )
             records = [
                 KnowledgeVectorRecord(
                     chunk=chunk,

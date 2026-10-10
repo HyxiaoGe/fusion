@@ -18,6 +18,16 @@ class KnowledgeChunk:
     section: str | None
 
 
+def knowledge_index_text(chunk: KnowledgeChunk) -> str:
+    """检索用文本：正文前带标题路径，让「售后」下只写了价格的分块也能被「X3 延保」找到。
+
+    只用于 Embedding 与 BM25；展示和引用仍用原始 chunk.text，字符偏移不受影响。
+    """
+    if not chunk.section:
+        return chunk.text
+    return f"{chunk.section}\n{chunk.text}"
+
+
 class KnowledgeChunkLimitExceeded(ValueError):
     """文档切片数量超过 Worker 的有界处理上限。"""
 

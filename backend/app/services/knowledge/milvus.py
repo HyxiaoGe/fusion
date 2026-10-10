@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import asyncio
 import json
 import logging
@@ -10,7 +11,7 @@ from typing import Any, Callable, Sequence
 
 from app.ai.embeddings.base import EmbeddingProfile
 from app.core.config import KNOWLEDGE_MILVUS_FILTER_TERM_BATCH_SIZE, settings
-from app.services.knowledge.chunker import KnowledgeChunk
+from app.services.knowledge.chunker import KnowledgeChunk, knowledge_index_text
 
 logger = logging.getLogger(__name__)
 
@@ -50,12 +51,23 @@ class KnowledgeVectorHit:
 
 
 class MilvusKnowledgeStore:
-    """受控 collection 的 Milvus v2 适配器。"""
+    """受控 collection 的 Milvus v2 适配器。
 
-    SCHEMA_VERSION = "v1"
+    schema v1：仅稠密向量。schema v2：text 字段走 Milvus 中文分词并由 BM25 Function 生成稀疏向量，
+    检索时稠密与 BM25 两路召回后由 Milvus RRF 合并；knowledge_base_id 作为分区键。
+    collection 名带 schema 版本，已落库的 v1 索引版本继续按 v1 读写，新版本写入 v2。
+    """
+
+    SCHEMA_VERSION = "v2"
+    HYBRID_SCHEMA_MIN_VERSION = 2
+    BM25_ANALYZER_PARAMS = {"type": "chinese"}
+    BM25_FUNCTION_NAME = "text_bm25"
+    RRF_K = 60
     _INT64_TYPE = 5
     _VARCHAR_TYPE = 21
     _FLOAT_VECTOR_TYPE = 101
+    _SPARSE_FLOAT_VECTOR_TYPE = 104
+    _BM25_FUNCTION_TYPE = 1
     _VARCHAR_FIELDS = {
         "chunk_id": 64,
         "user_id": 64,
@@ -84,11 +96,24 @@ class MilvusKnowledgeStore:
             )
         return f"{prefix}_{cls.SCHEMA_VERSION}_d{dimension}"
 
+    @classmethod
+    def is_hybrid_collection(cls, collection: str) -> bool:
+        """collection 名是本适配器生成的受控标识，schema 版本取自其 `_v<N>_d<dim>` 后缀。"""
+        match = re.search(r"_v(\d+)_d\d+$", collection)
+        return match is not None and int(match.group(1)) >= cls.HYBRID_SCHEMA_MIN_VERSION
+
+    @classmethod
+    def index_text(cls, collection: str, chunk: KnowledgeChunk) -> str:
+        """写入 Milvus 并用于 Embedding 的文本；v2 在正文前带标题路径，v1 保持原样以免旧版本漂移。"""
+        return knowledge_index_text(chunk) if cls.is_hybrid_collection(collection) else chunk.text
+
     async def health(self) -> None:
         await self._call(lambda client: client.list_collections(timeout=settings.MILVUS_TIMEOUT_SECONDS))
 
     async def ensure_collection(self, profile: EmbeddingProfile) -> str:
         collection = self._profile_collection(profile)
+
+        hybrid = self.is_hybrid_collection(collection)
 
         def ensure(client: Any) -> None:
             if client.has_collection(collection_name=collection, timeout=settings.MILVUS_TIMEOUT_SECONDS):
@@ -96,39 +121,18 @@ class MilvusKnowledgeStore:
                     collection_name=collection,
                     timeout=settings.MILVUS_TIMEOUT_SECONDS,
                 )
-                self._validate_collection(description, profile.dimension)
-                index_names = client.list_indexes(
-                    collection_name=collection,
-                    timeout=settings.MILVUS_TIMEOUT_SECONDS,
-                )
-                index_descriptions = [
-                    client.describe_index(
-                        collection_name=collection,
-                        index_name=index_name,
-                        timeout=settings.MILVUS_TIMEOUT_SECONDS,
-                    )
-                    for index_name in index_names
-                ]
-                if not any(
-                    isinstance(description, dict) and description.get("field_name") == "vector"
-                    for description in index_descriptions
-                ):
-                    self._create_vector_index(client, collection, profile.distance_metric)
-                    index_names = client.list_indexes(
-                        collection_name=collection,
-                        timeout=settings.MILVUS_TIMEOUT_SECONDS,
-                    )
-                    index_descriptions = [
-                        client.describe_index(
-                            collection_name=collection,
-                            index_name=index_name,
-                            timeout=settings.MILVUS_TIMEOUT_SECONDS,
-                        )
-                        for index_name in index_names
-                    ]
-                self._validate_vector_indexes(index_descriptions, profile.distance_metric)
+                self._validate_collection(description, profile.dimension, hybrid=hybrid)
+                index_descriptions = self._describe_indexes(client, collection)
+                indexed_fields = {
+                    description.get("field_name") for description in index_descriptions if isinstance(description, dict)
+                }
+                missing = [field for field in self._index_fields(hybrid) if field not in indexed_fields]
+                if missing:
+                    self._create_indexes(client, collection, profile.distance_metric, fields=missing)
+                    index_descriptions = self._describe_indexes(client, collection)
+                self._validate_indexes(index_descriptions, profile.distance_metric, hybrid=hybrid)
             else:
-                self._create_collection(client, collection, profile.dimension, profile.distance_metric)
+                self._create_collection(client, collection, profile.dimension, profile.distance_metric, hybrid=hybrid)
             self._load_collection(client, collection)
 
         await self._call(ensure, profile=profile)
@@ -163,7 +167,8 @@ class MilvusKnowledgeStore:
         collection: str,
         records: Sequence[KnowledgeVectorRecord],
     ) -> None:
-        data = [self._record_payload(record) for record in records]
+        hybrid = self.is_hybrid_collection(collection)
+        data = [self._record_payload(record, hybrid=hybrid) for record in records]
         result = await self._call(
             lambda client: client.upsert(
                 collection_name=collection,
@@ -194,6 +199,7 @@ class MilvusKnowledgeStore:
         *,
         profile: EmbeddingProfile,
         query_vector: list[float],
+        query_text: str,
         user_id: str,
         knowledge_base_ids: Sequence[str],
         index_versions: Sequence[str],
@@ -203,33 +209,48 @@ class MilvusKnowledgeStore:
             return []
         collection = self._profile_collection(profile)
         unique_versions = sorted(set(index_versions))
+        hybrid = self.is_hybrid_collection(collection)
+        output_fields = [
+            "document_id",
+            "knowledge_base_id",
+            "index_version",
+            "text",
+            "filename",
+            "char_start",
+            "char_end",
+            "page",
+            "section",
+        ]
 
         def search_batches(client: Any) -> list[Any]:
             self._load_collection(client, collection)
             rows: list[Any] = []
             for offset in range(0, len(unique_versions), KNOWLEDGE_MILVUS_FILTER_TERM_BATCH_SIZE):
                 version_batch = unique_versions[offset : offset + KNOWLEDGE_MILVUS_FILTER_TERM_BATCH_SIZE]
-                result = client.search(
-                    collection_name=collection,
-                    data=[query_vector],
-                    anns_field="vector",
-                    filter=self.build_search_filter(user_id, knowledge_base_ids, version_batch),
-                    limit=limit,
-                    output_fields=[
-                        "document_id",
-                        "knowledge_base_id",
-                        "index_version",
-                        "text",
-                        "filename",
-                        "char_start",
-                        "char_end",
-                        "page",
-                        "section",
-                    ],
-                    search_params={"metric_type": profile.distance_metric},
-                    consistency_level="Strong",
-                    timeout=settings.MILVUS_TIMEOUT_SECONDS,
-                )
+                search_filter = self.build_search_filter(user_id, knowledge_base_ids, version_batch)
+                if hybrid:
+                    result = self._hybrid_search(
+                        client,
+                        collection=collection,
+                        query_vector=query_vector,
+                        query_text=query_text,
+                        search_filter=search_filter,
+                        metric=profile.distance_metric,
+                        limit=limit,
+                        output_fields=output_fields,
+                    )
+                else:
+                    result = client.search(
+                        collection_name=collection,
+                        data=[query_vector],
+                        anns_field="vector",
+                        filter=search_filter,
+                        limit=limit,
+                        output_fields=output_fields,
+                        search_params={"metric_type": profile.distance_metric},
+                        consistency_level="Strong",
+                        timeout=settings.MILVUS_TIMEOUT_SECONDS,
+                    )
                 rows.extend(result[0] if result else [])
             return rows
 
@@ -245,6 +266,49 @@ class MilvusKnowledgeStore:
             hits_by_key.values(),
             key=lambda hit: (-hit.similarity, hit.chunk_id, hit.document_id, hit.index_version),
         )[:limit]
+
+    @classmethod
+    def _hybrid_search(
+        cls,
+        client: Any,
+        *,
+        collection: str,
+        query_vector: list[float],
+        query_text: str,
+        search_filter: str,
+        metric: str,
+        limit: int,
+        output_fields: list[str],
+    ) -> Any:
+        from pymilvus import AnnSearchRequest, RRFRanker
+
+        # 两路各自召回 limit 条后按排名融合：稠密向量管语义，BM25 管型号、版本号等精确词。
+        # 融合后的 distance 是 RRF 分数，只用于排序，不再是余弦相似度。
+        requests = [
+            AnnSearchRequest(
+                data=[query_vector],
+                anns_field="vector",
+                param={"metric_type": metric},
+                limit=limit,
+                expr=search_filter,
+            ),
+            AnnSearchRequest(
+                data=[query_text],
+                anns_field="sparse",
+                param={"metric_type": "BM25"},
+                limit=limit,
+                expr=search_filter,
+            ),
+        ]
+        return client.hybrid_search(
+            collection_name=collection,
+            reqs=requests,
+            ranker=RRFRanker(cls.RRF_K),
+            limit=limit,
+            output_fields=output_fields,
+            consistency_level="Strong",
+            timeout=settings.MILVUS_TIMEOUT_SECONDS,
+        )
 
     async def delete_document(self, profile: EmbeddingProfile, document_id: str) -> None:
         await self._delete(profile, f"document_id == {self._quote(document_id)}")
@@ -337,8 +401,9 @@ class MilvusKnowledgeStore:
             )
         return collection
 
-    @staticmethod
-    def _record_payload(record: KnowledgeVectorRecord) -> dict[str, Any]:
+    @classmethod
+    def _record_payload(cls, record: KnowledgeVectorRecord, *, hybrid: bool = False) -> dict[str, Any]:
+        # v2 的 sparse 字段由 BM25 Function 从 text 生成，写入时不能携带。
         return {
             "chunk_id": record.chunk.chunk_id,
             "user_id": record.user_id,
@@ -346,7 +411,7 @@ class MilvusKnowledgeStore:
             "document_id": record.document_id,
             "index_version": record.index_version,
             "chunk_ordinal": record.chunk.ordinal,
-            "text": record.chunk.text,
+            "text": knowledge_index_text(record.chunk) if hybrid else record.chunk.text,
             "filename": record.filename,
             "char_start": record.chunk.char_start,
             "char_end": record.chunk.char_end,
@@ -430,11 +495,15 @@ class MilvusKnowledgeStore:
             ) from exc
 
     @classmethod
-    def _validate_collection(cls, description: dict[str, Any], expected_dimension: int) -> None:
+    def _validate_collection(
+        cls, description: dict[str, Any], expected_dimension: int, *, hybrid: bool = False
+    ) -> None:
         try:
             raw_fields = description.get("fields", [])
             fields = {field.get("name"): field for field in raw_fields}
-            expected_names = set(cls._VARCHAR_FIELDS) | cls._INT64_FIELDS | {"vector"}
+            expected_names = (
+                set(cls._VARCHAR_FIELDS) | cls._INT64_FIELDS | {"vector"} | ({"sparse"} if hybrid else set())
+            )
             if (
                 description.get("auto_id") is not False
                 or description.get("enable_dynamic_field") is not False
@@ -464,59 +533,132 @@ class MilvusKnowledgeStore:
                 or vector.get("is_primary", False) is not False
             ):
                 raise ValueError("vector field mismatch")
-        except (AttributeError, TypeError, ValueError, KeyError) as exc:
+            if bool(fields["knowledge_base_id"].get("is_partition_key", False)) is not hybrid:
+                raise ValueError("partition key mismatch")
+            if hybrid:
+                cls._validate_bm25_schema(description, fields)
+        except (AttributeError, TypeError, ValueError, KeyError, SyntaxError) as exc:
             raise KnowledgeVectorError(
                 "KNOWLEDGE_VECTOR_SCHEMA_MISMATCH",
                 "Milvus collection schema 与知识库配置不一致",
                 retryable=False,
             ) from exc
 
+    @classmethod
+    def _validate_bm25_schema(cls, description: dict[str, Any], fields: dict[str, Any]) -> None:
+        text_params = fields["text"].get("params") or {}
+        analyzer_params = text_params.get("analyzer_params")
+        if isinstance(analyzer_params, str):
+            analyzer_params = json.loads(analyzer_params)
+        if str(text_params.get("enable_analyzer", "")).lower() != "true" or analyzer_params != cls.BM25_ANALYZER_PARAMS:
+            raise ValueError("text analyzer mismatch")
+        sparse = fields["sparse"]
+        if int(sparse.get("type", 0)) != cls._SPARSE_FLOAT_VECTOR_TYPE or not sparse.get("is_function_output"):
+            raise ValueError("sparse field mismatch")
+        functions = description.get("functions") or []
+        if len(functions) != 1:
+            raise ValueError("bm25 function mismatch")
+        function = functions[0]
+        if (
+            int(function.get("type", 0)) != cls._BM25_FUNCTION_TYPE
+            or cls._field_names(function.get("input_field_names")) != ["text"]
+            or cls._field_names(function.get("output_field_names")) != ["sparse"]
+        ):
+            raise ValueError("bm25 function mismatch")
+
     @staticmethod
-    def _validate_vector_indexes(descriptions: Sequence[dict[str, Any]], expected_metric: str) -> None:
+    def _field_names(value: Any) -> list[str]:
+        # describe_collection 对函数字段名可能返回列表，也可能返回其 repr 字符串。
+        if isinstance(value, str):
+            value = ast.literal_eval(value)
+        return [str(item) for item in value]
+
+    @staticmethod
+    def _index_fields(hybrid: bool) -> tuple[str, ...]:
+        return ("vector", "sparse") if hybrid else ("vector",)
+
+    @staticmethod
+    def _describe_indexes(client: Any, collection: str) -> list[Any]:
+        index_names = client.list_indexes(
+            collection_name=collection,
+            timeout=settings.MILVUS_TIMEOUT_SECONDS,
+        )
+        return [
+            client.describe_index(
+                collection_name=collection,
+                index_name=index_name,
+                timeout=settings.MILVUS_TIMEOUT_SECONDS,
+            )
+            for index_name in index_names
+        ]
+
+    @classmethod
+    def _validate_indexes(
+        cls,
+        descriptions: Sequence[dict[str, Any]],
+        expected_metric: str,
+        *,
+        hybrid: bool = False,
+    ) -> None:
+        expected = {"vector": ("AUTOINDEX", expected_metric.upper())}
+        if hybrid:
+            expected["sparse"] = ("SPARSE_INVERTED_INDEX", "BM25")
         try:
-            vector_indexes = [description for description in descriptions if description.get("field_name") == "vector"]
-        except (AttributeError, TypeError) as exc:
+            for field_name, (index_type, metric_type) in expected.items():
+                indexes = [description for description in descriptions if description.get("field_name") == field_name]
+                if (
+                    len(indexes) != 1
+                    or str(indexes[0].get("index_type", "")).upper() != index_type
+                    or str(indexes[0].get("metric_type", "")).upper() != metric_type
+                ):
+                    raise ValueError(f"index mismatch: {field_name}")
+        except (AttributeError, TypeError, ValueError) as exc:
             raise KnowledgeVectorError(
                 "KNOWLEDGE_VECTOR_SCHEMA_MISMATCH",
                 "Milvus collection 向量索引与知识库配置不一致",
                 retryable=False,
             ) from exc
-        if len(vector_indexes) != 1:
-            raise KnowledgeVectorError(
-                "KNOWLEDGE_VECTOR_SCHEMA_MISMATCH",
-                "Milvus collection 向量索引与知识库配置不一致",
-                retryable=False,
-            )
-        index = vector_indexes[0]
-        if (
-            str(index.get("index_type", "")).upper() != "AUTOINDEX"
-            or str(index.get("metric_type", "")).upper() != expected_metric.upper()
-        ):
-            raise KnowledgeVectorError(
-                "KNOWLEDGE_VECTOR_SCHEMA_MISMATCH",
-                "Milvus collection 向量索引与知识库配置不一致",
-                retryable=False,
-            )
 
-    @staticmethod
-    def _create_collection(client: Any, name: str, dimension: int, metric: str) -> None:
-        from pymilvus import DataType, MilvusClient
+    @classmethod
+    def _create_collection(cls, client: Any, name: str, dimension: int, metric: str, *, hybrid: bool = False) -> None:
+        from pymilvus import DataType, Function, FunctionType, MilvusClient
 
         schema = MilvusClient.create_schema(auto_id=False, enable_dynamic_field=False)
         schema.add_field(field_name="chunk_id", datatype=DataType.VARCHAR, is_primary=True, max_length=64)
         schema.add_field(field_name="user_id", datatype=DataType.VARCHAR, max_length=64)
-        schema.add_field(field_name="knowledge_base_id", datatype=DataType.VARCHAR, max_length=64)
+        # 检索总是按所选知识库过滤；分区键让 Milvus 只扫相关分区。
+        schema.add_field(
+            field_name="knowledge_base_id",
+            datatype=DataType.VARCHAR,
+            max_length=64,
+            **({"is_partition_key": True} if hybrid else {}),
+        )
         schema.add_field(field_name="document_id", datatype=DataType.VARCHAR, max_length=64)
         schema.add_field(field_name="index_version", datatype=DataType.VARCHAR, max_length=64)
         schema.add_field(field_name="chunk_ordinal", datatype=DataType.INT64)
-        schema.add_field(field_name="text", datatype=DataType.VARCHAR, max_length=65535)
+        schema.add_field(
+            field_name="text",
+            datatype=DataType.VARCHAR,
+            max_length=65535,
+            **({"enable_analyzer": True, "analyzer_params": cls.BM25_ANALYZER_PARAMS} if hybrid else {}),
+        )
         schema.add_field(field_name="filename", datatype=DataType.VARCHAR, max_length=512)
         schema.add_field(field_name="char_start", datatype=DataType.INT64)
         schema.add_field(field_name="char_end", datatype=DataType.INT64)
         schema.add_field(field_name="page", datatype=DataType.INT64)
         schema.add_field(field_name="section", datatype=DataType.VARCHAR, max_length=120)
         schema.add_field(field_name="vector", datatype=DataType.FLOAT_VECTOR, dim=dimension)
-        indexes = MilvusKnowledgeStore._vector_index_params(client, metric)
+        if hybrid:
+            schema.add_field(field_name="sparse", datatype=DataType.SPARSE_FLOAT_VECTOR)
+            schema.add_function(
+                Function(
+                    name=cls.BM25_FUNCTION_NAME,
+                    function_type=FunctionType.BM25,
+                    input_field_names=["text"],
+                    output_field_names=["sparse"],
+                )
+            )
+        indexes = cls._index_params(client, metric, fields=cls._index_fields(hybrid))
         client.create_collection(
             collection_name=name,
             schema=schema,
@@ -525,18 +667,21 @@ class MilvusKnowledgeStore:
             timeout=settings.MILVUS_TIMEOUT_SECONDS,
         )
 
-    @staticmethod
-    def _create_vector_index(client: Any, collection: str, metric: str) -> None:
+    @classmethod
+    def _create_indexes(cls, client: Any, collection: str, metric: str, *, fields: Sequence[str]) -> None:
         client.create_index(
             collection_name=collection,
-            index_params=MilvusKnowledgeStore._vector_index_params(client, metric),
+            index_params=cls._index_params(client, metric, fields=fields),
             timeout=settings.MILVUS_TIMEOUT_SECONDS,
         )
 
     @staticmethod
-    def _vector_index_params(client: Any, metric: str) -> Any:
+    def _index_params(client: Any, metric: str, *, fields: Sequence[str]) -> Any:
         indexes = client.prepare_index_params()
-        indexes.add_index(field_name="vector", index_type="AUTOINDEX", metric_type=metric)
+        if "vector" in fields:
+            indexes.add_index(field_name="vector", index_type="AUTOINDEX", metric_type=metric)
+        if "sparse" in fields:
+            indexes.add_index(field_name="sparse", index_type="SPARSE_INVERTED_INDEX", metric_type="BM25")
         return indexes
 
     @staticmethod

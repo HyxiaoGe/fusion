@@ -103,6 +103,16 @@ fail closed；pre-#41 镜像按空 registry 兼容，自动回滚仍恢复部署
 新写入只使用 v2。自动回滚使用部署前快照中的版本；对没有知识库
 环境变量的旧镜像，快照兼容默认仍为 `chunker-v1`。
 
+解析器当前版本为 `parser-v2`：Markdown 按 ATX 标题（跳过代码块内的 `#`）、DOCX 按标题样式或大纲级别
+切分，表格按正文顺序留在所属标题下，每段的 `section` 记录 `一级 > 二级 > …` 标题路径（超过 120 字符时保留末端）。
+txt/csv/pdf 与 v1 相同。升级前创建的 `parser-v1` 版本仍由 Worker 按 v1 处理。
+
+Milvus collection 名带 schema 版本：`{prefix}_v2_d{dim}` 在 `text` 上启用中文分词，并由内置 BM25 Function
+生成 `sparse` 稀疏向量（`SPARSE_INVERTED_INDEX`），`knowledge_base_id` 为分区键。检索时稠密向量与 BM25
+各召回 `limit` 条，由 Milvus `RRFRanker(60)` 合并，返回的 `similarity` 是 RRF 分数，仅用于排序。
+写入 v2 的 `text` 与用于 Embedding 的文本是「标题路径 + 换行 + 正文」，PostgreSQL manifest 仍保存原始正文，
+引用与字符偏移不变。已有 `_v1_` collection 中的版本继续只走稠密检索，rebuild 后进入 v2。
+
 启用时会集中校验上传上限、chunk 大小/重叠比例/最小步长/单文档总量、batch、搜索 profile 总量、
 Worker poll、lease/heartbeat/retry、
 Embedding profile/revision route/有限超时、COSINE、Milvus URI/有限超时、数据库和应用账号；缺项返回稳定

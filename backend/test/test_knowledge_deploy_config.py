@@ -49,7 +49,7 @@ class KnowledgeDeployConfigTests(unittest.TestCase):
             "KNOWLEDGE_MAX_DOCUMENTS_PER_BASE": "100",
             "KNOWLEDGE_MAX_FILE_SIZE": "10485760",
             "KNOWLEDGE_ALLOWED_MIME_TYPES": "text/plain,text/markdown,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "KNOWLEDGE_PARSER_VERSION": "parser-v1",
+            "KNOWLEDGE_PARSER_VERSION": "parser-v2",
             "KNOWLEDGE_CHUNKER_VERSION": "chunker-v2",
             "KNOWLEDGE_CHUNK_SIZE": "1200",
             "KNOWLEDGE_CHUNK_OVERLAP": "200",

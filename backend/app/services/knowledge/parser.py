@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import multiprocessing
+import re
 import signal
 import unicodedata
 import zipfile
@@ -25,7 +26,7 @@ class ParsedSection:
     section: str | None = None
 
 
-def _isolated_parse_child(connection, content: bytes, mimetype: str, filename: str) -> None:
+def _isolated_parse_child(connection, content: bytes, mimetype: str, filename: str, version: str) -> None:
     try:
         import resource
 
@@ -34,7 +35,9 @@ def _isolated_parse_child(connection, content: bytes, mimetype: str, filename: s
             resource.setrlimit(resource.RLIMIT_AS, (memory_limit, memory_limit))
         with suppress(Exception):
             resource.setrlimit(resource.RLIMIT_CPU, (45, 45))
-        connection.send(("ok", KnowledgeDocumentParser().parse(content, mimetype=mimetype, filename=filename)))
+        connection.send(
+            ("ok", KnowledgeDocumentParser().parse(content, mimetype=mimetype, filename=filename, version=version))
+        )
     except KnowledgeParseError as exc:
         connection.send(("error", (exc.code, exc.summary)))
     except Exception:
@@ -49,13 +52,14 @@ def parse_document_isolated(
     mimetype: str,
     filename: str,
     timeout_seconds: int,
+    version: str,
 ) -> list[ParsedSection]:
     """在有限资源子进程中解析复杂容器格式。"""
     context = multiprocessing.get_context("spawn")
     parent, child = context.Pipe(duplex=False)
     process = context.Process(
         target=_isolated_parse_child,
-        args=(child, content, mimetype, filename),
+        args=(child, content, mimetype, filename, version),
         daemon=True,
     )
     process.start()
@@ -84,10 +88,64 @@ def parse_document_isolated(
             process.join(timeout=5)
 
 
-class KnowledgeDocumentParser:
-    """v1 确定性文本解析器；不调用 LLM、视觉模型或 OCR。"""
+_MARKDOWN_HEADING = re.compile(r"^ {0,3}(#{1,6})[ \t]+(.*?)[ \t#]*$")
+_MARKDOWN_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_DOCX_HEADING_STYLE = re.compile(r"^(?:heading|标题)\s*(\d)$", re.IGNORECASE)
+MAX_SECTION_LABEL_CHARACTERS = 120
 
-    VERSION = "parser-v1"
+
+class _HeadingSections:
+    """按标题切分文档块：每块带完整标题路径；只有标题没有正文的块并入下一块。"""
+
+    def __init__(self) -> None:
+        self.sections: list[ParsedSection] = []
+        self._path: list[tuple[int, str]] = []
+        self._lines: list[str] = []
+        self._has_body = False
+
+    def heading(self, level: int, title: str, line: str) -> None:
+        if self._has_body:
+            self._flush()
+        while self._path and self._path[-1][0] >= level:
+            self._path.pop()
+        title = " ".join(unicodedata.normalize("NFKC", title).split())
+        if title:
+            self._path.append((level, title))
+        self._lines.append(line)
+
+    def body(self, line: str) -> None:
+        self._lines.append(line)
+        if line.strip():
+            self._has_body = True
+
+    def finish(self) -> list[ParsedSection]:
+        self._flush()
+        return self.sections
+
+    def _flush(self) -> None:
+        text = "\n".join(self._lines)
+        if text.strip():
+            self.sections.append(ParsedSection(text, section=self._label()))
+        self._lines = []
+        self._has_body = False
+
+    def _label(self) -> str | None:
+        label = " > ".join(title for _level, title in self._path)
+        if len(label) > MAX_SECTION_LABEL_CHARACTERS:
+            # 过长时保留最具体的末端标题。
+            label = "…" + label[-(MAX_SECTION_LABEL_CHARACTERS - 1) :]
+        return label or None
+
+
+class KnowledgeDocumentParser:
+    """确定性文本解析器；不调用 LLM、视觉模型或 OCR。
+
+    parser-v2 按 Markdown/DOCX 标题切分并记录标题路径；parser-v1 保留给升级前已创建的索引版本。
+    """
+
+    VERSION = "parser-v2"
+    LEGACY_VERSION = "parser-v1"
+    SUPPORTED_VERSIONS = frozenset({LEGACY_VERSION, VERSION})
     MAX_CHARACTERS = 2_000_000
     MAX_PAGES = 1000
     MAX_DOCX_ENTRIES = 5000
@@ -100,7 +158,10 @@ class KnowledgeDocumentParser:
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {".docx"},
     }
 
-    def parse(self, content: bytes, *, mimetype: str, filename: str) -> list[ParsedSection]:
+    def parse(self, content: bytes, *, mimetype: str, filename: str, version: str = VERSION) -> list[ParsedSection]:
+        if version not in self.SUPPORTED_VERSIONS:
+            raise KnowledgeParseError("KNOWLEDGE_INDEX_VERSION_UNSUPPORTED", "Worker 不支持该解析版本")
+        structured = version == self.VERSION
         suffix = PurePath(filename).suffix.lower()
         allowed_suffixes = self.MIME_SUFFIXES.get(mimetype)
         if allowed_suffixes is None:
@@ -111,14 +172,16 @@ class KnowledgeDocumentParser:
             raise KnowledgeParseError("KNOWLEDGE_DOCUMENT_TYPE_MISMATCH", "PDF 文件签名无效")
         if mimetype.endswith("wordprocessingml.document") and not content.startswith(b"PK"):
             raise KnowledgeParseError("KNOWLEDGE_DOCUMENT_TYPE_MISMATCH", "DOCX 文件签名无效")
-        if mimetype in {"text/plain", "text/markdown"}:
+        if mimetype == "text/markdown" and structured:
+            sections = self._parse_markdown(self._decode_text(content))
+        elif mimetype in {"text/plain", "text/markdown"}:
             sections = [ParsedSection(self._decode_text(content))]
         elif mimetype == "text/csv":
             sections = [ParsedSection(self._parse_csv(content))]
         elif mimetype == "application/pdf":
             sections = self._parse_pdf(content)
         elif mimetype == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-            sections = self._parse_docx(content)
+            sections = self._parse_docx_structured(content) if structured else self._parse_docx(content)
         else:
             raise KnowledgeParseError("KNOWLEDGE_DOCUMENT_UNSUPPORTED", "当前知识库版本不支持该文档格式")
         normalized = []
@@ -191,6 +254,76 @@ class KnowledgeDocumentParser:
             raise
         except Exception as exc:
             raise KnowledgeParseError("KNOWLEDGE_DOCUMENT_INVALID", "DOCX 文档无法解析") from exc
+
+    @staticmethod
+    def _parse_markdown(text: str) -> list[ParsedSection]:
+        builder = _HeadingSections()
+        fence: str | None = None
+        for line in text.splitlines():
+            fence_match = _MARKDOWN_FENCE.match(line)
+            if fence_match:
+                marker = fence_match.group(1)
+                if fence is None:
+                    fence = marker[0] * 3
+                elif marker.startswith(fence):
+                    fence = None
+                builder.body(line)
+                continue
+            heading = None if fence is not None else _MARKDOWN_HEADING.match(line)
+            if heading:
+                builder.heading(len(heading.group(1)), heading.group(2), line)
+            else:
+                builder.body(line)
+        return builder.finish()
+
+    @classmethod
+    def _parse_docx_structured(cls, content: bytes) -> list[ParsedSection]:
+        import docx
+        from docx.oxml.ns import qn
+        from docx.table import Table
+        from docx.text.paragraph import Paragraph
+
+        try:
+            cls._validate_docx_archive(content)
+            document = docx.Document(io.BytesIO(content))
+            builder = _HeadingSections()
+            # 按正文顺序遍历段落与表格，表格留在所属标题下。
+            for element in document.element.body.iterchildren():
+                if element.tag == qn("w:p"):
+                    paragraph = Paragraph(element, document)
+                    level = cls._docx_heading_level(paragraph)
+                    if level is None:
+                        builder.body(paragraph.text)
+                    else:
+                        builder.heading(level, paragraph.text, paragraph.text)
+                elif element.tag == qn("w:tbl"):
+                    for row in Table(element, document).rows:
+                        # 制表符会被正文归一化折叠成空格，用竖线保留列边界。
+                        builder.body(" | ".join(cell.text for cell in row.cells))
+            return builder.finish()
+        except KnowledgeParseError:
+            raise
+        except Exception as exc:
+            raise KnowledgeParseError("KNOWLEDGE_DOCUMENT_INVALID", "DOCX 文档无法解析") from exc
+
+    @staticmethod
+    def _docx_heading_level(paragraph) -> int | None:
+        style_name = str(getattr(paragraph.style, "name", "") or "").strip()
+        if style_name.lower() == "title":
+            return 0
+        match = _DOCX_HEADING_STYLE.match(style_name)
+        if match:
+            return int(match.group(1))
+        from docx.oxml.ns import qn
+
+        properties = paragraph._p.pPr
+        outline = properties.find(qn("w:outlineLvl")) if properties is not None else None
+        if outline is not None:
+            value = outline.get(qn("w:val"))
+            # outlineLvl 0-8 是大纲级别，9 表示正文。
+            if value is not None and value.isdigit() and int(value) < 9:
+                return int(value) + 1
+        return None
 
     @classmethod
     def _validate_docx_archive(cls, content: bytes) -> None:
