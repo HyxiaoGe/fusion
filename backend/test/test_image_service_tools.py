@@ -194,6 +194,8 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
             {"prompt": "x", "aspect_ratio": "2:1"},
             {"prompt": "x", "size": "4k"},
             {"prompt": "x", "regenerate": "yes"},
+            {"prompt": "x", "reference_subject": 18},
+            {"prompt": "x", "reference_subject": "x" * 81},
         ):
             with self.subTest(args=args):
                 self.assertTrue(handler.validate_arguments(args))
@@ -264,6 +266,42 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.status, "success")
         self.assertIs(client.calls[0][2]["grounding"], True)
         self.assertTrue(result.data["grounding_used"])
+
+    async def test_reference_subject_is_passed_only_when_given(self):
+        handler, client, *_ = self.build_handler()
+
+        await handler.execute({"prompt": "a fox"})
+        await handler.execute({"prompt": "a fox", "reference_subject": " "})
+
+        self.assertNotIn("reference_subject", client.calls[0][2])
+        self.assertNotIn("reference_subject", client.calls[1][2])
+
+    async def test_reference_search_status_reaches_result_and_context(self):
+        for status, warns in (("found", False), ("cached", False), ("none_accepted", True), ("search_failed", True)):
+            with self.subTest(status=status):
+                client = self.structured_client(
+                    {
+                        "ok": True,
+                        "image_url": f"http://image-service.dev.seanfield.org/static/images/{IMAGE_NAME}",
+                        "model": "gemini-3.1-flash-image-preview",
+                        "reference_images_used": ["https://www.apple.com/a.jpg"] if not warns else [],
+                        "reference_search": {"status": status, "candidates": 8, "accepted": 0 if warns else 1},
+                        "id": "gen-3",
+                    },
+                    text=SUCCESS_TEXT,
+                )
+                handler, _, _, _ = self.build_handler(client=client)
+
+                result = await handler.execute({"prompt": "iPhone 18 Pro 产品宣传图", "reference_subject": " iPhone 18 Pro "})
+
+                self.assertEqual(client.calls[0][2]["reference_subject"], "iPhone 18 Pro")
+                self.assertEqual(result.data["reference_subject"], "iPhone 18 Pro")
+                self.assertEqual(result.data["reference_search_status"], status)
+                self.assertEqual(result.data["reference_image_count"], 0 if warns else 1)
+                context = handler.format_llm_context(result)
+                self.assertEqual("appearance may differ" in context, warns)
+                if warns:
+                    self.assertIn("iPhone 18 Pro", context)
 
     async def test_structured_failures_map_error_codes_and_guidance(self):
         cases = {
