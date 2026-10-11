@@ -57,33 +57,34 @@ export function collectPendingImageGenerations(
 ): PendingImageGeneration[] {
   if (!run) return [];
   const renderedFileIds = new Set(blocks.map(block => block.file_id));
+  const calls = run.steps.flatMap(step => step.toolCalls.filter(call => call.toolName === GENERATE_IMAGE_TOOL_NAME));
   const pending: PendingImageGeneration[] = [];
-  for (const step of run.steps) {
-    for (const call of step.toolCalls) {
-      if (call.toolName !== GENERATE_IMAGE_TOOL_NAME) continue;
-      const summary = call.resultSummary as (Record<string, unknown> | undefined);
-      const fileId = typeof summary?.file_id === 'string' ? summary.file_id : null;
-      let status: PendingImageStatus;
-      if (call.status === 'running') {
-        status = 'running';
-      } else if (call.status === 'success') {
-        if (!fileId || renderedFileIds.has(fileId)) continue;
-        status = 'running';
-      } else if (call.status === 'interrupted') {
-        status = 'interrupted';
-      } else {
-        status = 'failed';
-      }
-      const aspectRatio = typeof call.arguments?.aspect_ratio === 'string' ? call.arguments.aspect_ratio : '1:1';
-      pending.push({
-        toolCallId: call.toolCallId,
-        status,
-        aspectRatio,
-        startedAt: call.startedAt,
-        completedAt: call.completedAt,
-        errorCode: typeof summary?.error_code === 'string' ? summary.error_code : null,
-      });
+  calls.forEach((call, index) => {
+    const summary = call.resultSummary as (Record<string, unknown> | undefined);
+    const fileId = typeof summary?.file_id === 'string' ? summary.file_id : null;
+    let status: PendingImageStatus;
+    if (call.status === 'running') {
+      status = 'running';
+    } else if (call.status === 'success') {
+      if (!fileId || renderedFileIds.has(fileId)) return;
+      status = 'running';
+    } else if (index < calls.length - 1) {
+      // 失败或中断后又发起了生图（重试），由后一张卡片接替，不再保留失败卡片。
+      return;
+    } else if (call.status === 'interrupted') {
+      status = 'interrupted';
+    } else {
+      status = 'failed';
     }
-  }
+    const aspectRatio = typeof call.arguments?.aspect_ratio === 'string' ? call.arguments.aspect_ratio : '1:1';
+    pending.push({
+      toolCallId: call.toolCallId,
+      status,
+      aspectRatio,
+      startedAt: call.startedAt,
+      completedAt: call.completedAt,
+      errorCode: typeof summary?.error_code === 'string' ? summary.error_code : null,
+    });
+  });
   return pending;
 }
