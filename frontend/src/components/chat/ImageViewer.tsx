@@ -6,6 +6,7 @@ import * as VisuallyHidden from '@radix-ui/react-visually-hidden';
 import { ImageOff, Loader2, RefreshCw, X } from 'lucide-react';
 import { getFileUrl } from '@/lib/api/files';
 import type { FileBlock } from '@/types/conversation';
+import ZoomableImage from './ZoomableImage';
 
 type FileVariant = 'processed' | 'thumbnail';
 type ImageCandidateResult = {
@@ -215,9 +216,7 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ fileBlock, imageUrl, onClose 
               </div>
             </div>
           ) : fullImageUrl ? (
-            // Lightbox 支持 blob 与鉴权图片地址，不能由 Next Image 服务端重新请求。
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
+            <ZoomableImage
               src={fullImageUrl}
               alt={altText}
               className="max-w-[85vw] max-h-[85vh] object-contain rounded-lg"

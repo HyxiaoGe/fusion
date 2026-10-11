@@ -74,6 +74,52 @@ describe('ImageViewer', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it('双击图片放大，再双击还原，且不会关闭查看器', async () => {
+    const onClose = vi.fn();
+    getFileUrlMock.mockResolvedValueOnce('/api/files/file-1/content?variant=processed&token=stable');
+
+    render(<ImageViewer fileBlock={imageBlock()} onClose={onClose} />);
+    const image = await screen.findByAltText('diagram.png');
+
+    fireEvent.doubleClick(image, { clientX: 40, clientY: 20 });
+    expect(image).toHaveAttribute('data-zoom-scale', '2.5');
+    expect(image.style.transform).toContain('scale(2.5)');
+
+    fireEvent.doubleClick(image);
+    expect(image).toHaveAttribute('data-zoom-scale', '1');
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('滚轮在图片上缩放，缩回最小时还原位置', async () => {
+    getFileUrlMock.mockResolvedValueOnce('/api/files/file-1/content?variant=processed&token=stable');
+
+    render(<ImageViewer fileBlock={imageBlock()} onClose={vi.fn()} />);
+    const image = await screen.findByAltText('diagram.png');
+
+    fireEvent.wheel(image, { deltaY: -300, clientX: 10, clientY: 10 });
+    expect(Number(image.getAttribute('data-zoom-scale'))).toBeGreaterThan(1);
+
+    fireEvent.wheel(image, { deltaY: 3000 });
+    expect(image).toHaveAttribute('data-zoom-scale', '1');
+    expect(image.style.transform).toBe('translate(0px, 0px) scale(1)');
+  });
+
+  it('放大后拖动平移图片', async () => {
+    getFileUrlMock.mockResolvedValueOnce('/api/files/file-1/content?variant=processed&token=stable');
+
+    render(<ImageViewer fileBlock={imageBlock()} onClose={vi.fn()} />);
+    const image = await screen.findByAltText('diagram.png');
+
+    fireEvent.doubleClick(image, { clientX: 0, clientY: 0 });
+    const before = image.style.transform;
+    fireEvent.pointerDown(image, { pointerId: 1, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(image, { pointerId: 1, clientX: 130, clientY: 80 });
+    fireEvent.pointerUp(image, { pointerId: 1, clientX: 130, clientY: 80 });
+
+    expect(image.style.transform).not.toBe(before);
+    expect(image).toHaveAttribute('data-zoom-scale', '2.5');
+  });
+
   it('按 Esc 会关闭查看器', async () => {
     const onClose = vi.fn();
     getFileUrlMock.mockResolvedValueOnce('/api/files/file-1/content?variant=processed&token=stable');
