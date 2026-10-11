@@ -7,6 +7,7 @@ import { Download, ImageOff, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getFileUrl } from '@/lib/api/files';
 import type { FileBlock, GeneratedImageBlock } from '@/types/conversation';
+import ImageGenerationDots from './ImageGenerationDots';
 import ImageViewer from './ImageViewer';
 import {
   imageDisplayWidth,
@@ -51,20 +52,6 @@ function downloadName(block: GeneratedImageBlock): string {
   return `fusion-image-${block.file_id.slice(0, 8)}.${extension}`;
 }
 
-/** 点阵占位：亮区随耗时扩散（不表示真实进度，只让等待有渐进感）。 */
-function ImageDots({ elapsedSeconds, glow }: { elapsedSeconds: number; glow: boolean }) {
-  const reveal = 70 + 150 * (1 - Math.exp(-elapsedSeconds / 20));
-  return (
-    <div aria-hidden className="pointer-events-none absolute inset-0">
-      <div className="image-gen-dots" />
-      <div
-        className="image-gen-dots-glow"
-        style={{ '--image-gen-reveal': `${reveal}%`, opacity: glow ? undefined : 0 } as CSSProperties}
-      />
-    </div>
-  );
-}
-
 function useElapsedSeconds(startedAt: number, active: boolean, completedAt?: number): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -101,7 +88,7 @@ function PendingImageCard({ pending }: { pending: PendingImageGeneration }) {
         role={running ? 'status' : undefined}
         aria-live={running ? 'polite' : undefined}
       >
-        <ImageDots elapsedSeconds={elapsedSeconds} glow={running} />
+        <ImageGenerationDots elapsedSeconds={elapsedSeconds} active={running} />
         <span
           className={running
             ? 'absolute left-3 top-2.5 text-xs font-medium text-muted-foreground'
@@ -177,7 +164,7 @@ function GeneratedImageCard({
         className="relative max-w-full overflow-hidden rounded-xl border border-border/60 bg-muted/30"
         style={frameStyle(width, height)}
       >
-        {state !== 'loaded' && state !== 'failed' ? <ImageDots elapsedSeconds={0} glow /> : null}
+        {state !== 'loaded' && state !== 'failed' ? <ImageGenerationDots elapsedSeconds={0} active /> : null}
         {state === 'failed' ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
             <ImageOff className="h-5 w-5" aria-hidden />
