@@ -322,6 +322,10 @@
   transition: opacity 0.7s ease-out, filter 0.9s ease-out, transform 0.9s ease-out;
 }
 
+.image-gen-image[data-instant='true'] {
+  transition: none;
+}
+
 .image-gen-image[data-loaded='true'] {
   opacity: 1;
   filter: blur(0);

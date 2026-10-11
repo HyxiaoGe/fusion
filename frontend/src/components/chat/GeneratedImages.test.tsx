@@ -87,6 +87,21 @@ describe('GeneratedImages', () => {
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
   });
 
+  it('reuses the loaded image when the card remounts after streaming ends', async () => {
+    getFileUrlMock.mockResolvedValue('/img-remount');
+    const remountBlock = { ...block, id: 'blk-remount', file_id: 'file-remount' };
+
+    const first = render(<GeneratedImages blocks={[remountBlock]} />);
+    fireEvent.load(await screen.findByAltText('一只红狐狸'));
+    first.unmount();
+
+    render(<GeneratedImages blocks={[remountBlock]} />);
+    const image = screen.getByAltText('一只红狐狸');
+    expect(image).toHaveAttribute('src', '/img-remount');
+    expect(image).toHaveAttribute('data-instant', 'true');
+    expect(getFileUrlMock).toHaveBeenCalledTimes(1);
+  });
+
   it('asks for another image with the same description when regenerating', async () => {
     getFileUrlMock.mockResolvedValue('/img');
     const onRegenerate = vi.fn();
