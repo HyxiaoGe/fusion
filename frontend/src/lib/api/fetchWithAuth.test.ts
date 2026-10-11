@@ -6,12 +6,21 @@ const {
   getStoredAccessTokenMock,
   clearFusionProfileStorageMock,
   clearRemoteSsoSessionMock,
+  getStoredGuestTokenMock,
+  clearGuestSessionMock,
 } = vi.hoisted(() => ({
   getValidAccessTokenMock: vi.fn(),
   forceRefreshAccessTokenMock: vi.fn(),
   getStoredAccessTokenMock: vi.fn(),
   clearFusionProfileStorageMock: vi.fn(),
   clearRemoteSsoSessionMock: vi.fn(async () => ({ status: 'cleared' as const })),
+  getStoredGuestTokenMock: vi.fn(),
+  clearGuestSessionMock: vi.fn(),
+}));
+
+vi.mock('@/lib/auth/guestSession', () => ({
+  getStoredGuestToken: getStoredGuestTokenMock,
+  clearGuestSession: clearGuestSessionMock,
 }));
 
 vi.mock('@/lib/auth/authService', () => ({
@@ -22,7 +31,7 @@ vi.mock('@/lib/auth/authService', () => ({
   clearRemoteSsoSession: clearRemoteSsoSessionMock,
 }));
 
-import fetchWithAuth, { apiRequest } from './fetchWithAuth';
+import fetchWithAuth, { apiRequest, GUEST_SESSION_INVALID_EVENT } from './fetchWithAuth';
 import {
   beginAuthSessionTransition,
   completeAuthSessionTransition,
@@ -37,6 +46,7 @@ describe('fetchWithAuth (shared-SDK token lifecycle)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getStoredAccessTokenMock.mockReturnValue(null);
+    getStoredGuestTokenMock.mockReturnValue(null);
     clearRemoteSsoSessionMock.mockResolvedValue({ status: 'cleared' });
     resetAuthSessionTransitionForTests();
     fetchMock = vi.fn();
@@ -57,6 +67,34 @@ describe('fetchWithAuth (shared-SDK token lifecycle)', () => {
     const headers = new Headers(init.headers);
     expect(headers.get('Authorization')).toBe('Bearer valid-token');
     expect(headers.get('X-Test')).toBe('yes');
+  });
+
+  it('未登录时以游客令牌请求，登录令牌存在时不带游客令牌', async () => {
+    getStoredGuestTokenMock.mockReturnValue('guest-token');
+    getValidAccessTokenMock.mockResolvedValue(null);
+    fetchMock.mockImplementation(async () => res(200));
+    await fetchWithAuth('/api/test');
+    expect(new Headers(fetchMock.mock.calls[0][1].headers).get('Authorization')).toBe('Bearer guest-token');
+
+    getValidAccessTokenMock.mockResolvedValue('valid-token');
+    await fetchWithAuth('/api/test');
+    expect(new Headers(fetchMock.mock.calls[1][1].headers).get('Authorization')).toBe('Bearer valid-token');
+  });
+
+  it('游客令牌被拒时只清游客会话并通知页面，不走 SSO 刷新', async () => {
+    getStoredGuestTokenMock.mockReturnValue('guest-token');
+    getValidAccessTokenMock.mockResolvedValue(null);
+    fetchMock.mockResolvedValue(res(401));
+    const listener = vi.fn();
+    window.addEventListener(GUEST_SESSION_INVALID_EVENT, listener);
+
+    await expect(fetchWithAuth('/api/test')).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+
+    window.removeEventListener(GUEST_SESSION_INVALID_EVENT, listener);
+    expect(clearGuestSessionMock).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(forceRefreshAccessTokenMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('force-refreshes and retries once with the rotated token on 401', async () => {

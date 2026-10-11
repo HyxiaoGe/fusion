@@ -129,3 +129,40 @@ describe('resolveSendModel 的 selectable/routable 边界', () => {
     });
   });
 });
+
+describe('resolveSendModel 的游客模型范围', () => {
+  function createGuestState(selectedModelId: string, models: string[] | null) {
+    const model = (id: string) => ({
+      id, name: id, provider: 'test', temperature: 0.7, capabilities: {},
+      enabled: true, selectable: true, routable: true,
+    });
+    return {
+      models: { selectedModelId, models: [model('pro-model'), model('auto'), model('flash-model')] },
+      conversation: { byId: {} },
+      auth: { isAuthenticated: false },
+      guest: {
+        status: 'ready',
+        userId: 'guest-1',
+        entitlements: models ? { models } : null,
+      },
+    } as never;
+  }
+
+  it('游客新对话选了不可用的模型时回到自动选择', () => {
+    expect(resolveSendModel(createGuestState('pro-model', ['flash-model']), null))
+      .toMatchObject({ status: 'ready', model: { id: 'auto' } });
+  });
+
+  it('游客可以用服务端下发的模型；权益未拉到时只放行自动选择', () => {
+    expect(resolveSendModel(createGuestState('flash-model', ['flash-model']), null))
+      .toMatchObject({ status: 'ready', model: { id: 'flash-model' } });
+    expect(resolveSendModel(createGuestState('flash-model', null), null))
+      .toMatchObject({ status: 'ready', model: { id: 'auto' } });
+  });
+
+  it('登录用户不受游客范围限制', () => {
+    const state = createGuestState('pro-model', ['flash-model']) as unknown as Record<string, unknown>;
+    expect(resolveSendModel({ ...state, auth: { isAuthenticated: true } } as never, null))
+      .toMatchObject({ status: 'ready', model: { id: 'pro-model' } });
+  });
+});

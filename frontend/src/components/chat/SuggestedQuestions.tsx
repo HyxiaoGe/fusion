@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils';
 import { HelpCircle, MessageSquare, RefreshCw } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { useAppSelector } from '@/redux/hooks';
+import { selectCanChat } from '@/redux/selectors';
 import { useToast } from '@/components/ui/toast';
 import type { SuggestedQuestionsStatus } from '@/types/conversation';
 
@@ -30,7 +31,7 @@ const SuggestedQuestions: React.FC<SuggestedQuestionsProps> = ({
   const [pendingQuestion, setPendingQuestion] = useState<string | null>(null);
   // 只有先占位、后到达的问题才淡入；挂载时已有问题（流结束切换渲染分支、刷新页面）直接显示，不重播动画。
   const [fadeInArrivals] = useState(() => questions.length === 0);
-  const { isAuthenticated } = useAppSelector((state) => state.auth);
+  const canChat = useAppSelector(selectCanChat);
   const { toast } = useToast();
   const isBusy = isLoading || isRefreshing || pendingQuestion !== null;
 
@@ -57,7 +58,7 @@ const SuggestedQuestions: React.FC<SuggestedQuestionsProps> = ({
     }
 
     // 检查登录状态
-    if (!isAuthenticated) {
+    if (!canChat) {
       toast({
         message: "请先登录后再使用聊天功能",
         type: "warning",

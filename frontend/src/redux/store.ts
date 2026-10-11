@@ -13,6 +13,7 @@ import streamReducer from './slices/streamSlice';
 import themeReducer from './slices/themeSlice';
 import authReducer from './slices/authSlice';
 import trajectoryReducer from './slices/trajectorySlice';
+import guestReducer from './slices/guestSlice';
 
 // 用于清理已同步标记的中间件（现在主要用于服务端同步）
 const dbSyncMiddleware = (store: any) => (next: any) => (action: any) => {
@@ -51,6 +52,7 @@ export const store = configureStore({
         settings: settingsReducer,
         app: appReducer,
         auth: authReducer,
+        guest: guestReducer,
         trajectory: trajectoryReducer,
     },
     middleware: (getDefaultMiddleware) => 

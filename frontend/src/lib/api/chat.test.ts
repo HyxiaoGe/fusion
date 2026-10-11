@@ -15,6 +15,7 @@ vi.mock('./fetchWithAuth', () => ({
 
 import {
   StreamRequestError,
+  isLoginGateStreamError,
   continueAgentRunStream,
   fetchSuggestedQuestions,
   getChatCapabilities,
@@ -2067,6 +2068,34 @@ describe('reconnectStream — 新 envelope 协议', () => {
       statusCode: 503,
       code: 'STREAM_UNAVAILABLE',
     }));
+  });
+
+  it('游客额度用完返回 429 时不可重连，并识别为需要登录', async () => {
+    fetchWithAuthMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      code: 'GUEST_QUOTA_EXHAUSTED',
+      message: '今天免登录可发送的消息已用完，登录后继续使用',
+    }), {
+      status: 429,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+
+    const error = await sendMessageStream(
+      { model_id: 'auto', message: 'q', conversation_id: 'conv-1' },
+      {
+        onReady: vi.fn(),
+        onReasoning: vi.fn(),
+        onAnswering: vi.fn(),
+        onDone: vi.fn(),
+        onError: vi.fn(),
+      },
+    ).catch((caught) => caught);
+
+    expect(error).toEqual(expect.objectContaining({
+      message: '今天免登录可发送的消息已用完，登录后继续使用',
+      recoverable: false,
+      statusCode: 429,
+    }));
+    expect(isLoginGateStreamError(error)).toBe(true);
   });
 
   it('SSE redis_read_failed 是可恢复读故障，不提前触发终态 onError', async () => {

@@ -11,7 +11,15 @@ import {
 } from "@/redux/slices/modelsSlice";
 import dynamic from 'next/dynamic';
 import { useAppDispatch, useAppSelector } from "@/redux/hooks";
-import { selectIsAuthenticated } from "@/redux/selectors";
+import { selectAuthSessionKey, selectIsAuthenticated } from "@/redux/selectors";
+import {
+  bootstrapGuestSession,
+  entitlementsCleared,
+  guestSessionInvalidated,
+  isGuestSessionReady,
+  refreshEntitlements,
+} from "@/redux/slices/guestSlice";
+import { GUEST_SESSION_INVALID_EVENT } from "@/lib/api/fetchWithAuth";
 
 import toast, { Toaster } from "react-hot-toast";
 import { useRouter } from "next/navigation";
@@ -106,6 +114,7 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
   const { t } = useTranslation();
   const dispatch = useAppDispatch();
   const isAuthenticated = useAppSelector(selectIsAuthenticated);
+  const authSessionKey = useAppSelector(selectAuthSessionKey);
   const status = useAppSelector((state) => state.auth.status);
   const accountSwitchStatus = useAppSelector((state) => state.auth.accountSwitchStatus);
   const accountSwitchError = useAppSelector((state) => state.auth.accountSwitchError);
@@ -247,14 +256,20 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
 
       const hasStoredToken = typeof window !== 'undefined' && getStoredAccessToken() !== null;
 
+      let guestRequested = false;
       const revealLoginTerminal = () => {
         if (cancelled) return;
         dispatch(resolveSession());
-        if (loginTimer !== null) return;
-        loginTimer = setTimeout(() => {
-          setIsLoginDialogOpen(true);
-          setHasShownInitialLogin(true);
-        }, 1500);
+        if (loginTimer !== null || guestRequested) return;
+        guestRequested = true;
+        // 游客模式开放时直接以游客身份使用；领取失败（未开放、名额用完）才回到登录弹窗。
+        void Promise.resolve(dispatch(bootstrapGuestSession())).then((action) => {
+          if (cancelled || isGuestSessionReady(action)) return;
+          loginTimer = setTimeout(() => {
+            setIsLoginDialogOpen(true);
+            setHasShownInitialLogin(true);
+          }, 1500);
+        });
       };
 
       const continueWithCentralSession = () => {
@@ -359,6 +374,27 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
       };
     }
   }, [dispatch, isAuthenticated, hasShownInitialLogin]);
+
+  useEffect(() => {
+    // 游客令牌被服务端拒绝（过期、游客模式关闭）：重新领取，领取不到就请用户登录。
+    const onGuestSessionInvalid = () => {
+      dispatch(guestSessionInvalidated());
+      void Promise.resolve(dispatch(bootstrapGuestSession())).then((action) => {
+        if (!isGuestSessionReady(action)) setIsLoginDialogOpen(true);
+      });
+    };
+    window.addEventListener(GUEST_SESSION_INVALID_EVENT, onGuestSessionInvalid);
+    return () => window.removeEventListener(GUEST_SESSION_INVALID_EVENT, onGuestSessionInvalid);
+  }, [dispatch]);
+
+  useEffect(() => {
+    // 身份变化（游客 ↔ 登录、换号）后重新拉取权益；没有身份时清空。
+    if (authSessionKey) {
+      void dispatch(refreshEntitlements());
+    } else {
+      dispatch(entitlementsCleared());
+    }
+  }, [dispatch, authSessionKey]);
 
   const handleDialogVisibilityChange = (open: boolean) => {
     setIsLoginDialogOpen(open);

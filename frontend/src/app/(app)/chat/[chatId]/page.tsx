@@ -23,7 +23,7 @@ import TrajectoryTabView from '@/components/chat/trajectory/TrajectoryTabView';
 import type { FileAttachment } from '@/lib/utils/fileHelpers';
 import ConfirmDialog from '@/components/ui/confirm-dialog';
 import { useAppDispatch, useAppSelector } from '@/redux/hooks';
-import { selectAuthSessionKey, selectIsAuthenticated } from '@/redux/selectors';
+import { selectAuthSessionKey, selectCanChat, selectIsAuthenticated } from '@/redux/selectors';
 import { useStore } from 'react-redux';
 import {
   applySuggestedQuestionsPending,
@@ -216,6 +216,8 @@ export default function ChatPage() {
     run: AgentRunState;
   }>());
   const isAuthenticated = useAppSelector(selectIsAuthenticated);
+  // 游客的会话同样要续流
+  const canChat = useAppSelector(selectCanChat);
   const authSessionKey = useAppSelector(selectAuthSessionKey);
   const latestAuthSessionKeyRef = useRef(authSessionKey);
   latestAuthSessionKeyRef.current = authSessionKey;
@@ -390,7 +392,7 @@ export default function ChatPage() {
     reconnectAttemptedRef.current = false;
   }, [chatId]);
   useEffect(() => {
-    if (!chatId || !isAuthenticated || !hydrationDone) return;
+    if (!chatId || !canChat || !hydrationDone) return;
     // 「在生成」以注册表为准：本会话有未中止的 controller 才不重复建流。
     // 槽位在 Redux 里，页面卸载后仍残留：切走时恢复流随页面被 abort、或发送流收尾所依赖的
     // 打字机随页面卸载，槽位都会停在 isStreaming 却再没人推进，此前切回来只看它就一直卡住。
@@ -716,7 +718,7 @@ export default function ChatPage() {
         reconnectControllerRef.current = null;
       }
     };
-  }, [chatId, isAuthenticated, hydrationDone]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [chatId, canChat, hydrationDone]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 只在真正卸载时收口。依赖数组为空，切 chatId 不会触发。
   useEffect(() => {

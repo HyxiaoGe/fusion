@@ -9,6 +9,7 @@ import { getPreferredModelId, isModelVisibleInSelector } from "@/lib/models/mode
 import { getRecentModels, addRecentModel } from "@/lib/models/recentModels";
 import { getRouteConversationId } from "@/lib/routes/chatRoutes";
 import { AUTO_MODEL_ID } from "@/lib/config/modelConfig";
+import { getGuestAllowedModelIds } from "@/lib/chat/sendModelResolution";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import ModelSelectorTrigger from "./ModelSelectorTrigger";
 import ModelSelectorPanel from "./ModelSelectorPanel";
@@ -39,6 +40,15 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     loadStatus: modelsLoadStatus,
   } = useAppSelector((state) => state.models);
   const chats = useAppSelector((state) => state.conversation.byId);
+  // 游客只能选自动选择和服务端下发的模型
+  const guestAllowedModelKey = useAppSelector((state) => {
+    const allowed = getGuestAllowedModelIds(state);
+    return allowed ? [...allowed].join("\n") : null;
+  });
+  const guestAllowedModelIds = useMemo(
+    () => (guestAllowedModelKey === null ? null : new Set(guestAllowedModelKey.split("\n"))),
+    [guestAllowedModelKey],
+  );
   const conversationHydrationStatus = useAppSelector(
     (state) => state.conversation.hydrationStatus,
   );
@@ -61,9 +71,12 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   const activeChatHydrationStatus = activeChatId
     ? (conversationHydrationStatus[activeChatId] ?? 'idle')
     : 'done';
+  const preferredNewModelId = activeChatId ? null : getPreferredModelId(models, selectedModelId);
   const currentModelId = modelId
     || activeChatModelId
-    || (activeChatId ? null : getPreferredModelId(models, selectedModelId));
+    || (preferredNewModelId && guestAllowedModelIds && !guestAllowedModelIds.has(preferredNewModelId)
+      ? AUTO_MODEL_ID
+      : preferredNewModelId);
 
   const autoModel = useMemo(
     () => models.find((m) => m.id === AUTO_MODEL_ID && isModelVisibleInSelector(m)) ?? null,
@@ -87,10 +100,11 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
           models: models.filter((m) => (
             m.provider === provider.id
             && isModelVisibleInSelector(m)
+            && (!guestAllowedModelIds || guestAllowedModelIds.has(m.id))
           )),
         }))
         .filter((group) => group.models.length > 0),
-    [providers, models],
+    [providers, models, guestAllowedModelIds],
   );
 
   const [activeProvider, setActiveProvider] = useState<string>("");
