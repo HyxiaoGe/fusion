@@ -9,7 +9,7 @@ from fastapi import Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import get_current_user  # noqa: F401 — re-export
+from app.core.security import get_current_user, require_registered_user  # noqa: F401 — re-export
 from app.db.admin_audit_repository import AdminAuditRepository
 from app.db.database import get_db  # noqa: F401 — re-export
 from app.db.mcp_server_repository import McpServerRepository

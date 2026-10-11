@@ -67,6 +67,20 @@ class UserRepository:
         self.db.add(db_obj)
         return db_obj
 
+    def create_guest(self, user_id: str, nickname: str) -> UserModel:
+        """新建游客用户并提交；用户名带 ID 前缀保证唯一。"""
+        user = self.create(
+            {
+                "id": user_id,
+                "username": f"guest-{user_id.replace('-', '')[:16]}",
+                "nickname": nickname,
+                "is_guest": True,
+            }
+        )
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
     def update_system_prompt(self, user: UserModel, system_prompt: str) -> UserModel:
         user.system_prompt = system_prompt
         self.db.commit()

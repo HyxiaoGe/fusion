@@ -13,10 +13,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.guest_identity import GuestTokenError, is_guest_token, verify_guest_token
 from app.core.revocation import extract_session_id, is_session_access_revoked, is_user_access_revoked
 from app.db.database import get_db
 from app.db.models import User
 from app.db.repositories import SocialAccountRepository, UserRepository
+from app.schemas.response import ApiException
 
 logger = logging.getLogger(__name__)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/token")
@@ -279,6 +281,8 @@ def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    if is_guest_token(token):
+        return _resolve_guest_user(db, token, credentials_exception)
     try:
         auth_user = jwt_validator.verify(token)
     except (InvalidTokenError, httpx.HTTPError) as exc:
@@ -308,3 +312,23 @@ def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_
     if user is None:
         raise credentials_exception
     return user
+
+
+def _resolve_guest_user(db: Session, token: str, credentials_exception: HTTPException) -> User:
+    """游客令牌由 Fusion 自己签发，不经统一认证服务，也不参与单点登出。"""
+    try:
+        subject = verify_guest_token(token)
+    except GuestTokenError as exc:
+        logger.info("Guest token rejected: %s", exc)
+        raise credentials_exception
+    user = UserRepository(db).get(subject)
+    if user is None or not user.is_guest:
+        raise credentials_exception
+    return user
+
+
+def require_registered_user(current_user: User = Depends(get_current_user)) -> User:
+    """登录才能用的功能（上传文件、知识库、个人设置等）挂这个依赖，游客一律拒绝。"""
+    if current_user.is_guest:
+        raise ApiException("LOGIN_REQUIRED", "登录后可使用此功能", status_code=403)
+    return current_user

@@ -62,6 +62,8 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=True)
     system_prompt = Column(Text, nullable=False, default="", server_default="")
     is_superuser = Column(Boolean, nullable=False, server_default="false", default=False)
+    # 游客：服务端签发的匿名身份，没有邮箱和第三方账号，只能使用游客等级开放的功能。
+    is_guest = Column(Boolean, nullable=False, server_default="false", default=False)
     created_at = Column(DateTime, default=get_china_time)
     updated_at = Column(DateTime, default=get_china_time, onupdate=get_china_time)
 

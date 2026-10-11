@@ -182,7 +182,7 @@ class KnowledgeBasesApiTests(unittest.TestCase):
         from app.api.deps import get_current_user, get_knowledge_service
 
         self.service = FakeKnowledgeService()
-        self.main.app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id="user-1")
+        self.main.app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id="user-1", is_guest=False)
         self.main.app.dependency_overrides[get_knowledge_service] = lambda: self.service
 
     def tearDown(self):
