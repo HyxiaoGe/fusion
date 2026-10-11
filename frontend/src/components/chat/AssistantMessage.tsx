@@ -8,6 +8,7 @@ import type { FileWithPreview } from '@/lib/utils/fileHelpers';
 import { useAppDispatch, useAppSelector } from '@/redux/hooks';
 import { toggleReasoningVisibility } from '@/redux/slices/conversationSlice';
 import { selectTrajectoryRunSummary } from '@/redux/slices/trajectorySlice';
+import { selectStreamSlot } from '@/redux/slices/streamSlice';
 import type { AgentRunState } from '@/types/agentRun';
 import type { TrajectoryBadgeStatus } from '@/lib/trajectory/TrajectoryCellProjection';
 import type { Message } from '@/types/conversation';
@@ -202,6 +203,16 @@ function AssistantMessageFrame({
 
   const { copied, copy } = useMessageCopy({ text: displayText });
   const isCurrentMessageStreaming = viewModel.isCurrentlyStreaming || isStreaming;
+  // 后端在正文结束后才开始生成推荐问题，并等结果送达后才关闭流。这段时间正文已显示完，
+  // 先渲染推荐区占位，避免回答结束后停顿一下再整块弹出。
+  const streamTextCaughtUp = useAppSelector(state => {
+    if (!conversationId) return false;
+    const slot = selectStreamSlot(state, conversationId);
+    return slot.displayedTextLength >= slot.totalTextLength;
+  });
+  const awaitingSuggestedQuestions = isStreaming
+    && message.suggestedQuestionsStatus === 'pending'
+    && streamTextCaughtUp;
 
   const answerEvidenceSidebar = useMemo(
     () => deriveAnswerEvidenceSidebar({
@@ -394,7 +405,7 @@ function AssistantMessageFrame({
         )}
       </div>
 
-      {isLastMessage && !isStreaming && onSelectQuestion && (
+      {isLastMessage && onSelectQuestion && (!isStreaming || awaitingSuggestedQuestions) && (
         <SuggestedQuestions
           questions={suggestedQuestions}
           isLoading={isLoadingQuestions}
