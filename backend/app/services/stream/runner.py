@@ -190,6 +190,7 @@ class StreamHandler:
         defer_partial_persistence: bool = False,
         replace_on_success: bool = False,
         create_after_retry_user_id: str | None = None,
+        guest: bool = False,
     ) -> None:
         """后台任务：调用 LLM，chunk 写入 Redis Stream，并由 agent loop 完成落库。"""
         run_input = AgentLoopRunInput(
@@ -216,6 +217,7 @@ class StreamHandler:
             extra_system_prompts=extra_system_prompts,
             preprocess_user_input=preprocess_user_input,
             knowledge_base_ids=knowledge_base_ids,
+            guest=guest,
         )
 
         db = SessionLocal()

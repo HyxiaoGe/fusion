@@ -83,6 +83,13 @@ class Settings(BaseSettings):
     GUEST_TOKEN_SECRET: str = os.getenv("GUEST_TOKEN_SECRET", "")
     GUEST_TOKEN_TTL_DAYS: int = int(os.getenv("GUEST_TOKEN_TTL_DAYS", "365"))
     GUEST_NEW_IDENTITIES_PER_IP_PER_DAY: int = int(os.getenv("GUEST_NEW_IDENTITIES_PER_IP_PER_DAY", "5"))
+    # 游客额度（北京时间自然日）：发送前预扣，我方原因失败退还
+    GUEST_DAILY_MESSAGES: int = int(os.getenv("GUEST_DAILY_MESSAGES", "20"))
+    GUEST_DAILY_MESSAGES_PER_IP: int = int(os.getenv("GUEST_DAILY_MESSAGES_PER_IP", "60"))
+    GUEST_DAILY_MESSAGES_GLOBAL: int = int(os.getenv("GUEST_DAILY_MESSAGES_GLOBAL", "2000"))
+    GUEST_DAILY_SEARCHES: int = int(os.getenv("GUEST_DAILY_SEARCHES", "10"))
+    # 游客同时只能有一个回答在生成；占位超时兜住进程崩溃没释放的情况
+    GUEST_RUN_SLOT_TTL_SECONDS: int = int(os.getenv("GUEST_RUN_SLOT_TTL_SECONDS", "900"))
 
     # 知识库 v1：API、独立 Worker、Embedding 与 Milvus 均通过配置显式启用。
     KNOWLEDGE_BASE_ENABLED: bool = os.getenv("KNOWLEDGE_BASE_ENABLED", "false").lower() == "true"

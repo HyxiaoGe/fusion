@@ -110,23 +110,32 @@ def pick_auto_model(
     *,
     require_vision: bool = False,
     mode: AutoModelMode = "auto",
+    allowed_model_ids: tuple[str, ...] | None = None,
 ) -> str | None:
     """按执行模式的优先级挑一个可调用模型。
 
     执行模式要求的能力是硬性的：没有任何候选满足时仍返回第一个可用模型，交给任务策略
     按原有规则报错或降级，不在这里掩盖。读图同理放宽，由无视觉边界兜底。
+    allowed_model_ids：只在这些模型里挑（游客），排在执行模式候选之后按给定顺序补齐，
+    不再退到目录里的其他模型。
     """
 
     catalog = litellm_catalog.list_aliases()
     candidates = get_auto_model_candidates(mode)
+    if allowed_model_ids is not None:
+        candidates = list(dict.fromkeys([*(m for m in candidates if m in allowed_model_ids), *allowed_model_ids]))
     if not catalog:
         # 目录暂时拉不到：无法校验可用性，按配置顺序直接交给 LiteLLM
         return candidates[0] if candidates else None
 
     db_aliases = [alias for alias, entry in catalog.items() if isinstance(entry, Mapping) and entry.get("db_model")]
-    rest = sorted(
-        (alias for alias in db_aliases if alias not in candidates),
-        key=lambda alias: (_COST_TIER_ORDER.get(_cost_tier(catalog[alias]), 5), alias),
+    rest = (
+        []
+        if allowed_model_ids is not None
+        else sorted(
+            (alias for alias in db_aliases if alias not in candidates),
+            key=lambda alias: (_COST_TIER_ORDER.get(_cost_tier(catalog[alias]), 5), alias),
+        )
     )
     ordered = [alias for alias in candidates if alias in db_aliases] + rest
     controls_by_model = controls.get_by_model_ids(ordered)

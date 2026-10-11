@@ -209,11 +209,12 @@ class ChatCoreSurfaceTests(unittest.TestCase):
             knowledge_base_ids=None,
             trace_id=ANY,
             allow_hidden_models=False,
+            guest_run=None,
         )
 
     def test_send_message_lets_superuser_use_hidden_models(self):
         self._enable_authenticated_overrides()
-        admin = SimpleNamespace(id="admin-1", is_superuser=True)
+        admin = SimpleNamespace(id="admin-1", is_superuser=True, is_guest=False)
         self.main.app.dependency_overrides[self._route_deps["get_current_user"]] = lambda: admin
         service = SimpleNamespace(
             process_message=AsyncMock(return_value={"conversation_id": "conv-1", "message": {"content": "hi"}})

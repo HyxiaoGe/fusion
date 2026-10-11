@@ -34,7 +34,7 @@ def _controls(**by_model):
 
 
 class PickAutoModelTests(unittest.TestCase):
-    def _pick(self, *, controls=None, unhealthy=(), catalog=CATALOG, require_vision=False, mode="auto"):
+    def _pick(self, *, controls=None, unhealthy=(), catalog=CATALOG, require_vision=False, mode="auto", allowed=None):
         def capabilities(alias, **_kwargs):
             return catalog[alias]["metadata"].get("capabilities", {})
 
@@ -47,7 +47,9 @@ class PickAutoModelTests(unittest.TestCase):
             ),
             patch("app.services.auto_model.get_auto_model_candidates", return_value=list(CANDIDATES)),
         ):
-            return pick_auto_model(controls or _controls(), require_vision=require_vision, mode=mode)
+            return pick_auto_model(
+                controls or _controls(), require_vision=require_vision, mode=mode, allowed_model_ids=allowed
+            )
 
     def test_picks_first_configured_candidate(self):
         self.assertEqual(self._pick(), "mimo-v2.6-pro")
@@ -64,6 +66,13 @@ class PickAutoModelTests(unittest.TestCase):
 
     def test_falls_back_to_rest_of_catalog_by_cost_tier_when_all_candidates_unusable(self):
         self.assertEqual(self._pick(unhealthy=set(CANDIDATES)), "cheap-extra")
+
+    def test_allowed_models_restrict_candidates_without_catalog_fallback(self):
+        allowed = ("deepseek-chat", "cheap-extra")
+        self.assertEqual(self._pick(allowed=allowed), "deepseek-chat")
+        self.assertEqual(self._pick(allowed=allowed, unhealthy={"deepseek-chat"}), "cheap-extra")
+        self.assertIsNone(self._pick(allowed=allowed, unhealthy=set(allowed)))
+        self.assertEqual(self._pick(allowed=allowed, catalog={}), "deepseek-chat")
 
     def test_returns_none_when_nothing_is_usable(self):
         self.assertIsNone(self._pick(unhealthy={*CANDIDATES, "cheap-extra"}))

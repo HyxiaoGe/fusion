@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
 
 from app.core.prompt_snapshot import PromptBundleSnapshot
@@ -18,6 +19,7 @@ from app.services.stream.agent_loop_lifecycle import (
 )
 from app.services.stream.agent_loop_policy import AgentLoopLimits
 from app.services.stream.agent_loop_request_prep import AgentLoopCallConfig, supports_dynamic_agent_tools
+from app.services.tool_handlers.guest_web_search import GuestWebSearchHandler
 
 AsyncFn = Callable[..., Awaitable[Any]]
 PersistMessageFn = Callable[..., Any]
@@ -51,6 +53,8 @@ class AgentLoopRunInput:
     knowledge_base_ids: list[str] | None = None
     prompt_bundle_snapshot: PromptBundleSnapshot | None = None
     prompt_identity_persisted: bool = False
+    # 游客：不加载 MCP 与知识库，联网搜索按日额度计数
+    guest: bool = False
 
     def to_execution_request(
         self,
@@ -219,8 +223,10 @@ def prepare_agent_loop_call_config_inputs(
 
     options = {} if run_input.options is None else run_input.options
     capabilities = {} if run_input.capabilities is None else run_input.capabilities
+    guest = run_input.guest
     should_load_dynamic_tools = (
-        supports_dynamic_agent_tools(capabilities)
+        not guest
+        and supports_dynamic_agent_tools(capabilities)
         and options.get("disable_tools") is not True
         and dependencies.load_dynamic_tools_fn is not None
     )
@@ -234,6 +240,9 @@ def prepare_agent_loop_call_config_inputs(
         if should_load_dynamic_tools
         else None
     )
+    if guest:
+        # 游客不加载 MCP（地图、生图等）与知识库，联网搜索换成按日额度计数的版本。
+        dynamic_tool_set = SimpleNamespace(handlers={"web_search": GuestWebSearchHandler(str(run_input.user_id))})
     document_tools = None
     if (
         dependencies.load_document_tools_fn is not None
@@ -252,7 +261,8 @@ def prepare_agent_loop_call_config_inputs(
             dependencies.warning_fn(f"文档工具装配失败，本轮按聊天交付: error_type={type(error).__name__}")
     knowledge_tools = None
     if (
-        run_input.knowledge_base_ids
+        not guest
+        and run_input.knowledge_base_ids
         and dependencies.load_knowledge_tools_fn is not None
         and supports_dynamic_agent_tools(capabilities)
         and options.get("disable_tools") is not True
