@@ -12,7 +12,6 @@ from app.services.mcp.agent_tools import (  # noqa: E402
 )
 from app.services.mcp.image_service_tools import (  # noqa: E402
     EXECUTION_TIMEOUT_SECONDS,
-    FALLBACK_MODEL,
     MCP_CALL_TIMEOUT_SECONDS,
     ImageGenerationError,
     parse_generate_image_text,
@@ -150,7 +149,7 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.calls[0][1], "generate_image")
         self.assertEqual(
             client.calls[0][2],
-            {"prompt": "a red fox", "aspect_ratio": "16:9", "fallback_model": FALLBACK_MODEL, "grounding": True},
+            {"prompt": "a red fox", "aspect_ratio": "16:9", "grounding": True},
         )
         self.assertEqual(client.min_timeouts, [MCP_CALL_TIMEOUT_SECONDS])
         self.assertEqual(server.requested_urls, [f"http://192.168.1.11:8090/static/images/{IMAGE_NAME}"])

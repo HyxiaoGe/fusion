@@ -30,8 +30,6 @@ IMAGE_SERVICE_REMOTE_TOOL_NAME = "generate_image"
 
 # image-service 所有 Gemini 模型都接受的比例；Seedream 接受任意比例。
 ASPECT_RATIOS = ("1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9")
-# 主模型被内容审核拦截时，由 image-service 换这个模型重试一次（其他错误不切换）。
-FALLBACK_MODEL = "doubao-seedream-4-5"
 # image-service 结构化错误码（P0 设计 §2.1）；不认识的码按通用上游失败处理。
 KNOWN_ERROR_CODES = frozenset({
     "invalid_params",
@@ -447,10 +445,10 @@ def _normalized_arguments(args: Any) -> dict[str, Any]:
     regenerate = args.get("regenerate", False)
     if not isinstance(regenerate, bool):
         raise ImageGenerationError("invalid_arguments")
+    # 主力/备用模型由 image-service 的 DEFAULT_MODEL / DEFAULT_FALLBACK_MODEL 决定，便于切换。
     arguments: dict[str, Any] = {
         "prompt": prompt.strip(),
         "aspect_ratio": aspect_ratio,
-        "fallback_model": FALLBACK_MODEL,
         "grounding": True,
     }
     if regenerate:
