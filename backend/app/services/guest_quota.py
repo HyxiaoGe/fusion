@@ -157,6 +157,14 @@ def reserve_guest_run(user_id: str, ip: str, *, now: float | None = None) -> Gue
             "今天免登录可发送的消息已用完，登录后继续使用" if scope == "msg" else "今天免登录名额已用完，登录后继续使用"
         )
         raise ApiException(GUEST_QUOTA_EXHAUSTED_CODE, message, status_code=429)
+    used_today, ip_used_today, all_used_today = counts
+    logger.info(
+        "guest_run_reserved user=%s used=%s ip_used=%s all_used=%s",
+        user_id,
+        used_today,
+        ip_used_today,
+        all_used_today,
+    )
     return reservation
 
 
@@ -169,7 +177,9 @@ def reserve_guest_search(user_id: str, *, now: float | None = None) -> bool:
     pipe.incr(key)
     pipe.expire(key, _COUNTER_TTL_SECONDS)
     count = pipe.execute()[0]
-    return count <= settings.GUEST_DAILY_SEARCHES
+    allowed = count <= settings.GUEST_DAILY_SEARCHES
+    logger.info("guest_search_reserved user=%s used=%s allowed=%s", user_id, count, allowed)
+    return allowed
 
 
 def guest_usage(user_id: str, *, now: float | None = None) -> dict[str, dict[str, int]] | None:
