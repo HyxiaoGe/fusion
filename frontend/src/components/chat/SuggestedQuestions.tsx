@@ -28,6 +28,8 @@ const SuggestedQuestions: React.FC<SuggestedQuestionsProps> = ({
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [pendingQuestion, setPendingQuestion] = useState<string | null>(null);
+  // 只有先占位、后到达的问题才淡入；挂载时已有问题（流结束切换渲染分支、刷新页面）直接显示，不重播动画。
+  const [fadeInArrivals] = useState(() => questions.length === 0);
   const { isAuthenticated } = useAppSelector((state) => state.auth);
   const { toast } = useToast();
   const isBusy = isLoading || isRefreshing || pendingQuestion !== null;
@@ -137,7 +139,8 @@ const SuggestedQuestions: React.FC<SuggestedQuestionsProps> = ({
             size="sm"
             className={cn(
               "flex items-center gap-2 w-full text-left rounded-md border border-border/50 bg-transparent px-2.5 py-1.5 text-sm text-foreground transition-colors duration-fast hover:bg-muted/30 hover:border-border",
-              "h-auto justify-start font-normal disabled:opacity-75 animate-in fade-in duration-300 motion-reduce:animate-none",
+              "h-auto justify-start font-normal disabled:opacity-75",
+              fadeInArrivals && "animate-in fade-in duration-300 motion-reduce:animate-none",
               pendingQuestion === question && "border-info-border bg-info-bg text-info"
             )}
             onClick={() => handleQuestionSelect(question)}
