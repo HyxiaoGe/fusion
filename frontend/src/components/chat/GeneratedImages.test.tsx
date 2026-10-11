@@ -132,6 +132,7 @@ describe('GeneratedImages', () => {
     const card = screen.getByTestId('generated-image-pending');
     expect(card).toHaveStyle({ width: `${imageDisplayWidth(2, 3)}px` });
     expect(screen.getByRole('status')).toHaveTextContent('正在生成图片');
+    expect(screen.getByText('正在生成图片')).toHaveClass('sr-only');
     expect(screen.getByText('12 秒')).toBeInTheDocument();
 
     act(() => {
@@ -178,5 +179,18 @@ describe('collectPendingImageGenerations', () => {
       { toolCallId: 'call-1', status: 'failed', errorCode: 'content_filtered' },
     ]);
     expect(collectPendingImageGenerations(null, [])).toEqual([]);
+  });
+
+  it('drops a failed card once a later generation replaces it', () => {
+    const failed = { status: 'failed' as const, resultSummary: { kind: 'generated_image', truncated: false, error_code: 'no_image_returned' } as never };
+    const retrying = runWith([call(failed), call({ toolCallId: 'call-2' })]);
+    expect(collectPendingImageGenerations(retrying, [])).toMatchObject([{ toolCallId: 'call-2', status: 'running' }]);
+
+    const retried = runWith([call(failed), call({
+      toolCallId: 'call-2',
+      status: 'success',
+      resultSummary: { kind: 'generated_image', truncated: false, file_id: 'file-1' } as never,
+    })]);
+    expect(collectPendingImageGenerations(retried, [block])).toEqual([]);
   });
 });
