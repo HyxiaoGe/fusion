@@ -174,6 +174,17 @@ describe('SuggestedQuestions', () => {
     expect(placeholder.querySelectorAll('.h-8')).toHaveLength(3);
   });
 
+  it('fades in questions only when they arrive after the placeholder', () => {
+    const { rerender } = render(
+      <SuggestedQuestions questions={[]} isLoading={true} onSelectQuestion={vi.fn()} />,
+    );
+    rerender(<SuggestedQuestions questions={['后到的问题']} isLoading={false} onSelectQuestion={vi.fn()} />);
+    expect(screen.getByRole('button', { name: /后到的问题/ }).className).toContain('fade-in');
+
+    render(<SuggestedQuestions questions={['已有的问题']} isLoading={false} onSelectQuestion={vi.fn()} />);
+    expect(screen.getByRole('button', { name: /已有的问题/ }).className).not.toContain('fade-in');
+  });
+
   it('uses stronger pending affordance after selecting a question', () => {
     const onSelectQuestion = vi.fn();
 

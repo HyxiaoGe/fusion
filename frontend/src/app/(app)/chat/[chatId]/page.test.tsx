@@ -2418,6 +2418,26 @@ describe('ChatPage 会话切换体验', () => {
     expect(lastMessageListProps?.loadingState).toBeUndefined();
   });
 
+  it('同一会话回答完成后的权威刷新期间保留推荐问题', async () => {
+    conversationsById.set('chat-a', createConversation('chat-a', [textMessage('message-a')]));
+    hydrationById.set('chat-a', { view: 'ready' });
+    suggestedQuestionsState.questions = ['继续问'];
+
+    const { rerender } = render(<ChatPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('message-list')).toHaveAttribute('data-message-ids', 'message-a');
+    });
+
+    hydrationById.set('chat-a', { view: 'loading' });
+    rerender(<ChatPage />);
+
+    const lastMessageListProps = chatMessageListMock.mock.calls.at(-1)?.[0];
+    expect(lastMessageListProps?.loadingState).toBeUndefined();
+    expect(lastMessageListProps?.suggestedQuestions).toEqual(['继续问']);
+    expect(lastMessageListProps?.onSelectQuestion).toEqual(expect.any(Function));
+  });
+
   it('动态 page remount 后切到未加载过的 loading 会话时不显示上一段 ready messages', async () => {
     conversationsById.set('chat-a', createConversation('chat-a', [textMessage('message-a')]));
     hydrationById.set('chat-a', { view: 'ready' });

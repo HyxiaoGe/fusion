@@ -1356,10 +1356,12 @@ export default function ChatPage() {
                         ? undefined
                         : handleInspectTrajectory
                     }
-                    suggestedQuestions={shouldKeepPreviousContent || isHydratingWithoutContent ? [] : suggestedQuestions}
-                    isLoadingQuestions={shouldKeepPreviousContent || isHydratingWithoutContent ? false : isLoadingQuestions}
-                    onSelectQuestion={shouldKeepPreviousContent || isHydratingWithoutContent ? undefined : handleSelectQuestion}
-                    onRefreshQuestions={shouldKeepPreviousContent || isHydratingWithoutContent ? undefined : handleRefreshQuestions}
+                    // 保留上一屏的一定是同一会话（回答完成后的权威刷新），推荐问题属于它，
+                    // 照常显示，否则刷新的一瞬间推荐区会消失再出现。
+                    suggestedQuestions={isHydratingWithoutContent ? [] : suggestedQuestions}
+                    isLoadingQuestions={isHydratingWithoutContent ? false : isLoadingQuestions}
+                    onSelectQuestion={isHydratingWithoutContent ? undefined : handleSelectQuestion}
+                    onRefreshQuestions={isHydratingWithoutContent ? undefined : handleRefreshQuestions}
                     completionStateVisible={shouldKeepPreviousContent || isHydratingWithoutContent ? false : showCompletionState}
                     notificationReadEnabled={notificationReadReady && hydrationStatus === 'done' && !shouldKeepPreviousContent && activeSurface === 'chat'}
                     notificationSessionKey={authSessionKey}
