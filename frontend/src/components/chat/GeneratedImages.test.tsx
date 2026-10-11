@@ -132,6 +132,7 @@ describe('GeneratedImages', () => {
     const card = screen.getByTestId('generated-image-pending');
     expect(card).toHaveStyle({ width: `${imageDisplayWidth(2, 3)}px` });
     expect(screen.getByRole('status')).toHaveTextContent('正在生成图片');
+    expect(screen.getByText('正在生成图片')).toHaveClass('sr-only');
     expect(screen.getByText('12 秒')).toBeInTheDocument();
 
     act(() => {
