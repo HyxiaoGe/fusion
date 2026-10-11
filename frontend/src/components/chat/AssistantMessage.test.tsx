@@ -18,10 +18,15 @@ const {
   useAssistantMessageViewModelMock: vi.fn(),
 }));
 
+const streamSlotState = vi.hoisted(() => ({ byConversation: {} as Record<string, unknown> }));
+
 vi.mock('@/redux/hooks', () => ({
   useAppDispatch: () => dispatchMock,
-  useAppSelector: (selector: (state: { trajectory: { byConversationId: Record<string, never> } }) => unknown) => (
-    selector({ trajectory: { byConversationId: {} } })
+  useAppSelector: (selector: (state: {
+    trajectory: { byConversationId: Record<string, never> };
+    stream: typeof streamSlotState;
+  }) => unknown) => (
+    selector({ trajectory: { byConversationId: {} }, stream: streamSlotState })
   ),
 }));
 
@@ -609,5 +614,28 @@ describe('AssistantMessage', () => {
       onStructuredResultFollowUp: undefined,
       structuredResultsLoading: true,
     });
+  });
+
+  it('正文显示完、推荐问题生成中时，流未关闭也先渲染推荐区', () => {
+    const props = {
+      message: assistantMessage({ suggestedQuestionsStatus: 'pending' }),
+      isLastMessage: true,
+      isStreaming: true,
+      suggestedQuestions: [],
+      isLoadingQuestions: true,
+      onSelectQuestion: vi.fn(),
+      activeChatId: 'chat-1',
+      modelName: 'Qwen Max',
+    };
+    streamSlotState.byConversation = { 'chat-1': { totalTextLength: 40, displayedTextLength: 12 } };
+    const { rerender } = render(<AssistantMessage {...props} />);
+    // 打字机还没追上正文时不提前出现。
+    expect(screen.queryByTestId('suggested-questions')).toBeNull();
+
+    streamSlotState.byConversation = { 'chat-1': { totalTextLength: 40, displayedTextLength: 40 } };
+    // 测试里的 selector 不订阅 store，换一个 message 引用触发重渲染。
+    rerender(<AssistantMessage {...props} message={{ ...props.message }} />);
+    expect(screen.getByTestId('suggested-questions')).toBeInTheDocument();
+    streamSlotState.byConversation = {};
   });
 });

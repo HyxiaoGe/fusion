@@ -168,6 +168,10 @@ describe('SuggestedQuestions', () => {
     );
 
     expect(screen.getByText('正在生成可继续追问的问题...')).toBeTruthy();
+    expect(screen.getByText('你可能想问：')).toBeTruthy();
+    // 占位条与问题按钮同数同高，结果到达时高度不跳。
+    const placeholder = screen.getByTestId('suggested-questions-placeholder');
+    expect(placeholder.querySelectorAll('.h-8')).toHaveLength(3);
   });
 
   it('uses stronger pending affordance after selecting a question', () => {

@@ -15,6 +15,8 @@ interface SuggestedQuestionsProps {
   className?: string;
 }
 
+const SKELETON_WIDTHS = ['72%', '58%', '66%'];
+
 const SuggestedQuestions: React.FC<SuggestedQuestionsProps> = ({ 
   questions, 
   isLoading,
@@ -135,7 +137,7 @@ const SuggestedQuestions: React.FC<SuggestedQuestionsProps> = ({
             size="sm"
             className={cn(
               "flex items-center gap-2 w-full text-left rounded-md border border-border/50 bg-transparent px-2.5 py-1.5 text-sm text-foreground transition-colors duration-fast hover:bg-muted/30 hover:border-border",
-              "h-auto justify-start font-normal disabled:opacity-75",
+              "h-auto justify-start font-normal disabled:opacity-75 animate-in fade-in duration-300 motion-reduce:animate-none",
               pendingQuestion === question && "border-info-border bg-info-bg text-info"
             )}
             onClick={() => handleQuestionSelect(question)}
@@ -152,15 +154,20 @@ const SuggestedQuestions: React.FC<SuggestedQuestionsProps> = ({
           </Button>
         ))}
         
-        {/* 加载状态显示 */}
+        {/* 加载时用与问题按钮等高的占位条先撑开高度，结果到达后原位淡入，避免整块弹出。 */}
         {isLoading && (
-          <div role="status" className="text-xs text-muted-foreground flex items-center py-3">
-            <div className="flex space-x-1 mr-2">
-              <div className="h-1.5 w-1.5 bg-primary/40 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-              <div className="h-1.5 w-1.5 bg-primary/40 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-              <div className="h-1.5 w-1.5 bg-primary/40 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-            </div>
-            <span>正在生成可继续追问的问题...</span>
+          <div role="status" aria-busy="true" className="flex flex-col space-y-2" data-testid="suggested-questions-placeholder">
+            <span className="sr-only">正在生成可继续追问的问题...</span>
+            {SKELETON_WIDTHS.map(width => (
+              <div
+                key={width}
+                aria-hidden="true"
+                className="flex h-8 items-center gap-2 rounded-md border border-border/40 px-2.5"
+              >
+                <div className="h-3.5 w-3.5 flex-shrink-0 rounded-sm bg-muted animate-pulse motion-reduce:animate-none" />
+                <div className="h-3 rounded bg-muted animate-pulse motion-reduce:animate-none" style={{ width }} />
+              </div>
+            ))}
           </div>
         )}
       </div>
