@@ -636,6 +636,17 @@ describe('AssistantMessage', () => {
     // 测试里的 selector 不订阅 store，换一个 message 引用触发重渲染。
     rerender(<AssistantMessage {...props} message={{ ...props.message }} />);
     expect(screen.getByTestId('suggested-questions')).toBeInTheDocument();
+
+    // ready 事件先于封口到达，流结束前推荐区不能消失。
+    rerender(
+      <AssistantMessage
+        {...props}
+        message={assistantMessage({ suggestedQuestionsStatus: 'ready' })}
+        suggestedQuestions={['继续问什么？']}
+        isLoadingQuestions={false}
+      />,
+    );
+    expect(screen.getByTestId('suggested-questions')).toBeInTheDocument();
     streamSlotState.byConversation = {};
   });
 });
