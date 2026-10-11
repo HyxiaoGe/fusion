@@ -108,6 +108,7 @@ class GeneratedImageOutcome:
     model: str | None
     requested_model: str | None = None
     fallback_used: bool = False
+    grounding_used: bool = False
 
 
 def is_image_service_row(row: Any) -> bool:
@@ -202,6 +203,7 @@ def parse_generate_image_payload(payload: Any) -> GeneratedImageOutcome:
         model=_model_id(structured.get("model")),
         requested_model=_model_id(structured.get("requested_model")),
         fallback_used=structured.get("fallback_used") is True,
+        grounding_used=structured.get("grounding_used") is True,
     )
 
 
@@ -337,6 +339,7 @@ class ImageGenerationToolHandler(BaseToolHandler):
                 "model": outcome.model,
                 "requested_model": outcome.requested_model,
                 "fallback_used": outcome.fallback_used,
+                "grounding_used": outcome.grounding_used,
             },
         )
 
@@ -448,6 +451,7 @@ def _normalized_arguments(args: Any) -> dict[str, Any]:
         "prompt": prompt.strip(),
         "aspect_ratio": aspect_ratio,
         "fallback_model": FALLBACK_MODEL,
+        "grounding": True,
     }
     if regenerate:
         arguments["no_cache"] = True
