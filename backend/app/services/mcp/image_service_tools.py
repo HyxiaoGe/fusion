@@ -45,6 +45,9 @@ KNOWN_ERROR_CODES = frozenset({
 })
 MAX_PROMPT_CHARS = 1_000
 MAX_STYLE_CHARS = 60
+MAX_REFERENCE_SUBJECT_CHARS = 80
+# image-service 找参考图的结果状态；none_accepted 与 search_failed 时照常出图，但没有参考图，外观可能和真品不同。
+REFERENCE_SEARCH_STATUSES = frozenset({"found", "cached", "none_accepted", "search_failed", "skipped"})
 # 生图有真实费用：同一 run 最多生成的张数。
 MAX_IMAGES_PER_RUN = 3
 # 实测 Gemini Flash 约 15 秒，Pro 与 Seedream 更慢；image-service 自身上游超时为 300 秒。
@@ -107,6 +110,8 @@ class GeneratedImageOutcome:
     requested_model: str | None = None
     fallback_used: bool = False
     grounding_used: bool = False
+    reference_search_status: str | None = None
+    reference_image_count: int = 0
 
 
 def is_image_service_row(row: Any) -> bool:
@@ -141,6 +146,11 @@ def build_generate_image_definition() -> dict[str, Any]:
                     "regenerate": {
                         "type": "boolean",
                         "description": render_runtime_prompt("image_service.regenerate"),
+                    },
+                    "reference_subject": {
+                        "type": "string",
+                        "maxLength": MAX_REFERENCE_SUBJECT_CHARS,
+                        "description": render_runtime_prompt("image_service.reference_subject"),
                     },
                 },
                 "required": ["prompt"],
@@ -202,7 +212,18 @@ def parse_generate_image_payload(payload: Any) -> GeneratedImageOutcome:
         requested_model=_model_id(structured.get("requested_model")),
         fallback_used=structured.get("fallback_used") is True,
         grounding_used=structured.get("grounding_used") is True,
+        reference_search_status=_reference_search_status(structured.get("reference_search")),
+        reference_image_count=_reference_image_count(structured.get("reference_images_used")),
     )
+
+
+def _reference_search_status(value: Any) -> str | None:
+    status = value.get("status") if isinstance(value, dict) else None
+    return status if status in REFERENCE_SEARCH_STATUSES else None
+
+
+def _reference_image_count(value: Any) -> int:
+    return len(value) if isinstance(value, list) else 0
 
 
 def _image_path(url: Any) -> str:
@@ -338,6 +359,9 @@ class ImageGenerationToolHandler(BaseToolHandler):
                 "requested_model": outcome.requested_model,
                 "fallback_used": outcome.fallback_used,
                 "grounding_used": outcome.grounding_used,
+                "reference_subject": arguments.get("reference_subject"),
+                "reference_search_status": outcome.reference_search_status,
+                "reference_image_count": outcome.reference_image_count,
             },
         )
 
@@ -421,7 +445,11 @@ class ImageGenerationToolHandler(BaseToolHandler):
                 retryable=data.get("retryable") is True,
                 fallback_from=data.get("fallback_from"),
             )
-        return render_runtime_prompt("image_service.success_context")
+        return render_runtime_prompt(
+            "image_service.success_context",
+            reference_subject=data.get("reference_subject"),
+            reference_search_status=data.get("reference_search_status"),
+        )
 
     def _build_result_summary(self, result: ToolResult) -> dict:
         data = result.data or {}
@@ -434,7 +462,7 @@ class ImageGenerationToolHandler(BaseToolHandler):
 
 
 def _normalized_arguments(args: Any) -> dict[str, Any]:
-    if not isinstance(args, dict) or set(args) - {"prompt", "aspect_ratio", "style", "regenerate"}:
+    if not isinstance(args, dict) or set(args) - {"prompt", "aspect_ratio", "style", "regenerate", "reference_subject"}:
         raise ImageGenerationError("invalid_arguments")
     prompt = args.get("prompt")
     if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > MAX_PROMPT_CHARS:
@@ -459,6 +487,12 @@ def _normalized_arguments(args: Any) -> dict[str, Any]:
             raise ImageGenerationError("invalid_arguments")
         if style.strip():
             arguments["style"] = style.strip()
+    reference_subject = args.get("reference_subject")
+    if reference_subject is not None:
+        if not isinstance(reference_subject, str) or len(reference_subject) > MAX_REFERENCE_SUBJECT_CHARS:
+            raise ImageGenerationError("invalid_arguments")
+        if reference_subject.strip():
+            arguments["reference_subject"] = reference_subject.strip()
     return arguments
 
 
