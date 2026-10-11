@@ -196,7 +196,8 @@ class GuestApiTests(unittest.TestCase):
         self._override_db(MagicMock())
         with _guest_settings(enabled=False):
             response = self.client.post("/api/auth/guest")
-        self.assertEqual((response.status_code, response.json()["code"]), (403, "GUEST_MODE_DISABLED"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"], {"available": False})
         with _guest_settings(), patch("app.api.auth.reserve_new_guest_slot", return_value=False):
             response = self.client.post("/api/auth/guest")
         self.assertEqual((response.status_code, response.json()["code"]), (429, "GUEST_LIMIT_REACHED"))
