@@ -302,6 +302,17 @@ if [ -z "${FLYAI_API_KEY}" ]; then
   exit 1
 fi
 export FLYAI_ADAPTER_TOKEN="$(python3 -c 'import hashlib,hmac,os; print(hmac.new(os.environ["FLYAI_API_KEY"].encode(), b"fusion-deploy-flyai-adapter-v1", hashlib.sha256).hexdigest(), end="")')"
+# 游客模式：令牌密钥只来自 GitHub Secret；未配置时游客入口保持关闭，不影响登录用户。
+export GUEST_TOKEN_SECRET="${DEPLOY_GUEST_TOKEN_SECRET:-}"
+export GUEST_MODE_ENABLED="$(printf '%s' "${DEPLOY_GUEST_MODE_ENABLED:-false}" | tr '[:upper:]' '[:lower:]')"
+case "${GUEST_MODE_ENABLED}" in
+  true|false) ;;
+  *) echo "GUEST_MODE_ENABLED 必须为 true 或 false"; exit 1 ;;
+esac
+if [ "${GUEST_MODE_ENABLED}" = "true" ] && [ -z "${GUEST_TOKEN_SECRET}" ]; then
+  echo "已开启游客模式但未配置 GUEST_TOKEN_SECRET"
+  exit 1
+fi
 n=0
 until docker pull "${DEPLOY_API_IMAGE}"; do
   n=$((n+1))
@@ -490,6 +501,8 @@ services:
       - FLYAI_ADAPTER_BASE_URL=http://flyai-adapter:8080
       - FLYAI_ADAPTER_TOKEN=${FLYAI_ADAPTER_TOKEN}
       - FLYAI_TRAVEL_TOOL_TIMEOUT_SECONDS=20
+      - GUEST_MODE_ENABLED=${GUEST_MODE_ENABLED:-false}
+      - GUEST_TOKEN_SECRET=${GUEST_TOKEN_SECRET:-}
       - FLYAI_TRAVEL_MAX_TOOL_CALLS_PER_RUN=4
       - KNOWLEDGE_BASE_ENABLED=${KNOWLEDGE_BASE_ENABLED}
       - KNOWLEDGE_MAX_BASES_PER_USER=${KNOWLEDGE_MAX_BASES_PER_USER}

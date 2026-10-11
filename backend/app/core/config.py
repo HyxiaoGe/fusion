@@ -78,6 +78,12 @@ class Settings(BaseSettings):
     OSS_BUCKET: str = os.getenv("OSS_BUCKET", "")
     OSS_USE_SSL: bool = os.getenv("OSS_USE_SSL", "true").lower() == "true"
 
+    # 游客模式：未登录用户以服务端签发的游客身份使用部分功能。密钥未配置时入口保持关闭。
+    GUEST_MODE_ENABLED: bool = os.getenv("GUEST_MODE_ENABLED", "false").lower() == "true"
+    GUEST_TOKEN_SECRET: str = os.getenv("GUEST_TOKEN_SECRET", "")
+    GUEST_TOKEN_TTL_DAYS: int = int(os.getenv("GUEST_TOKEN_TTL_DAYS", "365"))
+    GUEST_NEW_IDENTITIES_PER_IP_PER_DAY: int = int(os.getenv("GUEST_NEW_IDENTITIES_PER_IP_PER_DAY", "5"))
+
     # 知识库 v1：API、独立 Worker、Embedding 与 Milvus 均通过配置显式启用。
     KNOWLEDGE_BASE_ENABLED: bool = os.getenv("KNOWLEDGE_BASE_ENABLED", "false").lower() == "true"
     KNOWLEDGE_MAX_BASES_PER_USER: int = int(os.getenv("KNOWLEDGE_MAX_BASES_PER_USER", "50"))

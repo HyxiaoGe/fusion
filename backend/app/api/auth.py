@@ -1,14 +1,29 @@
+import logging
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from sqlalchemy.orm import Session
 
 from app.api.deps import get_user_repo
 from app.core import security
 from app.core.avatar_proxy import AvatarProxyError, fetch_avatar
+from app.core.guest_identity import (
+    client_ip,
+    guest_mode_available,
+    ip_digest,
+    issue_guest_token,
+    reserve_new_guest_slot,
+)
+from app.db.database import get_db
 from app.db.models import User as UserModel
 from app.db.repositories import UserRepository
 from app.schemas.auth import UserSettingsUpdate
-from app.schemas.response import success
+from app.schemas.response import ApiException, success
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
+
+GUEST_NICKNAME = "游客"
 
 
 @router.get("/avatar")
@@ -38,15 +53,63 @@ async def read_current_user(request: Request, current_user: UserModel = Depends(
         "avatar": current_user.avatar,
         "system_prompt": current_user.system_prompt or "",
         "is_superuser": bool(current_user.is_superuser),
+        "is_guest": bool(current_user.is_guest),
     }
     return success(data=user_data, request_id=request.state.request_id)
+
+
+@router.post("/guest")
+def create_guest_identity(request: Request, db: Session = Depends(get_db)):
+    """未登录用户领取游客身份。每次调用都新建一个游客，前端拿到令牌后长期保存复用。"""
+    if not guest_mode_available():
+        raise ApiException("GUEST_MODE_DISABLED", "暂未开放免登录使用，请登录后使用", status_code=403)
+    ip, ip_source = client_ip(request)
+    try:
+        allowed = reserve_new_guest_slot(ip)
+    except Exception:
+        logger.warning("guest_identity_rate_limit_unavailable", exc_info=True)
+        raise ApiException("GUEST_UNAVAILABLE", "暂时无法免登录使用，请稍后再试或登录", status_code=503)
+    if not allowed:
+        logger.info("guest_identity_rejected reason=ip_daily_limit ip=%s source=%s", ip_digest(ip), ip_source)
+        raise ApiException("GUEST_LIMIT_REACHED", "今天免登录名额已用完，登录后继续使用", status_code=429)
+
+    user_id = str(uuid.uuid4())
+    user = UserRepository(db).create(
+        {
+            "id": user_id,
+            "username": f"guest-{user_id.replace('-', '')[:16]}",
+            "nickname": GUEST_NICKNAME,
+            "is_guest": True,
+        }
+    )
+    db.commit()
+    db.refresh(user)
+    token, expires_at = issue_guest_token(user.id)
+    logger.info("guest_identity_created user=%s ip=%s source=%s", user.id, ip_digest(ip), ip_source)
+    return success(
+        data={
+            "access_token": token,
+            "token_type": "bearer",
+            "expires_at": expires_at,
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "nickname": user.nickname,
+                "avatar": None,
+                "system_prompt": "",
+                "is_superuser": False,
+                "is_guest": True,
+            },
+        },
+        request_id=request.state.request_id,
+    )
 
 
 @router.patch("/me")
 async def update_current_user(
     body: UserSettingsUpdate,
     request: Request,
-    current_user: UserModel = Depends(security.get_current_user),
+    current_user: UserModel = Depends(security.require_registered_user),
     user_repo: UserRepository = Depends(get_user_repo),
 ):
     """更新当前用户的个性化设置（system_prompt）"""

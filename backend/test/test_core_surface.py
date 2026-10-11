@@ -27,7 +27,7 @@ class ChatCoreSurfaceTests(unittest.TestCase):
 
         cls.main = main
         cls.client = TestClient(main.app)
-        cls.fake_user = SimpleNamespace(id="user-123")
+        cls.fake_user = SimpleNamespace(id="user-123", is_guest=False)
 
         # 从路由依赖中提取实际函数引用，避免模块重导入导致的函数对象不一致
         cls._route_deps = {}

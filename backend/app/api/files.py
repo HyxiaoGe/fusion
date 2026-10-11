@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db, get_file_service
+from app.api.deps import get_current_user, get_db, get_file_service, require_registered_user
 from app.core.file_token import verify_file_token
 from app.core.revocation import extract_session_id, is_session_access_revoked, is_user_access_revoked
 from app.core.security import jwt_validator
@@ -54,7 +54,7 @@ async def upload_files(
     model: str = Form(...),
     conversation_id: str = Form(...),
     files: List[UploadFile] = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_registered_user),
     file_service: FileService = Depends(get_file_service),
 ):
     """上传文件到指定对话"""
@@ -69,7 +69,7 @@ async def upload_files(
 async def init_direct_upload(
     payload: DirectUploadInitRequest,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_registered_user),
     file_service: FileService = Depends(get_file_service),
 ):
     """初始化浏览器直传上传。"""
@@ -95,7 +95,7 @@ async def init_direct_upload(
 async def complete_direct_upload(
     payload: DirectUploadCompleteRequest,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_registered_user),
     file_service: FileService = Depends(get_file_service),
 ):
     """确认浏览器直传完成，并接入文件处理管线。"""
@@ -213,7 +213,7 @@ def get_file_status(
 async def delete_file(
     file_id: str,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_registered_user),
     file_service: FileService = Depends(get_file_service),
 ):
     """删除文件"""

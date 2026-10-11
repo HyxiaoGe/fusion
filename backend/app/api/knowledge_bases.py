@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Path, Query, Request, UploadFile
 
-from app.api.deps import get_current_user, get_knowledge_service
+from app.api.deps import get_current_user, get_knowledge_service, require_registered_user
 from app.db.models import User
 from app.schemas.knowledge import (
     KnowledgeBaseCreate,
@@ -46,7 +46,7 @@ ERROR_RESPONSES = {
 def create_knowledge_base(
     payload: KnowledgeBaseCreate,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_registered_user),
     service: KnowledgeService = Depends(get_knowledge_service),
 ):
     row = service.create_knowledge_base(current_user.id, payload)
@@ -89,7 +89,7 @@ def update_knowledge_base(
     knowledge_base_id: KnowledgeResourceId,
     payload: KnowledgeBaseUpdate,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_registered_user),
     service: KnowledgeService = Depends(get_knowledge_service),
 ):
     row = service.update_knowledge_base(current_user.id, knowledge_base_id, payload)
@@ -105,7 +105,7 @@ def update_knowledge_base(
 def delete_knowledge_base(
     knowledge_base_id: KnowledgeResourceId,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_registered_user),
     service: KnowledgeService = Depends(get_knowledge_service),
 ):
     task = service.delete_knowledge_base(current_user.id, knowledge_base_id)
@@ -122,7 +122,7 @@ async def upload_knowledge_document(
     knowledge_base_id: KnowledgeResourceId,
     request: Request,
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_registered_user),
     service: KnowledgeService = Depends(get_knowledge_service),
 ):
     result = await service.upload_document(current_user.id, knowledge_base_id, file)
@@ -201,7 +201,7 @@ def delete_knowledge_document(
     knowledge_base_id: KnowledgeResourceId,
     document_id: KnowledgeResourceId,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_registered_user),
     service: KnowledgeService = Depends(get_knowledge_service),
 ):
     task = service.delete_document(current_user.id, knowledge_base_id, document_id)
@@ -218,7 +218,7 @@ def retry_knowledge_document(
     knowledge_base_id: KnowledgeResourceId,
     document_id: KnowledgeResourceId,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_registered_user),
     service: KnowledgeService = Depends(get_knowledge_service),
 ):
     task = service.retry_document(current_user.id, knowledge_base_id, document_id)
@@ -235,7 +235,7 @@ def rebuild_knowledge_document(
     knowledge_base_id: KnowledgeResourceId,
     document_id: KnowledgeResourceId,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_registered_user),
     service: KnowledgeService = Depends(get_knowledge_service),
 ):
     task = service.rebuild_document(current_user.id, knowledge_base_id, document_id)
@@ -250,7 +250,7 @@ def rebuild_knowledge_document(
 async def search_knowledge_bases(
     payload: KnowledgeRetrievalRequest,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_registered_user),
     service: KnowledgeService = Depends(get_knowledge_service),
 ):
     result = await service.retrieve(current_user.id, payload)
