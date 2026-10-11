@@ -5,6 +5,7 @@ import {
   getStoredAccessToken,
   getValidAccessToken,
 } from '@/lib/auth/authService';
+import { clearGuestSession, getStoredGuestToken } from '@/lib/auth/guestSession';
 import { ApiError } from '@/types/api';
 import type { ApiResponse } from '@/types/api';
 import {
@@ -62,6 +63,9 @@ async function runAuthBoundFetch(
   }
 }
 
+/** 游客令牌被服务端拒绝后派发，页面据此重新领取或回到登录。 */
+export const GUEST_SESSION_INVALID_EVENT = 'fusion:guest-session-invalid';
+
 async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
   // 必须在读取 token 之前捕获 epoch。若 await token 期间 A→B 已完整切换又回到
   // stable，注册请求时的 CAS 仍会拒绝把旧 A token 绑定到新 B epoch。
@@ -69,12 +73,22 @@ async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Re
   const token = await resolveToken();
   assertAuthSessionStable(tokenEpoch);
 
+  // 没有登录令牌时以游客身份请求；登录令牌始终优先。
+  const guestToken = token ? null : getStoredGuestToken();
   const headers = new Headers(options.headers || {});
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
+  if (token || guestToken) {
+    headers.set('Authorization', `Bearer ${token ?? guestToken}`);
   }
 
   let { response, request } = await runAuthBoundFetch(url, options, headers, tokenEpoch);
+
+  // 游客令牌被拒（失效或游客模式已关闭）：只清游客会话，不碰 SSO 刷新与登录态。
+  if (response.status === 401 && guestToken) {
+    request.release();
+    clearGuestSession();
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(GUEST_SESSION_INVALID_EVENT));
+    throw new ApiError('UNAUTHORIZED', 'Unauthorized', '');
+  }
 
   // 401 时强制刷新（SDK 内部会合并并发刷新），成功则用新 token 重试原请求
   if (response.status === 401) {

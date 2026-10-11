@@ -123,6 +123,14 @@ vi.mock('@/redux/slices/modelsSlice', () => ({
   updateProviders: updateProvidersMock,
 }));
 
+vi.mock('@/redux/slices/guestSlice', () => ({
+  bootstrapGuestSession: () => ({ type: 'guest/bootstrap' }),
+  isGuestSessionReady: (action: { guestReady?: boolean } | undefined) => action?.guestReady === true,
+  refreshEntitlements: () => ({ type: 'guest/refreshEntitlements' }),
+  entitlementsCleared: () => ({ type: 'guest/entitlementsCleared' }),
+  guestSessionInvalidated: () => ({ type: 'guest/guestSessionInvalidated' }),
+}));
+
 vi.mock('@/redux/slices/authSlice', () => ({
   checkUserState: checkUserStateMock,
   fetchUserProfile: fetchUserProfileMock,
@@ -304,6 +312,26 @@ describe('ClientLayout', () => {
     await waitFor(() => {
       expect(screen.getByTestId('login-dialog').getAttribute('data-open')).toBe('true');
     });
+  });
+
+  it('游客模式可用时以游客身份进入，不弹登录框', async () => {
+    appDispatchMock.mockImplementation((action: { type?: string } | undefined) => (
+      action?.type === 'guest/bootstrap' ? { guestReady: true } : action
+    ));
+
+    render(
+      React.createElement(
+        ClientLayout,
+        null,
+        React.createElement('div', null, 'child')
+      )
+    );
+
+    await waitFor(() => {
+      expect(appDispatchMock).toHaveBeenCalledWith({ type: 'guest/bootstrap' });
+    });
+    await new Promise(resolve => setTimeout(resolve, 1600));
+    expect(screen.getByTestId('login-dialog').getAttribute('data-open')).toBe('false');
   });
 
   it('模型目录初始化失败时记录失败状态', async () => {

@@ -21,8 +21,19 @@ export function isModelAvailableForNewConversation(model: Model): boolean {
   );
 }
 
+type GuestScopeState = Partial<Pick<RootState, 'auth' | 'guest'>>;
+
+/**
+ * 游客新会话可用的模型：自动选择 + 服务端下发的模型；非游客返回 null（不限）。
+ * 权益尚未拉到时只放行自动选择，服务端也只认这几个。
+ */
+export function getGuestAllowedModelIds(state: GuestScopeState): ReadonlySet<string> | null {
+  if (state.auth?.isAuthenticated !== false || state.guest?.status !== 'ready') return null;
+  return new Set([AUTO_MODEL_ID, ...(state.guest.entitlements?.models ?? [])]);
+}
+
 export function resolveSendModel(
-  state: Pick<RootState, 'conversation' | 'models'>,
+  state: Pick<RootState, 'conversation' | 'models'> & GuestScopeState,
   conversationId: string | null,
 ): SendModelResolution {
   if (conversationId !== null) {
@@ -55,14 +66,16 @@ export function resolveSendModel(
       : { status: 'conversation_model_unavailable' };
   }
 
+  const guestAllowed = getGuestAllowedModelIds(state);
+  const isSelectableHere = (model: Model) => (
+    isModelAvailableForNewConversation(model) && (!guestAllowed || guestAllowed.has(model.id))
+  );
   const selectedModel = state.models.models.find(
-    (model) => (
-      model.id === state.models.selectedModelId
-      && isModelAvailableForNewConversation(model)
-    ),
+    (model) => model.id === state.models.selectedModelId && isSelectableHere(model),
   );
   const fallbackModel = selectedModel
-    ?? state.models.models.find(isModelAvailableForNewConversation);
+    ?? (guestAllowed ? state.models.models.find((model) => model.id === AUTO_MODEL_ID && isSelectableHere(model)) : undefined)
+    ?? state.models.models.find(isSelectableHere);
   return fallbackModel
     ? { status: 'ready', model: fallbackModel }
     : { status: 'no_enabled_model' };

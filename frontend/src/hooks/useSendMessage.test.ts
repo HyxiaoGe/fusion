@@ -89,6 +89,7 @@ vi.mock('@/lib/api/chat', () => ({
   sendMessageStream: sendMessageStreamMock,
   reconnectStream: reconnectStreamMock,
   isRecoverableStreamError: (error: unknown) => Boolean((error as { recoverable?: boolean })?.recoverable),
+  isLoginGateStreamError: () => false,
   getConversation: getConversationMock,
   // useSendMessage 内部 dynamic import('@/lib/api/chat') 取 stopStream，
   // 必须在 mock 里也提供 stub，避免「No "stopStream" export」错误

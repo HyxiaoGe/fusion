@@ -166,6 +166,20 @@ export class StreamRequestError extends Error {
   }
 }
 
+// 游客额度与登录门槛：服务端的确定答复，重试或重连都不会变，需要用户登录或等明天。
+const LOGIN_GATE_ERROR_CODES = new Set(['LOGIN_REQUIRED', 'GUEST_QUOTA_EXHAUSTED']);
+const NON_RETRYABLE_ERROR_CODES = new Set([
+  'STREAM_UNAVAILABLE',
+  'GUEST_RUN_IN_PROGRESS',
+  'GUEST_UNAVAILABLE',
+  ...LOGIN_GATE_ERROR_CODES,
+]);
+
+/** 需要登录才能继续的发送错误（游客额度用完、功能需登录）。 */
+export function isLoginGateStreamError(error: unknown): boolean {
+  return error instanceof StreamRequestError && LOGIN_GATE_ERROR_CODES.has(error.code ?? '');
+}
+
 export function isRecoverableStreamError(error: unknown): boolean {
   return error instanceof StreamRequestError && error.recoverable;
 }
@@ -199,7 +213,7 @@ async function fetchStreamResponse(
     const body = errorData as { code?: string; message?: string; detail?: string };
     throw new StreamRequestError(body.message || body.detail || fallbackMessage, {
       recoverable:
-        body.code !== 'STREAM_UNAVAILABLE' && isRecoverableHttpStatus(response.status),
+        !NON_RETRYABLE_ERROR_CODES.has(body.code ?? '') && isRecoverableHttpStatus(response.status),
       statusCode: response.status,
       code: body.code,
     });

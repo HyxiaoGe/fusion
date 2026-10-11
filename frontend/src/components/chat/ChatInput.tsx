@@ -17,7 +17,14 @@ import {
 import { useAppDispatch, useAppSelector } from "@/redux/hooks";
 import { selectStreamSlot } from '@/redux/slices/streamSlice';
 import type { RootState } from "@/redux/store";
-import { selectAuthSessionKey, selectIsAuthenticated } from "@/redux/selectors";
+import {
+  selectAuthSessionKey,
+  selectCanChat,
+  selectGuestMessagesRemaining,
+  selectIsAuthenticated,
+  selectIsGuest,
+} from "@/redux/selectors";
+import { refreshEntitlements } from "@/redux/slices/guestSlice";
 import { selectComposerAgentMode, setComposerAgentMode, setReasoningEnabled } from "@/redux/slices/conversationSlice";
 import {
   addFileId,
@@ -254,6 +261,11 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const appliedKnowledgeSelectionScopeRef = useRef<string | null>(null);
 
   const isAuthenticated = useAppSelector(selectIsAuthenticated);
+  // 游客也能聊天；上传、知识库、深度研究仍需登录
+  const canChat = useAppSelector(selectCanChat);
+  const isGuest = useAppSelector(selectIsGuest);
+  const guestMessagesRemaining = useAppSelector(selectGuestMessagesRemaining);
+  const isGuestQuotaExhausted = guestMessagesRemaining === 0;
   const authIdentity = useAppSelector(selectUploadAuthIdentity);
   const previousAuthIdentityRef = useRef<string | null>(authIdentity);
   const processingFiles = useAppSelector((state) => state.fileUpload.processingFiles);
@@ -311,10 +323,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
   // 模型列表在浏览器挂载后异步写入 Redux；客户端导航时 Store 可能已有模型，而服务端仍为空。
   // 水合首帧先保持无能力的中性状态，避免按钮属性和文案因两端 Store 快照不同而失配。
   const isModelCatalogLoadFailed = hasHydrated
-    && isAuthenticated
+    && canChat
     && modelsLoadStatus === 'failed';
   const isCurrentModelUnavailable = hasHydrated
-    && isAuthenticated
+    && canChat
     && modelsLoadStatus === 'ready'
     && (
       effectiveChatId
@@ -323,9 +335,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
     );
   const isComposerBlocked = disabled || (
     hasHydrated
-    && isAuthenticated
+    && canChat
     && (modelsLoadStatus !== 'ready' || sendModelStatus !== 'ready')
-  );
+  ) || (hasHydrated && isGuestQuotaExhausted);
   const updateMessage = useCallback((text: string) => {
     messageVersionRef.current += 1;
     messageRef.current = text;
@@ -403,6 +415,18 @@ const ChatInput: React.FC<ChatInputProps> = ({
     knowledgeSelectionStatus,
     selectedKnowledgeBaseIds,
   ]);
+
+  useEffect(() => {
+    // 游客的额度在开始生成时扣、出错时退，生成开始和结束各同步一次剩余条数。
+    if (isGuest) void dispatch(refreshEntitlements());
+  }, [dispatch, isGuest, isCurrentConversationStreaming]);
+
+  useEffect(() => {
+    // 深度研究需要登录；游客残留的模式选择回到自动。
+    if (isGuest && composerAgentMode === 'deep_research') {
+      dispatch(setComposerAgentMode({ chatId: agentModeKey, mode: 'auto' }));
+    }
+  }, [agentModeKey, composerAgentMode, dispatch, isGuest]);
 
   useEffect(() => {
     if (selectedKnowledgeBaseIds.length === 0 || composerAgentMode !== 'deep_research') {
@@ -633,6 +657,15 @@ const ChatInput: React.FC<ChatInputProps> = ({
     if ((globalThis as any).triggerLoginDialog) {
       (globalThis as any).triggerLoginDialog();
     }
+  };
+
+  const ensureCanChat = (messageText: string) => {
+    if (canChat) {
+      return true;
+    }
+
+    promptLogin(messageText);
+    return false;
   };
 
   const ensureAuthenticated = (messageText: string) => {
@@ -1093,7 +1126,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
       return;
     }
 
-    if (!ensureAuthenticated("请先登录后再发送消息")) {
+    if (!ensureCanChat("请先登录后再发送消息")) {
       return;
     }
 
@@ -1422,7 +1455,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           placeholder={
-            isModelCatalogLoadFailed
+            hasHydrated && isGuestQuotaExhausted
+              ? "今天免登录可发送的消息已用完，登录后继续"
+              : isModelCatalogLoadFailed
               ? "模型列表加载失败，请刷新页面重试"
               : isCurrentModelUnavailable
                 ? "当前会话模型不可用，请新建会话后继续"
@@ -1541,8 +1576,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
                     );
                     const conflictsWithKnowledge = mode.value === 'deep_research'
                       && selectedKnowledgeBaseIds.length > 0;
-                    const disabledMode = !hasHydrated || !availability.enabled || conflictsWithKnowledge;
-                    const itemDescription = conflictsWithKnowledge
+                    const requiresLogin = mode.value === 'deep_research' && isGuest;
+                    const disabledMode = !hasHydrated || !availability.enabled || conflictsWithKnowledge
+                      || requiresLogin;
+                    const itemDescription = requiresLogin
+                      ? '登录后可使用深度研究'
+                      : conflictsWithKnowledge
                       ? '严格知识库模式不能与深度研究同时使用'
                       : availability.enabled
                         ? mode.description
@@ -1631,6 +1670,20 @@ const ChatInput: React.FC<ChatInputProps> = ({
             : isSubmitting ? "正在提交消息，草稿暂时保留"
               : isCurrentConversationStreaming ? "正在生成，可继续编写下一条消息 · Shift+Enter 换行"
                 : "Enter 发送 · Shift+Enter 换行"}
+        {hasHydrated && isGuest && guestMessagesRemaining !== null && (
+          <span data-testid="guest-quota-hint">
+            {" · "}免登录今天还可发送 {guestMessagesRemaining} 条
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto px-1 py-0 text-xs"
+              onClick={() => promptLogin("登录后可使用全部模型和功能")}
+            >
+              登录
+            </Button>
+          </span>
+        )}
       </div>
 
       {/* 状态提示（卡片外部） */}

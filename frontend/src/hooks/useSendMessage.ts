@@ -45,6 +45,7 @@ import {
 } from '@/redux/slices/streamSlice';
 import {
   getChatCapabilities,
+  isLoginGateStreamError,
   isRecoverableStreamError,
   reconnectStream,
   sendMessageStream,
@@ -81,6 +82,7 @@ import {
 import { hasFormalTextContent } from '@/lib/chat/suggestedQuestionState';
 import type { StreamState } from '@/redux/slices/streamSlice';
 import { selectStreamSlot } from '@/redux/slices/streamSlice';
+import { refreshEntitlements } from '@/redux/slices/guestSlice';
 import {
   findStreamController,
   getStreamController,
@@ -1723,6 +1725,11 @@ export function useSendMessage(activeConversationId?: string | null) {
         dispatch(setGlobalError(message));
         if (reconnectRetriesExhausted) {
           dispatch(setStreamError({ conversationId: effectiveConvId, message }));
+        }
+        if (isLoginGateStreamError(error)) {
+          // 游客额度用完或功能需登录：同步最新额度，并直接给出登录入口。
+          void dispatch(refreshEntitlements());
+          (globalThis as { triggerLoginDialog?: () => void }).triggerLoginDialog?.();
         }
       }
     },
