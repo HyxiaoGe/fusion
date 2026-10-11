@@ -17,6 +17,7 @@ from app.db.models import User as UserModel
 from app.db.repositories import UserRepository
 from app.schemas.auth import UserSettingsUpdate
 from app.schemas.response import ApiException, success
+from app.services.guest_quota import build_entitlements
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -54,6 +55,12 @@ async def read_current_user(request: Request, current_user: UserModel = Depends(
         "is_guest": bool(current_user.is_guest),
     }
     return success(data=user_data, request_id=request.state.request_id)
+
+
+@router.get("/me/entitlements")
+def read_current_entitlements(request: Request, current_user: UserModel = Depends(security.get_current_user)):
+    """当前用户可用的功能与今日额度；游客据此显示「登录后可用」与剩余次数。"""
+    return success(data=build_entitlements(current_user), request_id=request.state.request_id)
 
 
 @router.post("/guest")

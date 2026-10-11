@@ -1,6 +1,7 @@
 # app/services/chat_service.py
 import asyncio
 import uuid as uuid_mod
+from functools import partial
 from typing import Any, Dict, List, Optional, Union
 
 import litellm
@@ -60,6 +61,7 @@ from app.services.chat.message_builder import (
 from app.services.chat.model_call_language_policy import finalize_model_call_language_policy
 from app.services.conversation_service import ConversationService
 from app.services.file_service import FileService, is_image_mime
+from app.services.guest_quota import GuestRunReservation, guest_model_ids, login_required
 from app.services.storage import get_storage_for_backend
 from app.services.stream import StreamHandler, stream_redis_as_sse
 from app.services.stream.agent_loop_request_prep import (
@@ -193,17 +195,27 @@ class ChatService:
         require_vision: bool = False,
         allow_hidden_models: bool = False,
         auto_mode: AutoModelMode = "auto",
+        allowed_model_ids: tuple[str, ...] | None = None,
     ) -> ModelResolution:
         """把会话绑定解析成本轮实际调用的模型。
 
         绑定 auto 时按本轮执行模式的优先级挑；已有会话的绑定模型下线或被禁止调度时同样改走
         自动选择，不再让历史会话卡死。新会话显式选了不可用模型仍直接报错，由用户重新选择。
         allow_hidden_models：管理员（含探针账号）可用隐藏模型开新会话，用于上线前试用。
+        allowed_model_ids：游客只能用这些模型；新会话选了别的直接要求登录，已有会话改走自动选择。
         """
+        pick = partial(
+            self._pick_auto_model_or_raise,
+            require_vision=require_vision,
+            mode=auto_mode,
+            allowed_model_ids=allowed_model_ids,
+        )
         if bound_model_id == AUTO_MODEL_ID:
-            return ModelResolution(
-                model_id=self._pick_auto_model_or_raise(require_vision=require_vision, mode=auto_mode)
-            )
+            return ModelResolution(model_id=pick())
+        if allowed_model_ids is not None and bound_model_id not in allowed_model_ids:
+            if is_new_conversation:
+                raise login_required("登录后可选择更多模型")
+            return ModelResolution(model_id=pick(), fallback_from=bound_model_id)
 
         control = self.model_control_repository.get(bound_model_id)
         registered = is_model_registered(bound_model_id)
@@ -218,13 +230,21 @@ class ChatService:
             return ModelResolution(model_id=bound_model_id)
         if registered and routable:
             return ModelResolution(model_id=bound_model_id)
-        return ModelResolution(
-            model_id=self._pick_auto_model_or_raise(require_vision=require_vision, mode=auto_mode),
-            fallback_from=bound_model_id,
-        )
+        return ModelResolution(model_id=pick(), fallback_from=bound_model_id)
 
-    def _pick_auto_model_or_raise(self, *, require_vision: bool, mode: AutoModelMode) -> str:
-        picked = pick_auto_model(self.model_control_repository, require_vision=require_vision, mode=mode)
+    def _pick_auto_model_or_raise(
+        self,
+        *,
+        require_vision: bool,
+        mode: AutoModelMode,
+        allowed_model_ids: tuple[str, ...] | None = None,
+    ) -> str:
+        picked = pick_auto_model(
+            self.model_control_repository,
+            require_vision=require_vision,
+            mode=mode,
+            allowed_model_ids=allowed_model_ids,
+        )
         if picked is None:
             raise ApiException.service_unavailable("当前没有可用模型", code=ErrorCode.MODEL_UNAVAILABLE)
         return picked
@@ -373,9 +393,16 @@ class ChatService:
         knowledge_base_ids: Optional[List[str]] = None,
         trace_id: Optional[str] = None,
         allow_hidden_models: bool = False,
+        guest_run: GuestRunReservation | None = None,
     ) -> Union[StreamingResponse, ChatResponse]:
-        """处理用户消息，路由到流式或非流式响应"""
+        """处理用户消息，路由到流式或非流式响应
+
+        guest_run：游客本次生成预扣的额度。带上它即按游客权益处理（限定模型、不能深度研究、
+        仅流式），回答任务结束后按流终态结算；之前抛出的错误由调用方退还。
+        """
         options = dict(options or {})
+        if guest_run is not None and not stream:
+            raise ApiException.bad_request("免登录使用仅支持流式对话")
 
         existing_conversation = None
         if conversation_id:
@@ -438,6 +465,7 @@ class ChatService:
             require_vision=any(is_image_file(file_id, self.file_repo) for file_id in file_ids or []),
             allow_hidden_models=allow_hidden_models,
             auto_mode=_auto_model_mode(options),
+            allowed_model_ids=guest_model_ids() if guest_run is not None else None,
         )
         model_id = model_resolution.model_id
         if model_resolution.fallback_from is not None:
@@ -465,6 +493,8 @@ class ChatService:
             else requested_task_policy
         )
         options = task_policy.apply_to_options(options)
+        if guest_run is not None and task_policy.task_mode == "deep_research":
+            raise login_required("登录后可使用深度研究")
         if task_policy.task_mode == "deep_research" and not stream:
             raise ApiException.bad_request("深度研究模式仅支持流式对话")
         if effective_knowledge_base_ids:
@@ -642,9 +672,12 @@ class ChatService:
                         if retry_assistant_message is None and retry_generation_task_id is not None
                         else None
                     ),
+                    guest=guest_run is not None,
                 )
             )
             register_task(conversation.id, task, task_id)
+            if guest_run is not None:
+                guest_run.settle_after(task, conversation_id=conversation.id, task_id=task_id)
 
             # SSE 从 Redis Stream 读取，不直接调 LLM
             return StreamingResponse(
@@ -712,8 +745,9 @@ class ChatService:
         user_id: str,
         previous_run_id: str | None = None,
         trace_id: str | None = None,
+        guest_run: GuestRunReservation | None = None,
     ) -> StreamingResponse:
-        """基于最近一次 limit_reached run 续写同一条 assistant 消息。"""
+        """基于最近一次 limit_reached run 续写同一条 assistant 消息。guest_run 同 process_message。"""
         conversation = self.conversation_service.get_conversation(conversation_id, user_id)
         if not conversation:
             raise ApiException.not_found("会话不存在或无权访问")
@@ -748,6 +782,7 @@ class ChatService:
             conversation.model_id,
             is_new_conversation=False,
             auto_mode=_auto_model_mode(continuation_options),
+            allowed_model_ids=guest_model_ids() if guest_run is not None else None,
         ).model_id
         litellm_model, provider, litellm_kwargs = llm_manager.resolve_model(model_id)
         capabilities = _get_model_capabilities(model_id)
@@ -819,9 +854,12 @@ class ChatService:
                 extra_system_prompts=[CONTINUATION_SYSTEM],
                 preprocess_user_input=False,
                 limits=continuation.limits,
+                guest=guest_run is not None,
             )
         )
         register_task(conversation_id, task, task_id)
+        if guest_run is not None:
+            guest_run.settle_after(task, conversation_id=conversation_id, task_id=task_id)
 
         return StreamingResponse(
             stream_redis_as_sse(

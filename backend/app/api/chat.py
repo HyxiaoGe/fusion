@@ -1,10 +1,13 @@
 # app/api/chat.py
 
+from contextlib import contextmanager
+
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import get_chat_service, get_current_user
 from app.core.config import settings
+from app.core.guest_identity import client_ip
 from app.core.logger import app_logger as logger
 from app.core.redis import get_redis_pool, stream_chunks_key, stream_meta_key
 from app.db.models import User
@@ -23,6 +26,7 @@ from app.services.conversation_activity_service import (
     get_conversation_activity,
     mark_conversation_read,
 )
+from app.services.guest_quota import GuestRunReservation, is_guest, reserve_guest_run
 from app.services.stream import stream_redis_as_sse
 from app.services.stream.persistence import filter_authoritative_partial_content
 from app.services.stream_state_service import (
@@ -63,6 +67,25 @@ async def _read_stream_meta_strict(conv_id: str):
     return redis, meta
 
 
+def _reserve_guest_run(current_user: User, request: Request) -> GuestRunReservation | None:
+    """游客每次开始生成前预扣额度并占并发位；登录用户不受影响。"""
+    if not is_guest(current_user):
+        return None
+    ip, _ = client_ip(request)
+    return reserve_guest_run(str(current_user.id), ip)
+
+
+@contextmanager
+def _refund_guest_run_on_error(guest_run: GuestRunReservation | None):
+    """生成没能开始（校验失败、初始化失败等）时退还预扣；开始后由回答任务结束时结算。"""
+    try:
+        yield
+    except BaseException:
+        if guest_run is not None:
+            guest_run.release(refund=True)
+        raise
+
+
 @router.post("/send")
 async def send_message(
     chat_request: ChatRequest,
@@ -71,23 +94,26 @@ async def send_message(
     current_user: User = Depends(get_current_user),
 ):
     """发送消息，返回流式或非流式响应"""
-    result = await chat_service.process_message(
-        model_id=chat_request.model_id,
-        message=chat_request.message,
-        user_id=current_user.id,
-        conversation_id=chat_request.conversation_id,
-        user_message_id=chat_request.user_message_id,
-        assistant_message_id=chat_request.assistant_message_id,
-        retry_user_message_id=chat_request.retry_user_message_id,
-        retry_assistant_message_id=chat_request.retry_assistant_message_id,
-        previous_run_id=chat_request.previous_run_id,
-        stream=chat_request.stream,
-        options=chat_request.options,
-        file_ids=chat_request.file_ids,
-        knowledge_base_ids=chat_request.knowledge_base_ids,
-        trace_id=request.state.request_id,
-        allow_hidden_models=bool(getattr(current_user, "is_superuser", False)),
-    )
+    guest_run = _reserve_guest_run(current_user, request)
+    with _refund_guest_run_on_error(guest_run):
+        result = await chat_service.process_message(
+            model_id=chat_request.model_id,
+            message=chat_request.message,
+            user_id=current_user.id,
+            conversation_id=chat_request.conversation_id,
+            user_message_id=chat_request.user_message_id,
+            assistant_message_id=chat_request.assistant_message_id,
+            retry_user_message_id=chat_request.retry_user_message_id,
+            retry_assistant_message_id=chat_request.retry_assistant_message_id,
+            previous_run_id=chat_request.previous_run_id,
+            stream=chat_request.stream,
+            options=chat_request.options,
+            file_ids=chat_request.file_ids,
+            knowledge_base_ids=chat_request.knowledge_base_ids,
+            trace_id=request.state.request_id,
+            allow_hidden_models=bool(getattr(current_user, "is_superuser", False)),
+            guest_run=guest_run,
+        )
     if isinstance(result, StreamingResponse):
         return result
     return success(data=result, request_id=request.state.request_id)
@@ -226,13 +252,16 @@ async def continue_agent_run(
     """继续执行已触顶的 agent run，续写同一条 assistant 消息。"""
     if not continue_request.stream:
         raise ApiException.bad_request("continue 仅支持流式响应")
-    return await chat_service.continue_agent_run(
-        conversation_id=conversation_id,
-        assistant_message_id=message_id,
-        user_id=current_user.id,
-        previous_run_id=continue_request.previous_run_id,
-        trace_id=request.state.request_id,
-    )
+    guest_run = _reserve_guest_run(current_user, request)
+    with _refund_guest_run_on_error(guest_run):
+        return await chat_service.continue_agent_run(
+            conversation_id=conversation_id,
+            assistant_message_id=message_id,
+            user_id=current_user.id,
+            previous_run_id=continue_request.previous_run_id,
+            trace_id=request.state.request_id,
+            guest_run=guest_run,
+        )
 
 
 @router.post("/conversations/{conversation_id}/runs/{run_id}/context/{context_request_id}")

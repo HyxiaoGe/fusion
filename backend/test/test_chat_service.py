@@ -487,7 +487,7 @@ class ChatServiceTests(unittest.TestCase):
         )
         with patch("app.services.chat_service.pick_auto_model", return_value="deepseek-chat") as pick:
             self.assertEqual(self._run_until_model_resolved(service), "deepseek-chat")
-        pick.assert_called_once_with(service.model_control_repository, require_vision=False, mode="auto")
+        pick.assert_called_once_with(service.model_control_repository, require_vision=False, mode="auto", allowed_model_ids=None)
 
     def test_existing_conversation_with_unregistered_model_falls_back_to_auto(self):
         service = self._existing_conversation_service("retired/model")
@@ -512,7 +512,7 @@ class ChatServiceTests(unittest.TestCase):
             patch("app.services.chat_service.pick_auto_model", return_value="vision/model") as pick,
         ):
             self.assertEqual(self._run_until_model_resolved(service, file_ids=["img-1"]), "vision/model")
-        pick.assert_called_once_with(service.model_control_repository, require_vision=True, mode="auto")
+        pick.assert_called_once_with(service.model_control_repository, require_vision=True, mode="auto", allowed_model_ids=None)
 
     def test_auto_conversation_picks_by_execution_mode(self):
         cases = (
@@ -526,14 +526,14 @@ class ChatServiceTests(unittest.TestCase):
                 service = self._existing_conversation_service("auto")
                 with patch("app.services.chat_service.pick_auto_model", return_value="picked/model") as pick:
                     self.assertEqual(self._run_until_model_resolved(service, options=options), "picked/model")
-                pick.assert_called_once_with(service.model_control_repository, require_vision=False, mode=mode)
+                pick.assert_called_once_with(service.model_control_repository, require_vision=False, mode=mode, allowed_model_ids=None)
 
     def test_knowledge_base_turn_keeps_requested_auto_mode(self):
         # 知识库改为工具后不再关闭计划，自动选模型按用户选择的执行模式。
         service = self._existing_conversation_service("auto")
         with patch("app.services.chat_service.pick_auto_model", return_value="picked/model") as pick:
             self._run_until_model_resolved(service, options={"plan_mode": "on"}, knowledge_base_ids=["kb-1"])
-        pick.assert_called_once_with(service.model_control_repository, require_vision=False, mode="plan")
+        pick.assert_called_once_with(service.model_control_repository, require_vision=False, mode="plan", allowed_model_ids=None)
 
     def test_auto_without_any_usable_model_is_model_unavailable(self):
         service = self._existing_conversation_service("auto")

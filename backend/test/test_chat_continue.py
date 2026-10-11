@@ -240,7 +240,9 @@ class ChatContinueTests(unittest.IsolatedAsyncioTestCase):
                 previous_run_id="run-old",
             )
 
-        pick.assert_called_once_with(service.model_control_repository, require_vision=False, mode="deep_research")
+        pick.assert_called_once_with(
+            service.model_control_repository, require_vision=False, mode="deep_research", allowed_model_ids=None
+        )
         resolve_model.assert_called_once_with("mimo-v2.6-pro")
 
     async def test_continue_agent_run_rejects_missing_conversation(self):
@@ -397,6 +399,7 @@ class ChatContinueTests(unittest.IsolatedAsyncioTestCase):
             user_id="user-1",
             previous_run_id="run-old",
             trace_id="trace-1",
+            guest_run=None,
         )
 
 
