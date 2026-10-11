@@ -67,7 +67,8 @@ def read_current_entitlements(request: Request, current_user: UserModel = Depend
 def create_guest_identity(request: Request, user_repo: UserRepository = Depends(get_user_repo)):
     """未登录用户领取游客身份。每次调用都新建一个游客，前端拿到令牌后长期保存复用。"""
     if not guest_mode_available():
-        raise ApiException("GUEST_MODE_DISABLED", "暂未开放免登录使用，请登录后使用", status_code=403)
+        # 未开放是常态而非错误：用 200 告知前端走登录，避免每个未登录页面都报一条 403。
+        return success(data={"available": False}, request_id=request.state.request_id)
     ip, ip_source = client_ip(request)
     try:
         allowed = reserve_new_guest_slot(ip)
@@ -83,6 +84,7 @@ def create_guest_identity(request: Request, user_repo: UserRepository = Depends(
     logger.info("guest_identity_created user=%s ip=%s source=%s", user.id, ip_digest(ip), ip_source)
     return success(
         data={
+            "available": True,
             "access_token": token,
             "token_type": "bearer",
             "expires_at": expires_at,

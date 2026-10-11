@@ -20,6 +20,15 @@ describe('guestSession', () => {
     vi.unstubAllGlobals();
   });
 
+  it('名额用完等错误返回不可用并带上服务端提示', async () => {
+    fetchMock.mockResolvedValue(json(429, { code: 'GUEST_LIMIT_REACHED', message: '今天免登录名额已用完' }));
+    await expect(ensureGuestSession()).resolves.toEqual({
+      status: 'unavailable',
+      code: 'GUEST_LIMIT_REACHED',
+      message: '今天免登录名额已用完',
+    });
+  });
+
   it('领取后存下令牌，再次调用直接复用，并发调用只发一次请求', async () => {
     fetchMock.mockImplementation(async () => json(200, {
       code: 'SUCCESS',
@@ -36,7 +45,7 @@ describe('guestSession', () => {
   });
 
   it('游客模式未开放时返回不可用，不存令牌', async () => {
-    fetchMock.mockResolvedValue(json(403, { code: 'GUEST_MODE_DISABLED', message: '暂未开放免登录使用' }));
+    fetchMock.mockResolvedValue(json(200, { code: 'SUCCESS', data: { available: false } }));
 
     await expect(ensureGuestSession()).resolves.toEqual({
       status: 'unavailable',

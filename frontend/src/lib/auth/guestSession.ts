@@ -80,9 +80,12 @@ async function requestGuestSession(): Promise<GuestSessionResult> {
   const body = await response.json().catch(() => null) as {
     code?: string;
     message?: string;
-    data?: { access_token?: string; expires_at?: number; user?: { id?: string } };
+    data?: { available?: boolean; access_token?: string; expires_at?: number; user?: { id?: string } };
   } | null;
   const data = body?.data;
+  if (response.ok && data?.available === false) {
+    return { status: 'unavailable', code: 'GUEST_MODE_DISABLED', message: '暂未开放免登录使用' };
+  }
   if (!response.ok || body?.code !== 'SUCCESS' || !data?.access_token || !data.user?.id) {
     return {
       status: 'unavailable',
