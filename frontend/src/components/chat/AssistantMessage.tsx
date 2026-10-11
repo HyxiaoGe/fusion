@@ -210,8 +210,9 @@ function AssistantMessageFrame({
     const slot = selectStreamSlot(state, conversationId);
     return slot.displayedTextLength >= slot.totalTextLength;
   });
+  // ready 事件在封口前就会到达，状态从 pending 变 ready 后也要继续显示到流结束，否则会闪一下。
   const awaitingSuggestedQuestions = isStreaming
-    && message.suggestedQuestionsStatus === 'pending'
+    && (message.suggestedQuestionsStatus === 'pending' || message.suggestedQuestionsStatus === 'ready')
     && streamTextCaughtUp;
 
   const answerEvidenceSidebar = useMemo(
