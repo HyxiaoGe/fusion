@@ -150,7 +150,7 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.calls[0][1], "generate_image")
         self.assertEqual(
             client.calls[0][2],
-            {"prompt": "a red fox", "aspect_ratio": "16:9", "fallback_model": FALLBACK_MODEL},
+            {"prompt": "a red fox", "aspect_ratio": "16:9", "fallback_model": FALLBACK_MODEL, "grounding": True},
         )
         self.assertEqual(client.min_timeouts, [MCP_CALL_TIMEOUT_SECONDS])
         self.assertEqual(server.requested_urls, [f"http://192.168.1.11:8090/static/images/{IMAGE_NAME}"])
@@ -237,11 +237,34 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(server.requested_urls, [f"http://192.168.1.11:8090/static/images/{IMAGE_NAME}"])
         self.assertEqual(result.data["model"], "doubao-seedream-4-5")
         self.assertTrue(result.data["fallback_used"])
+        self.assertFalse(result.data["grounding_used"])
         self.assertEqual(handler.build_content_block(result, "blk", "log").model, "doubao-seedream-4-5")
         context = handler.format_llm_context(result)
         self.assertIn("do not mention the model", context)
         self.assertNotIn("doubao-seedream-4-5", context)
         self.assertNotIn("gemini-3.1-flash-image-preview", context)
+
+    async def test_grounding_is_always_requested_and_reported(self):
+        client = self.structured_client(
+            {
+                "ok": True,
+                "image_url": f"http://image-service.dev.seanfield.org/static/images/{IMAGE_NAME}",
+                "model": "gemini-3.1-flash-image-preview",
+                "requested_model": "gemini-3.1-flash-image-preview",
+                "fallback_used": False,
+                "grounding_used": True,
+                "cached": False,
+                "id": "gen-2",
+            },
+            text=SUCCESS_TEXT,
+        )
+        handler, _, _, _ = self.build_handler(client=client)
+
+        result = await handler.execute({"prompt": "iPhone 18 Pro 产品宣传图"})
+
+        self.assertEqual(result.status, "success")
+        self.assertIs(client.calls[0][2]["grounding"], True)
+        self.assertTrue(result.data["grounding_used"])
 
     async def test_structured_failures_map_error_codes_and_guidance(self):
         cases = {
