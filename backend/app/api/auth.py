@@ -2,7 +2,6 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy.orm import Session
 
 from app.api.deps import get_user_repo
 from app.core import security
@@ -14,7 +13,6 @@ from app.core.guest_identity import (
     issue_guest_token,
     reserve_new_guest_slot,
 )
-from app.db.database import get_db
 from app.db.models import User as UserModel
 from app.db.repositories import UserRepository
 from app.schemas.auth import UserSettingsUpdate
@@ -59,7 +57,7 @@ async def read_current_user(request: Request, current_user: UserModel = Depends(
 
 
 @router.post("/guest")
-def create_guest_identity(request: Request, db: Session = Depends(get_db)):
+def create_guest_identity(request: Request, user_repo: UserRepository = Depends(get_user_repo)):
     """未登录用户领取游客身份。每次调用都新建一个游客，前端拿到令牌后长期保存复用。"""
     if not guest_mode_available():
         raise ApiException("GUEST_MODE_DISABLED", "暂未开放免登录使用，请登录后使用", status_code=403)
@@ -73,17 +71,7 @@ def create_guest_identity(request: Request, db: Session = Depends(get_db)):
         logger.info("guest_identity_rejected reason=ip_daily_limit ip=%s source=%s", ip_digest(ip), ip_source)
         raise ApiException("GUEST_LIMIT_REACHED", "今天免登录名额已用完，登录后继续使用", status_code=429)
 
-    user_id = str(uuid.uuid4())
-    user = UserRepository(db).create(
-        {
-            "id": user_id,
-            "username": f"guest-{user_id.replace('-', '')[:16]}",
-            "nickname": GUEST_NICKNAME,
-            "is_guest": True,
-        }
-    )
-    db.commit()
-    db.refresh(user)
+    user = user_repo.create_guest(str(uuid.uuid4()), GUEST_NICKNAME)
     token, expires_at = issue_guest_token(user.id)
     logger.info("guest_identity_created user=%s ip=%s source=%s", user.id, ip_digest(ip), ip_source)
     return success(

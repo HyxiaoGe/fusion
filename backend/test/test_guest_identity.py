@@ -55,7 +55,13 @@ class GuestTokenTests(unittest.TestCase):
 
     def test_token_signed_with_other_secret_is_rejected(self):
         forged = jwt.encode(
-            {"iss": "fusion-guest", "sub": "victim", "typ": "guest", "iat": int(time.time()), "exp": int(time.time()) + 60},
+            {
+                "iss": "fusion-guest",
+                "sub": "victim",
+                "typ": "guest",
+                "iat": int(time.time()),
+                "exp": int(time.time()) + 60,
+            },
             "a_secret_key",
             algorithm="HS256",
         )
@@ -171,24 +177,18 @@ class GuestApiTests(unittest.TestCase):
     def test_create_guest_returns_token_for_new_guest_user(self):
         db = MagicMock()
         self._override_db(db)
-        created = {}
-
-        def create(values):
-            created.update(values)
-            return SimpleNamespace(**values)
-
-        repo = MagicMock()
-        repo.create.side_effect = create
         with (
             _guest_settings(),
-            patch("app.api.auth.UserRepository", return_value=repo),
             patch("app.api.auth.reserve_new_guest_slot", return_value=True),
         ):
             response = self.client.post("/api/auth/guest", headers={"CF-Connecting-IP": "1.1.1.1"})
             self.assertEqual(response.status_code, 200)
             data = response.json()["data"]
-            self.assertEqual(guest_identity.verify_guest_token(data["access_token"]), created["id"])
-        self.assertTrue(created["is_guest"])
+            self.assertEqual(guest_identity.verify_guest_token(data["access_token"]), data["user"]["id"])
+        created = db.add.call_args.args[0]
+        self.assertEqual(created.id, data["user"]["id"])
+        self.assertTrue(created.is_guest)
+        self.assertTrue(created.username.startswith("guest-"))
         self.assertTrue(data["user"]["is_guest"])
         db.commit.assert_called_once()
 
