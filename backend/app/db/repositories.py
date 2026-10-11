@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import select
+from sqlalchemy import delete, exists, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.db.models import (
@@ -80,6 +80,32 @@ class UserRepository:
         self.db.commit()
         self.db.refresh(user)
         return user
+
+    def list_inactive_guest_ids(self, *, created_before: datetime, active_since: datetime, limit: int) -> list[str]:
+        """创建早于 created_before、且没有会话在 active_since 之后更新过的游客。"""
+        recently_active = exists().where(
+            ConversationModel.user_id == UserModel.id,
+            ConversationModel.updated_at >= active_since,
+        )
+        stmt = (
+            select(UserModel.id)
+            .where(UserModel.is_guest.is_(True), UserModel.created_at < created_before, ~recently_active)
+            .order_by(UserModel.created_at)
+            .limit(limit)
+        )
+        return list(self.db.execute(stmt).scalars())
+
+    def delete_guests(self, user_ids: list[str]) -> int:
+        """删除游客用户；会话、消息、轨迹等由外键 ON DELETE CASCADE 一并删除。"""
+        if not user_ids:
+            return 0
+        result = self.db.execute(
+            delete(UserModel)
+            .where(UserModel.id.in_(user_ids), UserModel.is_guest.is_(True))
+            .execution_options(synchronize_session=False)
+        )
+        self.db.commit()
+        return result.rowcount or 0
 
     def update_system_prompt(self, user: UserModel, system_prompt: str) -> UserModel:
         user.system_prompt = system_prompt

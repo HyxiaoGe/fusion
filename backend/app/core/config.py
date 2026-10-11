@@ -90,6 +90,8 @@ class Settings(BaseSettings):
     GUEST_DAILY_SEARCHES: int = int(os.getenv("GUEST_DAILY_SEARCHES", "10"))
     # 游客同时只能有一个回答在生成；占位超时兜住进程崩溃没释放的情况
     GUEST_RUN_SLOT_TTL_SECONDS: int = int(os.getenv("GUEST_RUN_SLOT_TTL_SECONDS", "900"))
+    # 超过这么多天没有活动的游客连同会话一起清理
+    GUEST_INACTIVE_DAYS: int = int(os.getenv("GUEST_INACTIVE_DAYS", "30"))
 
     # 知识库 v1：API、独立 Worker、Embedding 与 Milvus 均通过配置显式启用。
     KNOWLEDGE_BASE_ENABLED: bool = os.getenv("KNOWLEDGE_BASE_ENABLED", "false").lower() == "true"

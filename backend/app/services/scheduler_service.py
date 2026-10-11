@@ -6,6 +6,7 @@
 """
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from app.core.logger import app_logger as logger
@@ -22,6 +23,7 @@ async def start_scheduler() -> None:
         return
 
     from app.services.agent.trajectory_reconciliation import reconcile_trajectory_best_effort
+    from app.services.guest_cleanup import purge_inactive_guests_daily
 
     scheduler = AsyncIOScheduler()
 
@@ -31,6 +33,16 @@ async def start_scheduler() -> None:
         reconcile_trajectory_best_effort,
         trigger=IntervalTrigger(seconds=60),
         id="reconcile_trajectory_ledger",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
+    # 每天凌晨清理长期不活动的游客；多 worker 由任务内的 Redis 锁去重
+    scheduler.add_job(
+        purge_inactive_guests_daily,
+        trigger=CronTrigger(hour=4, minute=30, timezone="Asia/Shanghai"),
+        id="purge_inactive_guests",
         replace_existing=True,
         max_instances=1,
         coalesce=True,
