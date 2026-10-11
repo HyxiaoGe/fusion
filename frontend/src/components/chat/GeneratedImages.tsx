@@ -24,6 +24,9 @@ interface GeneratedImagesProps {
 }
 
 const EMPTY_PENDING: PendingImageGeneration[] = [];
+// 流式结束时消息会从流式视图切到持久化视图，卡片随之重挂载；
+// 缓存签名地址让重挂载直接复用已加载的图片，不再闪回点阵。
+const signedUrlCache = new Map<string, string>();
 const KNOWN_FAILURE_CODES = new Set(['content_filtered', 'upstream_timeout', 'generation_in_progress']);
 
 function toFileBlock(block: GeneratedImageBlock): FileBlock {
@@ -116,8 +119,11 @@ function GeneratedImageCard({
   onRegenerate?: (request: string) => void;
 }) {
   const { t } = useTranslation();
-  const [src, setSrc] = useState('');
-  const [state, setState] = useState<'loading' | 'ready' | 'loaded' | 'failed'>('loading');
+  const cachedSrc = signedUrlCache.get(block.file_id) ?? '';
+  const [src, setSrc] = useState(cachedSrc);
+  const [state, setState] = useState<'loading' | 'ready' | 'loaded' | 'failed'>(cachedSrc ? 'ready' : 'loading');
+  const [instant] = useState(Boolean(cachedSrc));
+  const [retriedCachedUrl, setRetriedCachedUrl] = useState(false);
   const [promptOpen, setPromptOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [width, height] = blockFrame(block);
@@ -126,7 +132,9 @@ function GeneratedImageCard({
   const load = useCallback(async () => {
     setState('loading');
     try {
-      setSrc(await getFileUrl(block.file_id, 'processed'));
+      const url = await getFileUrl(block.file_id, 'processed');
+      signedUrlCache.set(block.file_id, url);
+      setSrc(url);
       setState('ready');
     } catch {
       setState('failed');
@@ -134,8 +142,21 @@ function GeneratedImageCard({
   }, [block.file_id]);
 
   useEffect(() => {
+    if (signedUrlCache.has(block.file_id)) return;
     void load();
-  }, [load]);
+  }, [block.file_id, load]);
+
+  const handleImageError = () => {
+    // 缓存的签名地址可能已过期：丢掉后重新取一次，再失败才显示失败。
+    if (instant && !retriedCachedUrl) {
+      setRetriedCachedUrl(true);
+      signedUrlCache.delete(block.file_id);
+      void load();
+      return;
+    }
+    signedUrlCache.delete(block.file_id);
+    setState('failed');
+  };
 
   const handleDownload = async () => {
     setDownloading(true);
@@ -181,9 +202,10 @@ function GeneratedImageCard({
             src={src}
             alt={block.prompt}
             data-loaded={state === 'loaded'}
+            data-instant={instant || undefined}
             className="image-gen-image absolute inset-0 h-full w-full cursor-zoom-in object-cover"
             onLoad={() => setState('loaded')}
-            onError={() => setState('failed')}
+            onError={handleImageError}
             onClick={onOpen}
           />
         ) : null}
