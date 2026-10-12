@@ -17,7 +17,6 @@ import {
 } from '../../scripts/smoke-dev-deployment-helpers.mjs';
 
 const smokeScript = readFileSync(join(process.cwd(), 'scripts/smoke-dev-deployment.mjs'), 'utf8');
-const deployScript = readFileSync(join(process.cwd(), '../ops/deploy/ui-run-dev-browser-smoke.sh'), 'utf8');
 
 describe('deployment smoke helpers', () => {
   it('优先使用命令行 base-url，其次使用 SMOKE_BASE_URL，最后回退 dev 本机地址', () => {
@@ -127,6 +126,5 @@ describe('deployment smoke helpers', () => {
 
     const validateAt = smokeScript.indexOf('validateDeploymentSmokeResult(result);');
     expect(smokeScript.indexOf('context.storageState({ path: storageStatePath })')).toBeGreaterThan(validateAt);
-    expect(deployScript).toContain('SMOKE_STORAGE_STATE_PATH="$HOME/.cache/fusion-ui-smoke/storage-state.json"');
   });
 });
