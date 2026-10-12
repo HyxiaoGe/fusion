@@ -214,7 +214,7 @@ export default function DocumentReadingView({ document: ready, authIdentity }: D
         </div>
       ) : null}
       <div ref={bodyRef} className={cn('min-h-0 flex-1 overflow-y-auto', panelStyles.body, styles.body)} data-testid="document-reading-body" role="region" aria-label={t('documents.reading.bodyLabel')}>
-        <DocumentMarkdown content={ready.content} tabSelections={tabs} onTabChange={handleTabChange} />
+        <DocumentMarkdown content={ready.content} tabSelections={tabs} onTabChange={handleTabChange} runnableCode />
         <DocumentSources sources={ready.sources} />
       </div>
     </div>

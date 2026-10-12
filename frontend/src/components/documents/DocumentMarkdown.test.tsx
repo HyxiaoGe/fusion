@@ -252,3 +252,15 @@ describe('文档富内容', () => {
     expect(html).toContain('丙');
   });
 });
+
+describe('文档 HTML 代码块运行入口', () => {
+  it('只有阅读视图开启时显示运行按钮', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const content = '```html\n<p>hi</p>\n```';
+    const { rerender } = render(<DocumentMarkdown content={content} />);
+    expect(screen.queryByRole('button', { name: '在沙箱中运行 HTML' })).toBeNull();
+    rerender(<DocumentMarkdown content={content} runnableCode />);
+    expect(screen.getByRole('button', { name: '在沙箱中运行 HTML' })).toBeInTheDocument();
+  });
+});
+
