@@ -36,6 +36,7 @@ describe('SuggestedQuestions', () => {
     toastMock.mockReset();
     triggerLoginDialogMock.mockReset();
     currentState.auth.isAuthenticated = true;
+    currentState.guest = undefined;
     vi.stubGlobal('triggerLoginDialog', triggerLoginDialogMock);
   });
 
@@ -112,6 +113,31 @@ describe('SuggestedQuestions', () => {
         message: '请先登录后再使用聊天功能',
         type: 'warning',
       })
+    );
+    expect(triggerLoginDialogMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('游客今日额度用完时不发送，直接给登录入口', () => {
+    currentState.auth.isAuthenticated = false;
+    currentState.guest = {
+      status: 'ready',
+      userId: 'guest-1',
+      entitlements: { quota: { messages: { limit: 20, used: 20, remaining: 0 } } },
+    };
+    const onSelectQuestion = vi.fn();
+    render(
+      <SuggestedQuestions
+        questions={['问题一']}
+        isLoading={false}
+        onSelectQuestion={onSelectQuestion}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /问题一/ }));
+
+    expect(onSelectQuestion).not.toHaveBeenCalled();
+    expect(toastMock).toHaveBeenCalledWith(
+      expect.objectContaining({ message: '今天免登录可发送的消息已用完，登录后继续' })
     );
     expect(triggerLoginDialogMock).toHaveBeenCalledTimes(1);
   });
