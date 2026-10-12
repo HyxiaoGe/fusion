@@ -211,6 +211,7 @@
         "run": "Run",
         "rerun": "Run again",
         "runLabel": "Run HTML in a sandbox",
+        "runPending": "Available once the answer finishes",
         "previewLabel": "Output (sandboxed, no access to your account)",
         "previewTitle": "HTML output",
         "closePreview": "Close output"

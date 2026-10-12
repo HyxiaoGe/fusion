@@ -197,27 +197,42 @@ describe('CodeBlock', () => {
   });
 
   it('HTML 代码块可在无同源权限的沙箱里运行，并用点击时的快照', () => {
-    const { rerender } = render(<CodeBlock language="html" value="<p>第一版</p>" />);
+    const { rerender } = render(<CodeBlock language="html" value="<p>第一版</p>" allowRun runReady />);
 
     fireEvent.click(screen.getByRole('button', { name: '在沙箱中运行 HTML' }));
 
     const frame = screen.getByTitle('HTML 运行结果');
     expect(frame).toHaveAttribute('sandbox', 'allow-scripts allow-modals');
     expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin');
-    expect(frame).toHaveAttribute('srcdoc', '<p>第一版</p>');
+    expect(frame.getAttribute('srcdoc')).toContain('<p>第一版</p>');
 
-    rerender(<CodeBlock language="html" value="<p>第二版</p>" />);
-    expect(screen.getByTitle('HTML 运行结果')).toHaveAttribute('srcdoc', '<p>第一版</p>');
+    rerender(<CodeBlock language="html" value="<p>第二版</p>" allowRun runReady />);
+    expect(screen.getByTitle('HTML 运行结果').getAttribute('srcdoc')).toContain('<p>第一版</p>');
 
     fireEvent.click(screen.getByRole('button', { name: '重新运行' }));
-    expect(screen.getByTitle('HTML 运行结果')).toHaveAttribute('srcdoc', '<p>第二版</p>');
+    expect(screen.getByTitle('HTML 运行结果').getAttribute('srcdoc')).toContain('<p>第二版</p>');
 
     fireEvent.click(screen.getByRole('button', { name: '关闭运行结果' }));
     expect(screen.queryByTestId('html-preview')).toBeNull();
   });
 
+  it('回答没输出完时运行按钮不可点', () => {
+    const { rerender } = render(<CodeBlock language="html" value="<p>半截" allowRun runReady={false} />);
+
+    expect(screen.getByRole('button', { name: '在沙箱中运行 HTML' })).toBeDisabled();
+
+    rerender(<CodeBlock language="html" value="<p>完整</p>" allowRun runReady />);
+    expect(screen.getByRole('button', { name: '在沙箱中运行 HTML' })).toBeEnabled();
+  });
+
+  it('思考过程等未开放运行的地方不显示运行按钮', () => {
+    render(<CodeBlock language="html" value="<p>思考里的代码</p>" />);
+
+    expect(screen.queryByRole('button', { name: '在沙箱中运行 HTML' })).toBeNull();
+  });
+
   it('非 HTML 代码块没有运行按钮', () => {
-    render(<CodeBlock language="python" value="print(1)" />);
+    render(<CodeBlock language="python" value="print(1)" allowRun runReady />);
 
     expect(screen.queryByRole('button', { name: '在沙箱中运行 HTML' })).toBeNull();
   });

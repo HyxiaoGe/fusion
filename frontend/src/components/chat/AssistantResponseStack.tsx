@@ -61,7 +61,7 @@ interface AssistantResponseStackProps {
 const EMPTY_DOCUMENT_BLOCKS: DocumentBlock[] = [];
 const EMPTY_GENERATED_IMAGES: GeneratedImageBlock[] = [];
 const EMPTY_MAP_DATA_SOURCES: string[] = [];
-// 地图来源只在回答结束后标注，生成中（含思考、调用工具阶段）不提前出现。
+// 地图来源只在回答结束后标注，生成中（含思考、调用工具阶段）不提前出现；HTML 代码块也只在结束后可运行。
 const TERMINAL_ACTIVITY_KINDS: ReadonlySet<AssistantActivity['kind']> = new Set(['completed', 'failed', 'interrupted']);
 
 function AssistantResponseStack({
@@ -163,6 +163,7 @@ function AssistantResponseStack({
           content={markdown.content}
           sources={markdown.sources}
           onCitationClick={markdown.onCitationClick}
+          codeRunReady={TERMINAL_ACTIVITY_KINDS.has(activity.kind)}
         />
 
         {mapDataSources.length > 0 && TERMINAL_ACTIVITY_KINDS.has(activity.kind) ? (

@@ -16,6 +16,10 @@ interface CodeBlockProps {
   showLineNumbers?: boolean;
   className?: string;
   maxLines?: number; // 最大显示行数，超过则可折叠
+  /** 是否给 HTML 代码块显示「运行」 */
+  allowRun?: boolean;
+  /** 代码是否已输出完；没输完时「运行」不可点 */
+  runReady?: boolean;
 }
 
 type CopyState = 'idle' | 'copying' | 'copied' | 'failed';
@@ -89,7 +93,9 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
   value, 
   showLineNumbers = true,
   className,
-  maxLines = 15 // 默认最大显示15行
+  maxLines = 15, // 默认最大显示15行
+  allowRun = false,
+  runReady = false,
 }) => {
   const { t } = useTranslation();
   const [copyState, setCopyState] = useState<CopyState>('idle');
@@ -97,7 +103,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
   const revision = useRef(0);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const contentId = useId();
-  const isRunnableHtml = RUNNABLE_HTML_LANGUAGES.has(language.toLowerCase());
+  const isRunnableHtml = allowRun && RUNNABLE_HTML_LANGUAGES.has(language.toLowerCase());
   const [preview, setPreview] = useState<{ html: string; runId: number } | null>(null);
 
   // 运行用点击时的快照：流式输出中代码还在变，每来一个字就重建 iframe 会让页面反复重跑。
@@ -202,8 +208,9 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
               onClick={runHtml}
               onPointerMove={pointGlassLight}
               onPointerLeave={resetGlassLight}
-              title={t('chatBody.code.runLabel')}
+              title={t(runReady ? 'chatBody.code.runLabel' : 'chatBody.code.runPending')}
               aria-label={t('chatBody.code.runLabel')}
+              disabled={!runReady}
             >
               <GlassHoverLens corners={false} />
               <Play aria-hidden="true" />

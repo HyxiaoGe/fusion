@@ -207,6 +207,7 @@
         "run": "运行",
         "rerun": "重新运行",
         "runLabel": "在沙箱中运行 HTML",
+        "runPending": "回答输出完后才能运行",
         "previewLabel": "运行结果（沙箱隔离，无法访问你的账号）",
         "previewTitle": "HTML 运行结果",
         "closePreview": "关闭运行结果"

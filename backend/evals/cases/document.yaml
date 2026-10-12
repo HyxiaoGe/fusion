@@ -34,3 +34,12 @@ cases:
       - type: answer_block
         block_type: document
 
+  - id: html-page-code-stays-in-chat
+    source: dev 2026-10-12 mimo-v2.6-flash 修抽奖页时把整页 HTML 写进了文档，聊天里的运行按钮用不上
+    message: 写一个单文件 HTML 随机抽奖页面，名单可以编辑，有开始和停止按钮
+    checks:
+      - type: tool_not_called
+        tool: create_document
+      - type: answer_block
+        block_type: document
+        present: false

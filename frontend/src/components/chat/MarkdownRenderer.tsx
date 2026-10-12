@@ -7,7 +7,7 @@ import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import type { SearchSourceSummary } from '@/types/conversation';
 import { normalizeBareUrlsForMarkdown } from '@/lib/chat/markdownLinks';
-import { MarkdownCodeRenderer, MarkdownPreRenderer } from './markdownCodeComponents';
+import { CodeRunReadyContext, MarkdownCodeRenderer, MarkdownPreRenderer } from './markdownCodeComponents';
 import MarkdownTable from './MarkdownTable';
 import styles from './MarkdownRenderer.module.css';
 import CitationPreview from './CitationPreview';
@@ -18,6 +18,8 @@ interface MarkdownRendererProps {
   className?: string;
   sources?: SearchSourceSummary[];
   onCitationClick?: (index: number) => void;
+  /** 回答已输出完，HTML 代码块可以运行 */
+  codeRunReady?: boolean;
 }
 
 interface CitationRenderContextValue {
@@ -223,7 +225,13 @@ const MARKDOWN_COMPONENTS: Components = {
   td: MarkdownTableCellRenderer,
 };
 
-const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className, sources = [], onCitationClick }) => {
+const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
+  content,
+  className,
+  sources = [],
+  onCitationClick,
+  codeRunReady = false,
+}) => {
   const hasSources = sources.length > 0;
 
   const processedContent = useMemo(
@@ -238,13 +246,15 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className,
   return (
     <CitationPreview sources={sources} className={`${styles.content} ${className || ''}`}>
       <CitationRenderContext.Provider value={citationContextValue}>
-        <ReactMarkdown
-          remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
-          rehypePlugins={[rehypeRaw]}
-          components={MARKDOWN_COMPONENTS}
-        >
-          {processedContent}
-        </ReactMarkdown>
+        <CodeRunReadyContext.Provider value={codeRunReady}>
+          <ReactMarkdown
+            remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
+            rehypePlugins={[rehypeRaw]}
+            components={MARKDOWN_COMPONENTS}
+          >
+            {processedContent}
+          </ReactMarkdown>
+        </CodeRunReadyContext.Provider>
       </CitationRenderContext.Provider>
     </CitationPreview>
   );
