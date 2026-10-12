@@ -81,12 +81,17 @@ class UserRepository:
         self.db.refresh(user)
         return user
 
-    def list_inactive_guest_ids(self, *, created_before: datetime, active_since: datetime, limit: int) -> list[str]:
-        """创建早于 created_before、且没有会话在 active_since 之后更新过的游客。"""
-        recently_active = exists().where(
-            ConversationModel.user_id == UserModel.id,
-            ConversationModel.updated_at >= active_since,
-        )
+    def list_inactive_guest_ids(
+        self, *, created_before: datetime, active_since: datetime | None, limit: int
+    ) -> list[str]:
+        """创建早于 created_before、且没有会话在 active_since 之后更新过的游客。
+
+        active_since 为 None 时只选一个会话都没有的游客。
+        """
+        conditions = [ConversationModel.user_id == UserModel.id]
+        if active_since is not None:
+            conditions.append(ConversationModel.updated_at >= active_since)
+        recently_active = exists().where(*conditions)
         stmt = (
             select(UserModel.id)
             .where(UserModel.is_guest.is_(True), UserModel.created_at < created_before, ~recently_active)

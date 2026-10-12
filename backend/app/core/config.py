@@ -92,6 +92,7 @@ class Settings(BaseSettings):
     GUEST_RUN_SLOT_TTL_SECONDS: int = int(os.getenv("GUEST_RUN_SLOT_TTL_SECONDS", "900"))
     # 超过这么多天没有活动的游客连同会话一起清理
     GUEST_INACTIVE_DAYS: int = int(os.getenv("GUEST_INACTIVE_DAYS", "30"))
+    GUEST_UNUSED_HOURS: int = int(os.getenv("GUEST_UNUSED_HOURS", "24"))
 
     # 知识库 v1：API、独立 Worker、Embedding 与 Milvus 均通过配置显式启用。
     KNOWLEDGE_BASE_ENABLED: bool = os.getenv("KNOWLEDGE_BASE_ENABLED", "false").lower() == "true"
