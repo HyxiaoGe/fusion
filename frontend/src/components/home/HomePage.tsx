@@ -31,8 +31,10 @@ import type { PromptTemplateListItem } from '@/components/prompts/PromptTemplate
 import {
   fetchPromptExamples,
   fetchPromptTemplates,
+  type PromptExample,
   type PromptTemplateCatalogItem,
 } from '@/lib/api/prompts';
+import type { Entitlements } from '@/lib/api/user';
 import { preloadChatMessageList } from '@/components/lazy/preloaders';
 import { useRenderProbe } from '@/lib/debug/perfProbe';
 import { cn } from '@/lib/utils';
@@ -314,18 +316,40 @@ function fitInspirationRows(
   return visible;
 }
 
-interface HomePageProps {
-  onSelectPrompt: (content: string) => void;
+/**
+ * 只展示用户用得上的灵感：需要某项功能的题，要等权益确认有该功能才展示，
+ * 避免游客先看到生图、地图题又消失，或点了才发现用不了。
+ */
+function toInspirationPool(
+  examples: PromptExample[],
+  features: Entitlements['features'] | null,
+): string[] {
+  return Array.from(new Set(
+    examples
+      .filter((item) => !item.requires || features?.[item.requires] === true)
+      .map((item) => item.question.trim())
+      .filter(Boolean),
+  ));
 }
 
-const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt }) => {
+interface HomePageProps {
+  onSelectPrompt: (content: string) => void;
+  /** 当前用户的功能开关；权益未加载时为 null */
+  features?: Entitlements['features'] | null;
+}
+
+const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) => {
   useRenderProbe('HomePage');
   const [starterStartIndex, setStarterStartIndex] = useState(0);
   const [starterPrompts, setStarterPrompts] = useState(FALLBACK_STARTER_PROMPTS);
   const [areStartersFlipped, setAreStartersFlipped] = useState(false);
   const [isStarterPaused, setIsStarterPaused] = useState(false);
   const [libraryTemplates, setLibraryTemplates] = useState(FALLBACK_LIBRARY_TEMPLATES);
-  const [inspirationPool, setInspirationPool] = useState<string[]>(FALLBACK_INSPIRATIONS);
+  const [inspirationExamples, setInspirationExamples] = useState<PromptExample[] | null>(null);
+  const inspirationPool = useMemo(() => {
+    const pool = inspirationExamples ? toInspirationPool(inspirationExamples, features) : [];
+    return pool.length > 0 ? pool : FALLBACK_INSPIRATIONS;
+  }, [features, inspirationExamples]);
   const [inspirationStartIndex, setInspirationStartIndex] = useState(0);
   const [inspirationLayout, setInspirationLayout] = useState<{
     containerWidth: number;
@@ -364,11 +388,8 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt }) => {
     void fetchPromptExamples(INSPIRATION_FETCH_LIMIT)
       .then((data) => {
         if (cancelled) return;
-        const uniqueQuestions = Array.from(
-          new Set(data.examples.map((item) => item.question.trim()).filter(Boolean)),
-        );
-        if (uniqueQuestions.length > 0) {
-          setInspirationPool(uniqueQuestions);
+        if (data.examples.length > 0) {
+          setInspirationExamples(data.examples);
           setInspirationStartIndex(0);
         }
       })
