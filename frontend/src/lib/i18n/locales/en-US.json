@@ -193,7 +193,8 @@
       },
       "answerImage": {
         "openSource": "Open image source: {{site}}",
-        "loadFailed": "Image failed to load"
+        "loadFailed": "Image failed to load",
+        "view": "View larger: {{caption}}"
       },
       "code": {
         "plainText": "Plain text",

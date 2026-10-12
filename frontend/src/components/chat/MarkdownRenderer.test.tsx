@@ -4,6 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, it, expect, vi } from 'vite
 import i18n from '@/lib/i18n';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import MarkdownRenderer from './MarkdownRenderer';
+import { ANSWER_IMAGE_LOAD_TIMEOUT_MS } from './AnswerImage';
 
 const reactMarkdownRenderMock = vi.hoisted(() => vi.fn());
 
@@ -489,6 +490,31 @@ describe('回答配图', () => {
     expect(container.querySelector('img')).toBeNull();
     expect(screen.getByText('编造的图')).toBeInTheDocument();
     expect(screen.getByText('原始 HTML')).toBeInTheDocument();
+  });
+
+  it('点击图片放大查看，不带 Referer 请求原图', async () => {
+    render(<MarkdownRenderer content="![官方图](img_1a2b3c4d)" images={[image]} />);
+
+    const thumbnail = screen.getByRole('img', { name: '官方图' });
+    fireEvent.load(thumbnail);
+    fireEvent.click(screen.getByRole('button', { name: '放大查看：官方图' }));
+
+    const dialog = screen.getByRole('dialog');
+    const enlarged = await within(dialog).findByRole('img', { name: '官方图' });
+    expect(enlarged).toHaveAttribute('src', 'https://cdn.example.com/iphone.jpg');
+    expect(enlarged).toHaveAttribute('referrerpolicy', 'no-referrer');
+  });
+
+  it('源站一直不响应时超时显示加载失败', () => {
+    vi.useFakeTimers();
+    try {
+      render(<MarkdownRenderer content="![官方图](img_1a2b3c4d)" images={[image]} />);
+      expect(screen.queryByText('图片加载失败')).toBeNull();
+      act(() => { vi.advanceTimersByTime(ANSWER_IMAGE_LOAD_TIMEOUT_MS); });
+      expect(screen.getByText('图片加载失败')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('图片加载失败时如实显示失败', () => {

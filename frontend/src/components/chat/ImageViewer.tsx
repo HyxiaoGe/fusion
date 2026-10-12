@@ -53,6 +53,10 @@ interface ImageViewerProps {
   fileBlock?: FileBlock | null;
   /** 模式二：直接传入图片 URL（输入框预览使用） */
   imageUrl?: string | null;
+  /** 图片说明；不传时用文件名 */
+  alt?: string;
+  /** 第三方图片不带 Referer 请求，避免被源站防盗链拦截 */
+  referrerPolicy?: React.HTMLAttributeReferrerPolicy;
   onClose: () => void;
 }
 
@@ -61,7 +65,7 @@ interface ImageViewerProps {
  * - 消息气泡：传 fileBlock，自动请求原图 URL
  * - 输入框预览：传 imageUrl（blob URL），直接展示
  */
-const ImageViewer: React.FC<ImageViewerProps> = ({ fileBlock, imageUrl, onClose }) => {
+const ImageViewer: React.FC<ImageViewerProps> = ({ fileBlock, imageUrl, alt, referrerPolicy, onClose }) => {
   const [fullImageUrl, setFullImageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -137,7 +141,7 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ fileBlock, imageUrl, onClose 
     };
   }, [fileBlock, imageUrl, loadCandidate]);
 
-  const altText = fileBlock?.filename || '图片预览';
+  const altText = alt || fileBlock?.filename || '图片预览';
   const handleImageError = () => {
     const activeCandidate = activeCandidateRef.current;
     if (activeCandidate?.fromCache && activeCandidate.cacheKey) {
@@ -219,6 +223,7 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ fileBlock, imageUrl, onClose 
             <ZoomableImage
               src={fullImageUrl}
               alt={altText}
+              referrerPolicy={referrerPolicy}
               className="max-w-[85vw] max-h-[85vh] object-contain rounded-lg"
               onClick={(event) => event.stopPropagation()}
               onError={handleImageError}

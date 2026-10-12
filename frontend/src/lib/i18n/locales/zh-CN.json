@@ -193,7 +193,8 @@
       },
       "answerImage": {
         "openSource": "打开图片来源：{{site}}",
-        "loadFailed": "图片加载失败"
+        "loadFailed": "图片加载失败",
+        "view": "放大查看：{{caption}}"
       },
       "code": {
         "plainText": "纯文本",
