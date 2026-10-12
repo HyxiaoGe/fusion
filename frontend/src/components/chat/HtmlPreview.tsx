@@ -1,6 +1,7 @@
 'use client';
 
-import { RotateCw, X } from 'lucide-react';
+import { Maximize2, Minimize2, RotateCw, X } from 'lucide-react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import styles from './CodeBlock.module.css';
 
@@ -28,6 +29,25 @@ const STORAGE_SHIM = '<script>(function(){function m(){var d=new Map();return{'
   + '["localStorage","sessionStorage"].forEach(function(n){try{window[n]}catch(e){'
   + 'try{Object.defineProperty(window,n,{value:m(),configurable:true})}catch(_){}}})})();</script>';
 
+/** 沙箱页回报内容高度用的消息类型；父页面只认来自本预览 iframe 的这一种消息 */
+export const PREVIEW_HEIGHT_MESSAGE = 'fusion-html-preview-height';
+
+/**
+ * 页面内容高度变化时告诉父页面，预览框按内容撑开，不用在固定高度的小框里来回滚。
+ * scrollHeight 不会小于当前框高，所以框只会长到刚好放下内容；最高由样式限制在屏幕的八成。
+ */
+const HEIGHT_REPORTER = '<script>(function(){var last=0;function send(){'
+  + 'var h=Math.ceil(document.documentElement.scrollHeight);'
+  + `if(h!==last){last=h;parent.postMessage({type:"${PREVIEW_HEIGHT_MESSAGE}",height:h},"*")}}`
+  + 'if(window.ResizeObserver){var ro=new ResizeObserver(send);ro.observe(document.documentElement);'
+  + 'document.addEventListener("DOMContentLoaded",function(){if(document.body)ro.observe(document.body)})}'
+  + 'window.addEventListener("load",send)})();</script>';
+
+const SANDBOX_BOOTSTRAP = STORAGE_SHIM + HEIGHT_REPORTER;
+
+/** 预览框初始高度，也是自动撑开时的下限 */
+export const PREVIEW_MIN_HEIGHT = 320;
+
 /**
  * 替身脚本要在页面自己的脚本之前执行，又不能插在 <!DOCTYPE> 前面（会让页面进入怪异模式），
  * 所以依次找 <head>、<html>、DOCTYPE 的结束位置插入，都没有时放在最前面。
@@ -37,10 +57,10 @@ export function buildSandboxDocument(html: string): string {
     const match = pattern.exec(html);
     if (match) {
       const end = match.index + match[0].length;
-      return html.slice(0, end) + STORAGE_SHIM + html.slice(end);
+      return html.slice(0, end) + SANDBOX_BOOTSTRAP + html.slice(end);
     }
   }
-  return STORAGE_SHIM + html;
+  return SANDBOX_BOOTSTRAP + html;
 }
 
 interface HtmlPreviewProps {
@@ -54,15 +74,57 @@ interface HtmlPreviewProps {
 
 export default function HtmlPreview({ html, runId, onRerun, onClose }: HtmlPreviewProps) {
   const { t } = useTranslation();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  // 高度跟着 runId 走：重新运行时回到初始高度，由新页面重新回报。
+  const [fit, setFit] = useState({ runId, height: PREVIEW_MIN_HEIGHT });
+  const height = fit.runId === runId ? fit.height : PREVIEW_MIN_HEIGHT;
+  const [fullscreen, setFullscreen] = useState(false);
+  const canFullscreen = typeof document !== 'undefined' && Boolean(document.fullscreenEnabled);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== frameRef.current?.contentWindow) return;
+      const data = event.data as { type?: unknown; height?: unknown } | null;
+      if (data?.type !== PREVIEW_HEIGHT_MESSAGE || typeof data.height !== 'number' || !Number.isFinite(data.height)) return;
+      setFit({ runId, height: Math.max(PREVIEW_MIN_HEIGHT, Math.ceil(data.height)) });
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [runId]);
+
+  useEffect(() => {
+    const onChange = () => setFullscreen(document.fullscreenElement === containerRef.current);
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+    } else {
+      void containerRef.current?.requestFullscreen();
+    }
+  };
 
   return (
-    <div className={styles.preview} data-testid="html-preview">
+    <div ref={containerRef} className={styles.preview} data-testid="html-preview">
       <div className={styles.previewBar}>
         <span>{t('chatBody.code.previewLabel')}</span>
         <div className={styles.previewActions}>
           <button type="button" className={styles.previewButton} onClick={onRerun} aria-label={t('chatBody.code.rerun')}>
             <RotateCw aria-hidden="true" />
           </button>
+          {canFullscreen && (
+            <button
+              type="button"
+              className={styles.previewButton}
+              onClick={toggleFullscreen}
+              aria-label={t(fullscreen ? 'chatBody.code.exitFullscreen' : 'chatBody.code.fullscreen')}
+            >
+              {fullscreen ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
+            </button>
+          )}
           <button type="button" className={styles.previewButton} onClick={onClose} aria-label={t('chatBody.code.closePreview')}>
             <X aria-hidden="true" />
           </button>
@@ -70,7 +132,9 @@ export default function HtmlPreview({ html, runId, onRerun, onClose }: HtmlPrevi
       </div>
       <iframe
         key={runId}
+        ref={frameRef}
         className={styles.previewFrame}
+        style={{ '--preview-height': `${height}px` } as CSSProperties}
         title={t('chatBody.code.previewTitle')}
         sandbox={HTML_PREVIEW_SANDBOX}
         referrerPolicy="no-referrer"

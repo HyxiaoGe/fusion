@@ -214,7 +214,9 @@
         "runPending": "Available once the answer finishes",
         "previewLabel": "Output (sandboxed, no access to your account)",
         "previewTitle": "HTML output",
-        "closePreview": "Close output"
+        "closePreview": "Close output",
+        "fullscreen": "View full screen",
+        "exitFullscreen": "Exit full screen"
       },
       "table": {
         "label": "Answer table",

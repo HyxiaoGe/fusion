@@ -165,14 +165,15 @@
 .previewButton:hover { background: var(--bg-subtle); color: var(--code-fg); }
 .previewButton:focus-visible { outline: 2px solid var(--info); outline-offset: -2px; }
 .previewButton > svg { width: 14px; height: 14px; }
-/* 预览固定白底：大多数示例页面默认按白底设计，跟随深色主题会看不清。可拖动右下角调高度。 */
+/* 预览固定白底：大多数示例页面默认按白底设计，跟随深色主题会看不清。高度由页面回报的内容高度决定。 */
 .previewFrame {
   display: block;
   width: 100%;
-  height: 360px;
-  min-height: 160px;
+  height: var(--preview-height, 320px);
   max-height: 80vh;
   border: 0;
   background: #fff;
-  resize: vertical;
 }
+/* 全屏时预览栏在上、页面占满其余空间。 */
+.preview:fullscreen { display: flex; flex-direction: column; }
+.preview:fullscreen .previewFrame { flex: 1; height: auto; max-height: none; }

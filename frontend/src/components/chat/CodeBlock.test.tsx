@@ -236,4 +236,51 @@ describe('CodeBlock', () => {
 
     expect(screen.queryByRole('button', { name: '在沙箱中运行 HTML' })).toBeNull();
   });
+
+  it('预览框按沙箱页回报的内容高度撑开，只认本预览的消息，重新运行时回到初始高度', () => {
+    render(<CodeBlock language="html" value="<p>长页面</p>" allowRun runReady />);
+    fireEvent.click(screen.getByRole('button', { name: '在沙箱中运行 HTML' }));
+    const frame = () => screen.getByTitle('HTML 运行结果') as HTMLIFrameElement;
+    const heightOf = () => frame().style.getPropertyValue('--preview-height');
+    const report = (height: unknown, source: MessageEventSource | null = frame().contentWindow) => act(() => {
+      window.dispatchEvent(new MessageEvent('message', { data: { type: 'fusion-html-preview-height', height }, source }));
+    });
+
+    expect(heightOf()).toBe('320px');
+    report(640.4);
+    expect(heightOf()).toBe('641px');
+    report(100);
+    expect(heightOf()).toBe('320px');
+    report(900, window);
+    report('900');
+    expect(heightOf()).toBe('320px');
+
+    report(700);
+    fireEvent.click(screen.getByRole('button', { name: '重新运行' }));
+    expect(heightOf()).toBe('320px');
+  });
+
+  it('浏览器支持时可把预览全屏', () => {
+    Object.defineProperty(document, 'fullscreenEnabled', { configurable: true, value: true });
+    const requestFullscreen = vi.fn(() => Promise.resolve());
+    Object.defineProperty(HTMLElement.prototype, 'requestFullscreen', { configurable: true, value: requestFullscreen });
+    try {
+      render(<CodeBlock language="html" value="<p>宽页面</p>" allowRun runReady />);
+      fireEvent.click(screen.getByRole('button', { name: '在沙箱中运行 HTML' }));
+      fireEvent.click(screen.getByRole('button', { name: '全屏查看' }));
+
+      expect(requestFullscreen).toHaveBeenCalledTimes(1);
+      expect(requestFullscreen.mock.contexts[0]).toBe(screen.getByTestId('html-preview'));
+    } finally {
+      Reflect.deleteProperty(document, 'fullscreenEnabled');
+      Reflect.deleteProperty(HTMLElement.prototype, 'requestFullscreen');
+    }
+  });
+
+  it('浏览器不支持全屏时不显示全屏按钮', () => {
+    render(<CodeBlock language="html" value="<p>x</p>" allowRun runReady />);
+    fireEvent.click(screen.getByRole('button', { name: '在沙箱中运行 HTML' }));
+
+    expect(screen.queryByRole('button', { name: '全屏查看' })).toBeNull();
+  });
 });
