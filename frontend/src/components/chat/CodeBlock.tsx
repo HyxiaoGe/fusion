@@ -3,11 +3,12 @@
 import { Button } from '@/components/ui/button';
 import GlassHoverLens, { pointGlassLight, resetGlassLight } from '@/components/ui/GlassHoverLens';
 import { cn } from '@/lib/utils';
-import { Check, ClipboardCopy, FileText, Hash, ChevronDown, ChevronUp } from 'lucide-react';
+import { Check, ClipboardCopy, FileText, Hash, ChevronDown, ChevronUp, Play } from 'lucide-react';
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import hljs from 'highlight.js';
 import styles from './CodeBlock.module.css';
+import HtmlPreview from './HtmlPreview';
 
 interface CodeBlockProps {
   language: string;
@@ -64,6 +65,8 @@ const DISPLAY_LANGUAGE_MAP: Record<string, string> = {
   markdown: 'Markdown',
 };
 
+const RUNNABLE_HTML_LANGUAGES = new Set(['html', 'htm']);
+
 function getDisplayLanguage(language: string): string {
   return DISPLAY_LANGUAGE_MAP[language.toLowerCase()] || language.toUpperCase();
 }
@@ -94,6 +97,11 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
   const revision = useRef(0);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const contentId = useId();
+  const isRunnableHtml = RUNNABLE_HTML_LANGUAGES.has(language.toLowerCase());
+  const [preview, setPreview] = useState<{ html: string; runId: number } | null>(null);
+
+  // 运行用点击时的快照：流式输出中代码还在变，每来一个字就重建 iframe 会让页面反复重跑。
+  const runHtml = () => setPreview((current) => ({ html: value, runId: (current?.runId ?? 0) + 1 }));
 
   useEffect(() => {
     revision.current += 1;
@@ -185,25 +193,43 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
             </Button>
           )}
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className={cn(styles.copyButton, copyState === 'copied' && styles.success)}
-          onClick={() => { void handleCopy(); }}
-          onPointerMove={pointGlassLight}
-          onPointerLeave={resetGlassLight}
-          title={t('chatBody.code.copyLabel')}
-          aria-label={t('chatBody.code.copyLabel')}
-          disabled={copyState === 'copying'}
-        >
-          <GlassHoverLens corners={false} />
-          {copyState === 'copied' ? (
-            <Check aria-hidden="true" />
-          ) : (
-            <ClipboardCopy aria-hidden="true" />
+        <div className={styles.actions}>
+          {isRunnableHtml && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={styles.copyButton}
+              onClick={runHtml}
+              onPointerMove={pointGlassLight}
+              onPointerLeave={resetGlassLight}
+              title={t('chatBody.code.runLabel')}
+              aria-label={t('chatBody.code.runLabel')}
+            >
+              <GlassHoverLens corners={false} />
+              <Play aria-hidden="true" />
+              <span>{t(preview ? 'chatBody.code.rerun' : 'chatBody.code.run')}</span>
+            </Button>
           )}
-          <span aria-live="polite">{copyLabel}</span>
-        </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn(styles.copyButton, copyState === 'copied' && styles.success)}
+            onClick={() => { void handleCopy(); }}
+            onPointerMove={pointGlassLight}
+            onPointerLeave={resetGlassLight}
+            title={t('chatBody.code.copyLabel')}
+            aria-label={t('chatBody.code.copyLabel')}
+            disabled={copyState === 'copying'}
+          >
+            <GlassHoverLens corners={false} />
+            {copyState === 'copied' ? (
+              <Check aria-hidden="true" />
+            ) : (
+              <ClipboardCopy aria-hidden="true" />
+            )}
+            <span aria-live="polite">{copyLabel}</span>
+          </Button>
+        </div>
       </div>
 
       {copyState === 'failed' ? (
@@ -273,6 +299,14 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
           </div>
       </div>
 
+      {preview && (
+        <HtmlPreview
+          html={preview.html}
+          runId={preview.runId}
+          onRerun={runHtml}
+          onClose={() => setPreview(null)}
+        />
+      )}
     </div>
   );
 };

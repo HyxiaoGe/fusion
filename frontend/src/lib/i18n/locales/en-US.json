@@ -207,7 +207,13 @@
         "copying": "Copying…",
         "copied": "Copied",
         "failed": "Copy failed. Select the code to copy manually or try again.",
-        "contentLabel": "Code content: {{language}}"
+        "contentLabel": "Code content: {{language}}",
+        "run": "Run",
+        "rerun": "Run again",
+        "runLabel": "Run HTML in a sandbox",
+        "previewLabel": "Output (sandboxed, no access to your account)",
+        "previewTitle": "HTML output",
+        "closePreview": "Close output"
       },
       "table": {
         "label": "Answer table",

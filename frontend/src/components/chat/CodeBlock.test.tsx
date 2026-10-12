@@ -195,4 +195,30 @@ describe('CodeBlock', () => {
     expect(screen.getByRole('button', { name: 'Expand code' })).toBeInTheDocument();
     expect(screen.getByText('Show 1 remaining line')).toBeInTheDocument();
   });
+
+  it('HTML 代码块可在无同源权限的沙箱里运行，并用点击时的快照', () => {
+    const { rerender } = render(<CodeBlock language="html" value="<p>第一版</p>" />);
+
+    fireEvent.click(screen.getByRole('button', { name: '在沙箱中运行 HTML' }));
+
+    const frame = screen.getByTitle('HTML 运行结果');
+    expect(frame).toHaveAttribute('sandbox', 'allow-scripts allow-modals');
+    expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin');
+    expect(frame).toHaveAttribute('srcdoc', '<p>第一版</p>');
+
+    rerender(<CodeBlock language="html" value="<p>第二版</p>" />);
+    expect(screen.getByTitle('HTML 运行结果')).toHaveAttribute('srcdoc', '<p>第一版</p>');
+
+    fireEvent.click(screen.getByRole('button', { name: '重新运行' }));
+    expect(screen.getByTitle('HTML 运行结果')).toHaveAttribute('srcdoc', '<p>第二版</p>');
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭运行结果' }));
+    expect(screen.queryByTestId('html-preview')).toBeNull();
+  });
+
+  it('非 HTML 代码块没有运行按钮', () => {
+    render(<CodeBlock language="python" value="print(1)" />);
+
+    expect(screen.queryByRole('button', { name: '在沙箱中运行 HTML' })).toBeNull();
+  });
 });
