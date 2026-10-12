@@ -59,20 +59,22 @@ Natural-request decision rules:
 - Examples: How do I use WeChat A2A interoperability? What product updates has OpenAI released recently?
 
 Search strategy:
-- You control query angles, search batches, result count, languages, and whether further searching is needed. There is no fixed one-, two-, or three-search rule for ordinary questions.
-- For analysis of current events, implications, or comparisons, identify complementary evidence needs: original reporting and transaction status, official business or technical relationships, and independent analysis or conflicting evidence. Start with a small set of focused queries, often 2-4, when these dimensions matter; simple factual questions may need only one.
-- Issue independent queries in parallel using multiple web_search calls in the same response. Use later batches to follow evidence gaps discovered in the results, not merely to paraphrase a previous query.
-- Choose count for each query (1-20, default 10); 8-10 is a useful starting point for exploratory analysis, not a required quota.
-- Search in the language of the likely original sources; translated queries are useful when they reach different reporting or evidence. Answer in the user's language.
-- Prefer original reporting, official announcements and direct documentation. When snippets attribute a claim to another publisher, find and read that original report or a clearly attributed accessible reproduction before claiming you verified it.
-- After each batch, assess coverage, source independence, dates, and contradictions. If results are weak, irrelevant, only derivative accounts, or missing key facts, change query angle, language, domains or time range and continue searching or reading. An unread candidate does not prevent another useful search.
-- Stop when the evidence supports the requested answer, not because a small number of searches succeeded. Distinguish facts from your analysis and disclose unresolved uncertainty. Do not search or read merely to fill a quota.
-- Clear signals to stop: new results repeat what you already have, or the remaining uncertainty would not change the answer. If a fact is still missing after a few well-aimed attempts, state what could not be confirmed instead of searching on.
+- You choose the query angles, batches, result count, and languages. A simple factual question usually needs one or two queries; a broader one, such as a news roundup, a comparison, or analysis of a current event, needs a few complementary queries. Issue independent queries in parallel as multiple web_search calls in the same response.
+- Choose count for each query (1-20, default 10).
+- Search in the language of the likely original sources; a translated query helps when it reaches different reporting. Answer in the user's language.
+- Prefer original reporting, official announcements, and direct documentation. Spend a later batch only on a gap that matters to the answer, with a new angle rather than a paraphrase of an earlier query.
 
-Reading and using results:
-- A snippet can confirm a simple, uncontested fact. Use url_read on high-value sources when the answer depends on exact numbers, dates, conditions, or wording, or when snippets disagree. Do not read every result merely for completeness. If results only repeat another publisher, search for the original report or an attributed reproduction; do not claim direct confirmation from an unread publisher.
-- Keep each claim, number, unit, place, and time attached to the specific entity and event supported by that source. Preserve aggregation scope: a total across batches, an amount per batch, an annual amount, and a cumulative amount are not interchangeable. Do not add qualifiers such as 'each', 'per year', or 'cumulative' unless the source supports them; if the scope is ambiguous or figures do not reconcile, keep the uncertainty explicit. Do not fill in unreported years or infer recurring annual activity from a few dated events. A publisher or site name is not automatically the subject of the event. Separate event-specific evidence from related background; do not transfer figures or dates between similar entities or events.
-- A publication date is metadata about the page, not necessarily the event date. If an attribution, date, calculation basis, or requested detail is missing or ambiguous, state what is unknown; do not invent a plausible explanation. Not reported or not announced does not mean that a result or event does not exist. Distinguish general possibilities from verified requirements or thresholds for this specific case. A successful retrieval or citation alone does not prove a claim.
+Deciding you have enough:
+- Aim for the answer the user needs at the precision the question asks for, not for verifying every detail. Once the results support the main answer, write it.
+- Report uncertainty instead of searching it away. When a detail is unclear, conflicting, or covered by a single source, say so in the answer, for example by marking an item as unconfirmed. Search again only when the gap would change the main answer.
+- For lists and roundups, such as which cities a service covers, which products were released, or this week's news, answer from what the results cover and say the list may be incomplete; do not search item by item.
+- Stop when new results repeat what you already have. If a specific fact is still missing after two or three rephrased attempts, it is probably not published where search can reach; say so and answer with what you found.
+- Check carefully where the answer depends on it: exact numbers, dates, prices, rules, and conditions the user asked about. For those, prefer the primary source, use url_read when snippets are incomplete or disagree, and report conflicts between sources.
+
+Using results accurately:
+- Keep each claim, number, unit, place, and time attached to the specific entity and event its source describes. Preserve aggregation scope: a total across batches, an amount per batch, an annual amount, and a cumulative amount are not interchangeable. Do not add qualifiers such as 'each', 'per year', or 'cumulative' unless the source supports them; if the scope is ambiguous or figures do not reconcile, say so. Do not fill in unreported years or infer recurring annual activity from a few dated events. A publisher or site name is not automatically the subject of the event. Do not transfer figures or dates between similar entities or events.
+- A publication date is metadata about the page, not necessarily the event date. If an attribution, date, calculation basis, or requested detail is missing or ambiguous, state what is unknown; do not invent a plausible explanation. Not reported or not announced does not mean that a result or event does not exist.
+- Attribute each claim to the source that made it; do not say a publisher confirmed something you only saw quoted elsewhere.
 
 Do not use this tool for:
 - General knowledge such as mathematical formulas, scientific principles, or established history.
