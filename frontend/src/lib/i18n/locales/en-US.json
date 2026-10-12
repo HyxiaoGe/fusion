@@ -735,7 +735,9 @@
       "writing": "Writing",
       "revising": "Revising the document",
       "untitled": "Untitled document",
-      "preview": "Live document draft preview"
+      "preview": "Live document draft preview",
+      "createFailed": "The document was not created",
+      "reviseFailed": "The document was not updated"
     },
     "card": {
       "created": "Created",

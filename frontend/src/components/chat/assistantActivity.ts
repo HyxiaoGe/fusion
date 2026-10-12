@@ -91,7 +91,7 @@ export function deriveAssistantActivity(input: DeriveAssistantActivityInput): As
     hasText,
     hasThinking: hasThinking && !shouldSuppressReasoning,
     hasRunningTool: runningToolActivity !== null,
-    hasDraft: Boolean(input.currentRun?.documentDraft),
+    hasDraft: Boolean(input.currentRun?.documentDraft && !input.currentRun.documentDraft.failed),
     llmOutput: input.currentRun?.llmPhase?.output ?? null,
     hasToolResults: findLatestToolCall(
       input.currentRun,

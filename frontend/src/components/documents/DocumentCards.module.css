@@ -60,6 +60,20 @@
   box-shadow: inset 0 1px 0 var(--bg-elevated);
 }
 
+/* 工具调用失败：文档没有生成，卡片改为中性底色加危险色描边，不再像正在生成。 */
+.draftCard.draftCardFailed {
+  background: var(--bg-elevated);
+  border-color: var(--danger-border);
+  box-shadow: none;
+}
+
+.draftFailedIcon {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  color: var(--danger);
+}
+
 .draftPreview {
   width: 100%;
   max-width: 42rem;

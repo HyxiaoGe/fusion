@@ -234,6 +234,8 @@ export interface DocumentDraftState {
   content: string;
   /** 修订草稿的目标文档，用于在生成期显示原文档标题。 */
   documentId: string;
+  /** 对应的文档工具调用失败（如参数不完整），文档没有创建或修改。 */
+  failed?: boolean;
 }
 
 export type AgentContextType = 'geolocation';
