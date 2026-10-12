@@ -25,9 +25,16 @@ FROM source AS test
 
 ENV NODE_ENV=test
 
+# PR 只改了源码时传入改动文件，只跑受影响的测试；空值跑全量（master 与改配置/依赖的 PR）。
+ARG UI_TEST_RELATED=""
+
 RUN npm run lint
 
-RUN npm test
+RUN if [ -n "$UI_TEST_RELATED" ]; then \
+      npx vitest related --run --passWithNoTests $UI_TEST_RELATED; \
+    else \
+      npm test; \
+    fi
 
 
 FROM source AS builder

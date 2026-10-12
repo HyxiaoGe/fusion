@@ -144,6 +144,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          # PR merge ref 需要第一父提交（目标分支）来算改动范围。
+          fetch-depth: 2
           persist-credentials: false
 
       - name: Setup Node.js
@@ -161,8 +163,20 @@ jobs:
         id: release_safety_contract
         run: .github/scripts/release-safety-contract.sh frontend/release-safety.yml
 
+      - name: Select UI test scope
+        id: ui_test_scope
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          related="$(.github/scripts/ui_test_scope.sh "${EVENT_NAME}")"
+          echo "related=${related}" >> "$GITHUB_OUTPUT"
+
       - name: Test and build UI Docker targets
         shell: bash
+        env:
+          UI_TEST_RELATED: ${{ steps.ui_test_scope.outputs.related }}
         run: |
           set -euo pipefail
           builder="fusion-ui-pr-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -177,6 +191,7 @@ jobs:
             --no-cache-filter test \
             --progress plain \
             --provenance=false \
+            --build-arg "UI_TEST_RELATED=${UI_TEST_RELATED}" \
             frontend
 
           docker buildx build \
