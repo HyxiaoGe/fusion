@@ -64,6 +64,7 @@ DEFAULT_AUTO_MODEL_CONFIG = {
 }
 
 
+# required_capabilities 是权益 features 的键（如 image_generation / map），前端只展示用户全部开启的卡片。
 DEFAULT_HOME_PROMPT_CATALOG = {
     "items": [
         {
@@ -77,7 +78,23 @@ DEFAULT_HOME_PROMPT_CATALOG = {
             "tone": "blue",
             "sort_order": 10,
             "enabled": True,
-            "required_capabilities": ["web_search"],
+            "required_capabilities": [],
+        },
+        {
+            "id": "image",
+            "kind": "starter",
+            "title": "生成图片",
+            "description": "描述画面，生成插画、海报或头像",
+            "content": (
+                "请帮我生成一张图片：画面是【主体和场景】，风格【插画/写实/水彩等】，"
+                "用途【头像/海报/壁纸】，比例【1:1/16:9/9:16】。"
+            ),
+            "category": "创作",
+            "icon_key": "image-plus",
+            "tone": "rose",
+            "sort_order": 15,
+            "enabled": True,
+            "required_capabilities": ["image_generation"],
         },
         {
             "id": "file",
@@ -90,7 +107,7 @@ DEFAULT_HOME_PROMPT_CATALOG = {
             "tone": "violet",
             "sort_order": 20,
             "enabled": True,
-            "required_capabilities": ["file_support"],
+            "required_capabilities": ["file_upload"],
         },
         {
             "id": "code-review",
@@ -184,7 +201,7 @@ DEFAULT_HOME_PROMPT_CATALOG = {
             "tone": "sky",
             "sort_order": 90,
             "enabled": True,
-            "required_capabilities": [],
+            "required_capabilities": ["map"],
         },
         {
             "id": "weekend-itinerary",
@@ -200,7 +217,7 @@ DEFAULT_HOME_PROMPT_CATALOG = {
             "tone": "orange",
             "sort_order": 100,
             "enabled": True,
-            "required_capabilities": [],
+            "required_capabilities": ["map"],
         },
         {
             "id": "dining-entertainment",
@@ -216,7 +233,7 @@ DEFAULT_HOME_PROMPT_CATALOG = {
             "tone": "teal",
             "sort_order": 110,
             "enabled": True,
-            "required_capabilities": [],
+            "required_capabilities": ["map"],
         },
         {
             "id": "weather-planning",
@@ -232,7 +249,7 @@ DEFAULT_HOME_PROMPT_CATALOG = {
             "tone": "cyan",
             "sort_order": 120,
             "enabled": True,
-            "required_capabilities": [],
+            "required_capabilities": ["mcp_tools"],
         },
         {
             "id": "template-code-explanation",
