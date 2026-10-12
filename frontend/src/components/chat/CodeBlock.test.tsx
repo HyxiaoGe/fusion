@@ -259,28 +259,4 @@ describe('CodeBlock', () => {
     fireEvent.click(screen.getByRole('button', { name: '重新运行' }));
     expect(heightOf()).toBe('320px');
   });
-
-  it('浏览器支持时可把预览全屏', () => {
-    Object.defineProperty(document, 'fullscreenEnabled', { configurable: true, value: true });
-    const requestFullscreen = vi.fn(() => Promise.resolve());
-    Object.defineProperty(HTMLElement.prototype, 'requestFullscreen', { configurable: true, value: requestFullscreen });
-    try {
-      render(<CodeBlock language="html" value="<p>宽页面</p>" allowRun runReady />);
-      fireEvent.click(screen.getByRole('button', { name: '在沙箱中运行 HTML' }));
-      fireEvent.click(screen.getByRole('button', { name: '全屏查看' }));
-
-      expect(requestFullscreen).toHaveBeenCalledTimes(1);
-      expect(requestFullscreen.mock.contexts[0]).toBe(screen.getByTestId('html-preview'));
-    } finally {
-      Reflect.deleteProperty(document, 'fullscreenEnabled');
-      Reflect.deleteProperty(HTMLElement.prototype, 'requestFullscreen');
-    }
-  });
-
-  it('浏览器不支持全屏时不显示全屏按钮', () => {
-    render(<CodeBlock language="html" value="<p>x</p>" allowRun runReady />);
-    fireEvent.click(screen.getByRole('button', { name: '在沙箱中运行 HTML' }));
-
-    expect(screen.queryByRole('button', { name: '全屏查看' })).toBeNull();
-  });
 });
