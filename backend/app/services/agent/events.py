@@ -12,6 +12,7 @@ from app.schemas.chat import (
     DataSourceBlock,
     DocumentBlock,
     GeneratedImageBlock,
+    ImageResultsBlock,
     KnowledgeEvidenceBlock,
     ProductResultBlock,
 )
@@ -356,6 +357,7 @@ class ContentBlockUpserted(AgentEventBase):
         | KnowledgeEvidenceBlock
         | DocumentBlock
         | GeneratedImageBlock
+        | ImageResultsBlock
         | DataSourceBlock
         | ContentFilteredBlock
     )

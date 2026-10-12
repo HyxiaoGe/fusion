@@ -1,7 +1,9 @@
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from app.schemas.chat import ImageResultsBlock
 from app.schemas.content_block_registry import CONTENT_BLOCK_REGISTRY
+from app.services.agent.events import ContentBlockUpserted
 from app.services.tool_handlers import get_handler
 from app.services.tool_handlers.image_search import ImageSearchHandler, image_result_id
 
@@ -99,6 +101,17 @@ class ImageSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
             [image.image_url for image in block.images], [image["image_url"] for image in result.data["images"]]
         )
         self.assertIn(("image_results", 1), CONTENT_BLOCK_REGISTRY)
+        # 流式过程中靠 content_block_upserted 送达前端，事件白名单漏了会只在刷新后才显示图片。
+        event = ContentBlockUpserted(
+            type="content_block_upserted",
+            protocol_version=2,
+            run_id="run-1",
+            sequence=1,
+            trace_id="trace-1",
+            ts=1.0,
+            content_block=block,
+        )
+        self.assertIsInstance(event.content_block, ImageResultsBlock)
 
         context = handler.format_llm_context(result)
         self.assertIn(f"id={result.data['images'][0]['id']}", context)
