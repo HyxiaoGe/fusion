@@ -2,6 +2,7 @@
 
 import { RotateCw, X } from 'lucide-react';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { downloadTextFile } from '@/lib/documents/documentExport';
 import { useTranslation } from 'react-i18next';
 import styles from './CodeBlock.module.css';
 
@@ -71,6 +72,22 @@ export function htmlDownloadFilename(html: string): string {
   const title = new DOMParser().parseFromString(html, 'text/html').title;
   const safeTitle = title.replace(/[\\/:*?"<>|\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
   return `${safeTitle || 'page'}.html`;
+}
+
+const RUNNABLE_HTML_LANGUAGES = new Set(['html', 'htm']);
+
+export function isRunnableHtmlLanguage(language: string | undefined): boolean {
+  return RUNNABLE_HTML_LANGUAGES.has((language ?? '').toLowerCase());
+}
+
+/** 聊天和文档里的 HTML 代码块共用的运行/下载状态。 */
+export function useHtmlRunner(value: string) {
+  const [preview, setPreview] = useState<{ html: string; runId: number } | null>(null);
+  // 运行用点击时的快照：流式输出中代码还在变，每来一个字就重建 iframe 会让页面反复重跑。
+  const run = () => setPreview((current) => ({ html: value, runId: (current?.runId ?? 0) + 1 }));
+  const close = () => setPreview(null);
+  const download = () => downloadTextFile(htmlDownloadFilename(value), value, 'text/html');
+  return { preview, run, close, download };
 }
 
 interface HtmlPreviewProps {

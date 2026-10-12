@@ -29,6 +29,8 @@ interface DocumentMarkdownProps {
   onTabChange?: (path: string, index: number) => void;
   /** 仅只读差异视图传入，范围以 content 的原始字符位置为准。 */
   highlights?: DocumentHighlightRange[];
+  /** 阅读视图开启：HTML 代码块可运行和下载。 */
+  runnableCode?: boolean;
 }
 
 const ReadingTabsContext = createContext<{
@@ -36,8 +38,9 @@ const ReadingTabsContext = createContext<{
   onChange?: (path: string, index: number) => void;
 } | null>(null);
 const HighlightsContext = createContext<Record<string, DocumentHighlightRange[]> | null>(null);
+const RunnableCodeContext = createContext(false);
 
-export default function DocumentMarkdown({ content, expandTabs = false, className, tabSelections, onTabChange, highlights }: DocumentMarkdownProps) {
+export default function DocumentMarkdown({ content, expandTabs = false, className, tabSelections, onTabChange, highlights, runnableCode = false }: DocumentMarkdownProps) {
   const { segments, highlightsByPath } = useMemo(() => {
     const positions: DocumentSourcePositions | undefined = highlights?.length ? new WeakMap() : undefined;
     const segments = parseDocumentDirectives(content, positions);
@@ -48,7 +51,9 @@ export default function DocumentMarkdown({ content, expandTabs = false, classNam
     <div className={cn(markdownStyles.content, styles.document, 'fdoc', className)} data-testid="document-markdown">
       <ReadingTabsContext.Provider value={readingTabs}>
         <HighlightsContext.Provider value={highlightsByPath}>
-          <Segments segments={segments} expandTabs={expandTabs} path="root" />
+          <RunnableCodeContext.Provider value={runnableCode}>
+            <Segments segments={segments} expandTabs={expandTabs} path="root" />
+          </RunnableCodeContext.Provider>
         </HighlightsContext.Provider>
       </ReadingTabsContext.Provider>
     </div>
@@ -196,20 +201,22 @@ const DocumentTable = ({ node, ...props }: MarkdownElementProps<'table'>) => {
   );
 };
 
-function renderDocumentPre({ node, children, ...props }: MarkdownElementProps<'pre'>, staticView: boolean) {
+function renderDocumentPre({ node, children, ...props }: MarkdownElementProps<'pre'>, staticView: boolean, runnable = false) {
   void node;
   const nodes = React.Children.toArray(children);
   const code = nodes[0];
   if (nodes.length === 1 && React.isValidElement<React.ComponentPropsWithoutRef<'code'>>(code) && code.type === 'code') {
     const language = /language-([^\s]+)/.exec(code.props.className ?? '')?.[1];
-    const block = <DocumentCodeBlock language={language} value={String(code.props.children ?? '')} staticView={staticView} />;
+    const block = <DocumentCodeBlock language={language} value={String(code.props.children ?? '')} staticView={staticView} runnable={runnable} />;
     return props['data-document-change'] ? <div data-document-change={props['data-document-change']}>{block}</div> : block;
   }
   return <pre {...props}>{children}</pre>;
 }
 
 // renderer 保持模块级稳定，草稿增量更新不重挂代码复制状态。
-const DocumentPre = (props: MarkdownElementProps<'pre'>) => renderDocumentPre(props, false);
+function DocumentPre(props: MarkdownElementProps<'pre'>) {
+  return renderDocumentPre(props, false, useContext(RunnableCodeContext));
+}
 const StaticDocumentPre = (props: MarkdownElementProps<'pre'>) => renderDocumentPre(props, true);
 const DOCUMENT_MARKDOWN_COMPONENTS: Components = { a: DocumentLink, table: DocumentTable, pre: DocumentPre };
 const STATIC_MARKDOWN_COMPONENTS: Components = { a: DocumentLink, table: DocumentTable, pre: StaticDocumentPre };

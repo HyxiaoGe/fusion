@@ -4,6 +4,9 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import i18n from '@/lib/i18n';
 import DocumentCodeBlock from './DocumentCodeBlock';
 
+const downloadTextFileMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/documents/documentExport', () => ({ downloadTextFile: downloadTextFileMock }));
+
 const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
 
 describe('文档代码复制', () => {
@@ -57,5 +60,35 @@ describe('文档代码复制', () => {
     expect(await screen.findByText('已复制')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(writeText).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('文档里的 HTML 代码运行', () => {
+  beforeAll(async () => { await i18n.changeLanguage('zh-CN'); });
+
+  const html = '<!DOCTYPE html><html><head><title>旋转银河</title></head><body><canvas></canvas></body></html>';
+
+  it('阅读视图里 HTML 代码块可在沙箱运行、关闭和下载', () => {
+    render(<DocumentCodeBlock value={html} language="html" runnable />);
+    expect(screen.queryByTitle('HTML 运行结果')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '在沙箱中运行 HTML' }));
+    const frame = screen.getByTitle('HTML 运行结果');
+    expect(frame.getAttribute('sandbox')).toBe('allow-scripts allow-modals');
+    expect(frame.getAttribute('srcdoc')).toContain('<canvas></canvas>');
+    expect(screen.getByText('重新运行')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '下载为 HTML 文件，可在本地浏览器打开' }));
+    expect(downloadTextFileMock).toHaveBeenCalledWith('旋转银河.html', html, 'text/html');
+  });
+
+  it('非 HTML、未开启运行或静态导出时不显示运行和下载', () => {
+    const { rerender } = render(<DocumentCodeBlock value="print(1)" language="python" runnable />);
+    expect(screen.queryByRole('button', { name: '在沙箱中运行 HTML' })).toBeNull();
+    rerender(<DocumentCodeBlock value={html} language="html" />);
+    expect(screen.queryByRole('button', { name: '在沙箱中运行 HTML' })).toBeNull();
+    rerender(<DocumentCodeBlock value={html} language="html" runnable staticView />);
+    expect(screen.queryByRole('button', { name: '在沙箱中运行 HTML' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '下载为 HTML 文件，可在本地浏览器打开' })).toBeNull();
   });
 });
