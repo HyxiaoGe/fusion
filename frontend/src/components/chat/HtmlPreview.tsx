@@ -1,6 +1,6 @@
 'use client';
 
-import { Maximize2, Minimize2, RotateCw, X } from 'lucide-react';
+import { RotateCw, X } from 'lucide-react';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import styles from './CodeBlock.module.css';
@@ -63,6 +63,16 @@ export function buildSandboxDocument(html: string): string {
   return SANDBOX_BOOTSTRAP + html;
 }
 
+/**
+ * 下载用的文件名：取页面 <title>（用 DOMParser 解析，只读不执行脚本），去掉文件名里不允许的字符；
+ * 没有标题时叫 page.html。下载的是模型给的原始代码，本地打开有真实的 localStorage。
+ */
+export function htmlDownloadFilename(html: string): string {
+  const title = new DOMParser().parseFromString(html, 'text/html').title;
+  const safeTitle = title.replace(/[\\/:*?"<>|\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+  return `${safeTitle || 'page'}.html`;
+}
+
 interface HtmlPreviewProps {
   /** 点击运行时的代码快照；流式输出后续变化不会自动刷新，需要重新运行 */
   html: string;
@@ -74,13 +84,10 @@ interface HtmlPreviewProps {
 
 export default function HtmlPreview({ html, runId, onRerun, onClose }: HtmlPreviewProps) {
   const { t } = useTranslation();
-  const containerRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
   // 高度跟着 runId 走：重新运行时回到初始高度，由新页面重新回报。
   const [fit, setFit] = useState({ runId, height: PREVIEW_MIN_HEIGHT });
   const height = fit.runId === runId ? fit.height : PREVIEW_MIN_HEIGHT;
-  const [fullscreen, setFullscreen] = useState(false);
-  const canFullscreen = typeof document !== 'undefined' && Boolean(document.fullscreenEnabled);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -93,38 +100,14 @@ export default function HtmlPreview({ html, runId, onRerun, onClose }: HtmlPrevi
     return () => window.removeEventListener('message', onMessage);
   }, [runId]);
 
-  useEffect(() => {
-    const onChange = () => setFullscreen(document.fullscreenElement === containerRef.current);
-    document.addEventListener('fullscreenchange', onChange);
-    return () => document.removeEventListener('fullscreenchange', onChange);
-  }, []);
-
-  const toggleFullscreen = () => {
-    if (document.fullscreenElement) {
-      void document.exitFullscreen();
-    } else {
-      void containerRef.current?.requestFullscreen();
-    }
-  };
-
   return (
-    <div ref={containerRef} className={styles.preview} data-testid="html-preview">
+    <div className={styles.preview} data-testid="html-preview">
       <div className={styles.previewBar}>
         <span>{t('chatBody.code.previewLabel')}</span>
         <div className={styles.previewActions}>
           <button type="button" className={styles.previewButton} onClick={onRerun} aria-label={t('chatBody.code.rerun')}>
             <RotateCw aria-hidden="true" />
           </button>
-          {canFullscreen && (
-            <button
-              type="button"
-              className={styles.previewButton}
-              onClick={toggleFullscreen}
-              aria-label={t(fullscreen ? 'chatBody.code.exitFullscreen' : 'chatBody.code.fullscreen')}
-            >
-              {fullscreen ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
-            </button>
-          )}
           <button type="button" className={styles.previewButton} onClick={onClose} aria-label={t('chatBody.code.closePreview')}>
             <X aria-hidden="true" />
           </button>

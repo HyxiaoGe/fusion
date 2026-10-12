@@ -207,12 +207,12 @@
         "run": "运行",
         "rerun": "重新运行",
         "runLabel": "在沙箱中运行 HTML",
-        "runPending": "回答输出完后才能运行",
+        "runPending": "回答输出完后可用",
+        "download": "下载",
+        "downloadLabel": "下载为 HTML 文件，可在本地浏览器打开",
         "previewLabel": "运行结果（沙箱隔离，无法访问你的账号）",
         "previewTitle": "HTML 运行结果",
-        "closePreview": "关闭运行结果",
-        "fullscreen": "全屏查看",
-        "exitFullscreen": "退出全屏"
+        "closePreview": "关闭运行结果"
       },
       "table": {
         "label": "回答表格",

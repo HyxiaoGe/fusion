@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSandboxDocument } from './HtmlPreview';
+import { buildSandboxDocument, htmlDownloadFilename } from './HtmlPreview';
 
 const SHIM_MARK = 'localStorage';
 
@@ -28,5 +28,17 @@ describe('buildSandboxDocument', () => {
 
     expect(doc).toContain('fusion-html-preview-height');
     expect(doc.indexOf('fusion-html-preview-height')).toBeLessThan(doc.indexOf('run()'));
+  });
+});
+
+describe('htmlDownloadFilename', () => {
+  it('取页面标题做文件名，去掉文件名里不允许的字符', () => {
+    expect(htmlDownloadFilename('<html><head><title>抽奖 &amp; 计分</title></head></html>')).toBe('抽奖 & 计分.html');
+    expect(htmlDownloadFilename('<title>a/b:c*d?</title>')).toBe('a b c d.html');
+  });
+
+  it('没有标题或标题为空时叫 page.html', () => {
+    expect(htmlDownloadFilename('<p>x</p>')).toBe('page.html');
+    expect(htmlDownloadFilename('<title>  </title>')).toBe('page.html');
   });
 });

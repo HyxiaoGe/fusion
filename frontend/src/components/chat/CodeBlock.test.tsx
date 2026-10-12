@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '@/lib/i18n';
 import CodeBlock from './CodeBlock';
 
+const downloadTextFileMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/documents/documentExport', () => ({ downloadTextFile: downloadTextFileMock }));
+
 const highlightMock = vi.hoisted(() => vi.fn((value: string) => ({
   value: `<mark>${value}</mark>`,
 })));
@@ -260,27 +263,22 @@ describe('CodeBlock', () => {
     expect(heightOf()).toBe('320px');
   });
 
-  it('浏览器支持时可把预览全屏', () => {
-    Object.defineProperty(document, 'fullscreenEnabled', { configurable: true, value: true });
-    const requestFullscreen = vi.fn(() => Promise.resolve());
-    Object.defineProperty(HTMLElement.prototype, 'requestFullscreen', { configurable: true, value: requestFullscreen });
-    try {
-      render(<CodeBlock language="html" value="<p>宽页面</p>" allowRun runReady />);
-      fireEvent.click(screen.getByRole('button', { name: '在沙箱中运行 HTML' }));
-      fireEvent.click(screen.getByRole('button', { name: '全屏查看' }));
+  it('HTML 代码块可下载原始代码，文件名取页面标题；没输出完时不可下载', () => {
+    downloadTextFileMock.mockClear();
+    const html = '<!DOCTYPE html><html><head><title>随机抽奖器</title></head><body></body></html>';
+    const { rerender } = render(<CodeBlock language="html" value={html} allowRun runReady={false} />);
 
-      expect(requestFullscreen).toHaveBeenCalledTimes(1);
-      expect(requestFullscreen.mock.contexts[0]).toBe(screen.getByTestId('html-preview'));
-    } finally {
-      Reflect.deleteProperty(document, 'fullscreenEnabled');
-      Reflect.deleteProperty(HTMLElement.prototype, 'requestFullscreen');
-    }
+    expect(screen.getByRole('button', { name: '下载为 HTML 文件，可在本地浏览器打开' })).toBeDisabled();
+
+    rerender(<CodeBlock language="html" value={html} allowRun runReady />);
+    fireEvent.click(screen.getByRole('button', { name: '下载为 HTML 文件，可在本地浏览器打开' }));
+
+    expect(downloadTextFileMock).toHaveBeenCalledWith('随机抽奖器.html', html, 'text/html');
   });
 
-  it('浏览器不支持全屏时不显示全屏按钮', () => {
-    render(<CodeBlock language="html" value="<p>x</p>" allowRun runReady />);
-    fireEvent.click(screen.getByRole('button', { name: '在沙箱中运行 HTML' }));
+  it('非 HTML 代码块没有下载按钮', () => {
+    render(<CodeBlock language="python" value="print(1)" allowRun runReady />);
 
-    expect(screen.queryByRole('button', { name: '全屏查看' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '下载为 HTML 文件，可在本地浏览器打开' })).toBeNull();
   });
 });
