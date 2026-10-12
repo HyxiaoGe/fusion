@@ -1,5 +1,5 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
-import { ensureGuestSession, type GuestSessionResult } from '@/lib/auth/guestSession';
+import { ensureGuestSession, readGuestSession, type GuestSessionResult } from '@/lib/auth/guestSession';
 import { fetchEntitlementsAPI, type Entitlements } from '@/lib/api/user';
 
 /**
@@ -17,11 +17,18 @@ interface GuestState {
   entitlements: Entitlements | null;
 }
 
-const initialState: GuestState = {
-  status: 'idle',
-  userId: null,
-  entitlements: null,
-};
+// 和登录态一样在模块加载时读取本地游客会话：刷新后身份从第一帧起就是同一个游客，
+// 不会先空再变，否则身份切换会清掉正在加载的会话详情。
+function getInitialGuestState(): GuestState {
+  const session = readGuestSession();
+  return {
+    status: session ? 'ready' : 'idle',
+    userId: session?.userId ?? null,
+    entitlements: null,
+  };
+}
+
+const initialState: GuestState = getInitialGuestState();
 
 export const bootstrapGuestSession = createAsyncThunk<GuestSessionResult>(
   'guest/bootstrap',
@@ -50,7 +57,8 @@ const guestSlice = createSlice({
   extraReducers: (builder) => {
     builder
       .addCase(bootstrapGuestSession.pending, (state) => {
-        state.status = 'loading';
+        // 已有游客身份时再次确认不退回 loading，避免身份短暂变空。
+        if (state.status !== 'ready') state.status = 'loading';
       })
       .addCase(bootstrapGuestSession.fulfilled, (state, action) => {
         if (action.payload.status === 'ready') {
