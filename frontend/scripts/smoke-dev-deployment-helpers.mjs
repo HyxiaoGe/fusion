@@ -89,3 +89,17 @@ export function validateDeploymentSmokeResult(result) {
     throw new DeploymentSmokeError(failures.join('；'), result);
   }
 }
+
+/**
+ * 未登录打开首页会自动领取游客身份，而冒烟每次都从 dev 内网同一地址发起，
+ * 每次部署都领新游客会撞上「同一 IP 每天新建游客」上限（429）。
+ * 有上次保存的浏览器存储（含游客令牌）就接着用；游客被清理或令牌失效时
+ * 前端会重新领取，一天最多新增一个。
+ */
+export function resolveSmokeStorageStatePath(env = process.env) {
+  return env.SMOKE_STORAGE_STATE_PATH || null;
+}
+
+export function buildSmokeContextOptions(storageStatePath, fileExists) {
+  return storageStatePath && fileExists(storageStatePath) ? { storageState: storageStatePath } : {};
+}

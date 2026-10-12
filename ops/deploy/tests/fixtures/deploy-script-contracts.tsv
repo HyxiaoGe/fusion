@@ -31,7 +31,7 @@ workflow	step	script	body_sha256
 .github/workflows/_deploy-ui.yml	Deploy candidate image	ops/deploy/ui-deploy-candidate-image.sh	d894b502b6f487ec47948f4ffc182f4e40bc602922c8d39c7d5737f7a601769c
 .github/workflows/_deploy-ui.yml	Smoke check candidate deployment	ops/deploy/ui-smoke-check-candidate-deployment.sh	f6b3f65fd89eb9d6953a109bd4bfa2186dd494472c30bcac80a2496ccc2f120a
 .github/workflows/_deploy-ui.yml	Resolve browser smoke runtime	ops/deploy/ui-resolve-browser-smoke-runtime.sh	978ad127e0c682647b1913c88685292ffb5506b8acd8a24c2b8f04c83348ec8c
-.github/workflows/_deploy-ui.yml	Run dev browser smoke	ops/deploy/ui-run-dev-browser-smoke.sh	7620d702b3493b97ab49cd4c0f6ad848999ec845a5b14ebf74af904f9bf21daf
+.github/workflows/_deploy-ui.yml	Run dev browser smoke	ops/deploy/ui-run-dev-browser-smoke.sh	95cc8740ce5877951cd8e346b4fa3d015eac00ac4b0cdb17313a687c73391439
 .github/workflows/_deploy-ui.yml	Preserve UI rollback image	ops/deploy/ui-preserve-rollback-image.sh	2b03fad72cf08b103e7f52bdccbe9a4ed5cd24f94a922ba4e562544856a760c6
 .github/workflows/_deploy-ui.yml	Record accepted UI release	ops/deploy/ui-record-accepted-release.sh	704692690057217b9b8c8cbbf927bb3a6cf71d99dc08d46217910d93b714db42
 .github/workflows/_deploy-ui.yml	Rollback previous deployment	ops/deploy/ui-rollback-previous-deployment.sh	1d907aabeb2d4c42baeea5a967f3355d9ad579a599a37d3f5a8aca631277d11c

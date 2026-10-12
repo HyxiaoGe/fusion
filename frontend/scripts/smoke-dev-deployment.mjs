@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 
+import { existsSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
+  buildSmokeContextOptions,
   buildSmokeSessionStorageFlags,
   buildSmokeUrl,
   isSameOrigin,
@@ -12,6 +15,7 @@ import {
   resolvePlaywrightChromium,
   resolvePlaywrightModuleSpecifier,
   resolveSmokeBaseUrl,
+  resolveSmokeStorageStatePath,
   validateDeploymentSmokeResult,
 } from './smoke-dev-deployment-helpers.mjs';
 
@@ -53,11 +57,17 @@ async function dismissBlockingDialog(page) {
   });
 }
 
-export async function runDeploymentSmoke({ baseUrl = resolveSmokeBaseUrl(), chromium, logger = console } = {}) {
+export async function runDeploymentSmoke({
+  baseUrl = resolveSmokeBaseUrl(),
+  chromium,
+  logger = console,
+  storageStatePath = resolveSmokeStorageStatePath(),
+} = {}) {
   const consoleErrors = [];
   const pageErrors = [];
   const smokeUrl = buildSmokeUrl(baseUrl);
   let browser;
+  let context;
   let page;
 
   try {
@@ -69,7 +79,8 @@ export async function runDeploymentSmoke({ baseUrl = resolveSmokeBaseUrl(), chro
       ...(executablePath ? { executablePath } : {}),
       args: ['--no-sandbox'],
     });
-    page = await browser.newPage();
+    context = await browser.newContext(buildSmokeContextOptions(storageStatePath, existsSync));
+    page = await context.newPage();
     await page.addInitScript((flags) => {
       try {
         for (const [key, value] of Object.entries(flags)) {
@@ -113,6 +124,11 @@ export async function runDeploymentSmoke({ baseUrl = resolveSmokeBaseUrl(), chro
     };
 
     validateDeploymentSmokeResult(result);
+    // 只在冒烟通过后保存，避免把异常状态带到下一次部署。
+    if (storageStatePath) {
+      mkdirSync(dirname(storageStatePath), { recursive: true });
+      await context.storageState({ path: storageStatePath });
+    }
     logger.log(`deployment smoke ok: ${JSON.stringify(result)}`);
     return result;
   } catch (error) {
