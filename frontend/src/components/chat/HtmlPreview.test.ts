@@ -22,4 +22,11 @@ describe('buildSandboxDocument', () => {
 
     expect(doc.startsWith('<html><script>')).toBe(true);
   });
+
+  it('同时注入高度回报脚本，在页面自己的脚本之前', () => {
+    const doc = buildSandboxDocument('<html><head></head><body><script>run()</script></body></html>');
+
+    expect(doc).toContain('fusion-html-preview-height');
+    expect(doc.indexOf('fusion-html-preview-height')).toBeLessThan(doc.indexOf('run()'));
+  });
 });
