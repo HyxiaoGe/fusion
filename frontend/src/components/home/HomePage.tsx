@@ -7,6 +7,7 @@ import {
   CloudSun,
   Code2,
   FileText,
+  ImagePlus,
   Languages,
   Library,
   ListChecks,
@@ -49,7 +50,11 @@ interface StarterPrompt {
   category: string;
   icon: LucideIcon;
   tone: string;
+  /** 需要的功能开关（权益 features 的键），全部开启才展示 */
+  requires: FeatureKey[];
 }
+
+type FeatureKey = keyof Entitlements['features'];
 
 const FALLBACK_STARTER_PROMPTS: StarterPrompt[] = [
   {
@@ -60,6 +65,17 @@ const FALLBACK_STARTER_PROMPTS: StarterPrompt[] = [
     category: '研究',
     icon: Search,
     tone: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+    requires: [],
+  },
+  {
+    id: 'image',
+    title: '生成图片',
+    description: '描述画面，生成插画、海报或头像',
+    prompt: '请帮我生成一张图片：画面是【主体和场景】，风格【插画/写实/水彩等】，用途【头像/海报/壁纸】，比例【1:1/16:9/9:16】。',
+    category: '创作',
+    icon: ImagePlus,
+    tone: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
+    requires: ['image_generation'],
   },
   {
     id: 'file',
@@ -69,6 +85,7 @@ const FALLBACK_STARTER_PROMPTS: StarterPrompt[] = [
     category: '文件',
     icon: FileText,
     tone: 'bg-violet-500/10 text-violet-600 dark:text-violet-400',
+    requires: ['file_upload'],
   },
   {
     id: 'code-review',
@@ -78,6 +95,7 @@ const FALLBACK_STARTER_PROMPTS: StarterPrompt[] = [
     category: '编程',
     icon: Code2,
     tone: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+    requires: [],
   },
   {
     id: 'writing',
@@ -87,6 +105,7 @@ const FALLBACK_STARTER_PROMPTS: StarterPrompt[] = [
     category: '写作',
     icon: PenLine,
     tone: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+    requires: [],
   },
   {
     id: 'data',
@@ -96,6 +115,7 @@ const FALLBACK_STARTER_PROMPTS: StarterPrompt[] = [
     category: '分析',
     icon: BarChart3,
     tone: 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400',
+    requires: [],
   },
   {
     id: 'plan',
@@ -105,6 +125,7 @@ const FALLBACK_STARTER_PROMPTS: StarterPrompt[] = [
     category: '规划',
     icon: ListChecks,
     tone: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
+    requires: [],
   },
   {
     id: 'learning',
@@ -114,6 +135,7 @@ const FALLBACK_STARTER_PROMPTS: StarterPrompt[] = [
     category: '学习',
     icon: BookOpenCheck,
     tone: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400',
+    requires: [],
   },
   {
     id: 'translation',
@@ -123,6 +145,7 @@ const FALLBACK_STARTER_PROMPTS: StarterPrompt[] = [
     category: '写作',
     icon: Languages,
     tone: 'bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400',
+    requires: [],
   },
   {
     id: 'commute-planning',
@@ -132,6 +155,7 @@ const FALLBACK_STARTER_PROMPTS: StarterPrompt[] = [
     category: '出行',
     icon: MapPinned,
     tone: 'bg-sky-500/10 text-sky-600 dark:text-sky-400',
+    requires: ['map'],
   },
   {
     id: 'weekend-itinerary',
@@ -141,6 +165,7 @@ const FALLBACK_STARTER_PROMPTS: StarterPrompt[] = [
     category: '出行',
     icon: CalendarRange,
     tone: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
+    requires: ['map'],
   },
   {
     id: 'dining-entertainment',
@@ -150,6 +175,7 @@ const FALLBACK_STARTER_PROMPTS: StarterPrompt[] = [
     category: '出行',
     icon: UtensilsCrossed,
     tone: 'bg-teal-500/10 text-teal-600 dark:text-teal-400',
+    requires: ['map'],
   },
   {
     id: 'weather-planning',
@@ -159,6 +185,7 @@ const FALLBACK_STARTER_PROMPTS: StarterPrompt[] = [
     category: '出行',
     icon: CloudSun,
     tone: 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400',
+    requires: ['mcp_tools'],
   },
 ];
 
@@ -200,6 +227,7 @@ const ICONS_BY_KEY: Record<string, LucideIcon> = {
   'list-checks': ListChecks,
   'book-open-check': BookOpenCheck,
   languages: Languages,
+  'image-plus': ImagePlus,
   'map-pinned': MapPinned,
   'calendar-range': CalendarRange,
   'utensils-crossed': UtensilsCrossed,
@@ -220,13 +248,16 @@ const TONES_BY_KEY: Record<string, string> = {
   teal: 'bg-teal-500/10 text-teal-600 dark:text-teal-400',
 };
 
-const FALLBACK_LIBRARY_TEMPLATES: PromptTemplateListItem[] = [
+type LibraryTemplate = PromptTemplateListItem & { requires: FeatureKey[] };
+
+const FALLBACK_LIBRARY_TEMPLATES: LibraryTemplate[] = [
   ...FALLBACK_STARTER_PROMPTS.map((starter) => ({
     id: starter.id,
     title: starter.title,
     content: starter.prompt,
     category: starter.category,
     isSystem: true,
+    requires: starter.requires,
   })),
   {
     id: 'template-code-explanation',
@@ -234,6 +265,7 @@ const FALLBACK_LIBRARY_TEMPLATES: PromptTemplateListItem[] = [
     content: '请解释以下代码的功能，并分析其时间和空间复杂度：\n\n```\n<在此处放置代码>\n```',
     category: '编程',
     isSystem: true,
+    requires: [],
   },
   {
     id: 'template-text-summary',
@@ -241,6 +273,7 @@ const FALLBACK_LIBRARY_TEMPLATES: PromptTemplateListItem[] = [
     content: '请总结以下文本的要点：\n\n<在此处放置文本>',
     category: '写作',
     isSystem: true,
+    requires: [],
   },
   {
     id: 'template-question-answering',
@@ -248,6 +281,7 @@ const FALLBACK_LIBRARY_TEMPLATES: PromptTemplateListItem[] = [
     content: '我需要回答以下问题，请提供详细的解释：\n\n<在此处放置问题>',
     category: '学习',
     isSystem: true,
+    requires: [],
   },
 ];
 
@@ -260,17 +294,24 @@ function toStarterPrompt(item: PromptTemplateCatalogItem): StarterPrompt {
     category: item.category,
     icon: ICONS_BY_KEY[item.icon_key] ?? Sparkles,
     tone: TONES_BY_KEY[item.tone] ?? TONES_BY_KEY.blue,
+    requires: item.required_capabilities,
   };
 }
 
-function toLibraryTemplate(item: PromptTemplateCatalogItem): PromptTemplateListItem {
+function toLibraryTemplate(item: PromptTemplateCatalogItem): LibraryTemplate {
   return {
     id: item.id,
     title: item.title,
     content: item.content,
     category: item.category,
     isSystem: true,
+    requires: item.required_capabilities,
   };
+}
+
+/** 卡片所需功能都已确认开启才可用；权益未加载时只展示不需要额外功能的卡片。 */
+function isAvailable(requires: FeatureKey[], features: Entitlements['features'] | null): boolean {
+  return requires.every((feature) => features?.[feature] === true);
 }
 
 function estimateInspirationWidth(question: string): number {
@@ -341,10 +382,18 @@ interface HomePageProps {
 const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) => {
   useRenderProbe('HomePage');
   const [starterStartIndex, setStarterStartIndex] = useState(0);
-  const [starterPrompts, setStarterPrompts] = useState(FALLBACK_STARTER_PROMPTS);
+  const [catalogStarters, setCatalogStarters] = useState(FALLBACK_STARTER_PROMPTS);
+  const starterPrompts = useMemo(
+    () => catalogStarters.filter((starter) => isAvailable(starter.requires, features)),
+    [catalogStarters, features],
+  );
   const [areStartersFlipped, setAreStartersFlipped] = useState(false);
   const [isStarterPaused, setIsStarterPaused] = useState(false);
-  const [libraryTemplates, setLibraryTemplates] = useState(FALLBACK_LIBRARY_TEMPLATES);
+  const [catalogTemplates, setCatalogTemplates] = useState(FALLBACK_LIBRARY_TEMPLATES);
+  const libraryTemplates = useMemo(
+    () => catalogTemplates.filter((template) => isAvailable(template.requires, features)),
+    [catalogTemplates, features],
+  );
   const [inspirationExamples, setInspirationExamples] = useState<PromptExample[] | null>(null);
   const inspirationPool = useMemo(() => {
     const pool = inspirationExamples ? toInspirationPool(inspirationExamples, features) : [];
@@ -409,11 +458,11 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
         const remoteTemplates = enabledItems.map(toLibraryTemplate);
 
         if (remoteStarters.length >= STARTER_PAGE_SIZE) {
-          setStarterPrompts(remoteStarters);
+          setCatalogStarters(remoteStarters);
           setStarterStartIndex(0);
         }
         if (remoteTemplates.length > 0) {
-          setLibraryTemplates(remoteTemplates);
+          setCatalogTemplates(remoteTemplates);
         }
       })
       .catch(() => {

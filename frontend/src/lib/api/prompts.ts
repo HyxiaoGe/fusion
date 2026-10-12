@@ -30,7 +30,8 @@ export interface PromptTemplateCatalogItem {
   tone: string;
   sort_order: number;
   enabled: boolean;
-  required_capabilities: string[];
+  /** 需要的功能开关（权益 features 的键），全部开启才展示 */
+  required_capabilities: Array<keyof Entitlements['features']>;
 }
 
 export interface PromptTemplateCatalogResponse {

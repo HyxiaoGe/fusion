@@ -123,6 +123,21 @@ function createLocationCatalogItems() {
   ];
 }
 
+const REGISTERED_FEATURES = {
+  model_selection: true,
+  deep_research: true,
+  file_upload: true,
+  image_generation: true,
+  map: true,
+  knowledge_base: true,
+  mcp_tools: true,
+  personalization: true,
+};
+
+const GUEST_FEATURES = Object.fromEntries(
+  Object.keys(REGISTERED_FEATURES).map((key) => [key, false]),
+) as typeof REGISTERED_FEATURES;
+
 describe('HomePage', () => {
   beforeEach(() => {
     preloadChatMessageListMock.mockReset();
@@ -182,7 +197,7 @@ describe('HomePage', () => {
   it('点击换一批后按波浪翻牌效果替换核心任务', async () => {
     vi.useFakeTimers();
     try {
-      render(<HomePage onSelectPrompt={vi.fn()} />);
+      render(<HomePage onSelectPrompt={vi.fn()} features={REGISTERED_FEATURES} />);
 
       expect(screen.getByRole('button', { name: /深度调研/ })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /分析数据/ })).toBeNull();
@@ -214,7 +229,7 @@ describe('HomePage', () => {
   it('任务模板会自动切换到下一批', async () => {
     vi.useFakeTimers();
     try {
-      render(<HomePage onSelectPrompt={vi.fn()} />);
+      render(<HomePage onSelectPrompt={vi.fn()} features={REGISTERED_FEATURES} />);
 
       await act(async () => {
         await Promise.resolve();
@@ -508,7 +523,7 @@ describe('HomePage', () => {
 
   it('前端兜底时更多模板也包含首页精选任务', async () => {
     const onSelectPrompt = vi.fn();
-    render(<HomePage onSelectPrompt={onSelectPrompt} />);
+    render(<HomePage onSelectPrompt={onSelectPrompt} features={REGISTERED_FEATURES} />);
 
     await act(async () => {
       await Promise.resolve();
@@ -524,6 +539,26 @@ describe('HomePage', () => {
 
     expect(onSelectPrompt).toHaveBeenCalledWith(expect.stringContaining('联网调研'));
     expect(screen.queryByRole('dialog', { name: '提示词模板' })).toBeNull();
+  });
+
+  it('游客只看到用得上的任务卡和模板', async () => {
+    fetchPromptTemplatesMock.mockResolvedValue({ items: [], source: 'default', version: 'code-default' });
+    const { rerender } = render(<HomePage onSelectPrompt={vi.fn()} features={GUEST_FEATURES} />);
+
+    expect(screen.getByRole('button', { name: /深度调研/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /生成图片/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /解读一份文件/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '更多模板' }));
+    const guestList = screen.getByTestId('template-list-items');
+    expect(guestList).toHaveTextContent('代码解释');
+    for (const title of ['生成图片', '解读一份文件', '规划通勤', '安排周末行程', '聚餐与娱乐', '天气与出行']) {
+      expect(guestList).not.toHaveTextContent(title);
+    }
+
+    rerender(<HomePage onSelectPrompt={vi.fn()} features={REGISTERED_FEATURES} />);
+    expect(screen.getByTestId('template-list-items')).toHaveTextContent('生成图片');
+    expect(screen.getByTestId('template-list-items')).toHaveTextContent('天气与出行');
   });
 
   it('模板分类切换时保持与全部分类一致的弹窗高度', () => {

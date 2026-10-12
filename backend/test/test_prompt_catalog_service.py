@@ -18,7 +18,7 @@ class PromptCatalogServiceTests(unittest.TestCase):
         }
 
         self.assertEqual(len(ids), len(set(ids)))
-        self.assertEqual(sum(item["kind"] == "starter" for item in items), 12)
+        self.assertEqual(sum(item["kind"] == "starter" for item in items), 13)
         self.assertGreaterEqual(sum(item["kind"] == "template" for item in items), 3)
         self.assertTrue(location_ids.issubset(ids))
 
@@ -39,7 +39,7 @@ class PromptCatalogServiceTests(unittest.TestCase):
                 "tone": "sky",
                 "sort_order": 90,
                 "enabled": True,
-                "required_capabilities": [],
+                "required_capabilities": ["map"],
             },
         )
         self.assertEqual(
@@ -58,7 +58,7 @@ class PromptCatalogServiceTests(unittest.TestCase):
                 "tone": "orange",
                 "sort_order": 100,
                 "enabled": True,
-                "required_capabilities": [],
+                "required_capabilities": ["map"],
             },
         )
         self.assertEqual(
@@ -77,7 +77,7 @@ class PromptCatalogServiceTests(unittest.TestCase):
                 "tone": "teal",
                 "sort_order": 110,
                 "enabled": True,
-                "required_capabilities": [],
+                "required_capabilities": ["map"],
             },
         )
         self.assertEqual(
@@ -96,7 +96,7 @@ class PromptCatalogServiceTests(unittest.TestCase):
                 "tone": "cyan",
                 "sort_order": 120,
                 "enabled": True,
-                "required_capabilities": [],
+                "required_capabilities": ["mcp_tools"],
             },
         )
         self.assertEqual(
@@ -114,11 +114,19 @@ class PromptCatalogServiceTests(unittest.TestCase):
                 "template-question-answering": 230,
             },
         )
+        self.assertEqual(items_by_id["image"]["required_capabilities"], ["image_generation"])
+        self.assertEqual(items_by_id["file"]["required_capabilities"], ["file_upload"])
+        # 所需功能必须是权益 features 的键，否则前端会把卡片永远藏起来
+        from app.services.guest_quota import build_entitlements
+
+        feature_keys = set(build_entitlements(SimpleNamespace(is_guest=False))["features"])
+        for item in items:
+            self.assertTrue(set(item["required_capabilities"]) <= feature_keys, item["id"])
         for item_id in location_ids:
             item = items_by_id[item_id]
             self.assertEqual(item["kind"], "starter")
             self.assertEqual(item["category"], "出行")
-            self.assertEqual(item["required_capabilities"], [])
+            self.assertEqual(item["required_capabilities"], ["mcp_tools"] if item_id == "weather-planning" else ["map"])
             self.assertNotIn("高德", item["content"])
             self.assertNotIn("route_compare", item["content"])
             self.assertNotIn("local_place_search", item["content"])
