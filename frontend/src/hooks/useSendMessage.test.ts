@@ -338,6 +338,42 @@ describe('useSendMessage', () => {
     vi.unstubAllGlobals();
   });
 
+  it('游客今日额度用完时不发请求，直接弹登录', async () => {
+    const store = configureStore({
+      reducer: {
+        auth: authReducer,
+        conversation: conversationReducer,
+        models: modelsReducer,
+        stream: streamReducer,
+        trajectory: trajectoryReducer,
+        guest: (state: unknown = {
+          status: 'ready',
+          userId: 'guest-1',
+          entitlements: { quota: { messages: { limit: 20, used: 20, remaining: 0 } } },
+        }) => state,
+      },
+      middleware: (getDefaultMiddleware: any) => getDefaultMiddleware({ serializableCheck: false }),
+      preloadedState: {
+        auth: { isAuthenticated: false, token: null, status: 'idle' as const, error: null, user: null },
+      } as any,
+    } as any);
+    const triggerLoginDialog = vi.fn();
+    vi.stubGlobal('triggerLoginDialog', triggerLoginDialog);
+    const onRejectedBeforeSend = vi.fn();
+
+    const { result } = renderHook(() => useSendMessage(), {
+      wrapper: createWrapper(store as any),
+    });
+
+    await act(async () => {
+      await result.current.sendMessage('第 21 条', { conversationId: null, onRejectedBeforeSend });
+    });
+
+    expect(sendMessageStreamMock).not.toHaveBeenCalled();
+    expect(onRejectedBeforeSend).toHaveBeenCalledTimes(1);
+    expect(triggerLoginDialog).toHaveBeenCalledTimes(1);
+  });
+
   it('发送知识库范围并强制关闭 deep_research，同时把选择保留在本地会话', async () => {
     const store = createStore();
     store.dispatch(upsertConversation({

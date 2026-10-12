@@ -94,7 +94,7 @@ import {
 } from '@/lib/chat/streamControllerRegistry';
 import type { Message, ContentBlock } from '@/types/conversation';
 import type { FileAttachment } from '@/lib/utils/fileHelpers';
-import { selectAuthSessionKey } from '@/redux/selectors';
+import { selectAuthSessionKey, selectGuestMessagesRemaining } from '@/redux/selectors';
 import { useTypewriter } from './useTypewriter';
 import { useRetryMessage } from './useRetryMessage';
 import type { RootState } from '@/redux/store';
@@ -775,6 +775,12 @@ export function useSendMessage(activeConversationId?: string | null) {
         return;
       }
       if (!content.trim() && (!attachments || attachments.length === 0)) return;
+      // 游客今日额度已用完：重试、推荐问题等入口都不再发出注定被拒的请求，直接给登录入口。
+      if (selectGuestMessagesRemaining(store.getState()) === 0) {
+        options.onRejectedBeforeSend?.();
+        (globalThis as { triggerLoginDialog?: () => void }).triggerLoginDialog?.();
+        return;
+      }
       const preparationContext = captureSendSessionContext(
         store.getState(),
         sendGenerationRef.current,
