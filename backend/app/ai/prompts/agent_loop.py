@@ -73,10 +73,6 @@ CONTINUATION_SYSTEM_PROMPT = CODE_DEFAULT_PROMPT_TEMPLATES["continuation_system"
 
 SEARCH_CONTEXT_OPENING = render_runtime_prompt("agent_loop.search_context_opening")
 
-SEARCH_CONTEXT_FOLLOW_UP_RULES = [
-    render_runtime_prompt(f"agent_loop.search_context_follow_up_{index}") for index in range(1, 6)
-]
-
 URL_READ_TOOL_DESCRIPTION = CODE_DEFAULT_PROMPT_TEMPLATES["url_read_tool_description"]
 
 

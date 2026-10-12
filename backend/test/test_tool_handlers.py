@@ -233,7 +233,8 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("append a reference-link list", context)
 
     def test_format_llm_context_allows_targeted_url_read_after_search(self):
-        """搜索摘要不足时应允许模型继续深读少量高价值来源。"""
+        """搜索行为规则只写在工具说明里，每次结果只带来源信任说明。"""
+        from app.ai.tools import build_web_search_tool
         from app.schemas.chat import SearchSource
 
         sources = [
@@ -247,12 +248,15 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         context = self.handler.format_llm_context(result)
 
+        description = build_web_search_tool()["function"]["description"]
+
         self.assertNotIn("Do not make another search or output a tool call", context)
-        self.assertIn("fill evidence gaps", context)
-        self.assertIn("url_read", context)
-        self.assertIn("official announcements", context)
-        self.assertIn("original details", context)
-        self.assertIn("high-value sources", context)
+        self.assertNotIn("Notes:", context)
+        self.assertNotIn("aggregation scope", context)
+        self.assertIn("untrusted", context)
+        self.assertIn("url_read on high-value sources", description)
+        self.assertIn("aggregation scope", description)
+        self.assertIn("Clear signals to stop", description)
 
     def test_format_llm_context_uses_context_source_limit_from_budget(self):
         from app.schemas.chat import SearchSource

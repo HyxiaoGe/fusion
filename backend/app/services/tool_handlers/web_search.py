@@ -6,10 +6,7 @@ WebSearchHandler — 网络搜索工具处理器
 import time
 from typing import List, Optional
 
-from app.ai.prompts.agent_loop import (
-    SEARCH_CONTEXT_FOLLOW_UP_RULES,
-    SEARCH_CONTEXT_OPENING,
-)
+from app.ai.prompts.agent_loop import SEARCH_CONTEXT_OPENING
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.core.logger import app_logger as logger
 from app.schemas.chat import SearchBlock, SearchSource, SearchSourceSummary, SourceReference
@@ -251,9 +248,6 @@ class WebSearchHandler(BaseToolHandler):
                     include_rules=False,
                 )
             )
-
-        parts.append("Notes:")
-        parts.extend(f"- {rule}" for rule in SEARCH_CONTEXT_FOLLOW_UP_RULES)
 
         return "\n".join(parts)
 
