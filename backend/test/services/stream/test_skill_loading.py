@@ -241,5 +241,6 @@ def test_bundled_skills_follow_the_announced_tools():
     # 每个内置 Skill 都按本 Run 公告的工具决定是否列出。
     authorized = frozenset(config.announced_tools)
     expected = {entry.name for entry in discover_skills() if entry.available_for(authorized)}
-    assert {"comparison-advice", "web-research"} <= expected
+    assert "comparison-advice" in expected
+    assert "web-research" not in expected
     assert set(config.skill_session.entries) == expected
