@@ -203,7 +203,13 @@
         "copying": "复制中…",
         "copied": "已复制",
         "failed": "复制失败，请选择代码手动复制或重试。",
-        "contentLabel": "代码内容：{{language}}"
+        "contentLabel": "代码内容：{{language}}",
+        "run": "运行",
+        "rerun": "重新运行",
+        "runLabel": "在沙箱中运行 HTML",
+        "previewLabel": "运行结果（沙箱隔离，无法访问你的账号）",
+        "previewTitle": "HTML 运行结果",
+        "closePreview": "关闭运行结果"
       },
       "table": {
         "label": "回答表格",
