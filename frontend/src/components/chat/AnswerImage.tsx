@@ -58,7 +58,8 @@ export default function AnswerImage({ image, caption }: { image: ImageResultItem
             className={styles.image}
             src={image.image_url}
             alt={label}
-            loading="lazy"
+            // 不用 loading="lazy"：未加载的图宽度为 0，浏览器会一直不去请求；且超时从挂载起算，
+            // 懒加载会把还没滚到的图误判为失败。每条回答通常只有一到三张图。
             referrerPolicy="no-referrer"
             onLoad={() => setStatus('loaded')}
             onError={() => setStatus('failed')}
