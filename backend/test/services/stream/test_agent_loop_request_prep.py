@@ -166,21 +166,21 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             (
                 "deepseek",
                 "今天上海证券交易所开市吗？",
-                ["web_search", "url_read"],
+                ["web_search", "url_read", "image_search"],
                 {"thinking": {"type": "enabled"}},
                 None,
             ),
             (
                 "volcengine",
                 "今天上海证券交易所开市吗？",
-                ["web_search", "url_read"],
+                ["web_search", "url_read", "image_search"],
                 {"thinking": {"type": "disabled"}},
                 None,
             ),
             (
                 "gemini",
                 "你好",
-                ["web_search", "url_read"],
+                ["web_search", "url_read", "image_search"],
                 None,
                 "high",
             ),
@@ -258,7 +258,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 model_tool_names = [tool["function"]["name"] for tool in config.call_kwargs["tools"]]
                 self.assertEqual(config.plan_mode, "off")
                 self.assertNotIn("update_plan", model_tool_names)
-                self.assertEqual(config.announced_tools, ["web_search", "url_read"])
+                self.assertEqual(config.announced_tools, ["web_search", "url_read", "image_search"])
                 self.assertEqual(config.control_tool_names, frozenset())
                 web_tool = next(
                     tool for tool in config.call_kwargs["tools"] if tool["function"]["name"] == "web_search"
@@ -312,7 +312,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         model_tool_names = [tool["function"]["name"] for tool in config.call_kwargs["tools"]]
         self.assertEqual(config.plan_mode, "off")
         self.assertNotIn("update_plan", model_tool_names)
-        self.assertEqual(config.announced_tools, ["web_search", "url_read"])
+        self.assertEqual(config.announced_tools, ["web_search", "url_read", "image_search"])
         parameters = config.call_kwargs["tools"][0]["function"]["parameters"]
         self.assertNotIn("_plan_item_id", parameters["properties"])
 
@@ -421,7 +421,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(config.should_use_reasoning)
         self.assertTrue(config.supports_function_calling)
-        self.assertEqual(config.announced_tools, ["web_search", "url_read"])
+        self.assertEqual(config.announced_tools, ["web_search", "url_read", "image_search"])
         self.assertEqual(config.call_kwargs["tool_choice"], "auto")
         self.assertEqual(config.call_kwargs["tools"][0]["function"]["name"], "web_search")
         self.assertEqual(config.call_kwargs["extra_body"], {"thinking": {"type": "disabled"}})
@@ -497,7 +497,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(config.should_use_reasoning)
         self.assertTrue(config.supports_function_calling)
-        self.assertEqual(config.announced_tools, ["web_search", "url_read"])
+        self.assertEqual(config.announced_tools, ["web_search", "url_read", "image_search"])
         self.assertNotIn("extra_body", config.call_kwargs)
 
     def test_reasoning_off_disables_thinking_only_for_switchable_models(self):
@@ -555,7 +555,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertTrue(config.supports_function_calling)
-        self.assertEqual(config.announced_tools, ["web_search", "url_read"])
+        self.assertEqual(config.announced_tools, ["web_search", "url_read", "image_search"])
         self.assertEqual(config.call_kwargs["tool_choice"], "auto")
 
     def test_build_call_config_disables_tools_when_search_capable_is_false(self):
@@ -765,7 +765,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(config.capability_resolution.package_id, "agent")
-        self.assertEqual(config.announced_tools, ["web_search", "url_read"])
+        self.assertEqual(config.announced_tools, ["web_search", "url_read", "image_search"])
         self.assertNotIn(alias, [tool["function"]["name"] for tool in config.call_kwargs["tools"]])
         self.assertEqual(config.dynamic_tool_handlers, {})
 
@@ -919,7 +919,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(supports_function_calling)
             self.assertEqual(
                 [tool["function"]["name"] for tool in call_kwargs["tools"]],
-                ["web_search", "url_read"],
+                ["web_search", "url_read", "image_search"],
             )
             return (
                 TextBlock(type="text", id="url-block", text="URL 摘要"),
@@ -958,7 +958,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(file_repo.requested_content_ids, [["doc-1"]])
         self.assertEqual(inject_calls[0]["file_contents"], {"doc-1": "文档正文"})
         self.assertEqual([block.id for block in prepared.initial_content_blocks], ["url-block"])
-        self.assertEqual(prepared.final_tool_names, ["web_search", "url_read"])
+        self.assertEqual(prepared.final_tool_names, ["web_search", "url_read", "image_search"])
         self.assertEqual(
             [message["role"] for message in prepared.messages],
             ["system", "system", "system", "system", "system", "system", "system", "user", "user"],
@@ -967,7 +967,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("[No image-understanding capability]", prepared.messages[1]["content"])
         self.assertIn("<web_context>", prepared.messages[7]["content"])
         self.assertIn("文档正文", prepared.messages[8]["content"])
-        self.assertEqual(call_config.announced_tools, ["web_search", "url_read"])
+        self.assertEqual(call_config.announced_tools, ["web_search", "url_read", "image_search"])
 
     def test_tool_usage_contract_uses_centralized_prompt(self):
         from app.ai.prompts.agent_loop import NETWORK_DECISION_PROMPT, TOOL_USAGE_CONTRACT_PROMPT

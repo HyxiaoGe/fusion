@@ -30,7 +30,7 @@ from app.ai.prompts.section_ids import (
     TOOL_USAGE_CONTRACT,
 )
 from app.ai.prompts.system_prompt import SystemPromptSection, assemble_system_prompt
-from app.ai.tools import build_url_read_tool, build_web_search_tool
+from app.ai.tools import build_image_search_tool, build_url_read_tool, build_web_search_tool
 from app.core.logger import app_logger as logger
 from app.core.prompt_snapshot import PromptBundleSnapshot, use_prompt_snapshot
 from app.db.repositories import FileRepository
@@ -217,6 +217,7 @@ def build_agent_loop_call_config(
     volcengine_providers: set[str] | frozenset[str] = frozenset(VOLCENGINE_PROVIDERS),
     build_web_search_tool_fn: Callable[[], dict] = build_web_search_tool,
     build_url_read_tool_fn: Callable[[], dict] = build_url_read_tool,
+    build_image_search_tool_fn: Callable[[], dict] = build_image_search_tool,
     additional_tools: list[dict] | None = None,
     dynamic_tool_handlers: dict[str, Any] | None = None,
     tool_bindings: list[dict[str, Any]] | None = None,
@@ -246,7 +247,7 @@ def build_agent_loop_call_config(
     available_tools: list[dict] = []
     if supports_function_calling:
         with use_prompt_snapshot(prompt_bundle_snapshot):
-            available_tools.extend([build_web_search_tool_fn(), build_url_read_tool_fn()])
+            available_tools.extend([build_web_search_tool_fn(), build_url_read_tool_fn(), build_image_search_tool_fn()])
     provided_handlers = dynamic_tool_handlers or {}
     if supports_dynamic_tools:
         available_tools.extend(

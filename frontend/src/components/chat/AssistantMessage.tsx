@@ -188,6 +188,7 @@ function AssistantMessageFrame({
     rawStructuredResults,
     documentBlocks,
     generatedImages,
+    answerImages,
     mapDataSources,
     documentDraft,
     displayText,
@@ -300,7 +301,8 @@ function AssistantMessageFrame({
     content: displayText || '',
     sources: searchSources,
     onCitationClick: searchSources.length > 0 ? handleMarkdownCitationClick : undefined,
-  }), [displayText, handleMarkdownCitationClick, searchSources]);
+    images: answerImages,
+  }), [answerImages, displayText, handleMarkdownCitationClick, searchSources]);
 
   useEffect(() => {
     if (!isStreaming && hasThinking && displayText && message.isReasoningVisible) {

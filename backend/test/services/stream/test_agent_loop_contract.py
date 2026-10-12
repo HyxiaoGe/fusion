@@ -949,10 +949,20 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
         document_tool_names = {"create_document", "edit_document"}
         self.assertEqual(
             first_round_tool_names,
-            {exhausted_alias, sibling_alias, available_alias, "web_search", "url_read", *document_tool_names},
+            {
+                exhausted_alias,
+                sibling_alias,
+                available_alias,
+                "web_search",
+                "url_read",
+                "image_search",
+                *document_tool_names,
+            },
         )
         # 同一服务共享预算：耗尽后两个工具一起下架，其他服务的工具照常公告。
-        self.assertEqual(second_round_tool_names, {available_alias, "web_search", "url_read", *document_tool_names})
+        self.assertEqual(
+            second_round_tool_names, {available_alias, "web_search", "url_read", "image_search", *document_tool_names}
+        )
         self.assertNotIn(
             "调用预算已用完",
             "\n".join(str(message.get("content") or "") for call in result.llm_calls for message in call["messages"]),

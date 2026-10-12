@@ -14,6 +14,7 @@ _MCP_ALIAS_PARTIAL_RE = re.compile(rf"{_MCP_ALIAS_PREFIX}[A-Za-z0-9_-]+$")
 
 _INTERNAL_TOOL_LABELS = {
     "generate_image": "图片生成",
+    "image_search": "图片搜索",
     "local_place_search": "地点搜索",
     "route_compare": "路线比较",
     "search_flights": "航班查询",

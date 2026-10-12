@@ -191,6 +191,10 @@
       "trajectory": {
         "inspect": "查看轨迹"
       },
+      "answerImage": {
+        "openSource": "打开图片来源：{{site}}",
+        "loadFailed": "图片加载失败"
+      },
       "code": {
         "plainText": "纯文本",
         "lineCount": "{{count}} 行",

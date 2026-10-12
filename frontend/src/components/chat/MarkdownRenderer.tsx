@@ -5,10 +5,11 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import { BookOpen } from 'lucide-react';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
-import type { SearchSourceSummary } from '@/types/conversation';
+import type { ImageResultItem, SearchSourceSummary } from '@/types/conversation';
 import { normalizeBareUrlsForMarkdown } from '@/lib/chat/markdownLinks';
 import { CodeRunReadyContext, MarkdownCodeRenderer, MarkdownPreRenderer } from './markdownCodeComponents';
 import MarkdownTable from './MarkdownTable';
+import AnswerImage from './AnswerImage';
 import styles from './MarkdownRenderer.module.css';
 import CitationPreview from './CitationPreview';
 import citationStyles from './CitationPreview.module.css';
@@ -20,7 +21,26 @@ interface MarkdownRendererProps {
   onCitationClick?: (index: number) => void;
   /** 回答已输出完，HTML 代码块可以运行 */
   codeRunReady?: boolean;
+  /** 本条回复 image_search 找到的图；正文 `![说明](id)` 只能引用这些图 */
+  images?: ImageResultItem[];
 }
+
+const EMPTY_IMAGES = new Map<string, ImageResultItem>();
+const AnswerImagesContext = React.createContext<Map<string, ImageResultItem>>(EMPTY_IMAGES);
+
+/**
+ * 回答里的图片只按 image_search 结果渲染：模型写的 id（或原样抄写的结果地址）才显示成图片。
+ * 其他地址是模型自己写的，可能根本不存在，只保留说明文字，不让页面去加载它。
+ */
+const MarkdownImageRenderer = ({ node, src, alt }: MarkdownElementProps<'img'>) => {
+  void node;
+  const images = useContext(AnswerImagesContext);
+  const key = typeof src === 'string' ? src.trim() : '';
+  const image = images.get(key);
+  const caption = typeof alt === 'string' ? alt.trim() : '';
+  if (!image) return caption ? <span>{caption}</span> : null;
+  return <AnswerImage image={image} caption={caption} />;
+};
 
 interface CitationRenderContextValue {
   hasSources: boolean;
@@ -215,6 +235,7 @@ const MARKDOWN_COMPONENTS: Components = {
   code: MarkdownCodeRenderer,
   p: MarkdownParagraphRenderer,
   li: MarkdownListItemRenderer,
+  img: MarkdownImageRenderer,
   strong: MarkdownStrongRenderer,
   em: MarkdownEmphasisRenderer,
   h1: MarkdownHeading1Renderer,
@@ -231,6 +252,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
   sources = [],
   onCitationClick,
   codeRunReady = false,
+  images,
 }) => {
   const hasSources = sources.length > 0;
 
@@ -238,6 +260,15 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     () => normalizeBareUrlsForMarkdown(hasSources ? preprocessCitations(content) : content),
     [content, hasSources]
   );
+  const imagesById = useMemo(() => {
+    if (!images?.length) return EMPTY_IMAGES;
+    const map = new Map<string, ImageResultItem>();
+    for (const image of images) {
+      map.set(image.id, image);
+      map.set(image.image_url, image);
+    }
+    return map;
+  }, [images]);
   const citationContextValue = useMemo<CitationRenderContextValue>(
     () => hasSources ? { hasSources, sources, onCitationClick } : EMPTY_CITATION_CONTEXT,
     [hasSources, onCitationClick, sources],
@@ -247,13 +278,15 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     <CitationPreview sources={sources} className={`${styles.content} ${className || ''}`}>
       <CitationRenderContext.Provider value={citationContextValue}>
         <CodeRunReadyContext.Provider value={codeRunReady}>
-          <ReactMarkdown
-            remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
-            rehypePlugins={[rehypeRaw]}
-            components={MARKDOWN_COMPONENTS}
-          >
-            {processedContent}
-          </ReactMarkdown>
+          <AnswerImagesContext.Provider value={imagesById}>
+            <ReactMarkdown
+              remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
+              rehypePlugins={[rehypeRaw]}
+              components={MARKDOWN_COMPONENTS}
+            >
+              {processedContent}
+            </ReactMarkdown>
+          </AnswerImagesContext.Provider>
         </CodeRunReadyContext.Provider>
       </CitationRenderContext.Provider>
     </CitationPreview>

@@ -168,6 +168,25 @@ export interface GeneratedImageBlock {
   tool_call_log_id?: string;
 }
 
+/** image_search 找到的一张候选图；回答正文用 `![说明](id)` 引用。 */
+export interface ImageResultItem {
+  id: string;
+  image_url: string;
+  page_url: string;
+  title: string;
+  site_name: string;
+}
+
+/** image_search 的结果；不单独展示，只给回答正文按 id 插图。 */
+export interface ImageResultsBlock {
+  type: 'image_results';
+  id: string;
+  schema_version: 1;
+  query: string;
+  images: ImageResultItem[];
+  tool_call_log_id?: string;
+}
+
 /** 外部数据工具（目前只有腾讯地图 MCP）的来源署名；不含远端返回内容。 */
 export interface DataSourceBlock {
   type: 'data_source';
@@ -489,6 +508,7 @@ export type ContentBlock =
   | KnowledgeEvidenceBlock
   | DocumentBlock
   | GeneratedImageBlock
+  | ImageResultsBlock
   | DataSourceBlock
   | ContentFilteredBlock
   | StructuredToolResultBlock;

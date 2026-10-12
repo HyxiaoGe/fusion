@@ -5,6 +5,8 @@ import type {
   DocumentBlock,
   FileBlock,
   GeneratedImageBlock,
+  ImageResultItem,
+  ImageResultsBlock,
   KnowledgeEvidenceBlock,
   KnowledgeEvidenceStatus,
   KnowledgeSourceReference,
@@ -38,6 +40,7 @@ const CONTENT_BLOCK_CONTRACTS: readonly ContentBlockContract[] = [
   { type: 'knowledge_evidence', schemaVersion: 1, decode: decodeKnowledgeEvidenceBlock },
   { type: 'document', schemaVersion: 1, decode: decodeDocumentBlock },
   { type: 'generated_image', schemaVersion: 1, decode: decodeGeneratedImageBlock },
+  { type: 'image_results', schemaVersion: 1, decode: decodeImageResultsBlock },
   { type: 'data_source', schemaVersion: 1, decode: decodeDataSourceBlock },
   { type: 'content_filtered', schemaVersion: 1, decode: decodeContentFilteredBlock },
   ...STRUCTURED_TOOL_RESULT_CONTRACTS.map(contract => ({
@@ -407,6 +410,38 @@ function decodeGeneratedImageBlock(source: Record<string, unknown>): GeneratedIm
     aspect_ratio: optionalNullableString(source.aspect_ratio) ?? null,
     model: optionalNullableString(source.model) ?? null,
     ...optionalField('tool_call_log_id', optionalString(source.tool_call_log_id)),
+  };
+}
+
+function decodeImageResultsBlock(source: Record<string, unknown>): ImageResultsBlock | null {
+  const id = requiredString(source.id);
+  if (!id || !Array.isArray(source.images)) return null;
+  const images = source.images
+    .map(decodeImageResultItem)
+    .filter((item): item is ImageResultItem => item !== null);
+  return {
+    type: 'image_results',
+    id,
+    schema_version: 1,
+    query: optionalString(source.query) ?? '',
+    images,
+    ...optionalField('tool_call_log_id', optionalString(source.tool_call_log_id)),
+  };
+}
+
+function decodeImageResultItem(value: unknown): ImageResultItem | null {
+  const item = asRecord(value);
+  const id = boundedRequiredString(item?.id, 40);
+  const imageUrl = boundedRequiredString(item?.image_url, 2000);
+  // 只接受 https 图片地址：主站是 https，其他协议要么加载不了，要么不该出现在页面里。
+  if (!item || !id || !imageUrl || !imageUrl.startsWith('https://')) return null;
+  const pageUrl = optionalString(item.page_url) ?? '';
+  return {
+    id,
+    image_url: imageUrl,
+    page_url: /^https?:\/\//.test(pageUrl) ? pageUrl : '',
+    title: optionalString(item.title) ?? '',
+    site_name: optionalString(item.site_name) ?? '',
   };
 }
 

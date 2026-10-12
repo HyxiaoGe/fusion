@@ -452,3 +452,50 @@ describe('MarkdownRenderer — memo 行为', () => {
     expect(reactMarkdownRenderMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('回答配图', () => {
+  const image = {
+    id: 'img_1a2b3c4d',
+    image_url: 'https://cdn.example.com/iphone.jpg',
+    page_url: 'https://www.apple.com/iphone/',
+    title: 'iPhone 17 Pro 官方图',
+    site_name: 'apple.com',
+  };
+
+  it('按 id 渲染搜索结果里的图片，标注来源并链接到来源网页', () => {
+    render(
+      <MarkdownRenderer
+        content={'外观对比：\n\n![iPhone 17 Pro 背面](img_1a2b3c4d) ![原地址](https://cdn.example.com/iphone.jpg)'}
+        images={[image]}
+      />,
+    );
+
+    const images = screen.getAllByRole('img', { name: /iPhone 17 Pro 背面|原地址/ });
+    expect(images).toHaveLength(2);
+    expect(images[0]).toHaveAttribute('src', 'https://cdn.example.com/iphone.jpg');
+    expect(images[0]).toHaveAttribute('referrerpolicy', 'no-referrer');
+    expect(screen.getAllByRole('link', { name: '打开图片来源：apple.com' })[0]).toHaveAttribute('href', 'https://www.apple.com/iphone/');
+    expect(screen.getAllByText('apple.com')).toHaveLength(2);
+  });
+
+  it('不在搜索结果里的图片地址不加载，只保留说明文字', () => {
+    const { container } = render(
+      <MarkdownRenderer
+        content={'![编造的图](https://made-up.example/fake.png) ![](img_unknown) <img src="https://made-up.example/raw.png" alt="原始 HTML">'}
+        images={[image]}
+      />,
+    );
+
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByText('编造的图')).toBeInTheDocument();
+    expect(screen.getByText('原始 HTML')).toBeInTheDocument();
+  });
+
+  it('图片加载失败时如实显示失败', () => {
+    render(<MarkdownRenderer content="![官方图](img_1a2b3c4d)" images={[image]} />);
+
+    fireEvent.error(screen.getByRole('img', { name: '官方图' }));
+    expect(screen.getByText('图片加载失败')).toBeInTheDocument();
+  });
+});
+

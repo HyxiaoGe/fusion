@@ -4,6 +4,7 @@ import { memo, useMemo } from 'react';
 import type {
   DocumentBlock,
   GeneratedImageBlock,
+  ImageResultItem,
   SearchSourceSummary,
   StructuredToolResultBlock,
 } from '@/types/conversation';
@@ -54,6 +55,7 @@ interface AssistantResponseStackProps {
     content: string;
     sources: SearchSourceSummary[];
     onCitationClick?: (index: number) => void;
+    images?: ImageResultItem[];
   };
   showStreamingCursor: boolean;
 }
@@ -163,6 +165,7 @@ function AssistantResponseStack({
           content={markdown.content}
           sources={markdown.sources}
           onCitationClick={markdown.onCitationClick}
+          images={markdown.images}
           codeRunReady={TERMINAL_ACTIVITY_KINDS.has(activity.kind)}
         />
 

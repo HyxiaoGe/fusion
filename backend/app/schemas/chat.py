@@ -860,6 +860,31 @@ class GeneratedImageBlock(BaseModel):
     tool_call_log_id: str = Field(default="", max_length=160)
 
 
+class ImageResultItem(BaseModel):
+    """图片搜索的一张候选图；回答正文用 id 引用，前端只渲染本条回复里出现过的 id。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=40)
+    image_url: str = Field(min_length=1, max_length=2_000)
+    page_url: str = Field(default="", max_length=2_000)
+    title: str = Field(default="", max_length=300)
+    site_name: str = Field(default="", max_length=120)
+
+
+class ImageResultsBlock(BaseModel):
+    """image_search 的结果；本身不单独展示，供回答正文按 id 插图并标注来源。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["image_results"]
+    id: str = Field(default_factory=lambda: f"blk_{uuid4().hex[:12]}", max_length=160)
+    schema_version: Literal[1]
+    query: str = Field(default="", max_length=400)
+    images: List[ImageResultItem] = Field(default_factory=list, max_length=20)
+    tool_call_log_id: str = Field(default="", max_length=160)
+
+
 class DataSourceBlock(BaseModel):
     """本轮某次外部数据工具调用的服务商署名；只记来源，不持久化远端返回内容。"""
 
@@ -911,6 +936,7 @@ ContentBlock = Union[
     ItineraryResultsBlock,
     DocumentBlock,
     GeneratedImageBlock,
+    ImageResultsBlock,
     DataSourceBlock,
     ContentFilteredBlock,
 ]
