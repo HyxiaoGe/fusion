@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '@/lib/i18n';
 import CodeBlock from './CodeBlock';
 
+const downloadTextFileMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/documents/documentExport', () => ({ downloadTextFile: downloadTextFileMock }));
+
 const highlightMock = vi.hoisted(() => vi.fn((value: string) => ({
   value: `<mark>${value}</mark>`,
 })));
@@ -258,5 +261,24 @@ describe('CodeBlock', () => {
     report(700);
     fireEvent.click(screen.getByRole('button', { name: '重新运行' }));
     expect(heightOf()).toBe('320px');
+  });
+
+  it('HTML 代码块可下载原始代码，文件名取页面标题；没输出完时不可下载', () => {
+    downloadTextFileMock.mockClear();
+    const html = '<!DOCTYPE html><html><head><title>随机抽奖器</title></head><body></body></html>';
+    const { rerender } = render(<CodeBlock language="html" value={html} allowRun runReady={false} />);
+
+    expect(screen.getByRole('button', { name: '下载为 HTML 文件，可在本地浏览器打开' })).toBeDisabled();
+
+    rerender(<CodeBlock language="html" value={html} allowRun runReady />);
+    fireEvent.click(screen.getByRole('button', { name: '下载为 HTML 文件，可在本地浏览器打开' }));
+
+    expect(downloadTextFileMock).toHaveBeenCalledWith('随机抽奖器.html', html, 'text/html');
+  });
+
+  it('非 HTML 代码块没有下载按钮', () => {
+    render(<CodeBlock language="python" value="print(1)" allowRun runReady />);
+
+    expect(screen.queryByRole('button', { name: '下载为 HTML 文件，可在本地浏览器打开' })).toBeNull();
   });
 });

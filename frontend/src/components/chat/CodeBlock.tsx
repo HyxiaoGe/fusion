@@ -3,12 +3,13 @@
 import { Button } from '@/components/ui/button';
 import GlassHoverLens, { pointGlassLight, resetGlassLight } from '@/components/ui/GlassHoverLens';
 import { cn } from '@/lib/utils';
-import { Check, ClipboardCopy, FileText, Hash, ChevronDown, ChevronUp, Play } from 'lucide-react';
+import { Check, ClipboardCopy, Download, FileText, Hash, ChevronDown, ChevronUp, Play } from 'lucide-react';
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import hljs from 'highlight.js';
 import styles from './CodeBlock.module.css';
-import HtmlPreview from './HtmlPreview';
+import { downloadTextFile } from '@/lib/documents/documentExport';
+import HtmlPreview, { htmlDownloadFilename } from './HtmlPreview';
 
 interface CodeBlockProps {
   language: string;
@@ -108,6 +109,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
 
   // 运行用点击时的快照：流式输出中代码还在变，每来一个字就重建 iframe 会让页面反复重跑。
   const runHtml = () => setPreview((current) => ({ html: value, runId: (current?.runId ?? 0) + 1 }));
+  const downloadHtml = () => downloadTextFile(htmlDownloadFilename(value), value, 'text/html');
 
   useEffect(() => {
     revision.current += 1;
@@ -215,6 +217,23 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
               <GlassHoverLens corners={false} />
               <Play aria-hidden="true" />
               <span>{t(preview ? 'chatBody.code.rerun' : 'chatBody.code.run')}</span>
+            </Button>
+          )}
+          {isRunnableHtml && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={styles.copyButton}
+              onClick={downloadHtml}
+              onPointerMove={pointGlassLight}
+              onPointerLeave={resetGlassLight}
+              title={t(runReady ? 'chatBody.code.downloadLabel' : 'chatBody.code.runPending')}
+              aria-label={t('chatBody.code.downloadLabel')}
+              disabled={!runReady}
+            >
+              <GlassHoverLens corners={false} />
+              <Download aria-hidden="true" />
+              <span>{t('chatBody.code.download')}</span>
             </Button>
           )}
           <Button

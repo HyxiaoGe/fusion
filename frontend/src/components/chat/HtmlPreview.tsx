@@ -63,6 +63,16 @@ export function buildSandboxDocument(html: string): string {
   return SANDBOX_BOOTSTRAP + html;
 }
 
+/**
+ * 下载用的文件名：取页面 <title>（用 DOMParser 解析，只读不执行脚本），去掉文件名里不允许的字符；
+ * 没有标题时叫 page.html。下载的是模型给的原始代码，本地打开有真实的 localStorage。
+ */
+export function htmlDownloadFilename(html: string): string {
+  const title = new DOMParser().parseFromString(html, 'text/html').title;
+  const safeTitle = title.replace(/[\\/:*?"<>|\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+  return `${safeTitle || 'page'}.html`;
+}
+
 interface HtmlPreviewProps {
   /** 点击运行时的代码快照；流式输出后续变化不会自动刷新，需要重新运行 */
   html: string;

@@ -212,6 +212,8 @@
         "rerun": "Run again",
         "runLabel": "Run HTML in a sandbox",
         "runPending": "Available once the answer finishes",
+        "download": "Download",
+        "downloadLabel": "Download as an HTML file to open locally",
         "previewLabel": "Output (sandboxed, no access to your account)",
         "previewTitle": "HTML output",
         "closePreview": "Close output"
