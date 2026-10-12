@@ -36,7 +36,7 @@ class AiToolSchemaTests(unittest.TestCase):
         query_description = tool["function"]["parameters"]["properties"]["query"]["description"]
 
         self.assertIn("independent queries in parallel", description)
-        self.assertIn("evidence gaps", description)
+        self.assertIn("rather than a paraphrase of an earlier query", description)
         self.assertIn("original reporting", description)
         self.assertNotIn("third search is only", description)
         self.assertIn("language of the likely original sources", query_description)
