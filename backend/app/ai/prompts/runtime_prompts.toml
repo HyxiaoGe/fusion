@@ -86,6 +86,16 @@ web_search_count = """Requested result count for this query, from 1 to 20; defau
 web_search_intent = """Search intent: quick_fact for a concise fact, freshness for current developments, comparison for comparing multiple sources, deep_research for in-depth research, and official_source when official sources should be prioritized."""
 web_search_domains = """Optional domain filters: at most 5 valid domains, for example openai.com."""
 web_search_recency = """Optional recency window in days, from 1 through 365. Omit for no time filter; do not exclude older original reporting needed to explain a current event."""
+image_search_description = """Search the web for images to show inside your answer. Call it whenever the user asks what something looks like or how things differ in appearance, design, color, or shape (for example products, places, landmarks, animals, plants, artwork), even if they did not ask for pictures; it complements web_search, which only returns text. Skip it when images add nothing, and do not use it to create new images.
+Results give each image an id, a title, and its source site. You cannot see the images, so choose by title and source and prefer official or clearly relevant sources."""
+image_search_query = """A short, concrete description of the picture you want, such as the exact product model and view. Use the language most likely to find good images."""
+image_search_count = """Number of candidate images to return, from 1 to 10; default 6."""
+image_search_context = """Image candidates (you cannot see them; judge by title and source):
+{{ images }}
+
+To show an image, write ![short caption](id) on its own line where it helps, for example ![iPhone 17 Pro back view](img_1a2b3c4d). Images written on the same line are shown side by side. Show only images that clearly match what you describe, usually one to three. Use only ids listed above; never write image URLs. Do not mention ids or this list in your prose."""
+image_search_empty = """No usable images were found for "{{ query }}". Answer without images, or search again with a different description."""
+image_search_failed = """Image search failed: {{ reason }}. Answer without images; do not invent image links."""
 url = """Complete URL to read, including http:// or https://."""
 url_reason = """Reason for reading this URL, shown in network diagnostics; the backend retains at most 160 characters."""
 url_full_page = """Optional. Omit to receive the page's extracted main content. Set to true to re-read the whole page when an extracted read is missing tables, lists, or data the task needs, such as forecast tables or release lists."""

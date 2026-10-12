@@ -9,6 +9,7 @@ import type {
   ContentBlock,
   DocumentBlock,
   GeneratedImageBlock,
+  ImageResultItem,
   KnowledgeEvidenceBlock,
   Message,
   SearchBlock,
@@ -54,6 +55,8 @@ export interface AssistantMessageViewModel {
   rawStructuredResults?: StructuredToolResultBlock[];
   documentBlocks?: DocumentBlock[];
   generatedImages?: GeneratedImageBlock[];
+  /** image_search 找到的候选图；回答正文按 id 引用。 */
+  answerImages?: ImageResultItem[];
   /** 本条回答用到的地图数据服务商（按首次出现排序、去重），如 ['高德地图', '腾讯地图']。 */
   mapDataSources?: string[];
   documentDraft?: DocumentDraftState | null;
@@ -119,6 +122,7 @@ export function deriveStaticAssistantMessageViewModel({
   const rawStructuredResults = blocksToRender.filter(isStructuredToolResultBlock);
   const documentBlocks = collectDocumentBlocks(blocksToRender);
   const generatedImages = collectGeneratedImageBlocks(blocksToRender);
+  const answerImages = collectAnswerImages(blocksToRender);
   const mapDataSources = collectMapDataSources(blocksToRender);
   const suppressThinking = activity.shouldSuppressReasoning;
 
@@ -134,6 +138,7 @@ export function deriveStaticAssistantMessageViewModel({
     rawStructuredResults,
     documentBlocks,
     generatedImages,
+    answerImages,
     mapDataSources,
     documentDraft: null,
     displayText,
@@ -272,6 +277,7 @@ export function useAssistantMessageViewModel({
   );
   const documentBlocks = useMemo(() => collectDocumentBlocks(blocksToRender), [blocksToRender]);
   const generatedImages = useMemo(() => collectGeneratedImageBlocks(blocksToRender), [blocksToRender]);
+  const answerImages = useMemo(() => collectAnswerImages(blocksToRender), [blocksToRender]);
   const mapDataSources = useMemo(() => collectMapDataSources(blocksToRender), [blocksToRender]);
   // 失败的草稿在回答结束后仍保留，让用户知道文档没有生成；成功的草稿由正式文档卡片替换。
   const documentDraft = isCurrentlyStreaming || ownedRun?.documentDraft?.failed
@@ -292,6 +298,7 @@ export function useAssistantMessageViewModel({
     rawStructuredResults,
     documentBlocks,
     generatedImages,
+    answerImages,
     mapDataSources,
     documentDraft,
     displayText,
@@ -311,6 +318,10 @@ function collectSearchBlocks(contentBlocks: ContentBlock[]): SearchBlock[] {
 
 function collectDocumentBlocks(contentBlocks: ContentBlock[]): DocumentBlock[] {
   return contentBlocks.filter((block): block is DocumentBlock => block.type === 'document');
+}
+
+function collectAnswerImages(contentBlocks: ContentBlock[]): ImageResultItem[] {
+  return contentBlocks.flatMap(block => (block.type === 'image_results' ? block.images : []));
 }
 
 function collectGeneratedImageBlocks(contentBlocks: ContentBlock[]): GeneratedImageBlock[] {

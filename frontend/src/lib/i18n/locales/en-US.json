@@ -191,6 +191,10 @@
       "trajectory": {
         "inspect": "View trajectory"
       },
+      "answerImage": {
+        "openSource": "Open image source: {{site}}",
+        "loadFailed": "Image failed to load"
+      },
       "code": {
         "plainText": "Plain text",
         "lineCount": "{{count}} lines",

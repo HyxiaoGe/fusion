@@ -6,6 +6,7 @@ import type {
   ContextUsage,
   DocumentBlock,
   GeneratedImageBlock,
+  ImageResultsBlock,
   KnowledgeEvidenceBlock,
   SearchSourceSummary,
   StructuredToolResultBlock,
@@ -517,7 +518,7 @@ const streamSlice = createSlice({
       run.evidence = capEvidenceItems(run.evidence);
     }),
 
-    upsertStaticContentBlock: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; sequence: number; block: StructuredToolResultBlock | KnowledgeEvidenceBlock | DocumentBlock | GeneratedImageBlock | DataSourceBlock | ContentFilteredBlock; }>) => {
+    upsertStaticContentBlock: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; sequence: number; block: StructuredToolResultBlock | KnowledgeEvidenceBlock | DocumentBlock | GeneratedImageBlock | ImageResultsBlock | DataSourceBlock | ContentFilteredBlock; }>) => {
       const run = state.currentRun;
       const { runId, sequence, block } = action.payload;
       if (!run || run.runId !== runId || sequence <= run.lastSequence) return;

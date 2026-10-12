@@ -20,6 +20,7 @@ from app.schemas.chat import (
     FileBlock,
     FlightResultsBlock,
     GeneratedImageBlock,
+    ImageResultsBlock,
     ItineraryResultsBlock,
     KnowledgeEvidenceBlock,
     PlaceResultsBlock,
@@ -71,6 +72,7 @@ CONTENT_BLOCK_REGISTRY: dict[tuple[str, int | None], ContentBlockRegistration] =
     ("itinerary_results", 1): ContentBlockRegistration(ItineraryResultsBlock, schema_version=1),
     ("document", 1): ContentBlockRegistration(DocumentBlock, schema_version=1),
     ("generated_image", 1): ContentBlockRegistration(GeneratedImageBlock, schema_version=1),
+    ("image_results", 1): ContentBlockRegistration(ImageResultsBlock, schema_version=1),
     ("data_source", 1): ContentBlockRegistration(DataSourceBlock, schema_version=1),
     ("content_filtered", 1): ContentBlockRegistration(ContentFilteredBlock, schema_version=1),
 }

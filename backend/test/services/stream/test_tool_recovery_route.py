@@ -17,11 +17,12 @@ class RecoveryRouteTests(unittest.TestCase):
             additional_tools=[weather],
             dynamic_tool_handlers={"weather_forecast": lambda _: None},
         )
-        assert set(config.announced_tools) == {"weather_forecast", "web_search", "url_read"}
+        assert set(config.announced_tools) == {"weather_forecast", "web_search", "url_read", "image_search"}
         assert {tool["function"]["name"] for tool in config.call_kwargs["tools"]} == {
             "weather_forecast",
             "web_search",
             "url_read",
+            "image_search",
             "update_plan",
         }
 

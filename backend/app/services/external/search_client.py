@@ -77,3 +77,22 @@ def _freshness_from_recency_days(recency_days: int | None) -> str | None:
     if recency_days <= 31:
         return "pm"
     return "py"
+
+
+async def search_images(query: str, count: int = 8) -> dict:
+    """调用 search-service 图片搜索，返回原始 results 与实际服务商；失败抛给 handler 转成结构化失败。"""
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(
+                f"{settings.SEARCH_SERVICE_URL}/search",
+                json={"query": query, "type": "image", "count": count},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        return {
+            "result_provider": data.get("result_provider") or data.get("provider") or "",
+            "results": data.get("results") if isinstance(data.get("results"), list) else [],
+        }
+    except Exception as exc:
+        logger.warning("图片搜索调用失败: error_type=%s", type(exc).__name__)
+        raise

@@ -116,6 +116,7 @@ describe('contentBlockRegistry', () => {
       { type: 'knowledge_evidence', schemaVersion: 1 },
       { type: 'document', schemaVersion: 1 },
       { type: 'generated_image', schemaVersion: 1 },
+      { type: 'image_results', schemaVersion: 1 },
       { type: 'data_source', schemaVersion: 1 },
       { type: 'content_filtered', schemaVersion: 1 },
       { type: 'place_results', schemaVersion: 1 },
@@ -853,6 +854,35 @@ describe('contentBlockRegistry', () => {
     });
     expect(normalizeContentBlock({ ...payload, file_id: '' })).toMatchObject({ type: 'unsupported_result' });
     expect(normalizeContentBlock({ ...payload, mime_type: 'text/html' })).toMatchObject({ type: 'unsupported_result' });
+    expect(normalizeContentBlock({ ...payload, schema_version: 2 })).toMatchObject({ type: 'unsupported_result' });
+  });
+
+  it('decodes image search results and drops images without a usable https address', () => {
+    const image = {
+      id: 'img_1a2b3c4d',
+      image_url: 'https://cdn.example.com/a.jpg',
+      page_url: 'https://www.example.com/post',
+      title: 'iPhone 17 Pro',
+      site_name: 'example.com',
+    };
+    const payload = {
+      type: 'image_results',
+      id: 'blk-images',
+      schema_version: 1,
+      query: 'iPhone 17 Pro 外观',
+      images: [
+        image,
+        { ...image, id: 'img_http', image_url: 'http://cdn.example.com/b.jpg' },
+        { ...image, id: 'img_js', image_url: 'javascript:alert(1)' },
+        { ...image, id: 'img_page', page_url: 'javascript:alert(1)' },
+      ],
+      tool_call_log_id: 'log-1',
+    };
+    expect(normalizeContentBlock(payload)).toEqual({
+      ...payload,
+      images: [image, { ...image, id: 'img_page', page_url: '' }],
+    });
+    expect(normalizeContentBlock({ ...payload, images: undefined })).toMatchObject({ type: 'unsupported_result' });
     expect(normalizeContentBlock({ ...payload, schema_version: 2 })).toMatchObject({ type: 'unsupported_result' });
   });
 });
