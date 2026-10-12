@@ -119,8 +119,18 @@ jobs:
           docker version
           docker ps
 
+      - name: Restore API image build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/fusion-api-buildx-cache
+          key: fusion-api-buildx-${{ runner.os }}-${{ hashFiles('backend/Dockerfile', 'backend/requirements.txt') }}
+          restore-keys: |
+            fusion-api-buildx-${{ runner.os }}-
+
       - name: Test and build API Docker images
         timeout-minutes: 15
+        env:
+          API_BUILD_CACHE_DIR: ${{ runner.temp }}/fusion-api-buildx-cache
         run: |
           bash backend/.github/scripts/linux-build-and-test.sh \
             "${CI_IMAGE_NAME}" \
