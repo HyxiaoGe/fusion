@@ -107,6 +107,14 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     [providers, models, guestAllowedModelIds],
   );
 
+  // 最近使用记在本机，登录时用过的模型游客不能用，不再展示。
+  const visibleRecentModelIds = useMemo(
+    () => (guestAllowedModelIds
+      ? recentModelIds.filter((id) => guestAllowedModelIds.has(id))
+      : recentModelIds),
+    [recentModelIds, guestAllowedModelIds],
+  );
+
   const [activeProvider, setActiveProvider] = useState<string>("");
   const effectiveProvider = useMemo(() => {
     if (activeProvider && modelsByProvider.some((g) => g.id === activeProvider)) {
@@ -225,7 +233,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
               autoModel={autoModel}
               modelsByProvider={modelsByProvider}
               selectedModelId={currentModelId}
-              recentModelIds={recentModelIds}
+              recentModelIds={visibleRecentModelIds}
               allModels={models}
               activeProvider={effectiveProvider}
               onSelect={handleModelChange}
