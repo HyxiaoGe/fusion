@@ -21,6 +21,7 @@ fi
 if ! PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
   PLAYWRIGHT_MODULE_PATH="$smokeNodeDir/node_modules/playwright/index.js" \
   PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH" \
+  SMOKE_STORAGE_STATE_PATH="$HOME/.cache/fusion-ui-smoke/storage-state.json" \
   node frontend/scripts/smoke-dev-deployment.mjs; then
   echo "fusion-ui dev browser smoke failed"
   docker ps --filter "name=fusion-ui"

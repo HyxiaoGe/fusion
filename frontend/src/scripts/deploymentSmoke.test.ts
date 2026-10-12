@@ -5,16 +5,19 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildSmokeContextOptions,
   buildSmokeSessionStorageFlags,
   buildSmokeUrl,
   resolveChromiumExecutablePath,
   resolvePlaywrightChromium,
   resolvePlaywrightModuleSpecifier,
   resolveSmokeBaseUrl,
+  resolveSmokeStorageStatePath,
   validateDeploymentSmokeResult,
 } from '../../scripts/smoke-dev-deployment-helpers.mjs';
 
 const smokeScript = readFileSync(join(process.cwd(), 'scripts/smoke-dev-deployment.mjs'), 'utf8');
+const deployScript = readFileSync(join(process.cwd(), '../ops/deploy/ui-run-dev-browser-smoke.sh'), 'utf8');
 
 describe('deployment smoke helpers', () => {
   it('优先使用命令行 base-url，其次使用 SMOKE_BASE_URL，最后回退 dev 本机地址', () => {
@@ -113,5 +116,17 @@ describe('deployment smoke helpers', () => {
     expect(smokeScript).toContain('MODEL_SELECTOR_TRIGGER_SELECTOR');
     expect(smokeScript).toContain('MODEL_SELECTOR_PANEL_SELECTOR');
     expect(smokeScript).not.toContain('[title');
+  });
+
+  it('复用上次保存的浏览器存储，冒烟通过后再保存，不在每次部署都领取新游客', () => {
+    expect(resolveSmokeStorageStatePath({ SMOKE_STORAGE_STATE_PATH: '/cache/state.json' })).toBe('/cache/state.json');
+    expect(resolveSmokeStorageStatePath({})).toBeNull();
+    expect(buildSmokeContextOptions('/cache/state.json', () => true)).toEqual({ storageState: '/cache/state.json' });
+    expect(buildSmokeContextOptions('/cache/state.json', () => false)).toEqual({});
+    expect(buildSmokeContextOptions(null, () => true)).toEqual({});
+
+    const validateAt = smokeScript.indexOf('validateDeploymentSmokeResult(result);');
+    expect(smokeScript.indexOf('context.storageState({ path: storageStatePath })')).toBeGreaterThan(validateAt);
+    expect(deployScript).toContain('SMOKE_STORAGE_STATE_PATH="$HOME/.cache/fusion-ui-smoke/storage-state.json"');
   });
 });
