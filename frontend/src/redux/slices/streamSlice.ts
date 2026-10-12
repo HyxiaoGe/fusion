@@ -658,6 +658,10 @@ const streamSlice = createSlice({
           tc.completedAt = Date.now();
           if (resultSummary) tc.resultSummary = resultSummary;
           if (error) tc.error = error;
+          // 草稿只是工具参数的预览；对应调用失败时文档并未生成，草稿卡片要如实标成失败，而不是静默消失。
+          if (status === 'failed' && run.documentDraft && run.documentDraft.toolName === tc.toolName) {
+            run.documentDraft.failed = true;
+          }
           const resolvedRepairId = resultSummary?.resolves_repair_id;
           if (status === 'success' && resolvedRepairId) {
             run.toolDigests = (run.toolDigests ?? []).filter(

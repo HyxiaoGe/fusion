@@ -4,7 +4,10 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import i18n from '@/lib/i18n';
 import streamSliceReducer, {
   applyDocumentDraftDelta,
+  finalizeToolCall,
   initRun,
+  pushStep,
+  pushToolCall,
   startStream,
   upsertStaticContentBlock,
 } from '@/redux/slices/streamSlice';
@@ -28,6 +31,36 @@ function draftOf(state: ReturnType<typeof runningState>) {
 }
 
 describe('文档草稿状态', () => {
+  it('对应的文档工具调用失败时草稿标成失败，换新调用重写时清除失败', () => {
+    let state = runningState();
+    const base = { conversationId: 'c1', runId: 'r1', toolName: 'create_document' };
+    state = streamSliceReducer(state, pushStep({ conversationId: 'c1', runId: 'r1', stepId: 's1', stepNumber: 1, sequence: 1 }));
+    state = streamSliceReducer(state, applyDocumentDraftDelta({ ...base, draftId: 's1:0', field: 'content', delta: '<!DOCTYPE html>' }));
+    state = streamSliceReducer(state, pushToolCall({
+      conversationId: 'c1', runId: 'r1', stepId: 's1', toolCallId: 'tc1', toolName: 'create_document', arguments: {}, sequence: 2,
+    }));
+    state = streamSliceReducer(state, finalizeToolCall({
+      conversationId: 'c1', runId: 'r1', toolCallId: 'tc1', status: 'failed', durationMs: 0, sequence: 3,
+    }));
+    expect(draftOf(state)?.failed).toBe(true);
+
+    state = streamSliceReducer(state, applyDocumentDraftDelta({ ...base, draftId: 's2:0', field: 'content', delta: '# 重写' }));
+    expect(draftOf(state)?.failed).toBeUndefined();
+  });
+
+  it('其他工具失败不影响文档草稿', () => {
+    let state = runningState();
+    state = streamSliceReducer(state, pushStep({ conversationId: 'c1', runId: 'r1', stepId: 's1', stepNumber: 1, sequence: 1 }));
+    state = streamSliceReducer(state, applyDocumentDraftDelta({ conversationId: 'c1', runId: 'r1', toolName: 'create_document', draftId: 's1:0', field: 'content', delta: 'x' }));
+    state = streamSliceReducer(state, pushToolCall({
+      conversationId: 'c1', runId: 'r1', stepId: 's1', toolCallId: 'tc1', toolName: 'web_search', arguments: {}, sequence: 2,
+    }));
+    state = streamSliceReducer(state, finalizeToolCall({
+      conversationId: 'c1', runId: 'r1', toolCallId: 'tc1', status: 'failed', durationMs: 0, sequence: 3,
+    }));
+    expect(draftOf(state)?.failed).toBeUndefined();
+  });
+
   it('按草稿 id 累积标题与正文，新调用覆盖旧草稿', () => {
     let state = runningState();
     const base = { conversationId: 'c1', runId: 'r1', toolName: 'create_document' };
@@ -116,5 +149,22 @@ describe('DocumentDraftCard', () => {
     render(<DocumentDraftCard draft={{ draftId: 's1:0', toolName: 'edit_document', title: '', content: '', documentId: '3f2b8c1e-5d4a' }} />);
 
     expect(getDocumentMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('失败的文档草稿卡片', () => {
+  beforeAll(async () => {
+    await i18n.changeLanguage('zh-CN');
+  });
+
+  it('显示没有创建成功、不再转圈，也不展示半截预览', () => {
+    render(
+      <DocumentDraftCard draft={{ draftId: 's1:0', toolName: 'create_document', title: '旋转银河', content: '<!DOCTYPE html>', documentId: '', failed: true }} />,
+    );
+
+    expect(screen.getByText('旋转银河')).toBeInTheDocument();
+    expect(screen.getByText('文档没有创建成功')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: '文档草稿实时预览' })).toBeNull();
+    expect(screen.getByTestId('document-draft').querySelector('.animate-spin')).toBeNull();
   });
 });

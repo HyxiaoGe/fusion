@@ -931,6 +931,34 @@ describe('deriveAssistantActivity', () => {
     expect(activity.draft).toEqual({ toolName: 'create_document', title: '三亚五日游攻略' });
   });
 
+  it('文档草稿失败后不再显示撰写文档', () => {
+    const activity = deriveAssistantActivity({
+      isStreaming: true,
+      isCurrentlyStreaming: true,
+      contentBlocks: [],
+      currentRun: makeRun({
+        status: 'running',
+        totalToolCalls: 1,
+        steps: [{
+          stepId: 'step-1',
+          stepNumber: 1,
+          status: 'completed',
+          startedAt: 1,
+          contentBlockIds: [],
+          toolCalls: [{ toolCallId: 'tool-1', toolName: 'create_document', arguments: {}, status: 'failed', startedAt: 1 }],
+        }],
+        llmPhase: { roundId: 'round-2', roundIndex: 1, output: 'pending', sequence: 9 },
+        documentDraft: { draftId: 'd1', toolName: 'create_document', title: '旋转银河', content: '<!DOCTYPE html>', documentId: '', failed: true },
+      }),
+      messageStatus: null,
+      isLoadingSuggestedQuestions: false,
+      suggestedQuestionsCount: 0,
+    });
+
+    expect(activity.kind).not.toBe('drafting');
+    expect(activity.draft).toBeNull();
+  });
+
   it('地名有多个候选时不算工具问题', () => {
     const activity = deriveAssistantActivity({
       isStreaming: false,

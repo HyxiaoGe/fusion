@@ -273,7 +273,10 @@ export function useAssistantMessageViewModel({
   const documentBlocks = useMemo(() => collectDocumentBlocks(blocksToRender), [blocksToRender]);
   const generatedImages = useMemo(() => collectGeneratedImageBlocks(blocksToRender), [blocksToRender]);
   const mapDataSources = useMemo(() => collectMapDataSources(blocksToRender), [blocksToRender]);
-  const documentDraft = isCurrentlyStreaming ? ownedRun?.documentDraft ?? null : null;
+  // 失败的草稿在回答结束后仍保留，让用户知道文档没有生成；成功的草稿由正式文档卡片替换。
+  const documentDraft = isCurrentlyStreaming || ownedRun?.documentDraft?.failed
+    ? ownedRun?.documentDraft ?? null
+    : null;
   const suppressThinking = activity.shouldSuppressReasoning;
   const hasThinking = !suppressThinking && displayThinking.length > 0;
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { memo, useDeferredValue, useEffect, useRef, useState } from 'react';
-import { FileText, Loader2 } from 'lucide-react';
+import { CircleAlert, FileText, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getDocument } from '@/lib/api/documents';
 import type { DocumentDraftState } from '@/types/agentRun';
@@ -48,7 +48,10 @@ function DocumentDraftCard({ draft }: DocumentDraftCardProps) {
     if (element && stickToBottomRef.current) element.scrollTop = element.scrollHeight;
   }, [previewContent]);
 
-  const status = isRevision
+  const failed = Boolean(draft.failed);
+  const status = failed
+    ? t(isRevision ? 'documents.draft.reviseFailed' : 'documents.draft.createFailed')
+    : isRevision
     ? t('documents.draft.revising')
     : [
         t('documents.draft.writing'),
@@ -57,7 +60,7 @@ function DocumentDraftCard({ draft }: DocumentDraftCardProps) {
 
   return (
     <div className="mb-4 flex w-full max-w-6xl flex-col gap-2" data-testid="document-draft">
-      <div className={styles.draftCard} aria-live="polite">
+      <div className={failed ? `${styles.draftCard} ${styles.draftCardFailed}` : styles.draftCard} aria-live="polite">
         <span className={styles.icon} aria-hidden="true">
           <FileText className="h-4 w-4" />
         </span>
@@ -67,9 +70,14 @@ function DocumentDraftCard({ draft }: DocumentDraftCardProps) {
           </span>
           <span className="mt-0.5 block truncate text-xs text-muted-foreground">{status}</span>
         </span>
-        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" aria-hidden="true" />
+        {failed ? (
+          <CircleAlert className={styles.draftFailedIcon} aria-hidden="true" />
+        ) : (
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" aria-hidden="true" />
+        )}
       </div>
-      {!isRevision && previewContent ? (
+      {/* 失败时不再展示半截预览：内容没有保存，模型通常会在回答里另行给出。 */}
+      {!isRevision && !failed && previewContent ? (
         <div
           ref={previewRef}
           className={styles.draftPreview}
