@@ -254,9 +254,9 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Notes:", context)
         self.assertNotIn("aggregation scope", context)
         self.assertIn("untrusted", context)
-        self.assertIn("url_read on high-value sources", description)
+        self.assertIn("use url_read when snippets are incomplete or disagree", description)
         self.assertIn("aggregation scope", description)
-        self.assertIn("Clear signals to stop", description)
+        self.assertIn("Report uncertainty instead of searching it away", description)
 
     def test_format_llm_context_uses_context_source_limit_from_budget(self):
         from app.schemas.chat import SearchSource
