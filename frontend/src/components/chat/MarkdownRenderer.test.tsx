@@ -475,6 +475,7 @@ describe('回答配图', () => {
     expect(images).toHaveLength(2);
     expect(images[0]).toHaveAttribute('src', 'https://cdn.example.com/iphone.jpg');
     expect(images[0]).toHaveAttribute('referrerpolicy', 'no-referrer');
+    expect(images[0]).not.toHaveAttribute('loading', 'lazy');
     expect(screen.getAllByRole('link', { name: '打开图片来源：apple.com' })[0]).toHaveAttribute('href', 'https://www.apple.com/iphone/');
     expect(screen.getAllByText('apple.com')).toHaveLength(2);
   });
