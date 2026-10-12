@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 # catalog 结构版本。新增/删除 spec 或改变契约字段时递增。
 # code-default effective_revision 的 canonical 摘要以它承担版本身份。
-CATALOG_VERSION = "2026-09-06.2"
+CATALOG_VERSION = "2026-10-12.1"
 DEFAULT_TEMPLATE_ENGINE = "jinja2"
 CATALOG_VERSION_BY_ENGINE = {"jinja2": CATALOG_VERSION}
 SUPPORTED_TEMPLATE_ENGINES = frozenset(CATALOG_VERSION_BY_ENGINE)
@@ -46,6 +46,12 @@ PROMPT_SPECS = (
         "generate-suggested-questions",
         "生成推荐问题",
         ("content",),
+    ),
+    PromptSpec(
+        "generate_inspirations",
+        "generate-inspirations",
+        "生成首页今日灵感",
+        ("today", "capabilities"),
     ),
     PromptSpec("file_analysis", "file-analysis", "文件分析", ("query", "file_content")),
     PromptSpec(

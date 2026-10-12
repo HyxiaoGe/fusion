@@ -1,11 +1,15 @@
 import { API_CONFIG } from '../config';
 import { apiRequest } from './fetchWithAuth';
+import type { Entitlements } from './user';
 
 const API_BASE_URL = API_CONFIG.BASE_URL;
 
 export interface PromptExample {
   question: string;
-  category: 'news' | 'tech' | 'general';
+  /** 功能目录里的分类，如 image / weather / news */
+  category: string;
+  /** 需要的功能开关（对应权益 features 的键）；不需要额外功能时为 null */
+  requires?: keyof Entitlements['features'] | null;
 }
 
 export interface PromptExamplesResponse {

@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import HomePage from '@/components/home/HomePage';
 import { useAppDispatch, useAppSelector } from '@/redux/hooks';
 import { selectStreamSlot } from '@/redux/slices/streamSlice';
-import { selectAuthSessionKey } from '@/redux/selectors';
+import { selectAuthSessionKey, selectEntitlements } from '@/redux/selectors';
 import { setSelectedModel } from '@/redux/slices/modelsSlice';
 import { setPendingConversationId } from '@/redux/slices/conversationSlice';
 import { deleteFile, type FileInfo } from '@/lib/api/files';
@@ -122,6 +122,7 @@ export default function HomeChatSurface() {
   const backgroundedDraftIdsRef = useRef(new Set<string>());
   const isAuthenticated = useAppSelector((state) => state.auth.isAuthenticated);
   const authSessionKey = useAppSelector(selectAuthSessionKey);
+  const entitlementFeatures = useAppSelector((state) => selectEntitlements(state)?.features ?? null);
   const models = useAppSelector((state) => state.models.models);
   const pendingConversationId = useAppSelector((state) => state.conversation.pendingConversationId);
   const displayConversationId = pendingConversationId ?? handoffConversationId;
@@ -497,7 +498,7 @@ export default function HomeChatSurface() {
             />
           </div>
         ) : (
-          <HomePage onSelectPrompt={handleSelectPrompt} />
+          <HomePage onSelectPrompt={handleSelectPrompt} features={entitlementFeatures} />
         )}
       </div>
       <div className="flex-shrink-0 p-4">

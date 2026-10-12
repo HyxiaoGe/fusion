@@ -24,10 +24,19 @@ async def start_scheduler() -> None:
 
     from app.services.agent.trajectory_reconciliation import reconcile_trajectory_best_effort
     from app.services.guest_cleanup import purge_inactive_guests_hourly
+    from app.services.inspiration_generator import generate_daily_inspirations_job
 
     scheduler = AsyncIOScheduler()
 
-    # 首页示例问题由 dev 每日探针出题后写入（store_prompt_examples），这里不再定时生成
+    # 每天凌晨按功能目录为首页「今日灵感」出题；多 worker 由任务内的 Redis 锁去重
+    scheduler.add_job(
+        generate_daily_inspirations_job,
+        trigger=CronTrigger(hour=5, minute=0, timezone="Asia/Shanghai"),
+        id="generate_daily_inspirations",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
 
     scheduler.add_job(
         reconcile_trajectory_best_effort,

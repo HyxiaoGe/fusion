@@ -238,6 +238,35 @@ describe('HomePage', () => {
     }
   });
 
+  it('需要额外功能的灵感只在用户有该功能时展示', async () => {
+    fetchPromptExamplesMock.mockResolvedValue({
+      examples: [
+        { question: '帮我画一只戴墨镜的柴犬', category: 'image', requires: 'image_generation' },
+        { question: '最近 AI 圈有什么大新闻', category: 'news', requires: null },
+      ],
+      refreshed_at: null,
+    });
+    const guestFeatures = {
+      model_selection: false,
+      deep_research: false,
+      file_upload: false,
+      image_generation: false,
+      map: false,
+      knowledge_base: false,
+      mcp_tools: false,
+      personalization: false,
+    };
+
+    const { rerender } = render(<HomePage onSelectPrompt={vi.fn()} features={guestFeatures} />);
+
+    expect(await screen.findByRole('button', { name: '最近 AI 圈有什么大新闻' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '帮我画一只戴墨镜的柴犬' })).not.toBeInTheDocument();
+
+    rerender(<HomePage onSelectPrompt={vi.fn()} features={{ ...guestFeatures, image_generation: true }} />);
+
+    expect(await screen.findByRole('button', { name: '帮我画一只戴墨镜的柴犬' })).toBeInTheDocument();
+  });
+
   it('把远端动态问题作为低干扰的今日灵感展示', async () => {
     const onSelectPrompt = vi.fn();
     render(<HomePage onSelectPrompt={onSelectPrompt} />);

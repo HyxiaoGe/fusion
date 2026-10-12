@@ -9,6 +9,7 @@ ALLOWED_LLM_PHASES = frozenset(
         "chat_stream",
         "generate_title",
         "suggest_questions",
+        "generate_inspirations",
         "file_processing",
         "fallback_language",
         "eval_judge",
