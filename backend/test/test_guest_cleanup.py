@@ -49,13 +49,39 @@ def test_purges_only_inactive_guests():
         db.flush()
         _conversation(db, "old-stale-guest", updated_days_ago=45)
         _conversation(db, "old-active-guest", updated_days_ago=2)
+        _conversation(db, "new-guest", updated_days_ago=3)
         db.commit()
 
-    assert purge_inactive_guests(factory, now=NOW) == 2
+    assert purge_inactive_guests(factory, now=NOW) == (1, 1)
 
     with factory() as db:
         remaining = {user.id for user in db.query(User).all()}
     assert remaining == {"old-active-guest", "new-guest", "old-registered"}
+
+
+def _user_hours_ago(db, user_id: str, *, is_guest: bool, hours_ago: int) -> None:
+    created = (NOW - timedelta(hours=hours_ago)).astimezone(CHINA).replace(tzinfo=None)
+    db.add(User(id=user_id, username=user_id, is_guest=is_guest, created_at=created))
+
+
+def test_purges_guests_unused_for_a_day():
+    """只打开过网站、24 小时内没发过消息的游客被清理；有会话的、刚领取的保留。"""
+
+    factory = _session_factory()
+    with factory() as db:
+        _user_hours_ago(db, "unused-guest", is_guest=True, hours_ago=25)
+        _user_hours_ago(db, "fresh-guest", is_guest=True, hours_ago=23)
+        _user_hours_ago(db, "chatted-guest", is_guest=True, hours_ago=25)
+        _user_hours_ago(db, "unused-registered", is_guest=False, hours_ago=25)
+        db.flush()
+        _conversation(db, "chatted-guest", updated_days_ago=1)
+        db.commit()
+
+    assert purge_inactive_guests(factory, now=NOW) == (1, 0)
+
+    with factory() as db:
+        remaining = {user.id for user in db.query(User).all()}
+    assert remaining == {"fresh-guest", "chatted-guest", "unused-registered"}
 
 
 def test_purge_processes_multiple_batches(monkeypatch):
@@ -66,7 +92,7 @@ def test_purge_processes_multiple_batches(monkeypatch):
             _user(db, f"guest-{index}", is_guest=True, days_ago=40)
         db.commit()
 
-    assert purge_inactive_guests(factory, now=NOW) == 5
+    assert purge_inactive_guests(factory, now=NOW) == (5, 0)
 
 
 class _FakeRedis:
@@ -80,21 +106,21 @@ class _FakeRedis:
         return True
 
 
-def test_daily_job_runs_once_per_day_across_workers(monkeypatch):
+def test_job_runs_once_per_hour_across_workers(monkeypatch):
     redis = _FakeRedis()
     calls = []
     monkeypatch.setattr(guest_cleanup, "get_redis", lambda: redis)
-    monkeypatch.setattr(guest_cleanup, "purge_inactive_guests", lambda: calls.append(1) or 0)
+    monkeypatch.setattr(guest_cleanup, "purge_inactive_guests", lambda: calls.append(1) or (0, 0))
 
-    asyncio.run(guest_cleanup.purge_inactive_guests_daily())
-    asyncio.run(guest_cleanup.purge_inactive_guests_daily())
+    asyncio.run(guest_cleanup.purge_inactive_guests_hourly())
+    asyncio.run(guest_cleanup.purge_inactive_guests_hourly())
 
     assert calls == [1]
 
 
-def test_daily_job_swallows_redis_errors(monkeypatch):
+def test_job_swallows_redis_errors(monkeypatch):
     def broken():
         raise ConnectionError("redis down")
 
     monkeypatch.setattr(guest_cleanup, "get_redis", broken)
-    asyncio.run(guest_cleanup.purge_inactive_guests_daily())
+    asyncio.run(guest_cleanup.purge_inactive_guests_hourly())
