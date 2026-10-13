@@ -1149,28 +1149,6 @@ class ChatService:
             options=options,
         )
 
-    @staticmethod
-    def _build_recent_dialog_content(conversation: Conversation) -> str:
-        """保留旧扩展兼容；正式生成路径由目标 message ID 锁定上下文。"""
-        latest_user = ""
-        latest_ai = ""
-        for message in reversed(conversation.messages):
-            text = "\n".join(block.text for block in message.content if block.type == "text")
-            if not text:
-                continue
-            if not latest_ai and message.role == "assistant":
-                latest_ai = text
-            elif not latest_user and message.role == "user":
-                latest_user = text
-            if latest_user and latest_ai:
-                break
-        lines = []
-        if latest_user:
-            lines.append(f"用户: {latest_user}")
-        if latest_ai:
-            lines.append(f"助手: {latest_ai}")
-        return "\n".join(lines)
-
     # ==================== CRUD 代理方法 ====================
 
     def get_conversation(self, conversation_id: str, user_id: str):

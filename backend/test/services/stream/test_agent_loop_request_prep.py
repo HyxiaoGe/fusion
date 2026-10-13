@@ -2,16 +2,19 @@ import unittest
 from dataclasses import FrozenInstanceError
 from unittest.mock import patch
 
-from app.ai.prompts.prompt_message import PromptMessage
 from app.schemas.chat import TextBlock
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_DEFINITIONS
 from app.services.stream.agent_loop_request_prep import (
+    _run_prompt_sections,
     build_agent_loop_call_config,
-    inject_deep_research_contract,
     inject_no_tool_network_boundary,
-    inject_plan_control_contract,
     prepare_agent_loop_messages,
 )
+
+
+def _prompt_sections(config):
+    sections = _run_prompt_sections(config, no_vision_file_boundary=False, extra_system_prompts=())
+    return {section.section_id: section.content for section in sections}
 
 
 class FakeFileRepository:
@@ -293,14 +296,13 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             capabilities={"functionCalling": True, "searchCapable": True},
         )
 
-        research_messages = inject_deep_research_contract([{"role": "user", "content": "调研"}], research)
-        standard_messages = inject_deep_research_contract([{"role": "user", "content": "调研"}], standard)
+        research_contract = _prompt_sections(research)["deep_research_contract"]
 
-        self.assertIn("[Deep-research execution contract]", research_messages[0]["content"])
-        self.assertIn("complementary queries", research_messages[0]["content"])
-        self.assertIn("Use [n] citations in the answer body", research_messages[0]["content"])
-        self.assertNotIn("planned_tools", research_messages[0]["content"])
-        self.assertEqual(standard_messages, [{"role": "user", "content": "调研"}])
+        self.assertIn("[Deep-research execution contract]", research_contract)
+        self.assertIn("complementary queries", research_contract)
+        self.assertIn("Use [n] citations in the answer body", research_contract)
+        self.assertNotIn("planned_tools", research_contract)
+        self.assertNotIn("deep_research_contract", _prompt_sections(standard))
 
     def test_plan_mode_off_preserves_old_tools_without_control_tool(self):
         config = build_agent_loop_call_config(
@@ -363,10 +365,10 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             capabilities={"functionCalling": True, "searchCapable": True},
         )
 
-        prepared = inject_plan_control_contract([{"role": "user", "content": "你好"}], config)
+        plan_contract = _prompt_sections(config)["agent_plan_control"]
 
-        self.assertIn("[Execution plan]", prepared[0]["content"])
-        self.assertIn("does not restrict which tools you may call", prepared[0]["content"])
+        self.assertIn("[Execution plan]", plan_contract)
+        self.assertIn("does not restrict which tools you may call", plan_contract)
 
     def test_plan_contract_is_not_injected_when_plan_mode_is_off(self):
         config = build_agent_loop_call_config(
@@ -374,9 +376,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             options={"plan_mode": "off"},
             capabilities={"functionCalling": True, "searchCapable": True},
         )
-        messages = [{"role": "user", "content": "规划通勤路线"}]
-
-        self.assertIs(inject_plan_control_contract(messages, config), messages)
+        self.assertNotIn("agent_plan_control", _prompt_sections(config))
 
     def test_build_call_config_applies_controlled_max_tokens(self):
         for raw_value, expected in ((1, 1), (1024, 1024), (9999, 4096)):
@@ -957,36 +957,17 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
 
     def test_tool_usage_contract_uses_centralized_prompt(self):
         from app.ai.prompts.agent_loop import NETWORK_DECISION_PROMPT, TOOL_USAGE_CONTRACT_PROMPT
-        from app.services.stream.agent_loop_request_prep import inject_tool_usage_contract
 
-        messages = [{"role": "user", "content": "OpenAI 最新公告"}]
-        call_kwargs = {"tools": [{"type": "function", "function": {"name": "web_search"}}]}
+        config = build_agent_loop_call_config(
+            provider="openai",
+            options={},
+            capabilities={"functionCalling": True, "searchCapable": True},
+        )
 
-        prepared = inject_tool_usage_contract(messages, call_kwargs)
-
-        self.assertEqual(prepared[0], {"role": "system", "content": TOOL_USAGE_CONTRACT_PROMPT})
+        self.assertEqual(_prompt_sections(config)["tool_usage_contract"], TOOL_USAGE_CONTRACT_PROMPT)
         self.assertIn(NETWORK_DECISION_PROMPT, TOOL_USAGE_CONTRACT_PROMPT)
         self.assertIn("must actually call web_search", TOOL_USAGE_CONTRACT_PROMPT)
         self.assertIn("When no tool was called", TOOL_USAGE_CONTRACT_PROMPT)
-
-    def test_tool_usage_contract_deduplicates_by_section_identity_after_body_changes(self):
-        from app.services.stream.agent_loop_request_prep import inject_tool_usage_contract
-
-        existing = PromptMessage(
-            role="system",
-            content="管理员热更新后的任意工具规则正文",
-            section_id="tool_usage_contract",
-        )
-        prepared = inject_tool_usage_contract(
-            [existing, PromptMessage(role="user", content="最新公告")],
-            {"tools": [{"type": "function", "function": {"name": "web_search"}}]},
-        )
-
-        self.assertEqual(
-            [message.section_id for message in prepared].count("tool_usage_contract"),
-            1,
-        )
-        self.assertIs(prepared[0], existing)
 
     def test_no_tool_network_boundary_uses_centralized_prompt(self):
         from app.ai.prompts.agent_loop import NO_TOOL_NETWORK_BOUNDARY_PROMPT

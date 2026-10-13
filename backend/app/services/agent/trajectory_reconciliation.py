@@ -244,46 +244,6 @@ def _insert_missing_meta_do_nothing(session: Any, values: dict[str, Any]) -> boo
     return result.rowcount == 1
 
 
-def resolve_run_trajectory_status(session: Any, run_id: str) -> TrajectoryStatusAssessment:
-    """读取侧完整性契约：pending complete 不得对外宣称 complete。"""
-    meta = session.get(RunTrajectoryMeta, run_id)
-    if meta is not None:
-        return resolve_trajectory_status_from_rows(None, meta, None)
-    run = session.get(AgentSession, run_id)
-    watermark = _watermark_from_session(session)
-    if run is None or not isinstance(run.created_at, datetime):
-        return TrajectoryStatusAssessment("degraded", "meta_missing")
-    return resolve_trajectory_status_from_rows(run, meta, watermark)
-
-
-def resolve_trajectory_status_from_rows(
-    run: AgentSession | None,
-    meta: RunTrajectoryMeta | None,
-    watermark: LedgerWatermarkResolution | datetime | None,
-) -> TrajectoryStatusAssessment:
-    """由已批量读取的 run/meta/水位判定完整性，避免 P1 列表 N+1 查询。"""
-    if meta is not None:
-        if meta.terminal_intent_pending_at is not None:
-            return TrajectoryStatusAssessment("degraded", _safe_pending_reason(meta))
-        if meta.trajectory_status in {"recording", "complete", "degraded", "legacy"}:
-            return TrajectoryStatusAssessment(meta.trajectory_status, meta.degraded_reason)
-        return TrajectoryStatusAssessment("degraded", TERMINAL_OUTCOME_UNKNOWN_REASON)
-
-    if run is None or not isinstance(run.created_at, datetime):
-        return TrajectoryStatusAssessment("degraded", "meta_missing")
-    if isinstance(watermark, LedgerWatermarkResolution):
-        ledger_enabled_at = watermark.ledger_enabled_at
-        ledger_error = watermark.degraded_reason
-    else:
-        ledger_enabled_at = watermark
-        ledger_error = None if isinstance(watermark, datetime) else "ledger_settings_missing"
-    return classify_missing_trajectory_meta(
-        run_created_at=run.created_at,
-        ledger_enabled_at=ledger_enabled_at,
-        ledger_error=ledger_error,
-    )
-
-
 def resolve_user_trajectory_status_from_rows(
     run_created_at: datetime,
     meta: UserTrajectoryMetaRow | None,

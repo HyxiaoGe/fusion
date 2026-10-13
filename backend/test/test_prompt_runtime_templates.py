@@ -78,19 +78,20 @@ class PromptRuntimeTemplatesTests(unittest.TestCase):
     def test_agent_loop_request_prep_injects_runtime_tool_contract_prompt(self):
         from app.services.stream import agent_loop_request_prep
 
-        call_kwargs = {"tools": [{"type": "function", "function": {"name": "web_search"}}]}
+        config = agent_loop_request_prep.build_agent_loop_call_config(
+            provider="openai",
+            options={},
+            capabilities={"functionCalling": True, "searchCapable": True},
+        )
         with patch.object(
-            agent_loop_request_prep,
-            "get_tool_usage_contract_prompt",
-            return_value="运行时工具一致性规则",
-            create=True,
+            agent_loop_request_prep, "get_tool_usage_contract_prompt", return_value="运行时工具一致性规则"
         ):
-            messages = agent_loop_request_prep.inject_tool_usage_contract(
-                [{"role": "user", "content": "OpenAI 最新公告"}],
-                call_kwargs,
+            sections = agent_loop_request_prep._run_prompt_sections(
+                config, no_vision_file_boundary=False, extra_system_prompts=()
             )
+            contents = {section.section_id: section.content for section in sections}
 
-        self.assertEqual(messages[0], {"role": "system", "content": "运行时工具一致性规则"})
+        self.assertEqual(contents["tool_usage_contract"], "运行时工具一致性规则")
 
     def test_limit_summary_uses_runtime_prompt(self):
         from app.ai.prompts.section_ids import LIMIT_SUMMARY
@@ -108,19 +109,6 @@ class PromptRuntimeTemplatesTests(unittest.TestCase):
         content = messages[-1]["content"]
         self.assertEqual(content, "运行时触顶总结规则")
         self.assertEqual(messages[-1].section_id, LIMIT_SUMMARY)
-
-    def test_continuation_injects_runtime_prompt(self):
-        from app.services.agent import continuation
-
-        with patch.object(
-            continuation,
-            "get_continuation_system_prompt",
-            return_value="运行时继续回答规则",
-            create=True,
-        ):
-            messages = continuation.inject_continuation_prompt([{"role": "user", "content": "继续"}])
-
-        self.assertEqual(messages[0], {"role": "system", "content": "运行时继续回答规则"})
 
     def test_url_preprocess_uses_runtime_url_read_tool_builder(self):
         from app.services.stream import persistence

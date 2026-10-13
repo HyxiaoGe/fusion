@@ -100,24 +100,21 @@ class AgentLoopCallSiteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("标记F-触顶总结", messages[-1]["content"])
 
-    def test_continuation_body_reaches_system_message(self):
-        from app.services.agent import continuation
-
-        with patch.object(continuation, "get_continuation_system_prompt", return_value="标记G-续写"):
-            messages = continuation.inject_continuation_prompt([{"role": "user", "content": "继续"}])
-
-        self.assertEqual(messages[0], {"role": "system", "content": "标记G-续写"})
-
     def test_tool_usage_contract_body_reaches_system_message(self):
         from app.services.stream import agent_loop_request_prep
 
-        call_kwargs = {"tools": [{"type": "function", "function": {"name": "web_search"}}]}
+        config = agent_loop_request_prep.build_agent_loop_call_config(
+            provider="openai",
+            options={},
+            capabilities={"functionCalling": True, "searchCapable": True},
+        )
         with patch.object(agent_loop_request_prep, "get_tool_usage_contract_prompt", return_value="标记H-工具契约"):
-            messages = agent_loop_request_prep.inject_tool_usage_contract(
-                [{"role": "user", "content": "查一下"}], call_kwargs
+            sections = agent_loop_request_prep._run_prompt_sections(
+                config, no_vision_file_boundary=False, extra_system_prompts=()
             )
+            contents = {section.section_id: section.content for section in sections}
 
-        self.assertEqual(messages[0], {"role": "system", "content": "标记H-工具契约"})
+        self.assertEqual(contents["tool_usage_contract"], "标记H-工具契约")
 
     def test_no_tool_network_boundary_body_reaches_system_message(self):
         from app.services.stream import agent_loop_request_prep

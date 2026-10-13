@@ -20,8 +20,6 @@ from app.services.agent.trajectory_reconciliation import (
     reconcile_trajectory_batch,
     reconcile_trajectory_best_effort,
     resolve_ledger_watermark,
-    resolve_run_trajectory_status,
-    resolve_trajectory_status_from_rows,
 )
 from app.services.agent.trajectory_recorder import TrajectoryRecorder
 
@@ -481,10 +479,6 @@ class TrajectoryReconciliationTests(unittest.TestCase):
         self.assertEqual(result.legacy_not_recorded, 0)
         self.assertEqual(result.meta_missing_degraded, 1)
         self.assertIsNone(self._meta("legacy-run"))
-        with self.Session() as db:
-            legacy = resolve_run_trajectory_status(db, "legacy-run")
-        self.assertEqual(legacy.trajectory_status, "legacy")
-        self.assertEqual(legacy.degraded_reason, "not_recorded")
         new_meta = self._meta("new-run")
         self.assertEqual(new_meta.trajectory_status, "degraded")
         self.assertEqual(new_meta.degraded_reason, "meta_missing")
@@ -520,40 +514,6 @@ class TrajectoryReconciliationTests(unittest.TestCase):
         self.assertEqual(legacy.degraded_reason, "not_recorded")
         self.assertEqual(current.trajectory_status, "degraded")
         self.assertEqual(current.degraded_reason, "meta_missing")
-
-    def test_row_status_resolver_downgrades_pending_complete_and_uses_watermark_for_missing_meta(self):
-        """若移除 pending 降级或缺 meta 的水位判定，此读取侧契约必须失败。"""
-        run = AgentSession(
-            id="run-status",
-            conversation_id="conv-1",
-            user_id="user-1",
-            model_id="model-1",
-            provider="provider-1",
-            status="completed",
-            created_at=self.now,
-        )
-        pending_meta = RunTrajectoryMeta(
-            run_id=run.id,
-            conversation_id=run.conversation_id,
-            trajectory_status="complete",
-            event_count=1,
-            terminal_intent_pending_at=self.now,
-        )
-
-        pending = resolve_trajectory_status_from_rows(run, pending_meta, self.now)
-        legacy = resolve_trajectory_status_from_rows(
-            run,
-            None,
-            self.now + timedelta(seconds=1),
-        )
-        missing = resolve_trajectory_status_from_rows(run, None, self.now)
-
-        self.assertEqual(
-            (pending.trajectory_status, pending.degraded_reason),
-            ("degraded", TERMINAL_OUTCOME_UNKNOWN_REASON),
-        )
-        self.assertEqual((legacy.trajectory_status, legacy.degraded_reason), ("legacy", "not_recorded"))
-        self.assertEqual((missing.trajectory_status, missing.degraded_reason), ("degraded", "meta_missing"))
 
 
 if __name__ == "__main__":

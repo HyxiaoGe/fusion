@@ -287,10 +287,6 @@ def _failure_recovery_guidance(request: ToolRoundRequest, *, failed_tool_name: s
     return guidance
 
 
-def append_tool_round_messages(request: ToolRoundRequest, results: list[ToolExecutionRecord]) -> None:
-    append_tool_round_messages_with_plan(request, results, source_plan=None)
-
-
 def append_tool_round_messages_with_plan(
     request: ToolRoundRequest,
     results: list[ToolExecutionRecord],
@@ -925,17 +921,6 @@ def _plan_item_statuses_from_batch(
 
     priority = {"completed": 1, "running": 2, "blocked": 3, "failed": 4}
     return {item_id: max(statuses, key=priority.__getitem__) for item_id, statuses in candidates.items()}
-
-
-def _plan_item_statuses_from_results(
-    results: list[ToolExecutionRecord],
-    *,
-    agent_state: AgentLoopState | None = None,
-) -> dict[str, str]:
-    """保留纯结果聚合入口；计划状态仍只写入 PlanCoordinator。"""
-
-    del agent_state
-    return _plan_item_statuses_from_batch(results)
 
 
 def _pending_place_choice(result: Any) -> dict[str, Any] | None:

@@ -218,7 +218,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
                 reused=reused,
             )
 
-        statuses = tool_round_module._plan_item_statuses_from_results(
+        statuses = tool_round_module._plan_item_statuses_from_batch(
             [
                 record(tool_call_id="ok", plan_item_id="research", status="success"),
                 record(
@@ -254,10 +254,10 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
                 log_id=f"log-{tool_call_id}",
             )
 
-        retryable = tool_round_module._plan_item_statuses_from_results(
+        retryable = tool_round_module._plan_item_statuses_from_batch(
             [record(tool_call_id="tc-retryable", status="failed", retryable=True)]
         )
-        repaired = tool_round_module._plan_item_statuses_from_results(
+        repaired = tool_round_module._plan_item_statuses_from_batch(
             [record(tool_call_id="tc-success", status="success")]
         )
 
@@ -275,7 +275,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
                 }
             ],
         )
-        failed = tool_round_module._plan_item_statuses_from_results(
+        failed = tool_round_module._plan_item_statuses_from_batch(
             [
                 ToolExecutionRecord(
                     tool_call={
@@ -311,7 +311,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
                 log_id=f"log-{plan_item_id}",
             )
 
-        statuses = tool_round_module._plan_item_statuses_from_results(
+        statuses = tool_round_module._plan_item_statuses_from_batch(
             [
                 record("web_search", "search"),
                 record("url_read", "read"),
@@ -1377,7 +1377,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
         )
         messages = [{"role": "user", "content": "请搜索"}]
 
-        tool_round_module.append_tool_round_messages(
+        tool_round_module.append_tool_round_messages_with_plan(
             tool_round_module.ToolRoundRequest(
                 db="db",
                 assistant_message_id="msg-1",
@@ -1409,6 +1409,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
                 complete_step_fn=Mock(),
             ),
             [record_1, record_2],
+            source_plan=None,
         )
 
         self.assertEqual(messages[1]["role"], "assistant")
@@ -1470,7 +1471,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
         messages = [{"role": "user", "content": "请继续搜索"}]
         content_blocks = [previous_block]
 
-        tool_round_module.append_tool_round_messages(
+        tool_round_module.append_tool_round_messages_with_plan(
             tool_round_module.ToolRoundRequest(
                 db="db",
                 assistant_message_id="msg-1",
@@ -1502,6 +1503,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
                 complete_step_fn=Mock(),
             ),
             [record],
+            source_plan=None,
         )
 
         context = messages[-1]["content"]
@@ -1560,7 +1562,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
         )
         content_blocks = [previous_block]
 
-        tool_round_module.append_tool_round_messages(
+        tool_round_module.append_tool_round_messages_with_plan(
             tool_round_module.ToolRoundRequest(
                 db="db",
                 assistant_message_id="msg-1",
@@ -1592,6 +1594,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
                 complete_step_fn=Mock(),
             ),
             [record],
+            source_plan=None,
         )
 
         read_block = content_blocks[-1]

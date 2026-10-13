@@ -168,46 +168,6 @@ class MessageSequenceOrderingTests(unittest.TestCase):
         finally:
             db.close()
 
-    def test_latest_assistant_uses_sequence_before_created_at(self):
-        db = self.Session()
-        try:
-            db.add(UserModel(id="user-1", username="user-1"))
-            db.add(
-                ConversationModel(
-                    id="conv-1",
-                    user_id="user-1",
-                    title="最后消息",
-                    model_id="deepseek-chat",
-                )
-            )
-            db.add_all(
-                [
-                    MessageModel(
-                        id="assistant-old",
-                        conversation_id="conv-1",
-                        role="assistant",
-                        content=[],
-                        sequence=2,
-                        created_at=datetime(2026, 7, 14, 8, 0, tzinfo=timezone.utc),
-                    ),
-                    MessageModel(
-                        id="assistant-new",
-                        conversation_id="conv-1",
-                        role="assistant",
-                        content=[],
-                        sequence=4,
-                        created_at=datetime(2026, 7, 13, 8, 0, tzinfo=timezone.utc),
-                    ),
-                ]
-            )
-            db.commit()
-
-            latest = ConversationRepository(db).get_last_assistant_message("conv-1")
-
-            self.assertEqual(latest.id, "assistant-new")
-        finally:
-            db.close()
-
     def test_reserve_pair_uses_one_atomic_database_nextval(self):
         db = MagicMock()
         db.get_bind.return_value = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
