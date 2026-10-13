@@ -246,6 +246,8 @@ class WeatherContractTests(unittest.TestCase):
         description = function["description"]
         self.assertIn("result.hourly_summary", description)
         self.assertIn("do not add a city the user did not provide", description)
+        self.assertIn("not for whole provinces", description)
+        self.assertIn("query its capital or main city instead", description)
         self.assertIn("Omit requested_date for negated", description)
         self.assertNotIn("precipitation probability, or alerts", description)
 
