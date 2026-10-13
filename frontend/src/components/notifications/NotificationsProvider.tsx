@@ -9,6 +9,7 @@ import {
   type NotificationPage,
 } from '@/lib/api/notifications';
 import { subscribeNotificationsChanged } from '@/lib/notifications/events';
+import { registerBackgroundTask } from '@/lib/scheduler/backgroundScheduler';
 
 const PAGE_SIZE = 20;
 const POLL_INTERVAL = 15_000;
@@ -276,14 +277,11 @@ export function NotificationsProvider({ sessionKey, children }: {
     snapshotRef.current = { unreadCount: 0, unreadConversationIds: [], revision: 0 };
     readStateRef.current = { readingAll: false, readError: false };
     setState(emptyState(sessionKey));
-    const refreshVisible = () => {
-      if (document.visibilityState === 'visible') void refreshFilter(filterRef.current);
-    };
-    refreshVisible();
-    const interval = window.setInterval(refreshVisible, POLL_INTERVAL);
-    window.addEventListener('focus', refreshVisible);
-    window.addEventListener('online', refreshVisible);
-    document.addEventListener('visibilitychange', refreshVisible);
+    // 登记即拉首屏；之后按共享节拍轮询，回到前台或恢复联网时补拉，后台不拉。
+    const unregisterPolling = registerBackgroundTask(
+      () => { void refreshFilter(filterRef.current); },
+      { intervalMs: POLL_INTERVAL },
+    );
     const unsubscribe = subscribeNotificationsChanged((owner) => {
       if (owner && owner !== sessionKey) return;
       // 隐藏期间也失效，避免恢复页面后另一筛选继续保留已读或已删除记录。
@@ -296,10 +294,7 @@ export function NotificationsProvider({ sessionKey, children }: {
       invalidate();
       readRef.current?.abort();
       readRef.current = null;
-      window.clearInterval(interval);
-      window.removeEventListener('focus', refreshVisible);
-      window.removeEventListener('online', refreshVisible);
-      document.removeEventListener('visibilitychange', refreshVisible);
+      unregisterPolling();
       unsubscribe();
     };
   }, [sessionKey, publish, invalidate, refreshFilter]);

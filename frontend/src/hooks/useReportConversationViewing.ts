@@ -2,15 +2,15 @@
 
 import { useEffect } from 'react';
 import { clearConversationViewing, reportConversationViewing } from '@/lib/api/notifications';
+import { registerBackgroundTask } from '@/lib/scheduler/backgroundScheduler';
 
-// 后端标记 30 秒过期，每 15 秒续一次。
+// 后端标记 30 秒过期，按共享节拍（15 秒）续期；节拍对齐后最长间隔约 22 秒，仍在过期前。
 const REPORT_INTERVAL = 15_000;
 
 /** 对话页可见时告诉后端「正在看」，这个对话结束的回答就不再登记通知。 */
 export function useReportConversationViewing(conversationId: string | null | undefined, sessionKey: string | null | undefined) {
   useEffect(() => {
     if (!conversationId || !sessionKey) return;
-    let timer: number | null = null;
     let reported = false;
     let controller: AbortController | null = null;
 
@@ -21,32 +21,22 @@ export function useReportConversationViewing(conversationId: string | null | und
       // 上报失败只会多一条通知，不打扰用户。
       void reportConversationViewing(conversationId, controller.signal).catch(() => {});
     };
-    const start = () => {
-      if (timer !== null) return;
-      report();
-      timer = window.setInterval(report, REPORT_INTERVAL);
-    };
-    const stop = () => {
-      if (timer !== null) window.clearInterval(timer);
-      timer = null;
+    const clear = () => {
       controller?.abort();
       controller = null;
       if (!reported) return;
       reported = false;
       void clearConversationViewing(conversationId).catch(() => {});
     };
-    const sync = () => {
-      if (document.visibilityState === 'visible') start();
-      else stop();
-    };
 
-    sync();
-    document.addEventListener('visibilitychange', sync);
-    window.addEventListener('pagehide', stop);
+    const unregister = registerBackgroundTask((trigger) => {
+      // 仅聚焦（页面一直可见）时标记仍有效，不必重报；从后台切回来时标记已撤，要立即重报。
+      if (trigger === 'resume' && reported) return;
+      report();
+    }, { intervalMs: REPORT_INTERVAL, onHidden: clear });
     return () => {
-      document.removeEventListener('visibilitychange', sync);
-      window.removeEventListener('pagehide', stop);
-      stop();
+      unregister();
+      clear();
     };
   }, [conversationId, sessionKey]);
 }
