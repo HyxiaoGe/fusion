@@ -7,6 +7,7 @@ from copy import deepcopy
 from dataclasses import replace
 from inspect import Parameter, signature
 
+from app.ai.llm_manager import llm_manager
 from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
 from app.ai.prompts.section_ids import (
     DEEP_RESEARCH_STAGE,
@@ -23,6 +24,11 @@ from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_loop_step_requests import build_limit_summary_step_request
 from app.services.stream.agent_round import AgentRoundResult
+from app.services.stream.first_output_timeout import (
+    FALLBACK_MODEL_ID,
+    FIRST_OUTPUT_TIMEOUT_S,
+    FirstOutputTimeoutError,
+)
 from app.services.stream.plan_control import UPDATE_PLAN_TOOL_NAME
 from app.services.stream.product_result_answer import has_product_result_blocks
 from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
@@ -51,13 +57,23 @@ async def run_agent_loop(
             break
 
         step_number, step_context = await _start_next_step(state=state, runtime=runtime)
-        round_result = await _run_round(
-            messages=messages,
-            state=state,
-            runtime=runtime,
-            step_number=step_number,
-            step_context=step_context,
-        )
+        try:
+            round_result = await _run_round(
+                messages=messages,
+                state=state,
+                runtime=runtime,
+                step_number=step_number,
+                step_context=step_context,
+            )
+        except FirstOutputTimeoutError as error:
+            runtime = _switch_to_fallback_model(runtime, state=state, error=error)
+            round_result = await _run_round(
+                messages=messages,
+                state=state,
+                runtime=runtime,
+                step_number=step_number,
+                step_context=step_context,
+            )
         outcome = await handle_agent_round_outcome(
             request=AgentRoundOutcomeRequest(
                 db=db,
@@ -276,6 +292,12 @@ async def _run_round(
         run_round_kwargs["on_context_trimmed"] = state.record_context_plan
     if runtime.output_tool_names and _accepts_keyword(runtime.run_round_fn, "draft_tool_names"):
         run_round_kwargs["draft_tool_names"] = runtime.output_tool_names
+    if (
+        state.active_model_id is None
+        and runtime.model_id != FALLBACK_MODEL_ID
+        and _accepts_keyword(runtime.run_round_fn, "first_output_timeout_s")
+    ):
+        run_round_kwargs["first_output_timeout_s"] = FIRST_OUTPUT_TIMEOUT_S
     round_result = await runtime.run_round_fn(**run_round_kwargs)
     if tools_forbidden and ignored_tool_ban(
         tool_calls=round_result.tool_calls,
@@ -301,6 +323,37 @@ async def _run_round(
     state.update_usage(round_result.accumulated_usage)
     state.update_context(round_result.context)
     return round_result
+
+
+def _switch_to_fallback_model(
+    runtime: AgentLoopRuntime,
+    *,
+    state: AgentLoopState,
+    error: FirstOutputTimeoutError,
+) -> AgentLoopRuntime:
+    """首字超时后本次回答剩余轮次都改用备用模型；备用模型不可用时原模型不限时重试。"""
+    try:
+        litellm_model, provider, litellm_kwargs = llm_manager.resolve_model(FALLBACK_MODEL_ID)
+    except ValueError:
+        runtime.warning_fn(
+            "首字超时但备用模型不可用，原模型不限时重试: "
+            f"conv_id={runtime.conversation_id}, run_id={runtime.run_id}, model_id={runtime.model_id}"
+        )
+        state.active_model_id = runtime.model_id
+        return runtime
+    runtime.warning_fn(
+        f"模型 {error.timeout_s:g}s 内无输出，本次回答改用备用模型: "
+        f"conv_id={runtime.conversation_id}, run_id={runtime.run_id}, "
+        f"model_id={runtime.model_id}, fallback={FALLBACK_MODEL_ID}"
+    )
+    state.active_model_id = FALLBACK_MODEL_ID
+    return replace(
+        runtime,
+        model_id=FALLBACK_MODEL_ID,
+        provider=provider,
+        litellm_model=litellm_model,
+        litellm_kwargs=dict(litellm_kwargs or {}),
+    )
 
 
 async def _discard_round(round_result: AgentRoundResult) -> None:

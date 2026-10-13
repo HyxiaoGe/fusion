@@ -13,6 +13,7 @@ from app.services.stream.agent_loop_round_outcome import AgentRoundOutcomeReques
 from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_round import AgentRoundResult
+from app.services.stream.first_output_timeout import FIRST_OUTPUT_TIMEOUT_S, FirstOutputTimeoutError
 from app.services.stream.limit_summary import LimitSummaryOutcome
 from app.services.stream.llm_round_lifecycle import round_tool_names
 from app.services.stream.plan_control import process_plan_control_calls
@@ -889,6 +890,130 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(started_steps, [1, 2])
         self.assertIn("请补充包含城市的完整地点", append_chunk.await_args.args[2])
         self.assertEqual(state.total_tool_calls, 1)
+
+    async def _run_weather_clarification_loop(self, run_round_fn, *, resolve_model):
+        state = AgentLoopState()
+        tool_round_models: list[str] = []
+        warnings: list[str] = []
+
+        async def start_step_fn(**kwargs):
+            context = AgentStepContext(
+                step_id=f"step-{kwargs['step_number']}",
+                step_number=kwargs["step_number"],
+                started_at=kwargs["clock"](),
+                thinking_block_id=f"thinking-{kwargs['step_number']}",
+                text_block_id=f"text-{kwargs['step_number']}",
+            )
+            kwargs["on_step_started"](context.step_id)
+            return context
+
+        async def handle_tool_calls_round_fn(**kwargs):
+            request = kwargs["request"]
+            tool_round_models.append(request.model_id)
+            request.on_tools_executed(1)
+            request.agent_state.pending_tool_repairs["repair-weather"] = {
+                "required_fields": ["location"],
+                "retryable": False,
+                "requires_user_input": True,
+            }
+            return ToolRoundOutcome(tool_call_count=1, tool_names=["weather_forecast"], product_result_count=0)
+
+        with (
+            patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()),
+            patch("app.services.stream.agent_loop_driver.llm_manager.resolve_model", resolve_model),
+        ):
+            await run_agent_loop(
+                db=object(),
+                messages=[{"role": "user", "content": "南山区明天天气如何？"}],
+                state=state,
+                runtime=_runtime(
+                    model_id="mimo-v2.6-flash",
+                    start_step_fn=start_step_fn,
+                    complete_step_fn=AsyncMock(),
+                    run_round_fn=run_round_fn,
+                    handle_tool_calls_round_fn=handle_tool_calls_round_fn,
+                    warning_fn=warnings.append,
+                ),
+            )
+        return state, tool_round_models, warnings
+
+    @staticmethod
+    def _weather_round_result():
+        return AgentRoundResult(
+            reasoning_buf="",
+            content_buf="",
+            tool_calls=[{"id": "tc-weather", "name": "weather_forecast", "arguments": '{"location":"南山区"}'}],
+            finish_reason="tool_calls",
+            accumulated_usage=Usage(input_tokens=2, output_tokens=3),
+        )
+
+    async def test_first_output_timeout_switches_rest_of_answer_to_fallback_model(self):
+        calls: list[tuple[str, str, float | None]] = []
+
+        async def run_round_fn(**kwargs):
+            calls.append((kwargs["model_id"], kwargs["litellm_model"], kwargs.get("first_output_timeout_s")))
+            if len(calls) == 1:
+                raise FirstOutputTimeoutError(kwargs["model_id"], kwargs["first_output_timeout_s"])
+            return self._weather_round_result()
+
+        state, tool_round_models, warnings = await self._run_weather_clarification_loop(
+            run_round_fn,
+            resolve_model=MagicMock(return_value=("litellm_proxy/deepseek-chat", "deepseek", {"api_base": "x"})),
+        )
+
+        self.assertEqual(
+            calls,
+            [
+                ("mimo-v2.6-flash", "openai/gpt-4", FIRST_OUTPUT_TIMEOUT_S),
+                ("deepseek-chat", "litellm_proxy/deepseek-chat", None),
+            ],
+        )
+        self.assertEqual(state.active_model_id, "deepseek-chat")
+        self.assertEqual(tool_round_models, ["deepseek-chat"])
+        self.assertTrue(any("改用备用模型" in warning for warning in warnings))
+
+    async def test_first_output_timeout_retries_original_model_when_fallback_unavailable(self):
+        calls: list[tuple[str, float | None]] = []
+
+        async def run_round_fn(**kwargs):
+            calls.append((kwargs["model_id"], kwargs.get("first_output_timeout_s")))
+            if len(calls) == 1:
+                raise FirstOutputTimeoutError(kwargs["model_id"], kwargs["first_output_timeout_s"])
+            return self._weather_round_result()
+
+        state, tool_round_models, _warnings = await self._run_weather_clarification_loop(
+            run_round_fn,
+            resolve_model=MagicMock(side_effect=ValueError("missing")),
+        )
+
+        self.assertEqual(calls, [("mimo-v2.6-flash", FIRST_OUTPUT_TIMEOUT_S), ("mimo-v2.6-flash", None)])
+        self.assertEqual(state.active_model_id, "mimo-v2.6-flash")
+        self.assertEqual(tool_round_models, ["mimo-v2.6-flash"])
+
+    async def test_fallback_model_itself_has_no_first_output_timeout(self):
+        captured = []
+
+        async def run_round_fn(**kwargs):
+            captured.append(kwargs)
+            return AgentRoundResult(
+                reasoning_buf="",
+                content_buf="",
+                tool_calls=[],
+                finish_reason="stop",
+                accumulated_usage=Usage(input_tokens=1, output_tokens=1),
+            )
+
+        await _run_round(
+            messages=[{"role": "user", "content": "hi"}],
+            state=AgentLoopState(),
+            runtime=_runtime(model_id="deepseek-chat", run_round_fn=run_round_fn),
+            step_number=1,
+            step_context=AgentStepContext(
+                step_id="s", step_number=1, started_at=1.0, thinking_block_id="t", text_block_id="x"
+            ),
+        )
+
+        self.assertNotIn("first_output_timeout_s", captured[0])
 
     async def test_product_result_allows_sequential_multi_intent_tools_and_streams_model_answer(self):
         state = AgentLoopState()
