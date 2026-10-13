@@ -1,5 +1,6 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { accountSessionSwitchStarted } from '@/redux/actions/authSessionActions';
+import { startStream } from '@/redux/slices/streamSlice';
 import type {
   Conversation,
   HydrationStatus,
@@ -71,6 +72,8 @@ interface ConversationState {
   conversationListEpoch: number;
   conversationListDirtyIds: string[];
   conversationListDirtyRevisions: Record<string, number>;
+  // 本页正常收尾时已刷新过元数据的对话；侧栏随后收到同一次运行「结束生成」时据此跳过重复刷新。
+  conversationListCompletionRefreshedIds: string[];
   hydrationStatus: Record<string, HydrationStatus>;
   hydrationError: Record<string, string>;
   suggestedQuestionsObservations: Record<string, { messageIds: string[] }>;
@@ -98,6 +101,7 @@ const initialState: ConversationState = {
   conversationListEpoch: 0,
   conversationListDirtyIds: [],
   conversationListDirtyRevisions: {},
+  conversationListCompletionRefreshedIds: [],
   hydrationStatus: {},
   hydrationError: {},
   suggestedQuestionsObservations: {},
@@ -110,6 +114,14 @@ const initialState: ConversationState = {
   isSearching: false,
   searchError: null,
 };
+
+function markConversationListDirty(state: ConversationState, conversationId: string) {
+  if (!state.conversationListDirtyIds.includes(conversationId)) {
+    state.conversationListDirtyIds.push(conversationId);
+  }
+  state.conversationListVersion += 1;
+  state.conversationListDirtyRevisions[conversationId] = state.conversationListVersion;
+}
 
 const conversationSlice = createSlice({
   name: 'conversation',
@@ -200,11 +212,28 @@ const conversationSlice = createSlice({
       state.isLoadingMore = false;
     },
     requestConversationListRefresh(state, action: PayloadAction<string>) {
-      if (!state.conversationListDirtyIds.includes(action.payload)) {
-        state.conversationListDirtyIds.push(action.payload);
+      markConversationListDirty(state, action.payload);
+    },
+    /** 本页的流正常收尾：刷新元数据，并记下这次运行已刷新过。 */
+    requestCompletedConversationListRefresh(state, action: PayloadAction<string>) {
+      markConversationListDirty(state, action.payload);
+      if (!state.conversationListCompletionRefreshedIds.includes(action.payload)) {
+        state.conversationListCompletionRefreshedIds.push(action.payload);
       }
-      state.conversationListVersion += 1;
-      state.conversationListDirtyRevisions[action.payload] = state.conversationListVersion;
+    },
+    /**
+     * 服务端登记的运行结束：转到后台的运行收不到流内事件，需要刷新元数据；
+     * 本页刚正常收尾的运行已刷新过，跳过一次。
+     */
+    requestSettledConversationListRefresh(state, action: PayloadAction<string[]>) {
+      for (const id of action.payload) {
+        const refreshed = state.conversationListCompletionRefreshedIds;
+        if (refreshed.includes(id)) {
+          state.conversationListCompletionRefreshedIds = refreshed.filter((item) => item !== id);
+          continue;
+        }
+        markConversationListDirty(state, id);
+      }
     },
     acknowledgeConversationListRefresh(
       state,
@@ -698,6 +727,12 @@ const conversationSlice = createSlice({
     },
   },
   extraReducers: (builder) => {
+    // 同一对话又开始新一轮时，上一轮的收尾记录作废，新一轮结束时按新一轮判断。
+    builder.addCase(startStream, (state, action) => {
+      state.conversationListCompletionRefreshedIds = state.conversationListCompletionRefreshedIds.filter(
+        (id) => id !== action.payload.conversationId
+      );
+    });
     builder.addCase(accountSessionSwitchStarted, (state) => {
       const { reasoningEnabled, conversationListEpoch } = state;
       Object.assign(state, {
@@ -723,7 +758,9 @@ export const {
   replaceMessage,
   removeConversation,
   removeMessage,
+  requestCompletedConversationListRefresh,
   requestConversationListRefresh,
+  requestSettledConversationListRefresh,
   requestSuggestedQuestionsObservation,
   resetConversationListForAuthChange,
   resetConversationState,

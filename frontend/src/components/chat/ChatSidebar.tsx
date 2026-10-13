@@ -17,7 +17,7 @@ import { shallowEqual } from "react-redux";
 import { selectStreamingConversationIds } from "@/redux/slices/streamSlice";
 import { selectAuthSessionKey } from "@/redux/selectors";
 import { setThemeMode } from "@/redux/slices/themeSlice";
-import { requestConversationListRefresh } from "@/redux/slices/conversationSlice";
+import { requestSettledConversationListRefresh } from "@/redux/slices/conversationSlice";
 import { useResolvedTheme } from "@/lib/hooks/useResolvedTheme";
 import { useHasMounted } from "@/hooks/useHasMounted";
 import { getRouteConversationId } from "@/lib/routes/chatRoutes";
@@ -98,7 +98,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ onNewChat, activeChatIdOverri
   // 本页 Redux 只知道本页发起或重连的流；刷新、换标签页后以服务端登记为准。
   const authSessionKey = useAppSelector(selectAuthSessionKey);
   const refreshSettledConversations = useCallback((conversationIds: string[]) => {
-    conversationIds.forEach((id) => dispatch(requestConversationListRefresh(id)));
+    dispatch(requestSettledConversationListRefresh(conversationIds));
   }, [dispatch]);
   const { unreadConversationIds } = useNotifications();
   const { streamingConversationIds } = useConversationActivity(
