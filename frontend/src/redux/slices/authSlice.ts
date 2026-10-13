@@ -613,7 +613,7 @@ export const settleSdkUnauthenticatedSession = createAsyncThunk(
  * 服务端已明确拒绝当前票据时的本地收敛。与显式 logoutWithSso 不同：不写登出守卫、
  * 不销毁中央 Cookie，只清当前应用旧票据和 A 的业务缓存，为稍后无感恢复 B 留出入口。
  */
-export const settleRemoteSessionLoss = createAsyncThunk<
+const settleRemoteSessionLoss = createAsyncThunk<
   void,
   string | null,
   { state: { auth: AuthState } }

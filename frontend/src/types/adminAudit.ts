@@ -168,7 +168,7 @@ export interface AdminPerformanceStageSummary {
   concurrency?: number;
 }
 
-export interface AdminPerformanceCleanupSummary {
+interface AdminPerformanceCleanupSummary {
   conversations_deleted?: number;
   tokens_revoked?: number;
   users_deleted?: number;
@@ -188,7 +188,7 @@ export interface AdminPerformanceResourceMetrics {
   oom?: boolean;
 }
 
-export interface AdminPerformanceResourcesSummary {
+interface AdminPerformanceResourcesSummary {
   api?: AdminPerformanceResourceMetrics | null;
   postgres?: AdminPerformanceResourceMetrics | null;
   redis?: AdminPerformanceResourceMetrics | null;

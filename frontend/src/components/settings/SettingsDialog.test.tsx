@@ -9,12 +9,6 @@ vi.mock('@/redux/hooks', () => ({
   useAppSelector: useAppSelectorMock,
 }));
 
-vi.mock('framer-motion', () => ({
-  motion: {
-    div: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  },
-}));
-
 vi.mock('react-i18next', async () => {
   const { default: messages } = await import('@/lib/i18n/locales/zh-CN.json');
   return { useTranslation: () => ({ t: (key: string) => key.split('.').reduce<unknown>((value, part) =>

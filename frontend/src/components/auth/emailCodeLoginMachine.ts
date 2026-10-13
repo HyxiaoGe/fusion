@@ -1,4 +1,4 @@
-export type EmailCodePhase =
+type EmailCodePhase =
   | 'methods'
   | 'email-entry'
   | 'sending'
@@ -21,7 +21,7 @@ export type EmailCodeErrorCode =
   | 'server_error'
   | 'aborted';
 
-export type EmailCodeNotice = 'code_resent';
+type EmailCodeNotice = 'code_resent';
 
 export interface EmailCodeFailure {
   code: EmailCodeErrorCode;
@@ -36,7 +36,7 @@ export interface EmailCodeChallenge {
   codeLength?: number;
 }
 
-export interface EmailCodeLoginState {
+interface EmailCodeLoginState {
   phase: EmailCodePhase;
   emailDraft: string;
   interactionToken: string | null;
@@ -53,7 +53,7 @@ export interface EmailCodeLoginState {
   activeOperation: EmailCodeOperation | null;
 }
 
-export type EmailCodeLoginEvent =
+type EmailCodeLoginEvent =
   | { type: 'SELECT_EMAIL' }
   | { type: 'SET_EMAIL'; email: string }
   | { type: 'SET_CODE'; code: string }

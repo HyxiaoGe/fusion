@@ -11,7 +11,7 @@ import type { LucideIcon } from 'lucide-react';
 
 export type SemanticColor = 'info' | 'success' | 'warn' | 'danger' | 'teal' | 'neutral';
 
-export interface ToolMeta {
+interface ToolMeta {
   label: string;
   icon: LucideIcon;
   color: SemanticColor;

@@ -10,19 +10,19 @@ import {
   type TrajectoryTableRow,
 } from './trajectoryTableModel';
 
-export interface TrajectoryNetworkRange {
+interface TrajectoryNetworkRange {
   start: number;
   end: number;
 }
 
-export interface TrajectoryNetworkViewInput {
+interface TrajectoryNetworkViewInput {
   cells: readonly TrajectoryCell[];
   overview: TrajectoryOverviewProjection;
   searchQuery: string;
   range: TrajectoryNetworkRange | null;
 }
 
-export interface TrajectoryNetworkViewProjection {
+interface TrajectoryNetworkViewProjection {
   rows: TrajectoryTableRow[];
   rangeFocusedCellKeys: ReadonlySet<string> | null;
   searchMatchedCellKeys: ReadonlySet<string>;
@@ -90,7 +90,7 @@ function intervalsOverlap(
   return left.end >= right.start && left.start <= right.end;
 }
 
-export interface ResolveTrajectorySelectedCellInput {
+interface ResolveTrajectorySelectedCellInput {
   cells: readonly TrajectoryCell[];
   localSelectedCellKey: string | null;
   selectedMessageId: string | null;

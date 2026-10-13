@@ -9,7 +9,7 @@ import { formatFileSize } from '@/lib/utils/fileHelpers';
 import type { FileBlock } from '@/types/conversation';
 import ImageViewer from './ImageViewer';
 
-export interface ConversationFilesPanelProps {
+interface ConversationFilesPanelProps {
   open: boolean;
   files: FileInfo[];
   isLoading: boolean;

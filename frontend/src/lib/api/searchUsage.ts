@@ -13,7 +13,7 @@ export interface ProviderUsage {
   recorded_usage?: ProviderRecordedUsage | null;
 }
 
-export interface ProviderRecordedUsage {
+interface ProviderRecordedUsage {
   provider: string;
   available?: boolean;
   credits_used: number;
@@ -30,7 +30,7 @@ export interface ProviderRecordedUsageDaily {
   request_count: number;
 }
 
-export interface ProviderUsagePeriod {
+interface ProviderUsagePeriod {
   start_date: string;
   end_date: string;
   api_key?: string | null;

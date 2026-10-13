@@ -31,7 +31,7 @@ export function formatResetIn(seconds: number): string {
   return `约 ${Math.max(1, Math.round(seconds / 60))} 分钟后恢复`;
 }
 
-export function buildToolPreview(server: McpServer, view: McpServerModelView | undefined): {
+function buildToolPreview(server: McpServer, view: McpServerModelView | undefined): {
   modelTools: PreviewRow[];
   remoteTools: PreviewRow[];
 } {

@@ -1,5 +1,5 @@
 /** Run 的工具模式：v3 起不再按问题分类，只区分有无工具与是否深度研究。 */
-export type TrajectoryCapabilityModeId =
+type TrajectoryCapabilityModeId =
   | 'agent'
   | 'deep_research'
   | 'knowledge_grounded'
@@ -8,7 +8,7 @@ export type TrajectoryCapabilityModeId =
 /** 后端新增模式时 UI 原样展示 id，不丢弃整条 resolution。 */
 export type TrajectoryCapabilityModeIdOrUnknown = TrajectoryCapabilityModeId | (string & {});
 
-export type TrajectoryCapabilityReasonCode =
+type TrajectoryCapabilityReasonCode =
   | 'all_available_tools'
   | 'deep_research_mode'
   | 'knowledge_grounded_mode'
@@ -128,11 +128,6 @@ export type TrajectoryNodeDetailSection =
   | 'thinking'
   | 'output'
   | 'prompt';
-
-export type TrajectoryToolNodeDetailSection = Extract<
-  TrajectoryNodeDetailSection,
-  'summary' | 'payload' | 'result' | 'timing' | 'schema'
->;
 
 export interface ToolObservation {
   schema_version: 1;

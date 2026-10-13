@@ -1,11 +1,11 @@
-export interface VirtualRangeInput {
+interface VirtualRangeInput {
   itemCount: number;
   scrollTop: number;
   viewportHeight: number;
   bottomInset?: number;
 }
 
-export interface VirtualRange {
+interface VirtualRange {
   startIndex: number;
   endIndex: number;
   offsetTop: number;
@@ -13,7 +13,7 @@ export interface VirtualRange {
   totalHeight: number;
 }
 
-export interface ScrollToIndexInput {
+interface ScrollToIndexInput {
   itemCount: number;
   index: number;
   currentScrollTop: number;
@@ -23,8 +23,8 @@ export interface ScrollToIndexInput {
 }
 
 export const TRAJECTORY_ROW_HEIGHT = 32;
-export const TRAJECTORY_OVERSCAN = 12;
-export const MAX_TRAJECTORY_DOM_ROWS = 200;
+const TRAJECTORY_OVERSCAN = 12;
+const MAX_TRAJECTORY_DOM_ROWS = 200;
 
 function finiteNonNegative(value: number): number {
   return Number.isFinite(value) ? Math.max(0, value) : 0;

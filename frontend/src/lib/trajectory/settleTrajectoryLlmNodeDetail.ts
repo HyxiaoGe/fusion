@@ -5,7 +5,7 @@ const DEFAULT_MAX_REQUESTS = 7;
 const DEFAULT_RETRY_DELAY_MS = 1_000;
 const PREVIEW_LIMIT = 200;
 
-export interface SettleTrajectoryLlmNodeDetailInput {
+interface SettleTrajectoryLlmNodeDetailInput {
   conversationId: string;
   runId: string;
   llmRoundId: string;

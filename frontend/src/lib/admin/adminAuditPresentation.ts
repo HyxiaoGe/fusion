@@ -29,7 +29,7 @@ const RESOURCE_LABELS: Record<string, string> = {
   model: '模型',
 };
 
-export interface AdminAuditAdminPresentation {
+interface AdminAuditAdminPresentation {
   primary: string;
 }
 
@@ -50,7 +50,7 @@ export function formatAdminAuditAdmin(snapshot: AdminJsonValue): AdminAuditAdmin
   return { primary: `@${username}` };
 }
 
-export interface AdminAuditTargetUserPresentation {
+interface AdminAuditTargetUserPresentation {
   primary: string;
   detail: string;
 }
@@ -102,7 +102,7 @@ const METADATA_LABELS: Record<string, string> = {
   query: '查询条件',
 };
 
-export interface AdminAuditMetadataItem {
+interface AdminAuditMetadataItem {
   label: string;
   value: string;
 }

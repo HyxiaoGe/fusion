@@ -1,7 +1,7 @@
 import { API_CONFIG } from '@/lib/config';
 import { apiRequest } from './fetchWithAuth';
 
-export interface ChangelogSummary {
+interface ChangelogSummary {
   id: string;
   version: string;
   title: string;

@@ -1,6 +1,6 @@
 import type { DocumentSource, DocumentVersionContent } from '@/types/document';
 
-export type Translate = (key: string, options?: Record<string, unknown>) => string;
+type Translate = (key: string, options?: Record<string, unknown>) => string;
 
 export function sourceKindLabel(kind: DocumentSource['kind'], t: Translate): string {
   return t(`documents.sources.kinds.${kind}`);

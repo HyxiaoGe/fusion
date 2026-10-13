@@ -164,10 +164,6 @@ def output_delta_kinds(chunk: Any) -> tuple[str, ...]:
     return tuple(kinds)
 
 
-def _has_text_delta(chunk: Any) -> bool:
-    return bool({"reasoning", "content"}.intersection(output_delta_kinds(chunk)))
-
-
 class _ObservedAsyncIterator:
     def __init__(self, response: Any, observation: LLMRoundObservation):
         self._iterator = response.__aiter__()

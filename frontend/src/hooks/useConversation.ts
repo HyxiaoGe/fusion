@@ -17,7 +17,7 @@ import {
 } from '@/lib/chat/conversationHydrationMerge';
 import type { RootState } from '@/redux/store';
 
-export type ConversationHydrationView = 'loading' | 'error' | 'ready';
+type ConversationHydrationView = 'loading' | 'error' | 'ready';
 
 export function useConversation(conversationId: string | null | undefined) {
   const dispatch = useAppDispatch();

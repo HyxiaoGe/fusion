@@ -225,24 +225,6 @@ async def _complete_tool_protocol_error_round(
     )
 
 
-async def complete_round_without_answer(request: AgentRoundOutcomeRequest, *, reason: str) -> None:
-    """终局前的辅助回合没有产出可交付内容时，只收 step，正文交给随后的总结。"""
-
-    _record_suppression(request, reason)
-    lifecycle = request.round_result.llm_lifecycle
-    if lifecycle is not None:
-        await lifecycle.finish_success(output_visible=False)
-    await complete_text_response_step(
-        context=request.step_context,
-        emitter=request.runtime.emitter,
-        session_cache=request.runtime.session_cache,
-        complete_step_fn=request.runtime.complete_step_fn,
-        completed_tool_calls=request.state.total_tool_calls,
-        max_tool_calls=request.runtime.limits.max_tool_calls,
-        clock=request.runtime.clock,
-    )
-
-
 def _requires_research_completion_repair(request: AgentRoundOutcomeRequest) -> bool:
     if request.runtime.task_mode != "deep_research" or not request.state.research_network_required:
         return False

@@ -31,11 +31,9 @@ import { cn } from '@/lib/utils';
 export {
   formatTrajectoryDuration,
   formatTrajectoryStatus,
-  getTrajectoryCellPresentation,
-  type TrajectoryCellPresentation,
 } from '@/lib/trajectory/trajectoryCellPresentation';
 
-export interface TrajectoryCellProps {
+interface TrajectoryCellProps {
   cell: TrajectoryCellModel;
   turnNumber: number | null;
   attemptNumber: number | null;

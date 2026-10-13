@@ -149,7 +149,7 @@ function fileSuffix(filename: string): string {
   return index >= 0 ? filename.slice(index).toLowerCase() : '';
 }
 
-export function formatFileSizeLimit(bytes: number): string {
+function formatFileSizeLimit(bytes: number): string {
   return `${Number((bytes / (1024 * 1024)).toFixed(1))} MB`;
 }
 

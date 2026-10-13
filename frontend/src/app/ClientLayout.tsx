@@ -9,7 +9,6 @@ import {
   updateModels,
   updateProviders,
 } from "@/redux/slices/modelsSlice";
-import dynamic from 'next/dynamic';
 import { useAppDispatch, useAppSelector } from "@/redux/hooks";
 import { selectAuthSessionKey, selectIsAuthenticated } from "@/redux/selectors";
 import {
@@ -48,15 +47,6 @@ import {
 import { LoginDialog } from "@/components/auth/LoginDialog";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { SettingsDialogFocusProvider } from "@/components/settings/SettingsDialogFocusContext";
-
-// 懒加载性能监控组件，只在开发环境启用
-const PerformanceMonitor = dynamic(
-  () => import('@/components/debug/PerformanceMonitor'),
-  { 
-    ssr: false,
-    loading: () => null 
-  }
-);
 
 const INITIAL_LOCAL_RECOVERY_DELAYS_MS = [1000, 3000, 10000] as const;
 
@@ -441,11 +431,6 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
       <Toaster position="bottom-center" />
       <LoginDialog open={isLoginDialogOpen} onOpenChange={handleDialogVisibilityChange} />
       <SettingsDialog />
-      
-      {/* 只在开发环境显示性能监控 */}
-      {process.env.NODE_ENV === 'development' && (
-        <PerformanceMonitor />
-      )}
       </SettingsDialogFocusProvider>
     </ToastProvider>
   );

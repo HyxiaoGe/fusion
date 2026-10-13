@@ -56,7 +56,7 @@ function mergeListConversation(
   };
 }
 
-export interface ConversationState {
+interface ConversationState {
   byId: Record<string, Conversation>;
   lastReadyConversationSnapshot: {
     chatId: string;

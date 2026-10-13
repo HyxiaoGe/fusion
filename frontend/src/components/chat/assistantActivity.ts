@@ -23,7 +23,7 @@ export type AssistantActivityKind =
 
 export type AssistantSuggestionState = 'idle' | 'loading' | 'ready';
 
-export type AssistantToolKind = 'web_search' | 'url_read' | 'other';
+type AssistantToolKind = 'web_search' | 'url_read' | 'other';
 
 type TerminalToolStatus = 'success' | 'failed' | 'degraded' | 'interrupted';
 type ToolIssueStatus = 'failed' | 'degraded';
@@ -66,7 +66,7 @@ export interface AssistantActivity {
   suggestionState: AssistantSuggestionState;
 }
 
-export interface DeriveAssistantActivityInput {
+interface DeriveAssistantActivityInput {
   isStreaming: boolean;
   isCurrentlyStreaming: boolean;
   contentBlocks: ContentBlock[];

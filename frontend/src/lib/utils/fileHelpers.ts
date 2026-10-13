@@ -13,7 +13,7 @@ export interface FileWithPreview extends File {
     previewUrl?: string;  // 本地 blob URL，用于发送后立即展示缩略图
   }
   
-  export type SupportedFileType = 
+  type SupportedFileType = 
     | 'image' 
     | 'document' 
     | 'pdf' 
@@ -59,13 +59,6 @@ export interface FileWithPreview extends File {
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
     return `${parseFloat((bytes / Math.pow(1024, i)).toFixed(2))} ${sizes[i]}`;
-  }
-  
-  // 创建带预览URL的文件对象
-  export function createFileWithPreview(file: File): FileWithPreview {
-    const fileWithPreview = file as FileWithPreview;
-    fileWithPreview.preview = URL.createObjectURL(file);
-    return fileWithPreview;
   }
   
   // 释放文件预览URL，避免内存泄漏

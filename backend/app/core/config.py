@@ -331,7 +331,6 @@ class Settings(BaseSettings):
 
     # 前端基础URL，回调路径会自动拼接
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
-    FRONTEND_AUTH_CALLBACK_PATH: str = "/auth/callback"
     CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "")
 
     AUTH_SERVICE_BASE_URL: str = os.getenv("AUTH_SERVICE_BASE_URL", "http://localhost:8100")
@@ -344,11 +343,6 @@ class Settings(BaseSettings):
     # Cloudflare tunnel 的回环（实测 1-3s → 内网 3-8ms）。issuer/audience 仍用公网
     # AUTH_SERVICE_BASE_URL 校验，不受影响。
     AUTH_SERVICE_INTERNAL_BASE_URL: Optional[str] = os.getenv("AUTH_SERVICE_INTERNAL_BASE_URL")
-
-    @property
-    def FRONTEND_AUTH_CALLBACK_URL(self) -> str:
-        """动态生成前端OAuth回调URL"""
-        return f"{self.FRONTEND_URL.rstrip('/')}{self.FRONTEND_AUTH_CALLBACK_PATH}"
 
     @property
     def RESOLVED_CORS_ORIGINS(self) -> List[str]:

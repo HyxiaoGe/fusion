@@ -11,7 +11,7 @@ import type { LucideIcon } from 'lucide-react';
 import type { AgentRunStatus, AgentStepStatus } from '@/types/agentRun';
 import type { SemanticColor } from './toolRegistry';
 
-export interface StatusTreatment {
+interface StatusTreatment {
   color: SemanticColor;
   icon: LucideIcon;
   label: string;

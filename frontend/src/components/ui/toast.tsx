@@ -6,7 +6,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { Button } from './button';
 
 // Toast配置类型
-export interface ToastProps {
+interface ToastProps {
   id?: string;
   message: string;
   type?: 'info' | 'warning' | 'error' | 'success';

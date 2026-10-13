@@ -8,8 +8,6 @@ import type {
 export type {
   CapabilityLabel,
   CapabilityTone,
-  ModelCapabilityRecommendation,
-  ModelRecommendationLevel,
 } from '@/lib/config/modelConfig';
 
 function supportsAgentTools(model: Pick<ModelInfo, 'capabilities'>): boolean {

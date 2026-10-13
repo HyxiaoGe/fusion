@@ -9,12 +9,12 @@ const MAX_KNOWLEDGE_BASE_PAGES = 20;
 const MAX_KNOWLEDGE_BASE_ITEMS = 1_000;
 const MAX_KNOWLEDGE_BASE_CATALOG_SCOPES = 8;
 
-export interface KnowledgeBaseCatalogData {
+interface KnowledgeBaseCatalogData {
   items: KnowledgeBase[];
   maxSelectedKnowledgeBases: number;
 }
 
-export interface KnowledgeBaseCatalogSnapshot {
+interface KnowledgeBaseCatalogSnapshot {
   data: KnowledgeBaseCatalogData | null;
   error: unknown | null;
   isLoading: boolean;
@@ -152,7 +152,7 @@ export function subscribeKnowledgeBaseCatalog(
   };
 }
 
-export function isKnowledgeBaseCatalogFresh(
+function isKnowledgeBaseCatalogFresh(
   snapshot: KnowledgeBaseCatalogSnapshot,
 ): boolean {
   return snapshot.data !== null

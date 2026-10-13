@@ -1190,36 +1190,6 @@ class ChatResponse(BaseModel):
 
 
 # ============================================================
-# SSE 流式结构（对齐 OpenAI Chat Completions streaming 格式）
-# ============================================================
-
-
-class StreamDelta(BaseModel):
-    """[DEPRECATED] SSE 输出已切到 {chunk_type, data} envelope（Task 8）。
-    本类待 Task 11/12 FE cut-over 后删除，期间禁止新代码引用。
-    """
-
-    content: Optional[List[ContentBlock]] = None
-
-
-class StreamChoice(BaseModel):
-    """[DEPRECATED] 同 StreamDelta，待 Task 11/12 后删除。"""
-
-    delta: StreamDelta
-    finish_reason: Optional[Literal["stop", "error"]] = None
-
-
-class StreamChunk(BaseModel):
-    """[DEPRECATED] 同 StreamDelta，待 Task 11/12 后删除。"""
-
-    id: str  # 与最终落库的 message.id 一致
-    conversation_id: str  # 会话 ID，前端据此关联消息
-    choices: List[StreamChoice]
-    # 仅在 finish_reason=stop 的最后一个 chunk 携带
-    usage: Optional[Usage] = None
-
-
-# ============================================================
 # 标题生成 / 推荐问题
 # ============================================================
 
@@ -1229,25 +1199,12 @@ class TitleGenerationRequest(BaseModel):
     options: Optional[Dict[str, Any]] = None
 
 
-class TitleGenerationResponse(BaseModel):
-    title: str
-    conversation_id: str
-
-
 class SuggestedQuestionsRequest(BaseModel):
     conversation_id: str
     assistant_message_id: Optional[str] = None
     # None 表示旧 UI 未传该字段；为保持“每次请求都换一批”的历史语义，API 按 True 处理。
     force_refresh: Optional[bool] = None
     options: Optional[Dict[str, Any]] = None
-
-
-class SuggestedQuestionsResponse(BaseModel):
-    questions: List[str]
-    conversation_id: str
-    assistant_message_id: Optional[str] = None
-    revision: int = 0
-    status: Literal["idle", "pending", "ready", "failed"] = "idle"
 
 
 # ============================================================

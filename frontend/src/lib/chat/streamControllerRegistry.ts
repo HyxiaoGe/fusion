@@ -16,12 +16,12 @@
  * 既有的 activeSendPreparations 保持同一形态。
  */
 
-export type StreamKind = 'send' | 'recovery' | 'continuation';
+type StreamKind = 'send' | 'recovery' | 'continuation';
 
 /** 恢复流从 stream-status 得到的模式，决定停止时如何收口。 */
-export type RecoveryStreamMode = 'initial' | 'retry' | 'continuation';
+type RecoveryStreamMode = 'initial' | 'retry' | 'continuation';
 
-export interface StreamControllerEntry {
+interface StreamControllerEntry {
   conversationId: string;
   kind: StreamKind;
   controller: AbortController;
@@ -35,7 +35,7 @@ export interface StreamControllerEntry {
 
 const registry = new Map<string, StreamControllerEntry>();
 
-export interface StreamStopIdentity {
+interface StreamStopIdentity {
   conversationId: string;
   messageId: string | null;
   taskId: string;

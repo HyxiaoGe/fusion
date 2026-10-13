@@ -19,7 +19,7 @@ function emptyList(owner: string | null): ListState {
   return { owner, items: [], next_cursor: null, loaded: false, error: false, loadingMore: false, pageError: false };
 }
 
-export function changelogAnchorId(id: string): string {
+function changelogAnchorId(id: string): string {
   return `changelog-${id}`;
 }
 

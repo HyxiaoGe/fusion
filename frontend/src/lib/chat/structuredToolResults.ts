@@ -41,9 +41,9 @@ export const STRUCTURED_TOOL_RESULT_CONTRACTS = [
   { type: 'unsupported_result', schemaVersion: null },
 ] as const;
 
-export type StructuredToolResultType = typeof STRUCTURED_TOOL_RESULT_CONTRACTS[number]['type'];
+type StructuredToolResultType = typeof STRUCTURED_TOOL_RESULT_CONTRACTS[number]['type'];
 
-export function isStructuredToolResultType(value: unknown): value is StructuredToolResultType {
+function isStructuredToolResultType(value: unknown): value is StructuredToolResultType {
   return STRUCTURED_TOOL_RESULT_CONTRACTS.some(contract => contract.type === value);
 }
 
