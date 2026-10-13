@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect } from 'react';
-import { clearConversationViewing, reportConversationViewing } from '@/lib/api/notifications';
+import { clearConversationViewing } from '@/lib/api/notifications';
+import { syncConversationViewing } from '@/lib/api/sync';
 import { registerBackgroundTask } from '@/lib/scheduler/backgroundScheduler';
 
 // 后端标记 30 秒过期，按共享节拍（15 秒）续期；节拍对齐后最长间隔约 22 秒，仍在过期前。
@@ -18,8 +19,8 @@ export function useReportConversationViewing(conversationId: string | null | und
       controller?.abort();
       controller = new AbortController();
       reported = true;
-      // 上报失败只会多一条通知，不打扰用户。
-      void reportConversationViewing(conversationId, controller.signal).catch(() => {});
+      // 与同一节拍的其他后台同步合成一个请求；上报失败只会多一条通知，不打扰用户。
+      void syncConversationViewing(conversationId, controller.signal).catch(() => {});
     };
     const clear = () => {
       controller?.abort();

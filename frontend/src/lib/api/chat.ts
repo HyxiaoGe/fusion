@@ -1065,19 +1065,11 @@ export async function searchConversations(query: string, limit = 50, signal?: Ab
   return data.items || [];
 }
 
-interface ConversationActivity {
+export interface ConversationActivity {
   /** 服务端仍在生成的对话（跨标签页、跨刷新都能拿到）。 */
   streaming: string[];
   /** 生成完成但用户还没打开过的对话。 */
   unread: string[];
-}
-
-export async function getConversationActivity(signal?: AbortSignal): Promise<ConversationActivity> {
-  const data = await apiRequest<Partial<ConversationActivity>>(
-    `${API_BASE_URL}/api/chat/conversations/activity`,
-    signal ? { signal } : undefined,
-  );
-  return { streaming: data?.streaming ?? [], unread: data?.unread ?? [] };
 }
 
 export async function markConversationRead(conversationId: string) {

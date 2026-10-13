@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getConversationActivity } from '@/lib/api/chat';
+import { syncConversationActivity } from '@/lib/api/sync';
 import { registerBackgroundTask } from '@/lib/scheduler/backgroundScheduler';
 
 /** 有对话在生成时的轮询间隔；都空闲时只在聚焦、切回标签页、本页流结束时拉取。 */
@@ -36,7 +36,7 @@ export function useConversationActivity(
     const controller = new AbortController();
     inflightRef.current = controller;
     try {
-      const activity = await getConversationActivity(controller.signal);
+      const activity = await syncConversationActivity(controller.signal);
       if (controller.signal.aborted) return;
       setRemoteStreamingIds((prev) => (sameIds(prev, activity.streaming) ? prev : activity.streaming));
       setUnreadIds((prev) => (sameIds(prev, activity.unread) ? prev : activity.unread));

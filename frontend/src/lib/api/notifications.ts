@@ -89,11 +89,6 @@ function viewingPath(conversationId: string): string {
   return `${notificationsPath}/viewing/${encodeURIComponent(conversationId)}`;
 }
 
-/** 对话页在前台时定时上报；后端据此在回答结束时跳过通知。 */
-export function reportConversationViewing(conversationId: string, signal?: AbortSignal): Promise<null> {
-  return apiRequest<null>(viewingPath(conversationId), { method: 'PUT', signal });
-}
-
 /** 离开或切到后台时撤掉标记；keepalive 让页面关闭时请求仍能发出。 */
 export function clearConversationViewing(conversationId: string): Promise<null> {
   return apiRequest<null>(viewingPath(conversationId), { method: 'DELETE', keepalive: true });
