@@ -49,6 +49,17 @@ def enqueue_run_notification(
         return None
     if is_viewing(run.user_id, run.conversation_id):
         return None
+    # 同一对话只保留最新一轮的通知；旧 run 迟到收尾时已被新一轮取代。
+    newer_run = db.scalar(
+        select(AgentSession.id)
+        .where(
+            AgentSession.conversation_id == run.conversation_id,
+            AgentSession.created_at > run.created_at,
+        )
+        .limit(1)
+    )
+    if newer_run is not None:
+        return None
     source = db.execute(
         select(Conversation.user_id, Conversation.title).where(Conversation.id == run.conversation_id)
     ).one_or_none()

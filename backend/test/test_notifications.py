@@ -51,7 +51,13 @@ def db():
         session.add_all(
             [
                 Conversation(id=cid, user_id=uid, title=cid, model_id="test")
-                for cid, uid in [("conv-1", "user-1"), ("conv-2", "user-1"), ("conv-other", "user-2")]
+                for cid, uid in [
+                    ("conv-1", "user-1"),
+                    ("conv-2", "user-1"),
+                    ("conv-3", "user-1"),
+                    ("conv-4", "user-1"),
+                    ("conv-other", "user-2"),
+                ]
             ]
         )
         session.commit()
@@ -168,7 +174,7 @@ def test_read_all_uses_observed_revision_and_preserves_new_notifications(db):
     _, first = add_run(db, "first")
     service = NotificationService(db)
     observed = service.list_notifications("user-1")
-    _, newer = add_run(db, "newer")
+    _, newer = add_run(db, "newer", conversation_id="conv-2")
 
     result = service.mark_all_read("user-1", observed.revision)
     assert result.updated_count == 1
@@ -181,7 +187,7 @@ def test_read_all_uses_observed_revision_and_preserves_new_notifications(db):
 
 
 def test_pagination_and_global_unread_projection_survive_read_revision_gaps(db):
-    _, oldest = add_run(db, "oldest", conversation_id="conv-2")
+    _, oldest = add_run(db, "oldest", conversation_id="conv-3")
     service = NotificationService(db)
     service.mark_read("user-1", [oldest.id])
     _, middle = add_run(db, "middle", conversation_id="conv-2")
@@ -203,20 +209,16 @@ def test_pagination_and_global_unread_projection_survive_read_revision_gaps(db):
     assert get_unread_conversation_ids(db, "user-1") == ["conv-1", "conv-2"]
 
 
-def test_exact_run_bulk_read_does_not_clear_retry_or_other_message(db):
+def test_exact_run_bulk_read_does_not_clear_retry(db):
     first, _ = add_run(db, "attempt-1", message_id="same-message")
     retry, _ = add_run(db, "attempt-2", message_id="same-message")
-    other, _ = add_run(db, "other-message")
     service = NotificationService(db)
     result = service.mark_result_read(
         "user-1",
         conversation_id="conv-1",
-        results=[
-            {"run_id": first.id, "message_id": first.message_id},
-            {"run_id": other.id, "message_id": other.message_id},
-        ],
+        results=[{"run_id": first.id, "message_id": first.message_id}],
     )
-    assert result.updated_count == 2
+    assert result.updated_count == 0
     assert result.unread_count == 1
     assert [row.target.run_id for row in service.list_notifications("user-1", filter="unread").items] == [retry.id]
     duplicate = service.mark_result_read(
@@ -246,7 +248,8 @@ def test_result_ack_validates_entire_batch_before_any_read(db, wrong):
             results=results,
         )
     assert error.value.status_code == (409 if wrong in ("pending", "missing-terminal") else 404)
-    assert NotificationRepository(db).unread_count("user-1") == (1 if wrong == "pending" else 2)
+    # 同一对话只保留最新通知，校验失败时这一条仍未读。
+    assert NotificationRepository(db).unread_count("user-1") == 1
 
 
 def test_users_are_isolated_for_reads_and_revision(db):
@@ -506,6 +509,29 @@ def test_viewing_lookup_failure_still_notifies(db, monkeypatch):
     assert notification is not None
 
 
+def test_conversation_keeps_only_latest_notification(db):
+    _, first = add_run(db, "turn-1")
+    NotificationService(db).mark_read("user-1", [first.id])
+    _, second = add_run(db, "turn-2")
+    _, other = add_run(db, "other-conv", conversation_id="conv-2")
+    _, third = add_run(db, "turn-3")
+    _, foreign = add_run(db, "foreign", user_id="user-2", conversation_id="conv-other")
+
+    page = NotificationService(db).list_notifications("user-1")
+    assert [row.id for row in page.items] == [third.id, other.id]
+    assert page.unread_count == 2
+    assert db.get(Notification, foreign.id) is not None
+
+
+def test_late_reenqueue_of_older_run_keeps_newer_notification(db):
+    older, _ = add_run(db, "older", notify=False)
+    _, newer = add_run(db, "newer")
+    # 例如协调任务稍后才把卡住的旧 run 收尾为中断。
+    assert enqueue_run_notification(db, older, notify_interrupted=True) is None
+    db.commit()
+    assert db.get(Notification, newer.id) is not None
+
+
 def test_purge_keeps_read_7_days_and_unread_30_days(db):
     from datetime import timedelta
 
@@ -513,13 +539,13 @@ def test_purge_keeps_read_7_days_and_unread_30_days(db):
 
     now = utc_now()
     rows = {}
-    for name, created_days, read_days in [
-        ("read-old", 10, 8),
-        ("read-recent", 10, 6),
-        ("unread-old", 31, None),
-        ("unread-recent", 29, None),
+    for name, conversation_id, created_days, read_days in [
+        ("read-old", "conv-1", 10, 8),
+        ("read-recent", "conv-2", 10, 6),
+        ("unread-old", "conv-3", 31, None),
+        ("unread-recent", "conv-4", 29, None),
     ]:
-        _, notification = add_run(db, name)
+        _, notification = add_run(db, name, conversation_id=conversation_id)
         notification.created_at = now - timedelta(days=created_days)
         notification.read_at = None if read_days is None else now - timedelta(days=read_days)
         rows[name] = notification.id
