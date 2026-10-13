@@ -30,7 +30,7 @@ export interface TrajectoryOverviewRange {
   end: number;
 }
 
-export interface TrajectoryOverviewProps {
+interface TrajectoryOverviewProps {
   runs: readonly TrajectoryRunSummary[];
   focusedRunId: string | null;
   focusedRunEvents: readonly NormalizedTrajectoryEvent[];
@@ -682,7 +682,7 @@ function RangeHandle({
   );
 }
 
-export function hitTestTrajectoryOverview(
+function hitTestTrajectoryOverview(
   projection: TrajectoryOverviewProjection,
   x: number,
   y: number,

@@ -28,7 +28,7 @@ type SendMessageFn = (
   attachments?: FileAttachment[],
 ) => Promise<void>;
 
-export interface RetryMessageControl {
+interface RetryMessageControl {
   canStart: () => boolean;
   onAccepted: () => void;
   onRejected: () => void;

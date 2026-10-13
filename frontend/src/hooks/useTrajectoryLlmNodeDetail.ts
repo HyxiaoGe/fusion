@@ -3,13 +3,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getTrajectoryLlmNodeDetail } from '@/lib/api/trajectory';
 import type { TrajectoryNodeDetailResponse } from '@/types/trajectory';
 
-export interface TrajectoryLlmNodeIdentity {
+interface TrajectoryLlmNodeIdentity {
   conversationId: string | null;
   runId: string | null;
   llmRoundId: string | null;
 }
 
-export type TrajectoryLlmNodeDetailRequestStatus = 'idle' | 'loading' | 'ready' | 'failed';
+type TrajectoryLlmNodeDetailRequestStatus = 'idle' | 'loading' | 'ready' | 'failed';
 
 interface LlmNodeDetailState {
   identity: string | null;

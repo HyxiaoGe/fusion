@@ -701,11 +701,6 @@ class ConversationRepository:
             .first()
         )
 
-    def update_message_suggested_questions(self, message_id: str, questions: list[str]) -> None:
-        """将推荐问题写回到指定消息"""
-        self.db.query(MessageModel).filter(MessageModel.id == message_id).update({"suggested_questions": questions})
-        self.db.flush()
-
     def _convert_to_schema(
         self, db_conversation: ConversationModel, *, project_terminal_failures: bool = False
     ) -> Conversation:
@@ -1009,14 +1004,6 @@ class FileRepository:
     def get_files_by_user_id(self, user_id: str) -> List[File]:
         """获取用户的所有文件"""
         return self.db.query(File).filter(File.user_id == user_id).all()
-
-    def get_files_info(self, file_ids: List[str]) -> List[File]:
-        """获取一组文件的信息"""
-        return self.db.query(File).filter(File.id.in_(file_ids)).all()
-
-    def get_file_paths(self, file_ids: List[str]) -> List[str]:
-        """获取一组文件的存储路径"""
-        return [row[0] for row in self.db.query(File.path).filter(File.id.in_(file_ids)).all()]
 
     def update_file(self, file_id: str, updates: Dict[str, Any]) -> bool:
         """更新文件信息"""

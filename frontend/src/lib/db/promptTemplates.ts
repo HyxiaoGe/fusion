@@ -22,40 +22,11 @@ class PromptTemplatesDatabase extends Dexie {
   }
 }
 
-export const promptDb = new PromptTemplatesDatabase();
+const promptDb = new PromptTemplatesDatabase();
 
 // 操作函数
 export async function getAllPromptTemplates() {
   return await promptDb.promptTemplates.toArray();
-}
-
-export async function getPromptTemplatesByCategory(category: string) {
-  return await promptDb.promptTemplates
-    .where('category')
-    .equals(category)
-    .toArray();
-}
-
-export async function getPromptTemplateById(id: number) {
-  return await promptDb.promptTemplates.get(id);
-}
-
-export async function addPromptTemplate(template: Omit<PromptTemplate, 'id'>) {
-  return await promptDb.promptTemplates.add(template);
-}
-
-export async function updatePromptTemplate(
-  id: number,
-  template: Partial<Omit<PromptTemplate, 'id'>>
-) {
-  return await promptDb.promptTemplates.update(id, { 
-    ...template, 
-    updatedAt: new Date() 
-  });
-}
-
-export async function deletePromptTemplate(id: number) {
-  return await promptDb.promptTemplates.delete(id);
 }
 
 const DEFAULT_PROMPT_TEMPLATES = [

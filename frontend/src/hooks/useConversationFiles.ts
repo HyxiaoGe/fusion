@@ -14,12 +14,12 @@ import {
 
 const DEFAULT_LOAD_ERROR = '资料列表加载失败';
 
-export interface UseConversationFilesOptions {
+interface UseConversationFilesOptions {
   enabled?: boolean;
   sessionKey?: string | null;
 }
 
-export interface UseConversationFilesResult {
+interface UseConversationFilesResult {
   files: FileInfo[];
   isLoading: boolean;
   error: string | null;

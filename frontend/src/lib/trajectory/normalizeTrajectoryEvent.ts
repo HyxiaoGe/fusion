@@ -277,7 +277,7 @@ export function normalizeOutputProvenance(value: unknown): LlmOutputProvenance |
   return { disposition, source, reason, block_id: blockId };
 }
 
-export function normalizeContextToolVisibility(value: unknown): ContextToolVisibility | null {
+function normalizeContextToolVisibility(value: unknown): ContextToolVisibility | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
   if (row.schema_version !== 1 || row.scope !== 'application_messages_after_context_management'

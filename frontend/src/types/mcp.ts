@@ -33,7 +33,7 @@ export interface McpServer extends McpServerPayload {
   updated_at?: string | null;
 }
 
-export type McpModelToolMode = 'direct' | 'on_demand';
+type McpModelToolMode = 'direct' | 'on_demand';
 
 export interface McpModelTool {
   name: string;

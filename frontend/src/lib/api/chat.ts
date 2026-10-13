@@ -30,7 +30,7 @@ const API_BASE_URL = API_CONFIG.BASE_URL;
 // 请求 / 响应类型
 // ============================================================
 
-export interface ChatRequest {
+interface ChatRequest {
   model_id: string;
   message: string;
   conversation_id?: string | null;
@@ -53,7 +53,7 @@ export interface ChatRequest {
   knowledge_base_ids?: string[];
 }
 
-export interface ChatCapabilities {
+interface ChatCapabilities {
   knowledge_grounding_v1: boolean;
   knowledge_grounding_max_bases: number;
   /** 知识库单个文件上限；旧服务端不返回。 */
@@ -68,13 +68,13 @@ export async function getChatCapabilities(signal?: AbortSignal): Promise<ChatCap
   );
 }
 
-export interface ContinueAgentRunRequest {
+interface ContinueAgentRunRequest {
   conversationId: string;
   messageId: string;
   previousRunId?: string;
 }
 
-export interface AgentContextSubmissionResponse {
+interface AgentContextSubmissionResponse {
   outcome: 'accepted' | 'idempotent';
   request_id: string;
   context_type: 'geolocation';
@@ -1065,7 +1065,7 @@ export async function searchConversations(query: string, limit = 50, signal?: Ab
   return data.items || [];
 }
 
-export interface ConversationActivity {
+interface ConversationActivity {
   /** 服务端仍在生成的对话（跨标签页、跨刷新都能拿到）。 */
   streaming: string[];
   /** 生成完成但用户还没打开过的对话。 */
@@ -1105,13 +1105,13 @@ export async function deleteConversation(conversationId: string) {
   });
 }
 
-export interface FetchSuggestedQuestionsOptions {
+interface FetchSuggestedQuestionsOptions {
   assistantMessageId: string;
   forceRefresh: boolean;
   options?: Record<string, unknown>;
 }
 
-export interface SuggestedQuestionsResponse {
+interface SuggestedQuestionsResponse {
   questions: string[];
   status?: SuggestedQuestionsStatus;
   revision?: number;

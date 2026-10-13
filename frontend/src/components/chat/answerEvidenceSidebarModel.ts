@@ -62,7 +62,7 @@ export interface AnswerEvidenceKnowledgeDocument {
   items: AnswerEvidenceSidebarUsedItem[];
 }
 
-export interface AnswerEvidenceSourceGroups {
+interface AnswerEvidenceSourceGroups {
   knowledgeDocuments: AnswerEvidenceKnowledgeDocument[];
   webItems: AnswerEvidenceSidebarUsedItem[];
 }

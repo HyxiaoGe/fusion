@@ -42,7 +42,7 @@ export interface TrajectoryOverviewProjection {
   segments: OverviewSegment[];
 }
 
-export interface TrajectoryOverviewModelInput {
+interface TrajectoryOverviewModelInput {
   runs: readonly TrajectoryRunSummary[];
   focusedRunId: string | null;
   focusedRunEvents: readonly NormalizedTrajectoryEvent[];

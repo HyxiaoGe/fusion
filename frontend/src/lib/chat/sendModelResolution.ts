@@ -2,7 +2,7 @@ import type { RootState } from '@/redux/store';
 import type { Model } from '@/redux/slices/modelsSlice';
 import { AUTO_MODEL_ID } from '@/lib/config/modelConfig';
 
-export type SendModelResolution =
+type SendModelResolution =
   | { status: 'ready'; model: Model; fallbackFromModelId?: string }
   | { status: 'conversation_not_ready' }
   | { status: 'conversation_model_unavailable' }
@@ -13,7 +13,7 @@ export function isModelAvailableForSending(model: Model): boolean {
   return model.enabled !== false && routable;
 }
 
-export function isModelAvailableForNewConversation(model: Model): boolean {
+function isModelAvailableForNewConversation(model: Model): boolean {
   return (
     model.selectable !== false
     && model.health?.status !== 'unhealthy'

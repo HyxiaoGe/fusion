@@ -1,8 +1,8 @@
 import type { ProviderRouteResult } from '@/types/conversation';
 
-export type RoutePresentationVariant = 'single' | 'grid' | 'summary-detail' | 'stack';
+type RoutePresentationVariant = 'single' | 'grid' | 'summary-detail' | 'stack';
 
-export interface RoutePresentation {
+interface RoutePresentation {
   variant: RoutePresentationVariant;
   initialSelectedIndex: number;
 }

@@ -2,7 +2,7 @@
 
 import { AlertTriangle, History, RefreshCw, Scissors, ShieldAlert } from 'lucide-react';
 
-export interface TrajectoryIntegrityBannerProps {
+interface TrajectoryIntegrityBannerProps {
   truncated?: boolean;
   runsTruncated?: boolean;
   trajectoryStatus?: string | null;

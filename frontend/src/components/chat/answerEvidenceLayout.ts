@@ -10,7 +10,7 @@ interface AnswerEvidenceLayoutInput {
   itemGap?: number;
 }
 
-export interface AnswerEvidenceLayout {
+interface AnswerEvidenceLayout {
   visibleItems: AnswerEvidenceItem[];
   hiddenSearchCount: number;
   hiddenUrlCount: number;

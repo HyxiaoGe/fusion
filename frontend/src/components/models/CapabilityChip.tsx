@@ -47,4 +47,3 @@ export const CapabilityChipList = memo(({ labels, maxCount = 3, className }: Cap
 
 CapabilityChipList.displayName = 'CapabilityChipList';
 
-export default CapabilityChip;

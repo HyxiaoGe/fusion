@@ -10,7 +10,7 @@ interface InitializeStoreOptions {
 /**
  * 从 IndexedDB 加载设置；聊天数据仅在显式要求时才回灌到 Redux。
  */
-export async function initializeStoreFromDB(
+async function initializeStoreFromDB(
   dispatch: AppDispatch,
   options: InitializeStoreOptions = {}
 ): Promise<void> {

@@ -22,7 +22,7 @@ import type { Conversation, Message } from '@/types/conversation';
 //
 // 匹配当前消息的 SSE 活跃时先等待直达事件；流结束或刷新恢复后才启用以下退避，
 // 合计约 36 秒后停止，避免异常 pending 留下永久定时器。
-export const PENDING_POLL_DELAYS_MS = [2_500, 1_000, 1_500, 2_500, 4_000, 5_000, 5_000, 5_000, 5_000, 5_000];
+const PENDING_POLL_DELAYS_MS = [2_500, 1_000, 1_500, 2_500, 4_000, 5_000, 5_000, 5_000, 5_000, 5_000];
 const MAX_UNKNOWN_OBSERVATION_CHECKS = 2;
 
 function getLastAssistantMessage(conversation: Conversation | undefined): Message | undefined {

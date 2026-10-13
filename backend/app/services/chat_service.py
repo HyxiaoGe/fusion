@@ -120,17 +120,6 @@ def _auto_model_mode(options: dict[str, Any] | None) -> AutoModelMode:
     return "auto"
 
 
-def _continuation_original_user_text(
-    messages: list[Any],
-    *,
-    assistant_message_id: str,
-) -> str:
-    """找出被续写回答对应的上一条用户原文；只读取 text block。"""
-
-    message = _find_continuation_user_message(messages, assistant_message_id=assistant_message_id)
-    return _user_message_text(message) if message is not None else ""
-
-
 def _find_continuation_user_message(
     messages: list[Any],
     *,

@@ -29,7 +29,7 @@ interface KnowledgeBaseComposerOptions {
   onSelectionStatusChange?: (status: KnowledgeSelectionStatus) => void;
 }
 
-export type KnowledgeBaseComposerState = ReturnType<typeof useKnowledgeBaseComposer>;
+type KnowledgeBaseComposerState = ReturnType<typeof useKnowledgeBaseComposer>;
 
 /**
  * 知识库选择状态只在这里维护一份；选择按钮放在工具栏，已选标签放在输入框上方，两处共用同一状态。

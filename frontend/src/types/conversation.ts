@@ -27,18 +27,6 @@ export interface FileBlock {
   height?: number;         // 图片高度
 }
 
-export interface SearchSource {
-  title: string;
-  url: string;
-  description: string;
-  content?: string;
-  favicon?: string;
-  requested_provider?: string | null;
-  result_provider?: string | null;
-  fallback_used?: boolean;
-  provider_chain?: string[];
-}
-
 // 轻量版搜索来源，用于 SearchBlock 存储和 UI 展示
 export interface SearchSourceSummary {
   title: string;
@@ -614,12 +602,4 @@ export function extractThinkingFromBlocks(content: ContentBlock[]): string {
     .filter((b): b is ThinkingBlock => b.type === 'thinking')
     .map(b => b.thinking)
     .join('');
-}
-
-export function extractSearchBlock(content: ContentBlock[]): SearchBlock | null {
-  return (content.find((b): b is SearchBlock => b.type === 'search') ?? null);
-}
-
-export function extractUrlBlock(content: ContentBlock[]): UrlBlock | undefined {
-  return content.find((b): b is UrlBlock => b.type === 'url_read');
 }

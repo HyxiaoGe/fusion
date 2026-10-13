@@ -26,7 +26,7 @@ export type TransportTone =
   | 'sky'
   | 'neutral';
 
-export interface TransportModePresentation {
+interface TransportModePresentation {
   iconKind: TransportIconKind;
   label: string;
   tone: TransportTone;

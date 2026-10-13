@@ -3,20 +3,7 @@
 from jinja2 import StrictUndefined, TemplateError, meta
 from jinja2.sandbox import SandboxedEnvironment
 
-from app.core.prompt_catalog import CATALOG_VERSION_BY_ENGINE
-
 _JINJA = SandboxedEnvironment(autoescape=False, undefined=StrictUndefined, keep_trailing_newline=True)
-
-
-def payload_template_engine(payload: dict) -> str:
-    """同一包只允许一个引擎，catalog 与引擎严格绑定。"""
-    engines = {item.get("template_engine") for item in payload["prompts"].values()}
-    if len(engines) != 1:
-        raise ValueError("完整 Prompt bundle 不允许混合引擎")
-    engine = engines.pop()
-    if engine not in CATALOG_VERSION_BY_ENGINE or payload.get("catalog_version") != CATALOG_VERSION_BY_ENGINE[engine]:
-        raise ValueError("Prompt catalog 与引擎不匹配")
-    return engine
 
 
 def template_contract_is_valid(content: str, variables: tuple[str, ...], engine: str) -> bool:

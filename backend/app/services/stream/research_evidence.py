@@ -161,13 +161,6 @@ def deep_research_stage_tool_names(stage: DeepResearchStage) -> frozenset[str] |
     return None
 
 
-def deep_research_stage_required_tool(stage: DeepResearchStage) -> str | None:
-    allowed_tool_names = deep_research_stage_tool_names(stage)
-    if allowed_tool_names is None or len(allowed_tool_names) != 1:
-        return None
-    return next(iter(allowed_tool_names))
-
-
 def build_deep_research_stage_prompt(stage: DeepResearchStage, *, allow_plan_update: bool = False) -> str:
     """生成不含任何外部来源内容的确定性阶段控制语。"""
 

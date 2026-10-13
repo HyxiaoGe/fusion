@@ -1,4 +1,4 @@
-export type AuthSessionTransitionState = 'stable' | 'synchronizing' | 'blocked';
+type AuthSessionTransitionState = 'stable' | 'synchronizing' | 'blocked';
 
 type TransitionListener = (state: AuthSessionTransitionState) => void;
 

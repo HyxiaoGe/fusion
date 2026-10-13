@@ -44,7 +44,7 @@ export interface ModelCapabilityPresentation extends ModelCapabilityRecommendati
 // - healthy: 最近一次探测成功，可正常调用
 // - unhealthy: 最近一次探测失败（缺 key / 401 / 模型不存在等），FE 灰显
 // - unknown: 服务刚启动还没探测出来，或这个别名没出现在 /health 结果里，FE 按可用处理
-export type ModelHealthStatus = 'healthy' | 'unhealthy' | 'unknown';
+type ModelHealthStatus = 'healthy' | 'unhealthy' | 'unknown';
 
 export interface ModelHealth {
   status: ModelHealthStatus;
@@ -53,7 +53,7 @@ export interface ModelHealth {
 }
 
 // API返回的模型数据接口
-export interface ApiModelData {
+interface ApiModelData {
   name: string;
   modelId: string;
   provider: string;
@@ -77,7 +77,7 @@ export interface ApiModelData {
 }
 
 // API响应接口
-export interface ApiModelResponse {
+interface ApiModelResponse {
   models: ApiModelData[];
   providers: ProviderInfo[];
 }
@@ -129,7 +129,7 @@ export const convertApiModelToModelInfo = (apiModel: ApiModelData): ModelInfo =>
 };
 
 // 获取结果类型
-export interface FetchModelsResult {
+interface FetchModelsResult {
   models: ModelInfo[];
   providers: ProviderInfo[];
 }

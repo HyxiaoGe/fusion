@@ -1,15 +1,15 @@
 import type { FileInfo } from '@/lib/api/files';
 
-export const CONVERSATION_FILES_CACHE_TTL_MS = 30_000;
+const CONVERSATION_FILES_CACHE_TTL_MS = 30_000;
 const MAX_CONVERSATION_FILES_CACHE_ENTRIES = 100;
 
-export interface ConversationFilesCacheEntry {
+interface ConversationFilesCacheEntry {
   files: FileInfo[];
   generation: number;
   updatedAt: number;
 }
 
-export interface ConversationFilesResourceSnapshot {
+interface ConversationFilesResourceSnapshot {
   error: unknown | null;
   files: FileInfo[];
   generation: number;
@@ -18,20 +18,20 @@ export interface ConversationFilesResourceSnapshot {
   updatedAt: number;
 }
 
-export interface ConversationFilesRequestResult {
+interface ConversationFilesRequestResult {
   accepted: boolean;
   files: FileInfo[];
   generation: number;
 }
 
-export interface ConversationFilesInFlightRequest {
+interface ConversationFilesInFlightRequest {
   epoch: number;
   generation: number;
   kind: 'load' | 'refresh';
   promise: Promise<ConversationFilesRequestResult>;
 }
 
-export type ConversationFilesLoader = (conversationId: string) => Promise<FileInfo[]>;
+type ConversationFilesLoader = (conversationId: string) => Promise<FileInfo[]>;
 
 const conversationFilesCache = new Map<string, ConversationFilesCacheEntry>();
 const conversationFilesGenerations = new Map<string, number>();
@@ -284,16 +284,6 @@ export function getOrStartConversationFilesRequest(
   }
 
   return startConversationFilesRequest(conversationId, generation, 'load', loadConversationFiles);
-}
-
-export function isCurrentConversationFilesRequest(
-  conversationId: string,
-  request: ConversationFilesInFlightRequest,
-): boolean {
-  return (
-    request.epoch === conversationFilesCacheEpoch &&
-    request.generation === getConversationFilesGeneration(conversationId)
-  );
 }
 
 export function getConversationFilesResourceEpoch(): number {

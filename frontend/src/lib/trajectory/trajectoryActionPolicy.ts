@@ -3,7 +3,7 @@ import type { TrajectoryReconciliationStatus, TrajectoryRunListStatus } from '@/
 import type { Message } from '@/types/conversation';
 import type { TrajectoryRunSummary } from '@/types/trajectory';
 
-export type TrajectoryActionBlocker =
+type TrajectoryActionBlocker =
   | 'run-not-selected'
   | 'run-not-terminal'
   | 'run-list-not-ready'
@@ -31,12 +31,12 @@ export interface TrajectoryRunActionTarget {
   assistantMessageId: string | null;
 }
 
-export interface TrajectoryActionDecision {
+interface TrajectoryActionDecision {
   allowed: boolean;
   blockers: TrajectoryActionBlocker[];
 }
 
-export interface TrajectoryActionPolicyResult {
+interface TrajectoryActionPolicyResult {
   terminal: boolean;
   target: TrajectoryRunActionTarget | null;
   retry: TrajectoryActionDecision;

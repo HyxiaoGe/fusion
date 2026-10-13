@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { isAdminAccessError } from '@/lib/admin/adminAccess';
 
-export interface AdminResourceState<T> {
+interface AdminResourceState<T> {
   data: T | null;
   loading: boolean;
   error: string | null;

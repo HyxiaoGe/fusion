@@ -5,7 +5,7 @@ import type { ContextUsage } from '@/types/conversation';
 export type ContextUsagePhase = 'estimated' | 'final' | 'error';
 export type ContextUsageErrorKind = 'not_sent' | 'check_failed';
 
-export interface ConversationContextStatus {
+interface ConversationContextStatus {
   usage: ContextUsage | null;
   phase: ContextUsagePhase | null;
   pending: boolean;
@@ -14,7 +14,7 @@ export interface ConversationContextStatus {
   errorKind: ContextUsageErrorKind | null;
 }
 
-export interface ContextUsageView {
+interface ContextUsageView {
   phase: 'actual' | 'estimated' | 'unavailable';
   usedTokens: number | null;
   windowTokens: number | null;
