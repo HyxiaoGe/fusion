@@ -304,6 +304,22 @@ function upsertRunSummary(
   if (serverWindowIndex !== -1) conversation.runs[serverWindowIndex] = run;
 }
 
+/** 快照返回的 run 已持久化：并入服务端列表，后续开始新一轮、选中切走后状态行仍能找到它。 */
+function mergeDurableRun(
+  conversation: TrajectoryConversationState,
+  run: TrajectoryRunSummary,
+): void {
+  if (conversation.runs.some(existing => existing.run_id === run.run_id)) return;
+  // 服务端列表按开始时间倒序。
+  const index = conversation.runs.findIndex(existing => existing.started_at < run.started_at);
+  if (index === -1) conversation.runs.push(run);
+  else conversation.runs.splice(index, 0, run);
+  if (conversation.runs.length > MAX_RUN_LIST_SIZE) {
+    conversation.runs.length = MAX_RUN_LIST_SIZE;
+    conversation.runsTruncated = true;
+  }
+}
+
 function retainedRunIds(conversation: TrajectoryConversationState): Set<string> {
   return new Set([
     ...conversation.runs.map(run => run.run_id),
@@ -580,6 +596,7 @@ const trajectorySlice = createSlice({
         hasLegacyEvents: allEvents.some(event => event.schemaVersion !== 1),
       };
       upsertRunSummary(conversation, snapshot.run);
+      mergeDurableRun(conversation, snapshot.run);
       conversation.provisionalRunIds = conversation.provisionalRunIds
         .filter(existingRunId => existingRunId !== runId);
       const durableRunStarted = allEvents.find(event => event.eventType === 'run_started');

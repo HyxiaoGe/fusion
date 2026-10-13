@@ -84,6 +84,8 @@ const EMPTY_RUN_SUMMARIES: Record<string, TrajectoryRunSummary> = {};
 const EMPTY_PROVISIONAL_RUN_IDS: string[] = [];
 const EMPTY_SNAPSHOT_MAP: Record<string, TrajectorySnapshotCacheEntry> = {};
 const EMPTY_LIVE_EVENT_MAP: Record<string, NormalizedTrajectoryEvent[]> = {};
+// 轨迹定稿重拉的退避间隔，合计约两分钟。
+const SETTLE_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 64_000];
 
 interface FrameBatchedTrajectoryDetail {
   identity: string;
@@ -717,6 +719,28 @@ export function useConversationTrajectory(conversationId: string | null) {
     }
     return requestRunList(conversationId);
   }, [authScope, conversationId, requestRunList, store]);
+
+  // 回答结束后后端还要写完推荐问题等收尾事件才把轨迹定稿（通常 1–2 秒），
+  // 结束时拉到的状态可能仍是「记录中」。按退避重拉运行列表直到定稿；
+  // 后端协调任务会在约两分钟内把未定稿的轨迹标为降级，次数上限与之对齐。
+  const hasUnsettledRun = runs.some(run => run.status !== 'running' && run.trajectory_status === 'recording');
+  const settleAttemptRef = useRef({ conversationId, attempt: 0 });
+  useEffect(() => {
+    if (settleAttemptRef.current.conversationId !== conversationId) {
+      settleAttemptRef.current = { conversationId, attempt: 0 };
+    }
+    if (!conversationId || !hasUnsettledRun) {
+      settleAttemptRef.current.attempt = 0;
+      return;
+    }
+    const attempt = settleAttemptRef.current.attempt;
+    if (attempt >= SETTLE_RETRY_DELAYS_MS.length) return;
+    const timer = setTimeout(() => {
+      settleAttemptRef.current.attempt = attempt + 1;
+      void refreshRuns();
+    }, SETTLE_RETRY_DELAYS_MS[attempt]);
+    return () => clearTimeout(timer);
+  }, [conversationId, hasUnsettledRun, refreshRuns, runListStatus, serverRuns]);
 
   const retrySelectedSnapshot = useCallback(() => {
     if (!conversationId || !selectedRunId || reconciliation?.activeRequestId) return;

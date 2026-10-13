@@ -2,7 +2,7 @@ import React from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { configureStore, type UnknownAction } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { normalizeSseTrajectoryEvent } from '@/lib/trajectory/normalizeTrajectoryEvent';
 import trajectoryReducer, {
@@ -188,6 +188,73 @@ describe('useConversationTrajectory', () => {
   beforeEach(() => {
     getTrajectoryRunsMock.mockReset();
     getTrajectorySnapshotMock.mockReset();
+  });
+
+  describe('结束后轨迹未定稿', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    async function flush(ms = 0) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+    }
+
+    it('已结束但仍记录中的 run 按退避重拉列表，定稿后停止', async () => {
+      const store = createStore();
+      getTrajectoryRunsMock
+        .mockResolvedValueOnce({ items: [runSummary('run-a', { trajectory_status: 'recording' })], truncated: false })
+        .mockResolvedValueOnce({ items: [runSummary('run-a', { trajectory_status: 'recording' })], truncated: false })
+        .mockResolvedValue({ items: [runSummary('run-a', { trajectory_status: 'complete' })], truncated: false });
+      const { result } = renderHook(() => useConversationTrajectory('conversation-a'), {
+        wrapper: createWrapper(store),
+      });
+      await flush();
+      expect(getTrajectoryRunsMock).toHaveBeenCalledTimes(1);
+
+      await flush(1_000);
+      expect(getTrajectoryRunsMock).toHaveBeenCalledTimes(2);
+      await flush(1_999);
+      expect(getTrajectoryRunsMock).toHaveBeenCalledTimes(2);
+      await flush(1);
+      expect(getTrajectoryRunsMock).toHaveBeenCalledTimes(3);
+      expect(result.current.runs[0].trajectory_status).toBe('complete');
+
+      await flush(200_000);
+      expect(getTrajectoryRunsMock).toHaveBeenCalledTimes(3);
+    });
+
+    it('一直未定稿时重拉 7 次后停止', async () => {
+      const store = createStore();
+      getTrajectoryRunsMock.mockResolvedValue({
+        items: [runSummary('run-a', { trajectory_status: 'recording' })],
+        truncated: false,
+      });
+      renderHook(() => useConversationTrajectory('conversation-a'), {
+        wrapper: createWrapper(store),
+      });
+      await flush();
+      for (let index = 0; index < 10; index += 1) await flush(64_000);
+      expect(getTrajectoryRunsMock).toHaveBeenCalledTimes(8);
+    });
+
+    it('运行中的 run 不触发重拉', async () => {
+      const store = createStore();
+      getTrajectoryRunsMock.mockResolvedValue({
+        items: [runSummary('run-a', { status: 'running', trajectory_status: 'recording' })],
+        truncated: false,
+      });
+      renderHook(() => useConversationTrajectory('conversation-a'), {
+        wrapper: createWrapper(store),
+      });
+      await flush();
+      await flush(200_000);
+      expect(getTrajectoryRunsMock).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('页面首载只拉 run list，并默认选择 started_at 最新 attempt', async () => {
