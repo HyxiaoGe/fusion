@@ -933,25 +933,24 @@ class FileRepository:
             logger.error(f"关联文件到对话失败: {e}")
             return False
 
-    def get_parsed_file_content(self, file_ids: List[str]) -> Dict[str, str]:
-        """获取多个文件的解析内容"""
-        try:
-            result = {}
-            if not file_ids:
-                return result
-
-            # 查询指定ID的所有已处理文件
-            files = self.db.query(File).filter(File.id.in_(file_ids), File.status == "processed").all()
-
-            # 构建ID到内容的映射
-            for file in files:
-                if file.parsed_content:
-                    result[file.id] = file.parsed_content
-
-            return result
-        except Exception as e:
-            logger.error(f"获取文件解析内容失败: {e}")
+    def get_conversation_parsed_file_content(
+        self, file_ids: List[str], *, user_id: str, conversation_id: str
+    ) -> Dict[str, str]:
+        """消息附件的解析正文：只取属于该用户、已关联到该对话且解析完成的文件。"""
+        if not file_ids:
             return {}
+        files = (
+            self.db.query(File)
+            .join(ConversationFile, ConversationFile.file_id == File.id)
+            .filter(
+                File.id.in_(file_ids),
+                File.user_id == user_id,
+                File.status == "processed",
+                ConversationFile.conversation_id == conversation_id,
+            )
+            .all()
+        )
+        return {file.id: file.parsed_content for file in files if file.parsed_content}
 
     def get_conversation_files(self, conversation_id: str) -> List[ConversationFile]:
         """获取对话关联的所有文件"""

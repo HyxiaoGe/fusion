@@ -18,8 +18,8 @@ class FakeFileRepository:
     def __init__(self):
         self.requested_content_ids = []
 
-    def get_parsed_file_content(self, file_ids):
-        self.requested_content_ids.append(list(file_ids))
+    def get_conversation_parsed_file_content(self, file_ids, *, user_id, conversation_id):
+        self.requested_content_ids.append((list(file_ids), user_id, conversation_id))
         return {"doc-1": "文档正文"}
 
 
@@ -60,7 +60,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("File content (1)", user_messages[0]["content"])
         self.assertIn({"role": "system", "content": APP_IDENTITY_PROMPT}, prepared.messages)
         self.assertEqual(prepared.prompt_assembly["status"], "ready")
-        self.assertEqual(file_repo.requested_content_ids, [["doc-1"]])
+        self.assertEqual(file_repo.requested_content_ids, [(["doc-1"], "user-1", "new-conversation")])
 
     async def test_real_builder_preferences_cannot_suppress_trusted_rules(self):
         from app.ai.prompts.agent_loop import (
@@ -876,7 +876,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
     async def test_prepare_messages_builds_llm_input_files_url_context_and_tool_contract(self):
         file_repo = FakeFileRepository()
         build_calls = []
-        inject_calls = []
 
         async def build_llm_messages_fn(
             raw_messages,
@@ -901,18 +900,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             return [
                 {"role": "user", "content": "原始问题"},
             ]
-
-        def inject_file_content_fn(messages, original_message, file_contents):
-            inject_calls.append(
-                {
-                    "messages": list(messages),
-                    "original_message": original_message,
-                    "file_contents": file_contents,
-                }
-            )
-            result = list(messages)
-            result[-1] = {"role": "user", "content": f"{original_message}\n\n{file_contents['doc-1']}"}
-            return result
 
         async def preprocess_url_in_message_fn(original_message, supports_function_calling, call_kwargs):
             self.assertEqual(original_message, "请阅读 https://example.com/a")
@@ -945,7 +932,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             load_user_system_prompt_fn=lambda _db, _user_id: "用户偏好",
             build_llm_messages_fn=build_llm_messages_fn,
             is_image_file_fn=lambda file_id, _repo: file_id == "image-1",
-            inject_file_content_fn=inject_file_content_fn,
             preprocess_url_in_message_fn=preprocess_url_in_message_fn,
         )
 
@@ -955,8 +941,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(build_calls[0]["repo"], file_repo)
         self.assertEqual(build_calls[0]["user_id"], "user-1")
         self.assertIsNone(build_calls[0]["conversation_id"])
-        self.assertEqual(file_repo.requested_content_ids, [["doc-1"]])
-        self.assertEqual(inject_calls[0]["file_contents"], {"doc-1": "文档正文"})
         self.assertEqual([block.id for block in prepared.initial_content_blocks], ["url-block"])
         self.assertEqual(prepared.final_tool_names, ["web_search", "url_read", "image_search"])
         self.assertEqual(
@@ -966,7 +950,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("[Fusion identity consistency]", prepared.messages[0]["content"])
         self.assertIn("[No image-understanding capability]", prepared.messages[1]["content"])
         self.assertIn("<web_context>", prepared.messages[7]["content"])
-        self.assertIn("文档正文", prepared.messages[8]["content"])
+        self.assertEqual(prepared.messages[8]["content"], "原始问题")
         self.assertEqual(call_config.announced_tools, ["web_search", "url_read", "image_search"])
 
     def test_tool_usage_contract_uses_centralized_prompt(self):
@@ -1048,9 +1032,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         async def should_not_preprocess_url(*_args, **_kwargs):
             raise AssertionError("continuation 不应重新跑 URL 预处理")
 
-        def should_not_inject_file_content(*_args, **_kwargs):
-            raise AssertionError("continuation 不应重新跑文件预处理")
-
         prepared = await prepare_agent_loop_messages(
             db=object(),
             user_id="user-1",
@@ -1067,7 +1048,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             load_user_system_prompt_fn=lambda _db, _user_id: None,
             build_llm_messages_fn=build_llm_messages_fn,
             is_image_file_fn=lambda _file_id, _repo: False,
-            inject_file_content_fn=should_not_inject_file_content,
             preprocess_url_in_message_fn=should_not_preprocess_url,
             preprocess_user_input=False,
             extra_system_prompts=["continuation_system"],

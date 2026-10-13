@@ -330,6 +330,103 @@ class MessageBuilderTests(unittest.IsolatedAsyncioTestCase):
         local_storage.download.assert_awaited_once_with("conv-1/img-local.png")
         self.assertEqual(result[-1]["content"][1]["image_url"]["url"], "data:image/png;base64,bG9jYWwtaW1hZ2U=")
 
+    async def test_build_llm_messages_keeps_historical_attachment_content_in_later_turns(self):
+        file_repo = MagicMock()
+        file_repo.get_conversation_parsed_file_content.return_value = {"doc-1": "第三条：报销需在 30 天内提交"}
+        messages = [
+            Message(
+                role="user",
+                content=[
+                    TextBlock(type="text", text="总结这份制度"),
+                    FileBlock(type="file", file_id="doc-1", filename="制度.pdf", mime_type="application/pdf"),
+                ],
+            ),
+            Message(role="assistant", content=[TextBlock(type="text", text="共五条规定。")]),
+            Message(role="user", content=[TextBlock(type="text", text="第三条写的是什么？")]),
+        ]
+
+        result = await build_llm_messages(
+            messages,
+            file_repo=file_repo,
+            user_id="user-1",
+            conversation_id="conv-1",
+            include_base_system=False,
+        )
+
+        self.assertEqual([message["role"] for message in result], ["user", "assistant", "user"])
+        self.assertTrue(result[0]["content"].startswith("总结这份制度\n\n"))
+        self.assertIn("File content (1):\n第三条：报销需在 30 天内提交", result[0]["content"])
+        self.assertEqual(result[2]["content"], "第三条写的是什么？")
+        file_repo.get_conversation_parsed_file_content.assert_called_once_with(
+            ["doc-1"],
+            user_id="user-1",
+            conversation_id="conv-1",
+        )
+
+    async def test_build_llm_messages_keeps_attachment_only_message(self):
+        file_repo = MagicMock()
+        file_repo.get_conversation_parsed_file_content.return_value = {"doc-1": "文档正文"}
+        messages = [
+            Message(
+                role="user",
+                content=[
+                    TextBlock(type="text", text=""),
+                    FileBlock(type="file", file_id="doc-1", filename="note.txt", mime_type="text/plain"),
+                ],
+            )
+        ]
+
+        result = await build_llm_messages(
+            messages,
+            file_repo=file_repo,
+            user_id="user-1",
+            conversation_id="conv-1",
+            include_base_system=False,
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertIn("File content (1):\n文档正文", result[0]["content"])
+
+    async def test_build_llm_messages_skips_attachment_without_scoped_content(self):
+        file_repo = MagicMock()
+        file_repo.get_conversation_parsed_file_content.return_value = {}
+        messages = [
+            Message(
+                role="user",
+                content=[
+                    TextBlock(type="text", text="看看这个文件"),
+                    FileBlock(type="file", file_id="doc-x", filename="x.pdf", mime_type="application/pdf"),
+                ],
+            )
+        ]
+
+        result = await build_llm_messages(
+            messages,
+            file_repo=file_repo,
+            user_id="user-1",
+            conversation_id="conv-1",
+            include_base_system=False,
+        )
+
+        self.assertEqual(result, [{"role": "user", "content": "看看这个文件"}])
+
+    async def test_build_llm_messages_does_not_read_attachments_without_conversation_scope(self):
+        file_repo = MagicMock()
+        messages = [
+            Message(
+                role="user",
+                content=[
+                    TextBlock(type="text", text="看看这个文件"),
+                    FileBlock(type="file", file_id="doc-1", filename="a.pdf", mime_type="application/pdf"),
+                ],
+            )
+        ]
+
+        result = await build_llm_messages(messages, file_repo=file_repo, user_id="user-1", include_base_system=False)
+
+        self.assertEqual(result, [{"role": "user", "content": "看看这个文件"}])
+        file_repo.get_conversation_parsed_file_content.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

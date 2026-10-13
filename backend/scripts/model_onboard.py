@@ -6,6 +6,8 @@ Fusion 的模型目录就是 LiteLLM 代理里 Fusion key 白名单允许的模�
 - retire：代码里仍写死该模型则拒绝；否则移出白名单、删除代理模型，输出备份。
 - set-capabilities：开关已登记模型的能力位（如 thinkingSwitchable），只改元数据里的
   capabilities，回读确认后推进目录代次。
+- set-context-window：设置已登记模型的输入窗口（max_input_tokens）。窗口未知时上下文
+  管理整轮跳过，既不裁剪也不显示用量；回读确认后推进目录代次。
 
 在 dev 上运行（master key 只经环境变量传入，不落盘不打印）：
     cd ~/project/litellm-proxy && set -a && . ./.env && set +a
@@ -105,11 +107,14 @@ class ProxyAdmin:
         self._post("/model/delete", {"id": model_uuid}, "model_delete_failed")
 
     def update_model_metadata(self, model_uuid: str, metadata: Mapping[str, Any]) -> None:
+        self.update_model_info(model_uuid, {"metadata": dict(metadata)})
+
+    def update_model_info(self, model_uuid: str, model_info: Mapping[str, Any]) -> None:
         # PATCH 只合并传入字段；实测 litellm_params、定价与上下文窗口保持不变。
         response = self.client.patch(
             f"{self.base_url}/model/{model_uuid}/update",
             headers=self._headers(),
-            json={"model_info": {"metadata": dict(metadata)}},
+            json={"model_info": dict(model_info)},
             timeout=20.0,
         )
         self._json(response, "model_update_failed")
@@ -265,6 +270,27 @@ def cmd_set_capabilities(admin: ProxyAdmin, args: argparse.Namespace) -> dict[st
     }
 
 
+def cmd_set_context_window(admin: ProxyAdmin, args: argparse.Namespace) -> dict[str, Any]:
+    if args.tokens <= 0:
+        raise OnboardError("invalid_context_window", str(args.tokens))
+    entry = admin.find_model(args.model_id)
+    if entry is None:
+        raise OnboardError("model_missing", args.model_id)
+    info = entry.get("model_info") or {}
+    before = info.get("max_input_tokens")
+    admin.update_model_info(info["id"], {"max_input_tokens": args.tokens})
+    readback = (admin.find_model(args.model_id) or {}).get("model_info") or {}
+    if readback.get("max_input_tokens") != args.tokens or readback.get("metadata") != info.get("metadata"):
+        raise OnboardError("model_update_readback_failed", args.model_id)
+    return {
+        "status": "context_window_updated",
+        "model_id": args.model_id,
+        "before": before,
+        "after": args.tokens,
+        "catalog_generation": bump_catalog_generation(),
+    }
+
+
 def cmd_list(admin: ProxyAdmin, _args: argparse.Namespace) -> dict[str, Any]:
     entries = admin.model_entries()
     published = set(admin.key_models())
@@ -311,6 +337,10 @@ def build_parser() -> argparse.ArgumentParser:
     set_caps.add_argument("model_id")
     set_caps.add_argument("--enable", nargs="*", default=[], choices=CAPABILITY_KEYS)
     set_caps.add_argument("--disable", nargs="*", default=[], choices=CAPABILITY_KEYS)
+
+    set_window = sub.add_parser("set-context-window", help="设置已登记模型的输入窗口")
+    set_window.add_argument("model_id")
+    set_window.add_argument("tokens", type=int, help="max_input_tokens，按服务商文档的最大输入")
     return parser
 
 
@@ -329,6 +359,7 @@ def main(argv: list[str] | None = None) -> int:
         "retire": cmd_retire,
         "list": cmd_list,
         "set-capabilities": cmd_set_capabilities,
+        "set-context-window": cmd_set_context_window,
     }
     try:
         result = handlers[args.command](admin, args)
