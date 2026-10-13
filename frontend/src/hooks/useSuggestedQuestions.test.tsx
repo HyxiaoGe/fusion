@@ -610,6 +610,54 @@ describe('useSuggestedQuestions', () => {
     vi.useRealTimers();
   });
 
+  it('本轮流式期间正文尚未写入消息时不借用上一轮推荐，pending 时显示占位', async () => {
+    vi.useFakeTimers();
+    const previous = assistantMessage('assistant-previous', {
+      suggestedQuestions: ['上一轮推荐'],
+      suggestedQuestionsStatus: 'ready',
+      suggestedQuestionsRevision: 1,
+    });
+    const user: Message = {
+      id: 'user-current',
+      role: 'user',
+      content: [{ type: 'text', id: 'user-current-text', text: '追问' }],
+      timestamp: 2,
+    };
+    // 流式期间正文在 streamSlice，本轮 assistant 消息本身 content 为空。
+    const current = assistantMessage('assistant-current', { content: [] });
+    const { store, wrapper } = createWrapper([
+      conversation('chat-a', [previous, user, current]),
+    ]);
+    store.dispatch(startStream({ conversationId: 'chat-a', messageId: 'assistant-current' }));
+
+    const { result } = renderHook(() => useSuggestedQuestions('chat-a'), { wrapper });
+    expect(result.current.suggestedQuestions).toEqual([]);
+
+    act(() => {
+      store.dispatch(applySuggestedQuestionsPending({
+        conversationId: 'chat-a',
+        messageId: 'assistant-current',
+        revision: 1,
+      }));
+    });
+    expect(result.current.suggestedQuestions).toEqual([]);
+    expect(result.current.isLoadingQuestions).toBe(true);
+
+    act(() => {
+      store.dispatch(applySuggestedQuestionsReady({
+        conversationId: 'chat-a',
+        messageId: 'assistant-current',
+        revision: 1,
+        status: 'ready',
+        questions: ['本轮推荐'],
+      }));
+    });
+    expect(result.current.suggestedQuestions).toEqual(['本轮推荐']);
+    expect(result.current.isLoadingQuestions).toBe(false);
+    expect(loadConversationDetailMock).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
   it('新一轮观察不误用排在前面的旧 assistant ready 结果', async () => {
     const oldPending = assistantMessage('assistant-old', {
       suggestedQuestionsStatus: 'pending',

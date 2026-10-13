@@ -25,10 +25,12 @@ import type { Conversation, Message } from '@/types/conversation';
 const PENDING_POLL_DELAYS_MS = [2_500, 1_000, 1_500, 2_500, 4_000, 5_000, 5_000, 5_000, 5_000, 5_000];
 const MAX_UNKNOWN_OBSERVATION_CHECKS = 2;
 
+// 与 ChatMessageList 的 lastAssistantIndex 同源：推荐区挂在最后一条 assistant 上。
+// 流式期间正文还在 streamSlice、本轮消息 content 为空，若按正文过滤会退回上一轮，
+// 把上一轮的推荐挂到本轮下面，封口写入正文后再换成本轮推荐（闪一下）。
 function getLastAssistantMessage(conversation: Conversation | undefined): Message | undefined {
-  return conversation?.messages
-    .filter((message) => message.role === 'assistant' && message.content?.length > 0)
-    .at(-1);
+  const lastMessage = conversation?.messages.at(-1);
+  return lastMessage?.role === 'assistant' ? lastMessage : undefined;
 }
 
 /**
