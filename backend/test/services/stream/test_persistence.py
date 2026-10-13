@@ -366,6 +366,21 @@ class PersistMessageMonotonicTests(unittest.TestCase):
         self.assertEqual(existing.usage, usage.model_dump())
         db.commit.assert_called_once()
 
+    def test_full_completion_records_model_that_actually_answered(self):
+        existing = SimpleNamespace(
+            content=[{"type": "text", "id": "answer-1", "text": "工具轮 partial"}],
+            usage=None,
+            model_id="mimo-v2.6-flash",
+        )
+        db = MagicMock()
+        _populated_query(db).filter_by.return_value.first.return_value = existing
+        final = [TextBlock(type="text", id="answer-1", text="最终")]
+
+        persist_message(db, "msg-1", "conv-1", "deepseek-chat", final, partial=True)
+        self.assertEqual(existing.model_id, "mimo-v2.6-flash")
+        persist_message(db, "msg-1", "conv-1", "deepseek-chat", final, partial=False)
+        self.assertEqual(existing.model_id, "deepseek-chat")
+
     def test_full_completion_persists_nested_context_status(self):
         existing = SimpleNamespace(content=[], usage=None)
         db = MagicMock()
