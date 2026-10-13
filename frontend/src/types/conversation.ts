@@ -548,7 +548,6 @@ export interface Message {
   chatId?: string;
   status?: 'pending' | 'failed' | null;
   isReasoningVisible?: boolean;
-  shouldSyncToDb?: boolean;
   agent_run?: AgentRunState | null;
   // 持久化推荐问题，刷新后随消息恢复
   suggestedQuestions?: string[];

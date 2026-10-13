@@ -94,10 +94,6 @@ vi.mock('@/redux/hooks', () => ({
   useAppSelector: (selector: (state: typeof selectorState) => unknown) => selector(selectorState),
 }));
 
-vi.mock('@/lib/db/chatStore', () => ({
-  chatStore: { upsertMessage: vi.fn() },
-}));
-
 vi.mock('@/components/ui/toast', () => ({
   useToast: () => ({ toast: toastMock }),
 }));

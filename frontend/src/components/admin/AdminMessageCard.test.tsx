@@ -8,10 +8,6 @@ vi.mock('@/redux/hooks', () => ({
   useAppSelector: vi.fn(() => ({ currentRun: { runId: 'global-run' } })),
 }));
 
-vi.mock('@/lib/db/chatStore', () => ({
-  chatStore: { upsertMessage: vi.fn() },
-}));
-
 import AdminMessageCard from './AdminMessageCard';
 
 describe('AdminMessageCard 只读边界', () => {

@@ -57,7 +57,7 @@ export function getProtectedHydrationMessageIds(
   const currentMessages = state.conversation.byId[conversationId]?.messages ?? [];
   const protectedIds = new Set(
     currentMessages
-      .filter((message) => message.status === 'pending' || message.status === 'failed' || message.shouldSyncToDb)
+      .filter((message) => message.status === 'pending' || message.status === 'failed')
       .map((message) => message.id)
   );
   if (requestMetadata) {

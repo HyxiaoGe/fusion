@@ -589,7 +589,6 @@
       "tabs": {
         "general": "General", "generalShort": "General",
         "personalization": "AI preferences", "personalizationShort": "AI",
-        "data": "Data management", "dataShort": "Data",
         "usage": "Service usage", "usageShort": "Usage",
         "mcp": "MCP services", "mcpShort": "MCP",
         "models": "Model management", "modelsShort": "Models"
@@ -627,14 +626,6 @@
           "writing": { "label": "Writing assistant", "description": "Direct writing with the conclusion first", "content": "Answer in concise, direct English. Avoid excessive praise and emoji. Start with the conclusion, then explain the reasoning. Remove repetition and empty phrases." },
           "learner": { "label": "Learner", "description": "Simple analogies and clear definitions", "content": "I am unfamiliar with the subject. Explain concepts with simple analogies and define technical terms first. You may suggest a next learning step at the end." }
         }
-      },
-      "data": {
-        "title": "Data management", "description": "Back up or restore this browser's conversations and settings.",
-        "export": "Export data", "exportDescription": "Export conversations and application settings as JSON to back them up or transfer them to another device.",
-        "import": "Import data", "importDescription": "Restore conversations and settings from a previous JSON backup.",
-        "importWarning": "Importing overwrites current data. Check your backup first.",
-        "exportSuccess": "Data exported", "exportFailed": "Could not export data. Please try again.",
-        "invalidFile": "Choose a JSON backup file", "importFailed": "Could not import data. Check the backup file."
       }
     },
   "trajectory": {
