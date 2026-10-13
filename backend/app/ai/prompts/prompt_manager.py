@@ -72,7 +72,7 @@ prompt_manager = PromptManager()
 # 注册绑定到真实生产解析路径：五处生产调用（chat_service 生成标题、
 # suggested_question_service 生成推荐问题、inspiration_generator 生成今日灵感、
 # file_processor 文件分析、
-# message_builder.inject_file_content 文件内容包装）都经由
+# message_builder.with_file_content 文件内容包装）都经由
 # resolve_template_with_metadata，注册的就是该解析点，
 # 而不是另建一层只在注册处出现的包装。
 def _register_consumed(key: str) -> None:

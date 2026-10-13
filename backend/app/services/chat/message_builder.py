@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from typing import Any, Dict, List, Optional
 
 from app.ai.prompts.prompt_manager import prompt_manager
-from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
+from app.ai.prompts.prompt_message import PromptMessage
 from app.ai.prompts.system_prompt import build_base_sections
 from app.core.logger import app_logger as logger
 from app.db.repositories import FileRepository
@@ -79,6 +79,7 @@ async def build_llm_messages(
     - thinking / search block 不传给 LLM（避免污染上下文）
     - 被服务商内容审核拦截的那一轮（用户问题与拦截提示）整轮跳过
     - tool_transcripts 按 assistant 消息 id 提供该轮工具调用与结果，插在该轮回答前原样回放
+    - 非图片附件的解析正文接在所属用户消息之后，后续轮次仍能看到早先上传的文件
     - 当 has_vision=True 时，图片 FileBlock 转为 base64 image_url 内容块
     - 历史消息中的图片仅保留最近 MAX_VISION_HISTORY_TURNS 轮
     - 默认注入 Fusion 身份一致性规则，避免模型自称为上游供应商身份
@@ -110,10 +111,18 @@ async def build_llm_messages(
                     break
 
     filtered_turns = _content_filtered_turn_indexes(messages)
+    file_contents = _parsed_file_contents(
+        messages,
+        filtered_turns,
+        file_repo,
+        user_id=user_id,
+        conversation_id=conversation_id,
+    )
     for idx, msg in enumerate(messages):
         if idx in filtered_turns:
             continue
         content_parts = []
+        attached_contents = []
         has_image = False
         # 仅在最近几轮中注入图片 base64
         inject_images = has_vision and idx >= vision_cutoff_idx
@@ -127,6 +136,9 @@ async def build_llm_messages(
                             "text": block.text,
                         }
                     )
+
+            elif block.type == "file" and block.file_id in file_contents:
+                attached_contents.append(file_contents[block.file_id])
 
             elif block.type == "file" and inject_images:
                 # 图片 FileBlock → base64 image_url
@@ -143,6 +155,11 @@ async def build_llm_messages(
                         has_image = True
 
             # thinking / search block 不传给 LLM
+
+        if attached_contents:
+            query = "\n".join(part["text"] for part in content_parts if part["type"] == "text")
+            image_parts = [part for part in content_parts if part["type"] != "text"]
+            content_parts = [{"type": "text", "text": with_file_content(query, attached_contents)}, *image_parts]
 
         if not content_parts:
             continue
@@ -176,30 +193,42 @@ def _content_filtered_turn_indexes(messages) -> set[int]:
     return skipped
 
 
-def inject_file_content(
-    messages: List[PromptMessage | dict],
-    original_message: str,
-    file_contents: Dict[str, str],
-) -> List[PromptMessage]:
-    """将非图片文件的解析内容注入到最后一条用户消息的文本中。
-
-    包装语来自 catalog 的 `file_content_enhancement`，是该条目的真实消费路径；
-    代码默认值与此前硬编码文本逐字节一致，接入模板不改变模型可见正文。
-    """
-    combined = "\n\n".join(f"File content ({i + 1}):\n{content}" for i, content in enumerate(file_contents.values()))
-    enhanced = prompt_manager.format_prompt(
-        "file_content_enhancement",
-        query=original_message,
-        file_content=combined,
+def _parsed_file_contents(
+    messages,
+    filtered_turns: set[int],
+    file_repo: Optional[FileRepository],
+    *,
+    user_id: Optional[str],
+    conversation_id: Optional[str],
+) -> Dict[str, str]:
+    """一次查出各轮用户消息里非图片附件的解析正文；不属于本人本对话、图片与未解析完的文件不在结果里。"""
+    file_ids = [
+        block.file_id
+        for idx, msg in enumerate(messages)
+        if msg.role == "user" and idx not in filtered_turns
+        for block in msg.content
+        if block.type == "file" and not is_image_mime(getattr(block, "mime_type", "") or "")
+    ]
+    if not file_ids or file_repo is None or not user_id or not conversation_id:
+        return {}
+    return file_repo.get_conversation_parsed_file_content(
+        list(dict.fromkeys(file_ids)),
+        user_id=user_id,
+        conversation_id=conversation_id,
     )
 
-    # 仅附件的新会话没有文字消息，仍须将解析正文作为用户输入。
-    if not messages:
-        return [PromptMessage(role="user", content=enhanced)]
 
-    result = ensure_prompt_messages(messages)
-    result[-1] = PromptMessage(role="user", content=enhanced)
-    return result
+def with_file_content(query: str, file_contents: list[str]) -> str:
+    """把附件解析正文接在用户问题后面。
+
+    包装语来自 catalog 的 `file_content_enhancement`，是该条目的真实消费路径。
+    """
+    combined = "\n\n".join(f"File content ({i + 1}):\n{content}" for i, content in enumerate(file_contents))
+    return prompt_manager.format_prompt(
+        "file_content_enhancement",
+        query=query,
+        file_content=combined,
+    )
 
 
 def is_image_file(file_id: str, file_repo: FileRepository) -> bool:

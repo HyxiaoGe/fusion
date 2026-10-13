@@ -146,36 +146,28 @@ class FileContentEnhancementConsumptionTests(unittest.TestCase):
     """文件增强模板必须真实可达，且用户内容保持原样。"""
 
     def test_wrapper_text_uses_external_english_template_without_changing_user_content(self):
-        from app.services.chat.message_builder import inject_file_content
+        from app.services.chat.message_builder import with_file_content
 
-        file_contents = {"a": "AAA", "b": "BBB"}
-        combined = "\n\n".join(f"File content ({i + 1}):\n{c}" for i, c in enumerate(file_contents.values()))
+        contents = ["AAA", "BBB"]
+        combined = "\n\n".join(f"File content ({i + 1}):\n{c}" for i, c in enumerate(contents))
         expected = f"我的问题\n\nThe following file content is relevant. Use it when answering:\n{combined}\n"
 
-        result = inject_file_content([{"role": "user", "content": "我的问题"}], "我的问题", file_contents)
+        result = with_file_content("我的问题", contents)
 
-        self.assertEqual(result[-1]["content"].encode("utf-8"), expected.encode("utf-8"))
+        self.assertEqual(result.encode("utf-8"), expected.encode("utf-8"))
 
     def test_template_body_reaches_user_message(self):
         from app.ai.prompts.prompt_manager import prompt_manager
-        from app.services.chat.message_builder import inject_file_content
+        from app.services.chat.message_builder import with_file_content
 
         with patch.object(
             prompt_manager,
             "resolve_template_with_metadata",
             return_value=("标记K-{{ query }}-{{ file_content }}", {"format": "text", "template_engine": "jinja2"}),
         ):
-            result = inject_file_content([{"role": "user", "content": "问"}], "问", {"a": "内容"})
+            result = with_file_content("问", ["内容"])
 
-        self.assertIn("标记K-问-", result[-1]["content"])
-
-    def test_empty_message_list_still_renders_from_template(self):
-        from app.services.chat.message_builder import inject_file_content
-
-        result = inject_file_content([], "只有附件", {"a": "AAA"})
-
-        self.assertEqual(result[0]["role"], "user")
-        self.assertIn("The following file content is relevant", result[0]["content"])
+        self.assertIn("标记K-问-", result)
 
 
 class RegistrationBindsToProductionPathTests(unittest.TestCase):
