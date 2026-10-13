@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
-from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.ai.prompts.section_ids import (
     RESEARCH_COMPLETION_REPAIR,
 )
@@ -18,7 +17,6 @@ from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_loop_step_requests import build_tool_round_request
 from app.services.stream.agent_round import AgentRoundResult
-from app.services.stream.llm_round_lifecycle import round_tool_names
 from app.services.stream.llm_stream import contains_tool_protocol_residue
 from app.services.stream.plan_control import UPDATE_PLAN_TOOL_NAME
 from app.services.stream.product_result_answer import (
@@ -40,7 +38,6 @@ from app.services.stream.research_evidence import (
 from app.services.stream.round_completion import append_round_content_blocks, complete_text_response_step
 from app.services.stream.safe_fallback_response import default_safe_fallback, render_safe_fallback
 from app.services.stream.step_lifecycle import AgentStepContext
-from app.services.stream.tool_recovery_evidence import is_grounded_recovery_answer
 from app.services.stream.tool_round import ToolRoundOutcome
 from app.services.stream_state_service import StreamWriteTerminalError, append_chunk
 from app.services.weather import WEATHER_TOOL_NAMES
@@ -104,9 +101,6 @@ async def _handle_agent_round_outcome(
 
     finish_reason = request.round_result.finish_reason
     if finish_reason == "stop":
-        if _requires_tool_failure_recovery(request):
-            await _repair_tool_failure_stop(request)
-            return None
         if _requires_research_completion_repair(request):
             return await _repair_research_completion(request)
         if _needs_empty_answer_summary(request):
@@ -131,24 +125,6 @@ async def _handle_agent_round_outcome(
     return AgentLoopOutcome(exit=AgentLoopExit.COMPLETED)
 
 
-def _recovery_alternatives(request: AgentRoundOutcomeRequest) -> set[str]:
-    """本次运行还剩哪些可用于恢复的工具。
-
-    必须以 run 级公告为准，不能只看本轮目录：计划模式会把目录裁剪成计划内工具，
-    能力契约公开的 web_search/url_read 因此不在本轮公告里，若据此判断就会得出
-    「无替代方案」，恢复提示不再注入——模型拿到了改计划权，却没拿到该怎么用的
-    指引（真实验收 Run 77fa7280 即为此）。本轮公告仍并入，覆盖运行期动态追加。
-    """
-    announced = set(request.round_result.announced_tool_names or frozenset())
-    announced.update(round_tool_names(request.runtime.call_kwargs))
-    assist_tool_names = (
-        frozenset(getattr(request.runtime, "skill_tool_names", frozenset()) or ())
-        | frozenset(getattr(request.runtime, "output_tool_names", frozenset()) or ())
-        | frozenset(getattr(request.runtime, "control_tool_names", frozenset()) or ())
-    )
-    return announced - request.state.attempted_tool_names - {"update_plan"} - assist_tool_names
-
-
 PROTOCOL_RESIDUE_ANSWER_TEXT = default_safe_fallback("protocol_error")
 
 
@@ -166,8 +142,7 @@ async def _reject_protocol_residue(request: AgentRoundOutcomeRequest, answer: st
     """模型正文仍是未执行的工具协议时，它不能充当最终答复。
 
     这一层与证据无关。真实样本 Run e96ab8c9 搜索成功、证据齐备，
-    is_grounded_recovery_answer 因此放行，正文却是一段没有执行的更新计划协议，
-    运行还被标成了 stop / 已完成。判否与非成功终态必须落在同一处，
+    正文却是一段没有执行的更新计划协议，运行还被标成了 stop / 已完成。判否与非成功终态必须落在同一处，
     只把文本换掉、仍标成功不算修好。
 
     不按中文工具名回译执行：识别放宽，恢复严格。
@@ -182,61 +157,6 @@ async def _reject_protocol_residue(request: AgentRoundOutcomeRequest, answer: st
         f"step={request.step_number}"
     )
     return await _safe_round_fallback(request, "protocol_error")
-
-
-def _is_web_recovery_answer(request: AgentRoundOutcomeRequest) -> bool:
-    return (
-        bool(request.state.tool_issue_names)
-        and not has_product_result_blocks(request.state.content_blocks)
-        and request.runtime.task_mode != "deep_research"
-        and is_grounded_recovery_answer(
-            request.round_result.content_buf,
-            request.state.content_blocks,
-            evidence=request.state.recovery_evidence,
-        )
-    )
-
-
-def _requires_tool_failure_recovery(request: AgentRoundOutcomeRequest) -> bool:
-    return (
-        bool(request.state.tool_issue_names)
-        and not request.state.tool_recovery_prompted
-        and bool(_recovery_alternatives(request))
-        and not request.state.pending_tool_repairs
-        and not has_product_result_blocks(request.state.content_blocks)
-        and (
-            request.state.product_tool_attempted or not request.state.successful_tool_names - {"web_search", "url_read"}
-        )
-        and not _is_web_recovery_answer(request)
-        and request.runtime.task_mode != "deep_research"
-    )
-
-
-async def _repair_tool_failure_stop(request: AgentRoundOutcomeRequest) -> None:
-    request.state.tool_recovery_prompted = True
-    _record_suppression(request, "tool_round")
-    request.runtime.warning_fn(
-        f"工具失败或降级后缺少有效证据，继续选择替代工具: run_id={request.runtime.run_id} "
-        f"tool_issues={sorted(request.state.tool_issue_names)} alternatives={sorted(_recovery_alternatives(request))}"
-    )
-    await complete_text_response_step(
-        context=request.step_context,
-        emitter=request.runtime.emitter,
-        session_cache=request.runtime.session_cache,
-        complete_step_fn=request.runtime.complete_step_fn,
-        completed_tool_calls=request.state.total_tool_calls,
-        max_tool_calls=request.runtime.limits.max_tool_calls,
-        clock=request.runtime.clock,
-    )
-    _replace_system_message(
-        request.messages,
-        section_id="tool_failure_recovery",
-        content=render_runtime_prompt(
-            "stream.tool_failure_recovery",
-            failed_tools=", ".join(sorted(request.state.tool_issue_names)),
-            available_tools=", ".join(sorted(_recovery_alternatives(request))),
-        ),
-    )
 
 
 def _requires_deep_synthesis_protocol_summary(request: AgentRoundOutcomeRequest) -> bool:
@@ -431,9 +351,6 @@ async def _commit_deferred_answer(
     if request.terminal and request.state.limit_reason is not None:
         return await _commit_terminal_product_answer(request)
 
-    if not request.round_result.output_deferred:
-        return request
-
     # 模型回答原样交付：不再按产品结果校验、工具失败或证据缺失替换成服务端模板（2026-10-05）。
     if not request.round_result.content_buf.strip():
         # 空正文是格式问题：用已取得的结构化结果和待用户确认的信息补一段，不覆盖模型写出的内容。
@@ -450,6 +367,8 @@ async def _commit_deferred_answer(
         if answer:
             await _append_committed_answer(request, answer)
             return _with_replaced_answer(request, answer)
+    if not request.round_result.output_deferred:
+        return request
     return await _commit_deferred_plain_answer(request, model_output_visible=True)
 
 
@@ -567,7 +486,7 @@ def _with_replaced_answer(
 
 
 def _needs_empty_answer_summary(request: AgentRoundOutcomeRequest) -> bool:
-    if request.round_result.output_deferred and _has_product_answer_context(request.state):
+    if _has_product_answer_context(request.state):
         return False
     return (
         request.state.total_tool_calls > 0

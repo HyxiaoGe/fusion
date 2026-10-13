@@ -71,22 +71,6 @@ def has_recovery_evidence(content_blocks: list[Any], *, evidence: RecoveryEviden
     return bool(_eligible_blocks(content_blocks, evidence))
 
 
-def is_grounded_recovery_answer(
-    answer: str,
-    content_blocks: list[Any],
-    *,
-    evidence: RecoveryEvidenceWorkset,
-) -> bool:
-    """判断非空答复是否有实际网页证据，不验证逐项事实或引用正确性。
-
-    引用缺失或格式错误不等于没有取得来源，不能据此丢弃正常答复。
-    调用方须保留成功产品结果、知识库和深度研究各自的校验边界。
-    """
-    if not isinstance(answer, str) or not answer.strip():
-        return False
-    return has_recovery_evidence(content_blocks, evidence=evidence)
-
-
 def _eligible_blocks(content_blocks: list[Any], evidence: RecoveryEvidenceWorkset) -> list[dict[str, Any]]:
     blocks = []
     for block in content_blocks:

@@ -890,7 +890,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("请补充包含城市的完整地点", append_chunk.await_args.args[2])
         self.assertEqual(state.total_tool_calls, 1)
 
-    async def test_product_result_allows_sequential_multi_intent_tools_before_grounded_completion(self):
+    async def test_product_result_allows_sequential_multi_intent_tools_and_streams_model_answer(self):
         state = AgentLoopState()
         started_steps: list[int] = []
         llm_steps: list[int] = []
@@ -974,18 +974,18 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcome.exit, AgentLoopExit.COMPLETED)
         self.assertEqual(llm_steps, [1, 2, 3])
         self.assertEqual(started_steps, [1, 2, 3])
-        self.assertEqual(defer_output_flags, [False, True, True])
-        grounded_answer = append_chunk.await_args.args[2]
-        self.assertIn("示例咖啡", grounded_answer)
-        self.assertIn("示例桌球馆", grounded_answer)
+        self.assertEqual(defer_output_flags, [False, False, False])
+        # 回答已在本轮流式推送，收尾不再由服务端补发正文。
+        append_chunk.assert_not_awaited()
+        self.assertIn("示例桌球馆", state.content_blocks[-1].text)
         self.assertEqual(state.total_tool_calls, 2)
         self.assertEqual(state.accumulated_usage, Usage(input_tokens=7, output_tokens=9))
         self.assertEqual(
             [block.type for block in state.content_blocks],
-            ["place_results", "place_results", "text"],
+            ["place_results", "place_results", "thinking", "text"],
         )
 
-    async def test_existing_product_result_defers_next_round_model_output(self):
+    async def test_existing_product_result_streams_next_round_model_output(self):
         state = AgentLoopState(
             content_blocks=[
                 PlaceResultsBlock(
@@ -1012,7 +1012,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
             return context
 
         async def run_round_fn(**kwargs):
-            self.assertTrue(kwargs["defer_output"])
+            self.assertFalse(kwargs.get("defer_output", False))
             return AgentRoundResult(
                 reasoning_buf="",
                 content_buf="最终回答",

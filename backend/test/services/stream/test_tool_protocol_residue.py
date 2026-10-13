@@ -123,10 +123,9 @@ def _search_block(url: str):
 
 
 class RecoveryAnswerBranchTests(unittest.IsolatedAsyncioTestCase):
-    """恢复答复分支不能凭「有搜索证据」放行协议文本。
+    """有搜索证据也不能放行协议文本。
 
-    这条分支是真实样本实际走的那条：is_grounded_recovery_answer 只检查
-    「答复非空」+「有成功的检索证据块」，两条都满足，于是原样提交并标成功。
+    真实样本 Run e96ab8c9：答复非空、检索证据齐备，正文却是未执行的工具协议，被原样提交并标成功。
     """
 
     def _request(self, content_buf: str) -> AgentRoundOutcomeRequest:

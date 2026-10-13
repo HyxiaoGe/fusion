@@ -616,7 +616,6 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
         await self._invoke(
             stream_round_side_effect=[
                 ("", "", [tool_call], "tool_calls", None),
-                ("", "暂未读取到页面正文。", [], "stop", None),
                 ("", "仍未获得该页面正文，无法据此提供可靠摘要。", [], "stop", None),
             ],
             execute_tools_result=[
@@ -646,7 +645,8 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
             original_message="总结 https://example.com，只依据该页面",
         )
 
-        self.assertEqual(len(captured_messages), 3)
+        # 降级后模型直接如实作答即收尾，服务端不再追加补救轮。
+        self.assertEqual(len(captured_messages), 2)
         tool_messages = [message for message in captured_messages[1] if message.get("role") == "tool"]
         self.assertEqual(len(tool_messages), 1)
         tool_context = tool_messages[0]["content"]
@@ -654,13 +654,6 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("reader-service", tool_context)
         self.assertNotIn("请基于你的知识回答", tool_context)
 
-        recovery_messages = [
-            message
-            for message in captured_messages[2]
-            if "Earlier tool calls failed or were degraded" in str(message.get("content", ""))
-        ]
-        self.assertEqual(len(recovery_messages), 1)
-        self.assertIn("Affected tools: url_read", recovery_messages[0]["content"])
         completed = [event for event in self._agent_events() if event["type"] == "run_completed"]
         self.assertEqual(len(completed), 1)
         self.assertEqual(completed[0]["finish_reason"], "stop")
