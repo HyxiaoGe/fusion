@@ -67,11 +67,8 @@ const {
         };
       },
       fileUpload: {
-        files: {},
         fileIds: {},
         processingFiles: {},
-        isUploading: false,
-        uploadProgress: 0,
       },
       auth: {
         isAuthenticated: false,
@@ -158,17 +155,6 @@ vi.mock('@/lib/api/FileStatusPoller', () => ({
   startPollingFileStatus: startPollingFileStatusMock,
   stopPollingFileStatus: stopPollingFileStatusMock,
 }));
-
-vi.mock('@/lib/utils/fileHelpers', async () => {
-  const actual = await vi.importActual<typeof import('@/lib/utils/fileHelpers')>('@/lib/utils/fileHelpers');
-  return {
-    ...actual,
-    createFileWithPreview: vi.fn((file: File) => ({
-      ...file,
-      preview: '',
-    })),
-  };
-});
 
 vi.mock('uuid', () => ({
   v4: uuidMock,
@@ -313,11 +299,8 @@ describe('ChatInput', () => {
     currentState.streamSlot.contextUsageInFlight = null;
     currentState.streamSlot.contextUsageInFlightMeta = null;
     currentState.streamSlot.contextUsageInFlightConversationId = null;
-    currentState.fileUpload.files = {};
     currentState.fileUpload.fileIds = {};
     currentState.fileUpload.processingFiles = {};
-    currentState.fileUpload.isUploading = false;
-    currentState.fileUpload.uploadProgress = 0;
     currentState.auth.isAuthenticated = false;
     currentState.auth.user = null;
     currentState.auth.token = null;
