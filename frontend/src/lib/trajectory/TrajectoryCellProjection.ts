@@ -12,21 +12,21 @@ import {
   type NormalizedTrajectoryEvent,
 } from './normalizeTrajectoryEvent';
 
-export type TrajectoryCompletenessSource =
+type TrajectoryCompletenessSource =
   | 'message'
   | 'run-summary'
   | 'durable-snapshot'
   | 'live-tail'
   | 'message.agent_run';
 
-export type TrajectoryJoinStrategy =
+type TrajectoryJoinStrategy =
   | 'explicit'
   | 'legacy-adjacent-user'
   | 'assistant-only'
   | 'message-agent-run'
   | 'unassociated';
 
-export interface TrajectoryCellBase {
+interface TrajectoryCellBase {
   key: string;
   type: TrajectoryCell['type'];
   runId: string | null;
@@ -61,7 +61,7 @@ export type TrajectoryBadgeStatus =
   | 'summary-only'
   | 'unknown';
 
-export interface TrajectoryBadge {
+interface TrajectoryBadge {
   status: TrajectoryBadgeStatus;
   source: Exclude<TrajectoryCompletenessSource, 'message' | 'live-tail'>;
   reason: string | null;

@@ -13,7 +13,7 @@ import styles from './CodeBlock.module.css';
  * 读不到主站的 cookie、localStorage 和登录态，也不能操作父页面；
  * 不给 allow-top-navigation / allow-popups，代码无法把主站跳走或开新窗口逃出沙箱。
  */
-export const HTML_PREVIEW_SANDBOX = 'allow-scripts allow-modals';
+const HTML_PREVIEW_SANDBOX = 'allow-scripts allow-modals';
 
 /**
  * 沙箱页没有同源权限，访问 localStorage / sessionStorage 会直接抛错，
@@ -31,7 +31,7 @@ const STORAGE_SHIM = '<script>(function(){function m(){var d=new Map();return{'
   + 'try{Object.defineProperty(window,n,{value:m(),configurable:true})}catch(_){}}})})();</script>';
 
 /** 沙箱页回报内容高度用的消息类型；父页面只认来自本预览 iframe 的这一种消息 */
-export const PREVIEW_HEIGHT_MESSAGE = 'fusion-html-preview-height';
+const PREVIEW_HEIGHT_MESSAGE = 'fusion-html-preview-height';
 
 /**
  * 页面内容高度变化时告诉父页面，预览框按内容撑开，不用在固定高度的小框里来回滚。
@@ -47,7 +47,7 @@ const HEIGHT_REPORTER = '<script>(function(){var last=0;function send(){'
 const SANDBOX_BOOTSTRAP = STORAGE_SHIM + HEIGHT_REPORTER;
 
 /** 预览框初始高度，也是自动撑开时的下限 */
-export const PREVIEW_MIN_HEIGHT = 320;
+const PREVIEW_MIN_HEIGHT = 320;
 
 /**
  * 替身脚本要在页面自己的脚本之前执行，又不能插在 <!DOCTYPE> 前面（会让页面进入怪异模式），

@@ -29,10 +29,6 @@ class DocumentToolSet:
         default=lambda: [build_create_document_tool(), build_edit_document_tool()]
     )
 
-    @property
-    def existing_titles(self) -> tuple[str, ...]:
-        return tuple(document.title for document in self.existing_documents)
-
 
 def load_document_tool_set(
     db: Session,

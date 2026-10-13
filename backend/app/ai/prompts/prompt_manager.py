@@ -60,10 +60,6 @@ class PromptManager:
             template, metadata = self.resolve_template_with_metadata(template_name)
         return render_prompt_template(template, metadata["template_engine"], kwargs), metadata
 
-    def add_template(self, name: str, template: str) -> None:
-        """添加或更新提示词模板"""
-        self._templates[name] = template
-
 
 # 创建全局提示词管理器实例
 prompt_manager = PromptManager()

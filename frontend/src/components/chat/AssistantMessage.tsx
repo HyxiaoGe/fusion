@@ -433,5 +433,5 @@ function AssistantMessageFrame({
   );
 }
 
-export type { AssistantMessageProps };
+;
 export default React.memo(AssistantMessage);

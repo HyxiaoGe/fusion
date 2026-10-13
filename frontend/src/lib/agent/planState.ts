@@ -7,7 +7,7 @@ import type {
   AgentPlanState,
 } from '@/types/agentRun';
 
-export const LEGACY_PLAN_REASON = 'legacy_observed';
+const LEGACY_PLAN_REASON = 'legacy_observed';
 
 interface WireAgentPlanItem {
   id: string;

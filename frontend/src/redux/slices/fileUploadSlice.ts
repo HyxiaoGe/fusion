@@ -34,13 +34,6 @@ const fileUploadSlice = createSlice({
   name: 'fileUpload',
   initialState,
   reducers: {
-    setFileIds: (
-      state,
-      action: PayloadAction<{ chatId: string; fileIds: string[] }>
-    ) => {
-      const { chatId, fileIds } = action.payload;
-      state.fileIds[chatId] = fileIds;
-    },
     addFileId: (
       state,
       action: PayloadAction<{ chatId: string; fileId: string; fileIndex: number }>
@@ -110,58 +103,6 @@ const fileUploadSlice = createSlice({
         delete state.processingFiles[fileId];
       }
     },
-    setUploadProgress: (state, action: PayloadAction<number>) => {
-      state.uploadProgress = action.payload;
-    },
-    setFiles: (
-      state,
-      action: PayloadAction<{ chatId: string; files: FileWithPreview[] }>
-    ) => {
-      const { chatId, files } = action.payload;
-      // 释放之前的预览URL，避免内存泄漏
-      if (state.files[chatId]) {
-        state.files[chatId].forEach(file => revokeFilePreview(file));
-      }
-      // 设置初始状态为pending
-      const filesWithStatus = files.map(file => ({
-        ...file,
-        status: 'pending' as FileProcessingStatus
-      }));
-      state.files[chatId] = filesWithStatus;
-    },
-    addFiles: (
-      state,
-      action: PayloadAction<{ chatId: string; files: FileWithPreview[] }>
-    ) => {
-      const { chatId, files } = action.payload;
-      if (!state.files[chatId]) {
-        state.files[chatId] = [];
-      }
-      // 设置初始状态为pending
-      const filesWithStatus = files.map(file => ({
-        ...file,
-        status: 'pending' as FileProcessingStatus
-      }));
-      state.files[chatId] = filesWithStatus;
-    },
-    removeFile: (
-      state,
-      action: PayloadAction<{ chatId: string; fileIndex: number }>
-    ) => {
-      const { chatId, fileIndex } = action.payload;
-      if (state.files[chatId] && state.files[chatId][fileIndex]) {
-        // 获取文件ID，也从处理状态跟踪中删除
-        const fileId = state.files[chatId][fileIndex].fileId;
-        if (fileId && state.processingFiles[fileId]) {
-          delete state.processingFiles[fileId];
-        }
-        
-        // 释放预览URL
-        revokeFilePreview(state.files[chatId][fileIndex]);
-        // 从数组中移除
-        state.files[chatId] = state.files[chatId].filter((_, i) => i !== fileIndex);
-      }
-    },
     clearFiles: (state, action: PayloadAction<string>) => {
       const chatId = action.payload;
       if (state.files[chatId]) {
@@ -179,22 +120,6 @@ const fileUploadSlice = createSlice({
       if (state.fileIds[chatId]) {
         delete state.fileIds[chatId];
       }
-    },
-    setUploading: (state, action: PayloadAction<boolean>) => {
-      state.isUploading = action.payload;
-      // 如果开始上传，设置所有pending状态的文件为uploading
-      if (action.payload) {
-        Object.keys(state.files).forEach(chatId => {
-          state.files[chatId].forEach(file => {
-            if (file.status === 'pending') {
-              file.status = 'uploading';
-            }
-          });
-        });
-      }
-    },
-    setError: (state, action: PayloadAction<string | null>) => {
-      state.error = action.payload;
     },
     // 重置所有文件上传状态（用于退出登录）
     resetFileUploadState: (state) => {
@@ -223,46 +148,21 @@ const fileUploadSlice = createSlice({
 });
 
 export const {
-  setFiles,
-  addFiles,
-  removeFile,
   clearFiles,
-  setUploading,
-  setError,
-  setFileIds,
   addFileId,
   removeFileId,
-  setUploadProgress,
   updateFileStatus,
   resetFileUploadState,
 } = fileUploadSlice.actions;
 
 // --- Memoized Selectors --- 
 
-const EMPTY_ARRAY: any[] = []; // Stable empty array reference
-const EMPTY_OBJECT = {}; // Stable empty object reference
-
-// Base selectors
-const selectFilesByChatState = (state: RootState) => state.fileUpload.files;
+const EMPTY_ARRAY: any[] = [];
 const selectFileIdsByChatState = (state: RootState) => state.fileUpload.fileIds;
-const selectProcessingFilesState = (state: RootState) => state.fileUpload.processingFiles;
-
-// Factory function to create selectors specific to a chatId
-export const makeSelectChatFiles = () => createSelector(
-  [selectFilesByChatState, (_state: RootState, chatId: string) => chatId],
-  (filesByChat, chatId) => filesByChat[chatId] || EMPTY_ARRAY // Return stable empty array
-);
 
 export const makeSelectChatFileIds = () => createSelector(
   [selectFileIdsByChatState, (_state: RootState, chatId: string) => chatId],
   (fileIdsByChat, chatId) => fileIdsByChat[chatId] || EMPTY_ARRAY // Return stable empty array
-);
-
-// Selector for fileUploads (processing statuses array)
-export const selectFileUploadStatuses = createSelector(
-  [selectProcessingFilesState],
-  // Ensure processingFiles is treated as an object, default to stable empty object
-  (processingFiles) => Object.values(processingFiles || EMPTY_OBJECT) 
 );
 
 export default fileUploadSlice.reducer;

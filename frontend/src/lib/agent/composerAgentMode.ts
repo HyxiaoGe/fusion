@@ -9,12 +9,12 @@ import type {
 // 新对话页还没有对话 id，执行模式的选择先记在这个键下，首条消息发出后转给新对话。
 export const NEW_CHAT_AGENT_MODE_KEY = '__new_chat__';
 
-export interface ComposerAgentModeAvailability {
+interface ComposerAgentModeAvailability {
   enabled: boolean;
   unavailableReason?: string;
 }
 
-export interface ComposerAgentModeResolution {
+interface ComposerAgentModeResolution {
   requestedMode: ComposerAgentMode;
   effectiveMode: ComposerAgentMode;
   planMode: Extract<AgentPlanMode, 'auto' | 'on'>;

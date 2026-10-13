@@ -7,7 +7,7 @@ import { formatFileSize } from '@/lib/utils/fileHelpers';
 import type { ComposerAttachment, UploadComposerAttachment } from './composerAttachments';
 import { isComposerAttachmentProcessing } from './composerAttachments';
 
-export interface ComposerAttachmentListProps {
+interface ComposerAttachmentListProps {
   attachments: ComposerAttachment[];
   onRemoveUploadAttachment: (localId: string) => void;
   onRemoveConversationAttachment: (fileId: string) => void;

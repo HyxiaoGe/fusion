@@ -3,7 +3,6 @@ import { setupListeners } from '@reduxjs/toolkit/query';
 import toastMiddleware from './middleware/toastMiddleware';
 import conversationDetailInvalidationMiddleware from './middleware/conversationDetailInvalidationMiddleware';
 import persistMiddleware from './middleware/persistMiddleware';
-import appReducer from './slices/appSlice';
 import conversationReducer from './slices/conversationSlice';
 import fileUploadReducer from './slices/fileUploadSlice';
 import modelsReducer from './slices/modelsSlice';
@@ -50,7 +49,6 @@ export const store = configureStore({
         fileUpload: fileUploadReducer,
         promptTemplates: promptTemplatesReducer,
         settings: settingsReducer,
-        app: appReducer,
         auth: authReducer,
         guest: guestReducer,
         trajectory: trajectoryReducer,

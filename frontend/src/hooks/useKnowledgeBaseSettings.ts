@@ -83,7 +83,7 @@ interface RequestBoundary {
   generation: number;
 }
 
-export type KnowledgeMutation =
+type KnowledgeMutation =
   | 'create-base'
   | 'update-base'
   | 'delete-base'
@@ -93,7 +93,7 @@ export type KnowledgeMutation =
   | 'rebuild-document'
   | null;
 
-export interface KnowledgeBaseSettingsState {
+interface KnowledgeBaseSettingsState {
   bases: KnowledgeBasePage;
   documents: KnowledgeDocumentPage;
   selectedBase: KnowledgeBase | null;

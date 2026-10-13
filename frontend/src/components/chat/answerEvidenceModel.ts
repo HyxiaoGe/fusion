@@ -7,8 +7,6 @@ import type {
   UrlBlock,
 } from '@/types/conversation';
 
-export type AnswerEvidenceKind = 'search_source' | 'url_read' | 'knowledge';
-
 interface BaseAnswerEvidenceItem {
   id: string;
   evidenceId?: string;

@@ -1,4 +1,4 @@
-export interface DocumentDiffSnapshot {
+interface DocumentDiffSnapshot {
   title: string;
   content: string;
 }

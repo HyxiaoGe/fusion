@@ -2,9 +2,9 @@
 
 import { createContext, useContext, useEffect, type ReactNode } from "react";
 
-export type ServiceUsageRefreshHandler = () => Promise<unknown> | unknown;
+type ServiceUsageRefreshHandler = () => Promise<unknown> | unknown;
 
-export interface ServiceUsageRefreshRegistry {
+interface ServiceUsageRefreshRegistry {
   register: (service: string, handler: ServiceUsageRefreshHandler) => () => void;
   refreshAll: () => Promise<PromiseSettledResult<unknown>[]>;
 }

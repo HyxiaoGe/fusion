@@ -12,7 +12,7 @@ const requestMetadataByPromise = new WeakMap<Promise<Conversation>, Conversation
 const conversationGenerations = new Map<string, number>();
 let allConversationDetailsGeneration = 0;
 
-export class StaleConversationDetailRequestError extends Error {
+class StaleConversationDetailRequestError extends Error {
   constructor(conversationId: string) {
     super(`会话详情请求已失效: ${conversationId}`);
     this.name = 'StaleConversationDetailRequestError';

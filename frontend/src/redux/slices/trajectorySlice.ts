@@ -26,10 +26,10 @@ const TERMINAL_EVENT_TYPES = new Set([
   'run_limit_reached',
 ]);
 
-export type TrajectoryActiveSurface = 'chat' | 'trajectory';
-export type TrajectoryScrollMode = 'follow-live' | 'manual';
+type TrajectoryActiveSurface = 'chat' | 'trajectory';
+type TrajectoryScrollMode = 'follow-live' | 'manual';
 export type TrajectoryRunListStatus = 'idle' | 'loading' | 'ready' | 'unavailable' | 'failed';
-export type TrajectorySelectionSource = 'none' | 'auto-live' | 'auto-snapshot' | 'manual' | 'inspect';
+type TrajectorySelectionSource = 'none' | 'auto-live' | 'auto-snapshot' | 'manual' | 'inspect';
 export type TrajectoryReconciliationStatus =
   | 'idle'
   | 'loading'
@@ -77,7 +77,7 @@ export interface TrajectoryLiveEventBuffer {
   length: number;
 }
 
-export interface TrajectoryInspectRequest {
+interface TrajectoryInspectRequest {
   requestId: string;
   messageId: string | null;
   runId: string;
@@ -761,15 +761,6 @@ const trajectorySlice = createSlice({
         reconciliation.error = null;
       }
     },
-    markTrajectoryRunReconciliation(state, action: PayloadAction<{
-      conversationId: string;
-      runId: string;
-    }>) {
-      const conversation = ensureConversation(state, action.payload.conversationId);
-      const reconciliation = ensureReconciliation(conversation, action.payload.runId);
-      reconciliation.status = 'reconciling';
-      reconciliation.error = null;
-    },
     setTrajectoryActiveSurface(state, action: PayloadAction<{
       conversationId: string;
       surface: TrajectoryActiveSurface;
@@ -916,56 +907,6 @@ export function selectTrajectoryRunSummary(
   return selectTrajectoryConversation(state, conversationId)?.runSummariesById[runId];
 }
 
-export function selectTrajectoryRunListRequest(
-  state: TrajectoryRootState,
-  conversationId: string,
-): Pick<
-  TrajectoryConversationState,
-  'runListStatus' | 'runListError' | 'runsTruncated' | 'activeRunListRequestId'
-> | undefined {
-  const conversation = selectTrajectoryConversation(state, conversationId);
-  if (!conversation) return undefined;
-  return {
-    runListStatus: conversation.runListStatus,
-    runListError: conversation.runListError,
-    runsTruncated: conversation.runsTruncated,
-    activeRunListRequestId: conversation.activeRunListRequestId,
-  };
-}
-
-export function selectTrajectorySnapshot(
-  state: TrajectoryRootState,
-  conversationId: string,
-  runId: string,
-): TrajectorySnapshotCacheEntry | undefined {
-  return selectTrajectoryConversation(state, conversationId)?.snapshotsByRunId[runId];
-}
-
-export function selectTrajectoryReconciliation(
-  state: TrajectoryRootState,
-  conversationId: string,
-  runId: string,
-): TrajectoryReconciliationState | undefined {
-  return selectTrajectoryConversation(state, conversationId)?.reconciliationByRunId[runId];
-}
-
-export function selectTrajectorySelection(
-  state: TrajectoryRootState,
-  conversationId: string,
-): Pick<
-  TrajectoryConversationState,
-  'selectedMessageId' | 'selectedRunId' | 'selectedSpanId' | 'selectionSource'
-> | undefined {
-  const conversation = selectTrajectoryConversation(state, conversationId);
-  if (!conversation) return undefined;
-  return {
-    selectedMessageId: conversation.selectedMessageId,
-    selectedRunId: conversation.selectedRunId,
-    selectedSpanId: conversation.selectedSpanId,
-    selectionSource: conversation.selectionSource,
-  };
-}
-
 export function selectTrajectoryViewState(
   state: TrajectoryRootState,
   conversationId: string,
@@ -1000,7 +941,6 @@ export function selectMergedTrajectoryEvents(
 
 export const {
   consumeTrajectoryInspectRequest,
-  markTrajectoryRunReconciliation,
   mergeLiveTrajectoryEvent,
   requestTrajectoryInspect,
   resolveTrajectoryInspectRequest,

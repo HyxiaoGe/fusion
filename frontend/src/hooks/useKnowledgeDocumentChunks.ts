@@ -32,7 +32,7 @@ interface RequestBoundary {
   generation: number;
 }
 
-export interface KnowledgeDocumentChunksState {
+interface KnowledgeDocumentChunksState {
   data: KnowledgeDocumentChunkPage | null;
   page: number;
   loading: boolean;

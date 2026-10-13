@@ -71,7 +71,7 @@ import {
   type TrajectoryViewportState,
 } from './TrajectoryTable';
 
-export interface TrajectoryRunActionContext {
+interface TrajectoryRunActionContext {
   enabled: boolean;
   hasActiveStream: boolean;
   modelAvailable: boolean;
@@ -87,7 +87,7 @@ export interface TrajectoryRunActionContext {
   ) => void | Promise<void>;
 }
 
-export interface TrajectoryTabViewProps {
+interface TrajectoryTabViewProps {
   conversationId: string;
   messages: Message[];
   visible?: boolean;
@@ -170,7 +170,7 @@ function LoadingState() {
   );
 }
 
-export function TrajectoryTabView({
+function TrajectoryTabView({
   conversationId,
   messages,
   visible = true,

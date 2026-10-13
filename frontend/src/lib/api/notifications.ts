@@ -30,7 +30,7 @@ export interface NotificationItem {
   target: NotificationTarget;
 }
 
-export interface NotificationSnapshot {
+interface NotificationSnapshot {
   unread_count: number;
   unread_conversation_ids: string[];
   revision: number;
@@ -45,7 +45,7 @@ export interface NotificationReadResponse extends NotificationSnapshot {
   updated_count: number;
 }
 
-export interface NotificationResultsReadRequest {
+interface NotificationResultsReadRequest {
   conversation_id: string;
   results: { run_id: string; message_id: string }[];
 }

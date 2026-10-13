@@ -12,7 +12,7 @@ const BYTES_PER_MB = 1024 * 1024;
 const UPLOAD_TIMEOUT_MESSAGE = '文件上传超时，请检查网络后重试';
 
 // 上传结果单项
-export interface UploadedFileInfo {
+interface UploadedFileInfo {
   file_id: string;
   thumbnail_url?: string;
   status?: FileProcessingStatus;
@@ -33,7 +33,7 @@ export interface FileInfo {
   height?: number | null;
 }
 
-export interface FileStatusResponse {
+interface FileStatusResponse {
   id: string;
   status: FileProcessingStatus;
   error_message?: string;

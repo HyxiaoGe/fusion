@@ -23,7 +23,7 @@ export interface TrajectoryTableRow {
   aliasedCellKeys: string[];
 }
 
-export interface TrajectoryTableModelInput {
+interface TrajectoryTableModelInput {
   cells: readonly TrajectoryCell[];
   searchQuery?: string;
   focusedCellKeys?: ReadonlySet<string> | null;

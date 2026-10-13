@@ -1,6 +1,6 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
-export interface SettingsState {
+interface SettingsState {
   // 弹窗相关状态
   isSettingsDialogOpen: boolean;
   activeSettingsTab: string;
@@ -26,10 +26,6 @@ const settingsSlice = createSlice({
   name: 'settings',
   initialState,
   reducers: {
-    // 弹窗相关的reducer
-    setSettingsDialogOpen: (state, action: PayloadAction<boolean>) => {
-      state.isSettingsDialogOpen = action.payload;
-    },
     setActiveSettingsTab: (state, action: PayloadAction<string>) => {
       state.activeSettingsTab = action.payload;
     },
@@ -61,7 +57,6 @@ const settingsSlice = createSlice({
 });
 
 export const {
-  setSettingsDialogOpen,
   setActiveSettingsTab,
   openSettingsDialog,
   closeSettingsDialog,

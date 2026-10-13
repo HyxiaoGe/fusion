@@ -5,9 +5,9 @@ import {
 
 export const DEFAULT_STREAM_RECONNECT_DELAYS_MS = [0, 250, 750] as const;
 
-export type ResumableStreamPhase = 'reconnecting' | 'streaming';
+type ResumableStreamPhase = 'reconnecting' | 'streaming';
 
-export interface RunResumableStreamOptions {
+interface RunResumableStreamOptions {
   callbacks: StreamCallbacks;
   signal: AbortSignal;
   openInitial: (

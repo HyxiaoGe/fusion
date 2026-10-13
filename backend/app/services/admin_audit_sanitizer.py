@@ -89,11 +89,6 @@ def _is_secret_key(value: str) -> bool:
     return normalized in _SECRET_KEYS or any(normalized.startswith(prefix) for prefix in _SECRET_KEY_PREFIXES)
 
 
-def _is_sensitive_query_key(value: str) -> bool:
-    normalized = _normalize_key(value)
-    return normalized in _SENSITIVE_QUERY_KEYS or any(normalized.startswith(prefix) for prefix in _SECRET_KEY_PREFIXES)
-
-
 def mask_email(email: str | None) -> str | None:
     if not email:
         return None

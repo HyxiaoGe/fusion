@@ -29,7 +29,7 @@ import type { AssistantActivity } from './assistantActivity';
 import { deriveAnswerEvidence } from './answerEvidenceModel';
 import type { AnswerEvidenceModel } from './answerEvidenceModel';
 
-export interface UseAssistantMessageViewModelOptions {
+interface UseAssistantMessageViewModelOptions {
   message: Message;
   modelId?: string | null;
   providerId?: string | null;
@@ -70,7 +70,7 @@ export interface AssistantMessageViewModel {
   isThinkingPhaseComplete: boolean;
 }
 
-export interface StaticAssistantMessageViewModelOptions {
+interface StaticAssistantMessageViewModelOptions {
   message: Message;
   isLoadingQuestions: boolean;
   suggestedQuestionsCount: number;
@@ -329,7 +329,7 @@ function collectGeneratedImageBlocks(contentBlocks: ContentBlock[]): GeneratedIm
 }
 
 /** 地图来源：腾讯等通用 MCP 只留 data_source 署名，高德产品工具的地点/路线卡片自带 attribution。 */
-export function collectMapDataSources(contentBlocks: ContentBlock[]): string[] {
+function collectMapDataSources(contentBlocks: ContentBlock[]): string[] {
   const labels: string[] = [];
   for (const block of contentBlocks) {
     let label: string | null | undefined;

@@ -10,7 +10,7 @@ import { AUTH_SERVICE_CONFIG } from '../config';
 import { configureAuth } from './auth-sdk';
 import { clearSsoReturn } from './sso-probe';
 
-export type EmailCodeAuthErrorCode =
+type EmailCodeAuthErrorCode =
   | 'invalid_client'
   | 'invalid_email'
   | 'invalid_code'
@@ -23,7 +23,7 @@ export type EmailCodeAuthErrorCode =
   | 'network_error'
   | 'server_error';
 
-export class EmailCodeAuthError extends Error {
+class EmailCodeAuthError extends Error {
   readonly code: EmailCodeAuthErrorCode;
   readonly retryAfterSeconds?: number;
 
@@ -35,25 +35,25 @@ export class EmailCodeAuthError extends Error {
   }
 }
 
-export interface StartEmailCodeLoginInput {
+interface StartEmailCodeLoginInput {
   email: string;
   signal: AbortSignal;
 }
 
-export interface ContinueEmailCodeLoginInput {
+interface ContinueEmailCodeLoginInput {
   interactionToken: string;
   signal: AbortSignal;
 }
 
-export interface VerifyEmailCodeLoginInput extends ContinueEmailCodeLoginInput {
+interface VerifyEmailCodeLoginInput extends ContinueEmailCodeLoginInput {
   verificationCode: string;
 }
 
-export interface CancelEmailCodeLoginInput {
+interface CancelEmailCodeLoginInput {
   interactionToken: string | null;
 }
 
-export interface EmailCodeLoginChallenge {
+interface EmailCodeLoginChallenge {
   interactionToken: string;
   maskedDestination: string;
   expiresInSeconds: number;

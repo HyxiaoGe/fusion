@@ -158,11 +158,6 @@ class AdminPerformanceRunImport(BaseModel):
     finished_at: datetime | None = None
 
 
-class AdminPageParams(BaseModel):
-    page: int = Field(default=1, ge=1)
-    page_size: int = Field(default=25, ge=1, le=100)
-
-
 class AdminAuditUserSummary(BaseModel):
     """审计事件目标用户的当前可读身份摘要。"""
 

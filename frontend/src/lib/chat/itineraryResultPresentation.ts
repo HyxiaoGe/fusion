@@ -31,7 +31,7 @@ export interface ItineraryPresentationItem {
   attributions: string[];
 }
 
-export interface StandaloneStructuredResultItem {
+interface StandaloneStructuredResultItem {
   kind: 'standalone';
   block: ItinerarySourceBlock;
 }
@@ -41,7 +41,7 @@ export type ItinerarySourceBlock = Exclude<
   ItineraryResultsBlock
 >;
 
-export interface ItineraryResultPresentation {
+interface ItineraryResultPresentation {
   items: Array<ItineraryPresentationItem | StandaloneStructuredResultItem>;
 }
 

@@ -18,7 +18,7 @@ const getSavedModelId = (): string | null => {
 // 原有接口保持兼容
 export type Model = ModelInfo;
 
-export type ModelsLoadStatus = 'idle' | 'loading' | 'ready' | 'failed';
+type ModelsLoadStatus = 'idle' | 'loading' | 'ready' | 'failed';
 
 interface ModelsState {
   models: Model[];
@@ -49,19 +49,6 @@ const modelsSlice = createSlice({
         } catch (error) {
           console.error('Error saving selectedModelId to localStorage:', error);
         }
-      }
-    },
-    setModelEnabled: (state, action: PayloadAction<{modelId: string, enabled: boolean}>) => {
-      const { modelId, enabled } = action.payload;
-      const modelIndex = state.models.findIndex(m => m.id === modelId);
-      if (modelIndex !== -1) {
-        state.models[modelIndex].enabled = enabled;
-      }
-    },
-    setIsLoading: (state, action: PayloadAction<boolean>) => {
-      state.isLoading = action.payload;
-      if (action.payload) {
-        state.loadStatus = 'loading';
       }
     },
     setModelsLoadStatus: (state, action: PayloadAction<ModelsLoadStatus>) => {
@@ -101,8 +88,6 @@ const modelsSlice = createSlice({
 
 export const {
   setSelectedModel,
-  setModelEnabled,
-  setIsLoading,
   setModelsLoadStatus,
   updateProviders,
   updateModels

@@ -62,7 +62,7 @@ const CONTENT_BLOCK_CONTRACTS_BY_TYPE = CONTENT_BLOCK_CONTRACTS.reduce(
   new Map<string, ContentBlockContract[]>(),
 );
 
-export interface RegisteredContentBlockContract {
+interface RegisteredContentBlockContract {
   type: string;
   schemaVersion: number | null;
 }

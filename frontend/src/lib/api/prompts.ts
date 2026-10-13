@@ -12,7 +12,7 @@ export interface PromptExample {
   requires?: keyof Entitlements['features'] | null;
 }
 
-export interface PromptExamplesResponse {
+interface PromptExamplesResponse {
   examples: PromptExample[];
   refreshed_at: string | null;
 }
@@ -34,7 +34,7 @@ export interface PromptTemplateCatalogItem {
   required_capabilities: Array<keyof Entitlements['features']>;
 }
 
-export interface PromptTemplateCatalogResponse {
+interface PromptTemplateCatalogResponse {
   items: PromptTemplateCatalogItem[];
   source: string;
   version: string;

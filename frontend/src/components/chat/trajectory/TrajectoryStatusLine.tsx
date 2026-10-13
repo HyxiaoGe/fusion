@@ -14,7 +14,7 @@ import type { TrajectoryRunSummary } from '@/types/trajectory';
 import { formatTrajectoryDuration } from './TrajectoryCell';
 import styles from '../MessageAuxiliary.module.css';
 
-export interface TrajectoryStatusLineProps {
+interface TrajectoryStatusLineProps {
   run: AgentRunState;
   runSummary?: TrajectoryRunSummary;
   trajectoryStatus: TrajectoryBadgeStatus;
@@ -121,7 +121,7 @@ function runDuration(run: AgentRunState, now: number, summary?: TrajectoryRunSum
   return endedAt === null ? null : Math.max(0, endedAt - startedAt);
 }
 
-export function TrajectoryStatusLine({ run, runSummary, trajectoryStatus, onInspect }: TrajectoryStatusLineProps) {
+function TrajectoryStatusLine({ run, runSummary, trajectoryStatus, onInspect }: TrajectoryStatusLineProps) {
   const { t } = useTranslation();
   const [now, setNow] = useState(() => Date.now());
 

@@ -1,7 +1,7 @@
 import type { AgentRunState } from '@/types/agentRun';
 import type { GeneratedImageBlock } from '@/types/conversation';
 
-export const GENERATE_IMAGE_TOOL_NAME = 'generate_image';
+const GENERATE_IMAGE_TOOL_NAME = 'generate_image';
 
 const MAX_DISPLAY_WIDTH = 640;
 const MAX_DISPLAY_HEIGHT = 560;

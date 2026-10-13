@@ -7,7 +7,7 @@ const DOUBLE_CLICK_ZOOM = 2.5;
 const DOUBLE_TAP_MS = 300;
 const WHEEL_ZOOM_SPEED = 0.002;
 
-export interface ZoomTransform {
+interface ZoomTransform {
   scale: number;
   x: number;
   y: number;

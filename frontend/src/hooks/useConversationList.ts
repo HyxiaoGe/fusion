@@ -73,7 +73,7 @@ function captureMetadataSnapshot(
   }, {});
 }
 
-export interface ConversationListView {
+interface ConversationListView {
   conversations: ConversationListItem[];
   isLoadingList: boolean;
   isLoadingMore: boolean;

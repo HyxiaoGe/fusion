@@ -523,25 +523,6 @@ def _run_prompt_sections(
             yield SystemPromptSection(CURRENT_DOCUMENTS, document_context)
 
 
-def inject_extra_system_prompts(
-    messages: list[PromptMessage | dict],
-    prompts: list[str],
-) -> list[PromptMessage]:
-    messages[:] = ensure_prompt_messages(messages)
-    if not prompts:
-        return messages
-
-    insert_at = 0
-    while insert_at < len(messages) and messages[insert_at].role == "system":
-        insert_at += 1
-    prompt_messages = [
-        PromptMessage(role="system", content=prompt, section_id=f"extra_system_{index}")
-        for index, prompt in enumerate(prompts)
-    ]
-    messages[insert_at:insert_at] = prompt_messages
-    return messages
-
-
 def _has_image_file(
     *,
     file_ids: list | None,

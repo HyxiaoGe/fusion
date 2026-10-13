@@ -23,7 +23,7 @@ import type {
 } from '@/types/trajectory';
 import { cn } from '@/lib/utils';
 
-export interface TrajectoryNodeDetailPanelProps {
+interface TrajectoryNodeDetailPanelProps {
   conversationId: string | null;
   cell: TrajectoryCell | null;
   span: TrajectorySpan | null;

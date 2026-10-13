@@ -7,7 +7,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Iterable, Sequence
 
 from sqlalchemy import and_, exists, func, insert, not_, or_
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased
 
 from app.db.models import (
@@ -346,18 +345,6 @@ class KnowledgeRepository:
         if lock:
             query = query.with_for_update()
         return query.first()
-
-    def get_documents_by_ids(self, user_id: str, document_ids: Sequence[str]) -> list[KnowledgeDocument]:
-        if not document_ids:
-            return []
-        return (
-            self.db.query(KnowledgeDocument)
-            .filter(
-                KnowledgeDocument.user_id == user_id,
-                KnowledgeDocument.id.in_(document_ids),
-            )
-            .all()
-        )
 
     def get_ready_documents(self, user_id: str, knowledge_base_ids: Sequence[str]) -> list[ReadyKnowledgeDocument]:
         if not knowledge_base_ids:
@@ -1690,7 +1677,3 @@ class KnowledgeRepository:
     @staticmethod
     def _hash_token(token: str) -> str:
         return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
-def is_unique_violation(exc: Exception) -> bool:
-    return isinstance(exc, IntegrityError)

@@ -13,7 +13,7 @@ export interface TrajectoryToolNodeIdentity {
   toolCallId: string | null;
 }
 
-export type TrajectoryToolNodeDetailRequestStatus = 'idle' | 'loading' | 'ready' | 'failed';
+type TrajectoryToolNodeDetailRequestStatus = 'idle' | 'loading' | 'ready' | 'failed';
 
 interface ToolNodeDetailState {
   identity: string | null;
