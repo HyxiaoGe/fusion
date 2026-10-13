@@ -1,6 +1,12 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+const dropLegacyLocalDatabaseMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@/lib/legacyLocalDb', () => ({
+  dropLegacyLocalDatabase: dropLegacyLocalDatabaseMock,
+}));
+
 vi.mock('@/components/layouts/ThemeClassSync', () => ({
   default: () => <div data-testid="theme-class-sync" />,
 }));
@@ -18,5 +24,6 @@ describe('Providers', () => {
     expect(screen.getByText('应用内容')).toBeTruthy();
     expect(screen.getByTestId('theme-class-sync')).toBeTruthy();
     expect(screen.queryByTestId('chat-loading-app-shell')).toBeNull();
+    expect(dropLegacyLocalDatabaseMock).toHaveBeenCalledTimes(1);
   });
 });
