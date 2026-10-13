@@ -154,14 +154,15 @@ const nextConfig = {
           }
         ],
       },
-      // SSE / 长连接端点显式禁缓存禁中转压缩，避免任何中间环节缓冲。
-      {
-        source: '/api/chat/:path*',
+      // SSE 端点显式禁缓存禁中转压缩，避免任何中间环节缓冲。只限流式路径：
+      // no-transform 同时会禁止 CF 压缩，套到整个 /api/chat 会让会话详情等 JSON 原样传输。
+      ...['/api/chat/send', '/api/chat/stream/:path*'].map((source) => ({
+        source,
         headers: [
           { key: 'Cache-Control', value: 'no-cache, no-transform' },
           { key: 'X-Accel-Buffering', value: 'no' },
         ],
-      }
+      })),
     ]
   },
   // 输出配置 - Railway 暂时不使用 standalone 模式

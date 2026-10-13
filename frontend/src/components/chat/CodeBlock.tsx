@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { Check, ClipboardCopy, Download, FileText, Hash, ChevronDown, ChevronUp, Play } from 'lucide-react';
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import hljs from 'highlight.js';
+import hljs from '@/lib/utils/highlighter';
 import styles from './CodeBlock.module.css';
 import HtmlPreview, { isRunnableHtmlLanguage, useHtmlRunner } from './HtmlPreview';
 
