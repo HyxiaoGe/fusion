@@ -9,15 +9,12 @@ from sqlalchemy.orm import Session
 from app.ai.prompts.agent_loop import (
     CONTINUATION_SYSTEM_PROMPT as _CONTINUATION_SYSTEM_PROMPT,
 )
-from app.ai.prompts.agent_loop import get_continuation_system_prompt
-from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
-from app.ai.prompts.section_ids import CONTINUATION_SYSTEM
 from app.db.models import AgentSession
 from app.db.models import Message as MessageModel
 from app.schemas.chat import ContentBlock
 from app.schemas.content_block_registry import deserialize_content_blocks
 from app.schemas.response import ApiException
-from app.services.agent.plan_coordinator import PlanMode, normalize_plan_mode
+from app.services.agent.plan_coordinator import PlanMode
 from app.services.agent.session_cache import InvalidPreviousRunError, validate_previous_run_candidate
 from app.services.stream.agent_loop_policy import AgentLoopLimits
 from app.services.stream.agent_task_policy import AgentTaskPolicy, restore_agent_task_policy
@@ -35,31 +32,11 @@ class AgentContinuationContext:
     initial_content_blocks: list[ContentBlock]
 
 
-def inject_continuation_prompt(messages: list[PromptMessage | dict]) -> list[PromptMessage]:
-    normalized = ensure_prompt_messages(messages)
-    insert_at = 0
-    while insert_at < len(normalized) and normalized[insert_at].role == "system":
-        insert_at += 1
-    prompt = PromptMessage(
-        role="system",
-        content=get_continuation_system_prompt(),
-        section_id=CONTINUATION_SYSTEM,
-    )
-    return [*normalized[:insert_at], prompt, *normalized[insert_at:]]
-
-
 def resolve_continuation_limits(session: AgentSession, *, default_limits: AgentLoopLimits) -> AgentLoopLimits:
     """续跑是新的 Run，使用当前预算；历史快照只记录原 Run 的执行事实。"""
 
     del session
     return default_limits
-
-
-def resolve_continuation_plan_mode(session: AgentSession) -> PlanMode:
-    """续跑必须继承原 run 的计划契约，非法旧值安全降级为 auto。"""
-
-    config = session.run_config if isinstance(session.run_config, dict) else {}
-    return normalize_plan_mode(config.get("plan_mode"))
 
 
 def resolve_continuation_task_policy(session: AgentSession) -> AgentTaskPolicy:

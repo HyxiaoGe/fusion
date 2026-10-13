@@ -13,7 +13,7 @@ from app.services.stream.research_evidence import (
 from app.services.stream.tool_execution_result import ToolExecutionRecord
 from app.services.stream.tool_round import (
     _emit_citation_source_evidence,
-    append_tool_round_messages,
+    append_tool_round_messages_with_plan,
 )
 from app.services.tool_handlers.base import ToolResult
 from app.services.tool_handlers.url_read import UrlReadHandler
@@ -45,7 +45,7 @@ def _block(record, previous):
         reasoning_buf="",
         should_use_reasoning=False,
     )
-    append_tool_round_messages(request, [record])
+    append_tool_round_messages_with_plan(request, [record], source_plan=None)
     return request.content_blocks[-1]
 
 

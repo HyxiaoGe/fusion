@@ -5,20 +5,16 @@ from types import SimpleNamespace
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.ai.prompts.section_ids import CONTINUATION_SYSTEM
 from app.db.database import Base
 from app.db.models import AgentSession
 from app.db.models import Message as MessageModel
 from app.schemas.chat import TextBlock, ThinkingBlock
 from app.schemas.response import ApiException
 from app.services.agent.continuation import (
-    CONTINUATION_SYSTEM_PROMPT,
     build_continuation_context,
     deserialize_content_blocks,
     find_latest_limit_reached_session,
-    inject_continuation_prompt,
     resolve_continuation_limits,
-    resolve_continuation_plan_mode,
     resolve_continuation_task_policy,
 )
 from app.services.stream.agent_loop_policy import AgentLoopLimits
@@ -234,20 +230,6 @@ class AgentContinuationTests(unittest.TestCase):
             ],
         )
 
-    def test_inject_continuation_prompt_after_existing_system_messages(self):
-        messages = [
-            {"role": "system", "content": "用户自定义系统提示"},
-            {"role": "user", "content": "问题"},
-            {"role": "assistant", "content": "旧回答"},
-        ]
-
-        result = inject_continuation_prompt(messages)
-
-        self.assertEqual(result[0]["content"], "用户自定义系统提示")
-        self.assertEqual(result[1], {"role": "system", "content": CONTINUATION_SYSTEM_PROMPT})
-        self.assertEqual(result[1].section_id, CONTINUATION_SYSTEM)
-        self.assertEqual(result[2]["role"], "user")
-
     def test_resolve_continuation_limits_uses_current_budget_without_changing_history(self):
         config = {"max_steps": 8, "max_tool_calls": 20, "timeout_s": 300}
         session = SimpleNamespace(run_config=dict(config))
@@ -265,12 +247,6 @@ class AgentContinuationTests(unittest.TestCase):
         default_limits = AgentLoopLimits(max_steps=8, max_tool_calls=20, total_timeout_s=300)
 
         self.assertEqual(resolve_continuation_limits(session, default_limits=default_limits), default_limits)
-
-    def test_resolve_continuation_plan_mode_preserves_previous_run_contract(self):
-        for stored, expected in (("on", "on"), ("off", "off"), ("auto", "auto"), ("legacy", "auto"), (None, "auto")):
-            with self.subTest(stored=stored):
-                session = SimpleNamespace(run_config={"plan_mode": stored} if stored is not None else None)
-                self.assertEqual(resolve_continuation_plan_mode(session), expected)
 
     def test_resolve_continuation_task_policy_preserves_deep_research_contract(self):
         session = SimpleNamespace(

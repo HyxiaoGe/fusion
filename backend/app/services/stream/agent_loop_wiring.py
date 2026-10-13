@@ -352,34 +352,6 @@ def assemble_agent_loop_lifecycle_call(
     )
 
 
-def build_agent_loop_lifecycle_call(
-    *,
-    run_input: AgentLoopRunInput,
-    db: Any,
-    limits: AgentLoopLimits,
-    dependencies: AgentLoopWiringDependencies,
-) -> AgentLoopLifecycleCall:
-    """兼容既有同步调用方：准备、配置、组装都在同一调用线程完成。"""
-
-    inputs = prepare_agent_loop_call_config_inputs(
-        run_input=run_input,
-        db=db,
-        dependencies=dependencies,
-    )
-    call_config = build_agent_loop_call_config_from_inputs(
-        run_input=run_input,
-        inputs=inputs,
-        build_call_config_fn=dependencies.build_call_config_fn,
-    )
-    return assemble_agent_loop_lifecycle_call(
-        run_input=run_input,
-        db=db,
-        limits=limits,
-        dependencies=dependencies,
-        call_config=call_config,
-    )
-
-
 def _load_dynamic_tools(
     load_fn: Callable[..., Any],
     *,

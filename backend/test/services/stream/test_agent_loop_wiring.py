@@ -6,8 +6,26 @@ from app.services.stream.agent_loop_policy import AgentLoopLimits
 from app.services.stream.agent_loop_wiring import (
     AgentLoopRunInput,
     AgentLoopWiringDependencies,
-    build_agent_loop_lifecycle_call,
+    assemble_agent_loop_lifecycle_call,
+    build_agent_loop_call_config_from_inputs,
+    prepare_agent_loop_call_config_inputs,
 )
+
+
+def build_agent_loop_lifecycle_call(*, run_input, db, limits, dependencies):
+    inputs = prepare_agent_loop_call_config_inputs(run_input=run_input, db=db, dependencies=dependencies)
+    call_config = build_agent_loop_call_config_from_inputs(
+        run_input=run_input,
+        inputs=inputs,
+        build_call_config_fn=dependencies.build_call_config_fn,
+    )
+    return assemble_agent_loop_lifecycle_call(
+        run_input=run_input,
+        db=db,
+        limits=limits,
+        dependencies=dependencies,
+        call_config=call_config,
+    )
 
 
 async def _unused_async(**_kwargs):

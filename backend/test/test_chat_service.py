@@ -332,7 +332,6 @@ class ChatServiceTests(unittest.TestCase):
         self.assertEqual(raised.exception.message, "当前模型不支持工具调用，无法检索知识库，请换用其他模型")
         service.conversation_service.create_message.assert_not_called()
 
-
     def test_new_conversation_rejects_hidden_or_unregistered_model_before_generation(self):
         hidden = ChatService(MagicMock())
         hidden.model_control_repository = MagicMock()
@@ -487,7 +486,9 @@ class ChatServiceTests(unittest.TestCase):
         )
         with patch("app.services.chat_service.pick_auto_model", return_value="deepseek-chat") as pick:
             self.assertEqual(self._run_until_model_resolved(service), "deepseek-chat")
-        pick.assert_called_once_with(service.model_control_repository, require_vision=False, mode="auto", allowed_model_ids=None)
+        pick.assert_called_once_with(
+            service.model_control_repository, require_vision=False, mode="auto", allowed_model_ids=None
+        )
 
     def test_existing_conversation_with_unregistered_model_falls_back_to_auto(self):
         service = self._existing_conversation_service("retired/model")
@@ -512,7 +513,9 @@ class ChatServiceTests(unittest.TestCase):
             patch("app.services.chat_service.pick_auto_model", return_value="vision/model") as pick,
         ):
             self.assertEqual(self._run_until_model_resolved(service, file_ids=["img-1"]), "vision/model")
-        pick.assert_called_once_with(service.model_control_repository, require_vision=True, mode="auto", allowed_model_ids=None)
+        pick.assert_called_once_with(
+            service.model_control_repository, require_vision=True, mode="auto", allowed_model_ids=None
+        )
 
     def test_auto_conversation_picks_by_execution_mode(self):
         cases = (
@@ -526,14 +529,18 @@ class ChatServiceTests(unittest.TestCase):
                 service = self._existing_conversation_service("auto")
                 with patch("app.services.chat_service.pick_auto_model", return_value="picked/model") as pick:
                     self.assertEqual(self._run_until_model_resolved(service, options=options), "picked/model")
-                pick.assert_called_once_with(service.model_control_repository, require_vision=False, mode=mode, allowed_model_ids=None)
+                pick.assert_called_once_with(
+                    service.model_control_repository, require_vision=False, mode=mode, allowed_model_ids=None
+                )
 
     def test_knowledge_base_turn_keeps_requested_auto_mode(self):
         # 知识库改为工具后不再关闭计划，自动选模型按用户选择的执行模式。
         service = self._existing_conversation_service("auto")
         with patch("app.services.chat_service.pick_auto_model", return_value="picked/model") as pick:
             self._run_until_model_resolved(service, options={"plan_mode": "on"}, knowledge_base_ids=["kb-1"])
-        pick.assert_called_once_with(service.model_control_repository, require_vision=False, mode="plan", allowed_model_ids=None)
+        pick.assert_called_once_with(
+            service.model_control_repository, require_vision=False, mode="plan", allowed_model_ids=None
+        )
 
     def test_auto_without_any_usable_model_is_model_unavailable(self):
         service = self._existing_conversation_service("auto")
@@ -1016,72 +1023,6 @@ class ChatServiceTests(unittest.TestCase):
         self.assertEqual(created.model_id, "gpt-4")
         self.assertEqual(created.content, [partial[0].model_dump()])
         db.commit.assert_called_once()
-
-    def test_build_recent_dialog_content_prefers_latest_user_assistant_pair(self):
-        service = object.__new__(ChatService)
-        conversation = Conversation(
-            id="conv-1",
-            user_id="user-1",
-            title="hello",
-            model_id="qwen-max-latest",
-            messages=[
-                Message(
-                    id="user-msg-1",
-                    role="user",
-                    content=[TextBlock(type="text", text="old question")],
-                ),
-                Message(
-                    id="assistant-msg-1",
-                    role="assistant",
-                    content=[TextBlock(type="text", text="old answer")],
-                    model_id="qwen-max-latest",
-                ),
-                Message(
-                    id="user-msg-2",
-                    role="user",
-                    content=[TextBlock(type="text", text="latest question")],
-                ),
-                Message(
-                    id="assistant-msg-2",
-                    role="assistant",
-                    content=[TextBlock(type="text", text="latest answer")],
-                    model_id="qwen-max-latest",
-                ),
-            ],
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
-        )
-
-        content = service._build_recent_dialog_content(conversation)
-
-        self.assertEqual(content, "用户: latest question\n助手: latest answer")
-
-    def test_build_recent_dialog_content_falls_back_to_user_messages(self):
-        service = object.__new__(ChatService)
-        conversation = Conversation(
-            id="conv-1",
-            user_id="user-1",
-            title="hello",
-            model_id="qwen-max-latest",
-            messages=[
-                Message(
-                    id="user-msg-1",
-                    role="user",
-                    content=[TextBlock(type="text", text="question one")],
-                ),
-                Message(
-                    id="user-msg-2",
-                    role="user",
-                    content=[TextBlock(type="text", text="question two")],
-                ),
-            ],
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
-        )
-
-        content = service._build_recent_dialog_content(conversation)
-
-        self.assertEqual(content, "用户: question two")
 
     # _build_llm_messages 已重构为独立 async 函数 app/services/chat/message_builder.py::build_llm_messages
     # 该函数还注入了 system date prompt + user_system_prompt + 图片 base64 等副作用，
