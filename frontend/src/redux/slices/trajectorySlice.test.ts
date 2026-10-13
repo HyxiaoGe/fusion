@@ -6,6 +6,7 @@ import { resolveTrajectoryActionPolicy } from '@/lib/trajectory/trajectoryAction
 import type { TrajectoryRunSummary, TrajectorySnapshot } from '@/types/trajectory';
 import streamReducer, { initRun, startStream } from './streamSlice';
 import trajectoryReducer, {
+  getVisibleTrajectoryRuns,
   consumeTrajectoryInspectRequest,
   createTrajectoryLiveEventBuffer,
   materializeTrajectoryLiveEvents,
@@ -818,6 +819,38 @@ describe('trajectorySlice', () => {
       },
     });
     expect(state.stream.byConversation['conversation-a'].currentRun?.runId).toBe('stream-run');
+  });
+
+  it('快照到达后把已持久化的 run 并入列表，开始下一轮后状态行仍能找到它', () => {
+    let state = reducer(undefined, trajectoryRunListRequested({
+      conversationId: 'conversation-a',
+      requestId: 'runs-1',
+    }));
+    state = reducer(state, trajectoryRunListReceived({
+      conversationId: 'conversation-a',
+      requestId: 'runs-1',
+      response: { items: [runSummary('run-old', { started_at: '2026-08-22T00:00:00.000Z' })], truncated: false },
+    }));
+    state = reducer(state, mergeLiveTrajectoryEvent({ conversationId: 'conversation-a', event: liveEvent('run-a', 0) }));
+    state = reducer(state, trajectorySnapshotRequested({
+      conversationId: 'conversation-a',
+      runId: 'run-a',
+      requestId: 'snapshot-a',
+    }));
+    const finished = snapshot('run-a', [0]);
+    finished.run = runSummary('run-a', { started_at: '2026-08-22T01:00:00.000Z', trajectory_status: 'recording' });
+    state = reducer(state, trajectorySnapshotReceived({
+      conversationId: 'conversation-a',
+      requestId: 'snapshot-a',
+      snapshot: finished,
+    }));
+    state = reducer(state, mergeLiveTrajectoryEvent({ conversationId: 'conversation-a', event: liveEvent('run-b', 0) }));
+
+    const conversation = state.byConversationId['conversation-a'];
+    expect(conversation.selectedRunId).toBe('run-b');
+    expect(conversation.runs.map(run => run.run_id)).toEqual(['run-a', 'run-old']);
+    expect(getVisibleTrajectoryRuns(conversation).map(run => run.run_id))
+      .toEqual(['run-b', 'run-a', 'run-old']);
   });
 
   it('只接受当前 run-list request 的 success 或 failure', () => {
