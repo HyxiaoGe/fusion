@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
@@ -16,6 +16,7 @@ import {
   resolvePlaywrightModuleSpecifier,
   resolveSmokeBaseUrl,
   resolveSmokeStorageStatePath,
+  resolveUsableStorageState,
   validateDeploymentSmokeResult,
 } from './smoke-dev-deployment-helpers.mjs';
 
@@ -79,7 +80,16 @@ export async function runDeploymentSmoke({
       ...(executablePath ? { executablePath } : {}),
       args: ['--no-sandbox'],
     });
-    context = await browser.newContext(buildSmokeContextOptions(storageStatePath, existsSync));
+    const usableStorageStatePath = await resolveUsableStorageState(storageStatePath, {
+      baseUrl,
+      fileExists: existsSync,
+      readFile: readFileSync,
+      fetchImpl: fetch,
+    });
+    if (storageStatePath && existsSync(storageStatePath) && !usableStorageStatePath) {
+      logger.log('saved guest session is no longer valid; opening as a new visitor');
+    }
+    context = await browser.newContext(buildSmokeContextOptions(usableStorageStatePath, existsSync));
     page = await context.newPage();
     await page.addInitScript((flags) => {
       try {

@@ -10,7 +10,6 @@ from app.services import guest_cleanup
 from app.services.guest_cleanup import purge_inactive_guests
 
 NOW = datetime(2026, 10, 12, 4, 30, tzinfo=timezone.utc)
-CHINA = timezone(timedelta(hours=8))
 
 
 def _session_factory():
@@ -20,7 +19,8 @@ def _session_factory():
 
 
 def _user(db, user_id: str, *, is_guest: bool, days_ago: int) -> None:
-    created = (NOW - timedelta(days=days_ago)).astimezone(CHINA).replace(tzinfo=None)
+    # 与线上一致：users.created_at 存不带时区的 UTC 时间
+    created = (NOW - timedelta(days=days_ago)).astimezone(timezone.utc).replace(tzinfo=None)
     db.add(User(id=user_id, username=user_id, is_guest=is_guest, created_at=created))
 
 
@@ -60,7 +60,7 @@ def test_purges_only_inactive_guests():
 
 
 def _user_hours_ago(db, user_id: str, *, is_guest: bool, hours_ago: int) -> None:
-    created = (NOW - timedelta(hours=hours_ago)).astimezone(CHINA).replace(tzinfo=None)
+    created = (NOW - timedelta(hours=hours_ago)).astimezone(timezone.utc).replace(tzinfo=None)
     db.add(User(id=user_id, username=user_id, is_guest=is_guest, created_at=created))
 
 
