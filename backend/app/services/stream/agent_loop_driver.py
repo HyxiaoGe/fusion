@@ -263,13 +263,8 @@ async def _run_round(
         emitter=runtime.emitter,
         on_context_updated=state.update_context,
     )
-    should_defer_output = (
-        has_product_result_blocks(state.content_blocks)
-        or state.product_tool_attempted
-        or bool(state.tool_issue_names)
-        or state.pending_tool_repairs
-        or runtime.task_mode == "deep_research"
-    )
+    # 服务端不再改写模型回答，只有深度研究的完成度检查仍可能丢弃本轮回答，其余直接流式输出。
+    should_defer_output = runtime.task_mode == "deep_research"
     if should_defer_output and _accepts_keyword(runtime.run_round_fn, "defer_output"):
         run_round_kwargs["defer_output"] = True
     if runtime.llm_round_detail_scheduler is not None and _accepts_keyword(

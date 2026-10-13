@@ -74,7 +74,6 @@ class AgentLoopState:
     degraded_tool_names: set[str] = field(default_factory=set)
     attempted_tool_names: set[str] = field(default_factory=set)
     successful_tool_names: set[str] = field(default_factory=set)
-    tool_recovery_prompted: bool = False
     pending_place_choices: dict[str, dict[str, Any]] = field(default_factory=dict)
     recovery_evidence: RecoveryEvidenceWorkset = field(default_factory=RecoveryEvidenceWorkset)
     tool_discovery: Any = None

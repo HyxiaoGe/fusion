@@ -88,6 +88,7 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
                     "partial": partial,
                     "block_types": [getattr(block, "type", None) for block in content_blocks],
                     "block_ids": [getattr(block, "id", None) for block in content_blocks],
+                    "block_texts": [getattr(block, "text", None) for block in content_blocks],
                     "usage": usage_data,
                 }
             )
