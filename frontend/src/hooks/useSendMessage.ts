@@ -250,6 +250,8 @@ export function useSendMessage(activeConversationId?: string | null) {
     (state) => state.conversation.conversationListEpoch
   );
   const abortControllerRef = useRef<AbortController | null>(null);
+  // run_completed 后界面已结束生成，但连接仍开着等推荐问题；下一次发送或会话失效时断开。
+  const lingeringControllerRef = useRef<AbortController | null>(null);
   const stopInFlightPromiseRef = useRef<Promise<void> | null>(null);
   const activeConvIdRef = useRef<string | null>(null);
   const userMessageIdRef = useRef<string | null>(null);
@@ -313,8 +315,14 @@ export function useSendMessage(activeConversationId?: string | null) {
     [dispatch, store]
   );
 
+  const abortLingeringStream = useCallback(() => {
+    lingeringControllerRef.current?.abort();
+    lingeringControllerRef.current = null;
+  }, []);
+
   const invalidateFrontendSend = useCallback(() => {
     sendGenerationRef.current += 1;
+    abortLingeringStream();
     const invalidatedConversationId = activeConvIdRef.current;
     const invalidatedController = abortControllerRef.current;
     if (invalidatedController) {
@@ -335,7 +343,7 @@ export function useSendMessage(activeConversationId?: string | null) {
     if (invalidatedConversationId) {
       dispatch(endStream({ conversationId: invalidatedConversationId }));
     }
-  }, [dispatch]);
+  }, [abortLingeringStream, dispatch]);
 
   useEffect(() => {
     const previousBoundary = sendBoundaryRef.current;
@@ -827,6 +835,8 @@ export function useSendMessage(activeConversationId?: string | null) {
           await stopStreaming();
           if (rejectStalePreparation()) return;
         }
+        // 上一轮已结束、只剩推荐问题未送达：用户已追问，那批推荐不会再展示，直接断开。
+        abortLingeringStream();
       } catch (error) {
         releaseSendPreparation();
         throw error;
@@ -1104,9 +1114,16 @@ export function useSendMessage(activeConversationId?: string | null) {
       let serverConvId: string | null = null;
       let materializedOnce = false;
       let postStreamActionsStarted = false;
+      let streamClosed = false;
       // usage 不再随 done 事件下发（spec 缺口，未来可能扩 RunCompleted.usage）；
       // 当前路径：agent 模式从 GET conversation 拉，普通模式暂留 undefined
       let donePayload: { incomingConvId: string } | null = null;
+      // 界面在 run_completed 收尾后，本轮 refs 已清空，推荐问题事件靠这里认领目标消息。
+      let completedSuggestionTarget: {
+        conversationId: string;
+        localMessageId: string;
+        serverMessageId: string | null;
+      } | null = null;
 
       const materializeIfNeeded = (incomingConvId?: string) => {
         if (
@@ -1148,12 +1165,22 @@ export function useSendMessage(activeConversationId?: string | null) {
       // pending 与 ready 必须落在同一条 assistant 消息上：草稿期本地 ID 与
       // 服务端 ID 可能尚未合流，两者都要能对上才允许写入。
       const resolveSuggestedQuestionsTarget = (eventMessageId: string) => {
-        if (!isActiveSendCurrent() || !activeConvIdRef.current) return null;
-        const localMessageId = assistantMessageIdRef.current;
-        const knownServerMessageId = serverMessageIdRef.current;
+        let conversationId: string | null;
+        let localMessageId: string | null;
+        let knownServerMessageId: string | null;
+        if (isActiveSendCurrent()) {
+          conversationId = activeConvIdRef.current;
+          localMessageId = assistantMessageIdRef.current;
+          knownServerMessageId = serverMessageIdRef.current;
+        } else if (completedSuggestionTarget && isSessionCurrent()) {
+          ({ conversationId, localMessageId, serverMessageId: knownServerMessageId } = completedSuggestionTarget);
+        } else {
+          return null;
+        }
+        if (!conversationId) return null;
         const activeConversation = (
           store.getState() as RootState
-        ).conversation.byId[activeConvIdRef.current];
+        ).conversation.byId[conversationId];
         const hasDirectMessage = activeConversation?.messages.some(
           message => message.id === eventMessageId && message.role === 'assistant',
         );
@@ -1164,7 +1191,7 @@ export function useSendMessage(activeConversationId?: string | null) {
           return null;
         }
         return {
-          conversationId: activeConvIdRef.current,
+          conversationId,
           messageId: eventMessageId,
           localMessageId: (knownServerMessageId === eventMessageId
             ? localMessageId
@@ -1239,6 +1266,14 @@ export function useSendMessage(activeConversationId?: string | null) {
           conversationId: finalConvId,
           messageId: assistantMessageIdRef.current,
         }));
+        completedSuggestionTarget = {
+          conversationId: finalConvId,
+          localMessageId: assistantMessageId,
+          serverMessageId: serverMessageIdRef.current,
+        };
+        if (!streamClosed) {
+          lingeringControllerRef.current = controller;
+        }
         sendGenerationRef.current += 1;
         activeSendContextRef.current = null;
         releaseSendController();
@@ -1275,6 +1310,44 @@ export function useSendMessage(activeConversationId?: string | null) {
           ...(taskId ? { taskId } : {}),
         });
       };
+
+      // run_completed 时正文已落库，之后后端只剩推荐问题（约 1 秒）再封口发 done。
+      // 界面在 run_completed 就收尾，不必等推荐问题；done 到达时已收尾则跳过。
+      const finishStream = (incomingConvId: string) => {
+        if (!isActiveSendCurrent() || donePayload) return;
+        donePayload = { incomingConvId };
+        // 标题本身已由 SSE 事件送达，这里只确保草稿已 materialize 后刷新会话列表。
+        materializeIfNeeded(incomingConvId);
+        const refreshConversationId = serverConvId ?? incomingConvId ?? activeConvIdRef.current;
+        if (refreshConversationId) {
+          startPostStreamActions(refreshConversationId);
+        }
+        if (!assistantHasContentRef.current) {
+          // 没有文本内容，直接完成（打字机从未启动）
+          doCompleteStream(donePayload);
+        } else {
+          typewriterRef.current.markNetworkDone();
+        }
+      };
+
+      const agentStreamEventHandlers = createAgentStreamEventHandlers({
+        dispatch,
+        trajectoryDispatch: dispatch,
+        isActive: () => Boolean(activeConvIdRef.current) && isActiveSendCurrent() && ownsSlot(),
+        // 优先本地 placeholder（streaming 期 message.id 是它），ref 为 null 时兜底用后端 ID。
+        resolveMessageId: ev => assistantMessageIdRef.current ?? ev.message_id,
+        setServerMessageId: messageId => {
+          rememberRemoteStopIdentity(messageId);
+        },
+        resolveConversationId: () => activeConvIdRef.current,
+        resolveTrajectoryConversationId: event => {
+          const eventConversationId = event.eventType === 'run_started'
+            && typeof event.payload.conversation_id === 'string'
+            ? event.payload.conversation_id
+            : null;
+          return eventConversationId || serverConvId || tempConvId;
+        },
+      });
 
       const streamCallbacks: StreamCallbacks = {
             onReady: ({
@@ -1324,24 +1397,13 @@ export function useSendMessage(activeConversationId?: string | null) {
               }));
             },
 
-            ...createAgentStreamEventHandlers({
-              dispatch,
-              trajectoryDispatch: dispatch,
-              isActive: () => Boolean(activeConvIdRef.current) && isActiveSendCurrent() && ownsSlot(),
-              // 优先本地 placeholder（streaming 期 message.id 是它），ref 为 null 时兜底用后端 ID。
-              resolveMessageId: ev => assistantMessageIdRef.current ?? ev.message_id,
-              setServerMessageId: messageId => {
-                rememberRemoteStopIdentity(messageId);
-              },
-              resolveConversationId: () => activeConvIdRef.current,
-              resolveTrajectoryConversationId: event => {
-                const eventConversationId = event.eventType === 'run_started'
-                  && typeof event.payload.conversation_id === 'string'
-                  ? event.payload.conversation_id
-                  : null;
-                return eventConversationId || serverConvId || tempConvId;
-              },
-            }),
+            ...agentStreamEventHandlers,
+
+            onRunCompleted: ev => {
+              agentStreamEventHandlers.onRunCompleted?.(ev);
+              const completedConvId = serverConvId ?? activeConvIdRef.current;
+              if (completedConvId) finishStream(completedConvId);
+            },
 
             onConversationTitleUpdated: ev => {
               if (!isSessionCurrent()) return;
@@ -1378,20 +1440,7 @@ export function useSendMessage(activeConversationId?: string | null) {
             },
 
             onDone: ({ conversationId: incomingConvId }) => {
-              if (!isActiveSendCurrent()) return;
-              donePayload = { incomingConvId };
-              // 标题本身已由 SSE 事件送达，这里只确保草稿已 materialize 后刷新会话列表。
-              materializeIfNeeded(incomingConvId);
-              const refreshConversationId = serverConvId ?? incomingConvId ?? activeConvIdRef.current;
-              if (refreshConversationId) {
-                startPostStreamActions(refreshConversationId);
-              }
-              if (!assistantHasContentRef.current) {
-                // 没有文本内容，直接完成（打字机从未启动）
-                doCompleteStream(donePayload);
-              } else {
-                typewriterRef.current.markNetworkDone();
-              }
+              finishStream(incomingConvId);
             },
 
             onError: (message, payload) => {
@@ -1444,7 +1493,7 @@ export function useSendMessage(activeConversationId?: string | null) {
           ),
           openReconnect: async (lastEntryId, wrappedCallbacks, signal) => {
             await reconnectStream(
-              activeConvIdRef.current ?? tempConvId,
+              activeConvIdRef.current ?? serverConvId ?? tempConvId,
               lastEntryId,
               wrappedCallbacks,
               signal,
@@ -1737,9 +1786,15 @@ export function useSendMessage(activeConversationId?: string | null) {
           void dispatch(refreshEntitlements());
           (globalThis as { triggerLoginDialog?: () => void }).triggerLoginDialog?.();
         }
+      } finally {
+        streamClosed = true;
+        if (lingeringControllerRef.current === controller) {
+          lingeringControllerRef.current = null;
+        }
       }
     },
     [
+      abortLingeringStream,
       dispatch,
       getSlot,
       hydrateAuthoritativeConversation,

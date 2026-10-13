@@ -19,6 +19,7 @@ from app.services.stream.agent_loop_run_completion import (
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.itinerary_observability import ItineraryToolObservation
 from app.services.stream.run_finalizer import interrupt_agent_run
+from app.services.stream_state_service import StreamOwnershipLostError
 
 
 def _context(state: AgentLoopState | None = None) -> AgentLoopRunCompletionContext:
@@ -676,6 +677,35 @@ class AgentLoopRunCompletionTests(unittest.IsolatedAsyncioTestCase):
             warning_fn=lambda message: calls.append(("warning", message)),
         )
         return calls
+
+    async def test_superseded_stream_drops_suggestion_events_quietly_and_still_finalizes(self):
+        """用户追问后新一轮接管流：旧轮推荐事件写不进去属正常，不告警，照常封口。"""
+        state = AgentLoopState()
+        state.content_blocks.append(TextBlock(type="text", id="txt-1", text="正式回答"))
+        calls = []
+        emitter = AsyncMock()
+        emitter.suggested_questions_pending.side_effect = StreamOwnershipLostError("superseded")
+        emitter.suggested_questions_ready.side_effect = StreamOwnershipLostError("superseded")
+
+        async def generate():
+            return SimpleNamespace(applied=True, message_id="msg-1", revision=2, questions=["问题一"])
+
+        async def finalize_stream_fn(*_args, **_kwargs):
+            calls.append("finalize")
+
+        await finalize_completed_run(
+            context=replace(_context(state), emitter=emitter),
+            terminal_state=SimpleNamespace(session_status="completed", run_finish_reason="stop"),
+            persist_message_fn=lambda *_args: True,
+            complete_agent_run_fn=AsyncMock(),
+            finalize_stream_fn=finalize_stream_fn,
+            claim_suggested_questions_fn=lambda **_kwargs: SimpleNamespace(message_id="msg-1", revision=2),
+            generate_suggested_questions_fn=lambda **_kwargs: asyncio.ensure_future(generate()),
+            warning_fn=lambda message: calls.append(("warning", message)),
+        )
+
+        self.assertEqual(calls, ["finalize"])
+        emitter.suggested_questions_ready.assert_awaited_once()
 
     async def test_questions_ready_within_budget_are_delivered_before_seal(self):
         async def generate():

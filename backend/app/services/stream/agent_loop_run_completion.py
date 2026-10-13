@@ -189,6 +189,9 @@ async def finalize_completed_run(
                             message_id=getattr(suggestion_claim, "message_id", context.assistant_message_id),
                             revision=suggestion_claim.revision,
                         )
+                    except StreamOwnershipLostError:
+                        # 用户已追问，新一轮接管了流；这一批推荐不会再展示，照常落库即可。
+                        pass
                     except Exception as error:  # noqa: BLE001 — 辅助事件不能阻塞 SSE 终态
                         if warning_fn is not None:
                             warning_fn(f"发送推荐问题 pending 事件失败: error_type={type(error).__name__}")
@@ -281,6 +284,9 @@ async def _deliver_suggested_questions_before_seal(
             questions=list(getattr(result, "questions", []) or []),
             duration_ms=duration_ms,
         )
+    except StreamOwnershipLostError:
+        # 前端在 run_completed 就结束了生成中，用户追问会让新一轮接管流，属于正常情况。
+        return
     except Exception as error:  # noqa: BLE001 — 辅助事件不能阻塞 SSE 终态
         if warning_fn is not None:
             warning_fn(f"发送推荐问题 ready 事件失败: error_type={type(error).__name__}")

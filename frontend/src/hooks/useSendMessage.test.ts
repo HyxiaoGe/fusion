@@ -1039,6 +1039,96 @@ describe('useSendMessage', () => {
     await act(async () => { tickIntervals(2); });
   });
 
+  it('run_completed 即结束生成中，连接留着送达推荐问题，下一次发送断开它', async () => {
+    const store = createStore();
+    store.dispatch(upsertConversation({
+      id: 'existing-conv',
+      title: 'Existing',
+      model_id: 'model-1',
+      messages: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }));
+    const envelope = {
+      run_id: 'run-1',
+      parent_run_id: null,
+      step_id: null,
+      parent_step_id: null,
+      tool_call_id: null,
+      trace_id: 'run-1',
+      ts: Date.now(),
+    };
+    let firstSignal: AbortSignal | undefined;
+    let deliverSuggestions: (() => void) | undefined;
+    sendMessageStreamMock.mockImplementationOnce(async (
+      _payload: any,
+      callbacks: StreamCallbacks,
+      signal: AbortSignal,
+    ) => {
+      firstSignal = signal;
+      callbacks.onReady({ messageId: 'server-assistant', conversationId: 'existing-conv', taskId: 'task-1' });
+      callbacks.onAnswering({ block_id: 'answer', delta: '回答' });
+      callbacks.onRunCompleted?.({
+        ...envelope,
+        type: 'run_completed',
+        sequence: 2,
+        total_steps: 1,
+        total_tool_calls: 0,
+        finish_reason: 'stop',
+      });
+      callbacks.onSuggestedQuestionsPending?.({
+        ...envelope,
+        type: 'suggested_questions_pending',
+        sequence: 3,
+        message_id: 'server-assistant',
+        revision: 1,
+        status: 'pending',
+      });
+      await new Promise<void>((resolve) => { deliverSuggestions = resolve; });
+      callbacks.onSuggestedQuestionsReady?.({
+        ...envelope,
+        type: 'suggested_questions_ready',
+        sequence: 4,
+        message_id: 'server-assistant',
+        revision: 1,
+        status: 'ready',
+        questions: ['推荐一'],
+      });
+      // 留着不发 done：模拟推荐问题送达后封口前，用户已经追问。
+      await new Promise<void>((resolve) => { signal.addEventListener('abort', () => resolve()); });
+    });
+
+    const { result } = renderHook(() => useSendMessage(), {
+      wrapper: createWrapper(store),
+    });
+    await act(async () => {
+      void result.current.sendMessage('问题', { conversationId: 'existing-conv' });
+    });
+    await act(async () => { tickIntervals(5); });
+
+    const lastAssistant = () => store.getState().conversation.byId['existing-conv'].messages.at(-1);
+    expect(theSlot(store.getState()).isStreaming).toBe(false);
+    expect(lastAssistant()?.content).toEqual([expect.objectContaining({ type: 'text', text: '回答' })]);
+    expect(lastAssistant()).toMatchObject({ suggestedQuestionsStatus: 'pending' });
+    expect(firstSignal?.aborted).toBe(false);
+
+    await act(async () => { deliverSuggestions?.(); });
+    expect(lastAssistant()).toMatchObject({
+      suggestedQuestionsStatus: 'ready',
+      suggestedQuestions: ['推荐一'],
+    });
+
+    sendMessageStreamMock.mockImplementationOnce(async (_payload: any, callbacks: StreamCallbacks) => {
+      callbacks.onReady({ messageId: 'server-assistant-2', conversationId: 'existing-conv', taskId: 'task-2' });
+      callbacks.onDone({ messageId: 'server-assistant-2', conversationId: 'existing-conv' });
+    });
+    await act(async () => {
+      await result.current.sendMessage('追问', { conversationId: 'existing-conv' });
+    });
+    expect(firstSignal?.aborted).toBe(true);
+    expect(stopStreamMock).not.toHaveBeenCalled();
+  });
+
   it('本轮完成但未收到 pending 事件时登记服务端与本地消息 ID 进行权威观察', async () => {
     const store = createStore();
     store.dispatch(upsertConversation({
