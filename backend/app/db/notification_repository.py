@@ -1,6 +1,6 @@
 """通知存储与用户修订锁；所有方法由调用方提交事务。"""
 
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
@@ -115,3 +115,22 @@ class NotificationRepository:
             state.revision += 1
             self.db.flush()
         return updated_count
+
+    def delete_expired(self, user_id: str, state: NotificationUserState, *, read_before, unread_before) -> int:
+        """删除过期通知并推进修订水位，让已缓存的列表刷新。"""
+        result = self.db.execute(
+            delete(Notification)
+            .where(
+                Notification.user_id == user_id,
+                or_(
+                    and_(Notification.read_at.is_not(None), Notification.read_at < read_before),
+                    and_(Notification.read_at.is_(None), Notification.created_at < unread_before),
+                ),
+            )
+            .execution_options(synchronize_session=False)
+        )
+        deleted_count = int(result.rowcount or 0)
+        if deleted_count:
+            state.revision += 1
+            self.db.flush()
+        return deleted_count

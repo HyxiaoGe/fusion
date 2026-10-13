@@ -25,6 +25,7 @@ async def start_scheduler() -> None:
     from app.services.agent.trajectory_reconciliation import reconcile_trajectory_best_effort
     from app.services.guest_cleanup import purge_inactive_guests_hourly
     from app.services.inspiration_generator import generate_daily_inspirations_job
+    from app.services.notification_service import purge_expired_notifications_daily
 
     scheduler = AsyncIOScheduler()
 
@@ -52,6 +53,16 @@ async def start_scheduler() -> None:
         purge_inactive_guests_hourly,
         trigger=CronTrigger(minute=30, timezone="Asia/Shanghai"),
         id="purge_inactive_guests",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
+    # 每天清理过期站内通知（已读 7 天、未读 30 天）；多 worker 由任务内的 Redis 锁去重
+    scheduler.add_job(
+        purge_expired_notifications_daily,
+        trigger=CronTrigger(hour=4, minute=40, timezone="Asia/Shanghai"),
+        id="purge_expired_notifications",
         replace_existing=True,
         max_instances=1,
         coalesce=True,
