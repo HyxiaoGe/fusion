@@ -6,7 +6,7 @@
 |------|------|
 | 框架 | Next.js 15 (App Router) + React 19 |
 | 状态管理 | Redux Toolkit |
-| 本地缓存 | Dexie.js (IndexedDB) |
+| 本地存储 | Dexie.js (IndexedDB，仅提示词模板) |
 | UI 组件 | Radix UI + Tailwind CSS |
 | 国际化 | i18next (zh-CN / en-US) |
 | Markdown | react-markdown + remark-gfm + rehype-raw |
@@ -26,15 +26,14 @@
 | `promptTemplates` | `promptTemplatesSlice.ts` | 提示词模板（Dexie 持久化） |
 | `settings` | `settingsSlice.ts` | 头像选择、设置对话框 |
 | `theme` | `themeSlice.ts` | 主题模式（light/dark/system） |
-| `app` | `appSlice.ts` | 应用元数据（同步触发器） |
 
-中间件：`toastMiddleware`（错误通知）、`persistMiddleware`（数据库同步）
+中间件：`toastMiddleware`（错误通知）、`conversationDetailInvalidationMiddleware`（会话详情失效）
 
 ## 数据层
 
-- **Dexie.js** (IndexedDB) 作为本地缓存，**非数据源**
-- 对话数据从后端 API 加载，缓存到 IndexedDB 供离线查看
-- Redux ↔ IndexedDB 通过中间件同步
+- 对话数据只从后端 API 加载，前端不保存本地聊天副本
+- **Dexie.js** (IndexedDB) 只用于首页提示词模板
+- 主题设置保存在 localStorage
 
 ## 目录结构
 
@@ -68,7 +67,7 @@ src/
 │   │   ├── streamStatus.ts # 流状态查询
 │   │   └── title.ts        # 标题生成
 │   ├── auth/authService.ts # OAuth 登录流程（GitHub/Google）
-│   ├── db/chatStore.ts     # Dexie 数据库（本地缓存）
+│   ├── db/promptTemplates.ts # Dexie 提示词模板存储
 │   ├── config/modelConfig.ts # 模型配置获取与缓存
 │   ├── i18n/               # i18next 配置 + 语言包
 │   └── utils/              # 工具函数

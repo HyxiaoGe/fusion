@@ -29,20 +29,14 @@
 
 当前启动顺序可以概括成：
 
-1. `Providers` 先恢复本地设置
-2. 不再把 IndexedDB 聊天记录回灌为产品真源
-3. `ClientLayout` 拉后端模型列表
-4. `ClientLayout` 检查 token / 用户状态
-5. 未登录时按当前策略弹登录框
-
-IndexedDB 初始化逻辑在：
-
-- [`src/lib/db/initializeStore.ts`](src/lib/db/initializeStore.ts)
+1. `ClientLayout` 拉后端模型列表
+2. `ClientLayout` 检查 token / 用户状态
+3. 未登录时按当前策略弹登录框
 
 当前结论：
 
-- 服务端是聊天和模型的真源
-- IndexedDB 只是缓存和设置存储
+- 服务端是聊天和模型的唯一真源，前端不在本地保存聊天记录
+- 主题设置保存在 localStorage
 
 ## Auth Flow
 
@@ -123,17 +117,13 @@ SSE 客户端在：
 
 1. 页面进入时优先从服务端拉会话
 2. 历史消息按服务端结果重建
-3. 本地 DB 不再在启动时回灌聊天历史
-4. 本地缓存只承担：
-   - 设置
-   - 少量聊天缓存辅助
+3. 前端不保存本地聊天副本
 
 相关位置：
 
 - [`src/hooks/useConversation.ts`](src/hooks/useConversation.ts)
 - [`src/hooks/useConversationList.ts`](src/hooks/useConversationList.ts)
 - [`src/hooks/useSidebarActions.ts`](src/hooks/useSidebarActions.ts)
-- [`src/lib/db/chatStore.ts`](src/lib/db/chatStore.ts)
 
 ## File Flow
 
