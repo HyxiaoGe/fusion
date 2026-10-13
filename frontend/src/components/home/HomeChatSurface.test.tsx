@@ -95,7 +95,6 @@ vi.mock('@/redux/hooks', () => ({
         },
       },
       fileUpload: {
-        files: {},
         fileIds: {},
         processingFiles: {},
       },

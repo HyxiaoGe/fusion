@@ -60,8 +60,3 @@ export interface FileWithPreview extends File {
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
     return `${parseFloat((bytes / Math.pow(1024, i)).toFixed(2))} ${sizes[i]}`;
   }
-  
-  // 释放文件预览URL，避免内存泄漏
-  export function revokeFilePreview(file: FileWithPreview): void {
-    URL.revokeObjectURL(file.preview);
-  }
