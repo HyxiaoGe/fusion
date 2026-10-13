@@ -27,9 +27,11 @@ export function useOpenNotification() {
   }, [dispatch, router]);
 }
 
-export default function NotificationListItem({ item, onSelect }: {
+export default function NotificationListItem({ item, onSelect, compact = false }: {
   item: NotificationItem;
   onSelect: (item: NotificationItem) => void;
+  /** 消息盒子里一条一行：标题与摘要在左，类型、时间、已读状态在右。 */
+  compact?: boolean;
 }) {
   const { t, i18n } = useTranslation();
   const Icon = item.target.type === 'changelog' ? ScrollText : item.kind === 'run_completed' ? CheckCircle2 : item.kind === 'run_failed' ? AlertCircle : Info;
@@ -37,6 +39,25 @@ export default function NotificationListItem({ item, onSelect }: {
   const dateLabel = Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat(i18n.language, {
     timeZone: 'Asia/Shanghai', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   }).format(date);
+  if (compact) {
+    return (
+      <li>
+        <button type="button" data-sidebar-navigation onClick={() => onSelect(item)}
+          className={cn('flex w-full items-center gap-3 px-5 py-2.5 text-left transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring', !item.read_at && 'bg-primary/5')}>
+          <Icon className={cn('h-4 w-4 shrink-0', item.read_at ? 'text-muted-foreground' : 'text-primary')} aria-hidden="true" />
+          <span className="flex min-w-0 flex-1 items-baseline gap-2">
+            <span className={cn('shrink-0 truncate text-sm sm:max-w-[45%]', !item.read_at && 'font-semibold')}>{item.title}</span>
+            {item.body && <span className="hidden min-w-0 truncate text-xs text-muted-foreground sm:block">{item.body}</span>}
+          </span>
+          <span className="flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
+            <span className="hidden md:inline">{t(`notifications.businessTypes.${item.business_type ?? 'ai_conversation'}`)}</span>
+            <time dateTime={item.created_at} className="tabular-nums">{dateLabel}</time>
+            <span>{t(item.read_at ? 'notifications.read' : 'notifications.notRead')}</span>
+          </span>
+        </button>
+      </li>
+    );
+  }
   return (
     <li>
       <button type="button" data-sidebar-navigation onClick={() => onSelect(item)}

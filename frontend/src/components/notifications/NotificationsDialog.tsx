@@ -11,7 +11,8 @@ import { closeNotificationsDialog } from '@/redux/slices/settingsSlice';
 import NotificationListItem, { useOpenNotification } from './NotificationListItem';
 import { useNotifications } from './NotificationsProvider';
 
-const PAGE_SIZE = 20;
+// 横向窗口一页放得下，不用在页内再滚动。
+const PAGE_SIZE = 10;
 
 interface PageState {
   items: NotificationItem[];
@@ -97,7 +98,7 @@ export default function NotificationsDialog() {
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) close(); }}>
-      <DialogContent closeLabel={t('notifications.close')} className="flex h-[85vh] w-full max-w-[95vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+      <DialogContent closeLabel={t('notifications.close')} className="flex h-[min(600px,85vh)] w-full max-w-[95vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl">
         <DialogHeader className="shrink-0 border-b px-6 py-4">
           <DialogTitle className="flex items-center gap-2"><Bell className="h-5 w-5" aria-hidden="true" />{t('notifications.boxTitle')}</DialogTitle>
           <DialogDescription>{t('notifications.boxDescription')}</DialogDescription>
@@ -135,7 +136,7 @@ export default function NotificationsDialog() {
           )}
           {page.items.length > 0 && (
             <ul className="divide-y divide-border/60" aria-busy={page.loading}>
-              {page.items.map((item) => <NotificationListItem key={item.id} item={item} onSelect={selectNotification} />)}
+              {page.items.map((item) => <NotificationListItem key={item.id} item={item} onSelect={selectNotification} compact />)}
             </ul>
           )}
         </div>
