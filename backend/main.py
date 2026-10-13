@@ -28,6 +28,7 @@ from app.api import (
     models,
     notifications,
     prompts,
+    sync,
     trajectory,
 )
 from app.core.config import (
@@ -407,6 +408,7 @@ app.include_router(documents.router, prefix="/api/documents", tags=["documents"]
 app.include_router(knowledge_bases.router, prefix="/api/knowledge-bases", tags=["knowledge-bases"])
 app.include_router(models.router, prefix="/api/models", tags=["models"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["notifications"])
+app.include_router(sync.router, prefix="/api/sync", tags=["sync"])
 app.include_router(changelogs.router, prefix="/api/changelogs", tags=["changelogs"])
 app.include_router(changelogs.admin_router, prefix="/api/admin/changelogs", tags=["admin-changelogs"])
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
