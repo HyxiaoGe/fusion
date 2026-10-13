@@ -7,6 +7,8 @@ export interface SettingsState {
   // 更新日志弹窗：focusChangelogId 为从通知进入时要定位的版本
   isChangelogDialogOpen: boolean;
   focusChangelogId: string | null;
+  // 消息盒子：通知面板「查看全部」打开的完整列表
+  isNotificationsDialogOpen: boolean;
   // 其他设置项...
 }
 
@@ -16,6 +18,7 @@ const initialState: SettingsState = {
   activeSettingsTab: 'general',
   isChangelogDialogOpen: false,
   focusChangelogId: null,
+  isNotificationsDialogOpen: false,
   // 其他设置的初始值...
 };
 
@@ -47,6 +50,12 @@ const settingsSlice = createSlice({
       state.isChangelogDialogOpen = false;
       state.focusChangelogId = null;
     },
+    openNotificationsDialog: (state) => {
+      state.isNotificationsDialogOpen = true;
+    },
+    closeNotificationsDialog: (state) => {
+      state.isNotificationsDialogOpen = false;
+    },
     // 其他设置的reducer...
   },
 });
@@ -58,5 +67,7 @@ export const {
   closeSettingsDialog,
   openChangelogDialog,
   closeChangelogDialog,
+  openNotificationsDialog,
+  closeNotificationsDialog,
 } = settingsSlice.actions;
 export default settingsSlice.reducer;

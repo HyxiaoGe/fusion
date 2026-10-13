@@ -67,6 +67,7 @@ import { reconnectStream, stopStream, type StreamCallbacks } from '@/lib/api/cha
 import { runResumableStream } from '@/lib/api/resumableStream';
 import { useConversation } from '@/hooks/useConversation';
 import { useNotifications } from '@/components/notifications/NotificationsProvider';
+import { useReportConversationViewing } from '@/hooks/useReportConversationViewing';
 import { useContinueAgentRun } from '@/hooks/useContinueAgentRun';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import { useSuggestedQuestions } from '@/hooks/useSuggestedQuestions';
@@ -223,6 +224,7 @@ export default function ChatPage() {
   latestAuthSessionKeyRef.current = authSessionKey;
   const [stopOutcomeNotice, setStopOutcomeNotice] = useState<StopOutcomeNotice | null>(null);
   const { conversation, hydrationView, hydrationStatus, hydrationRevision, hydrationError, retryHydration, refreshHydration } = useConversation(chatId);
+  useReportConversationViewing(chatId, authSessionKey);
   const notificationHydrationRef = useRef<{ key: string; revision: number } | null>(null);
   const hasUnreadResult = notificationState.unreadConversationIds.includes(chatId);
   const notificationHydrationKey = !authSessionKey ? null : notificationMessageId

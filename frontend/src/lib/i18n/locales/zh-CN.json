@@ -837,7 +837,13 @@
     "loadMoreFailed": "更多通知加载失败，请重试。",
     "readFailed": "未能标记已读，请重试。",
     "retry": "重试",
-    "loadMore": "加载更多"
+    "loadMore": "加载更多",
+    "viewAll": "查看全部",
+    "boxTitle": "消息盒子",
+    "boxDescription": "回答结果与更新日志通知；已读保留 7 天，未读保留 30 天。",
+    "previousPage": "上一页",
+    "nextPage": "下一页",
+    "pageNumber": "第 {{page}} 页"
   },
   "changelogs": {
     "title": "更新日志",
