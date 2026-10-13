@@ -253,8 +253,10 @@ def persist_message(
                 existing.usage = usage_data.model_dump()
             elif replace_on_success and not partial:
                 existing.usage = None
-            if replace_on_success and not partial:
+            if not partial:
+                # 最终保存写入实际作答的模型：首字超时换模型时，消息可能已按原模型在工具轮先建好。
                 existing.model_id = model_id
+            if replace_on_success and not partial:
                 # 重新生成的回答由本次 run 收尾时写入新记录，旧记录与新正文不对应。
                 existing.tool_transcript = None
                 existing.suggested_questions = None
