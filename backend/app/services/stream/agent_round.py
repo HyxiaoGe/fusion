@@ -19,6 +19,7 @@ from app.services.chat.context_manager import ContextManagementError, ContextPla
 from app.services.chat.model_call_language_policy import finalize_model_call_language_policy
 from app.services.documents.draft_stream import DocumentDraftStreamer
 from app.services.stream.context_status import build_context_usage, emit_context_status
+from app.services.stream.first_output_timeout import await_first_output
 from app.services.stream.llm_round_lifecycle import (
     LLMRoundLifecycle,
     accumulate_token_usage,
@@ -123,15 +124,28 @@ async def collect_agent_round_stream(
     capture_output_candidate_time: Callable[[], float | None] | None = None,
     partial_output: dict[str, str] | None = None,
     on_tool_call_delta: Callable[[int, str | None, str], Awaitable[None]] | None = None,
+    first_output_timeout_s: float | None = None,
 ) -> StreamRoundResult:
-    response = await llm_call_fn(
-        litellm_model,
-        litellm_kwargs,
-        to_provider_messages(messages),
-        **call_kwargs,
-    )
-    if observation is not None:
-        response = observation.wrap_response(response)
+    def open_response():
+        return llm_call_fn(
+            litellm_model,
+            litellm_kwargs,
+            to_provider_messages(messages),
+            **call_kwargs,
+        )
+
+    def wrap_response(response):
+        return observation.wrap_response(response) if observation is not None else response
+
+    if first_output_timeout_s is None:
+        response = wrap_response(await open_response())
+    else:
+        response = await await_first_output(
+            open_response,
+            wrap_response=wrap_response,
+            timeout_s=first_output_timeout_s,
+            model_id=model_id,
+        )
     stream_kwargs = {"run_id": run_id, "step_id": step_context.step_id}
     if provider is not None and _accepts_keyword(stream_round_fn, "provider"):
         stream_kwargs["provider"] = provider
@@ -283,6 +297,7 @@ async def run_agent_round(
     allow_deferred_reasoning_output: bool = True,
     llm_round_detail_scheduler: Callable[[LlmRoundDetailDraft], Any] | None = None,
     draft_tool_names: frozenset[str] = frozenset(),
+    first_output_timeout_s: float | None = None,
 ) -> AgentRoundResult:
     finalized_messages = finalize_model_call_language_policy(messages)
     try:
@@ -390,6 +405,7 @@ async def run_agent_round(
                 run_id=run_id,
                 step_id=step_context.step_id,
             ),
+            first_output_timeout_s=first_output_timeout_s,
         )
     except asyncio.CancelledError as exc:
         if lifecycle is not None:

@@ -84,6 +84,8 @@ class AgentLoopState:
     tool_transcript_cutoff_sequence: int | None = None
     # 回放历史中已用过的最大引用编号，本轮新来源从其后编号。
     history_citation_floor: int = 0
+    # 首字超时后本次回答改用的模型；设置后不再计首字超时，回答按该模型落库。
+    active_model_id: str | None = None
 
     def record_context_plan(self, before_messages: list[Any], after_messages: list[Any]) -> None:
         """上下文管理删掉了历史工具记录时推进截断点，下一轮起这些记录不再回放。"""

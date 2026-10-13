@@ -80,7 +80,7 @@ def persist_run_message(
         context.db,
         context.assistant_message_id,
         context.conversation_id,
-        context.model_id,
+        context.state.active_model_id or context.model_id,
         context.state.content_blocks,
         context.state.final_usage(),
         partial,

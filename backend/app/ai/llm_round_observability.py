@@ -143,7 +143,7 @@ def calculate_budget_metrics(
     return round(prompt_tokens / context_window_tokens, 6), prompt_tokens > context_window_tokens
 
 
-def _output_delta_kinds(chunk: Any) -> tuple[str, ...]:
+def output_delta_kinds(chunk: Any) -> tuple[str, ...]:
     choices = getattr(chunk, "choices", None) or []
     if not choices:
         return ()
@@ -165,7 +165,7 @@ def _output_delta_kinds(chunk: Any) -> tuple[str, ...]:
 
 
 def _has_text_delta(chunk: Any) -> bool:
-    return bool({"reasoning", "content"}.intersection(_output_delta_kinds(chunk)))
+    return bool({"reasoning", "content"}.intersection(output_delta_kinds(chunk)))
 
 
 class _ObservedAsyncIterator:
@@ -258,7 +258,7 @@ class LLMRoundObservation:
         return _ObservedAsyncIterator(response, self)
 
     def observe_chunk(self, chunk: Any) -> None:
-        delta_kinds = _output_delta_kinds(chunk)
+        delta_kinds = output_delta_kinds(chunk)
         if not delta_kinds:
             self._current_chunk_observed_at = None
             return
