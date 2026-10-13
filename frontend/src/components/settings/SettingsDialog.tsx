@@ -6,8 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAppDispatch, useAppSelector } from "@/redux/hooks";
 import { closeSettingsDialog, setActiveSettingsTab } from "@/redux/slices/settingsSlice";
 import { setThemeMode } from "@/redux/slices/themeSlice";
-import { Activity, BookOpen, Bot, Database, Settings, Sun, Moon, Laptop, Network } from "lucide-react";
-import DataManagement from "@/components/settings/panels/DataManagement";
+import { Activity, BookOpen, Bot, Settings, Sun, Moon, Laptop, Network } from "lucide-react";
 import KnowledgeBaseManager from "@/components/settings/KnowledgeBaseManager";
 import McpServerManager from "@/components/settings/panels/McpServerManager";
 import ModelManagementPanel from "@/components/settings/panels/ModelManagementPanel";
@@ -80,11 +79,6 @@ export const SettingsDialog = () => {
                   <span className="hidden md:inline">{t("settings.tabs.general")}</span>
                   <span className="md:hidden">{t("settings.tabs.generalShort")}</span>
                 </TabsTrigger>
-                <TabsTrigger value="data" className={styles.navTrigger}>
-                  <Database className="h-4 w-4" />
-                  <span className="hidden md:inline">{t("settings.tabs.data")}</span>
-                  <span className="md:hidden">{t("settings.tabs.dataShort")}</span>
-                </TabsTrigger>
                 <TabsTrigger value="knowledge" className={styles.navTrigger}>
                   <BookOpen className="h-4 w-4" />
                   <span className="hidden md:inline">{knowledgeBaseTitle}</span>
@@ -155,11 +149,6 @@ export const SettingsDialog = () => {
               <div>
                 <SystemPrompt />
               </div>
-            </TabsContent>
-
-            {/* 数据管理标签页 */}
-            <TabsContent value="data" className={`${styles.panel} ${styles.formPanel}`}>
-              <DataManagement />
             </TabsContent>
 
             <TabsContent value="knowledge" className={styles.panel}>

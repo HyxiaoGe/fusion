@@ -19,10 +19,6 @@ vi.mock('@/components/settings/panels/SystemPrompt', () => ({
   default: () => <div>系统提示词设置</div>,
 }));
 
-vi.mock('@/components/settings/panels/DataManagement', () => ({
-  default: () => <div>数据管理内容</div>,
-}));
-
 vi.mock('@/components/settings/KnowledgeBaseManager', () => ({
   default: () => <div>知识库管理内容</div>,
 }));
@@ -72,7 +68,7 @@ describe('SettingsDialog 管理员用量入口', () => {
     render(<SettingsDialog />);
 
     expect(screen.queryByRole('tab', { name: /服务用量/ })).toBeNull();
-    expect(screen.getAllByRole('tab')).toHaveLength(3);
+    expect(screen.getAllByRole('tab')).toHaveLength(2);
   });
 
   it('主题选中和关闭操作沿用现有状态协议', () => {
@@ -137,7 +133,7 @@ describe('SettingsDialog 管理员用量入口', () => {
     render(<SettingsDialog />);
 
     expect(screen.getByRole('tab', { name: /服务用量/ })).toBeInTheDocument();
-    expect(screen.getAllByRole('tab')).toHaveLength(6);
+    expect(screen.getAllByRole('tab')).toHaveLength(5);
   });
 
   it('管理员设置弹窗不再有运行时配置页签', () => {

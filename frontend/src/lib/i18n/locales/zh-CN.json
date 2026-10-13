@@ -583,7 +583,6 @@
       "tabs": {
         "general": "常规设置", "generalShort": "常规",
         "personalization": "AI 个性化", "personalizationShort": "AI",
-        "data": "数据管理", "dataShort": "数据",
         "usage": "服务用量", "usageShort": "用量",
         "mcp": "MCP 服务", "mcpShort": "MCP",
         "models": "模型管理", "modelsShort": "模型"
@@ -621,14 +620,6 @@
           "writing": { "label": "写作助手", "description": "简洁直接，先给结论", "content": "请用简洁直接的中文回答，避免过度恭维和 emoji；先给结论再展开论证；同义反复和套话直接删掉。" },
           "learner": { "label": "学习者", "description": "通俗类比与术语解释", "content": "我对相关领域不熟悉，请用通俗类比解释概念，遇到术语先给定义。回答末尾可以提示下一步学习方向。" }
         }
-      },
-      "data": {
-        "title": "数据管理", "description": "备份或恢复此浏览器的聊天记录与设置。",
-        "export": "导出数据", "exportDescription": "将聊天记录和应用设置导出为 JSON 文件，方便备份或转移到其他设备。",
-        "import": "导入数据", "importDescription": "从之前导出的 JSON 备份中恢复聊天记录和设置。",
-        "importWarning": "导入将覆盖当前数据，请确认备份内容。",
-        "exportSuccess": "数据导出成功", "exportFailed": "数据导出失败，请重试。",
-        "invalidFile": "请选择 JSON 格式的备份文件", "importFailed": "数据导入失败，请检查备份文件。"
       }
     },
   "trajectory": {

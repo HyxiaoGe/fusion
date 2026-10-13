@@ -334,12 +334,11 @@ const conversationSlice = createSlice({
           ...serverMessage,
           status: localMessage.status ?? serverMessage.status,
           isReasoningVisible: localMessage.isReasoningVisible ?? serverMessage.isReasoningVisible,
-          shouldSyncToDb: localMessage.shouldSyncToDb ?? serverMessage.shouldSyncToDb,
           ...mergeSuggestedQuestionsState(localMessage, serverMessage),
         };
       });
       // 水合快照的数组顺序由服务端 sequence 保证。只有显式受保护的
-      // pending / failed / streaming / shouldSyncToDb 消息才允许留在快照尾部；
+      // pending / failed / streaming 消息才允许留在快照尾部；
       // 已完成的本地副本即使 ID 与服务端不同也必须丢弃，避免强刷或迟到水合重复跨轮。
       const protectedLocalOnlyMessages = (existing?.messages ?? []).filter(
         (message) => !serverIds.has(message.id) && preservedIds.has(message.id)
@@ -367,14 +366,6 @@ const conversationSlice = createSlice({
       }
       state.hydrationStatus[conversation.id] = 'done';
       delete state.hydrationError[conversation.id];
-    },
-    setAllConversations(state, action: PayloadAction<Conversation[]>) {
-      state.byId = {};
-      state.suggestedQuestionsObservations = {};
-      state.listIds = action.payload.map((conversation) => conversation.id);
-      action.payload.forEach((conversation) => {
-        state.byId[conversation.id] = conversation;
-      });
     },
     removeConversation(state, action: PayloadAction<string>) {
       const id = action.payload;
@@ -622,7 +613,6 @@ const conversationSlice = createSlice({
       const message = conversation.messages.find((item) => item.id === messageId);
       if (message) {
         message.isReasoningVisible = visible;
-        message.shouldSyncToDb = true;
       }
     },
     removeMessage(
@@ -737,7 +727,6 @@ export const {
   requestSuggestedQuestionsObservation,
   resetConversationListForAuthChange,
   resetConversationState,
-  setAllConversations,
   setAnimatingTitleId,
   setConversationList,
   setGlobalError,

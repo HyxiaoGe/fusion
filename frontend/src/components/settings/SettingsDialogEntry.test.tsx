@@ -14,7 +14,6 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('@/hooks/useHasMounted', () => ({ useHasMounted: () => true }));
 vi.mock('@/components/auth/LoginDialog', () => ({ LoginDialog: () => null }));
 vi.mock('@/components/settings/panels/SystemPrompt', () => ({ default: () => <div>个性化设置</div> }));
-vi.mock('@/components/settings/panels/DataManagement', () => ({ default: () => null }));
 vi.mock('@/components/settings/KnowledgeBaseManager', () => ({ default: () => null }));
 vi.mock('@/components/settings/panels/McpServerManager', () => ({ default: () => null }));
 vi.mock('@/components/settings/panels/ModelManagementPanel', () => ({ default: () => null }));

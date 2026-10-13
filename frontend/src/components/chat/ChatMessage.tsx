@@ -4,8 +4,7 @@ import { cn } from '@/lib/utils';
 import { FileWithPreview } from '@/lib/utils/fileHelpers';
 import type { Message, FileBlock as FileBlockType } from '@/types/conversation';
 import { extractTextFromBlocks } from '@/types/conversation';
-import React, { useState, useEffect, useMemo } from 'react';
-import { chatStore } from '@/lib/db/chatStore';
+import React, { useState, useMemo } from 'react';
 import type { AgentRunState } from '@/types/agentRun';
 import type { TrajectoryBadgeStatus } from '@/lib/trajectory/TrajectoryCellProjection';
 import { getChatMessageDomId } from '@/lib/chat/messageDom';
@@ -40,25 +39,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, files, isLastMessage
   const messageText = useMemo(() => extractTextFromBlocks(message.content), [message.content]);
 
   const [viewingImage, setViewingImage] = useState<FileBlockType | null>(null);
-  const chatId = message.chatId || activeChatId;
-
-  // 同步到数据库
-  useEffect(() => {
-    if (message.shouldSyncToDb && chatId) {
-      const messageSnapshot = {
-        ...message,
-        chatId,
-      };
-      const syncToDb = async () => {
-        try {
-          await chatStore.upsertMessage(messageSnapshot);
-        } catch (error) {
-          console.error('同步到数据库失败:', error);
-        }
-      };
-      syncToDb();
-    }
-  }, [message, chatId]);
 
   return (
     <div
