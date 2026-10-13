@@ -15,7 +15,7 @@ const highlightAutoMock = vi.hoisted(() => vi.fn((value: string) => ({
 })));
 const getLanguageMock = vi.hoisted(() => vi.fn((language: string) => language !== 'unknown'));
 
-vi.mock('highlight.js', () => ({
+vi.mock('@/lib/utils/highlighter', () => ({
   default: {
     getLanguage: getLanguageMock,
     highlight: highlightMock,
