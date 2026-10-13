@@ -231,6 +231,29 @@ class ModelOnboardTests(unittest.TestCase):
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             parser.parse_args(["set-capabilities", "m1", "--enable", "unknown"])
 
+    def test_set_context_window_updates_window_keeps_metadata_and_bumps_catalog(self):
+        proxy = self._registered_proxy()
+        admin = model_onboard.ProxyAdmin(proxy, "http://proxy", "master", "fusion")
+        args = model_onboard.build_parser().parse_args(["set-context-window", "m1", "991808"])
+
+        with patch.object(model_onboard, "bump_catalog_generation", return_value="gen-3"):
+            result = model_onboard.cmd_set_context_window(admin, args)
+
+        self.assertEqual(result["status"], "context_window_updated")
+        self.assertEqual((result["before"], result["after"]), (1000, 991808))
+        self.assertEqual(result["catalog_generation"], "gen-3")
+        self.assertEqual(proxy.posts[-1], ("model/update", {"model_info": {"max_input_tokens": 991808}}))
+        info = proxy.entries[0]["model_info"]
+        self.assertEqual(info["max_input_tokens"], 991808)
+        self.assertEqual(info["metadata"]["capabilities"], {"deepThinking": True, "vision": True})
+
+    def test_set_context_window_rejects_non_positive_and_missing_model(self):
+        admin = model_onboard.ProxyAdmin(self._registered_proxy(), "http://proxy", "master", "fusion")
+        for model_id, tokens, code in (("m1", 0, "invalid_context_window"), ("missing", 1000, "model_missing")):
+            with self.subTest(code=code), self.assertRaises(model_onboard.OnboardError) as raised:
+                model_onboard.cmd_set_context_window(admin, SimpleNamespace(model_id=model_id, tokens=tokens))
+            self.assertEqual(raised.exception.code, code)
+
     def test_main_requires_both_credentials(self):
         with patch.dict("os.environ", {"LITELLM_MASTER_KEY": "", "LITELLM_API_KEY": "k"}):
             self.assertEqual(model_onboard.main(["list"]), 2)

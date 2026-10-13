@@ -38,7 +38,6 @@ from app.services.agent.plan_coordinator import PlanMode
 from app.services.chat.message_builder import (
     append_current_time,
     build_llm_messages,
-    inject_file_content,
     is_image_file,
 )
 from app.services.chat.tool_transcript_store import ToolTranscriptHistory, load_tool_transcripts
@@ -387,11 +386,6 @@ async def prepare_agent_loop_messages(
     load_user_system_prompt_fn: Callable[[Any, str], str | None] | None = None,
     build_llm_messages_fn: Callable[..., Awaitable[list[PromptMessage | dict]]] | None = None,
     is_image_file_fn: Callable[[str, Any], bool] | None = None,
-    inject_file_content_fn: Callable[
-        [list[PromptMessage | dict], str, dict[str, str]],
-        list[PromptMessage | dict],
-    ]
-    | None = None,
     preprocess_url_in_message_fn: Callable[..., Awaitable[tuple[Any | None, dict | None, str | None]]] | None = None,
     preprocess_user_input: bool = True,
     extra_system_prompts: list[str] | None = None,
@@ -402,7 +396,6 @@ async def prepare_agent_loop_messages(
     load_user_system_prompt_fn = load_user_system_prompt_fn or load_user_system_prompt
     build_llm_messages_fn = build_llm_messages_fn or build_llm_messages
     is_image_file_fn = is_image_file_fn or is_image_file
-    inject_file_content_fn = inject_file_content_fn or inject_file_content
     preprocess_url_in_message_fn = preprocess_url_in_message_fn or preprocess_url_in_message
 
     file_repo = file_repo_factory(db)
@@ -432,16 +425,6 @@ async def prepare_agent_loop_messages(
             file_ids=file_ids,
             file_repo=file_repo,
             is_image_file_fn=is_image_file_fn,
-        )
-        messages = ensure_prompt_messages(
-            _inject_non_image_file_contents(
-                messages=messages,
-                file_ids=file_ids,
-                original_message=original_message,
-                file_repo=file_repo,
-                is_image_file_fn=is_image_file_fn,
-                inject_file_content_fn=inject_file_content_fn,
-            )
         )
 
         messages, initial_content_blocks = await _prepare_url_context(
@@ -568,31 +551,6 @@ def _has_image_file(
     if not file_ids:
         return False
     return any(is_image_file_fn(fid, file_repo) for fid in file_ids)
-
-
-def _inject_non_image_file_contents(
-    *,
-    messages: list[PromptMessage],
-    file_ids: list | None,
-    original_message: str,
-    file_repo: Any,
-    is_image_file_fn: Callable[[str, Any], bool],
-    inject_file_content_fn: Callable[
-        [list[PromptMessage | dict], str, dict[str, str]],
-        list[PromptMessage | dict],
-    ],
-) -> list[PromptMessage | dict]:
-    if not file_ids:
-        return messages
-
-    non_image_ids = [fid for fid in file_ids if not is_image_file_fn(fid, file_repo)]
-    if not non_image_ids:
-        return messages
-
-    file_contents = file_repo.get_parsed_file_content(non_image_ids)
-    if not file_contents:
-        return messages
-    return inject_file_content_fn(messages, original_message, file_contents)
 
 
 async def _prepare_url_context(

@@ -4,7 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db.database import Base
-from app.db.models import User
+from app.db.models import Conversation, ConversationFile, File, User
 from app.db.repositories import FileRepository
 
 
@@ -45,6 +45,40 @@ class FileRepositoryTests(unittest.TestCase):
 
         self.assertEqual(saved.id, "file-123")
         self.assertEqual(saved.user_id, "user-123")
+
+    def test_conversation_parsed_file_content_only_returns_own_linked_processed_files(self):
+        self.session.add(User(id="user-other", username="other", email="other@example.com"))
+        for conversation_id, user_id in (("conv-1", "user-123"), ("conv-2", "user-123"), ("conv-o", "user-other")):
+            self.session.add(Conversation(id=conversation_id, user_id=user_id, title="t", model_id="m"))
+        for file_id, user_id, status, conversation_id in (
+            ("doc-ok", "user-123", "processed", "conv-1"),
+            ("doc-parsing", "user-123", "parsing", "conv-1"),
+            ("doc-other-conv", "user-123", "processed", "conv-2"),
+            ("doc-other-user", "user-other", "processed", "conv-o"),
+        ):
+            self.session.add(
+                File(
+                    id=file_id,
+                    user_id=user_id,
+                    filename=file_id,
+                    original_filename=f"{file_id}.txt",
+                    mimetype="text/plain",
+                    size=1,
+                    path=f"/tmp/{file_id}",
+                    status=status,
+                    parsed_content=f"{file_id} 正文",
+                )
+            )
+            self.session.add(ConversationFile(conversation_id=conversation_id, file_id=file_id))
+        self.session.commit()
+
+        contents = FileRepository(self.session).get_conversation_parsed_file_content(
+            ["doc-ok", "doc-parsing", "doc-other-conv", "doc-other-user"],
+            user_id="user-123",
+            conversation_id="conv-1",
+        )
+
+        self.assertEqual(contents, {"doc-ok": "doc-ok 正文"})
 
 
 if __name__ == "__main__":

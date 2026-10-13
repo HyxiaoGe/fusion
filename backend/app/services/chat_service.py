@@ -56,7 +56,6 @@ from app.services.chat.context_manager import (
 from app.services.chat.message_builder import (
     append_current_time,
     build_llm_messages,
-    inject_file_content,
     is_image_file,
 )
 from app.services.chat.model_call_language_policy import finalize_model_call_language_policy
@@ -712,13 +711,8 @@ class ChatService:
             )
             if file_ids:
                 image_ids = [fid for fid in file_ids if is_image_file(fid, self.file_repo)]
-                non_image_ids = [fid for fid in file_ids if fid not in image_ids]
                 if image_ids and not has_vision:
                     lm_messages = inject_no_vision_file_boundary(lm_messages)
-                if non_image_ids:
-                    file_contents = self.file_repo.get_parsed_file_content(non_image_ids)
-                    if file_contents:
-                        lm_messages = inject_file_content(lm_messages, message, file_contents)
             lm_messages = append_current_time(lm_messages)
             lm_messages = inject_no_tool_network_boundary(lm_messages, call_kwargs={})
             return await self._handle_non_stream(
