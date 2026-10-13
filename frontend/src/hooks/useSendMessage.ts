@@ -13,6 +13,7 @@ import {
   replaceMessage,
   removeConversation,
   removeMessage,
+  requestCompletedConversationListRefresh,
   requestConversationListRefresh,
   requestSuggestedQuestionsObservation,
   setAnimatingTitleId,
@@ -238,7 +239,7 @@ function postStreamActions(
   isSessionCurrent: () => boolean,
 ) {
   if (!isSessionCurrent()) return;
-  dispatch(requestConversationListRefresh(conversationId));
+  dispatch(requestCompletedConversationListRefresh(conversationId));
 }
 
 export function useSendMessage(activeConversationId?: string | null) {
@@ -1291,7 +1292,7 @@ export function useSendMessage(activeConversationId?: string | null) {
           startPostStreamActions(finalConvId);
         } else {
           if (isSessionCurrent()) {
-            dispatch(requestConversationListRefresh(finalConvId));
+            dispatch(requestCompletedConversationListRefresh(finalConvId));
           }
         }
       };

@@ -7,7 +7,9 @@ import reducer, {
   materializeConversation,
   mergeHydratedConversation,
   removeConversation,
+  requestCompletedConversationListRefresh,
   requestConversationListRefresh,
+  requestSettledConversationListRefresh,
   requestSuggestedQuestionsObservation,
   resetConversationState,
   acknowledgeConversationListRefresh,
@@ -22,6 +24,7 @@ import reducer, {
   updateConversationsMetadata,
 } from './conversationSlice';
 import type { Conversation, Message } from '@/types/conversation';
+import { startStream } from '@/redux/slices/streamSlice';
 
 function createConversation(overrides: Partial<Conversation> = {}): Conversation {
   return {
@@ -515,6 +518,7 @@ describe('conversationSlice', () => {
       conversationListEpoch: 0,
       conversationListDirtyIds: [],
       conversationListDirtyRevisions: {},
+      conversationListCompletionRefreshedIds: [],
       hydrationStatus: {},
       hydrationError: {},
       suggestedQuestionsObservations: {},
@@ -576,6 +580,7 @@ describe('conversationSlice', () => {
       conversationListEpoch: 0,
       conversationListDirtyIds: [],
       conversationListDirtyRevisions: {},
+      conversationListCompletionRefreshedIds: [],
       hydrationStatus: {},
       hydrationError: {},
       suggestedQuestionsObservations: {},
@@ -627,6 +632,7 @@ describe('conversationSlice', () => {
       conversationListEpoch: 0,
       conversationListDirtyIds: [],
       conversationListDirtyRevisions: {},
+      conversationListCompletionRefreshedIds: [],
       hydrationStatus: {},
       hydrationError: {},
       suggestedQuestionsObservations: {},
@@ -704,5 +710,30 @@ describe('conversationSlice', () => {
     expect(nextState.conversationListDirtyIds).toEqual([]);
     expect(nextState.conversationListDirtyRevisions).toEqual({});
     expect(nextState.conversationListEpoch).toBe(stateBeforeReset.conversationListEpoch + 1);
+  });
+
+  it('本页正常收尾刷新过的运行，结束生成时只跳过一次重复刷新', () => {
+    let state = reducer(undefined, requestCompletedConversationListRefresh('conv-1'));
+    expect(state.conversationListDirtyIds).toEqual(['conv-1']);
+    const versionAfterCompletion = state.conversationListVersion;
+
+    state = reducer(state, requestSettledConversationListRefresh(['conv-1', 'conv-2']));
+    expect(state.conversationListDirtyIds).toEqual(['conv-1', 'conv-2']);
+    expect(state.conversationListDirtyRevisions['conv-1']).toBe(versionAfterCompletion);
+    expect(state.conversationListCompletionRefreshedIds).toEqual([]);
+
+    // 之后同一对话在后台跑完（本页没收到流），照常刷新。
+    state = reducer(state, requestSettledConversationListRefresh(['conv-1']));
+    expect(state.conversationListDirtyRevisions['conv-1']).toBe(state.conversationListVersion);
+  });
+
+  it('同一对话开始新一轮时作废上一轮的收尾记录', () => {
+    let state = reducer(undefined, requestCompletedConversationListRefresh('conv-1'));
+    state = reducer(state, startStream({ conversationId: 'conv-1', messageId: 'msg-2' }));
+    expect(state.conversationListCompletionRefreshedIds).toEqual([]);
+
+    const versionBefore = state.conversationListVersion;
+    state = reducer(state, requestSettledConversationListRefresh(['conv-1']));
+    expect(state.conversationListVersion).toBe(versionBefore + 1);
   });
 });
