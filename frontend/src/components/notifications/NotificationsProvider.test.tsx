@@ -3,14 +3,18 @@ import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NotificationItem, NotificationPage, NotificationReadResponse } from '@/lib/api/notifications';
 
-const { getNotificationsMock, markAllNotificationsReadMock } = vi.hoisted(() => ({
+const { getNotificationsMock, markAllNotificationsReadMock, syncNotificationsRevisionMock } = vi.hoisted(() => ({
   getNotificationsMock: vi.fn(),
   markAllNotificationsReadMock: vi.fn(),
+  syncNotificationsRevisionMock: vi.fn(),
 }));
 
 vi.mock('@/lib/api/notifications', () => ({
   getNotifications: getNotificationsMock,
   markAllNotificationsRead: markAllNotificationsReadMock,
+}));
+vi.mock('@/lib/api/sync', () => ({
+  syncNotificationsRevision: syncNotificationsRevisionMock,
 }));
 
 import { notifyNotificationsChanged } from '@/lib/notifications/events';
@@ -69,6 +73,9 @@ describe('NotificationsProvider', () => {
   beforeEach(() => {
     getNotificationsMock.mockReset();
     markAllNotificationsReadMock.mockReset();
+    syncNotificationsRevisionMock.mockReset();
+    // 默认版本比对一直在途，不影响与轮询无关的用例。
+    syncNotificationsRevisionMock.mockImplementation(() => new Promise(() => {}));
     visibility = 'visible';
     originalVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visibility });
@@ -81,27 +88,56 @@ describe('NotificationsProvider', () => {
     else Reflect.deleteProperty(document, 'visibilityState');
   });
 
-  it('可见页面每 15 秒轮询，隐藏时暂停，恢复焦点后刷新，卸载后释放定时器', async () => {
+  it('可见页面每 15 秒比对版本，版本变了才重取列表，隐藏时暂停，恢复焦点后比对，卸载后释放定时器', async () => {
     vi.useFakeTimers();
-    getNotificationsMock.mockResolvedValue(page([notification('first', 1)]));
+    getNotificationsMock.mockResolvedValue(page([notification('first', 1)], 10));
+    syncNotificationsRevisionMock.mockResolvedValue(10);
     const view = render(tree('account-a'));
     await act(async () => {});
     expect(getNotificationsMock).toHaveBeenCalledTimes(1);
+    expect(syncNotificationsRevisionMock).not.toHaveBeenCalled();
 
     await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(syncNotificationsRevisionMock).toHaveBeenCalledTimes(1);
+    expect(getNotificationsMock).toHaveBeenCalledTimes(1);
+
+    getNotificationsMock.mockResolvedValue(page([notification('second', 11), notification('first', 1)], 11));
+    syncNotificationsRevisionMock.mockResolvedValue(11);
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
     expect(getNotificationsMock).toHaveBeenCalledTimes(2);
+    expect(snapshot.items.map((item) => item.id)).toEqual(['second', 'first']);
+    expect(snapshot.revision).toBe(11);
 
     visibility = 'hidden';
     act(() => { document.dispatchEvent(new Event('visibilitychange')); });
     await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
-    expect(getNotificationsMock).toHaveBeenCalledTimes(2);
+    expect(syncNotificationsRevisionMock).toHaveBeenCalledTimes(2);
 
     visibility = 'visible';
     await act(async () => { window.dispatchEvent(new Event('focus')); });
-    expect(getNotificationsMock).toHaveBeenCalledTimes(3);
+    expect(syncNotificationsRevisionMock).toHaveBeenCalledTimes(3);
+    expect(getNotificationsMock).toHaveBeenCalledTimes(2);
     view.unmount();
     await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
-    expect(getNotificationsMock).toHaveBeenCalledTimes(3);
+    expect(syncNotificationsRevisionMock).toHaveBeenCalledTimes(3);
+    expect(getNotificationsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('版本比对失败时保留现有列表，下一节拍再比对', async () => {
+    vi.useFakeTimers();
+    getNotificationsMock.mockResolvedValue(page([notification('first', 1)], 10));
+    syncNotificationsRevisionMock.mockRejectedValueOnce(new Error('sync failed')).mockResolvedValue(10);
+    render(tree('account-a'));
+    await act(async () => {});
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(getNotificationsMock).toHaveBeenCalledTimes(1);
+    expect(snapshot.items.map((item) => item.id)).toEqual(['first']);
+    expect(snapshot.error).toBe(false);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(syncNotificationsRevisionMock).toHaveBeenCalledTimes(2);
+    expect(getNotificationsMock).toHaveBeenCalledTimes(1);
   });
 
   it('切换账号会中止旧查询并丢弃迟到响应，退出后立即清空通知', async () => {
@@ -393,6 +429,7 @@ describe('NotificationsProvider', () => {
     act(() => { snapshot.setFilter('all'); });
     expect(snapshot.items.map((item) => item.id)).toEqual(['first', 'second']);
 
+    syncNotificationsRevisionMock.mockResolvedValue(11);
     await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
     expect(getNotificationsMock).toHaveBeenCalledTimes(6);
     expect(getNotificationsMock.mock.calls[4][0]).toEqual({ filter: 'all', cursor: 'first-page', limit: 20 });

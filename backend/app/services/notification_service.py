@@ -8,7 +8,7 @@ from sqlalchemy import and_, or_, select, tuple_
 from sqlalchemy.orm import Session
 
 from app.core.logger import app_logger as logger
-from app.db.models import AgentSession, Conversation, Notification
+from app.db.models import AgentSession, Conversation, Notification, NotificationUserState
 from app.db.notification_repository import NotificationRepository
 from app.schemas.notification import (
     MAX_NOTIFICATION_REVISION,
@@ -185,6 +185,14 @@ class NotificationService:
         # 快照已完全序列化，立即释放共享锁，不能在发送响应期间阻塞业务终态。
         self.db.commit()
         return page
+
+    def current_revision(self, user_id: str) -> int:
+        """只读用户通知版本号；读状态变化也会推进版本，前端据此判断列表是否需要重取。"""
+        revision = self.db.scalar(
+            select(NotificationUserState.revision).where(NotificationUserState.user_id == user_id)
+        )
+        self.db.commit()
+        return int(revision or 0)
 
     def mark_read(self, user_id: str, ids: list[str]) -> NotificationReadResult:
         return self._mark_read(user_id, Notification.id.in_(set(ids)))

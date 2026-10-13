@@ -1,15 +1,18 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { getConversationActivity, markConversationRead } from '@/lib/api/chat';
+import { markConversationRead } from '@/lib/api/chat';
+import { syncConversationActivity } from '@/lib/api/sync';
 import { ACTIVITY_POLL_INTERVAL_MS, useConversationActivity } from './useConversationActivity';
 
 vi.mock('@/lib/api/chat', () => ({
-  getConversationActivity: vi.fn(),
   markConversationRead: vi.fn(),
 }));
+vi.mock('@/lib/api/sync', () => ({
+  syncConversationActivity: vi.fn(),
+}));
 
-const mockedGet = vi.mocked(getConversationActivity);
+const mockedGet = vi.mocked(syncConversationActivity);
 const mockedRead = vi.mocked(markConversationRead);
 const NO_LOCAL: readonly string[] = [];
 

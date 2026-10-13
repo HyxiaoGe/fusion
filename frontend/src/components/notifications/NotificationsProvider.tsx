@@ -8,6 +8,7 @@ import {
   type NotificationItem,
   type NotificationPage,
 } from '@/lib/api/notifications';
+import { syncNotificationsRevision } from '@/lib/api/sync';
 import { subscribeNotificationsChanged } from '@/lib/notifications/events';
 import { registerBackgroundTask } from '@/lib/scheduler/backgroundScheduler';
 
@@ -278,10 +279,27 @@ export function NotificationsProvider({ sessionKey, children }: {
     readStateRef.current = { readingAll: false, readError: false };
     setState(emptyState(sessionKey));
     // 登记即拉首屏；之后按共享节拍轮询，回到前台或恢复联网时补拉，后台不拉。
-    const unregisterPolling = registerBackgroundTask(
-      () => { void refreshFilter(filterRef.current); },
-      { intervalMs: POLL_INTERVAL },
-    );
+    // 列表已加载且未失效时只比对版本号（读状态变化也会推进版本），版本没变就不重取列表；
+    // 比对失败时保持现状，下一节拍再试。
+    const poll = () => {
+      const filter = filterRef.current;
+      const list = cacheRef.current[filter];
+      if (!list.loaded || list.error || list.refreshedAt === null) {
+        void refreshFilter(filter);
+        return;
+      }
+      void syncNotificationsRevision().then((revision) => {
+        if (!mountedRef.current || sessionRef.current !== sessionKey || cacheOwnerRef.current !== sessionKey) return;
+        const current = cacheRef.current[filterRef.current];
+        if (current.loaded && !current.error && current.refreshedAt !== null && current.revision === revision
+          && snapshotRef.current.revision === revision) {
+          current.refreshedAt = Date.now();
+          return;
+        }
+        void refreshFilter(filterRef.current);
+      }).catch(() => {});
+    };
+    const unregisterPolling = registerBackgroundTask(poll, { intervalMs: POLL_INTERVAL });
     const unsubscribe = subscribeNotificationsChanged((owner) => {
       if (owner && owner !== sessionKey) return;
       // 隐藏期间也失效，避免恢复页面后另一筛选继续保留已读或已删除记录。
