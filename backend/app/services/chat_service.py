@@ -54,6 +54,7 @@ from app.services.chat.context_manager import (
     prepare_context,
 )
 from app.services.chat.message_builder import (
+    append_current_time,
     build_llm_messages,
     inject_file_content,
     is_image_file,
@@ -718,6 +719,7 @@ class ChatService:
                     file_contents = self.file_repo.get_parsed_file_content(non_image_ids)
                     if file_contents:
                         lm_messages = inject_file_content(lm_messages, message, file_contents)
+            lm_messages = append_current_time(lm_messages)
             lm_messages = inject_no_tool_network_boundary(lm_messages, call_kwargs={})
             return await self._handle_non_stream(
                 litellm_model,

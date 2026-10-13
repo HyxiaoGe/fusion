@@ -827,7 +827,9 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("switch models", prepared.messages[1]["content"])
         self.assertNotIn("[Tool-call consistency]", prepared.messages[1]["content"])
         self.assertIn("[Current date]", prepared.messages[2]["content"])
-        self.assertEqual(prepared.messages[3]["content"], "OpenAI 最近发布了什么模型？")
+        self.assertTrue(
+            prepared.messages[3]["content"].startswith("OpenAI 最近发布了什么模型？" + "\n\n[Current time] ")
+        )
 
     async def test_prepare_messages_injects_no_vision_boundary_when_image_attached_to_text_model(self):
         async def build_llm_messages_fn(
@@ -871,7 +873,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Do not guess its contents", prepared.messages[1]["content"])
         self.assertEqual(prepared.messages[2].section_id, "no_tool_network_boundary")
         self.assertIn("[Current date]", prepared.messages[3]["content"])
-        self.assertEqual(prepared.messages[4]["content"], "这张图里有什么？")
+        self.assertTrue(prepared.messages[4]["content"].startswith("这张图里有什么？" + "\n\n[Current time] "))
 
     async def test_prepare_messages_builds_llm_input_files_url_context_and_tool_contract(self):
         file_repo = FakeFileRepository()

@@ -28,13 +28,19 @@ def build_current_date_system_prompt(now: datetime | None = None) -> str:
     return render_runtime_prompt(
         "agent_loop.current_date",
         current_date=_format_date_with_weekday(current.date()),
-        current_time=current.strftime("%H:%M"),
         tomorrow=_format_date_with_weekday(tomorrow),
         this_saturday=_format_date_with_weekday(this_saturday),
         this_sunday=_format_date_with_weekday(this_sunday),
         next_saturday=_format_date_with_weekday(next_saturday),
         next_sunday=_format_date_with_weekday(next_sunday),
     )
+
+
+def build_current_time_note(now: datetime | None = None) -> str:
+    """当前时刻只接在最新一条用户消息后面：放进 system 前缀会让每分钟的请求都用不上服务商前缀缓存。"""
+    current = now or datetime.now(CHINA_TZ)
+    current = current.replace(tzinfo=CHINA_TZ) if current.tzinfo is None else current.astimezone(CHINA_TZ)
+    return render_runtime_prompt("agent_loop.current_time", current_time=current.strftime("%H:%M"))
 
 
 def _format_date_with_weekday(value) -> str:

@@ -36,6 +36,7 @@ from app.core.prompt_snapshot import PromptBundleSnapshot, use_prompt_snapshot
 from app.db.repositories import FileRepository
 from app.services.agent.plan_coordinator import PlanMode
 from app.services.chat.message_builder import (
+    append_current_time,
     build_llm_messages,
     inject_file_content,
     is_image_file,
@@ -452,6 +453,7 @@ async def prepare_agent_loop_messages(
     else:
         initial_content_blocks = []
         has_image_attachment = False
+    messages = append_current_time(messages)
 
     def assemble(config: AgentLoopCallConfig):
         return assemble_system_prompt(
