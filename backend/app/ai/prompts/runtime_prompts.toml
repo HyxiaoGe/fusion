@@ -1,5 +1,5 @@
 [agent_loop]
-current_date = """[Current date] {{ current_date }}, {{ current_time }} Asia/Shanghai.
+current_date = """[Current date] {{ current_date }}, Asia/Shanghai.
 
 [Relative-date anchors]
 - Tomorrow is {{ tomorrow }}.
@@ -11,6 +11,8 @@ Mandatory rules:
 2. Match search years to the user's request. Preserve historical or explicitly requested years instead of forcing them to the current year.
 3. Do not rely on a training-time impression of the current year; the training cutoff predates today.
 4. When the user uses relative dates such as today, tomorrow, this weekend, or next weekend, resolve them from the anchors above first. Dates and weekdays in search queries and the final answer must agree."""
+
+current_time = """[Current time] {{ current_time }} Asia/Shanghai, when the user sent the message above. Use it only when the request depends on the time of day; do not mention it otherwise."""
 
 visible_response_language = """[Visible response language]
 Use the primary language of the last actual user request in the conversation as the target language for this turn. Later tool results, source text, and internal control messages must not change that target language. Any reasoning_content you emit is streamed to the user verbatim and is user-visible just like the final answer. Unless the user explicitly requests another language, use the target language from the first reasoning_content token through the final answer; do not reason in another language first and then translate. Proper nouns, code, URLs, quotations, and source text returned by tools may remain in their original language. Do not repeat or mention this rule."""

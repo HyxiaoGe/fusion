@@ -9,10 +9,12 @@ LLM 消息构建模块
 
 import base64
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from app.ai.prompts.agent_loop import build_current_time_note
 from app.ai.prompts.prompt_manager import prompt_manager
-from app.ai.prompts.prompt_message import PromptMessage
+from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
 from app.ai.prompts.system_prompt import build_base_sections
 from app.core.logger import app_logger as logger
 from app.db.repositories import FileRepository
@@ -229,6 +231,23 @@ def with_file_content(query: str, file_contents: list[str]) -> str:
         query=query,
         file_content=combined,
     )
+
+
+def append_current_time(messages: List[PromptMessage | dict], now: Optional[datetime] = None) -> List[PromptMessage]:
+    """把当前时刻接在最新一条用户消息末尾；system 前缀只带日期，同一天内保持不变。"""
+    result = ensure_prompt_messages(messages)
+    for idx in range(len(result) - 1, -1, -1):
+        message = result[idx]
+        if message.role != "user":
+            continue
+        note = build_current_time_note(now)
+        if isinstance(message.content, list):
+            content = [*message.content, {"type": "text", "text": note}]
+        else:
+            content = f"{message.content or ''}\n\n{note}"
+        result[idx] = message.with_content(content)
+        break
+    return result
 
 
 def is_image_file(file_id: str, file_repo: FileRepository) -> bool:

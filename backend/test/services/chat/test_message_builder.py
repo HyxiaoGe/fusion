@@ -4,8 +4,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.ai.prompts.agent_loop import build_current_date_system_prompt
+from app.ai.prompts.prompt_message import PromptMessage
 from app.schemas.chat import FileBlock, Message, TextBlock
-from app.services.chat.message_builder import build_llm_messages
+from app.services.chat.message_builder import append_current_time, build_llm_messages
 
 
 class MessageBuilderTests(unittest.IsolatedAsyncioTestCase):
@@ -14,6 +15,38 @@ class MessageBuilderTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(prompt.startswith("[Current date] 2026-07-17 (Friday)"))
         self.assertIn("historical", prompt)
         self.assertNotIn("must never use", prompt)
+
+    def test_current_date_prompt_stays_identical_within_a_day(self):
+        morning = build_current_date_system_prompt(datetime(2026, 7, 16, 8, 1, tzinfo=timezone(timedelta(hours=8))))
+        evening = build_current_date_system_prompt(datetime(2026, 7, 16, 23, 59, tzinfo=timezone(timedelta(hours=8))))
+
+        self.assertEqual(morning, evening)
+        self.assertNotIn("08:01", morning)
+
+    def test_append_current_time_goes_after_latest_user_message_only(self):
+        now = datetime(2026, 7, 16, 6, 5, tzinfo=timezone.utc)
+        messages = [
+            PromptMessage(role="system", content="规则"),
+            {"role": "user", "content": "早先的问题"},
+            {"role": "assistant", "content": "早先的回答"},
+            {"role": "user", "content": "现在出发还来得及吗？"},
+        ]
+
+        result = append_current_time(messages, now)
+
+        self.assertEqual(result[1]["content"], "早先的问题")
+        self.assertTrue(result[3]["content"].startswith("现在出发还来得及吗？\n\n[Current time] 14:05 Asia/Shanghai"))
+        self.assertEqual(result[0]["content"], "规则")
+
+    def test_append_current_time_adds_text_part_to_multimodal_message(self):
+        image = {"type": "image_url", "image_url": {"url": "data:image/png;base64,AA=="}}
+        result = append_current_time(
+            [{"role": "user", "content": [{"type": "text", "text": "图里几点关门？"}, image]}],
+            datetime(2026, 7, 16, 6, 5, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(result[0]["content"][:2], [{"type": "text", "text": "图里几点关门？"}, image])
+        self.assertIn("[Current time] 14:05", result[0]["content"][2]["text"])
 
     def test_current_date_prompt_includes_relative_date_anchors(self):
         prompt = build_current_date_system_prompt(datetime(2026, 7, 16, 9, 0, tzinfo=timezone(timedelta(hours=8))))

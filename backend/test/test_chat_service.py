@@ -1183,7 +1183,7 @@ class ChatServiceTests(unittest.TestCase):
         self.assertIn("cannot verify them in real time", sent_messages[1]["content"])
         self.assertIn("Never present existing knowledge as current verification", sent_messages[1]["content"])
         self.assertIn("Do not describe missing tools as a system failure", sent_messages[1]["content"])
-        self.assertEqual(sent_messages[2]["content"], "OpenAI 最近发布了什么模型？")
+        self.assertTrue(sent_messages[2]["content"].startswith("OpenAI 最近发布了什么模型？" + "\n\n[Current time] "))
         self.assertEqual(
             mock_litellm.acompletion.await_args.kwargs["extra_body"],
             {
@@ -1875,7 +1875,7 @@ class ChatServiceTests(unittest.TestCase):
         self.assertIn("[No image-understanding capability]", sent_messages[1]["content"])
         self.assertIn("cannot read or understand image attachments", sent_messages[1]["content"])
         self.assertIn("[No web-access tools]", sent_messages[2]["content"])
-        self.assertEqual(sent_messages[3]["content"], "这张图里有什么？")
+        self.assertTrue(sent_messages[3]["content"].startswith("这张图里有什么？" + "\n\n[Current time] "))
         generated_messages = [call.args[0] for call in service.conversation_service.create_message.call_args_list]
         self.assertEqual(len(generated_messages), 1)
         self.assertEqual(UUID(generated_messages[0].id).version, 4)
