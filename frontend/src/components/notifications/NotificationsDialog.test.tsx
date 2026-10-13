@@ -59,7 +59,7 @@ describe('消息盒子', () => {
     expect(await screen.findByText('结果 b')).toBeVisible();
     expect(screen.getByText('第 2 页')).toBeVisible();
     expect(screen.getByRole('button', { name: /下一页/ })).toBeDisabled();
-    expect(getNotifications).toHaveBeenLastCalledWith({ filter: 'all', cursor: 'c2', limit: 20 }, expect.any(AbortSignal));
+    expect(getNotifications).toHaveBeenLastCalledWith({ filter: 'all', cursor: 'c2', limit: 10 }, expect.any(AbortSignal));
 
     fireEvent.click(screen.getByRole('button', { name: /上一页/ }));
     expect(await screen.findByText('结果 a')).toBeVisible();
@@ -76,7 +76,7 @@ describe('消息盒子', () => {
     fireEvent.click(screen.getByRole('button', { name: '未读' }));
 
     await waitFor(() => expect(getNotifications).toHaveBeenLastCalledWith(
-      { filter: 'unread', cursor: undefined, limit: 20 }, expect.any(AbortSignal),
+      { filter: 'unread', cursor: undefined, limit: 10 }, expect.any(AbortSignal),
     ));
     expect(screen.getByText('第 1 页')).toBeVisible();
   });
