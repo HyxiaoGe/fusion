@@ -487,7 +487,9 @@ export default function HomeChatSurface() {
   return (
     <div className="h-full flex flex-col relative">
       <LocationContextBanner conversationId={displayConversationId} />
-      <div className="flex-1 overflow-y-auto" data-chat-scroll-container="true">
+      {/* relative：让消息里的绝对定位元素（如 sr-only 读屏文字）以滚动容器为定位基准并被裁剪；
+          否则它们按外层容器定位、把外层 main 撑出可滚动区域，滚到底时连输入框一起被滚上去。 */}
+      <div className="relative flex-1 overflow-y-auto" data-chat-scroll-container="true">
         {shouldShowPendingConversation && displayConversationId && displayConversation ? (
           <div className="h-full px-4 pt-4" data-testid="pending-conversation-surface">
             <ChatMessageListLazy
