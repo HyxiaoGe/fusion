@@ -1,6 +1,6 @@
 """当前登录用户的通知中心接口。"""
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Path, Query, Request
 
 from app.api.deps import get_current_user, get_notification_service
 from app.db.models import User
@@ -13,6 +13,7 @@ from app.schemas.notification import (
     NotificationReadResultRequest,
 )
 from app.schemas.response import ApiResponse, success
+from app.services.conversation_viewing import clear_viewing, mark_viewing
 from app.services.notification_service import NotificationService
 
 router = APIRouter()
@@ -62,3 +63,27 @@ def mark_notification_result_read(
 ):
     result = service.mark_result_read(str(current_user.id), **payload.model_dump())
     return success(data=result.model_dump(mode="json"), request_id=request.state.request_id)
+
+
+# 对话页处于前台时定时上报；只写当前用户自己的键，回答结束时据此跳过通知。
+_CONVERSATION_ID = Path(..., min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+
+
+@router.put("/viewing/{conversation_id}", response_model=ApiResponse[None])
+def report_conversation_viewing(
+    request: Request,
+    conversation_id: str = _CONVERSATION_ID,
+    current_user: User = Depends(get_current_user),
+):
+    mark_viewing(str(current_user.id), conversation_id)
+    return success(data=None, request_id=request.state.request_id)
+
+
+@router.delete("/viewing/{conversation_id}", response_model=ApiResponse[None])
+def clear_conversation_viewing(
+    request: Request,
+    conversation_id: str = _CONVERSATION_ID,
+    current_user: User = Depends(get_current_user),
+):
+    clear_viewing(str(current_user.id), conversation_id)
+    return success(data=None, request_id=request.state.request_id)

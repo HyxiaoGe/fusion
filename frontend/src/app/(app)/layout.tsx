@@ -13,6 +13,7 @@ import { writeComposerDraft } from '@/lib/chat/composerDraftStorage';
 import { selectAuthSessionKey } from '@/redux/selectors';
 import { NotificationsProvider } from '@/components/notifications/NotificationsProvider';
 import ChangelogDialog from '@/components/changelogs/ChangelogDialog';
+import NotificationsDialog from '@/components/notifications/NotificationsDialog';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   useRenderProbe('AppLayout');
@@ -41,6 +42,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {children}
       </MainLayout>
       <ChangelogDialog />
+      <NotificationsDialog />
     </NotificationsProvider>
   );
 }

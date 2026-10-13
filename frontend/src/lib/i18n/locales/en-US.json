@@ -843,7 +843,13 @@
     "loadMoreFailed": "Could not load more notifications. Try again.",
     "readFailed": "Could not mark notifications as read. Try again.",
     "retry": "Retry",
-    "loadMore": "Load more"
+    "loadMore": "Load more",
+    "viewAll": "View all",
+    "boxTitle": "Inbox",
+    "boxDescription": "Answer results and product update notices. Read items are kept for 7 days, unread for 30 days.",
+    "previousPage": "Previous",
+    "nextPage": "Next",
+    "pageNumber": "Page {{page}}"
   },
   "changelogs": {
     "title": "Product updates",

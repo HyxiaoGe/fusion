@@ -1,8 +1,13 @@
 """站内通知：业务终态同事务入队，分页与已读共用用户修订水位。"""
 
-from sqlalchemy import select, tuple_
+import asyncio
+from collections.abc import Callable
+from datetime import timedelta
+
+from sqlalchemy import and_, or_, select, tuple_
 from sqlalchemy.orm import Session
 
+from app.core.logger import app_logger as logger
 from app.db.models import AgentSession, Conversation, Notification
 from app.db.notification_repository import NotificationRepository
 from app.schemas.notification import (
@@ -15,7 +20,8 @@ from app.schemas.notification import (
     NotificationTarget,
 )
 from app.schemas.response import ApiException
-from app.utils.time import as_utc
+from app.services.conversation_viewing import is_viewing as is_conversation_viewed
+from app.utils.time import as_utc, utc_now
 
 _TERMINAL_COPY = {
     "completed": ("run_completed", "已完成", "回答已保存，点击查看结果。"),
@@ -27,12 +33,21 @@ _TERMINAL_COPY = {
 
 
 def enqueue_run_notification(
-    db: Session, run: AgentSession, *, notify_interrupted: bool = False
+    db: Session,
+    run: AgentSession,
+    *,
+    notify_interrupted: bool = False,
+    is_viewing: Callable[[str, str], bool] = is_conversation_viewed,
 ) -> Notification | None:
-    """在调用方的业务终态事务中登记通知；不提交，不发外部信号。"""
+    """在调用方的业务终态事务中登记通知；不提交，不发外部信号。
+
+    用户正开着这个对话时结果已经在眼前，不再登记通知。
+    """
     if run.status not in _TERMINAL_COPY or not run.message_id:
         return None
     if run.status == "interrupted" and not notify_interrupted:
+        return None
+    if is_viewing(run.user_id, run.conversation_id):
         return None
     source = db.execute(
         select(Conversation.user_id, Conversation.title).where(Conversation.id == run.conversation_id)
@@ -52,6 +67,49 @@ def enqueue_run_notification(
         title=title,
         body=body,
     )
+
+
+READ_RETENTION = timedelta(days=7)
+UNREAD_RETENTION = timedelta(days=30)
+_PURGE_USER_BATCH = 200
+
+
+def purge_expired_notifications(session_factory, *, now=None) -> int:
+    """已读保留 7 天、未读保留 30 天；逐个用户持锁删除，各自提交。"""
+    current = now or utc_now()
+    read_before = current - READ_RETENTION
+    unread_before = current - UNREAD_RETENTION
+    expired = or_(
+        and_(Notification.read_at.is_not(None), Notification.read_at < read_before),
+        and_(Notification.read_at.is_(None), Notification.created_at < unread_before),
+    )
+    deleted = 0
+    with session_factory() as db:
+        user_ids = list(db.scalars(select(Notification.user_id).where(expired).distinct().limit(_PURGE_USER_BATCH)))
+    for user_id in user_ids:
+        with session_factory() as db:
+            repository = NotificationRepository(db)
+            state = repository.lock_state(user_id)
+            if state is None:
+                continue
+            deleted += repository.delete_expired(user_id, state, read_before=read_before, unread_before=unread_before)
+            db.commit()
+    return deleted
+
+
+async def purge_expired_notifications_daily() -> None:
+    """定时任务入口：多 worker 用当天的 Redis 锁去重，失败只记日志。"""
+    from app.core.revocation import get_redis
+    from app.db.database import SessionLocal
+
+    try:
+        day = utc_now().strftime("%Y%m%d")
+        if not await asyncio.to_thread(get_redis().set, f"notification_purge:lock:{day}", "1", nx=True, ex=23 * 3600):
+            return
+        deleted = await asyncio.to_thread(purge_expired_notifications, SessionLocal)
+        logger.info(f"notification_purge_done deleted={deleted}")
+    except Exception:  # noqa: BLE001 — 清理失败不影响业务，下次再删
+        logger.warning("notification_purge_failed", exc_info=True)
 
 
 def get_unread_conversation_ids(db: Session, user_id: str) -> list[str]:

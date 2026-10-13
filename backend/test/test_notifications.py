@@ -59,6 +59,27 @@ def db():
     engine.dispose()
 
 
+class FakeRedis:
+    def __init__(self):
+        self.values = {}
+
+    def set(self, key, value, ex=None):
+        self.values[key] = (value, ex)
+
+    def delete(self, key):
+        self.values.pop(key, None)
+
+    def exists(self, key):
+        return int(key in self.values)
+
+
+@pytest.fixture(autouse=True)
+def fake_redis(monkeypatch):
+    redis = FakeRedis()
+    monkeypatch.setattr("app.services.conversation_viewing.get_redis", lambda: redis)
+    return redis
+
+
 def add_run(
     db, run_id, *, user_id="user-1", conversation_id="conv-1", message_id=None, status="completed", notify=True
 ):
@@ -448,3 +469,80 @@ def test_notification_migration_round_trip_and_constraints():
             migration.downgrade()
             assert inspect(connection).get_table_names() == ["conversations", "users"]
     engine.dispose()
+
+
+def test_viewed_conversation_skips_notification_but_others_still_notify(db):
+    from app.services.conversation_viewing import mark_viewing
+
+    mark_viewing("user-1", "conv-1")
+    _, watched = add_run(db, "watched", conversation_id="conv-1")
+    _, away = add_run(db, "away", conversation_id="conv-2")
+
+    assert watched is None
+    assert away is not None and away.conversation_id == "conv-2"
+    assert db.get(NotificationUserState, "user-1").revision == 1
+
+
+def test_viewing_marker_is_per_user_and_cleared_on_leave(db):
+    from app.services.conversation_viewing import clear_viewing, mark_viewing
+
+    mark_viewing("user-2", "conv-1")
+    _, other_user_viewing = add_run(db, "other-user-viewing")
+    mark_viewing("user-1", "conv-1")
+    clear_viewing("user-1", "conv-1")
+    _, after_leave = add_run(db, "after-leave")
+
+    assert other_user_viewing is not None
+    assert after_leave is not None
+
+
+def test_viewing_lookup_failure_still_notifies(db, monkeypatch):
+    def broken_redis():
+        raise ConnectionError("redis down")
+
+    monkeypatch.setattr("app.services.conversation_viewing.get_redis", broken_redis)
+    _, notification = add_run(db, "redis-down")
+
+    assert notification is not None
+
+
+def test_purge_keeps_read_7_days_and_unread_30_days(db):
+    from datetime import timedelta
+
+    from app.services.notification_service import purge_expired_notifications
+
+    now = utc_now()
+    rows = {}
+    for name, created_days, read_days in [
+        ("read-old", 10, 8),
+        ("read-recent", 10, 6),
+        ("unread-old", 31, None),
+        ("unread-recent", 29, None),
+    ]:
+        _, notification = add_run(db, name)
+        notification.created_at = now - timedelta(days=created_days)
+        notification.read_at = None if read_days is None else now - timedelta(days=read_days)
+        rows[name] = notification.id
+    _, other_user_old = add_run(db, "other-old", user_id="user-2", conversation_id="conv-other")
+    other_user_old.created_at = now - timedelta(days=40)
+    db.commit()
+    revision_before = db.get(NotificationUserState, "user-1").revision
+
+    engine = db.get_bind()
+    deleted = purge_expired_notifications(lambda: Session(engine), now=now)
+
+    db.expire_all()
+    remaining = set(db.scalars(select(Notification.id)))
+    assert deleted == 3
+    assert remaining == {rows["read-recent"], rows["unread-recent"]}
+    assert db.get(NotificationUserState, "user-1").revision == revision_before + 1
+
+
+def test_api_reports_and_clears_viewing(client, fake_redis):
+    key = "conversation:viewing:user-1:conv-1"
+
+    assert client.put("/api/notifications/viewing/conv-1").status_code == 200
+    assert fake_redis.values[key] == ("1", 30)
+    assert client.delete("/api/notifications/viewing/conv-1").status_code == 200
+    assert key not in fake_redis.values
+    assert client.put("/api/notifications/viewing/bad%20id").status_code == 422

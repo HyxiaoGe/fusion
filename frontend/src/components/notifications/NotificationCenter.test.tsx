@@ -20,7 +20,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
 vi.mock('./NotificationsProvider', () => ({ useNotifications: () => state }));
 vi.mock('@/redux/hooks', () => ({ useAppDispatch: () => dispatch }));
 import NotificationCenter from './NotificationCenter';
-import { openChangelogDialog } from '@/redux/slices/settingsSlice';
+import { openChangelogDialog, openNotificationsDialog } from '@/redux/slices/settingsSlice';
 
 function item(read = false): NotificationItem {
   return {
@@ -148,6 +148,14 @@ describe('通知中心交互', () => {
     expect(screen.getByRole('dialog')).toBeVisible();
     state.sessionKey = 'user-b';
     rerender(<NotificationCenter />);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('底部「查看全部」关闭面板并打开消息盒子', async () => {
+    render(<NotificationCenter />);
+    fireEvent.click(screen.getByRole('button', { name: '通知，1 条未读' }));
+    fireEvent.click(screen.getByRole('button', { name: '查看全部' }));
+    expect(dispatch).toHaveBeenCalledWith(openNotificationsDialog());
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 });

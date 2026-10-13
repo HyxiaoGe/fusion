@@ -1,28 +1,25 @@
 'use client';
 
 import { useEffect, useId, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { AlertCircle, Bell, CheckCircle2, Info, Loader2, ScrollText, X } from 'lucide-react';
+import { Bell, Loader2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useHasMounted } from '@/hooks/useHasMounted';
-import { buildChatConversationPath } from '@/lib/routes/chatRoutes';
-import { cn } from '@/lib/utils';
 import type { NotificationItem } from '@/lib/api/notifications';
 import { useAppDispatch } from '@/redux/hooks';
-import { openChangelogDialog } from '@/redux/slices/settingsSlice';
+import { openNotificationsDialog } from '@/redux/slices/settingsSlice';
+import NotificationListItem, { useOpenNotification } from './NotificationListItem';
 import { useNotifications } from './NotificationsProvider';
 
 export default function NotificationCenter() {
   const hasMounted = useHasMounted();
   const notifications = useNotifications();
-  const router = useRouter();
   const dispatch = useAppDispatch();
-  const { t, i18n } = useTranslation();
+  const openNotification = useOpenNotification();
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const navigatingRef = useRef(false);
-  const navigationSequenceRef = useRef(0);
   const titleId = useId();
 
   useEffect(() => {
@@ -42,14 +39,12 @@ export default function NotificationCenter() {
     // 跳转只关闭面板；对应结果成功展示后的已读回执由聊天页负责。
     navigatingRef.current = true;
     setOpen(false);
-    if (item.target.type === 'changelog') {
-      dispatch(openChangelogDialog({ changelogId: item.target.changelog_id }));
-      return;
-    }
-    // 同一记录再次点击也要重新定位，不能被相同 URL 的展示状态吞掉。
-    navigationSequenceRef.current += 1;
-    const requestId = `${Date.now()}-${navigationSequenceRef.current}`;
-    router.push(`${buildChatConversationPath(item.target.conversation_id)}?message=${encodeURIComponent(item.target.message_id)}&run=${encodeURIComponent(item.target.run_id)}&notification=${requestId}`);
+    openNotification(item);
+  };
+  const viewAll = () => {
+    navigatingRef.current = true;
+    setOpen(false);
+    dispatch(openNotificationsDialog());
   };
   const firstLoading = !notifications.loaded && !notifications.error;
   const label = notifications.unreadCount > 0
@@ -115,30 +110,7 @@ export default function NotificationCenter() {
           )}
           {notifications.items.length > 0 && (
             <ul className="divide-y divide-border/60">
-              {notifications.items.map((item) => {
-                const Icon = item.target.type === 'changelog' ? ScrollText : item.kind === 'run_completed' ? CheckCircle2 : item.kind === 'run_failed' ? AlertCircle : Info;
-                const date = new Date(item.created_at);
-                const dateLabel = Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat(i18n.language, {
-                  timeZone: 'Asia/Shanghai', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-                }).format(date);
-                return (
-                  <li key={item.id}>
-                    <button type="button" data-sidebar-navigation onClick={() => selectNotification(item)}
-                      className={cn('flex w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring', !item.read_at && 'bg-primary/5')}>
-                      <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', item.read_at ? 'text-muted-foreground' : 'text-primary')} aria-hidden="true" />
-                      <span className="min-w-0 flex-1">
-                        <span className={cn('block break-words text-sm', !item.read_at && 'font-semibold')}>{item.title}</span>
-                        {item.body && <span className="mt-1 block break-words text-xs leading-5 text-muted-foreground">{item.body}</span>}
-                        <span className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                          <span>{t(`notifications.businessTypes.${item.business_type ?? 'ai_conversation'}`)}</span>
-                          <time dateTime={item.created_at}>{dateLabel}</time>
-                          <span>{t(item.read_at ? 'notifications.read' : 'notifications.notRead')}</span>
-                        </span>
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
+              {notifications.items.map((item) => <NotificationListItem key={item.id} item={item} onSelect={selectNotification} />)}
             </ul>
           )}
           {notifications.pageError && <p role="alert" className="px-4 pt-3 text-center text-xs text-muted-foreground">{t('notifications.loadMoreFailed')}</p>}
@@ -150,6 +122,11 @@ export default function NotificationCenter() {
               </Button>
             </div>
           )}
+        </div>
+        <div className="flex shrink-0 justify-center border-t px-4 py-2">
+          <Button type="button" variant="ghost" size="sm" className="text-xs" onClick={viewAll}>
+            {t('notifications.viewAll')}
+          </Button>
         </div>
         <span role="status" aria-live="polite" className="sr-only">{label}</span>
       </PopoverContent>

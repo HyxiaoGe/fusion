@@ -57,7 +57,12 @@ class TrajectorySchedulerTests(unittest.IsolatedAsyncioTestCase):
             await scheduler_service.start_scheduler()
 
         self.assertEqual(
-            {"reconcile_trajectory_ledger", "purge_inactive_guests", "generate_daily_inspirations"},
+            {
+                "reconcile_trajectory_ledger",
+                "purge_inactive_guests",
+                "generate_daily_inspirations",
+                "purge_expired_notifications",
+            },
             {options["id"] for _func, options in fake.jobs},
         )
 
