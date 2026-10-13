@@ -4,6 +4,7 @@ import { useEffect, useRef, type RefObject } from 'react';
 import { markNotificationResultsRead } from '@/lib/api/notifications';
 import { notifyNotificationsChanged } from '@/lib/notifications/events';
 import { getChatMessageDomId } from '@/lib/chat/messageDom';
+import { registerBackgroundTask } from '@/lib/scheduler/backgroundScheduler';
 
 export interface PresentedNotificationResult {
   run_id: string;
@@ -79,16 +80,13 @@ export function useReadPresentedNotifications(
       targets.set(element, result);
       observer.observe(element);
     }
-    const timer = window.setInterval(schedule, 15_000);
-    document.addEventListener('visibilitychange', schedule);
-    window.addEventListener('focus', schedule);
+    // 首次由 IntersectionObserver 回调触发；之后按共享节拍和回到前台重试未确认的结果。
+    const unregister = registerBackgroundTask(schedule, { intervalMs: 15_000, runOnStart: false });
     return () => {
       controller.abort();
       observer.disconnect();
       if (frame !== null) window.cancelAnimationFrame(frame);
-      window.clearInterval(timer);
-      document.removeEventListener('visibilitychange', schedule);
-      window.removeEventListener('focus', schedule);
+      unregister();
     };
   }, [containerRef, conversationId, enabled, sessionKey, signature]);
 }

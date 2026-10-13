@@ -45,6 +45,7 @@ import {
   accountSessionSwitchStarted,
 } from "@/redux/actions/authSessionActions";
 import { LoginDialog } from "@/components/auth/LoginDialog";
+import { registerBackgroundTask } from "@/lib/scheduler/backgroundScheduler";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { SettingsDialogFocusProvider } from "@/components/settings/SettingsDialogFocusContext";
 
@@ -164,9 +165,8 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
     // （checkLiveness：取本地 token + 打查 denylist 的 /api/auth/me，被吊销则翻转未登录；
     // 绝不强制轮换 refresh token——强制轮换在慢隧道下会引发失同步被动登出）。另挂一个低频
     // 定时器兜底「长时间聚焦却空闲、不切标签也不发受保护请求」的页面（纯 SSE/阅读态）的盲区。
-    // 已登录时做 SLO/换号对账；未登录时只做无跳转的中央会话恢复。切回标签页常同时触发
-    // focus + visibilitychange，两条路径共用 3 秒去抖窗口。
-    let lastAt = 0;
+    // 已登录时做 SLO/换号对账；未登录时只做无跳转的中央会话恢复。由共享调度器触发：
+    // 回到前台时立即探测一次，另按 5 分钟周期兜底，两次探测至少间隔 3 秒。
     const recoverUnauthenticatedSession = async () => {
       if (initialLocalRecoveryInFlight.current) return;
       initialLocalRecoveryInFlight.current = true;
@@ -195,28 +195,18 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
     const runSessionProbe = () => {
       const path = window.location.pathname + window.location.search;
       if (!isAuthenticated && !canAutoResumeSession(path)) return;
-      const now = Date.now();
-      if (now - lastAt < 3000) return;
-      lastAt = now;
       if (isAuthenticated) {
         dispatch(checkLiveness());
         return;
       }
       void recoverUnauthenticatedSession();
     };
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") runSessionProbe();
-    };
-    window.addEventListener("focus", runSessionProbe);
-    document.addEventListener("visibilitychange", onVisibility);
-    const interval = window.setInterval(runSessionProbe, 5 * 60 * 1000);
     // 保留既有登录态挂载即对账行为；未登录首屏仍交给 maybeSilentLogin，避免双探测竞态。
-    if (isAuthenticated) runSessionProbe();
-    return () => {
-      window.removeEventListener("focus", runSessionProbe);
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.clearInterval(interval);
-    };
+    return registerBackgroundTask(runSessionProbe, {
+      intervalMs: 5 * 60 * 1000,
+      minGapMs: 3000,
+      runOnStart: isAuthenticated,
+    });
   }, [dispatch, isAuthenticated]);
 
   useEffect(() => {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getConversationActivity } from '@/lib/api/chat';
+import { registerBackgroundTask } from '@/lib/scheduler/backgroundScheduler';
 
 /** 有对话在生成时的轮询间隔；都空闲时只在聚焦、切回标签页、本页流结束时拉取。 */
 export const ACTIVITY_POLL_INTERVAL_MS = 15_000;
@@ -46,19 +47,18 @@ export function useConversationActivity(
     }
   }, [sessionKey]);
 
+  // 有对话在生成时按共享节拍轮询；都空闲时节拍跳过，只在登记、回到前台和本页流起止时拉取。
+  const hasActiveStreamsRef = useRef(false);
   useEffect(() => {
     setRemoteStreamingIds(EMPTY_IDS);
     setUnreadIds(EMPTY_IDS);
     if (!sessionKey) return;
-    void refresh();
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') void refresh();
-    };
-    window.addEventListener('focus', onVisible);
-    document.addEventListener('visibilitychange', onVisible);
+    const unregister = registerBackgroundTask((trigger) => {
+      if (trigger === 'tick' && !hasActiveStreamsRef.current) return;
+      void refresh();
+    }, { intervalMs: ACTIVITY_POLL_INTERVAL_MS });
     return () => {
-      window.removeEventListener('focus', onVisible);
-      document.removeEventListener('visibilitychange', onVisible);
+      unregister();
       inflightRef.current?.abort();
     };
   }, [refresh, sessionKey]);
@@ -72,14 +72,7 @@ export function useConversationActivity(
     if (ended || started) void refresh();
   }, [localStreamingIds, refresh]);
 
-  const hasActiveStreams = remoteStreamingIds.length > 0 || localStreamingIds.length > 0;
-  useEffect(() => {
-    if (!hasActiveStreams) return;
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void refresh();
-    }, ACTIVITY_POLL_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [hasActiveStreams, refresh]);
+  hasActiveStreamsRef.current = remoteStreamingIds.length > 0 || localStreamingIds.length > 0;
 
   const streamingConversationIds = useMemo(() => {
     if (remoteStreamingIds.length === 0) return localStreamingIds;
