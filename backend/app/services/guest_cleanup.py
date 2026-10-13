@@ -23,9 +23,10 @@ _LOCK_TTL_SECONDS = 50 * 60
 _CHINA_TZ = timezone(timedelta(hours=8))
 
 
-def _china_naive(moment: datetime) -> datetime:
-    # users.created_at 是不带时区的北京时间
-    return moment.astimezone(_CHINA_TZ).replace(tzinfo=None)
+def _utc_naive(moment: datetime) -> datetime:
+    # users.created_at 是不带时区的列：写入的北京时间会被数据库按会话时区（UTC）换算后去掉时区，
+    # 实际存的是 UTC 时间。按北京时间比较会让截止点晚 8 小时，游客提前 8 小时被删。
+    return moment.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _purge(session_factory, *, created_before: datetime, active_since: datetime | None) -> int:
@@ -52,11 +53,11 @@ def purge_inactive_guests(session_factory=SessionLocal, *, now: datetime | None 
     current = now or datetime.now(timezone.utc)
     unused = _purge(
         session_factory,
-        created_before=_china_naive(current - timedelta(hours=settings.GUEST_UNUSED_HOURS)),
+        created_before=_utc_naive(current - timedelta(hours=settings.GUEST_UNUSED_HOURS)),
         active_since=None,
     )
     active_since = current - timedelta(days=settings.GUEST_INACTIVE_DAYS)
-    inactive = _purge(session_factory, created_before=_china_naive(active_since), active_since=active_since)
+    inactive = _purge(session_factory, created_before=_utc_naive(active_since), active_since=active_since)
     return unused, inactive
 
 

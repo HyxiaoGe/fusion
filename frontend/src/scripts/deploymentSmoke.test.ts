@@ -12,7 +12,9 @@ import {
   resolvePlaywrightChromium,
   resolvePlaywrightModuleSpecifier,
   resolveSmokeBaseUrl,
+  readStoredGuestToken,
   resolveSmokeStorageStatePath,
+  resolveUsableStorageState,
   validateDeploymentSmokeResult,
 } from '../../scripts/smoke-dev-deployment-helpers.mjs';
 
@@ -126,5 +128,41 @@ describe('deployment smoke helpers', () => {
 
     const validateAt = smokeScript.indexOf('validateDeploymentSmokeResult(result);');
     expect(smokeScript.indexOf('context.storageState({ path: storageStatePath })')).toBeGreaterThan(validateAt);
+  });
+
+  it('保存的游客已被清理（令牌返回 401）时不再使用保存的存储，按新访客打开', async () => {
+    const state = JSON.stringify({
+      cookies: [],
+      origins: [
+        {
+          origin: 'http://127.0.0.1:3004',
+          localStorage: [{ name: 'guest_session', value: JSON.stringify({ token: 'guest-token', userId: 'u', expiresAt: 1 }) }],
+        },
+      ],
+    });
+    expect(readStoredGuestToken(JSON.parse(state))).toBe('guest-token');
+    expect(readStoredGuestToken({ origins: [] })).toBeNull();
+
+    const requests: Array<{ url: string; auth: string | undefined }> = [];
+    const deps = (status: number | Error) => ({
+      baseUrl: 'http://127.0.0.1:3004',
+      fileExists: () => true,
+      readFile: () => state,
+      fetchImpl: async (url: URL, init: { headers: Record<string, string> }) => {
+        requests.push({ url: String(url), auth: init.headers.Authorization });
+        if (status instanceof Error) throw status;
+        return { status };
+      },
+    });
+
+    await expect(resolveUsableStorageState('/cache/state.json', deps(401))).resolves.toBeNull();
+    expect(requests[0]).toEqual({ url: 'http://127.0.0.1:3004/api/auth/me/entitlements', auth: 'Bearer guest-token' });
+    await expect(resolveUsableStorageState('/cache/state.json', deps(200))).resolves.toBe('/cache/state.json');
+    // 网络错误不等于游客失效，照常使用，由冒烟本身报告
+    await expect(resolveUsableStorageState('/cache/state.json', deps(new Error('down')))).resolves.toBe('/cache/state.json');
+    await expect(
+      resolveUsableStorageState('/cache/state.json', { ...deps(200), fileExists: () => false }),
+    ).resolves.toBeNull();
+    await expect(resolveUsableStorageState(null, deps(200))).resolves.toBeNull();
   });
 });
