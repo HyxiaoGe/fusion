@@ -564,11 +564,12 @@ def test_purge_keeps_read_7_days_and_unread_30_days(db):
     assert db.get(NotificationUserState, "user-1").revision == revision_before + 1
 
 
-def test_api_reports_and_clears_viewing(client, fake_redis):
-    key = "conversation:viewing:user-1:conv-1"
+def test_api_clears_viewing(client, fake_redis):
+    from app.services.conversation_viewing import mark_viewing
 
-    assert client.put("/api/notifications/viewing/conv-1").status_code == 200
-    assert fake_redis.values[key] == ("1", 30)
+    key = "conversation:viewing:user-1:conv-1"
+    mark_viewing("user-1", "conv-1")
+
     assert client.delete("/api/notifications/viewing/conv-1").status_code == 200
     assert key not in fake_redis.values
-    assert client.put("/api/notifications/viewing/bad%20id").status_code == 422
+    assert client.delete("/api/notifications/viewing/bad%20id").status_code == 422
