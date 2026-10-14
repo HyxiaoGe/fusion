@@ -10,6 +10,7 @@ ALLOWED_LLM_PHASES = frozenset(
         "generate_title",
         "suggest_questions",
         "generate_inspirations",
+        "consolidate_user_memory",
         "file_processing",
         "fallback_language",
         "eval_judge",

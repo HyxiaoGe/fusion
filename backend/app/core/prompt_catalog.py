@@ -53,6 +53,12 @@ PROMPT_SPECS = (
         "生成首页今日灵感",
         ("today", "capabilities"),
     ),
+    PromptSpec(
+        "consolidate_user_memory",
+        "consolidate-user-memory",
+        "整理用户记忆",
+        ("today", "memories", "conversation"),
+    ),
     PromptSpec("file_analysis", "file-analysis", "文件分析", ("query", "file_content")),
     PromptSpec(
         "file_content_enhancement",

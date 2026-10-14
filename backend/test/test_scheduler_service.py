@@ -62,6 +62,7 @@ class TrajectorySchedulerTests(unittest.IsolatedAsyncioTestCase):
                 "purge_inactive_guests",
                 "generate_daily_inspirations",
                 "purge_expired_notifications",
+                "consolidate_user_memories",
             },
             {options["id"] for _func, options in fake.jobs},
         )
