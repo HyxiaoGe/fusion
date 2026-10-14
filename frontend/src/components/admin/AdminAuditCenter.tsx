@@ -2,21 +2,20 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Activity, Boxes, MessagesSquare, ScrollText, Users } from 'lucide-react';
+import { Boxes, MessagesSquare, ScrollText, Users } from 'lucide-react';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { buttonVariants } from '@/components/ui/button';
 import styles from './AdminSurface.module.css';
 import AdminAuditEventsPanel from './AdminAuditEventsPanel';
 import AdminConversationsPanel from './AdminConversationsPanel';
-import AdminPerformancePanel from './AdminPerformancePanel';
 import AdminUsersPanel from './AdminUsersPanel';
 import AdminModelsPanel from './AdminModelsPanel';
 import {
   buildAdminAuditUrl, parseAdminAuditRoute, type AdminAuditRoute, type AdminAuditTab,
 } from '@/lib/admin/adminAuditRoute';
 
-type OpenedDetail = { kind: 'user' | 'conversation' | 'model' | 'performance'; id: string };
+type OpenedDetail = { kind: 'user' | 'conversation' | 'model'; id: string };
 
 function withoutDetail(route: AdminAuditRoute): AdminAuditRoute {
   if (route.tab === 'conversations') {
@@ -77,8 +76,7 @@ export default function AdminAuditCenter() {
     if (!opened) return;
     const stillOpen = (opened.kind === 'user' && route.tab === 'users' && route.userId === opened.id)
       || (opened.kind === 'conversation' && route.tab === 'conversations' && route.conversationId === opened.id)
-      || (opened.kind === 'model' && route.tab === 'models' && route.modelId === opened.id)
-      || (opened.kind === 'performance' && route.tab === 'performance' && route.runId === opened.id);
+      || (opened.kind === 'model' && route.tab === 'models' && route.modelId === opened.id);
     if (!stillOpen) openedDetailRef.current = null;
   }, [route]);
 
@@ -168,26 +166,10 @@ export default function AdminAuditCenter() {
     }
     router.replace(buildAdminAuditUrl({ tab: 'models' }), { scroll: false });
   }, [route.modelId, router]);
-  const handleTogglePerformance = useCallback((runId: string | null) => {
-    if (runId) {
-      openedDetailRef.current = { kind: 'performance', id: runId };
-      const nextRoute: AdminAuditRoute = { tab: 'performance', runId };
-      showRoute(nextRoute);
-      router.push(buildAdminAuditUrl(nextRoute), { scroll: false });
-      return;
-    }
-    if (openedDetailRef.current?.kind === 'performance' && openedDetailRef.current.id === route.runId) {
-      openedDetailRef.current = null;
-      router.back();
-      return;
-    }
-    router.replace(buildAdminAuditUrl({ tab: 'performance' }), { scroll: false });
-  }, [route.runId, router, showRoute]);
 
   const usersRoute = routeSnapshots.users ?? { tab: 'users' };
   const conversationsRoute = routeSnapshots.conversations ?? { tab: 'conversations' };
   const modelsRoute = routeSnapshots.models ?? { tab: 'models' };
-  const performanceRoute = routeSnapshots.performance ?? { tab: 'performance' };
 
   if (accessRevoked) {
     return (
@@ -207,7 +189,6 @@ export default function AdminAuditCenter() {
           <TabsPrimitive.Trigger value="users" className={buttonVariants({ variant: 'ghost' })}><Users />用户</TabsPrimitive.Trigger>
           <TabsPrimitive.Trigger value="conversations" className={buttonVariants({ variant: 'ghost' })}><MessagesSquare />对话</TabsPrimitive.Trigger>
           <TabsPrimitive.Trigger value="models" className={buttonVariants({ variant: 'ghost' })}><Boxes />模型</TabsPrimitive.Trigger>
-          <TabsPrimitive.Trigger value="performance" className={buttonVariants({ variant: 'ghost' })}><Activity />压测</TabsPrimitive.Trigger>
           <TabsPrimitive.Trigger value="events" className={buttonVariants({ variant: 'ghost' })}><ScrollText />访问审计</TabsPrimitive.Trigger>
         </TabsPrimitive.List>
         {visitedTabs.has('users') ? <TabsContent value="users" forceMount hidden={activeTab !== 'users'} className={`${styles.panel} data-[state=inactive]:hidden`}>
@@ -241,13 +222,6 @@ export default function AdminAuditCenter() {
             onOpen={handleOpenModel}
             onBack={handleBackModel}
             onViewConversations={handleViewModelConversations}
-          />
-        </TabsContent> : null}
-        {visitedTabs.has('performance') ? <TabsContent value="performance" forceMount hidden={activeTab !== 'performance'} className={`${styles.panel} data-[state=inactive]:hidden`}>
-          <AdminPerformancePanel
-            onForbidden={handleForbidden}
-            selectedRunId={performanceRoute.runId ?? null}
-            onToggle={handleTogglePerformance}
           />
         </TabsContent> : null}
         {visitedTabs.has('events') ? <TabsContent value="events" forceMount hidden={activeTab !== 'events'} className={`${styles.panel} data-[state=inactive]:hidden`}>

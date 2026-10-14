@@ -12,13 +12,10 @@ import {
   getAdminConversationAgentRuns,
   getAdminConversations,
   getAdminConversationToolCalls,
-  getAdminPerformanceRun,
-  getAdminPerformanceRuns,
   getAdminModel,
   getAdminModels,
   getAdminItineraryStability,
   getAdminUsers,
-  importAdminPerformanceRun,
 } from './adminAudit';
 
 describe('管理员审计 API', () => {
@@ -70,32 +67,16 @@ describe('管理员审计 API', () => {
 
   it('安全编码详情资源 ID', async () => {
     await getAdminConversation('conv/a b');
-    await getAdminPerformanceRun('perf/a b');
     expect(apiRequestMock.mock.calls).toEqual([
       ['/api/admin/audit/conversations/conv%2Fa%20b', {}],
-      ['/api/admin/audit/performance-runs/perf%2Fa%20b', {}],
     ]);
   });
 
-  it('压测导入只发送 JSON 请求体', async () => {
-    const payload = { schema_version: 1, run_id: 'perf-1', environment: 'prod', status: 'completed', safe_summary: { rps: 10 } };
-
-    await importAdminPerformanceRun(payload);
-
-    expect(apiRequestMock).toHaveBeenCalledWith('/api/admin/audit/performance-runs/import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-  });
-
-  it('访问审计和压测列表都使用有界分页', async () => {
+  it('访问审计列表使用有界分页', async () => {
     await getAdminAuditEvents({ page: 3, page_size: 100, action: 'conversation.view' });
-    await getAdminPerformanceRuns({ page: 1, page_size: 25, environment: 'prod' });
 
     expect(apiRequestMock.mock.calls.map(call => call[0])).toEqual([
       '/api/admin/audit/events?page=3&page_size=100&action=conversation.view',
-      '/api/admin/audit/performance-runs?page=1&page_size=25&environment=prod',
     ]);
   });
 

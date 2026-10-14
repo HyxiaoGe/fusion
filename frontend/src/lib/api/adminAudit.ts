@@ -10,9 +10,6 @@ import type {
   AdminFileRecord,
   AdminMessageRecord,
   AdminPage,
-  AdminPerformanceRunDetail,
-  AdminPerformanceRunSummary,
-  AdminPerformanceRunsQuery,
   AdminModelDetail,
   AdminModelsPage,
   AdminModelsQuery,
@@ -22,7 +19,6 @@ import type {
   AdminUserDetail,
   AdminUsersQuery,
   AdminUserSummary,
-  PerformanceRunImportPayload,
 } from '@/types/adminAudit';
 import { apiRequest } from './fetchWithAuth';
 
@@ -122,14 +118,6 @@ export function getAdminAuditEvents(query: AdminAuditEventsQuery = {}, signal?: 
   return get<AdminPage<AdminAuditEventRecord>>(`/events${buildQuery(query)}`, signal);
 }
 
-export function getAdminPerformanceRuns(query: AdminPerformanceRunsQuery = {}, signal?: AbortSignal) {
-  return get<AdminPage<AdminPerformanceRunSummary>>(`/performance-runs${buildQuery(query)}`, signal);
-}
-
-export function getAdminPerformanceRun(runId: string, signal?: AbortSignal) {
-  return get<AdminPerformanceRunDetail>(`/performance-runs/${encodedId(runId)}`, signal);
-}
-
 export function getAdminModels(query: AdminModelsQuery = {}, signal?: AbortSignal) {
   return get<AdminModelsPage>(`/models${buildQuery(query)}`, signal);
 }
@@ -140,12 +128,4 @@ export function getAdminModel(modelId: string, signal?: AbortSignal) {
 
 export function getAdminItineraryStability(query: AdminItineraryStabilityQuery, signal?: AbortSignal) {
   return get<AdminItineraryStabilityResponse>(`/itinerary-stability${buildQuery(query)}`, signal);
-}
-
-export function importAdminPerformanceRun(payload: PerformanceRunImportPayload) {
-  return apiRequest<{ run_id: string; created: boolean }>(`${BASE_PATH}/performance-runs/import`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
 }

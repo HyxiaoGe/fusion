@@ -12,8 +12,6 @@ const apiMocks = vi.hoisted(() => ({
   getAdminConversationToolCalls: vi.fn(),
   getAdminConversationAgentRuns: vi.fn(),
   getAdminConversationFiles: vi.fn(),
-  getAdminPerformanceRuns: vi.fn(),
-  getAdminPerformanceRun: vi.fn(),
   getAdminAuditEvents: vi.fn(),
   getAdminModels: vi.fn(),
   getAdminModel: vi.fn(),
@@ -99,7 +97,7 @@ const modelSummary = {
   catalog_status: 'active', health: { status: 'healthy' },
   capabilities: { vision: true, deepThinking: true, fileSupport: true, functionCalling: true },
   conversation_count: 1, user_count: 1, assistant_message_count: 2, input_tokens: 3, output_tokens: 4,
-  last_used_at: null, agent_run_count: 0, agent_error_count: 0, latest_performance_run: null,
+  last_used_at: null, agent_run_count: 0, agent_error_count: 0,
 };
 
 const emptyStability = {
@@ -143,13 +141,13 @@ describe('AdminAuditCenter', () => {
     navigationMocks.seed('/admin');
   });
 
-  it('提供五个独立管理页签并默认加载用户列表', async () => {
+  it('提供四个独立管理页签并默认加载用户列表', async () => {
     render(<AdminAuditCenter />);
 
     expect(screen.getByRole('tab', { name: '用户' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '对话' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '模型' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '压测' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: '压测' })).toBeNull();
     expect(screen.getByRole('tab', { name: '访问审计' })).toBeInTheDocument();
     await waitFor(() => expect(apiMocks.getAdminUsers).toHaveBeenCalled());
   });
@@ -159,7 +157,7 @@ describe('AdminAuditCenter', () => {
       model_id: 'model-a', name: '模型 A', provider: 'provider-a', provider_display: '提供商 A',
       catalog_status: 'active', health: { status: 'healthy' }, capabilities: { vision: true },
       conversation_count: 1, user_count: 1, assistant_message_count: 2, input_tokens: 3, output_tokens: 4,
-      last_used_at: null, agent_run_count: 0, agent_error_count: 0, latest_performance_run: null,
+      last_used_at: null, agent_run_count: 0, agent_error_count: 0,
     };
     apiMocks.getAdminModels.mockResolvedValue({ ...emptyPage, total: 1, total_pages: 1, items: [model] });
     apiMocks.getAdminModel.mockResolvedValue({
@@ -185,7 +183,7 @@ describe('AdminAuditCenter', () => {
       model_id: 'model-history', name: '历史测试模型', provider: 'p', provider_display: 'P',
       catalog_status: 'historical', health: { status: 'unknown' }, capabilities: {},
       conversation_count: 0, user_count: 0, assistant_message_count: 0, input_tokens: 0, output_tokens: 0,
-      last_used_at: null, agent_run_count: 0, agent_error_count: 0, latest_performance_run: null,
+      last_used_at: null, agent_run_count: 0, agent_error_count: 0,
     };
     apiMocks.getAdminModels.mockResolvedValue({ ...emptyPage, total: 1, total_pages: 1, items: [model] });
     apiMocks.getAdminModel.mockResolvedValue({ ...model, context_window_tokens: null, max_output_tokens: null, knowledge_cutoff: null, description: null, cost_tier: null, recommended_for: [], pricing: null });
@@ -259,7 +257,6 @@ describe('AdminAuditCenter', () => {
     await waitFor(() => expect(apiMocks.getAdminUsers).toHaveBeenCalledTimes(1));
     expect(apiMocks.getAdminConversations).not.toHaveBeenCalled();
     expect(apiMocks.getAdminModels).not.toHaveBeenCalled();
-    expect(apiMocks.getAdminPerformanceRuns).not.toHaveBeenCalled();
     expect(apiMocks.getAdminAuditEvents).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByLabelText('搜索用户'), { target: { value: '尚未提交的草稿' } });
@@ -270,7 +267,6 @@ describe('AdminAuditCenter', () => {
     expect(screen.getByLabelText('搜索用户')).toHaveValue('尚未提交的草稿');
     expect(apiMocks.getAdminUsers).toHaveBeenCalledTimes(1);
     expect(apiMocks.getAdminConversations).not.toHaveBeenCalled();
-    expect(apiMocks.getAdminPerformanceRuns).not.toHaveBeenCalled();
     expect(apiMocks.getAdminAuditEvents).not.toHaveBeenCalled();
   });
 
@@ -349,7 +345,6 @@ describe('AdminAuditCenter', () => {
     expect(apiMocks.getAdminModels).toHaveBeenCalledTimes(1);
     expect(apiMocks.getAdminUsers).not.toHaveBeenCalled();
     expect(apiMocks.getAdminConversations).not.toHaveBeenCalled();
-    expect(apiMocks.getAdminPerformanceRuns).not.toHaveBeenCalled();
     expect(apiMocks.getAdminAuditEvents).not.toHaveBeenCalled();
   });
 
@@ -456,55 +451,12 @@ describe('AdminAuditCenter', () => {
     );
   });
 
-  it('浏览器历史参数变化会恢复页签、用户筛选和压测详情', async () => {
-    apiMocks.getAdminPerformanceRuns.mockResolvedValue({
-      ...emptyPage,
-      total: 1,
-      items: [{
-        run_id: 'perf-1', environment: 'production', model_id: null, status: 'completed',
-        schema_version: 2, started_at: null, finished_at: null, created_at: null,
-      }],
-    });
-    apiMocks.getAdminPerformanceRun.mockResolvedValue({
-      run_id: 'perf-1', environment: 'production', model_id: null, status: 'completed',
-      schema_version: 2, started_at: null, finished_at: null, created_at: null,
-      imported_by_user_id: 'admin-1', safe_summary: { stages: [], resources: null },
-    });
+  it('浏览器历史参数变化会恢复页签和用户筛选', async () => {
     render(<AdminAuditCenter />);
 
     act(() => navigationMocks.setUrl('/admin?tab=conversations&user_id=user-pop'));
     await waitFor(() => expect(screen.getByRole('tab', { name: '对话' })).toHaveAttribute('data-state', 'active'));
     expect(screen.getByLabelText('用户 ID')).toHaveValue('user-pop');
-
-    act(() => navigationMocks.setUrl('/admin?tab=performance&run_id=perf-1'));
-    expect(await screen.findByLabelText('压测详情 perf-1')).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '压测' })).toHaveAttribute('data-state', 'active');
-  });
-
-  it('UI 打开压测详情后收起会真实回到压测列表 URL', async () => {
-    apiMocks.getAdminPerformanceRuns.mockResolvedValue({
-      ...emptyPage,
-      total: 1,
-      items: [{
-        run_id: 'perf-ui', environment: 'production', model_id: null, status: 'completed',
-        schema_version: 2, started_at: null, finished_at: null, created_at: null,
-      }],
-    });
-    apiMocks.getAdminPerformanceRun.mockResolvedValue({
-      run_id: 'perf-ui', environment: 'production', model_id: null, status: 'completed',
-      schema_version: 2, started_at: null, finished_at: null, created_at: null,
-      imported_by_user_id: 'admin-1', safe_summary: { stages: [], resources: null },
-    });
-    navigationMocks.seed('/admin?tab=performance');
-    render(<AdminAuditCenter />);
-    await screen.findByText('perf-ui');
-
-    fireEvent.click(screen.getByRole('button', { name: '查看压测详情 perf-ui' }));
-    expect(await screen.findByLabelText('压测详情 perf-ui')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '收起压测详情 perf-ui' }));
-
-    await waitFor(() => expect(screen.queryByLabelText('压测详情 perf-ui')).toBeNull());
-    expect(navigationMocks.search).toBe('tab=performance');
   });
 
   it('手动把用户筛选从 A 改成 B 后同步 URL，打开详情继续使用 B', async () => {
@@ -720,27 +672,4 @@ describe('AdminAuditCenter', () => {
     expect(screen.queryByText('@secret-user')).toBeNull();
   });
 
-  it('压测详情返回 403 时卸载整个审计中心并清空压测列表', async () => {
-    apiMocks.getAdminPerformanceRuns.mockResolvedValue({
-      ...emptyPage,
-      total: 1,
-      total_pages: 1,
-      items: [{
-        run_id: 'perf-sensitive', environment: 'production', model_id: null, status: 'completed',
-        schema_version: 2, started_at: null, finished_at: null, created_at: '2026-07-12T00:00:00Z',
-      }],
-    });
-    apiMocks.getAdminPerformanceRun.mockRejectedValue(new ApiError('FORBIDDEN', '需要管理员权限', 'req-perf'));
-    navigationMocks.seed('/admin?tab=performance');
-    render(<AdminAuditCenter />);
-    expect(await screen.findByText('perf-sensitive')).toBeInTheDocument();
-    expect(screen.getByText('完整执行')).toBeInTheDocument();
-    expect(screen.getByText(/模型未采集/)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: '查看压测详情 perf-sensitive' }));
-
-    expect(await screen.findByText('管理员权限已失效')).toBeInTheDocument();
-    expect(screen.queryByText('perf-sensitive')).toBeNull();
-    expect(navigationMocks.replace).toHaveBeenLastCalledWith('/admin', { scroll: false });
-  });
 });

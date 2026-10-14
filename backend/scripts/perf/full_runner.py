@@ -242,9 +242,6 @@ def build_import_payload(
         "started_at": started_at,
         "finished_at": finished_at,
     }
-    from app.schemas.admin_audit import AdminPerformanceRunImport
-
-    AdminPerformanceRunImport.model_validate(payload)
     return payload
 
 

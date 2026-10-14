@@ -1212,28 +1212,6 @@ class ModelCatalogControl(Base):
     )
 
 
-class PerformanceRun(Base):
-    """管理员显式导入的脱敏压测汇总。"""
-
-    __tablename__ = "performance_runs"
-
-    run_id = Column(String, primary_key=True)
-    environment = Column(String(30), nullable=False)
-    model_id = Column(String(100), nullable=True)
-    status = Column(String(30), nullable=False)
-    schema_version = Column(Integer, nullable=False, default=1)
-    safe_summary = Column(JSONB, nullable=False)
-    imported_by_user_id = Column(String, nullable=False)
-    started_at = Column(DateTime(timezone=True), nullable=True)
-    finished_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=get_china_time, nullable=False)
-
-    __table_args__ = (
-        Index("ix_performance_runs_created_id", "created_at", "run_id"),
-        Index("ix_performance_runs_environment_created_id", "environment", "created_at", "run_id"),
-    )
-
-
 class EvalSuiteRun(Base):
     """一次回放评测：同一批用例在若干模型上的真实运行。"""
 

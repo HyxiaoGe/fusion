@@ -10,9 +10,8 @@ describe('adminAuditRoute', () => {
     expect(parseAdminAuditRoute(new URLSearchParams('tab=conversations&user_id=user-1&conversation_id=conv-1'))).toEqual({
       tab: 'conversations', userId: 'user-1', conversationId: 'conv-1',
     });
-    expect(parseAdminAuditRoute(new URLSearchParams('tab=performance&run_id=perf-1'))).toEqual({
-      tab: 'performance', runId: 'perf-1',
-    });
+    // 压测页签已删除，旧链接回到默认页签。
+    expect(parseAdminAuditRoute(new URLSearchParams('tab=performance&run_id=perf-1'))).toEqual({ tab: 'users' });
     expect(parseAdminAuditRoute(new URLSearchParams('tab=models&model_id=%20model-1%20'))).toEqual({
       tab: 'models', modelId: 'model-1',
     });
@@ -26,7 +25,7 @@ describe('adminAuditRoute', () => {
     expect(parseAdminAuditRoute(new URLSearchParams('tab=unknown&user_id=secret'))).toEqual({ tab: 'users' });
     expect(parseAdminAuditRoute(new URLSearchParams('tab=events&conversation_id=conv-1'))).toEqual({ tab: 'events' });
     expect(parseAdminAuditRoute(new URLSearchParams('tab=users&user_id=user%0Asecret'))).toEqual({ tab: 'users' });
-    expect(parseAdminAuditRoute(new URLSearchParams(`tab=performance&run_id=${'x'.repeat(201)}`))).toEqual({ tab: 'performance' });
+    expect(parseAdminAuditRoute(new URLSearchParams(`tab=models&model_id=${'x'.repeat(201)}`))).toEqual({ tab: 'models' });
   });
 
   it('只用 URLSearchParams 构建规范 URL', () => {
@@ -34,8 +33,6 @@ describe('adminAuditRoute', () => {
     expect(buildAdminAuditUrl({ tab: 'users', userId: 'user / 1' })).toBe('/admin?tab=users&user_id=user+%2F+1');
     expect(buildAdminAuditUrl({ tab: 'conversations', userId: 'user-1', conversationId: 'conv-1' }))
       .toBe('/admin?tab=conversations&user_id=user-1&conversation_id=conv-1');
-    expect(buildAdminAuditUrl({ tab: 'performance', runId: 'perf-1' }))
-      .toBe('/admin?tab=performance&run_id=perf-1');
     expect(buildAdminAuditUrl({ tab: 'events' })).toBe('/admin?tab=events');
     expect(buildAdminAuditUrl({ tab: 'models', modelId: 'model / 1' })).toBe('/admin?tab=models&model_id=model+%2F+1');
     expect(buildAdminAuditUrl({ tab: 'conversations', modelId: 'model-1' })).toBe('/admin?tab=conversations&model_id=model-1');

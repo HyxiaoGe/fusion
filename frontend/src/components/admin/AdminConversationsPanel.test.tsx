@@ -76,13 +76,13 @@ describe('AdminConversationsPanel', () => {
         model_id: 'model-a', name: '模型 Alpha', provider: 'provider-a', provider_display: '提供商 A',
         catalog_status: 'active', catalog_availability: 'available', health: { status: 'healthy' }, capabilities: {},
         conversation_count: 1, user_count: 1, assistant_message_count: 1, input_tokens: 1, output_tokens: 1,
-        last_used_at: null, agent_run_count: 0, agent_error_count: 0, latest_performance_run: null,
+        last_used_at: null, agent_run_count: 0, agent_error_count: 0,
       },
       {
         model_id: 'model-b', name: '模型 Beta', provider: 'provider-b', provider_display: '提供商 B',
         catalog_status: 'historical', catalog_availability: 'available', health: null, capabilities: {},
         conversation_count: 1, user_count: 1, assistant_message_count: 1, input_tokens: 1, output_tokens: 1,
-        last_used_at: null, agent_run_count: 0, agent_error_count: 0, latest_performance_run: null,
+        last_used_at: null, agent_run_count: 0, agent_error_count: 0,
       },
     ];
     apiMocks.getAdminModels.mockReset().mockImplementation(({ q = '' }: { q?: string }) => {
@@ -362,7 +362,7 @@ describe('AdminConversationsPanel', () => {
             model_id: 'outside-page-current', name: '分页外当前模型', provider: 'provider-c', provider_display: '提供商 C',
             catalog_status: 'active', catalog_availability: 'available', health: null, capabilities: {},
             conversation_count: 0, user_count: 0, assistant_message_count: 0, input_tokens: 0, output_tokens: 0,
-            last_used_at: null, agent_run_count: 0, agent_error_count: 0, latest_performance_run: null,
+            last_used_at: null, agent_run_count: 0, agent_error_count: 0,
           }],
           total: 1,
           total_pages: 1,
@@ -386,7 +386,7 @@ describe('AdminConversationsPanel', () => {
       model_id: 'outside-page-current', name: '分页外当前模型', provider: 'provider-c', provider_display: '提供商 C',
       catalog_status: 'active', catalog_availability: 'available', health: null, capabilities: {},
       conversation_count: 0, user_count: 0, assistant_message_count: 0, input_tokens: 0, output_tokens: 0,
-      last_used_at: null, agent_run_count: 0, agent_error_count: 0, latest_performance_run: null,
+      last_used_at: null, agent_run_count: 0, agent_error_count: 0,
     });
     render(<ControlledConversationsPanel modelIdFilter="outside-page-current" />);
 
@@ -409,7 +409,7 @@ describe('AdminConversationsPanel', () => {
       model_id: 'model-c', name: '模型 Gamma', provider: 'provider-c', provider_display: '提供商 C',
       catalog_status: 'active', catalog_availability: 'available', health: null, capabilities: {},
       conversation_count: 0, user_count: 0, assistant_message_count: 0, input_tokens: 0, output_tokens: 0,
-      last_used_at: null, agent_run_count: 0, agent_error_count: 0, latest_performance_run: null,
+      last_used_at: null, agent_run_count: 0, agent_error_count: 0,
     });
     apiMocks.getAdminModels.mockReset().mockImplementation(() => new Promise(resolve => {
       resolveModels = resolve;
@@ -430,13 +430,13 @@ describe('AdminConversationsPanel', () => {
           model_id: 'model-a', name: '模型 Alpha', provider: 'provider-a', provider_display: '提供商 A',
           catalog_status: 'active', catalog_availability: 'available', health: null, capabilities: {},
           conversation_count: 0, user_count: 0, assistant_message_count: 0, input_tokens: 0, output_tokens: 0,
-          last_used_at: null, agent_run_count: 0, agent_error_count: 0, latest_performance_run: null,
+          last_used_at: null, agent_run_count: 0, agent_error_count: 0,
         },
         {
           model_id: 'model-c', name: '模型 Gamma', provider: 'provider-c', provider_display: '提供商 C',
           catalog_status: 'active', catalog_availability: 'available', health: null, capabilities: {},
           conversation_count: 0, user_count: 0, assistant_message_count: 0, input_tokens: 0, output_tokens: 0,
-          last_used_at: null, agent_run_count: 0, agent_error_count: 0, latest_performance_run: null,
+          last_used_at: null, agent_run_count: 0, agent_error_count: 0,
         },
       ],
       total: 2, total_pages: 1, catalog_availability: 'available', excluded_invalid_model_count: 0,
@@ -531,7 +531,7 @@ describe('AdminConversationsPanel', () => {
         model_id: 'fresh-model', name: '新结果', provider: 'p', provider_display: 'P',
         catalog_status: 'active', catalog_availability: 'available', health: null, capabilities: {},
         conversation_count: 0, user_count: 0, assistant_message_count: 0, input_tokens: 0, output_tokens: 0,
-        last_used_at: null, agent_run_count: 0, agent_error_count: 0, latest_performance_run: null,
+        last_used_at: null, agent_run_count: 0, agent_error_count: 0,
       }],
       total: 1, total_pages: 1, catalog_availability: 'available', excluded_invalid_model_count: 0,
       provider_options: [],

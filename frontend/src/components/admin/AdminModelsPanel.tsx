@@ -209,17 +209,6 @@ function ModelDetail({ model, onViewConversations }: { model: AdminModelDetail; 
         <DetailCard title="能力">
           <CapabilityBadges capabilities={model.capabilities} />
           {model.recommended_for.length ? <div className="mt-3 text-sm"><div className="text-xs text-muted-foreground">推荐场景</div><div className="mt-1 break-words leading-relaxed">{model.recommended_for.map(recommendedForLabel).join('、')}</div></div> : null}
-          <section className="mt-4 min-w-0 border-t border-border pt-4" aria-label="最近压测">
-            <h3 className="mb-2 text-sm font-semibold">最近压测</h3>
-            {model.latest_performance_run ? (
-              <dl className={styles.detailMetrics}>
-                <Metric label="运行 ID" value={model.latest_performance_run.run_id} />
-                <Metric label="状态" value={performanceStatusLabel(model.latest_performance_run.status)} />
-                <Metric label="环境" value={performanceEnvironmentLabel(model.latest_performance_run.environment)} />
-                <Metric label="开始时间" value={formatAdminDate(model.latest_performance_run.started_at)} />
-              </dl>
-            ) : <p className="text-sm text-muted-foreground">暂无关联压测</p>}
-          </section>
         </DetailCard>
       </div>
     </div>
@@ -242,8 +231,6 @@ const CAPABILITY_LABELS: Record<string, string> = { imageGen: '图像生成', de
 
 const COST_TIER_LABELS: Record<string, string> = { low: '低', mid: '中', medium: '中', high: '高' };
 const RECOMMENDED_FOR_LABELS: Record<string, string> = { agent: 'Agent', coding: '编程', long_context: '长上下文', fast_response: '快速响应', general: '通用' };
-const PERFORMANCE_STATUS_LABELS: Record<string, string> = { completed: '已完成', failed: '失败', running: '运行中', stopped: '已停止' };
-const PERFORMANCE_ENVIRONMENT_LABELS: Record<string, string> = { production: '生产环境', prod: '生产环境', staging: '预发布环境', development: '开发环境', dev: '开发环境' };
 
 function CapabilityBadges({ active = true, capabilities, maxVisible }: { active?: boolean; capabilities: Record<string, boolean>; maxVisible?: number }) {
   const labels = Object.entries(CAPABILITY_LABELS).filter(([key]) => capabilities[key]).map(([, label]) => label).filter((label, index, all) => all.indexOf(label) === index);
@@ -291,16 +278,6 @@ function costTierLabel(value: string | null): string {
 function recommendedForLabel(value: string): string {
   const normalized = value.trim();
   return RECOMMENDED_FOR_LABELS[normalized.toLowerCase()] || normalized;
-}
-
-function performanceStatusLabel(value: string): string {
-  const normalized = value.trim();
-  return PERFORMANCE_STATUS_LABELS[normalized.toLowerCase()] || normalized || '未记录';
-}
-
-function performanceEnvironmentLabel(value: string): string {
-  const normalized = value.trim();
-  return PERFORMANCE_ENVIRONMENT_LABELS[normalized.toLowerCase()] || normalized || '未记录';
 }
 
 function tokenLimit(value: number | null): string {

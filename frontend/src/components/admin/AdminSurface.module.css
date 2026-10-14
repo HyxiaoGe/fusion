@@ -20,7 +20,7 @@
   top: 0;
   z-index: 20;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   width: 100%;
   height: auto;
@@ -113,7 +113,6 @@
 .status[data-tone="danger"] { color: color-mix(in oklab, var(--danger) 75%, var(--foreground)); background: var(--danger-bg); border-color: var(--danger-border); }
 
 /* 详情与统计使用稳定的实色分区，正文和诊断数据各自限制阅读宽度。 */
-.panelActions { display: flex; flex-wrap: wrap; gap: 8px; }
 .detailSummary, .detailOverview { min-width: 0; margin-bottom: 22px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
 .detailTitle { overflow-wrap: anywhere; font-size: 21px; font-weight: 600; line-height: 1.4; }
 .detailMetadata { display: grid; min-width: 0; gap: 10px; font-size: 13px; }
@@ -169,28 +168,18 @@
 .modelListMetrics { display: grid; min-width: 0; gap: 9px; }
 .modelListMetrics > dl + dl { padding-top: 9px; border-top: 1px solid var(--border); }
 .modelListMetrics dd { font-variant-numeric: tabular-nums; }
-.stageMetrics { display: grid; min-width: 0; gap: 20px; }
 .metricGroup { min-width: 0; }
-.runMetadata { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); min-width: 0; gap: 14px 20px; }
-.runMetadata[data-layout="dates"] { grid-template-columns: repeat(3, minmax(0, 1fr)); padding-top: 14px; border-top: 1px solid var(--border); }
-.resourceGrid, .stabilitySummary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 0; gap: 20px 24px; }
-.resourceGrid > article, .stabilitySummary > section { min-width: 0; padding-top: 14px; border-top: 1px solid var(--border); }
-.importRegion { margin-bottom: 20px; }
-.importPanel { min-width: 0; padding: 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-subtle); }
-.importEditor.importEditor { min-height: 192px; max-height: 480px; width: 100%; margin-top: 8px; border-color: var(--border-strong); background: var(--bg-elevated); font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.6; }
-.importFooter { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 14px; }
-.importFooter > span { min-width: 0; overflow-wrap: anywhere; }
+.stabilitySummary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 0; gap: 20px 24px; }
+.stabilitySummary > section { min-width: 0; padding-top: 14px; border-top: 1px solid var(--border); }
 
 @media (min-width: 1280px) {
   .conversationDetailGrid { grid-template-columns: minmax(0, 1.8fr) minmax(340px, 0.8fr); }
-  .stageMetrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 767px) {
   .detailIdentity { padding-left: 0; padding-top: 14px; border-left: 0; border-top: 1px solid var(--border); }
-  .detailSection, .statisticsSection, .importPanel { padding: 14px; }
-  .metricGridPrimary, .runMetadata { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .runMetadata[data-layout="dates"] { grid-template-columns: minmax(0, 1fr); }
-  .resourceGrid, .stabilitySummary { grid-template-columns: minmax(0, 1fr); }
+  .detailSection, .statisticsSection { padding: 14px; }
+  .metricGridPrimary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stabilitySummary { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 1199px) {
