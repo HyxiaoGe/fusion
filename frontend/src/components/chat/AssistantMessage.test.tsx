@@ -218,6 +218,24 @@ describe('AssistantMessage', () => {
     useAssistantMessageViewModelMock.mockReturnValue(defaultViewModel());
   });
 
+  it('生成中切到结束后的静态消息时仍带上「本页看着生成结束」，历史消息不带', () => {
+    const props = {
+      message: assistantMessage(),
+      isLastMessage: true,
+      suggestedQuestions: [],
+      isLoadingQuestions: false,
+      activeChatId: 'chat-1',
+      modelName: 'Qwen Max',
+    };
+    const { rerender } = render(<AssistantMessage {...props} isStreaming={true} />);
+    rerender(<AssistantMessage {...props} isStreaming={false} />);
+    expect(assistantResponseStackMock.mock.lastCall?.[0]).toMatchObject({ autoOpenDocument: true });
+
+    assistantResponseStackMock.mockReset();
+    renderAssistant();
+    expect(assistantResponseStackMock.mock.lastCall?.[0]).toMatchObject({ autoOpenDocument: false });
+  });
+
   it('显示 provider 图标和传入模型名，缺少 provider 时回退到机器人图标', () => {
     const { rerender } = renderAssistant({ providerId: 'qwen' });
 

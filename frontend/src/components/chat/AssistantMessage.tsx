@@ -45,6 +45,8 @@ interface AssistantMessageProps {
   modelId?: string | null;
   providerId?: string;
   modelName: string;
+  /** 本次挂载期间看着这条回答生成结束；生成中与结束后是两个组件，标记要在切换之外记录。 */
+  finishedLive?: boolean;
 }
 
 function AssistantMessage({
@@ -66,6 +68,8 @@ function AssistantMessage({
   modelName,
 }: AssistantMessageProps) {
   const shouldUseStreamState = isStreaming;
+  const sawStreamingRef = useRef(isStreaming);
+  if (isStreaming) sawStreamingRef.current = true;
 
   if (shouldUseStreamState) {
     return (
@@ -92,6 +96,7 @@ function AssistantMessage({
 
   return (
     <StaticAssistantMessage
+      finishedLive={sawStreamingRef.current}
       message={message}
       files={files}
       isLastMessage={isLastMessage}
@@ -163,6 +168,7 @@ function AssistantMessageFrame({
   activeChatId,
   providerId,
   modelName,
+  finishedLive = false,
   viewModel,
 }: AssistantMessageProps & { viewModel: AssistantMessageViewModel }) {
   const dispatch = useAppDispatch();
@@ -370,6 +376,7 @@ function AssistantMessageFrame({
             generatedImages={generatedImages}
             mapDataSources={mapDataSources}
             documentDraft={documentDraft}
+            autoOpenDocument={finishedLive}
             onStructuredResultFollowUp={
               isLastMessage && !isCurrentMessageStreaming ? onSelectQuestion : undefined
             }

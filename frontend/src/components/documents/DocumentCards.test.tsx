@@ -85,29 +85,22 @@ describe('DocumentCards', () => {
     expect(latest.map(item => [item.document_id, item.version])).toEqual([['doc-2', 1], ['doc-1', 2]]);
   });
 
-  it('auto-opens the latest document once when the answer finishes generating on this page', async () => {
-    const { rerender } = render(<DocumentCards blocks={[]} generating />);
-    rerender(<DocumentCards blocks={[block()]} generating />);
+  it('auto-opens the latest document once when the answer finished on this page', async () => {
+    const { rerender } = render(<DocumentCards blocks={[]} autoOpen />);
     expect(screen.queryByRole('dialog')).toBeNull();
 
-    rerender(<DocumentCards blocks={[block(), block({ id: 'blk-2', version: 2, operation: 'edited' })]} completed />);
+    rerender(<DocumentCards blocks={[block(), block({ id: 'blk-2', version: 2, operation: 'edited' })]} autoOpen />);
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
     await waitFor(() => expect(getDocumentContentMock).toHaveBeenCalledWith('doc-1', 2, expect.anything()));
   });
 
-  it('does not auto-open for history, interrupted runs, or hidden pages', () => {
-    const { unmount } = render(<DocumentCards blocks={[block()]} completed />);
+  it('does not auto-open without the signal or when the page is hidden', () => {
+    const { unmount } = render(<DocumentCards blocks={[block()]} />);
     expect(screen.queryByRole('dialog')).toBeNull();
     unmount();
 
-    const interrupted = render(<DocumentCards blocks={[block()]} generating />);
-    interrupted.rerender(<DocumentCards blocks={[block()]} />);
-    expect(screen.queryByRole('dialog')).toBeNull();
-    interrupted.unmount();
-
     const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
-    const hidden = render(<DocumentCards blocks={[block()]} generating />);
-    hidden.rerender(<DocumentCards blocks={[block()]} completed />);
+    render(<DocumentCards blocks={[block()]} autoOpen />);
     expect(screen.queryByRole('dialog')).toBeNull();
     visibility.mockRestore();
   });

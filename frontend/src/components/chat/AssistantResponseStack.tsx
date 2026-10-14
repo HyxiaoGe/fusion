@@ -47,6 +47,8 @@ interface AssistantResponseStackProps {
   generatedImages?: GeneratedImageBlock[];
   mapDataSources?: string[];
   documentDraft?: DocumentDraftState | null;
+  /** 回答在本页生成结束时自动打开产出的文档。 */
+  autoOpenDocument?: boolean;
   onStructuredResultFollowUp?: (question: string) => void;
   answerEvidenceSidebar?: AnswerEvidenceSidebarModel | null;
   onSourceClick: (index: number) => void;
@@ -80,6 +82,7 @@ function AssistantResponseStack({
   generatedImages = EMPTY_GENERATED_IMAGES,
   mapDataSources = EMPTY_MAP_DATA_SOURCES,
   documentDraft = null,
+  autoOpenDocument = false,
   onStructuredResultFollowUp,
   answerEvidenceSidebar,
   onSourceClick,
@@ -146,8 +149,7 @@ function AssistantResponseStack({
 
       <DocumentCards
         blocks={documentBlocks}
-        generating={!TERMINAL_ACTIVITY_KINDS.has(activity.kind)}
-        completed={activity.kind === 'completed'}
+        autoOpen={autoOpenDocument && activity.kind === 'completed'}
       />
 
       <GeneratedImages
