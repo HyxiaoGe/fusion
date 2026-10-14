@@ -364,11 +364,23 @@ def build_agent_loop_call_config(
     )
 
 
-def load_user_system_prompt(db, user_id: str) -> str | None:
+@dataclass(frozen=True)
+class UserPromptContext:
+    system_prompt: str | None = None
+    memory: str | None = None
+
+
+def load_user_prompt_context(db, user_id: str) -> UserPromptContext:
     from app.db.models import User as UserModel
+    from app.services.user_memory_service import UserMemoryService
 
     user_record = db.query(UserModel).filter(UserModel.id == user_id).first()
-    return user_record.system_prompt if user_record else None
+    if user_record is None:
+        return UserPromptContext()
+    return UserPromptContext(
+        system_prompt=user_record.system_prompt,
+        memory=UserMemoryService(db).render_for_prompt(user_record),
+    )
 
 
 @with_call_config_prompt_snapshot
@@ -383,7 +395,7 @@ async def prepare_agent_loop_messages(
     original_message: str,
     call_config: AgentLoopCallConfig,
     file_repo_factory: Callable[[Any], Any] | None = None,
-    load_user_system_prompt_fn: Callable[[Any, str], str | None] | None = None,
+    load_user_prompt_context_fn: Callable[[Any, str], UserPromptContext | None] | None = None,
     build_llm_messages_fn: Callable[..., Awaitable[list[PromptMessage | dict]]] | None = None,
     is_image_file_fn: Callable[[str, Any], bool] | None = None,
     preprocess_url_in_message_fn: Callable[..., Awaitable[tuple[Any | None, dict | None, str | None]]] | None = None,
@@ -393,13 +405,13 @@ async def prepare_agent_loop_messages(
     if any(section_id != CONTINUATION_SYSTEM for section_id in extra_system_prompts or []):
         raise ValueError("extra_system_prompts 只能包含已注册的 section identity")
     file_repo_factory = file_repo_factory or FileRepository
-    load_user_system_prompt_fn = load_user_system_prompt_fn or load_user_system_prompt
+    load_user_prompt_context_fn = load_user_prompt_context_fn or load_user_prompt_context
     build_llm_messages_fn = build_llm_messages_fn or build_llm_messages
     is_image_file_fn = is_image_file_fn or is_image_file
     preprocess_url_in_message_fn = preprocess_url_in_message_fn or preprocess_url_in_message
 
     file_repo = file_repo_factory(db)
-    user_system_prompt = load_user_system_prompt_fn(db, user_id)
+    user_context = load_user_prompt_context_fn(db, user_id) or UserPromptContext()
     # 本次请求不带工具定义时不回放工具协议消息（部分模型会返回空回答），历史只带问答文字。
     tool_history = (
         _load_tool_history(db, conversation_id, raw_messages)
@@ -440,7 +452,8 @@ async def prepare_agent_loop_messages(
 
     def assemble(config: AgentLoopCallConfig):
         return assemble_system_prompt(
-            user_system_prompt=user_system_prompt,
+            user_system_prompt=user_context.system_prompt,
+            user_memory=user_context.memory,
             include_current_date=True,
             sections=partial(
                 _run_prompt_sections,

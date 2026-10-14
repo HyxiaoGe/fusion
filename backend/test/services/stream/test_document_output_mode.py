@@ -104,7 +104,7 @@ class DocumentCallConfigTests(unittest.IsolatedAsyncioTestCase):
             original_message="第二天换成迪士尼",
             call_config=config,
             file_repo_factory=lambda _db: object(),
-            load_user_system_prompt_fn=lambda _db, _uid: None,
+            load_user_prompt_context_fn=lambda _db, _uid: None,
             preprocess_user_input=False,
         )
         sections = {section["section_id"]: section["content"] for section in prepared.prompt_snapshot["sections"]}

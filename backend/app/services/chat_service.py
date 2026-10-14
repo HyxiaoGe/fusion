@@ -686,15 +686,15 @@ class ChatService:
             if retry_user_message is None:
                 conversation.messages.append(user_message)
             # 非流式模式：同步构建消息（含图片 base64）
-            from app.db.models import User as UserModel
+            from app.services.stream.agent_loop_request_prep import load_user_prompt_context
 
-            user_record = self.db.query(UserModel).filter(UserModel.id == user_id).first()
-            user_system_prompt = user_record.system_prompt if user_record else None
+            user_context = load_user_prompt_context(self.db, user_id)
             lm_messages = await build_llm_messages(
                 conversation.messages,
                 has_vision=has_vision,
                 file_repo=self.file_repo,
-                user_system_prompt=user_system_prompt,
+                user_system_prompt=user_context.system_prompt,
+                user_memory=user_context.memory,
                 user_id=user_id,
                 conversation_id=conversation.id,
             )

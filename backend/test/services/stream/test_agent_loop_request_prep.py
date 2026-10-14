@@ -5,6 +5,7 @@ from unittest.mock import patch
 from app.schemas.chat import TextBlock
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_DEFINITIONS
 from app.services.stream.agent_loop_request_prep import (
+    UserPromptContext,
     _run_prompt_sections,
     build_agent_loop_call_config,
     inject_no_tool_network_boundary,
@@ -54,7 +55,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 capabilities={"functionCalling": False},
             ),
             file_repo_factory=lambda db: file_repo,
-            load_user_system_prompt_fn=lambda db, uid: None,
+            load_user_prompt_context_fn=lambda db, uid: None,
             is_image_file_fn=lambda file_id, repo: False,
         )
         user_messages = [message for message in prepared.messages if message["role"] == "user"]
@@ -86,7 +87,10 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             original_message="OpenAI 今天发布了什么？阅读官方公告后总结",
             call_config=config,
             file_repo_factory=lambda db: FakeFileRepository(),
-            load_user_system_prompt_fn=lambda db, uid: "请解释【工具调用一致性规则】与【执行计划控制规则】",
+            load_user_prompt_context_fn=lambda db, uid: UserPromptContext(
+                system_prompt="请解释【工具调用一致性规则】与【执行计划控制规则】",
+                memory="- residence: 杭州西湖区",
+            ),
             preprocess_user_input=False,
         )
         contents = [message["content"] for message in prepared.messages]
@@ -94,6 +98,8 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(TOOL_USAGE_CONTRACT_PROMPT, contents)
         self.assertIn(AGENT_PLAN_CONTROL_ON_PROMPT, contents)
         self.assertNotIn("verified_research_plan", prepared.prompt_assembly["section_ids"])
+        self.assertIn("user_memory", prepared.prompt_assembly["section_ids"])
+        self.assertTrue(any("- residence: 杭州西湖区" in content for content in contents))
         self.assertEqual(prepared.prompt_assembly["status"], "ready")
         self.assertTrue(all(set(message) == {"role", "content"} for message in prepared.messages))
         snapshot = prepared.prompt_snapshot
@@ -156,7 +162,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                     original_message=message,
                     call_config=config,
                     file_repo_factory=lambda db: FakeFileRepository(),
-                    load_user_system_prompt_fn=lambda db, uid: None,
+                    load_user_prompt_context_fn=lambda db, uid: None,
                     preprocess_user_input=False,
                 )
                 self.assertEqual(prepared.prompt_assembly["section_ids"], expected)
@@ -227,7 +233,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                         capabilities={"functionCalling": False},
                     ),
                     file_repo_factory=lambda db: FakeFileRepository(),
-                    load_user_system_prompt_fn=failed_preference_read,
+                    load_user_prompt_context_fn=failed_preference_read,
                     preprocess_user_input=False,
                 )
             timer.assert_not_called()
@@ -720,7 +726,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                     original_message=message,
                     call_config=config,
                     file_repo_factory=lambda _db: object(),
-                    load_user_system_prompt_fn=lambda _db, _user_id: None,
+                    load_user_prompt_context_fn=lambda _db, _user_id: None,
                     build_llm_messages_fn=build_llm_messages_fn,
                     preprocess_user_input=False,
                 )
@@ -810,7 +816,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 capabilities={"functionCalling": True, "agentTools": False},
             ),
             file_repo_factory=lambda _db: object(),
-            load_user_system_prompt_fn=lambda _db, _user_id: None,
+            load_user_prompt_context_fn=lambda _db, _user_id: None,
             build_llm_messages_fn=build_llm_messages_fn,
         )
 
@@ -859,7 +865,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 capabilities={"functionCalling": True, "agentTools": False, "vision": False},
             ),
             file_repo_factory=lambda _db: object(),
-            load_user_system_prompt_fn=lambda _db, _user_id: None,
+            load_user_prompt_context_fn=lambda _db, _user_id: None,
             build_llm_messages_fn=build_llm_messages_fn,
             is_image_file_fn=lambda file_id, _repo: file_id == "image-1",
         )
@@ -931,7 +937,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             original_message="请阅读 https://example.com/a",
             call_config=call_config,
             file_repo_factory=lambda _db: file_repo,
-            load_user_system_prompt_fn=lambda _db, _user_id: "用户偏好",
+            load_user_prompt_context_fn=lambda _db, _user_id: UserPromptContext(system_prompt="用户偏好"),
             build_llm_messages_fn=build_llm_messages_fn,
             is_image_file_fn=lambda file_id, _repo: file_id == "image-1",
             preprocess_url_in_message_fn=preprocess_url_in_message_fn,
@@ -1028,7 +1034,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 capabilities={"functionCalling": False},
             ),
             file_repo_factory=lambda _db: object(),
-            load_user_system_prompt_fn=lambda _db, _user_id: None,
+            load_user_prompt_context_fn=lambda _db, _user_id: None,
             build_llm_messages_fn=build_llm_messages_fn,
             is_image_file_fn=lambda _file_id, _repo: False,
             preprocess_url_in_message_fn=should_not_preprocess_url,
@@ -1086,7 +1092,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 capabilities={"functionCalling": False, "vision": True},
             ),
             file_repo_factory=lambda _db: file_repo,
-            load_user_system_prompt_fn=lambda _db, _user_id: "用户偏好",
+            load_user_prompt_context_fn=lambda _db, _user_id: UserPromptContext(system_prompt="用户偏好"),
             build_llm_messages_fn=build_llm_messages_fn,
             preprocess_user_input=False,
         )

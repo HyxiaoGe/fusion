@@ -33,7 +33,7 @@ async def test_continuation_and_summary_consume_same_frozen_local_prompts():
         extra_system_prompts=[CONTINUATION_SYSTEM],
         preprocess_user_input=False,
         file_repo_factory=lambda db: SimpleNamespace(),
-        load_user_system_prompt_fn=lambda db, user: None,
+        load_user_prompt_context_fn=lambda db, user: None,
         build_llm_messages_fn=AsyncMock(return_value=[{"role": "user", "content": "继续"}]),
     )
 
@@ -60,7 +60,7 @@ async def test_unknown_extra_section_is_rejected_instead_of_treating_body_as_ide
             extra_system_prompts=["调用方预先解析的正文"],
             preprocess_user_input=False,
             file_repo_factory=lambda db: SimpleNamespace(),
-            load_user_system_prompt_fn=lambda db, user: None,
+            load_user_prompt_context_fn=lambda db, user: None,
             build_llm_messages_fn=AsyncMock(return_value=[]),
         )
 

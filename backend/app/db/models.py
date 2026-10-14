@@ -64,6 +64,8 @@ class User(Base):
     is_superuser = Column(Boolean, nullable=False, server_default="false", default=False)
     # 游客：服务端签发的匿名身份，没有邮箱和第三方账号，只能使用游客等级开放的功能。
     is_guest = Column(Boolean, nullable=False, server_default="false", default=False)
+    # 记忆：后台从对话里整理用户画像并注入主对话；关闭后既不整理也不注入，已有条目保留。
+    memory_enabled = Column(Boolean, nullable=False, server_default="true", default=True)
     created_at = Column(DateTime, default=get_china_time)
     updated_at = Column(DateTime, default=get_china_time, onupdate=get_china_time)
 
@@ -879,6 +881,24 @@ class Changelog(Base):
         UniqueConstraint("version", name="uq_changelogs_version"),
         Index("ix_changelogs_published_id", "published_at", "id"),
     )
+
+
+class UserMemory(Base):
+    """用户画像的一条记忆：分类 + 一两句自然语言；来源对话删除后条目保留，只断开来源。"""
+
+    __tablename__ = "user_memories"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    category = Column(String(32), nullable=False)
+    content = Column(Text, nullable=False)
+    source_conversation_id = Column(String, ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (Index("ix_user_memories_user_created", "user_id", "created_at"),)
 
 
 class Notification(Base):

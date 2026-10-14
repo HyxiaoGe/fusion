@@ -25,6 +25,7 @@ from app.api import (
     documents,
     files,
     knowledge_bases,
+    memories,
     models,
     notifications,
     prompts,
@@ -253,7 +254,7 @@ async def add_request_id(request: Request, call_next):
 @app.middleware("http")
 async def prevent_admin_audit_caching(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith(("/api/admin", "/api/models", "/api/notifications", "/api/changelogs")):
+    if request.url.path.startswith(("/api/admin", "/api/models", "/api/notifications", "/api/changelogs", "/api/memories")):
         response.headers["Cache-Control"] = "private, no-store"
         response.headers["Pragma"] = "no-cache"
     return response
@@ -408,6 +409,7 @@ app.include_router(documents.router, prefix="/api/documents", tags=["documents"]
 app.include_router(knowledge_bases.router, prefix="/api/knowledge-bases", tags=["knowledge-bases"])
 app.include_router(models.router, prefix="/api/models", tags=["models"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["notifications"])
+app.include_router(memories.router, prefix="/api/memories", tags=["memories"])
 app.include_router(sync.router, prefix="/api/sync", tags=["sync"])
 app.include_router(changelogs.router, prefix="/api/changelogs", tags=["changelogs"])
 app.include_router(changelogs.admin_router, prefix="/api/admin/changelogs", tags=["admin-changelogs"])

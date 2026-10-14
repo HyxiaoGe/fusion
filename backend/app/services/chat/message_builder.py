@@ -74,6 +74,7 @@ async def build_llm_messages(
     conversation_id: Optional[str] = None,
     include_base_system: bool = True,
     tool_transcripts: Optional[Mapping[str, Any]] = None,
+    user_memory: Optional[str] = None,
 ) -> List[PromptMessage]:
     """
     将 content blocks 消息列表转为携带内部段落身份的不可变消息。
@@ -85,7 +86,7 @@ async def build_llm_messages(
     - 当 has_vision=True 时，图片 FileBlock 转为 base64 image_url 内容块
     - 历史消息中的图片仅保留最近 MAX_VISION_HISTORY_TURNS 轮
     - 默认注入 Fusion 身份一致性规则，避免模型自称为上游供应商身份
-    - 用户自定义 system_prompt 注入到 system 角色，仅作背景，不主动引用
+    - 用户自定义 system_prompt 与用户记忆注入到 system 角色，仅作背景，不主动引用
     - 默认注入"当前日期"system 消息，避免模型凭训练数据猜年份
     """
     result: list[PromptMessage] = []
@@ -98,7 +99,7 @@ async def build_llm_messages(
                 content=section.content,
                 section_id=section.section_id,
             )
-            for section in build_base_sections(user_system_prompt)
+            for section in build_base_sections(user_system_prompt, user_memory=user_memory)
         )
 
     # 计算最近 N 轮用户消息的起始索引，用于控制图片注入范围

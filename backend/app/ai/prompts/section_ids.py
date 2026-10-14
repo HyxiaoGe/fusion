@@ -3,6 +3,7 @@
 APP_IDENTITY = "app_identity"
 CURRENT_DATE = "current_date"
 USER_PREFERENCES = "user_preferences"
+USER_MEMORY = "user_memory"
 TOOL_USAGE_CONTRACT = "tool_usage_contract"
 TOOL_SELECTION_POLICY = "tool_selection_policy"
 AGENT_PLAN_CONTROL = "agent_plan_control"
