@@ -1,20 +1,28 @@
 import type { AdminJsonValue } from '@/types/adminAudit';
 
-const ACTION_LABELS: Record<string, string> = {
-  'admin.audit.users.list': '查询用户列表',
-  'admin.audit.user.view': '查看用户详情',
-  'admin.audit.conversations.list': '查询对话列表',
-  'admin.audit.conversation.view': '查看对话详情',
-  'admin.audit.messages.list': '查看对话消息',
-  'admin.audit.tool_calls.list': '查看工具调用',
-  'admin.audit.agent_runs.list': '查看 Agent 运行',
-  'admin.audit.files.list': '查看关联文件',
-  'admin.audit.events.list': '查询访问审计',
-  'admin.audit.performance_run.import': '导入压测记录',
-  'admin.audit.performance_runs.list': '查询压测记录',
-  'admin.audit.performance_run.view': '查看压测详情',
-  'admin.audit.models.list': '查询模型列表',
-  'admin.audit.model.view': '查看模型详情',
+export type AdminAuditActionKind = 'view' | 'modify';
+
+const ACTIONS: Record<string, { label: string; kind: AdminAuditActionKind }> = {
+  'admin.audit.users.list': { label: '查询用户列表', kind: 'view' },
+  'admin.audit.user.view': { label: '查看用户详情', kind: 'view' },
+  'admin.audit.conversations.list': { label: '查询对话列表', kind: 'view' },
+  'admin.audit.conversation.view': { label: '查看对话详情', kind: 'view' },
+  'admin.audit.messages.list': { label: '查看对话消息', kind: 'view' },
+  'admin.audit.tool_calls.list': { label: '查看工具调用', kind: 'view' },
+  'admin.audit.agent_runs.list': { label: '查看 Agent 运行', kind: 'view' },
+  'admin.audit.files.list': { label: '查看关联文件', kind: 'view' },
+  'admin.audit.events.list': { label: '查询操作审计', kind: 'view' },
+  'admin.audit.performance_run.import': { label: '导入压测记录', kind: 'modify' },
+  'admin.audit.performance_runs.list': { label: '查询压测记录', kind: 'view' },
+  'admin.audit.performance_run.view': { label: '查看压测详情', kind: 'view' },
+  'admin.audit.models.list': { label: '查询模型列表', kind: 'view' },
+  'admin.audit.model.view': { label: '查看模型详情', kind: 'view' },
+  model_visibility_changed: { label: '修改模型可见性', kind: 'modify' },
+  'admin.mcp.server.create': { label: '新建 MCP 服务', kind: 'modify' },
+  'admin.mcp.server.update': { label: '修改 MCP 服务配置', kind: 'modify' },
+  'admin.mcp.server.status': { label: '启用或停用 MCP 服务', kind: 'modify' },
+  'admin.mcp.server.test': { label: '测试 MCP 服务连接', kind: 'modify' },
+  'admin.mcp.server.tools_refresh': { label: '刷新 MCP 工具列表', kind: 'modify' },
 };
 
 const RESOURCE_LABELS: Record<string, string> = {
@@ -24,9 +32,11 @@ const RESOURCE_LABELS: Record<string, string> = {
   conversation_tool_calls: '工具调用',
   conversation_agent_runs: 'Agent 运行',
   conversation_files: '关联文件',
-  admin_audit_event: '访问审计',
+  admin_audit_event: '操作审计',
   performance_run: '压测记录',
   model: '模型',
+  model_catalog_control: '模型可见性',
+  mcp_server: 'MCP 服务',
 };
 
 interface AdminAuditAdminPresentation {
@@ -34,7 +44,12 @@ interface AdminAuditAdminPresentation {
 }
 
 export function adminAuditActionLabel(action: string): string {
-  return ACTION_LABELS[action] ?? '其他管理操作';
+  return ACTIONS[action]?.label ?? '其他管理操作';
+}
+
+/** 未登记的动作返回 null，界面不猜测它是查看还是修改。 */
+export function adminAuditActionKind(action: string): AdminAuditActionKind | null {
+  return ACTIONS[action]?.kind ?? null;
 }
 
 export function adminAuditResourceLabel(resourceType: string): string {
@@ -100,6 +115,19 @@ const METADATA_LABELS: Record<string, string> = {
   source: '来源',
   q: '查询条件',
   query: '查询条件',
+  name: '名称',
+  provider: '提供商',
+  changed_fields: '修改字段',
+  connection_reset: '连接已重置',
+  is_enabled: '启用',
+  selectable: '可选择',
+  revision: '版本',
+  health_status: '检测结果',
+  error_code: '错误码',
+  discovered_tool_count: '发现工具数',
+  allowed_tool_count: '授权工具数',
+  removed_allowed_tools: '移除的授权工具',
+  result_saved: '结果已保存',
 };
 
 interface AdminAuditMetadataItem {
@@ -118,7 +146,12 @@ export function formatAdminAuditMetadata(metadata: AdminJsonValue): AdminAuditMe
       return [{ label, value: present ? `已填写${length === null ? '' : `（${length} 字符）`}` : '未填写' }];
     }
     if (typeof value === 'string') return [{ label, value: value.slice(0, 80) }];
-    if (typeof value === 'number' || typeof value === 'boolean') return [{ label, value: String(value) }];
+    if (typeof value === 'number') return [{ label, value: String(value) }];
+    if (typeof value === 'boolean') return [{ label, value: value ? '是' : '否' }];
+    if (Array.isArray(value)) {
+      const items = value.filter((item): item is string => typeof item === 'string').slice(0, 20);
+      return [{ label, value: items.length > 0 ? items.join('、').slice(0, 200) : '无' }];
+    }
     return [];
   });
 }

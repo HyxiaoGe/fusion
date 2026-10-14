@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import type { AdminAuditEventRecord } from '@/types/adminAudit';
 import { AdminEmpty, AdminError, AdminFilterActions, AdminLoading, AdminPagination, AdminPanelHeader, formatAdminDate } from './AdminPanelPrimitives';
 import {
+  adminAuditActionKind,
   adminAuditActionLabel,
   adminAuditResourceLabel,
   formatAdminAuditAdmin,
@@ -47,18 +48,18 @@ export default function AdminAuditEventsPanel() {
 
   return (
     <section>
-      <AdminPanelHeader title="访问审计" description="查看管理员读取用户、对话与敏感详情的留痕。" action={<Button variant="outline" size="sm" onClick={resource.reload}><RefreshCw />刷新</Button>} />
+      <AdminPanelHeader title="操作审计" description="查看管理员读取用户、对话等敏感数据，以及修改模型与 MCP 配置的留痕。" action={<Button variant="outline" size="sm" onClick={resource.reload}><RefreshCw />刷新</Button>} />
       <form className="mb-4 grid max-w-4xl gap-2 md:grid-cols-[1fr_1fr_1fr_auto]" onSubmit={applyFilters}><Input aria-label="审计动作" placeholder="动作，例如 admin.audit.conversation.view" value={draft.action} onChange={event => setDraft(current => ({ ...current, action: event.target.value }))} /><Input aria-label="管理员用户 ID" placeholder="管理员用户 ID" value={draft.admin_user_id} onChange={event => setDraft(current => ({ ...current, admin_user_id: event.target.value }))} /><Input aria-label="目标用户 ID" placeholder="目标用户 ID" value={draft.target_user_id} onChange={event => setDraft(current => ({ ...current, target_user_id: event.target.value }))} /><AdminFilterActions submitLabel="筛选" submitIcon={<Search />} onReset={resetFilters} /></form>
       {resource.loading ? <AdminLoading /> : resource.error ? <AdminError message={resource.error} onRetry={resource.reload} /> : null}
-      {resource.data && resource.data.items.length === 0 ? <AdminEmpty>暂无访问审计记录</AdminEmpty> : null}
-      {resource.data && resource.data.items.length > 0 ? <><div className="overflow-x-auto rounded-xl border border-border"><table className="w-full min-w-[860px] text-left text-sm"><caption className="sr-only">管理员访问审计记录</caption><thead className="bg-muted/30 text-xs text-muted-foreground"><tr><th scope="col" className="p-3">时间</th><th scope="col">管理员</th><th scope="col">操作内容</th><th scope="col">访问对象</th><th scope="col" className="pr-3 text-right">详情</th></tr></thead><tbody>{resource.data.items.map(event => {
+      {resource.data && resource.data.items.length === 0 ? <AdminEmpty>暂无操作审计记录</AdminEmpty> : null}
+      {resource.data && resource.data.items.length > 0 ? <><div className="overflow-x-auto rounded-xl border border-border"><table className="w-full min-w-[860px] text-left text-sm"><caption className="sr-only">管理员操作审计记录</caption><thead className="bg-muted/30 text-xs text-muted-foreground"><tr><th scope="col" className="p-3">时间</th><th scope="col">管理员</th><th scope="col">操作内容</th><th scope="col">访问对象</th><th scope="col" className="pr-3 text-right">详情</th></tr></thead><tbody>{resource.data.items.map(event => {
         const admin = formatAdminAuditAdmin(event.admin_snapshot);
         const targetUser = formatAdminAuditTargetUser(event.target_user, event.target_user_id);
         return (
           <tr key={event.id} className="border-t border-border/60 align-top">
             <td className="whitespace-nowrap p-3">{formatAdminDate(event.created_at)}</td>
             <td aria-label={`审计管理员 ${event.id}`}><div className="font-medium">{admin.primary}</div></td>
-            <td aria-label={`审计操作 ${event.id}`}>{adminAuditActionLabel(event.action)}</td>
+            <td aria-label={`审计操作 ${event.id}`}><AdminAuditActionCell action={event.action} /></td>
             <td aria-label={`审计对象 ${event.id}`}>
               <div className="font-medium">{adminAuditResourceLabel(event.resource_type)}</div>
               {targetUser ? <div className="mt-1 text-xs text-muted-foreground">{targetUser.primary}</div> : null}
@@ -89,12 +90,31 @@ export default function AdminAuditEventsPanel() {
         >
           <DialogHeader>
             <DialogTitle>审计事件详情</DialogTitle>
-            <DialogDescription>查看本次管理员访问的完整标识与安全摘要。</DialogDescription>
+            <DialogDescription>查看本次管理员操作的完整标识与安全摘要。</DialogDescription>
           </DialogHeader>
           {selectedEvent ? <AdminAuditEventDetails event={selectedEvent} /> : null}
         </DialogContent>
       </Dialog>
     </section>
+  );
+}
+
+const ACTION_KIND_LABELS = { view: '查看', modify: '修改' } as const;
+
+function AdminAuditActionCell({ action }: { action: string }) {
+  const kind = adminAuditActionKind(action);
+  return (
+    <div className="flex items-center gap-2">
+      {kind ? (
+        <span
+          data-kind={kind}
+          className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-medium ${kind === 'modify' ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300' : 'bg-muted text-muted-foreground'}`}
+        >
+          {ACTION_KIND_LABELS[kind]}
+        </span>
+      ) : null}
+      <span>{adminAuditActionLabel(action)}</span>
+    </div>
   );
 }
 
@@ -112,7 +132,7 @@ function AdminAuditEventDetails({ event }: { event: AdminAuditEventRecord }) {
       <AuditDetail label="Request ID" value={event.request_id || '未记录'} />
       <AuditDetail label="原始操作" value={event.action || '未记录'} />
       <AuditDetail label="原始资源" value={event.resource_type || '未记录'} />
-      {reason ? <AuditDetail label="访问理由" value={reason} /> : null}
+      {reason ? <AuditDetail label="理由" value={reason} /> : null}
       {metadata.length > 0 ? <div><dt className="text-muted-foreground">附加摘要</dt><dd className="mt-1 grid gap-1 rounded bg-muted/40 p-2">{metadata.map(item => <div key={`${item.label}-${item.value}`}><span>{item.label}：</span><span className="break-all">{item.value}</span></div>)}</dd></div> : null}
     </dl>
   );

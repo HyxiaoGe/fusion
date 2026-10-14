@@ -51,21 +51,22 @@ class FakeService:
         self.calls.append(("list",))
         return [self.row]
 
-    def create_server(self, request):
+    def create_server(self, request, *, audit=None):
         self.calls.append(("create", request))
+        audit("server-1", {"name": request.name})
         return self.row
 
-    def update_server(self, server_id, request):
+    def update_server(self, server_id, request, *, audit=None):
         self.calls.append(("update", server_id, request))
         return self.row
 
-    def set_status(self, server_id, request):
+    def set_status(self, server_id, request, *, audit=None):
         self.calls.append(("status", server_id, request))
         self.row.is_enabled = request.is_enabled
         self.row.health_status = "unknown" if request.is_enabled else "disabled"
         return self.row
 
-    async def test_server(self, server_id):
+    async def test_server(self, server_id, *, audit=None):
         self.calls.append(("test", server_id))
         self.row.health_status = "unhealthy"
         self.row.last_error_code = "auth_failed"
@@ -73,13 +74,21 @@ class FakeService:
         self.row.last_checked_at = NOW
         return self.row
 
-    async def refresh_tools(self, server_id):
+    async def refresh_tools(self, server_id, *, audit=None):
         self.calls.append(("refresh", server_id))
         self.row.health_status = "healthy"
         self.row.last_error_code = None
         self.row.last_error_message = None
         self.row.last_checked_at = NOW
         return self.row
+
+
+class FakeAuditService:
+    def __init__(self):
+        self.records = []
+
+    def _record(self, **kwargs):
+        self.records.append(kwargs)
 
 
 class AdminMcpApiTests(unittest.TestCase):
@@ -90,9 +99,11 @@ class AdminMcpApiTests(unittest.TestCase):
         cls.client = TestClient(cls.main.app)
 
     def setUp(self):
-        from app.api.deps import get_current_admin_user, get_mcp_server_service
+        from app.api.deps import get_admin_audit_service, get_current_admin_user, get_mcp_server_service
 
         self.service = FakeService()
+        self.audit_service = FakeAuditService()
+        self.main.app.dependency_overrides[get_admin_audit_service] = lambda: self.audit_service
         self.main.app.dependency_overrides[get_current_admin_user] = lambda: SimpleNamespace(
             id="admin-1", is_superuser=True
         )
@@ -179,6 +190,47 @@ class AdminMcpApiTests(unittest.TestCase):
         self.assertEqual(tested.json()["data"]["last_error_code"], "auth_failed")
         self.assertEqual(refreshed.status_code, 200)
         self.assertEqual(refreshed.json()["data"]["health_status"], "healthy")
+
+    def test_each_write_endpoint_passes_audit_bound_to_admin_and_action(self):
+        captured = []
+
+        def capture(name):
+            def handler(*args, audit=None):
+                captured.append((name, audit))
+                audit("server-1", {"k": name})
+                return self.service.row
+
+            return handler
+
+        async def capture_async(name, server_id, audit):
+            return capture(name)(server_id, audit=audit)
+
+        self.service.update_server = capture("update")
+        self.service.set_status = capture("status")
+        self.service.test_server = lambda server_id, audit=None: capture_async("test", server_id, audit)
+        self.service.refresh_tools = lambda server_id, audit=None: capture_async("refresh", server_id, audit)
+
+        self.client.patch("/api/admin/mcp/servers/server-1", json={"name": "新名称"})
+        self.client.post("/api/admin/mcp/servers/server-1/status", json={"is_enabled": False})
+        self.client.post("/api/admin/mcp/servers/server-1/test")
+        response = self.client.post("/api/admin/mcp/servers/server-1/tools/refresh")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [record["action"] for record in self.audit_service.records],
+            [
+                "admin.mcp.server.update",
+                "admin.mcp.server.status",
+                "admin.mcp.server.test",
+                "admin.mcp.server.tools_refresh",
+            ],
+        )
+        for record in self.audit_service.records:
+            self.assertEqual(record["admin"].id, "admin-1")
+            self.assertEqual(record["resource_type"], "mcp_server")
+            self.assertEqual(record["resource_id"], "server-1")
+            self.assertFalse(record["commit"])
+            self.assertTrue(record["request_id"])
 
 
 if __name__ == "__main__":

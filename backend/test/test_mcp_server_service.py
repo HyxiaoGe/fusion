@@ -41,23 +41,30 @@ class FakeRepository:
     def get_by_name(self, name):
         return next((row for row in self.rows.values() if row.name == name), None)
 
-    def create(self, values):
+    def create(self, values, *, before_commit=None):
         row = SimpleNamespace(id="server-new", config_version=1, **values, created_at=NOW, updated_at=NOW)
         self.rows[row.id] = row
+        if before_commit:
+            before_commit(row.id)
         return row
 
-    def update(self, row, values):
+    def update(self, row, values, *, before_commit=None):
         for key, value in values.items():
             setattr(row, key, value)
         row.config_version += 1
         row.updated_at = NOW
+        if before_commit:
+            before_commit(row.id)
         return row
 
-    def update_if_version(self, server_id, expected_version, values):
+    def update_if_version(self, server_id, expected_version, values, *, before_commit=None):
         row = self.rows.get(server_id)
         if row is None or row.config_version != expected_version:
             return None
-        return self.update(row, values)
+        return self.update(row, values, before_commit=before_commit)
+
+    def commit_only(self, before_commit, server_id):
+        before_commit(server_id)
 
 
 class FakeClientManager:
@@ -418,3 +425,68 @@ class McpServerServiceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class McpServerAuditTests(unittest.TestCase):
+    def _audit(self):
+        records = []
+        return records, lambda server_id, metadata: records.append((server_id, metadata))
+
+    def test_create_update_and_status_record_safe_metadata(self):
+        row = build_row(id="server-1", name="百炼搜索", credential_ref="DASHSCOPE_API_KEY")
+        service = McpServerService(FakeRepository([row]), FakeClientManager(), clock=lambda: NOW)
+        records, audit = self._audit()
+
+        service.update_server("server-1", McpServerUpdate(name="百炼搜索 2", credential_ref="OTHER_KEY"), audit=audit)
+        service.set_status("server-1", McpServerStatusRequest(is_enabled=True), audit=audit)
+
+        self.assertEqual(
+            records[0], ("server-1", {"changed_fields": ["credential_ref", "name"], "connection_reset": True})
+        )
+        self.assertEqual(records[1], ("server-1", {"is_enabled": True}))
+        self.assertNotIn("OTHER_KEY", repr(records))
+
+    def test_refresh_records_tool_counts_and_removed_authorization(self):
+        row = build_row(id="server-1", allowed_tools=["search", "gone"], discovered_tools=[])
+        tools = [{"name": "search", "description": "搜索", "input_schema": {"type": "object"}}]
+        service = McpServerService(FakeRepository([row]), FakeClientManager(tools=tools), clock=lambda: NOW)
+        records, audit = self._audit()
+
+        asyncio.run(service.refresh_tools("server-1", audit=audit))
+
+        self.assertEqual(
+            records,
+            [
+                (
+                    "server-1",
+                    {
+                        "health_status": "healthy",
+                        "error_code": None,
+                        "discovered_tool_count": 1,
+                        "allowed_tool_count": 1,
+                        "removed_allowed_tools": ["gone"],
+                        "result_saved": True,
+                    },
+                )
+            ],
+        )
+
+    def test_probe_still_audited_when_concurrent_change_discards_result(self):
+        row = build_row(id="server-1")
+        repository = FakeRepository([row])
+        client = FakeClientManager()
+        original = client.test_connection
+
+        async def bump_version(config):
+            row.config_version += 1
+            return await original(config)
+
+        client.test_connection = bump_version
+        service = McpServerService(repository, client, clock=lambda: NOW)
+        records, audit = self._audit()
+
+        asyncio.run(service.test_server("server-1", audit=audit))
+
+        self.assertEqual(
+            records, [("server-1", {"health_status": "healthy", "error_code": None, "result_saved": False})]
+        )
