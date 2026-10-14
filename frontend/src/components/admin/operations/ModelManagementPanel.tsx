@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
-  Bot,
   Eye,
   EyeOff,
   Loader2,
@@ -13,7 +12,7 @@ import {
 } from "lucide-react";
 import { SettingsBadge as Badge, SettingsButton as Button, SettingsInput as Input, SettingsSelectTrigger as SelectTrigger, SettingsSelectContent as SelectContent, SettingsSelectItem as SelectItem } from "@/components/settings/SettingsControls";
 import { useSettingsDialogFocus } from "@/components/settings/useSettingsDialogFocus";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AdminPanelHeader } from "@/components/admin/AdminPanelPrimitives";
 import {
   Dialog,
   DialogContent,
@@ -304,30 +303,25 @@ export default function ModelManagementPanel() {
 
   if (loading) {
     return (
-      <Card className="border-muted shadow-sm">
-        <CardContent className="flex h-32 items-center justify-center text-sm text-muted-foreground" role="status">
+      <div className="rounded-lg border flex h-32 items-center justify-center text-sm text-muted-foreground" role="status">
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           正在加载模型管理数据
-        </CardContent>
-      </Card>
+      </div>
     );
   }
 
   if (accessDenied) {
     return (
-      <Card className="border-muted shadow-sm">
-        <CardContent className="flex h-32 items-center justify-center gap-2 text-sm text-muted-foreground" role="status">
+      <div className="rounded-lg border flex h-32 items-center justify-center gap-2 text-sm text-muted-foreground" role="status">
           <AlertTriangle className="h-4 w-4" />
           当前账号无权访问模型管理
-        </CardContent>
-      </Card>
+      </div>
     );
   }
 
   if (!snapshot) {
     return (
-      <Card className="border-muted shadow-sm">
-        <CardContent className="flex items-center justify-between gap-4 p-4">
+      <div className="rounded-lg border flex items-center justify-between gap-4 p-4">
           <div className="flex items-center gap-2 text-sm text-destructive" role="alert">
             <AlertTriangle className="h-4 w-4" />
             {error || "模型管理数据加载失败"}
@@ -336,8 +330,7 @@ export default function ModelManagementPanel() {
             <RefreshCw className="h-4 w-4" />
             重试
           </Button>
-        </CardContent>
-      </Card>
+      </div>
     );
   }
 
@@ -352,30 +345,22 @@ export default function ModelManagementPanel() {
 
   return (
     <div ref={panelRef} tabIndex={-1} className="space-y-4">
-      <Card className="border-muted shadow-sm">
-        <CardHeader className="border-b bg-muted/10 pb-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Bot className="h-5 w-5 text-primary" />
-                模型管理
-              </CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">
-                控制新对话可选择的模型。模型上下线通过运维命令 model_onboard 完成。
-              </p>
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={managementBusy}
-              onClick={() => void refreshManagementData()}
-            >
-              <RefreshCw className="h-4 w-4" />
-              刷新
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4 pt-4">
+      <AdminPanelHeader
+        title="模型可见性"
+        description="控制新对话可选择的模型。模型上下线通过运维命令 model_onboard 完成。"
+        action={
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={managementBusy}
+            onClick={() => void refreshManagementData()}
+          >
+            <RefreshCw className="h-4 w-4" />
+            刷新
+          </Button>
+        }
+      />
+      <div className="space-y-4">
           <div className="grid gap-3 md:grid-cols-2">
             <div className="rounded-md border p-3">
               <p className="text-xs text-muted-foreground">已注册模型</p>
@@ -464,8 +449,7 @@ export default function ModelManagementPanel() {
               </Select>
             </div>
           </div>
-        </CardContent>
-      </Card>
+      </div>
 
       {error && (
         <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
@@ -478,16 +462,13 @@ export default function ModelManagementPanel() {
         </div>
       )}
 
-      <Card className="border-muted shadow-sm">
-        <CardHeader className="border-b bg-muted/10 pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            已注册模型
-            <Badge variant="outline" data-testid="visible-registered-model-count">
-              {visibleModels.length} / {snapshot.models.length}
-            </Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 pt-4">
+      <section className="space-y-3 border-t pt-4" aria-labelledby="registered-models-heading">
+        <h2 id="registered-models-heading" className="flex items-center gap-2 text-base font-semibold">
+          已注册模型
+          <Badge variant="outline" data-testid="visible-registered-model-count">
+            {visibleModels.length} / {snapshot.models.length}
+          </Badge>
+        </h2>
           {snapshot.models.length === 0 && (
             <p className="py-6 text-center text-sm text-muted-foreground">暂无已注册模型</p>
           )}
@@ -539,8 +520,7 @@ export default function ModelManagementPanel() {
               </div>
             </div>
           ))}
-        </CardContent>
-      </Card>
+      </section>
 
       <Dialog open={Boolean(action)} onOpenChange={(open) => !open && closeActionDialog()}>
         <DialogContent className="sm:max-w-lg" onOpenAutoFocus={actionFocus.onOpenAutoFocus} onCloseAutoFocus={actionFocus.onCloseAutoFocus}>
