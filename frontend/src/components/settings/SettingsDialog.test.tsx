@@ -31,13 +31,17 @@ vi.mock('@/components/settings/panels/McpServerManager', () => ({
   default: () => <div>MCP 服务管理面板</div>,
 }));
 
+vi.mock('@/components/settings/panels/MemoryPanel', () => ({
+  default: () => <div>记忆管理面板</div>,
+}));
+
 vi.mock('@/components/settings/panels/ModelManagementPanel', () => ({
   default: () => <div>模型管理面板</div>,
 }));
 
 import { SettingsDialog } from './SettingsDialog';
 
-function mockSettingsDialogState(isSuperuser: boolean, activeSettingsTab = 'general') {
+function mockSettingsDialogState(isSuperuser: boolean, activeSettingsTab = 'general', isAuthenticated = false) {
   useAppSelectorMock.mockImplementation((selector) =>
     selector({
       settings: {
@@ -48,6 +52,7 @@ function mockSettingsDialogState(isSuperuser: boolean, activeSettingsTab = 'gene
         mode: 'system',
       },
       auth: {
+        isAuthenticated,
         user: {
           is_superuser: isSuperuser,
         },
@@ -124,6 +129,24 @@ describe('SettingsDialog 管理员用量入口', () => {
     render(<SettingsDialog />);
 
     expect(screen.queryByRole('tab', { name: /模型管理/ })).toBeNull();
+    expect(screen.getByRole('tabpanel', { name: /常规设置/ })).toBeInTheDocument();
+  });
+
+  it('登录用户可以看到记忆页签并打开记忆面板', () => {
+    mockSettingsDialogState(false, 'memory', true);
+
+    render(<SettingsDialog />);
+
+    expect(screen.getByRole('tab', { name: /记忆/ })).toBeInTheDocument();
+    expect(screen.getByText('记忆管理面板')).toBeInTheDocument();
+  });
+
+  it('未登录时不显示记忆页签，残留选中状态回退到常规设置', () => {
+    mockSettingsDialogState(false, 'memory');
+
+    render(<SettingsDialog />);
+
+    expect(screen.queryByRole('tab', { name: /记忆/ })).toBeNull();
     expect(screen.getByRole('tabpanel', { name: /常规设置/ })).toBeInTheDocument();
   });
 

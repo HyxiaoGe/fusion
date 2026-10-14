@@ -589,6 +589,7 @@
       "tabs": {
         "general": "General", "generalShort": "General",
         "personalization": "AI preferences", "personalizationShort": "AI",
+        "memory": "Memory", "memoryShort": "Memory",
         "usage": "Service usage", "usageShort": "Usage",
         "mcp": "MCP services", "mcpShort": "MCP",
         "models": "Model management", "modelsShort": "Models"
@@ -625,6 +626,53 @@
           "engineer": { "label": "Engineer", "description": "Runnable examples and practical reasoning", "content": "I am an engineer. Use code examples and practical engineering reasoning. Explain concepts with runnable examples and avoid vague statements. Unless I ask for more detail, keep answers under 300 words." },
           "writing": { "label": "Writing assistant", "description": "Direct writing with the conclusion first", "content": "Answer in concise, direct English. Avoid excessive praise and emoji. Start with the conclusion, then explain the reasoning. Remove repetition and empty phrases." },
           "learner": { "label": "Learner", "description": "Simple analogies and clear definitions", "content": "I am unfamiliar with the subject. Explain concepts with simple analogies and define technical terms first. You may suggest a next learning step at the end." }
+        }
+      },
+      "memory": {
+        "title": "Memory",
+        "description": "After a conversation ends, Fusion organizes lasting information about you and uses it in later conversations. You can review, delete, or turn it off at any time.",
+        "toggleLabel": "Enable memory",
+        "toggleHint": "When off, no new memories are organized and existing ones are not used in conversations; they stay until you delete them.",
+        "rulesTitle": "How memory works",
+        "rules": {
+          "whenTitle": "When it updates",
+          "when": "Once a conversation has been idle for 30 minutes, it is organized in the background without affecting ongoing chats. Only conversations from the last 3 days are processed.",
+          "keepTitle": "What is remembered",
+          "keep": "How to address you; where you live and work (for routes, nearby transit, and trip planning); your field; health conditions (with reminders when food, exercise, or medication come up); diet; family; lasting interests; answer preferences; standing instructions for the AI.",
+          "skipTitle": "What is not remembered",
+          "skip": "One-off needs (checking a city's weather doesn't mean you live there); temporary stays and itineraries; ID numbers, bank card numbers, passwords, verification codes; things the AI said and guesses about your personality.",
+          "useTitle": "How it is used",
+          "use": "Memory is included in every conversation but only used when relevant, and never brought up unprompted. If what you say contradicts it, what you say now wins. Titles and suggested questions don't use memory.",
+          "controlTitle": "Your control",
+          "control": "Delete items one by one, clear everything, or turn it off at any time. Deleting a conversation does not delete memories organized from it."
+        },
+        "listTitle": "Remembered",
+        "empty": "No memories yet. They will appear here after a few conversations.",
+        "loading": "Loading memory",
+        "loadFailed": "Failed to load memory",
+        "retry": "Retry",
+        "delete": "Delete",
+        "deleteLabel": "Delete this memory: {{content}}",
+        "deleteFailed": "Delete failed. Please try again.",
+        "toggleFailed": "Update failed. Please try again.",
+        "clearAll": "Clear all",
+        "clearTitle": "Clear all memory?",
+        "clearDescription": "Everything remembered will be deleted and cannot be restored. The memory switch stays as it is.",
+        "clearConfirm": "Clear",
+        "cancel": "Cancel",
+        "clearFailed": "Clear failed. Please try again.",
+        "updatedAt": "Updated {{date}}",
+        "categories": {
+          "name": "Name",
+          "residence": "Home",
+          "workplace": "Workplace",
+          "occupation": "Field",
+          "health": "Health",
+          "diet": "Diet",
+          "family": "Family",
+          "interests": "Interests",
+          "response_style": "Answer style",
+          "other": "Other"
         }
       }
     },
