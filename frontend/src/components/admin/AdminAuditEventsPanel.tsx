@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw, Search } from 'lucide-react';
 import { getAdminAuditEvents } from '@/lib/api/adminAudit';
 import { useAdminAuditResource } from '@/hooks/useAdminAuditResource';
+import { useAdminListParams } from '@/hooks/useAdminListParams';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
@@ -18,48 +19,36 @@ import {
   formatAdminAuditMetadata,
   formatAdminAuditTargetUser,
 } from '@/lib/admin/adminAuditPresentation';
+import { useAdminAccess } from './AdminAccessContext';
 
-export default function AdminAuditEventsPanel({ active = true, onForbidden }: { active?: boolean; onForbidden: () => void }) {
-  const [page, setPage] = useState(1);
-  const [actionDraft, setActionDraft] = useState('');
-  const [action, setAction] = useState('');
-  const [adminUserDraft, setAdminUserDraft] = useState('');
-  const [adminUserId, setAdminUserId] = useState('');
-  const [targetUserDraft, setTargetUserDraft] = useState('');
-  const [targetUserId, setTargetUserId] = useState('');
+const AUDIT_FILTER_KEYS = ['action', 'admin_user_id', 'target_user_id'] as const;
+
+export default function AdminAuditEventsPanel() {
+  const { revoke } = useAdminAccess();
+  const { values, page, setFilters, setPage } = useAdminListParams(AUDIT_FILTER_KEYS);
+  const [draft, setDraft] = useState(values);
+  useEffect(() => setDraft(values), [values]);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const detailTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const loader = useCallback((signal: AbortSignal) => getAdminAuditEvents({ page, page_size: 25, action, admin_user_id: adminUserId, target_user_id: targetUserId }, signal), [action, adminUserId, page, targetUserId]);
-  const resource = useAdminAuditResource(loader, onForbidden);
+  const loader = useCallback((signal: AbortSignal) => getAdminAuditEvents({ page, page_size: 25, ...values }, signal), [page, values]);
+  const resource = useAdminAuditResource(loader, revoke);
   const selectedEvent = resource.data?.items.find(event => event.id === selectedEventId) ?? null;
-
-  useEffect(() => {
-    if (!active) setSelectedEventId(null);
-  }, [active]);
 
   const applyFilters = (event: React.FormEvent) => {
     event.preventDefault();
-    setPage(1);
-    setAction(actionDraft.trim());
-    setAdminUserId(adminUserDraft.trim());
-    setTargetUserId(targetUserDraft.trim());
+    setSelectedEventId(null);
+    setFilters(draft);
   };
 
   const resetFilters = () => {
-    setPage(1);
-    setActionDraft('');
-    setAction('');
-    setAdminUserDraft('');
-    setAdminUserId('');
-    setTargetUserDraft('');
-    setTargetUserId('');
     setSelectedEventId(null);
+    setFilters({});
   };
 
   return (
     <section>
       <AdminPanelHeader title="访问审计" description="查看管理员读取用户、对话与敏感详情的留痕。" action={<Button variant="outline" size="sm" onClick={resource.reload}><RefreshCw />刷新</Button>} />
-      <form className="mb-4 grid max-w-4xl gap-2 md:grid-cols-[1fr_1fr_1fr_auto]" onSubmit={applyFilters}><Input aria-label="审计动作" placeholder="动作，例如 admin.audit.conversation.view" value={actionDraft} onChange={event => setActionDraft(event.target.value)} /><Input aria-label="管理员用户 ID" placeholder="管理员用户 ID" value={adminUserDraft} onChange={event => setAdminUserDraft(event.target.value)} /><Input aria-label="目标用户 ID" placeholder="目标用户 ID" value={targetUserDraft} onChange={event => setTargetUserDraft(event.target.value)} /><AdminFilterActions submitLabel="筛选" submitIcon={<Search />} onReset={resetFilters} /></form>
+      <form className="mb-4 grid max-w-4xl gap-2 md:grid-cols-[1fr_1fr_1fr_auto]" onSubmit={applyFilters}><Input aria-label="审计动作" placeholder="动作，例如 admin.audit.conversation.view" value={draft.action} onChange={event => setDraft(current => ({ ...current, action: event.target.value }))} /><Input aria-label="管理员用户 ID" placeholder="管理员用户 ID" value={draft.admin_user_id} onChange={event => setDraft(current => ({ ...current, admin_user_id: event.target.value }))} /><Input aria-label="目标用户 ID" placeholder="目标用户 ID" value={draft.target_user_id} onChange={event => setDraft(current => ({ ...current, target_user_id: event.target.value }))} /><AdminFilterActions submitLabel="筛选" submitIcon={<Search />} onReset={resetFilters} /></form>
       {resource.loading ? <AdminLoading /> : resource.error ? <AdminError message={resource.error} onRetry={resource.reload} /> : null}
       {resource.data && resource.data.items.length === 0 ? <AdminEmpty>暂无访问审计记录</AdminEmpty> : null}
       {resource.data && resource.data.items.length > 0 ? <><div className="overflow-x-auto rounded-xl border border-border"><table className="w-full min-w-[860px] text-left text-sm"><caption className="sr-only">管理员访问审计记录</caption><thead className="bg-muted/30 text-xs text-muted-foreground"><tr><th scope="col" className="p-3">时间</th><th scope="col">管理员</th><th scope="col">操作内容</th><th scope="col">访问对象</th><th scope="col" className="pr-3 text-right">详情</th></tr></thead><tbody>{resource.data.items.map(event => {
@@ -88,7 +77,7 @@ export default function AdminAuditEventsPanel({ active = true, onForbidden }: { 
           </tr>
         );
       })}</tbody></table></div><AdminPagination page={resource.data} onPageChange={nextPage => { setSelectedEventId(null); setPage(nextPage); }} /></> : null}
-      <Dialog open={active && Boolean(selectedEvent)} onOpenChange={open => { if (!open && active) setSelectedEventId(null); }}>
+      <Dialog open={Boolean(selectedEvent)} onOpenChange={open => { if (!open) setSelectedEventId(null); }}>
         <DialogContent
           className="max-h-[85vh] overflow-y-auto sm:max-w-2xl"
           closeLabel="关闭审计详情"

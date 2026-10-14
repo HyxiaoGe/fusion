@@ -144,7 +144,8 @@ export function UserAvatarMenu() {
           {authStatus === 'succeeded' && user?.is_superuser ? (
             <DropdownMenuItem asChild>
               {/* 管理中心使用独立 CSP，必须整页导航才能让 document 策略生效。 */}
-              <a href="/admin" className="flex cursor-pointer items-center">
+              {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+              <a href="/admin/users" className="flex cursor-pointer items-center">
                 <ShieldCheck className="mr-2 h-4 w-4" />
                 <span>管理中心</span>
               </a>

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import AdminFrame from '@/components/admin/AdminFrame';
 
 export const metadata: Metadata = {
   title: 'Fusion 管理中心',
@@ -6,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return <AdminFrame>{children}</AdminFrame>;
 }

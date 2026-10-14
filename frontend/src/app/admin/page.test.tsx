@@ -1,20 +1,18 @@
-import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/components/admin/AdminGuard', () => ({
-  default: ({ children }: { children: React.ReactNode }) => <div data-testid="admin-guard">{children}</div>,
-}));
+const redirectMock = vi.hoisted(() => vi.fn());
+vi.mock('next/navigation', () => ({ redirect: redirectMock }));
 
-vi.mock('@/components/admin/AdminAuditCenter', () => ({
-  default: () => <div>审计中心内容</div>,
-}));
-
-import AdminPage from './page';
+import AdminIndexPage from './page';
 
 describe('/admin', () => {
-  it('使用独立管理员 guard 与页面，不装配普通聊天侧栏', () => {
-    render(<AdminPage />);
-    expect(screen.getByTestId('admin-guard')).toBeInTheDocument();
-    expect(screen.getByText('审计中心内容')).toBeInTheDocument();
+  it('默认进入用户列表', async () => {
+    await AdminIndexPage({});
+    expect(redirectMock).toHaveBeenLastCalledWith('/admin/users');
+  });
+
+  it('旧版 ?tab= 链接映射到路径路由', async () => {
+    await AdminIndexPage({ searchParams: Promise.resolve({ tab: 'conversations', user_id: 'user-1', model_id: 'm-1' }) });
+    expect(redirectMock).toHaveBeenLastCalledWith('/admin/conversations?user_id=user-1&model_id=m-1');
   });
 });

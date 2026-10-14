@@ -1,8 +1,9 @@
 import i18n from '@/lib/i18n';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { useState } from 'react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/types/api';
+import { adminNavigation } from '@/test/adminNavigation';
+import { renderAdmin } from '@/test/renderAdmin';
 
 const apiMocks = vi.hoisted(() => ({
   getAdminConversations: vi.fn(),
@@ -16,6 +17,8 @@ const apiMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/api/adminAudit', () => apiMocks);
+vi.mock('next/navigation', async () => (await import('@/test/adminNavigation')).nextNavigationMock);
+vi.mock('next/link', async () => (await import('@/test/adminNavigation')).nextLinkMock);
 vi.mock('@/components/models/ProviderIcon', () => ({
   default: ({ providerId }: { providerId: string }) => (
     <span data-testid={`provider-icon-${providerId}`} aria-label={`${providerId} icon`} />
@@ -23,6 +26,7 @@ vi.mock('@/components/models/ProviderIcon', () => ({
 }));
 
 import AdminConversationsPanel from './AdminConversationsPanel';
+import AdminConversationDetailView from './AdminConversationDetailView';
 
 const emptyPage = {
   items: [], total: 0, page: 1, page_size: 25, total_pages: 0, has_next: false, has_prev: false,
@@ -36,25 +40,9 @@ const conversations = ['alpha', 'beta'].map((username, index) => ({
   latest_agent_status: 'completed', input_tokens: 1, output_tokens: 2,
   created_at: null, updated_at: null,
 }));
-const noop = () => undefined;
-
-function ControlledConversationsPanel({
-  active = true, userIdFilter, modelIdFilter, onUserFilterChange = noop, onFiltersChange, onForbidden = noop,
-}: { active?: boolean; userIdFilter?: string; modelIdFilter?: string; onUserFilterChange?: (userId?: string) => void; onFiltersChange?: (filters: { userId?: string; modelId?: string }) => void; onForbidden?: () => void }) {
-  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
-  return (
-    <AdminConversationsPanel
-      active={active}
-      onForbidden={onForbidden}
-      userIdFilter={userIdFilter}
-      modelIdFilter={modelIdFilter}
-      onUserFilterChange={onUserFilterChange}
-      onFiltersChange={onFiltersChange}
-      selectedConversationId={selectedConversationId}
-      onOpen={setSelectedConversationId}
-      onBack={() => setSelectedConversationId(null)}
-    />
-  );
+function renderPanel(search = '') {
+  adminNavigation.reset(search ? `/admin/conversations?${search}` : '/admin/conversations');
+  return renderAdmin(<AdminConversationsPanel />);
 }
 
 describe('AdminConversationsPanel', () => {
@@ -63,7 +51,7 @@ describe('AdminConversationsPanel', () => {
       { ...conversations[0], latest_agent_status: 'incomplete' },
       { ...conversations[1], latest_agent_status: 'new_terminal_state' },
     ], total: 2, total_pages: 1 });
-    render(<ControlledConversationsPanel />);
+    renderPanel();
     expect(await screen.findByTitle('incomplete')).toHaveTextContent('未完整交付');
     expect(screen.queryByText('已完成')).toBeNull();
     expect(screen.getByTitle('new_terminal_state')).toHaveTextContent('new_terminal_state');
@@ -143,7 +131,7 @@ describe('AdminConversationsPanel', () => {
   });
 
   it('列表与详情在身份碰撞时仍展示昵称、username 和 user_id', async () => {
-    render(<ControlledConversationsPanel />);
+    renderPanel();
 
     await screen.findByText('对话 1');
     expect(screen.getByText('@alpha')).toBeInTheDocument();
@@ -151,7 +139,8 @@ describe('AdminConversationsPanel', () => {
     expect(screen.getByText('user-alpha')).toBeInTheDocument();
     expect(screen.getByText('user-beta')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '查看对话详情 conv-1' }));
+    expect(screen.getByRole('link', { name: '查看对话详情 conv-1' })).toHaveAttribute('href', '/admin/conversations/conv-1');
+    renderAdmin(<AdminConversationDetailView conversationId="conv-1" />);
 
     const detail = await screen.findByLabelText('对话详情 conv-1');
     await waitFor(() => expect(detail).toHaveTextContent('同名用户'));
@@ -175,7 +164,7 @@ describe('AdminConversationsPanel', () => {
       total_pages: 1,
     });
 
-    render(<ControlledConversationsPanel />);
+    renderPanel();
 
     const firstTime = await screen.findByLabelText('对话时间 conv-1');
     expect(firstTime).toHaveTextContent('更新：2026/7/12 10:15:00（北京时间）');
@@ -190,9 +179,7 @@ describe('AdminConversationsPanel', () => {
   });
 
   it('Agent runs 与 tool calls 使用独立页码和请求', async () => {
-    render(<ControlledConversationsPanel />);
-    await screen.findByText('对话 1');
-    fireEvent.click(screen.getByRole('button', { name: '查看对话详情 conv-1' }));
+    renderAdmin(<AdminConversationDetailView conversationId="conv-1" />);
 
     const runsSection = await screen.findByLabelText('Agent 运行记录');
     const toolsSection = await screen.findByLabelText('工具调用记录');
@@ -212,8 +199,8 @@ describe('AdminConversationsPanel', () => {
     expect(await within(toolsSection).findByText('tool_2')).toBeInTheDocument();
   });
 
-  it('外部用户 ID 同时同步到筛选输入和实际列表请求', async () => {
-    const { rerender } = render(<ControlledConversationsPanel userIdFilter="user-alpha" />);
+  it('URL 用户 ID 同时同步到筛选输入和实际列表请求', async () => {
+    renderPanel('user_id=user-alpha');
 
     await waitFor(() => expect(apiMocks.getAdminConversations).toHaveBeenCalledWith(
       expect.objectContaining({ user_id: 'user-alpha' }),
@@ -221,7 +208,7 @@ describe('AdminConversationsPanel', () => {
     ));
     expect(screen.getByLabelText('用户 ID')).toHaveValue('user-alpha');
 
-    rerender(<ControlledConversationsPanel userIdFilter="user-beta" />);
+    act(() => adminNavigation.replace('/admin/conversations?user_id=user-beta'));
     await waitFor(() => expect(apiMocks.getAdminConversations).toHaveBeenLastCalledWith(
       expect.objectContaining({ user_id: 'user-beta' }),
       expect.any(AbortSignal),
@@ -229,24 +216,22 @@ describe('AdminConversationsPanel', () => {
     expect(screen.getByLabelText('用户 ID')).toHaveValue('user-beta');
   });
 
-  it('手动应用用户 ID 时通知路由同步最新筛选', async () => {
-    const onUserFilterChange = vi.fn();
-    render(<ControlledConversationsPanel userIdFilter="user-a" onUserFilterChange={onUserFilterChange} />);
+  it('手动应用用户 ID 时写入 URL 并请求最新筛选', async () => {
+    renderPanel('user_id=user-a');
     await screen.findByText('对话 1');
 
     fireEvent.change(screen.getByLabelText('用户 ID'), { target: { value: '  user-b  ' } });
     fireEvent.click(screen.getByRole('button', { name: '应用筛选' }));
 
-    expect(onUserFilterChange).toHaveBeenCalledWith('user-b');
+    expect(adminNavigation.url).toBe('/admin/conversations?user_id=user-b');
     await waitFor(() => expect(apiMocks.getAdminConversations).toHaveBeenLastCalledWith(
       expect.objectContaining({ user_id: 'user-b' }),
       expect.any(AbortSignal),
     ));
   });
 
-  it('重置筛选会清空全部草稿、立即刷新未筛选列表并同步清理路由', async () => {
-    const onFiltersChange = vi.fn();
-    render(<ControlledConversationsPanel userIdFilter="user-a" modelIdFilter="model-a" onFiltersChange={onFiltersChange} />);
+  it('重置筛选会清空全部草稿、立即刷新未筛选列表并同步清理 URL', async () => {
+    renderPanel('user_id=user-a&model_id=model-a');
     await screen.findByText('对话 1');
 
     fireEvent.change(screen.getByLabelText('搜索对话'), { target: { value: '缓存' } });
@@ -270,22 +255,25 @@ describe('AdminConversationsPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '重置筛选' }));
 
-    expect(screen.getByLabelText('搜索对话')).toHaveValue('');
+    expect(adminNavigation.url).toBe('/admin/conversations');
+    await waitFor(() => expect(screen.getByLabelText('搜索对话')).toHaveValue(''));
     expect(screen.getByLabelText('用户 ID')).toHaveValue('');
     expect(trigger).toHaveTextContent('模型不限');
     expect(screen.getByLabelText('是否有工具调用')).toHaveValue('');
     expect(screen.getByLabelText('是否有文件')).toHaveValue('');
     expect(screen.getByLabelText('创建开始日期')).toHaveValue('');
     expect(screen.getByLabelText('创建结束日期')).toHaveValue('');
-    expect(onFiltersChange).toHaveBeenLastCalledWith({ userId: undefined, modelId: undefined });
     await waitFor(() => expect(apiMocks.getAdminConversations).toHaveBeenLastCalledWith(
-      { page: 1, page_size: 25 },
+      {
+        page: 1, page_size: 25, q: '', user_id: undefined, model_id: undefined, has_tools: undefined,
+        has_files: undefined, created_from: '', created_to: '',
+      },
       expect.any(AbortSignal),
     ));
   });
 
   it('模型筛选默认不限，并可按名称或 ID 搜索目录选项', async () => {
-    render(<ControlledConversationsPanel />);
+    renderPanel();
     await screen.findByText('对话 1');
 
     const trigger = screen.getByRole('combobox', { name: '模型筛选' });
@@ -310,9 +298,8 @@ describe('AdminConversationsPanel', () => {
     expect(await within(listbox).findByRole('option', { name: /模型 Alpha/ })).toBeInTheDocument();
   });
 
-  it('外部 model_id 同步到可搜索下拉和请求，手动组合筛选一次通知路由', async () => {
-    const onFiltersChange = vi.fn();
-    render(<ControlledConversationsPanel userIdFilter="user-a" modelIdFilter="model-a" onFiltersChange={onFiltersChange} />);
+  it('URL model_id 同步到可搜索下拉和请求，选择后只在应用筛选时写入 URL', async () => {
+    renderPanel('user_id=user-a&model_id=model-a');
     await waitFor(() => expect(apiMocks.getAdminConversations).toHaveBeenCalledWith(
       expect.objectContaining({ user_id: 'user-a', model_id: 'model-a' }), expect.any(AbortSignal),
     ));
@@ -324,14 +311,13 @@ describe('AdminConversationsPanel', () => {
     expect(within(trigger).getByTestId('provider-icon-provider-a')).toBeInTheDocument();
     fireEvent.click(await screen.findByRole('option', { name: /模型 Beta.*提供商 B.*model-b/ }));
     expect(within(trigger).getByTestId('provider-icon-provider-b')).toBeInTheDocument();
-    expect(onFiltersChange).not.toHaveBeenCalled();
+    expect(adminNavigation.replace).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '应用筛选' }));
-    expect(onFiltersChange).toHaveBeenCalledWith({ userId: 'user-a', modelId: 'model-b' });
+    expect(adminNavigation.url).toBe('/admin/conversations?user_id=user-a&model_id=model-b');
   });
 
   it('目录外的 URL 历史 model_id 仍显示临时选项并支持搜索和清除', async () => {
-    const onFiltersChange = vi.fn();
-    render(<ControlledConversationsPanel modelIdFilter="retired-model-v1" onFiltersChange={onFiltersChange} />);
+    renderPanel('model_id=retired-model-v1');
 
     await waitFor(() => expect(apiMocks.getAdminConversations).toHaveBeenCalledWith(
       expect.objectContaining({ model_id: 'retired-model-v1' }), expect.any(AbortSignal),
@@ -350,7 +336,7 @@ describe('AdminConversationsPanel', () => {
     fireEvent.change(search, { target: { value: '' } });
     fireEvent.click(within(listbox).getByRole('option', { name: '模型不限' }));
     fireEvent.click(screen.getByRole('button', { name: '应用筛选' }));
-    expect(onFiltersChange).toHaveBeenCalledWith({ userId: undefined, modelId: undefined });
+    expect(adminNavigation.url).toBe('/admin/conversations');
   });
 
   it('模型列表超过一页时不把未加载到的当前模型误标为历史模型', async () => {
@@ -388,7 +374,7 @@ describe('AdminConversationsPanel', () => {
       conversation_count: 0, user_count: 0, assistant_message_count: 0, input_tokens: 0, output_tokens: 0,
       last_used_at: null, agent_run_count: 0, agent_error_count: 0,
     });
-    render(<ControlledConversationsPanel modelIdFilter="outside-page-current" />);
+    renderPanel('model_id=outside-page-current');
 
     const trigger = screen.getByRole('combobox', { name: '模型筛选' });
     await waitFor(() => expect(trigger).toHaveTextContent('分页外当前模型'));
@@ -414,7 +400,7 @@ describe('AdminConversationsPanel', () => {
     apiMocks.getAdminModels.mockReset().mockImplementation(() => new Promise(resolve => {
       resolveModels = resolve;
     }));
-    render(<ControlledConversationsPanel modelIdFilter="model-c" />);
+    renderPanel('model_id=model-c');
 
     const trigger = screen.getByRole('combobox', { name: '模型筛选' });
     await waitFor(() => expect(trigger).toHaveTextContent('模型 Gamma'));
@@ -450,7 +436,7 @@ describe('AdminConversationsPanel', () => {
   });
 
   it('搜索框支持方向键高亮、Enter 选择和 Escape 关闭', async () => {
-    render(<ControlledConversationsPanel />);
+    renderPanel();
     const trigger = screen.getByRole('combobox', { name: '模型筛选' });
     fireEvent.click(trigger);
     const search = await screen.findByRole('searchbox', { name: '搜索模型' });
@@ -475,14 +461,13 @@ describe('AdminConversationsPanel', () => {
     apiMocks.getAdminModels.mockReset().mockImplementation(() => new Promise(resolve => {
       resolveModels = resolve;
     }));
-    const onFiltersChange = vi.fn();
-    render(<ControlledConversationsPanel onFiltersChange={onFiltersChange} />);
+    renderPanel();
 
     fireEvent.click(screen.getByRole('combobox', { name: '模型筛选' }));
     expect(await screen.findByText('正在加载模型…')).toBeInTheDocument();
     const search = screen.getByRole('searchbox', { name: '搜索模型' });
     fireEvent.keyDown(search, { key: 'Enter' });
-    expect(onFiltersChange).not.toHaveBeenCalled();
+    expect(adminNavigation.replace).not.toHaveBeenCalled();
 
     resolveModels?.({
       ...emptyPage, catalog_availability: 'available', excluded_invalid_model_count: 0,
@@ -496,12 +481,12 @@ describe('AdminConversationsPanel', () => {
   });
 
   it('模型目录返回 403 时沿用管理中心权限失效处理', async () => {
-    const onForbidden = vi.fn();
     apiMocks.getAdminModels.mockReset().mockRejectedValue(new ApiError('FORBIDDEN', '需要管理员权限', 'req-model-filter'));
-    render(<ControlledConversationsPanel onForbidden={onForbidden} />);
+    renderPanel();
 
     fireEvent.click(screen.getByRole('combobox', { name: '模型筛选' }));
-    await waitFor(() => expect(onForbidden).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('管理员权限已失效')).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: '模型筛选' })).toBeNull();
   });
 
   it('模型搜索请求先 trim 再限制为 200 字符，并中止被后续查询替代的请求', async () => {
@@ -513,7 +498,7 @@ describe('AdminConversationsPanel', () => {
     apiMocks.getAdminModels.mockReset().mockImplementation((query, signal) => new Promise(resolve => {
       requests.push({ query, signal, resolve });
     }));
-    render(<ControlledConversationsPanel />);
+    renderPanel();
 
     fireEvent.click(screen.getByRole('combobox', { name: '模型筛选' }));
     await waitFor(() => expect(requests).toHaveLength(1));
@@ -546,14 +531,5 @@ describe('AdminConversationsPanel', () => {
     });
     await Promise.resolve();
     expect(screen.queryByRole('option', { name: /过期结果/ })).toBeNull();
-  });
-
-  it('切换离开对话页时关闭已打开的模型筛选 Portal', async () => {
-    const view = render(<ControlledConversationsPanel active />);
-    fireEvent.click(screen.getByRole('combobox', { name: '模型筛选' }));
-    expect(await screen.findByRole('listbox', { name: '模型筛选选项' })).toBeInTheDocument();
-
-    view.rerender(<ControlledConversationsPanel active={false} />);
-    await waitFor(() => expect(screen.queryByRole('listbox', { name: '模型筛选选项' })).toBeNull());
   });
 });

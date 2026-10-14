@@ -1,130 +1,54 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Check, ChevronsUpDown, Filter, History, RefreshCw } from 'lucide-react';
-import {
-  getAdminConversation,
-  getAdminConversationAgentRuns,
-  getAdminConversationFiles,
-  getAdminConversationMessages,
-  getAdminConversations,
-  getAdminConversationToolCalls,
-  getAdminModel,
-  getAdminModels,
-} from '@/lib/api/adminAudit';
+import { Check, ChevronsUpDown, Filter, History, RefreshCw } from 'lucide-react';
+import { getAdminConversations, getAdminModel, getAdminModels } from '@/lib/api/adminAudit';
 import { useAdminAuditResource } from '@/hooks/useAdminAuditResource';
+import { useAdminListParams } from '@/hooks/useAdminListParams';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import ProviderIcon from '@/components/models/ProviderIcon';
-import type { AdminConversationsQuery, AdminModelSummary } from '@/types/adminAudit';
+import type { AdminModelSummary } from '@/types/adminAudit';
 import { cn } from '@/lib/utils';
-import AdminExecutionInspector from './AdminExecutionInspector';
-import AdminMessageCard from './AdminMessageCard';
+import { adminPaths, normalizeAdminRouteId } from '@/lib/admin/adminRoutes';
+import { isAdminAccessError } from '@/lib/admin/adminAccess';
+import { useAdminAccess } from './AdminAccessContext';
 import AdminUserIdentity from './AdminUserIdentity';
 import {
   AdminAgentStatus, AdminEmpty, AdminError, AdminFilterActions, AdminFilterField, AdminLoading, AdminPagination, AdminPanelHeader, formatAdminDate, formatNumber,
 } from './AdminPanelPrimitives';
-import { normalizeAdminAuditRouteId } from '@/lib/admin/adminAuditRoute';
-import { isAdminAccessError } from '@/lib/admin/adminAccess';
 import styles from './AdminSurface.module.css';
 
-interface ConversationFilterDraft {
-  q: string;
-  user_id: string;
-  model_id: string;
-  has_tools: '' | 'true' | 'false';
-  has_files: '' | 'true' | 'false';
-  created_from: string;
-  created_to: string;
-}
+const CONVERSATION_FILTER_KEYS = ['q', 'user_id', 'model_id', 'has_tools', 'has_files', 'created_from', 'created_to'] as const;
 
-const EMPTY_FILTER: ConversationFilterDraft = { q: '', user_id: '', model_id: '', has_tools: '', has_files: '', created_from: '', created_to: '' };
-
-interface AdminConversationsPanelProps {
-  active?: boolean;
-  onForbidden: () => void;
-  userIdFilter?: string;
-  modelIdFilter?: string;
-  selectedConversationId: string | null;
-  onUserFilterChange: (userId?: string) => void;
-  onFiltersChange?: (filters: { userId?: string; modelId?: string }) => void;
-  onOpen: (conversationId: string) => void;
-  onBack: () => void;
-}
-
-export default function AdminConversationsPanel({
-  active = true, onForbidden, userIdFilter, modelIdFilter, selectedConversationId, onUserFilterChange, onFiltersChange, onOpen, onBack,
-}: AdminConversationsPanelProps) {
+export default function AdminConversationsPanel() {
   const { t } = useTranslation();
-  const [page, setPage] = useState(1);
-  const [draft, setDraft] = useState<ConversationFilterDraft>(() => ({ ...EMPTY_FILTER, user_id: userIdFilter ?? '', model_id: modelIdFilter ?? '' }));
-  const [filters, setFilters] = useState<AdminConversationsQuery>(() => ({ ...(userIdFilter ? { user_id: userIdFilter } : {}), ...(modelIdFilter ? { model_id: modelIdFilter } : {}) }));
-  const previousUserIdFilterRef = useRef(userIdFilter);
-  const previousModelIdFilterRef = useRef(modelIdFilter);
-  const loader = useCallback(
-    (signal: AbortSignal) => getAdminConversations({ page, page_size: 25, ...filters }, signal),
-    [filters, page],
-  );
-  const resource = useAdminAuditResource(loader, onForbidden);
-
-  useEffect(() => {
-    if (previousUserIdFilterRef.current === userIdFilter) return;
-    previousUserIdFilterRef.current = userIdFilter;
-    const nextUserId = userIdFilter ?? '';
-    setPage(1);
-    setDraft(current => current.user_id === nextUserId ? current : { ...current, user_id: nextUserId });
-    setFilters(current => current.user_id === (nextUserId || undefined)
-      ? current
-      : { ...current, user_id: nextUserId || undefined });
-  }, [userIdFilter]);
-
-  useEffect(() => {
-    if (previousModelIdFilterRef.current === modelIdFilter) return;
-    previousModelIdFilterRef.current = modelIdFilter;
-    const nextModelId = modelIdFilter ?? '';
-    setPage(1);
-    setDraft(current => current.model_id === nextModelId ? current : { ...current, model_id: nextModelId });
-    setFilters(current => current.model_id === (nextModelId || undefined) ? current : { ...current, model_id: nextModelId || undefined });
-  }, [modelIdFilter]);
-
-  if (selectedConversationId) {
-    return (
-      <AdminConversationDetailView
-        key={selectedConversationId}
-        conversationId={selectedConversationId}
-        onBack={onBack}
-        onForbidden={onForbidden}
-      />
-    );
-  }
+  const { revoke } = useAdminAccess();
+  const { values, page, setFilters, setPage } = useAdminListParams(CONVERSATION_FILTER_KEYS);
+  const [draft, setDraft] = useState(values);
+  useEffect(() => setDraft(values), [values]);
+  const loader = useCallback((signal: AbortSignal) => getAdminConversations({
+    page,
+    page_size: 25,
+    q: values.q,
+    user_id: normalizeAdminRouteId(values.user_id),
+    model_id: normalizeAdminRouteId(values.model_id),
+    has_tools: parseBoolean(values.has_tools),
+    has_files: parseBoolean(values.has_files),
+    created_from: values.created_from,
+    created_to: values.created_to,
+  }, signal), [page, values]);
+  const resource = useAdminAuditResource(loader, revoke);
 
   const applyFilters = (event: React.FormEvent) => {
     event.preventDefault();
-    const nextUserId = normalizeAdminAuditRouteId(draft.user_id);
-    const nextModelId = normalizeAdminAuditRouteId(draft.model_id);
-    setPage(1);
-    setFilters({
-      q: draft.q,
-      user_id: nextUserId,
-      model_id: nextModelId,
-      has_tools: parseBoolean(draft.has_tools),
-      has_files: parseBoolean(draft.has_files),
-      created_from: draft.created_from,
-      created_to: draft.created_to,
-    });
-    if (onFiltersChange) onFiltersChange({ userId: nextUserId, modelId: nextModelId });
-    else onUserFilterChange(nextUserId);
+    setFilters(draft);
   };
 
-  const resetFilters = () => {
-    setPage(1);
-    setDraft({ ...EMPTY_FILTER });
-    setFilters({});
-    if (onFiltersChange) onFiltersChange({ userId: undefined, modelId: undefined });
-    else onUserFilterChange(undefined);
-  };
+  const resetFilters = () => setFilters({});
 
   return (
     <section>
@@ -134,14 +58,13 @@ export default function AdminConversationsPanel({
         <AdminFilterField label={t('admin.filters.userId')}><Input aria-label={t('admin.filters.userId')} value={draft.user_id} onChange={event => setDraft(current => ({ ...current, user_id: event.target.value }))} placeholder="用户 ID" /></AdminFilterField>
         <AdminFilterField label={t('admin.filters.model')}>
         <AdminModelFilterCombobox
-          active={active}
           value={draft.model_id}
-          onForbidden={onForbidden}
+          onForbidden={revoke}
           onChange={modelId => setDraft(current => ({ ...current, model_id: modelId }))}
         />
         </AdminFilterField>
-        <AdminFilterField label={t('admin.filters.tools')}><select aria-label={t('admin.filters.tools')} className="px-3 text-sm" value={draft.has_tools} onChange={event => setDraft(current => ({ ...current, has_tools: event.target.value as ConversationFilterDraft['has_tools'] }))}><option value="">工具不限</option><option value="true">有工具</option><option value="false">无工具</option></select></AdminFilterField>
-        <AdminFilterField label={t('admin.filters.files')}><select aria-label={t('admin.filters.files')} className="px-3 text-sm" value={draft.has_files} onChange={event => setDraft(current => ({ ...current, has_files: event.target.value as ConversationFilterDraft['has_files'] }))}><option value="">文件不限</option><option value="true">有文件</option><option value="false">无文件</option></select></AdminFilterField>
+        <AdminFilterField label={t('admin.filters.tools')}><select aria-label={t('admin.filters.tools')} className="px-3 text-sm" value={draft.has_tools} onChange={event => setDraft(current => ({ ...current, has_tools: event.target.value }))}><option value="">工具不限</option><option value="true">有工具</option><option value="false">无工具</option></select></AdminFilterField>
+        <AdminFilterField label={t('admin.filters.files')}><select aria-label={t('admin.filters.files')} className="px-3 text-sm" value={draft.has_files} onChange={event => setDraft(current => ({ ...current, has_files: event.target.value }))}><option value="">文件不限</option><option value="true">有文件</option><option value="false">无文件</option></select></AdminFilterField>
         <AdminFilterField label={t('admin.filters.createdFrom')}><Input aria-label={t('admin.filters.createdFrom')} type="date" value={draft.created_from} onChange={event => setDraft(current => ({ ...current, created_from: event.target.value }))} /></AdminFilterField>
         <AdminFilterField label={t('admin.filters.createdTo')}><Input aria-label={t('admin.filters.createdTo')} type="date" value={draft.created_to} onChange={event => setDraft(current => ({ ...current, created_to: event.target.value }))} /></AdminFilterField>
         <AdminFilterActions className={styles.filterActions} submitLabel="应用筛选" submitIcon={<Filter />} onReset={resetFilters} />
@@ -171,7 +94,7 @@ export default function AdminConversationsPanel({
                   <td className={styles.numeric}>{formatNumber(conversation.message_count)}</td><td className={styles.numeric}>{formatNumber(conversation.tool_call_count)}</td><td className={styles.numeric}>{formatNumber(conversation.file_count)}</td>
                   <td>{conversation.latest_agent_status ? <AdminAgentStatus status={conversation.latest_agent_status} /> : '—'}</td>
                   <td className={styles.numeric}>{formatNumber(conversation.input_tokens + conversation.output_tokens)}</td>
-                  <td className={styles.actions}><Button variant="ghost" size="sm" aria-label={`查看对话详情 ${conversation.id}`} onClick={() => onOpen(conversation.id)}>查看详情</Button></td>
+                  <td className={styles.actions}><Button asChild variant="ghost" size="sm"><Link href={adminPaths.conversation(conversation.id)} aria-label={`查看对话详情 ${conversation.id}`}>查看详情</Link></Button></td>
                 </tr>
               ))}</tbody>
             </table>
@@ -193,12 +116,10 @@ interface ModelFilterOption {
 }
 
 function AdminModelFilterCombobox({
-  active,
   value,
   onForbidden,
   onChange,
 }: {
-  active: boolean;
   value: string;
   onForbidden: () => void;
   onChange: (modelId: string) => void;
@@ -220,15 +141,6 @@ function AdminModelFilterCombobox({
     }, 300);
     return () => window.clearTimeout(timeout);
   }, [query]);
-
-  useEffect(() => {
-    if (!active) {
-      setOpen(false);
-      setQuery('');
-      setDebouncedQuery('');
-      setActiveOptionId(null);
-    }
-  }, [active]);
 
   useEffect(() => {
     if (!value) return;
@@ -299,7 +211,6 @@ function AdminModelFilterCombobox({
   }, [activeOptionIndex, open]);
 
   const handleOpenChange = (nextOpen: boolean) => {
-    if (!active) return;
     setOpen(nextOpen);
     if (!nextOpen) {
       setQuery('');
@@ -334,13 +245,13 @@ function AdminModelFilterCombobox({
   };
 
   return (
-    <Popover open={active && open} onOpenChange={handleOpenChange}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <button
           type="button"
           role="combobox"
           aria-label={t('admin.filters.model')}
-          aria-expanded={active && open}
+          aria-expanded={open}
           aria-controls="admin-model-filter-options"
           className={cn('flex min-w-0 items-center justify-between gap-2 px-3 text-left text-sm', styles.modelTrigger)}
         >
@@ -508,108 +419,6 @@ function ModelFilterOptionButton({
   );
 }
 
-function AdminConversationDetailView({ conversationId, onBack, onForbidden }: { conversationId: string; onBack: () => void; onForbidden: () => void }) {
-  const [messagePage, setMessagePage] = useState(1);
-  const [runPage, setRunPage] = useState(1);
-  const [toolPage, setToolPage] = useState(1);
-  const [filePage, setFilePage] = useState(1);
-  const detailLoader = useCallback((signal: AbortSignal) => getAdminConversation(conversationId, signal), [conversationId]);
-  const messageLoader = useCallback((signal: AbortSignal) => getAdminConversationMessages(conversationId, { page: messagePage, page_size: 25 }, signal), [conversationId, messagePage]);
-  const toolLoader = useCallback((signal: AbortSignal) => getAdminConversationToolCalls(conversationId, { page: toolPage, page_size: 25 }, signal), [conversationId, toolPage]);
-  const runLoader = useCallback((signal: AbortSignal) => getAdminConversationAgentRuns(conversationId, { page: runPage, page_size: 25 }, signal), [conversationId, runPage]);
-  const fileLoader = useCallback((signal: AbortSignal) => getAdminConversationFiles(conversationId, { page: filePage, page_size: 25 }, signal), [conversationId, filePage]);
-  const detail = useAdminAuditResource(detailLoader, onForbidden);
-  const messages = useAdminAuditResource(messageLoader, onForbidden);
-  const tools = useAdminAuditResource(toolLoader, onForbidden);
-  const runs = useAdminAuditResource(runLoader, onForbidden);
-  const files = useAdminAuditResource(fileLoader, onForbidden);
-
-  return (
-    <section aria-label={`对话详情 ${conversationId}`}>
-      <Button variant="ghost" size="sm" className="mb-3" onClick={onBack}><ArrowLeft />返回对话列表</Button>
-      {detail.loading ? <AdminLoading /> : detail.error ? <AdminError message={detail.error} onRetry={detail.reload} /> : detail.data ? (
-        <header className={styles.detailSummary}>
-          <h1 className={styles.detailTitle}>{detail.data.title || '未命名对话'}</h1>
-          <div className="mt-4 grid min-w-0 gap-4 md:grid-cols-2">
-            <dl className={styles.detailMetadata}>
-              <div><dt>对话 ID</dt><dd><code>{detail.data.id}</code></dd></div>
-              <div><dt>模型</dt><dd>{detail.data.model_id || '—'}</dd></div>
-              <div><dt>更新时间</dt><dd>{formatAdminDate(detail.data.updated_at)}</dd></div>
-            </dl>
-            <div className={styles.detailIdentity}><AdminUserIdentity user={detail.data.user} /></div>
-          </div>
-        </header>
-      ) : null}
-
-      <div className={styles.conversationDetailGrid}>
-        <section className={styles.detailSection} aria-label="消息">
-          <header className={styles.detailSectionHeader}>
-            <h2>消息</h2>
-            {messages.data ? <span>{formatNumber(messages.data.total)}</span> : null}
-          </header>
-          {messages.loading ? <AdminLoading /> : messages.error ? <AdminError message={messages.error} onRetry={messages.reload} /> : messages.data?.items.length ? (
-            <><div className={styles.messageList}>{messages.data.items.map(message => <AdminMessageCard key={message.id} message={message} />)}</div><AdminPagination page={messages.data} onPageChange={setMessagePage} /></>
-          ) : <AdminEmpty>没有已持久化消息</AdminEmpty>}
-        </section>
-
-        <div className={styles.detailSidebar}>
-          <section className={styles.detailSection} aria-label="Agent 运行记录">
-            <header className={styles.detailSectionHeader}>
-              <h2>Agent 运行</h2>
-              {runs.data ? <span>{formatNumber(runs.data.total)}</span> : null}
-            </header>
-            {runs.loading ? <AdminLoading /> : runs.error ? <AdminError message={runs.error} onRetry={runs.reload} /> : runs.data?.items.length ? (
-              <><AdminExecutionInspector runs={runs.data.items} toolCalls={[]} /><AdminPagination page={runs.data} onPageChange={setRunPage} /></>
-            ) : <AdminEmpty>没有 Agent 运行记录</AdminEmpty>}
-          </section>
-
-          <section className={styles.detailSection} aria-label="工具调用记录">
-            <header className={styles.detailSectionHeader}>
-              <h2>工具调用</h2>
-              {tools.data ? <span>{formatNumber(tools.data.total)}</span> : null}
-            </header>
-            {tools.loading ? <AdminLoading /> : tools.error ? <AdminError message={tools.error} onRetry={tools.reload} /> : tools.data?.items.length ? (
-              <><AdminExecutionInspector runs={[]} toolCalls={tools.data.items} /><AdminPagination page={tools.data} onPageChange={setToolPage} /></>
-            ) : <AdminEmpty>没有工具调用记录</AdminEmpty>}
-          </section>
-
-          <section className={styles.detailSection} aria-label="文件元数据">
-            <header className={styles.detailSectionHeader}>
-              <h2>文件元数据</h2>
-              {files.data ? <span>{formatNumber(files.data.total)}</span> : null}
-            </header>
-            {files.loading ? <AdminLoading /> : files.error ? <AdminError message={files.error} onRetry={files.reload} /> : files.data?.items.length ? (
-              <>
-                <div className="space-y-2">
-                  {files.data.items.map(file => (
-                    <div key={file.id} className={styles.fileMetadata} data-layout="stack">
-                      <div className={styles.fileName}>{file.original_filename}</div>
-                      <div className="flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                        <span className="break-all">{file.mimetype || '未知类型'}</span>
-                        <span>{formatFileSize(file.size)}</span>
-                        <span>{file.status || '状态未知'}</span>
-                        {file.width && file.height ? <span>{file.width}×{file.height}</span> : null}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <AdminPagination page={files.data} onPageChange={setFilePage} />
-              </>
-            ) : <AdminEmpty>没有关联文件元数据</AdminEmpty>}
-          </section>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function parseBoolean(value: '' | 'true' | 'false'): boolean | undefined {
-  return value === '' ? undefined : value === 'true';
-}
-
-function formatFileSize(value: number | null): string {
-  if (value === null) return '大小未知';
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / 1024 / 1024).toFixed(1)} MB`;
+function parseBoolean(value: string): boolean | undefined {
+  return value === 'true' ? true : value === 'false' ? false : undefined;
 }

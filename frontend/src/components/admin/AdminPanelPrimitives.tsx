@@ -1,7 +1,7 @@
 'use client';
 
 import type { ComponentProps, ReactNode } from 'react';
-import { AlertCircle, ChevronLeft, ChevronRight, Loader2, RefreshCw, RotateCcw } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ChevronLeft, ChevronRight, Loader2, RefreshCw, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useTranslation } from 'react-i18next';
@@ -9,6 +9,7 @@ import '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { AdminPage } from '@/types/adminAudit';
 import styles from './AdminSurface.module.css';
+import { useAdminAccess } from './AdminAccessContext';
 
 export function AdminPanelHeader({ title, description, action }: { title: string; description: string; action?: ReactNode }) {
   return (
@@ -20,6 +21,15 @@ export function AdminPanelHeader({ title, description, action }: { title: string
       {action}
     </header>
   );
+}
+
+export function AdminBackButton({ label, fallbackHref }: { label: string; fallbackHref: string }) {
+  const { goBack } = useAdminAccess();
+  return <Button variant="ghost" size="sm" className="mb-3" onClick={() => goBack(fallbackHref)}><ArrowLeft />{label}</Button>;
+}
+
+export function AdminRouteNotFound() {
+  return <AdminEmpty>链接中的 ID 无效</AdminEmpty>;
 }
 
 export function AdminFilterActions({

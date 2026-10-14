@@ -1,7 +1,9 @@
 import i18n from '@/lib/i18n';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { useState } from 'react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '@/types/api';
+import { adminNavigation } from '@/test/adminNavigation';
+import { renderAdmin } from '@/test/renderAdmin';
 
 const apiMocks = vi.hoisted(() => ({
   getAdminUsers: vi.fn(),
@@ -9,8 +11,11 @@ const apiMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/api/adminAudit', () => apiMocks);
+vi.mock('next/navigation', async () => (await import('@/test/adminNavigation')).nextNavigationMock);
+vi.mock('next/link', async () => (await import('@/test/adminNavigation')).nextLinkMock);
 
 import AdminUsersPanel from './AdminUsersPanel';
+import AdminUserDetailView from './AdminUserDetailView';
 
 const users = [
   {
@@ -26,37 +31,20 @@ const users = [
 ];
 
 const page = {
-  items: users, total: 2, page: 1, page_size: 25, total_pages: 1, has_next: false, has_prev: false,
+  items: users, total: 60, page: 1, page_size: 25, total_pages: 3, has_next: true, has_prev: false,
 };
-const noop = () => undefined;
 
-function ControlledUsersPanel({
-  onForbidden = noop, onViewConversations = noop, initialUserId = null,
-}: {
-  onForbidden?: () => void;
-  onViewConversations?: (userId: string) => void;
-  initialUserId?: string | null;
-}) {
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(initialUserId);
-  const viewConversations = (userId: string) => {
-    setSelectedUserId(null);
-    onViewConversations(userId);
-  };
-  return (
-    <AdminUsersPanel
-      onForbidden={onForbidden}
-      selectedUserId={selectedUserId}
-      onOpen={setSelectedUserId}
-      onClose={() => setSelectedUserId(null)}
-      onViewConversations={viewConversations}
-    />
-  );
-}
+beforeEach(() => {
+  void i18n.changeLanguage('zh-CN');
+  apiMocks.getAdminUsers.mockReset().mockResolvedValue(page);
+  apiMocks.getAdminUser.mockReset();
+  adminNavigation.reset('/admin/users');
+});
 
 describe('AdminUsersPanel', () => {
   it('英文可见标签与可访问名称一致', async () => {
     await i18n.changeLanguage('en-US');
-    render(<AdminUsersPanel onForbidden={() => undefined} selectedUserId={null} onOpen={() => undefined} onClose={() => undefined} onViewConversations={() => undefined} />);
+    renderAdmin(<AdminUsersPanel />);
     expect(screen.getByRole('textbox', { name: 'Search users' })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'User permissions' })).toBeInTheDocument();
     expect(screen.getByLabelText('Registered from')).toBeInTheDocument();
@@ -64,14 +52,8 @@ describe('AdminUsersPanel', () => {
     expect(screen.getByText('Search users', { selector: 'span' })).toBeInTheDocument();
   });
 
-  beforeEach(() => {
-    void i18n.changeLanguage('zh-CN');
-    apiMocks.getAdminUsers.mockReset().mockResolvedValue(page);
-    apiMocks.getAdminUser.mockReset();
-  });
-
   it('同昵称同脱敏邮箱时仍稳定展示 username 与 user_id', async () => {
-    render(<ControlledUsersPanel />);
+    renderAdmin(<AdminUsersPanel />);
 
     await screen.findAllByText('同名用户');
     expect(screen.getByText('@alpha')).toBeInTheDocument();
@@ -81,177 +63,121 @@ describe('AdminUsersPanel', () => {
     expect(screen.getAllByText('s***@example.com')).toHaveLength(2);
   });
 
-  it('重置筛选会清空用户筛选并立即恢复完整列表', async () => {
-    render(<ControlledUsersPanel />);
+  it('筛选写入 URL 并据此请求，重置清空 URL 与输入框', async () => {
+    renderAdmin(<AdminUsersPanel />);
     await screen.findByText('@alpha');
 
-    fireEvent.change(screen.getByLabelText('搜索用户'), { target: { value: 'beta' } });
+    fireEvent.change(screen.getByLabelText('搜索用户'), { target: { value: ' beta ' } });
     fireEvent.change(screen.getByLabelText('管理员筛选'), { target: { value: 'true' } });
     fireEvent.change(screen.getByLabelText('注册开始日期'), { target: { value: '2026-07-01' } });
     fireEvent.change(screen.getByLabelText('注册结束日期'), { target: { value: '2026-07-14' } });
     fireEvent.click(screen.getByRole('button', { name: '搜索' }));
+
+    expect(adminNavigation.url).toBe('/admin/users?q=beta&is_superuser=true&created_from=2026-07-01&created_to=2026-07-14');
+    expect(adminNavigation.push).not.toHaveBeenCalled();
     await waitFor(() => expect(apiMocks.getAdminUsers).toHaveBeenLastCalledWith({
-      page: 1,
-      page_size: 25,
-      q: 'beta',
-      is_superuser: true,
-      created_from: '2026-07-01',
-      created_to: '2026-07-14',
+      page: 1, page_size: 25, q: 'beta', is_superuser: true, created_from: '2026-07-01', created_to: '2026-07-14',
     }, expect.any(AbortSignal)));
 
     fireEvent.click(screen.getByRole('button', { name: '重置筛选' }));
 
-    expect(screen.getByLabelText('搜索用户')).toHaveValue('');
+    expect(adminNavigation.url).toBe('/admin/users');
+    await waitFor(() => expect(screen.getByLabelText('搜索用户')).toHaveValue(''));
     expect(screen.getByLabelText('管理员筛选')).toHaveValue('');
-    expect(screen.getByLabelText('注册开始日期')).toHaveValue('');
-    expect(screen.getByLabelText('注册结束日期')).toHaveValue('');
     await waitFor(() => expect(apiMocks.getAdminUsers).toHaveBeenLastCalledWith({
-      page: 1,
-      page_size: 25,
-      q: '',
-      is_superuser: undefined,
-      created_from: '',
-      created_to: '',
+      page: 1, page_size: 25, q: '', is_superuser: undefined, created_from: '', created_to: '',
     }, expect.any(AbortSignal)));
   });
 
-  it('关闭详情会中止旧请求且不串数据，之后可继续筛选查看其他用户', async () => {
-    let resolveDetail!: (value: Record<string, unknown>) => void;
-    apiMocks.getAdminUser.mockReturnValue(new Promise(resolve => { resolveDetail = resolve; }));
-    render(<ControlledUsersPanel />);
+  it('从 URL 恢复筛选和页码，翻页保留筛选草稿', async () => {
+    adminNavigation.reset('/admin/users?q=alpha&page=2');
+    apiMocks.getAdminUsers.mockResolvedValue({ ...page, page: 2, has_prev: true });
+    renderAdmin(<AdminUsersPanel />);
+
+    expect(screen.getByLabelText('搜索用户')).toHaveValue('alpha');
+    await waitFor(() => expect(apiMocks.getAdminUsers).toHaveBeenLastCalledWith(
+      expect.objectContaining({ page: 2, q: 'alpha' }), expect.any(AbortSignal),
+    ));
+
     await screen.findByText('@alpha');
+    fireEvent.change(screen.getByLabelText('搜索用户'), { target: { value: 'alp' } });
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
 
-    fireEvent.click(screen.getByRole('button', { name: '查看用户详情 user-alpha' }));
-
-    const dialog = screen.getByRole('dialog', { name: '用户详情' });
-    expect(within(dialog).getByRole('status')).toHaveTextContent('正在读取用户详情');
-    const detailSignal = apiMocks.getAdminUser.mock.calls[0][1] as AbortSignal;
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
-    fireEvent.change(screen.getByLabelText('搜索用户'), { target: { value: 'beta' } });
-    fireEvent.click(screen.getByRole('button', { name: '搜索' }));
-
-    await waitFor(() => expect(detailSignal.aborted).toBe(true));
-    expect(screen.queryByText('正在读取用户详情')).toBeNull();
-    await act(async () => resolveDetail({
-      ...users[0], email: 'alpha@example.com', system_prompt: null,
-    }));
-    expect(screen.queryByText('alpha@example.com')).toBeNull();
-
-    apiMocks.getAdminUser.mockResolvedValue({
-      ...users[1], email: 'beta@example.com', system_prompt: null,
-    });
-    const betaRow = screen.getByText('@beta').closest('tr');
-    fireEvent.click(within(betaRow as HTMLElement).getByRole('button', { name: '查看用户详情 user-beta' }));
-
-    expect(await screen.findByText('beta@example.com')).toBeInTheDocument();
-    const detail = screen.getByLabelText('用户详情 user-beta');
-    expect(detail).toHaveTextContent('同名用户');
-    expect(detail).toHaveTextContent('@beta');
-    expect(detail).toHaveTextContent('user-beta');
+    expect(adminNavigation.url).toBe('/admin/users?q=alpha&page=3');
+    expect(screen.getByLabelText('搜索用户')).toHaveValue('alp');
   });
 
-  it('详情弹窗立即可见，并可从详情跳转到该用户的对话', async () => {
-    const onViewConversations = vi.fn();
-    let resolveDetail!: (value: Record<string, unknown>) => void;
-    apiMocks.getAdminUser.mockReturnValue(new Promise(resolve => { resolveDetail = resolve; }));
-    render(<ControlledUsersPanel onViewConversations={onViewConversations} />);
-    await screen.findByText('@alpha');
+  it('查看详情是指向用户详情路径的链接', async () => {
+    renderAdmin(<AdminUsersPanel />);
+    const link = await screen.findByRole('link', { name: '查看用户详情 user-alpha' });
+    expect(link).toHaveAttribute('href', '/admin/users/user-alpha');
 
-    fireEvent.click(screen.getByRole('button', { name: '查看用户详情 user-alpha' }));
-
-    const dialog = screen.getByRole('dialog', { name: '用户详情' });
-    expect(within(dialog).getByRole('status')).toHaveTextContent('正在读取用户详情');
-    await act(async () => resolveDetail({
-      ...users[0], email: 'alpha@example.com', system_prompt: null,
-    }));
-
-    fireEvent.click(await within(dialog).findByRole('button', { name: '查看该用户的对话' }));
-    expect(onViewConversations).toHaveBeenCalledWith('user-alpha');
-    expect(screen.queryByRole('dialog', { name: '用户详情' })).toBeNull();
+    fireEvent.click(link);
+    expect(adminNavigation.push).toHaveBeenCalledWith('/admin/users/user-alpha');
   });
 
-  it('关闭详情后焦点回到原查看按钮，深链详情回到搜索框', async () => {
-    apiMocks.getAdminUser.mockResolvedValue({
-      ...users[0], email: 'alpha@example.com', system_prompt: null,
-    });
-    const { unmount } = render(<ControlledUsersPanel />);
-    await screen.findByText('@alpha');
-    const trigger = screen.getByRole('button', { name: '查看用户详情 user-alpha' });
-    fireEvent.click(trigger);
-    const dialog = await screen.findByRole('dialog', { name: '用户详情' });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
-    await waitFor(() => expect(document.activeElement).toBe(trigger));
-    unmount();
+  it('列表 403 时卸载内容并显示权限失效', async () => {
+    apiMocks.getAdminUsers.mockRejectedValue(new ApiError('FORBIDDEN', '需要管理员权限', 'req-1'));
+    renderAdmin(<AdminUsersPanel />);
 
-    render(<ControlledUsersPanel initialUserId="user-alpha" />);
-    const deepDialog = await screen.findByRole('dialog', { name: '用户详情' });
-    fireEvent.click(within(deepDialog).getByRole('button', { name: 'Close' }));
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('搜索用户')));
+    expect(await screen.findByText('管理员权限已失效')).toBeInTheDocument();
+    expect(screen.queryByLabelText('搜索用户')).toBeNull();
+  });
+});
+
+describe('AdminUserDetailView', () => {
+  it('展示身份与注册信息，并链接到该用户的对话', async () => {
+    apiMocks.getAdminUser.mockResolvedValue({ ...users[0], email: 'alpha@example.com', system_prompt: null });
+    renderAdmin(<AdminUserDetailView userId="user-alpha" />);
+
+    const detail = await screen.findByLabelText('用户详情 user-alpha');
+    expect(detail).toHaveTextContent('alpha@example.com');
+    expect(detail).toHaveTextContent('@alpha');
+    expect(screen.getByRole('link', { name: '查看该用户的对话' })).toHaveAttribute('href', '/admin/conversations?user_id=user-alpha');
   });
 
-  it('首次详情失败时保持弹窗，并可重试成功', async () => {
+  it('首次失败可重试成功', async () => {
     apiMocks.getAdminUser
       .mockRejectedValueOnce(new Error('用户详情暂时不可用'))
       .mockResolvedValueOnce({ ...users[0], email: 'alpha@example.com', system_prompt: null });
-    render(<ControlledUsersPanel />);
-    await screen.findByText('@alpha');
+    renderAdmin(<AdminUserDetailView userId="user-alpha" />);
 
-    fireEvent.click(screen.getByRole('button', { name: '查看用户详情 user-alpha' }));
-    const dialog = screen.getByRole('dialog', { name: '用户详情' });
-    expect(await within(dialog).findByText('用户详情暂时不可用')).toBeInTheDocument();
+    expect(await screen.findByText('用户详情暂时不可用')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '重试用户详情' }));
 
-    fireEvent.click(within(dialog).getByRole('button', { name: '重试用户详情' }));
-
-    expect(await within(dialog).findByText('alpha@example.com')).toBeInTheDocument();
+    expect(await screen.findByText('alpha@example.com')).toBeInTheDocument();
     expect(apiMocks.getAdminUser).toHaveBeenCalledTimes(2);
   });
 
   it.each([null, '', '   '])('提示词为 %p 时完全隐藏区块', async systemPrompt => {
-    apiMocks.getAdminUser.mockResolvedValueOnce({
-      ...users[0], email: 'alpha@example.com', system_prompt: systemPrompt,
-    });
-    render(<ControlledUsersPanel initialUserId="user-alpha" />);
+    apiMocks.getAdminUser.mockResolvedValueOnce({ ...users[0], email: 'alpha@example.com', system_prompt: systemPrompt });
+    renderAdmin(<AdminUserDetailView userId="user-alpha" />);
     await screen.findByText('alpha@example.com');
     expect(screen.queryByText('自定义提示词')).toBeNull();
-    expect(screen.queryByText('自定义 system prompt')).toBeNull();
   });
 
   it('非空提示词使用中文标题展示', async () => {
-    apiMocks.getAdminUser.mockResolvedValueOnce({
-      ...users[0], email: 'alpha@example.com', system_prompt: '请使用简洁中文回答',
-    });
-    render(<ControlledUsersPanel initialUserId="user-alpha" />);
+    apiMocks.getAdminUser.mockResolvedValueOnce({ ...users[0], email: 'alpha@example.com', system_prompt: '请使用简洁中文回答' });
+    renderAdmin(<AdminUserDetailView userId="user-alpha" />);
     expect(await screen.findByText('自定义提示词')).toBeInTheDocument();
     expect(screen.getByText('请使用简洁中文回答')).toBeInTheDocument();
   });
 
-  it('关闭详情后刷新列表会清空详情状态，并支持列表失败重试', async () => {
-    let resolveDetail!: (value: Record<string, unknown>) => void;
-    apiMocks.getAdminUser.mockReturnValue(new Promise(resolve => { resolveDetail = resolve; }));
-    render(<ControlledUsersPanel />);
-    await screen.findByText('@alpha');
-    fireEvent.click(screen.getByRole('button', { name: '查看用户详情 user-alpha' }));
-    const detailSignal = apiMocks.getAdminUser.mock.calls[0][1] as AbortSignal;
-    expect(screen.getByRole('status')).toHaveTextContent('正在读取用户详情');
-    apiMocks.getAdminUsers
-      .mockRejectedValueOnce(new Error('用户列表刷新失败'))
-      .mockResolvedValueOnce(page);
+  it('直接深链进入时返回按钮替换到用户列表', async () => {
+    adminNavigation.reset('/admin/users/user-alpha');
+    apiMocks.getAdminUser.mockResolvedValue({ ...users[0], email: 'alpha@example.com', system_prompt: null });
+    renderAdmin(<AdminUserDetailView userId="user-alpha" />);
 
-    fireEvent.click(within(screen.getByRole('dialog', { name: '用户详情' })).getByRole('button', { name: 'Close' }));
-    fireEvent.click(screen.getByRole('button', { name: '刷新用户列表' }));
+    fireEvent.click(screen.getByRole('button', { name: '返回用户列表' }));
+    expect(adminNavigation.back).not.toHaveBeenCalled();
+    expect(adminNavigation.url).toBe('/admin/users');
+  });
 
-    await waitFor(() => expect(apiMocks.getAdminUsers).toHaveBeenCalledTimes(2));
-    expect(detailSignal.aborted).toBe(true);
-    expect(screen.queryByText('正在读取用户详情')).toBeNull();
-    expect(screen.queryByLabelText('用户详情 user-alpha')).toBeNull();
-    await act(async () => resolveDetail({
-      ...users[0], email: 'late-alpha@example.com', system_prompt: null,
-    }));
-    expect(screen.queryByText('late-alpha@example.com')).toBeNull();
+  it('详情 403 时清空内容并显示权限失效', async () => {
+    apiMocks.getAdminUser.mockRejectedValue(new ApiError('FORBIDDEN', '需要管理员权限', 'req-2'));
+    renderAdmin(<AdminUserDetailView userId="user-alpha" />);
 
-    const error = await screen.findByText('用户列表刷新失败');
-    fireEvent.click(within(error.parentElement as HTMLElement).getByRole('button', { name: '刷新用户列表' }));
-    await waitFor(() => expect(apiMocks.getAdminUsers).toHaveBeenCalledTimes(3));
-    expect(await screen.findByText('@alpha')).toBeInTheDocument();
+    expect(await screen.findByText('管理员权限已失效')).toBeInTheDocument();
+    expect(adminNavigation.url).toBe('/admin/users');
   });
 });
