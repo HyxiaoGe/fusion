@@ -16,6 +16,7 @@ MEMORY_CATEGORIES: tuple[str, ...] = (
     "name",
     "residence",
     "workplace",
+    "transport",
     "occupation",
     "health",
     "diet",

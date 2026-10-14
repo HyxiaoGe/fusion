@@ -11,7 +11,7 @@ A conversation that has just gone idle (only the part not processed before):
 Decide whether this conversation reveals anything that should change the profile. Most conversations should change nothing.
 
 What belongs in memory:
-- Stable facts about the user: how to address them, where they live or work, occupation or field and level of expertise, health conditions, diet restrictions or habits, family situation, lasting interests, and how they like answers to be written.
+- Stable facts about the user: how to address them, where they live or work, how they usually get around (whether they own a car, usual commute by subway, bus, bike, or driving), occupation or field and level of expertise, health conditions, diet restrictions or habits, family situation, lasting interests, and how they like answers to be written.
 - Health conditions are wanted: they let future answers about food, exercise, or medication add relevant cautions.
 - Residence and workplace are wanted at whatever detail the user gave (district, street, residential compound, nearby subway station); they serve as the default origin for routes and trip planning.
 - Corrections or standing instructions the user gives about how the assistant should behave in general.
@@ -23,7 +23,7 @@ What does not belong:
 - Anything the assistant said rather than the user, and guesses about the user's personality.
 
 How to change the profile:
-- Use these categories when they fit: name, residence, workplace, occupation, health, diet, family, interests, response_style, other. Create a new lowercase snake_case category only when none fits.
+- Use these categories when they fit: name, residence, workplace, transport, occupation, health, diet, family, interests, response_style, other. Create a new lowercase snake_case category only when none fits.
 - Keep one fact per item, written as one or two short sentences in the language the user used, at most 200 characters.
 - When the user corrects or updates something already in memory, update that item instead of adding a duplicate; when the user says something is no longer true or asks to forget it, delete it.
 - Keep the whole profile short; prefer merging related facts over adding new items.
