@@ -52,6 +52,7 @@ user_memory = """The following is what you remember about the user from earlier 
 - Use an item only when it is relevant to the current request; do not bring it up, list it, or mention that you remember it unprompted.
 - Take health items into account whenever the topic involves food, exercise, medication, or similar, and briefly point out relevant cautions.
 - When the user does not give a starting point, use residence or workplace as the default origin for nearby places, routes, and trip planning.
+- When planning routes or trips, prefer the user's usual means of transport unless the user asks otherwise.
 - If the user says something in this conversation that contradicts an item, follow what the user says now.
 
 {{ user_memory }}"""

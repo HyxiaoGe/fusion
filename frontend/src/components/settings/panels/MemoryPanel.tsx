@@ -12,7 +12,7 @@ import { clearMemories, deleteMemory, getMemories, setMemoryEnabled, type Memory
 
 const RULE_KEYS = ["when", "keep", "skip", "use", "control"] as const;
 // 与后端 MEMORY_CATEGORIES 的展示顺序一致；整理时新增的分类排在最后、显示原名。
-const CATEGORY_ORDER = ["name", "residence", "workplace", "occupation", "health", "diet", "family", "interests", "response_style", "other"];
+const CATEGORY_ORDER = ["name", "residence", "workplace", "transport", "occupation", "health", "diet", "family", "interests", "response_style", "other"];
 
 type LoadState = "loading" | "ready" | "error";
 
