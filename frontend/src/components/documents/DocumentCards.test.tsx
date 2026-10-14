@@ -85,6 +85,33 @@ describe('DocumentCards', () => {
     expect(latest.map(item => [item.document_id, item.version])).toEqual([['doc-2', 1], ['doc-1', 2]]);
   });
 
+  it('auto-opens the latest document once when the answer finishes generating on this page', async () => {
+    const { rerender } = render(<DocumentCards blocks={[]} generating />);
+    rerender(<DocumentCards blocks={[block()]} generating />);
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    rerender(<DocumentCards blocks={[block(), block({ id: 'blk-2', version: 2, operation: 'edited' })]} completed />);
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    await waitFor(() => expect(getDocumentContentMock).toHaveBeenCalledWith('doc-1', 2, expect.anything()));
+  });
+
+  it('does not auto-open for history, interrupted runs, or hidden pages', () => {
+    const { unmount } = render(<DocumentCards blocks={[block()]} completed />);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    unmount();
+
+    const interrupted = render(<DocumentCards blocks={[block()]} generating />);
+    interrupted.rerender(<DocumentCards blocks={[block()]} />);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    interrupted.unmount();
+
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    const hidden = render(<DocumentCards blocks={[block()]} generating />);
+    hidden.rerender(<DocumentCards blocks={[block()]} completed />);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    visibility.mockRestore();
+  });
+
   it('opens the panel at the card version, renders directives and sources, and switches versions', async () => {
     const user = userEvent.setup();
     render(<DocumentCards blocks={[block()]} />);

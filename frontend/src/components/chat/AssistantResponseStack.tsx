@@ -144,7 +144,11 @@ function AssistantResponseStack({
 
       {documentDraft ? <DocumentDraftCard draft={documentDraft} /> : null}
 
-      <DocumentCards blocks={documentBlocks} />
+      <DocumentCards
+        blocks={documentBlocks}
+        generating={!TERMINAL_ACTIVITY_KINDS.has(activity.kind)}
+        completed={activity.kind === 'completed'}
+      />
 
       <GeneratedImages
         blocks={generatedImages}
