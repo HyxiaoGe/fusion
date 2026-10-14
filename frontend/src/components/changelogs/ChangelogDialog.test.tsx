@@ -73,6 +73,8 @@ describe('更新日志弹窗', () => {
     expect(screen.getByRole('heading', { name: '旧版本' })).toBeVisible();
     const nav = screen.getByRole('navigation', { name: '版本目录' });
     fireEvent.click(within(nav).getByRole('button', { name: /1\.1\.0/ }));
+    const current = within(nav).getAllByRole('button').filter((button) => button.getAttribute('aria-current') === 'true');
+    expect(current).toEqual([within(nav).getByRole('button', { name: /1\.1\.0/ })]);
     expect(vi.mocked(Element.prototype.scrollIntoView).mock.contexts.at(-1)).toBe(document.getElementById('changelog-release-b'));
     expect(read).not.toHaveBeenCalled();
   });
