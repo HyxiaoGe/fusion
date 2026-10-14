@@ -4,11 +4,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAppDispatch, useAppSelector } from "@/redux/hooks";
+import { selectIsGuest } from "@/redux/selectors";
 import { closeSettingsDialog, setActiveSettingsTab } from "@/redux/slices/settingsSlice";
 import { setThemeMode } from "@/redux/slices/themeSlice";
-import { Activity, BookOpen, Bot, Settings, Sun, Moon, Laptop, Network } from "lucide-react";
+import { Activity, BookOpen, Bot, Brain, Settings, Sun, Moon, Laptop, Network } from "lucide-react";
 import KnowledgeBaseManager from "@/components/settings/KnowledgeBaseManager";
 import McpServerManager from "@/components/settings/panels/McpServerManager";
+import MemoryPanel from "@/components/settings/panels/MemoryPanel";
 import ModelManagementPanel from "@/components/settings/panels/ModelManagementPanel";
 import ServiceUsagePanel from "@/components/settings/panels/ServiceUsagePanel";
 import SystemPrompt from "@/components/settings/panels/SystemPrompt";
@@ -35,9 +37,14 @@ export const SettingsDialog = () => {
   const [isMounted, setIsMounted] = useState(false);
   const isAdmin = useAppSelector((state) => Boolean(state.auth.user?.is_superuser));
   const showAdminTabs = isMounted && isAdmin;
+  // 记忆只对登录用户整理和使用；游客不显示记忆页。
+  const isGuest = useAppSelector(selectIsGuest);
+  const isAuthenticated = useAppSelector((state) => state.auth.isAuthenticated);
+  const showMemoryTab = isMounted && isAuthenticated && !isGuest;
   const knowledgeBaseTitle = isMounted ? t("knowledgeBase.title") : "知识库";
   const knowledgeBaseShortTitle = isMounted ? t("knowledgeBase.shortTitle") : "知识";
-  const selectedSettingsTab = showAdminTabs || !["usage", "mcp-servers", "model-management"].includes(activeSettingsTab) ? activeSettingsTab : "general";
+  const hiddenTabs = [...(showAdminTabs ? [] : ["usage", "mcp-servers", "model-management"]), ...(showMemoryTab ? [] : ["memory"])];
+  const selectedSettingsTab = hiddenTabs.includes(activeSettingsTab) ? "general" : activeSettingsTab;
 
   const handleClose = () => {
     dispatch(closeSettingsDialog());
@@ -79,6 +86,13 @@ export const SettingsDialog = () => {
                   <span className="hidden md:inline">{t("settings.tabs.general")}</span>
                   <span className="md:hidden">{t("settings.tabs.generalShort")}</span>
                 </TabsTrigger>
+                {showMemoryTab && (
+                  <TabsTrigger value="memory" className={styles.navTrigger}>
+                    <Brain className="h-4 w-4" />
+                    <span className="hidden md:inline">{t("settings.tabs.memory")}</span>
+                    <span className="md:hidden">{t("settings.tabs.memoryShort")}</span>
+                  </TabsTrigger>
+                )}
                 <TabsTrigger value="knowledge" className={styles.navTrigger}>
                   <BookOpen className="h-4 w-4" />
                   <span className="hidden md:inline">{knowledgeBaseTitle}</span>
@@ -150,6 +164,12 @@ export const SettingsDialog = () => {
                 <SystemPrompt />
               </div>
             </TabsContent>
+
+            {showMemoryTab && (
+              <TabsContent value="memory" className={`${styles.panel} ${styles.formPanel}`}>
+                <MemoryPanel />
+              </TabsContent>
+            )}
 
             <TabsContent value="knowledge" className={styles.panel}>
               <KnowledgeBaseManager />
