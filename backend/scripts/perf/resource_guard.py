@@ -263,7 +263,7 @@ class ResourceGuard:
         return {key: value for key, value in payload.items() if value is not None}
 
     def resources_summary(self) -> dict[str, dict[str, Any]]:
-        """返回 Admin PerformanceResourcesSummary 兼容映射，不含 URL/PromQL。"""
+        """返回资源聚合摘要，不含 URL/PromQL。"""
 
         summary: dict[str, dict[str, Any]] = {}
         for component in _CONTAINERS:

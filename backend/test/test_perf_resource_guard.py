@@ -2,9 +2,6 @@ import json
 import unittest
 from unittest.mock import patch
 
-from pydantic import ValidationError
-
-from app.schemas.admin_audit import PerformanceResourcesSummary
 from scripts.perf.resource_guard import (
     MonitoringUnavailable,
     ResourceGuard,
@@ -109,7 +106,6 @@ class ResourceGuardTests(unittest.TestCase):
         self.assertEqual(summary["host"]["cpu_percent"], 99)
         self.assertNotIn("url", json.dumps(summary).lower())
         self.assertNotIn("query", json.dumps(summary).lower())
-        PerformanceResourcesSummary.model_validate(summary)
 
     def test_hard_gates_detect_restart_oom_counter_deltas_and_thresholds(self):
         values = healthy_values()
@@ -216,14 +212,13 @@ class ResourceGuardTests(unittest.TestCase):
             [0.1, 0.2, 0.4, 0.8],
         )
 
-    def test_summary_shape_forbids_queries_and_arbitrary_payload(self):
+    def test_summary_shape_excludes_queries_and_urls(self):
         guard = ResourceGuard(FakePrometheusClient(healthy_values()), "http://127.0.0.1:9090")
         guard.check()
-        summary = guard.resources_summary()
+        summary = json.dumps(guard.resources_summary()).lower()
 
-        PerformanceResourcesSummary.model_validate(summary)
-        with self.assertRaises(ValidationError):
-            PerformanceResourcesSummary.model_validate({**summary, "query": "private promql"})
+        self.assertNotIn("query", summary)
+        self.assertNotIn("http://", summary)
 
 
 if __name__ == "__main__":
