@@ -7,7 +7,6 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import Integer, case, cast, func, or_
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -19,7 +18,6 @@ from app.db.models import (
     ConversationFile,
     File,
     Message,
-    PerformanceRun,
     ToolCallLog,
     User,
 )
@@ -425,7 +423,6 @@ class AdminAuditRepository:
                     "last_used_at": None,
                     "agent_run_count": 0,
                     "agent_error_count": 0,
-                    "latest_performance_run": None,
                 },
             )
 
@@ -475,34 +472,6 @@ class AdminAuditRepository:
             current["agent_error_count"] = error_count or 0
             current["last_used_at"] = self._latest_datetime(current["last_used_at"], last_agent_at)
 
-        performance_ranked_query = self.db.query(
-            PerformanceRun.run_id,
-            PerformanceRun.environment,
-            PerformanceRun.model_id,
-            PerformanceRun.status,
-            PerformanceRun.started_at,
-            PerformanceRun.finished_at,
-            PerformanceRun.created_at,
-            func.row_number()
-            .over(
-                partition_by=PerformanceRun.model_id,
-                order_by=(PerformanceRun.created_at.desc(), PerformanceRun.run_id.desc()),
-            )
-            .label("row_number"),
-        )
-        performance_ranked = restrict(performance_ranked_query, PerformanceRun.model_id).subquery()
-        performance_query = self.db.query(
-            performance_ranked.c.run_id,
-            performance_ranked.c.environment,
-            performance_ranked.c.model_id,
-            performance_ranked.c.status,
-            performance_ranked.c.started_at,
-            performance_ranked.c.finished_at,
-            performance_ranked.c.created_at,
-        ).filter(performance_ranked.c.row_number == 1)
-        for row in performance_query.all():
-            current = item(row.model_id)
-            current["latest_performance_run"] = row
         return stats
 
     def list_itinerary_stability_rows(
@@ -640,59 +609,6 @@ class AdminAuditRepository:
         total = query.count()
         rows = (
             query.order_by(AdminAuditEvent.created_at.desc(), AdminAuditEvent.id.desc())
-            .offset(self._offset(page, page_size))
-            .limit(page_size)
-            .all()
-        )
-        return rows, total
-
-    def get_performance_run(self, run_id: str) -> PerformanceRun | None:
-        return self.db.query(PerformanceRun).filter(PerformanceRun.run_id == run_id).first()
-
-    def import_performance_run(self, values: dict[str, Any]) -> tuple[PerformanceRun, bool]:
-        existing = self.get_performance_run(values["run_id"])
-        if existing is not None:
-            return existing, False
-        row = PerformanceRun(**values)
-        self.db.add(row)
-        try:
-            self.db.flush()
-            return row, True
-        except IntegrityError:
-            self.db.rollback()
-            existing = self.get_performance_run(values["run_id"])
-            if existing is None:
-                raise
-            return existing, False
-
-    def list_performance_runs(
-        self,
-        *,
-        page: int,
-        page_size: int,
-        environment: str | None = None,
-        status: str | None = None,
-        model_id: str | None = None,
-    ) -> tuple[list[Any], int]:
-        query = self.db.query(
-            PerformanceRun.run_id,
-            PerformanceRun.environment,
-            PerformanceRun.model_id,
-            PerformanceRun.status,
-            PerformanceRun.schema_version,
-            PerformanceRun.started_at,
-            PerformanceRun.finished_at,
-            PerformanceRun.created_at,
-        )
-        if environment:
-            query = query.filter(PerformanceRun.environment == environment)
-        if status:
-            query = query.filter(PerformanceRun.status == status)
-        if model_id:
-            query = query.filter(PerformanceRun.model_id == model_id)
-        total = query.count()
-        rows = (
-            query.order_by(PerformanceRun.created_at.desc(), PerformanceRun.run_id.desc())
             .offset(self._offset(page, page_size))
             .limit(page_size)
             .all()

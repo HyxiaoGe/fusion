@@ -159,88 +159,10 @@ export interface AdminAuditEventRecord {
   created_at: string;
 }
 
-export type AdminPerformanceStageKind = 'http' | 'sse' | 'recovery' | 'stop' | 'soak' | string;
-
-export interface AdminPerformanceStageSummary {
-  [key: string]: AdminJsonValue | undefined;
-  scenario?: string;
-  kind?: AdminPerformanceStageKind;
-  concurrency?: number;
-}
-
-interface AdminPerformanceCleanupSummary {
-  conversations_deleted?: number;
-  tokens_revoked?: number;
-  users_deleted?: number;
-  agent_steps_deleted?: number;
-  errors?: string[];
-}
-
-export interface AdminPerformanceResourceMetrics {
-  [key: string]: AdminJsonValue | undefined;
-  cpu_percent?: number;
-  memory_mib?: number;
-  memory_percent?: number;
-  connections?: number;
-  restarts?: number;
-  rejected_connections?: number;
-  evicted_keys?: number;
-  oom?: boolean;
-}
-
-interface AdminPerformanceResourcesSummary {
-  api?: AdminPerformanceResourceMetrics | null;
-  postgres?: AdminPerformanceResourceMetrics | null;
-  redis?: AdminPerformanceResourceMetrics | null;
-  host?: AdminPerformanceResourceMetrics | null;
-  nginx?: AdminPerformanceResourceMetrics | null;
-  litellm?: AdminPerformanceResourceMetrics | null;
-}
-
-export interface AdminPerformanceSafeSummary {
-  stages?: AdminPerformanceStageSummary[];
-  stopped?: boolean;
-  stop_reasons?: string[];
-  cleanup?: AdminPerformanceCleanupSummary;
-  resources?: AdminPerformanceResourcesSummary | null;
-  rps?: number;
-  p50_ms?: number;
-  p90_ms?: number;
-  p95_ms?: number;
-  p99_ms?: number;
-  max_ms?: number;
-  ttft_ms?: number;
-  error_rate?: number;
-}
-
-export interface AdminPerformanceRunSummary {
-  run_id: string;
-  environment: string;
-  model_id: string | null;
-  status: string;
-  schema_version: number;
-  started_at: string | null;
-  finished_at: string | null;
-  created_at: string;
-}
-
-export interface AdminPerformanceRunDetail extends AdminPerformanceRunSummary {
-  safe_summary: AdminPerformanceSafeSummary;
-  imported_by_user_id: string;
-}
-
 export interface AdminModelHealthSummary {
   status: string;
   error?: string | null;
   checked_at?: string | number | null;
-}
-
-export interface AdminModelPerformanceRunSummary {
-  run_id: string;
-  status: string;
-  environment: string;
-  started_at: string | null;
-  finished_at: string | null;
 }
 
 export interface AdminModelSummary {
@@ -260,7 +182,6 @@ export interface AdminModelSummary {
   last_used_at: string | null;
   agent_run_count: number;
   agent_error_count: number;
-  latest_performance_run: AdminModelPerformanceRunSummary | null;
 }
 
 export interface AdminModelDetail extends AdminModelSummary {
@@ -346,17 +267,6 @@ export interface AdminItineraryStabilityResponse {
   by_tool: AdminItineraryStabilityToolItem[];
 }
 
-export interface PerformanceRunImportPayload {
-  schema_version: number;
-  run_id: string;
-  environment: string;
-  model_id?: string | null;
-  status: string;
-  safe_summary: { [key: string]: AdminJsonValue };
-  started_at?: string | null;
-  finished_at?: string | null;
-}
-
 export interface AdminUsersQuery {
   page?: number;
   page_size?: number;
@@ -392,12 +302,6 @@ export interface AdminAuditEventsQuery extends AdminConversationSectionQuery {
   target_user_id?: string;
   created_from?: string;
   created_to?: string;
-}
-
-export interface AdminPerformanceRunsQuery extends AdminConversationSectionQuery {
-  environment?: string;
-  status?: string;
-  model_id?: string;
 }
 
 export interface AdminModelsQuery extends AdminConversationSectionQuery {

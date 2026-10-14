@@ -14,16 +14,13 @@ from pydantic import ValidationError
 from app.ai import litellm_catalog, litellm_health
 from app.core.logger import app_logger as logger
 from app.db.admin_audit_repository import AdminAuditRepository, page_payload
-from app.db.models import AdminAuditEvent, AgentStep, File, Message, PerformanceRun, ToolCallLog, User
+from app.db.models import AdminAuditEvent, AgentStep, File, Message, ToolCallLog, User
 from app.schemas.admin_audit import (
     AdminAuditAdminSnapshot,
     AdminAuditEventItem,
     AdminAuditEventMetadata,
     AdminAuditSearchSummary,
     AdminModelOperationsItem,
-    AdminModelPerformanceSummary,
-    AdminPerformanceRunImport,
-    PerformanceSafeSummary,
 )
 from app.schemas.chat import PlaceResultsBlock, RouteResultsBlock
 from app.schemas.response import ApiException, ErrorCode
@@ -1016,19 +1013,6 @@ class AdminAuditService:
         }
 
     @classmethod
-    def _model_performance_summary(cls, row: Any) -> dict[str, Any] | None:
-        if row is None:
-            return None
-        return AdminModelPerformanceSummary(
-            run_id=row.run_id,
-            environment=row.environment,
-            status=row.status,
-            started_at=row.started_at,
-            finished_at=row.finished_at,
-            created_at=row.created_at,
-        ).model_dump()
-
-    @classmethod
     def _model_operations_item(
         cls,
         model_id: str,
@@ -1056,7 +1040,6 @@ class AdminAuditService:
             last_used_at=usage.get("last_used_at"),
             agent_run_count=usage.get("agent_run_count", 0),
             agent_error_count=usage.get("agent_error_count", 0),
-            latest_performance_run=cls._model_performance_summary(usage.get("latest_performance_run")),
         )
         return item.model_dump()
 
@@ -1415,121 +1398,3 @@ class AdminAuditService:
             filters["page"],
             filters["page_size"],
         )
-
-    @staticmethod
-    def _safe_performance_summary(value: Any, schema_version: int) -> dict[str, Any]:
-        if schema_version not in {1, 2}:
-            stop_reason = "unsupported_schema_version"
-        else:
-            try:
-                summary_source = PerformanceSafeSummary.model_validate(value).model_dump(exclude_none=True)
-            except ValidationError:
-                stop_reason = "invalid_safe_summary"
-            else:
-                summary, _ = sanitize_admin_value(summary_source, max_string_chars=2000, max_list_items=100)
-                return summary
-        summary_source = PerformanceSafeSummary(
-            stopped=True,
-            stop_reasons=[stop_reason],
-        ).model_dump(exclude_none=True)
-        summary, _ = sanitize_admin_value(summary_source, max_string_chars=2000, max_list_items=100)
-        return summary
-
-    @classmethod
-    def _performance_item(cls, run: PerformanceRun) -> dict[str, Any]:
-        return {
-            "run_id": run.run_id,
-            "environment": run.environment,
-            "model_id": run.model_id,
-            "status": run.status,
-            "schema_version": run.schema_version,
-            "safe_summary": cls._safe_performance_summary(run.safe_summary, run.schema_version),
-            "imported_by_user_id": run.imported_by_user_id,
-            "started_at": run.started_at,
-            "finished_at": run.finished_at,
-            "created_at": run.created_at,
-        }
-
-    @staticmethod
-    def _performance_list_item(run: Any) -> dict[str, Any]:
-        return {
-            "run_id": run.run_id,
-            "environment": run.environment,
-            "model_id": run.model_id,
-            "status": run.status,
-            "schema_version": run.schema_version,
-            "started_at": run.started_at,
-            "finished_at": run.finished_at,
-            "created_at": run.created_at,
-        }
-
-    def import_performance_run(
-        self,
-        payload: AdminPerformanceRunImport,
-        *,
-        admin: User,
-        request_id: str,
-        reason: str | None,
-    ) -> dict[str, Any]:
-        summary_source = payload.safe_summary.model_dump(exclude_none=True)
-        safe_summary, _ = sanitize_admin_value(summary_source, max_string_chars=2000, max_list_items=100)
-        values = payload.model_dump(exclude={"safe_summary"})
-        values.update({"safe_summary": safe_summary, "imported_by_user_id": str(admin.id)})
-        run, created = self.repository.import_performance_run(values)
-        self._record(
-            admin=admin,
-            action="admin.audit.performance_run.import",
-            resource_type="performance_run",
-            resource_id=payload.run_id,
-            request_id=request_id,
-            reason=reason,
-            metadata={"environment": payload.environment, "schema_version": payload.schema_version},
-        )
-        return {"run_id": run.run_id, "created": created}
-
-    def list_performance_runs(
-        self,
-        *,
-        admin: User,
-        request_id: str,
-        reason: str | None,
-        **filters: Any,
-    ) -> dict[str, Any]:
-        rows, total = self.repository.list_performance_runs(**filters)
-        items = [self._performance_list_item(row) for row in rows]
-        self._record(
-            admin=admin,
-            action="admin.audit.performance_runs.list",
-            resource_type="performance_run",
-            request_id=request_id,
-            reason=reason,
-            metadata={key: value for key, value in filters.items() if value is not None},
-        )
-        return page_payload(
-            items,
-            total,
-            filters["page"],
-            filters["page_size"],
-        )
-
-    def get_performance_run(
-        self,
-        run_id: str,
-        *,
-        admin: User,
-        request_id: str,
-        reason: str | None,
-    ) -> dict[str, Any]:
-        run = self.repository.get_performance_run(run_id)
-        if run is None:
-            raise ApiException.not_found("压测记录不存在")
-        item = self._performance_item(run)
-        self._record(
-            admin=admin,
-            action="admin.audit.performance_run.view",
-            resource_type="performance_run",
-            resource_id=run_id,
-            request_id=request_id,
-            reason=reason,
-        )
-        return item

@@ -22,7 +22,6 @@ const model = {
   conversation_count: 12, user_count: 5, assistant_message_count: 34,
   input_tokens: 1200, output_tokens: 800, last_used_at: '2026-07-12T00:00:00Z',
   agent_run_count: 7, agent_error_count: 1,
-  latest_performance_run: { run_id: 'perf-1', status: 'completed', environment: 'production', started_at: '2026-07-11T00:00:00Z', finished_at: '2026-07-11T00:10:00Z' },
 };
 const page = {
   items: [model], total: 1, page: 1, page_size: 25, total_pages: 1, has_next: false, has_prev: false,
@@ -359,7 +358,7 @@ describe('AdminModelsPanel', () => {
     expect(view).toHaveTextContent('12 个对话');
     expect(view).toHaveTextContent('7 次 Agent 运行');
     expect(view).toHaveTextContent('1 次错误');
-    expect(view).toHaveTextContent('perf-1');
+    expect(view).not.toHaveTextContent('最近压测');
     expect(view).toHaveTextContent('适合长文本与 Agent 任务');
     expect(view).toHaveTextContent('Token 仅为当前已持久化助手消息用量，不等同平台全部调用或计费账单。');
     expect(view).toHaveTextContent('最近活动');
@@ -408,10 +407,6 @@ describe('AdminModelsPanel', () => {
       cost_tier: 'low',
       recommended_for: ['agent', 'coding', 'long_context', 'fast_response', 'general', 'custom'],
       capabilities: { searchCapable: true, webSearch: true },
-      latest_performance_run: {
-        run_id: 'perf-history', status: 'completed', environment: 'production',
-        started_at: null, finished_at: null,
-      },
     });
     render(<ControlledModelsPanel initialModelId="model-history" />);
     const view = await screen.findByLabelText('模型详情 model-history');
@@ -419,8 +414,6 @@ describe('AdminModelsPanel', () => {
     expect(view).not.toHaveTextContent('model-history · ·');
     expect(view).toHaveTextContent('成本层级低');
     expect(view).toHaveTextContent('Agent、编程、长上下文、快速响应、通用、custom');
-    expect(view).toHaveTextContent('状态已完成');
-    expect(view).toHaveTextContent('环境生产环境');
     expect(view).toHaveTextContent('检测时间2026/7/12 08:00:00（北京时间）');
     expect(view).toHaveTextContent('联网搜索');
     expect(view).not.toHaveTextContent('网页搜索');

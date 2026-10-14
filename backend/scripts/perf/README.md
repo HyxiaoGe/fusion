@@ -62,6 +62,6 @@ ssh -N -L 19999:127.0.0.1:9999 dev
   --output docs/performance/YYYY-MM-DD-full-production-run-import.json
 ```
 
-完整 runner 在每个阶梯后检查容器重启/OOM、Redis rejected/evicted、API 内存、PostgreSQL 连接和主机可用内存；监控不可用时 fail closed。L4 每个 tick 同样执行硬门禁。结果会先经过管理员压测导入 schema 校验，只保留聚合指标；账号、token、conversation/message ID、游标和模型正文不会写入文件。
+完整 runner 在每个阶梯后检查容器重启/OOM、Redis rejected/evicted、API 内存、PostgreSQL 连接和主机可用内存；监控不可用时 fail closed。L4 每个 tick 同样执行硬门禁。结果只保留聚合指标；账号、token、conversation/message ID、游标和模型正文不会写入文件。
 
 最终窗口资源报告可通过 `scripts.perf.prometheus_report` 从 Prometheus `query_range` 生成；查询窗口最多 2 小时、最多 1000 个点、单响应最多 2 MiB。

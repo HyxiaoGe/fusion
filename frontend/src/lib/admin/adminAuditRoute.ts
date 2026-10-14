@@ -1,14 +1,13 @@
-export type AdminAuditTab = 'users' | 'conversations' | 'models' | 'performance' | 'events';
+export type AdminAuditTab = 'users' | 'conversations' | 'models' | 'events';
 
 export interface AdminAuditRoute {
   tab: AdminAuditTab;
   userId?: string;
   conversationId?: string;
-  runId?: string;
   modelId?: string;
 }
 
-const ADMIN_TABS = new Set<AdminAuditTab>(['users', 'conversations', 'models', 'performance', 'events']);
+const ADMIN_TABS = new Set<AdminAuditTab>(['users', 'conversations', 'models', 'events']);
 const MAX_ROUTE_ID_LENGTH = 200;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/;
 
@@ -46,10 +45,6 @@ export function parseAdminAuditRoute(searchParams: URLSearchParams): AdminAuditR
     const modelId = normalizeAdminAuditRouteId(searchParams.get('model_id'));
     return modelId ? { tab, modelId } : { tab };
   }
-  if (tab === 'performance') {
-    const runId = normalizeAdminAuditRouteId(searchParams.get('run_id'));
-    return runId ? { tab, runId } : { tab };
-  }
   return { tab };
 }
 
@@ -57,7 +52,6 @@ export function buildAdminAuditUrl(route: AdminAuditRoute): string {
   const params = new URLSearchParams();
   const userId = normalizeAdminAuditRouteId(route.userId);
   const conversationId = normalizeAdminAuditRouteId(route.conversationId);
-  const runId = normalizeAdminAuditRouteId(route.runId);
   const modelId = normalizeAdminAuditRouteId(route.modelId);
   if (route.tab !== 'users' || userId) params.set('tab', route.tab);
   if (route.tab === 'users' && userId) params.set('user_id', userId);
@@ -67,7 +61,6 @@ export function buildAdminAuditUrl(route: AdminAuditRoute): string {
     if (modelId) params.set('model_id', modelId);
   }
   if (route.tab === 'models' && modelId) params.set('model_id', modelId);
-  if (route.tab === 'performance' && runId) params.set('run_id', runId);
   const query = params.toString();
   return query ? `/admin?${query}` : '/admin';
 }

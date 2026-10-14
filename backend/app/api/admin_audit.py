@@ -9,7 +9,6 @@ from fastapi import APIRouter, Depends, Header, Query, Request
 
 from app.api.deps import get_admin_audit_service, get_conversation_auditor, get_trajectory_query_service
 from app.db.models import User
-from app.schemas.admin_audit import AdminPerformanceRunImport
 from app.schemas.response import ApiException, success
 from app.services.admin_audit_service import AdminAuditService
 from app.services.trajectory_query_service import TrajectoryQueryService
@@ -353,57 +352,5 @@ def get_model(
 ):
     return success(
         data=service.get_model(model_id, admin=auditor, **_context(request, reason)),
-        request_id=request.state.request_id,
-    )
-
-
-@router.post("/performance-runs/import")
-def import_performance_run(
-    payload: AdminPerformanceRunImport,
-    request: Request,
-    reason: str | None = Header(None, alias="X-Admin-Audit-Reason", max_length=300),
-    service: AdminAuditService = Depends(get_admin_audit_service),
-    auditor: User = Depends(get_conversation_auditor),
-):
-    return success(
-        data=service.import_performance_run(payload, admin=auditor, **_context(request, reason)),
-        request_id=request.state.request_id,
-    )
-
-
-@router.get("/performance-runs")
-def list_performance_runs(
-    request: Request,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(25, ge=1, le=100),
-    environment: str | None = None,
-    status: str | None = None,
-    model_id: str | None = None,
-    reason: str | None = Header(None, alias="X-Admin-Audit-Reason", max_length=300),
-    service: AdminAuditService = Depends(get_admin_audit_service),
-    auditor: User = Depends(get_conversation_auditor),
-):
-    data = service.list_performance_runs(
-        admin=auditor,
-        **_context(request, reason),
-        page=page,
-        page_size=page_size,
-        environment=environment,
-        status=status,
-        model_id=model_id,
-    )
-    return success(data=data, request_id=request.state.request_id)
-
-
-@router.get("/performance-runs/{run_id}")
-def get_performance_run(
-    run_id: str,
-    request: Request,
-    reason: str | None = Header(None, alias="X-Admin-Audit-Reason", max_length=300),
-    service: AdminAuditService = Depends(get_admin_audit_service),
-    auditor: User = Depends(get_conversation_auditor),
-):
-    return success(
-        data=service.get_performance_run(run_id, admin=auditor, **_context(request, reason)),
         request_id=request.state.request_id,
     )
