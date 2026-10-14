@@ -53,6 +53,19 @@
 .navLink:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
 .panel { min-width: 0; padding: 24px; border: 1px solid var(--border); border-radius: 20px; background: var(--bg-elevated); box-shadow: var(--shadow-fdv2-sm); }
 
+/* 宽屏下面板至少占满一屏；列表页固定为一屏高，只让表格在框内滚动，标题、筛选与分页始终可见。 */
+@media (min-width: 768px) {
+  .workspace { min-height: 100%; }
+  .panel { align-self: stretch; }
+}
+/* 屏幕太矮时放不下标题、筛选与最小表格高度，退回整页滚动。 */
+@media (min-width: 768px) and (min-height: 640px) {
+  .workspace:has(.listPage) { height: 100%; grid-template-rows: minmax(0, 1fr); }
+  .panel:has(> .listPage) { display: flex; min-height: 0; flex-direction: column; }
+  .listPage { display: flex; flex: 1; min-height: 0; flex-direction: column; }
+  .listPage .tableFrame { flex: 1 1 auto; min-height: 240px; max-height: none; }
+}
+
 /* 窄屏导航改为横向滚动条，内容区占满宽度。 */
 @media (max-width: 767px) {
   .workspace { grid-template-columns: minmax(0, 1fr); padding: 12px 16px 24px; gap: 12px; }
@@ -107,6 +120,8 @@
 .filters { display: grid; align-items: end; gap: 14px; margin-bottom: 20px; padding: 18px; border: 1px solid var(--border); border-radius: 15px; background: var(--bg-subtle); }
 .usersFilters { grid-template-columns: minmax(200px, 2fr) minmax(140px, 1fr) repeat(2, minmax(160px, 1fr)) auto; }
 .conversationFilters { grid-template-columns: repeat(4, minmax(0, 1fr)) auto; }
+.auditFilters { grid-template-columns: repeat(3, minmax(0, 1fr)) auto; }
+.modelFilters { grid-template-columns: minmax(200px, 2fr) repeat(2, minmax(160px, 1fr)) auto; }
 .wideField { grid-column: span 3; }
 .filterField { display: flex; min-width: 0; flex-direction: column; gap: 7px; }
 .filterLabel { font-size: 12px; font-weight: 500; color: var(--fg-secondary); }
@@ -209,7 +224,7 @@
 }
 
 @media (max-width: 1199px) {
-  .usersFilters, .conversationFilters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .usersFilters, .conversationFilters, .auditFilters, .modelFilters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .wideField { grid-column: span 2; }
   .filterActions.filterActions { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -218,7 +233,7 @@
   .panel.panel { padding: 16px; }
   .navigation.navigation { gap: 2px; padding: 5px; }
   .navigation :global([role="tab"]) { flex-direction: column; gap: 4px; min-height: 54px; padding: 6px 2px; font-size: 12px; }
-  .usersFilters, .conversationFilters { grid-template-columns: minmax(0, 1fr); }
+  .usersFilters, .conversationFilters, .auditFilters, .modelFilters { grid-template-columns: minmax(0, 1fr); }
   .wideField { grid-column: auto; }
   .filters { padding: 14px; }
 }

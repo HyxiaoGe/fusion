@@ -51,7 +51,7 @@ export default function AdminConversationsPanel() {
   const resetFilters = () => setFilters({});
 
   return (
-    <section>
+    <section className={styles.listPage}>
       <AdminPanelHeader title="全局对话" description="跨用户检索已持久化对话；管理页不会续写、停止或修改内容。" action={<Button variant="outline" size="sm" onClick={resource.reload} aria-label="刷新对话列表"><RefreshCw />刷新</Button>} />
       <form onSubmit={applyFilters} className={`${styles.filters} ${styles.conversationFilters}`}>
         <AdminFilterField label={t('admin.filters.conversationSearch')} className={styles.wideField}><Input aria-label={t('admin.filters.conversationSearch')} value={draft.q} onChange={event => setDraft(current => ({ ...current, q: event.target.value }))} placeholder="标题或用户关键词" /></AdminFilterField>
