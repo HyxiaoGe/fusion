@@ -16,7 +16,7 @@ export default function ChangelogDialog() {
   const { isChangelogDialogOpen, focusChangelogId } = useAppSelector((state) => state.settings);
   return (
     <Dialog open={isChangelogDialogOpen} onOpenChange={(open) => { if (!open) dispatch(closeChangelogDialog()); }}>
-      <DialogContent closeLabel={t('changelogs.close')} className="flex h-[85vh] w-full max-w-[95vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-[90vw] lg:max-w-5xl">
+      <DialogContent closeLabel={t('changelogs.close')} className="flex h-[85vh] w-full max-w-[95vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-[90vw] lg:max-w-6xl xl:max-w-7xl">
         <DialogHeader className="shrink-0 border-b px-6 py-4">
           <DialogTitle className="flex items-center gap-2"><ScrollText className="h-5 w-5" aria-hidden="true" />{t('changelogs.title')}</DialogTitle>
           <DialogDescription>{t('changelogs.description')}</DialogDescription>

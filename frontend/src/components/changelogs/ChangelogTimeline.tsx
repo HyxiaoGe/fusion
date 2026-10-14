@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { getChangelogs, type ChangelogDetail, type ChangelogPage } from '@/lib/api/changelogs';
 import { ChangelogContent } from './ChangelogContent';
 import { useReadPresentedChangelog } from './useReadPresentedChangelog';
@@ -101,6 +102,29 @@ export default function ChangelogTimeline({ sessionKey, focusId }: { sessionKey:
   const loadMoreRef = useRef(loadMore);
   loadMoreRef.current = loadMore;
 
+  // 目录高亮正文里当前读到的版本：取顶部已越过滚动区上沿的最后一篇，滚到底时取最后一篇。
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const itemIds = current.items.map((item) => item.id).join(',');
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container || !itemIds) return undefined;
+    const ids = itemIds.split(',');
+    const update = () => {
+      const top = container.getBoundingClientRect().top + 24;
+      let next = ids[0];
+      for (const id of ids) {
+        const element = document.getElementById(changelogAnchorId(id));
+        if (element && element.getBoundingClientRect().top <= top) next = id;
+      }
+      if (container.scrollTop > 0 && container.scrollTop + container.clientHeight >= container.scrollHeight - 2) next = ids[ids.length - 1];
+      setActiveId(next);
+    };
+    update();
+    container.addEventListener('scroll', update, { passive: true });
+    return () => container.removeEventListener('scroll', update);
+  }, [itemIds]);
+
   // 从通知进入时定位到对应版本；不在已加载页内就继续翻页，翻完仍没有则停在最新一篇。
   const focusKey = sessionKey && focusId ? `${sessionKey}:${focusId}` : '';
   const focusLoaded = current.items.some((item) => item.id === focusId);
@@ -124,20 +148,28 @@ export default function ChangelogTimeline({ sessionKey, focusId }: { sessionKey:
 
   return (
     <div className="flex min-h-0 flex-1">
-      <nav aria-label={t('changelogs.contents')} className="hidden w-44 shrink-0 overflow-y-auto border-r py-4 md:block">
+      <nav aria-label={t('changelogs.contents')} className="hidden w-52 shrink-0 overflow-y-auto border-r py-4 md:block">
         <ol className="space-y-0.5 px-3">
-          {current.items.map((item) => (
-            <li key={item.id}>
-              <button type="button" onClick={() => document.getElementById(changelogAnchorId(item.id))?.scrollIntoView({ block: 'start', behavior: 'smooth' })}
-                className="block w-full rounded-md px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                <span className="block font-medium">{item.version}</span>
-                <span className="block text-xs">{formatDate(item.published_at)}</span>
-              </button>
-            </li>
-          ))}
+          {current.items.map((item) => {
+            const active = item.id === activeId;
+            return (
+              <li key={item.id}>
+                <button type="button" aria-current={active ? 'true' : undefined}
+                  onClick={() => { setActiveId(item.id); document.getElementById(changelogAnchorId(item.id))?.scrollIntoView({ block: 'start', behavior: 'smooth' }); }}
+                  className={cn(
+                    'block w-full rounded-md border-l-2 px-3 py-2 text-left text-sm transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    active ? 'border-primary bg-muted text-foreground' : 'border-transparent text-muted-foreground',
+                  )}>
+                  <span className="block font-medium">{item.version}</span>
+                  <span className="block truncate text-xs">{item.title}</span>
+                  <span className="block text-xs">{formatDate(item.published_at)}</span>
+                </button>
+              </li>
+            );
+          })}
         </ol>
       </nav>
-      <div data-testid="changelog-scroll" className="min-w-0 flex-1 overflow-y-auto px-6 pb-8">
+      <div ref={scrollRef} data-testid="changelog-scroll" className="min-w-0 flex-1 overflow-y-auto px-6 pb-8">
         {current.items.map((item) => <ChangelogEntry key={item.id} sessionKey={sessionKey} entry={item} />)}
         {current.pageError && <p role="alert" className="mt-5 text-sm text-destructive">{t('notifications.loadMoreFailed')}</p>}
         {current.next_cursor && <div className="mt-6 flex justify-center"><Button variant="outline" disabled={current.loadingMore} onClick={() => { void loadMore(); }}>{t(current.loadingMore ? 'changelogs.loading' : current.pageError ? 'notifications.retry' : 'notifications.loadMore')}</Button></div>}
