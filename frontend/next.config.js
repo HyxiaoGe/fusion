@@ -40,8 +40,39 @@ function buildAdminContentSecurityPolicy() {
   ].join('; ')
 }
 
+// 前端版本号：按源码内容算哈希，同一份代码在任意 runner 上构建都得到同一个值，
+// 只改后端的部署不会让已打开的页面误报「有新版本」。
+function computeBuildVersion() {
+  const crypto = require('crypto')
+  const fs = require('fs')
+  const path = require('path')
+  const hash = crypto.createHash('sha256')
+  const addFile = (file) => {
+    hash.update(path.relative(__dirname, file))
+    hash.update(fs.readFileSync(file))
+  }
+  const walk = (dir) => {
+    if (!fs.existsSync(dir)) return
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const full = path.join(dir, entry.name)
+      if (entry.isDirectory()) walk(full)
+      else if (entry.isFile() && !entry.name.endsWith('.md')) addFile(full)
+    }
+  }
+  walk(path.join(__dirname, 'src'))
+  walk(path.join(__dirname, 'public'))
+  for (const name of ['package-lock.json', 'next.config.js']) {
+    const file = path.join(__dirname, name)
+    if (fs.existsSync(file)) addFile(file)
+  }
+  return hash.digest('hex').slice(0, 16)
+}
+
 const nextConfig = {
   reactStrictMode: true,
+  env: {
+    NEXT_PUBLIC_BUILD_VERSION: computeBuildVersion(),
+  },
   // 避开左下角账户入口，防止开发工具浮标拦截头像菜单点击。
   devIndicators: {
     position: 'top-right',

@@ -573,6 +573,7 @@
         "operationFailed": "The operation failed. Try again later."
       }
     },
+    "newVersion": {"title": "A new version is available", "description": "Fusion has been updated. Refresh the page to use the latest version; answers in progress won't be lost.", "refresh": "Refresh", "later": "Later", "dismiss": "Dismiss update notice"},
     "settings": {
       "theme": "Theme",
       "light": "Light",
