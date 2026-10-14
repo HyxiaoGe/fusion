@@ -29,6 +29,9 @@ export function useConversationActivity(
   const [remoteStreamingIds, setRemoteStreamingIds] = useState<readonly string[]>(EMPTY_IDS);
   const [unreadIds, setUnreadIds] = useState<readonly string[]>(EMPTY_IDS);
   const inflightRef = useRef<AbortController | null>(null);
+  // 本页刚收尾的对话：界面在 run_completed 就收尾，服务端要等推荐问题发完才撤下“进行中”，
+  // 这段时间拉到的旧状态不采纳；服务端不再返回它，或本页又开始生成时移出。
+  const locallyEndedRef = useRef(new Set<string>());
 
   const refresh = useCallback(async () => {
     if (!sessionKey) return;
@@ -38,7 +41,12 @@ export function useConversationActivity(
     try {
       const activity = await syncConversationActivity(controller.signal);
       if (controller.signal.aborted) return;
-      setRemoteStreamingIds((prev) => (sameIds(prev, activity.streaming) ? prev : activity.streaming));
+      const locallyEnded = locallyEndedRef.current;
+      for (const id of locallyEnded) {
+        if (!activity.streaming.includes(id)) locallyEnded.delete(id);
+      }
+      const streaming = activity.streaming.filter((id) => !locallyEnded.has(id));
+      setRemoteStreamingIds((prev) => (sameIds(prev, streaming) ? prev : streaming));
       setUnreadIds((prev) => (sameIds(prev, activity.unread) ? prev : activity.unread));
     } catch {
       // 状态只是提示，拉取失败保持上一次结果，下次触发再试。
@@ -52,6 +60,7 @@ export function useConversationActivity(
   useEffect(() => {
     setRemoteStreamingIds(EMPTY_IDS);
     setUnreadIds(EMPTY_IDS);
+    locallyEndedRef.current.clear();
     if (!sessionKey) return;
     const unregister = registerBackgroundTask((trigger) => {
       if (trigger === 'tick' && !hasActiveStreamsRef.current) return;
@@ -66,10 +75,19 @@ export function useConversationActivity(
   // 本页的流结束时服务端刚写入未读，立即拉一次。
   const previousLocalRef = useRef<readonly string[]>(localStreamingIds);
   useEffect(() => {
-    const ended = previousLocalRef.current.some((id) => !localStreamingIds.includes(id));
+    const endedIds = previousLocalRef.current.filter((id) => !localStreamingIds.includes(id));
     const started = localStreamingIds.some((id) => !previousLocalRef.current.includes(id));
     previousLocalRef.current = localStreamingIds;
-    if (ended || started) void refresh();
+    const locallyEnded = locallyEndedRef.current;
+    for (const id of localStreamingIds) locallyEnded.delete(id);
+    if (endedIds.length > 0) {
+      for (const id of endedIds) locallyEnded.add(id);
+      setRemoteStreamingIds((prev) => {
+        const next = prev.filter((id) => !locallyEnded.has(id));
+        return next.length === prev.length ? prev : next;
+      });
+    }
+    if (endedIds.length > 0 || started) void refresh();
   }, [localStreamingIds, refresh]);
 
   hasActiveStreamsRef.current = remoteStreamingIds.length > 0 || localStreamingIds.length > 0;

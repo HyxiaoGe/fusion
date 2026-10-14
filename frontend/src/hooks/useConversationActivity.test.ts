@@ -71,6 +71,33 @@ describe('useConversationActivity', () => {
     await waitFor(() => expect(mockedGet).toHaveBeenCalledTimes(2));
   });
 
+  it('本页流结束后不采纳服务端尚未撤下的进行中，服务端撤下后恢复采纳', async () => {
+    mockedGet.mockResolvedValue({ streaming: ['conv-1'], unread: [] });
+    const { result, rerender } = renderHook(
+      ({ local }: { local: readonly string[] }) => useConversationActivity('user-1', null, local),
+      { initialProps: { local: ['conv-1'] as readonly string[] } },
+    );
+    await waitFor(() => expect(mockedGet).toHaveBeenCalledTimes(1));
+    expect(result.current.streamingConversationIds).toEqual(['conv-1']);
+
+    // 服务端还在发推荐问题，仍登记为进行中。
+    rerender({ local: NO_LOCAL });
+    expect(result.current.streamingConversationIds).toEqual([]);
+    await waitFor(() => expect(mockedGet).toHaveBeenCalledTimes(2));
+    expect(result.current.streamingConversationIds).toEqual([]);
+
+    // 服务端撤下后，之后（例如另一个标签页）再登记的进行中照常显示。
+    mockedGet.mockResolvedValue({ streaming: [], unread: [] });
+    await act(async () => {
+      await result.current.refresh();
+    });
+    mockedGet.mockResolvedValue({ streaming: ['conv-1'], unread: [] });
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.streamingConversationIds).toEqual(['conv-1']);
+  });
+
   it('polls only while something is streaming', async () => {
     vi.useFakeTimers();
     mockedGet.mockResolvedValue({ streaming: [], unread: [] });
