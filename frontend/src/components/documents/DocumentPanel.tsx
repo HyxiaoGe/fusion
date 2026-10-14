@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, Download, FileCode2, FileText, GitCompare, X } from 'lucide-react';
+import { ChevronDown, Download, FileCode2, FileText, GitCompare, Maximize2, Minimize2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { getDocument, getDocumentContent } from '@/lib/api/documents';
@@ -40,6 +40,8 @@ export default function DocumentPanel({ documentId, initialVersion, isOpen, onCl
   const [content, setContent] = useState<LoadState<DocumentVersionContent>>({ status: 'loading' });
   const [reloadTick, setReloadTick] = useState(0);
   const [comparisonOwner, setComparisonOwner] = useState<string | null>(null);
+  // 全屏只在本次打开内有效，每次打开都从抽屉宽度开始。
+  const [expanded, setExpanded] = useState(false);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const detailOwner = JSON.stringify([authIdentity, documentId]);
   const contentOwner = JSON.stringify([authIdentity, documentId, version]);
@@ -47,6 +49,7 @@ export default function DocumentPanel({ documentId, initialVersion, isOpen, onCl
 
   useEffect(() => {
     setComparisonOwner(null);
+    setExpanded(false);
     if (isOpen) setVersion(initialVersion);
   }, [documentId, initialVersion, isOpen, authIdentity]);
 
@@ -148,7 +151,8 @@ export default function DocumentPanel({ documentId, initialVersion, isOpen, onCl
         aria-modal="true"
         aria-label={title}
         data-chat-detail-overlay-surface="true"
-        className={cn('fixed inset-y-0 right-0 z-50 flex w-[min(880px,100vw)] flex-col', styles.panel)}
+        data-expanded={expanded ? 'true' : undefined}
+        className={cn('fixed inset-y-0 right-0 z-50 flex flex-col', expanded ? 'w-screen' : 'w-[min(880px,100vw)]', styles.panel)}
       >
         <header className={styles.header}>
           <div className={styles.heading}>
@@ -159,6 +163,18 @@ export default function DocumentPanel({ documentId, initialVersion, isOpen, onCl
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">{ready.change_summary}</p>
               ) : null}
             </div>
+            <button
+              type="button"
+              aria-label={t(expanded ? 'documents.panel.exitFullscreen' : 'documents.panel.fullscreen')}
+              aria-pressed={expanded}
+              title={t(expanded ? 'documents.panel.exitFullscreen' : 'documents.panel.fullscreen')}
+              onClick={() => setExpanded(value => !value)}
+              className={cn(styles.iconButton, styles.expandButton)}
+            >
+              {expanded
+                ? <Minimize2 className="h-4 w-4" aria-hidden="true" />
+                : <Maximize2 className="h-4 w-4" aria-hidden="true" />}
+            </button>
             <button
               ref={closeButtonRef}
               type="button"
@@ -256,7 +272,7 @@ export default function DocumentPanel({ documentId, initialVersion, isOpen, onCl
             <DocumentReadingView key={contentOwner} document={ready} authIdentity={authIdentity} />
           )
         ) : (
-          <div className={cn('min-h-0 flex-1 overflow-y-auto', styles.body)}>
+          <div className={cn('min-h-0 flex-1 overflow-y-auto', styles.body, expanded && styles.bodyExpanded)}>
             {content.status !== 'error' ? (
               <p className="text-sm text-muted-foreground">{t('documents.panel.loading')}</p>
             ) : null}

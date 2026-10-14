@@ -147,6 +147,24 @@ describe('文档侧栏请求归属与阅读恢复', () => {
     expect(screen.getByRole('button', { name: 'Markdown' })).toBeEnabled();
   });
 
+  it('全屏切换铺满窗口，关闭重开回到抽屉宽度', async () => {
+    const user = userEvent.setup();
+    const props = { documentId: 'doc', initialVersion: 1, isOpen: true, onClose: vi.fn() };
+    const view = render(<DocumentPanel {...props} />);
+    const panel = screen.getByTestId('document-panel');
+    expect(panel).not.toHaveAttribute('data-expanded');
+
+    await user.click(screen.getByRole('button', { name: '全屏查看' }));
+    expect(panel).toHaveAttribute('data-expanded', 'true');
+    await user.click(screen.getByRole('button', { name: '退出全屏' }));
+    expect(panel).not.toHaveAttribute('data-expanded');
+
+    await user.click(screen.getByRole('button', { name: '全屏查看' }));
+    view.rerender(<DocumentPanel {...props} isOpen={false} />);
+    view.rerender(<DocumentPanel {...props} />);
+    expect(screen.getByTestId('document-panel')).not.toHaveAttribute('data-expanded');
+  });
+
   it('切换版本与关闭重开分别恢复原版本的最后位置', async () => {
     const user = userEvent.setup();
     const props = { documentId: 'doc', initialVersion: 1, isOpen: true, onClose: vi.fn() };

@@ -793,6 +793,8 @@
       "retry": "重试",
       "close": "关闭文档",
       "closeBackdrop": "关闭文档背景",
+      "fullscreen": "全屏查看",
+      "exitFullscreen": "退出全屏",
       "versionLabel": "文档版本",
       "downloadMarkdown": "Markdown",
       "downloadHtml": "HTML"
