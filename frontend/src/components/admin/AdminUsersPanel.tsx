@@ -44,7 +44,7 @@ export default function AdminUsersPanel() {
   const resetFilters = () => setFilters({});
 
   return (
-    <section>
+    <section className={styles.listPage}>
       <AdminPanelHeader
         title="用户审计"
         description="检索全部用户，查看活跃度、对话统计与 token 汇总。"

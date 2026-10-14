@@ -88,7 +88,7 @@ describe('AdminModelsPanel', () => {
     expect(recentActivity).toHaveTextContent('2026-07-12 08:00');
     expect(within(row).queryByText('总 Token')).toBeNull();
     expect(row).not.toHaveTextContent('secretKey');
-    expect(table).toHaveClass('table-fixed', 'min-w-[960px]');
+    expect(table).toHaveClass('min-w-[960px]');
     expect(within(table).getAllByRole('columnheader')).toHaveLength(6);
     expect(within(table).getByRole('columnheader', { name: '时间（北京时间）' })).toBeInTheDocument();
     expect(within(table).queryByRole('columnheader', { name: '提供商' })).toBeNull();

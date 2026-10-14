@@ -11,7 +11,8 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import type { AdminAuditEventRecord } from '@/types/adminAudit';
-import { AdminEmpty, AdminError, AdminFilterActions, AdminLoading, AdminPagination, AdminPanelHeader, formatAdminDate } from './AdminPanelPrimitives';
+import { AdminEmpty, AdminError, AdminFilterActions, AdminFilterField, AdminLoading, AdminPagination, AdminPanelHeader, formatAdminDate } from './AdminPanelPrimitives';
+import styles from './AdminSurface.module.css';
 import {
   adminAuditActionKind,
   adminAuditActionLabel,
@@ -47,24 +48,29 @@ export default function AdminAuditEventsPanel() {
   };
 
   return (
-    <section>
+    <section className={styles.listPage}>
       <AdminPanelHeader title="操作审计" description="查看管理员读取用户、对话等敏感数据，以及修改模型与 MCP 配置的留痕。" action={<Button variant="outline" size="sm" onClick={resource.reload}><RefreshCw />刷新</Button>} />
-      <form className="mb-4 grid max-w-4xl gap-2 md:grid-cols-[1fr_1fr_1fr_auto]" onSubmit={applyFilters}><Input aria-label="审计动作" placeholder="动作，例如 admin.audit.conversation.view" value={draft.action} onChange={event => setDraft(current => ({ ...current, action: event.target.value }))} /><Input aria-label="管理员用户 ID" placeholder="管理员用户 ID" value={draft.admin_user_id} onChange={event => setDraft(current => ({ ...current, admin_user_id: event.target.value }))} /><Input aria-label="目标用户 ID" placeholder="目标用户 ID" value={draft.target_user_id} onChange={event => setDraft(current => ({ ...current, target_user_id: event.target.value }))} /><AdminFilterActions submitLabel="筛选" submitIcon={<Search />} onReset={resetFilters} /></form>
+      <form className={`${styles.filters} ${styles.auditFilters}`} onSubmit={applyFilters}>
+        <AdminFilterField label="动作"><Input aria-label="审计动作" placeholder="例如 admin.audit.conversation.view" value={draft.action} onChange={event => setDraft(current => ({ ...current, action: event.target.value }))} /></AdminFilterField>
+        <AdminFilterField label="管理员用户 ID"><Input aria-label="管理员用户 ID" placeholder="管理员用户 ID" value={draft.admin_user_id} onChange={event => setDraft(current => ({ ...current, admin_user_id: event.target.value }))} /></AdminFilterField>
+        <AdminFilterField label="目标用户 ID"><Input aria-label="目标用户 ID" placeholder="目标用户 ID" value={draft.target_user_id} onChange={event => setDraft(current => ({ ...current, target_user_id: event.target.value }))} /></AdminFilterField>
+        <AdminFilterActions className={styles.filterActions} submitLabel="筛选" submitIcon={<Search />} onReset={resetFilters} />
+      </form>
       {resource.loading ? <AdminLoading /> : resource.error ? <AdminError message={resource.error} onRetry={resource.reload} /> : null}
       {resource.data && resource.data.items.length === 0 ? <AdminEmpty>暂无操作审计记录</AdminEmpty> : null}
-      {resource.data && resource.data.items.length > 0 ? <><div className="overflow-x-auto rounded-xl border border-border"><table className="w-full min-w-[860px] text-left text-sm"><caption className="sr-only">管理员操作审计记录</caption><thead className="bg-muted/30 text-xs text-muted-foreground"><tr><th scope="col" className="p-3">时间</th><th scope="col">管理员</th><th scope="col">操作内容</th><th scope="col">访问对象</th><th scope="col" className="pr-3 text-right">详情</th></tr></thead><tbody>{resource.data.items.map(event => {
+      {resource.data && resource.data.items.length > 0 ? <><div className={styles.tableFrame} role="region" aria-label="操作审计列表" tabIndex={0}><table className={`${styles.table} min-w-[860px]`}><caption className="sr-only">管理员操作审计记录</caption><colgroup><col style={{ width: '22%' }} /><col style={{ width: '16%' }} /><col style={{ width: '28%' }} /><col style={{ width: '22%' }} /><col style={{ width: '12%' }} /></colgroup><thead><tr><th scope="col">时间</th><th scope="col">管理员</th><th scope="col">操作内容</th><th scope="col">访问对象</th><th scope="col" className={styles.actions}>详情</th></tr></thead><tbody>{resource.data.items.map(event => {
         const admin = formatAdminAuditAdmin(event.admin_snapshot);
         const targetUser = formatAdminAuditTargetUser(event.target_user, event.target_user_id);
         return (
-          <tr key={event.id} className="border-t border-border/60 align-top">
-            <td className="whitespace-nowrap p-3">{formatAdminDate(event.created_at)}</td>
+          <tr key={event.id}>
+            <td className="whitespace-nowrap">{formatAdminDate(event.created_at)}</td>
             <td aria-label={`审计管理员 ${event.id}`}><div className="font-medium">{admin.primary}</div></td>
             <td aria-label={`审计操作 ${event.id}`}><AdminAuditActionCell action={event.action} /></td>
             <td aria-label={`审计对象 ${event.id}`}>
               <div className="font-medium">{adminAuditResourceLabel(event.resource_type)}</div>
               {targetUser ? <div className="mt-1 text-xs text-muted-foreground">{targetUser.primary}</div> : null}
             </td>
-            <td className="pr-3 text-right">
+            <td className={styles.actions}>
               <Button
                 variant="ghost"
                 size="sm"
