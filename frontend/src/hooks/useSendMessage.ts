@@ -1324,7 +1324,8 @@ export function useSendMessage(activeConversationId?: string | null) {
           startPostStreamActions(refreshConversationId);
         }
         if (!assistantHasContentRef.current) {
-          // 没有文本内容，直接完成（打字机从未启动）
+          // 没有正文，直接完成；只有思考时打字机可能已启动，先停掉，最终消息取完整内容。
+          typewriterRef.current.stop();
           doCompleteStream(donePayload);
         } else {
           typewriterRef.current.markNetworkDone();
@@ -1389,13 +1390,17 @@ export function useSendMessage(activeConversationId?: string | null) {
 
             onReasoning: (payload) => {
               if (!isActiveSendCurrent() || !activeConvIdRef.current || !ownsSlot()) return;
+              const streamConvId = activeConvIdRef.current;
               dispatch(appendThinkingDelta({
-                conversationId: activeConvIdRef.current,
+                conversationId: streamConvId,
                 blockId: payload.block_id,
                 delta: payload.delta,
                 runId: payload.run_id,
                 stepId: payload.step_id,
               }));
+              typewriterRef.current.start(streamConvId, () => {
+                if (donePayload && isActiveSendCurrent()) doCompleteStream(donePayload);
+              });
             },
 
             ...agentStreamEventHandlers,

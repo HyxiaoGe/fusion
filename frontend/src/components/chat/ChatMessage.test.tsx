@@ -830,8 +830,9 @@ describe('ChatMessage', () => {
     selectorState.streamSlot.thinkingBlocks = { 'blk_t1': '先分析上下文' };
     selectorState.streamSlot.blockOrder = ['blk_t1', 'blk_s1'];
     selectorState.streamSlot.blockTypes = { 'blk_t1': 'thinking', 'blk_s1': 'text' };
-    selectorState.streamSlot.totalTextLength = 6;
-    selectorState.streamSlot.displayedTextLength = 6;
+    // 思考与正文共用打字机进度：6 字思考 + 6 字正文。
+    selectorState.streamSlot.totalTextLength = 12;
+    selectorState.streamSlot.displayedTextLength = 12;
 
     render(
       <ChatMessage

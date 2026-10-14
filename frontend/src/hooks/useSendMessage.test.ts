@@ -949,7 +949,8 @@ describe('useSendMessage', () => {
     });
 
     await act(async () => {
-      tickIntervals(2);
+      // 思考 8 字 + 正文 6 字共用打字机，追赶阶段每 tick 至少 4 字。
+      tickIntervals(4);
     });
 
     await waitFor(() => {
@@ -2913,6 +2914,43 @@ describe('useSendMessage', () => {
       expect(sessionStorage.getItem(CONTEXT_STATUS_SUPPRESSED_FIRST_TURN_STORAGE_KEY)).toBeNull();
       expect(sessionStorage.getItem(CONTEXT_STATUS_INTERACTED_FIRST_TURN_STORAGE_KEY)).toBeNull();
     });
+  });
+
+  it('只有思考没有正文时收尾会停掉打字机，消息保留完整思考', async () => {
+    const store = createStore();
+    store.dispatch(
+      upsertConversation({
+        id: 'existing-conv',
+        title: 'Existing',
+        model_id: 'model-1',
+        messages: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+    );
+
+    sendMessageStreamMock.mockImplementationOnce(async (_payload: any, callbacks: StreamCallbacks) => {
+      callbacks.onReady({ messageId: 'assistant-1', conversationId: 'existing-conv' });
+      callbacks.onReasoning({ block_id: 'blk_t', delta: '整段思考摘要' });
+      callbacks.onDone({ messageId: 'assistant-1', conversationId: 'existing-conv' });
+    });
+
+    const { result } = renderHook(() => useSendMessage(), {
+      wrapper: createWrapper(store),
+    });
+
+    await act(async () => {
+      await result.current.sendMessage('hello', { conversationId: 'existing-conv' });
+    });
+
+    await waitFor(() => {
+      const state = store.getState();
+      expect(theSlot(state).isStreaming).toBe(false);
+      expect(state.conversation.byId['existing-conv'].messages[1].content).toEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'thinking', thinking: '整段思考摘要' })])
+      );
+    });
+    expect(intervalCallbacks.size).toBe(0);
   });
 
   it('已有对话始终使用会话模型，不沿用刚访问过的全局模型', async () => {

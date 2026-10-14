@@ -767,6 +767,9 @@ describe('useAssistantMessageViewModel', () => {
   it('thinking 文本提到搜索但没有真实工具调用时不产生来源或回答依据', () => {
     selectorState.stream.messageId = 'assistant-1';
     selectorState.stream.thinkingBlocks = { 'thinking-1': '我需要搜索一下，但这里没有真实工具调用。' };
+    // 思考也按打字机进度显示，这里视作已全部显示。
+    selectorState.stream.totalTextLength = 20;
+    selectorState.stream.displayedTextLength = 20;
     selectorState.stream.blockOrder = ['thinking-1'];
     selectorState.stream.blockTypes = { 'thinking-1': 'thinking' };
     selectorState.stream.isStreamingReasoning = true;
@@ -812,6 +815,9 @@ describe('useAssistantMessageViewModel', () => {
   }) => {
     selectorState.stream.messageId = 'assistant-1';
     selectorState.stream.thinkingBlocks = { 'thinking-1': '先核对公开资料。' };
+    // 思考也按打字机进度显示，这里视作已全部显示。
+    selectorState.stream.totalTextLength = 8;
+    selectorState.stream.displayedTextLength = 8;
     selectorState.stream.blockOrder = ['thinking-1'];
     selectorState.stream.blockTypes = { 'thinking-1': 'thinking' };
     selectorState.stream.isStreamingReasoning = true;
@@ -863,6 +869,9 @@ describe('useAssistantMessageViewModel', () => {
   it('知识库运行从 run config 生效起隐藏流式思考', () => {
     selectorState.stream.messageId = 'assistant-1';
     selectorState.stream.thinkingBlocks = { 'thinking-1': '正在基于知识库整理回答。' };
+    // 思考也按打字机进度显示，这里视作已全部显示。
+    selectorState.stream.totalTextLength = 12;
+    selectorState.stream.displayedTextLength = 12;
     selectorState.stream.blockOrder = ['thinking-1'];
     selectorState.stream.blockTypes = { 'thinking-1': 'thinking' };
     selectorState.stream.isStreamingReasoning = true;
