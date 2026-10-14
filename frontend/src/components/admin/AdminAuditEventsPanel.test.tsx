@@ -43,6 +43,14 @@ const page = {
   ],
 };
 
+const mcpUpdateEvent = {
+  id: 'event-mcp', admin_user_id: 'admin-1', admin_snapshot: { username: 'ops-admin' },
+  action: 'admin.mcp.server.update', resource_type: 'mcp_server', resource_id: 'server-1',
+  target_user_id: null, request_id: 'req-mcp', reason: null,
+  metadata: { changed_fields: ['credential_ref', 'name'], connection_reset: true },
+  created_at: '2026-07-12T03:00:00Z',
+};
+
 describe('AdminAuditEventsPanel', () => {
   beforeEach(() => {
     apiMocks.getAdminAuditEvents.mockReset().mockResolvedValue(page);
@@ -84,7 +92,7 @@ describe('AdminAuditEventsPanel', () => {
 
   it('重置筛选会清空审计动作和用户 ID 并立即恢复完整列表', async () => {
     renderAdmin(<AdminAuditEventsPanel />);
-    await screen.findByRole('table', { name: '管理员访问审计记录' });
+    await screen.findByRole('table', { name: '管理员操作审计记录' });
 
     fireEvent.change(screen.getByLabelText('审计动作'), { target: { value: 'admin.audit.user.view' } });
     fireEvent.change(screen.getByLabelText('管理员用户 ID'), { target: { value: 'admin-1' } });
@@ -129,7 +137,7 @@ describe('AdminAuditEventsPanel', () => {
     const missingDetail = within(await screen.findByRole('dialog', { name: '审计事件详情' })).getByLabelText('审计详情 event-missing');
     expect(missingDetail).toHaveTextContent('目标用户当前身份用户记录已不存在');
     expect(missingDetail).toHaveTextContent('user-deleted-00000000-0000-0000-0000-12345678');
-    expect(screen.queryByText('访问理由')).toBeNull();
+    expect(screen.queryByText('理由')).toBeNull();
   });
 
   it('旧响应缺少 target_user 字段时使用短 ID 兜底且不误称当前身份', async () => {
@@ -144,7 +152,7 @@ describe('AdminAuditEventsPanel', () => {
 
   it('表格提供 caption、列作用域且详情层不会撑宽表格', async () => {
     renderAdmin(<AdminAuditEventsPanel />);
-    const table = await screen.findByRole('table', { name: '管理员访问审计记录' });
+    const table = await screen.findByRole('table', { name: '管理员操作审计记录' });
     expect(within(table).getAllByRole('columnheader')).toHaveLength(5);
     within(table).getAllByRole('columnheader').forEach(header => expect(header).toHaveAttribute('scope', 'col'));
     fireEvent.click(within(table).getByRole('button', { name: '查看审计详情 event-missing' }));
@@ -152,14 +160,31 @@ describe('AdminAuditEventsPanel', () => {
     expect(table.querySelector('.min-w-\\[420px\\]')).toBeNull();
   });
 
-  it('访问审计主表和详情任何位置都不展示管理员或目标用户邮箱', async () => {
+  it('操作审计主表和详情任何位置都不展示管理员或目标用户邮箱', async () => {
     renderAdmin(<AdminAuditEventsPanel />);
-    await screen.findByRole('table', { name: '管理员访问审计记录' });
+    await screen.findByRole('table', { name: '管理员操作审计记录' });
     expect(screen.queryByText('o***@example.com')).toBeNull();
     expect(screen.queryByText('t***@example.com')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '查看审计详情 event-11111111-1111-1111-1111-111111111111' }));
     await screen.findByRole('dialog', { name: '审计事件详情' });
     expect(screen.queryByText('o***@example.com')).toBeNull();
     expect(screen.queryByText('t***@example.com')).toBeNull();
+  });
+
+  it('操作类型区分查看与修改，未登记的动作不标类型', async () => {
+    apiMocks.getAdminAuditEvents.mockResolvedValue({ ...page, total: 4, items: [...page.items, mcpUpdateEvent] });
+    renderAdmin(<AdminAuditEventsPanel />);
+
+    const modify = await screen.findByLabelText('审计操作 event-mcp');
+    expect(modify).toHaveTextContent('修改修改 MCP 服务配置');
+    expect(modify.querySelector('[data-kind]')).toHaveAttribute('data-kind', 'modify');
+    expect(screen.getByLabelText('审计对象 event-mcp')).toHaveTextContent('MCP 服务');
+    expect(screen.getByLabelText('审计操作 event-legacy').querySelector('[data-kind]')).toHaveAttribute('data-kind', 'view');
+    expect(screen.getByLabelText('审计操作 event-missing').querySelector('[data-kind]')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '查看审计详情 event-mcp' }));
+    const details = await screen.findByLabelText('审计详情 event-mcp');
+    expect(details).toHaveTextContent('修改字段：credential_ref、name');
+    expect(details).toHaveTextContent('连接已重置：是');
   });
 });

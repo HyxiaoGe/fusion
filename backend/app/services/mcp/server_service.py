@@ -23,6 +23,13 @@ _CONNECTION_IDENTITY_FIELDS = {
 }
 MCP_TOOL_UNAVAILABLE_MESSAGE = "外部工具暂时不可用"
 
+# 管理员写操作审计：参数为服务 ID 与安全元数据，在配置写入的同一事务内调用。
+McpAudit = Callable[[str, dict[str, Any]], None]
+
+
+def _before_commit(audit: McpAudit | None, metadata: dict[str, Any]):
+    return None if audit is None else (lambda server_id: audit(server_id, metadata))
+
 
 class McpServerService:
     def __init__(
@@ -39,7 +46,7 @@ class McpServerService:
     def list_servers(self):
         return self.repository.list_all()
 
-    def create_server(self, request: McpServerCreate):
+    def create_server(self, request: McpServerCreate, *, audit: McpAudit | None = None):
         self._ensure_unique_name(request.name)
         if request.allowed_tools:
             raise ApiException.bad_request("allowed_tools 只能选择已发现工具")
@@ -56,11 +63,14 @@ class McpServerService:
         )
         self._validate_client_configuration(values, server_id="pending")
         try:
-            return self.repository.create(values)
+            return self.repository.create(
+                values,
+                before_commit=_before_commit(audit, {"name": values["name"], "provider": values["provider"]}),
+            )
         except IntegrityError:
             raise ApiException.conflict("MCP 服务名称已存在") from None
 
-    def update_server(self, server_id: str, request: McpServerUpdate):
+    def update_server(self, server_id: str, request: McpServerUpdate, *, audit: McpAudit | None = None):
         row = self._require_server(server_id)
         changes = request.model_dump(exclude_unset=True)
         if "name" in changes and changes["name"] != row.name:
@@ -77,6 +87,10 @@ class McpServerService:
         identity_changed = any(
             field in changes and changes[field] != getattr(row, field) for field in _CONNECTION_IDENTITY_FIELDS
         )
+        audit_metadata = {
+            "changed_fields": sorted(field for field, value in changes.items() if value != getattr(row, field)),
+            "connection_reset": identity_changed,
+        }
         if identity_changed:
             changes.update(self._reset_connection_state(row.is_enabled))
         else:
@@ -87,11 +101,11 @@ class McpServerService:
                 endpoint_url=candidate["endpoint_url"],
             )
         try:
-            return self.repository.update(row, changes)
+            return self.repository.update(row, changes, before_commit=_before_commit(audit, audit_metadata))
         except IntegrityError:
             raise ApiException.conflict("MCP 服务名称已存在") from None
 
-    def set_status(self, server_id: str, request: McpServerStatusRequest):
+    def set_status(self, server_id: str, request: McpServerStatusRequest, *, audit: McpAudit | None = None):
         row = self._require_server(server_id)
         values: dict[str, Any] = {
             "is_enabled": request.is_enabled,
@@ -101,16 +115,20 @@ class McpServerService:
         }
         if request.is_enabled:
             values["last_checked_at"] = None
-        return self.repository.update(row, values)
+        return self.repository.update(
+            row,
+            values,
+            before_commit=_before_commit(audit, {"is_enabled": request.is_enabled}),
+        )
 
-    async def test_server(self, server_id: str):
+    async def test_server(self, server_id: str, *, audit: McpAudit | None = None):
         row = self._require_server(server_id)
         expected_version = row.config_version
         config = self._to_connection_config(row)
         try:
             await self.client_manager.test_connection(config)
         except McpClientError as exc:
-            return self._save_remote_failure(row.id, expected_version, exc)
+            return self._save_remote_failure(row.id, expected_version, exc, audit=audit)
         return self._save_remote_result(
             row.id,
             expected_version,
@@ -120,16 +138,17 @@ class McpServerService:
                 "last_error_code": None,
                 "last_error_message": None,
             },
+            audit=audit,
         )
 
-    async def refresh_tools(self, server_id: str):
+    async def refresh_tools(self, server_id: str, *, audit: McpAudit | None = None):
         row = self._require_server(server_id)
         expected_version = row.config_version
         config = self._to_connection_config(row)
         try:
             tools = await self.client_manager.list_tools(config)
         except McpClientError as exc:
-            return self._save_remote_failure(row.id, expected_version, exc)
+            return self._save_remote_failure(row.id, expected_version, exc, audit=audit)
 
         discovered_names = {tool["name"] for tool in tools}
         allowed_tools = [
@@ -147,6 +166,12 @@ class McpServerService:
                 "last_checked_at": self.clock(),
                 "last_error_code": None,
                 "last_error_message": None,
+            },
+            audit=audit,
+            audit_metadata={
+                "discovered_tool_count": len(tools),
+                "allowed_tool_count": len(allowed_tools),
+                "removed_allowed_tools": [name for name in (row.allowed_tools or []) if name not in allowed_tools],
             },
         )
 
@@ -190,7 +215,14 @@ class McpServerService:
             allowed_tools=[tool_name],
         )
 
-    def _save_remote_failure(self, server_id: str, expected_version: int, error: McpClientError):
+    def _save_remote_failure(
+        self,
+        server_id: str,
+        expected_version: int,
+        error: McpClientError,
+        *,
+        audit: McpAudit | None = None,
+    ):
         return self._save_remote_result(
             server_id,
             expected_version,
@@ -200,15 +232,37 @@ class McpServerService:
                 "last_error_code": error.code,
                 "last_error_message": error.safe_message,
             },
+            audit=audit,
         )
 
-    def _save_remote_result(self, server_id: str, expected_version: int, values: dict[str, Any]):
-        updated = self.repository.update_if_version(server_id, expected_version, values)
+    def _save_remote_result(
+        self,
+        server_id: str,
+        expected_version: int,
+        values: dict[str, Any],
+        *,
+        audit: McpAudit | None = None,
+        audit_metadata: dict[str, Any] | None = None,
+    ):
+        metadata = {
+            "health_status": values["health_status"],
+            "error_code": values.get("last_error_code"),
+            **(audit_metadata or {}),
+        }
+        updated = self.repository.update_if_version(
+            server_id,
+            expected_version,
+            values,
+            before_commit=_before_commit(audit, {**metadata, "result_saved": True}),
+        )
         if updated is not None:
             return updated
         current = self.repository.get(server_id)
         if current is None:
             raise ApiException.not_found("MCP 服务不存在")
+        # 检测期间配置被并发修改：结果不落库，但检测动作本身仍留痕。
+        if audit is not None:
+            self.repository.commit_only(_before_commit(audit, {**metadata, "result_saved": False}), server_id)
         return current
 
     def _validate_client_configuration(self, values: dict[str, Any], *, server_id: str) -> None:

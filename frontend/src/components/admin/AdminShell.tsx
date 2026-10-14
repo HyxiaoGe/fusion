@@ -19,7 +19,7 @@ const ADMIN_NAV_GROUPS: Array<{ label: string; items: AdminNavItem[] }> = [
     items: [
       { href: adminPaths.users, label: '用户', icon: Users },
       { href: adminPaths.conversations(), label: '对话', icon: MessagesSquare },
-      { href: adminPaths.auditLog, label: '访问审计', icon: ScrollText },
+      { href: adminPaths.auditLog, label: '操作审计', icon: ScrollText },
     ],
   },
   {

@@ -1,9 +1,9 @@
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_admin_user, get_mcp_server_service
+from app.api.deps import get_admin_audit_service, get_current_admin_user, get_mcp_server_service
 from app.core.config import settings
 from app.db.database import get_db
 from app.db.models import User as UserModel
@@ -14,11 +14,29 @@ from app.schemas.mcp import (
     McpServerUpdate,
 )
 from app.schemas.response import success
+from app.services.admin_audit_service import AdminAuditService
 from app.services.mcp.agent_tools import default_circuit_breaker
 from app.services.mcp.model_view import build_mcp_model_view
-from app.services.mcp.server_service import McpServerService
+from app.services.mcp.server_service import McpAudit, McpServerService
 
 router = APIRouter()
+
+
+def _audit(action: str, admin: UserModel, http_request: Request, audit_service: AdminAuditService) -> McpAudit:
+    """MCP 配置写入与审计同事务提交，审计写不进去时整次操作回滚。"""
+
+    def record(server_id: str, metadata: dict) -> None:
+        audit_service._record(
+            admin=admin,
+            action=action,
+            resource_type="mcp_server",
+            resource_id=server_id,
+            request_id=http_request.state.request_id,
+            metadata=metadata,
+            commit=False,
+        )
+
+    return record
 
 
 @router.get("/servers")
@@ -43,48 +61,63 @@ def get_mcp_model_view(
 @router.post("/servers")
 async def create_mcp_server(
     request: McpServerCreate,
-    _admin: UserModel = Depends(get_current_admin_user),
+    http_request: Request,
+    admin: UserModel = Depends(get_current_admin_user),
     service: McpServerService = Depends(get_mcp_server_service),
+    audit_service: AdminAuditService = Depends(get_admin_audit_service),
 ):
-    return success(_serialize(service.create_server(request)))
+    audit = _audit("admin.mcp.server.create", admin, http_request, audit_service)
+    return success(_serialize(service.create_server(request, audit=audit)))
 
 
 @router.patch("/servers/{server_id}")
 async def update_mcp_server(
     server_id: str,
     request: McpServerUpdate,
-    _admin: UserModel = Depends(get_current_admin_user),
+    http_request: Request,
+    admin: UserModel = Depends(get_current_admin_user),
     service: McpServerService = Depends(get_mcp_server_service),
+    audit_service: AdminAuditService = Depends(get_admin_audit_service),
 ):
-    return success(_serialize(service.update_server(server_id, request)))
+    audit = _audit("admin.mcp.server.update", admin, http_request, audit_service)
+    return success(_serialize(service.update_server(server_id, request, audit=audit)))
 
 
 @router.post("/servers/{server_id}/status")
 async def update_mcp_server_status(
     server_id: str,
     request: McpServerStatusRequest,
-    _admin: UserModel = Depends(get_current_admin_user),
+    http_request: Request,
+    admin: UserModel = Depends(get_current_admin_user),
     service: McpServerService = Depends(get_mcp_server_service),
+    audit_service: AdminAuditService = Depends(get_admin_audit_service),
 ):
-    return success(_serialize(service.set_status(server_id, request)))
+    audit = _audit("admin.mcp.server.status", admin, http_request, audit_service)
+    return success(_serialize(service.set_status(server_id, request, audit=audit)))
 
 
 @router.post("/servers/{server_id}/test")
 async def test_mcp_server(
     server_id: str,
-    _admin: UserModel = Depends(get_current_admin_user),
+    http_request: Request,
+    admin: UserModel = Depends(get_current_admin_user),
     service: McpServerService = Depends(get_mcp_server_service),
+    audit_service: AdminAuditService = Depends(get_admin_audit_service),
 ):
-    return success(_serialize(await service.test_server(server_id)))
+    audit = _audit("admin.mcp.server.test", admin, http_request, audit_service)
+    return success(_serialize(await service.test_server(server_id, audit=audit)))
 
 
 @router.post("/servers/{server_id}/tools/refresh")
 async def refresh_mcp_server_tools(
     server_id: str,
-    _admin: UserModel = Depends(get_current_admin_user),
+    http_request: Request,
+    admin: UserModel = Depends(get_current_admin_user),
     service: McpServerService = Depends(get_mcp_server_service),
+    audit_service: AdminAuditService = Depends(get_admin_audit_service),
 ):
-    return success(_serialize(await service.refresh_tools(server_id)))
+    audit = _audit("admin.mcp.server.tools_refresh", admin, http_request, audit_service)
+    return success(_serialize(await service.refresh_tools(server_id, audit=audit)))
 
 
 PROBE_FRESHNESS_TTL = timedelta(seconds=settings.MCP_PROBE_FRESHNESS_TTL_SECONDS)
