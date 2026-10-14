@@ -569,8 +569,6 @@
         "memory": "Memory", "memoryShort": "Memory"
       },
       "monitoring": {
-        "refreshAllLabel": "Refresh all service usage",
-        "refreshAll": "Refresh all",
         "searchLoading": "Loading search usage",
         "emailLoading": "Loading Resend usage",
         "officialBalance": "Official balance",

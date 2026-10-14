@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { SettingsBadge as Badge, SettingsButton as Button, SettingsSwitch as Switch, SettingsInput as Input, SettingsCheckbox, SettingsFieldError, SettingsSelectTrigger as SelectTrigger, SettingsSelectContent as SelectContent, SettingsSelectItem as SelectItem, type SettingsStatusTone } from "@/components/settings/SettingsControls";
 import { useSettingsDialogFocus } from "@/components/settings/useSettingsDialogFocus";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { AdminPanelHeader } from "@/components/admin/AdminPanelPrimitives";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
@@ -555,186 +555,179 @@ export default function McpServerManager() {
 
   return (
     <div ref={panelRef} tabIndex={-1} className="space-y-4" data-testid="mcp-server-manager">
-      <Card className="border-muted shadow-sm">
-        <CardHeader className="border-b bg-muted/10 pb-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="flex items-center gap-2 text-base font-semibold">
-                <ServerCog className="h-5 w-5 text-primary" />
-                MCP 服务
-              </h2>
-              <p className="mt-1 text-xs text-muted-foreground">{titleDetail}</p>
-              {deferralSummary && <p className="mt-1 text-xs text-muted-foreground">{deferralSummary}</p>}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button aria-label="刷新列表" size="sm" variant="outline" onClick={() => void load(true)} disabled={loading || refreshing || busyAction !== null}>
-                <RefreshCw className={`mr-1 h-4 w-4 ${loading || refreshing ? "animate-spin" : ""}`} />
-                刷新
-              </Button>
-              <Button size="sm" onClick={openCreate} disabled={loading || refreshing || busyAction !== null}>
-                <Plus className="mr-1 h-4 w-4" />
-                新增 MCP 服务
-              </Button>
-            </div>
+      <AdminPanelHeader
+        title="MCP 服务"
+        description={<>
+          <p>{titleDetail}</p>
+          {deferralSummary && <p className="mt-1">{deferralSummary}</p>}
+        </>}
+        action={<div className="flex flex-wrap gap-2">
+          <Button aria-label="刷新列表" size="sm" variant="outline" onClick={() => void load(true)} disabled={loading || refreshing || busyAction !== null}>
+            <RefreshCw className={`mr-1 h-4 w-4 ${loading || refreshing ? "animate-spin" : ""}`} />
+            刷新
+          </Button>
+          <Button size="sm" onClick={openCreate} disabled={loading || refreshing || busyAction !== null}>
+            <Plus className="mr-1 h-4 w-4" />
+            新增 MCP 服务
+          </Button>
+        </div>}
+      />
+
+      <div className="min-h-[18rem]">
+        {actionError && (
+          <div className="mb-4 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{actionError}</span>
           </div>
-        </CardHeader>
+        )}
 
-        <CardContent className="min-h-[18rem] p-4">
-          {actionError && (
-            <div className="mb-4 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{actionError}</span>
+        {loading ? (
+          <div className="flex h-56 items-center justify-center text-sm text-muted-foreground">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            正在加载 MCP 服务
+          </div>
+        ) : loadError ? (
+          <div className="flex h-56 flex-col items-center justify-center gap-3 text-center">
+            <AlertCircle className="h-8 w-8 text-destructive" />
+            <div>
+              <p className="font-medium">MCP 服务暂时无法加载</p>
+              <p className="mt-1 text-sm text-muted-foreground">{loadError}</p>
             </div>
-          )}
+            <Button size="sm" variant="outline" onClick={() => void load(false)}>
+              <RefreshCw className="mr-1 h-4 w-4" />
+              重试
+            </Button>
+          </div>
+        ) : !hasServers ? (
+          <div className="flex h-56 flex-col items-center justify-center gap-3 text-center">
+            <div className="rounded-full bg-muted p-3">
+              <ServerCog className="h-7 w-7 text-muted-foreground" />
+            </div>
+            <div>
+              <p className="font-medium">还没有 MCP 服务</p>
+              <p className="mt-1 max-w-md text-sm text-muted-foreground">
+                添加受控的远程 Streamable HTTP 服务，连接成功后再配置允许工具。
+              </p>
+            </div>
+            <Button size="sm" onClick={openCreate}>添加第一个服务</Button>
+          </div>
+        ) : (
+          <div className="grid gap-4 xl:grid-cols-2">
+            {servers.map((server) => {
+              const health = healthPresentation[server.health_status];
+              const HealthIcon = health.icon;
+              const isBusy = refreshing || busyAction !== null;
+              return (
+                <article
+                  key={server.id}
+                  data-testid={`mcp-server-${server.id}`}
+                  className="rounded-lg border bg-card p-4 shadow-sm"
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-semibold">{server.name}</h3>
+                        <Badge variant="outline">{server.provider}</Badge>
+                        <Badge tone={health.tone}>
+                          <HealthIcon className="mr-1 h-3 w-3" />
+                          {health.label}
+                        </Badge>
+                        <Badge tone={server.is_enabled ? "info" : "neutral"}>{server.is_enabled ? "已启用" : "已停用"}</Badge>
+                      </div>
+                      <p className="mt-2 break-all font-mono text-xs text-muted-foreground" title="Endpoint 已隐藏查询参数和部分路径">
+                        {formatEndpoint(server.endpoint_url)}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">Streamable HTTP · {server.auth_type}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        aria-label={`${server.is_enabled ? "停用" : "启用"}${server.name}`}
+                        checked={server.is_enabled}
+                        disabled={isBusy}
+                        onCheckedChange={(checked) => void runServerAction(
+                          `status:${server.id}`,
+                          () => setMcpServerEnabledAPI(server.id, checked),
+                          `${server.name} 状态更新失败`,
+                        )}
+                      />
+                      <Button aria-label={`预览${server.name}工具说明`} title="预览工具说明" size="icon" variant="ghost" onClick={() => setPreviewServer(server)}>
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button aria-label={`编辑${server.name}`} size="icon" variant="ghost" onClick={(event) => openEdit(server, event.currentTarget)} disabled={isBusy}>
+                        <Edit3 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
 
-          {loading ? (
-            <div className="flex h-56 items-center justify-center text-sm text-muted-foreground">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              正在加载 MCP 服务
-            </div>
-          ) : loadError ? (
-            <div className="flex h-56 flex-col items-center justify-center gap-3 text-center">
-              <AlertCircle className="h-8 w-8 text-destructive" />
-              <div>
-                <p className="font-medium">MCP 服务暂时无法加载</p>
-                <p className="mt-1 text-sm text-muted-foreground">{loadError}</p>
-              </div>
-              <Button size="sm" variant="outline" onClick={() => void load(false)}>
-                <RefreshCw className="mr-1 h-4 w-4" />
-                重试
-              </Button>
-            </div>
-          ) : !hasServers ? (
-            <div className="flex h-56 flex-col items-center justify-center gap-3 text-center">
-              <div className="rounded-full bg-muted p-3">
-                <ServerCog className="h-7 w-7 text-muted-foreground" />
-              </div>
-              <div>
-                <p className="font-medium">还没有 MCP 服务</p>
-                <p className="mt-1 max-w-md text-sm text-muted-foreground">
-                  添加受控的远程 Streamable HTTP 服务，连接成功后再配置允许工具。
-                </p>
-              </div>
-              <Button size="sm" onClick={openCreate}>添加第一个服务</Button>
-            </div>
-          ) : (
-            <div className="grid gap-4 xl:grid-cols-2">
-              {servers.map((server) => {
-                const health = healthPresentation[server.health_status];
-                const HealthIcon = health.icon;
-                const isBusy = refreshing || busyAction !== null;
-                return (
-                  <article
-                    key={server.id}
-                    data-testid={`mcp-server-${server.id}`}
-                    className="rounded-lg border bg-card p-4 shadow-sm"
-                  >
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="font-semibold">{server.name}</h3>
-                          <Badge variant="outline">{server.provider}</Badge>
-                          <Badge tone={health.tone}>
-                            <HealthIcon className="mr-1 h-3 w-3" />
-                            {health.label}
-                          </Badge>
-                          <Badge tone={server.is_enabled ? "info" : "neutral"}>{server.is_enabled ? "已启用" : "已停用"}</Badge>
+                  <section className="mt-4 rounded-md border p-3" aria-label={`${server.name}提供给模型的工具`}>
+                    <p className="mb-2 text-xs text-muted-foreground">模型可用工具</p>
+                    <ModelToolsSection server={server} view={modelView?.servers[server.id]} viewError={modelViewError} />
+                  </section>
+
+                  <details className="mt-3 rounded-md border p-3">
+                    <summary className="cursor-pointer text-xs text-muted-foreground">
+                      <ShieldCheck className="mr-1 inline h-3.5 w-3.5" />
+                      远端工具：已授权 {server.allowed_tools.length} / 已发现 {server.discovered_tools.length} · 最近检测 {formatCheckedAt(server.last_checked_at)}
+                    </summary>
+                    <div className="mt-2 space-y-2">
+                      {server.allowed_tools.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {server.allowed_tools.map((tool) => <Badge key={tool} variant="secondary">{tool}</Badge>)}
                         </div>
-                        <p className="mt-2 break-all font-mono text-xs text-muted-foreground" title="Endpoint 已隐藏查询参数和部分路径">
-                          {formatEndpoint(server.endpoint_url)}
+                      ) : (
+                        <p className="text-sm text-muted-foreground">尚未授权工具</p>
+                      )}
+                      {unauthorizedTools(server).length > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          未授权：{unauthorizedTools(server).join("、")}
                         </p>
-                        <p className="mt-1 text-xs text-muted-foreground">Streamable HTTP · {server.auth_type}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Switch
-                          aria-label={`${server.is_enabled ? "停用" : "启用"}${server.name}`}
-                          checked={server.is_enabled}
-                          disabled={isBusy}
-                          onCheckedChange={(checked) => void runServerAction(
-                            `status:${server.id}`,
-                            () => setMcpServerEnabledAPI(server.id, checked),
-                            `${server.name} 状态更新失败`,
-                          )}
-                        />
-                        <Button aria-label={`预览${server.name}工具说明`} title="预览工具说明" size="icon" variant="ghost" onClick={() => setPreviewServer(server)}>
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button aria-label={`编辑${server.name}`} size="icon" variant="ghost" onClick={(event) => openEdit(server, event.currentTarget)} disabled={isBusy}>
-                          <Edit3 className="h-4 w-4" />
-                        </Button>
-                      </div>
+                      )}
                     </div>
+                  </details>
 
-                    <section className="mt-4 rounded-md border p-3" aria-label={`${server.name}提供给模型的工具`}>
-                      <p className="mb-2 text-xs text-muted-foreground">模型可用工具</p>
-                      <ModelToolsSection server={server} view={modelView?.servers[server.id]} viewError={modelViewError} />
-                    </section>
-
-                    <details className="mt-3 rounded-md border p-3">
-                      <summary className="cursor-pointer text-xs text-muted-foreground">
-                        <ShieldCheck className="mr-1 inline h-3.5 w-3.5" />
-                        远端工具：已授权 {server.allowed_tools.length} / 已发现 {server.discovered_tools.length} · 最近检测 {formatCheckedAt(server.last_checked_at)}
-                      </summary>
-                      <div className="mt-2 space-y-2">
-                        {server.allowed_tools.length > 0 ? (
-                          <div className="flex flex-wrap gap-1.5">
-                            {server.allowed_tools.map((tool) => <Badge key={tool} variant="secondary">{tool}</Badge>)}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">尚未授权工具</p>
-                        )}
-                        {unauthorizedTools(server).length > 0 && (
-                          <p className="text-xs text-muted-foreground">
-                            未授权：{unauthorizedTools(server).join("、")}
-                          </p>
-                        )}
-                      </div>
-                    </details>
-
-                    {server.last_error_message && (
-                      <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-                        <p>{server.last_error_message}</p>
-                        {server.last_error_code && <p className="mt-1 font-mono text-xs opacity-80">{server.last_error_code}</p>}
-                      </div>
-                    )}
-
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <Button
-                        aria-label={`测试${server.name}连接`}
-                        size="sm"
-                        variant="outline"
-                        disabled={isBusy}
-                        onClick={() => void runServerAction(
-                          `test:${server.id}`,
-                          () => testMcpServerConnectionAPI(server.id),
-                          `${server.name} 连接测试失败`,
-                        )}
-                      >
-                        {busyAction === `test:${server.id}` ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <RotateCw className="mr-1 h-4 w-4" />}
-                        测试连接
-                      </Button>
-                      <Button
-                        aria-label={`刷新${server.name}工具`}
-                        size="sm"
-                        variant="outline"
-                        disabled={isBusy}
-                        onClick={() => void runServerAction(
-                          `tools:${server.id}`,
-                          () => refreshMcpServerToolsAPI(server.id),
-                          `${server.name} 工具刷新失败`,
-                        )}
-                      >
-                        {busyAction === `tools:${server.id}` ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Wrench className="mr-1 h-4 w-4" />}
-                        刷新工具
-                      </Button>
+                  {server.last_error_message && (
+                    <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                      <p>{server.last_error_message}</p>
+                      {server.last_error_code && <p className="mt-1 font-mono text-xs opacity-80">{server.last_error_code}</p>}
                     </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                  )}
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Button
+                      aria-label={`测试${server.name}连接`}
+                      size="sm"
+                      variant="outline"
+                      disabled={isBusy}
+                      onClick={() => void runServerAction(
+                        `test:${server.id}`,
+                        () => testMcpServerConnectionAPI(server.id),
+                        `${server.name} 连接测试失败`,
+                      )}
+                    >
+                      {busyAction === `test:${server.id}` ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <RotateCw className="mr-1 h-4 w-4" />}
+                      测试连接
+                    </Button>
+                    <Button
+                      aria-label={`刷新${server.name}工具`}
+                      size="sm"
+                      variant="outline"
+                      disabled={isBusy}
+                      onClick={() => void runServerAction(
+                        `tools:${server.id}`,
+                        () => refreshMcpServerToolsAPI(server.id),
+                        `${server.name} 工具刷新失败`,
+                      )}
+                    >
+                      {busyAction === `tools:${server.id}` ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Wrench className="mr-1 h-4 w-4" />}
+                      刷新工具
+                    </Button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       <McpToolPreviewDialog
         server={previewServer}

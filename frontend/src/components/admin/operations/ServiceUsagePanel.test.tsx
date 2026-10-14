@@ -34,13 +34,11 @@ describe('ServiceUsagePanel', () => {
     emailRefreshMock.mockReset();
   });
 
-  it('只展示一个右上角统一刷新按钮', () => {
+  it('标题栏只放一个统一刷新按钮', () => {
     render(<ServiceUsagePanel />);
 
     expect(screen.getByText('Firecrawl 用量面板')).toBeInTheDocument();
     expect(screen.getByText('Resend 用量面板')).toBeInTheDocument();
-    const panel = screen.getByTestId('service-usage-panel');
-    expect(panel).toHaveClass('mx-auto', 'w-full', 'max-w-6xl');
     expect(screen.getByTestId('service-usage-grid')).toHaveClass(
       'grid',
       'grid-cols-1',
@@ -50,8 +48,7 @@ describe('ServiceUsagePanel', () => {
     expect(screen.getAllByRole('button')).toHaveLength(1);
     const button = screen.getByRole('button', { name: '刷新全部服务用量' });
     expect(button).toBeInTheDocument();
-    expect(button.parentElement).toHaveClass('sticky', 'top-0', 'z-10');
-    expect(screen.queryByRole('heading', { name: '服务用量' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '服务用量' }).closest('header')).toContainElement(button);
   });
 
   it('并发刷新全部服务且单个失败不阻塞其余服务', async () => {

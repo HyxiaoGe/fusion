@@ -563,8 +563,6 @@
         "memory": "记忆", "memoryShort": "记忆"
       },
       "monitoring": {
-        "refreshAllLabel": "刷新全部服务用量",
-        "refreshAll": "刷新全部",
         "searchLoading": "正在加载联网用量",
         "emailLoading": "正在加载 Resend 用量",
         "officialBalance": "官方余额",

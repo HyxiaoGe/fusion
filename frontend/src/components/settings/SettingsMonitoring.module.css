@@ -4,7 +4,6 @@
 .icon { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; width: 34px; height: 34px; border: 1px solid var(--info-border); border-radius: 11px; background: var(--info-bg); color: var(--info); }
 .body.body { min-width: 0; padding: 20px; }
 .footer.footer { flex-wrap: wrap; padding: 12px 20px; border-top: 1px solid var(--border); background: var(--bg-subtle); line-height: 1.7; }
-.toolbar { background: var(--bg-elevated); border-bottom: 1px solid var(--border); }
 .stat { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 13px; background: var(--bg-subtle); }
 .stat[data-tone="info"] { border-color: var(--info-border); background: var(--info-bg); }
 .stat[data-tone="warning"] { border-color: var(--warn-border); background: var(--warn-bg); }
