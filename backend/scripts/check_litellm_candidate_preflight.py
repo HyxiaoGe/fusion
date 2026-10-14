@@ -466,11 +466,12 @@ def _run_reasoning_case(
     client: HttpClient,
 ) -> CaseResult:
     try:
-        reasoning_options = (
-            {"reasoning_effort": "low"}
-            if candidate.provider_key.casefold() in {"google", "xai"}
-            else {}
-        )
+        # Google 与运行时一致用 high（reasoning_policy）：自适应思考的模型在 low 下
+        # 遇到简单题会直接不思考，测不出推理通路。
+        reasoning_options = {
+            "google": {"reasoning_effort": "high"},
+            "xai": {"reasoning_effort": "low"},
+        }.get(candidate.provider_key.casefold(), {})
         response = client.post(
             url,
             headers=_request_headers(api_key),
