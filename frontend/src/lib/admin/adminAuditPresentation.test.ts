@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  adminAuditActionLabel, adminAuditResourceLabel, formatAdminAuditAdmin,
+  adminAuditActionKind, adminAuditActionLabel, adminAuditResourceLabel, formatAdminAuditAdmin,
   formatAdminAuditMetadata, formatAdminAuditTargetUser,
 } from './adminAuditPresentation';
 
@@ -13,6 +13,12 @@ describe('adminAuditPresentation', () => {
     expect(adminAuditActionLabel('admin.audit.models.list')).toBe('查询模型列表');
     expect(adminAuditActionLabel('admin.audit.model.view')).toBe('查看模型详情');
     expect(adminAuditResourceLabel('model')).toBe('模型');
+    expect(adminAuditActionLabel('admin.audit.itinerary_stability.view')).toBe('查看行程稳定性');
+    expect(adminAuditActionLabel('admin.audit.trajectory.node_detail.view')).toBe('查看轨迹节点详情');
+    expect(adminAuditResourceLabel('conversation_run_llm_node_detail')).toBe('轨迹模型节点');
+    expect(adminAuditActionKind('admin.audit.trajectory.view')).toBe('view');
+    expect(adminAuditActionKind('admin.mcp.server.test')).toBe('modify');
+    expect(adminAuditActionKind('future.action')).toBeNull();
   });
 
   it('未知动作、未知资源和缺失管理员快照使用安全兜底', () => {
