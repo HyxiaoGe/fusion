@@ -567,6 +567,7 @@
         "operationFailed": "操作失败，请稍后重试"
       }
     },
+    "newVersion": {"title": "有新版本可用", "description": "Fusion 已更新，刷新页面即可使用最新版本。正在生成的回答不会丢失。", "refresh": "刷新", "later": "稍后", "dismiss": "关闭新版本提示"},
     "settings": {
       "theme": "主题",
       "light": "浅色",

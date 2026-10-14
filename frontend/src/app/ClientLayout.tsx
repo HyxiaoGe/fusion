@@ -47,6 +47,7 @@ import {
 import { LoginDialog } from "@/components/auth/LoginDialog";
 import { registerBackgroundTask } from "@/lib/scheduler/backgroundScheduler";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
+import { NewVersionNotice } from "@/components/layouts/NewVersionNotice";
 import { SettingsDialogFocusProvider } from "@/components/settings/SettingsDialogFocusContext";
 
 const INITIAL_LOCAL_RECOVERY_DELAYS_MS = [1000, 3000, 10000] as const;
@@ -419,6 +420,7 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
         </div>
       )}
       <Toaster position="bottom-center" />
+      <NewVersionNotice />
       <LoginDialog open={isLoginDialogOpen} onOpenChange={handleDialogVisibilityChange} />
       <SettingsDialog />
       </SettingsDialogFocusProvider>
