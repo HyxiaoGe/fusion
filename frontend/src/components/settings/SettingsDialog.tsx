@@ -7,12 +7,9 @@ import { useAppDispatch, useAppSelector } from "@/redux/hooks";
 import { selectIsGuest } from "@/redux/selectors";
 import { closeSettingsDialog, setActiveSettingsTab } from "@/redux/slices/settingsSlice";
 import { setThemeMode } from "@/redux/slices/themeSlice";
-import { Activity, BookOpen, Bot, Brain, Settings, Sun, Moon, Laptop, Network } from "lucide-react";
+import { BookOpen, Brain, Settings, Sun, Moon, Laptop } from "lucide-react";
 import KnowledgeBaseManager from "@/components/settings/KnowledgeBaseManager";
-import McpServerManager from "@/components/settings/panels/McpServerManager";
 import MemoryPanel from "@/components/settings/panels/MemoryPanel";
-import ModelManagementPanel from "@/components/settings/panels/ModelManagementPanel";
-import ServiceUsagePanel from "@/components/settings/panels/ServiceUsagePanel";
 import SystemPrompt from "@/components/settings/panels/SystemPrompt";
 import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -35,16 +32,14 @@ export const SettingsDialog = () => {
   const dialogFocus = useSettingsDialogFocus({ open: isSettingsDialogOpen, fallbackRef: openerRef });
   const { mode } = useAppSelector((state) => state.theme);
   const [isMounted, setIsMounted] = useState(false);
-  const isAdmin = useAppSelector((state) => Boolean(state.auth.user?.is_superuser));
-  const showAdminTabs = isMounted && isAdmin;
   // 记忆只对登录用户整理和使用；游客不显示记忆页。
   const isGuest = useAppSelector(selectIsGuest);
   const isAuthenticated = useAppSelector((state) => state.auth.isAuthenticated);
   const showMemoryTab = isMounted && isAuthenticated && !isGuest;
   const knowledgeBaseTitle = isMounted ? t("knowledgeBase.title") : "知识库";
   const knowledgeBaseShortTitle = isMounted ? t("knowledgeBase.shortTitle") : "知识";
-  const hiddenTabs = [...(showAdminTabs ? [] : ["usage", "mcp-servers", "model-management"]), ...(showMemoryTab ? [] : ["memory"])];
-  const selectedSettingsTab = hiddenTabs.includes(activeSettingsTab) ? "general" : activeSettingsTab;
+  const visibleTabs = ["general", ...(showMemoryTab ? ["memory"] : []), "knowledge"];
+  const selectedSettingsTab = visibleTabs.includes(activeSettingsTab) ? activeSettingsTab : "general";
 
   const handleClose = () => {
     dispatch(closeSettingsDialog());
@@ -98,25 +93,6 @@ export const SettingsDialog = () => {
                   <span className="hidden md:inline">{knowledgeBaseTitle}</span>
                   <span className="md:hidden">{knowledgeBaseShortTitle}</span>
                 </TabsTrigger>
-                {showAdminTabs && (
-                  <>
-                    <TabsTrigger value="usage" className={styles.navTrigger}>
-                      <Activity className="h-4 w-4" />
-                      <span className="hidden md:inline">{t("settings.tabs.usage")}</span>
-                      <span className="md:hidden">{t("settings.tabs.usageShort")}</span>
-                    </TabsTrigger>
-                    <TabsTrigger value="mcp-servers" className={styles.navTrigger}>
-                      <Network className="h-4 w-4" />
-                      <span className="hidden md:inline">{t("settings.tabs.mcp")}</span>
-                      <span className="md:hidden">{t("settings.tabs.mcpShort")}</span>
-                    </TabsTrigger>
-                    <TabsTrigger value="model-management" className={styles.navTrigger}>
-                      <Bot className="h-4 w-4" />
-                      <span className="hidden md:inline">{t("settings.tabs.models")}</span>
-                      <span className="md:hidden">{t("settings.tabs.modelsShort")}</span>
-                    </TabsTrigger>
-                  </>
-                )}
               </TabsList>
             </div>
 
@@ -175,21 +151,6 @@ export const SettingsDialog = () => {
               <KnowledgeBaseManager />
             </TabsContent>
 
-            {showAdminTabs && (
-              <>
-                <TabsContent value="usage" className={styles.panel}>
-                  <ServiceUsagePanel />
-                </TabsContent>
-
-                <TabsContent value="mcp-servers" className={styles.panel}>
-                  <McpServerManager />
-                </TabsContent>
-
-                <TabsContent value="model-management" className={styles.panel}>
-                  <ModelManagementPanel />
-                </TabsContent>
-              </>
-            )}
           </Tabs>
         </div>
       </DialogContent>

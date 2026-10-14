@@ -15,9 +15,6 @@ vi.mock('@/hooks/useHasMounted', () => ({ useHasMounted: () => true }));
 vi.mock('@/components/auth/LoginDialog', () => ({ LoginDialog: () => null }));
 vi.mock('@/components/settings/panels/SystemPrompt', () => ({ default: () => <div>个性化设置</div> }));
 vi.mock('@/components/settings/KnowledgeBaseManager', () => ({ default: () => null }));
-vi.mock('@/components/settings/panels/McpServerManager', () => ({ default: () => null }));
-vi.mock('@/components/settings/panels/ModelManagementPanel', () => ({ default: () => null }));
-vi.mock('@/components/settings/panels/ServiceUsagePanel', () => ({ default: () => null }));
 vi.mock('react-i18next', async () => {
   const { default: messages } = await import('@/lib/i18n/locales/zh-CN.json');
   return { useTranslation: () => ({ t: (key: string) => key.split('.').reduce<unknown>((value, part) =>

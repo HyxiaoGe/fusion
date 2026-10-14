@@ -560,10 +560,7 @@
       "tabs": {
         "general": "常规设置", "generalShort": "常规",
         "personalization": "AI 个性化", "personalizationShort": "AI",
-        "memory": "记忆", "memoryShort": "记忆",
-        "usage": "服务用量", "usageShort": "用量",
-        "mcp": "MCP 服务", "mcpShort": "MCP",
-        "models": "模型管理", "modelsShort": "模型"
+        "memory": "记忆", "memoryShort": "记忆"
       },
       "monitoring": {
         "refreshAllLabel": "刷新全部服务用量",

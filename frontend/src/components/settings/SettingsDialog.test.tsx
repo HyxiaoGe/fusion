@@ -23,20 +23,8 @@ vi.mock('@/components/settings/KnowledgeBaseManager', () => ({
   default: () => <div>知识库管理内容</div>,
 }));
 
-vi.mock('@/components/settings/panels/ServiceUsagePanel', () => ({
-  default: () => <div>服务用量统一面板</div>,
-}));
-
-vi.mock('@/components/settings/panels/McpServerManager', () => ({
-  default: () => <div>MCP 服务管理面板</div>,
-}));
-
 vi.mock('@/components/settings/panels/MemoryPanel', () => ({
   default: () => <div>记忆管理面板</div>,
-}));
-
-vi.mock('@/components/settings/panels/ModelManagementPanel', () => ({
-  default: () => <div>模型管理面板</div>,
 }));
 
 import { SettingsDialog } from './SettingsDialog';
@@ -61,7 +49,7 @@ function mockSettingsDialogState(isSuperuser: boolean, activeSettingsTab = 'gene
   );
 }
 
-describe('SettingsDialog 管理员用量入口', () => {
+describe('SettingsDialog 页签', () => {
   beforeEach(() => {
     dispatchMock.mockReset();
     useAppSelectorMock.mockReset();
@@ -150,61 +138,13 @@ describe('SettingsDialog 管理员用量入口', () => {
     expect(screen.getByRole('tabpanel', { name: /常规设置/ })).toBeInTheDocument();
   });
 
-  it('管理员在设置弹窗中可以看到服务用量页签', () => {
-    mockSettingsDialogState(true);
+  it('管理员设置弹窗只保留个人设置，管理功能已移到管理中心', () => {
+    mockSettingsDialogState(true, 'mcp-servers', true);
 
     render(<SettingsDialog />);
 
-    expect(screen.getByRole('tab', { name: /服务用量/ })).toBeInTheDocument();
-    expect(screen.getAllByRole('tab')).toHaveLength(5);
-  });
-
-  it('管理员设置弹窗不再有运行时配置页签', () => {
-    mockSettingsDialogState(true);
-
-    render(<SettingsDialog />);
-
-    expect(screen.queryByRole('tab', { name: /运行时配置/ })).toBeNull();
-  });
-
-  it('管理员在设置弹窗中可以看到 MCP 服务页签', () => {
-    mockSettingsDialogState(true);
-
-    render(<SettingsDialog />);
-
-    expect(screen.getByRole('tab', { name: /MCP 服务/ })).toBeInTheDocument();
-    expect(screen.getByTestId('settings-tabs-scroller')).toHaveClass('overflow-x-auto');
-  });
-
-  it('管理员在设置弹窗中可以看到模型管理页签', () => {
-    mockSettingsDialogState(true);
-
-    render(<SettingsDialog />);
-
-    expect(screen.getByRole('tab', { name: /模型管理/ })).toBeInTheDocument();
-  });
-
-  it('管理员切到服务用量页签时渲染额度面板', () => {
-    mockSettingsDialogState(true, 'usage');
-
-    render(<SettingsDialog />);
-
-    expect(screen.getByText('服务用量统一面板')).toBeInTheDocument();
-  });
-
-  it('管理员切到 MCP 服务页签时渲染管理面板', () => {
-    mockSettingsDialogState(true, 'mcp-servers');
-
-    render(<SettingsDialog />);
-
-    expect(screen.getByText('MCP 服务管理面板')).toBeInTheDocument();
-  });
-
-  it('管理员切到模型管理页签时渲染管理面板', () => {
-    mockSettingsDialogState(true, 'model-management');
-
-    render(<SettingsDialog />);
-
-    expect(screen.getByText('模型管理面板')).toBeInTheDocument();
+    expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toHaveLength(3);
+    expect(screen.queryByRole('tab', { name: /服务用量|MCP 服务|模型管理|运行时配置/ })).toBeNull();
+    expect(screen.getByRole('tabpanel', { name: /常规设置/ })).toBeInTheDocument();
   });
 });
