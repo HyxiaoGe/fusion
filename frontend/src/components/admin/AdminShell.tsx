@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ArrowLeft, Boxes, MessagesSquare, Route, ScrollText, ShieldCheck, Users, type LucideIcon } from 'lucide-react';
+import { Activity, ArrowLeft, Boxes, Eye, MessagesSquare, Network, Route, ScrollText, ShieldCheck, Users, type LucideIcon } from 'lucide-react';
 import { adminPaths } from '@/lib/admin/adminRoutes';
 import styles from './AdminSurface.module.css';
 
@@ -26,7 +26,15 @@ const ADMIN_NAV_GROUPS: Array<{ label: string; items: AdminNavItem[] }> = [
     label: '模型',
     items: [
       { href: adminPaths.models, label: '模型运营', icon: Boxes },
+      { href: adminPaths.modelVisibility, label: '模型可见性', icon: Eye },
       { href: adminPaths.itineraryQuality, label: '行程稳定性', icon: Route },
+    ],
+  },
+  {
+    label: '服务',
+    items: [
+      { href: adminPaths.mcp, label: 'MCP 服务', icon: Network },
+      { href: adminPaths.usage, label: '服务用量', icon: Activity },
     ],
   },
 ];

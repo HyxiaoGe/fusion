@@ -566,10 +566,7 @@
       "tabs": {
         "general": "General", "generalShort": "General",
         "personalization": "AI preferences", "personalizationShort": "AI",
-        "memory": "Memory", "memoryShort": "Memory",
-        "usage": "Service usage", "usageShort": "Usage",
-        "mcp": "MCP services", "mcpShort": "MCP",
-        "models": "Model management", "modelsShort": "Models"
+        "memory": "Memory", "memoryShort": "Memory"
       },
       "monitoring": {
         "refreshAllLabel": "Refresh all service usage",

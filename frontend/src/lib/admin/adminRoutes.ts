@@ -44,6 +44,9 @@ export const adminPaths = {
   model: (modelId: string) => `/admin/models/${encodeURIComponent(modelId)}`,
   auditLog: '/admin/audit-log',
   itineraryQuality: '/admin/quality/itinerary',
+  modelVisibility: '/admin/model-visibility',
+  mcp: '/admin/mcp',
+  usage: '/admin/usage',
 } as const;
 
 /** 旧版 /admin?tab=... 链接映射到路径路由，未知参数一律回到用户列表。 */
