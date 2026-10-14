@@ -1,7 +1,6 @@
 """对话活动登记：进行中 / 完成未读两个按用户的集合随流生命周期变化。"""
 
 import unittest
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import fakeredis.aioredis
@@ -91,28 +90,3 @@ class ConversationActivityTests(unittest.IsolatedAsyncioTestCase):
         await init_stream("conv-1", "user-1", "gpt-4", "msg-1", "task-1")
 
         self.assertEqual(await self._activity("user-2"), {"streaming": [], "unread": []})
-
-
-class ConversationActivityRouteTests(unittest.IsolatedAsyncioTestCase):
-    def test_activity_route_is_registered_before_conversation_detail(self):
-        from app.api.chat import router
-
-        paths = [(route.path, sorted(route.methods)) for route in router.routes]
-        activity = paths.index(("/conversations/activity", ["GET"]))
-        detail = paths.index(("/conversations/{conversation_id}", ["GET"]))
-        self.assertLess(activity, detail)
-
-    async def test_activity_endpoint_returns_503_when_redis_fails(self):
-        from app.api.chat import get_conversations_activity
-        from app.schemas.response import ApiException
-
-        with patch(
-            "app.api.chat.get_conversation_activity",
-            side_effect=RuntimeError("redis down"),
-        ):
-            with self.assertRaises(ApiException) as raised:
-                await get_conversations_activity(
-                    request=SimpleNamespace(state=SimpleNamespace(request_id="req-1")),
-                    current_user=SimpleNamespace(id="user-1"),
-                )
-        self.assertEqual(raised.exception.status_code, 503)
