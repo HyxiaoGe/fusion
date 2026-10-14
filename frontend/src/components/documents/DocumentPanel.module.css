@@ -55,6 +55,14 @@
   scrollbar-color: var(--border-strong) transparent;
 }
 
+/* 全屏时正文仍保持易读的行宽，两侧留白随窗口增长。 */
+.bodyExpanded { padding-inline: max(clamp(1.25rem, 4vw, 2.5rem), calc((100% - 1040px) / 2)); }
+
+/* 窄屏抽屉本就占满宽度，不显示全屏切换。 */
+@media (max-width: 880px) {
+  .expandButton.expandButton { display: none; }
+}
+
 .iconButton {
   display: flex;
   width: 34px;

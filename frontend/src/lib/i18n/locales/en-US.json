@@ -799,6 +799,8 @@
       "retry": "Retry",
       "close": "Close document",
       "closeBackdrop": "Close document backdrop",
+      "fullscreen": "Full screen",
+      "exitFullscreen": "Exit full screen",
       "versionLabel": "Document version",
       "downloadMarkdown": "Markdown",
       "downloadHtml": "HTML"
