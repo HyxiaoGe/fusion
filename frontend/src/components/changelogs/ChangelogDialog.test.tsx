@@ -76,6 +76,15 @@ describe('更新日志弹窗', () => {
     const current = within(nav).getAllByRole('button').filter((button) => button.getAttribute('aria-current') === 'true');
     expect(current).toEqual([within(nav).getByRole('button', { name: /1\.1\.0/ })]);
     expect(vi.mocked(Element.prototype.scrollIntoView).mock.contexts.at(-1)).toBe(document.getElementById('changelog-release-b'));
+    // 平滑滚动途中的滚动事件不改选中项，滚动结束后才交回位置判断。
+    // jsdom 里各篇位置都是 0，按位置判断总落在最后一篇（1.1.0）；点第一篇后锁定期间不被它抢走。
+    const scroller = screen.getByTestId('changelog-scroll');
+    fireEvent.click(within(nav).getByRole('button', { name: /1\.2\.0/ }));
+    fireEvent.scroll(scroller);
+    expect(within(nav).getByRole('button', { name: /1\.2\.0/ })).toHaveAttribute('aria-current', 'true');
+    fireEvent(scroller, new Event('scrollend'));
+    fireEvent.scroll(scroller);
+    expect(within(nav).getByRole('button', { name: /1\.1\.0/ })).toHaveAttribute('aria-current', 'true');
     expect(read).not.toHaveBeenCalled();
   });
 
