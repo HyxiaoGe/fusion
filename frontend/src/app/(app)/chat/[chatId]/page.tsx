@@ -586,6 +586,7 @@ export default function ChatPage() {
                 runId: payload.run_id,
                 stepId: payload.step_id,
               }));
+              dispatch(advanceTypewriter({ conversationId: chatId, chars: payload.delta.length }));
             });
           },
           ...createAgentStreamEventHandlers({

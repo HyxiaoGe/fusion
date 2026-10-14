@@ -155,6 +155,7 @@ function buildContinuationStreamCallbacks({
         runId: payload.run_id,
         stepId: payload.step_id,
       }));
+      dispatch(advanceTypewriter({ conversationId, chars: payload.delta.length }));
     },
     onAnswering: payload => {
       if (!isActive()) return;

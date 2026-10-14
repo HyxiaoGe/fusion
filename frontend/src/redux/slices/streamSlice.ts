@@ -50,6 +50,7 @@ export interface StreamSlot {
   thinkingBlocks: Record<string, string>;
   blockOrder: string[];
   blockTypes: Record<string, 'text' | 'thinking'>;
+  // 打字机进度：思考与正文按到达顺序共用，正文要等前面的思考显示完才出现。
   totalTextLength: number;
   displayedTextLength: number;
   // ── 流状态枚举 ──
@@ -291,6 +292,8 @@ const streamSlice = createSlice({
         }
       }
       state.thinkingBlocks[blockId] = (state.thinkingBlocks[blockId] ?? '') + delta;
+      // 部分供应商（Gemini）的思考摘要一次到一整段，计入打字机后才不会整段弹出。
+      state.totalTextLength += delta.length;
     }),
 
     discardContentBlock: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; blockId: string; sequence: number }>) => {
@@ -895,7 +898,7 @@ export function selectStreamingConversationIds(state: { stream: StreamState }): 
 }
 
 // Selector：从 streamSlice 组装出当前流式 content blocks 数组
-// thinking blocks 全量返回（实时显示），text blocks 按 displayedTextLength 截断（打字机效果）
+// thinking 与 text blocks 按到达顺序消耗 displayedTextLength（打字机效果）
 type StreamContentBlockSelectorArgs = [
   StreamSlot['staticBlocks'],
   StreamSlot['textBlocks'],
@@ -923,6 +926,14 @@ const selectStreamContentBlocksFromParts = createSelector(
     displayedTextLength,
   ): ContentBlock[] => {
     let remainingChars = displayedTextLength;
+    const visibleLengths: Record<string, number> = {};
+    for (const blockId of blockOrder) {
+      const type = blockTypes[blockId];
+      if (type !== 'thinking' && type !== 'text') continue;
+      const fullLength = (type === 'thinking' ? thinkingBlocks[blockId] : textBlocks[blockId])?.length ?? 0;
+      visibleLengths[blockId] = Math.min(remainingChars, fullLength);
+      remainingChars -= visibleLengths[blockId];
+    }
     const blocks: ContentBlock[] = [...staticBlocks];
 
     // 先输出 thinking blocks
@@ -931,21 +942,18 @@ const selectStreamContentBlocksFromParts = createSelector(
         blocks.push({
           type: 'thinking' as const,
           id: blockId,
-          thinking: thinkingBlocks[blockId] ?? '',
+          thinking: (thinkingBlocks[blockId] ?? '').slice(0, visibleLengths[blockId]),
         });
       }
     }
 
-    // 再输出 text blocks（带打字机截断）
+    // 再输出 text blocks
     for (const blockId of blockOrder) {
       if (blockTypes[blockId] === 'text') {
-        const fullText = textBlocks[blockId] ?? '';
-        const visibleLength = Math.min(remainingChars, fullText.length);
-        remainingChars -= visibleLength;
         blocks.push({
           type: 'text' as const,
           id: blockId,
-          text: fullText.slice(0, visibleLength),
+          text: (textBlocks[blockId] ?? '').slice(0, visibleLengths[blockId]),
         });
       }
     }

@@ -273,6 +273,7 @@ describe('streamSlice — content blocks selector', () => {
       blockId: 'thinking-1',
       delta: '继续思考',
     }));
+    thinkingState = reducer(thinkingState, advanceTypewriter({ conversationId: 'c1', chars: 7 }));
     const updatedThinkingBlocks = selectStreamContentBlocks(slot(thinkingState, 'c1'));
     expect(updatedThinkingBlocks).not.toBe(firstThinkingBlocks);
     expect(updatedThinkingBlocks).toEqual([
@@ -292,6 +293,29 @@ describe('streamSlice — content blocks selector', () => {
       { type: 'text', id: 'static-2', text: '恢复后的回答' },
       { type: 'thinking', id: 'thinking-1', thinking: '第一步继续思考' },
       { type: 'text', id: 'text-1', text: '新回答' },
+    ]);
+  });
+
+  it('思考与正文按到达顺序共用打字机进度，正文等前面的思考显示完', () => {
+    let state = reducer(initial(), startStream({ conversationId: 'c1', messageId: 'm1' }));
+    state = reducer(state, appendThinkingDelta({ conversationId: 'c1', blockId: 't1', delta: '整段思考摘要' }));
+    state = reducer(state, appendTextDelta({ conversationId: 'c1', blockId: 'x1', delta: '回答' }));
+    expect(slot(state, 'c1').totalTextLength).toBe(8);
+
+    state = reducer(state, advanceTypewriter({ conversationId: 'c1', chars: 4 }));
+    expect(selectStreamContentBlocks(slot(state, 'c1'))).toEqual([
+      { type: 'thinking', id: 't1', thinking: '整段思考' },
+      { type: 'text', id: 'x1', text: '' },
+    ]);
+
+    state = reducer(state, advanceTypewriter({ conversationId: 'c1', chars: 3 }));
+    expect(selectStreamContentBlocks(slot(state, 'c1'))).toEqual([
+      { type: 'thinking', id: 't1', thinking: '整段思考摘要' },
+      { type: 'text', id: 'x1', text: '回' },
+    ]);
+    expect(selectFullStreamContentBlocks(slot(state, 'c1'))).toEqual([
+      { type: 'thinking', id: 't1', thinking: '整段思考摘要' },
+      { type: 'text', id: 'x1', text: '回答' },
     ]);
   });
 });
