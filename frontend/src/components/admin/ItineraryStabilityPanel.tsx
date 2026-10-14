@@ -23,13 +23,11 @@ import {
   formatNumber,
   toShanghaiIso,
 } from './AdminPanelPrimitives';
+import { useAdminAccess } from './AdminAccessContext';
 import styles from './AdminSurface.module.css';
 
-interface ItineraryStabilityPanelProps {
-  onForbidden: () => void;
-}
-
-export default function ItineraryStabilityPanel({ onForbidden }: ItineraryStabilityPanelProps) {
+export default function ItineraryStabilityPanel() {
+  const { revoke } = useAdminAccess();
   const [windowHours, setWindowHours] = useState<number>(24);
   const [modelDraft, setModelDraft] = useState('');
   const [modelId, setModelId] = useState('');
@@ -38,7 +36,7 @@ export default function ItineraryStabilityPanel({ onForbidden }: ItineraryStabil
     (signal: AbortSignal) => getAdminItineraryStability(query, signal),
     [query],
   );
-  const resource = useAdminAuditResource(loader, onForbidden);
+  const resource = useAdminAuditResource(loader, revoke);
 
   const applyWindow = (hours: number) => {
     setWindowHours(hours);
@@ -53,13 +51,13 @@ export default function ItineraryStabilityPanel({ onForbidden }: ItineraryStabil
   const refresh = () => setQuery(buildWindowQuery(windowHours, modelId));
 
   return (
-    <section aria-label="智能行程稳定性" className="mb-6 rounded-xl border border-border bg-card p-4">
+    <section aria-label="智能行程稳定性">
       <header className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div>
-          <h2 className="flex items-center gap-2 font-semibold">
+          <h1 className="flex items-center gap-2 text-lg font-semibold">
             <Route className="h-4 w-4 text-primary" aria-hidden="true" />
             智能行程稳定性
-          </h2>
+          </h1>
           <p className="mt-1 text-xs text-muted-foreground">
             按终态出行运行聚合行程交付、产品工具状态和安全异常信号；运行中样本不会被误计为失败。
           </p>

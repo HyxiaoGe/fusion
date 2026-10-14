@@ -1,8 +1,12 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const apiMocks = vi.hoisted(() => ({ getAdminAuditEvents: vi.fn() }));
 vi.mock('@/lib/api/adminAudit', () => apiMocks);
+vi.mock('next/navigation', async () => (await import('@/test/adminNavigation')).nextNavigationMock);
+
+import { adminNavigation } from '@/test/adminNavigation';
+import { renderAdmin } from '@/test/renderAdmin';
 
 import AdminAuditEventsPanel from './AdminAuditEventsPanel';
 
@@ -40,10 +44,13 @@ const page = {
 };
 
 describe('AdminAuditEventsPanel', () => {
-  beforeEach(() => apiMocks.getAdminAuditEvents.mockReset().mockResolvedValue(page));
+  beforeEach(() => {
+    apiMocks.getAdminAuditEvents.mockReset().mockResolvedValue(page);
+    adminNavigation.reset('/admin/audit-log');
+  });
 
   it('主表只展示紧凑中文摘要，完整标识与理由进入展开详情', async () => {
-    render(<AdminAuditEventsPanel onForbidden={vi.fn()} />);
+    renderAdmin(<AdminAuditEventsPanel />);
 
     const admin = await screen.findByLabelText('审计管理员 event-11111111-1111-1111-1111-111111111111');
     expect(admin).toHaveTextContent('@ops-admin');
@@ -76,7 +83,7 @@ describe('AdminAuditEventsPanel', () => {
   });
 
   it('重置筛选会清空审计动作和用户 ID 并立即恢复完整列表', async () => {
-    render(<AdminAuditEventsPanel onForbidden={vi.fn()} />);
+    renderAdmin(<AdminAuditEventsPanel />);
     await screen.findByRole('table', { name: '管理员访问审计记录' });
 
     fireEvent.change(screen.getByLabelText('审计动作'), { target: { value: 'admin.audit.user.view' } });
@@ -91,9 +98,12 @@ describe('AdminAuditEventsPanel', () => {
       target_user_id: 'user-1',
     }, expect.any(AbortSignal)));
 
+    expect(adminNavigation.url).toBe('/admin/audit-log?action=admin.audit.user.view&admin_user_id=admin-1&target_user_id=user-1');
+
     fireEvent.click(screen.getByRole('button', { name: '重置筛选' }));
 
-    expect(screen.getByLabelText('审计动作')).toHaveValue('');
+    expect(adminNavigation.url).toBe('/admin/audit-log');
+    await waitFor(() => expect(screen.getByLabelText('审计动作')).toHaveValue(''));
     expect(screen.getByLabelText('管理员用户 ID')).toHaveValue('');
     expect(screen.getByLabelText('目标用户 ID')).toHaveValue('');
     await waitFor(() => expect(apiMocks.getAdminAuditEvents).toHaveBeenLastCalledWith({
@@ -106,7 +116,7 @@ describe('AdminAuditEventsPanel', () => {
   });
 
   it('缺失管理员和目标信息安全降级，未知原始值不进入主表', async () => {
-    render(<AdminAuditEventsPanel onForbidden={vi.fn()} />);
+    renderAdmin(<AdminAuditEventsPanel />);
     const admin = await screen.findByLabelText('审计管理员 event-missing');
     expect(admin).toHaveTextContent('管理员信息未记录');
     const action = screen.getByLabelText('审计操作 event-missing');
@@ -123,7 +133,7 @@ describe('AdminAuditEventsPanel', () => {
   });
 
   it('旧响应缺少 target_user 字段时使用短 ID 兜底且不误称当前身份', async () => {
-    render(<AdminAuditEventsPanel onForbidden={vi.fn()} />);
+    renderAdmin(<AdminAuditEventsPanel />);
     const object = await screen.findByLabelText('审计对象 event-legacy');
     expect(object).toHaveTextContent('用户');
     expect(object).toHaveTextContent('目标用户：…87654321（旧记录）');
@@ -133,7 +143,7 @@ describe('AdminAuditEventsPanel', () => {
   });
 
   it('表格提供 caption、列作用域且详情层不会撑宽表格', async () => {
-    render(<AdminAuditEventsPanel onForbidden={vi.fn()} />);
+    renderAdmin(<AdminAuditEventsPanel />);
     const table = await screen.findByRole('table', { name: '管理员访问审计记录' });
     expect(within(table).getAllByRole('columnheader')).toHaveLength(5);
     within(table).getAllByRole('columnheader').forEach(header => expect(header).toHaveAttribute('scope', 'col'));
@@ -143,7 +153,7 @@ describe('AdminAuditEventsPanel', () => {
   });
 
   it('访问审计主表和详情任何位置都不展示管理员或目标用户邮箱', async () => {
-    render(<AdminAuditEventsPanel onForbidden={vi.fn()} />);
+    renderAdmin(<AdminAuditEventsPanel />);
     await screen.findByRole('table', { name: '管理员访问审计记录' });
     expect(screen.queryByText('o***@example.com')).toBeNull();
     expect(screen.queryByText('t***@example.com')).toBeNull();

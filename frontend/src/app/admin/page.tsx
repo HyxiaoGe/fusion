@@ -1,16 +1,15 @@
-import { Suspense } from 'react';
-import AdminAuditCenter from '@/components/admin/AdminAuditCenter';
-import AdminGuard from '@/components/admin/AdminGuard';
-import AdminShell from '@/components/admin/AdminShell';
+import { redirect } from 'next/navigation';
+import { legacyAdminPath } from '@/lib/admin/adminRoutes';
 
-export default function AdminPage() {
-  return (
-    <AdminGuard>
-      <AdminShell>
-        <Suspense fallback={<div role="status" className="p-6 text-sm text-muted-foreground">正在读取管理中心…</div>}>
-          <AdminAuditCenter />
-        </Suspense>
-      </AdminShell>
-    </AdminGuard>
-  );
+interface AdminIndexProps {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}
+
+/** /admin 只做入口：默认进入用户列表，旧版 ?tab= 链接映射到对应路径。 */
+export default async function AdminIndexPage({ searchParams }: AdminIndexProps) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries((await searchParams) ?? {})) {
+    if (typeof value === 'string') params.set(key, value);
+  }
+  redirect(legacyAdminPath(params));
 }

@@ -263,7 +263,7 @@ describe('UserAvatarMenu', () => {
     fireEvent.pointerDown(screen.getByRole('button'), { button: 0, ctrlKey: false });
     const adminLink = screen.getByRole('menuitem', { name: '管理中心' });
     expect(adminLink.tagName).toBe('A');
-    expect(adminLink).toHaveAttribute('href', '/admin');
+    expect(adminLink).toHaveAttribute('href', '/admin/users');
     expect(pushMock).not.toHaveBeenCalled();
   });
 

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const apiMocks = vi.hoisted(() => ({
@@ -6,6 +6,9 @@ const apiMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/api/adminAudit', () => apiMocks);
+vi.mock('next/navigation', async () => (await import('@/test/adminNavigation')).nextNavigationMock);
+
+import { renderAdmin } from '@/test/renderAdmin';
 
 import ItineraryStabilityPanel from './ItineraryStabilityPanel';
 
@@ -61,7 +64,6 @@ const response = {
   }],
 };
 
-const noop = () => undefined;
 
 describe('ItineraryStabilityPanel', () => {
   beforeEach(() => {
@@ -69,7 +71,7 @@ describe('ItineraryStabilityPanel', () => {
   });
 
   it('展示时间窗口、总览、按模型和按工具统计，不暴露参数或原始错误', async () => {
-    render(<ItineraryStabilityPanel onForbidden={noop} />);
+    renderAdmin(<ItineraryStabilityPanel />);
 
     expect(await screen.findByRole('heading', { name: '智能行程稳定性' })).toBeInTheDocument();
     expect(screen.getByLabelText('行程交付总览')).toHaveTextContent('Complete28');
@@ -111,7 +113,7 @@ describe('ItineraryStabilityPanel', () => {
   });
 
   it('支持切换七天窗口并按精确模型 ID 重新查询', async () => {
-    render(<ItineraryStabilityPanel onForbidden={noop} />);
+    renderAdmin(<ItineraryStabilityPanel />);
     await screen.findByText('kimi-k2.5');
 
     fireEvent.click(screen.getByRole('button', { name: '最近 7 天' }));
@@ -135,7 +137,7 @@ describe('ItineraryStabilityPanel', () => {
     apiMocks.getAdminItineraryStability.mockReturnValueOnce(new Promise(resolve => {
       resolveRequest = resolve;
     }));
-    const { unmount } = render(<ItineraryStabilityPanel onForbidden={noop} />);
+    const { unmount } = renderAdmin(<ItineraryStabilityPanel />);
 
     expect(screen.getByRole('status')).toHaveTextContent('正在读取');
     await act(async () => resolveRequest({
@@ -157,7 +159,7 @@ describe('ItineraryStabilityPanel', () => {
       .mockReset()
       .mockRejectedValueOnce(new Error('行程稳定性读取失败'))
       .mockResolvedValueOnce(response);
-    render(<ItineraryStabilityPanel onForbidden={noop} />);
+    renderAdmin(<ItineraryStabilityPanel />);
     expect(await screen.findByText('行程稳定性读取失败')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '重新加载行程稳定性' }));
     await waitFor(() => expect(apiMocks.getAdminItineraryStability).toHaveBeenCalledTimes(2));
