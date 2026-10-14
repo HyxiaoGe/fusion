@@ -26,6 +26,7 @@ async def start_scheduler() -> None:
     from app.services.guest_cleanup import purge_inactive_guests_hourly
     from app.services.inspiration_generator import generate_daily_inspirations_job
     from app.services.notification_service import purge_expired_notifications_daily
+    from app.services.user_memory_consolidation import consolidate_user_memories_job
 
     scheduler = AsyncIOScheduler()
 
@@ -63,6 +64,16 @@ async def start_scheduler() -> None:
         purge_expired_notifications_daily,
         trigger=CronTrigger(hour=4, minute=40, timezone="Asia/Shanghai"),
         id="purge_expired_notifications",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
+    # 每 5 分钟整理闲置对话里的用户记忆；多 worker 由任务内的 Redis 锁去重
+    scheduler.add_job(
+        consolidate_user_memories_job,
+        trigger=IntervalTrigger(minutes=5),
+        id="consolidate_user_memories",
         replace_existing=True,
         max_instances=1,
         coalesce=True,

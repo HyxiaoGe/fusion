@@ -901,6 +901,20 @@ class UserMemory(Base):
     __table_args__ = (Index("ix_user_memories_user_created", "user_id", "created_at"),)
 
 
+class MemoryConsolidationCursor(Base):
+    """记忆整理进度：每个对话已整理到的消息序号，闲置后只处理之后的新消息。"""
+
+    __tablename__ = "memory_consolidation_cursors"
+
+    conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), primary_key=True)
+    processed_sequence = Column(BigInteger, nullable=False, default=0, server_default="0")
+    # 连续失败次数；达到上限后跳过这批消息，避免一段对话反复重试。
+    failed_attempts = Column(Integer, nullable=False, default=0, server_default="0")
+    updated_at = Column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, server_default=func.now(), nullable=False
+    )
+
+
 class Notification(Base):
     """用户站内通知；对话删除时级联移除通知，普通已读记录继续保留。"""
 
