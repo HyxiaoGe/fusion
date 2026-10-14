@@ -63,7 +63,8 @@
   .workspace:has(.listPage) { height: 100%; grid-template-rows: minmax(0, 1fr); }
   .panel:has(> .listPage) { display: flex; min-height: 0; flex-direction: column; }
   .listPage { display: flex; flex: 1; min-height: 0; flex-direction: column; }
-  .listPage .tableFrame { flex: 1 1 auto; min-height: 240px; max-height: none; }
+  .listPage .tableFrame, .listPage .cardList { flex: 1 1 auto; min-height: 240px; max-height: none; }
+  .listSection { display: flex; flex: 1; min-height: 0; flex-direction: column; }
 }
 
 /* 窄屏导航改为横向滚动条，内容区占满宽度。 */
@@ -131,6 +132,8 @@
 
 /* 导航、表格与正文保持实色，长列表不建立逐行模糊合成层。 */
 .tableFrame { overflow: auto; max-height: min(65vh, 700px); border: 1px solid var(--border); border-radius: 14px; background: var(--bg-elevated); scrollbar-gutter: stable; }
+.cardList { overflow: auto; max-height: min(65vh, 700px); scrollbar-gutter: stable; }
+.cardList:focus-visible { outline: 2px solid var(--info); outline-offset: 3px; }
 .tableFrame:focus-visible { outline: 2px solid var(--info); outline-offset: 3px; }
 .table { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; font-size: 13px; text-align: left; }
 .table th { position: sticky; top: 0; z-index: 2; padding: 12px 14px; background: var(--bg-subtle); color: var(--fg-secondary); font-size: 12px; font-weight: 500; border-bottom: 1px solid var(--border); white-space: nowrap; }

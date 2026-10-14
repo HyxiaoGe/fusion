@@ -13,6 +13,7 @@ import {
 import { SettingsBadge as Badge, SettingsButton as Button, SettingsInput as Input, SettingsSelectTrigger as SelectTrigger, SettingsSelectContent as SelectContent, SettingsSelectItem as SelectItem } from "@/components/settings/SettingsControls";
 import { useSettingsDialogFocus } from "@/components/settings/useSettingsDialogFocus";
 import { AdminPanelHeader } from "@/components/admin/AdminPanelPrimitives";
+import styles from "@/components/admin/AdminSurface.module.css";
 import {
   Dialog,
   DialogContent,
@@ -344,7 +345,7 @@ export default function ModelManagementPanel() {
   const confirmLabel = action?.nextSelectable ? "确认恢复" : "确认隐藏";
 
   return (
-    <div ref={panelRef} tabIndex={-1} className="space-y-4">
+    <div ref={panelRef} tabIndex={-1} className={`space-y-4 ${styles.listPage}`}>
       <AdminPanelHeader
         title="模型可见性"
         description="控制新对话可选择的模型。模型上下线通过运维命令 model_onboard 完成。"
@@ -462,13 +463,14 @@ export default function ModelManagementPanel() {
         </div>
       )}
 
-      <section className="space-y-3 border-t pt-4" aria-labelledby="registered-models-heading">
+      <section className={`space-y-3 border-t pt-4 ${styles.listSection}`} aria-labelledby="registered-models-heading">
         <h2 id="registered-models-heading" className="flex items-center gap-2 text-base font-semibold">
           已注册模型
           <Badge variant="outline" data-testid="visible-registered-model-count">
             {visibleModels.length} / {snapshot.models.length}
           </Badge>
         </h2>
+        <div className={`space-y-3 ${styles.cardList}`} role="region" aria-label="已注册模型列表" tabIndex={0}>
           {snapshot.models.length === 0 && (
             <p className="py-6 text-center text-sm text-muted-foreground">暂无已注册模型</p>
           )}
@@ -520,6 +522,7 @@ export default function ModelManagementPanel() {
               </div>
             </div>
           ))}
+        </div>
       </section>
 
       <Dialog open={Boolean(action)} onOpenChange={(open) => !open && closeActionDialog()}>
