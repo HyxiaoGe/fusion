@@ -10,7 +10,7 @@ from typing import Any
 from app.ai.prompts.agent_loop import build_current_date_system_prompt, get_app_identity_prompt
 from app.ai.prompts.prompt_message import PromptMessage
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
-from app.ai.prompts.section_ids import APP_IDENTITY, CURRENT_DATE, USER_PREFERENCES
+from app.ai.prompts.section_ids import APP_IDENTITY, CURRENT_DATE, USER_MEMORY, USER_PREFERENCES
 from app.utils.prompt_fingerprint import fingerprint_system_messages
 
 TEMPLATE_VERSION = "2026-08-31.1"
@@ -43,6 +43,7 @@ def build_stable_base_sections() -> list[SystemPromptSection]:
 def build_dynamic_sections(
     user_system_prompt: str | None = None,
     *,
+    user_memory: str | None = None,
     include_current_date: bool = True,
 ) -> list[SystemPromptSection]:
     sections = [SystemPromptSection(CURRENT_DATE, build_current_date_system_prompt())] if include_current_date else []
@@ -56,18 +57,27 @@ def build_dynamic_sections(
                 ),
             )
         )
+    if user_memory and user_memory.strip():
+        sections.append(
+            SystemPromptSection(
+                USER_MEMORY,
+                render_runtime_prompt("system_prompt.user_memory", user_memory=user_memory.strip()),
+            )
+        )
     return sections
 
 
 def build_base_sections(
     user_system_prompt: str | None = None,
     *,
+    user_memory: str | None = None,
     include_current_date: bool = True,
 ) -> list[SystemPromptSection]:
     return [
         *build_stable_base_sections(),
         *build_dynamic_sections(
             user_system_prompt,
+            user_memory=user_memory,
             include_current_date=include_current_date,
         ),
     ]
@@ -76,6 +86,7 @@ def build_base_sections(
 def assemble_system_prompt(
     *,
     user_system_prompt: str | None = None,
+    user_memory: str | None = None,
     include_current_date: bool = True,
     sections: Callable[[], Iterable[SystemPromptSection]] | None = None,
 ) -> SystemPromptAssembly:
@@ -97,6 +108,7 @@ def assemble_system_prompt(
         selected.extend(
             build_dynamic_sections(
                 user_system_prompt,
+                user_memory=user_memory,
                 include_current_date=include_current_date,
             )
         )

@@ -52,7 +52,7 @@ class RecoveryPromptTests(unittest.IsolatedAsyncioTestCase):
                 original_message=message,
                 call_config=config,
                 file_repo_factory=lambda _: object(),
-                load_user_system_prompt_fn=lambda *_: None,
+                load_user_prompt_context_fn=lambda *_: None,
                 build_llm_messages_fn=messages,
                 preprocess_user_input=False,
             )

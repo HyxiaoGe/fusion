@@ -1114,6 +1114,7 @@ class ChatServiceTests(unittest.TestCase):
             has_vision=False,
             file_repo=service.file_repo,
             user_system_prompt=None,
+            user_memory=None,
             user_id="user-1",
             conversation_id="conv-1",
         )
@@ -1807,6 +1808,7 @@ class ChatServiceTests(unittest.TestCase):
             has_vision=False,
             file_repo=service.file_repo,
             user_system_prompt=None,
+            user_memory=None,
             user_id="user-1",
             conversation_id="conv-1",
         )
