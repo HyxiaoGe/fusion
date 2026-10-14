@@ -10,10 +10,8 @@ import styles from './DocumentCards.module.css';
 
 interface DocumentCardsProps {
   blocks: DocumentBlock[];
-  /** 这条回答是否正在生成。只有在本页看着它生成完成时才自动打开文档，翻历史、刷新进入都不打开。 */
-  generating?: boolean;
-  /** 本次生成是否正常完成；中断或失败时不自动打开。 */
-  completed?: boolean;
+  /** 回答在本页生成并正常完成时为 true；翻历史、刷新进入、中断或失败都不自动打开。 */
+  autoOpen?: boolean;
 }
 
 /** 同一文档在一条回答里可能被多次修改，只展示最后一个版本的卡片。 */
@@ -29,23 +27,20 @@ export function latestDocumentBlocks(blocks: DocumentBlock[]): DocumentBlock[] {
   return [...latest.values()];
 }
 
-function DocumentCards({ blocks, generating = false, completed = false }: DocumentCardsProps) {
+function DocumentCards({ blocks, autoOpen = false }: DocumentCardsProps) {
   const { t, i18n } = useTranslation();
   const [openBlock, setOpenBlock] = useState<DocumentBlock | null>(null);
   const cards = latestDocumentBlocks(blocks);
-  const sawGeneratingRef = useRef(generating);
   const autoOpenedRef = useRef(false);
   const lastCard = cards.at(-1) ?? null;
 
-  if (generating) sawGeneratingRef.current = true;
-
   // 回答在本页生成完成、页面正在前台时，自动打开最后产出的文档；只打开一次，用户关掉后不再弹。
   useEffect(() => {
-    if (generating || !completed || !sawGeneratingRef.current || autoOpenedRef.current || !lastCard) return;
+    if (!autoOpen || autoOpenedRef.current || !lastCard) return;
     autoOpenedRef.current = true;
     if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
     setOpenBlock(lastCard);
-  }, [generating, completed, lastCard]);
+  }, [autoOpen, lastCard]);
 
   if (cards.length === 0) return null;
 
