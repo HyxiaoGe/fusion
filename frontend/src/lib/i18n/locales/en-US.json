@@ -149,7 +149,7 @@
         "documentChunks": "{{count}} passages",
         "knowledgeCandidates": "Knowledge base candidates · {{files}} files · {{count}} passages",
         "kinds": { "search": "Search", "url_read": "Webpage", "knowledge": "Knowledge base" },
-        "status": { "unused": "Unused", "degraded": "Partially available", "interrupted": "Interrupted" }
+        "status": { "unread": "Not read", "unused": "Unused", "degraded": "Partially available", "interrupted": "Interrupted" }
       },
       "citation": {
         "knowledge": "Knowledge base",
