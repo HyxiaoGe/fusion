@@ -124,3 +124,16 @@ def test_job_swallows_redis_errors(monkeypatch):
 
     monkeypatch.setattr(guest_cleanup, "get_redis", broken)
     asyncio.run(guest_cleanup.purge_inactive_guests_hourly())
+
+
+def test_create_guest_returns_existing_user_when_created_concurrently():
+    from app.db.repositories import UserRepository
+
+    factory = _session_factory()
+    with factory() as first, factory() as second:
+        created = UserRepository(first).create_guest("guest-race", "游客")
+        # 第二个请求在第一个提交前已查过「不存在」，插入撞主键后应返回已建好的记录
+        again = UserRepository(second).create_guest("guest-race", "游客")
+        assert (created.id, again.id, again.is_guest) == ("guest-race", "guest-race", True)
+    with factory() as db:
+        assert db.query(User).filter(User.id == "guest-race").count() == 1

@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, Path, Query, Request
 
-from app.api.deps import get_current_user, get_notification_service
+from app.api.deps import get_current_user, get_current_user_or_pending_guest, get_notification_service
 from app.db.models import User
 from app.schemas.notification import (
     NotificationFilter,
@@ -26,7 +26,7 @@ def list_notifications(
     cursor: str | None = Query(None, max_length=20),
     limit: int = Query(20, ge=1, le=100),
     service: NotificationService = Depends(get_notification_service),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_or_pending_guest),
 ):
     page = service.list_notifications(str(current_user.id), filter=filter, cursor=cursor, limit=limit)
     return success(data=page.model_dump(mode="json"), request_id=request.state.request_id)

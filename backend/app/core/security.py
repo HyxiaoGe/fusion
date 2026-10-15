@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.guest_identity import GuestTokenError, is_guest_token, verify_guest_token
+from app.core.guest_identity import GUEST_NICKNAME, GuestTokenError, is_guest_token, verify_guest_token
 from app.core.revocation import extract_session_id, is_session_access_revoked, is_user_access_revoked
 from app.db.database import get_db
 from app.db.models import User
@@ -275,14 +275,19 @@ def _sync_user_from_claims(db: Session, auth_user: AuthenticatedUser, token: str
     return user
 
 
-def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)) -> User:
-    credentials_exception = HTTPException(
+def _credentials_exception() -> HTTPException:
+    return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)) -> User:
+    """当前用户；游客第一次访问这里时创建游客用户。"""
+    credentials_exception = _credentials_exception()
     if is_guest_token(token):
-        return _resolve_guest_user(db, token, credentials_exception)
+        return _resolve_guest_user(db, token, credentials_exception, create=True)
     try:
         auth_user = jwt_validator.verify(token)
     except (InvalidTokenError, httpx.HTTPError) as exc:
@@ -314,15 +319,37 @@ def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_
     return user
 
 
-def _resolve_guest_user(db: Session, token: str, credentials_exception: HTTPException) -> User:
-    """游客令牌由 Fusion 自己签发，不经统一认证服务，也不参与单点登出。"""
+def get_current_user_or_pending_guest(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)) -> User:
+    """只读接口用：还没建用户的游客返回不入库的游客对象，不为它建用户。
+
+    打开页面就会调用的只读接口（权益、会话列表、通知、同步）挂这个依赖，爬虫和监控
+    打开页面不会留下游客用户。只能用于不写任何关联该用户的数据的接口；拿不准就用
+    get_current_user，最多是多建一个游客。
+    """
+    if is_guest_token(token):
+        return _resolve_guest_user(db, token, _credentials_exception(), create=False)
+    return get_current_user(db=db, token=token)
+
+
+def _resolve_guest_user(db: Session, token: str, credentials_exception: HTTPException, *, create: bool) -> User:
+    """游客令牌由 Fusion 自己签发，不经统一认证服务，也不参与单点登出。
+
+    领取身份时只签发令牌，用户在第一次写入时才创建。长期不活动被清理的游客，令牌仍有效时
+    同样按新游客重建（数据已随清理删除）。
+    """
     try:
         subject = verify_guest_token(token)
     except GuestTokenError as exc:
         logger.info("Guest token rejected: %s", exc)
         raise credentials_exception
-    user = UserRepository(db).get(subject)
-    if user is None or not user.is_guest:
+    repo = UserRepository(db)
+    user = repo.get(subject)
+    if user is None:
+        if not create:
+            return repo.build_guest(subject, GUEST_NICKNAME)
+        user = repo.create_guest(subject, GUEST_NICKNAME)
+        logger.info("guest_user_created user=%s", subject)
+    if not user.is_guest:
         raise credentials_exception
     return user
 

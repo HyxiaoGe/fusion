@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, Request
 from starlette.concurrency import run_in_threadpool
 
-from app.api.deps import get_current_user, get_notification_service
+from app.api.deps import get_current_user_or_pending_guest, get_notification_service
 from app.core.logger import app_logger as logger
 from app.db.models import User
 from app.schemas.response import ApiResponse, success
@@ -20,7 +20,7 @@ async def sync(
     payload: SyncRequest,
     request: Request,
     service: NotificationService = Depends(get_notification_service),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_or_pending_guest),
 ):
     user_id = str(current_user.id)
     result = SyncResponse()

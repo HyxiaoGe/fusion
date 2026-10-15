@@ -42,9 +42,10 @@ class ChatCoreSurfaceTests(unittest.TestCase):
         self.main.app.dependency_overrides.clear()
 
     def _enable_authenticated_overrides(self):
-        gcu = self._route_deps.get("get_current_user")
-        if gcu:
-            self.main.app.dependency_overrides[gcu] = lambda: self.fake_user
+        for name in ("get_current_user", "get_current_user_or_pending_guest"):
+            dependency = self._route_deps.get(name)
+            if dependency:
+                self.main.app.dependency_overrides[dependency] = lambda: self.fake_user
 
         gdb = self._route_deps.get("get_db")
         if gdb:
