@@ -1236,6 +1236,15 @@ export default function ChatPage() {
   );
   const isDisplayConversationStreaming =
     !isHydratingWithoutContent && isDisplayConversationStreamingSlot;
+  // 回答结束时把焦点还给输入框，方便直接接着问。
+  const [composerFocusRequest, setComposerFocusRequest] = useState(0);
+  const wasDisplayConversationStreamingRef = useRef(isDisplayConversationStreaming);
+  useEffect(() => {
+    if (wasDisplayConversationStreamingRef.current && !isDisplayConversationStreaming) {
+      setComposerFocusRequest((current) => current + 1);
+    }
+    wasDisplayConversationStreamingRef.current = isDisplayConversationStreaming;
+  }, [isDisplayConversationStreaming]);
 
   const handleSurfaceChange = useCallback((surface: string) => {
     if (surface !== 'chat' && surface !== 'trajectory') return;
@@ -1438,6 +1447,7 @@ export default function ChatPage() {
                 showContextStatus={activeSurface === 'chat'}
                 disabled={isHydratingWithoutContent}
                 resetSignal={chatId}
+                focusRequest={composerFocusRequest}
                 conversationAttachments={conversationAttachments}
                 onRemoveConversationAttachment={handleRemoveConversationAttachment}
                 onClearConversationAttachments={handleClearConversationAttachments}
