@@ -493,7 +493,7 @@ function IssueSourceItem({ item }: { item: AnswerEvidenceSidebarIssueItem }) {
           <span className={cn('shrink-0', styles.kindBadge)}>
             {t(`chatBody.evidencePanel.kinds.${item.kind}`)}
           </span>
-          <StatusBadge status={item.status} />
+          <StatusBadge kind={item.kind} status={item.status} />
           {item.domain ? (
             <span className="min-w-0 truncate text-[10px] text-muted-foreground">{item.domain}</span>
           ) : null}
@@ -518,9 +518,15 @@ function IssueSourceItem({ item }: { item: AnswerEvidenceSidebarIssueItem }) {
   );
 }
 
-function StatusBadge({ status }: { status: AnswerEvidenceSidebarIssueItem['status'] }) {
+function StatusBadge({ kind, status }: Pick<AnswerEvidenceSidebarIssueItem, 'kind' | 'status'>) {
   const { t } = useTranslation();
-  const text = t(`chatBody.evidencePanel.status.${status === 'degraded' ? 'degraded' : status === 'interrupted' ? 'interrupted' : 'unused'}`);
+  // 网页读取失败（后端记为降级或失败）就是没读到，不是「部分可用」。
+  const label = status === 'interrupted'
+    ? 'interrupted'
+    : kind === 'url_read' && (status === 'degraded' || status === 'failed')
+      ? 'unread'
+      : status === 'degraded' ? 'degraded' : 'unused';
+  const text = t(`chatBody.evidencePanel.status.${label}`);
   return (
     <span className={cn(
       'shrink-0 rounded-full border px-1.5 py-0.5 text-[10px]',

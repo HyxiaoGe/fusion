@@ -40,8 +40,8 @@ const model: AnswerEvidenceSidebarModel = {
       title: '失败页面',
       url: 'https://failed.example.com',
       domain: 'failed.example.com',
-      status: 'failed',
-      reason: '网页暂时无法读取',
+      status: 'degraded',
+      reason: '网页不存在（链接已失效或地址有误）',
     },
     {
       id: 'issue-2',
@@ -157,9 +157,10 @@ describe('AnswerEvidenceSidebar', () => {
     expect(screen.getByText('读取来源')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '未使用来源' })).toBeInTheDocument();
     expect(screen.getByText('失败页面')).toBeInTheDocument();
-    expect(screen.getByText('网页暂时无法读取')).toBeInTheDocument();
+    expect(screen.getByText('网页不存在（链接已失效或地址有误）')).toBeInTheDocument();
+    // 网页读取失败（后端记为降级）显示「未读取」，不是「部分可用」；搜索降级仍是「部分可用」。
+    expect(screen.getByText('未读取')).toBeInTheDocument();
     expect(screen.getByText('未使用搜索')).toBeInTheDocument();
-    expect(screen.getByText('未使用')).toBeInTheDocument();
     expect(screen.getByText('部分可用')).toBeInTheDocument();
   });
 
