@@ -299,6 +299,7 @@ class GuestApiTests(unittest.TestCase):
 
     def _as(self, user, chat_service=None):
         self.main.app.dependency_overrides[self.deps["get_current_user"]] = lambda: user
+        self.main.app.dependency_overrides[self.deps["get_current_user_or_pending_guest"]] = lambda: user
         if chat_service is not None:
             self.main.app.dependency_overrides[self.deps["get_chat_service"]] = lambda: chat_service
 

@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 
-from app.api.deps import get_chat_service, get_current_user
+from app.api.deps import get_chat_service, get_current_user, get_current_user_or_pending_guest
 from app.core.config import settings
 from app.core.guest_identity import client_ip
 from app.core.logger import app_logger as logger
@@ -140,7 +140,7 @@ def get_conversations(
     page: int = Query(default=1, ge=1, description="页码，从 1 开始"),
     page_size: int = Query(default=20, ge=1, le=100, description="每页数量"),
     chat_service: ChatService = Depends(get_chat_service),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_or_pending_guest),
 ):
     """分页获取会话列表（不含消息内容）"""
     data = chat_service.get_conversations_paginated(current_user.id, page, page_size)

@@ -51,7 +51,7 @@ def activity_redis(monkeypatch):
 
 @pytest.fixture
 def client(db, viewing_redis, activity_redis):
-    from app.api.deps import get_current_user, get_db
+    from app.api.deps import get_current_user_or_pending_guest, get_db
     from app.api.sync import router
 
     app = FastAPI()
@@ -67,7 +67,7 @@ def client(db, viewing_redis, activity_redis):
         return JSONResponse(status_code=error.status_code, content={"code": error.code, "message": error.message})
 
     app.dependency_overrides[get_db] = lambda: db
-    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id="user-1")
+    app.dependency_overrides[get_current_user_or_pending_guest] = lambda: SimpleNamespace(id="user-1")
     with TestClient(app) as test_client:
         yield test_client
 

@@ -352,7 +352,7 @@ def test_database_uniqueness_defends_idempotency_and_revision(db, duplicate):
 
 @pytest.fixture
 def client(db):
-    from app.api.deps import get_current_user, get_db
+    from app.api.deps import get_current_user, get_current_user_or_pending_guest, get_db
     from app.api.notifications import router
 
     app = FastAPI()
@@ -369,6 +369,7 @@ def client(db):
 
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id="user-1")
+    app.dependency_overrides[get_current_user_or_pending_guest] = lambda: SimpleNamespace(id="user-1")
     with TestClient(app) as test_client:
         yield test_client
 
@@ -402,9 +403,10 @@ def test_api_contract_and_bulk_result_read(client, db):
 
 
 def test_api_requires_login(client):
-    from app.api.deps import get_current_user
+    from app.api.deps import get_current_user, get_current_user_or_pending_guest
 
     del client.app.dependency_overrides[get_current_user]
+    del client.app.dependency_overrides[get_current_user_or_pending_guest]
     assert client.get("/api/notifications").status_code == 401
 
 

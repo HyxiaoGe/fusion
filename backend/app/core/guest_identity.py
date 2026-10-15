@@ -1,7 +1,8 @@
 """游客身份：Fusion 自己签发的匿名令牌。
 
-未登录用户先领取一个游客身份（服务端创建 is_guest 用户），之后像登录用户一样以
-Bearer 令牌访问，会话照常归属这个用户，刷新或重开页面都还在。游客令牌用独立密钥
+未登录用户先领取一个游客身份令牌，之后像登录用户一样以 Bearer 令牌访问，会话照常
+归属这个用户，刷新或重开页面都还在。领取时只签发令牌、不建用户：打开页面的爬虫和监控
+从不发消息，第一次写入数据时才创建 is_guest 用户（见 security.get_current_user）。游客令牌用独立密钥
 HS256 签名，签发方固定为 GUEST_ISSUER，与统一认证服务的 RS256 令牌互不混用。
 """
 
@@ -19,6 +20,7 @@ from app.core.revocation import get_redis
 logger = logging.getLogger(__name__)
 
 GUEST_ISSUER = "fusion-guest"
+GUEST_NICKNAME = "游客"
 GUEST_TOKEN_TYPE = "guest"
 _GUEST_ALGORITHM = "HS256"
 _NEW_GUEST_KEY_PREFIX = "guest_new"

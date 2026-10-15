@@ -7,6 +7,7 @@ from app.api.deps import get_user_repo
 from app.core import security
 from app.core.avatar_proxy import AvatarProxyError, fetch_avatar
 from app.core.guest_identity import (
+    GUEST_NICKNAME,
     client_ip,
     guest_mode_available,
     ip_digest,
@@ -21,8 +22,6 @@ from app.services.guest_quota import build_entitlements
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-GUEST_NICKNAME = "游客"
 
 
 @router.get("/avatar")
@@ -58,14 +57,19 @@ async def read_current_user(request: Request, current_user: UserModel = Depends(
 
 
 @router.get("/me/entitlements")
-def read_current_entitlements(request: Request, current_user: UserModel = Depends(security.get_current_user)):
+def read_current_entitlements(
+    request: Request, current_user: UserModel = Depends(security.get_current_user_or_pending_guest)
+):
     """当前用户可用的功能与今日额度；游客据此显示「登录后可用」与剩余次数。"""
     return success(data=build_entitlements(current_user), request_id=request.state.request_id)
 
 
 @router.post("/guest")
-def create_guest_identity(request: Request, user_repo: UserRepository = Depends(get_user_repo)):
-    """未登录用户领取游客身份。每次调用都新建一个游客，前端拿到令牌后长期保存复用。"""
+def create_guest_identity(request: Request):
+    """未登录用户领取游客身份。每次调用都签发一个新游客的令牌，前端拿到后长期保存复用。
+
+    这里只签发令牌不建用户，第一次写入数据时才创建（见 security.get_current_user）。
+    """
     if not guest_mode_available():
         # 未开放是常态而非错误：用 200 告知前端走登录，避免每个未登录页面都报一条 403。
         return success(data={"available": False}, request_id=request.state.request_id)
@@ -79,9 +83,9 @@ def create_guest_identity(request: Request, user_repo: UserRepository = Depends(
         logger.info("guest_identity_rejected reason=ip_daily_limit ip=%s source=%s", ip_digest(ip), ip_source)
         raise ApiException("GUEST_LIMIT_REACHED", "今天免登录名额已用完，登录后继续使用", status_code=429)
 
-    user = user_repo.create_guest(str(uuid.uuid4()), GUEST_NICKNAME)
+    user = UserRepository.build_guest(str(uuid.uuid4()), GUEST_NICKNAME)
     token, expires_at = issue_guest_token(user.id)
-    logger.info("guest_identity_created user=%s ip=%s source=%s", user.id, ip_digest(ip), ip_source)
+    logger.info("guest_identity_issued user=%s ip=%s source=%s", user.id, ip_digest(ip), ip_source)
     return success(
         data={
             "available": True,

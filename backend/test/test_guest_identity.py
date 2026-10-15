@@ -114,7 +114,7 @@ class GuestRateLimitTests(unittest.TestCase):
 
 
 class GuestAuthenticationTests(unittest.TestCase):
-    def _resolve(self, token, user):
+    def _resolve(self, token, user, dependency=None):
         repo = MagicMock()
         repo.get.return_value = user
         with (
@@ -123,9 +123,46 @@ class GuestAuthenticationTests(unittest.TestCase):
             patch.object(security.jwt_validator, "verify") as auth_verify,
         ):
             try:
-                return security.get_current_user(db=MagicMock(), token=token)
+                return (dependency or security.get_current_user)(db=MagicMock(), token=token)
             finally:
                 auth_verify.assert_not_called()
+
+    def test_guest_user_is_created_on_first_authenticated_request(self):
+        with _guest_settings():
+            token, _ = guest_identity.issue_guest_token("guest-new")
+        repo = MagicMock()
+        repo.get.return_value = None
+        created = SimpleNamespace(id="guest-new", is_guest=True)
+        repo.create_guest.return_value = created
+        with _guest_settings(), patch("app.core.security.UserRepository", return_value=repo):
+            self.assertIs(security.get_current_user(db=MagicMock(), token=token), created)
+        repo.create_guest.assert_called_once_with("guest-new", guest_identity.GUEST_NICKNAME)
+
+    def test_read_only_requests_do_not_create_guest_user(self):
+        with _guest_settings():
+            token, _ = guest_identity.issue_guest_token("guest-new")
+        repo = MagicMock()
+        repo.get.return_value = None
+        pending = SimpleNamespace(id="guest-new", is_guest=True)
+        repo.build_guest.return_value = pending
+        with _guest_settings(), patch("app.core.security.UserRepository", return_value=repo):
+            user = security.get_current_user_or_pending_guest(db=MagicMock(), token=token)
+        self.assertIs(user, pending)
+        repo.create_guest.assert_not_called()
+
+    def test_read_only_requests_return_existing_guest_and_reject_registered(self):
+        guest = SimpleNamespace(id="guest-1", is_guest=True)
+        with _guest_settings():
+            token, _ = guest_identity.issue_guest_token("guest-1")
+            registered_token, _ = guest_identity.issue_guest_token("user-1")
+        self.assertIs(self._resolve(token, guest, security.get_current_user_or_pending_guest), guest)
+        with self.assertRaises(HTTPException) as ctx:
+            self._resolve(
+                registered_token,
+                SimpleNamespace(id="user-1", is_guest=False),
+                security.get_current_user_or_pending_guest,
+            )
+        self.assertEqual(ctx.exception.status_code, 401)
 
     def test_guest_token_resolves_guest_user_without_auth_service(self):
         guest = SimpleNamespace(id="guest-1", is_guest=True)
@@ -174,7 +211,7 @@ class GuestApiTests(unittest.TestCase):
 
         self.main.app.dependency_overrides[self.deps["get_db"]] = override
 
-    def test_create_guest_returns_token_for_new_guest_user(self):
+    def test_create_guest_issues_token_without_creating_user(self):
         db = MagicMock()
         self._override_db(db)
         with (
@@ -185,12 +222,10 @@ class GuestApiTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             data = response.json()["data"]
             self.assertEqual(guest_identity.verify_guest_token(data["access_token"]), data["user"]["id"])
-        created = db.add.call_args.args[0]
-        self.assertEqual(created.id, data["user"]["id"])
-        self.assertTrue(created.is_guest)
-        self.assertTrue(created.username.startswith("guest-"))
         self.assertTrue(data["user"]["is_guest"])
-        db.commit.assert_called_once()
+        self.assertTrue(data["user"]["username"].startswith("guest-"))
+        db.add.assert_not_called()
+        db.commit.assert_not_called()
 
     def test_create_guest_when_disabled_or_limited(self):
         self._override_db(MagicMock())

@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import delete, exists, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.db.models import (
@@ -67,17 +68,28 @@ class UserRepository:
         self.db.add(db_obj)
         return db_obj
 
-    def create_guest(self, user_id: str, nickname: str) -> UserModel:
-        """新建游客用户并提交；用户名带 ID 前缀保证唯一。"""
-        user = self.create(
-            {
-                "id": user_id,
-                "username": f"guest-{user_id.replace('-', '')[:16]}",
-                "nickname": nickname,
-                "is_guest": True,
-            }
+    @staticmethod
+    def build_guest(user_id: str, nickname: str) -> UserModel:
+        """构造游客用户对象但不入库；用户名带 ID 前缀保证唯一。"""
+        return UserModel(
+            id=user_id,
+            username=f"guest-{user_id.replace('-', '')[:16]}",
+            nickname=nickname,
+            is_guest=True,
         )
-        self.db.commit()
+
+    def create_guest(self, user_id: str, nickname: str) -> UserModel:
+        """新建游客用户并提交；并发请求已先建好时返回已有记录。"""
+        user = self.build_guest(user_id, nickname)
+        self.db.add(user)
+        try:
+            self.db.commit()
+        except IntegrityError:
+            self.db.rollback()
+            existing = self.get(user_id)
+            if existing is None:
+                raise
+            return existing
         self.db.refresh(user)
         return user
 
