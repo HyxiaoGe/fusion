@@ -554,7 +554,7 @@ describe('AssistantMessage', () => {
     fireEvent.click(screen.getByRole('button', { name: '全部来源' }));
 
     expect(screen.getByTestId('answer-evidence-sidebar')).toBeInTheDocument();
-    expect(screen.getByText('网页暂时无法读取')).toBeInTheDocument();
+    expect(screen.getByText('未能读取')).toBeInTheDocument();
     expect(screen.queryByText(/reader-service/)).not.toBeInTheDocument();
   });
 

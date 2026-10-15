@@ -712,7 +712,7 @@ describe('ChatMessage', () => {
 
     expect(screen.getByRole('dialog', { name: '回答依据' })).toBeInTheDocument();
     expect(screen.getByText('读取失败页面')).toBeInTheDocument();
-    expect(screen.getByText('网页暂时无法读取')).toBeInTheDocument();
+    expect(screen.getByText('未能读取')).toBeInTheDocument();
     expect(screen.queryByText(/reader-service/)).not.toBeInTheDocument();
   });
 

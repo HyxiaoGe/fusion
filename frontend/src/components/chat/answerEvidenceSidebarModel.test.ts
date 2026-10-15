@@ -107,24 +107,29 @@ describe('deriveAnswerEvidenceSidebar', () => {
       { type: 'url_read', id: 'u1', url: 'https://failed.example.com', status: 'failed', error_message: 'reader-service 读取超时，已降级跳过' },
       { type: 'url_read', id: 'u2', url: 'https://degraded.example.com', status: 'degraded' },
       { type: 'url_read', id: 'u3', url: 'https://interrupted.example.com', status: 'interrupted' },
+      { type: 'url_read', id: 'u4', url: 'https://gone.example.com', status: 'degraded', error_message: '网页不存在（链接已失效或地址有误），已跳过该来源' },
     ];
 
     const model = deriveAnswerEvidenceSidebar({ answerEvidence: null, searchBlock: null, urlBlocks });
 
     expect(model?.usedItems).toEqual([]);
-    expect(model?.issueItems).toHaveLength(3);
+    expect(model?.issueItems).toHaveLength(4);
     expect(model?.issueItems[0]).toMatchObject({
       title: 'https://failed.example.com',
       status: 'failed',
-      reason: '网页暂时无法读取',
+      reason: '未能读取',
     });
     expect(model?.issueItems[1]).toMatchObject({
       status: 'degraded',
-      reason: '部分网页暂时无法读取',
+      reason: '未能读取',
     });
     expect(model?.issueItems[2]).toMatchObject({
       status: 'interrupted',
       reason: '读取已中断',
+    });
+    expect(model?.issueItems[3]).toMatchObject({
+      status: 'degraded',
+      reason: '网页不存在（链接已失效或地址有误）',
     });
   });
 
@@ -145,7 +150,7 @@ describe('deriveAnswerEvidenceSidebar', () => {
 
     expect(model?.issueItems).toHaveLength(2);
     expect(model?.issueItems.map(item => item.title)).toEqual(['失败页面', '降级搜索']);
-    expect(model?.issueItems.map(item => item.reason)).toEqual(['网页暂时无法读取', '部分搜索结果未能使用']);
+    expect(model?.issueItems.map(item => item.reason)).toEqual(['未能读取', '部分搜索结果未能使用']);
   });
 
   it('url_read 失败时不透出 HTTP 状态等底层错误', () => {
@@ -161,7 +166,7 @@ describe('deriveAnswerEvidenceSidebar', () => {
 
     const model = deriveAnswerEvidenceSidebar({ answerEvidence: null, searchBlock, urlBlocks: [] });
 
-    expect(model?.issueItems[0].reason).toBe('网页暂时无法读取');
+    expect(model?.issueItems[0].reason).toBe('未能读取');
   });
 
   it('已删除知识来源只展示安全不可用提示', () => {

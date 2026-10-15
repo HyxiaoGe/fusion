@@ -5,6 +5,7 @@ import type {
   SourceReference,
   UrlBlock,
 } from '@/types/conversation';
+import { getUrlReadFailureReason } from '@/lib/agent/toolErrorDisplay';
 import type {
   AnswerEvidenceItem,
   AnswerEvidenceModel,
@@ -305,15 +306,10 @@ function getIssueReason(
   }
 
   if (kind === 'url_read') {
-    if (status === 'failed') {
-      return '网页暂时无法读取';
-    }
-    if (status === 'degraded') {
-      return '部分网页暂时无法读取';
-    }
     if (status === 'interrupted') {
       return '读取已中断';
     }
+    return getUrlReadFailureReason(rawReason);
   }
 
   if (rawReason && !isInternalFailureReason(rawReason)) {

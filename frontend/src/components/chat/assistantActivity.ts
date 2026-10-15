@@ -217,18 +217,18 @@ function deriveIssue(
     if (searchIssueCall) {
       return hasUsableStructuredResult
         ? toOverallPartialIssue(searchIssueCall)
-        : toResolvedToolIssue(currentRun, searchIssueCall);
+        : toToolIssue(searchIssueCall.status, searchIssueCall);
     }
 
     const nonSearchToolIssueCall = findLatestOpenToolIssueCall(
       currentRun,
-      call => getToolKind(call.toolName) !== 'web_search',
+      call => getToolKind(call.toolName) !== 'web_search' && shouldSurfaceToolIssue(call),
     );
 
     if (isToolIssueCall(nonSearchToolIssueCall)) {
       return hasUsableStructuredResult
         ? toOverallPartialIssue(nonSearchToolIssueCall)
-        : toResolvedToolIssue(currentRun, nonSearchToolIssueCall);
+        : toToolIssue(nonSearchToolIssueCall.status, nonSearchToolIssueCall);
     }
 
     if (searchBlock.sources.length === 0) {
@@ -254,68 +254,21 @@ function deriveIssue(
     return null;
   }
 
-  const toolIssueCall = findLatestOpenToolIssueCall(currentRun);
+  const toolIssueCall = findLatestOpenToolIssueCall(currentRun, shouldSurfaceToolIssue);
 
   if (isToolIssueCall(toolIssueCall)) {
     return hasUsableStructuredResult
       ? toOverallPartialIssue(toolIssueCall)
-      : toResolvedToolIssue(currentRun, toolIssueCall);
+      : toToolIssue(toolIssueCall.status, toolIssueCall);
   }
 
   return null;
 }
 
-function toResolvedToolIssue(currentRun: AgentRunState | null, call: ToolIssueCall): AssistantToolIssue {
-  if (getToolKind(call.toolName) === 'url_read') {
-    return toAggregatedUrlReadIssue(currentRun, call);
-  }
-
-  return toToolIssue(call.status, call);
-}
-
-function toAggregatedUrlReadIssue(
-  currentRun: AgentRunState | null,
-  fallbackCall: ToolIssueCall,
-): AssistantToolIssue {
-  const latestCallsByPage = new Map<string, ToolCallState>();
-
-  for (const call of getToolCallsNewestFirst(currentRun)) {
-    if (getToolKind(call.toolName) !== 'url_read' || !isTerminalToolStatus(call.status)) {
-      continue;
-    }
-
-    const pageKey = getStringArgument(call, 'url') || call.toolCallId;
-    if (!latestCallsByPage.has(pageKey)) {
-      latestCallsByPage.set(pageKey, call);
-    }
-  }
-
-  const latestCalls = [...latestCallsByPage.values()];
-  const successCount = latestCalls.filter(call => call.status === 'success').length;
-  const issueCount = latestCalls.filter(call => call.status === 'failed' || call.status === 'degraded').length;
-  const baseIssue = toToolIssue(fallbackCall.status, fallbackCall);
-
-  if (issueCount <= 1 && successCount === 0) {
-    return {
-      ...baseIssue,
-      title: '有一个网页未能读取',
-    };
-  }
-
-  if (successCount > 0) {
-    return {
-      ...baseIssue,
-      kind: 'degraded',
-      title: '部分网页未能读取',
-      detail: `已跳过 ${issueCount} 个页面`,
-    };
-  }
-
-  return {
-    ...baseIssue,
-    title: '所有候选网页均未能读取',
-    detail: `已跳过 ${issueCount} 个页面`,
-  };
+// 网页读不到是检索过程的常态（失效链接、被拦截、超时），回答只基于读到的内容；
+// 影响回答时模型会在正文里说明，这里不再给回答挂提示，读取结果在依据面板和轨迹里看。
+function shouldSurfaceToolIssue(call: ToolCallState): boolean {
+  return getToolKind(call.toolName) !== 'url_read';
 }
 
 function findSearchBlockIssueCall(currentRun: AgentRunState | null, searchBlock: SearchBlock): ToolIssueCall | null {
@@ -393,14 +346,6 @@ function getIssueCopy(status: ToolIssueStatus, toolKind: AssistantToolKind): { t
 
   if (toolKind === 'web_search' && status === 'failed') {
     return { title: '搜索未取得可用结果', detail: '本轮回答未使用搜索结果' };
-  }
-
-  if (toolKind === 'url_read' && status === 'degraded') {
-    return { title: '网页暂时无法读取', detail: '已跳过该页面' };
-  }
-
-  if (toolKind === 'url_read' && status === 'failed') {
-    return { title: '网页暂时无法读取', detail: '未使用该页面内容' };
   }
 
   if (status === 'degraded') {

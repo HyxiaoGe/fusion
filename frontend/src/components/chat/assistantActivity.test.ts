@@ -607,7 +607,7 @@ describe('deriveAssistantActivity', () => {
     });
   });
 
-  it('prioritizes a failed url_read issue over an empty latest search block', () => {
+  it('does not surface a failed url_read over an empty latest search block', () => {
     const activity = deriveAssistantActivity({
       isStreaming: false,
       isCurrentlyStreaming: false,
@@ -643,12 +643,14 @@ describe('deriveAssistantActivity', () => {
       suggestedQuestionsCount: 0,
     });
 
-    expect(activity.issue?.toolKind).toBe('url_read');
-    expect(activity.issue?.title).toBe('有一个网页未能读取');
-    expect(activity.issue?.detail).toBe('未使用该页面内容');
+    expect(activity.issue).toMatchObject({
+      kind: 'empty',
+      toolKind: 'web_search',
+      title: '未找到可用搜索结果',
+    });
   });
 
-  it('读取成功和失败并存时显示部分网页未能读取', () => {
+  it('读取成功和失败并存时不给回答挂网页读取提示', () => {
     const activity = deriveAssistantActivity({
       isStreaming: false,
       isCurrentlyStreaming: false,
@@ -688,15 +690,10 @@ describe('deriveAssistantActivity', () => {
       suggestedQuestionsCount: 0,
     });
 
-    expect(activity.issue).toMatchObject({
-      kind: 'degraded',
-      toolKind: 'url_read',
-      title: '部分网页未能读取',
-      detail: '已跳过 1 个页面',
-    });
+    expect(activity.issue).toBeNull();
   });
 
-  it('多个网页均失败时显示所有候选网页均未能读取', () => {
+  it('网页全部读取失败时也不挂提示，由回答正文说明', () => {
     const activity = deriveAssistantActivity({
       isStreaming: false,
       isCurrentlyStreaming: false,
@@ -737,11 +734,7 @@ describe('deriveAssistantActivity', () => {
       suggestedQuestionsCount: 0,
     });
 
-    expect(activity.issue).toMatchObject({
-      toolKind: 'url_read',
-      title: '所有候选网页均未能读取',
-      detail: '已跳过 2 个页面',
-    });
+    expect(activity.issue).toBeNull();
   });
 
   it('同一页面后续读取成功时不再保留旧失败提示', () => {
