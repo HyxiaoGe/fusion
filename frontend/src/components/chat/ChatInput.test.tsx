@@ -1329,6 +1329,41 @@ describe('ChatInput', () => {
     expect(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）')).toHaveFocus();
   });
 
+  it('returns focus to the composer on each focus request', () => {
+    const { rerender } = render(<ChatInput onSendMessage={vi.fn()} focusRequest={0} />);
+    const composer = screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）');
+    expect(composer).not.toHaveFocus();
+
+    rerender(<ChatInput onSendMessage={vi.fn()} focusRequest={1} />);
+    expect(composer).toHaveFocus();
+  });
+
+  it('does not steal focus from another input or a dialog on focus request', () => {
+    const { rerender } = render(
+      <>
+        <input aria-label="其他输入框" />
+        <div role="dialog"><button type="button">弹窗按钮</button></div>
+        <ChatInput onSendMessage={vi.fn()} focusRequest={0} />
+      </>,
+    );
+    const composer = screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）');
+    const rerenderWith = (focusRequest: number) => rerender(
+      <>
+        <input aria-label="其他输入框" />
+        <div role="dialog"><button type="button">弹窗按钮</button></div>
+        <ChatInput onSendMessage={vi.fn()} focusRequest={focusRequest} />
+      </>,
+    );
+
+    screen.getByLabelText('其他输入框').focus();
+    rerenderWith(1);
+    expect(composer).not.toHaveFocus();
+
+    screen.getByRole('button', { name: '弹窗按钮' }).focus();
+    rerenderWith(2);
+    expect(composer).not.toHaveFocus();
+  });
+
   it('applies each explicit prompt prefill request and keeps the composer focused', () => {
     const { rerender } = render(
       <ChatInput

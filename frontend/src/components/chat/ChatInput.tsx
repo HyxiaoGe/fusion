@@ -106,6 +106,8 @@ interface ChatInputProps {
   resetSignal?: string | number | null;
   autoFocus?: boolean;
   focusSignal?: string | number | null;
+  /** 每次递增表示请求把焦点还给输入框（如回答结束）；用户正在别处操作时不抢焦点。 */
+  focusRequest?: number;
   prefillRequest?: { id: number; content: string } | null;
   conversationAttachments?: ConversationComposerAttachment[];
   onRemoveConversationAttachment?: (fileId: string) => void;
@@ -202,6 +204,33 @@ function formatFileErrorMessage(errorMessage?: string): string {
   return errorMessage.replace(/^文件上传失败[:：]?\s*/u, "").trim() || "文件处理失败，请重试";
 }
 
+/**
+ * 能否把焦点还给输入框：触屏设备会弹出键盘，不自动聚焦；用户正在别的输入框、弹窗里操作，
+ * 或正选中回答里的文字（聚焦会清掉选区）时也不抢。
+ */
+function shouldReturnFocusToComposer(textarea: HTMLTextAreaElement): boolean {
+  if (window.matchMedia?.('(pointer: coarse)').matches) {
+    return false;
+  }
+  const selection = window.getSelection();
+  if (selection && !selection.isCollapsed && selection.toString().trim()) {
+    return false;
+  }
+  const active = document.activeElement;
+  if (!active || active === document.body || active === textarea) {
+    return true;
+  }
+  if (
+    active instanceof HTMLInputElement
+    || active instanceof HTMLTextAreaElement
+    || active instanceof HTMLSelectElement
+    || (active instanceof HTMLElement && active.isContentEditable)
+  ) {
+    return false;
+  }
+  return !active.closest('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]');
+}
+
 const ChatInput: React.FC<ChatInputProps> = ({
   onSendMessage,
   onStopStreaming,
@@ -213,6 +242,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   resetSignal,
   autoFocus = false,
   focusSignal = null,
+  focusRequest = 0,
   prefillRequest = null,
   conversationAttachments = EMPTY_CONVERSATION_ATTACHMENTS,
   onRemoveConversationAttachment,
@@ -518,6 +548,18 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
     textareaRef.current.focus({ preventScroll: true });
   }, [autoFocus, focusSignal, isComposerBlocked]);
+
+  const handledFocusRequestRef = useRef(focusRequest);
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!focusRequest || handledFocusRequestRef.current === focusRequest || !textarea || isComposerBlocked) {
+      return;
+    }
+    handledFocusRequestRef.current = focusRequest;
+    if (shouldReturnFocusToComposer(textarea)) {
+      textarea.focus({ preventScroll: true });
+    }
+  }, [focusRequest, isComposerBlocked]);
 
   useLayoutEffect(() => {
     if (!prefillRequest || previousPrefillRequestIdRef.current === prefillRequest.id) {
