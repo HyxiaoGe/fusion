@@ -73,6 +73,8 @@ _STRUCTURED_FAILURE_KINDS = {
     "rate_limited",
     "upstream_error",
     "request_error",
+    "page_not_found",
+    "page_error",
 }
 
 _FAILURE_MESSAGES = {
@@ -86,7 +88,12 @@ _FAILURE_MESSAGES = {
     "unknown": "网页读取发生异常，已跳过该来源",
     "empty_content": "网页读取未取得正文，已跳过该来源",
     "access_blocked": "网页访问受限，未取得正文，已跳过该来源",
+    "page_not_found": "网页不存在（链接已失效或地址有误），已跳过该来源",
+    "page_error": "网页返回错误页，未取得正文，已跳过该来源",
 }
+
+# 原网页返回这些状态码即确定不存在，与 reader-service 的 page_not_found 一致。
+_PAGE_GONE_STATUSES = {404, 410}
 
 _WRAPPED_UPSTREAM_ERROR_RE = re.compile(
     r"^Warning:\s*Target URL returned error\s+(?P<status>[45]\d{2})(?::.*)?$",
@@ -188,7 +195,7 @@ def _wrapped_upstream_failure(data: dict) -> UrlReadFailure | None:
         return None
     status = int(warning_match.group("status"))
     return _failure(
-        "http_status",
+        "page_not_found" if status in _PAGE_GONE_STATUSES else "http_status",
         retryable=status in {408, 425, 429} or status >= 500,
         upstream_status=status,
         attempts=_bounded_int(data.get("attempts"), default=1, minimum=1, maximum=10),

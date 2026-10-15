@@ -239,6 +239,7 @@ search_query = """Search query: {{ query }}"""
 url_read_request = """Read URL: {{ url }}
 Reading purpose: {{ reason }}"""
 url_read_failure_reason = """Read failure: {{ failure_kind }}. No article body was obtained. Continue with an alternative source; do not count this page as successfully read or cite its wrapper metadata as evidence."""
+url_read_page_not_found = """The page does not exist (the site returned HTTP {{ upstream_status }}): the link is dead or the address is wrong. Do not read this URL again; find another source if the information is still needed."""
 url_read_extracted_note = """[Main content extracted; navigation and other page parts were omitted. If tables, lists, or data you need are missing, call url_read again with full_page=true.]"""
 url_read_unavailable = """The page was not read successfully and cannot be used as evidence. State that the source is unavailable, or answer only from other available information."""
 search_unavailable = """The search returned no usable result and cannot support the answer. State that search sources are unavailable, or answer only from other available information."""

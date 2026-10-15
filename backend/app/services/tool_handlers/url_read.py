@@ -217,7 +217,12 @@ class UrlReadHandler(BaseToolHandler):
 
         if result.status != "success" or not content:
             unavailable_message = render_runtime_prompt("tool_handlers.url_read_unavailable")
-            if result.data.get("failure_kind") in {"empty_content", "access_blocked"}:
+            if result.data.get("failure_kind") == "page_not_found":
+                unavailable_message += "\n" + render_runtime_prompt(
+                    "tool_handlers.url_read_page_not_found",
+                    upstream_status=result.data.get("upstream_status") or 404,
+                )
+            elif result.data.get("failure_kind") in {"empty_content", "access_blocked"}:
                 unavailable_message += "\n" + render_runtime_prompt(
                     "tool_handlers.url_read_failure_reason", failure_kind=result.data["failure_kind"]
                 )

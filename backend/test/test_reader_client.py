@@ -152,6 +152,39 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("upstream_status=400", warning_text)
         self.assertNotIn("出错啦", warning_text)
 
+    async def test_reader_http_200_wrapped_404_is_page_not_found(self):
+        for status in (404, 410):
+            with self.subTest(status=status):
+                response = self._http_error_response(
+                    200,
+                    {
+                        "url": "https://example.com/gone",
+                        "title": None,
+                        "content": (
+                            "Title: Page not found\n\n"
+                            "URL Source: https://example.com/gone\n\n"
+                            f"Warning: Target URL returned error {status}: Not Found\n\n"
+                            "Markdown Content:\n页面不存在"
+                        ),
+                        "content_length": 120,
+                        "fetch_ms": 800,
+                        "attempts": 2,
+                    },
+                )
+                mock_client = self._mock_client_for_response(response)
+
+                with (
+                    patch("app.services.external.reader_client.httpx.AsyncClient", return_value=mock_client),
+                    patch("app.services.external.reader_client.logger"),
+                ):
+                    result = await self._read_url_with_diagnostics()("https://example.com/gone")
+
+                self.assertIsNone(result.result)
+                self.assertEqual(result.failure.kind, "page_not_found")
+                self.assertEqual(result.failure.upstream_status, status)
+                self.assertFalse(result.failure.retryable)
+                self.assertIn("网页不存在", result.failure.message)
+
     async def test_reader_http_200_wrapped_error_allows_extra_header_fields(self):
         response = self._http_error_response(
             200,
@@ -343,6 +376,8 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
             ("rate_limited", True, 429),
             ("upstream_error", True, 503),
             ("request_error", False, None),
+            ("page_not_found", False, 404),
+            ("page_error", False, 403),
         )
         read_url_with_diagnostics = self._read_url_with_diagnostics()
 

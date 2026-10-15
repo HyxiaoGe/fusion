@@ -723,6 +723,24 @@ class UrlReadHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Do not output bare URLs", context)
         self.assertIn("append a reference-link list", context)
 
+    def test_format_llm_context_page_not_found_tells_model_not_to_retry(self):
+        result = ToolResult(
+            status="degraded",
+            data={
+                "url": "https://example.com/gone",
+                "content": "",
+                "failure_kind": "page_not_found",
+                "upstream_status": 410,
+            },
+            error_message="网页不存在（链接已失效或地址有误），已跳过该来源",
+        )
+
+        context = self.handler.format_llm_context(result)
+
+        self.assertIn("page was not read successfully", context)
+        self.assertIn("does not exist (the site returned HTTP 410)", context)
+        self.assertIn("Do not read this URL again", context)
+
     async def test_execute_rejects_private_url_without_reader_call(self):
         with patch(
             "app.services.tool_handlers.url_read.read_url_with_diagnostics", new_callable=AsyncMock
