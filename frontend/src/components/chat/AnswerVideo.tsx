@@ -19,7 +19,7 @@ export function answerVideoEmbedUrl(video: VideoResultItem): string {
 
 /**
  * 回答正文里的视频：只嵌入本条回复 video_search 结果里的视频，用平台官方播放器，并链接到原视频页。
- * 元素都是 span 与 iframe，可以合法地放在 <p> 里。
+ * 元素都是 span 与 iframe，可以合法地放在 <p> 里；样式上单独占一行。
  */
 export default function AnswerVideo({ video, caption }: { video: VideoResultItem; caption: string }) {
   const { t } = useTranslation();
@@ -27,7 +27,10 @@ export default function AnswerVideo({ video, caption }: { video: VideoResultItem
   const platform = t(`chatBody.answerVideo.${video.platform}`);
 
   return (
-    <span className={styles.figure} data-answer-video={video.id}>
+    <span
+      className={video.platform === 'douyin' ? `${styles.figure} ${styles.vertical}` : styles.figure}
+      data-answer-video={video.id}
+    >
       <span className={styles.frame}>
         <iframe
           className={styles.player}

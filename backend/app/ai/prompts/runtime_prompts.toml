@@ -116,7 +116,7 @@ video_search_count = """Number of candidate videos to return, from 1 to 8; defau
 video_search_context = """Video candidates (you cannot watch them; judge by title and snippet):
 {{ videos }}
 
-To embed a video, write ![short caption](id) on its own line where it helps, for example ![Gulangyu walking tour](vid_1a2b3c4d). Videos written on the same line are shown side by side. Embed only videos whose title clearly matches what you describe, usually one or two. Use only ids listed above; never write video URLs. Do not mention ids or this list in your prose."""
+To embed a video, write ![short caption](id) on its own line where it helps, for example ![Gulangyu walking tour](vid_1a2b3c4d). Each video is shown on its own row. Embed only videos whose title clearly matches what you describe, usually one or two. Use only ids listed above; never write video URLs. Do not mention ids or this list in your prose."""
 video_search_empty = """No embeddable videos were found for "{{ query }}". Answer without videos, or search again with a different query."""
 video_search_failed = """Video search failed: {{ reason }}. Answer without videos; do not invent video links."""
 url = """Complete URL to read, including http:// or https://."""
