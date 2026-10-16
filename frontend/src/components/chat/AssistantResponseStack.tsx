@@ -5,6 +5,7 @@ import type {
   DocumentBlock,
   GeneratedImageBlock,
   ImageResultItem,
+  VideoResultItem,
   SearchSourceSummary,
   StructuredToolResultBlock,
 } from '@/types/conversation';
@@ -58,6 +59,7 @@ interface AssistantResponseStackProps {
     sources: SearchSourceSummary[];
     onCitationClick?: (index: number) => void;
     images?: ImageResultItem[];
+    videos?: VideoResultItem[];
   };
   showStreamingCursor: boolean;
 }
@@ -172,6 +174,7 @@ function AssistantResponseStack({
           sources={markdown.sources}
           onCitationClick={markdown.onCitationClick}
           images={markdown.images}
+          videos={markdown.videos}
           codeRunReady={TERMINAL_ACTIVITY_KINDS.has(activity.kind)}
         />
 

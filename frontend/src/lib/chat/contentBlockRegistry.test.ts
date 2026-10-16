@@ -117,6 +117,7 @@ describe('contentBlockRegistry', () => {
       { type: 'document', schemaVersion: 1 },
       { type: 'generated_image', schemaVersion: 1 },
       { type: 'image_results', schemaVersion: 1 },
+      { type: 'video_results', schemaVersion: 1 },
       { type: 'data_source', schemaVersion: 1 },
       { type: 'content_filtered', schemaVersion: 1 },
       { type: 'place_results', schemaVersion: 1 },
@@ -883,6 +884,36 @@ describe('contentBlockRegistry', () => {
       images: [image, { ...image, id: 'img_page', page_url: '' }],
     });
     expect(normalizeContentBlock({ ...payload, images: undefined })).toMatchObject({ type: 'unsupported_result' });
+    expect(normalizeContentBlock({ ...payload, schema_version: 2 })).toMatchObject({ type: 'unsupported_result' });
+  });
+
+  it('decodes video search results and drops videos whose id does not fit the platform format', () => {
+    const video = {
+      id: 'vid_1a2b3c4d',
+      platform: 'bilibili',
+      video_id: 'BV1QhDfYWEZw',
+      page_url: 'https://www.bilibili.com/video/BV1QhDfYWEZw/',
+      title: '鼓浪屿日光岩',
+    };
+    const douyin = { ...video, id: 'vid_douyin', platform: 'douyin', video_id: '7690461347934988130' };
+    const tencent = { ...video, id: 'vid_qq', platform: 'tencent', video_id: 'g0530dqs1i6' };
+    const payload = {
+      type: 'video_results',
+      id: 'blk-videos',
+      schema_version: 1,
+      query: '鼓浪屿 旅游',
+      videos: [
+        video,
+        douyin,
+        tencent,
+        { ...video, id: 'vid_bad_id', video_id: 'BV1&autoplay=1' },
+        { ...video, id: 'vid_youtube', platform: 'youtube', video_id: 'dQw4w9WgXcQ' },
+        { ...video, id: 'vid_js_page', page_url: 'javascript:alert(1)' },
+      ],
+      tool_call_log_id: 'log-1',
+    };
+    expect(normalizeContentBlock(payload)).toEqual({ ...payload, videos: [video, douyin, tencent] });
+    expect(normalizeContentBlock({ ...payload, videos: undefined })).toMatchObject({ type: 'unsupported_result' });
     expect(normalizeContentBlock({ ...payload, schema_version: 2 })).toMatchObject({ type: 'unsupported_result' });
   });
 });

@@ -341,6 +341,7 @@ export function createAgentStreamEventHandlers({
         && block.type !== 'document'
         && block.type !== 'generated_image'
         && block.type !== 'image_results'
+        && block.type !== 'video_results'
         && block.type !== 'data_source'
         && block.type !== 'content_filtered'
       ) return;

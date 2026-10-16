@@ -18,6 +18,8 @@ import type {
   TextBlock,
   ThinkingBlock,
   UrlBlock,
+  VideoResultItem,
+  VideoResultsBlock,
 } from '@/types/conversation';
 import {
   STRUCTURED_TOOL_RESULT_CONTRACTS,
@@ -41,6 +43,7 @@ const CONTENT_BLOCK_CONTRACTS: readonly ContentBlockContract[] = [
   { type: 'document', schemaVersion: 1, decode: decodeDocumentBlock },
   { type: 'generated_image', schemaVersion: 1, decode: decodeGeneratedImageBlock },
   { type: 'image_results', schemaVersion: 1, decode: decodeImageResultsBlock },
+  { type: 'video_results', schemaVersion: 1, decode: decodeVideoResultsBlock },
   { type: 'data_source', schemaVersion: 1, decode: decodeDataSourceBlock },
   { type: 'content_filtered', schemaVersion: 1, decode: decodeContentFilteredBlock },
   ...STRUCTURED_TOOL_RESULT_CONTRACTS.map(contract => ({
@@ -442,6 +445,47 @@ function decodeImageResultItem(value: unknown): ImageResultItem | null {
     page_url: /^https?:\/\//.test(pageUrl) ? pageUrl : '',
     title: optionalString(item.title) ?? '',
     site_name: optionalString(item.site_name) ?? '',
+  };
+}
+
+// 视频 id 拼进第三方播放器地址，只接受各平台 id 的固定格式。
+const VIDEO_ID_PATTERNS: Record<VideoResultItem['platform'], RegExp> = {
+  bilibili: /^BV[0-9A-Za-z]{10}$/,
+  douyin: /^\d{15,20}$/,
+  tencent: /^[0-9a-z]{11}$/,
+};
+
+function decodeVideoResultsBlock(source: Record<string, unknown>): VideoResultsBlock | null {
+  const id = requiredString(source.id);
+  if (!id || !Array.isArray(source.videos)) return null;
+  const videos = source.videos
+    .map(decodeVideoResultItem)
+    .filter((item): item is VideoResultItem => item !== null);
+  return {
+    type: 'video_results',
+    id,
+    schema_version: 1,
+    query: optionalString(source.query) ?? '',
+    videos,
+    ...optionalField('tool_call_log_id', optionalString(source.tool_call_log_id)),
+  };
+}
+
+function decodeVideoResultItem(value: unknown): VideoResultItem | null {
+  const item = asRecord(value);
+  const id = boundedRequiredString(item?.id, 40);
+  const platform = item?.platform;
+  const videoId = boundedRequiredString(item?.video_id, 40);
+  const pageUrl = boundedRequiredString(item?.page_url, 2000);
+  if (!item || !id || !videoId || !pageUrl || !/^https?:\/\//.test(pageUrl)) return null;
+  if (platform !== 'bilibili' && platform !== 'douyin' && platform !== 'tencent') return null;
+  if (!VIDEO_ID_PATTERNS[platform].test(videoId)) return null;
+  return {
+    id,
+    platform,
+    video_id: videoId,
+    page_url: pageUrl,
+    title: optionalString(item.title) ?? '',
   };
 }
 

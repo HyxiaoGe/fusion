@@ -109,6 +109,16 @@ image_search_context = """Image candidates (you cannot see them; judge by title 
 To show an image, write ![short caption](id) on its own line where it helps, for example ![iPhone 17 Pro back view](img_1a2b3c4d). Images written on the same line are shown side by side. Show only images that clearly match what you describe, usually one to three. Use only ids listed above; never write image URLs. Do not mention ids or this list in your prose."""
 image_search_empty = """No usable images were found for "{{ query }}". Answer without images, or search again with a different description."""
 image_search_failed = """Image search failed: {{ reason }}. Answer without images; do not invent image links."""
+video_search_description = """Search Bilibili, Douyin, and Tencent Video for videos to embed inside your answer. Call it when watching a video would genuinely help the user, for example travel destinations and attractions, how to do or make something, performances, or what an event or experience is like, even if they did not ask for videos; it complements web_search, which only returns text. Skip it when a video adds nothing.
+Results give each video an id, its platform, its title, and a short snippet. You cannot watch the videos, so choose by title and snippet."""
+video_search_query = """A short query describing the video you want, such as the place plus vlog, guide, or tour. Write it in Chinese, since these platforms are Chinese."""
+video_search_count = """Number of candidate videos to return, from 1 to 8; default 5."""
+video_search_context = """Video candidates (you cannot watch them; judge by title and snippet):
+{{ videos }}
+
+To embed a video, write ![short caption](id) on its own line where it helps, for example ![Gulangyu walking tour](vid_1a2b3c4d). Videos written on the same line are shown side by side. Embed only videos whose title clearly matches what you describe, usually one or two. Use only ids listed above; never write video URLs. Do not mention ids or this list in your prose."""
+video_search_empty = """No embeddable videos were found for "{{ query }}". Answer without videos, or search again with a different query."""
+video_search_failed = """Video search failed: {{ reason }}. Answer without videos; do not invent video links."""
 url = """Complete URL to read, including http:// or https://."""
 url_reason = """Reason for reading this URL, shown in network diagnostics; the backend retains at most 160 characters."""
 url_full_page = """Optional. Omit to receive the page's extracted main content. Set to true to re-read the whole page when an extracted read is missing tables, lists, or data the task needs, such as forecast tables or release lists."""

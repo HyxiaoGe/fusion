@@ -20,6 +20,7 @@ _INTERNAL_TOOL_LABELS = {
     "search_flights": "航班查询",
     "search_trains": "高铁查询",
     "url_read": "网页读取",
+    "video_search": "视频搜索",
     "web_search": "联网搜索",
     "weather_forecast": "天气查询",
     "update_plan": "更新计划",
