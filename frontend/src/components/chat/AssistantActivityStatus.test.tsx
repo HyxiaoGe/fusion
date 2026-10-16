@@ -16,6 +16,7 @@ function baseActivity(overrides: Partial<AssistantActivity>): AssistantActivity 
     shouldSuppressReasoning: false,
     shouldShowSources: false,
     suggestionState: 'idle',
+    failureMessage: null,
     ...overrides,
   };
 }
@@ -187,6 +188,17 @@ describe('AssistantActivityStatus', () => {
     expect(alert).toHaveAttribute('aria-live', 'assertive');
     expect(alert).toHaveAttribute('aria-atomic', 'true');
     expect(alert).toHaveAttribute('data-tone', 'danger');
+  });
+
+  it('失败状态带原因时显示原因，替代「请重试」', () => {
+    render(
+      <AssistantActivityStatus
+        activity={baseActivity({ kind: 'failed', failureMessage: '当前模型的服务商额度已用完，请换用其他模型' })}
+      />,
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('生成失败当前模型的服务商额度已用完，请换用其他模型');
+    expect(screen.queryByText('请重试')).toBeNull();
   });
 
   it('renders interrupted state', () => {

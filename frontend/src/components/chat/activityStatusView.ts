@@ -43,7 +43,15 @@ export function resolveActivityStatus(
   if (stopPending) return null;
 
   if (activity.kind === 'failed') {
-    return { key: 'failed', tone: 'danger', icon: AlertCircle, title: '生成失败', detail: '请重试', busy: false, role: 'alert' };
+    return {
+      key: 'failed',
+      tone: 'danger',
+      icon: AlertCircle,
+      title: '生成失败',
+      detail: activity.failureMessage ?? '请重试',
+      busy: false,
+      role: 'alert',
+    };
   }
 
   if (activity.kind === 'interrupted') {

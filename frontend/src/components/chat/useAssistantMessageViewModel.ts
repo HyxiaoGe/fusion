@@ -182,6 +182,10 @@ export function useAssistantMessageViewModel({
 
   const streamCurrentRun = useAppSelector(state => selectStreamSlot(state, slotConversationId).currentRun);
   const streamSearchSources = useAppSelector(state => selectStreamSlot(state, slotConversationId).searchSources);
+  // 流槽位的错误只属于本会话最后一轮回答。
+  const streamErrorMessage = useAppSelector(state => (
+    isLastMessage ? selectStreamSlot(state, slotConversationId).lastError?.message ?? null : null
+  ));
   const runForMessage = currentRun ?? streamCurrentRun;
   const ownedRun = runForMessage?.messageId === message.id || runForMessage?.serverMessageId === message.id
     ? runForMessage
@@ -196,6 +200,7 @@ export function useAssistantMessageViewModel({
       messageStatus: message.status ?? null,
       isLoadingSuggestedQuestions: isLoadingQuestions,
       suggestedQuestionsCount,
+      streamErrorMessage,
     }),
     [
       isStreaming,
@@ -203,6 +208,7 @@ export function useAssistantMessageViewModel({
       blocksToRender,
       ownedRun,
       message.status,
+      streamErrorMessage,
       isLoadingQuestions,
       suggestedQuestionsCount,
     ],

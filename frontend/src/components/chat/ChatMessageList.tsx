@@ -4,12 +4,11 @@ import type { Message } from '@/types/conversation';
 import { isContentFilteredMessage } from '@/types/conversation';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown } from 'lucide-react';
-import { useAppDispatch, useAppSelector } from '@/redux/hooks';
-import { clearStreamError, selectStreamSlot } from '@/redux/slices/streamSlice';
+import { useAppSelector } from '@/redux/hooks';
+import { selectStreamSlot } from '@/redux/slices/streamSlice';
 import LoadingIndicator from '../ui/loading-indicator';
 import { Button } from '../ui/button';
 import ChatMessage from './ChatMessage';
-import StreamErrorCard from './StreamErrorCard';
 import ChatLoadingSurface from './ChatLoadingSurface';
 import { isNearBottom } from '@/lib/chat/scrollBehavior';
 import type { AgentRunState } from '@/types/agentRun';
@@ -349,8 +348,6 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
     };
   }, [conversationId, hasMessages, setIsAwayFromBottom, updateJumpButtonPosition]);
 
-  const dispatch = useAppDispatch();
-  const streamError = useAppSelector(state => selectStreamSlot(state, conversationId).lastError);
   const currentRun = useAppSelector(state => selectStreamSlot(state, conversationId).currentRun);
   const streamMessageId = useAppSelector(state => selectStreamSlot(state, conversationId).messageId);
   const chatModel = useAppSelector(state => selectChatModel(state, conversationId));
@@ -568,15 +565,6 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
       })}
       
       {loading && !isStreaming && <LoadingIndicator />}
-
-      {streamError && (
-        <StreamErrorCard
-          message={streamError.message}
-          code={streamError.code}
-          data={streamError.data}
-          onDismiss={() => conversationId && dispatch(clearStreamError({ conversationId }))}
-        />
-      )}
 
       {statusText ? (
         <div className="px-4 pb-2 text-xs text-muted-foreground">

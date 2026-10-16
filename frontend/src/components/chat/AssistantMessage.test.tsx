@@ -165,6 +165,7 @@ function defaultViewModel(overrides: Record<string, unknown> = {}) {
       shouldSuppressReasoning: false,
       shouldShowSources: false,
       suggestionState: 'idle',
+      failureMessage: null,
     },
     searchSources: sources,
     searchQueries: [],

@@ -778,10 +778,6 @@ const streamSlice = createSlice({
       state.lastError = { message, code, data };
     }),
 
-    clearStreamError: withSlot<{ conversationId: string }>((state) => {
-      state.lastError = null;
-    }),
-
     updateContextUsage: withSlot((state, action: PayloadAction<{ conversationId: string } & { conversationId: string; usage: ContextUsage; runId: string; messageId: string; sequence: number; phase: ContextUsagePhase; }>) => {
       const { conversationId, usage, runId, messageId, sequence, phase } = action.payload;
       if (state.conversationId !== conversationId || !state.isStreaming) return;
@@ -834,8 +830,8 @@ const streamSlice = createSlice({
       // messageId 为 null 表示调用方这一轮还没拿到身份，退回旧的无条件语义，不引入新行为。
       const owner = action.payload.messageId ?? null;
       if (owner !== null && state.messageId !== null && state.messageId !== owner) return;
-      // 保留 lastError 跨流生命周期：错误卡片需要在 endStream 后继续显示，
-      // 由 startStream（新一轮发送）或 clearStreamError（用户手动 dismiss）清掉
+      // 保留 lastError 跨流生命周期：回答的失败状态在 endStream 后继续显示原因，
+      // 由 startStream（新一轮发送）清掉
       // 保留 currentRun 跨流生命周期：AgentStepCard 在流结束后显示折叠摘要
       //   （由 startStream 新一轮发送清掉，或由 ChatMessage 用 messageId 过滤
       //    确保不挂错对话）
@@ -1023,7 +1019,6 @@ export const {
   appendThinkingDelta,
   applyDocumentDraftDelta,
   applyPlanSnapshot,
-  clearStreamError,
   clearCurrentRun,
   completeThinkingPhase,
   discardContentBlock,

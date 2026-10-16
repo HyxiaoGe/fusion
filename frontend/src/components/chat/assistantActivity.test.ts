@@ -1021,4 +1021,34 @@ describe('deriveAssistantActivity', () => {
     expect(activity.tool?.kind).toBe('url_read');
     expect(activity.tool?.target).toBe('not a valid url');
   });
+
+  it('失败原因优先取 run 终态，缺失时用流式错误说明', () => {
+    const base = {
+      isStreaming: false,
+      isCurrentlyStreaming: false,
+      contentBlocks: [] as ContentBlock[],
+      messageStatus: 'failed' as const,
+      isLoadingSuggestedQuestions: false,
+      suggestedQuestionsCount: 0,
+    };
+
+    const withRunFailure = deriveAssistantActivity({
+      ...base,
+      currentRun: makeRun({
+        status: 'failed',
+        failure: { code: 'model_provider_quota_exhausted', message: '当前模型的服务商额度已用完，请换用其他模型' },
+      }),
+      streamErrorMessage: '流式错误',
+    });
+    expect(withRunFailure.failureMessage).toBe('当前模型的服务商额度已用完，请换用其他模型');
+
+    const streamOnly = deriveAssistantActivity({ ...base, currentRun: null, streamErrorMessage: '对话尚未加载完成' });
+    expect(streamOnly.failureMessage).toBe('对话尚未加载完成');
+
+    const noReason = deriveAssistantActivity({ ...base, currentRun: null });
+    expect(noReason.failureMessage).toBeNull();
+
+    const notFailed = deriveAssistantActivity({ ...base, messageStatus: null, currentRun: null, streamErrorMessage: '旧错误' });
+    expect(notFailed.failureMessage).toBeNull();
+  });
 });

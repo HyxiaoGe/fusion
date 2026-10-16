@@ -108,6 +108,7 @@ function activity(overrides: Partial<AssistantActivity> = {}): AssistantActivity
     shouldSuppressReasoning: false,
     shouldShowSources: false,
     suggestionState: 'idle',
+    failureMessage: null,
     ...overrides,
   };
 }
