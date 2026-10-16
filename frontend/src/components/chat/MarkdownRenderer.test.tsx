@@ -551,7 +551,7 @@ describe('回答嵌入视频', () => {
   });
 
   it('抖音与腾讯视频用各自的外链播放器', () => {
-    render(
+    const { container } = render(
       <MarkdownRenderer
         content={'![抖音](vid_douyin) ![腾讯](vid_qq)'}
         videos={[
@@ -566,6 +566,11 @@ describe('回答嵌入视频', () => {
       'https://open.douyin.com/player/video?vid=7690461347934988130&autoplay=0',
     );
     expect(screen.getByTitle('腾讯')).toHaveAttribute('src', 'https://v.qq.com/txp/iframe/player.html?vid=g0530dqs1i6');
+    // 抖音基本是竖屏视频，用竖版卡片；其他平台是横版。
+    const douyinFigure = container.querySelector('[data-answer-video="vid_douyin"]');
+    const tencentFigure = container.querySelector('[data-answer-video="vid_qq"]');
+    expect(douyinFigure?.classList).toHaveLength(2);
+    expect(tencentFigure?.classList).toHaveLength(1);
   });
 
   it('不在搜索结果里的视频 id 不嵌入，只保留说明文字', () => {
