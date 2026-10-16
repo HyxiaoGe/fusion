@@ -5,11 +5,12 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import { BookOpen } from 'lucide-react';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
-import type { ImageResultItem, SearchSourceSummary } from '@/types/conversation';
+import type { ImageResultItem, SearchSourceSummary, VideoResultItem } from '@/types/conversation';
 import { normalizeBareUrlsForMarkdown } from '@/lib/chat/markdownLinks';
 import { CodeRunReadyContext, MarkdownCodeRenderer, MarkdownPreRenderer } from './markdownCodeComponents';
 import MarkdownTable from './MarkdownTable';
 import AnswerImage from './AnswerImage';
+import AnswerVideo from './AnswerVideo';
 import styles from './MarkdownRenderer.module.css';
 import CitationPreview from './CitationPreview';
 import citationStyles from './CitationPreview.module.css';
@@ -23,21 +24,28 @@ interface MarkdownRendererProps {
   codeRunReady?: boolean;
   /** 本条回复 image_search 找到的图；正文 `![说明](id)` 只能引用这些图 */
   images?: ImageResultItem[];
+  /** 本条回复 video_search 找到的视频；正文同样用 `![说明](id)` 引用 */
+  videos?: VideoResultItem[];
 }
 
 const EMPTY_IMAGES = new Map<string, ImageResultItem>();
 const AnswerImagesContext = React.createContext<Map<string, ImageResultItem>>(EMPTY_IMAGES);
+const EMPTY_VIDEOS = new Map<string, VideoResultItem>();
+const AnswerVideosContext = React.createContext<Map<string, VideoResultItem>>(EMPTY_VIDEOS);
 
 /**
- * 回答里的图片只按 image_search 结果渲染：模型写的 id（或原样抄写的结果地址）才显示成图片。
- * 其他地址是模型自己写的，可能根本不存在，只保留说明文字，不让页面去加载它。
+ * 回答里的图片与视频只按本条回复的 image_search / video_search 结果渲染：模型写的 id
+ * （或原样抄写的结果地址）才显示。其他地址是模型自己写的，可能根本不存在，只保留说明文字。
  */
 const MarkdownImageRenderer = ({ node, src, alt }: MarkdownElementProps<'img'>) => {
   void node;
   const images = useContext(AnswerImagesContext);
+  const videos = useContext(AnswerVideosContext);
   const key = typeof src === 'string' ? src.trim() : '';
-  const image = images.get(key);
   const caption = typeof alt === 'string' ? alt.trim() : '';
+  const video = videos.get(key);
+  if (video) return <AnswerVideo video={video} caption={caption} />;
+  const image = images.get(key);
   if (!image) return caption ? <span>{caption}</span> : null;
   return <AnswerImage image={image} caption={caption} />;
 };
@@ -253,6 +261,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
   onCitationClick,
   codeRunReady = false,
   images,
+  videos,
 }) => {
   const hasSources = sources.length > 0;
 
@@ -269,6 +278,15 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     }
     return map;
   }, [images]);
+  const videosById = useMemo(() => {
+    if (!videos?.length) return EMPTY_VIDEOS;
+    const map = new Map<string, VideoResultItem>();
+    for (const video of videos) {
+      map.set(video.id, video);
+      map.set(video.page_url, video);
+    }
+    return map;
+  }, [videos]);
   const citationContextValue = useMemo<CitationRenderContextValue>(
     () => hasSources ? { hasSources, sources, onCitationClick } : EMPTY_CITATION_CONTEXT,
     [hasSources, onCitationClick, sources],
@@ -279,13 +297,15 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
       <CitationRenderContext.Provider value={citationContextValue}>
         <CodeRunReadyContext.Provider value={codeRunReady}>
           <AnswerImagesContext.Provider value={imagesById}>
-            <ReactMarkdown
-              remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
-              rehypePlugins={[rehypeRaw]}
-              components={MARKDOWN_COMPONENTS}
-            >
-              {processedContent}
-            </ReactMarkdown>
+            <AnswerVideosContext.Provider value={videosById}>
+              <ReactMarkdown
+                remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
+                rehypePlugins={[rehypeRaw]}
+                components={MARKDOWN_COMPONENTS}
+              >
+                {processedContent}
+              </ReactMarkdown>
+            </AnswerVideosContext.Provider>
           </AnswerImagesContext.Provider>
         </CodeRunReadyContext.Provider>
       </CitationRenderContext.Provider>

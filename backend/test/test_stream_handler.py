@@ -416,7 +416,7 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
 
         run_started = self._agent_events()[0]
         self.assertEqual(run_started["type"], "run_started")
-        self.assertEqual(run_started["tools"], ["web_search", "url_read", "image_search"])
+        self.assertEqual(run_started["tools"], ["web_search", "url_read", "image_search", "video_search"])
 
     async def test_tool_mode_injects_web_search_contract_prompt(self):
         """工具模式：调用 LLM 前注入契约，避免 thinking 口头搜索但不发 tool_call。"""

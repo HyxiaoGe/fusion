@@ -175,6 +175,27 @@ export interface ImageResultsBlock {
   tool_call_log_id?: string;
 }
 
+export type AnswerVideoPlatform = 'bilibili' | 'douyin' | 'tencent';
+
+/** video_search 找到的一条候选视频；回答正文用 `![说明](id)` 引用，按平台与视频 id 嵌入官方播放器。 */
+export interface VideoResultItem {
+  id: string;
+  platform: AnswerVideoPlatform;
+  video_id: string;
+  page_url: string;
+  title: string;
+}
+
+/** video_search 的结果；不单独展示，只给回答正文按 id 嵌入视频。 */
+export interface VideoResultsBlock {
+  type: 'video_results';
+  id: string;
+  schema_version: 1;
+  query: string;
+  videos: VideoResultItem[];
+  tool_call_log_id?: string;
+}
+
 /** 外部数据工具（目前只有腾讯地图 MCP）的来源署名；不含远端返回内容。 */
 export interface DataSourceBlock {
   type: 'data_source';
@@ -497,6 +518,7 @@ export type ContentBlock =
   | DocumentBlock
   | GeneratedImageBlock
   | ImageResultsBlock
+  | VideoResultsBlock
   | DataSourceBlock
   | ContentFilteredBlock
   | StructuredToolResultBlock;

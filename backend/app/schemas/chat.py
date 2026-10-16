@@ -885,6 +885,31 @@ class ImageResultsBlock(BaseModel):
     tool_call_log_id: str = Field(default="", max_length=160)
 
 
+class VideoResultItem(BaseModel):
+    """视频搜索的一条候选视频；回答正文用 id 引用，前端按平台与视频 id 拼官方播放器地址嵌入。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=40)
+    platform: Literal["bilibili", "douyin", "tencent"]
+    video_id: str = Field(min_length=1, max_length=40)
+    page_url: str = Field(min_length=1, max_length=2_000)
+    title: str = Field(default="", max_length=300)
+
+
+class VideoResultsBlock(BaseModel):
+    """video_search 的结果；本身不单独展示，供回答正文按 id 嵌入播放器并标注来源。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["video_results"]
+    id: str = Field(default_factory=lambda: f"blk_{uuid4().hex[:12]}", max_length=160)
+    schema_version: Literal[1]
+    query: str = Field(default="", max_length=400)
+    videos: List[VideoResultItem] = Field(default_factory=list, max_length=20)
+    tool_call_log_id: str = Field(default="", max_length=160)
+
+
 class DataSourceBlock(BaseModel):
     """本轮某次外部数据工具调用的服务商署名；只记来源，不持久化远端返回内容。"""
 
@@ -937,6 +962,7 @@ ContentBlock = Union[
     DocumentBlock,
     GeneratedImageBlock,
     ImageResultsBlock,
+    VideoResultsBlock,
     DataSourceBlock,
     ContentFilteredBlock,
 ]

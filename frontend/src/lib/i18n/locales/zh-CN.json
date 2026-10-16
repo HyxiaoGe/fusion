@@ -172,6 +172,12 @@
         "loadFailed": "图片加载失败",
         "view": "放大查看：{{caption}}"
       },
+      "answerVideo": {
+        "openSource": "在{{platform}}打开：{{caption}}",
+        "bilibili": "哔哩哔哩",
+        "douyin": "抖音",
+        "tencent": "腾讯视频"
+      },
       "code": {
         "plainText": "纯文本",
         "lineCount": "{{count}} 行",

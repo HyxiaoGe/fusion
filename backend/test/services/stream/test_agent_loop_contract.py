@@ -957,12 +957,14 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
                 "web_search",
                 "url_read",
                 "image_search",
+                "video_search",
                 *document_tool_names,
             },
         )
         # 同一服务共享预算：耗尽后两个工具一起下架，其他服务的工具照常公告。
         self.assertEqual(
-            second_round_tool_names, {available_alias, "web_search", "url_read", "image_search", *document_tool_names}
+            second_round_tool_names,
+            {available_alias, "web_search", "url_read", "image_search", "video_search", *document_tool_names},
         )
         self.assertNotIn(
             "调用预算已用完",

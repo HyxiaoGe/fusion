@@ -148,6 +148,7 @@ function isExecutionMode(
     || block.type === 'document'
     || block.type === 'generated_image'
     || block.type === 'image_results'
+    || block.type === 'video_results'
     || block.type === 'data_source'
     || block.type === 'search'
     || block.type === 'url_read'

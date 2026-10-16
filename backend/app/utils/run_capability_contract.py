@@ -14,6 +14,7 @@ CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER = (
     "web_search",
     "url_read",
     "image_search",
+    "video_search",
     "weather_forecast",
     "local_place_search",
     "route_compare",

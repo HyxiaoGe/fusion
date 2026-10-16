@@ -32,11 +32,13 @@ def _register_all() -> None:
     """注册所有 handler（延迟加载）"""
     from app.services.tool_handlers.image_search import ImageSearchHandler
     from app.services.tool_handlers.url_read import UrlReadHandler
+    from app.services.tool_handlers.video_search import VideoSearchHandler
     from app.services.tool_handlers.web_search import WebSearchHandler
 
     register_handler(WebSearchHandler())
     register_handler(UrlReadHandler())
     register_handler(ImageSearchHandler())
+    register_handler(VideoSearchHandler())
 
 
 __all__ = [

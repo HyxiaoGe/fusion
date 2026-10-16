@@ -526,3 +526,52 @@ describe('回答配图', () => {
   });
 });
 
+describe('回答嵌入视频', () => {
+  const video = {
+    id: 'vid_1a2b3c4d',
+    platform: 'bilibili' as const,
+    video_id: 'BV1QhDfYWEZw',
+    page_url: 'https://www.bilibili.com/video/BV1QhDfYWEZw/',
+    title: '厦门鼓浪屿，登上最高的日光岩',
+  };
+
+  it('按 id 嵌入平台官方播放器，并链接到原视频页', () => {
+    render(<MarkdownRenderer content={'推荐看看：\n\n![日光岩实拍](vid_1a2b3c4d)'} videos={[video]} />);
+
+    const player = screen.getByTitle('日光岩实拍');
+    expect(player.tagName).toBe('IFRAME');
+    expect(player).toHaveAttribute(
+      'src',
+      'https://player.bilibili.com/player.html?bvid=BV1QhDfYWEZw&autoplay=0&danmaku=0',
+    );
+    expect(screen.getByRole('link', { name: '在哔哩哔哩打开：日光岩实拍' })).toHaveAttribute(
+      'href',
+      'https://www.bilibili.com/video/BV1QhDfYWEZw/',
+    );
+  });
+
+  it('抖音与腾讯视频用各自的外链播放器', () => {
+    render(
+      <MarkdownRenderer
+        content={'![抖音](vid_douyin) ![腾讯](vid_qq)'}
+        videos={[
+          { ...video, id: 'vid_douyin', platform: 'douyin', video_id: '7690461347934988130' },
+          { ...video, id: 'vid_qq', platform: 'tencent', video_id: 'g0530dqs1i6' },
+        ]}
+      />,
+    );
+
+    expect(screen.getByTitle('抖音')).toHaveAttribute(
+      'src',
+      'https://open.douyin.com/player/video?vid=7690461347934988130&autoplay=0',
+    );
+    expect(screen.getByTitle('腾讯')).toHaveAttribute('src', 'https://v.qq.com/txp/iframe/player.html?vid=g0530dqs1i6');
+  });
+
+  it('不在搜索结果里的视频 id 不嵌入，只保留说明文字', () => {
+    const { container } = render(<MarkdownRenderer content="![编造的视频](vid_unknown)" videos={[video]} />);
+
+    expect(container.querySelector('iframe')).toBeNull();
+    expect(screen.getByText('编造的视频')).toBeInTheDocument();
+  });
+});

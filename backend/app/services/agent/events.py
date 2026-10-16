@@ -15,6 +15,7 @@ from app.schemas.chat import (
     ImageResultsBlock,
     KnowledgeEvidenceBlock,
     ProductResultBlock,
+    VideoResultsBlock,
 )
 from app.schemas.trajectory import (
     ContextToolVisibility,
@@ -358,6 +359,7 @@ class ContentBlockUpserted(AgentEventBase):
         | DocumentBlock
         | GeneratedImageBlock
         | ImageResultsBlock
+        | VideoResultsBlock
         | DataSourceBlock
         | ContentFilteredBlock
     )

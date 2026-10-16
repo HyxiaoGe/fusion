@@ -1,5 +1,5 @@
 """
-LLM Tool 定义 — web_search / url_read / image_search
+LLM Tool 定义 — web_search / url_read / image_search / video_search
 
 WEB_SEARCH_TOOL 是函数（不是 const），每次调用时重算当前年份，避免硬编码
 过期。message_builder 同时注入"当前日期"system prompt 双重约束。
@@ -101,6 +101,41 @@ def build_image_search_tool() -> dict:
                         "maximum": MAX_IMAGE_COUNT,
                         "default": DEFAULT_IMAGE_COUNT,
                         "description": render_runtime_prompt("ai_tools.image_search_count"),
+                    },
+                },
+                "required": ["query"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+VIDEO_SEARCH_TOOL_NAME = "video_search"
+DEFAULT_VIDEO_COUNT = 5
+MAX_VIDEO_COUNT = 8
+MAX_VIDEO_QUERY_CHARS = 200
+
+
+def build_video_search_tool() -> dict:
+    return {
+        "type": "function",
+        "function": {
+            "name": VIDEO_SEARCH_TOOL_NAME,
+            "description": render_runtime_prompt("ai_tools.video_search_description"),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "maxLength": MAX_VIDEO_QUERY_CHARS,
+                        "description": render_runtime_prompt("ai_tools.video_search_query"),
+                    },
+                    "count": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": MAX_VIDEO_COUNT,
+                        "default": DEFAULT_VIDEO_COUNT,
+                        "description": render_runtime_prompt("ai_tools.video_search_count"),
                     },
                 },
                 "required": ["query"],

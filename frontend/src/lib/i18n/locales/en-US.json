@@ -172,6 +172,12 @@
         "loadFailed": "Image failed to load",
         "view": "View larger: {{caption}}"
       },
+      "answerVideo": {
+        "openSource": "Open on {{platform}}: {{caption}}",
+        "bilibili": "Bilibili",
+        "douyin": "Douyin",
+        "tencent": "Tencent Video"
+      },
       "code": {
         "plainText": "Plain text",
         "lineCount": "{{count}} lines",
