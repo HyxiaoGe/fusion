@@ -5,6 +5,10 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import httpx
+import litellm
+import openai
+
 from app.db.models import AgentSession
 from app.schemas.chat import ContextUsage, TextBlock, Usage
 from app.services.agent.plan_coordinator import PlanCoordinator
@@ -1151,6 +1155,64 @@ class AgentLoopRunCompletionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls[0][1]["message"], "生成服务暂时不可用，请稍后重试")
         self.assertEqual(calls[1][2]["error_code"], "agent_run_failed")
         self.assertEqual(calls[1][2]["error_msg"], "生成服务暂时不可用，请稍后重试")
+
+    async def _failed_run_codes(self, error: Exception) -> list[tuple]:
+        calls = []
+
+        async def fail_agent_run_fn(**kwargs):
+            calls.append(("fail", kwargs))
+
+        async def finalize_stream_fn(*args, **kwargs):
+            calls.append(("finalize", args, kwargs))
+
+        await finalize_failed_run(
+            context=_context(),
+            error=error,
+            persist_message_fn=lambda *_args: None,
+            fail_agent_run_fn=fail_agent_run_fn,
+            finalize_stream_fn=finalize_stream_fn,
+            warning_fn=lambda _message: None,
+        )
+        return calls
+
+    @staticmethod
+    def _litellm_wrapped_provider_error(status: int) -> Exception:
+        """复现线上异常链：代理返回的状态码只在 openai.APIStatusError 上，外层是 BadRequestError(400)。"""
+        response = httpx.Response(status, request=httpx.Request("POST", "http://litellm/v1/chat/completions"))
+        try:
+            try:
+                raise openai.APIStatusError("Error code: %d" % status, response=response, body=None)
+            except openai.APIStatusError as upstream:
+                raise litellm.BadRequestError(
+                    message="Litellm_proxyException - sk-secret-value credits depleted",
+                    model="gemini-4-argon",
+                    llm_provider="litellm_proxy",
+                ) from upstream
+        except litellm.BadRequestError as wrapped:
+            return wrapped
+
+    async def test_finalize_failed_reports_provider_quota_exhausted_from_error_chain(self):
+        error = self._litellm_wrapped_provider_error(402)
+        self.assertEqual(error.status_code, 400)
+
+        calls = await self._failed_run_codes(error)
+
+        self.assertEqual(calls[0][1]["error_code"], "model_provider_quota_exhausted")
+        self.assertEqual(calls[0][1]["message"], "当前模型的服务商额度已用完，请换用其他模型")
+        self.assertEqual(calls[1][2]["error_code"], "model_provider_quota_exhausted")
+        self.assertNotIn("sk-secret-value", repr(calls))
+
+    async def test_finalize_failed_reports_provider_rate_limited(self):
+        calls = await self._failed_run_codes(self._litellm_wrapped_provider_error(429))
+
+        self.assertEqual(calls[0][1]["error_code"], "model_provider_rate_limited")
+        self.assertEqual(calls[1][2]["error_msg"], "当前模型请求过于频繁，请稍后重试或换用其他模型")
+
+    async def test_finalize_failed_other_provider_status_stays_generic(self):
+        calls = await self._failed_run_codes(self._litellm_wrapped_provider_error(400))
+
+        self.assertEqual(calls[0][1]["error_code"], "agent_run_failed")
+        self.assertEqual(calls[0][1]["message"], "生成服务暂时不可用，请稍后重试")
 
     async def test_untrusted_structured_error_code_is_not_forwarded(self):
         class SecretCodeError(RuntimeError):

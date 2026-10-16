@@ -43,7 +43,16 @@ _PUBLIC_ERROR_MESSAGES = {
     "context_estimation_unavailable": "上下文预算暂时无法校验，请稍后重试",
     "knowledge_selection_unavailable": "所选知识库当前不可用，请刷新后重新选择",
     "knowledge_retrieval_unavailable": "知识库检索暂时不可用，请稍后重试",
+    "model_provider_quota_exhausted": "当前模型的服务商额度已用完，请换用其他模型",
+    "model_provider_rate_limited": "当前模型请求过于频繁，请稍后重试或换用其他模型",
 }
+# 服务商 HTTP 状态 → 对外错误码。LiteLLM 会把 402 等包成 BadRequestError(400)，
+# 原始状态码只留在异常链里的 openai.APIStatusError 上，所以要沿链查找。
+_PROVIDER_STATUS_ERROR_CODES = (
+    (402, "model_provider_quota_exhausted"),
+    (429, "model_provider_rate_limited"),
+)
+_ERROR_CHAIN_MAX_DEPTH = 8
 
 
 @dataclass(frozen=True)
@@ -428,7 +437,7 @@ async def finalize_failed_run(
         only_if_content=True,
         partial=True,
     )
-    structured_error_code = _safe_structured_error_code(error)
+    structured_error_code = _safe_structured_error_code(error) or _provider_status_error_code(error)
     public_error_code = structured_error_code or AGENT_RUN_FAILED_ERROR_CODE
     public_error_message = _PUBLIC_ERROR_MESSAGES.get(
         public_error_code,
@@ -471,6 +480,25 @@ def _safe_structured_error_code(error: Exception) -> str:
     if not isinstance(candidate, str) or candidate not in _PUBLIC_ERROR_MESSAGES:
         return ""
     return candidate
+
+
+def _provider_status_error_code(error: BaseException) -> str:
+    statuses: set[int] = set()
+    seen: set[int] = set()
+    pending: list[BaseException] = [error]
+    while pending and len(seen) < _ERROR_CHAIN_MAX_DEPTH:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        status = getattr(current, "status_code", None)
+        if isinstance(status, int):
+            statuses.add(status)
+        pending.extend(linked for linked in (current.__cause__, current.__context__) if linked is not None)
+    for status, code in _PROVIDER_STATUS_ERROR_CODES:
+        if status in statuses:
+            return code
+    return ""
 
 
 async def _emit_terminal_plan(context: AgentLoopRunCompletionContext, outcome: str) -> None:
