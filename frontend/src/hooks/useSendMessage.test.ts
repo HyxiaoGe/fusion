@@ -4526,8 +4526,8 @@ describe('useSendMessage', () => {
 
     await waitFor(() => {
       const state = store.getState();
-      // 错误只在会话内的错误卡片展示一次，不再同时弹全局提示。
-      expect(state.conversation.globalError).toBeNull();
+      // 弹一条全局提示，同时写进槽位，回答的失败状态显示同一原因。
+      expect(state.conversation.globalError).toBe(friendlyMessage);
       expect(theSlot(state).lastError?.message).toBe(friendlyMessage);
       expect(state.conversation.byId['existing-conv'].messages[0]).toEqual(
         expect.objectContaining({ role: 'user', status: null })

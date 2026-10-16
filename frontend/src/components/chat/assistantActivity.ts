@@ -64,6 +64,8 @@ export interface AssistantActivity {
   shouldSuppressReasoning: boolean;
   shouldShowSources: boolean;
   suggestionState: AssistantSuggestionState;
+  /** kind 为 failed 时向用户说明的失败原因；拿不到原因时为 null。 */
+  failureMessage: string | null;
 }
 
 interface DeriveAssistantActivityInput {
@@ -74,6 +76,8 @@ interface DeriveAssistantActivityInput {
   messageStatus?: 'pending' | 'failed' | null;
   isLoadingSuggestedQuestions: boolean;
   suggestedQuestionsCount: number;
+  /** run 终态没带原因时（如运行准备阶段失败）流式错误事件里的说明。 */
+  streamErrorMessage?: string | null;
 }
 
 export function deriveAssistantActivity(input: DeriveAssistantActivityInput): AssistantActivity {
@@ -114,6 +118,9 @@ export function deriveAssistantActivity(input: DeriveAssistantActivityInput): As
     shouldSuppressReasoning,
     shouldShowSources: Boolean(searchBlock && searchBlock.sources.length > 0),
     suggestionState,
+    failureMessage: kind === 'failed'
+      ? input.currentRun?.failure?.message || input.streamErrorMessage || null
+      : null,
   };
 }
 

@@ -54,7 +54,12 @@ function StatusBar({ view, className }: { view: ActivityStatusView; className?: 
       </span>
       <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
         <span className="max-w-full shrink-0 truncate font-medium">{view.title}</span>
-        {view.detail ? <span className="min-w-0 truncate text-muted-foreground">{view.detail}</span> : null}
+        {view.detail ? (
+          // 失败原因要完整读到（如「请换用其他模型」），换行而不截断；进行中的状态保持单行。
+          <span className={cn('min-w-0 text-muted-foreground', view.tone === 'danger' ? 'break-words' : 'truncate')}>
+            {view.detail}
+          </span>
+        ) : null}
       </span>
       {view.busy && elapsedS >= ELAPSED_VISIBLE_AFTER_S ? (
         // 计时不进入读屏播报，避免每秒打断。

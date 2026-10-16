@@ -1116,7 +1116,7 @@ export function useSendMessage(activeConversationId?: string | null) {
       let materializedOnce = false;
       let postStreamActionsStarted = false;
       let streamClosed = false;
-      // onError 已向用户展示过本轮错误（会话内错误卡片或全局提示）；外层 catch 不再重复提示。
+      // onError 已提示过本轮错误；外层 catch 收到同一个失败时不再重复提示。
       let streamErrorReported = false;
       // usage 不再随 done 事件下发（spec 缺口，未来可能扩 RunCompleted.usage）；
       // 当前路径：agent 模式从 GET conversation 拉，普通模式暂留 undefined
@@ -1460,6 +1460,7 @@ export function useSendMessage(activeConversationId?: string | null) {
               // “生成已停止 + 权威水合”路径，不应短暂闪现错误提示。
               if (isInterruptedStreamSignal(payload)) return;
               const readableMessage = normalizeSendErrorMessage(message);
+              dispatch(setGlobalError(readableMessage));
               const errorConvId = activeConvIdRef.current;
               if (errorConvId && ownsSlot()) {
                 dispatch(setStreamError({
@@ -1468,8 +1469,6 @@ export function useSendMessage(activeConversationId?: string | null) {
                   code: payload?.code,
                   data: payload?.data,
                 }));
-              } else {
-                dispatch(setGlobalError(readableMessage));
               }
               streamErrorReported = true;
             },
@@ -1787,10 +1786,11 @@ export function useSendMessage(activeConversationId?: string | null) {
         assistantHasContentRef.current = false;
         activeRetryTurnSnapshotRef.current = null;
         const message = normalizeSendErrorMessage(error instanceof Error ? error.message : '发送失败，请重试');
+        if (!streamErrorReported) {
+          dispatch(setGlobalError(message));
+        }
         if (reconnectRetriesExhausted) {
           dispatch(setStreamError({ conversationId: effectiveConvId, message }));
-        } else if (!streamErrorReported) {
-          dispatch(setGlobalError(message));
         }
         if (isLoginGateStreamError(error)) {
           // 游客额度用完或功能需登录：同步最新额度，并直接给出登录入口。
