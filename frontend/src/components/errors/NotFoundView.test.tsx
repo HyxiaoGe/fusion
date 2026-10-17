@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import { renderToString } from 'react-dom/server';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import i18n from '@/lib/i18n';
@@ -71,6 +72,13 @@ describe('NotFoundView', () => {
     const visual = container.querySelector('p > span[aria-hidden="true"]');
 
     expect(visual?.textContent).toBe(`${lead()}/chat/丢失${tail()}`);
+  });
+
+  it('服务端渲染不输出依赖语言的文案，避免与客户端语言不一致导致水合报错', () => {
+    const html = renderToString(<NotFoundView />);
+
+    expect(html).not.toContain(lead());
+    expect(html).not.toContain(i18n.t('errors.common.home'));
   });
 
   it('非法编码的路径按原样展示', () => {

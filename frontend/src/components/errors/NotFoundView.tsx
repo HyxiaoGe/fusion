@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '@/lib/i18n';
 import { Button } from '@/components/ui/button';
+import { useHasMounted } from '@/hooks/useHasMounted';
 import { ParticleText } from './ParticleText';
 
 const TYPE_START_DELAY_MS = 400;
@@ -31,6 +32,8 @@ export default function NotFoundView() {
   const tail = t('errors.notFound.tail');
   const total = lead.length + path.length + tail.length;
   const [typed, setTyped] = useState(0);
+  // 服务端无法得知用户语言，挂载前不渲染文案，避免水合不一致。
+  const hasMounted = useHasMounted();
 
   useEffect(() => {
     if (prefersReducedMotion()) {
@@ -52,6 +55,10 @@ export default function NotFoundView() {
       clearInterval(interval);
     };
   }, [total]);
+
+  if (!hasMounted) {
+    return <main className="h-full w-full bg-background" />;
+  }
 
   const shownLead = lead.slice(0, typed);
   const shownPath = path.slice(0, Math.max(0, typed - lead.length));
@@ -79,7 +86,7 @@ export default function NotFoundView() {
       <div className="mt-10 flex w-full max-w-[520px] items-start gap-3">
         <div
           aria-hidden="true"
-          className="grid size-9 shrink-0 place-items-center rounded-full bg-foreground text-[15px] font-bold text-background"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-foreground text-[15px] font-bold text-background"
         >
           F
         </div>

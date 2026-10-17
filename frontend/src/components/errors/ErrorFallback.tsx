@@ -3,21 +3,31 @@
 import { useTranslation } from 'react-i18next';
 import '@/lib/i18n';
 import { Button } from '@/components/ui/button';
+import { useHasMounted } from '@/hooks/useHasMounted';
 
 interface ErrorFallbackProps {
   onRetry: () => void;
 }
 
+const CONTAINER_CLASS =
+  'flex h-full min-h-screen w-full items-center justify-center bg-background px-6 text-foreground';
+
 export default function ErrorFallback({ onRetry }: ErrorFallbackProps) {
   const { t } = useTranslation();
+  // 服务端无法得知用户语言，挂载前不渲染文案，避免水合不一致。
+  const hasMounted = useHasMounted();
+
+  if (!hasMounted) {
+    return <main className={CONTAINER_CLASS} />;
+  }
 
   return (
-    <main className="flex h-full min-h-screen w-full items-center justify-center bg-background px-6 text-foreground">
+    <main className={CONTAINER_CLASS}>
       <div className="w-full max-w-md">
         <span className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-1 text-xs text-muted-foreground">
-          <span className="relative flex size-2">
-            <span className="absolute inline-flex size-full animate-ping rounded-full bg-danger opacity-60 motion-reduce:animate-none" />
-            <span className="relative inline-flex size-2 rounded-full bg-danger" />
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-danger opacity-60 motion-reduce:animate-none" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-danger" />
           </span>
           {t('errors.crash.badge')}
         </span>
