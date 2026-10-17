@@ -132,7 +132,7 @@ class RecoveryAnswerBranchTests(unittest.IsolatedAsyncioTestCase):
         from test.services.stream.test_agent_loop_round_outcome import _runtime, _step_context
 
         url = "https://www.hko.gov.hk/tc/wxinfo/currwx/fnd.htm"
-        state = AgentLoopState(product_tool_attempted=True)
+        state = AgentLoopState()
         state.record_tool_outcome("weather_forecast", "failed")
         state.recovery_evidence.record_result("web_search", _search_result(url))
         state.content_blocks.append(_search_block(url))

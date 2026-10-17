@@ -21,7 +21,6 @@ from app.schemas.content_block_registry import CONTENT_BLOCK_REGISTRY, ContentBl
 from app.services.source_evidence_ledger import stable_web_evidence_id
 from app.services.stream import tool_round as tool_round_module
 from app.services.stream.agent_loop_state import AgentLoopState
-from app.services.stream.product_tool_round import record_tool_repairs
 from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream.tool_execution_result import ToolExecutionRecord
 from app.services.stream.tool_round import (
@@ -376,60 +375,6 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("rejected", response["content"])
         self.assertNotIn("DSML", response["content"])
         self.assertEqual(request.content_blocks, [])
-
-    def test_pending_repairs_are_keyed_and_only_matching_success_resolves_them(self):
-        state = AgentLoopState()
-        first_repair = ToolExecutionRecord(
-            tool_call={"id": "tc-a", "name": "weather_forecast"},
-            result=ToolResult(
-                status="failed",
-                data={
-                    "repair": {
-                        "repair_id": "repair-a",
-                        "required_fields": ["location"],
-                        "retryable": True,
-                        "requires_user_input": False,
-                    }
-                },
-            ),
-            handler=None,
-            block_id="blk-a",
-            log_id="log-a",
-        )
-        second_repair = ToolExecutionRecord(
-            tool_call={"id": "tc-b", "name": "weather_forecast"},
-            result=ToolResult(
-                status="failed",
-                data={
-                    "repair": {
-                        "repair_id": "repair-b",
-                        "required_fields": ["location"],
-                        "retryable": False,
-                        "requires_user_input": True,
-                    }
-                },
-            ),
-            handler=None,
-            block_id="blk-b",
-            log_id="log-b",
-        )
-
-        record_tool_repairs(state, [first_repair, second_repair])
-        record_tool_repairs(
-            state,
-            [
-                ToolExecutionRecord(
-                    tool_call={"id": "tc-a-ok", "name": "weather_forecast"},
-                    result=ToolResult(status="success", data={"resolves_repair_id": "repair-a"}),
-                    handler=None,
-                    block_id="blk-a-ok",
-                    log_id="log-a-ok",
-                )
-            ],
-        )
-
-        self.assertNotIn("repair-a", state.pending_tool_repairs)
-        self.assertIn("repair-b", state.pending_tool_repairs)
 
     def test_append_tool_round_messages_uses_raw_reasoning_only_for_model_protocol(self):
         request = Mock(

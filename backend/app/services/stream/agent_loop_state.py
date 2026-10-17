@@ -59,11 +59,9 @@ class AgentLoopState:
     context_wait_seconds: float = 0.0
     runtime_contexts: dict[str, Any] = field(default_factory=dict)
     unavailable_contexts: dict[str, str] = field(default_factory=dict)
-    product_tool_attempted: bool = False
     product_tool_outcomes: list[ProductToolOutcome] = field(default_factory=list)
     successful_tool_call_signatures: set[str] = field(default_factory=set)
     argument_repair_state: dict[str, dict[str, Any]] = field(default_factory=dict)
-    pending_tool_repairs: dict[str, dict[str, Any]] = field(default_factory=dict)
     itinerary_tool_observations: list[ItineraryToolObservation] = field(default_factory=list)
     plan_coordinator: PlanCoordinator = field(default_factory=lambda: PlanCoordinator(run_id=""))
     research_workset: ResearchEvidenceWorkset = field(default_factory=ResearchEvidenceWorkset)
@@ -74,7 +72,6 @@ class AgentLoopState:
     degraded_tool_names: set[str] = field(default_factory=set)
     attempted_tool_names: set[str] = field(default_factory=set)
     successful_tool_names: set[str] = field(default_factory=set)
-    pending_place_choices: dict[str, dict[str, Any]] = field(default_factory=dict)
     recovery_evidence: RecoveryEvidenceWorkset = field(default_factory=RecoveryEvidenceWorkset)
     # 本轮发给模型的工具调用与结果（续写同一回答时以已保存的记录为基础）。
     tool_transcript: list[dict[str, Any]] = field(default_factory=list)
@@ -105,8 +102,7 @@ class AgentLoopState:
         """累计各类执行结果；一次成功不能抹掉其他调用的失败或降级。"""
         self.attempted_tool_names.add(tool_name)
         if place_choice is not None:
-            # 地名对应多个候选、等用户选择：不是工具故障，不触发替代工具恢复或失败兜底。
-            self.pending_place_choices[tool_name] = place_choice
+            # 地名对应多个候选、等用户选择：不是工具故障，不触发替代工具恢复；候选随工具结果交给模型向用户确认。
             return
         if status == "failed":
             self.failed_tool_names.add(tool_name)
@@ -114,7 +110,6 @@ class AgentLoopState:
             self.degraded_tool_names.add(tool_name)
         elif status == "success":
             self.successful_tool_names.add(tool_name)
-            self.pending_place_choices.pop(tool_name, None)
 
     @property
     def tool_issue_names(self) -> set[str]:
@@ -151,9 +146,6 @@ class AgentLoopState:
                 self.consecutive_no_progress_search_results += 1
             else:
                 self.consecutive_no_progress_search_results = 0
-
-    def record_product_tool_attempt(self, attempted: bool) -> None:
-        self.product_tool_attempted = self.product_tool_attempted or attempted
 
     def record_product_tool_outcomes(self, outcomes: tuple[ProductToolOutcome, ...]) -> None:
         for outcome in outcomes:

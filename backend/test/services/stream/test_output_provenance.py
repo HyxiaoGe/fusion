@@ -182,7 +182,7 @@ class OutputProvenanceTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(candidate=candidate):
                 lifecycle = await self._lifecycle()
                 lifecycle.record_detail(reasoning_text="", content_text=candidate)
-                state = AgentLoopState(product_tool_attempted=True)
+                state = AgentLoopState()
                 state.mark_current_step("step-outcome")
                 state.content_blocks.append(
                     PlaceResultsBlock(
@@ -282,34 +282,3 @@ class OutputProvenanceTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(provenance["source"], "model" if mode == "adopt" else "server")
                 self.assertEqual(provenance["block_id"], append.call_args.args[3])
                 self.assertEqual(lifecycle.content_text, "模型总结候选")
-
-    async def test_server_terminal_without_model_does_not_borrow_previous_round(self):
-        emitter = AsyncMock()
-        request = AgentRoundOutcomeRequest(
-            db=None,
-            messages=[],
-            state=AgentLoopState(limit_reason="max_steps", product_tool_attempted=True),
-            runtime=_runtime(emitter=emitter),
-            step_number=2,
-            step_context=_step_context(),
-            terminal=True,
-            round_result=AgentRoundResult(
-                reasoning_buf="",
-                content_buf="",
-                tool_calls=[],
-                finish_reason="stop",
-                accumulated_usage=Usage(),
-            ),
-        )
-        with (
-            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()) as append,
-            patch("app.services.stream.agent_loop_round_outcome.complete_text_response_step", new=AsyncMock()),
-            patch(
-                "app.services.stream.product_structured_answers.build_grounded_product_answer",
-                return_value="现有产品事实",
-            ),
-        ):
-            await handle_agent_round_outcome(request=request)
-        append.assert_awaited_once()
-        emitter.llm_round_started.assert_not_awaited()
-        emitter.llm_round_completed.assert_not_awaited()

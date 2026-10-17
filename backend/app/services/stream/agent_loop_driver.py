@@ -74,14 +74,6 @@ async def run_agent_loop(
             continue
         if outcome.exit == AgentLoopExit.SUPERSEDED:
             return outcome
-        if outcome.exit == AgentLoopExit.PRODUCT_RESULT_READY:
-            await _complete_structured_answer_without_llm(
-                db=db,
-                messages=messages,
-                state=state,
-                runtime=runtime,
-            )
-            break
         if outcome.exit == AgentLoopExit.SUMMARY_REQUIRED:
             state.finish_reason = outcome.summary_finish_reason or "empty_answer_summary"
             superseded = await _run_limit_summary(
@@ -97,55 +89,11 @@ async def run_agent_loop(
         break
 
     if state.limit_reason is not None:
-        if runtime.structured_answers.has_answer(state):
-            limit_finish_reason = state.finish_reason
-            try:
-                await _complete_structured_answer_without_llm(
-                    db=db,
-                    messages=messages,
-                    state=state,
-                    runtime=runtime,
-                )
-            finally:
-                state.finish_reason = limit_finish_reason
-        else:
-            superseded = await _run_limit_summary(db=db, state=state, runtime=runtime, messages=messages)
-            if superseded is not None:
-                return superseded
+        superseded = await _run_limit_summary(db=db, state=state, runtime=runtime, messages=messages)
+        if superseded is not None:
+            return superseded
 
     return AgentLoopOutcome(exit=AgentLoopExit.COMPLETED)
-
-
-async def _complete_structured_answer_without_llm(
-    *,
-    db,
-    messages: list[PromptMessage],
-    state: AgentLoopState,
-    runtime: AgentLoopRuntime,
-) -> None:
-    """产品结果或待修参数用结构化状态确定性收口，不再消耗模型调用。"""
-    step_number, step_context = await _start_next_step(state=state, runtime=runtime)
-    state.finish_reason = "stop"
-    await handle_agent_round_outcome(
-        request=AgentRoundOutcomeRequest(
-            db=db,
-            messages=messages,
-            state=state,
-            runtime=runtime,
-            step_number=step_number,
-            step_context=step_context,
-            terminal=True,
-            round_result=AgentRoundResult(
-                reasoning_buf="",
-                content_buf="",
-                tool_calls=[],
-                finish_reason="stop",
-                accumulated_usage=state.accumulated_usage,
-                context=state.last_context,
-                output_deferred=True,
-            ),
-        )
-    )
 
 
 async def _stop_if_limit_reached(*, state: AgentLoopState, runtime: AgentLoopRuntime) -> bool:
