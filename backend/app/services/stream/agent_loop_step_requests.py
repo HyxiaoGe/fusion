@@ -67,6 +67,7 @@ def build_tool_round_request(
         output_deferred=round_result.output_deferred,
         allow_deferred_reasoning_output=round_result.allow_deferred_reasoning_output,
         unplanned_tool_names=runtime.output_tool_names | runtime.unplanned_assist_tool_names,
+        structured_answers=runtime.structured_answers,
     )
 
 

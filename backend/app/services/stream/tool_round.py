@@ -10,20 +10,12 @@ import time
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import date
 from typing import Any
 from urllib.parse import urlsplit
 
 from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
-from app.schemas.chat import (
-    FlightResultsBlock,
-    ItineraryResultsBlock,
-    RouteResultsBlock,
-    ThinkingBlock,
-    TrainResultsBlock,
-    WeatherResultsBlock,
-)
+from app.schemas.chat import ThinkingBlock
 from app.schemas.content_block_registry import is_registered_rich_content_block
 from app.services.agent.progress_digest import build_evidence_items, build_tool_result_digest
 from app.services.agent.trajectory_recorder import TrajectoryRecorder
@@ -40,13 +32,11 @@ from app.services.source_evidence_ledger import (
     canonicalize_evidence_url,
     stable_web_evidence_id,
 )
-from app.services.stream.agent_loop_state import AgentLoopState, ProductToolOutcome
-from app.services.stream.itinerary_observability import build_itinerary_tool_observation
-from app.services.stream.itinerary_result_composer import compose_itinerary_result
+from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.llm_round_lifecycle import round_tool_names
-from app.services.stream.place_choice import pending_place_choice
 from app.services.stream.plan_control import UPDATE_PLAN_TOOL_NAME, process_plan_control_calls
 from app.services.stream.step_lifecycle import AgentStepContext, mark_tool_round_started
+from app.services.stream.structured_answer import NO_STRUCTURED_ANSWERS, StructuredAnswers
 from app.services.stream.tool_context import (
     BlockedToolContext,
     ToolContextResolution,
@@ -74,8 +64,6 @@ class ToolRoundOutcome:
     tool_names: list[str]
     no_progress_search_results: tuple[bool, ...] = ()
     product_result_count: int = 0
-    itinerary_result_count: int = 0
-    product_outcomes: tuple[ProductToolOutcome, ...] = ()
     unavailable_tool_call_count: int = 0
 
 
@@ -120,6 +108,7 @@ class ToolRoundRequest:
     # 交付物写入与 Skill 加载不属于取证预算；额度收口时仍须能写出文档。
     unplanned_tool_names: frozenset[str] = frozenset()
     resolve_tool_context_fn: Callable[..., Awaitable[ToolContextResolution]] = resolve_tool_context
+    structured_answers: StructuredAnswers = NO_STRUCTURED_ANSWERS
 
 
 def build_assistant_tool_message(
@@ -778,7 +767,7 @@ async def handle_tool_calls_round(*, request: ToolRoundRequest) -> ToolRoundOutc
             request.agent_state.record_tool_outcome(
                 record.tool_name,
                 record.result.status,
-                place_choice=_pending_place_choice(record.result),
+                place_choice=request.structured_answers.pending_user_choice(record.result),
             )
             request.agent_state.recovery_evidence.record_result(record.tool_name, record.result)
     executed_count = _actual_tool_execution_count(executable_tool_calls, results)
@@ -804,8 +793,8 @@ async def handle_tool_calls_round(*, request: ToolRoundRequest) -> ToolRoundOutc
         result_snapshot = request.agent_state.plan_coordinator.mark_tool_results(tool_statuses)
         if result_snapshot is not None:
             await request.emitter.plan_snapshot(**result_snapshot)
-    _record_tool_repairs(request.agent_state, executed_results)
-    _record_itinerary_tool_observations(request.agent_state, executed_results)
+    if request.agent_state is not None:
+        request.structured_answers.record_tool_results(request.agent_state, executed_results)
     source_plan = _build_source_selection_plan(executed_results)
     await emit_selected_source_evidence(request, executed_results, source_plan=source_plan)
     built_content_blocks = build_tool_round_content_blocks(results)
@@ -828,30 +817,18 @@ async def handle_tool_calls_round(*, request: ToolRoundRequest) -> ToolRoundOutc
         results=results,
         built_content_blocks=built_content_blocks,
     )
-    product_outcomes = build_product_tool_outcomes(results, built_content_blocks=built_content_blocks)
-    if request.agent_state is not None:
-        request.agent_state.record_product_tool_outcomes(product_outcomes)
-        all_product_outcomes = request.agent_state.product_tool_outcomes
-    else:
-        all_product_outcomes = list(product_outcomes)
-    previous_itinerary_id = next(
-        (block.id for block in request.content_blocks if isinstance(block, ItineraryResultsBlock)),
-        None,
-    )
-    itinerary_result = upsert_itinerary_result(
+    structured_update = request.structured_answers.update_round_results(
+        request.agent_state,
         request.content_blocks,
-        product_outcomes=all_product_outcomes,
-    )
-    current_itinerary_id = next(
-        (block.id for block in request.content_blocks if isinstance(block, ItineraryResultsBlock)),
-        None,
+        results,
+        built_content_blocks=built_content_blocks,
     )
     persist_tool_round_checkpoint(request)
-    await emit_product_result_blocks(request, results, built_content_blocks=built_content_blocks)
-    if previous_itinerary_id is not None and previous_itinerary_id != current_itinerary_id:
-        await emit_replaced_itinerary_discard(request, previous_itinerary_id)
-    if itinerary_result is not None:
-        await emit_itinerary_result_block(request, itinerary_result)
+    await emit_rich_result_blocks(request, results, built_content_blocks=built_content_blocks)
+    for block_id in structured_update.discarded_block_ids:
+        await emit_discarded_result_block(request, block_id)
+    for tool_call_id, content_block in structured_update.upserted_blocks:
+        await emit_structured_result_block(request, tool_call_id=tool_call_id, content_block=content_block)
 
     tool_names = await complete_tool_round_step(request, executed_results, executed_count=executed_count)
     restore_reasoning_after_tool_decision(request.call_kwargs, provider=request.provider)
@@ -863,8 +840,6 @@ async def handle_tool_calls_round(*, request: ToolRoundRequest) -> ToolRoundOutc
             results=executed_results,
         ),
         product_result_count=sum(is_registered_rich_content_block(block) for block in built_content_blocks.values()),
-        itinerary_result_count=1 if itinerary_result is not None else 0,
-        product_outcomes=product_outcomes,
         unavailable_tool_call_count=len(unavailable_tool_calls),
     )
 
@@ -921,49 +896,6 @@ def _plan_item_statuses_from_batch(
 
     priority = {"completed": 1, "running": 2, "blocked": 3, "failed": 4}
     return {item_id: max(statuses, key=priority.__getitem__) for item_id, statuses in candidates.items()}
-
-
-def _pending_place_choice(result: Any) -> dict[str, Any] | None:
-    """地名歧义失败且带候选时返回待用户选择的候选；修参通道（如天气）不走这里。"""
-
-    return pending_place_choice(getattr(result, "status", None), getattr(result, "data", None))
-
-
-def _record_tool_repairs(
-    state: AgentLoopState | None,
-    results: list[ToolExecutionRecord],
-) -> None:
-    if state is None:
-        return
-    for record in results:
-        data = getattr(record.result, "data", None)
-        resolves_repair_id = data.get("resolves_repair_id") if isinstance(data, dict) else None
-        if isinstance(resolves_repair_id, str):
-            state.pending_tool_repairs.pop(resolves_repair_id, None)
-        repair = data.get("repair") if isinstance(data, dict) else None
-        if not isinstance(repair, dict):
-            continue
-        repair_id = repair.get("repair_id")
-        if not isinstance(repair_id, str) or not repair_id:
-            repair_id = str(record.tool_call.get("id", "")) or record.tool_name
-        state.pending_tool_repairs[repair_id] = {
-            "required_fields": [field for field in repair.get("required_fields", []) if isinstance(field, str)][:4],
-            "retryable": repair.get("retryable") is True,
-            "requires_user_input": repair.get("requires_user_input") is True,
-            "retry_exhausted": repair.get("retry_exhausted") is True,
-        }
-
-
-def _record_itinerary_tool_observations(
-    state: AgentLoopState | None,
-    results: list[ToolExecutionRecord],
-) -> None:
-    if state is None:
-        return
-    observations = [
-        observation for record in results if (observation := build_itinerary_tool_observation(record)) is not None
-    ]
-    state.record_itinerary_tool_observations(observations)
 
 
 def _record_research_workset(
@@ -1061,174 +993,13 @@ def build_tool_round_content_blocks(results: list[ToolExecutionRecord]) -> dict[
     return {str(record.tool_call.get("id", "")): record.build_content_block() for record in results}
 
 
-def build_product_tool_outcomes(
-    results: list[ToolExecutionRecord],
-    *,
-    built_content_blocks: dict[str, Any],
-) -> tuple[ProductToolOutcome, ...]:
-    outcomes: list[ProductToolOutcome] = []
-    for record in results:
-        if record.reused:
-            continue
-        tool_call_id = str(record.tool_call.get("id", ""))
-        content_block = built_content_blocks.get(tool_call_id)
-        outcome = _build_product_tool_outcome(record, content_block)
-        if outcome is not None:
-            outcomes.append(outcome)
-    return tuple(outcomes)
-
-
-def _build_product_tool_outcome(
-    record: ToolExecutionRecord,
-    content_block: Any,
-) -> ProductToolOutcome | None:
-    tool_name = record.tool_name
-    mode = {
-        "search_flights": "flight",
-        "search_trains": "train",
-        "weather_forecast": "weather",
-        "route_compare": "route",
-    }.get(tool_name)
-    if mode is None or _has_retryable_product_repair(record):
-        return None
-    if isinstance(content_block, (FlightResultsBlock, TrainResultsBlock)):
-        return ProductToolOutcome(
-            tool_name=tool_name,
-            mode=mode,
-            status="available",
-            block_id=content_block.id,
-            origin=content_block.origin,
-            destination=content_block.destination,
-            departure_date=content_block.departure_date,
-        )
-    if isinstance(content_block, WeatherResultsBlock):
-        return ProductToolOutcome(
-            tool_name=tool_name,
-            mode="weather",
-            status="available",
-            block_id=content_block.id,
-            location=content_block.resolved_location,
-        )
-    if isinstance(content_block, RouteResultsBlock):
-        return ProductToolOutcome(
-            tool_name=tool_name,
-            mode="route",
-            status="available",
-            block_id=content_block.id,
-            origin=content_block.origin.label,
-            destination=content_block.destination.label,
-        )
-    return _unavailable_product_tool_outcome(record, mode)
-
-
-def _unavailable_product_tool_outcome(
-    record: ToolExecutionRecord,
-    mode: str,
-) -> ProductToolOutcome | None:
-    arguments = _safe_tool_arguments(record.tool_call)
-    if mode in {"flight", "train"}:
-        origin = _safe_argument_text(arguments.get("origin"), 80)
-        destination = _safe_argument_text(arguments.get("destination"), 80)
-        departure_date = _safe_departure_date(arguments.get("departure_date"))
-        if not origin or not destination or departure_date is None:
-            return None
-        return ProductToolOutcome(
-            tool_name=record.tool_name,
-            mode=mode,
-            status="unavailable",
-            origin=origin,
-            destination=destination,
-            departure_date=departure_date,
-        )
-    if mode == "weather":
-        location = _safe_argument_text(arguments.get("location"), 120)
-        return (
-            ProductToolOutcome(
-                tool_name=record.tool_name,
-                mode="weather",
-                status="unavailable",
-                location=location,
-            )
-            if location
-            else None
-        )
-    origin = _safe_argument_text(arguments.get("origin"), 120)
-    destination = _safe_argument_text(arguments.get("destination"), 120)
-    if not origin or not destination:
-        return None
-    return ProductToolOutcome(
-        tool_name=record.tool_name,
-        mode="route",
-        status="unavailable",
-        origin=origin,
-        destination=destination,
-    )
-
-
-def _has_retryable_product_repair(record: ToolExecutionRecord) -> bool:
-    data = record.result.data if isinstance(record.result.data, dict) else {}
-    repair = data.get("repair")
-    return isinstance(repair, dict) and repair.get("retryable") is True
-
-
-def _safe_tool_arguments(tool_call: dict) -> dict[str, Any]:
-    raw_arguments = tool_call.get("arguments")
-    if isinstance(raw_arguments, dict):
-        return raw_arguments
-    if not isinstance(raw_arguments, str):
-        return {}
-    try:
-        parsed = json.loads(raw_arguments)
-    except (TypeError, ValueError):
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
-
-
-def _safe_argument_text(value: Any, max_chars: int) -> str | None:
-    if not isinstance(value, str):
-        return None
-    normalized = value.strip()
-    return normalized if normalized and len(normalized) <= max_chars else None
-
-
-def _safe_departure_date(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        return date.fromisoformat(value).isoformat()
-    except ValueError:
-        return None
-
-
-def upsert_itinerary_result(
-    content_blocks: list[Any],
-    *,
-    product_outcomes: list[ProductToolOutcome],
-) -> ItineraryResultsBlock | None:
-    itinerary = compose_itinerary_result(content_blocks, product_outcomes=product_outcomes)
-    if itinerary is None:
-        content_blocks[:] = [block for block in content_blocks if not isinstance(block, ItineraryResultsBlock)]
-        return None
-    existing_index = next(
-        (index for index, block in enumerate(content_blocks) if isinstance(block, ItineraryResultsBlock)),
-        None,
-    )
-    if existing_index is None:
-        content_blocks.append(itinerary)
-        return itinerary
-    if content_blocks[existing_index] == itinerary:
-        return None
-    content_blocks[existing_index] = itinerary
-    return itinerary
-
-
-async def emit_product_result_blocks(
+async def emit_rich_result_blocks(
     request: ToolRoundRequest,
     results: list[ToolExecutionRecord],
     *,
     built_content_blocks: dict[str, Any],
 ) -> None:
-    """checkpoint 成功后发送同一产品结果块；非终止写入失败不影响后续回答。"""
+    """checkpoint 成功后发送同一富结果块；非终止写入失败不影响后续回答。"""
     emit = getattr(request.emitter, "content_block_upserted", None)
     if emit is None:
         return
@@ -1244,30 +1015,27 @@ async def emit_product_result_blocks(
                 logger.warning("发送产品结果 content block 事件失败", exc_info=True)
 
 
-async def emit_itinerary_result_block(
+async def emit_structured_result_block(
     request: ToolRoundRequest,
-    itinerary: ItineraryResultsBlock,
+    *,
+    tool_call_id: str,
+    content_block: Any,
 ) -> None:
     emit = getattr(request.emitter, "content_block_upserted", None)
     if emit is None:
         return
     try:
-        await emit(
-            tool_call_id=f"itinerary:{itinerary.id}",
-            content_block=itinerary,
-        )
+        await emit(tool_call_id=tool_call_id, content_block=content_block)
     except StreamWriteTerminalError:
         raise
     except Exception:
-        logger.warning("发送行程结果 content block 事件失败", exc_info=True)
+        logger.warning("发送汇总结果 content block 事件失败", exc_info=True)
 
 
-async def emit_replaced_itinerary_discard(
+async def emit_discarded_result_block(
     request: ToolRoundRequest,
     block_id: str,
 ) -> None:
-    """行程身份变化时先撤回直播页旧块，确保流式与刷新恢复一致。"""
-
     discard = getattr(request.emitter, "content_block_discarded", None)
     if discard is None:
         return
@@ -1276,7 +1044,7 @@ async def emit_replaced_itinerary_discard(
     except StreamWriteTerminalError:
         raise
     except Exception:
-        logger.warning("撤回旧行程 content block 事件失败", exc_info=True)
+        logger.warning("撤回汇总结果 content block 事件失败", exc_info=True)
 
 
 async def emit_selected_source_evidence(

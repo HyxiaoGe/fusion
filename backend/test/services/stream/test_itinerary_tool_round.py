@@ -15,6 +15,7 @@ from app.schemas.chat import (
 from app.services.stream import tool_round as tool_round_module
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.itinerary_result_composer import compose_itinerary_result
+from app.services.stream.product_structured_answers import PRODUCT_STRUCTURED_ANSWERS
 from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream.tool_context import ToolContextResolution
 from app.services.stream.tool_execution_result import ToolExecutionRecord
@@ -138,6 +139,7 @@ def _request(
         complete_step_fn=complete_step_fn,
         agent_state=state,
         resolve_tool_context_fn=AsyncMock(return_value=ToolContextResolution(executable_calls=tool_calls)),
+        structured_answers=PRODUCT_STRUCTURED_ANSWERS,
     )
     return request, state, order
 
@@ -150,7 +152,7 @@ async def _check_tool_round_checkpoints_source_and_itinerary_before_both_events(
     }
     request, state, order = _request([_record(tool_call=train_call, status="success", block=_train_block())])
 
-    outcome = await handle_tool_calls_round(request=request)
+    await handle_tool_calls_round(request=request)
 
     itinerary = next(block for block in state.content_blocks if isinstance(block, ItineraryResultsBlock))
     final_checkpoint_index = max(index for index, item in enumerate(order) if item[0] == "persist")
@@ -161,9 +163,8 @@ async def _check_tool_round_checkpoints_source_and_itinerary_before_both_events(
         "itinerary_results",
     ]
     assert itinerary.id.startswith("blk_itinerary_")
-    assert outcome.itinerary_result_count == 1
-    assert outcome.product_outcomes[0].status == "available"
-    assert outcome.product_outcomes[0].block_id == "blk-train-outbound"
+    assert state.product_tool_outcomes[0].status == "available"
+    assert state.product_tool_outcomes[0].block_id == "blk-train-outbound"
 
 
 async def _check_tool_round_records_safe_failure_and_builds_degraded_itinerary():
@@ -183,15 +184,15 @@ async def _check_tool_round_records_safe_failure_and_builds_degraded_itinerary()
     ]
     request, state, _ = _request(records)
 
-    outcome = await handle_tool_calls_round(request=request)
+    await handle_tool_calls_round(request=request)
 
     itinerary = next(block for block in state.content_blocks if isinstance(block, ItineraryResultsBlock))
     availability = {(item.journey, item.mode): item.status for item in itinerary.availability}
     assert itinerary.status == "degraded"
     assert availability[("outbound", "flight")] == "unavailable"
     assert availability[("outbound", "train")] == "available"
-    assert {item.status for item in outcome.product_outcomes} == {"available", "unavailable"}
-    assert all(not hasattr(item, "error_code") for item in outcome.product_outcomes)
+    assert {item.status for item in state.product_tool_outcomes} == {"available", "unavailable"}
+    assert all(not hasattr(item, "error_code") for item in state.product_tool_outcomes)
 
 
 async def _check_tool_round_updates_existing_itinerary_in_place_with_stable_id():
@@ -234,10 +235,9 @@ async def _check_tool_round_does_not_create_empty_itinerary_when_all_travel_tool
     }
     request, state, _ = _request([_record(tool_call=flight_call, status="failed")])
 
-    outcome = await handle_tool_calls_round(request=request)
+    await handle_tool_calls_round(request=request)
 
     assert not any(isinstance(block, ItineraryResultsBlock) for block in state.content_blocks)
-    assert outcome.itinerary_result_count == 0
 
 
 async def _check_tool_round_does_not_publish_return_as_one_way_after_outbound_failed():
@@ -287,10 +287,9 @@ async def _check_tool_round_does_not_publish_return_as_one_way_after_outbound_fa
         state=state,
     )
 
-    outcome = await handle_tool_calls_round(request=second_request)
+    await handle_tool_calls_round(request=second_request)
 
     assert not any(isinstance(block, ItineraryResultsBlock) for block in state.content_blocks)
-    assert outcome.itinerary_result_count == 0
     assert [item[2].type for item in order if item[0] == "emit"] == ["train_results"]
 
 
@@ -342,10 +341,9 @@ async def _check_tool_round_discards_existing_return_itinerary_when_outbound_lat
         state=state,
     )
 
-    outcome = await handle_tool_calls_round(request=second_request)
+    await handle_tool_calls_round(request=second_request)
 
     assert not any(isinstance(block, ItineraryResultsBlock) for block in state.content_blocks)
-    assert outcome.itinerary_result_count == 0
     assert [item for item in order if item[0] in {"emit", "discard"}] == [
         ("discard", old_itinerary.id),
     ]
@@ -402,6 +400,52 @@ async def _check_tool_round_discards_old_stream_itinerary_when_identity_changes(
         ("discard", old_itinerary.id),
         ("emit", f"itinerary:{new_itinerary.id}"),
     ]
+
+
+async def _check_tool_round_records_repairs_observations_and_place_choices():
+    weather_call = {"id": "tc-weather", "name": "weather_forecast", "arguments": '{"location":"上海"}'}
+    train_call = {
+        "id": "tc-train",
+        "name": "search_trains",
+        "arguments": '{"origin":"深圳","destination":"上海","departure_date":"2026-08-01"}',
+    }
+    place_call = {"id": "tc-place", "name": "place_search", "arguments": '{"keywords":"外滩"}'}
+    choice = {"place_name": "外滩", "candidates": [{"candidate": 1}, {"candidate": 2}]}
+    records = [
+        ToolExecutionRecord(
+            tool_call=weather_call,
+            result=ToolResult(
+                status="failed",
+                data={"repair": {"repair_id": "repair-weather", "required_fields": ["location"]}},
+            ),
+            handler=None,
+            block_id="blk-weather",
+            log_id="log-weather",
+        ),
+        _record(tool_call=train_call, status="success", block=_train_block()),
+        ToolExecutionRecord(
+            tool_call=place_call,
+            result=ToolResult(
+                status="failed",
+                data={"error_code": "ambiguous_location", "error_details": choice},
+            ),
+            handler=None,
+            block_id="blk-place",
+            log_id="log-place",
+        ),
+    ]
+    request, state, _ = _request(records)
+
+    await handle_tool_calls_round(request=request)
+
+    assert set(state.pending_tool_repairs) == {"repair-weather"}
+    assert {item.tool_name for item in state.itinerary_tool_observations} >= {"search_trains"}
+    assert state.pending_place_choices == {"place_search": choice}
+    assert "place_search" not in state.failed_tool_names
+
+
+def test_tool_round_records_repairs_observations_and_place_choices():
+    asyncio.run(_check_tool_round_records_repairs_observations_and_place_choices())
 
 
 def test_tool_round_checkpoints_source_and_itinerary_before_both_events():
