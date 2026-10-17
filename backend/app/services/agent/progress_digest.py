@@ -70,11 +70,8 @@ def build_evidence_items(record: ToolExecutionRecord) -> list[dict[str, Any]]:
 def _result_summary(record: ToolExecutionRecord) -> dict[str, Any]:
     if record.handler is None:
         return {"kind": record.tool_name, "truncated": False}
-    builder = getattr(record.handler, "_build_result_summary", None)
-    if builder is None:
-        return {"kind": record.tool_name, "truncated": False}
     try:
-        summary = builder(record.result)
+        summary = record.handler._build_result_summary(record.result)
     except Exception:
         return {"kind": record.tool_name, "truncated": True}
     if not isinstance(summary, dict):

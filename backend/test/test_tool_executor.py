@@ -1337,6 +1337,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_runtime_location_is_only_forwarded_to_handler_not_events_or_logs(self):
         handler = MagicMock()
+        handler.sanitize_input_params_for_event.side_effect = lambda args: args
         handler.tool_name = "local_place_search"
         handler.supports_automatic_retry = False
         handler.execute = AsyncMock(return_value=ToolResult(status="success", data={}))
@@ -1966,6 +1967,7 @@ class ToolExecutorMessageIdTests(unittest.IsolatedAsyncioTestCase):
     async def test_execute_tools_parallel_with_emitter_keeps_events_log_and_record(self):
         """emitter 路径仍发工具事件、写日志，并返回命名记录。"""
         handler = MagicMock()
+        handler.sanitize_input_params_for_event.side_effect = lambda args: args
         handler.tool_name = "web_search"
         handler.execute = AsyncMock(return_value=ToolResult(status="success"))
         handler.log = AsyncMock()
@@ -2178,6 +2180,7 @@ class ToolExecutorMessageIdTests(unittest.IsolatedAsyncioTestCase):
         order = []
 
         handler = MagicMock()
+        handler.sanitize_input_params_for_event.side_effect = lambda args: args
         handler.tool_name = "web_search"
         handler.execute = AsyncMock()
         handler.log = AsyncMock(side_effect=lambda **_kwargs: order.append("log"))

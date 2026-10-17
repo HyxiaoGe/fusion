@@ -544,9 +544,7 @@ async def emit_budget_result(
 
 
 async def execute_tool_handler(*, request: ToolExecutionBatchRequest, tool_call: dict, handler, args: dict):
-    executor = (
-        execute_tool_once if getattr(handler, "supports_automatic_retry", True) is False else execute_tool_with_retry
-    )
+    executor = execute_tool_once if handler.supports_automatic_retry is False else execute_tool_with_retry
     if request.emitter is None:
         return await executor(handler, args, request.runtime_context)
     attempt_lifecycle = ToolAttemptLifecycle(
@@ -572,10 +570,7 @@ async def execute_tool_handler(*, request: ToolExecutionBatchRequest, tool_call:
 
 
 def _sanitize_event_arguments(handler, args: dict) -> dict:
-    """只调用真实 handler 类型显式实现的方法，避免无 spec 的 Mock 伪造属性。"""
-
-    sanitizer = getattr(type(handler), "sanitize_input_params_for_event", None)
-    return sanitizer(handler, args) if callable(sanitizer) else args
+    return handler.sanitize_input_params_for_event(args)
 
 
 async def log_tool_execution(
@@ -826,10 +821,9 @@ def _validate_handler_arguments(
         args,
         max_json_bytes=max_tool_argument_json_bytes(getattr(handler, "tool_name", None)),
     )
-    validator = getattr(type(handler), "validate_arguments", None)
     try:
         if not raw_errors:
-            raw_errors = validator(handler, args) if callable(validator) else []
+            raw_errors = handler.validate_arguments(args)
     except Exception as error:  # noqa: BLE001 — 本地预校验异常必须回退为不可执行，不能触网
         logger.warning(
             "工具参数本地预校验异常: tool=%s error_type=%s",

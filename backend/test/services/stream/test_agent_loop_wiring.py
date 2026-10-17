@@ -99,7 +99,7 @@ class AgentLoopWiringTests(unittest.TestCase):
             captured["call_config_kwargs"] = kwargs
             return call_config
 
-        def load_dynamic_tools_fn(db):
+        def load_dynamic_tools_fn(db, *, user_id, conversation_id=None):
             captured["dynamic_tools_db"] = db
             return dynamic_tool_set
 

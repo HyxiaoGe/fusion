@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from copy import deepcopy
 from dataclasses import replace
-from inspect import Parameter, signature
 
 from app.ai.llm_manager import llm_manager
 from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
@@ -204,15 +203,6 @@ async def _start_next_step(
     return step_number, step_context
 
 
-def _accepts_keyword(fn, keyword: str) -> bool:
-    try:
-        parameters = signature(fn).parameters
-    except (TypeError, ValueError):
-        return True
-
-    return keyword in parameters or any(parameter.kind == Parameter.VAR_KEYWORD for parameter in parameters.values())
-
-
 async def _run_round(
     *,
     messages: list[PromptMessage],
@@ -282,22 +272,14 @@ async def _run_round(
     )
     # 服务端不再改写模型回答，只有深度研究的完成度检查仍可能丢弃本轮回答，其余直接流式输出。
     should_defer_output = runtime.task_mode == "deep_research"
-    if should_defer_output and _accepts_keyword(runtime.run_round_fn, "defer_output"):
+    if should_defer_output:
         run_round_kwargs["defer_output"] = True
-    if runtime.llm_round_detail_scheduler is not None and _accepts_keyword(
-        runtime.run_round_fn,
-        "llm_round_detail_scheduler",
-    ):
+    if runtime.llm_round_detail_scheduler is not None:
         run_round_kwargs["llm_round_detail_scheduler"] = runtime.llm_round_detail_scheduler
-    if _accepts_keyword(runtime.run_round_fn, "on_context_trimmed"):
-        run_round_kwargs["on_context_trimmed"] = state.record_context_plan
-    if runtime.output_tool_names and _accepts_keyword(runtime.run_round_fn, "draft_tool_names"):
+    run_round_kwargs["on_context_trimmed"] = state.record_context_plan
+    if runtime.output_tool_names:
         run_round_kwargs["draft_tool_names"] = runtime.output_tool_names
-    if (
-        state.active_model_id is None
-        and runtime.model_id != FALLBACK_MODEL_ID
-        and _accepts_keyword(runtime.run_round_fn, "first_output_timeout_s")
-    ):
+    if state.active_model_id is None and runtime.model_id != FALLBACK_MODEL_ID:
         run_round_kwargs["first_output_timeout_s"] = FIRST_OUTPUT_TIMEOUT_S
     round_result = await runtime.run_round_fn(**run_round_kwargs)
     if tools_forbidden and ignored_tool_ban(

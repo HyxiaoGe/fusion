@@ -6,7 +6,6 @@ import asyncio
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from inspect import Parameter, signature
 from typing import TYPE_CHECKING, Any
 
 from app.ai.llm_round_observability import create_llm_round_observation
@@ -66,14 +65,6 @@ if TYPE_CHECKING:
     from app.services.stream.safe_fallback_response import FallbackResponseContext
 
 LIMIT_SUMMARY_PROMPT = _LIMIT_SUMMARY_PROMPT
-
-
-def _accepts_keyword(fn: Callable[..., Any], keyword: str) -> bool:
-    try:
-        parameters = signature(fn).parameters
-    except (TypeError, ValueError):
-        return True
-    return keyword in parameters or any(parameter.kind == Parameter.VAR_KEYWORD for parameter in parameters.values())
 
 
 @dataclass(frozen=True)
@@ -402,29 +393,18 @@ async def _call_limit_summary_round_once(
         )
         response = observation.wrap_response(response)
         stream_kwargs = {"run_id": request.run_id, "step_id": step_id}
-        if _accepts_keyword(request.stream_round_fn, "provider"):
-            stream_kwargs["provider"] = request.provider
-        if _accepts_keyword(request.stream_round_fn, "defer_output"):
-            stream_kwargs["defer_output"] = _should_defer_summary_output(request)
-        if (
-            request.should_use_reasoning
-            and _should_defer_summary_output(request)
-            and _accepts_keyword(request.stream_round_fn, "allow_deferred_reasoning_output")
-        ):
+        stream_kwargs["provider"] = request.provider
+        stream_kwargs["defer_output"] = _should_defer_summary_output(request)
+        if request.should_use_reasoning and _should_defer_summary_output(request):
             stream_kwargs["allow_deferred_reasoning_output"] = True
-        if _accepts_keyword(request.stream_round_fn, "partial_output"):
-            stream_kwargs["partial_output"] = detail_partial_output
-        visible_callback_supported = _accepts_keyword(request.stream_round_fn, "on_visible_output")
-        if lifecycle is not None and not _should_defer_summary_output(request) and visible_callback_supported:
+        stream_kwargs["partial_output"] = detail_partial_output
+        if lifecycle is not None and not _should_defer_summary_output(request):
             stream_kwargs["on_visible_output"] = lifecycle.publish_visible_output
         candidate_callback = getattr(observation, "observe_output_candidate", None)
-        if callable(candidate_callback) and _accepts_keyword(request.stream_round_fn, "on_output_candidate"):
+        if callable(candidate_callback):
             stream_kwargs["on_output_candidate"] = candidate_callback
         capture_candidate_time = getattr(observation, "capture_output_candidate_time", None)
-        if callable(capture_candidate_time) and _accepts_keyword(
-            request.stream_round_fn,
-            "capture_output_candidate_time",
-        ):
+        if callable(capture_candidate_time):
             stream_kwargs["capture_output_candidate_time"] = capture_candidate_time
         reasoning_buf, content_buf, tool_calls, finish_reason, usage_data = await request.stream_round_fn(
             response,

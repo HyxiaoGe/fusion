@@ -17,6 +17,7 @@ from app.services.stream import tool_round
 from app.services.stream.tool_execution_result import ToolExecutionRecord
 from app.services.tool_handlers.base import ToolResult
 from app.services.trajectory_query_service import TrajectoryQueryService
+from test.fake_tool_handler import fake_tool_handler
 
 
 @pytest.fixture
@@ -25,7 +26,7 @@ def anyio_backend():
 
 
 def _record():
-    handler = SimpleNamespace(
+    handler = fake_tool_handler(
         format_llm_context=lambda result: "已编号的实际反馈 [7]，token=secret-value",
         build_content_block=lambda *args: None,
     )
@@ -359,7 +360,7 @@ async def test_blocked_observation_database_isolated_from_default_executor_and_k
 
 
 def test_new_search_sources_number_after_replayed_history_citations():
-    handler = SimpleNamespace(
+    handler = fake_tool_handler(
         supports_run_level_citations=True,
         format_llm_context=lambda result, citation_numbers=None: f"来源编号 {citation_numbers}",
         build_content_block=lambda *args: None,

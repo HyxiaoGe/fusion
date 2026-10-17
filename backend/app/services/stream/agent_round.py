@@ -6,7 +6,6 @@ import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from inspect import Parameter, signature
 from typing import Any
 
 from app.ai import litellm_health
@@ -148,31 +147,25 @@ async def collect_agent_round_stream(
             model_id=model_id,
         )
     stream_kwargs = {"run_id": run_id, "step_id": step_context.step_id}
-    if provider is not None and _accepts_keyword(stream_round_fn, "provider"):
+    if provider is not None:
         stream_kwargs["provider"] = provider
-    if model_id is not None and _accepts_keyword(stream_round_fn, "model_id"):
+    if model_id is not None:
         stream_kwargs["model_id"] = model_id
-    if defer_output and _accepts_keyword(stream_round_fn, "defer_output"):
+    if defer_output:
         stream_kwargs["defer_output"] = True
-    if allow_deferred_reasoning_output and _accepts_keyword(
-        stream_round_fn,
-        "allow_deferred_reasoning_output",
-    ):
+    if allow_deferred_reasoning_output:
         stream_kwargs["allow_deferred_reasoning_output"] = True
-    if on_visible_output is not None and _accepts_keyword(stream_round_fn, "on_visible_output"):
+    if on_visible_output is not None:
         stream_kwargs["on_visible_output"] = on_visible_output
-    if on_deferred_output_signal is not None and _accepts_keyword(stream_round_fn, "on_deferred_output_signal"):
+    if on_deferred_output_signal is not None:
         stream_kwargs["on_deferred_output_signal"] = on_deferred_output_signal
-    if on_output_candidate is not None and _accepts_keyword(stream_round_fn, "on_output_candidate"):
+    if on_output_candidate is not None:
         stream_kwargs["on_output_candidate"] = on_output_candidate
-    if capture_output_candidate_time is not None and _accepts_keyword(
-        stream_round_fn,
-        "capture_output_candidate_time",
-    ):
+    if capture_output_candidate_time is not None:
         stream_kwargs["capture_output_candidate_time"] = capture_output_candidate_time
-    if partial_output is not None and _accepts_keyword(stream_round_fn, "partial_output"):
+    if partial_output is not None:
         stream_kwargs["partial_output"] = partial_output
-    if on_tool_call_delta is not None and _accepts_keyword(stream_round_fn, "on_tool_call_delta"):
+    if on_tool_call_delta is not None:
         stream_kwargs["on_tool_call_delta"] = on_tool_call_delta
     return await stream_round_fn(
         response,
@@ -207,14 +200,6 @@ def _document_draft_observer(
         )
 
     return DocumentDraftStreamer(tool_names=tool_names, draft_id_prefix=step_id, emit=emit).on_tool_call_delta
-
-
-def _accepts_keyword(fn: Callable[..., Any], keyword: str) -> bool:
-    try:
-        parameters = signature(fn).parameters
-    except (TypeError, ValueError):
-        return True
-    return keyword in parameters or any(parameter.kind == Parameter.VAR_KEYWORD for parameter in parameters.values())
 
 
 def _freeze_observation(observation: Any) -> None:
@@ -484,12 +469,8 @@ async def run_agent_round(
             accumulated_usage=accumulate_usage(accumulated_usage, usage_data),
             context=final_context,
             announced_tool_names=_announced_tool_names(call_kwargs),
-            output_deferred=defer_output and _accepts_keyword(stream_round_fn, "defer_output"),
-            allow_deferred_reasoning_output=(
-                defer_output
-                and allow_deferred_reasoning_output
-                and _accepts_keyword(stream_round_fn, "allow_deferred_reasoning_output")
-            ),
+            output_deferred=defer_output,
+            allow_deferred_reasoning_output=(defer_output and allow_deferred_reasoning_output),
             llm_lifecycle=(lifecycle if lifecycle is not None and not lifecycle.terminal_emitted else None),
         )
     except asyncio.CancelledError as exc:
