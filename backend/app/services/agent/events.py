@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -428,43 +428,3 @@ class ContextResult(AgentEventBase):
     context_type: Literal["geolocation"]
     request_id: str
     status: Literal["provided", "denied", "timeout", "unavailable"]
-
-
-AnyAgentEvent = Annotated[
-    RunStarted
-    | StepStarted
-    | ToolCallStarted
-    | ToolCallDelta
-    | ToolCallCompleted
-    | StepCompleted
-    | RunLimitReached
-    | RunInterrupted
-    | RunFailed
-    | RunCompleted
-    | LLMRoundStarted
-    | LLMRoundFirstOutputDelta
-    | LLMRoundCompleted
-    | LLMRoundFailed
-    | LLMRoundCancelled
-    | RetrievalStarted
-    | RetrievalCompleted
-    | RetrievalFailed
-    | RetrievalCancelled
-    | ToolAttemptStarted
-    | ToolAttemptCompleted
-    | SuggestedQuestionsPending
-    | SuggestedQuestionsReady
-    | ConversationTitleUpdated
-    | RunProgressUpdated
-    | PlanSnapshot
-    | PlanStepUpdated
-    | ToolResultDigest
-    | EvidenceItemUpserted
-    | ContentBlockUpserted
-    | ContentBlockDiscarded
-    | SystemPromptPrepared
-    | ContextStatusUpdated
-    | ContextRequired
-    | ContextResult,
-    Field(discriminator="type"),
-]

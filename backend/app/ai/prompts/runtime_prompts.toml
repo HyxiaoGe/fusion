@@ -30,8 +30,6 @@ The user turned on plan mode to follow how you work on this task. Before startin
 The plan is shown to the user as progress. It does not restrict which tools you may call, in what order, or when you answer; adjust your approach freely as results come in. When the approach materially changes, call the plan tool again with the revised steps, and you may mark steps in_progress or completed as you go.
 Do not mention the plan tool, step ids, or these rules in reasoning or in the final answer."""
 
-summary_non_disclosure = """Address the user directly in the final answer. Do not mention internal stop reasons, search strategy, or processing steps; clearly state uncertainty for unverified information."""
-
 no_progress_summary = """The current searches are no longer producing useful new information. Give the final answer directly from the information already collected. Do not call any more tools.
 
 Address the user directly in the final answer. Do not mention internal stop reasons, search strategy, or processing steps; clearly state uncertainty for unverified information."""

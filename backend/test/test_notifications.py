@@ -22,7 +22,7 @@ from app.db.models import AgentSession, Changelog, Conversation, Notification, N
 from app.db.notification_repository import NotificationRepository
 from app.db.repositories import ConversationRepository
 from app.schemas.response import ApiException
-from app.services.notification_service import NotificationService, enqueue_run_notification, get_unread_conversation_ids
+from app.services.notification_service import NotificationService, enqueue_run_notification
 from app.utils.time import utc_now
 
 
@@ -206,7 +206,7 @@ def test_pagination_and_global_unread_projection_survive_read_revision_gaps(db):
     assert third.items[0].read_at is not None
     assert third.next_cursor is None
     assert third.items[0].created_at.utcoffset().total_seconds() == 0
-    assert get_unread_conversation_ids(db, "user-1") == ["conv-1", "conv-2"]
+    assert NotificationRepository(db).unread_conversation_ids("user-1") == ["conv-1", "conv-2"]
 
 
 def test_exact_run_bulk_read_does_not_clear_retry(db):
@@ -279,7 +279,7 @@ def test_deleted_source_removes_notifications_and_unread_projection(db):
     assert page.unread_count == 0
     assert page.unread_conversation_ids == []
     assert page.revision == previous_revision + 1
-    assert get_unread_conversation_ids(db, "user-1") == []
+    assert NotificationRepository(db).unread_conversation_ids("user-1") == []
     with pytest.raises(ApiException) as error:
         service.mark_result_read("user-1", conversation_id="conv-1", results=[reference])
     assert error.value.status_code == 404

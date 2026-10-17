@@ -60,10 +60,6 @@ setup_root_logger()
 
 # 主应用日志
 app_logger = setup_logger("app", "./logs/app.log")
-# API日志
-api_logger = setup_logger("api", "./logs/api.log")
-# LLM日志
-llm_logger = setup_logger("llm", "./logs/llm.log")
 
 # 输出一条明显的日志，帮助确认配置生效
 app_logger.info("=== 日志系统初始化完成 ===")
