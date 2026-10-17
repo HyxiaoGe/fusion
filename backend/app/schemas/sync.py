@@ -18,7 +18,6 @@ class SyncRequest(BaseModel):
 
 class SyncActivity(BaseModel):
     streaming: list[str]
-    unread: list[str]
 
 
 class SyncNotifications(BaseModel):

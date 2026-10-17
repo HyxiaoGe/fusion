@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildChatFromServerConversation,
-  getConversationHydrationView,
   parseServerTimestamp,
   shouldHydrateConversation,
 } from './conversationHydration';
@@ -268,28 +267,6 @@ describe('conversationHydration', () => {
     expect(shouldHydrateConversation(null)).toBe(true);
     expect(shouldHydrateConversation({ messages: [] })).toBe(true);
     expect(shouldHydrateConversation({ messages: [{ id: 'msg-1' }] as any[] })).toBe(false);
-  });
-
-  it('treats empty-shell chats with server errors as a hydration error state', () => {
-    expect(
-      getConversationHydrationView({
-        chatId: 'chat-1',
-        chat: { messages: [] },
-        isLoadingServerChat: false,
-        serverError: '加载聊天数据失败',
-      })
-    ).toBe('error');
-  });
-
-  it('treats empty-shell chats without errors as loading until hydrated', () => {
-    expect(
-      getConversationHydrationView({
-        chatId: 'chat-1',
-        chat: { messages: [] },
-        isLoadingServerChat: false,
-        serverError: null,
-      })
-    ).toBe('loading');
   });
 
   it('hydrates assistant thinking blocks from content', () => {

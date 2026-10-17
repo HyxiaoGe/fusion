@@ -297,17 +297,3 @@ export function shouldHydrateConversation(
   return !chat || chat.messages.length === 0;
 }
 
-export function getConversationHydrationView(options: {
-  chatId?: string | null;
-  chat: Pick<Conversation, 'messages'> | null | undefined;
-  isLoadingServerChat: boolean;
-  serverError?: string | null;
-}): 'loading' | 'error' | 'ready' {
-  const { chatId, chat, isLoadingServerChat, serverError } = options;
-  if (!chatId) return 'ready';
-  const needsHydration = shouldHydrateConversation(chat);
-  if (!needsHydration) return 'ready';
-  if (serverError) return 'error';
-  if (isLoadingServerChat || needsHydration) return 'loading';
-  return 'ready';
-}

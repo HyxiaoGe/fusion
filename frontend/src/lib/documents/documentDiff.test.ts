@@ -1,15 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildDocumentDiff, diffDocumentText, type DocumentDiffResult, type DocumentTextDiffSegment } from './documentDiff';
+import { buildDocumentDiff, type DocumentDiffResult } from './documentDiff';
 
 function reconstructBody(result: DocumentDiffResult, side: 'before' | 'after'): string {
   return result.segments.map(segment => segment.kind === 'equal'
     ? segment.text
     : segment.scope === 'body' ? segment[side] : '').join('');
-}
-
-function reconstructText(result: DocumentTextDiffSegment[], side: 'before' | 'after'): string {
-  return result.filter(segment => segment.kind === 'equal' || segment.kind === (side === 'before' ? 'removed' : 'added'))
-    .map(segment => segment.text).join('');
 }
 
 describe('buildDocumentDiff', () => {
@@ -147,38 +142,5 @@ describe('buildDocumentDiff', () => {
     expect(result.segments.at(-1)).toEqual({ kind: 'equal', text: '\n共同结尾' });
     expect(reconstructBody(result, 'before')).toBe(`共同开头\n\n${before}共同结尾`);
     expect(reconstructBody(result, 'after')).toBe(`共同开头\n\n${after}共同结尾`);
-  });
-});
-
-describe('diffDocumentText', () => {
-  it('highlights a small Chinese change rather than marking the whole title as modified', () => {
-    expect(diffDocumentText('杭州两日游', '杭州三日游')).toEqual([
-      { kind: 'equal', text: '杭州' }, { kind: 'removed', text: '两' }, { kind: 'added', text: '三' }, { kind: 'equal', text: '日游' },
-    ]);
-  });
-
-  it('preserves whole Unicode graphemes, including emoji modifiers and joining sequences', () => {
-    const result = diffDocumentText('行程👩‍👩‍👧‍👦👍🏽结束', '行程👩‍👩‍👧‍👦👍🏻结束');
-    expect(result).toEqual([
-      { kind: 'equal', text: '行程👩‍👩‍👧‍👦' }, { kind: 'removed', text: '👍🏽' }, { kind: 'added', text: '👍🏻' }, { kind: 'equal', text: '结束' },
-    ]);
-    expect(reconstructText(result, 'before')).toBe('行程👩‍👩‍👧‍👦👍🏽结束');
-    expect(reconstructText(result, 'after')).toBe('行程👩‍👩‍👧‍👦👍🏻结束');
-  });
-
-  it('retains whitespace, additions and removals in inline comparison', () => {
-    for (const [before, after] of [['a  b\n', 'a b\n'], ['', '新增'], ['删除', ''], ['abcabc', 'abcxyzabc']]) {
-      const result = diffDocumentText(before, after);
-      expect(reconstructText(result, 'before')).toBe(before);
-      expect(reconstructText(result, 'after')).toBe(after);
-    }
-    expect(diffDocumentText('', '')).toEqual([]);
-  });
-
-  it('falls back to whole text for complex Markdown or oversized content', () => {
-    for (const before of ['```ts\n1\n```', '|列|值|\n|---|---|\n|1|2|', ':::tip\n1\n:::', '- 1\n- 2', '甲'.repeat(2_000)]) {
-      const after = `${before}改`;
-      expect(diffDocumentText(before, after)).toEqual([{ kind: 'removed', text: before }, { kind: 'added', text: after }]);
-    }
   });
 });

@@ -331,9 +331,3 @@ export function makeSelectConversationContextStatus(
   );
 }
 
-export function selectConversationContextUsage(
-  state: ContextStateLike,
-  conversationId: string | null | undefined,
-): ContextUsage | null {
-  return selectConversationContextStatus(state, conversationId)?.usage ?? null;
-}

@@ -12,8 +12,6 @@ import {
   createKnowledgeBase,
   deleteKnowledgeBase,
   deleteKnowledgeDocument,
-  getKnowledgeBase,
-  getKnowledgeDocument,
   getKnowledgeTask,
   listKnowledgeBases,
   listKnowledgeDocumentChunks,
@@ -62,15 +60,6 @@ describe('知识库 API client', () => {
     });
   });
 
-  it('读取知识库详情时编码路径 ID', async () => {
-    const knowledgeBase = { id: 'kb/一', name: '产品知识' };
-    apiRequestMock.mockResolvedValue({ knowledge_base: knowledgeBase });
-
-    await expect(getKnowledgeBase('kb/一')).resolves.toBe(knowledgeBase);
-
-    expect(apiRequestMock).toHaveBeenCalledWith('/api/knowledge-bases/kb%2F%E4%B8%80');
-  });
-
   it('PATCH 编码路径 ID，且不会发送 null 或 undefined 字段', async () => {
     const knowledgeBase = { id: 'kb/1', name: '新名称' };
     apiRequestMock.mockResolvedValue({ knowledge_base: knowledgeBase });
@@ -107,17 +96,6 @@ describe('知识库 API client', () => {
 
     expect(apiRequestMock).toHaveBeenCalledWith(
       '/api/knowledge-bases/kb%2F1/documents?page=3&page_size=25',
-    );
-  });
-
-  it('读取文档详情时编码知识库和文档 ID', async () => {
-    const document = { id: 'doc/一', knowledge_base_id: 'kb/1', filename: '说明.md' };
-    apiRequestMock.mockResolvedValue({ document });
-
-    await expect(getKnowledgeDocument('kb/1', 'doc/一')).resolves.toBe(document);
-
-    expect(apiRequestMock).toHaveBeenCalledWith(
-      '/api/knowledge-bases/kb%2F1/documents/doc%2F%E4%B8%80',
     );
   });
 

@@ -255,7 +255,7 @@ async def finalize_stream(
         if not result:
             logger.debug(f"finalize 跳过（Lua 原子检查）：锁不匹配 conv_id={conversation_id}")
         else:
-            await mark_stream_finished(conversation_id, notify=True)
+            await mark_stream_finished(conversation_id)
         return bool(result)
     except Exception as e:
         logger.warning(f"finalize stream 失败: {e}")
@@ -291,7 +291,7 @@ async def cancel_stream(
         )
         if result:
             logger.info(f"流已通过 Redis 取消: conv_id={conversation_id}")
-            await mark_stream_finished(conversation_id, notify=False)
+            await mark_stream_finished(conversation_id)
         else:
             logger.debug(f"cancel_stream 跳过（CAS 不匹配或流已结束）: conv_id={conversation_id}")
         return bool(result)

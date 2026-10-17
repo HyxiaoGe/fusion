@@ -4,7 +4,6 @@ import type {
   KnowledgeBaseCreatePayload,
   KnowledgeBasePage,
   KnowledgeBaseUpdatePayload,
-  KnowledgeDocument,
   KnowledgeDocumentChunkPage,
   KnowledgeDocumentPage,
   KnowledgeDocumentUploadResult,
@@ -21,10 +20,6 @@ const defaultPageSize = 20;
 
 interface KnowledgeBaseEnvelope {
   knowledge_base: KnowledgeBase;
-}
-
-interface KnowledgeDocumentEnvelope {
-  document: KnowledgeDocument;
 }
 
 interface KnowledgeTaskEnvelope {
@@ -70,17 +65,6 @@ export async function listKnowledgeBases(
   return getRequest<KnowledgeBasePage>(`${knowledgeBasesPath}/?${paginationQuery(params)}`, signal);
 }
 
-export async function getKnowledgeBase(
-  knowledgeBaseId: string,
-  signal?: AbortSignal,
-): Promise<KnowledgeBase> {
-  const data = await getRequest<KnowledgeBaseEnvelope>(
-    `${knowledgeBasesPath}/${encodeId(knowledgeBaseId)}`,
-    signal,
-  );
-  return data.knowledge_base;
-}
-
 export async function updateKnowledgeBase(
   knowledgeBaseId: string,
   payload: KnowledgeBaseUpdatePayload,
@@ -120,18 +104,6 @@ export async function listKnowledgeDocuments(
     `${knowledgeBasesPath}/${encodeId(knowledgeBaseId)}/documents?${paginationQuery(params)}`,
     signal,
   );
-}
-
-export async function getKnowledgeDocument(
-  knowledgeBaseId: string,
-  documentId: string,
-  signal?: AbortSignal,
-): Promise<KnowledgeDocument> {
-  const data = await getRequest<KnowledgeDocumentEnvelope>(
-    `${knowledgeBasesPath}/${encodeId(knowledgeBaseId)}/documents/${encodeId(documentId)}`,
-    signal,
-  );
-  return data.document;
 }
 
 export async function listKnowledgeDocumentChunks(

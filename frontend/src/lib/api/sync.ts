@@ -75,11 +75,11 @@ export async function syncConversationViewing(conversationId: string, signal?: A
   if (data.viewing !== true) throw sectionFailed('viewing');
 }
 
-/** 当前用户正在生成、以及生成完还没打开过的对话。 */
+/** 当前用户正在生成的对话。 */
 export async function syncConversationActivity(signal?: AbortSignal): Promise<ConversationActivity> {
   const data = await enqueue('activity', signal);
   if (!data.activity) throw sectionFailed('activity');
-  return { streaming: data.activity.streaming ?? [], unread: data.activity.unread ?? [] };
+  return { streaming: data.activity.streaming ?? [] };
 }
 
 /** 通知版本号；读状态变化也会推进，版本不变时列表无需重取。 */
