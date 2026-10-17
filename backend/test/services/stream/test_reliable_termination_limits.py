@@ -1,16 +1,17 @@
-"""预算触顶时通过实际正文提交路径交付已有事实和未完成计划。"""
+"""预算触顶时产品结果也走模型的无工具总结，服务端不按结构化结果拼回答。"""
 
 import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.schemas.chat import PlaceResult, PlaceResultsBlock
+from app.schemas.chat import PlaceResult, PlaceResultsBlock, TextBlock, Usage
 from app.services.agent.plan_coordinator import PlanCoordinator
 from app.services.stream.agent_loop_driver import AgentLoopExit, run_agent_loop
 from app.services.stream.agent_loop_policy import AgentLoopLimits, map_run_terminal_state
 from app.services.stream.agent_loop_run_completion import AgentLoopRunCompletionContext, finalize_completed_run
 from app.services.stream.agent_loop_state import AgentLoopState
+from app.services.stream.limit_summary import LimitSummaryOutcome
 from app.services.stream.step_lifecycle import AgentStepContext
 from test.services.stream.test_agent_loop_driver import _runtime
 
@@ -59,7 +60,6 @@ def _state(limit, unfinished_plan):
         plan_coordinator=_coordinator(unfinished_plan),
         step=8 if limit == "max_steps" else 1,
         total_tool_calls=20 if limit == "max_tool_calls" else 1,
-        product_tool_attempted=True,
         content_blocks=[
             PlaceResultsBlock(
                 type="place_results",
@@ -86,36 +86,42 @@ async def _start_step(**kwargs):
 
 @pytest.mark.parametrize("limit", ["max_steps", "max_tool_calls", "timeout"])
 @pytest.mark.parametrize("unfinished_plan", [False, True])
-def test_limit_outputs_known_place_and_unfinished_plan_without_more_execution(limit, unfinished_plan):
+def test_limit_with_product_results_uses_model_summary(limit, unfinished_plan):
     asyncio.run(_run_limit_case(limit, unfinished_plan))
 
 
 async def _run_limit_case(limit, unfinished_plan):
     state = _state(limit, unfinished_plan)
     messages = [{"role": "user", "content": "查附近咖啡店，再查天气"}]
+    summary_text = "已查到真实咖啡店；天气还没来得及查询。"
+
+    async def limit_summary(*, request):
+        request.content_blocks.append(TextBlock(type="text", id="summary", text=summary_text))
+        return LimitSummaryOutcome(accumulated_usage=Usage(input_tokens=1, output_tokens=1))
+
+    summary = AsyncMock(side_effect=limit_summary)
     runtime = _runtime(
         plan_mode="on" if unfinished_plan else "off",
         limits=AgentLoopLimits(max_steps=8, max_tool_calls=20, total_timeout_s=30),
         clock=lambda: 31.0 if limit == "timeout" else 1.0,
         start_step_fn=_start_step,
         complete_step_fn=AsyncMock(),
+        run_limit_summary_step_fn=summary,
     )
-    output = []
+    append_chunk = AsyncMock()
 
-    async def collect_chunk(conversation_id, stage, text, block_id, **kwargs):
-        assert stage == "answering"
-        output.append(text)
-
-    with patch("app.services.stream_state_service.append_chunk", collect_chunk):
+    with patch("app.services.stream_state_service.append_chunk", append_chunk):
         outcome = await run_agent_loop(db=object(), messages=messages, state=state, runtime=runtime)
-    answer = "".join(output)
-    assert "真实咖啡店" in answer
-    if unfinished_plan:
-        assert "天气" in answer and "未完成" in answer
-        assert next(item for item in state.plan_coordinator.items if item["id"] == "weather")["status"] != "completed"
+
+    summary.assert_awaited_once()
+    append_chunk.assert_not_awaited()
+    assert [block.type for block in state.content_blocks] == ["place_results", "text"]
+    assert state.content_blocks[-1].text == summary_text
     assert outcome.exit == AgentLoopExit.COMPLETED
     assert state.limit_reason == limit
-    assert any(getattr(block, "text", None) == answer for block in state.content_blocks)
+    assert state.finish_reason == ("timeout" if limit == "timeout" else "tool_calls")
+    if unfinished_plan:
+        assert next(item for item in state.plan_coordinator.items if item["id"] == "weather")["status"] != "completed"
     await _assert_terminal_state(state, runtime, limit, unfinished_plan)
 
 

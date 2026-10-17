@@ -34,7 +34,6 @@ from app.services.documents.service import (  # noqa: E402
 )
 from app.services.documents.sources import document_sources_from_blocks  # noqa: E402
 from app.services.mcp.tool_contract import max_tool_argument_json_bytes  # noqa: E402
-from app.services.stream.product_result_answer import has_product_result_blocks  # noqa: E402
 from app.services.tool_handlers.base import ToolRuntimeContext  # noqa: E402
 from app.services.tool_handlers.document import (  # noqa: E402
     DocumentToolBinding,
@@ -272,7 +271,7 @@ class DocumentToolTests(_DatabaseCase, unittest.IsolatedAsyncioTestCase):
             )
         self.assertFalse(handler.supports_automatic_retry)
 
-    def test_document_block_is_rich_content_but_not_a_product_result(self):
+    def test_document_block_is_registered_rich_content(self):
         block = {
             "type": "document",
             "id": "blk-1",
@@ -287,7 +286,6 @@ class DocumentToolTests(_DatabaseCase, unittest.IsolatedAsyncioTestCase):
         [decoded] = deserialize_content_blocks([block])
         self.assertIsInstance(decoded, DocumentBlock)
         self.assertTrue(is_registered_rich_content_block(decoded))
-        self.assertFalse(has_product_result_blocks([decoded]))
 
     def test_tool_definitions_and_argument_budget(self):
         create = build_create_document_tool()["function"]

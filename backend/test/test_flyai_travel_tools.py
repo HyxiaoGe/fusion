@@ -23,12 +23,9 @@ from app.services.mcp.flyai_travel_tools import (
     build_flyai_travel_binding,
     build_flyai_user_scope,
 )
+from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_loop_wiring import _load_dynamic_tools
-from app.services.stream.product_result_answer import (
-    build_grounded_product_answer,
-    build_product_tool_failure_answer,
-    neutralize_product_provider_mentions,
-)
+from app.services.stream.product_structured_answers import PRODUCT_STRUCTURED_ANSWERS
 from app.services.stream.tool_executor import ToolExecutionBatchRequest, execute_tool_handler
 
 
@@ -540,7 +537,7 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("user-123", expected_scope)
         self.assertNotIn("adapter-secret", json.dumps(enabled.audit_bindings))
 
-    async def test_content_block_registry_grounded_answer_and_validator_cover_travel(self):
+    async def test_content_block_registry_and_answer_sanitizer_cover_travel(self):
         async def respond(request: httpx.Request) -> httpx.Response:
             return httpx.Response(
                 200,
@@ -554,7 +551,6 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
         result = await handler.execute({"origin": "深圳", "destination": "上海", "departure_date": "2026-08-01"})
         block = handler.build_content_block(result, "blk-flight", "log-flight")
         restored = deserialize_content_blocks([block.model_dump(mode="json")])
-        answer = build_grounded_product_answer(restored)
 
         self.assertIsInstance(restored[0], FlightResultsBlock)
         event = ContentBlockUpserted(
@@ -567,83 +563,16 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
             content_block=restored[0],
         )
         self.assertIsInstance(event.content_block, FlightResultsBlock)
-        self.assertIn("CZ1234", answer)
-        self.assertIn("深圳宝安国际机场", answer)
-        self.assertIn("08:30", answer)
-        self.assertIn("880元", answer)
+        self.assertEqual(restored[0].flights[0].flight_no, "CZ1234")
 
-        async def respond_train(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(
-                200,
-                json=_adapter_payload(transport_no="G100", request=json.loads(request.content)),
-            )
-
-        train_handler = _handler(FLYAI_SEARCH_TRAINS, httpx.MockTransport(respond_train))
-        train_result = await train_handler.execute(
-            {"origin": "深圳", "destination": "上海", "departure_date": "2026-08-01"}
+        sanitized = PRODUCT_STRUCTURED_ANSWERS.rewrite_answer(
+            "根据 FlyAI 和飞猪旅行返回的结果，search_flights 返回 CZ1234。",
+            AgentLoopState(content_blocks=restored),
         )
-        train_block = train_handler.build_content_block(train_result, "blk-train", "log-train")
-        mixed_blocks = [restored[0], train_block]
-        comparison = build_grounded_product_answer(mixed_blocks)
-        self.assertIn("同时返回深圳到上海", comparison)
-        self.assertIn("本次返回航班中参考价最低的是CZ1234", comparison)
-        self.assertIn("本次返回火车中用时最短的是G100", comparison)
-
-        flight_template = restored[0].flights[0]
-        slow_cheap_flight = flight_template.model_copy(
-            update={
-                "option_id": "opt-slow-cheap-flight",
-                "flight_no": "CZ1001",
-                "duration_s": 3 * 60 * 60,
-                "price": flight_template.price.model_copy(update={"amount_minor": 30_000}),
-            }
-        )
-        fast_expensive_flight = flight_template.model_copy(
-            update={
-                "option_id": "opt-fast-expensive-flight",
-                "flight_no": "CZ2002",
-                "duration_s": 60 * 60,
-                "price": flight_template.price.model_copy(update={"amount_minor": 100_000}),
-            }
-        )
-        multi_flight_block = restored[0].model_copy(
-            update={
-                "result_count": 2,
-                "flights": [slow_cheap_flight, fast_expensive_flight],
-            }
-        )
-        train_template = train_block.trains[0]
-        cheaper_train_block = train_block.model_copy(
-            update={
-                "trains": [
-                    train_template.model_copy(
-                        update={
-                            "duration_s": 2 * 60 * 60,
-                            "price": train_template.price.model_copy(update={"amount_minor": 20_000}),
-                        }
-                    )
-                ]
-            }
-        )
-        mapped_comparison = build_grounded_product_answer([multi_flight_block, cheaper_train_block])
-        self.assertIn("计划行程时长最短的是航班CZ2002", mapped_comparison)
-        self.assertNotIn("计划行程时长最短的是航班CZ1001", mapped_comparison)
-        self.assertIn("参考价最低的是高铁G100", mapped_comparison)
-
-        faster_train_block = cheaper_train_block.model_copy(
-            update={"trains": [cheaper_train_block.trains[0].model_copy(update={"duration_s": 45 * 60})]}
-        )
-        cross_mode_comparison = build_grounded_product_answer([multi_flight_block, faster_train_block])
-        self.assertIn("计划行程时长最短的是高铁G100", cross_mode_comparison)
-        neutralized = neutralize_product_provider_mentions(
-            "根据 FlyAI 和飞猪旅行返回的结果，search_flights 返回 CZ1234。"
-        )
-        self.assertIn("FlyAI", neutralized)
-        self.assertIn("飞猪旅行", neutralized)
-        self.assertNotIn("search_flights", neutralized)
-        self.assertIn("航班查询", neutralized)
-        failure = build_product_tool_failure_answer()
-        self.assertIn("航班或高铁", failure)
+        self.assertIn("FlyAI", sanitized)
+        self.assertIn("飞猪旅行", sanitized)
+        self.assertNotIn("search_flights", sanitized)
+        self.assertIn("航班查询", sanitized)
 
     async def test_dynamic_tool_loader_receives_user_id(self):
         captured: dict = {}

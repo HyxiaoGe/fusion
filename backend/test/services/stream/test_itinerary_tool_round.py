@@ -402,7 +402,7 @@ async def _check_tool_round_discards_old_stream_itinerary_when_identity_changes(
     ]
 
 
-async def _check_tool_round_records_repairs_observations_and_place_choices():
+async def _check_tool_round_records_observations_and_place_choices():
     weather_call = {"id": "tc-weather", "name": "weather_forecast", "arguments": '{"location":"上海"}'}
     train_call = {
         "id": "tc-train",
@@ -438,14 +438,14 @@ async def _check_tool_round_records_repairs_observations_and_place_choices():
 
     await handle_tool_calls_round(request=request)
 
-    assert set(state.pending_tool_repairs) == {"repair-weather"}
     assert {item.tool_name for item in state.itinerary_tool_observations} >= {"search_trains"}
-    assert state.pending_place_choices == {"place_search": choice}
+    # 等用户选地名不算工具故障；修参失败照常记为失败，结果交给模型处理。
     assert "place_search" not in state.failed_tool_names
+    assert "weather_forecast" in state.failed_tool_names
 
 
-def test_tool_round_records_repairs_observations_and_place_choices():
-    asyncio.run(_check_tool_round_records_repairs_observations_and_place_choices())
+def test_tool_round_records_observations_and_place_choices():
+    asyncio.run(_check_tool_round_records_observations_and_place_choices())
 
 
 def test_tool_round_checkpoints_source_and_itinerary_before_both_events():

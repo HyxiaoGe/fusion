@@ -34,7 +34,6 @@ class AgentRoundOutcomeRequest:
     step_number: int
     step_context: AgentStepContext
     round_result: AgentRoundResult
-    terminal: bool = False
 
 
 async def handle_agent_round_outcome(
@@ -71,11 +70,6 @@ async def _handle_agent_round_outcome(
 ) -> AgentLoopOutcome | None:
     if request.round_result.finish_reason == CONTENT_FILTER_FINISH_REASON:
         await _complete_content_filtered_round(request)
-        return AgentLoopOutcome(exit=AgentLoopExit.COMPLETED)
-
-    if request.terminal:
-        # 服务器确定性收尾不再请求模型补计划、修参或继续执行。
-        await _complete_text_round(request)
         return AgentLoopOutcome(exit=AgentLoopExit.COMPLETED)
 
     mode = request.runtime.mode
@@ -161,8 +155,6 @@ async def _complete_tool_protocol_error_round(
         max_tool_calls=request.runtime.limits.max_tool_calls,
         clock=request.runtime.clock,
     )
-    if request.runtime.structured_answers.has_answer(request.state):
-        return AgentLoopOutcome(exit=AgentLoopExit.PRODUCT_RESULT_READY)
     return AgentLoopOutcome(
         exit=AgentLoopExit.SUMMARY_REQUIRED,
         summary_finish_reason="tool_protocol_error",
@@ -199,40 +191,13 @@ async def _complete_text_round(request: AgentRoundOutcomeRequest) -> None:
 async def _commit_deferred_answer(
     request: AgentRoundOutcomeRequest,
 ) -> AgentRoundOutcomeRequest:
-    if request.terminal and request.state.limit_reason is not None:
-        return await _commit_terminal_structured_answer(request)
-
-    # 模型回答原样交付：不再按产品结果校验、工具失败或证据缺失替换成服务端模板（2026-10-05）。
-    if not request.round_result.content_buf.strip():
-        answer = request.runtime.structured_answers.compose_answer(request.state, request.messages)
-        if answer:
-            await _append_committed_answer(request, answer)
-            return _with_replaced_answer(request, answer)
+    # 模型回答原样交付；空回答和触顶走模型的无工具总结，服务端不按产品结果拼回答。
     if not request.round_result.output_deferred:
         return request
-    return await _commit_deferred_plain_answer(request, model_output_visible=True)
+    return await _commit_deferred_plain_answer(request)
 
 
-async def _commit_terminal_structured_answer(request: AgentRoundOutcomeRequest) -> AgentRoundOutcomeRequest:
-    """额度触顶后只交付已知产品事实，并如实说明不能继续执行的计划项。"""
-    structured_answers = request.runtime.structured_answers
-    answer = structured_answers.compose_terminal_answer(request.state, request.messages)
-    pending_items = request.state.plan_coordinator.pending_execution_items()
-    incomplete = ""
-    if pending_items:
-        titles = "、".join(str(item.get("title") or item.get("id")) for item in pending_items)
-        incomplete = f"本次执行已达到上限，以下任务尚未完成：{titles}。以上仅包含已经取得的结果。"
-    answer = "\n\n".join(part for part in (answer, incomplete) if part)
-    answer = structured_answers.rewrite_answer(answer, request.state)
-    await _append_committed_answer(request, answer)
-    return _with_replaced_answer(request, answer)
-
-
-async def _commit_deferred_plain_answer(
-    request: AgentRoundOutcomeRequest,
-    *,
-    model_output_visible: bool,
-) -> AgentRoundOutcomeRequest:
+async def _commit_deferred_plain_answer(request: AgentRoundOutcomeRequest) -> AgentRoundOutcomeRequest:
     answer = request.round_result.content_buf.strip()
     rejected = await _reject_protocol_residue(request, answer)
     if rejected is not None:
@@ -240,7 +205,7 @@ async def _commit_deferred_plain_answer(
         return _with_replaced_answer(request, rejected)
     answer = request.runtime.structured_answers.rewrite_answer(answer, request.state)
     if answer:
-        await _append_committed_answer(request, answer, model_output_visible=model_output_visible)
+        await _append_committed_answer(request, answer, model_output_visible=True)
     return _with_replaced_answer(request, answer)
 
 
@@ -267,11 +232,7 @@ async def _append_committed_answer(
     lifecycle = request.round_result.llm_lifecycle
     if lifecycle is not None:
         unchanged = model_output_visible and answer == request.round_result.content_buf
-        reason = output_reason or (
-            "deferred" if unchanged else "server_rewrite" if model_output_visible else "product_guard"
-        )
-        if not unchanged and reason == "deferred":
-            reason = "server_rewrite"
+        reason = output_reason or ("deferred" if unchanged else "server_rewrite")
         lifecycle.record_output(
             disposition="emitted" if unchanged else "replaced",
             source="model" if unchanged else "server",
@@ -296,7 +257,6 @@ def _with_replaced_answer(
         runtime=request.runtime,
         step_number=request.step_number,
         step_context=request.step_context,
-        terminal=request.terminal,
         round_result=AgentRoundResult(
             reasoning_buf=visible_reasoning,
             protocol_reasoning_buf=request.round_result.protocol_reasoning_buf,
@@ -315,8 +275,6 @@ def _with_replaced_answer(
 
 
 def _needs_empty_answer_summary(request: AgentRoundOutcomeRequest) -> bool:
-    if request.runtime.structured_answers.has_answer(request.state):
-        return False
     return (
         request.state.total_tool_calls > 0
         and not request.round_result.content_buf
@@ -365,11 +323,8 @@ async def _handle_tool_calls_round(request: AgentRoundOutcomeRequest) -> AgentLo
         request.state.record_no_progress_search_results(tool_outcome.no_progress_search_results)
     decision = request.runtime.structured_answers.after_tool_round(
         request.state,
-        tool_calls=request.round_result.tool_calls,
         outcome=tool_outcome,
     )
-    if decision is ToolRoundDecision.READY:
-        return AgentLoopOutcome(exit=AgentLoopExit.PRODUCT_RESULT_READY)
     if decision is ToolRoundDecision.CONTINUE:
         return None
     should_summarize = request.state.should_summarize_no_progress_search()

@@ -52,7 +52,7 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_failed_tool_stop_delivers_model_answer_without_recovery_round(self):
-        state = AgentLoopState(product_tool_attempted=True)
+        state = AgentLoopState()
         state.record_tool_outcome("weather_forecast", "failed")
         request = self.request(state)
         with patch("app.services.stream_state_service.append_chunk", AsyncMock()) as append:
@@ -80,7 +80,7 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_failed_domain_tool_with_real_web_evidence_keeps_uncited_or_unknown_citation_answer(self):
         for suffix in ("", "[999]"):
             with self.subTest(suffix=suffix):
-                state = AgentLoopState(product_tool_attempted=True)
+                state = AgentLoopState()
                 state.record_tool_outcome("weather_forecast", "failed")
                 self.record_search(state)
                 request = self.request(state)
@@ -108,10 +108,7 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any(block.type == "text" for block in state.content_blocks))
 
     async def test_user_input_repair_adds_no_recovery_prompt(self):
-        state = AgentLoopState(
-            product_tool_attempted=True,
-            pending_tool_repairs={"r": {"requires_user_input": True, "required_fields": ["location"]}},
-        )
+        state = AgentLoopState()
         state.record_tool_outcome("weather_forecast", "failed")
         request = self.request(state)
         with patch("app.services.stream_state_service.append_chunk", AsyncMock()):
@@ -119,7 +116,7 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request.messages[-1]["role"], "user")
 
     async def test_place_choice_adds_no_recovery_prompt(self):
-        state = AgentLoopState(product_tool_attempted=True)
+        state = AgentLoopState()
         state.record_tool_outcome(
             "route_compare",
             "failed",
@@ -130,12 +127,6 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
         with patch("app.services.stream_state_service.append_chunk", AsyncMock()):
             await handle_agent_round_outcome(request=request)
         self.assertEqual(request.messages[-1]["role"], "user")
-
-    def test_later_success_clears_pending_place_choice(self):
-        state = AgentLoopState(product_tool_attempted=True)
-        state.record_tool_outcome("route_compare", "failed", place_choice={"place_name": "外滩", "candidates": [{}]})
-        state.record_tool_outcome("route_compare", "success")
-        self.assertEqual(state.pending_place_choices, {})
 
     async def test_failed_mcp_round_streams_output(self):
         from app.services.stream.agent_loop_driver import _run_round
@@ -183,7 +174,7 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
         from app.schemas.chat import SearchBlock, SourceReference
         from app.services.tool_handlers.base import ToolResult
 
-        state = AgentLoopState(product_tool_attempted=True)
+        state = AgentLoopState()
         state.record_tool_outcome("weather_forecast", "failed")
         state.record_tool_outcome("web_search", "success")
         url = "https://www.hko.gov.hk/wxinfo/currwx/fndc.htm"

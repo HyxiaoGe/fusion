@@ -19,29 +19,6 @@ from app.services.stream.itinerary_result_composer import compose_itinerary_resu
 from app.services.stream.tool_execution_result import ToolExecutionRecord
 
 
-def record_tool_repairs(
-    state: AgentLoopState,
-    results: list[ToolExecutionRecord],
-) -> None:
-    for record in results:
-        data = getattr(record.result, "data", None)
-        resolves_repair_id = data.get("resolves_repair_id") if isinstance(data, dict) else None
-        if isinstance(resolves_repair_id, str):
-            state.pending_tool_repairs.pop(resolves_repair_id, None)
-        repair = data.get("repair") if isinstance(data, dict) else None
-        if not isinstance(repair, dict):
-            continue
-        repair_id = repair.get("repair_id")
-        if not isinstance(repair_id, str) or not repair_id:
-            repair_id = str(record.tool_call.get("id", "")) or record.tool_name
-        state.pending_tool_repairs[repair_id] = {
-            "required_fields": [field for field in repair.get("required_fields", []) if isinstance(field, str)][:4],
-            "retryable": repair.get("retryable") is True,
-            "requires_user_input": repair.get("requires_user_input") is True,
-            "retry_exhausted": repair.get("retry_exhausted") is True,
-        }
-
-
 def record_itinerary_tool_observations(
     state: AgentLoopState,
     results: list[ToolExecutionRecord],

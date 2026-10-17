@@ -458,52 +458,15 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.consecutive_no_progress_search_results, 2)
         self.assertIsNone(state.current_step_id)
 
-    async def test_failed_product_tool_attempt_is_recorded_for_next_round_guard(self):
-        state = AgentLoopState()
-        state.mark_current_step("step-product-failed")
-
-        async def handle_tool_calls_round_fn(**kwargs):
-            kwargs["request"].on_tools_executed(1)
-            return ToolRoundOutcome(
-                tool_call_count=1,
-                tool_names=[],
-                rich_result_count=0,
-            )
-
-        outcome = await handle_agent_round_outcome(
-            request=AgentRoundOutcomeRequest(
-                db="db",
-                messages=[{"role": "user", "content": "比较通勤路线"}],
-                state=state,
-                runtime=_runtime(handle_tool_calls_round_fn=handle_tool_calls_round_fn),
-                step_number=1,
-                step_context=_step_context("step-product-failed"),
-                round_result=AgentRoundResult(
-                    reasoning_buf="",
-                    content_buf="",
-                    tool_calls=[{"id": "tc-route", "name": "route_compare", "arguments": "{}"}],
-                    finish_reason="tool_calls",
-                    accumulated_usage=Usage(input_tokens=2, output_tokens=3),
-                ),
-            )
-        )
-
-        self.assertIsNone(outcome)
-        self.assertTrue(state.product_tool_attempted)
-
-    async def test_required_user_input_stops_before_another_model_round(self):
+    async def test_required_user_input_returns_to_model_round(self):
         state = AgentLoopState()
         state.mark_current_step("step-weather-ambiguous")
 
         async def handle_tool_calls_round_fn(**kwargs):
             await _complete_tool_round_step(kwargs)
+            # 工具结果带 repair.requires_user_input=true，由模型下一轮直接问用户。
             request = kwargs["request"]
             request.on_tools_executed(1)
-            request.agent_state.pending_tool_repairs["repair-weather"] = {
-                "required_fields": ["location"],
-                "retryable": False,
-                "requires_user_input": True,
-            }
             return ToolRoundOutcome(
                 tool_call_count=1,
                 tool_names=["weather_forecast"],
@@ -536,41 +499,12 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        self.assertEqual(outcome.exit, AgentLoopExit.PRODUCT_RESULT_READY)
+        self.assertIsNone(outcome)
         self.assertEqual(state.total_tool_calls, 1)
         self.assertIsNone(state.current_step_id)
 
-    async def test_failed_travel_tool_attempt_is_recorded_for_next_round_guard(self):
-        state = AgentLoopState()
-        state.mark_current_step("step-travel-failed")
-
-        async def handle_tool_calls_round_fn(**kwargs):
-            kwargs["request"].on_tools_executed(1)
-            return ToolRoundOutcome(tool_call_count=1, tool_names=[], rich_result_count=0)
-
-        outcome = await handle_agent_round_outcome(
-            request=AgentRoundOutcomeRequest(
-                db="db",
-                messages=[{"role": "user", "content": "查询航班"}],
-                state=state,
-                runtime=_runtime(handle_tool_calls_round_fn=handle_tool_calls_round_fn),
-                step_number=1,
-                step_context=_step_context("step-travel-failed"),
-                round_result=AgentRoundResult(
-                    reasoning_buf="",
-                    content_buf="",
-                    tool_calls=[{"id": "tc-flight", "name": "search_flights", "arguments": "{}"}],
-                    finish_reason="tool_calls",
-                    accumulated_usage=Usage(input_tokens=2, output_tokens=3),
-                ),
-            )
-        )
-
-        self.assertIsNone(outcome)
-        self.assertTrue(state.product_tool_attempted)
-
-    async def test_empty_deferred_model_answer_still_completes_from_product_result(self):
-        state = AgentLoopState()
+    async def test_empty_deferred_answer_after_product_result_goes_to_model_summary(self):
+        state = AgentLoopState(total_tool_calls=1)
         state.mark_current_step("step-product-empty")
         state.content_blocks.append(
             PlaceResultsBlock(
@@ -605,14 +539,15 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
                 )
             )
 
-        self.assertEqual(outcome.exit, AgentLoopExit.COMPLETED)
-        self.assertIn("示例咖啡", append_chunk.await_args.args[2])
+        self.assertEqual(outcome.exit, AgentLoopExit.SUMMARY_REQUIRED)
+        append_chunk.assert_not_awaited()
+        self.assertEqual([block.type for block in state.content_blocks], ["place_results"])
 
     async def test_deferred_model_answer_is_delivered_as_is_after_product_tool_failure(self):
         model_answer = "地图查询这次失败了，我没法确认具体路线；你可以换个更具体的地点再问我。"
         for product_result in (False, True):
             with self.subTest(product_result=product_result):
-                state = AgentLoopState(product_tool_attempted=True)
+                state = AgentLoopState()
                 state.record_tool_outcome("route_compare", "failed")
                 if product_result:
                     state.content_blocks.append(
