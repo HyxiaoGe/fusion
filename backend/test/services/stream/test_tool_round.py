@@ -21,6 +21,7 @@ from app.schemas.content_block_registry import CONTENT_BLOCK_REGISTRY, ContentBl
 from app.services.source_evidence_ledger import stable_web_evidence_id
 from app.services.stream import tool_round as tool_round_module
 from app.services.stream.agent_loop_state import AgentLoopState
+from app.services.stream.product_tool_round import record_tool_repairs
 from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream.tool_execution_result import ToolExecutionRecord
 from app.services.stream.tool_round import (
@@ -413,8 +414,8 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
             log_id="log-b",
         )
 
-        tool_round_module._record_tool_repairs(state, [first_repair, second_repair])
-        tool_round_module._record_tool_repairs(
+        record_tool_repairs(state, [first_repair, second_repair])
+        record_tool_repairs(
             state,
             [
                 ToolExecutionRecord(
@@ -563,7 +564,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
             source_plan=None,
             built_content_blocks=built,
         )
-        await tool_round_module.emit_product_result_blocks(
+        await tool_round_module.emit_rich_result_blocks(
             request,
             [record],
             built_content_blocks=built,
@@ -600,7 +601,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
         built = tool_round_module.build_tool_round_content_blocks([record])
 
         with self.assertLogs("app.services.stream.tool_round", level="WARNING"):
-            await tool_round_module.emit_product_result_blocks(
+            await tool_round_module.emit_rich_result_blocks(
                 request,
                 [record],
                 built_content_blocks=built,
@@ -633,7 +634,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
         built = tool_round_module.build_tool_round_content_blocks([record])
 
         with self.assertRaises(StreamWriteTerminalError):
-            await tool_round_module.emit_product_result_blocks(
+            await tool_round_module.emit_rich_result_blocks(
                 Mock(emitter=emitter),
                 [record],
                 built_content_blocks=built,
@@ -1770,7 +1771,9 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
 
 class PendingPlaceChoiceTests(unittest.TestCase):
     def test_only_ambiguous_failure_with_candidates_becomes_place_choice(self):
-        from app.services.stream.tool_round import _pending_place_choice
+        from app.services.stream.product_structured_answers import PRODUCT_STRUCTURED_ANSWERS
+
+        _pending_place_choice = PRODUCT_STRUCTURED_ANSWERS.pending_user_choice
 
         details = {"place_name": "外滩", "candidates": [{"candidate": 1}, {"candidate": 2}]}
         ambiguous = ToolResult(status="failed", data={"error_code": "ambiguous_location", "error_details": details})

@@ -7,6 +7,7 @@ from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_loop_step_requests import build_limit_summary_step_request, build_tool_round_request
 from app.services.stream.agent_round import AgentRoundResult
+from app.services.stream.product_structured_answers import PRODUCT_STRUCTURED_ANSWERS
 from app.services.stream.run_output import ConversationStreamOutput
 from app.services.stream.step_lifecycle import AgentStepContext
 
@@ -80,7 +81,7 @@ class AgentLoopStepRequestTests(unittest.TestCase):
             output_deferred=True,
             allow_deferred_reasoning_output=True,
         )
-        runtime = _runtime()
+        runtime = _runtime(structured_answers=PRODUCT_STRUCTURED_ANSWERS)
 
         request = build_tool_round_request(
             db="db",
@@ -113,6 +114,7 @@ class AgentLoopStepRequestTests(unittest.TestCase):
         self.assertIs(request.agent_state, state)
         self.assertIs(request.on_tools_executed.__self__, state)
         self.assertIs(request.on_tools_executed.__func__, state.record_executed_tool_calls.__func__)
+        self.assertIs(request.structured_answers, PRODUCT_STRUCTURED_ANSWERS)
 
     def test_build_limit_summary_step_request_advances_step_and_wires_runtime_dependencies(self):
         state = AgentLoopState(
