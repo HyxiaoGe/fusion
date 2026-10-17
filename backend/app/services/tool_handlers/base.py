@@ -195,6 +195,11 @@ class BaseToolHandler(ABC):
 
         return None
 
+    def validate_arguments(self, args: dict) -> list[dict[str, str]]:
+        """真实执行前的本地参数校验；返回 [{"field", "code"}] 则不触网，走参数修复。"""
+
+        return []
+
     def build_local_preflight_result(self, validation_errors: list[str]) -> ToolResult | None:
         """参数校验失败时投影工具自己的状态型结果；None 走通用参数修复。"""
 

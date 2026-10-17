@@ -654,7 +654,6 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(_load_dynamic_tools(new_loader, db="db", user_id="user-1"), "loaded")
         self.assertEqual(captured, {"db": "db", "user_id": "user-1"})
-        self.assertEqual(_load_dynamic_tools(lambda db: db, db="legacy-db", user_id="user-1"), "legacy-db")
 
 
 if __name__ == "__main__":

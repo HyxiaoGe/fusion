@@ -1683,6 +1683,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             run_id,
             step_id,
             defer_output,
+            **_kwargs,
         ):
             events.append(
                 (

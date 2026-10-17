@@ -1098,6 +1098,7 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
             *,
             run_id,
             step_id,
+            **_kwargs,
         ):
             events.append(
                 (

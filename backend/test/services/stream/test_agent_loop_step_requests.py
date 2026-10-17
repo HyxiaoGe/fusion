@@ -172,20 +172,6 @@ class AgentLoopStepRequestTests(unittest.TestCase):
                 self.assertIsInstance(request.stream_round_fn, partial)
                 self.assertEqual(request.stream_round_fn.keywords["model_id"], model_id)
 
-    def test_limit_summary_keeps_legacy_stream_callable_without_model_id_keyword(self):
-        async def legacy_stream_round(response):
-            return response
-
-        runtime = _runtime(stream_round_fn=legacy_stream_round)
-
-        request = build_limit_summary_step_request(
-            state=AgentLoopState(),
-            runtime=runtime,
-            messages=[],
-        )
-
-        self.assertIs(request.stream_round_fn, legacy_stream_round)
-
 
 if __name__ == "__main__":
     unittest.main()

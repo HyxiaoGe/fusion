@@ -5,7 +5,6 @@ from __future__ import annotations
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from inspect import Parameter, signature
 from typing import Any
 
 from app.services.agent.emitter import AgentEventEmitter
@@ -238,7 +237,7 @@ def _bind_llm_round_detail_scheduler(
     *,
     trajectory_recorder: QueuedTrajectoryRecorder,
 ) -> Callable[[Any], Any] | None:
-    if scheduler is None or not _accepts_keyword(scheduler, "on_degraded"):
+    if scheduler is None:
         return scheduler
 
     def schedule_with_degraded_latch(draft: Any) -> Any:
@@ -248,14 +247,6 @@ def _bind_llm_round_detail_scheduler(
         )
 
     return schedule_with_degraded_latch
-
-
-def _accepts_keyword(fn: Callable[..., Any], keyword: str) -> bool:
-    try:
-        parameters = signature(fn).parameters
-    except (TypeError, ValueError):
-        return True
-    return keyword in parameters or any(parameter.kind == Parameter.VAR_KEYWORD for parameter in parameters.values())
 
 
 def build_agent_loop_execution(

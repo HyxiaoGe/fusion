@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from types import SimpleNamespace
@@ -304,29 +303,12 @@ def build_agent_loop_call_config_from_inputs(
         **(
             {"prompt_bundle_snapshot": run_input.prompt_bundle_snapshot}
             if run_input.prompt_bundle_snapshot is not None
-            and _accepts_keyword(build_call_config_fn, "prompt_bundle_snapshot")
             else {}
         ),
-        **(
-            {"previous_run_id": inputs.previous_run_id}
-            if inputs.previous_run_id is not None and _accepts_keyword(build_call_config_fn, "previous_run_id")
-            else {}
-        ),
-        **(
-            {"document_tools": inputs.document_tools}
-            if inputs.document_tools is not None and _accepts_keyword(build_call_config_fn, "document_tools")
-            else {}
-        ),
-        **(
-            {"knowledge_tools": inputs.knowledge_tools}
-            if inputs.knowledge_tools is not None and _accepts_keyword(build_call_config_fn, "knowledge_tools")
-            else {}
-        ),
-        **(
-            {"direct_tool_names": inputs.direct_tool_names}
-            if inputs.direct_tool_names and _accepts_keyword(build_call_config_fn, "direct_tool_names")
-            else {}
-        ),
+        **({"previous_run_id": inputs.previous_run_id} if inputs.previous_run_id is not None else {}),
+        **({"document_tools": inputs.document_tools} if inputs.document_tools is not None else {}),
+        **({"knowledge_tools": inputs.knowledge_tools} if inputs.knowledge_tools is not None else {}),
+        **({"direct_tool_names": inputs.direct_tool_names} if inputs.direct_tool_names else {}),
     )
 
 
@@ -359,18 +341,7 @@ def _load_dynamic_tools(
     user_id: str,
     conversation_id: str | None = None,
 ) -> Any:
-    """新加载器接收 user_id / conversation_id；旧测试替身和兼容扩展仍可保持单参数签名。"""
-
-    kwargs: dict[str, Any] = {}
-    if _accepts_keyword(load_fn, "user_id"):
-        kwargs["user_id"] = user_id
-    if conversation_id is not None and _accepts_keyword(load_fn, "conversation_id"):
+    kwargs: dict[str, Any] = {"user_id": user_id}
+    if conversation_id is not None:
         kwargs["conversation_id"] = conversation_id
     return load_fn(db, **kwargs)
-
-
-def _accepts_keyword(fn: Callable[..., Any], keyword: str) -> bool:
-    parameters = inspect.signature(fn).parameters.values()
-    return any(parameter.name == keyword for parameter in parameters) or any(
-        parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters
-    )
