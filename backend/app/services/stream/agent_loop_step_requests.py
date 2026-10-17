@@ -89,8 +89,8 @@ def build_limit_summary_step_request(
     document_delivered: bool = False,
 ) -> LimitSummaryStepRequest:
     return LimitSummaryStepRequest(
+        output=runtime.output,
         conversation_id=runtime.conversation_id,
-        task_id=runtime.task_id,
         run_id=runtime.run_id,
         step_number=state.next_step_number(),
         model_id=runtime.model_id,

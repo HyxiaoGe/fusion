@@ -19,6 +19,7 @@ from app.services.stream.agent_loop_run_completion import AgentLoopRunCompletion
 from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.network_budget import NetworkToolBudget
+from app.services.stream.run_output import ConversationStreamOutput
 from app.services.stream.safe_fallback_response import FallbackResponseContext
 from app.services.stream.tool_executor import AgentEventCompositeWriter
 
@@ -200,6 +201,7 @@ def build_agent_loop_runtime(
         run_start=parts.run_start,
         limits=limits,
         emitter=parts.emitter,
+        output=ConversationStreamOutput(conversation_id=request.conversation_id, task_id=request.task_id),
         session_cache=dependencies.session_cache,
         network_budget=parts.network_budget,
         start_step_fn=dependencies.start_step_fn,

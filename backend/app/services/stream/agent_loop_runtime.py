@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from app.services.stream.agent_loop_policy import AgentLoopLimits
+from app.services.stream.run_output import RunOutput
 
 if TYPE_CHECKING:
     from app.services.stream.run_capability_router import RunCapabilityResolution
@@ -29,6 +30,8 @@ class AgentLoopRuntime:
     run_start: float
     limits: AgentLoopLimits
     emitter: Any
+    # 模型正文与服务端补写回答的出口；聊天请求写对话实时流。
+    output: RunOutput
     session_cache: Any
     network_budget: Any
     start_step_fn: Callable[..., Awaitable[Any]]

@@ -7,6 +7,7 @@ from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_loop_step_requests import build_limit_summary_step_request, build_tool_round_request
 from app.services.stream.agent_round import AgentRoundResult
+from app.services.stream.run_output import ConversationStreamOutput
 from app.services.stream.step_lifecycle import AgentStepContext
 
 
@@ -50,6 +51,7 @@ def _runtime(**overrides):
         "clock": lambda: 123.0,
     }
     values.update(overrides)
+    values.setdefault("output", ConversationStreamOutput(values["conversation_id"], values["task_id"]))
     return AgentLoopRuntime(**values)
 
 
@@ -129,7 +131,7 @@ class AgentLoopStepRequestTests(unittest.TestCase):
         self.assertEqual(request.step_number, 4)
         self.assertEqual(state.step, 4)
         self.assertEqual(request.conversation_id, "conv-req")
-        self.assertEqual(request.task_id, "task-req")
+        self.assertEqual(request.output, ConversationStreamOutput("conv-req", "task-req"))
         self.assertEqual(request.run_id, "run-req")
         self.assertIs(getattr(request, "fallback_response_context", None), fallback_context)
         self.assertEqual(request.messages, messages)

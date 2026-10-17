@@ -28,6 +28,7 @@ from app.services.stream.agent_loop_round_outcome import (
 from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_round import AgentRoundResult
+from app.services.stream.run_output import ConversationStreamOutput
 from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream.tool_round import ToolRoundOutcome
 
@@ -91,6 +92,7 @@ def _runtime(**overrides):
         "clock": lambda: 1.0,
     }
     values.update(overrides)
+    values.setdefault("output", ConversationStreamOutput(values["conversation_id"], values["task_id"]))
     return AgentLoopRuntime(**values)
 
 
@@ -580,7 +582,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         )
         append_chunk = AsyncMock()
 
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", append_chunk):
+        with patch("app.services.stream_state_service.append_chunk", append_chunk):
             outcome = await handle_agent_round_outcome(
                 request=AgentRoundOutcomeRequest(
                     db="db",
@@ -624,7 +626,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
                 state.mark_current_step("step-product-failed")
                 append_chunk = AsyncMock()
 
-                with patch("app.services.stream.agent_loop_round_outcome.append_chunk", append_chunk):
+                with patch("app.services.stream_state_service.append_chunk", append_chunk):
                     outcome = await handle_agent_round_outcome(
                         request=AgentRoundOutcomeRequest(
                             db="db",
@@ -674,7 +676,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         llm_lifecycle = AsyncMock()
         llm_lifecycle.record_output = Mock()
 
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", append_chunk):
+        with patch("app.services.stream_state_service.append_chunk", append_chunk):
             outcome = await handle_agent_round_outcome(
                 request=AgentRoundOutcomeRequest(
                     db="db",
@@ -727,7 +729,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         )
         append_chunk = AsyncMock()
 
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", append_chunk):
+        with patch("app.services.stream_state_service.append_chunk", append_chunk):
             outcome = await handle_agent_round_outcome(
                 request=AgentRoundOutcomeRequest(
                     db="db",
@@ -811,7 +813,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
         warnings: list[str] = []
 
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", append_chunk):
+        with patch("app.services.stream_state_service.append_chunk", append_chunk):
             outcome = await handle_agent_round_outcome(
                 request=AgentRoundOutcomeRequest(
                     db="db",
@@ -886,7 +888,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
         warnings: list[str] = []
 
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", append_chunk):
+        with patch("app.services.stream_state_service.append_chunk", append_chunk):
             outcome = await handle_agent_round_outcome(
                 request=AgentRoundOutcomeRequest(
                     db="db",
@@ -942,7 +944,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
         warnings: list[str] = []
         model_answer = "本次返回候选中，G737 参考价 598 元最低，G37 计划用时 4 小时 43 分钟最短。"
 
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", append_chunk):
+        with patch("app.services.stream_state_service.append_chunk", append_chunk):
             outcome = await handle_agent_round_outcome(
                 request=AgentRoundOutcomeRequest(
                     db="db",

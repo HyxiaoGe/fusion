@@ -55,7 +55,7 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
         state = AgentLoopState(product_tool_attempted=True)
         state.record_tool_outcome("weather_forecast", "failed")
         request = self.request(state)
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()) as append:
+        with patch("app.services.stream_state_service.append_chunk", AsyncMock()) as append:
             outcome = await handle_agent_round_outcome(request=request)
         self.assertIsNotNone(outcome)
         self.assertIn("天气查询失败，请稍后再试。", str(append.await_args_list))
@@ -72,7 +72,7 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
                     request = self.request(state, tools=("web_search", "url_read"))
                     answer = f"香港未来三天有骤雨，具体时段仍需关注更新。{suffix}"
                     request = replace(request, round_result=replace(request.round_result, content_buf=answer))
-                    with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()):
+                    with patch("app.services.stream_state_service.append_chunk", AsyncMock()):
                         await handle_agent_round_outcome(request=request)
                     self.assertFalse(state.unknown_terminated)
                     self.assertEqual(state.content_blocks[-1].text, answer)
@@ -86,7 +86,7 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
                 request = self.request(state)
                 answer = f"香港未来三天有骤雨，具体时段仍需关注更新。{suffix}"
                 request = replace(request, round_result=replace(request.round_result, content_buf=answer))
-                with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()):
+                with patch("app.services.stream_state_service.append_chunk", AsyncMock()):
                     await handle_agent_round_outcome(request=request)
                 self.assertFalse(state.unknown_terminated)
                 self.assertEqual(state.content_blocks[-1].text, answer)
@@ -102,7 +102,7 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
             runtime=replace(request.runtime, task_mode="deep_research", evidence_policy="deep_research_v1"),
             round_result=replace(request.round_result, content_buf="香港未来三天有骤雨。"),
         )
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()):
+        with patch("app.services.stream_state_service.append_chunk", AsyncMock()):
             self.assertIsNone(await handle_agent_round_outcome(request=request))
         self.assertEqual(state.research_repair_attempts, 1)
         self.assertFalse(any(block.type == "text" for block in state.content_blocks))
@@ -114,7 +114,7 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
         )
         state.record_tool_outcome("weather_forecast", "failed")
         request = self.request(state)
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()):
+        with patch("app.services.stream_state_service.append_chunk", AsyncMock()):
             await handle_agent_round_outcome(request=request)
         self.assertEqual(request.messages[-1]["role"], "user")
 
@@ -127,7 +127,7 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(state.tool_issue_names, set())
         request = self.request(state)
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()):
+        with patch("app.services.stream_state_service.append_chunk", AsyncMock()):
             await handle_agent_round_outcome(request=request)
         self.assertEqual(request.messages[-1]["role"], "user")
 
@@ -172,7 +172,7 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
         request = self.request(state, tools=("mcp_lookup", "web_search", "url_read"))
         answer = "查询到匹配记录：编号A-123。"
         request = replace(request, round_result=replace(request.round_result, content_buf=answer))
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()):
+        with patch("app.services.stream_state_service.append_chunk", AsyncMock()):
             await handle_agent_round_outcome(request=request)
         self.assertFalse(state.unknown_terminated)
         self.assertEqual(state.content_blocks[-1].text, answer)
@@ -202,7 +202,7 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
         request = self.request(state)
         answer = "香港未来三天有骤雨，具体时段仍需关注更新。[1]"
         request = replace(request, round_result=replace(request.round_result, content_buf=answer))
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()) as append:
+        with patch("app.services.stream_state_service.append_chunk", AsyncMock()) as append:
             await handle_agent_round_outcome(request=request)
         self.assertFalse(state.unknown_terminated)
         self.assertIn(answer, str(append.await_args_list))
@@ -240,7 +240,7 @@ class MissingProductToolTests(unittest.IsolatedAsyncioTestCase):
         for task_mode in ("standard", "deep_research"):
             with self.subTest(task_mode=task_mode):
                 request = self.request(AgentLoopState(), task_mode=task_mode)
-                with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()) as append:
+                with patch("app.services.stream_state_service.append_chunk", AsyncMock()) as append:
                     await handle_agent_round_outcome(request=request)
                 self.assertIn("回民街推荐老孙家泡馍。", str(append.await_args_list))
                 self.assertEqual(request.messages[-1]["role"], "user")

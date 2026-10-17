@@ -46,6 +46,7 @@ from app.services.stream.limit_summary import (
 )
 from app.services.stream.research_evidence import ResearchEvidenceWorkset
 from app.services.stream.run_capability_router import RunCapabilityResolution
+from app.services.stream.run_output import ConversationStreamOutput
 from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream.tool_recovery_evidence import RecoveryEvidenceWorkset
 from app.services.stream_state_service import StreamOwnershipLostError
@@ -434,7 +435,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
     def _deferred_commit_request() -> LimitSummaryStepRequest:
         return LimitSummaryStepRequest(
             conversation_id="conv-deferred-terminal",
-            task_id="task-deferred-terminal",
+            output=ConversationStreamOutput("conv-deferred-terminal", "task-deferred-terminal"),
             run_id="run-deferred-terminal",
             step_number=1,
             model_id="gpt-4",
@@ -713,7 +714,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
         emitter = AsyncMock()
         request = LimitSummaryStepRequest(
             conversation_id="conv-deep",
-            task_id="task-deep",
+            output=ConversationStreamOutput("conv-deep", "task-deep"),
             run_id="run-deep",
             step_number=9,
             model_id=model_id,
@@ -796,7 +797,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
             patch("app.services.stream.limit_summary._create_limit_summary_observation", return_value=observation),
-            patch("app.services.stream.llm_stream.check_lock_owner", new=AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.check_lock_owner", new=AsyncMock(return_value=True)),
         ):
             result = await limit_summary_module.call_limit_summary_round(
                 request=request,
@@ -858,7 +859,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
-            patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append_chunk,
+            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()) as append_chunk,
         ):
             outcome = await run_limit_summary_step(request=request)
 
@@ -883,7 +884,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
 
                 with (
                     patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
-                    patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()),
+                    patch("app.services.stream_state_service.append_chunk", new=AsyncMock()),
                 ):
                     outcome = await run_limit_summary_step(request=request)
 
@@ -908,7 +909,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
                 )
                 with (
                     patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
-                    patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append_chunk,
+                    patch("app.services.stream_state_service.append_chunk", new=AsyncMock()) as append_chunk,
                 ):
                     outcome = await run_limit_summary_step(request=request)
 
@@ -941,7 +942,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
                 )
                 with (
                     patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
-                    patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append_chunk,
+                    patch("app.services.stream_state_service.append_chunk", new=AsyncMock()) as append_chunk,
                 ):
                     outcome = await run_limit_summary_step(request=request)
 
@@ -988,7 +989,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
-            patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append_chunk,
+            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()) as append_chunk,
         ):
             outcome = await run_limit_summary_step(request=request)
 
@@ -1018,7 +1019,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
-            patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()),
+            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()),
         ):
             outcome = await run_limit_summary_step(request=request)
 
@@ -1083,7 +1084,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
 
         request = LimitSummaryStepRequest(
             conversation_id="conv-1",
-            task_id="task-1",
+            output=ConversationStreamOutput("conv-1", "task-1"),
             run_id="run-1",
             step_number=3,
             model_id="deepseek-chat",
@@ -1117,7 +1118,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
-            patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()),
+            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()),
         ):
             await run_limit_summary_step(request=request)
 
@@ -1174,7 +1175,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
 
         request = LimitSummaryStepRequest(
             conversation_id="conv-1",
-            task_id="task-1",
+            output=ConversationStreamOutput("conv-1", "task-1"),
             run_id="run-1",
             step_number=3,
             model_id="deepseek-chat",
@@ -1202,7 +1203,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
-            patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append_chunk,
+            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()) as append_chunk,
         ):
             outcome = await run_limit_summary_step(request=request)
 
@@ -1270,7 +1271,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
 
                 request = LimitSummaryStepRequest(
                     conversation_id="conv-1",
-                    task_id="task-1",
+                    output=ConversationStreamOutput("conv-1", "task-1"),
                     run_id="run-1",
                     step_number=3,
                     model_id="mimo-v2.6-pro",
@@ -1297,7 +1298,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
 
                 with (
                     patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
-                    patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append_chunk,
+                    patch("app.services.stream_state_service.append_chunk", new=AsyncMock()) as append_chunk,
                 ):
                     await run_limit_summary_step(request=request)
 
@@ -1341,7 +1342,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
         )
         request = LimitSummaryStepRequest(
             conversation_id="conv-1",
-            task_id="task-1",
+            output=ConversationStreamOutput("conv-1", "task-1"),
             run_id="run-1",
             step_number=3,
             model_id="deepseek-chat",
@@ -1368,7 +1369,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
-            patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append_chunk,
+            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()) as append_chunk,
         ):
             outcome = await run_limit_summary_step(request=request)
 
@@ -1397,7 +1398,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
 
         request = LimitSummaryStepRequest(
             conversation_id="conv-1",
-            task_id="task-1",
+            output=ConversationStreamOutput("conv-1", "task-1"),
             run_id="run-1",
             step_number=4,
             model_id="gpt-4",
@@ -1435,7 +1436,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("app.services.stream.limit_summary.prepare_context", new=AsyncMock(return_value=plan)),
-            patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()),
+            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()),
         ):
             outcome = await run_limit_summary_step(request=request)
 
@@ -1500,7 +1501,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
 
         request = LimitSummaryStepRequest(
             conversation_id="conv-1",
-            task_id="task-1",
+            output=ConversationStreamOutput("conv-1", "task-1"),
             run_id="run-1",
             step_number=2,
             model_id="gpt-4",
@@ -1534,7 +1535,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
                 "app.services.stream.limit_summary.create_llm_round_observation",
                 return_value=observation,
             ),
-            patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()),
+            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()),
         ):
             await run_limit_summary_step(request=request)
 
@@ -1586,7 +1587,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
 
         request = LimitSummaryStepRequest(
             conversation_id="conv-1",
-            task_id="task-1",
+            output=ConversationStreamOutput("conv-1", "task-1"),
             run_id="run-1",
             step_number=2,
             model_id="gpt-4",
@@ -1717,7 +1718,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
         observation.wrap_response.side_effect = lambda response: response
         append_chunk = AsyncMock(side_effect=lambda *_args, **_kwargs: events.append(("answer_chunk",)))
         with (
-            patch("app.services.stream.limit_summary.append_chunk", new=append_chunk),
+            patch("app.services.stream_state_service.append_chunk", new=append_chunk),
             patch(
                 "app.services.stream.limit_summary.create_llm_round_observation",
                 return_value=observation,
@@ -1726,7 +1727,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             outcome = await run_limit_summary_step(
                 request=LimitSummaryStepRequest(
                     conversation_id="conv-1",
-                    task_id="task-1",
+                    output=ConversationStreamOutput("conv-1", "task-1"),
                     run_id="run-1",
                     step_number=4,
                     model_id="gpt-4",
@@ -1797,8 +1798,8 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             (
                 "stream",
                 "response",
+                ConversationStreamOutput("conv-1", "task-1"),
                 "conv-1",
-                "task-1",
                 True,
                 "blk-thinking",
                 "blk-text",
@@ -1851,11 +1852,11 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
         warnings = []
         marked_step_ids = []
 
-        with patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append_chunk:
+        with patch("app.services.stream_state_service.append_chunk", new=AsyncMock()) as append_chunk:
             outcome = await run_limit_summary_step(
                 request=LimitSummaryStepRequest(
                     conversation_id="conv-1",
-                    task_id="task-1",
+                    output=ConversationStreamOutput("conv-1", "task-1"),
                     run_id="run-1",
                     step_number=5,
                     model_id="gpt-4",
@@ -1931,7 +1932,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             await run_limit_summary_step(
                 request=LimitSummaryStepRequest(
                     conversation_id="conv-1",
-                    task_id="task-1",
+                    output=ConversationStreamOutput("conv-1", "task-1"),
                     run_id="run-1",
                     step_number=6,
                     model_id="gpt-4",
@@ -1992,7 +1993,7 @@ class LimitSummaryNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase):
 
         request = LimitSummaryStepRequest(
             conversation_id="conv-limit",
-            task_id="task-limit",
+            output=ConversationStreamOutput("conv-limit", "task-limit"),
             run_id="run-limit",
             step_number=9,
             model_id="gpt-4",
@@ -2028,7 +2029,7 @@ class LimitSummaryNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase):
         )
         with (
             patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
-            patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append_chunk,
+            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()) as append_chunk,
         ):
             await run_limit_summary_step(request=request)
         return request, append_chunk
@@ -2077,7 +2078,7 @@ class LimitSummaryNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase):
         )
         with (
             patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
-            patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()),
+            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()),
         ):
             await run_limit_summary_step(request=request)
 
@@ -2101,7 +2102,7 @@ class LimitSummaryNoEvidenceFactBoundaryTests(unittest.IsolatedAsyncioTestCase):
         )
         with (
             patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
-            patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()),
+            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()),
         ):
             await run_limit_summary_step(request=request)
 
@@ -2137,7 +2138,7 @@ class McpLimitSummaryTests(unittest.IsolatedAsyncioTestCase):
         request = replace(request, capability_resolution=self._resolution(), recovery_evidence=evidence)
         with (
             patch("app.services.stream.limit_summary.prepare_context", new=prepare),
-            patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append,
+            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()) as append,
         ):
             outcome = await run_limit_summary_step(request=request)
         return request, append, outcome

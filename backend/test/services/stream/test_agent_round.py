@@ -10,6 +10,7 @@ from app.ai.prompts.section_ids import VISIBLE_RESPONSE_LANGUAGE
 from app.schemas.chat import ContextUsage, Usage
 from app.services.chat.context_manager import ContextBudgetExceededError, ContextPlan
 from app.services.stream.agent_round import accumulate_usage, collect_agent_round_stream, run_agent_round
+from app.services.stream.run_output import ConversationStreamOutput
 from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream_state_service import StreamOwnershipLostError
 
@@ -108,7 +109,7 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
         ):
             await run_agent_round(
                 conversation_id="conv",
-                task_id="task",
+                output=ConversationStreamOutput("conv", "task"),
                 run_id="run",
                 step_number=1,
                 model_id="model",
@@ -158,7 +159,7 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
         ):
             result = await run_agent_round(
                 conversation_id="conv-life",
-                task_id="task-life",
+                output=ConversationStreamOutput("conv-life", "task-life"),
                 run_id="run-life",
                 step_number=1,
                 model_id="gpt-4",
@@ -207,7 +208,7 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(asyncio.CancelledError):
                 await run_agent_round(
                     conversation_id="conv-cancel",
-                    task_id="task-cancel",
+                    output=ConversationStreamOutput("conv-cancel", "task-cancel"),
                     run_id="run-cancel",
                     step_number=1,
                     model_id="gpt-4",
@@ -253,7 +254,7 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(RuntimeError, "stream failed"):
                 await run_agent_round(
                     conversation_id="conv-partial",
-                    task_id="task-partial",
+                    output=ConversationStreamOutput("conv-partial", "task-partial"),
                     run_id="run-partial",
                     step_number=1,
                     model_id="deepseek-chat",
@@ -295,7 +296,7 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
         ):
             result = await run_agent_round(
                 conversation_id="conv-deferred",
-                task_id="task-deferred",
+                output=ConversationStreamOutput("conv-deferred", "task-deferred"),
                 run_id="run-deferred",
                 step_number=2,
                 model_id="gpt-4",
@@ -345,7 +346,7 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
         ):
             await run_agent_round(
                 conversation_id="conv-deferred-reasoning",
-                task_id="task-deferred-reasoning",
+                output=ConversationStreamOutput("conv-deferred-reasoning", "task-deferred-reasoning"),
                 run_id="run-deferred-reasoning",
                 step_number=3,
                 model_id="gpt-4",
@@ -396,7 +397,7 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
                     with self.assertRaises(type(primary)) as raised:
                         await run_agent_round(
                             conversation_id="conv-post",
-                            task_id="task-post",
+                            output=ConversationStreamOutput("conv-post", "task-post"),
                             run_id="run-post",
                             step_number=1,
                             model_id="model",
@@ -478,7 +479,7 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
         ):
             await run_agent_round(
                 conversation_id="conv-language",
-                task_id="task-language",
+                output=ConversationStreamOutput("conv-language", "task-language"),
                 run_id="run-language",
                 step_number=1,
                 model_id="deepseek-v4",
@@ -549,7 +550,7 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
         ):
             result = await run_agent_round(
                 conversation_id="conv-product",
-                task_id="task-product",
+                output=ConversationStreamOutput("conv-product", "task-product"),
                 run_id="run-product",
                 step_number=2,
                 model_id="gpt-4",
@@ -605,7 +606,7 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
         ):
             result = await run_agent_round(
                 conversation_id="conv-1",
-                task_id="task-1",
+                output=ConversationStreamOutput("conv-1", "task-1"),
                 run_id="run-1",
                 step_number=2,
                 model_id="gpt-4",
@@ -674,7 +675,7 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ContextBudgetExceededError):
                 await run_agent_round(
                     conversation_id="conv-1",
-                    task_id="task-1",
+                    output=ConversationStreamOutput("conv-1", "task-1"),
                     run_id="run-1",
                     step_number=1,
                     model_id="gpt-4",
@@ -722,7 +723,7 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(RuntimeError):
                 await run_agent_round(
                     conversation_id="conv-1",
-                    task_id="task-1",
+                    output=ConversationStreamOutput("conv-1", "task-1"),
                     run_id="run-1",
                     step_number=3,
                     model_id="gpt-4",
@@ -780,7 +781,7 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ContextBudgetExceededError):
                 await run_agent_round(
                     conversation_id="conv-1",
-                    task_id="task-1",
+                    output=ConversationStreamOutput("conv-1", "task-1"),
                     run_id="run-1",
                     step_number=1,
                     model_id="gpt-4",
@@ -842,7 +843,7 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
         ):
             result = await run_agent_round(
                 conversation_id="conv-1",
-                task_id="task-1",
+                output=ConversationStreamOutput("conv-1", "task-1"),
                 run_id="run-1",
                 step_number=2,
                 model_id="gpt-4",
@@ -906,7 +907,7 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
         ) as prepare:
             await run_agent_round(
                 conversation_id="conv-1",
-                task_id="task-1",
+                output=ConversationStreamOutput("conv-1", "task-1"),
                 run_id="run-1",
                 step_number=1,
                 model_id="gpt-4",
@@ -954,7 +955,7 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(RuntimeError) as raised:
                 await run_agent_round(
                     conversation_id="conv-1",
-                    task_id="task-1",
+                    output=ConversationStreamOutput("conv-1", "task-1"),
                     run_id="run-1",
                     step_number=1,
                     model_id="gpt-4",
@@ -1026,7 +1027,7 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
 
         result = await collect_agent_round_stream(
             conversation_id="conv-1",
-            task_id="task-1",
+            output=ConversationStreamOutput("conv-1", "task-1"),
             run_id="run-1",
             model_id="kimi-k3",
             litellm_model="openai/gpt-4",
@@ -1059,8 +1060,8 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
             (
                 "stream",
                 "response",
+                ConversationStreamOutput("conv-1", "task-1"),
                 "conv-1",
-                "task-1",
                 True,
                 "blk-thinking",
                 "blk-text",
@@ -1118,7 +1119,7 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
 
         result = await run_agent_round(
             conversation_id="conv-1",
-            task_id="task-1",
+            output=ConversationStreamOutput("conv-1", "task-1"),
             run_id="run-1",
             step_number=3,
             model_id="gpt-4",
@@ -1155,8 +1156,8 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
             (
                 "stream",
                 "response",
+                ConversationStreamOutput("conv-1", "task-1"),
                 "conv-1",
-                "task-1",
                 True,
                 "blk-thinking",
                 "blk-text",
@@ -1201,7 +1202,7 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
         with patch("app.services.stream.agent_round.litellm_health.record_success") as record_success:
             result = await run_agent_round(
                 conversation_id="conv-1",
-                task_id="task-1",
+                output=ConversationStreamOutput("conv-1", "task-1"),
                 run_id="run-1",
                 step_number=1,
                 model_id="gpt-4",
@@ -1245,7 +1246,7 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
 
         result = await run_agent_round(
             conversation_id="conv-1",
-            task_id="task-1",
+            output=ConversationStreamOutput("conv-1", "task-1"),
             run_id="run-1",
             step_number=3,
             model_id="gpt-4",

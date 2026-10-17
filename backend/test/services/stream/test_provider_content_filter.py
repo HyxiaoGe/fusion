@@ -14,6 +14,7 @@ from app.services.stream.provider_content_filter import (
     is_content_filter_error,
     is_refusal_reply,
 )
+from app.services.stream.run_output import ConversationStreamOutput
 from app.services.stream.step_lifecycle import AgentStepContext
 from test.services.stream.test_agent_loop_round_outcome import _runtime, _step_context
 from test.services.stream.test_llm_stream import async_response, make_chunk
@@ -58,14 +59,14 @@ class StreamSignalTests(unittest.IsolatedAsyncioTestCase):
     async def _consume(self, chunks):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-filter",
-            task_id="task-filter",
+            output=ConversationStreamOutput("conv-filter", "task-filter"),
             should_use_reasoning=False,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
         )
         with (
-            patch("app.services.stream.llm_stream.append_chunk", AsyncMock()),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", AsyncMock()),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             return await llm_stream_module.consume_stream_round(async_response(chunks), request)
 
@@ -105,7 +106,7 @@ class AgentRoundErrorTests(unittest.IsolatedAsyncioTestCase):
         ):
             return await run_agent_round(
                 conversation_id="conv-filter",
-                task_id="task-filter",
+                output=ConversationStreamOutput("conv-filter", "task-filter"),
                 run_id="run-filter",
                 step_number=1,
                 model_id="qwen3.8-flash",

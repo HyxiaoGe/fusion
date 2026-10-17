@@ -2,8 +2,8 @@
 
 spec §4.2。stream_round 把 litellm streaming response 消费成
 (reasoning_buf, content_buf, tool_calls_list, finish_reason, usage_data)；
-每个 delta 通过 append_chunk 写 Redis Stream，每 LOCK_CHECK_INTERVAL
-个 chunk 检查锁所有权（被踢则提前返回 finish_reason="cancelled"）。
+每个 delta 写入 run 的输出出口（RunOutput），每 LOCK_CHECK_INTERVAL
+个 chunk 检查一次写入权（被踢则提前返回 finish_reason="cancelled"）。
 """
 
 import asyncio
@@ -25,7 +25,7 @@ from app.services.stream.reasoning_transport import (
     ReasoningTransportMode,
     initial_reasoning_transport_mode,
 )
-from app.services.stream_state_service import append_chunk, check_lock_owner
+from app.services.stream.run_output import RunOutput
 from app.utils.user_visible_content import sanitize_internal_tool_names, sanitize_user_visible_reasoning
 
 # 每 N 个 chunk 检查一次锁状态
@@ -99,8 +99,8 @@ _REASONING_SNAPSHOT_MIN_LENGTH = 16
 
 @dataclass(frozen=True)
 class LLMStreamRequest:
+    output: RunOutput
     conversation_id: str
-    task_id: str
     should_use_reasoning: bool
     thinking_block_id: str
     text_block_id: str
@@ -732,12 +732,10 @@ async def append_stream_delta(
     content: str,
     block_id: str,
 ) -> None:
-    await append_chunk(
-        request.conversation_id,
+    await request.output.append(
         chunk_type,
         content,
         block_id,
-        task_id=request.task_id,
         run_id=request.run_id,
         step_id=request.step_id,
     )
@@ -791,7 +789,7 @@ async def maybe_check_lock_owner(*, request: LLMStreamRequest, state: LLMStreamS
     state.chunk_count += 1
     if state.chunk_count % LOCK_CHECK_INTERVAL != 0:
         return True
-    if await check_lock_owner(request.conversation_id, request.task_id):
+    if await request.output.owns_stream():
         return True
     logger.info(f"流式调用被踢掉: conv_id={request.conversation_id}")
     state.finish_reason = "cancelled"
@@ -891,7 +889,7 @@ async def consume_stream_round(response, request: LLMStreamRequest) -> LLMStream
 
     tool_calls = build_tool_calls_list(state.tool_calls_acc)
     if not tool_calls:
-        raw_id_prefix = request.step_id or request.task_id
+        raw_id_prefix = request.step_id or request.run_id or "round"
         id_prefix = re.sub(r"[^A-Za-z0-9_-]+", "-", raw_id_prefix).strip("-") or "round"
         tool_calls = parse_dsml_tool_calls(state.raw_content_buf, id_prefix=id_prefix)
         if tool_calls:
@@ -926,8 +924,8 @@ async def consume_stream_round(response, request: LLMStreamRequest) -> LLMStream
 
 async def stream_round(
     response,
+    output: RunOutput,
     conversation_id: str,
-    task_id: str,
     should_use_reasoning: bool,
     thinking_block_id: str,
     text_block_id: str,
@@ -956,8 +954,8 @@ async def stream_round(
     outcome = await consume_stream_round(
         response,
         LLMStreamRequest(
+            output=output,
             conversation_id=conversation_id,
-            task_id=task_id,
             should_use_reasoning=should_use_reasoning,
             thinking_block_id=thinking_block_id,
             text_block_id=text_block_id,

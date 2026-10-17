@@ -30,8 +30,9 @@ from app.services.stream.provider_content_filter import (
     finish_content_filtered_round,
     is_content_filter_error,
 )
+from app.services.stream.run_output import RunOutput
 from app.services.stream.tool_ban import callable_tools
-from app.services.stream_state_service import StreamOwnershipLostError, append_chunk
+from app.services.stream_state_service import StreamOwnershipLostError
 from app.utils.prompt_fingerprint import fingerprint_system_messages
 
 
@@ -102,8 +103,8 @@ def _announced_tool_names(call_kwargs: dict) -> frozenset[str]:
 
 async def collect_agent_round_stream(
     *,
+    output: RunOutput,
     conversation_id: str,
-    task_id: str,
     run_id: str,
     provider: str | None = None,
     model_id: str | None = None,
@@ -175,8 +176,8 @@ async def collect_agent_round_stream(
         stream_kwargs["on_tool_call_delta"] = on_tool_call_delta
     return await stream_round_fn(
         response,
+        output,
         conversation_id,
-        task_id,
         should_use_reasoning,
         step_context.thinking_block_id,
         step_context.text_block_id,
@@ -187,8 +188,7 @@ async def collect_agent_round_stream(
 def _document_draft_observer(
     tool_names: frozenset[str],
     *,
-    conversation_id: str,
-    task_id: str,
+    output: RunOutput,
     run_id: str,
     step_id: str,
 ) -> Callable[[int, str | None, str], Awaitable[None]] | None:
@@ -198,12 +198,10 @@ def _document_draft_observer(
         return None
 
     async def emit(payload: dict[str, Any]) -> None:
-        await append_chunk(
-            conversation_id,
+        await output.append(
             "document_draft",
             json.dumps(payload, ensure_ascii=False),
             payload["draft_id"],
-            task_id=task_id,
             run_id=run_id,
             step_id=step_id,
         )
@@ -273,8 +271,8 @@ def log_agent_round_summary(
 
 async def run_agent_round(
     *,
+    output: RunOutput,
     conversation_id: str,
-    task_id: str,
     run_id: str,
     step_number: int,
     model_id: str,
@@ -367,8 +365,8 @@ async def run_agent_round(
     partial_output: dict[str, str] = {}
     try:
         stream_result = await collect_agent_round_stream(
+            output=output,
             conversation_id=conversation_id,
-            task_id=task_id,
             run_id=run_id,
             provider=provider,
             model_id=model_id,
@@ -400,8 +398,7 @@ async def run_agent_round(
             partial_output=partial_output,
             on_tool_call_delta=_document_draft_observer(
                 frozenset(draft_tool_names).intersection(round_tool_names(call_kwargs)),
-                conversation_id=conversation_id,
-                task_id=task_id,
+                output=output,
                 run_id=run_id,
                 step_id=step_context.step_id,
             ),

@@ -259,8 +259,8 @@ async def _run_round(
         allow_plan_update=allow_plan_update,
     )
     run_round_kwargs = dict(
+        output=runtime.output,
         conversation_id=runtime.conversation_id,
-        task_id=runtime.task_id,
         run_id=runtime.run_id,
         step_number=step_number,
         model_id=runtime.model_id,
