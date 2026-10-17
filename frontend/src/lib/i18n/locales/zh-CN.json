@@ -349,6 +349,17 @@
           "full": "覆盖行程日期",
           "partial": "仅覆盖部分行程日期",
           "outside_range": "当前预报窗口未覆盖"
+        },
+        "selected": {
+          "region": "行程方案",
+          "planSwitcher": "切换行程方案",
+          "reason": "选择理由",
+          "totalPrice": "参考总价 {{price}}",
+          "priceIncomplete": "部分班次暂无参考价",
+          "travelDuration": "在途 {{duration}}",
+          "nextDay": "+{{count}}天",
+          "dayLabel": "{{month}}月{{day}}日",
+          "fullResults": "完整班次列表见下方查询结果，价格以预订时为准"
         }
       }
     },

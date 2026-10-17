@@ -84,6 +84,8 @@ class BaseToolHandler(ABC):
 
     supports_run_level_citations = False
     supports_automatic_retry = True
+    # 失败结果是否附带「换用其他工具继续」的恢复指引；只校验模型引用的输出工具关掉。
+    suggests_alternatives_on_failure = True
     # 回填给模型的工具消息是否原文存进工具日志供轨迹查看；含用户文档正文的工具关掉。
     persists_model_observation = True
 

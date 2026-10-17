@@ -4,8 +4,13 @@ import type {
   ItineraryPlan,
   ItineraryResultsBlock,
   ItinerarySection,
+  ProviderFlightResult,
+  ProviderTrainResult,
+  SelectedItineraryBlock,
+  SelectedItineraryPlan,
   StructuredToolResultBlock,
   TrainResultsBlock,
+  TravelMoney,
   UnsupportedResultBlock,
   WeatherResultsBlock,
 } from '@/types/conversation';
@@ -31,6 +36,25 @@ export interface ItineraryPresentationItem {
   attributions: string[];
 }
 
+export type SelectedItineraryLeg =
+  | { mode: 'flight'; option: ProviderFlightResult }
+  | { mode: 'train'; option: ProviderTrainResult };
+
+export interface SelectedItineraryPlanPresentation extends Omit<SelectedItineraryPlan, 'legs'> {
+  legs: SelectedItineraryLeg[];
+  /** 各段参考价之和；任一段缺价时为 null，不拿部分金额冒充总价。 */
+  totalPrice: TravelMoney | null;
+  /** 各段在途时长之和，不含换乘与停留。 */
+  travelDurationS: number | null;
+}
+
+export interface SelectedItineraryPresentationItem {
+  kind: 'selected_itinerary';
+  block: SelectedItineraryBlock;
+  plans: SelectedItineraryPlanPresentation[];
+  attributions: string[];
+}
+
 interface StandaloneStructuredResultItem {
   kind: 'standalone';
   block: ItinerarySourceBlock;
@@ -38,11 +62,13 @@ interface StandaloneStructuredResultItem {
 
 export type ItinerarySourceBlock = Exclude<
   StructuredToolResultBlock,
-  ItineraryResultsBlock
+  ItineraryResultsBlock | SelectedItineraryBlock
 >;
 
 interface ItineraryResultPresentation {
-  items: Array<ItineraryPresentationItem | StandaloneStructuredResultItem>;
+  items: Array<
+    ItineraryPresentationItem | SelectedItineraryPresentationItem | StandaloneStructuredResultItem
+  >;
 }
 
 export function deriveItineraryResultPresentation(
@@ -56,12 +82,19 @@ export function deriveItineraryResultPresentation(
     sourceBlocksById.set(block.id, block);
   }
 
-  const itineraryItems: ItineraryPresentationItem[] = [];
+  const itineraryItems: Array<ItineraryPresentationItem | SelectedItineraryPresentationItem> = [];
   const rejectedItineraries: UnsupportedResultBlock[] = [];
   const consumedBlockIds = new Set<string>();
 
   for (const block of structuredBlocks) {
     if (block.type !== 'itinerary_results') continue;
+    if (block.schema_version === 2) {
+      // 模型选定的行程只是摘要，完整班次列表照常展示，不隐藏来源卡片。
+      const selected = resolveSelectedItinerary(block, sourceBlocksById, duplicateSourceIds);
+      if (selected) itineraryItems.push(selected);
+      else rejectedItineraries.push(invalidItinerary(block));
+      continue;
+    }
     const item = resolveItinerary(block, sourceBlocksById, duplicateSourceIds);
     if (!item) {
       rejectedItineraries.push(invalidItinerary(block));
@@ -131,6 +164,64 @@ function resolveItinerary(
     consumedBlockIds,
     attributions,
   };
+}
+
+function resolveSelectedItinerary(
+  block: SelectedItineraryBlock,
+  sourceBlocksById: Map<string, StructuredToolResultBlock>,
+  duplicateSourceIds: Set<string>,
+): SelectedItineraryPresentationItem | null {
+  const attributions: string[] = [];
+  const plans: SelectedItineraryPlanPresentation[] = [];
+  for (const plan of block.plans) {
+    const legs: SelectedItineraryLeg[] = [];
+    for (const leg of plan.legs) {
+      if (duplicateSourceIds.has(leg.block_id)) return null;
+      const source = sourceBlocksById.get(leg.block_id);
+      if (source?.type === 'flight_results') {
+        const option = uniqueOptionsById(source.flights ?? [])?.get(leg.option_id);
+        if (!option) return null;
+        legs.push({ mode: 'flight', option });
+      } else if (source?.type === 'train_results') {
+        const option = uniqueOptionsById(source.trains ?? [])?.get(leg.option_id);
+        if (!option) return null;
+        legs.push({ mode: 'train', option });
+      } else {
+        return null;
+      }
+      const label = source.attribution?.label?.trim();
+      if (label && !attributions.includes(label)) attributions.push(label);
+    }
+    plans.push({
+      id: plan.id,
+      title: plan.title,
+      reason: plan.reason,
+      legs,
+      totalPrice: sumPrices(legs),
+      travelDurationS: sumDurations(legs),
+    });
+  }
+  return { kind: 'selected_itinerary', block, plans, attributions };
+}
+
+function sumPrices(legs: SelectedItineraryLeg[]): TravelMoney | null {
+  let total = 0;
+  for (const leg of legs) {
+    const amount = leg.option.price?.amount_minor;
+    if (typeof amount !== 'number') return null;
+    total += amount;
+  }
+  return { currency: 'CNY', amount_minor: total };
+}
+
+function sumDurations(legs: SelectedItineraryLeg[]): number | null {
+  let total = 0;
+  for (const leg of legs) {
+    const duration = leg.option.duration_s;
+    if (typeof duration !== 'number') return null;
+    total += duration;
+  }
+  return total;
 }
 
 function resolveSection(
@@ -229,7 +320,9 @@ function latestWeather(
     Date.parse(current.fetched_at) >= Date.parse(latest.fetched_at) ? current : latest);
 }
 
-function invalidItinerary(block: ItineraryResultsBlock): UnsupportedResultBlock {
+function invalidItinerary(
+  block: ItineraryResultsBlock | SelectedItineraryBlock,
+): UnsupportedResultBlock {
   return {
     type: 'unsupported_result',
     id: block.id,

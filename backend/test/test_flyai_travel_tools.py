@@ -27,6 +27,7 @@ from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_loop_wiring import _load_dynamic_tools
 from app.services.stream.product_structured_answers import PRODUCT_STRUCTURED_ANSWERS
 from app.services.stream.tool_executor import ToolExecutionBatchRequest, execute_tool_handler
+from app.services.tool_handlers.itinerary import PRESENT_ITINERARY_TOOL_NAME
 
 
 def _adapter_payload(
@@ -525,9 +526,16 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(disabled_without_user.definitions, [])
         self.assertEqual(
             [definition["function"]["name"] for definition in enabled.definitions],
+            [FLYAI_SEARCH_FLIGHTS, FLYAI_SEARCH_TRAINS, PRESENT_ITINERARY_TOOL_NAME],
+        )
+        self.assertEqual(
+            set(enabled.handlers), {FLYAI_SEARCH_FLIGHTS, FLYAI_SEARCH_TRAINS, PRESENT_ITINERARY_TOOL_NAME}
+        )
+        # 行程卡片是本地输出工具，不登记为外部服务绑定。
+        self.assertEqual(
+            [binding["alias"] for binding in enabled.audit_bindings],
             [FLYAI_SEARCH_FLIGHTS, FLYAI_SEARCH_TRAINS],
         )
-        self.assertEqual(set(enabled.handlers), {FLYAI_SEARCH_FLIGHTS, FLYAI_SEARCH_TRAINS})
         flight_controls = enabled.handlers[FLYAI_SEARCH_FLIGHTS].controls
         train_controls = enabled.handlers[FLYAI_SEARCH_TRAINS].controls
         self.assertIs(flight_controls, train_controls)

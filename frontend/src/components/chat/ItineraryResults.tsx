@@ -25,6 +25,9 @@ import type {
   ItineraryPresentationItem,
   ItinerarySectionPresentation,
   ItinerarySourceBlock,
+  SelectedItineraryLeg,
+  SelectedItineraryPlanPresentation,
+  SelectedItineraryPresentationItem,
 } from '@/lib/chat/itineraryResultPresentation';
 import type { ItineraryAvailability } from '@/types/conversation';
 
@@ -183,6 +186,176 @@ export default function ItineraryResults({
       </div>
     </section>
   );
+}
+
+/** 模型通过 present_itinerary 选定的行程（schema 2）：方案标题与理由来自模型，班次字段来自查询结果。 */
+export function SelectedItineraryResults({ item }: { item: SelectedItineraryPresentationItem }) {
+  const { t, i18n } = useTranslation();
+  const [selectedPlanId, setSelectedPlanId] = useState(item.plans[0]?.id ?? '');
+  const selectedPlan = item.plans.find(plan => plan.id === selectedPlanId) ?? item.plans[0];
+  if (!selectedPlan) return null;
+
+  return (
+    <section
+      aria-label={t('structuredResults.itinerary.selected.region')}
+      className="overflow-hidden rounded-2xl border border-border/70 bg-background shadow-sm"
+      data-testid="selected-itinerary-results"
+    >
+      <header className="border-b border-border/60 bg-gradient-to-br from-primary/[0.07] via-background to-background px-4 py-4 sm:px-5">
+        <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <MapPinned className="h-4 w-4" aria-hidden="true" />
+          </span>
+          <span className="truncate">{item.block.title}</span>
+        </div>
+        {item.plans.length > 1 ? (
+          <div
+            className="mt-3 flex flex-wrap gap-2"
+            role="group"
+            aria-label={t('structuredResults.itinerary.selected.planSwitcher')}
+          >
+            {item.plans.map(plan => (
+              <button
+                key={plan.id}
+                type="button"
+                aria-pressed={plan.id === selectedPlan.id}
+                onClick={() => setSelectedPlanId(plan.id)}
+                className={cn(
+                  'rounded-full border px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+                  plan.id === selectedPlan.id
+                    ? 'border-primary/40 bg-primary/10 text-primary'
+                    : 'border-border/70 bg-background text-muted-foreground hover:bg-muted/40',
+                )}
+              >
+                {plan.title}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-xs font-medium text-muted-foreground">{selectedPlan.title}</p>
+        )}
+      </header>
+
+      <div className="space-y-3 px-4 py-4 sm:px-5">
+        <p className="text-sm leading-6 text-foreground/90">
+          <span className="mr-1 text-xs font-medium text-muted-foreground">
+            {t('structuredResults.itinerary.selected.reason')}
+          </span>
+          {selectedPlan.reason}
+        </p>
+
+        <ol className="space-y-2">
+          {selectedPlan.legs.map((leg, index) => (
+            <SelectedLegRow key={`${selectedPlan.id}:${index}`} leg={leg} />
+          ))}
+        </ol>
+
+        <SelectedPlanTotals plan={selectedPlan} language={i18n.language} />
+
+        <p className="text-[11px] leading-5 text-muted-foreground">
+          · {t('structuredResults.itinerary.selected.fullResults')}
+        </p>
+        {item.attributions.length > 0 ? (
+          <p className="text-[11px] text-muted-foreground/80">
+            {t('structuredResults.itinerary.sources', {
+              sources: item.attributions.join(i18n.language.startsWith('zh') ? '、' : ', '),
+            })}
+          </p>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function SelectedLegRow({ leg }: { leg: SelectedItineraryLeg }) {
+  const { t, i18n } = useTranslation();
+  const { option } = leg;
+  const Icon = leg.mode === 'flight' ? Plane : TrainFront;
+  const identifier = leg.mode === 'flight'
+    ? [leg.option.airline_name?.trim(), leg.option.flight_no?.trim()].filter(Boolean).join(' ')
+    : leg.option.train_no?.trim() ?? '';
+  const departureAt = option.departure?.scheduled_at;
+  const arrivalAt = option.arrival?.scheduled_at;
+  const dayOffset = calendarDayOffset(departureAt, arrivalAt);
+  return (
+    <li
+      className="flex items-start gap-3 rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5"
+      data-testid="selected-itinerary-leg"
+    >
+      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-background text-primary">
+        <Icon className="h-4 w-4" aria-hidden="true" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <p className="text-sm font-medium text-foreground">
+            {formatLegDate(departureAt, t)}
+            {identifier ? <span className="ml-2">{identifier}</span> : null}
+          </p>
+          <span className="text-sm font-semibold tabular-nums text-foreground">
+            {formatMoney(option.price?.amount_minor, i18n.language)}
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          <span className="tabular-nums">
+            {formatScheduleRange(departureAt, arrivalAt, t)}
+            {dayOffset > 0 ? ` ${t('structuredResults.itinerary.selected.nextDay', { count: dayOffset })}` : ''}
+          </span>
+          {option.departure?.station_name || option.arrival?.station_name ? (
+            <span className="ml-2">
+              {option.departure?.station_name ?? '—'} → {option.arrival?.station_name ?? '—'}
+            </span>
+          ) : null}
+          <span className="ml-2">{formatDuration(option.duration_s, t)}</span>
+        </p>
+      </div>
+    </li>
+  );
+}
+
+function SelectedPlanTotals({
+  plan,
+  language,
+}: {
+  plan: SelectedItineraryPlanPresentation;
+  language: string;
+}) {
+  const { t } = useTranslation();
+  if (plan.legs.length < 2) return null;
+  return (
+    <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+      <span className="inline-flex items-center gap-1">
+        <CircleDollarSign className="h-3.5 w-3.5" aria-hidden="true" />
+        {plan.totalPrice
+          ? t('structuredResults.itinerary.selected.totalPrice', {
+            price: formatMoney(plan.totalPrice.amount_minor, language),
+          })
+          : t('structuredResults.itinerary.selected.priceIncomplete')}
+      </span>
+      {plan.travelDurationS !== null ? (
+        <span className="inline-flex items-center gap-1">
+          <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
+          {t('structuredResults.itinerary.selected.travelDuration', {
+            duration: formatDuration(plan.travelDurationS, t),
+          })}
+        </span>
+      ) : null}
+    </p>
+  );
+}
+
+function formatLegDate(value: string | null | undefined, t: TFunction): string {
+  const [, month, day] = value?.match(/^\d{4}-(\d{2})-(\d{2})T/) ?? [];
+  if (!month || !day) return '';
+  return t('structuredResults.itinerary.selected.dayLabel', { month: Number(month), day: Number(day) });
+}
+
+/** 班次时刻是带时区的当地时间，按字面日期判断到达是否跨天。 */
+function calendarDayOffset(departure: string | null | undefined, arrival: string | null | undefined): number {
+  const departureDate = departure?.match(/^(\d{4}-\d{2}-\d{2})T/)?.[1];
+  const arrivalDate = arrival?.match(/^(\d{4}-\d{2}-\d{2})T/)?.[1];
+  if (!departureDate || !arrivalDate) return 0;
+  const days = (Date.parse(`${arrivalDate}T00:00:00Z`) - Date.parse(`${departureDate}T00:00:00Z`)) / 86_400_000;
+  return Number.isFinite(days) && days > 0 ? Math.round(days) : 0;
 }
 
 function UnavailableSummary({

@@ -203,13 +203,13 @@ class ContentBlockRegistryTests(unittest.TestCase):
 
     def test_deserialize_blocks_treats_future_itinerary_version_as_unsupported(self):
         payload = _itinerary_payload()
-        payload["schema_version"] = 2
+        payload["schema_version"] = 3
 
         blocks = deserialize_content_blocks([payload])
 
         self.assertIsInstance(blocks[0], UnsupportedContentBlock)
         self.assertEqual(blocks[0].source_type, "itinerary_results")
-        self.assertEqual(blocks[0].source_schema_version, 2)
+        self.assertEqual(blocks[0].source_schema_version, 3)
         self.assertEqual(blocks[0].reason, "unsupported_version")
 
     def test_deserialize_blocks_rejects_round_trip_without_end_date(self):

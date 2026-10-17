@@ -20,6 +20,8 @@ import type {
   ProviderTransitType,
   ProviderTrainResult,
   RouteResultsBlock,
+  SelectedItineraryBlock,
+  SelectedItineraryPlan,
   StructuredResultAction,
   StructuredResultAttribution,
   StructuredToolResultBlock,
@@ -38,6 +40,7 @@ export const STRUCTURED_TOOL_RESULT_CONTRACTS = [
   { type: 'train_results', schemaVersion: 1 },
   { type: 'weather_results', schemaVersion: 1 },
   { type: 'itinerary_results', schemaVersion: 1 },
+  { type: 'itinerary_results', schemaVersion: 2 },
   { type: 'unsupported_result', schemaVersion: null },
 ] as const;
 
@@ -286,6 +289,9 @@ export function normalizeUnsupportedResultBlock(value: unknown): UnsupportedResu
 
 export function normalizeStructuredToolResultBlock(value: unknown): StructuredToolResultBlock | null {
   const source = asRecord(value);
+  if (source?.type === 'itinerary_results' && source.schema_version === 2) {
+    return normalizeSelectedItineraryBlock(source);
+  }
   if (!source || source.schema_version !== 1) return null;
   const id = optionalString(source.id);
   if (!id) return null;
@@ -363,6 +369,57 @@ export function normalizeStructuredToolResultBlock(value: unknown): StructuredTo
   }
 
   return null;
+}
+
+function normalizeSelectedItineraryBlock(
+  source: Record<string, unknown>,
+): SelectedItineraryBlock | null {
+  const id = boundedString(source.id, 160);
+  const title = boundedString(source.title, 80);
+  if (
+    !id
+    || !title
+    || source.provider !== 'fusion'
+    || !Array.isArray(source.plans)
+    || source.plans.length < 1
+    || source.plans.length > 3
+  ) {
+    return null;
+  }
+  const plans = source.plans.map(normalizeSelectedItineraryPlan);
+  if (plans.some(plan => plan === null)) return null;
+  const normalizedPlans = plans as SelectedItineraryPlan[];
+  if (new Set(normalizedPlans.map(plan => plan.id)).size !== normalizedPlans.length) return null;
+  return {
+    type: 'itinerary_results',
+    id,
+    schema_version: 2,
+    provider: 'fusion',
+    title,
+    plans: normalizedPlans,
+    ...optionalField('tool_call_log_id', boundedString(source.tool_call_log_id, 160)),
+  };
+}
+
+function normalizeSelectedItineraryPlan(value: unknown): SelectedItineraryPlan | null {
+  const source = asRecord(value);
+  if (!source) return null;
+  const id = boundedString(source.id, 80);
+  const title = boundedString(source.title, 60);
+  const reason = boundedString(source.reason, 300);
+  if (!id || !title || !reason || !Array.isArray(source.legs) || source.legs.length < 1 || source.legs.length > 6) {
+    return null;
+  }
+  const legs = source.legs.map(item => {
+    const leg = asRecord(item);
+    const blockId = boundedString(leg?.block_id, 160);
+    const optionId = boundedString(leg?.option_id, 80);
+    return blockId && optionId ? { block_id: blockId, option_id: optionId } : null;
+  });
+  if (legs.some(leg => leg === null)) return null;
+  const normalizedLegs = legs as SelectedItineraryPlan['legs'];
+  if (new Set(normalizedLegs.map(leg => leg.option_id)).size !== normalizedLegs.length) return null;
+  return { id, title, reason, legs: normalizedLegs };
 }
 
 function normalizeItineraryResultBlock(

@@ -158,7 +158,7 @@ def build_itinerary_run_payload(
 ) -> dict[str, Any] | None:
     """构造固定字段的行程终态；普通天气、地点和通勤不进入行程指标。"""
 
-    has_itinerary_block = _itinerary_block_status(content_blocks) is not None
+    has_itinerary_block = any(_block_type(block) == "itinerary_results" for block in content_blocks)
     has_primary_tool = any(item.tool_name in ITINERARY_PRIMARY_TOOL_NAMES for item in tool_observations)
     if not has_itinerary_block and not has_primary_tool:
         return None
@@ -175,7 +175,7 @@ def build_itinerary_run_payload(
         "model_id": _safe_identifier(model_id, max_chars=200),
         "provider": _safe_identifier(provider, max_chars=100).lower(),
         "result": classify_itinerary_result(
-            content_blocks,
+            tool_observations,
             run_status=run_status,
         ),
         "run_status": run_status if run_status in _SAFE_RUN_STATUSES else "error",
@@ -198,20 +198,20 @@ def build_itinerary_run_payload(
 
 
 def classify_itinerary_result(
-    content_blocks: list[Any],
+    tool_observations: list[ItineraryToolObservation],
     *,
     run_status: str,
 ) -> ItineraryResult:
-    block_status = _itinerary_block_status(content_blocks)
+    """按 run 终态和航班/高铁查询结果分类；是否展示行程卡片由模型决定，不参与判断。"""
+
     if run_status == "error":
         return "failed"
-    if run_status in {"interrupted", "limit_reached", "incomplete"}:
-        return "partial" if block_status is not None else "failed"
-    if block_status == "success":
+    primary = [item for item in tool_observations if item.tool_name in ITINERARY_PRIMARY_TOOL_NAMES]
+    if not any(item.outcome in {"success", "degraded"} for item in primary):
+        return "failed"
+    if run_status == "completed" and all(item.outcome == "success" for item in primary):
         return "complete"
-    if block_status is not None:
-        return "partial"
-    return "failed"
+    return "partial"
 
 
 def normalize_error_category(error_code: str | None) -> str | None:
@@ -250,7 +250,6 @@ def aggregate_itinerary_stability(
     """把有界 ORM 行聚合为管理员稳定性视图，只输出计数、分位数和固定分类。"""
 
     sessions = list(rows.get("sessions") or [])
-    messages = {row.id: row for row in rows.get("messages") or []}
     sessions_by_id = {row.id: row for row in sessions}
     sessions_by_message = {row.message_id: row for row in sessions if row.message_id}
 
@@ -306,12 +305,10 @@ def aggregate_itinerary_stability(
             )
             is not None
         ]
-        message = messages.get(session.message_id if session is not None else anchor.message_id)
-        content_blocks = message.content if message is not None and isinstance(message.content, list) else []
         run_model_id = session.model_id if session is not None else anchor.model_id
         run_provider = session.provider if session is not None else anchor.provider
         result = classify_itinerary_result(
-            content_blocks,
+            observations,
             run_status=session.status,
         )
         completed_runs.append(
@@ -420,14 +417,8 @@ def _percentiles(values: list[int | None]) -> dict[str, int | None]:
     }
 
 
-def _itinerary_block_status(content_blocks: list[Any]) -> str | None:
-    for block in reversed(content_blocks):
-        block_type = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
-        if block_type != "itinerary_results":
-            continue
-        status = block.get("status") if isinstance(block, dict) else getattr(block, "status", None)
-        return status if status in {"success", "degraded"} else "degraded"
-    return None
+def _block_type(block: Any) -> Any:
+    return block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
 
 
 def _safe_identifier(value: Any, *, max_chars: int) -> str:

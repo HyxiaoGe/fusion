@@ -329,7 +329,7 @@ def append_tool_round_messages_with_plan(
         if record is not None:
             citation_numbers = _assign_search_citation_numbers(citation_registry, record)
             tool_context = record.format_llm_context(citation_numbers=citation_numbers)
-            if record.result.status == "failed":
+            if record.result.status == "failed" and getattr(record.handler, "suggests_alternatives_on_failure", True):
                 guidance = _failure_recovery_guidance(request, failed_tool_name=record.tool_name)
                 if guidance:
                     tool_context += "\n\n" + guidance
@@ -817,18 +817,8 @@ async def handle_tool_calls_round(*, request: ToolRoundRequest) -> ToolRoundOutc
         results=results,
         built_content_blocks=built_content_blocks,
     )
-    structured_update = request.structured_answers.update_round_results(
-        request.agent_state,
-        request.content_blocks,
-        results,
-        built_content_blocks=built_content_blocks,
-    )
     persist_tool_round_checkpoint(request)
     await emit_rich_result_blocks(request, results, built_content_blocks=built_content_blocks)
-    for block_id in structured_update.discarded_block_ids:
-        await emit_discarded_result_block(request, block_id)
-    for tool_call_id, content_block in structured_update.upserted_blocks:
-        await emit_structured_result_block(request, tool_call_id=tool_call_id, content_block=content_block)
 
     tool_names = await complete_tool_round_step(request, executed_results, executed_count=executed_count)
     restore_reasoning_after_tool_decision(request.call_kwargs, provider=request.provider)
@@ -1013,38 +1003,6 @@ async def emit_rich_result_blocks(
                 raise
             except Exception:
                 logger.warning("发送产品结果 content block 事件失败", exc_info=True)
-
-
-async def emit_structured_result_block(
-    request: ToolRoundRequest,
-    *,
-    tool_call_id: str,
-    content_block: Any,
-) -> None:
-    emit = getattr(request.emitter, "content_block_upserted", None)
-    if emit is None:
-        return
-    try:
-        await emit(tool_call_id=tool_call_id, content_block=content_block)
-    except StreamWriteTerminalError:
-        raise
-    except Exception:
-        logger.warning("发送汇总结果 content block 事件失败", exc_info=True)
-
-
-async def emit_discarded_result_block(
-    request: ToolRoundRequest,
-    block_id: str,
-) -> None:
-    discard = getattr(request.emitter, "content_block_discarded", None)
-    if discard is None:
-        return
-    try:
-        await discard(block_id=block_id)
-    except StreamWriteTerminalError:
-        raise
-    except Exception:
-        logger.warning("撤回汇总结果 content block 事件失败", exc_info=True)
 
 
 async def emit_selected_source_evidence(

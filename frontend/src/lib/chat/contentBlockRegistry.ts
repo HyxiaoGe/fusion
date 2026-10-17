@@ -92,6 +92,10 @@ export function normalizeContentBlock(value: unknown): ContentBlock | null {
 }
 
 function decodeStructuredToolResultBlock(source: Record<string, unknown>): ContentBlock | null {
+  // 模型选定的行程卡片没有查询状态字段，按自身契约解码。
+  if (source.type === 'itinerary_results' && source.schema_version === 2) {
+    return normalizeStructuredToolResultBlock(source);
+  }
   if (!hasRequiredStructuredResultFields(source)) return null;
   return normalizeStructuredToolResultBlock(source);
 }

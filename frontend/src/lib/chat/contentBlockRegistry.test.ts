@@ -126,6 +126,7 @@ describe('contentBlockRegistry', () => {
       { type: 'train_results', schemaVersion: 1 },
       { type: 'weather_results', schemaVersion: 1 },
       { type: 'itinerary_results', schemaVersion: 1 },
+      { type: 'itinerary_results', schemaVersion: 2 },
       { type: 'unsupported_result', schemaVersion: null },
     ]);
   });
@@ -503,13 +504,46 @@ describe('contentBlockRegistry', () => {
     expect(JSON.stringify(block)).not.toContain('upstream');
   });
 
+  it('模型选定的行程（schema 2）按自身契约解码，坏载荷降级为不支持', () => {
+    const payload = {
+      type: 'itinerary_results',
+      id: 'itinerary-selected',
+      schema_version: 2,
+      provider: 'fusion',
+      title: '深圳→上海',
+      plans: [{
+        id: 'plan_1',
+        title: '早班直飞',
+        reason: '上午落地',
+        legs: [{ block_id: 'flights-1', option_id: 'flight-1' }],
+      }],
+      tool_call_log_id: 'log-1',
+    };
+
+    expect(normalizeContentBlock(payload)).toEqual(payload);
+    for (const broken of [
+      { ...payload, plans: [] },
+      { ...payload, provider: 'other' },
+      { ...payload, plans: [{ ...payload.plans[0], legs: [{ block_id: 'flights-1' }] }] },
+      {
+        ...payload,
+        plans: [{ ...payload.plans[0], legs: [payload.plans[0].legs[0], payload.plans[0].legs[0]] }],
+      },
+    ]) {
+      expect(normalizeContentBlock(broken)).toMatchObject({
+        type: 'unsupported_result',
+        reason: 'invalid_payload',
+      });
+    }
+  });
+
   it('itinerary 拒绝未来版本、越界数组、非法标签和损坏引用', () => {
-    const future = normalizeContentBlock(itineraryPayload({ schema_version: 2 }));
+    const future = normalizeContentBlock(itineraryPayload({ schema_version: 3 }));
     expect(future).toEqual({
       type: 'unsupported_result',
       id: 'itinerary-1',
       source_type: 'itinerary_results',
-      source_schema_version: 2,
+      source_schema_version: 3,
       reason: 'unsupported_version',
     });
 

@@ -4,6 +4,7 @@ import type {
   ContentBlock,
   FlightResultsBlock,
   ItineraryResultsBlock,
+  SelectedItineraryBlock,
   TrainResultsBlock,
   WeatherResultsBlock,
 } from '@/types/conversation';
@@ -395,7 +396,7 @@ describe('deriveItineraryResultPresentation', () => {
       type: 'unsupported_result',
       id: 'itinerary-future',
       source_type: 'itinerary_results',
-      source_schema_version: 2,
+      source_schema_version: 3,
       reason: 'unsupported_version',
     } as const;
 
@@ -404,5 +405,81 @@ describe('deriveItineraryResultPresentation', () => {
       { kind: 'standalone', block: source },
       { kind: 'standalone', block: future },
     ]);
+  });
+
+  describe('模型选定的行程（schema 2）', () => {
+    function selected(legs: Array<[string, string]>): SelectedItineraryBlock {
+      return {
+        type: 'itinerary_results',
+        id: 'itinerary-selected',
+        schema_version: 2,
+        provider: 'fusion',
+        title: '深圳⇄上海',
+        plans: [{
+          id: 'plan_1',
+          title: '去飞回飞',
+          reason: '早班出发，当天上午到',
+          legs: legs.map(([blockId, optionId]) => ({ block_id: blockId, option_id: optionId })),
+        }],
+      };
+    }
+
+    it('按引用解析班次并计算合计，来源卡片照常展示', () => {
+      const outbound = flightBlock('flight-outbound-block', 'flight-outbound');
+      const inbound = flightBlock('flight-return-block', 'flight-return', '2026-08-03');
+      const card = selected([
+        ['flight-outbound-block', 'flight-outbound'],
+        ['flight-return-block', 'flight-return'],
+      ]);
+
+      const items = deriveItineraryResultPresentation([outbound, inbound, card]).items;
+
+      expect(items[0]).toMatchObject({
+        kind: 'selected_itinerary',
+        attributions: ['飞猪旅行'],
+        plans: [{
+          title: '去飞回飞',
+          totalPrice: { currency: 'CNY', amount_minor: 116_000 },
+          travelDurationS: 16_800,
+        }],
+      });
+      expect(items[0].kind === 'selected_itinerary' && items[0].plans[0].legs.map(leg => leg.option.option_id))
+        .toEqual(['flight-outbound', 'flight-return']);
+      expect(items.slice(1).map(item => item.kind === 'standalone' && item.block.id))
+        .toEqual(['flight-outbound-block', 'flight-return-block']);
+    });
+
+    it('任一段缺参考价时不给出部分合计', () => {
+      const outbound = flightBlock('flight-outbound-block', 'flight-outbound');
+      const train = trainBlock('train-block', 'train-later');
+      train.trains = train.trains?.map(option => ({ ...option, price: null }));
+
+      const items = deriveItineraryResultPresentation([
+        outbound,
+        train,
+        selected([['flight-outbound-block', 'flight-outbound'], ['train-block', 'train-later']]),
+      ]).items;
+
+      expect(items[0]).toMatchObject({ kind: 'selected_itinerary', plans: [{ totalPrice: null }] });
+    });
+
+    it('引用不存在的班次时卡片降级为不支持提示，来源卡片不受影响', () => {
+      const outbound = flightBlock('flight-outbound-block', 'flight-outbound');
+      const card = selected([['flight-outbound-block', 'flight-missing']]);
+
+      expect(deriveItineraryResultPresentation([outbound, card]).items).toEqual([
+        { kind: 'standalone', block: outbound },
+        {
+          kind: 'standalone',
+          block: {
+            type: 'unsupported_result',
+            id: 'itinerary-selected',
+            source_type: 'itinerary_results',
+            source_schema_version: 2,
+            reason: 'invalid_payload',
+          },
+        },
+      ]);
+    });
   });
 });
