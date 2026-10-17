@@ -1,8 +1,10 @@
 import unittest
 
+from app.ai.prompts.agent_loop import RESEARCH_EVIDENCE_SUMMARY_PROMPT
 from app.ai.prompts.section_ids import DEEP_RESEARCH_STAGE, RESEARCH_EVIDENCE_WORKSET
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.deep_research_mode import DEEP_RESEARCH_RUN_MODE
+from app.services.stream.limit_summary import append_limit_summary_prompt
 from app.services.stream.run_mode import STANDARD_RUN_MODE, resolve_run_mode
 from test.services.stream.test_research_evidence import _read_block, _search_block
 
@@ -49,6 +51,22 @@ class SummaryMessagesTests(unittest.TestCase):
         prompt = _workset_prompt(messages)
         self.assertIn("evidence_id=ev-web-report status=candidate", prompt)
         self.assertIn("evidence_id=ev-a status=read_success", prompt)
+
+
+class SummaryPromptTests(unittest.TestCase):
+    def _summary_prompt(self, mode, summary_finish_reason="limit_summary") -> str:
+        messages = [{"role": "user", "content": "研究一下"}]
+        append_limit_summary_prompt(messages, summary_finish_reason=summary_finish_reason, mode=mode)
+        return messages[-1].content
+
+    def test_deep_research_summary_appends_evidence_requirements(self):
+        self.assertIn(RESEARCH_EVIDENCE_SUMMARY_PROMPT, self._summary_prompt(DEEP_RESEARCH_RUN_MODE))
+        self.assertNotIn(RESEARCH_EVIDENCE_SUMMARY_PROMPT, self._summary_prompt(STANDARD_RUN_MODE))
+
+    def test_evidence_summary_prompt_is_not_repeated(self):
+        prompt = self._summary_prompt(DEEP_RESEARCH_RUN_MODE, "research_evidence_repair_exhausted")
+
+        self.assertEqual(prompt.count(RESEARCH_EVIDENCE_SUMMARY_PROMPT), 1)
 
 
 if __name__ == "__main__":

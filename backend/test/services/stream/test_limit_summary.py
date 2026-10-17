@@ -31,8 +31,8 @@ from app.services.chat.context_manager import ContextPlan
 from app.services.chat.context_manager import prepare_context as prepare_context_real
 from app.services.stream import limit_summary as limit_summary_module
 from app.services.stream import llm_stream as llm_stream_module
+from app.services.stream.deep_research_mode import DEEP_RESEARCH_INCOMPLETE_TEXT, DEEP_RESEARCH_RUN_MODE
 from app.services.stream.limit_summary import (
-    DEEP_RESEARCH_INCOMPLETE_TEXT,
     LIMIT_SUMMARY_PROMPT,
     SUMMARY_PROTOCOL_FALLBACK_TEXT,
     LimitSummaryStepRequest,
@@ -280,7 +280,7 @@ class LimitSummaryHelpersTests(unittest.TestCase):
             {"role": "user", "content": "<web_context>已读来源安全投影</web_context>"},
         ]
 
-        remove_conflicting_tool_usage_contract(messages, task_mode="deep_research")
+        remove_conflicting_tool_usage_contract(messages, mode=DEEP_RESEARCH_RUN_MODE)
 
         self.assertEqual(
             messages,
@@ -338,7 +338,6 @@ class LimitSummaryHelpersTests(unittest.TestCase):
 
         remove_conflicting_tool_usage_contract(
             messages,
-            task_mode="standard",
             final_synthesis=True,
         )
 
@@ -356,7 +355,6 @@ class LimitSummaryHelpersTests(unittest.TestCase):
 
         remove_conflicting_tool_usage_contract(
             messages,
-            task_mode="standard",
             final_synthesis=True,
         )
 
@@ -399,7 +397,6 @@ class LimitSummaryHelpersTests(unittest.TestCase):
 
         remove_conflicting_tool_usage_contract(
             messages,
-            task_mode="standard",
             final_synthesis=True,
         )
 

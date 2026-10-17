@@ -4,11 +4,26 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from app.ai.prompts.agent_loop import RESEARCH_EVIDENCE_SUMMARY_PROMPT
 from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
-from app.ai.prompts.section_ids import RESEARCH_COMPLETION_REPAIR
+from app.ai.prompts.section_ids import (
+    DEEP_RESEARCH_CONTROL_SECTION_IDS,
+    RESEARCH_COMPLETION_REPAIR,
+    RESEARCH_EVIDENCE_SUMMARY,
+)
+from app.core.logger import app_logger as logger
+from app.services.final_answer_evidence import build_used_final_answer_evidence
 from app.services.stream.agent_loop_outcome import AgentLoopExit, AgentLoopOutcome
+from app.services.stream.limit_summary import (
+    LimitSummaryRoundResult,
+    LimitSummaryStepRequest,
+    _finish_summary_round_lifecycle,
+    _record_summary_output,
+    append_summary_content_blocks,
+)
 from app.services.stream.plan_control import UPDATE_PLAN_TOOL_NAME
 from app.services.stream.research_evidence import (
+    ResearchEvidenceWorkset,
     build_research_repair_prompt,
     deep_research_stage_tool_names,
     resolve_deep_research_stage,
@@ -16,7 +31,8 @@ from app.services.stream.research_evidence import (
 )
 from app.services.stream.research_workset_messages import messages_with_research_workset
 from app.services.stream.round_completion import complete_text_response_step
-from app.services.stream.run_mode import RoundPreparation, RunMode
+from app.services.stream.run_mode import RoundPreparation, RunMode, SummaryRepair
+from app.services.stream_state_service import StreamWriteTerminalError
 
 if TYPE_CHECKING:
     from app.services.stream.agent_loop_round_outcome import AgentRoundOutcomeRequest
@@ -24,9 +40,17 @@ if TYPE_CHECKING:
     from app.services.stream.tool_round import ToolRoundOutcome
 
 
+DEEP_RESEARCH_INCOMPLETE_TEXT = (
+    "本次研究尚未完成，当前取得的可核验依据不足，暂时无法给出可靠结论。你可以稍后重试，或缩小研究范围后重新发起。"
+)
+
+
 class DeepResearchRunMode(RunMode):
     # 完成度检查可能丢弃本轮回答，回答先不推给用户。
     defer_round_output = True
+    # 查证总结要保留已格式化的读页正文，并保持 assistant/tool 消息成对，因此去掉全部工具事务。
+    summary_strips_tool_transactions = True
+    summary_control_section_ids = DEEP_RESEARCH_CONTROL_SECTION_IDS
 
     def prepare_round(self, call_kwargs: dict, *, state: AgentLoopState, provider: str) -> RoundPreparation:
         stage = resolve_deep_research_stage(state.research_workset)
@@ -125,8 +149,99 @@ class DeepResearchRunMode(RunMode):
             # 计划只用于展示；未实际执行取证时，下一轮不能继续靠更新计划空转。
             request.state.research_plan_update_requires_evidence = True
 
+    def extend_summary_prompt(self, prompt: str, *, section_id: str) -> str:
+        if section_id == RESEARCH_EVIDENCE_SUMMARY:
+            return prompt
+        return f"{prompt}\n\n{RESEARCH_EVIDENCE_SUMMARY_PROMPT}"
+
+    def summary_repair(
+        self,
+        request: LimitSummaryStepRequest,
+        result: LimitSummaryRoundResult,
+    ) -> SummaryRepair | None:
+        """证据充足但最终引用缺失或越界时，允许一次无工具引用修正。"""
+
+        workset = request.research_workset or ResearchEvidenceWorkset()
+        validation = validate_research_completion(workset, result.content_buf)
+        if validation.is_valid or validation.reason not in {"missing_citation", "invalid_citation"}:
+            return None
+        warning = request.warning_fn if request.warning_fn is not None else logger.warning
+        warning(
+            "深度研究收尾引用校验未通过，执行一次无工具引用修正: "
+            f"conv_id={request.conversation_id}, run_id={request.run_id}, "
+            f"step={request.step_number}, reason={validation.reason}"
+        )
+        return SummaryRepair(
+            prompt=build_research_repair_prompt(validation.reason, workset),
+            section_id=RESEARCH_COMPLETION_REPAIR,
+            suppress_reason="research_guard",
+        )
+
+    async def commit_summary(
+        self,
+        request: LimitSummaryStepRequest,
+        *,
+        round_result: LimitSummaryRoundResult,
+        text_block_id: str,
+        step_id: str,
+    ) -> bool | None:
+        workset = request.research_workset or ResearchEvidenceWorkset()
+        validation = validate_research_completion(workset, round_result.content_buf)
+        answer = round_result.content_buf.strip() if validation.is_valid else DEEP_RESEARCH_INCOMPLETE_TEXT
+        if not validation.is_valid:
+            warning = request.warning_fn if request.warning_fn is not None else logger.warning
+            warning(
+                "深度研究收尾未通过安全门禁: "
+                f"conv_id={request.conversation_id}, run_id={request.run_id}, "
+                f"step={request.step_number}, research_validation_reason={validation.reason}"
+            )
+        await request.output.append(
+            "answering",
+            answer,
+            text_block_id,
+            run_id=request.run_id,
+            step_id=step_id,
+        )
+        _record_summary_output(round_result, answer, "research_guard")
+        if validation.is_valid:
+            await _finish_summary_round_lifecycle(round_result, model_output_visible=True)
+        append_summary_content_blocks(
+            content_blocks=request.content_blocks,
+            content_buf=answer,
+            text_block_id=text_block_id,
+        )
+        if not validation.is_valid:
+            return True
+        await _emit_summary_used_evidence(request=request, answer_text=answer, workset=workset)
+        return False
+
 
 DEEP_RESEARCH_RUN_MODE = DeepResearchRunMode()
+
+
+async def _emit_summary_used_evidence(
+    *,
+    request: LimitSummaryStepRequest,
+    answer_text: str,
+    workset: ResearchEvidenceWorkset,
+) -> None:
+    emit = getattr(request.emitter, "evidence_item_upserted", None)
+    if emit is None:
+        return
+    try:
+        evidence_items = build_used_final_answer_evidence(
+            content_blocks=request.content_blocks,
+            answer_text=answer_text,
+            evidence_policy=request.evidence_policy,
+            allowed_citation_indexes=workset.valid_citation_indexes,
+        )
+        for evidence in evidence_items:
+            await emit(tool_call_id=None, evidence=evidence)
+    except StreamWriteTerminalError:
+        raise
+    except Exception as error:  # noqa: BLE001 — used evidence 观测失败不能覆盖安全收尾
+        warning = request.warning_fn if request.warning_fn is not None else logger.warning
+        warning(f"深度研究总结 used evidence 发送失败: error_type={type(error).__name__}")
 
 
 def _suppress_output(request: AgentRoundOutcomeRequest) -> None:
