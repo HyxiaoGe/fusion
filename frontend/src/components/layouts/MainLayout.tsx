@@ -7,6 +7,7 @@ import ErrorToastContainer from "../ui/error-toast";
 import ResizableSidebar from "./ResizableSidebar";
 import { UserAvatarMenu } from "./UserAvatarMenu";
 import { Button } from "../ui/button";
+import { FusionMark } from "@/components/brand/FusionMark";
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -56,7 +57,10 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children, sidebar, rightPanel }
           >
             <MenuIcon className="h-5 w-5" />
           </Button>
-          <span className="text-sm font-semibold text-foreground">Fusion AI</span>
+          <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            <FusionMark className="h-[18px] w-[18px]" />
+            Fusion AI
+          </span>
           <div className="flex items-center">
             <UserAvatarMenu />
           </div>
