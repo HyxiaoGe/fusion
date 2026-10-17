@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
-  abortStreamController,
   getStreamController,
   migrateStreamController,
   registerStreamController,
@@ -37,10 +36,10 @@ describe('streamControllerRegistry', () => {
     registerStreamController(a);
     registerStreamController(b);
 
-    const aborted = abortStreamController('conv-a');
+    a.controller.abort();
+    expect(releaseStreamController('conv-a', a.controller)).toBe(true);
 
-    expect(aborted).toBe(a);
-    expect(a.controller.signal.aborted).toBe(true);
+    expect(getStreamController('conv-a')).toBeNull();
     expect(b.controller.signal.aborted).toBe(false);
     expect(getStreamController('conv-b')).toBe(b);
   });
@@ -98,9 +97,7 @@ describe('streamControllerRegistry', () => {
     expect(getStreamController('server-conv')).toBeNull();
   });
 
-  it('中止不存在的会话返回 null，不抛错', () => {
-    expect(abortStreamController('conv-missing')).toBeNull();
-    expect(abortStreamController(null)).toBeNull();
+  it('注销不存在的会话返回 false，不抛错', () => {
     expect(releaseStreamController(null, new AbortController())).toBe(false);
   });
 

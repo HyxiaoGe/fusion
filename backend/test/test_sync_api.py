@@ -81,7 +81,7 @@ def test_sync_returns_only_requested_sections(client, db, viewing_redis):
     ).json()["data"]
     assert data == {
         "viewing": True,
-        "activity": {"streaming": [], "unread": []},
+        "activity": {"streaming": []},
         "notifications": {"revision": 7},
         "failed": [],
     }
@@ -99,11 +99,11 @@ def test_sync_notifications_revision_defaults_to_zero_without_state(client):
 def test_sync_activity_passes_through_service_result(client, monkeypatch):
     async def activity(user_id):
         assert user_id == "user-1"
-        return {"streaming": ["conv-1"], "unread": ["conv-2"]}
+        return {"streaming": ["conv-1"]}
 
     monkeypatch.setattr("app.api.sync.get_conversation_activity", activity)
     data = client.post("/api/sync", json={"activity": True}).json()["data"]
-    assert data["activity"] == {"streaming": ["conv-1"], "unread": ["conv-2"]}
+    assert data["activity"] == {"streaming": ["conv-1"]}
 
 
 def test_sync_isolates_section_failures(client, db, monkeypatch):

@@ -6,9 +6,9 @@
  * icon 用 Lucide component reference（同 toolRegistry）。
  */
 
-import { Loader2, CheckCircle2, AlertTriangle, Square, AlertCircle, XCircle } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertTriangle, Square, AlertCircle } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { AgentRunStatus, AgentStepStatus } from '@/types/agentRun';
+import type { AgentRunStatus } from '@/types/agentRun';
 import type { SemanticColor } from './toolRegistry';
 
 interface StatusTreatment {
@@ -25,11 +25,4 @@ export const RUN_STATUS_TREATMENT: Record<AgentRunStatus, StatusTreatment> = {
   incomplete:    { color: 'warn',    icon: AlertTriangle,  label: '部分完成' },
   interrupted:   { color: 'neutral', icon: Square,         label: '已中断' },
   failed:        { color: 'danger',  icon: AlertCircle,    label: '失败' },
-};
-
-export const STEP_STATUS_TREATMENT: Record<AgentStepStatus, StatusTreatment> = {
-  running:     { color: 'info',    icon: Loader2,       label: '进行中' },
-  completed:   { color: 'success', icon: CheckCircle2,  label: '完成' },
-  failed:      { color: 'danger',  icon: XCircle,       label: '失败' },
-  interrupted: { color: 'neutral', icon: Square,        label: '中断' },
 };

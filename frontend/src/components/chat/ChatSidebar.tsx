@@ -103,7 +103,6 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ onNewChat, activeChatIdOverri
   const { unreadConversationIds } = useNotifications();
   const { streamingConversationIds } = useConversationActivity(
     authSessionKey,
-    routeActiveChatId,
     localStreamingConversationIds,
     refreshSettledConversations,
   );

@@ -31,7 +31,7 @@ describe('sync batch', () => {
   it('同一轮登记的部分合成一个请求，各自拿到自己的结果', async () => {
     apiRequestMock.mockResolvedValue({
       viewing: true,
-      activity: { streaming: ['conv-1'], unread: ['conv-2'] },
+      activity: { streaming: ['conv-1'] },
       notifications: { revision: 9 },
       failed: [],
     });
@@ -42,7 +42,7 @@ describe('sync batch', () => {
     await vi.runAllTimersAsync();
 
     await expect(viewing).resolves.toBeUndefined();
-    await expect(activity).resolves.toEqual({ streaming: ['conv-1'], unread: ['conv-2'] });
+    await expect(activity).resolves.toEqual({ streaming: ['conv-1'] });
     await expect(revision).resolves.toBe(9);
     expect(apiRequestMock).toHaveBeenCalledTimes(1);
     expect(apiRequestMock.mock.calls[0][0]).toMatch(/\/api\/sync$/);
@@ -93,7 +93,7 @@ describe('sync batch', () => {
   });
 
   it('取消的部分不再发送；整批都取消时不发请求', async () => {
-    apiRequestMock.mockResolvedValue({ viewing: null, activity: { streaming: [], unread: [] }, notifications: null, failed: [] });
+    apiRequestMock.mockResolvedValue({ viewing: null, activity: { streaming: [] }, notifications: null, failed: [] });
 
     const controller = new AbortController();
     const viewing = expect(syncConversationViewing('conv-1', controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
@@ -102,7 +102,7 @@ describe('sync batch', () => {
     await vi.runAllTimersAsync();
 
     await viewing;
-    await expect(activity).resolves.toEqual({ streaming: [], unread: [] });
+    await expect(activity).resolves.toEqual({ streaming: [] });
     expect(sentBody()).toEqual({ activity: true, notifications: false });
 
     const onlyAborted = new AbortController();

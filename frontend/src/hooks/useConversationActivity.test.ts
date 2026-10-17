@@ -1,80 +1,51 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { markConversationRead } from '@/lib/api/chat';
 import { syncConversationActivity } from '@/lib/api/sync';
 import { ACTIVITY_POLL_INTERVAL_MS, useConversationActivity } from './useConversationActivity';
 
-vi.mock('@/lib/api/chat', () => ({
-  markConversationRead: vi.fn(),
-}));
 vi.mock('@/lib/api/sync', () => ({
   syncConversationActivity: vi.fn(),
 }));
 
 const mockedGet = vi.mocked(syncConversationActivity);
-const mockedRead = vi.mocked(markConversationRead);
 const NO_LOCAL: readonly string[] = [];
 
 describe('useConversationActivity', () => {
   beforeEach(() => {
     mockedGet.mockReset();
-    mockedRead.mockReset();
-    mockedRead.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it('merges streams without hiding unread merely because the conversation is open', async () => {
-    mockedGet.mockResolvedValue({ streaming: ['remote'], unread: ['done', 'remote', 'active'] });
+  it('merges server and local streams', async () => {
+    mockedGet.mockResolvedValue({ streaming: ['remote'] });
 
-    const { result } = renderHook(() => useConversationActivity('user-1', 'active', ['local']));
+    const { result } = renderHook(() => useConversationActivity('user-1', ['local']));
 
     await waitFor(() => expect(result.current.streamingConversationIds).toEqual(['local', 'remote']));
-    expect(result.current.unreadConversationIds).toEqual(['done', 'remote', 'active']);
-  });
-
-  it('does not mark a conversation read on route entry', async () => {
-    mockedGet.mockResolvedValue({ streaming: [], unread: ['conv-1'] });
-
-    const { result, rerender } = renderHook(
-      ({ active }: { active: string | null }) => useConversationActivity('user-1', active, NO_LOCAL),
-      { initialProps: { active: null as string | null } },
-    );
-    await waitFor(() => expect(result.current.unreadConversationIds).toEqual(['conv-1']));
-
-    rerender({ active: 'conv-1' });
-    expect(mockedRead).not.toHaveBeenCalled();
-
-    // 服务端还没来得及清掉时再拉到同一条，不重复请求。
-    await act(async () => {
-      await result.current.refresh();
-    });
-    expect(mockedRead).not.toHaveBeenCalled();
-    rerender({ active: null });
-    expect(result.current.unreadConversationIds).toEqual(['conv-1']);
   });
 
   it('refreshes when a local stream ends', async () => {
-    mockedGet.mockResolvedValue({ streaming: [], unread: [] });
+    mockedGet.mockResolvedValue({ streaming: [] });
     const { rerender } = renderHook(
-      ({ local }: { local: readonly string[] }) => useConversationActivity('user-1', null, local),
+      ({ local }: { local: readonly string[] }) => useConversationActivity('user-1', local),
       { initialProps: { local: ['conv-1'] as readonly string[] } },
     );
     await waitFor(() => expect(mockedGet).toHaveBeenCalledTimes(1));
 
-    mockedGet.mockResolvedValue({ streaming: [], unread: ['conv-1'] });
+    mockedGet.mockResolvedValue({ streaming: [] });
     rerender({ local: NO_LOCAL });
 
     await waitFor(() => expect(mockedGet).toHaveBeenCalledTimes(2));
   });
 
   it('本页流结束后不采纳服务端尚未撤下的进行中，服务端撤下后恢复采纳', async () => {
-    mockedGet.mockResolvedValue({ streaming: ['conv-1'], unread: [] });
+    mockedGet.mockResolvedValue({ streaming: ['conv-1'] });
     const { result, rerender } = renderHook(
-      ({ local }: { local: readonly string[] }) => useConversationActivity('user-1', null, local),
+      ({ local }: { local: readonly string[] }) => useConversationActivity('user-1', local),
       { initialProps: { local: ['conv-1'] as readonly string[] } },
     );
     await waitFor(() => expect(mockedGet).toHaveBeenCalledTimes(1));
@@ -87,11 +58,11 @@ describe('useConversationActivity', () => {
     expect(result.current.streamingConversationIds).toEqual([]);
 
     // 服务端撤下后，之后（例如另一个标签页）再登记的进行中照常显示。
-    mockedGet.mockResolvedValue({ streaming: [], unread: [] });
+    mockedGet.mockResolvedValue({ streaming: [] });
     await act(async () => {
       await result.current.refresh();
     });
-    mockedGet.mockResolvedValue({ streaming: ['conv-1'], unread: [] });
+    mockedGet.mockResolvedValue({ streaming: ['conv-1'] });
     await act(async () => {
       await result.current.refresh();
     });
@@ -100,8 +71,8 @@ describe('useConversationActivity', () => {
 
   it('polls only while something is streaming', async () => {
     vi.useFakeTimers();
-    mockedGet.mockResolvedValue({ streaming: [], unread: [] });
-    renderHook(() => useConversationActivity('user-1', null, NO_LOCAL));
+    mockedGet.mockResolvedValue({ streaming: [] });
+    renderHook(() => useConversationActivity('user-1', NO_LOCAL));
     await act(async () => {
       await Promise.resolve();
     });
@@ -114,9 +85,9 @@ describe('useConversationActivity', () => {
   });
 
   it('does not request anything before login and clears state on logout', async () => {
-    mockedGet.mockResolvedValue({ streaming: ['conv-1'], unread: ['conv-2'] });
+    mockedGet.mockResolvedValue({ streaming: ['conv-1'] });
     const { result, rerender } = renderHook(
-      ({ session }: { session: string | null }) => useConversationActivity(session, null, NO_LOCAL),
+      ({ session }: { session: string | null }) => useConversationActivity(session, NO_LOCAL),
       { initialProps: { session: null as string | null } },
     );
     await act(async () => {
@@ -125,19 +96,18 @@ describe('useConversationActivity', () => {
     expect(mockedGet).not.toHaveBeenCalled();
 
     rerender({ session: 'user-1' });
-    await waitFor(() => expect(result.current.unreadConversationIds).toEqual(['conv-2']));
+    await waitFor(() => expect(result.current.streamingConversationIds).toEqual(['conv-1']));
 
     rerender({ session: null });
     expect(result.current.streamingConversationIds).toEqual([]);
-    expect(result.current.unreadConversationIds).toEqual([]);
   });
 
   it('reports conversations that leave the streaming set, but not on logout', async () => {
-    mockedGet.mockResolvedValue({ streaming: [], unread: [] });
+    mockedGet.mockResolvedValue({ streaming: [] });
     const onSettled = vi.fn();
     const { rerender } = renderHook(
       ({ session, local }: { session: string | null; local: readonly string[] }) =>
-        useConversationActivity(session, null, local, onSettled),
+        useConversationActivity(session, local, onSettled),
       { initialProps: { session: 'user-1' as string | null, local: ['conv-1', 'conv-2'] as readonly string[] } },
     );
     await waitFor(() => expect(mockedGet).toHaveBeenCalled());
@@ -151,8 +121,8 @@ describe('useConversationActivity', () => {
   });
 
   it('keeps the last state when a refresh fails', async () => {
-    mockedGet.mockResolvedValueOnce({ streaming: ['conv-1'], unread: [] });
-    const { result } = renderHook(() => useConversationActivity('user-1', null, NO_LOCAL));
+    mockedGet.mockResolvedValueOnce({ streaming: ['conv-1'] });
+    const { result } = renderHook(() => useConversationActivity('user-1', NO_LOCAL));
     await waitFor(() => expect(result.current.streamingConversationIds).toEqual(['conv-1']));
 
     mockedGet.mockRejectedValueOnce(new Error('503'));

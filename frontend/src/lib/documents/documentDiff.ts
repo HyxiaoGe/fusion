@@ -18,8 +18,6 @@ export interface DocumentTextDiffSegment {
 }
 
 const BLOCK_COMPARISON_BUDGET = 1_000_000;
-const TEXT_COMPARISON_BUDGET = 120_000;
-const INLINE_TEXT_LIMIT = 2_000;
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
 const CONTAINER_OPEN = /^ {0,3}(:{3,})[a-z]+(?:\[[^\]\r\n]*\])?\s*$/;
 const CONTAINER_CLOSE = /^ {0,3}(:{3,})\s*$/;
@@ -57,31 +55,6 @@ export function buildDocumentDiff(before: DocumentDiffSnapshot, after: DocumentD
   }
   flushChange();
   return { segments, changeCount };
-}
-
-/** 短文字按字素比较；复杂 Markdown 与长文保留整块，避免拆开语法或阻塞阅读。 */
-export function diffDocumentText(before: string, after: string): DocumentTextDiffSegment[] {
-  if (before === after) return before ? [{ kind: 'equal', text: before }] : [];
-  if (before.length + after.length > INLINE_TEXT_LIMIT || isComplexMarkdown(before) || isComplexMarkdown(after)) {
-    return wholeTextChange(before, after);
-  }
-  const segmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter('zh', { granularity: 'grapheme' }) : null;
-  const tokenize = (text: string) => segmenter
-    ? Array.from(segmenter.segment(text), item => item.segment)
-    : Array.from(text);
-  return compareTokens(tokenize(before), tokenize(after), TEXT_COMPARISON_BUDGET);
-}
-
-function wholeTextChange(before: string, after: string): DocumentTextDiffSegment[] {
-  const result: DocumentTextDiffSegment[] = [];
-  if (before) result.push({ kind: 'removed', text: before });
-  if (after) result.push({ kind: 'added', text: after });
-  return result;
-}
-
-function isComplexMarkdown(text: string): boolean {
-  return /^(?: {0,3}(?:`{3,}|~{3,}|:{3,}|>|(?:[-+*]|\d+[.)])\s)| {4}|\t)/m.test(text)
-    || text.split(/\r\n|\r|\n/).some(isTableDelimiter);
 }
 
 function isTableDelimiter(line: string): boolean {

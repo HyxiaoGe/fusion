@@ -5,7 +5,6 @@ import {
   makeSelectConversationContextStatus,
   normalizeContextUsage,
   selectConversationContextStatus,
-  selectConversationContextUsage,
 } from './contextUsage';
 
 describe('contextUsage', () => {
@@ -138,9 +137,9 @@ describe('contextUsage', () => {
       },
     };
 
-    expect(selectConversationContextUsage(state, 'chat-a')).toMatchObject({ actual_prompt_tokens: 500 });
-    expect(selectConversationContextUsage(state, 'chat-b')).toMatchObject({ actual_prompt_tokens: 1500 });
-    expect(selectConversationContextUsage(state, null)).toBeNull();
+    expect(selectConversationContextStatus(state, 'chat-a')?.usage).toMatchObject({ actual_prompt_tokens: 500 });
+    expect(selectConversationContextStatus(state, 'chat-b')?.usage).toMatchObject({ actual_prompt_tokens: 1500 });
+    expect(selectConversationContextStatus(state, null)).toBeNull();
   });
 
   it('同会话新一轮开始后保留最近 confirmed actual，并标记更新中', () => {

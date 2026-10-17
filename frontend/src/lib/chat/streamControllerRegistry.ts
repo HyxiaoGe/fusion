@@ -186,22 +186,6 @@ export function migrateStreamController(
   return true;
 }
 
-/** 中止指定会话正在跑的流并注销；没有则返回 null。
- *
- * @returns 被中止的条目，供调用方按 kind 决定后续收口动作
- */
-export function abortStreamController(
-  conversationId: string | null | undefined,
-): StreamControllerEntry | null {
-  if (!conversationId) return null;
-  const current = registry.get(conversationId);
-  if (!current) return null;
-  registry.delete(conversationId);
-  current.controller.abort();
-  settleIdentityWaiters(current.controller, null);
-  return current;
-}
-
 /** 仅测试与登出等全局失效场景使用。 */
 export function resetStreamControllerRegistry(): void {
   for (const waiter of [...identityWaiters]) {
