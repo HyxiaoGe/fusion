@@ -11,6 +11,7 @@ from app.schemas.chat import (
     PlaceResultsBlock,
     RouteResultsBlock,
     SearchBlock,
+    SelectedItineraryBlock,
     TrainResultsBlock,
     UrlBlock,
     WeatherResultsBlock,
@@ -44,6 +45,8 @@ def _sources_for_block(block: Any) -> list[DocumentSource]:
     if isinstance(block, ItineraryResultsBlock):
         label = f"{block.origin} → {block.destination} {block.start_date}"
         return [_source("itinerary", label, block.provider)]
+    if isinstance(block, SelectedItineraryBlock):
+        return [_source("itinerary", block.title, block.provider)]
     if isinstance(block, SearchBlock) and block.status != "failed":
         return [
             _source("web", item.title or item.url, block.result_provider, url=item.url)

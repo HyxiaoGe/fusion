@@ -481,7 +481,7 @@ class AdminAuditRepository:
         created_to: datetime,
         model_id: str | None = None,
     ) -> dict[str, Any]:
-        """用有界批量查询返回行程聚合所需 ORM 行，不读取正文以外的敏感字段。"""
+        """用有界批量查询返回行程聚合所需 ORM 行，不读取消息正文。"""
 
         primary_tools = ("search_flights", "search_trains")
         product_tools = (
@@ -509,7 +509,6 @@ class AdminAuditRepository:
             return {
                 "anchors": [],
                 "sessions": [],
-                "messages": [],
                 "tool_logs": [],
                 "truncated": truncated,
             }
@@ -556,19 +555,9 @@ class AdminAuditRepository:
             truncated = True
             tool_logs = tool_logs[: self.ITINERARY_STABILITY_MAX_TOOL_ROWS]
 
-        messages = (
-            self.db.query(Message)
-            .filter(Message.id.in_(resolved_message_ids), Message.role == "assistant")
-            .order_by(Message.created_at.asc(), Message.id.asc())
-            .limit(self.ITINERARY_STABILITY_MAX_ANCHORS)
-            .all()
-            if resolved_message_ids
-            else []
-        )
         return {
             "anchors": anchors,
             "sessions": sessions,
-            "messages": messages,
             "tool_logs": tool_logs,
             "truncated": truncated,
         }

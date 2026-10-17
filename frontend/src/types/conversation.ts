@@ -485,6 +485,30 @@ export interface ItineraryResultsBlock {
   limitations: string[];
 }
 
+export interface ItineraryLegRef {
+  block_id: string;
+  option_id: string;
+}
+
+/** 模型选定的一套方案：班次按乘坐顺序排列，理由由模型给出。 */
+export interface SelectedItineraryPlan {
+  id: string;
+  title: string;
+  reason: string;
+  legs: ItineraryLegRef[];
+}
+
+/** 模型通过 present_itinerary 选定的行程卡片（schema 2），只引用同一回答里的班次。 */
+export interface SelectedItineraryBlock {
+  type: 'itinerary_results';
+  id: string;
+  schema_version: 2;
+  provider: 'fusion';
+  title: string;
+  plans: SelectedItineraryPlan[];
+  tool_call_log_id?: string | null;
+}
+
 export interface UnsupportedResultBlock {
   type: 'unsupported_result';
   id: string;
@@ -500,6 +524,7 @@ export type StructuredToolResultBlock =
   | TrainResultsBlock
   | WeatherResultsBlock
   | ItineraryResultsBlock
+  | SelectedItineraryBlock
   | UnsupportedResultBlock;
 /** 模型服务商内容审核拦截了这一轮：整条回复只显示固定提示，不支持重新生成。 */
 export interface ContentFilteredBlock {

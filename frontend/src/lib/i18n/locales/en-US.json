@@ -355,6 +355,17 @@
           "full": "Covers trip dates",
           "partial": "Covers some trip dates",
           "outside_range": "Outside the current forecast window"
+        },
+        "selected": {
+          "region": "Trip plan",
+          "planSwitcher": "Switch trip plan",
+          "reason": "Why this plan",
+          "totalPrice": "Reference total {{price}}",
+          "priceIncomplete": "Some services have no reference price",
+          "travelDuration": "{{duration}} in transit",
+          "nextDay": "+{{count}}d",
+          "dayLabel": "{{month}}/{{day}}",
+          "fullResults": "Full results are listed below; prices are confirmed at booking"
         }
       }
     },

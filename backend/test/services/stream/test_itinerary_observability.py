@@ -84,7 +84,7 @@ class ItineraryObservabilityTests(unittest.TestCase):
             },
         )
 
-    def test_failed_and_partial_results_follow_persisted_itinerary_evidence(self):
+    def test_failed_and_partial_results_follow_travel_query_outcomes(self):
         failed = build_itinerary_run_payload(
             run_id="run-failed",
             model_id="model-1",
@@ -104,23 +104,25 @@ class ItineraryObservabilityTests(unittest.TestCase):
             run_id="run-partial",
             model_id="model-1",
             provider="provider-1",
-            content_blocks=[{"type": "itinerary_results", "status": "degraded"}],
+            content_blocks=[],
             tool_observations=[
-                ItineraryToolObservation("search_trains", "success", None, 100, False, False, False, False)
+                ItineraryToolObservation("search_trains", "success", None, 100, False, False, False, False),
+                ItineraryToolObservation("search_flights", "timeout", "timeout", 100, False, False, False, False),
             ],
             run_status="completed",
             finish_reason="stop",
             limit_reason=None,
             total_duration_ms=100,
             total_steps=1,
-            total_tool_calls=1,
+            total_tool_calls=2,
         )
 
         self.assertEqual(failed["result"], "failed")
         self.assertEqual(failed["upstream_error_count"], 1)
         self.assertEqual(partial["result"], "partial")
 
-    def test_successful_travel_tool_without_itinerary_block_is_failed_delivery(self):
+    def test_ticket_query_without_itinerary_card_is_complete(self):
+        # 只查票时模型不展示行程卡片，这是正常交付，不算失败。
         payload = build_itinerary_run_payload(
             run_id="run-no-card",
             model_id="model-1",
@@ -137,34 +139,21 @@ class ItineraryObservabilityTests(unittest.TestCase):
             total_tool_calls=1,
         )
 
-        self.assertEqual(payload["result"], "failed")
+        self.assertEqual(payload["result"], "complete")
 
     def test_itinerary_result_classification_respects_terminal_status(self):
-        successful_card = [{"type": "itinerary_results", "status": "success"}]
-        degraded_card = [{"type": "itinerary_results", "status": "degraded"}]
+        succeeded = [ItineraryToolObservation("search_flights", "success", None, 10, False, False, False, False)]
+        degraded = [ItineraryToolObservation("search_trains", "degraded", None, 10, True, False, False, False)]
+        weather_only = [ItineraryToolObservation("weather_forecast", "success", None, 10, False, False, False, False)]
 
-        self.assertEqual(
-            classify_itinerary_result(successful_card, run_status="completed"),
-            "complete",
-        )
-        self.assertEqual(
-            classify_itinerary_result(degraded_card, run_status="completed"),
-            "partial",
-        )
+        self.assertEqual(classify_itinerary_result(succeeded, run_status="completed"), "complete")
+        self.assertEqual(classify_itinerary_result(degraded, run_status="completed"), "partial")
         for terminal_status in ("limit_reached", "incomplete", "interrupted"):
             with self.subTest(terminal_status=terminal_status):
-                self.assertEqual(
-                    classify_itinerary_result(successful_card, run_status=terminal_status),
-                    "partial",
-                )
-        self.assertEqual(
-            classify_itinerary_result(successful_card, run_status="error"),
-            "failed",
-        )
-        self.assertEqual(
-            classify_itinerary_result([], run_status="completed"),
-            "failed",
-        )
+                self.assertEqual(classify_itinerary_result(succeeded, run_status=terminal_status), "partial")
+        self.assertEqual(classify_itinerary_result(succeeded, run_status="error"), "failed")
+        self.assertEqual(classify_itinerary_result(weather_only, run_status="completed"), "failed")
+        self.assertEqual(classify_itinerary_result([], run_status="completed"), "failed")
 
     def test_tool_observation_normalizes_timeout_repair_and_budget_without_raw_values(self):
         timeout = build_itinerary_tool_observation(

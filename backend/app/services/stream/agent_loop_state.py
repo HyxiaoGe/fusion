@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any
 
 from app.schemas.chat import ContextUsage, Usage
 from app.services.agent.plan_coordinator import PlanCoordinator
@@ -16,30 +16,6 @@ from app.services.stream.run_finalizer import AgentRunStats
 from app.services.stream.tool_recovery_evidence import RecoveryEvidenceWorkset
 
 NO_PROGRESS_SEARCH_SUMMARY_THRESHOLD = 2
-
-
-@dataclass(frozen=True)
-class ProductToolOutcome:
-    """Agent run 内的安全产品工具摘要，不携带内部错误或第三方 payload。"""
-
-    tool_name: str
-    mode: Literal["flight", "train", "weather", "route"]
-    status: Literal["available", "unavailable"]
-    block_id: str | None = None
-    origin: str | None = None
-    destination: str | None = None
-    departure_date: str | None = None
-    location: str | None = None
-
-    @property
-    def identity_key(self) -> tuple[str, str | None, str | None, str | None, str | None]:
-        return (
-            self.tool_name,
-            self.origin,
-            self.destination,
-            self.departure_date,
-            self.location,
-        )
 
 
 @dataclass
@@ -59,7 +35,6 @@ class AgentLoopState:
     context_wait_seconds: float = 0.0
     runtime_contexts: dict[str, Any] = field(default_factory=dict)
     unavailable_contexts: dict[str, str] = field(default_factory=dict)
-    product_tool_outcomes: list[ProductToolOutcome] = field(default_factory=list)
     successful_tool_call_signatures: set[str] = field(default_factory=set)
     argument_repair_state: dict[str, dict[str, Any]] = field(default_factory=dict)
     itinerary_tool_observations: list[ItineraryToolObservation] = field(default_factory=list)
@@ -146,24 +121,6 @@ class AgentLoopState:
                 self.consecutive_no_progress_search_results += 1
             else:
                 self.consecutive_no_progress_search_results = 0
-
-    def record_product_tool_outcomes(self, outcomes: tuple[ProductToolOutcome, ...]) -> None:
-        for outcome in outcomes:
-            existing_index = next(
-                (
-                    index
-                    for index, existing in enumerate(self.product_tool_outcomes)
-                    if existing.identity_key == outcome.identity_key
-                ),
-                None,
-            )
-            if existing_index is None:
-                self.product_tool_outcomes.append(outcome)
-                continue
-            existing = self.product_tool_outcomes[existing_index]
-            if existing.status == "available" and outcome.status == "unavailable":
-                continue
-            self.product_tool_outcomes[existing_index] = outcome
 
     def record_itinerary_tool_observations(self, observations: list[ItineraryToolObservation]) -> None:
         self.itinerary_tool_observations.extend(observations)

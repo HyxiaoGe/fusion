@@ -35,6 +35,8 @@ from app.services.mcp.context7_guard import (
     validate_context7_arguments,
 )
 from app.services.mcp.flyai_travel_tools import (
+    FLYAI_SEARCH_FLIGHTS,
+    FLYAI_SEARCH_TRAINS,
     FLYAI_TRAVEL_DEFINITIONS,
     FlyAiTravelAdapterClient,
     FlyAiTravelRunControls,
@@ -67,6 +69,11 @@ from app.services.mcp.tool_contract import (
     validate_tool_arguments,
 )
 from app.services.tool_handlers.base import BaseToolHandler, ToolResult, ToolRuntimeContext
+from app.services.tool_handlers.itinerary import (
+    PRESENT_ITINERARY_TOOL_NAME,
+    PresentItineraryHandler,
+    build_present_itinerary_tool,
+)
 from app.services.weather.qweather_client import QWeatherClient, QWeatherCredentials
 from app.services.weather.qweather_forecast_tool import (
     WEATHER_FORECAST_DEFINITION,
@@ -1091,6 +1098,26 @@ def _append_flyai_travel_tools(
             max_llm_context_bytes=limits.max_llm_context_bytes,
         )
         audit_bindings.append(binding.to_audit_dict())
+    _append_present_itinerary_tool(definitions=definitions, handlers=handlers, limits=limits)
+
+
+def _append_present_itinerary_tool(
+    *,
+    definitions: list[dict[str, Any]],
+    handlers: dict[str, BaseToolHandler],
+    limits: McpAgentToolLimits,
+) -> None:
+    """有航班或高铁查询时公告行程卡片输出工具；它只引用已返回的班次，不访问外部服务。"""
+
+    if not any(name in handlers for name in (FLYAI_SEARCH_FLIGHTS, FLYAI_SEARCH_TRAINS)):
+        return
+    if len(definitions) >= limits.max_tools or PRESENT_ITINERARY_TOOL_NAME in handlers:
+        return
+    definition = build_present_itinerary_tool()
+    if len(canonical_json_bytes([*definitions, definition])) > limits.max_definition_bytes:
+        return
+    definitions.append(definition)
+    handlers[PRESENT_ITINERARY_TOOL_NAME] = PresentItineraryHandler()
 
 
 def _append_amap_product_tools(

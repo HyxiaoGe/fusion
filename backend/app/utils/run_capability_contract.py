@@ -20,6 +20,7 @@ CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER = (
     "route_compare",
     "search_flights",
     "search_trains",
+    "present_itinerary",
 )
 
 DEEP_RESEARCH_TOOL_NAMES = ("web_search", "url_read")

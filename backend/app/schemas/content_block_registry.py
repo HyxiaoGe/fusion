@@ -26,6 +26,7 @@ from app.schemas.chat import (
     PlaceResultsBlock,
     RouteResultsBlock,
     SearchBlock,
+    SelectedItineraryBlock,
     TextBlock,
     ThinkingBlock,
     TrainResultsBlock,
@@ -71,6 +72,7 @@ CONTENT_BLOCK_REGISTRY: dict[tuple[str, int | None], ContentBlockRegistration] =
     ("flight_results", 1): ContentBlockRegistration(FlightResultsBlock, schema_version=1),
     ("train_results", 1): ContentBlockRegistration(TrainResultsBlock, schema_version=1),
     ("itinerary_results", 1): ContentBlockRegistration(ItineraryResultsBlock, schema_version=1),
+    ("itinerary_results", 2): ContentBlockRegistration(SelectedItineraryBlock, schema_version=2),
     ("document", 1): ContentBlockRegistration(DocumentBlock, schema_version=1),
     ("generated_image", 1): ContentBlockRegistration(GeneratedImageBlock, schema_version=1),
     ("image_results", 1): ContentBlockRegistration(ImageResultsBlock, schema_version=1),
@@ -262,6 +264,27 @@ def validate_itinerary_references(
         itinerary,
         blocks_by_id,
     )
+
+
+def validate_selected_itinerary_references(
+    itinerary: SelectedItineraryBlock,
+    content_blocks: list[ContentBlock],
+) -> bool:
+    """模型选定的行程只引用同一回答里的班次；任一引用找不到时整张卡片不展示。"""
+
+    blocks_by_id: dict[str, list[ContentBlock]] = {}
+    for block in content_blocks:
+        blocks_by_id.setdefault(block.id, []).append(block)
+    for plan in itinerary.plans:
+        for leg in plan.legs:
+            sources = blocks_by_id.get(leg.block_id, [])
+            if len(sources) != 1 or not isinstance(sources[0], (FlightResultsBlock, TrainResultsBlock)):
+                return False
+            source = sources[0]
+            items = source.flights if isinstance(source, FlightResultsBlock) else source.trains
+            if sum(item.option_id == leg.option_id for item in items) != 1:
+                return False
+    return True
 
 
 def _validate_itinerary_plan(
@@ -518,9 +541,13 @@ def _reject_invalid_itinerary_references(
 ) -> list[ContentBlock]:
     validated = list(content_blocks)
     for position, block in enumerate(content_blocks):
-        if not isinstance(block, ItineraryResultsBlock):
+        if isinstance(block, ItineraryResultsBlock):
+            valid = validate_itinerary_references(block, content_blocks)
+        elif isinstance(block, SelectedItineraryBlock):
+            valid = validate_selected_itinerary_references(block, content_blocks)
+        else:
             continue
-        if validate_itinerary_references(block, content_blocks):
+        if valid:
             continue
         validated[position] = _unsupported_content_block(
             raw_blocks[position],

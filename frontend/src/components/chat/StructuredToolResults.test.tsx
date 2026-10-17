@@ -6,6 +6,7 @@ import type {
   FlightResultsBlock,
   PlaceResultsBlock,
   RouteResultsBlock,
+  SelectedItineraryBlock,
   TrainResultsBlock,
   WeatherResultsBlock,
 } from '@/types/conversation';
@@ -213,9 +214,45 @@ describe('StructuredToolResults', () => {
     await i18n.changeLanguage('zh-CN');
   });
 
+  it('模型选定的行程卡片展示方案与理由，完整航班列表照常展示', async () => {
+    const card: SelectedItineraryBlock = {
+      type: 'itinerary_results',
+      id: 'itinerary-selected',
+      schema_version: 2,
+      provider: 'fusion',
+      title: '深圳→上海',
+      plans: [
+        {
+          id: 'plan_1',
+          title: '早班直飞',
+          reason: '上午落地，留出下午办事时间',
+          legs: [{ block_id: 'flights-1', option_id: 'flight-1' }],
+        },
+        {
+          id: 'plan_2',
+          title: '午班浦东',
+          reason: '不用早起',
+          legs: [{ block_id: 'flights-1', option_id: 'flight-2' }],
+        },
+      ],
+    };
+
+    render(<StructuredToolResults blocks={[flightBlock(), card]} />);
+
+    const region = screen.getByTestId('selected-itinerary-results');
+    expect(within(region).getByText('上午落地，留出下午办事时间')).toBeInTheDocument();
+    expect(within(region).getAllByTestId('selected-itinerary-leg')).toHaveLength(1);
+    expect(within(region).getByText(/CZ1234/)).toBeInTheDocument();
+    expect(screen.getByTestId('flight-results-grid')).toBeInTheDocument();
+
+    await userEvent.click(within(region).getByRole('button', { name: '午班浦东' }));
+    expect(within(region).getByText('不用早起')).toBeInTheDocument();
+    expect(within(region).getByText(/MU5678/)).toBeInTheDocument();
+  });
+
   it('每个已注册富结果协议都有对应渲染器', () => {
     expect([...STRUCTURED_TOOL_RESULT_RENDERER_TYPES].sort()).toEqual(
-      STRUCTURED_TOOL_RESULT_CONTRACTS.map(contract => contract.type).sort(),
+      [...new Set(STRUCTURED_TOOL_RESULT_CONTRACTS.map(contract => contract.type))].sort(),
     );
   });
 

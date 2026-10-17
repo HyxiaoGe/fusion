@@ -53,6 +53,7 @@ import type {
   FlightResultsBlock,
   ItineraryResultsBlock,
   PlaceResultsBlock,
+  SelectedItineraryBlock,
   ProviderPlacePhoto,
   ProviderPlaceResult,
   ProviderRouteResult,
@@ -73,7 +74,7 @@ import {
   deriveItineraryResultPresentation,
   type ItineraryPresentationItem,
 } from '@/lib/chat/itineraryResultPresentation';
-import ItineraryResults from './ItineraryResults';
+import ItineraryResults, { SelectedItineraryResults } from './ItineraryResults';
 import { buildRoutePresentation, findFastestRouteIndex } from './routePresentation';
 import {
   resolveTransportModePresentation,
@@ -97,7 +98,7 @@ type StructuredToolResultRendererRegistry = {
 
 type StandaloneStructuredToolResultBlock = Exclude<
   StructuredToolResultBlock,
-  ItineraryResultsBlock
+  ItineraryResultsBlock | SelectedItineraryBlock
 >;
 
 const STRUCTURED_TOOL_RESULT_RENDERERS = {
@@ -129,9 +130,13 @@ export default function StructuredToolResults({
   const presentation = deriveItineraryResultPresentation(blocks);
   return (
     <div className="mb-3 w-full space-y-3" data-testid="structured-tool-results">
-      {presentation.items.map(item => item.kind === 'itinerary'
-        ? renderItineraryResult(item, isLoading, onFollowUp)
-        : renderStructuredToolResult(item.block))}
+      {presentation.items.map(item => {
+        if (item.kind === 'itinerary') return renderItineraryResult(item, isLoading, onFollowUp);
+        if (item.kind === 'selected_itinerary') {
+          return <SelectedItineraryResults key={item.block.id} item={item} />;
+        }
+        return renderStructuredToolResult(item.block);
+      })}
     </div>
   );
 }

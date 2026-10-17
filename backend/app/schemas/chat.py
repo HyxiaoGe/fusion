@@ -823,6 +823,54 @@ class ItineraryResultsBlock(BaseModel):
         return self
 
 
+class ItineraryLegRef(BaseModel):
+    """行程中的一段交通：引用同一回答里航班/高铁结果块的某个班次。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    block_id: str = Field(min_length=1, max_length=160)
+    option_id: str = Field(min_length=1, max_length=80)
+
+
+class SelectedItineraryPlan(BaseModel):
+    """模型选定的一套行程方案；班次按乘坐顺序排列，理由是模型自己的判断。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=80)
+    title: str = Field(min_length=1, max_length=60)
+    reason: str = Field(min_length=1, max_length=300)
+    legs: List[ItineraryLegRef] = Field(min_length=1, max_length=6)
+
+    @model_validator(mode="after")
+    def validate_legs(self):
+        option_ids = [leg.option_id for leg in self.legs]
+        if len(option_ids) != len(set(option_ids)):
+            raise ValueError("同一方案不能重复引用班次")
+        return self
+
+
+class SelectedItineraryBlock(BaseModel):
+    """模型通过 present_itinerary 选定的行程卡片，只引用已返回的班次。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["itinerary_results"]
+    id: str = Field(default_factory=lambda: f"blk_itinerary_{uuid4().hex[:12]}", max_length=160)
+    schema_version: Literal[2]
+    provider: Literal["fusion"]
+    title: str = Field(min_length=1, max_length=80)
+    plans: List[SelectedItineraryPlan] = Field(min_length=1, max_length=3)
+    tool_call_log_id: str = Field(default="", max_length=160)
+
+    @model_validator(mode="after")
+    def validate_plans(self):
+        plan_ids = [plan.id for plan in self.plans]
+        if len(plan_ids) != len(set(plan_ids)):
+            raise ValueError("行程方案 id 不能重复")
+        return self
+
+
 class DocumentBlock(BaseModel):
     """模型通过 create_document / edit_document 产出的交付物文档引用；正文按版本存于 documents 表。"""
 
@@ -941,6 +989,7 @@ ProductResultBlock = Union[
     FlightResultsBlock,
     TrainResultsBlock,
     ItineraryResultsBlock,
+    SelectedItineraryBlock,
 ]
 
 
@@ -959,6 +1008,7 @@ ContentBlock = Union[
     FlightResultsBlock,
     TrainResultsBlock,
     ItineraryResultsBlock,
+    SelectedItineraryBlock,
     DocumentBlock,
     GeneratedImageBlock,
     ImageResultsBlock,
