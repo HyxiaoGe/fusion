@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 from app.services.documents.draft_stream import DRAFT_FIELDS, DocumentDraftStreamer, TopLevelStringFieldScanner
 from app.services.stream import llm_stream as llm_stream_module
 from app.services.stream.agent_round import _document_draft_observer
+from app.services.stream.run_output import ConversationStreamOutput
 from app.services.stream.sse_encoder import entry_to_sse_envelope
 
 DOCUMENT_TOOLS = frozenset({"create_document", "edit_document"})
@@ -161,13 +162,13 @@ class StreamRoundToolCallObserverTests(unittest.IsolatedAsyncioTestCase):
             )
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", new=AsyncMock()),
-            patch("app.services.stream.llm_stream.check_lock_owner", new=AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()),
+            patch("app.services.stream_state_service.check_lock_owner", new=AsyncMock(return_value=True)),
         ):
             result = await llm_stream_module.stream_round(
                 response(),
+                ConversationStreamOutput("conv", "task"),
                 "conv",
-                "task",
                 False,
                 "thinking",
                 "text",
@@ -182,8 +183,7 @@ class DocumentDraftObserverTests(unittest.IsolatedAsyncioTestCase):
     def test_no_observer_when_round_has_no_document_tools(self):
         observer = _document_draft_observer(
             frozenset(),
-            conversation_id="conv",
-            task_id="task",
+            output=ConversationStreamOutput("conv", "task"),
             run_id="run",
             step_id="step",
         )
@@ -193,13 +193,12 @@ class DocumentDraftObserverTests(unittest.IsolatedAsyncioTestCase):
     async def test_observer_writes_draft_chunks_to_the_run_stream(self):
         observer = _document_draft_observer(
             DOCUMENT_TOOLS,
-            conversation_id="conv",
-            task_id="task",
+            output=ConversationStreamOutput("conv", "task"),
             run_id="run",
             step_id="step",
         )
         append = AsyncMock(return_value="1-0")
-        with patch("app.services.stream.agent_round.append_chunk", new=append):
+        with patch("app.services.stream_state_service.append_chunk", new=append):
             await observer(0, "create_document", '{"content":"' + "第一段" * 70)
 
         self.assertEqual(append.await_count, 2)

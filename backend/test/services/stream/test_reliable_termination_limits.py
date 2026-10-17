@@ -106,7 +106,7 @@ async def _run_limit_case(limit, unfinished_plan):
         assert stage == "answering"
         output.append(text)
 
-    with patch("app.services.stream.agent_loop_round_outcome.append_chunk", collect_chunk):
+    with patch("app.services.stream_state_service.append_chunk", collect_chunk):
         outcome = await run_agent_loop(db=object(), messages=messages, state=state, runtime=runtime)
     answer = "".join(output)
     assert "真实咖啡店" in answer

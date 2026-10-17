@@ -54,10 +54,11 @@ from app.services.stream.research_evidence import (
     build_research_repair_prompt,
     validate_research_completion,
 )
+from app.services.stream.run_output import RunOutput
 from app.services.stream.safe_fallback_response import default_safe_fallback, render_safe_fallback
 from app.services.stream.tool_ban import forbid_tool_calls, without_tool_definitions
 from app.services.stream.tool_recovery_evidence import RecoveryEvidenceWorkset
-from app.services.stream_state_service import StreamOwnershipLostError, StreamWriteTerminalError, append_chunk
+from app.services.stream_state_service import StreamOwnershipLostError, StreamWriteTerminalError
 from app.utils.prompt_fingerprint import fingerprint_system_messages
 
 if TYPE_CHECKING:
@@ -95,8 +96,8 @@ class LimitSummaryRoundResult:
 
 @dataclass(frozen=True)
 class LimitSummaryStepRequest:
+    output: RunOutput
     conversation_id: str
-    task_id: str
     run_id: str
     step_number: int
     model_id: str
@@ -427,8 +428,8 @@ async def _call_limit_summary_round_once(
             stream_kwargs["capture_output_candidate_time"] = capture_candidate_time
         reasoning_buf, content_buf, tool_calls, finish_reason, usage_data = await request.stream_round_fn(
             response,
+            request.output,
             request.conversation_id,
-            request.task_id,
             request.should_use_reasoning,
             thinking_block_id,
             text_block_id,
@@ -1018,12 +1019,10 @@ async def _commit_limit_summary_result(
         if protocol_residue:
             incomplete = True
         if _should_defer_summary_output(request):
-            await append_chunk(
-                request.conversation_id,
+            await request.output.append(
                 "answering",
                 answer,
                 text_block_id,
-                task_id=request.task_id,
                 run_id=request.run_id,
                 step_id=summary_context.step_id,
             )
@@ -1061,12 +1060,10 @@ async def _complete_deep_research_summary(
             f"conv_id={request.conversation_id}, run_id={request.run_id}, "
             f"step={request.step_number}, research_validation_reason={validation.reason}"
         )
-    await append_chunk(
-        request.conversation_id,
+    await request.output.append(
         "answering",
         answer,
         text_block_id,
-        task_id=request.task_id,
         run_id=request.run_id,
         step_id=step_id,
     )

@@ -33,7 +33,7 @@ class SafeFallbackDeliveryTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
         with (
-            patch("app.services.stream.agent_loop_round_outcome.append_chunk", new=AsyncMock()) as append,
+            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()) as append,
             patch("app.services.stream.agent_loop_round_outcome.complete_text_response_step", new=AsyncMock()),
             patch("app.services.stream.safe_fallback_response.litellm.acompletion", new=AsyncMock()) as llm,
         ):
@@ -62,7 +62,7 @@ class SafeFallbackDeliveryTests(unittest.IsolatedAsyncioTestCase):
         )
         with (
             patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
-            patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append,
+            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()) as append,
         ):
             result = await run_limit_summary_step(request=request)
         text = append.await_args.args[2]

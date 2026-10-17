@@ -18,6 +18,7 @@ from app.services.stream.limit_summary import LimitSummaryOutcome
 from app.services.stream.llm_round_lifecycle import round_tool_names
 from app.services.stream.plan_control import process_plan_control_calls
 from app.services.stream.research_evidence import ResearchSource
+from app.services.stream.run_output import ConversationStreamOutput
 from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream.tool_round import ToolRoundOutcome
 
@@ -78,6 +79,7 @@ def _runtime(**overrides):
         "clock": lambda: 1.0,
     }
     values.update(overrides)
+    values.setdefault("output", ConversationStreamOutput(values["conversation_id"], values["task_id"]))
     return AgentLoopRuntime(**values)
 
 
@@ -872,7 +874,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
             )
 
         append_chunk = AsyncMock()
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", append_chunk):
+        with patch("app.services.stream_state_service.append_chunk", append_chunk):
             outcome = await run_agent_loop(
                 db=object(),
                 messages=[{"role": "user", "content": "南山区明天天气如何？"}],
@@ -919,7 +921,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
             return ToolRoundOutcome(tool_call_count=1, tool_names=["weather_forecast"], product_result_count=0)
 
         with (
-            patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock()),
+            patch("app.services.stream_state_service.append_chunk", AsyncMock()),
             patch("app.services.stream.agent_loop_driver.llm_manager.resolve_model", resolve_model),
         ):
             await run_agent_loop(
@@ -1083,7 +1085,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
             )
 
         append_chunk = AsyncMock()
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", append_chunk):
+        with patch("app.services.stream_state_service.append_chunk", append_chunk):
             outcome = await run_agent_loop(
                 db=object(),
                 messages=[{"role": "user", "content": "附近咖啡"}],
@@ -1217,7 +1219,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
 
                 summary = AsyncMock(side_effect=unsafe_limit_summary)
                 append_chunk = AsyncMock()
-                with patch("app.services.stream.agent_loop_round_outcome.append_chunk", append_chunk):
+                with patch("app.services.stream_state_service.append_chunk", append_chunk):
                     outcome = await run_agent_loop(
                         db=object(),
                         messages=[{"role": "user", "content": "比较通勤路线"}],
@@ -1312,7 +1314,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
 
                 summary = AsyncMock(side_effect=unsafe_limit_summary)
                 append_chunk = AsyncMock()
-                with patch("app.services.stream.agent_loop_round_outcome.append_chunk", append_chunk):
+                with patch("app.services.stream_state_service.append_chunk", append_chunk):
                     outcome = await run_agent_loop(
                         db=object(),
                         messages=[{"role": "user", "content": "咖啡店和附近桌球"}],
@@ -1540,7 +1542,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
             return context
 
         append_chunk = AsyncMock()
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", append_chunk):
+        with patch("app.services.stream_state_service.append_chunk", append_chunk):
             outcome = await run_agent_loop(
                 db=object(),
                 messages=[{"role": "user", "content": "南山区明天天气如何？"}],

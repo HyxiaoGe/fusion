@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 from app.schemas.chat import Usage
 from app.services.stream import llm_stream as llm_stream_module
+from app.services.stream.run_output import ConversationStreamOutput
 
 
 def make_chunk(*, delta=None, finish_reason=None, usage=None, choices=True):
@@ -58,13 +59,13 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
 
         observation.start()
         with (
-            patch("app.services.stream.llm_stream.append_chunk", new=AsyncMock()),
-            patch("app.services.stream.llm_stream.check_lock_owner", new=AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()),
+            patch("app.services.stream_state_service.check_lock_owner", new=AsyncMock(return_value=True)),
         ):
             result = await llm_stream_module.stream_round(
                 observation.wrap_response(response()),
+                ConversationStreamOutput("conv", "task"),
                 "conv",
-                "task",
                 True,
                 "thinking",
                 "text",
@@ -98,11 +99,11 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
             yield make_chunk(delta=SimpleNamespace(content="<｜｜DSML｜｜tool_calls>garbage"), finish_reason="stop")
 
         observation.start()
-        with patch("app.services.stream.llm_stream.check_lock_owner", new=AsyncMock(return_value=True)):
+        with patch("app.services.stream_state_service.check_lock_owner", new=AsyncMock(return_value=True)):
             result = await llm_stream_module.stream_round(
                 observation.wrap_response(response()),
+                ConversationStreamOutput("conv", "task"),
                 "conv",
-                "task",
                 False,
                 "thinking",
                 "text",
@@ -143,13 +144,13 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
 
         observation.start()
         with (
-            patch("app.services.stream.llm_stream.append_chunk", new=AsyncMock()),
-            patch("app.services.stream.llm_stream.check_lock_owner", new=AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()),
+            patch("app.services.stream_state_service.check_lock_owner", new=AsyncMock(return_value=True)),
         ):
             result = await llm_stream_module.stream_round(
                 observation.wrap_response(response()),
+                ConversationStreamOutput("conv", "task"),
                 "conv",
-                "task",
                 True,
                 "thinking",
                 "text",
@@ -189,11 +190,11 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
             )
 
         observation.start()
-        with patch("app.services.stream.llm_stream.check_lock_owner", new=AsyncMock(return_value=True)):
+        with patch("app.services.stream_state_service.check_lock_owner", new=AsyncMock(return_value=True)):
             result = await llm_stream_module.stream_round(
                 observation.wrap_response(response()),
+                ConversationStreamOutput("conv", "task"),
                 "conv",
-                "task",
                 True,
                 "thinking",
                 "text",
@@ -232,13 +233,13 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
 
         observation.start()
         with (
-            patch("app.services.stream.llm_stream.append_chunk", new=AsyncMock()),
-            patch("app.services.stream.llm_stream.check_lock_owner", new=AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()),
+            patch("app.services.stream_state_service.check_lock_owner", new=AsyncMock(return_value=True)),
         ):
             result = await llm_stream_module.stream_round(
                 observation.wrap_response(response()),
+                ConversationStreamOutput("conv", "task"),
                 "conv",
-                "task",
                 True,
                 "thinking",
                 "text",
@@ -278,13 +279,13 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
 
         observation.start()
         with (
-            patch("app.services.stream.llm_stream.append_chunk", new=AsyncMock()),
-            patch("app.services.stream.llm_stream.check_lock_owner", new=AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()),
+            patch("app.services.stream_state_service.check_lock_owner", new=AsyncMock(return_value=True)),
         ):
             result = await llm_stream_module.stream_round(
                 observation.wrap_response(response()),
+                ConversationStreamOutput("conv", "task"),
                 "conv",
-                "task",
                 False,
                 "thinking",
                 "text",
@@ -319,13 +320,13 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
 
         observation.start()
         with (
-            patch("app.services.stream.llm_stream.append_chunk", new=AsyncMock()),
-            patch("app.services.stream.llm_stream.check_lock_owner", new=AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()),
+            patch("app.services.stream_state_service.check_lock_owner", new=AsyncMock(return_value=True)),
         ):
             result = await llm_stream_module.stream_round(
                 observation.wrap_response(response()),
+                ConversationStreamOutput("conv", "task"),
                 "conv",
-                "task",
                 False,
                 "thinking",
                 "text",
@@ -362,11 +363,11 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
             )
 
         observation.start()
-        with patch("app.services.stream.llm_stream.check_lock_owner", new=AsyncMock(return_value=True)):
+        with patch("app.services.stream_state_service.check_lock_owner", new=AsyncMock(return_value=True)):
             result = await llm_stream_module.stream_round(
                 observation.wrap_response(response()),
+                ConversationStreamOutput("conv", "task"),
                 "conv",
-                "task",
                 False,
                 "thinking",
                 "text",
@@ -421,14 +422,14 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
 
                 observation.start()
                 with (
-                    patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-                    patch("app.services.stream.llm_stream.check_lock_owner", new=AsyncMock(return_value=True)),
+                    patch("app.services.stream_state_service.append_chunk", append_chunk),
+                    patch("app.services.stream_state_service.check_lock_owner", new=AsyncMock(return_value=True)),
                     patch("app.services.stream.llm_stream.logger.warning") as warning,
                 ):
                     result = await llm_stream_module.stream_round(
                         observation.wrap_response(response()),
+                        ConversationStreamOutput("conv", "task"),
                         "conv",
-                        "task",
                         False,
                         "thinking",
                         "text",
@@ -486,13 +487,13 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
 
                 observation.start()
                 with (
-                    patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-                    patch("app.services.stream.llm_stream.check_lock_owner", new=AsyncMock(return_value=True)),
+                    patch("app.services.stream_state_service.append_chunk", append_chunk),
+                    patch("app.services.stream_state_service.check_lock_owner", new=AsyncMock(return_value=True)),
                 ):
                     result = await llm_stream_module.stream_round(
                         observation.wrap_response(response()),
+                        ConversationStreamOutput("conv", "task"),
                         "conv",
-                        "task",
                         False,
                         "thinking",
                         "text",
@@ -514,7 +515,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_counts_before_finish = []
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-visible-body",
-            task_id="task-visible-body",
+            output=ConversationStreamOutput("conv-visible-body", "task-visible-body"),
             should_use_reasoning=False,
             thinking_block_id="thinking",
             text_block_id="text",
@@ -527,8 +528,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
             yield make_chunk(delta=SimpleNamespace(content=None), finish_reason="stop")
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", new=AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", new=AsyncMock(return_value=True)),
         ):
             result = await llm_stream_module.consume_stream_round(response(), request)
 
@@ -555,14 +556,14 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
                 )
                 request = llm_stream_module.LLMStreamRequest(
                     conversation_id="conv-flush-cleanup",
-                    task_id="task-flush-cleanup",
+                    output=ConversationStreamOutput("conv-flush-cleanup", "task-flush-cleanup"),
                     should_use_reasoning=False,
                     thinking_block_id="thinking",
                     text_block_id="text",
                 )
                 append_chunk = AsyncMock(side_effect=error)
 
-                with patch("app.services.stream.llm_stream.append_chunk", append_chunk):
+                with patch("app.services.stream_state_service.append_chunk", append_chunk):
                     if error is None:
                         await llm_stream_module.flush_pending_internal_mcp_aliases(
                             request=request,
@@ -613,14 +614,14 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
 
                 observation.start()
                 with (
-                    patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-                    patch("app.services.stream.llm_stream.check_lock_owner", new=AsyncMock(return_value=True)),
+                    patch("app.services.stream_state_service.append_chunk", append_chunk),
+                    patch("app.services.stream_state_service.check_lock_owner", new=AsyncMock(return_value=True)),
                 ):
                     with self.assertRaises(type(error)) as raised:
                         await llm_stream_module.stream_round(
                             observation.wrap_response(response()),
+                            ConversationStreamOutput("conv", "task"),
                             "conv",
-                            "task",
                             False,
                             "thinking",
                             "text",
@@ -698,7 +699,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
 
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-late-tool",
-            task_id="task-late-tool",
+            output=ConversationStreamOutput("conv-late-tool", "task-late-tool"),
             should_use_reasoning=False,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -706,8 +707,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", side_effect=append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", side_effect=append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -739,15 +740,15 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
 
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-answer-started",
-            task_id="task-answer-started",
+            output=ConversationStreamOutput("conv-answer-started", "task-answer-started"),
             should_use_reasoning=False,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
         )
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", side_effect=append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", side_effect=append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             await llm_stream_module.consume_stream_round(
                 async_response(
@@ -805,7 +806,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_k3_streams_sanitized_reasoning_while_answer_is_deferred(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-product",
-            task_id="task-product",
+            output=ConversationStreamOutput("conv-product", "task-product"),
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -819,8 +820,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -852,7 +853,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_non_k3_streams_reasoning_while_answer_is_deferred(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-product-non-k3",
-            task_id="task-product-non-k3",
+            output=ConversationStreamOutput("conv-product-non-k3", "task-product-non-k3"),
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -864,8 +865,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -916,7 +917,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(model_id=model_id):
                 request = llm_stream_module.LLMStreamRequest(
                     conversation_id=f"conv-{model_id}",
-                    task_id=f"task-{model_id}",
+                    output=ConversationStreamOutput(f"conv-{model_id}", f"task-{model_id}"),
                     should_use_reasoning=True,
                     thinking_block_id="blk-thinking",
                     text_block_id="blk-text",
@@ -928,8 +929,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
                 append_chunk = AsyncMock()
 
                 with (
-                    patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-                    patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+                    patch("app.services.stream_state_service.append_chunk", append_chunk),
+                    patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
                 ):
                     outcome = await llm_stream_module.consume_stream_round(
                         async_response(
@@ -956,7 +957,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_k3_deferred_reasoning_requires_call_level_opt_in(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-k3-no-opt-in",
-            task_id="task-k3-no-opt-in",
+            output=ConversationStreamOutput("conv-k3-no-opt-in", "task-k3-no-opt-in"),
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -966,8 +967,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         )
         append_chunk = AsyncMock()
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -987,7 +988,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_reasoning_never_streams_split_tool_protocol(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-deferred-protocol",
-            task_id="task-deferred-protocol",
+            output=ConversationStreamOutput("conv-deferred-protocol", "task-deferred-protocol"),
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -996,8 +997,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -1032,7 +1033,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_reasoning_is_not_filtered_by_phrase_matching(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-deferred-control-instructions",
-            task_id="task-deferred-control-instructions",
+            output=ConversationStreamOutput("conv-deferred-control-instructions", "task-deferred-control-instructions"),
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -1043,8 +1044,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -1092,7 +1093,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_consume_stream_round_keeps_reasoning_raw_in_protocol_but_redacts_visible_copies(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-mcp",
-            task_id="task-mcp",
+            output=ConversationStreamOutput("conv-mcp", "task-mcp"),
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -1103,8 +1104,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -1145,7 +1146,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_consume_stream_round_sanitizes_internal_tool_names_in_visible_reasoning(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-tools",
-            task_id="task-tools",
+            output=ConversationStreamOutput("conv-tools", "task-tools"),
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -1153,8 +1154,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -1210,7 +1211,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_consume_stream_round_keeps_reasoning_monotonic_for_character_chunks(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-character-tools",
-            task_id="task-character-tools",
+            output=ConversationStreamOutput("conv-character-tools", "task-character-tools"),
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -1219,8 +1220,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -1246,7 +1247,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_answering_rewrites_split_and_repeated_update_plan_monotonically(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-update-plan",
-            task_id="task-update-plan",
+            output=ConversationStreamOutput("conv-update-plan", "task-update-plan"),
             should_use_reasoning=False,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -1254,8 +1255,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -1278,7 +1279,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_answering_buffers_trailing_space_before_character_split_update_plan(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-update-plan-characters",
-            task_id="task-update-plan-characters",
+            output=ConversationStreamOutput("conv-update-plan-characters", "task-update-plan-characters"),
             should_use_reasoning=False,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -1287,8 +1288,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         raw_chunks = ["调用 ", "u", *"pdate_plan 完成"]
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -1323,7 +1324,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_consume_stream_round_productizes_plan_binding_names_across_answer_chunks(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-plan-binding-sanitizer",
-            task_id="task-plan-binding-sanitizer",
+            output=ConversationStreamOutput("conv-plan-binding-sanitizer", "task-plan-binding-sanitizer"),
             should_use_reasoning=False,
             thinking_block_id=None,
             text_block_id="blk-text",
@@ -1337,8 +1338,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         ]
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -1365,7 +1366,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_consume_stream_round_merges_cumulative_reasoning_snapshots_once(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-reasoning-snapshot",
-            task_id="task-reasoning-snapshot",
+            output=ConversationStreamOutput("conv-reasoning-snapshot", "task-reasoning-snapshot"),
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -1375,8 +1376,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -1419,7 +1420,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_consume_stream_round_keeps_standard_reasoning_deltas_even_when_one_extends_previous(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-standard-reasoning-delta",
-            task_id="task-standard-reasoning-delta",
+            output=ConversationStreamOutput("conv-standard-reasoning-delta", "task-standard-reasoning-delta"),
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -1428,8 +1429,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -1461,7 +1462,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_consume_stream_round_falls_back_to_moonshot_deltas_after_prefix_like_probe(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-moonshot-delta",
-            task_id="task-moonshot-delta",
+            output=ConversationStreamOutput("conv-moonshot-delta", "task-moonshot-delta"),
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -1471,8 +1472,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -1508,7 +1509,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_consume_stream_round_deduplicates_repeated_moonshot_reasoning_snapshots(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-repeated-reasoning-snapshot",
-            task_id="task-repeated-reasoning-snapshot",
+            output=ConversationStreamOutput("conv-repeated-reasoning-snapshot", "task-repeated-reasoning-snapshot"),
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -1518,8 +1519,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -1555,7 +1556,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_consume_stream_round_uses_latest_buffered_moonshot_snapshot(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-revised-reasoning-snapshot",
-            task_id="task-revised-reasoning-snapshot",
+            output=ConversationStreamOutput("conv-revised-reasoning-snapshot", "task-revised-reasoning-snapshot"),
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -1572,8 +1573,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         ]
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -1598,7 +1599,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_consume_stream_round_sanitizes_split_weather_tool_name_in_reasoning(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-weather-tool",
-            task_id="task-weather-tool",
+            output=ConversationStreamOutput("conv-weather-tool", "task-weather-tool"),
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -1606,8 +1607,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -1651,7 +1652,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_non_k3_moonshot_model_never_enters_cumulative_snapshot_probe(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-moonshot-non-k3",
-            task_id="task-moonshot-non-k3",
+            output=ConversationStreamOutput("conv-moonshot-non-k3", "task-moonshot-non-k3"),
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -1661,8 +1662,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         chunks = ["a" * 20, "a" * 24, "a" * 28, "a" * 32]
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", AsyncMock()),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", AsyncMock()),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -1683,7 +1684,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_explicit_snapshot_transport_mode_can_enable_non_k3_snapshot_stream(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-explicit-snapshot",
-            task_id="task-explicit-snapshot",
+            output=ConversationStreamOutput("conv-explicit-snapshot", "task-explicit-snapshot"),
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -1694,8 +1695,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         snapshots = ["先分析需求", "先分析需求并核对约束", "先分析需求并核对约束。"]
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", AsyncMock()),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", AsyncMock()),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -1716,7 +1717,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_consume_stream_round_hides_mixed_prefix_dsml_without_executing_ambiguous_protocol(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-1",
-            task_id="task-1",
+            output=ConversationStreamOutput("conv-1", "task-1"),
             should_use_reasoning=False,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -1731,8 +1732,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -1754,7 +1755,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_consume_stream_round_rejects_malformed_dsml_without_leaking_or_partial_execution(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-1",
-            task_id="task-1",
+            output=ConversationStreamOutput("conv-1", "task-1"),
             should_use_reasoning=False,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -1767,8 +1768,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response([make_chunk(delta=SimpleNamespace(content=malformed), finish_reason="stop")]),
@@ -1783,7 +1784,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_consume_stream_round_rejects_mimo_xml_tool_protocol_without_leaking(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-mimo",
-            task_id="task-mimo",
+            output=ConversationStreamOutput("conv-mimo", "task-mimo"),
             should_use_reasoning=False,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -1799,8 +1800,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -1837,7 +1838,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(protocol=protocol):
                 request = llm_stream_module.LLMStreamRequest(
                     conversation_id=f"conv-mimo-{case_index}",
-                    task_id=f"task-mimo-{case_index}",
+                    output=ConversationStreamOutput(f"conv-mimo-{case_index}", f"task-mimo-{case_index}"),
                     should_use_reasoning=False,
                     thinking_block_id="blk-thinking",
                     text_block_id="blk-text",
@@ -1845,8 +1846,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
                 )
                 append_chunk = AsyncMock()
                 with (
-                    patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-                    patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+                    patch("app.services.stream_state_service.append_chunk", append_chunk),
+                    patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
                 ):
                     outcome = await llm_stream_module.consume_stream_round(
                         async_response(
@@ -1874,7 +1875,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(literal=literal):
                 request = llm_stream_module.LLMStreamRequest(
                     conversation_id=f"conv-literal-{case_index}",
-                    task_id=f"task-literal-{case_index}",
+                    output=ConversationStreamOutput(f"conv-literal-{case_index}", f"task-literal-{case_index}"),
                     should_use_reasoning=False,
                     thinking_block_id="blk-thinking",
                     text_block_id="blk-text",
@@ -1882,8 +1883,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
                 )
                 append_chunk = AsyncMock()
                 with (
-                    patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-                    patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+                    patch("app.services.stream_state_service.append_chunk", append_chunk),
+                    patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
                 ):
                     outcome = await llm_stream_module.consume_stream_round(
                         async_response([make_chunk(delta=SimpleNamespace(content=literal), finish_reason="stop")]),
@@ -1904,7 +1905,9 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(raw_content=raw_content):
                 request = llm_stream_module.LLMStreamRequest(
                     conversation_id=f"conv-bare-tool-call-{case_index}",
-                    task_id=f"task-bare-tool-call-{case_index}",
+                    output=ConversationStreamOutput(
+                        f"conv-bare-tool-call-{case_index}", f"task-bare-tool-call-{case_index}"
+                    ),
                     should_use_reasoning=False,
                     thinking_block_id="blk-thinking",
                     text_block_id="blk-text",
@@ -1912,8 +1915,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
                 )
                 append_chunk = AsyncMock()
                 with (
-                    patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-                    patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+                    patch("app.services.stream_state_service.append_chunk", append_chunk),
+                    patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
                 ):
                     outcome = await llm_stream_module.consume_stream_round(
                         async_response([make_chunk(delta=SimpleNamespace(content=raw_content), finish_reason="stop")]),
@@ -1931,7 +1934,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_consume_stream_round_prefers_native_tool_calls_without_leaking_parallel_dsml_content(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-1",
-            task_id="task-1",
+            output=ConversationStreamOutput("conv-1", "task-1"),
             should_use_reasoning=False,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -1946,8 +1949,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -1984,7 +1987,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_consume_stream_round_converts_split_dsml_tool_protocol_without_leaking_answer_chunks(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-1",
-            task_id="task-1",
+            output=ConversationStreamOutput("conv-1", "task-1"),
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -2010,8 +2013,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(async_response(response), request)
 
@@ -2037,7 +2040,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_consume_stream_round_keeps_normal_angle_bracket_content_visible(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-1",
-            task_id="task-1",
+            output=ConversationStreamOutput("conv-1", "task-1"),
             should_use_reasoning=False,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -2045,8 +2048,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -2085,8 +2088,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
             append_calls.append((args, kwargs))
 
         request = request_cls(
+            output=ConversationStreamOutput("conv-1", "task-1"),
             conversation_id="conv-1",
-            task_id="task-1",
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -2096,8 +2099,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         check_lock_owner = AsyncMock(return_value=True)
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", side_effect=append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", check_lock_owner),
+            patch("app.services.stream_state_service.append_chunk", side_effect=append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", check_lock_owner),
         ):
             outcome = await consume_stream_round(async_response(response), request)
 
@@ -2130,7 +2133,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_consume_stream_round_uses_model_extra_reasoning_and_dedupes_content(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-1",
-            task_id="task-1",
+            output=ConversationStreamOutput("conv-1", "task-1"),
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -2139,8 +2142,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response([make_chunk(delta=delta, finish_reason="stop")]),
@@ -2163,7 +2166,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_consume_stream_round_sanitizes_reasoning_alias_and_dedupes_mirrored_answer(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-mcp-mirrored",
-            task_id="task-mcp-mirrored",
+            output=ConversationStreamOutput("conv-mcp-mirrored", "task-mcp-mirrored"),
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -2174,8 +2177,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response([make_chunk(delta=delta, finish_reason="stop")]),
@@ -2191,7 +2194,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_consume_stream_round_strips_reasoning_tags_from_answering_content(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-1",
-            task_id="task-1",
+            output=ConversationStreamOutput("conv-1", "task-1"),
             should_use_reasoning=False,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -2199,8 +2202,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -2223,7 +2226,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_consume_stream_round_strips_split_reasoning_tags_before_emitting(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-1",
-            task_id="task-1",
+            output=ConversationStreamOutput("conv-1", "task-1"),
             should_use_reasoning=False,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -2231,8 +2234,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -2262,7 +2265,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         visible = AsyncMock()
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-deferred",
-            task_id="task-deferred",
+            output=ConversationStreamOutput("conv-deferred", "task-deferred"),
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -2272,7 +2275,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         )
         append_chunk = AsyncMock()
 
-        with patch("app.services.stream.llm_stream.append_chunk", append_chunk):
+        with patch("app.services.stream_state_service.append_chunk", append_chunk):
             await llm_stream_module.append_reasoning_and_content(
                 request=request,
                 state=llm_stream_module.LLMStreamState(),
@@ -2287,7 +2290,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_minimax_split_think_tags_stream_reasoning_and_keep_answer_deferred(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-minimax",
-            task_id="task-minimax",
+            output=ConversationStreamOutput("conv-minimax", "task-minimax"),
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -2299,8 +2302,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response(
@@ -2325,7 +2328,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_minimax_think_tag_raw_content_is_kept_for_tool_protocol_replay(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-minimax-tool",
-            task_id="task-minimax-tool",
+            output=ConversationStreamOutput("conv-minimax-tool", "task-minimax-tool"),
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -2337,8 +2340,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         raw_content = "<think>需要查询天气。</think>"
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", AsyncMock()),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", AsyncMock()),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response([make_chunk(delta=SimpleNamespace(content=raw_content), finish_reason="stop")]),
@@ -2350,7 +2353,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_reasoning_is_not_dropped_when_provider_combines_it_with_tool_call_delta(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-combined-tool",
-            task_id="task-combined-tool",
+            output=ConversationStreamOutput("conv-combined-tool", "task-combined-tool"),
             should_use_reasoning=True,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -2368,8 +2371,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             outcome = await llm_stream_module.consume_stream_round(
                 async_response([make_chunk(delta=delta, finish_reason="tool_calls")]),
@@ -2387,7 +2390,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_consume_stream_round_cancels_when_lock_owner_is_lost_after_interval(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-1",
-            task_id="task-1",
+            output=ConversationStreamOutput("conv-1", "task-1"),
             should_use_reasoning=False,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -2400,8 +2403,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         check_lock_owner = AsyncMock(return_value=False)
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", check_lock_owner),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", check_lock_owner),
         ):
             outcome = await llm_stream_module.consume_stream_round(async_response(response), request)
 
@@ -2415,7 +2418,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_consume_stream_round_does_not_count_usage_only_chunks_for_lock_checks(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-1",
-            task_id="task-1",
+            output=ConversationStreamOutput("conv-1", "task-1"),
             should_use_reasoning=False,
             thinking_block_id="blk-thinking",
             text_block_id="blk-text",
@@ -2433,8 +2436,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         check_lock_owner = AsyncMock(return_value=False)
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", check_lock_owner),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", check_lock_owner),
         ):
             outcome = await llm_stream_module.consume_stream_round(async_response(response), request)
 
@@ -2448,13 +2451,13 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         append_chunk = AsyncMock()
 
         with (
-            patch("app.services.stream.llm_stream.append_chunk", append_chunk),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", append_chunk),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             result = await llm_stream_module.stream_round(
                 async_response([make_chunk(delta=SimpleNamespace(content="答案"), finish_reason="stop")]),
+                ConversationStreamOutput("conv-1", "task-1"),
                 "conv-1",
-                "task-1",
                 False,
                 "blk-thinking",
                 "blk-text",
@@ -2475,8 +2478,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_stream_round_exposes_raw_reasoning_without_expanding_legacy_tuple(self):
         with (
-            patch("app.services.stream.llm_stream.append_chunk", AsyncMock()),
-            patch("app.services.stream.llm_stream.check_lock_owner", AsyncMock(return_value=True)),
+            patch("app.services.stream_state_service.append_chunk", AsyncMock()),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
         ):
             result = await llm_stream_module.stream_round(
                 async_response(
@@ -2488,8 +2491,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
                         make_chunk(delta=SimpleNamespace(content="答案"), finish_reason="stop"),
                     ]
                 ),
+                ConversationStreamOutput("conv-1", "task-1"),
                 "conv-1",
-                "task-1",
                 True,
                 "blk-thinking",
                 "blk-text",
@@ -2526,7 +2529,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
 
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv",
-            task_id="task",
+            output=ConversationStreamOutput("conv", "task"),
             should_use_reasoning=True,
             thinking_block_id="thinking",
             text_block_id="text",
@@ -2534,7 +2537,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         )
         state = llm_stream_module.LLMStreamState()
 
-        with patch("app.services.stream.llm_stream.append_chunk", new=append_chunk):
+        with patch("app.services.stream_state_service.append_chunk", new=append_chunk):
             await llm_stream_module.append_reasoning_and_content(
                 request=request,
                 state=state,

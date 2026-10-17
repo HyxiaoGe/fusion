@@ -39,7 +39,7 @@ from app.services.stream.round_completion import append_round_content_blocks, co
 from app.services.stream.safe_fallback_response import default_safe_fallback, render_safe_fallback
 from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream.tool_round import ToolRoundOutcome
-from app.services.stream_state_service import StreamWriteTerminalError, append_chunk
+from app.services.stream_state_service import StreamWriteTerminalError
 from app.services.weather import WEATHER_TOOL_NAMES
 
 
@@ -408,12 +408,10 @@ async def _append_committed_answer(
     model_output_visible: bool = False,
     output_reason: str | None = None,
 ) -> None:
-    await append_chunk(
-        request.runtime.conversation_id,
+    await request.runtime.output.append(
         "answering",
         answer,
         request.step_context.text_block_id,
-        task_id=request.runtime.task_id,
         run_id=request.runtime.run_id,
         step_id=request.step_context.step_id,
     )

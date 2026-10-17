@@ -75,7 +75,7 @@ class OutputProvenanceTests(unittest.IsolatedAsyncioTestCase):
                     ),
                 )
                 with (
-                    patch("app.services.stream.agent_loop_round_outcome.append_chunk", new=AsyncMock()) as append,
+                    patch("app.services.stream_state_service.append_chunk", new=AsyncMock()) as append,
                     patch("app.services.stream.agent_loop_round_outcome.complete_text_response_step", new=AsyncMock()),
                 ):
                     await handle_agent_round_outcome(request=request)
@@ -112,7 +112,7 @@ class OutputProvenanceTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
         error = asyncio.CancelledError()
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", new=AsyncMock(side_effect=error)):
+        with patch("app.services.stream_state_service.append_chunk", new=AsyncMock(side_effect=error)):
             with self.assertRaises(asyncio.CancelledError):
                 await handle_agent_round_outcome(request=request)
         provenance = lifecycle.emitter.llm_round_completed.call_args.kwargs["output_provenance"]
@@ -213,7 +213,7 @@ class OutputProvenanceTests(unittest.IsolatedAsyncioTestCase):
                     ),
                 )
                 with (
-                    patch("app.services.stream.agent_loop_round_outcome.append_chunk", new=AsyncMock()) as append,
+                    patch("app.services.stream_state_service.append_chunk", new=AsyncMock()) as append,
                     patch("app.services.stream.agent_loop_round_outcome.complete_text_response_step", new=AsyncMock()),
                 ):
                     await handle_agent_round_outcome(request=request)
@@ -268,7 +268,7 @@ class OutputProvenanceTests(unittest.IsolatedAsyncioTestCase):
                 result = LimitSummaryRoundResult(
                     reasoning_buf="", content_buf="模型总结候选", usage_data=None, llm_lifecycle=lifecycle
                 )
-                with patch("app.services.stream.limit_summary.append_chunk", new=AsyncMock()) as append:
+                with patch("app.services.stream_state_service.append_chunk", new=AsyncMock()) as append:
                     await _commit_limit_summary_result(
                         request=request,
                         round_result=result,
@@ -302,7 +302,7 @@ class OutputProvenanceTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
         with (
-            patch("app.services.stream.agent_loop_round_outcome.append_chunk", new=AsyncMock()) as append,
+            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()) as append,
             patch("app.services.stream.agent_loop_round_outcome.complete_text_response_step", new=AsyncMock()),
             patch(
                 "app.services.stream.agent_loop_round_outcome.build_grounded_product_answer",

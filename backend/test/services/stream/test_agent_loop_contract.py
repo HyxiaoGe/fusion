@@ -196,7 +196,7 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
                 )
                 stack.enter_context(
                     patch(
-                        "app.services.stream.agent_loop_round_outcome.append_chunk",
+                        "app.services.stream_state_service.append_chunk",
                         side_effect=_capture_append,
                     )
                 )

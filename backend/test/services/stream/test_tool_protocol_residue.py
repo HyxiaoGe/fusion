@@ -29,17 +29,17 @@ from app.services.stream.llm_stream import (
 
 # Run e96ab8c9 数据库最终正文的开头；完整正文 909 字符，结构相同。
 REAL_VARIANT = (
-    '<｜｜DSML｜｜ calls>\n'
+    "<｜｜DSML｜｜ calls>\n"
     '<｜｜DSML｜｜ invoke name="更新计划">\n'
     '<｜｜DSML｜｜ parameter name="explanation" string="true">'
     "搜索到的多个预报来源数值存在出入，需要读取权威原始页面核对未来三天数据。"
-    '</｜｜DSML｜｜ parameter>\n'
+    "</｜｜DSML｜｜ parameter>\n"
     '<｜｜DSML｜｜ parameter name="plan" string="false">'
     '[{"depends_on": [], "id": "forecast", "kind": "search", "预计使用的工具": ["weather_forecast"], '
     '"step": "获取香港未来三天的天气预报数据"}]'
-    '</｜｜DSML｜｜ parameter>\n'
-    '</｜｜DSML｜｜ invoke>\n'
-    '</｜｜DSML｜｜ calls>'
+    "</｜｜DSML｜｜ parameter>\n"
+    "</｜｜DSML｜｜ invoke>\n"
+    "</｜｜DSML｜｜ calls>"
 )
 
 EXACT_MARKER = '<｜｜DSML｜｜tool_calls>\n<｜｜DSML｜｜invoke name="web_search">'
@@ -63,7 +63,7 @@ class ProtocolResidueIdentificationTests(unittest.TestCase):
         self.assertEqual(strip_pending_dsml_tool_protocol(text, final=True), "香港未来三天多云。\n\n")
 
     def test_通用协议形状仍被识别(self):
-        self.assertTrue(contains_tool_protocol_residue('<tool_call>\n<function=web_search>'))
+        self.assertTrue(contains_tool_protocol_residue("<tool_call>\n<function=web_search>"))
 
 
 class StrictRecoveryTests(unittest.TestCase):
@@ -162,7 +162,7 @@ class RecoveryAnswerBranchTests(unittest.IsolatedAsyncioTestCase):
         async def _capture(_conv_id, _channel, text, *_args, **_kwargs):
             committed.append(text)
 
-        with patch("app.services.stream.agent_loop_round_outcome.append_chunk", AsyncMock(side_effect=_capture)):
+        with patch("app.services.stream_state_service.append_chunk", AsyncMock(side_effect=_capture)):
             await handle_agent_round_outcome(request=request)
         return request, committed
 
