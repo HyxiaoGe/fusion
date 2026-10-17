@@ -60,11 +60,8 @@ jobs:
       - name: Run deploy script contracts
         run: python3 .github/scripts/test_deploy_scripts.py
 
-      - name: Run repository guidance contract
-        env:
-          BEFORE_SHA: ${{ github.event.before }}
-          BASE_REF: ${{ github.base_ref }}
-        run: python3 .github/scripts/test_repository_guidance_contract.py
+      - name: Run repository docs contract
+        run: python3 .github/scripts/test_repository_docs_contract.py
 
       - name: Install actionlint
         run: |
