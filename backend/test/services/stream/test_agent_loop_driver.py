@@ -17,6 +17,7 @@ from app.services.stream.first_output_timeout import FIRST_OUTPUT_TIMEOUT_S, Fir
 from app.services.stream.limit_summary import LimitSummaryOutcome
 from app.services.stream.llm_round_lifecycle import round_tool_names
 from app.services.stream.plan_control import process_plan_control_calls
+from app.services.stream.product_structured_answers import PRODUCT_STRUCTURED_ANSWERS
 from app.services.stream.research_evidence import ResearchSource
 from app.services.stream.run_output import ConversationStreamOutput
 from app.services.stream.step_lifecycle import AgentStepContext
@@ -80,6 +81,8 @@ def _runtime(**overrides):
     }
     values.update(overrides)
     values.setdefault("output", ConversationStreamOutput(values["conversation_id"], values["task_id"]))
+    # 聊天入口装产品结构化回答，这里与之保持一致。
+    values.setdefault("structured_answers", PRODUCT_STRUCTURED_ANSWERS)
     return AgentLoopRuntime(**values)
 
 

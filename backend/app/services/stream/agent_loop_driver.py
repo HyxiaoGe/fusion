@@ -23,7 +23,6 @@ from app.services.stream.first_output_timeout import (
     FIRST_OUTPUT_TIMEOUT_S,
     FirstOutputTimeoutError,
 )
-from app.services.stream.product_result_answer import has_product_result_blocks
 from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
 from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream.tool_ban import forbid_tool_calls, ignored_tool_ban, without_tool_definitions
@@ -76,7 +75,7 @@ async def run_agent_loop(
         if outcome.exit == AgentLoopExit.SUPERSEDED:
             return outcome
         if outcome.exit == AgentLoopExit.PRODUCT_RESULT_READY:
-            await _complete_product_result_without_llm(
+            await _complete_structured_answer_without_llm(
                 db=db,
                 messages=messages,
                 state=state,
@@ -98,14 +97,10 @@ async def run_agent_loop(
         break
 
     if state.limit_reason is not None:
-        if (
-            has_product_result_blocks(state.content_blocks)
-            or state.product_tool_attempted
-            or state.pending_tool_repairs
-        ):
+        if runtime.structured_answers.has_answer(state):
             limit_finish_reason = state.finish_reason
             try:
-                await _complete_product_result_without_llm(
+                await _complete_structured_answer_without_llm(
                     db=db,
                     messages=messages,
                     state=state,
@@ -121,7 +116,7 @@ async def run_agent_loop(
     return AgentLoopOutcome(exit=AgentLoopExit.COMPLETED)
 
 
-async def _complete_product_result_without_llm(
+async def _complete_structured_answer_without_llm(
     *,
     db,
     messages: list[PromptMessage],

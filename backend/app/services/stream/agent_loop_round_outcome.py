@@ -7,22 +7,12 @@ from dataclasses import dataclass
 from app.ai.prompts.prompt_message import PromptMessage
 from app.core.logger import app_logger as logger
 from app.services.final_answer_evidence import build_used_final_answer_evidence
-from app.services.mcp.amap_product_tools import AMAP_PRODUCT_TOOL_NAMES
-from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_TOOL_NAMES
 from app.services.stream.agent_loop_outcome import AgentLoopExit, AgentLoopOutcome
 from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_loop_step_requests import build_tool_round_request
 from app.services.stream.agent_round import AgentRoundResult
 from app.services.stream.llm_stream import contains_tool_protocol_residue
-from app.services.stream.product_result_answer import (
-    build_grounded_product_answer,
-    build_place_choice_clarification,
-    build_product_tool_failure_answer,
-    build_tool_repair_clarification,
-    has_product_result_blocks,
-    neutralize_product_provider_mentions,
-)
 from app.services.stream.provider_content_filter import (
     CONTENT_FILTER_FINISH_REASON,
     replace_with_content_filtered_block,
@@ -30,9 +20,9 @@ from app.services.stream.provider_content_filter import (
 from app.services.stream.round_completion import append_round_content_blocks, complete_text_response_step
 from app.services.stream.safe_fallback_response import default_safe_fallback, render_safe_fallback
 from app.services.stream.step_lifecycle import AgentStepContext
+from app.services.stream.structured_answer import ToolRoundDecision
 from app.services.stream.tool_round import ToolRoundOutcome
 from app.services.stream_state_service import StreamWriteTerminalError
-from app.services.weather import WEATHER_TOOL_NAMES
 
 
 @dataclass(frozen=True)
@@ -174,7 +164,7 @@ async def _complete_tool_protocol_error_round(
         max_tool_calls=request.runtime.limits.max_tool_calls,
         clock=request.runtime.clock,
     )
-    if _has_product_answer_context(request.state):
+    if request.runtime.structured_answers.has_answer(request.state):
         return AgentLoopOutcome(exit=AgentLoopExit.PRODUCT_RESULT_READY)
     return AgentLoopOutcome(
         exit=AgentLoopExit.SUMMARY_REQUIRED,
@@ -209,36 +199,15 @@ async def _complete_text_round(request: AgentRoundOutcomeRequest) -> None:
     )
 
 
-def _build_user_clarification(state: AgentLoopState) -> str:
-    # 同一轮已有其他产品结果时按正常校验交付模型回答，不用地名确认覆盖已查到的内容。
-    place_choice = (
-        ""
-        if has_product_result_blocks(state.content_blocks)
-        else build_place_choice_clarification(state.pending_place_choices)
-    )
-    parts = (build_tool_repair_clarification(state.pending_tool_repairs), place_choice)
-    return "\n\n".join(part for part in parts if part)
-
-
 async def _commit_deferred_answer(
     request: AgentRoundOutcomeRequest,
 ) -> AgentRoundOutcomeRequest:
     if request.terminal and request.state.limit_reason is not None:
-        return await _commit_terminal_product_answer(request)
+        return await _commit_terminal_structured_answer(request)
 
     # 模型回答原样交付：不再按产品结果校验、工具失败或证据缺失替换成服务端模板（2026-10-05）。
     if not request.round_result.content_buf.strip():
-        # 空正文是格式问题：用已取得的结构化结果和待用户确认的信息补一段，不覆盖模型写出的内容。
-        answer = "\n\n".join(
-            part
-            for part in (
-                build_grounded_product_answer(request.state.content_blocks, messages=request.messages),
-                _build_user_clarification(request.state),
-            )
-            if part
-        )
-        if not answer and request.state.product_tool_attempted:
-            answer = build_product_tool_failure_answer(request.messages)
+        answer = request.runtime.structured_answers.compose_answer(request.state, request.messages)
         if answer:
             await _append_committed_answer(request, answer)
             return _with_replaced_answer(request, answer)
@@ -247,19 +216,17 @@ async def _commit_deferred_answer(
     return await _commit_deferred_plain_answer(request, model_output_visible=True)
 
 
-async def _commit_terminal_product_answer(request: AgentRoundOutcomeRequest) -> AgentRoundOutcomeRequest:
+async def _commit_terminal_structured_answer(request: AgentRoundOutcomeRequest) -> AgentRoundOutcomeRequest:
     """额度触顶后只交付已知产品事实，并如实说明不能继续执行的计划项。"""
-    answer = build_grounded_product_answer(request.state.content_blocks, messages=request.messages)
-    if not answer:
-        answer = build_product_tool_failure_answer(request.messages)
-    clarification = _build_user_clarification(request.state)
+    structured_answers = request.runtime.structured_answers
+    answer = structured_answers.compose_terminal_answer(request.state, request.messages)
     pending_items = request.state.plan_coordinator.pending_execution_items()
     incomplete = ""
     if pending_items:
         titles = "、".join(str(item.get("title") or item.get("id")) for item in pending_items)
         incomplete = f"本次执行已达到上限，以下任务尚未完成：{titles}。以上仅包含已经取得的结果。"
-    answer = "\n\n".join(part for part in (answer, clarification, incomplete) if part)
-    answer = neutralize_product_provider_mentions(answer, request.state.content_blocks)
+    answer = "\n\n".join(part for part in (answer, incomplete) if part)
+    answer = structured_answers.rewrite_answer(answer, request.state)
     await _append_committed_answer(request, answer)
     return _with_replaced_answer(request, answer)
 
@@ -274,18 +241,10 @@ async def _commit_deferred_plain_answer(
     if rejected is not None:
         await _append_committed_answer(request, rejected, output_reason="protocol_residue")
         return _with_replaced_answer(request, rejected)
-    answer = neutralize_product_provider_mentions(answer, request.state.content_blocks)
+    answer = request.runtime.structured_answers.rewrite_answer(answer, request.state)
     if answer:
         await _append_committed_answer(request, answer, model_output_visible=model_output_visible)
     return _with_replaced_answer(request, answer)
-
-
-def _has_product_answer_context(state: AgentLoopState) -> bool:
-    return (
-        has_product_result_blocks(state.content_blocks)
-        or state.product_tool_attempted
-        or bool(state.pending_tool_repairs)
-    )
 
 
 def _record_suppression(request: AgentRoundOutcomeRequest, reason: str) -> None:
@@ -359,7 +318,7 @@ def _with_replaced_answer(
 
 
 def _needs_empty_answer_summary(request: AgentRoundOutcomeRequest) -> bool:
-    if _has_product_answer_context(request.state):
+    if request.runtime.structured_answers.has_answer(request.state):
         return False
     return (
         request.state.total_tool_calls > 0
@@ -403,19 +362,18 @@ async def _handle_tool_calls_round(request: AgentRoundOutcomeRequest) -> AgentLo
             round_result=request.round_result,
         ),
     )
-    if isinstance(outcome, ToolRoundOutcome):
-        request.runtime.mode.after_tool_round(request, outcome)
-        request.state.record_no_progress_search_results(outcome.no_progress_search_results)
-        request.state.record_product_tool_attempt(
-            outcome.tool_call_count > 0
-            and any(
-                str(tool_call.get("name", "")) in AMAP_PRODUCT_TOOL_NAMES | WEATHER_TOOL_NAMES | FLYAI_TRAVEL_TOOL_NAMES
-                for tool_call in request.round_result.tool_calls
-            )
-        )
-    if _requires_user_input(request.state):
+    tool_outcome = outcome if isinstance(outcome, ToolRoundOutcome) else None
+    if tool_outcome is not None:
+        request.runtime.mode.after_tool_round(request, tool_outcome)
+        request.state.record_no_progress_search_results(tool_outcome.no_progress_search_results)
+    decision = request.runtime.structured_answers.after_tool_round(
+        request.state,
+        tool_calls=request.round_result.tool_calls,
+        outcome=tool_outcome,
+    )
+    if decision is ToolRoundDecision.READY:
         return AgentLoopOutcome(exit=AgentLoopExit.PRODUCT_RESULT_READY)
-    if isinstance(outcome, ToolRoundOutcome) and outcome.product_result_count > 0:
+    if decision is ToolRoundDecision.CONTINUE:
         return None
     should_summarize = request.state.should_summarize_no_progress_search()
     if should_summarize:
@@ -429,13 +387,6 @@ async def _handle_tool_calls_round(request: AgentRoundOutcomeRequest) -> AgentLo
             summary_finish_reason="no_progress_summary",
         )
     return None
-
-
-def _requires_user_input(state: AgentLoopState) -> bool:
-    return any(
-        isinstance(repair, dict) and repair.get("requires_user_input") is True
-        for repair in state.pending_tool_repairs.values()
-    )
 
 
 async def _discard_streamed_tool_round_content(request: AgentRoundOutcomeRequest) -> None:
