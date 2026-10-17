@@ -5,7 +5,7 @@ type ThemeState = {
 };
 
 // 从localStorage获取保存的主题设置
-const getSavedTheme = (): 'light' | 'dark' | 'system' => {
+export const getSavedTheme = (): 'light' | 'dark' | 'system' => {
   if (typeof window !== 'undefined') {
     try {
       const savedTheme = localStorage.getItem('themeMode');
