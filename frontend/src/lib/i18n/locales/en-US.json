@@ -890,5 +890,23 @@
     "loadFailed": "Could not load this update. Try again.",
     "close": "Close product updates",
     "contents": "Versions"
+  },
+  "errors": {
+    "common": {
+      "home": "Back to home"
+    },
+    "notFound": {
+      "title": "Page not found",
+      "lead": "I asked every model, and none of them could find",
+      "tail": "— it may have moved, or it never existed.",
+      "hint": "Move your cursor to scatter the particles, click to burst them",
+      "back": "Go back"
+    },
+    "crash": {
+      "badge": "Something broke",
+      "title": "Something went wrong",
+      "description": "This page hit an unexpected error. Your conversations are safe — try again, or head back home to start fresh.",
+      "retry": "Try again"
+    }
   }
 }
