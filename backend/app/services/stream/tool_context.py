@@ -18,24 +18,10 @@ from app.services.agent.context_broker import (
     wait_for_context_result,
 )
 from app.services.stream.agent_loop_state import AgentLoopState
+from app.services.tool_handlers.base import ToolRuntimeContext
 
 _CONTEXT_TYPE = "geolocation"
 _CONTEXT_TIMEOUT_SECONDS = 60.0
-
-
-@dataclass
-class ToolRuntimeContext:
-    geolocation: Geolocation | None = None
-    step_number: int = 0
-    argument_repair_state: dict[str, dict[str, Any]] | None = None
-    route_city_hints: dict[str, tuple[str, ...]] = field(default_factory=dict)
-    remaining_agent_steps: int | None = None
-    remaining_agent_tool_calls: int | None = None
-    remaining_agent_tool_calls_before_round: int | None = None
-    remaining_agent_tool_calls_after_batch: int | None = None
-    remaining_argument_repair_slots: int | None = None
-    # 本 Run 已投影的结果块快照，供需要引用已完成查询的工具（如文档数据来源）读取。
-    content_blocks: tuple[Any, ...] = ()
 
 
 @dataclass(frozen=True)

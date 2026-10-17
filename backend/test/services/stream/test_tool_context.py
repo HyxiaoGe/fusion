@@ -12,7 +12,8 @@ from app.schemas.chat import (
 )
 from app.services.agent.context_broker import Geolocation, ResolvedContext
 from app.services.stream.agent_loop_state import AgentLoopState
-from app.services.stream.tool_context import ToolRuntimeContext, enrich_tool_runtime_context
+from app.services.stream.tool_context import enrich_tool_runtime_context
+from app.services.tool_handlers.base import ToolRuntimeContext
 
 
 class ToolContextResolutionTests(unittest.IsolatedAsyncioTestCase):

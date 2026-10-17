@@ -14,7 +14,7 @@ from app.services.agent_strategy_config import get_agent_strategy_config
 from app.services.external.search_client import search_web
 from app.services.source_context import UntrustedSourceContext, format_untrusted_source_context
 from app.services.source_url_identity import canonicalize_source_url
-from app.services.tool_handlers.base import BaseToolHandler, ToolResult
+from app.services.tool_handlers.base import BaseToolHandler, ToolResult, ToolRuntimeContext
 
 MAX_CONTEXT_SOURCES = 10
 # 每条搜索来源进入模型上下文的字数上限；评测裁判按同一上限核对
@@ -32,7 +32,7 @@ class WebSearchHandler(BaseToolHandler):
     def sse_event_prefix(self) -> str:
         return "search"
 
-    async def execute(self, args: dict) -> ToolResult:
+    async def execute(self, args: dict, context: ToolRuntimeContext | None = None) -> ToolResult:
         query = args.get("query", "")
         context_source_limit = _normalize_context_source_limit(args.get("context_source_limit"))
         search_budget = args.get("search_budget")

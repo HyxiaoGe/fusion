@@ -2,8 +2,9 @@
 Tool Handler 抽象基类 — 所有工具处理器的共性接口和共享能力
 """
 
+from __future__ import annotations
+
 import asyncio
-import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
@@ -14,29 +15,24 @@ from app.services.agent_logger import log_tool_call
 from app.services.tool_detail_snapshot import build_tool_detail_snapshot
 
 if TYPE_CHECKING:
-    from app.services.agent.emitter import AgentEventEmitter
+    from app.services.agent.context_broker import Geolocation
 
 
 @dataclass
-class ToolContext:
-    """传递给 handler 的上下文，包含处理 tool_call 所需的全部信息"""
+class ToolRuntimeContext:
+    """执行工具时由 agent loop 提供的运行内信息；工具按需读取，不需要的忽略。"""
 
-    db: Any
-    conversation_id: str
-    user_id: str
-    model_id: str
-    litellm_model: str
-    litellm_kwargs: dict
-    provider: str
-    messages: list
-    assistant_message_id: str
-    task_id: str
-    tool_call_id: str
-    tool_call_args: str
-    should_use_reasoning: bool
-    thinking_block_id: str
-    text_block_id: str
-    first_round_reasoning: str = ""
+    geolocation: Geolocation | None = None
+    step_number: int = 0
+    argument_repair_state: dict[str, dict[str, Any]] | None = None
+    route_city_hints: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    remaining_agent_steps: int | None = None
+    remaining_agent_tool_calls: int | None = None
+    remaining_agent_tool_calls_before_round: int | None = None
+    remaining_agent_tool_calls_after_batch: int | None = None
+    remaining_argument_repair_slots: int | None = None
+    # 本 Run 已投影的结果块快照，供需要引用已完成查询的工具（如文档数据来源）读取。
+    content_blocks: tuple[Any, ...] = ()
 
 
 @dataclass
@@ -102,8 +98,8 @@ class BaseToolHandler(ABC):
         """SSE 事件前缀，如 'search' → search_start/search_complete"""
 
     @abstractmethod
-    async def execute(self, args: dict) -> ToolResult:
-        """执行工具核心逻辑"""
+    async def execute(self, args: dict, context: ToolRuntimeContext | None = None) -> ToolResult:
+        """执行工具核心逻辑；context 由 agent loop 传入，直接调用（测试、组合工具）时可省略。"""
 
     @abstractmethod
     def build_content_block(self, result: ToolResult, block_id: str, log_id: str) -> ContentBlock | None:
@@ -189,61 +185,25 @@ class BaseToolHandler(ABC):
 
         return None
 
-    async def execute_with_emitter(
-        self,
-        *,
-        args: dict,
-        emitter: "AgentEventEmitter",
-        tool_call_id: str,
-    ) -> "ToolResult":
-        """统一包装：发 tool_call_started → execute → tool_call_completed。
+    # ---- 可选能力：子类按需覆盖，默认不启用 ----
 
-        强保证：tool_call_completed 必发，即使 execute 抛异常（包括 CancelledError）
-        也会先 emit failed 事件再 re-raise，避免 tool_call 永远卡在 running。
+    # 已知慢工具（如生图）可声明更长的单次超时；None 沿用统一上限。
+    execution_timeout_seconds: float | None = None
 
-        所有失败路径（execute 返回 failed/degraded、execute 抛异常）的 result_summary
-        都走子类 _build_result_summary，保证 kind 字段在 FE 看起来一致（不会出现
-        同一工具的两条失败 chunk 一个 kind="search" 另一个 kind="web_search"）。
+    def build_runtime_argument_repair(self, args: dict, context: ToolRuntimeContext | None) -> dict | None:
+        """真实执行前按运行内信息检查参数；返回修参说明则本次不触网。"""
 
-        包含计时和 result_summary 自动构造。子类只需实现 execute(args) +
-        可选覆盖 _build_result_summary 返回轻量 summary。
-        本方法不再推送旧式工具实时 chunk；统一由 AgentEventEmitter 输出事件。
-        """
-        await emitter.tool_call_started(
-            tool_call_id=tool_call_id,
-            tool_name=self.tool_name,
-            arguments=self.sanitize_input_params_for_event(args),
-        )
-        start = time.monotonic()
-        try:
-            result = await self.execute(args)
-        except BaseException:  # noqa: BLE001 — 必须在 re-raise 前发 completed
-            duration_ms = int((time.monotonic() - start) * 1000)
-            # 用合成 failed result 走子类 _build_result_summary，保证 kind 与失败路径一致
-            synthetic_failed = ToolResult(
-                status="failed",
-                data={"error_code": "tool_execution_failed", "retryable": False},
-                error_message="工具执行未完成",
-            )
-            await emitter.tool_call_completed(
-                tool_call_id=tool_call_id,
-                tool_name=self.tool_name,
-                status="failed",
-                duration_ms=duration_ms,
-                result_summary=self._build_result_summary(synthetic_failed),
-                error="工具执行未完成",
-            )
-            raise
-        duration_ms = int((time.monotonic() - start) * 1000)
-        await emitter.tool_call_completed(
-            tool_call_id=tool_call_id,
-            tool_name=self.tool_name,
-            status=result.status,
-            duration_ms=duration_ms,
-            result_summary=self._build_result_summary(result),
-            error=result.error_message if result.status != "success" else None,
-        )
-        return result
+        return None
+
+    def build_local_preflight_result(self, validation_errors: list[str]) -> ToolResult | None:
+        """参数校验失败时投影工具自己的状态型结果；None 走通用参数修复。"""
+
+        return None
+
+    async def is_run_budget_exhausted(self) -> bool:
+        """本 Run 的服务额度是否已用完；用完后下一轮不再公告该工具。"""
+
+        return False
 
     def _build_result_summary(self, result: "ToolResult") -> dict:
         """子类可覆盖返回轻量摘要（如搜索命中数 / favicon）。

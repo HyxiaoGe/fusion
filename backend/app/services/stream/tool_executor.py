@@ -41,6 +41,7 @@ from app.services.stream_state_service import (
 
 if TYPE_CHECKING:
     from app.services.stream.network_budget import NetworkToolBudget
+    from app.services.tool_handlers.base import ToolRuntimeContext
 
 # 单次工具调用超时
 AGENT_TOOL_TIMEOUT = 30
@@ -77,7 +78,7 @@ class ToolExecutionBatchRequest:
     emitter: Optional[AgentEventEmitter] = None
     network_budget: "NetworkToolBudget | None" = None
     tool_handlers: Mapping[str, Any] | None = None
-    runtime_context: Any = None
+    runtime_context: "ToolRuntimeContext | None" = None
     successful_tool_call_signatures: set[str] | None = None
     remote_argument_repair_disabled_tools: frozenset[str] = frozenset()
     deferred_route_call_ids: frozenset[str] = frozenset()
@@ -289,13 +290,6 @@ class AgentEventCompositeWriter:
                 )
 
 
-async def _execute_handler(handler, args: dict, runtime_context: Any = None):
-    execute_with_runtime_context = getattr(handler, "execute_with_runtime_context", None)
-    if runtime_context is not None and callable(execute_with_runtime_context):
-        return await execute_with_runtime_context(args, runtime_context)
-    return await handler.execute(args)
-
-
 @backoff.on_predicate(
     backoff.constant,
     predicate=_should_retry_tool_result,
@@ -306,7 +300,7 @@ async def _execute_handler(handler, args: dict, runtime_context: Any = None):
 async def execute_tool_with_retry(
     handler,
     args: dict,
-    runtime_context: Any = None,
+    runtime_context: "ToolRuntimeContext | None" = None,
     attempt_lifecycle: ToolAttemptLifecycle | None = None,
 ):
     """带重试的工具执行（仅瞬时故障重试），返回 ToolResult。
@@ -320,7 +314,7 @@ async def execute_tool_with_retry(
     async def execute_attempt():
         try:
             return await asyncio.wait_for(
-                _execute_handler(handler, args, runtime_context),
+                handler.execute(args, runtime_context),
                 timeout=_handler_timeout_seconds(handler),
             )
         except asyncio.TimeoutError:
@@ -338,7 +332,7 @@ async def execute_tool_with_retry(
 async def execute_tool_once(
     handler,
     args: dict,
-    runtime_context: Any = None,
+    runtime_context: "ToolRuntimeContext | None" = None,
     attempt_lifecycle: ToolAttemptLifecycle | None = None,
 ):
     """有副作用或不具备幂等保证的工具只执行一次，但仍保留统一超时。"""
@@ -347,7 +341,7 @@ async def execute_tool_once(
     async def execute_attempt():
         try:
             return await asyncio.wait_for(
-                _execute_handler(handler, args, runtime_context),
+                handler.execute(args, runtime_context),
                 timeout=_handler_timeout_seconds(handler),
             )
         except asyncio.TimeoutError:
@@ -364,7 +358,7 @@ async def execute_tool_once(
 
 def _handler_timeout_seconds(handler: Any) -> float:
     """已知慢工具（如生图）可声明更长的单次超时，其余沿用统一上限。"""
-    declared = getattr(handler, "execution_timeout_seconds", None)
+    declared = handler.execution_timeout_seconds
     if isinstance(declared, (int, float)) and not isinstance(declared, bool) and declared > AGENT_TOOL_TIMEOUT:
         return float(declared)
     return AGENT_TOOL_TIMEOUT
@@ -427,9 +421,6 @@ def build_successful_call_signature(
     handler = resolve_tool_handler(str(tool_call.get("name", "")), tool_handlers)
     if handler is None:
         return None
-    signature_builder = getattr(type(handler), "build_successful_call_signature", None)
-    if not callable(signature_builder):
-        return None
     try:
         args = parse_tool_arguments(tool_call)
     except ToolArgumentsParseError:
@@ -437,7 +428,7 @@ def build_successful_call_signature(
     if not isinstance(args, dict):
         return None
     try:
-        signature = signature_builder(handler, args)
+        signature = handler.build_successful_call_signature(args)
     except Exception as error:  # noqa: BLE001 — 去重签名失败必须回退真实执行
         logger.warning(
             "工具成功调用签名生成失败: tool=%s error_type=%s",
@@ -875,11 +866,8 @@ def _build_handler_local_preflight_result(
 ):
     """允许 handler 安全投影状态型预检结果；异常时回退通用参数修复。"""
 
-    builder = getattr(type(handler), "build_local_preflight_result", None)
-    if not callable(builder):
-        return None
     try:
-        result = builder(handler, list(validation_errors))
+        result = handler.build_local_preflight_result(list(validation_errors))
     except Exception as error:  # noqa: BLE001 — 不记录可能包含业务数据的异常文本
         logger.warning(
             "工具自定义预检结果构造失败: tool=%s error_type=%s",
@@ -1012,11 +1000,8 @@ def _build_runtime_argument_repair_result(
     handler: Any,
     args: dict,
 ):
-    builder = getattr(type(handler), "build_runtime_argument_repair", None)
-    if not callable(builder):
-        return None
     try:
-        spec = builder(handler, args, request.runtime_context)
+        spec = handler.build_runtime_argument_repair(args, request.runtime_context)
     except Exception as error:  # noqa: BLE001 — 修参门禁异常必须拒绝触网
         logger.warning(
             "工具运行时修参检查异常: tool=%s error_type=%s",
@@ -1491,7 +1476,7 @@ async def execute_tools_parallel(
     emitter: Optional[AgentEventEmitter] = None,
     network_budget: "NetworkToolBudget | None" = None,
     tool_handlers: Mapping[str, Any] | None = None,
-    runtime_context: Any = None,
+    runtime_context: "ToolRuntimeContext | None" = None,
     successful_tool_call_signatures: set[str] | None = None,
 ) -> list[ToolExecutionRecord]:
     """

@@ -2,7 +2,7 @@
 Tool Handler 调度器 — 根据 tool_call_name 分发到对应 handler
 """
 
-from app.services.tool_handlers.base import BaseToolHandler, ToolContext, ToolResult
+from app.services.tool_handlers.base import BaseToolHandler, ToolResult, ToolRuntimeContext
 
 # 延迟注册，避免循环导入
 _registry: dict[str, BaseToolHandler] = {}
@@ -43,8 +43,8 @@ def _register_all() -> None:
 
 __all__ = [
     "BaseToolHandler",
-    "ToolContext",
     "ToolResult",
+    "ToolRuntimeContext",
     "get_handler",
     "get_all_handlers",
     "register_handler",

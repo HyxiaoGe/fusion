@@ -40,7 +40,7 @@ from app.schemas.chat import (
 )
 from app.services.mcp.server_service import MCP_TOOL_UNAVAILABLE_MESSAGE
 from app.services.mcp.tool_contract import canonical_json_bytes
-from app.services.tool_handlers.base import BaseToolHandler, ToolResult
+from app.services.tool_handlers.base import BaseToolHandler, ToolResult, ToolRuntimeContext
 from app.utils.time import as_china_time
 
 FLYAI_SEARCH_FLIGHTS = "search_flights"
@@ -459,7 +459,7 @@ class FlyAiTravelToolHandler(BaseToolHandler):
     async def is_run_budget_exhausted(self) -> bool:
         return await self.controls.is_exhausted()
 
-    async def execute(self, args: dict) -> ToolResult:
+    async def execute(self, args: dict, context: ToolRuntimeContext | None = None) -> ToolResult:
         started_at = time.monotonic()
         try:
             normalized = _validate_args(self.tool_name, args)

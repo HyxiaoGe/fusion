@@ -22,7 +22,7 @@ from app.schemas.knowledge import KnowledgeRetrievalRequest
 from app.schemas.response import ApiException
 from app.services.knowledge.evidence import KNOWLEDGE_SEARCH_TOOL_NAME, knowledge_evidence_id
 from app.services.knowledge.service import KnowledgeService
-from app.services.tool_handlers.base import BaseToolHandler, ToolResult
+from app.services.tool_handlers.base import BaseToolHandler, ToolResult, ToolRuntimeContext
 
 KNOWLEDGE_SEARCH_TOP_K = 8
 MAX_KNOWLEDGE_CONTEXT_CHARS = 30_000
@@ -133,7 +133,7 @@ class KnowledgeSearchHandler(BaseToolHandler):
     def sse_event_prefix(self) -> str:
         return "knowledge"
 
-    async def execute(self, args: dict) -> ToolResult:
+    async def execute(self, args: dict, context: ToolRuntimeContext | None = None) -> ToolResult:
         query = str(args.get("query") or "").strip()
         base_ids = [base.id for base in self.bases]
         data: dict[str, Any] = {"query": query, "knowledge_base_ids": base_ids, "hits": []}

@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.ai.skills import SkillEntry, SkillFileError, discover_skills, read_skill, read_skill_reference
-from app.services.tool_handlers.base import BaseToolHandler, ToolResult
+from app.services.tool_handlers.base import BaseToolHandler, ToolResult, ToolRuntimeContext
 
 LOAD_SKILL_TOOL_NAME = "load_skill"
 MAX_SKILL_LOADS_PER_RUN = 5
@@ -81,7 +81,7 @@ class LoadSkillHandler(BaseToolHandler):
     async def is_run_budget_exhausted(self) -> bool:
         return self._session.budget_exhausted
 
-    async def execute(self, args: dict) -> ToolResult:
+    async def execute(self, args: dict, context: ToolRuntimeContext | None = None) -> ToolResult:
         args = args if isinstance(args, dict) else {}
         name = str(args.get("name") or "")
         file = str(args.get("file") or "").strip() or None

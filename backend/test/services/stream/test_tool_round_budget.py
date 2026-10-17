@@ -5,11 +5,11 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.step_lifecycle import AgentStepContext
-from app.services.stream.tool_context import BlockedToolContext, ToolContextResolution, ToolRuntimeContext
+from app.services.stream.tool_context import BlockedToolContext, ToolContextResolution
 from app.services.stream.tool_execution_result import ToolExecutionRecord
 from app.services.stream.tool_round import ToolRoundOutcome, ToolRoundRequest, handle_tool_calls_round
 from app.services.stream_state_service import StreamWriteTerminalError
-from app.services.tool_handlers.base import ToolResult
+from app.services.tool_handlers.base import ToolResult, ToolRuntimeContext
 
 
 def _tool_calls(count: int) -> list[dict]:

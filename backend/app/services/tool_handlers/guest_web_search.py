@@ -9,7 +9,7 @@ from app.services.guest_quota import (
     GUEST_SEARCH_EXHAUSTED_MESSAGE,
     reserve_guest_search,
 )
-from app.services.tool_handlers.base import ToolResult
+from app.services.tool_handlers.base import ToolResult, ToolRuntimeContext
 from app.services.tool_handlers.web_search import WebSearchHandler
 
 
@@ -18,7 +18,7 @@ class GuestWebSearchHandler(WebSearchHandler):
         self.user_id = user_id
         self._exhausted = False
 
-    async def execute(self, args: dict) -> ToolResult:
+    async def execute(self, args: dict, context: ToolRuntimeContext | None = None) -> ToolResult:
         try:
             allowed = await asyncio.to_thread(reserve_guest_search, self.user_id)
         except Exception:  # noqa: BLE001 — 额度服务不可用时不放开搜索
@@ -38,7 +38,7 @@ class GuestWebSearchHandler(WebSearchHandler):
                     "result_count": 0,
                 },
             )
-        return await super().execute(args)
+        return await super().execute(args, context)
 
     async def is_run_budget_exhausted(self) -> bool:
         """额度用完后本次 run 不再向模型公告搜索工具。"""

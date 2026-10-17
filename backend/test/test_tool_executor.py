@@ -4,7 +4,7 @@ import asyncio
 import json
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from app.services.mcp.agent_tools import (
     Context7McpAgentToolHandler,
@@ -27,6 +27,7 @@ from app.services.stream.tool_executor import (
     execute_tools_parallel,
 )
 from app.services.tool_handlers.base import ToolResult
+from test.fake_tool_handler import FakeToolHandler, fake_tool_handler
 
 
 class ToolRetryPolicyTests(unittest.TestCase):
@@ -116,7 +117,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
     def test_success_signature_failure_log_does_not_leak_raw_exception(self):
         secret = "Authorization: Bearer SIGNATURE_SECRET"
 
-        class SignatureHandler:
+        class SignatureHandler(FakeToolHandler):
             tool_name = "mcp_signature_probe"
 
             def build_successful_call_signature(self, _args):
@@ -139,7 +140,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("error_type=RuntimeError", logs)
 
     async def test_generic_argument_resource_limits_fail_local_preflight_without_execution(self):
-        class Handler:
+        class Handler(FakeToolHandler):
             tool_name = "mcp_resource_probe"
             supports_automatic_retry = False
 
@@ -195,7 +196,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         handler.execute.assert_not_awaited()
 
     async def test_structured_transient_failure_retries_once_then_succeeds(self):
-        handler = SimpleNamespace(
+        handler = fake_tool_handler(
             tool_name="web_search",
             execute=AsyncMock(
                 side_effect=[
@@ -217,7 +218,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_physical_attempt_lifecycle_wraps_each_backoff_invocation(self):
         emitter = AsyncMock()
-        handler = SimpleNamespace(
+        handler = fake_tool_handler(
             tool_name="web_search",
             execute=AsyncMock(
                 side_effect=[
@@ -263,7 +264,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_single_physical_attempt_maps_timeout_and_cancellation(self):
         emitter = AsyncMock()
-        handler = SimpleNamespace(
+        handler = fake_tool_handler(
             tool_name="side_effect_tool",
             supports_automatic_retry=False,
             execute=AsyncMock(),
@@ -332,7 +333,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
     async def test_attempt_emitter_failure_aborts_without_fabricating_logical_completion(self):
         emitter = AsyncMock()
         emitter.tool_attempt_started.side_effect = RuntimeError("event stream unavailable")
-        handler = SimpleNamespace(
+        handler = fake_tool_handler(
             tool_name="web_search",
             execute=AsyncMock(return_value=ToolResult(status="success")),
             _build_result_summary=MagicMock(return_value={}),
@@ -471,7 +472,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         handler.execute.assert_not_awaited()
 
     async def test_invalid_parsable_invalid_sequence_never_reopens_repair_budget(self):
-        class SchemaAwareHandler:
+        class SchemaAwareHandler(FakeToolHandler):
             tool_name = "mcp_docs_a1b2c3d4"
             supports_automatic_retry = False
 
@@ -519,7 +520,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         handler.execute.assert_not_awaited()
 
     async def test_structured_remote_argument_error_enters_same_one_shot_repair_protocol(self):
-        class RemoteSchemaHandler:
+        class RemoteSchemaHandler(FakeToolHandler):
             tool_name = "mcp_docs_a1b2c3d4"
             supports_automatic_retry = False
 
@@ -556,7 +557,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(repair["required_fields"], ["query"])
         self.assertTrue(repair["retryable"])
         self.assertFalse(repair["requires_user_input"])
-        handler.execute.assert_awaited_once_with({"query": "Fusion"})
+        handler.execute.assert_awaited_once_with({"query": "Fusion"}, ANY)
 
     async def test_schema_root_and_array_paths_block_execution_before_network(self):
         for error in (
@@ -565,7 +566,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         ):
             with self.subTest(error=error):
 
-                class SchemaPathHandler:
+                class SchemaPathHandler(FakeToolHandler):
                     tool_name = "mcp_docs_a1b2c3d4"
                     supports_automatic_retry = False
 
@@ -591,7 +592,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
                 handler.execute.assert_not_awaited()
 
     async def test_repair_success_allows_later_valid_call_without_reopening_repair_budget(self):
-        class RepairHandler:
+        class RepairHandler(FakeToolHandler):
             tool_name = "mcp_docs_a1b2c3d4"
             supports_automatic_retry = False
 
@@ -647,7 +648,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(later_invalid[0].result.data["repair"]["retryable"])
 
     async def test_runtime_repair_drops_unrequested_extra_arguments_before_execution(self):
-        class RuntimeRepairHandler:
+        class RuntimeRepairHandler(FakeToolHandler):
             tool_name = "route_compare"
             supports_automatic_retry = False
 
@@ -666,7 +667,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
                     "allowed_values": {"origin_city": ["厦门"]},
                 }
 
-            async def execute_with_runtime_context(self, args, _runtime_context):
+            async def execute(self, args, _runtime_context=None):
                 self.calls.append(dict(args))
                 return ToolResult(status="success", data={"routes": []})
 
@@ -727,7 +728,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(handler.calls, [{**base_arguments, "origin_city": "厦门"}])
 
     async def test_later_invalid_episode_uses_a_new_repair_id_after_resolution(self):
-        class RepairHandler:
+        class RepairHandler(FakeToolHandler):
             tool_name = "mcp_docs_a1b2c3d4"
             supports_automatic_retry = False
 
@@ -820,7 +821,6 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         handler.tool_name = "mcp_docs_a1b2c3d4"
         handler.supports_automatic_retry = False
         handler.execute = AsyncMock(return_value=ToolResult(status="success", data={"text": "ok"}))
-        handler.execute_with_runtime_context = None
         handler.log = AsyncMock()
         handler._build_result_summary.return_value = {"kind": "external_tool", "truncated": False}
         repair_state = {}
@@ -864,10 +864,10 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(same_round[1].result.data["error_code"], "argument_repair_deferred_to_next_round")
         self.assertTrue(same_round[1].result.data["repair"]["retryable"])
         self.assertEqual(next_round[0].result.status, "success")
-        handler.execute.assert_awaited_once_with({"query": "MCP"})
+        handler.execute.assert_awaited_once_with({"query": "MCP"}, ANY)
 
     async def test_same_round_schema_invalid_call_runs_before_valid_variant_in_both_orders(self):
-        class SchemaAwareHandler:
+        class SchemaAwareHandler(FakeToolHandler):
             tool_name = "mcp_schema_order"
             supports_automatic_retry = False
 
@@ -934,7 +934,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         handler.execute.assert_not_awaited()
 
     async def test_independent_repairs_atomically_share_remaining_call_slots(self):
-        class RepairHandler:
+        class RepairHandler(FakeToolHandler):
             supports_automatic_retry = False
 
             def __init__(self, tool_name):
@@ -989,7 +989,6 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         invalid_handler.tool_name = "mcp_invalid"
         invalid_handler.supports_automatic_retry = False
         invalid_handler.execute = AsyncMock()
-        invalid_handler.execute_with_runtime_context = None
         invalid_handler.log = AsyncMock()
         invalid_handler._build_result_summary.return_value = {"kind": "external_tool", "truncated": False}
 
@@ -997,7 +996,6 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         valid_handler.tool_name = "mcp_valid"
         valid_handler.supports_automatic_retry = False
         valid_handler.execute = AsyncMock(return_value=ToolResult(status="success", data={"payload": "ok"}))
-        valid_handler.execute_with_runtime_context = None
         valid_handler.log = AsyncMock()
         valid_handler._build_result_summary.return_value = {"kind": "external_tool", "truncated": False}
 
@@ -1058,7 +1056,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(results_by_id["missing"].status, "failed")
 
     async def test_remote_argument_failure_consuming_last_call_is_not_retryable(self):
-        class RemoteHandler:
+        class RemoteHandler(FakeToolHandler):
             tool_name = "mcp_remote_last_call"
             supports_automatic_retry = False
 
@@ -1098,7 +1096,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         handler.execute.assert_awaited_once()
 
     async def test_unverified_remote_argument_failure_is_not_turned_into_repair_context(self):
-        class RemoteHandler:
+        class RemoteHandler(FakeToolHandler):
             tool_name = "mcp_remote_unverified"
             supports_automatic_retry = False
 
@@ -1129,7 +1127,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("repair", records[0].result.data)
 
     async def test_same_batch_remote_invalid_and_success_do_not_leave_tool_level_pending_repair(self):
-        class RemoteHandler:
+        class RemoteHandler(FakeToolHandler):
             tool_name = "mcp_remote_mixed_batch"
             supports_automatic_retry = False
 
@@ -1140,7 +1138,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(order=order):
                 handler = RemoteHandler()
 
-                async def execute(args):
+                async def execute(args, _context=None):
                     if args["query"] == "bad":
                         return ToolResult(
                             status="failed",
@@ -1341,8 +1339,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         handler = MagicMock()
         handler.tool_name = "local_place_search"
         handler.supports_automatic_retry = False
-        handler.execute = AsyncMock()
-        handler.execute_with_runtime_context = AsyncMock(return_value=ToolResult(status="success", data={}))
+        handler.execute = AsyncMock(return_value=ToolResult(status="success", data={}))
         handler.log = AsyncMock()
         handler._build_result_summary.return_value = {"kind": "external_tool", "truncated": False}
         emitter = AsyncMock()
@@ -1362,8 +1359,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
             runtime_context=runtime_context,
         )
 
-        handler.execute.assert_not_awaited()
-        handler.execute_with_runtime_context.assert_awaited_once_with(args, runtime_context)
+        handler.execute.assert_awaited_once_with(args, runtime_context)
         self.assertEqual(handler.log.await_args.kwargs["input_params"], args)
         self.assertEqual(emitter.tool_call_started.await_args.kwargs["arguments"], args)
         self.assertNotIn("114.031456", str(handler.log.await_args))
@@ -1390,7 +1386,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(records[0].tool_name, "mcp_docs_a1b2c3d4")
-        handler.execute.assert_awaited_once_with({"query": "MCP"})
+        handler.execute.assert_awaited_once_with({"query": "MCP"}, None)
 
     async def test_mcp_handler_failure_is_never_automatically_retried(self):
         handler = AsyncMock()
@@ -1435,7 +1431,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(records[0].tool_name, "local_place_search")
-        handler.execute.assert_awaited_once_with({"query": "咖啡"})
+        handler.execute.assert_awaited_once_with({"query": "咖啡"}, None)
         emitter.tool_call_started.assert_awaited_once()
         emitter.tool_call_completed.assert_awaited_once()
         self.assertEqual(emitter.tool_call_completed.await_args.kwargs["tool_name"], "local_place_search")
@@ -1485,12 +1481,10 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         travel_handler = MagicMock()
         travel_handler.tool_name = "search_trains"
         travel_handler.execute = AsyncMock(return_value=ToolResult(status="success", data={"result": {}}))
-        travel_handler.execute_with_runtime_context = None
         travel_handler.log = AsyncMock()
         route_handler = MagicMock()
         route_handler.tool_name = "route_compare"
         route_handler.execute = AsyncMock(return_value=ToolResult(status="success", data={"result": {}}))
-        route_handler.execute_with_runtime_context = None
         route_handler.log = AsyncMock()
         runtime_context = SimpleNamespace(
             argument_repair_state={},
@@ -1543,12 +1537,10 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         travel_handler = MagicMock()
         travel_handler.tool_name = "search_trains"
         travel_handler.execute = AsyncMock(return_value=ToolResult(status="success", data={"result": {}}))
-        travel_handler.execute_with_runtime_context = None
         travel_handler.log = AsyncMock()
         route_handler = MagicMock()
         route_handler.tool_name = "route_compare"
         route_handler.execute = AsyncMock(return_value=ToolResult(status="success", data={"result": {}}))
-        route_handler.execute_with_runtime_context = None
         route_handler.log = AsyncMock()
         runtime_context = SimpleNamespace(
             argument_repair_state={},
@@ -1804,7 +1796,7 @@ class ToolExecutorMessageIdTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(record, ToolExecutionRecord)
         self.assertIs(record.tool_call, tool_call)
         self.assertIs(record.handler, handler)
-        handler.execute.assert_awaited_once_with({"query": "redis stream"})
+        handler.execute.assert_awaited_once_with({"query": "redis stream"}, None)
         handler.log.assert_awaited_once()
         self.assertEqual(handler.log.await_args.kwargs["message_id"], "assistant-1")
         self.assertEqual(handler.log.await_args.kwargs["tool_call_id"], "call-1")
@@ -2145,7 +2137,7 @@ class ToolExecutorMessageIdTests(unittest.IsolatedAsyncioTestCase):
             "search_budget": "standard",
             "recency_days": 1,
         }
-        handler.execute.assert_awaited_once_with(normalized)
+        handler.execute.assert_awaited_once_with(normalized, None)
         self.assertEqual(handler.log.await_args.kwargs["input_params"], normalized)
         self.assertEqual(results[0].result.data["budget_decision"]["action"], "execute")
         self.assertEqual(results[0].result.data["budget_decision"]["reason_code"], "initial_search")

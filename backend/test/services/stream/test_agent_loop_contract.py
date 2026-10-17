@@ -12,6 +12,7 @@ from app.services.stream import StreamHandler
 from app.services.stream.tool_execution_result import ToolExecutionRecord
 from app.services.tool_handlers.base import ToolResult
 from app.utils.prompt_fingerprint import fingerprint_system_messages
+from test.fake_tool_handler import FakeToolHandler
 
 
 @dataclass
@@ -306,11 +307,11 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        class FakeMcpHandler:
+        class FakeMcpHandler(FakeToolHandler):
             tool_name = alias
             supports_automatic_retry = False
 
-            async def execute(self, args):
+            async def execute(self, args, _context=None):
                 return ToolResult(status="success", data={"text": f"文档结果：{args['query']}"})
 
             async def log(self, **_kwargs):
@@ -400,11 +401,11 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        class FakeProductHandler:
+        class FakeProductHandler(FakeToolHandler):
             tool_name = alias
             supports_automatic_retry = False
 
-            async def execute(self, args):
+            async def execute(self, args, _context=None):
                 return ToolResult(status="success", data={"result": {"query": args["query"], "places": []}})
 
             async def log(self, **_kwargs):
@@ -473,11 +474,11 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        class FakeProductHandler:
+        class FakeProductHandler(FakeToolHandler):
             tool_name = alias
             supports_automatic_retry = False
 
-            async def execute(self, args):
+            async def execute(self, args, _context=None):
                 return ToolResult(status="success", data={"query": args["query"]})
 
             async def log(self, **_kwargs):
@@ -569,17 +570,14 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        class RepairAwareHandler:
+        class RepairAwareHandler(FakeToolHandler):
             tool_name = alias
             supports_automatic_retry = False
 
             def __init__(self):
                 self.calls = []
 
-            async def execute(self, _args):
-                raise AssertionError("必须走 runtime context")
-
-            async def execute_with_runtime_context(self, args, runtime_context):
+            async def execute(self, args, runtime_context=None):
                 self.calls.append((dict(args), runtime_context))
                 if len(self.calls) == 1:
                     return ToolResult(
@@ -680,7 +678,7 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        class RuntimeRepairHandler:
+        class RuntimeRepairHandler(FakeToolHandler):
             tool_name = alias
             supports_automatic_retry = False
 
@@ -696,7 +694,7 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
                     "allowed_values": {"origin_city": ["上海市"]},
                 }
 
-            async def execute_with_runtime_context(self, args, runtime_context):
+            async def execute(self, args, runtime_context=None):
                 self.calls.append((dict(args), runtime_context))
                 return ToolResult(status="failed", data={"error_code": "invalid_response"})
 
@@ -776,7 +774,7 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        class RuntimeRepairHandler:
+        class RuntimeRepairHandler(FakeToolHandler):
             tool_name = alias
             supports_automatic_retry = False
 
@@ -792,7 +790,7 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
                     "allowed_values": {"origin_city": ["上海市"]},
                 }
 
-            async def execute_with_runtime_context(self, args, runtime_context):
+            async def execute(self, args, runtime_context=None):
                 self.calls.append((dict(args), runtime_context))
                 return ToolResult(status="success", data={"routes": []})
 
@@ -879,14 +877,14 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
             async def is_exhausted(self):
                 return self.used >= self.max_calls
 
-        class FakeBudgetMcpHandler:
+        class FakeBudgetMcpHandler(FakeToolHandler):
             supports_automatic_retry = False
 
             def __init__(self, alias, budget):
                 self.tool_name = alias
                 self.budget = budget
 
-            async def execute(self, args):
+            async def execute(self, args, _context=None):
                 await self.budget.consume()
                 return ToolResult(status="success", data={"text": str(args)})
 
@@ -982,14 +980,14 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        class ExhaustedMcpHandler:
+        class ExhaustedMcpHandler(FakeToolHandler):
             tool_name = alias
             supports_automatic_retry = False
 
             async def is_run_budget_exhausted(self):
                 return True
 
-            async def execute(self, args):
+            async def execute(self, args, _context=None):
                 return ToolResult(status="failed", data={"error_code": "server_run_budget_exhausted"})
 
             async def log(self, **_kwargs):
@@ -1048,14 +1046,14 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        class ExhaustedMcpHandler:
+        class ExhaustedMcpHandler(FakeToolHandler):
             tool_name = stale_alias
             supports_automatic_retry = False
 
             async def is_run_budget_exhausted(self):
                 return True
 
-            async def execute(self, args):
+            async def execute(self, args, _context=None):
                 return ToolResult(status="failed", data={"error_code": "server_run_budget_exhausted"})
 
             async def log(self, **_kwargs):
@@ -1070,10 +1068,10 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
             def build_content_block(self, result, block_id, log_id):
                 return None
 
-        class FakeSearchHandler:
+        class FakeSearchHandler(FakeToolHandler):
             tool_name = "web_search"
 
-            async def execute(self, args):
+            async def execute(self, args, _context=None):
                 return ToolResult(status="success", data={"query": args["query"], "sources": []})
 
             async def log(self, **_kwargs):
@@ -1180,10 +1178,10 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_tool_round_contract_records_event_order_and_partial_persist(self):
-        class FakeSearchHandler:
+        class FakeSearchHandler(FakeToolHandler):
             tool_name = "web_search"
 
-            async def execute(self, args):
+            async def execute(self, args, _context=None):
                 return ToolResult(
                     status="success",
                     data={"query": args["query"], "sources": [{"title": "OpenAI", "url": "https://openai.com"}]},
@@ -1333,10 +1331,10 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.redis_meta["status"], "error")
 
     async def test_session_and_step_contract_records_completed_tool_run(self):
-        class FakeSearchHandler:
+        class FakeSearchHandler(FakeToolHandler):
             tool_name = "web_search"
 
-            async def execute(self, args):
+            async def execute(self, args, _context=None):
                 return ToolResult(status="success", data={"query": args["query"]}, duration_ms=9)
 
             async def log(self, **_kwargs):

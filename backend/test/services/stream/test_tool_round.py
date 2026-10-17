@@ -31,6 +31,7 @@ from app.services.stream.tool_round import (
 )
 from app.services.stream_state_service import StreamWriteTerminalError
 from app.services.tool_handlers.base import ToolResult
+from test.fake_tool_handler import FakeToolHandler
 
 
 class FutureRegisteredResultBlock(BaseModel):
@@ -723,7 +724,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("tc-stale", logs)
 
     def test_local_preflight_failure_does_not_displace_valid_call_at_global_limit(self):
-        class Handler:
+        class Handler(FakeToolHandler):
             def __init__(self, tool_name):
                 self.tool_name = tool_name
 
@@ -785,7 +786,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(not_executed, [lookup_call])
 
     def test_local_preflight_failures_are_bounded_after_global_limit_is_exhausted(self):
-        class Handler:
+        class Handler(FakeToolHandler):
             tool_name = "mcp_invalid_json"
 
         handler = Handler()

@@ -38,7 +38,7 @@ from app.services.mcp.amap_product_tools import (
     validate_closed_object,
 )
 from app.services.mcp.tool_contract import canonical_json_bytes
-from app.services.tool_handlers.base import BaseToolHandler, ToolResult
+from app.services.tool_handlers.base import BaseToolHandler, ToolResult, ToolRuntimeContext
 from app.services.weather import WEATHER_FORECAST_TOOL_NAME
 from app.services.weather.qweather_client import (
     QWeatherCity,
@@ -234,11 +234,8 @@ class QWeatherForecastToolHandler(BaseToolHandler):
         payload = {"tool_name": self.tool_name, "arguments": normalized}
         return hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
 
-    async def execute(self, args: dict) -> ToolResult:
-        return await self._execute(args, runtime_context=None)
-
-    async def execute_with_runtime_context(self, args: dict, runtime_context: Any) -> ToolResult:
-        return await self._execute(args, runtime_context=runtime_context)
+    async def execute(self, args: dict, context: ToolRuntimeContext | None = None) -> ToolResult:
+        return await self._execute(args, runtime_context=context)
 
     async def _execute(self, args: dict, *, runtime_context: Any) -> ToolResult:
         started_at = self.monotonic()

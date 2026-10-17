@@ -35,7 +35,7 @@ from app.services.documents.service import (  # noqa: E402
 from app.services.documents.sources import document_sources_from_blocks  # noqa: E402
 from app.services.mcp.tool_contract import max_tool_argument_json_bytes  # noqa: E402
 from app.services.stream.product_result_answer import has_product_result_blocks  # noqa: E402
-from app.services.stream.tool_context import ToolRuntimeContext  # noqa: E402
+from app.services.tool_handlers.base import ToolRuntimeContext  # noqa: E402
 from app.services.tool_handlers.document import (  # noqa: E402
     DocumentToolBinding,
     build_create_document_tool,
@@ -195,7 +195,7 @@ class DocumentToolTests(_DatabaseCase, unittest.IsolatedAsyncioTestCase):
         create = self.handlers["create_document"]
         weather = _weather_block()
         runtime_context = ToolRuntimeContext(content_blocks=(weather,))
-        created = await create.execute_with_runtime_context({"title": "香港攻略", "content": GUIDE}, runtime_context)
+        created = await create.execute({"title": "香港攻略", "content": GUIDE}, runtime_context)
         self.assertEqual(created.status, "success")
         block = create.build_content_block(created, "blk-1", "log-1")
         self.assertIsInstance(block, DocumentBlock)
@@ -246,7 +246,7 @@ class DocumentToolTests(_DatabaseCase, unittest.IsolatedAsyncioTestCase):
                 raise RuntimeError("boom")
 
         handler = self.handlers["create_document"]
-        result = await handler.execute_with_runtime_context({"title": "攻略", "content": GUIDE}, BrokenContext())
+        result = await handler.execute({"title": "攻略", "content": GUIDE}, BrokenContext())
         self.assertEqual((result.status, result.data["source_count"]), ("success", 0))
 
     def test_sources_only_come_from_successful_structured_results(self):
