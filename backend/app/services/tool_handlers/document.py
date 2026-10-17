@@ -33,7 +33,6 @@ from app.services.tool_handlers.base import BaseToolHandler, ToolResult, ToolRun
 
 CREATE_DOCUMENT_TOOL_NAME = "create_document"
 EDIT_DOCUMENT_TOOL_NAME = "edit_document"
-DOCUMENT_TOOL_NAMES = frozenset({CREATE_DOCUMENT_TOOL_NAME, EDIT_DOCUMENT_TOOL_NAME})
 
 
 @dataclass(frozen=True)

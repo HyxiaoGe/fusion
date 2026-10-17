@@ -12,7 +12,6 @@ from typing import Any, Literal
 
 PlanMode = Literal["auto", "on", "off"]
 PlanStatus = Literal["pending", "running", "completed", "failed", "skipped", "blocked"]
-PlanKind = Literal["reasoning", "search", "read", "synthesis", "answer", "other"]
 
 _PLAN_STATUSES = frozenset({"pending", "running", "completed", "failed", "skipped", "blocked"})
 _PLAN_KINDS = frozenset({"reasoning", "search", "read", "synthesis", "answer", "other"})

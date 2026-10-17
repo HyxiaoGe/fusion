@@ -123,11 +123,6 @@ async def purge_expired_notifications_daily() -> None:
         logger.warning("notification_purge_failed", exc_info=True)
 
 
-def get_unread_conversation_ids(db: Session, user_id: str) -> list[str]:
-    """读取通知表的未读对话集合；不提交调用方事务。"""
-    return NotificationRepository(db).unread_conversation_ids(user_id)
-
-
 def _item(row: Notification) -> NotificationItem:
     return NotificationItem(
         id=row.id,

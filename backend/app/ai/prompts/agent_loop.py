@@ -54,7 +54,6 @@ VISIBLE_RESPONSE_LANGUAGE_PROMPT = render_runtime_prompt("agent_loop.visible_res
 
 
 TOOL_USAGE_CONTRACT_PROMPT = CODE_DEFAULT_PROMPT_TEMPLATES["tool_usage_contract"]
-NETWORK_DECISION_PROMPT = TOOL_USAGE_CONTRACT_PROMPT.partition("\n\n[Tool-call consistency]")[0]
 
 DEEP_RESEARCH_CONTRACT_PROMPT = render_runtime_prompt("agent_loop.deep_research_contract")
 
@@ -63,8 +62,6 @@ AGENT_PLAN_CONTROL_ON_PROMPT = render_runtime_prompt("agent_loop.plan_control_on
 NO_TOOL_NETWORK_BOUNDARY_PROMPT = CODE_DEFAULT_PROMPT_TEMPLATES["no_tool_network_boundary"]
 
 NO_VISION_FILE_BOUNDARY_PROMPT = CODE_DEFAULT_PROMPT_TEMPLATES["no_vision_file_boundary"]
-
-SUMMARY_NON_DISCLOSURE_PROMPT = render_runtime_prompt("agent_loop.summary_non_disclosure")
 
 LIMIT_SUMMARY_PROMPT = CODE_DEFAULT_PROMPT_TEMPLATES["limit_summary"]
 

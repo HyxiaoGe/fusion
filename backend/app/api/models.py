@@ -5,8 +5,7 @@
 `/model/info` 转成前端选择器需要的形状（保留 `modelId` / `capabilities`
 / `provider` 等老字段，兼容前端旧代码）。
 
-只读端点，CRUD 已删——增删改模型直接到 LiteLLM Proxy 后台（或重跑
-`scripts/migrate_models_to_litellm.py`）。
+只读端点，CRUD 已删——模型上下线用 `scripts/model_onboard.py`。
 """
 
 from typing import Any, Dict, List, Optional

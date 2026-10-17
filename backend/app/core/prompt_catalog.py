@@ -15,7 +15,6 @@ from dataclasses import dataclass
 CATALOG_VERSION = "2026-10-12.1"
 DEFAULT_TEMPLATE_ENGINE = "jinja2"
 CATALOG_VERSION_BY_ENGINE = {"jinja2": CATALOG_VERSION}
-SUPPORTED_TEMPLATE_ENGINES = frozenset(CATALOG_VERSION_BY_ENGINE)
 
 
 @dataclass(frozen=True)
@@ -69,7 +68,6 @@ PROMPT_SPECS = (
 )
 
 PROMPT_SPEC_BY_KEY = {spec.key: spec for spec in PROMPT_SPECS}
-PROMPT_SPEC_BY_SLUG = {spec.slug: spec for spec in PROMPT_SPECS}
 
 PromptAccessor = Callable[[], str]
 _CONSUMERS: dict[str, PromptAccessor] = {}

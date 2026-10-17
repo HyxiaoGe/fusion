@@ -59,14 +59,6 @@ _SECRET_KEY_PREFIXES = {
     "privatekey",
     "sessiontoken",
 }
-_SENSITIVE_QUERY_KEYS = _SECRET_KEYS | {
-    "token",
-    "xamzsignature",
-    "xamzcredential",
-    "xamzsecuritytoken",
-    "sig",
-    "key",
-}
 _BEARER_RE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+")
 _JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}\b")
 _OPENAI_KEY_RE = re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b")

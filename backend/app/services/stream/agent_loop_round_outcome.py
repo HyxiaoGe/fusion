@@ -18,7 +18,7 @@ from app.services.stream.provider_content_filter import (
     replace_with_content_filtered_block,
 )
 from app.services.stream.round_completion import append_round_content_blocks, complete_text_response_step
-from app.services.stream.safe_fallback_response import default_safe_fallback, render_safe_fallback
+from app.services.stream.safe_fallback_response import render_safe_fallback
 from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream.structured_answer import ToolRoundDecision
 from app.services.stream.tool_round import ToolRoundOutcome
@@ -107,9 +107,6 @@ async def _handle_agent_round_outcome(
 
     await _complete_unknown_round(request)
     return AgentLoopOutcome(exit=AgentLoopExit.COMPLETED)
-
-
-PROTOCOL_RESIDUE_ANSWER_TEXT = default_safe_fallback("protocol_error")
 
 
 async def _safe_round_fallback(request: AgentRoundOutcomeRequest, reason: str) -> str:

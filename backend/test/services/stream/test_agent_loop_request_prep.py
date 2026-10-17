@@ -962,7 +962,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(call_config.announced_tools, ["web_search", "url_read", "image_search", "video_search"])
 
     def test_tool_usage_contract_uses_centralized_prompt(self):
-        from app.ai.prompts.agent_loop import NETWORK_DECISION_PROMPT, TOOL_USAGE_CONTRACT_PROMPT
+        from app.ai.prompts.agent_loop import TOOL_USAGE_CONTRACT_PROMPT
 
         config = build_agent_loop_call_config(
             provider="openai",
@@ -971,7 +971,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(_prompt_sections(config)["tool_usage_contract"], TOOL_USAGE_CONTRACT_PROMPT)
-        self.assertIn(NETWORK_DECISION_PROMPT, TOOL_USAGE_CONTRACT_PROMPT)
         self.assertIn("must actually call web_search", TOOL_USAGE_CONTRACT_PROMPT)
         self.assertIn("When no tool was called", TOOL_USAGE_CONTRACT_PROMPT)
 

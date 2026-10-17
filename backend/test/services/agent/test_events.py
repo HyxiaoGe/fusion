@@ -1,12 +1,12 @@
 """agent.events 模型测试"""
 
 import unittest
+from typing import get_args
 
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
 from app.services.agent.events import (
     AgentEventBase,
-    AnyAgentEvent,
     ContentBlockDiscarded,
     ContextRequired,
     ContextResult,
@@ -45,6 +45,21 @@ CAPABILITY_RESOLUTION = {
     "network_boundary_required": False,
     "bundle_fingerprint": "sha256:" + "a" * 64,
 }
+
+
+def _all_event_models(base=AgentEventBase):
+    for model in base.__subclasses__():
+        yield model
+        yield from _all_event_models(model)
+
+
+def _validate_event(payload: dict) -> AgentEventBase:
+    """按 type 找到对应事件模型再校验，等同前端按 type 分派。"""
+
+    model = next(
+        model for model in _all_event_models() if get_args(model.model_fields["type"].annotation) == (payload["type"],)
+    )
+    return model.model_validate(payload)
 
 
 class AgentEventModelTests(unittest.TestCase):
@@ -284,7 +299,6 @@ class AgentEventModelTests(unittest.TestCase):
         self.assertEqual(d["run_id"], "r1")
 
     def test_system_prompt_result_rejects_loading_and_full_prompt_payload(self):
-        adapter = TypeAdapter(AnyAgentEvent)
         payload = {
             **self._common(),
             "type": "system_prompt_prepared",
@@ -297,12 +311,12 @@ class AgentEventModelTests(unittest.TestCase):
             "char_count": 200,
             "duration_ms": 0,
         }
-        self.assertEqual(adapter.validate_python(payload).status, "ready")
-        self.assertEqual(adapter.validate_python({**payload, "status": "failed"}).status, "failed")
+        self.assertEqual(_validate_event(payload).status, "ready")
+        self.assertEqual(_validate_event({**payload, "status": "failed"}).status, "failed")
         with self.assertRaises(ValidationError):
-            adapter.validate_python({**payload, "status": "loading"})
+            _validate_event({**payload, "status": "loading"})
         with self.assertRaises(ValidationError):
-            adapter.validate_python({**payload, "prompt": "不能暴露的规则"})
+            _validate_event({**payload, "prompt": "不能暴露的规则"})
 
     def test_existing_event_defaults_to_schema_version_1(self):
         event = StepStarted(type="step_started", step_number=1, **self._common())
@@ -371,9 +385,8 @@ class AgentEventModelTests(unittest.TestCase):
                 "duration_ms": 12,
             },
         ]
-        adapter = TypeAdapter(AnyAgentEvent)
 
-        parsed = [adapter.validate_python({**self._common(), **payload}) for payload in payloads]
+        parsed = [_validate_event({**self._common(), **payload}) for payload in payloads]
 
         self.assertEqual([event.type for event in parsed], [payload["type"] for payload in payloads])
         self.assertTrue(all(event.schema_version == 1 for event in parsed))

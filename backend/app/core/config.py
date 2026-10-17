@@ -15,8 +15,6 @@ class Settings(BaseSettings):
     APP_NAME: str = "AI桌面聊天应用"
     APP_VERSION: str = "0.1.1"
 
-    ENABLE_VECTOR_EMBEDDINGS: bool = False
-
     CHROMA_URL: str = os.getenv("CHROMA_URL", "http://localhost:8001")
 
     # 模型配置
