@@ -16,8 +16,7 @@ from app.services.mcp.amap_product_tools import (
     build_amap_product_binding,
 )
 from app.services.mcp.client import McpClientError
-from app.services.stream.tool_context import ToolRuntimeContext
-from app.services.tool_handlers.base import ToolResult
+from app.services.tool_handlers.base import ToolResult, ToolRuntimeContext
 
 
 def mcp_payload(value):
@@ -280,11 +279,11 @@ class AmapLocalPlaceSearchTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        local_result = await local_handler.execute_with_runtime_context(
+        local_result = await local_handler.execute(
             local_search_args({"query": "烤肉", "anchor_source": "current_location"}),
             context,
         )
-        route_result = await route_handler.execute_with_runtime_context(
+        route_result = await route_handler.execute(
             route_compare_args(
                 {
                     "origin": "当前位置",
@@ -338,11 +337,11 @@ class AmapLocalPlaceSearchTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        first = await local_handler.execute_with_runtime_context(
+        first = await local_handler.execute(
             local_search_args({"query": "咖啡", "anchor_source": "current_location"}),
             context,
         )
-        second = await route_handler.execute_with_runtime_context(
+        second = await route_handler.execute(
             route_compare_args(
                 {
                     "origin": "当前位置",
@@ -393,7 +392,7 @@ class AmapLocalPlaceSearchTests(unittest.IsolatedAsyncioTestCase):
             acquired_at=1_700_000_000,
         )
 
-        result = await handler.execute_with_runtime_context(
+        result = await handler.execute(
             local_search_args({"query": "烤肉", "anchor_source": "current_location", "radius_m": 1500}),
             ToolRuntimeContext(geolocation=location),
         )
@@ -418,7 +417,7 @@ class AmapLocalPlaceSearchTests(unittest.IsolatedAsyncioTestCase):
         handler, executor = build_handler("local_place_search", {}, coordinate_converter=converter)
         location = Geolocation(latitude=22.5, longitude=114.0, accuracy_m=10, acquired_at=1_700_000_000)
 
-        result = await handler.execute_with_runtime_context(
+        result = await handler.execute(
             local_search_args({"query": "咖啡", "anchor_source": "current_location"}),
             ToolRuntimeContext(geolocation=location),
         )
@@ -2218,7 +2217,7 @@ class AmapRouteCompareTests(unittest.IsolatedAsyncioTestCase):
             acquired_at=1_700_000_000,
         )
 
-        result = await handler.execute_with_runtime_context(
+        result = await handler.execute(
             route_compare_args(
                 {
                     "origin": "当前位置",
@@ -2280,7 +2279,7 @@ class AmapRouteCompareTests(unittest.IsolatedAsyncioTestCase):
             acquired_at=1_700_000_000,
         )
 
-        result = await handler.execute_with_runtime_context(
+        result = await handler.execute(
             route_compare_args(
                 {
                     "origin": "当前位置",

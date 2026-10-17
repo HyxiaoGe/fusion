@@ -16,7 +16,7 @@ from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.ai.tools import DEFAULT_VIDEO_COUNT, MAX_VIDEO_COUNT, MAX_VIDEO_QUERY_CHARS, VIDEO_SEARCH_TOOL_NAME
 from app.schemas.chat import VideoResultItem, VideoResultsBlock
 from app.services.external.search_client import search_web
-from app.services.tool_handlers.base import BaseToolHandler, ToolResult
+from app.services.tool_handlers.base import BaseToolHandler, ToolResult, ToolRuntimeContext
 
 VIDEO_SITE_DOMAINS = ["bilibili.com", "douyin.com", "v.qq.com"]
 # 每次多取一些：限定站点后约一半结果是搜索页、话题页这类不能嵌入的页面。
@@ -110,7 +110,7 @@ class VideoSearchHandler(BaseToolHandler):
         query = " ".join(str(input_params.get("query") or "").split()).lower()
         return f"{VIDEO_SEARCH_TOOL_NAME}:{query}:{_requested_count(input_params.get('count'))}" if query else None
 
-    async def execute(self, args: dict) -> ToolResult:
+    async def execute(self, args: dict, context: ToolRuntimeContext | None = None) -> ToolResult:
         query = " ".join(str(args.get("query") or "").split())[:MAX_VIDEO_QUERY_CHARS]
         count = _requested_count(args.get("count"))
         data: dict[str, Any] = {"query": query, "videos": []}

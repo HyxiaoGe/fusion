@@ -50,7 +50,6 @@ from app.services.stream.step_lifecycle import AgentStepContext, mark_tool_round
 from app.services.stream.tool_context import (
     BlockedToolContext,
     ToolContextResolution,
-    ToolRuntimeContext,
     enrich_tool_runtime_context,
     resolve_tool_context,
 )
@@ -61,6 +60,7 @@ from app.services.stream.tool_executor import (
 )
 from app.services.stream_state_service import StreamWriteTerminalError
 from app.services.tool_detail_snapshot import build_tool_observation_snapshot
+from app.services.tool_handlers.base import ToolRuntimeContext
 
 logger = logging.getLogger(__name__)
 

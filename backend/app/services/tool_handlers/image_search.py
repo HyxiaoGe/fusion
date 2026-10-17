@@ -14,7 +14,7 @@ from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.ai.tools import DEFAULT_IMAGE_COUNT, IMAGE_SEARCH_TOOL_NAME, MAX_IMAGE_COUNT, MAX_IMAGE_QUERY_CHARS
 from app.schemas.chat import ImageResultItem, ImageResultsBlock
 from app.services.external.search_client import search_images
-from app.services.tool_handlers.base import BaseToolHandler, ToolResult
+from app.services.tool_handlers.base import BaseToolHandler, ToolResult, ToolRuntimeContext
 
 # 只有这些服务商的图片结果里 url 是图片本身：Brave 的解析返回的是网页地址，Tavily 不支持图片搜索。
 # search-service 主服务商失败时会回退到别家，回退结果不能当图片用。
@@ -95,7 +95,7 @@ class ImageSearchHandler(BaseToolHandler):
         query = " ".join(str(input_params.get("query") or "").split()).lower()
         return f"{IMAGE_SEARCH_TOOL_NAME}:{query}:{_requested_count(input_params.get('count'))}" if query else None
 
-    async def execute(self, args: dict) -> ToolResult:
+    async def execute(self, args: dict, context: ToolRuntimeContext | None = None) -> ToolResult:
         query = " ".join(str(args.get("query") or "").split())[:MAX_IMAGE_QUERY_CHARS]
         count = _requested_count(args.get("count"))
         data: dict[str, Any] = {"query": query, "images": []}

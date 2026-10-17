@@ -10,16 +10,17 @@ import pytest
 from app.services.stream.tool_executor import ToolExecutionBatchRequest, execute_tool_batch
 from app.services.stream_state_service import StreamOwnershipLostError
 from app.services.tool_handlers.base import ToolResult
+from test.fake_tool_handler import FakeToolHandler
 
 
-class ControlledHandler:
+class ControlledHandler(FakeToolHandler):
     supports_automatic_retry = False
 
     def __init__(self, name, operation):
         self.tool_name = name
         self.operation = operation
 
-    async def execute(self, args):
+    async def execute(self, args, _context=None):
         await self.operation()
         return ToolResult(status="success")
 

@@ -42,6 +42,7 @@ from app.services.stream.research_evidence import (
 )
 from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream.tool_ban import forbid_tool_calls, ignored_tool_ban, without_tool_definitions
+from app.services.tool_handlers.base import BaseToolHandler
 
 
 async def run_agent_loop(
@@ -430,7 +431,7 @@ def _require_tool_call(
 async def _filter_exhausted_dynamic_tools(
     *,
     call_kwargs: dict,
-    dynamic_tool_handlers: dict[str, object],
+    dynamic_tool_handlers: dict[str, BaseToolHandler] | None,
 ) -> dict:
     """在下一轮模型调用前隐藏已耗尽单服务预算的动态工具。"""
 
@@ -458,14 +459,13 @@ async def _filter_exhausted_dynamic_tools(
 
 
 async def _exhausted_dynamic_tool_aliases(
-    dynamic_tool_handlers: dict[str, object] | None,
+    dynamic_tool_handlers: dict[str, BaseToolHandler] | None,
 ) -> set[str]:
     if not dynamic_tool_handlers:
         return set()
     exhausted_aliases: set[str] = set()
     for alias, handler in dynamic_tool_handlers.items():
-        is_exhausted = getattr(handler, "is_run_budget_exhausted", None)
-        if is_exhausted is not None and await is_exhausted():
+        if await handler.is_run_budget_exhausted():
             exhausted_aliases.add(alias)
     return exhausted_aliases
 

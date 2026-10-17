@@ -12,7 +12,7 @@ from app.services.agent_strategy_config import get_agent_strategy_config
 from app.services.external.reader_client import read_url_with_diagnostics
 from app.services.security.url_policy import evaluate_url_policy
 from app.services.source_context import UntrustedSourceContext, format_untrusted_source_context
-from app.services.tool_handlers.base import BaseToolHandler, ToolResult
+from app.services.tool_handlers.base import BaseToolHandler, ToolResult, ToolRuntimeContext
 from app.services.tool_handlers.url_read_body import select_article_body
 
 # 注入 LLM 上下文时的最大字符数（约 4000 token）
@@ -74,7 +74,7 @@ class UrlReadHandler(BaseToolHandler):
                 safe_output[key] = value
         return safe_output
 
-    async def execute(self, args: dict) -> ToolResult:
+    async def execute(self, args: dict, context: ToolRuntimeContext | None = None) -> ToolResult:
         raw_url = args.get("url", "")
         url = raw_url.strip() if isinstance(raw_url, str) else ""
         reason = _normalize_reason(args.get("reason"))

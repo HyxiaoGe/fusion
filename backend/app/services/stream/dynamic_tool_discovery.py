@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
-from app.services.tool_handlers.base import BaseToolHandler, ToolResult
+from app.services.tool_handlers.base import BaseToolHandler, ToolResult, ToolRuntimeContext
 
 TOOL_SEARCH_NAME = "tool_search"
 MAX_SEARCH_RESULTS = 8
@@ -181,7 +181,7 @@ class ToolSearchHandler(BaseToolHandler):
     def sse_event_prefix(self) -> str:
         return "tool_search"
 
-    async def execute(self, args: dict) -> ToolResult:
+    async def execute(self, args: dict, context: ToolRuntimeContext | None = None) -> ToolResult:
         if not isinstance(args, dict):
             args = {}
         query = str(args.get("query") or "")

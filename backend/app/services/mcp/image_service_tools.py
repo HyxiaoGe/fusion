@@ -22,7 +22,7 @@ from app.core.logger import app_logger as logger
 from app.schemas.chat import GeneratedImageBlock
 from app.services.mcp.client import McpClientError
 from app.services.mcp.tool_contract import canonical_json_bytes
-from app.services.tool_handlers.base import BaseToolHandler, ToolResult
+from app.services.tool_handlers.base import BaseToolHandler, ToolResult, ToolRuntimeContext
 
 IMAGE_SERVICE_PROVIDER = "image-service"
 GENERATE_IMAGE_TOOL_NAME = "generate_image"
@@ -303,7 +303,7 @@ class ImageGenerationToolHandler(BaseToolHandler):
             return [{"field": "request", "code": "invalid_arguments"}]
         return []
 
-    async def execute(self, args: dict) -> ToolResult:
+    async def execute(self, args: dict, context: ToolRuntimeContext | None = None) -> ToolResult:
         loop = asyncio.get_running_loop()
         started_at = loop.time()
         try:

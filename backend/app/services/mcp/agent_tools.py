@@ -66,7 +66,7 @@ from app.services.mcp.tool_contract import (
     is_valid_tool_snapshot,
     validate_tool_arguments,
 )
-from app.services.tool_handlers.base import BaseToolHandler, ToolResult
+from app.services.tool_handlers.base import BaseToolHandler, ToolResult, ToolRuntimeContext
 from app.services.weather.qweather_client import QWeatherClient, QWeatherCredentials
 from app.services.weather.qweather_forecast_tool import (
     WEATHER_FORECAST_DEFINITION,
@@ -569,7 +569,7 @@ class McpAgentToolHandler(BaseToolHandler):
 
         return validate_tool_arguments(self.input_schema, args)
 
-    async def execute(self, args: dict) -> ToolResult:
+    async def execute(self, args: dict, context: ToolRuntimeContext | None = None) -> ToolResult:
         started_at = time.monotonic()
         try:
             safe_payload = await self.remote_executor.call(
@@ -760,7 +760,7 @@ class Context7McpAgentToolHandler(McpAgentToolHandler):
             local_preflight=True,
         )
 
-    async def execute(self, args: dict) -> ToolResult:
+    async def execute(self, args: dict, context: ToolRuntimeContext | None = None) -> ToolResult:
         started_at = time.monotonic()
         policy_errors = self.validate_arguments(args)
         if policy_errors:
@@ -784,7 +784,7 @@ class Context7McpAgentToolHandler(McpAgentToolHandler):
                 local_preflight=True,
             )
 
-        result = await super().execute(args)
+        result = await super().execute(args, context)
         if (
             self.binding.remote_tool_name == CONTEXT7_RESOLVE_TOOL
             and result.status == "success"

@@ -382,7 +382,7 @@ class QWeatherHandlerTests(unittest.IsolatedAsyncioTestCase):
         handler = build_handler(fake)
         context = SimpleNamespace(geolocation=SimpleNamespace(latitude=30.2741, longitude=120.1551))
 
-        result = await handler.execute_with_runtime_context(
+        result = await handler.execute(
             {"location": "current_location", "location_source": "current_location"}, context
         )
 

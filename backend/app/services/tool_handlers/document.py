@@ -29,7 +29,7 @@ from app.services.documents.service import (
     run_document_operation,
 )
 from app.services.documents.sources import document_sources_from_blocks
-from app.services.tool_handlers.base import BaseToolHandler, ToolResult
+from app.services.tool_handlers.base import BaseToolHandler, ToolResult, ToolRuntimeContext
 
 CREATE_DOCUMENT_TOOL_NAME = "create_document"
 EDIT_DOCUMENT_TOOL_NAME = "edit_document"
@@ -149,12 +149,9 @@ class _DocumentToolHandler(BaseToolHandler):
     def sse_event_prefix(self) -> str:
         return "document"
 
-    async def execute(self, args: dict) -> ToolResult:
-        return await self._execute(args, sources=[])
-
-    async def execute_with_runtime_context(self, args: dict, runtime_context: Any) -> ToolResult:
+    async def execute(self, args: dict, context: ToolRuntimeContext | None = None) -> ToolResult:
         # 数据来源只取本 Run 已投影的结构化工具结果；模型无法自报来源。
-        return await self._execute(args, sources=_collect_sources(runtime_context))
+        return await self._execute(args, sources=_collect_sources(context))
 
     async def _execute(self, args: dict, *, sources: list[DocumentSource]) -> ToolResult:
         try:
@@ -278,9 +275,11 @@ def build_document_tool_handlers(binding: DocumentToolBinding) -> dict[str, Base
     }
 
 
-def _collect_sources(runtime_context: Any) -> list[DocumentSource]:
+def _collect_sources(context: ToolRuntimeContext | None) -> list[DocumentSource]:
+    if context is None:
+        return []
     try:
-        return document_sources_from_blocks(getattr(runtime_context, "content_blocks", ()) or ())
+        return document_sources_from_blocks(context.content_blocks)
     except Exception as error:  # noqa: BLE001 — 来源采集失败不能阻断文档写入
         logger.warning("文档数据来源采集失败: error_type=%s", type(error).__name__)
         return []

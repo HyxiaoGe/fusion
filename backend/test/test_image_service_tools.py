@@ -17,6 +17,7 @@ from app.services.mcp.image_service_tools import (  # noqa: E402
     parse_generate_image_text,
 )
 from app.services.stream.tool_executor import AGENT_TOOL_TIMEOUT, _handler_timeout_seconds  # noqa: E402
+from test.fake_tool_handler import FakeToolHandler  # noqa: E402
 from test.test_mcp_agent_tools import FakeClientManager, FakeDb, FakeRepository, build_row  # noqa: E402
 
 ENDPOINT = "http://192.168.1.11:8090/mcp"
@@ -351,7 +352,7 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         handler, *_ = self.build_handler()
         self.assertFalse(handler.supports_automatic_retry)
         self.assertEqual(_handler_timeout_seconds(handler), EXECUTION_TIMEOUT_SECONDS)
-        self.assertEqual(_handler_timeout_seconds(object()), AGENT_TOOL_TIMEOUT)
+        self.assertEqual(_handler_timeout_seconds(FakeToolHandler()), AGENT_TOOL_TIMEOUT)
 
 
 class ParseGenerateImageTextTests(unittest.TestCase):
