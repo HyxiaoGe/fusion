@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from app.services.stream.agent_loop_policy import AgentLoopLimits
+from app.services.stream.run_mode import RunMode, resolve_run_mode
 from app.services.stream.run_output import RunOutput
 
 if TYPE_CHECKING:
@@ -58,6 +59,10 @@ class AgentLoopRuntime:
     capability_resolution: RunCapabilityResolution | None = None
     fallback_response_context: FallbackResponseContext | None = None
     tool_discovery: Any = None
+
+    @property
+    def mode(self) -> RunMode:
+        return resolve_run_mode(self.task_mode)
 
     @property
     def unplanned_assist_tool_names(self) -> frozenset[str]:

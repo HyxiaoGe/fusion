@@ -4,10 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages
-from app.ai.prompts.section_ids import (
-    RESEARCH_COMPLETION_REPAIR,
-)
+from app.ai.prompts.prompt_message import PromptMessage
 from app.core.logger import app_logger as logger
 from app.services.final_answer_evidence import build_used_final_answer_evidence
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_TOOL_NAMES
@@ -18,7 +15,6 @@ from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_loop_step_requests import build_tool_round_request
 from app.services.stream.agent_round import AgentRoundResult
 from app.services.stream.llm_stream import contains_tool_protocol_residue
-from app.services.stream.plan_control import UPDATE_PLAN_TOOL_NAME
 from app.services.stream.product_result_answer import (
     build_grounded_product_answer,
     build_place_choice_clarification,
@@ -30,10 +26,6 @@ from app.services.stream.product_result_answer import (
 from app.services.stream.provider_content_filter import (
     CONTENT_FILTER_FINISH_REASON,
     replace_with_content_filtered_block,
-)
-from app.services.stream.research_evidence import (
-    build_research_repair_prompt,
-    validate_research_completion,
 )
 from app.services.stream.round_completion import append_round_content_blocks, complete_text_response_step
 from app.services.stream.safe_fallback_response import default_safe_fallback, render_safe_fallback
@@ -96,13 +88,15 @@ async def _handle_agent_round_outcome(
         await _complete_text_round(request)
         return AgentLoopOutcome(exit=AgentLoopExit.COMPLETED)
 
-    if _requires_deep_synthesis_protocol_summary(request):
-        return await _complete_deep_synthesis_protocol_round(request)
+    mode = request.runtime.mode
+    intercepted = await mode.intercept_round(request)
+    if intercepted is not None:
+        return intercepted
 
     finish_reason = request.round_result.finish_reason
     if finish_reason == "stop":
-        if _requires_research_completion_repair(request):
-            return await _repair_research_completion(request)
+        if mode.needs_answer_repair(request):
+            return await mode.repair_answer(request)
         if _needs_empty_answer_summary(request):
             await _complete_empty_round_before_summary(request)
             return AgentLoopOutcome(exit=AgentLoopExit.SUMMARY_REQUIRED)
@@ -116,8 +110,8 @@ async def _handle_agent_round_outcome(
     if finish_reason == "tool_calls" and request.round_result.tool_calls:
         return await _handle_tool_calls_round(request)
 
-    if _requires_research_completion_repair(request):
-        return await _repair_research_completion(request)
+    if mode.needs_answer_repair(request):
+        return await mode.repair_answer(request)
     if finish_reason == "tool_protocol_error":
         return await _complete_tool_protocol_error_round(request)
 
@@ -159,43 +153,6 @@ async def _reject_protocol_residue(request: AgentRoundOutcomeRequest, answer: st
     return await _safe_round_fallback(request, "protocol_error")
 
 
-def _requires_deep_synthesis_protocol_summary(request: AgentRoundOutcomeRequest) -> bool:
-    """零公告工具的深研综合轮若仍吐出工具协议，直接进入无工具安全收口。"""
-
-    workset = request.state.research_workset
-    return (
-        request.runtime.task_mode == "deep_research"
-        and workset.successful_searches >= 1
-        and len(workset.successful_read_urls) >= 2
-        and request.round_result.announced_tool_names == frozenset()
-        and (bool(request.round_result.tool_calls) or request.round_result.finish_reason == "tool_protocol_error")
-    )
-
-
-async def _complete_deep_synthesis_protocol_round(
-    request: AgentRoundOutcomeRequest,
-) -> AgentLoopOutcome:
-    _record_suppression(request, "research_guard")
-    request.runtime.warning_fn(
-        "深度研究综合阶段返回未公告工具协议，切换到无工具证据收口: "
-        f"conv_id={request.runtime.conversation_id}, run_id={request.runtime.run_id}, "
-        f"step={request.step_number}"
-    )
-    await complete_text_response_step(
-        context=request.step_context,
-        emitter=request.runtime.emitter,
-        session_cache=request.runtime.session_cache,
-        complete_step_fn=request.runtime.complete_step_fn,
-        completed_tool_calls=request.state.total_tool_calls,
-        max_tool_calls=request.runtime.limits.max_tool_calls,
-        clock=request.runtime.clock,
-    )
-    return AgentLoopOutcome(
-        exit=AgentLoopExit.SUMMARY_REQUIRED,
-        summary_finish_reason="research_evidence_repair_exhausted",
-    )
-
-
 async def _complete_tool_protocol_error_round(
     request: AgentRoundOutcomeRequest,
 ) -> AgentLoopOutcome:
@@ -223,70 +180,6 @@ async def _complete_tool_protocol_error_round(
         exit=AgentLoopExit.SUMMARY_REQUIRED,
         summary_finish_reason="tool_protocol_error",
     )
-
-
-def _requires_research_completion_repair(request: AgentRoundOutcomeRequest) -> bool:
-    if request.runtime.task_mode != "deep_research" or not request.state.research_network_required:
-        return False
-    result = validate_research_completion(
-        request.state.research_workset,
-        request.round_result.content_buf,
-    )
-    return not result.is_valid
-
-
-async def _repair_research_completion(
-    request: AgentRoundOutcomeRequest,
-) -> AgentLoopOutcome | None:
-    _record_suppression(request, "research_guard")
-    result = validate_research_completion(
-        request.state.research_workset,
-        request.round_result.content_buf,
-    )
-    await complete_text_response_step(
-        context=request.step_context,
-        emitter=request.runtime.emitter,
-        session_cache=request.runtime.session_cache,
-        complete_step_fn=request.runtime.complete_step_fn,
-        completed_tool_calls=request.state.total_tool_calls,
-        max_tool_calls=request.runtime.limits.max_tool_calls,
-        clock=request.runtime.clock,
-    )
-    _replace_system_message(
-        request.messages,
-        section_id=RESEARCH_COMPLETION_REPAIR,
-        content=build_research_repair_prompt(result.reason, request.state.research_workset),
-    )
-    if request.state.record_research_repair():
-        return AgentLoopOutcome(
-            exit=AgentLoopExit.SUMMARY_REQUIRED,
-            summary_finish_reason="research_evidence_repair_exhausted",
-        )
-    return None
-
-
-def _replace_system_message(
-    messages: list[PromptMessage | dict],
-    *,
-    section_id: str,
-    content: str,
-) -> None:
-    normalized = ensure_prompt_messages(messages)
-    replacement = PromptMessage(role="system", content=content, section_id=section_id)
-    existing_index = next(
-        (index for index, message in enumerate(normalized) if message.section_id == section_id),
-        None,
-    )
-    if existing_index is None:
-        normalized.append(replacement)
-    else:
-        normalized[existing_index] = replacement
-        normalized = [
-            message
-            for index, message in enumerate(normalized)
-            if message.section_id != section_id or index == existing_index
-        ]
-    messages[:] = normalized
 
 
 def _append_round_blocks(request: AgentRoundOutcomeRequest) -> None:
@@ -511,12 +404,7 @@ async def _handle_tool_calls_round(request: AgentRoundOutcomeRequest) -> AgentLo
         ),
     )
     if isinstance(outcome, ToolRoundOutcome):
-        if request.runtime.task_mode == "deep_research":
-            if outcome.tool_call_count > 0:
-                request.state.research_plan_update_requires_evidence = False
-            elif any(call.get("name") == UPDATE_PLAN_TOOL_NAME for call in request.round_result.tool_calls):
-                # 计划只用于展示；未实际执行取证时，下一轮不能继续靠更新计划空转。
-                request.state.research_plan_update_requires_evidence = True
+        request.runtime.mode.after_tool_round(request, outcome)
         request.state.record_no_progress_search_results(outcome.no_progress_search_results)
         request.state.record_product_tool_attempt(
             outcome.tool_call_count > 0
