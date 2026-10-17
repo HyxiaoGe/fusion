@@ -171,6 +171,7 @@ def _build_completion_context(
         state=parts.state,
         duration_ms_factory=_run_duration_ms,
         trajectory_recorder=parts.trajectory_recorder,
+        structured_answers=PRODUCT_STRUCTURED_ANSWERS,
     )
 
 

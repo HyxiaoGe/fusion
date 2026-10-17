@@ -22,6 +22,7 @@ from app.services.stream.agent_loop_run_completion import (
 )
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.itinerary_observability import ItineraryToolObservation
+from app.services.stream.product_structured_answers import PRODUCT_STRUCTURED_ANSWERS
 from app.services.stream.run_finalizer import interrupt_agent_run
 from app.services.stream_state_service import StreamOwnershipLostError
 
@@ -929,6 +930,42 @@ class AgentLoopRunCompletionTests(unittest.IsolatedAsyncioTestCase):
         snapshot = emitter.plan_snapshot.await_args.kwargs
         self.assertEqual([item["status"] for item in snapshot["items"]], ["blocked", "blocked"])
 
+    async def test_product_run_finish_emits_itinerary_run_log(self):
+        observation = ItineraryToolObservation("search_flights", "success", None, 100, False, False, False, False)
+        state = AgentLoopState()
+        state.record_itinerary_tool_observations([observation])
+        context = replace(_context(state), structured_answers=PRODUCT_STRUCTURED_ANSWERS)
+
+        async def complete_agent_run_fn(**_kwargs):
+            return None
+
+        async def finalize_stream_fn(*_args, **_kwargs):
+            return None
+
+        with patch("app.services.stream.product_structured_answers.emit_itinerary_run_log") as emit_log:
+            await finalize_completed_run(
+                context=context,
+                terminal_state=SimpleNamespace(session_status="completed", run_finish_reason="stop"),
+                persist_message_fn=lambda *_args: True,
+                complete_agent_run_fn=complete_agent_run_fn,
+                finalize_stream_fn=finalize_stream_fn,
+            )
+
+        payload = emit_log.call_args.args[0]
+        self.assertEqual(payload["run_id"], "run-1")
+        self.assertEqual(payload["run_status"], "completed")
+
+        # 未装产品实现时核心不做产品观测。
+        with patch("app.services.stream.product_structured_answers.emit_itinerary_run_log") as emit_log:
+            await finalize_completed_run(
+                context=_context(AgentLoopState(itinerary_tool_observations=[observation])),
+                terminal_state=SimpleNamespace(session_status="completed", run_finish_reason="stop"),
+                persist_message_fn=lambda *_args: True,
+                complete_agent_run_fn=complete_agent_run_fn,
+                finalize_stream_fn=finalize_stream_fn,
+            )
+        emit_log.assert_not_called()
+
     async def test_itinerary_observation_failure_never_changes_completed_terminal_result(self):
         state = AgentLoopState()
         state.record_itinerary_tool_observations(
@@ -952,6 +989,7 @@ class AgentLoopRunCompletionTests(unittest.IsolatedAsyncioTestCase):
         context = replace(
             _context(state),
             duration_ms_factory=fail_duration,
+            structured_answers=PRODUCT_STRUCTURED_ANSWERS,
         )
         finalized = []
 

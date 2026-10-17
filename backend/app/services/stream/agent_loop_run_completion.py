@@ -11,8 +11,8 @@ from typing import Any
 from app.services.chat.tool_transcript_store import save_tool_transcript
 from app.services.stream.agent_loop_policy import AgentRunTerminalState
 from app.services.stream.agent_loop_state import AgentLoopState
-from app.services.stream.itinerary_observability import build_itinerary_run_payload, emit_itinerary_run_log
 from app.services.stream.run_finalizer import InterruptedStatusWriteError, interrupt_agent_run
+from app.services.stream.structured_answer import NO_STRUCTURED_ANSWERS, StructuredAnswers
 from app.services.stream_state_service import StreamOwnershipLostError, StreamWriteTerminalError
 from app.services.utility_model import UTILITY_LLM_TIMEOUT
 
@@ -70,6 +70,7 @@ class AgentLoopRunCompletionContext:
     duration_ms_factory: DurationMsFactory
     assistant_message_sequence: int | None = None
     trajectory_recorder: Any | None = None
+    structured_answers: StructuredAnswers = NO_STRUCTURED_ANSWERS
 
 
 def persist_run_message(
@@ -231,7 +232,7 @@ async def finalize_completed_run(
                     fail_suggested_questions_fn(claim=suggestion_claim)
                 raise
     finally:
-        _emit_itinerary_observation(
+        _observe_run_finished(
             context,
             run_status=terminal_state.session_status,
             finish_reason=terminal_state.run_finish_reason,
@@ -327,7 +328,7 @@ async def finalize_superseded_run(
             finalize_stream_fn=finalize_stream_fn,
         )
     finally:
-        _emit_itinerary_observation(
+        _observe_run_finished(
             context,
             run_status="interrupted",
             finish_reason="unknown",
@@ -413,7 +414,7 @@ async def finalize_cancelled_run(
             error_data={"reason": "user_cancelled"},
         )
     finally:
-        _emit_itinerary_observation(
+        _observe_run_finished(
             context,
             run_status="interrupted",
             finish_reason="unknown",
@@ -467,7 +468,7 @@ async def finalize_failed_run(
         }
         await finalize_stream_fn(context.conversation_id, **finalize_kwargs)
     finally:
-        _emit_itinerary_observation(
+        _observe_run_finished(
             context,
             run_status="error",
             finish_reason="unknown",
@@ -515,7 +516,7 @@ async def _emit_terminal_plan(context: AgentLoopRunCompletionContext, outcome: s
         await context.emitter.plan_snapshot(**snapshot)
 
 
-def _emit_itinerary_observation(
+def _observe_run_finished(
     context: AgentLoopRunCompletionContext,
     *,
     run_status: str,
@@ -523,21 +524,15 @@ def _emit_itinerary_observation(
     limit_reason: str | None,
 ) -> None:
     try:
-        stats = context.state.run_stats(context.run_id)
-        emit_itinerary_run_log(
-            build_itinerary_run_payload(
-                run_id=context.run_id,
-                model_id=context.model_id,
-                provider=context.provider,
-                content_blocks=context.state.content_blocks,
-                tool_observations=context.state.itinerary_tool_observations,
-                run_status=run_status,
-                finish_reason=finish_reason,
-                limit_reason=limit_reason,
-                total_duration_ms=context.duration_ms_factory(),
-                total_steps=stats.total_steps,
-                total_tool_calls=stats.total_tool_calls,
-            )
+        context.structured_answers.observe_run_finished(
+            context.state,
+            run_id=context.run_id,
+            model_id=context.model_id,
+            provider=context.provider,
+            run_status=run_status,
+            finish_reason=finish_reason,
+            limit_reason=limit_reason,
+            duration_ms_factory=context.duration_ms_factory,
         )
     except Exception:  # noqa: BLE001 — 观测失败绝不能改变 Agent 主链终态
         return
