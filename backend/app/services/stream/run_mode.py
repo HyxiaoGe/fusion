@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from app.services.stream.agent_loop_outcome import AgentLoopOutcome
     from app.services.stream.agent_loop_round_outcome import AgentRoundOutcomeRequest
     from app.services.stream.agent_loop_state import AgentLoopState
+    from app.services.stream.limit_summary import LimitSummaryRoundResult, LimitSummaryStepRequest
     from app.services.stream.tool_round import ToolRoundOutcome
 
 
@@ -28,9 +29,21 @@ class RoundPreparation:
     allow_plan_update: bool = False
 
 
+@dataclass(frozen=True)
+class SummaryRepair:
+    """收尾回答需要再修正一次时，追加给模型的系统提示。"""
+
+    prompt: str
+    section_id: str
+    suppress_reason: str
+
+
 class RunMode:
     # 为 True 时本轮回答先不推给用户，等 round outcome 判定可用后再提交。
     defer_round_output: bool = False
+    # 收尾总结是否移除全部工具事务，以及额外移除哪些本模式的控制段。
+    summary_strips_tool_transactions: bool = False
+    summary_control_section_ids: frozenset[str] = frozenset()
 
     def prepare_round(self, call_kwargs: dict, *, state: AgentLoopState, provider: str) -> RoundPreparation:
         return RoundPreparation(call_kwargs=call_kwargs)
@@ -67,6 +80,28 @@ class RunMode:
         return None
 
     def after_tool_round(self, request: AgentRoundOutcomeRequest, outcome: ToolRoundOutcome) -> None:
+        return None
+
+    def extend_summary_prompt(self, prompt: str, *, section_id: str) -> str:
+        return prompt
+
+    def summary_repair(
+        self,
+        request: LimitSummaryStepRequest,
+        result: LimitSummaryRoundResult,
+    ) -> SummaryRepair | None:
+        return None
+
+    async def commit_summary(
+        self,
+        request: LimitSummaryStepRequest,
+        *,
+        round_result: LimitSummaryRoundResult,
+        text_block_id: str,
+        step_id: str,
+    ) -> bool | None:
+        """由模式自行提交收尾回答时返回是否未完成；返回 None 走标准提交。"""
+
         return None
 
 

@@ -19,10 +19,8 @@ from app.ai.prompts.agent_loop import (
 from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages, to_provider_messages
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.ai.prompts.section_ids import (
-    DEEP_RESEARCH_CONTROL_SECTION_IDS,
     LIMIT_SUMMARY,
     NO_PROGRESS_SUMMARY,
-    RESEARCH_COMPLETION_REPAIR,
     RESEARCH_EVIDENCE_SUMMARY,
     SUMMARY_TOOL_PROTOCOL_RETRY,
     is_terminal_control_section,
@@ -32,7 +30,6 @@ from app.schemas.chat import ContextUsage, TextBlock, ThinkingBlock, Usage
 from app.services.chat.context_manager import ContextManagementError, ContextPlan, prepare_context
 from app.services.chat.model_call_language_policy import finalize_model_call_language_policy
 from app.services.chat.tool_transcript import without_tool_transactions
-from app.services.final_answer_evidence import build_used_final_answer_evidence
 from app.services.stream.context_status import build_context_usage, emit_context_status
 from app.services.stream.limit_summary_fact_guard import has_tool_evidence
 from app.services.stream.llm_round_lifecycle import (
@@ -48,11 +45,8 @@ from app.services.stream.provider_content_filter import (
     replace_with_content_filtered_block,
 )
 from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
-from app.services.stream.research_evidence import (
-    ResearchEvidenceWorkset,
-    build_research_repair_prompt,
-    validate_research_completion,
-)
+from app.services.stream.research_evidence import ResearchEvidenceWorkset
+from app.services.stream.run_mode import STANDARD_RUN_MODE, RunMode, resolve_run_mode
 from app.services.stream.run_output import RunOutput
 from app.services.stream.safe_fallback_response import default_safe_fallback, render_safe_fallback
 from app.services.stream.tool_ban import forbid_tool_calls, without_tool_definitions
@@ -128,9 +122,13 @@ class LimitSummaryStepRequest:
     # 历史轮次回放的工具调用 id；总结无视工具禁令后的重做不带工具定义，需移除这些事务。
     history_tool_call_ids: frozenset[str] = frozenset()
 
+    @property
+    def mode(self) -> RunMode:
+        return resolve_run_mode(self.task_mode)
+
 
 def _should_defer_summary_output(request: LimitSummaryStepRequest) -> bool:
-    return request.defer_output or request.task_mode == "deep_research"
+    return request.defer_output or request.mode.defer_round_output
 
 
 def build_limit_summary_call_kwargs(call_kwargs: dict) -> dict:
@@ -148,7 +146,7 @@ def append_limit_summary_prompt(
     messages: list[PromptMessage | dict],
     *,
     summary_finish_reason: str = "limit_summary",
-    task_mode: str = "standard",
+    mode: RunMode = STANDARD_RUN_MODE,
     evidence_policy: str = "standard",
     content_blocks: list | None = None,
     capability_resolution: RunCapabilityResolution | None = None,
@@ -165,8 +163,7 @@ def append_limit_summary_prompt(
     else:
         prompt = get_limit_summary_prompt()
         section_id = LIMIT_SUMMARY
-    if task_mode == "deep_research" and section_id != RESEARCH_EVIDENCE_SUMMARY:
-        prompt = f"{prompt}\n\n{RESEARCH_EVIDENCE_SUMMARY_PROMPT}"
+    prompt = mode.extend_summary_prompt(prompt, section_id=section_id)
     # 一次工具证据都没有时，"基于已收集的信息"指向空集；补上诚实下限，避免用参数记忆补齐。
     if content_blocks is not None and not has_tool_evidence(content_blocks, recovery_evidence=recovery_evidence):
         prompt = f"{prompt}\n\n{NO_TOOL_EVIDENCE_SUMMARY_PROMPT}"
@@ -178,7 +175,7 @@ def append_limit_summary_prompt(
 def remove_conflicting_tool_usage_contract(
     messages: list[PromptMessage | dict],
     *,
-    task_mode: str = "standard",
+    mode: RunMode = STANDARD_RUN_MODE,
     final_synthesis: bool = False,
     preserve_web_tool_context: bool = False,
 ) -> None:
@@ -187,7 +184,7 @@ def remove_conflicting_tool_usage_contract(
     del final_synthesis  # 终局总结统一清理控制契约，不再按结束原因分叉。
     normalized = ensure_prompt_messages(messages)
     # 查证总结要保留已格式化的读页正文，并保持 assistant/tool 消息成对。
-    strip_tool_transactions = task_mode == "deep_research" or (
+    strip_tool_transactions = mode.summary_strips_tool_transactions or (
         not preserve_web_tool_context and _only_recoverable_tool_transactions(messages)
     )
     filtered: list[PromptMessage] = []
@@ -195,11 +192,7 @@ def remove_conflicting_tool_usage_contract(
         role = message.role
         if role == "system" and is_terminal_control_section(message.section_id):
             continue
-        if (
-            task_mode == "deep_research"
-            and role == "system"
-            and message.section_id in DEEP_RESEARCH_CONTROL_SECTION_IDS
-        ):
+        if role == "system" and message.section_id in mode.summary_control_section_ids:
             continue
         if strip_tool_transactions and role == "assistant" and message.get("tool_calls"):
             continue
@@ -253,9 +246,6 @@ def _only_recoverable_tool_transactions(messages: list[PromptMessage | dict]) ->
 SUMMARY_TOOL_PROTOCOL_RETRY_PROMPT = render_runtime_prompt("stream.summary_tool_protocol_retry")
 
 SUMMARY_PROTOCOL_FALLBACK_TEXT = default_safe_fallback("protocol_error")
-DEEP_RESEARCH_INCOMPLETE_TEXT = (
-    "本次研究尚未完成，当前取得的可核验依据不足，暂时无法给出可靠结论。你可以稍后重试，或缩小研究范围后重新发起。"
-)
 
 
 def _create_limit_summary_observation(
@@ -674,7 +664,7 @@ async def run_summary_round_with_timeout(
             llm_lifecycle=retry_result.llm_lifecycle,
         )
 
-    return await _repair_deep_research_summary_citations(
+    return await _repair_summary_once(
         request=request,
         summary_context=summary_context,
         thinking_block_id=thinking_block_id,
@@ -685,7 +675,7 @@ async def run_summary_round_with_timeout(
     )
 
 
-async def _repair_deep_research_summary_citations(
+async def _repair_summary_once(
     *,
     request: LimitSummaryStepRequest,
     summary_context: Any,
@@ -695,33 +685,26 @@ async def _repair_deep_research_summary_citations(
     remaining: float,
     round_index: int,
 ) -> LimitSummaryRoundResult:
-    """证据充足但最终引用缺失或越界时，允许一次无工具引用修正。"""
+    """模式判定收尾回答需要修正时（如深度研究引用缺失或越界），允许一次无工具修正。"""
 
-    if request.task_mode != "deep_research" or result.finish_reason == CONTENT_FILTER_FINISH_REASON:
+    if result.finish_reason == CONTENT_FILTER_FINISH_REASON:
         return result
-    workset = request.research_workset or ResearchEvidenceWorkset()
-    validation = validate_research_completion(workset, result.content_buf)
-    if validation.is_valid or validation.reason not in {"missing_citation", "invalid_citation"}:
+    repair = request.mode.summary_repair(request, result)
+    if repair is None:
         return result
-
-    warning = request.warning_fn if request.warning_fn is not None else logger.warning
-    warning(
-        "深度研究收尾引用校验未通过，执行一次无工具引用修正: "
-        f"conv_id={request.conversation_id}, run_id={request.run_id}, "
-        f"step={request.step_number}, reason={validation.reason}"
-    )
     if remaining <= 0:
         return result
     request.messages.append(
         PromptMessage(
             role="system",
-            content=build_research_repair_prompt(validation.reason, workset),
-            section_id=RESEARCH_COMPLETION_REPAIR,
+            content=repair.prompt,
+            section_id=repair.section_id,
         )
     )
     if result.llm_lifecycle is not None:
-        result.llm_lifecycle.suppress_output("research_guard")
+        result.llm_lifecycle.suppress_output(repair.suppress_reason)
     await _finish_summary_round_lifecycle(result, model_output_visible=False)
+    warning = request.warning_fn if request.warning_fn is not None else logger.warning
     try:
         repaired = await asyncio.wait_for(
             call_limit_summary_round(
@@ -734,12 +717,12 @@ async def _repair_deep_research_summary_citations(
             timeout=remaining,
         )
     except asyncio.TimeoutError:
-        warning(f"深度研究收尾引用修正超出剩余预算: conv_id={request.conversation_id}, budget={remaining}s")
+        warning(f"收尾修正超出剩余预算: conv_id={request.conversation_id}, budget={remaining}s")
         return result
     if _is_summary_tool_protocol_violation(repaired):
         await _finish_summary_round_lifecycle(repaired, model_output_visible=False)
         warning(
-            "深度研究收尾引用修正返回工具协议，保留原候选等待安全门禁: "
+            "收尾修正返回工具协议，保留原候选等待安全门禁: "
             f"conv_id={request.conversation_id}, run_id={request.run_id}, step={request.step_number}"
         )
         return result
@@ -857,13 +840,13 @@ async def run_limit_summary_step(
 
     remove_conflicting_tool_usage_contract(
         request.messages,
-        task_mode=request.task_mode,
+        mode=request.mode,
         final_synthesis=True,
     )
     append_limit_summary_prompt(
         request.messages,
         summary_finish_reason=request.summary_finish_reason,
-        task_mode=request.task_mode,
+        mode=request.mode,
         evidence_policy=request.evidence_policy,
         content_blocks=request.content_blocks,
         capability_resolution=request.capability_resolution,
@@ -982,109 +965,40 @@ async def _commit_limit_summary_result(
             )
         )
 
-    if request.task_mode == "deep_research":
-        return await _complete_deep_research_summary(
-            request=request,
-            round_result=round_result,
-            thinking_block_id=thinking_block_id,
-            text_block_id=text_block_id,
+    committed = await request.mode.commit_summary(
+        request,
+        round_result=round_result,
+        text_block_id=text_block_id,
+        step_id=summary_context.step_id,
+    )
+    if committed is not None:
+        return committed
+    answer = round_result.content_buf.strip()
+    incomplete = round_result.finish_reason == "protocol_fallback" or not answer
+    if not answer or round_result.finish_reason == "protocol_fallback":
+        answer = await _safe_summary_fallback(request, "protocol_error")
+    answer, protocol_residue = await _guard_protocol_residue(request, answer)
+    if protocol_residue:
+        incomplete = True
+    if _should_defer_summary_output(request):
+        await request.output.append(
+            "answering",
+            answer,
+            text_block_id,
+            run_id=request.run_id,
             step_id=summary_context.step_id,
         )
-    else:
-        answer = round_result.content_buf.strip()
-        incomplete = round_result.finish_reason == "protocol_fallback" or not answer
-        if not answer or round_result.finish_reason == "protocol_fallback":
-            answer = await _safe_summary_fallback(request, "protocol_error")
-        answer, protocol_residue = await _guard_protocol_residue(request, answer)
-        if protocol_residue:
-            incomplete = True
-        if _should_defer_summary_output(request):
-            await request.output.append(
-                "answering",
-                answer,
-                text_block_id,
-                run_id=request.run_id,
-                step_id=summary_context.step_id,
-            )
-            _record_summary_output(round_result, answer, "summary_guard")
-            if (
-                round_result.content_buf.strip()
-                and round_result.finish_reason != "protocol_fallback"
-                and not protocol_residue
-            ):
-                await _finish_summary_round_lifecycle(round_result, model_output_visible=True)
-        # 持久化必须使用实际交付的正文，不能重新采用本地化之前的模型候选或旧默认文案。
-        append_summary_content_blocks(
-            content_blocks=request.content_blocks,
-            content_buf=answer,
-            text_block_id=text_block_id,
-        )
-        return incomplete
-
-
-async def _complete_deep_research_summary(
-    *,
-    request: LimitSummaryStepRequest,
-    round_result: LimitSummaryRoundResult,
-    thinking_block_id: str,
-    text_block_id: str,
-    step_id: str,
-) -> bool:
-    workset = request.research_workset or ResearchEvidenceWorkset()
-    validation = validate_research_completion(workset, round_result.content_buf)
-    answer = round_result.content_buf.strip() if validation.is_valid else DEEP_RESEARCH_INCOMPLETE_TEXT
-    if not validation.is_valid:
-        warning = request.warning_fn if request.warning_fn is not None else logger.warning
-        warning(
-            "深度研究收尾未通过安全门禁: "
-            f"conv_id={request.conversation_id}, run_id={request.run_id}, "
-            f"step={request.step_number}, research_validation_reason={validation.reason}"
-        )
-    await request.output.append(
-        "answering",
-        answer,
-        text_block_id,
-        run_id=request.run_id,
-        step_id=step_id,
-    )
-    _record_summary_output(round_result, answer, "research_guard")
-    if validation.is_valid:
-        await _finish_summary_round_lifecycle(round_result, model_output_visible=True)
+        _record_summary_output(round_result, answer, "summary_guard")
+        if (
+            round_result.content_buf.strip()
+            and round_result.finish_reason != "protocol_fallback"
+            and not protocol_residue
+        ):
+            await _finish_summary_round_lifecycle(round_result, model_output_visible=True)
+    # 持久化必须使用实际交付的正文，不能重新采用本地化之前的模型候选或旧默认文案。
     append_summary_content_blocks(
         content_blocks=request.content_blocks,
         content_buf=answer,
         text_block_id=text_block_id,
     )
-    if not validation.is_valid:
-        return True
-    await _emit_deep_summary_used_evidence(
-        request=request,
-        answer_text=answer,
-        workset=workset,
-    )
-    return False
-
-
-async def _emit_deep_summary_used_evidence(
-    *,
-    request: LimitSummaryStepRequest,
-    answer_text: str,
-    workset: ResearchEvidenceWorkset,
-) -> None:
-    emit = getattr(request.emitter, "evidence_item_upserted", None)
-    if emit is None:
-        return
-    try:
-        evidence_items = build_used_final_answer_evidence(
-            content_blocks=request.content_blocks,
-            answer_text=answer_text,
-            evidence_policy=request.evidence_policy,
-            allowed_citation_indexes=workset.valid_citation_indexes,
-        )
-        for evidence in evidence_items:
-            await emit(tool_call_id=None, evidence=evidence)
-    except StreamWriteTerminalError:
-        raise
-    except Exception as error:  # noqa: BLE001 — used evidence 观测失败不能覆盖安全收尾
-        warning = request.warning_fn if request.warning_fn is not None else logger.warning
-        warning(f"深度研究总结 used evidence 发送失败: error_type={type(error).__name__}")
+    return incomplete
