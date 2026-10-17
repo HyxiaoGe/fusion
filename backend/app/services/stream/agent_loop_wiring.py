@@ -209,7 +209,6 @@ class AgentLoopCallConfigInputs:
     previous_run_id: str | None = None
     document_tools: Any | None = None
     knowledge_tools: Any | None = None
-    direct_tool_names: tuple[str, ...] = ()
 
 
 def prepare_agent_loop_call_config_inputs(
@@ -281,7 +280,6 @@ def prepare_agent_loop_call_config_inputs(
         previous_run_id=run_input.previous_run_id,
         document_tools=document_tools,
         knowledge_tools=knowledge_tools,
-        direct_tool_names=tuple(getattr(dynamic_tool_set, "direct_tool_names", ()) or ()),
     )
 
 
@@ -308,7 +306,6 @@ def build_agent_loop_call_config_from_inputs(
         **({"previous_run_id": inputs.previous_run_id} if inputs.previous_run_id is not None else {}),
         **({"document_tools": inputs.document_tools} if inputs.document_tools is not None else {}),
         **({"knowledge_tools": inputs.knowledge_tools} if inputs.knowledge_tools is not None else {}),
-        **({"direct_tool_names": inputs.direct_tool_names} if inputs.direct_tool_names else {}),
     )
 
 

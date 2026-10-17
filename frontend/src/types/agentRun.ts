@@ -183,8 +183,6 @@ export interface AgentRunConfig {
   taskMode?: AgentTaskMode;
   networkProfile?: AgentNetworkProfile;
   evidencePolicy?: AgentEvidencePolicy;
-  /** 仅当 run config 显式 enabled===true。不含授权目录。 */
-  dynamicToolDiscovery?: boolean;
 }
 
 export interface AgentRunState {

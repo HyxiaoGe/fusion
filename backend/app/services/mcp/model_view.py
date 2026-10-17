@@ -1,7 +1,7 @@
 """管理页用：按 Agent run 的同一套装配规则，算出每个 MCP 服务此刻实际给模型的工具。
 
-不另写一套判定：直接调用 run 用的 load_mcp_agent_tools 和按需加载判定，管理页看到的
-就是下一次普通 run 会公告的工具（deep_research 不公告 MCP，不在这里体现）。
+不另写一套判定：直接调用 run 用的 load_mcp_agent_tools，管理页看到的就是下一次普通 run
+会公告的工具（deep_research 不公告 MCP，不在这里体现）。
 """
 
 from __future__ import annotations
@@ -17,13 +17,6 @@ from app.services.mcp.amap_product_tools import (
 from app.services.mcp.image_service_tools import IMAGE_SERVICE_REMOTE_TOOL_NAME
 from app.services.mcp.provider_profiles import is_official_amap_endpoint
 from app.services.mcp.provider_quota import read_quota_reset_seconds
-from app.services.mcp.tool_deferral import (
-    MAX_DIRECT_MCP_SCHEMA_CHARS,
-    MAX_DIRECT_MCP_TOOLS,
-    mcp_schema_chars,
-    should_defer_mcp_tools,
-)
-from app.utils.run_capability_contract import is_authorized_mcp_tool_alias
 
 _PREVIEW_SCOPE = "admin-model-view"
 _ALL_AMAP_QUOTA_GROUPS = frozenset().union(*AMAP_PRODUCT_REQUIRED_QUOTA_GROUPS.values())
@@ -56,13 +49,6 @@ def build_mcp_model_view(
         quota_state_reader=lambda server_id, groups: frozenset(quota_by_server.get(server_id, {})) & groups,
     )
     definitions = {definition["function"]["name"]: definition for definition in tool_set.definitions}
-    direct_names = set(tool_set.direct_tool_names)
-    generic = [
-        definition
-        for name, definition in definitions.items()
-        if is_authorized_mcp_tool_alias(name) and name not in direct_names
-    ]
-    on_demand = should_defer_mcp_tools(generic)
 
     servers: dict[str, dict[str, Any]] = {str(row.id): {"tools": [], "hidden_tools": []} for row in rows}
     remote_descriptions = {
@@ -89,7 +75,6 @@ def build_mcp_model_view(
                 "name": alias if is_product else remote,
                 "label": binding.get("tool_label") or alias,
                 "kind": "product" if is_product else "generic",
-                "mode": "on_demand" if not is_product and on_demand and alias not in direct_names else "direct",
                 "source_tools": source_tools,
                 "description": _PRODUCT_DESCRIPTIONS.get(alias, "")
                 if is_product
@@ -116,13 +101,4 @@ def build_mcp_model_view(
                     }
                 )
 
-    return {
-        "servers": servers,
-        "deferral": {
-            "on_demand": on_demand,
-            "generic_tool_count": len(generic),
-            "max_direct_tools": MAX_DIRECT_MCP_TOOLS,
-            "schema_chars": mcp_schema_chars(generic),
-            "max_schema_chars": MAX_DIRECT_MCP_SCHEMA_CHARS,
-        },
-    }
+    return {"servers": servers}

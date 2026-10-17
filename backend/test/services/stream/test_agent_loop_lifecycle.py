@@ -410,7 +410,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 "package_id": "agent",
                 "reason_codes": ["all_available_tools"],
                 "external_tool_names": ["web_search"],
-                "deferred_tool_names": [],
                 "effective_plan_mode": "off",
                 "network_boundary_required": False,
             },
@@ -480,21 +479,9 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
         sha256.assert_not_called()
 
-    def test_bundle_fingerprint_covers_deferred_tools_and_bindings(self):
+    def test_bundle_fingerprint_covers_tool_bindings(self):
         base = self._call_config()
         baseline = _run_config(self._limits(), base)["capability_resolution"]["bundle_fingerprint"]
-        deferred = _run_config(
-            self._limits(),
-            SimpleNamespace(
-                **{
-                    **base.__dict__,
-                    "capability_resolution": replace(
-                        base.capability_resolution,
-                        deferred_tool_names=("mcp_docs_a1b2c3d4",),
-                    ),
-                }
-            ),
-        )["capability_resolution"]
         bound = _run_config(
             self._limits(),
             SimpleNamespace(
@@ -505,8 +492,7 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             ),
         )["capability_resolution"]
 
-        self.assertEqual(deferred["deferred_tool_names"], ["mcp_docs_a1b2c3d4"])
-        self.assertEqual(len({baseline, deferred["bundle_fingerprint"], bound["bundle_fingerprint"]}), 3)
+        self.assertNotEqual(baseline, bound["bundle_fingerprint"])
 
     def _execution(self, *, call_config=None, limits=None, redis_writer=None):
         call_config = call_config or self._call_config()

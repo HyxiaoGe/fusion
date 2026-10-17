@@ -38,6 +38,7 @@ class TrajectoryCapabilityResolution(BaseModel):
     package_id: CapabilityModeId
     reason_codes: list[CapabilityReasonCode] = Field(min_length=1, max_length=2)
     external_tool_names: list[str] = Field(max_length=128)
+    # 10-05～10-17 的 MCP 按需加载已删除；字段只为读取当时的 v3 记录，新 Run 恒为空。
     deferred_tool_names: list[str] = Field(default_factory=list, max_length=512)
     effective_plan_mode: Literal["on", "off"]
     network_boundary_required: bool

@@ -20,7 +20,7 @@ from app.utils.run_capability_contract import (
 SCHEMA_VERSION = 3
 
 
-ROUTER_VERSION = "2026-10-10.1"
+ROUTER_VERSION = "2026-10-17.1"
 
 
 @dataclass(frozen=True)
@@ -32,8 +32,6 @@ class RunCapabilityResolution:
     external_tool_names: tuple[str, ...]
     effective_plan_mode: PlanMode
     network_boundary_required: bool
-    # 规模超过阈值时不直接公告、改由 tool_search 按需加载的 MCP 工具。
-    deferred_tool_names: tuple[str, ...] = ()
 
 
 def resolve_run_capability_route(
@@ -43,12 +41,10 @@ def resolve_run_capability_route(
     task_policy: AgentTaskPolicy,
     capabilities: dict,
     tools_disabled: bool,
-    deferred_tool_names: list[str] | None = None,
 ) -> RunCapabilityResolution:
     """按用户选择的模式与运行环境确定本次公告的工具。"""
 
     available = _canonicalize_tool_names(tuple(name for name in available_tool_names if isinstance(name, str) and name))
-    deferred = tuple(name for name in deferred_tool_names or () if name not in available)
     function_calling = capabilities.get("functionCalling") is True
 
     if tools_disabled:
@@ -68,14 +64,13 @@ def resolve_run_capability_route(
             plan_mode="on",
         )
 
-    if not available and not deferred:
+    if not available:
         return _unavailable("required_tools_unavailable")
     return _resolution(
         "agent",
         ("all_available_tools",),
         tools=available,
         plan_mode="on" if requested_plan_mode == "on" else "off",
-        deferred=deferred,
     )
 
 
@@ -88,7 +83,6 @@ def serialize_capability_resolution(resolution: RunCapabilityResolution) -> dict
         "package_id": resolution.package_id,
         "reason_codes": list(resolution.reason_codes),
         "external_tool_names": list(resolution.external_tool_names),
-        "deferred_tool_names": list(resolution.deferred_tool_names),
         "effective_plan_mode": resolution.effective_plan_mode,
         "network_boundary_required": resolution.network_boundary_required,
     }
@@ -104,7 +98,6 @@ def _resolution(
     *,
     plan_mode: PlanMode,
     tools: tuple[str, ...] = (),
-    deferred: tuple[str, ...] = (),
 ) -> RunCapabilityResolution:
     tools = tuple(name for name in tools if name not in CAPABILITY_CONTROL_TOOL_NAMES)
     return RunCapabilityResolution(
@@ -115,8 +108,7 @@ def _resolution(
         external_tool_names=tools,
         effective_plan_mode=plan_mode,
         # 没有任何联网工具时告诉模型不能声称联网查证。
-        network_boundary_required=not tools and not deferred,
-        deferred_tool_names=deferred,
+        network_boundary_required=not tools,
     )
 
 

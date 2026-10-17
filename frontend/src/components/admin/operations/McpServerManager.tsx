@@ -220,19 +220,6 @@ const quotaGroupLabels: Record<string, string> = {
   maps_geo: "地理编码",
 };
 
-function describeDeferral(view: McpModelView | null, viewError: boolean): string | null {
-  if (viewError) return "模型可用工具暂时无法获取";
-  if (!view) return null;
-  const { deferral } = view;
-  if (deferral.generic_tool_count === 0) return null;
-  if (!deferral.on_demand) {
-    return `通用 MCP 工具共 ${deferral.generic_tool_count} 个，全部直接提供给模型`;
-  }
-  return deferral.generic_tool_count > deferral.max_direct_tools
-    ? `通用 MCP 工具共 ${deferral.generic_tool_count} 个，超过直接提供上限 ${deferral.max_direct_tools} 个，模型需要先用工具搜索按需加载`
-    : `通用 MCP 工具定义共 ${deferral.schema_chars} 字符，超过直接提供上限 ${deferral.max_schema_chars}，模型需要先用工具搜索按需加载`;
-}
-
 function ModelToolsSection({
   server,
   view,
@@ -264,9 +251,6 @@ function ModelToolsSection({
           {view.tools.map((tool) => (
             <li key={tool.name} className="flex flex-wrap items-center gap-1.5 text-sm">
               <span className="font-medium">{tool.kind === "product" ? tool.label : tool.name}</span>
-              <Badge tone={tool.mode === "direct" ? "success" : "neutral"}>
-                {tool.mode === "direct" ? "直接提供" : "按需加载"}
-              </Badge>
               {tool.kind === "product" && (
                 <span className="text-xs text-muted-foreground">
                   组合 {tool.source_tools.join("、")}
@@ -532,7 +516,6 @@ export default function McpServerManager() {
       : undefined,
     [editingServer],
   );
-  const deferralSummary = describeDeferral(modelView, modelViewError);
   const titleDetail = useMemo(
     () => hasServers ? `${servers.length} 个已配置服务` : "管理员专属配置",
     [hasServers, servers.length],
@@ -557,10 +540,7 @@ export default function McpServerManager() {
     <div ref={panelRef} tabIndex={-1} className="space-y-4" data-testid="mcp-server-manager">
       <AdminPanelHeader
         title="MCP 服务"
-        description={<>
-          <p>{titleDetail}</p>
-          {deferralSummary && <p className="mt-1">{deferralSummary}</p>}
-        </>}
+        description={titleDetail}
         action={<div className="flex flex-wrap gap-2">
           <Button aria-label="刷新列表" size="sm" variant="outline" onClick={() => void load(true)} disabled={loading || refreshing || busyAction !== null}>
             <RefreshCw className={`mr-1 h-4 w-4 ${loading || refreshing ? "animate-spin" : ""}`} />

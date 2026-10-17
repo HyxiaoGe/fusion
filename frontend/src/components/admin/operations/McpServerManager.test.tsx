@@ -53,12 +53,11 @@ const server = {
 const modelView = {
   servers: {
     'mcp-1': {
-      tools: [{ name: 'local_place_search', label: '高德地点搜索', kind: 'product', mode: 'direct', source_tools: ['maps_text_search'] }],
+      tools: [{ name: 'local_place_search', label: '高德地点搜索', kind: 'product', source_tools: ['maps_text_search'] }],
       hidden_tools: [],
       quota_exhausted: [],
     },
   },
-  deferral: { on_demand: false, generic_tool_count: 0, max_direct_tools: 10, schema_chars: 0, max_schema_chars: 20000 },
 };
 
 const recommendedAmapReadOnlyTools = [
@@ -99,23 +98,21 @@ describe('McpServerManager', () => {
     apiMocks.fetchModelView.mockResolvedValue({
       servers: {
         'mcp-1': {
-          tools: [{ name: 'route_compare', label: '高德路线比较', kind: 'product', mode: 'direct', source_tools: ['maps_geo', 'maps_direction_driving'] }],
+          tools: [{ name: 'route_compare', label: '高德路线比较', kind: 'product', source_tools: ['maps_geo', 'maps_direction_driving'] }],
           hidden_tools: [{ name: 'local_place_search', label: '高德地点搜索', reason: 'quota_exhausted', resets_in_seconds: 7200 }],
           quota_exhausted: [{ group: 'search', resets_in_seconds: 7200 }],
         },
         'mcp-2': {
-          tools: [{ name: 'placeSuggestion', label: '腾讯地图 · placeSuggestion', kind: 'generic', mode: 'on_demand', source_tools: ['placeSuggestion'] }],
+          tools: [{ name: 'placeSuggestion', label: '腾讯地图 · placeSuggestion', kind: 'generic', source_tools: ['placeSuggestion'] }],
           hidden_tools: [],
         },
       },
-      deferral: { on_demand: true, generic_tool_count: 15, max_direct_tools: 10, schema_chars: 9000, max_schema_chars: 20000 },
     });
 
     render(<McpServerManager />);
 
     const amap = await screen.findByTestId('mcp-server-mcp-1');
     expect(within(amap).getByText('高德路线比较')).toBeInTheDocument();
-    expect(within(amap).getByText('直接提供')).toBeInTheDocument();
     expect(within(amap).getByText('组合 maps_geo、maps_direction_driving')).toBeInTheDocument();
     expect(within(amap).getByText('高德地点搜索')).toBeInTheDocument();
     expect(within(amap).getByText('暂不提供')).toBeInTheDocument();
@@ -123,9 +120,8 @@ describe('McpServerManager', () => {
     const tencentCard = screen.getByTestId('mcp-server-mcp-2');
     const tencentModelTools = within(tencentCard).getByRole('region', { name: '腾讯地图提供给模型的工具' });
     expect(within(tencentModelTools).getByText('placeSuggestion')).toBeInTheDocument();
-    expect(within(tencentCard).getByText('按需加载')).toBeInTheDocument();
     expect(within(tencentCard).getByText('未授权：ipLocation')).toBeInTheDocument();
-    expect(screen.getByText('通用 MCP 工具共 15 个，超过直接提供上限 10 个，模型需要先用工具搜索按需加载')).toBeInTheDocument();
+    expect(screen.queryByText(/按需加载/)).not.toBeInTheDocument();
   });
 
   it('眼睛按钮打开工具说明预览，按模型可用、产品调用、未授权分组', async () => {
@@ -133,7 +129,7 @@ describe('McpServerManager', () => {
       ...modelView,
       servers: {
         'mcp-1': {
-          tools: [{ name: 'route_compare', label: '高德路线比较', kind: 'product', mode: 'direct', source_tools: ['maps_text_search'], description: '比较两地之间的耗时和距离' }],
+          tools: [{ name: 'route_compare', label: '高德路线比较', kind: 'product', source_tools: ['maps_text_search'], description: '比较两地之间的耗时和距离' }],
           hidden_tools: [{ name: 'local_place_search', label: '高德地点搜索', description: '按关键词搜索地点', source_tools: ['maps_around_search'], reason: 'quota_exhausted', resets_in_seconds: 600 }],
         },
       },
