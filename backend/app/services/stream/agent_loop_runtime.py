@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from app.services.stream.agent_loop_policy import AgentLoopLimits
 from app.services.stream.run_mode import RunMode, resolve_run_mode
 from app.services.stream.run_output import RunOutput
+from app.services.stream.structured_answer import NO_STRUCTURED_ANSWERS, StructuredAnswers
 
 if TYPE_CHECKING:
     from app.services.stream.run_capability_router import RunCapabilityResolution
@@ -59,6 +60,7 @@ class AgentLoopRuntime:
     capability_resolution: RunCapabilityResolution | None = None
     fallback_response_context: FallbackResponseContext | None = None
     tool_discovery: Any = None
+    structured_answers: StructuredAnswers = NO_STRUCTURED_ANSWERS
 
     @property
     def mode(self) -> RunMode:

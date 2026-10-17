@@ -18,6 +18,7 @@ from app.services.stream.agent_loop_run_completion import AgentLoopRunCompletion
 from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.network_budget import NetworkToolBudget
+from app.services.stream.product_structured_answers import PRODUCT_STRUCTURED_ANSWERS
 from app.services.stream.run_output import ConversationStreamOutput
 from app.services.stream.safe_fallback_response import FallbackResponseContext
 from app.services.stream.tool_executor import AgentEventCompositeWriter
@@ -229,6 +230,7 @@ def build_agent_loop_runtime(
             preferred_locale=request.response_language,
         ),
         tool_discovery=getattr(request.call_config, "tool_discovery", None),
+        structured_answers=PRODUCT_STRUCTURED_ANSWERS,
     )
 
 

@@ -305,7 +305,7 @@ class OutputProvenanceTests(unittest.IsolatedAsyncioTestCase):
             patch("app.services.stream_state_service.append_chunk", new=AsyncMock()) as append,
             patch("app.services.stream.agent_loop_round_outcome.complete_text_response_step", new=AsyncMock()),
             patch(
-                "app.services.stream.agent_loop_round_outcome.build_grounded_product_answer",
+                "app.services.stream.product_structured_answers.build_grounded_product_answer",
                 return_value="现有产品事实",
             ),
         ):

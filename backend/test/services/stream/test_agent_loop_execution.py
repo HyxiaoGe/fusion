@@ -13,6 +13,7 @@ from app.services.stream.agent_loop_execution import (
 from app.services.stream.agent_loop_policy import AgentLoopLimits
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.network_budget import NetworkToolBudget
+from app.services.stream.product_structured_answers import PRODUCT_STRUCTURED_ANSWERS
 from app.services.stream.tool_executor import AgentEventCompositeWriter
 
 
@@ -128,6 +129,8 @@ class AgentLoopExecutionTests(unittest.TestCase):
         self.assertEqual(execution.runtime.session_cache, "session-cache")
         self.assertIs(execution.runtime.emitter, execution.emitter)
         self.assertIs(execution.runtime.network_budget, execution.network_budget)
+        # 聊天入口必须装产品结构化回答，否则地图/天气等结果空回答时不会补齐。
+        self.assertIs(execution.runtime.structured_answers, PRODUCT_STRUCTURED_ANSWERS)
         self.assertIs(execution.completion_context.state, execution.state)
         self.assertIs(execution.completion_context.emitter, execution.emitter)
         self.assertEqual(execution.completion_context.db, "db")

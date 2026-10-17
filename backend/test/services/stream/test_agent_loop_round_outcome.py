@@ -28,6 +28,7 @@ from app.services.stream.agent_loop_round_outcome import (
 from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_round import AgentRoundResult
+from app.services.stream.product_structured_answers import PRODUCT_STRUCTURED_ANSWERS
 from app.services.stream.run_output import ConversationStreamOutput
 from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream.tool_round import ToolRoundOutcome
@@ -93,6 +94,8 @@ def _runtime(**overrides):
     }
     values.update(overrides)
     values.setdefault("output", ConversationStreamOutput(values["conversation_id"], values["task_id"]))
+    # 聊天入口装产品结构化回答，这里与之保持一致。
+    values.setdefault("structured_answers", PRODUCT_STRUCTURED_ANSWERS)
     return AgentLoopRuntime(**values)
 
 
