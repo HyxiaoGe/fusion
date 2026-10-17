@@ -2,6 +2,7 @@ import React from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { SquarePen } from "lucide-react";
+import { FusionMark } from "@/components/brand/FusionMark";
 import glassStyles from "@/components/ui/GlassLens.module.css";
 import selectableStyles from "@/components/ui/GlassSelectable.module.css";
 
@@ -25,7 +26,10 @@ const ChatSidebarHeader: React.FC<ChatSidebarHeaderProps> = ({ onNewChat, isNewC
   return (
     <div className="flex flex-col gap-3 px-3 pb-3 pt-4">
       <div className="flex items-center justify-between px-2">
-        <span className="text-base font-semibold tracking-tight text-foreground">Fusion AI</span>
+        <span className="inline-flex items-center gap-2 text-base font-semibold tracking-tight text-foreground">
+          <FusionMark className="h-5 w-5" />
+          Fusion AI
+        </span>
         <span className="hidden text-[11px] font-medium text-muted-foreground lg:inline">对话</span>
       </div>
       <Button

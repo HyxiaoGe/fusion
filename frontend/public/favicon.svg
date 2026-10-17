@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+<style>.base{fill:#191B20}@media (prefers-color-scheme:dark){.base{fill:#F4F6FA}}</style>
+<path fill="#3B66F5" d="M5.2 1H13.5A1.5 1.5 0 0 1 15 2.5A1.5 1.5 0 0 1 13.5 4H6.5L2.3 7.15Q1 8.1 1 6.5V4.6Q1 3.9 1.6 3.45L4.3 1.45Q4.8 1 5.2 1Z"/>
+<path class="base" d="M6.1 7L11.888 8.551A1.5 1.5 0 0 1 11.112 11.449L5.755 10.014A0.6 0.6 0 0 0 5 10.594V13.5A1.5 1.5 0 0 1 2 13.5V10Q2 9.5 2.4 9.2L4.7 7.35Q5.35 6.8 6.1 7Z"/>
+</svg>

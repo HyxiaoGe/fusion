@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '@/lib/i18n';
+import { FusionMark } from '@/components/brand/FusionMark';
 import { Button } from '@/components/ui/button';
 import { useHasMounted } from '@/hooks/useHasMounted';
 import { ParticleText } from './ParticleText';
@@ -86,9 +87,9 @@ export default function NotFoundView() {
       <div className="mt-10 flex w-full max-w-[520px] items-start gap-3">
         <div
           aria-hidden="true"
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-foreground text-[15px] font-bold text-background"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-border bg-card text-foreground"
         >
-          F
+          <FusionMark className="h-5 w-5" />
         </div>
         <p className="min-h-[54px] flex-1 rounded-2xl rounded-tl-sm border border-border bg-card px-[18px] py-3.5 text-[15px] leading-7 text-card-foreground">
           <span className="sr-only">

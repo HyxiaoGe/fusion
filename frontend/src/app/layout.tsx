@@ -9,9 +9,12 @@ export const metadata: Metadata = {
   description: '基于Next.js构建的现代化聊天应用',
   // 性能优化的meta标签
   robots: 'index,follow',
+  // favicon.ico 由 src/app 文件约定输出；SVG 内部按系统明暗切换下半部颜色。
   icons: {
-    icon: '/favicon.ico',
+    icon: [{ url: '/favicon.svg', type: 'image/svg+xml' }],
+    apple: '/apple-touch-icon.png',
   },
+  manifest: '/site.webmanifest',
   // 预连接到可能的外部资源
   other: {
     'dns-prefetch': '//fonts.googleapis.com',
