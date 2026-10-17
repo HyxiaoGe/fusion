@@ -649,7 +649,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(persisted[-1][-1], block)
         self.assertIs(order[3][2], block)
         self.assertEqual(outcome.tool_names, ["local_place_search"])
-        self.assertEqual(outcome.product_result_count, 1)
+        self.assertEqual(outcome.rich_result_count, 1)
         handler.build_content_block.assert_called_once()
 
     async def test_registered_future_rich_block_is_emitted_and_counted_without_type_hardcoding(self):
@@ -671,7 +671,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
         finally:
             CONTENT_BLOCK_REGISTRY.pop(registry_key, None)
 
-        self.assertEqual(outcome.product_result_count, 1)
+        self.assertEqual(outcome.rich_result_count, 1)
         self.assertIs(persisted[-1][-1], future_block)
         self.assertIs(order[3][2], future_block)
         request.emitter.content_block_upserted.assert_awaited_once_with(

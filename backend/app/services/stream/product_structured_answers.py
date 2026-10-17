@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from app.schemas.chat import ItineraryResultsBlock
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_TOOL_NAMES
 from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_TOOL_NAMES
+from app.services.stream.itinerary_observability import build_itinerary_run_payload, emit_itinerary_run_log
 from app.services.stream.place_choice import pending_place_choice
 from app.services.stream.product_result_answer import (
     build_grounded_product_answer,
@@ -99,6 +101,35 @@ class ProductStructuredAnswers(StructuredAnswers):
     def rewrite_answer(self, answer: str, state: AgentLoopState) -> str:
         return neutralize_product_provider_mentions(answer, state.content_blocks)
 
+    def observe_run_finished(
+        self,
+        state: AgentLoopState,
+        *,
+        run_id: str,
+        model_id: str,
+        provider: str,
+        run_status: str,
+        finish_reason: str,
+        limit_reason: str | None,
+        duration_ms_factory: Callable[[], int],
+    ) -> None:
+        stats = state.run_stats(run_id)
+        emit_itinerary_run_log(
+            build_itinerary_run_payload(
+                run_id=run_id,
+                model_id=model_id,
+                provider=provider,
+                content_blocks=state.content_blocks,
+                tool_observations=state.itinerary_tool_observations,
+                run_status=run_status,
+                finish_reason=finish_reason,
+                limit_reason=limit_reason,
+                total_duration_ms=duration_ms_factory(),
+                total_steps=stats.total_steps,
+                total_tool_calls=stats.total_tool_calls,
+            )
+        )
+
     def after_tool_round(
         self,
         state: AgentLoopState,
@@ -113,7 +144,7 @@ class ProductStructuredAnswers(StructuredAnswers):
             )
         if _requires_user_input(state):
             return ToolRoundDecision.READY
-        if outcome is not None and outcome.product_result_count > 0:
+        if outcome is not None and outcome.rich_result_count > 0:
             return ToolRoundDecision.CONTINUE
         return ToolRoundDecision.DEFAULT
 

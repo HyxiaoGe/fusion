@@ -379,7 +379,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
             return_value=ToolRoundOutcome(
                 tool_call_count=0,
                 tool_names=[],
-                product_result_count=0,
+                rich_result_count=0,
             )
         )
         state = AgentLoopState(plan_coordinator=PlanCoordinator(run_id="run-plan", mode="on"))
@@ -430,7 +430,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
                 tool_call_count=1,
                 tool_names=["local_place_search"],
                 no_progress_search_results=(True,),
-                product_result_count=1,
+                rich_result_count=1,
             )
 
         outcome = await handle_agent_round_outcome(
@@ -467,7 +467,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
             return ToolRoundOutcome(
                 tool_call_count=1,
                 tool_names=[],
-                product_result_count=0,
+                rich_result_count=0,
             )
 
         outcome = await handle_agent_round_outcome(
@@ -507,7 +507,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
             return ToolRoundOutcome(
                 tool_call_count=1,
                 tool_names=["weather_forecast"],
-                product_result_count=0,
+                rich_result_count=0,
             )
 
         outcome = await handle_agent_round_outcome(
@@ -546,7 +546,7 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
 
         async def handle_tool_calls_round_fn(**kwargs):
             kwargs["request"].on_tools_executed(1)
-            return ToolRoundOutcome(tool_call_count=1, tool_names=[], product_result_count=0)
+            return ToolRoundOutcome(tool_call_count=1, tool_names=[], rich_result_count=0)
 
         outcome = await handle_agent_round_outcome(
             request=AgentRoundOutcomeRequest(

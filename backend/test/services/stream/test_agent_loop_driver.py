@@ -873,7 +873,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
             return ToolRoundOutcome(
                 tool_call_count=1,
                 tool_names=["weather_forecast"],
-                product_result_count=0,
+                rich_result_count=0,
             )
 
         append_chunk = AsyncMock()
@@ -921,7 +921,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
                 "retryable": False,
                 "requires_user_input": True,
             }
-            return ToolRoundOutcome(tool_call_count=1, tool_names=["weather_forecast"], product_result_count=0)
+            return ToolRoundOutcome(tool_call_count=1, tool_names=["weather_forecast"], rich_result_count=0)
 
         with (
             patch("app.services.stream_state_service.append_chunk", AsyncMock()),
@@ -1084,7 +1084,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
             return ToolRoundOutcome(
                 tool_call_count=1,
                 tool_names=["local_place_search"],
-                product_result_count=1,
+                rich_result_count=1,
             )
 
         append_chunk = AsyncMock()

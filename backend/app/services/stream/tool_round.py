@@ -63,7 +63,7 @@ class ToolRoundOutcome:
     tool_call_count: int
     tool_names: list[str]
     no_progress_search_results: tuple[bool, ...] = ()
-    product_result_count: int = 0
+    rich_result_count: int = 0
     unavailable_tool_call_count: int = 0
 
 
@@ -839,7 +839,7 @@ async def handle_tool_calls_round(*, request: ToolRoundRequest) -> ToolRoundOutc
             selected_tool_calls=executable_tool_calls,
             results=executed_results,
         ),
-        product_result_count=sum(is_registered_rich_content_block(block) for block in built_content_blocks.values()),
+        rich_result_count=sum(is_registered_rich_content_block(block) for block in built_content_blocks.values()),
         unavailable_tool_call_count=len(unavailable_tool_calls),
     )
 

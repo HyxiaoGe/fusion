@@ -132,6 +132,7 @@ class AgentLoopExecutionTests(unittest.TestCase):
         # 聊天入口必须装产品结构化回答，否则地图/天气等结果空回答时不会补齐。
         self.assertIs(execution.runtime.structured_answers, PRODUCT_STRUCTURED_ANSWERS)
         self.assertIs(execution.completion_context.state, execution.state)
+        self.assertIs(execution.completion_context.structured_answers, PRODUCT_STRUCTURED_ANSWERS)
         self.assertIs(execution.completion_context.emitter, execution.emitter)
         self.assertEqual(execution.completion_context.db, "db")
         self.assertEqual(execution.completion_context.conversation_id, "conv-1")

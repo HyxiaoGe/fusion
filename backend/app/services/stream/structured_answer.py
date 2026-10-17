@@ -8,6 +8,7 @@ loop 核心只在固定位置调用这些钩子：工具结果如何记录、本
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any
@@ -73,6 +74,22 @@ class StructuredAnswers:
 
     def rewrite_answer(self, answer: str, state: AgentLoopState) -> str:
         return answer
+
+    def observe_run_finished(
+        self,
+        state: AgentLoopState,
+        *,
+        run_id: str,
+        model_id: str,
+        provider: str,
+        run_status: str,
+        finish_reason: str,
+        limit_reason: str | None,
+        duration_ms_factory: Callable[[], int],
+    ) -> None:
+        """run 终态后的产品观测；核心吞掉这里的异常，观测失败不能改变终态。"""
+
+        return None
 
     def after_tool_round(
         self,
