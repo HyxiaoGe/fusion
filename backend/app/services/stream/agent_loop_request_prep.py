@@ -49,20 +49,8 @@ from app.services.chat.tool_transcript_store import ToolTranscriptHistory, load_
 from app.services.documents.agent_tools import DocumentToolSet, render_current_documents_context
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_TOOL_NAMES
 from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_TOOL_NAMES
-from app.services.mcp.tool_deferral import (  # noqa: F401 — 阈值常量供测试从本模块引用
-    MAX_DIRECT_MCP_SCHEMA_CHARS,
-    MAX_DIRECT_MCP_TOOLS,
-    should_defer_mcp_tools,
-)
 from app.services.prompt_snapshot_service import freeze_runtime_prompt_bundle, with_call_config_prompt_snapshot
 from app.services.stream.agent_task_policy import resolve_agent_task_policy
-from app.services.stream.dynamic_tool_discovery import (
-    TOOL_SEARCH_NAME,
-    DynamicToolDiscoverySession,
-    attach_session_runtime,
-    build_discovery_entries,
-    build_tool_search_schema,
-)
 from app.services.stream.persistence import preprocess_url_in_message
 from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
 from app.services.stream.run_capability_router import (
@@ -77,7 +65,6 @@ from app.services.stream.skill_loading import (
     build_skill_session,
 )
 from app.services.weather import WEATHER_TOOL_NAMES
-from app.utils.run_capability_contract import is_authorized_mcp_tool_alias
 
 if TYPE_CHECKING:
     from app.services.knowledge.agent_tool import KnowledgeToolSet
@@ -104,8 +91,6 @@ class AgentLoopCallConfig:
     network_profile: str = "standard"
     evidence_policy: str = "standard"
     prompt_bundle_snapshot: PromptBundleSnapshot | None = None
-    # MCP 工具过多时的按需加载目录；未触发时为 None。
-    tool_discovery: Any = None
     # 交付形态工具（文档）：不属于能力包，不进计划绑定，计划收口阶段仍可调用。
     output_tool_names: frozenset[str] = frozenset()
     document_context: str | None = None
@@ -231,7 +216,6 @@ def build_agent_loop_call_config(
     previous_run_id: str | None = None,
     document_tools: DocumentToolSet | None = None,
     knowledge_tools: KnowledgeToolSet | None = None,
-    direct_tool_names: tuple[str, ...] = (),
 ) -> AgentLoopCallConfig:
     prompt_bundle_snapshot = prompt_bundle_snapshot or freeze_runtime_prompt_bundle()
     options = options or {}
@@ -267,21 +251,8 @@ def build_agent_loop_call_config(
             tool for tool in (additional_tools or []) if _tool_definition_name(tool) in provided_handlers
         )
     available_tools_by_name = {name: tool for tool in available_tools if (name := _tool_definition_name(tool))}
-    # 加载器指定必须直接公告的工具（如高德额度用尽时的其他地图工具）不参与按需加载。
-    direct_names = set(direct_tool_names)
-    mcp_tools = [
-        tool
-        for name, tool in available_tools_by_name.items()
-        if is_authorized_mcp_tool_alias(name) and name not in direct_names
-    ]
-    deferred_tool_names = (
-        [_tool_definition_name(tool) for tool in mcp_tools]
-        if task_policy.task_mode != "deep_research" and should_defer_mcp_tools(mcp_tools)
-        else []
-    )
     capability_resolution = resolve_run_capability_route(
-        available_tool_names=[name for name in available_tools_by_name if name not in deferred_tool_names],
-        deferred_tool_names=deferred_tool_names,
+        available_tool_names=list(available_tools_by_name),
         requested_plan_mode=requested_plan_mode,
         task_policy=task_policy,
         capabilities=capabilities,
@@ -336,25 +307,6 @@ def build_agent_loop_call_config(
         if isinstance(binding, dict) and binding.get("alias")
     }
     active_bindings = [bindings_by_alias[name] for name in external_tool_names if name in bindings_by_alias]
-    tool_discovery: DynamicToolDiscoverySession | None = None
-    if capability_resolution.deferred_tool_names:
-        tool_discovery = DynamicToolDiscoverySession(
-            authorized=build_discovery_entries(
-                schemas_by_name=available_tools_by_name,
-                handlers_by_name=provided_handlers,
-                bindings=tool_bindings or [],
-                authorized_names=capability_resolution.deferred_tool_names,
-            )
-        )
-        call_kwargs["tools"] = [*call_kwargs.get("tools", []), build_tool_search_schema()]
-        call_kwargs["tool_choice"] = "auto"
-        attach_session_runtime(
-            tool_discovery,
-            call_kwargs=call_kwargs,
-            handlers=active_handlers,
-            bindings=active_bindings,
-        )
-        control_tool_names.add(TOOL_SEARCH_NAME)
     return AgentLoopCallConfig(
         should_use_reasoning=should_use_reasoning,
         supports_function_calling=supports_function_calling,
@@ -370,7 +322,6 @@ def build_agent_loop_call_config(
         network_profile=task_policy.network_profile,
         evidence_policy=task_policy.evidence_policy,
         prompt_bundle_snapshot=prompt_bundle_snapshot,
-        tool_discovery=tool_discovery,
         output_tool_names=frozenset(document_handlers),
         document_context=document_context,
         skill_session=skill_session,
@@ -518,8 +469,6 @@ def _run_prompt_sections(
     for section_id in extra_system_prompts:
         yield SystemPromptSection(section_id, call_config.prompt_bundle_snapshot.resolve(section_id)[0])
     resolution = call_config.capability_resolution
-    if getattr(call_config, "tool_discovery", None) is not None:
-        yield SystemPromptSection("deferred_tool_catalog", call_config.tool_discovery.catalog_prompt())
     if resolution.package_id == "agent":
         # 工具选择交给回答模型：何时直接回答、何时查、用户禁止的不用，都写在这里而不是服务端预判。
         yield SystemPromptSection(TOOL_SELECTION_POLICY, render_runtime_prompt("stream.tool_selection_policy"))

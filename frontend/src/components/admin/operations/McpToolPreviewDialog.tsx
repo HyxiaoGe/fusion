@@ -4,7 +4,7 @@ import { SettingsBadge as Badge, type SettingsStatusTone } from "@/components/se
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { McpServer, McpServerModelView } from "@/types/mcp";
 
-type PreviewStatus = "direct" | "on_demand" | "hidden" | "component" | "authorized_unused" | "unauthorized";
+type PreviewStatus = "direct" | "hidden" | "component" | "authorized_unused" | "unauthorized";
 
 interface PreviewRow {
   key: string;
@@ -17,7 +17,6 @@ interface PreviewRow {
 
 const statusPresentation: Record<PreviewStatus, { label: string; tone: SettingsStatusTone }> = {
   direct: { label: "直接提供", tone: "success" },
-  on_demand: { label: "按需加载", tone: "neutral" },
   hidden: { label: "暂不提供", tone: "warning" },
   component: { label: "供产品工具调用", tone: "info" },
   authorized_unused: { label: "已授权，本次未提供", tone: "neutral" },
@@ -47,7 +46,7 @@ function buildToolPreview(server: McpServer, view: McpServerModelView | undefine
         title: tool.label,
         subtitle: tool.name,
         description: tool.description ?? "",
-        status: tool.mode,
+        status: "direct",
         note: `调用远端工具：${tool.source_tools.join("、")}`,
       });
     } else {
@@ -56,7 +55,7 @@ function buildToolPreview(server: McpServer, view: McpServerModelView | undefine
         key: tool.name,
         title: tool.name,
         description: tool.description || descriptions.get(tool.name) || "",
-        status: tool.mode,
+        status: "direct",
       });
     }
   }

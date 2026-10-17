@@ -437,10 +437,6 @@ tool_failure = """यह खोज अभी पूरी नहीं हुई
 no_evidence = """ज़रूरी खोज पूरी नहीं हो सकी, इसलिए अभी कोई विश्वसनीय निष्कर्ष नहीं दिया जा सकता। कृपया बाद में फिर कोशिश करें या ऐसी जानकारी दें जिसकी पुष्टि की जा सके।"""
 protocol_error = """इस बार विश्वसनीय अंतिम उत्तर तैयार नहीं हो सका। कृपया बाद में फिर कोशिश करें।"""
 
-[dynamic_tool_discovery]
-catalog_preamble = """Some authorized tools are deferred to keep the tool list short. They are listed below by name and summary but cannot be called until loaded.
-When one of them fits the user's request, call `tool_search` with `select:<name>` (or keywords) to load it; it becomes callable from the next step."""
-
 [skills]
 catalog_preamble = """Skills are instruction packages for specific kinds of tasks. Each entry below gives a skill's name and a description of what it covers.
 When a skill fits the user's request, call `load_skill` with its name before starting the work, then follow the loaded instructions alongside the rest of this system prompt. If none fits, ignore this list.

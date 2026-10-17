@@ -76,7 +76,6 @@ class AgentLoopState:
     successful_tool_names: set[str] = field(default_factory=set)
     pending_place_choices: dict[str, dict[str, Any]] = field(default_factory=dict)
     recovery_evidence: RecoveryEvidenceWorkset = field(default_factory=RecoveryEvidenceWorkset)
-    tool_discovery: Any = None
     # 本轮发给模型的工具调用与结果（续写同一回答时以已保存的记录为基础）。
     tool_transcript: list[dict[str, Any]] = field(default_factory=list)
     # 历史回放的工具调用 id → 所属 assistant 消息 sequence，用来判断上下文管理删掉了哪几轮。

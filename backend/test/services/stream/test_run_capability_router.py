@@ -43,7 +43,6 @@ def _task_policy(*, task_mode: str = "standard", plan_mode: str = "auto") -> Age
 def _resolve(
     *,
     available_tool_names: list[str] | None = None,
-    deferred_tool_names: list[str] | None = None,
     requested_plan_mode: str = "auto",
     task_mode: str = "standard",
     capabilities: dict | None = None,
@@ -51,7 +50,6 @@ def _resolve(
 ) -> RunCapabilityResolution:
     return resolve_run_capability_route(
         available_tool_names=ALL_TOOLS if available_tool_names is None else available_tool_names,
-        deferred_tool_names=deferred_tool_names,
         requested_plan_mode=requested_plan_mode,
         task_policy=_task_policy(task_mode=task_mode, plan_mode=requested_plan_mode),
         capabilities=CAPABILITIES if capabilities is None else capabilities,
@@ -96,22 +94,12 @@ def test_control_tools_are_never_announced_as_external():
     assert resolution.external_tool_names == ("web_search",)
 
 
-def test_deferred_mcp_tools_are_kept_out_of_the_direct_list():
-    resolution = _resolve(
-        available_tool_names=["web_search", "url_read"],
-        deferred_tool_names=["mcp_docs_query", "web_search"],
-    )
+def test_mcp_tools_are_announced_directly():
+    resolution = _resolve(available_tool_names=["web_search", "mcp_docs_query"])
 
-    assert resolution.external_tool_names == ("web_search", "url_read")
-    assert resolution.deferred_tool_names == ("mcp_docs_query",)
-    assert _trajectory(resolution).deferred_tool_names == ["mcp_docs_query"]
-
-
-def test_only_deferred_tools_still_counts_as_networked():
-    resolution = _resolve(available_tool_names=[], deferred_tool_names=["mcp_docs_query"])
-
-    assert resolution.package_id == "agent"
+    assert resolution.external_tool_names == ("web_search", "mcp_docs_query")
     assert resolution.network_boundary_required is False
+    assert _trajectory(resolution).deferred_tool_names == []
 
 
 def test_deep_research_announces_only_web_search_and_url_read():
@@ -154,7 +142,6 @@ def test_serialization_carries_no_classifier_fields():
         "package_id",
         "reason_codes",
         "external_tool_names",
-        "deferred_tool_names",
         "effective_plan_mode",
         "network_boundary_required",
     }

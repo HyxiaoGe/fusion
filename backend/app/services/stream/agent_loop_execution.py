@@ -128,13 +128,11 @@ def _build_execution_parts(
         task_id=request.task_id,
         redis_writer=event_writer,
     )
-    discovery = getattr(request.call_config, "tool_discovery", None)
     state = AgentLoopState(
         plan_coordinator=PlanCoordinator(
             run_id=run_id,
             mode=getattr(request.call_config, "plan_mode", "off"),
         ),
-        tool_discovery=discovery,
     )
     return AgentLoopExecutionParts(
         run_id=run_id,
@@ -230,7 +228,6 @@ def build_agent_loop_runtime(
             original_message=request.original_message,
             preferred_locale=request.response_language,
         ),
-        tool_discovery=getattr(request.call_config, "tool_discovery", None),
         structured_answers=PRODUCT_STRUCTURED_ANSWERS,
     )
 

@@ -33,13 +33,10 @@ export interface McpServer extends McpServerPayload {
   updated_at?: string | null;
 }
 
-type McpModelToolMode = 'direct' | 'on_demand';
-
 export interface McpModelTool {
   name: string;
   label: string;
   kind: 'product' | 'generic';
-  mode: McpModelToolMode;
   source_tools: string[];
   description?: string;
 }
@@ -61,11 +58,4 @@ export interface McpServerModelView {
 
 export interface McpModelView {
   servers: Record<string, McpServerModelView>;
-  deferral: {
-    on_demand: boolean;
-    generic_tool_count: number;
-    max_direct_tools: number;
-    schema_chars: number;
-    max_schema_chars: number;
-  };
 }

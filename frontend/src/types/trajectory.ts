@@ -53,7 +53,6 @@ export interface TrajectoryRunSummary {
    * 持久化 run config 里的动态发现开关。只表示该运行启用了发现，
    * 不表示目录中的工具已经加载或执行。
    */
-  dynamic_tool_discovery_enabled?: boolean | null;
 }
 
 export interface TrajectoryRunListResponse {

@@ -727,7 +727,6 @@
     "capabilityResolution": {
       "title": "工具边界",
       "notRecorded": "该运行未记录工具边界（旧版记录不再展示）",
-      "dynamicToolDiscovery": "动态工具发现",
       "mode": "模式",
       "externalTools": "公告工具",
       "deferredTools": "按需检索工具",

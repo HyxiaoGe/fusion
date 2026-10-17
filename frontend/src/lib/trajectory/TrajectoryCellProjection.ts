@@ -84,7 +84,6 @@ export interface RunCell extends TrajectoryCellBase {
   /** 手写 legacy 投影可能缺失；正式投影始终写入合法对象或 null。 */
   capabilityResolution?: TrajectoryCapabilityResolution | null;
   /** 显式开启动态发现。不代表目录工具已加载或已执行。 */
-  dynamicToolDiscovery?: boolean;
   records: NormalizedTrajectoryEvent[];
   spans: TrajectorySpan[];
   liveTail: NormalizedTrajectoryEvent[];
@@ -208,7 +207,6 @@ interface ProjectedRun {
   summarySource: RunCell['summarySource'];
   capabilityResolution: TrajectoryCapabilityResolution | null;
   capabilityResolutionRecorded: boolean;
-  dynamicToolDiscoveryEnabled: boolean;
 }
 
 interface DetailContext {
@@ -316,7 +314,6 @@ function collectProjectedRuns(input: TrajectoryCellProjectionInput): ProjectedRu
       summarySource: 'message.agent_run',
       capabilityResolution: null,
       capabilityResolutionRecorded: false,
-      dynamicToolDiscoveryEnabled: item.agent_run.config.dynamicToolDiscovery === true,
     });
   }
 
@@ -344,7 +341,6 @@ function fromRunSummary(summary: TrajectoryRunSummary): ProjectedRun {
     summarySource: 'run-summary',
     capabilityResolution: normalizeTrajectoryCapabilityResolution(summary.capability_resolution),
     capabilityResolutionRecorded,
-    dynamicToolDiscoveryEnabled: summary.dynamic_tool_discovery_enabled === true,
   };
 }
 
@@ -527,7 +523,7 @@ function appendRunCells(
         requestOffsets.get(run.runId) ?? 0,
       )
       : null;
-    const runCell = createRunCell(run, join, snapshot, liveEvents, input.messages, isSelected, detail);
+    const runCell = createRunCell(run, join, snapshot, liveEvents, isSelected, detail);
     target.push(runCell);
     if (detail) target.push(...projectDetailCells(detail, runCell));
   }
@@ -576,7 +572,6 @@ function createRunCell(
   join: TrajectoryRunJoin,
   snapshot: TrajectorySnapshotCacheEntry | undefined,
   liveEvents: NormalizedTrajectoryEvent[],
-  messages: readonly Message[],
   isSelected: boolean,
   detail: DetailContext | null,
 ): RunCell {
@@ -610,7 +605,6 @@ function createRunCell(
     association: join.strategy,
     trajectoryBadge: deriveTrajectoryBadge(run, snapshot),
     capabilityResolution: resolveCapabilityResolution(run, snapshot, liveEvents),
-    dynamicToolDiscovery: resolveDynamicToolDiscovery(run, snapshot, liveEvents, messages),
     records: detail?.durableEvents ?? [],
     spans: detail?.snapshot.spans ?? [],
     liveTail: detail?.liveTail ?? [],
@@ -634,26 +628,6 @@ function resolveCapabilityResolution(
     return normalizeTrajectoryCapabilityResolution(event.payload.capability_resolution);
   }
   return null;
-}
-
-function eventEnablesDynamicToolDiscovery(event: NormalizedTrajectoryEvent): boolean {
-  return event.eventType === 'run_started' && event.payload.dynamic_tool_discovery_enabled === true;
-}
-
-function resolveDynamicToolDiscovery(
-  run: ProjectedRun,
-  snapshot: TrajectorySnapshotCacheEntry | undefined,
-  liveEvents: readonly NormalizedTrajectoryEvent[],
-  messages: readonly Message[],
-): boolean {
-  if (run.dynamicToolDiscoveryEnabled) return true;
-  if (snapshot?.run.dynamic_tool_discovery_enabled === true) return true;
-  const events = [...(snapshot?.events ?? []), ...liveEvents];
-  if (events.some(eventEnablesDynamicToolDiscovery)) return true;
-  return messages.some(message => (
-    message.agent_run?.runId === run.runId
-    && message.agent_run.config.dynamicToolDiscovery === true
-  ));
 }
 
 function deriveTrajectoryBadge(

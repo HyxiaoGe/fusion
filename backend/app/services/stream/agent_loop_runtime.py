@@ -59,7 +59,6 @@ class AgentLoopRuntime:
     llm_round_detail_scheduler: Callable[[Any], Any] | None = None
     capability_resolution: RunCapabilityResolution | None = None
     fallback_response_context: FallbackResponseContext | None = None
-    tool_discovery: Any = None
     structured_answers: StructuredAnswers = NO_STRUCTURED_ANSWERS
 
     @property

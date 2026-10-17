@@ -411,9 +411,8 @@ class McpAgentToolCatalogTests(unittest.TestCase):
         self.assertEqual(len(names), 3)
         self.assertEqual(tool_set.audit_bindings[2]["server_id"], "a-generic")
 
-    def test_quota_exhausted_amap_product_is_hidden_and_map_tools_go_direct(self):
-        # 高德搜索类额度用尽：只隐藏 local_place_search，route_compare 照常；
-        # 腾讯地图工具直接公告，不再藏在 tool_search 后面。
+    def test_quota_exhausted_amap_product_is_hidden_and_other_map_tools_stay(self):
+        # 高德搜索类额度用尽：只隐藏 local_place_search，route_compare 和腾讯地图工具照常公告。
         from app.services.mcp.amap_product_tools import AMAP_PRODUCT_REMOTE_DEPENDENCIES
 
         amap_names = sorted(set().union(*AMAP_PRODUCT_REMOTE_DEPENDENCIES.values()))
@@ -450,9 +449,9 @@ class McpAgentToolCatalogTests(unittest.TestCase):
             binding["alias"] for binding in tool_set.audit_bindings if binding.get("server_id") == "a-tencent"
         ]
         self.assertEqual(len(tencent_aliases), 1)
-        self.assertEqual(tool_set.direct_tool_names, tuple(tencent_aliases))
+        self.assertIn(tencent_aliases[0], names)
 
-    def test_healthy_amap_keeps_map_tools_deferrable(self):
+    def test_healthy_amap_announces_products_alongside_other_map_tools(self):
         from app.services.mcp.amap_product_tools import AMAP_PRODUCT_REMOTE_DEPENDENCIES
 
         amap_names = sorted(set().union(*AMAP_PRODUCT_REMOTE_DEPENDENCIES.values()))
@@ -477,7 +476,7 @@ class McpAgentToolCatalogTests(unittest.TestCase):
 
         names = [definition["function"]["name"] for definition in tool_set.definitions]
         self.assertEqual(names[:2], ["local_place_search", "route_compare"])
-        self.assertEqual(tool_set.direct_tool_names, ())
+        self.assertEqual(len(names), 3)
 
     def test_multiple_enabled_official_amap_rows_fail_closed_without_affecting_other_providers(self):
         amap_rows = [

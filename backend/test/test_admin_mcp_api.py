@@ -138,13 +138,13 @@ class AdminMcpApiTests(unittest.TestCase):
         def fake_view(db, *, rows):
             captured["db"] = db
             captured["rows"] = rows
-            return {"servers": {}, "deferral": {"on_demand": False}}
+            return {"servers": {}}
 
         with patch("app.api.admin_mcp.build_mcp_model_view", fake_view):
             response = self.client.get("/api/admin/mcp/model-view")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["data"], {"servers": {}, "deferral": {"on_demand": False}})
+        self.assertEqual(response.json()["data"], {"servers": {}})
         self.assertEqual(captured["db"], "db-session")
         self.assertEqual([row.id for row in captured["rows"]], ["server-1"])
 

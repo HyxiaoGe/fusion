@@ -733,7 +733,6 @@
     "capabilityResolution": {
       "title": "Tool boundary",
       "notRecorded": "This run has no recorded tool boundary (older records are not shown)",
-      "dynamicToolDiscovery": "Dynamic tool discovery",
       "mode": "Mode",
       "externalTools": "Announced tools",
       "deferredTools": "Searchable tools",

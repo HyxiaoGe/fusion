@@ -73,70 +73,6 @@ describe('normalizeTrajectoryEvent', () => {
     expect(durable).toEqual(live);
   });
 
-  it('实时 config 与历史布尔都只保留动态发现已开启，并丢弃授权目录', () => {
-    const catalog = ['weather_forecast', 'web_search'];
-    const live = normalizeSseTrajectoryEvent({
-      type: 'run_started',
-      schema_version: 1,
-      run_id: 'run-discovery',
-      parent_run_id: null,
-      step_id: null,
-      parent_step_id: null,
-      tool_call_id: null,
-      sequence: 0,
-      trace_id: 'trace-discovery',
-      ts: Date.parse(timestamp) / 1000,
-      tools: [],
-      capability_resolution: null,
-      config: {
-        dynamic_tool_discovery: {
-          enabled: true,
-          authorized_tool_names: catalog,
-        },
-      },
-    });
-    const durable = normalizeTrajectoryRecord('run-discovery', {
-      sequence: 0,
-      event_type: 'run_started',
-      schema_version: 1,
-      timestamp,
-      step_id: null,
-      tool_call_id: null,
-      parent_step_id: null,
-      trace_id: 'trace-discovery',
-      payload: {
-        type: 'run_started',
-        run_id: 'run-discovery',
-        dynamic_tool_discovery_enabled: true,
-        config: {
-          dynamic_tool_discovery: {
-            enabled: true,
-            authorized_tool_names: catalog,
-          },
-        },
-      },
-    });
-
-    expect(live?.payload.dynamic_tool_discovery_enabled).toBe(true);
-    expect(durable?.payload.dynamic_tool_discovery_enabled).toBe(true);
-    expect(JSON.stringify(live?.payload)).not.toContain('authorized_tool_names');
-    expect(JSON.stringify(live?.payload)).not.toContain('weather_forecast');
-    expect(JSON.stringify(durable?.payload)).not.toContain('weather_forecast');
-    expect(normalizeSseTrajectoryEvent({
-      type: 'run_started',
-      schema_version: 1,
-      run_id: 'run-off',
-      parent_run_id: null,
-      step_id: null,
-      parent_step_id: null,
-      tool_call_id: null,
-      sequence: 0,
-      trace_id: 'trace-off',
-      ts: Date.parse(timestamp) / 1000,
-      config: { dynamic_tool_discovery: { enabled: false, authorized_tool_names: catalog } },
-    })?.payload.dynamic_tool_discovery_enabled).toBeUndefined();
-  });
-
   it('旧 v1/v2 能力路由读侧视为未记录，只丢弃能力对象，不丢弃 run_started', () => {
     const legacyV1 = { ...legacyResolutionV2, schema_version: 1 };
     for (const legacy of [legacyV1, legacyResolutionV2]) {
@@ -583,7 +519,6 @@ describe('normalizeTrajectoryEvent', () => {
   });
 });
 
-
 describe('系统提示词元数据', () => {
   const base = { run_id: 'run-1', step_id: null, parent_step_id: null, tool_call_id: null, sequence: 1, trace_id: 'trace-1', ts: Date.parse(timestamp) / 1000 };
   it.each([['ready', 'available'], ['ready', 'degraded'], ['failed', null]])('实时与历史保留 %s/%s 安全元数据', (status, detail_status) => {
@@ -628,7 +563,6 @@ describe('正文归因的实时与历史安全投影', () => {
     expect(JSON.stringify(live)).not.toContain('禁止复制');
   });
 });
-
 
 it('保留三个主工具和两个联网替代工具的运行能力信息', () => {
   const value = { ...capabilityResolution, external_tool_names: ['web_search', 'url_read', 'route_compare', 'search_flights', 'search_trains'] };
