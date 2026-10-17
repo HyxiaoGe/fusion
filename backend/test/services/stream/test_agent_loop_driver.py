@@ -1961,15 +1961,12 @@ class OrdinaryRunWorksetContextTests(unittest.IsolatedAsyncioTestCase):
         return state
 
     async def test_terminal_summary_injects_actual_read_status_for_ordinary_run(self):
-        from app.services.stream.agent_loop_driver import _messages_with_research_workset
+        from app.services.stream.run_mode import STANDARD_RUN_MODE
 
         state = self._state_with_one_read()
-        messages = _messages_with_research_workset(
+        messages = STANDARD_RUN_MODE.summary_messages(
             [{"role": "user", "content": "请分别打开这两个链接"}],
             state=state,
-            runtime=_runtime(task_mode="standard", plan_mode="off"),
-            include_candidates=True,
-            terminal_summary=True,
         )
 
         system_contents = [message.content for message in messages if message.role == "system"]
@@ -1984,30 +1981,25 @@ class OrdinaryRunWorksetContextTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_non_terminal_round_keeps_context_unchanged(self):
-        from app.services.stream.agent_loop_driver import _messages_with_research_workset
+        from app.services.stream.run_mode import STANDARD_RUN_MODE, RoundPreparation
 
         state = self._state_with_one_read()
         original = [{"role": "user", "content": "请分别打开这两个链接"}]
-        messages = _messages_with_research_workset(
+        messages = STANDARD_RUN_MODE.round_messages(
             original,
             state=state,
-            runtime=_runtime(task_mode="standard", plan_mode="off"),
-            include_candidates=True,
-            terminal_summary=False,
+            preparation=RoundPreparation(call_kwargs={}),
         )
 
         self.assertNotIn(RESEARCH_EVIDENCE_WORKSET, [message.section_id for message in messages])
 
     async def test_empty_workset_does_not_add_sections(self):
-        from app.services.stream.agent_loop_driver import _messages_with_research_workset
+        from app.services.stream.run_mode import STANDARD_RUN_MODE
 
         state = AgentLoopState(plan_coordinator=PlanCoordinator(run_id="run-empty", mode="off"))
-        messages = _messages_with_research_workset(
+        messages = STANDARD_RUN_MODE.summary_messages(
             [{"role": "user", "content": "你好"}],
             state=state,
-            runtime=_runtime(task_mode="standard", plan_mode="off"),
-            include_candidates=True,
-            terminal_summary=True,
         )
 
         self.assertNotIn(RESEARCH_EVIDENCE_WORKSET, [message.section_id for message in messages])
@@ -2018,10 +2010,10 @@ class OrdinaryRunWorksetContextTests(unittest.IsolatedAsyncioTestCase):
         #127 三个样本的共同点：某个目标从未发起 url_read，因此不会进入 workset。
         只列「读到了什么」仍是一份不完整的事实，模型照样可以声称两页都读到。
         """
-        from app.services.stream.agent_loop_driver import _messages_with_research_workset
+        from app.services.stream.run_mode import STANDARD_RUN_MODE
 
         state = self._state_with_one_read()
-        messages = _messages_with_research_workset(
+        messages = STANDARD_RUN_MODE.summary_messages(
             [
                 {
                     "role": "user",
@@ -2029,9 +2021,6 @@ class OrdinaryRunWorksetContextTests(unittest.IsolatedAsyncioTestCase):
                 }
             ],
             state=state,
-            runtime=_runtime(task_mode="standard", plan_mode="off"),
-            include_candidates=True,
-            terminal_summary=True,
         )
 
         system_contents = [message.content for message in messages if message.role == "system"]
@@ -2047,30 +2036,24 @@ class OrdinaryRunWorksetContextTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_zero_read_request_still_reports_unattempted_targets(self):
         """一次读页都没发起时也要说明——这正是 #127 首个样本的形态。"""
-        from app.services.stream.agent_loop_driver import _messages_with_research_workset
+        from app.services.stream.run_mode import STANDARD_RUN_MODE
 
         state = AgentLoopState(plan_coordinator=PlanCoordinator(run_id="run-none", mode="off"))
-        messages = _messages_with_research_workset(
+        messages = STANDARD_RUN_MODE.summary_messages(
             [{"role": "user", "content": "请打开 https://example.test/a 和 https://example.test/b"}],
             state=state,
-            runtime=_runtime(task_mode="standard", plan_mode="off"),
-            include_candidates=True,
-            terminal_summary=True,
         )
 
         system_contents = [message.content for message in messages if message.role == "system"]
         self.assertTrue(any("2 URL(s)" in content for content in system_contents))
 
     async def test_all_requested_urls_read_adds_no_unattempted_notice(self):
-        from app.services.stream.agent_loop_driver import _messages_with_research_workset
+        from app.services.stream.run_mode import STANDARD_RUN_MODE
 
         state = self._state_with_one_read()
-        messages = _messages_with_research_workset(
+        messages = STANDARD_RUN_MODE.summary_messages(
             [{"role": "user", "content": "请打开 https://example.test/read-ok"}],
             state=state,
-            runtime=_runtime(task_mode="standard", plan_mode="off"),
-            include_candidates=True,
-            terminal_summary=True,
         )
 
         system_contents = [message.content for message in messages if message.role == "system"]
