@@ -32,6 +32,42 @@ describe('ReasoningContent', () => {
     expect(screen.getByRole('link', { name: '参考页面' })).toBe(link);
   });
 
+  it('多轮思考按顺序穿插工具调用，标题显示轮数', () => {
+    render(
+      <ReasoningContent
+        content="先搜一下。再读页面。"
+        trace={[
+          { kind: 'thinking', id: 't1', text: '先搜一下。' },
+          { kind: 'tool', id: 's1', toolName: 'web_search', summary: '万元轻薄本' },
+          { kind: 'thinking', id: 't2', text: '再读页面。' },
+        ]}
+        isStreaming={false}
+        isVisible
+        onToggle={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '已深度思考 · 2 轮' })).toBeInTheDocument();
+    const items = screen.getAllByRole('listitem').map(item => item.textContent);
+    expect(items).toEqual(['先搜一下。', '搜索万元轻薄本', '再读页面。']);
+  });
+
+  it('只有一轮且没调工具时按整段展示，不显示轮数', () => {
+    render(
+      <ReasoningContent
+        content="只有一轮。"
+        trace={[{ kind: 'thinking', id: 't1', text: '只有一轮。' }]}
+        isStreaming={false}
+        isVisible
+        onToggle={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '已深度思考' })).toBeInTheDocument();
+    expect(screen.queryByRole('listitem')).not.toBeInTheDocument();
+    expect(screen.getByText('只有一轮。')).toBeInTheDocument();
+  });
+
   it('完成态保留折叠回调与耗时文案', () => {
     const onToggle = vi.fn();
     render(

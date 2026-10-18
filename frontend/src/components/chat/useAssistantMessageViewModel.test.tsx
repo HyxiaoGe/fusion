@@ -792,27 +792,9 @@ describe('useAssistantMessageViewModel', () => {
     expect(result.current.answerEvidence).toBeNull();
   });
 
-  it.each([
-    {
-      label: 'K3',
-      modelId: 'kimi-k3',
-      providerId: 'moonshot',
-      expectedSuppression: true,
-      expectedThinking: false,
-    },
-    {
-      label: '其他模型',
-      modelId: 'qwen-max',
-      providerId: 'qwen',
-      expectedSuppression: true,
-      expectedThinking: false,
-    },
-  ])('$label 在工具运行后隐藏已收到的流式思考', ({
-    modelId,
-    providerId,
-    expectedSuppression,
-    expectedThinking,
-  }) => {
+  it('工具运行后仍展示已收到的流式思考，并按运行步骤穿插工具调用', () => {
+    const modelId = 'qwen-max';
+    const providerId = 'qwen';
     selectorState.stream.messageId = 'assistant-1';
     selectorState.stream.thinkingBlocks = { 'thinking-1': '先核对公开资料。' };
     // 思考也按打字机进度显示，这里视作已全部显示。
@@ -861,12 +843,15 @@ describe('useAssistantMessageViewModel', () => {
     );
 
     expect(result.current.activity.kind).toBe('tool_running');
-    expect(result.current.suppressThinking).toBe(expectedSuppression);
-    expect(result.current.hasThinking).toBe(expectedThinking);
+    expect(result.current.hasThinking).toBe(true);
     expect(result.current.displayThinking).toBe('先核对公开资料。');
+    expect(result.current.thinkingTrace).toEqual([
+      { kind: 'thinking', id: 'thinking-1', text: '先核对公开资料。' },
+      { kind: 'tool', id: 'tool-1', toolName: 'web_search', summary: '公开资料' },
+    ]);
   });
 
-  it('知识库运行从 run config 生效起隐藏流式思考', () => {
+  it('知识库运行也展示流式思考', () => {
     selectorState.stream.messageId = 'assistant-1';
     selectorState.stream.thinkingBlocks = { 'thinking-1': '正在基于知识库整理回答。' };
     // 思考也按打字机进度显示，这里视作已全部显示。
@@ -901,18 +886,19 @@ describe('useAssistantMessageViewModel', () => {
       { isStreaming: true, isLastMessage: true },
     );
 
-    expect(result.current.suppressThinking).toBe(true);
-    expect(result.current.hasThinking).toBe(false);
+    expect(result.current.hasThinking).toBe(true);
     expect(result.current.displayThinking).toBe('正在基于知识库整理回答。');
   });
 
-  it('刷新后的工具回答根据持久化 totalToolCalls 继续隐藏思考', () => {
+  it('刷新后的工具回答展示每一轮思考，并按块顺序穿插工具', () => {
     const model = deriveStaticAssistantMessageViewModel({
       message: {
         id: 'assistant-history',
         role: 'assistant',
         content: [
-          { type: 'thinking', id: 'thinking-1', thinking: '正在综合搜索结果。' },
+          { type: 'thinking', id: 'thinking-1', thinking: '先搜一下。' },
+          { type: 'search', id: 'search-1', query: '万元轻薄本', sources: [] },
+          { type: 'thinking', id: 'thinking-2', thinking: '正在综合搜索结果。' },
           { type: 'text', id: 'text-1', text: '历史回答。' },
         ],
         timestamp: 1,
@@ -931,9 +917,13 @@ describe('useAssistantMessageViewModel', () => {
       },
     });
 
-    expect(model.suppressThinking).toBe(true);
-    expect(model.hasThinking).toBe(false);
-    expect(model.displayThinking).toBe('正在综合搜索结果。');
+    expect(model.hasThinking).toBe(true);
+    expect(model.displayThinking).toBe('先搜一下。正在综合搜索结果。');
+    expect(model.thinkingTrace).toEqual([
+      { kind: 'thinking', id: 'thinking-1', text: '先搜一下。' },
+      { kind: 'tool', id: 'search-1', toolName: 'web_search', summary: '万元轻薄本' },
+      { kind: 'thinking', id: 'thinking-2', text: '正在综合搜索结果。' },
+    ]);
   });
 
   it('深度研究完成但没有真实来源时不伪造回答依据', () => {

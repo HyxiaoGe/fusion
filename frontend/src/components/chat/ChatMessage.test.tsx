@@ -445,7 +445,7 @@ describe('ChatMessage', () => {
     selectorState.streamSlot.currentRun = null;
   });
 
-  it('刷新后的历史工具回答不重新展示思考过程', () => {
+  it('刷新后的历史工具回答仍展示思考过程', () => {
     render(
       <ChatMessage
         message={{
@@ -472,7 +472,7 @@ describe('ChatMessage', () => {
     );
 
     expect(screen.getByText('历史回答。')).toBeTruthy();
-    expect(screen.queryByTestId('reasoning-content')).toBeNull();
+    expect(screen.getByTestId('reasoning-content')).toHaveTextContent('正在综合工具结果。');
   });
 
   it('renders degraded web_search notice without rendering an empty sources panel', () => {

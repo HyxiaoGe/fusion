@@ -41,6 +41,25 @@
   overflow-wrap: anywhere;
 }
 .content :where(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote) { max-width: 52rem; }
+/* 多轮思考：每轮思考后跟它调用的工具，按发生顺序排列 */
+.trace { list-style: none; margin: 0; padding: 0; }
+.traceThinking + .traceThinking { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.traceTool {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 52rem;
+  margin: 2px 0 12px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.traceTool + .traceTool { margin-top: -6px; }
 .content :where(p, ul, ol) { margin: 0 0 10px; }
 .content :where(h1, h2, h3, h4, h5, h6) { margin: 14px 0 8px; font-size: 14px; font-weight: 600; }
 .content :where(ul, ol) { padding-left: 20px; }

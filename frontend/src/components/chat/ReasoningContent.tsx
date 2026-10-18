@@ -7,11 +7,15 @@ import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import { normalizeBareUrlsForMarkdown } from '@/lib/chat/markdownLinks';
+import { getToolMeta } from '@/lib/agent/toolRegistry';
 import { ReasoningPreRenderer, ReasoningCodeRenderer } from './markdownCodeComponents';
+import { countThinkingRounds, type ThinkingTraceEntry } from './thinkingTrace';
 import styles from './MessageAuxiliary.module.css';
 
 interface ReasoningContentProps {
   content: string;
+  /** 多轮思考与工具调用按发生顺序穿插；只有一轮且没调工具时按整段展示。 */
+  trace?: readonly ThinkingTraceEntry[];
   isStreaming: boolean;
   isVisible: boolean;
   onToggle: () => void;
@@ -53,8 +57,53 @@ function remarkEscapeToolProtocolTags() {
   };
 }
 
+function ReasoningMarkdown({ content }: { content: string }) {
+  const rendered = useMemo(() => normalizeBareUrlsForMarkdown(content.trim()), [content]);
+  return (
+    <ReactMarkdown
+      remarkPlugins={[
+        remarkEscapeToolProtocolTags,
+        [remarkGfm, { singleTilde: false }],
+      ]}
+      rehypePlugins={[rehypeRaw]}
+      components={{
+        pre: ReasoningPreRenderer,
+        code: ReasoningCodeRenderer,
+      }}
+    >
+      {rendered}
+    </ReactMarkdown>
+  );
+}
+
+function ThinkingTraceList({ trace }: { trace: readonly ThinkingTraceEntry[] }) {
+  return (
+    <ol className={styles.trace}>
+      {trace.map(entry => {
+        if (entry.kind === 'thinking') {
+          return (
+            <li key={entry.id} className={styles.traceThinking}>
+              <ReasoningMarkdown content={entry.text} />
+            </li>
+          );
+        }
+        const meta = getToolMeta(entry.toolName);
+        const Icon = meta.icon;
+        return (
+          <li key={entry.id} className={styles.traceTool}>
+            <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span className="shrink-0">{meta.label}</span>
+            {entry.summary ? <span className="min-w-0 truncate">{entry.summary}</span> : null}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 const ReasoningContent: React.FC<ReasoningContentProps> = ({
   content,
+  trace,
   isStreaming,
   isVisible,
   onToggle,
@@ -73,19 +122,17 @@ const ReasoningContent: React.FC<ReasoningContentProps> = ({
     if (scrollRef.current) {
       setIsOverflowing(scrollRef.current.scrollHeight > scrollRef.current.clientHeight);
     }
-  }, [content, actuallyVisible]);
+  }, [content, trace, actuallyVisible]);
 
   // 流式期间自动滚到底部
   useEffect(() => {
     if (isStreaming && actuallyVisible && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [content, isStreaming, actuallyVisible]);
+  }, [content, trace, isStreaming, actuallyVisible]);
 
-  const renderedContent = useMemo(
-    () => normalizeBareUrlsForMarkdown(content.trim()),
-    [content],
-  );
+  const rounds = trace ? countThinkingRounds(trace) : 0;
+  const showTrace = Boolean(trace && (rounds > 1 || trace.some(entry => entry.kind === 'tool')));
 
   if (!isStreaming && (!content || !content.trim())) {
     return null;
@@ -120,7 +167,7 @@ const ReasoningContent: React.FC<ReasoningContentProps> = ({
           <span>
             {isStreaming
               ? '正在深度思考...'
-              : `已深度思考${durationText ? `（用时 ${durationText}）` : ''}`
+              : `已深度思考${rounds > 1 ? ` · ${rounds} 轮` : ''}${durationText ? `（用时 ${durationText}）` : ''}`
             }
           </span>
         </div>
@@ -148,20 +195,10 @@ const ReasoningContent: React.FC<ReasoningContentProps> = ({
               ref={scrollRef}
               className={styles.content}
             >
-              {content && content.trim() ? (
-                <ReactMarkdown
-                  remarkPlugins={[
-                    remarkEscapeToolProtocolTags,
-                    [remarkGfm, { singleTilde: false }],
-                  ]}
-                  rehypePlugins={[rehypeRaw]}
-                  components={{
-                    pre: ReasoningPreRenderer,
-                    code: ReasoningCodeRenderer,
-                  }}
-                >
-                  {renderedContent}
-                </ReactMarkdown>
+              {showTrace && trace ? (
+                <ThinkingTraceList trace={trace} />
+              ) : content && content.trim() ? (
+                <ReasoningMarkdown content={content} />
               ) : (
                 <span className="text-muted-foreground animate-pulse motion-reduce:animate-none">AI 正在组织思路...</span>
               )}
