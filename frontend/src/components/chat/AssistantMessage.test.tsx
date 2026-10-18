@@ -173,7 +173,7 @@ function defaultViewModel(overrides: Record<string, unknown> = {}) {
     knowledgeBlocks: [],
     displayText: '助手正文',
     displayThinking: '',
-    suppressThinking: false,
+    thinkingTrace: [],
     hasThinking: false,
     streamingStartTime: null,
     streamingEndTime: undefined,

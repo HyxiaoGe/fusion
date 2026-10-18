@@ -20,6 +20,7 @@ import type {
   UrlBlock,
 } from '@/types/conversation';
 import { extractTextFromBlocks, extractThinkingFromBlocks } from '@/types/conversation';
+import { buildThinkingTrace, type ThinkingTraceEntry } from './thinkingTrace';
 import {
   collectStructuredToolResultBlocks,
   isStructuredToolResultBlock,
@@ -65,7 +66,8 @@ export interface AssistantMessageViewModel {
   documentDraft?: DocumentDraftState | null;
   displayText: string;
   displayThinking: string;
-  suppressThinking: boolean;
+  /** 多轮思考与工具调用按发生顺序穿插，供深度思考面板展开时展示。 */
+  thinkingTrace: ThinkingTraceEntry[];
   hasThinking: boolean;
   streamingStartTime: number | null;
   streamingEndTime: number | undefined;
@@ -128,7 +130,7 @@ export function deriveStaticAssistantMessageViewModel({
   const answerImages = collectAnswerImages(blocksToRender);
   const answerVideos = collectAnswerVideos(blocksToRender);
   const mapDataSources = collectMapDataSources(blocksToRender);
-  const suppressThinking = activity.shouldSuppressReasoning;
+  const thinkingTrace = buildThinkingTrace(blocksToRender, ownedRun);
 
   return {
     blocksToRender,
@@ -148,8 +150,8 @@ export function deriveStaticAssistantMessageViewModel({
     documentDraft: null,
     displayText,
     displayThinking,
-    suppressThinking,
-    hasThinking: !suppressThinking && displayThinking.length > 0,
+    thinkingTrace,
+    hasThinking: displayThinking.length > 0,
     streamingStartTime: null,
     streamingEndTime: undefined,
     isStreamingReasoning: false,
@@ -295,8 +297,12 @@ export function useAssistantMessageViewModel({
   const documentDraft = isCurrentlyStreaming || ownedRun?.documentDraft?.failed
     ? ownedRun?.documentDraft ?? null
     : null;
-  const suppressThinking = activity.shouldSuppressReasoning;
-  const hasThinking = !suppressThinking && displayThinking.length > 0;
+  // 生成中按运行步骤排列，结束后按服务端块顺序；调用过工具的回答也展示思考。
+  const thinkingTrace = useMemo(
+    () => buildThinkingTrace(blocksToRender, ownedRun),
+    [blocksToRender, ownedRun],
+  );
+  const hasThinking = displayThinking.length > 0;
 
   return {
     blocksToRender,
@@ -316,7 +322,7 @@ export function useAssistantMessageViewModel({
     documentDraft,
     displayText,
     displayThinking,
-    suppressThinking,
+    thinkingTrace,
     hasThinking,
     streamingStartTime,
     streamingEndTime,

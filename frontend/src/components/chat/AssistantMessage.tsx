@@ -200,7 +200,7 @@ function AssistantMessageFrame({
     documentDraft,
     displayText,
     displayThinking,
-    suppressThinking,
+    thinkingTrace,
     hasThinking,
     streamingStartTime,
     streamingEndTime,
@@ -283,8 +283,9 @@ function AssistantMessageFrame({
   }, [message.id]);
 
   const reasoningProps = useMemo(() => ({
-    shouldRender: !suppressThinking && (hasThinking || (isCurrentMessageStreaming && isStreamingReasoning)),
+    shouldRender: hasThinking || (isCurrentMessageStreaming && isStreamingReasoning),
     content: displayThinking,
+    trace: thinkingTrace,
     isVisible: message.isReasoningVisible || localReasoningVisible || isCurrentMessageStreaming,
     onToggle: handleToggleReasoning,
     isStreaming: isStreamingReasoning && isCurrentMessageStreaming && !isThinkingPhaseComplete,
@@ -301,7 +302,7 @@ function AssistantMessageFrame({
     message.isReasoningVisible,
     streamingEndTime,
     streamingStartTime,
-    suppressThinking,
+    thinkingTrace,
   ]);
 
   const markdownProps = useMemo(() => ({

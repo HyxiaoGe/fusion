@@ -13,6 +13,7 @@ import type { AgentRunState, DocumentDraftState } from '@/types/agentRun';
 import type { TrajectoryRunSummary } from '@/types/trajectory';
 import type { TrajectoryBadgeStatus } from '@/lib/trajectory/TrajectoryCellProjection';
 import ReasoningContent from './ReasoningContent';
+import type { ThinkingTraceEntry } from './thinkingTrace';
 import AssistantActivityStatus from './AssistantActivityStatus';
 import type { AssistantActivity } from './assistantActivity';
 import AnswerEvidence from './AnswerEvidence';
@@ -30,6 +31,7 @@ interface AssistantResponseStackProps {
   reasoning: {
     shouldRender: boolean;
     content: string;
+    trace?: readonly ThinkingTraceEntry[];
     isVisible: boolean;
     isStreaming: boolean;
     onToggle: () => void;
@@ -115,6 +117,7 @@ function AssistantResponseStack({
         {showReasoning ? (
           <ReasoningContent
             content={reasoning.content}
+            trace={reasoning.trace}
             isVisible={reasoning.isVisible}
             onToggle={reasoning.onToggle}
             isStreaming={reasoning.isStreaming}
