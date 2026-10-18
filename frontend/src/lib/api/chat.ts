@@ -38,6 +38,8 @@ interface ChatRequest {
   assistant_message_id?: string;
   retry_user_message_id?: string;
   retry_assistant_message_id?: string;
+  /** 编辑后重新发送：message 为改后的问题，服务端删除原问题之后的消息再回答。 */
+  edit_user_message?: boolean;
   previous_run_id?: string;
   stream?: boolean;
   options?: {

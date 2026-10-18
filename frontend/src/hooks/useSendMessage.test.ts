@@ -1599,6 +1599,92 @@ describe('useSendMessage', () => {
     );
   });
 
+  describe('编辑后重新发送', () => {
+    const editedConversationMessages = (): Message[] => [
+      { id: 'u1', role: 'user', content: [{ type: 'text', id: 't1', text: '第一问' }], sequence: 1, timestamp: 1 },
+      { id: 'a1', role: 'assistant', content: [{ type: 'text', id: 't2', text: '第一答' }], sequence: 2, timestamp: 2 },
+      {
+        id: 'u2',
+        role: 'user',
+        content: [
+          { type: 'text', id: 't3', text: '第二问' },
+          { type: 'file', id: 'f1', file_id: 'file-1', filename: 'a.pdf', mime_type: 'application/pdf' },
+        ],
+        sequence: 3,
+        timestamp: 3,
+      },
+      { id: 'a2', role: 'assistant', content: [{ type: 'text', id: 't4', text: '第二答' }], sequence: 4, timestamp: 4 },
+      { id: 'u3', role: 'user', content: [{ type: 'text', id: 't5', text: '第三问' }], sequence: 5, timestamp: 5 },
+      { id: 'a3', role: 'assistant', content: [{ type: 'text', id: 't6', text: '第三答' }], sequence: 6, timestamp: 6 },
+    ];
+
+    const seed = (store: ReturnType<typeof createStore>) => {
+      store.dispatch(upsertConversation({
+        id: 'existing-conv',
+        title: 'Existing',
+        model_id: 'model-1',
+        messages: editedConversationMessages(),
+        createdAt: 1,
+        updatedAt: 2,
+      }));
+    };
+
+    it('截掉原问题之后的消息、换上新问题，并以编辑标记请求新回答', async () => {
+      const store = createStore();
+      seed(store);
+      sendMessageStreamMock.mockResolvedValueOnce(undefined);
+
+      const { result } = renderHook(() => useSendMessage(), { wrapper: createWrapper(store) });
+      await act(async () => {
+        await result.current.editMessage('u2', 'existing-conv', '改后的第二问');
+      });
+
+      const request = sendMessageStreamMock.mock.calls[0][0];
+      expect(request).toEqual(expect.objectContaining({
+        message: '改后的第二问',
+        user_message_id: 'u2',
+        retry_user_message_id: 'u2',
+        edit_user_message: true,
+        file_ids: ['file-1'],
+      }));
+      expect(request.retry_assistant_message_id).toBeUndefined();
+      expect(request.previous_run_id).toBeUndefined();
+      const messages = store.getState().conversation.byId['existing-conv'].messages as Message[];
+      expect(messages.slice(0, 3).map((message) => message.id)).toEqual(['u1', 'a1', 'u2']);
+      expect(messages).toHaveLength(4);
+      expect(messages[3]).toEqual(expect.objectContaining({ role: 'assistant', content: [] }));
+      expect(messages[2].content).toEqual([
+        { type: 'text', id: 't3', text: '改后的第二问' },
+        expect.objectContaining({ type: 'file', file_id: 'file-1' }),
+      ]);
+    });
+
+    it('服务端未接收编辑时按服务端快照找回原问题和后续消息', async () => {
+      const store = createStore();
+      seed(store);
+      sendMessageStreamMock.mockRejectedValueOnce(new Error('请求失败'));
+      getConversationMock.mockResolvedValueOnce({
+        id: 'existing-conv',
+        title: 'Existing',
+        model_id: 'model-1',
+        messages: editedConversationMessages(),
+        created_at: '2026-10-18T00:00:00Z',
+        updated_at: '2026-10-18T00:00:00Z',
+      });
+
+      const { result } = renderHook(() => useSendMessage(), { wrapper: createWrapper(store) });
+      await act(async () => {
+        await result.current.editMessage('u2', 'existing-conv', '改后的第二问');
+      });
+
+      await waitFor(() => {
+        const messages = store.getState().conversation.byId['existing-conv'].messages as Message[];
+        expect(messages.map((message) => message.id)).toEqual(['u1', 'a1', 'u2', 'a2', 'u3', 'a3']);
+        expect(messages[2].content[0]).toEqual(expect.objectContaining({ text: '第二问' }));
+      });
+    });
+  });
+
   it('安全重试在服务端接管前失败时恢复原问题和原回答', async () => {
     const store = createStore();
     const originalUser: Message = {

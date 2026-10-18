@@ -483,6 +483,26 @@ class ConversationRepository:
             .all()
         )
 
+    def rewrite_user_message_and_truncate(
+        self,
+        conversation: ConversationModel,
+        rows: list[MessageModel],
+        target_index: int,
+        text: str,
+    ) -> MessageModel:
+        """在调用方事务内改写 user 问题文本（保留附件），并删除其后的全部消息。"""
+
+        target = rows[target_index]
+        blocks = [block for block in target.content or [] if isinstance(block, dict)]
+        text_block = next((block for block in blocks if block.get("type") == "text"), None)
+        edited_text = {**(text_block or {"type": "text", "id": f"blk_{uuid.uuid4().hex[:12]}"}), "text": text}
+        target.content = [edited_text, *(block for block in blocks if block.get("type") != "text")]
+        for row in rows[target_index + 1 :]:
+            self.db.delete(row)
+        conversation.updated_at = utc_now()
+        self.db.flush()
+        return target
+
     def convert_message_model(self, db_message: MessageModel) -> Message:
         """把已校验的消息行转换为业务 schema。"""
 

@@ -285,7 +285,7 @@ export default function ChatPage() {
     ids: string[];
     status: KnowledgeSelectionStatus;
   }>({ chatId, ids: [], status: 'ready' });
-  const { sendMessage, stopStreaming, retryMessage } = useSendMessage(chatId);
+  const { sendMessage, stopStreaming, retryMessage, editMessage } = useSendMessage(chatId);
   const { stopContinueAgentRun } = useContinueAgentRun();
   const {
     suggestedQuestions,
@@ -822,6 +822,19 @@ export default function ChatPage() {
       composerKnowledgeBaseIds,
       composerKnowledgeSelectionStatus,
       retryMessage,
+    ]
+  );
+
+  const handleEditMessage = useCallback(
+    (messageId: string, content: string) => {
+      if (!chatId || composerKnowledgeSelectionStatus !== 'ready') return;
+      void editMessage(messageId, chatId, content, composerKnowledgeBaseIds);
+    },
+    [
+      chatId,
+      composerKnowledgeBaseIds,
+      composerKnowledgeSelectionStatus,
+      editMessage,
     ]
   );
 
@@ -1367,6 +1380,12 @@ export default function ChatPage() {
                     isStreaming={isDisplayConversationStreaming}
                     loadingState={isHydratingWithoutContent ? 'history-hydration' : undefined}
                     onRetry={shouldKeepPreviousContent || isHydratingWithoutContent ? undefined : handleRetry}
+                    // 生成中编辑会和正在写入的回答冲突，回答结束后才开放。
+                    onEdit={
+                      shouldKeepPreviousContent || isHydratingWithoutContent || isDisplayConversationStreaming
+                        ? undefined
+                        : handleEditMessage
+                    }
                     onInspectTrajectory={
                       shouldKeepPreviousContent || isHydratingWithoutContent
                         ? undefined

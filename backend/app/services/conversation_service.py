@@ -127,6 +127,33 @@ class ConversationService:
             raise ApiException.conflict("这个问题暂时无法回答，不支持重新生成")
         return user_message, assistant_message
 
+    def prepare_message_edit(
+        self,
+        *,
+        conversation_id: str,
+        user_id: str,
+        user_message_id: str,
+        text: str,
+    ) -> tuple[Message, set[str]]:
+        """锁定会话，改写 user 问题并删除其后的消息；返回改后的 user 与其之前的消息 ID。
+
+        与随后的重新回答处于同一事务，请求在提交前失败时改写与删除一并回滚。
+        """
+
+        conversation = self.repo.lock_owned_model(conversation_id, user_id)
+        if conversation is None:
+            raise ApiException.not_found("会话不存在或无权访问")
+        rows = self.repo.list_messages_for_retry(conversation_id)
+        target_index = next(
+            (index for index, row in enumerate(rows) if row.id == user_message_id),
+            None,
+        )
+        if target_index is None or rows[target_index].role != "user":
+            raise ApiException.not_found("待编辑的用户消息不存在")
+        preceding_ids = {row.id for row in rows[:target_index]}
+        edited = self.repo.rewrite_user_message_and_truncate(conversation, rows, target_index, text)
+        return self.repo.convert_message_model(edited), preceding_ids
+
     def lock_conversation_for_message_write(self, conversation_id: str, user_id: str) -> Conversation:
         """串行化消息写入，并在锁内重载会话历史供后续模型调用。"""
 

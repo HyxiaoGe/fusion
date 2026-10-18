@@ -97,7 +97,7 @@ import type { Message, ContentBlock } from '@/types/conversation';
 import type { FileAttachment } from '@/lib/utils/fileHelpers';
 import { selectAuthSessionKey, selectGuestMessagesRemaining } from '@/redux/selectors';
 import { useTypewriter } from './useTypewriter';
-import { useRetryMessage } from './useRetryMessage';
+import { useEditMessage, useRetryMessage } from './useRetryMessage';
 import type { RootState } from '@/redux/store';
 
 type SendMessageOptions = {
@@ -116,6 +116,8 @@ type SendMessageOptions = {
   retryUserMessageId?: string;
   /** 原轮次已有回答时复用 assistant ID，并由服务端原位替换。 */
   retryAssistantMessageId?: string;
+  /** 编辑重发：content 为改后的问题，原问题之后的消息由服务端删除，不复用原回答。 */
+  editUserMessage?: boolean;
   /** Agent run 重试必须指向用户在轨迹标签页选择的真实 run。 */
   previousRunId?: string;
   /** 异步准备期间持续复核轨迹动作仍指向可操作的最新运行。 */
@@ -959,13 +961,16 @@ export function useSendMessage(activeConversationId?: string | null) {
           ? nextRetryMessage : undefined;
       const retryAssistantMessageId = requestedRetryAssistant?.persisted === false
         ? undefined : options.retryAssistantMessageId;
-      const previousRunId = options.previousRunId ?? retryProjection?.agent_run?.runId;
+      // 编辑重发是新问题的首次回答，不继承原回答或其运行身份。
+      const previousRunId = options.editUserMessage
+        ? undefined
+        : options.previousRunId ?? retryProjection?.agent_run?.runId;
       const retryTurnSnapshot = options.retryUserMessageId
         ? {
             user: retryConversation?.messages.find(
               (message) => message.id === options.retryUserMessageId,
             ),
-            assistant: requestedRetryAssistant ?? retryProjection,
+            assistant: options.editUserMessage ? undefined : requestedRetryAssistant ?? retryProjection,
           }
         : null;
       activeRetryTurnSnapshotRef.current = retryTurnSnapshot?.user
@@ -1020,6 +1025,7 @@ export function useSendMessage(activeConversationId?: string | null) {
       assistantHasContentRef.current = false;
 
       const isMessageRetry = Boolean(options.retryUserMessageId);
+      const isMessageEdit = isMessageRetry && options.editUserMessage === true;
       const userMessageId = options.retryUserMessageId ?? uuidv4();
       const assistantMessageId = retryAssistantMessageId ?? uuidv4();
       userMessageIdRef.current = userMessageId;
@@ -1063,7 +1069,28 @@ export function useSendMessage(activeConversationId?: string | null) {
         timestamp: Date.now(),
       };
 
-      if (isMessageRetry) {
+      if (isMessageEdit) {
+        // 编辑重发：本地先截掉原问题之后的消息并换上新问题，失败时以服务端快照为准恢复。
+        // 找不到原问题时不动本地消息，交给服务端拒绝后按快照恢复。
+        const editMessages = retryUserIndex >= 0 ? retryConversation?.messages ?? [] : [];
+        for (const message of editMessages.slice(retryUserIndex + 1)) {
+          dispatch(removeMessage({ conversationId: tempConvId, messageId: message.id }));
+        }
+        const originalBlocks = editMessages[retryUserIndex]?.content ?? [];
+        const originalText = originalBlocks.find((block) => block.type === 'text');
+        dispatch(updateMessage({
+          conversationId: tempConvId,
+          messageId: userMessageId,
+          patch: {
+            status: 'pending',
+            content: [
+              { type: 'text', id: originalText?.id ?? contentBlocks[0].id, text: content.trim() },
+              ...originalBlocks.filter((block) => block.type !== 'text'),
+            ],
+          },
+        }));
+        dispatch(appendMessage({ conversationId: tempConvId, message: assistantPlaceholder }));
+      } else if (isMessageRetry) {
         dispatch(updateMessage({
           conversationId: tempConvId,
           messageId: userMessageId,
@@ -1487,6 +1514,7 @@ export function useSendMessage(activeConversationId?: string | null) {
               assistant_message_id: assistantMessageId,
               retry_user_message_id: options.retryUserMessageId,
               retry_assistant_message_id: retryAssistantMessageId,
+              ...(isMessageEdit ? { edit_user_message: true } : {}),
               previous_run_id: previousRunId,
               stream: true,
               options: {
@@ -1557,6 +1585,8 @@ export function useSendMessage(activeConversationId?: string | null) {
             activeRetryTurnSnapshotRef.current = null;
             abortControllerRef.current = null;
           }
+          // 编辑重发可能已在服务端删除后续消息，本地截断不能靠快照还原，以服务端为准。
+          if (isMessageEdit) void hydrateAuthoritativeConversation(tempConvId, isSessionCurrent);
           return;
         }
 
@@ -1752,6 +1782,8 @@ export function useSendMessage(activeConversationId?: string | null) {
             message: retryTurnSnapshot.user,
           }));
           restoreRetryAssistant(effectiveConvId, assistantMessageId, retryTurnSnapshot.assistant);
+          // 请求未被接收时服务端回滚了编辑，按服务端快照找回被本地截掉的后续消息。
+          if (isMessageEdit) void hydrateAuthoritativeConversation(effectiveConvId, isSessionCurrent);
         } else if (materializedOnce || !isDraft) {
           dispatch(
             updateMessage({
@@ -1817,6 +1849,7 @@ export function useSendMessage(activeConversationId?: string | null) {
   );
 
   const retryMessage = useRetryMessage(sendMessage, activeConversationId);
+  const editMessage = useEditMessage(sendMessage);
 
   // 只断开本页对这条流的接收，不通知服务端停止：运行在后台继续，
   // 侧栏按服务端登记显示进度，回到该对话时由对话页查 stream-status 从头续流。
@@ -1833,5 +1866,5 @@ export function useSendMessage(activeConversationId?: string | null) {
     }
   }, [dispatch, invalidateFrontendSend]);
 
-  return { sendMessage, stopStreaming, detachStreaming, retryMessage };
+  return { sendMessage, stopStreaming, detachStreaming, retryMessage, editMessage };
 }

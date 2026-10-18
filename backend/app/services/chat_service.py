@@ -375,6 +375,7 @@ class ChatService:
         assistant_message_id: Optional[str] = None,
         retry_user_message_id: Optional[str] = None,
         retry_assistant_message_id: Optional[str] = None,
+        edit_user_message: bool = False,
         previous_run_id: Optional[str] = None,
         stream: bool = True,
         options: Optional[Dict[str, Any]] = None,
@@ -404,7 +405,35 @@ class ChatService:
         run_attempt_kind: RunAttemptKind = "initial"
         if retry_assistant_message_id is not None and retry_user_message_id is None:
             raise ApiException.bad_request("retry_assistant_message_id 必须与 retry_user_message_id 同时提供")
-        if retry_user_message_id is not None:
+        if edit_user_message:
+            if retry_user_message_id is None or retry_assistant_message_id is not None or previous_run_id is not None:
+                raise ApiException.bad_request("编辑重发只能指定待编辑的用户消息")
+            if existing_conversation is None or conversation_id is None:
+                raise ApiException.not_found("会话不存在或无权访问")
+            # 正在生成的回答会继续写入被删除的轮次之后，编辑前必须先结束它。
+            meta = await get_stream_meta(conversation_id)
+            if meta and meta.get("status") == "streaming":
+                raise ApiException.conflict("当前会话已有回答正在生成，请结束后再编辑")
+            edited_message, preceding_ids = self.conversation_service.prepare_message_edit(
+                conversation_id=conversation_id,
+                user_id=user_id,
+                user_message_id=retry_user_message_id,
+                text=message,
+            )
+            stored_message, stored_file_ids = _retry_user_payload(edited_message)
+            if list(file_ids or []) != stored_file_ids:
+                raise ApiException.conflict("编辑重发的附件与原用户消息不一致")
+            retry_user_message = edited_message
+            message = stored_message
+            file_ids = stored_file_ids
+            user_message_id = edited_message.id
+            self._validate_message_files(file_ids, user_id, conversation_id)
+            existing_conversation.messages = [
+                *(item for item in existing_conversation.messages if item.id in preceding_ids),
+                edited_message,
+            ]
+            run_attempt_kind = "retry"
+        elif retry_user_message_id is not None:
             if existing_conversation is None or conversation_id is None:
                 raise ApiException.not_found("会话不存在或无权访问")
             retry_user_message, retry_assistant_message = self.conversation_service.prepare_message_retry(
