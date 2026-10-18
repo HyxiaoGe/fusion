@@ -14,7 +14,7 @@ import {
   resumeCentralSession,
   revokeSsoSession,
 } from '@/lib/auth/authService';
-import { isSafeReturnPath, markSsoProbed, takeSsoReturnPath } from '@/lib/auth/sso-probe';
+import { markExplicitLogout } from '@/lib/auth/sso-probe';
 import {
   accountSessionSwitchBlocked,
   accountSessionSwitchCompleted,
@@ -357,18 +357,12 @@ export const { setToken, logout, remoteSessionCleared, checkUserState, resolveSe
 
 // 在 /auth/callback 页消费 auth-service 回调：SDK 内部完成 state 校验 + PKCE 换 token + 落库，
 // 这里只负责把 access token 灌进 Redux 占位并拉取 fusion 自己的完整 profile。
-// status 非 authenticated（静默探测的 login_required / 非回调）时软回首页，不报错。
+// status 非 authenticated（非回调或授权未完成）时软回首页，不报错。
 export const completeLogin = createAsyncThunk<
   { redirectPath: string },
   void,
   { state: { auth: AuthState }; rejectValue: string }
 >('auth/completeLogin', async (_, { dispatch, rejectWithValue }) => {
-  // 若本次回调源自加载时的静默探测，取回并清除探测前记下的原始路径（HIT/MISS 都回此处）。
-  // 交互式登录无此项（登录前已 clearSsoReturn），silentReturn 为 null 时回退到 SDK 解析的路径。
-  // 一次性读取，所有分支共用；并在消费端（router.replace 的入口）再校验一次开放重定向，
-  // 不安全路径直接丢弃回退——与探测落库端的校验形成纵深防御。
-  const rawReturn = takeSsoReturnPath();
-  const silentReturn = rawReturn && isSafeReturnPath(rawReturn) ? rawReturn : null;
   try {
     const result = await completeSsoCallback();
     if (result.status === 'authenticated') {
@@ -377,10 +371,10 @@ export const completeLogin = createAsyncThunk<
         dispatch(setToken(token));
         await dispatch(fetchUserProfile({ expectedToken: token }));
       }
-      return { redirectPath: silentReturn || result.redirectPath || '/' };
+      return { redirectPath: result.redirectPath || '/' };
     }
-    // 静默探测未命中（login_required）等：软回原页（fusion 是软门禁，未登录也可浏览）。
-    return { redirectPath: silentReturn || '/' };
+    // 未完成授权：软回首页（fusion 是软门禁，未登录也可浏览）。
+    return { redirectPath: '/' };
   } catch (error: unknown) {
     // 新版 SDK 以 token + user 原子提交会话：callback 抛错即表示本次授权未完成。
     // 此处不能读取任意现存 token 兜底，否则用户从 A 切换登录 B 失败时，会把 A 误判成 B 登录成功。
@@ -751,9 +745,9 @@ export const checkLiveness = createAsyncThunk<
 
 // 退出登录：先尽力撤销 SSO 会话（失败也不阻塞），再无条件清掉本地 Redux + 存储。
 export const logoutWithSso = createAsyncThunk('auth/logoutWithSso', async (_, { dispatch }) => {
-  // 先落探测守卫：即便随后撤销抛错，也保证登出后本标签页不被加载时静默探测重新登入
-  //（IdP 会话可能仍在，无守卫会被立刻 SSO 回去）。
-  markSsoProbed();
+  // 先落登出守卫：即便随后撤销抛错，也保证登出后本标签页不被中央会话恢复重新登入
+  //（IdP 会话可能仍在，无守卫会被立刻恢复回去）。
+  markExplicitLogout();
   try {
     await revokeSsoSession();
   } catch {

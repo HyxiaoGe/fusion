@@ -8,7 +8,7 @@ import {
 
 import { AUTH_SERVICE_CONFIG } from '../config';
 import { configureAuth } from './auth-sdk';
-import { clearSsoReturn } from './sso-probe';
+import { clearExplicitLogout } from './sso-probe';
 
 type EmailCodeAuthErrorCode =
   | 'invalid_client'
@@ -317,7 +317,7 @@ export async function startEmailCodeLogin(
   input: StartEmailCodeLoginInput,
 ): Promise<EmailCodeLoginChallenge> {
   configureAuth();
-  clearSsoReturn();
+  clearExplicitLogout();
   const authorization = await prepareAuthorization();
 
   try {

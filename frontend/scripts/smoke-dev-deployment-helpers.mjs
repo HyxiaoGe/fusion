@@ -39,7 +39,6 @@ export function buildSmokeUrl(baseUrl) {
 export function buildSmokeSessionStorageFlags() {
   return {
     fusion_sso_logged_out: '1',
-    fusion_sso_probed: '1',
   };
 }
 
