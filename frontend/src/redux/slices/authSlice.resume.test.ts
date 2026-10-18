@@ -91,9 +91,45 @@ describe('resumeSsoSession thunk', () => {
     expect(result).toBe(token);
     expect(getAuthSessionTransitionState()).toBe('stable');
     expect(store.getState().auth.accountSwitchStatus).toBe('stable');
-    // 账户早已是这个身份，重复同步只关遮罩，不再提示「已切换」。
+    // 账户早已是这个身份，重复同步只关遮罩，不再提示「已切换」；只有 token 最小身份时补拉资料。
     expect(store.getState().auth.switchedAccountEmail).toBeNull();
-    expect(fetchUserProfileAPIMock).not.toHaveBeenCalled();
+    expect(fetchUserProfileAPIMock).toHaveBeenCalledTimes(1);
+    expect(store.getState().auth.user?.nickname).toBe(PROFILE.nickname);
+  });
+
+  it('重复同步中止了前一次采用的资料请求时，关闭屏障并补拉资料（头像不丢）', async () => {
+    const token = tokenFor(PROFILE.id);
+    getStoredAccessTokenMock.mockReturnValue(token);
+    const profileWithAvatar = { ...PROFILE, avatar: 'https://lh3.googleusercontent.com/a/x=s96-c' };
+    let abortFirstFetch: (error: Error) => void = () => undefined;
+    fetchUserProfileAPIMock
+      .mockImplementationOnce(() => new Promise((_, reject) => { abortFirstFetch = reject; }))
+      .mockResolvedValue(profileWithAvatar);
+    const completions: Array<string | null> = [];
+    const store = configureStore({
+      reducer: { auth: authReducer },
+      middleware: getDefault => getDefault().concat(() => next => (action) => {
+        if (accountSessionSwitchCompleted.match(action)) completions.push(action.payload.email);
+        return next(action);
+      }),
+    });
+
+    // 第一次同步：采用新账户，资料请求在途。
+    beginAuthSessionTransition();
+    store.dispatch(accountSessionSwitchStarted());
+    const first = store.dispatch(adoptCommittedSsoSession({ email: PROFILE.email }));
+    // 第二次同步（switched 事件）重新开启屏障，中止在途资料请求。
+    beginAuthSessionTransition();
+    store.dispatch(accountSessionSwitchStarted());
+    const second = store.dispatch(adoptCommittedSsoSession({ email: PROFILE.email }));
+    abortFirstFetch(new Error('aborted by account transition'));
+    await Promise.all([first, second]);
+
+    expect(getAuthSessionTransitionState()).toBe('stable');
+    expect(store.getState().auth.accountSwitchStatus).toBe('stable');
+    expect(store.getState().auth.user?.avatar).toBe(profileWithAvatar.avatar);
+    expect(fetchUserProfileAPIMock).toHaveBeenCalledTimes(2);
+    expect(completions).toEqual([PROFILE.email]);
   });
 
   it('兄弟标签换号后本标签同步两次（token 出口 + switched 事件），只提示一次', async () => {
