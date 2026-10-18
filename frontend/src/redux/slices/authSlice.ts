@@ -465,9 +465,8 @@ export const adoptCommittedSsoSession = createAsyncThunk<
 
   const inFlight = adoptionsInFlight.get(switchedToken);
   if (inFlight) {
-    // 另一条路径已 setToken、正在拉 profile；由它完成切换和提示。
+    // 另一条路径已 setToken、正在拉 profile；由它完成切换和提示，本路径随后只收尾自己的屏障。
     await inFlight;
-    return switchedToken;
   }
 
   const current = getState().auth;
@@ -477,6 +476,11 @@ export const adoptCommittedSsoSession = createAsyncThunk<
     completeAuthSessionTransition();
     if (current.accountSwitchStatus !== 'stable') {
       dispatch(accountSessionSwitchCompleted({ email: current.switchedAccountEmail }));
+    }
+    // 重复同步开启屏障时会中止在途请求，前一次采用的资料请求可能因此失败，只剩 token 里的最小身份
+    // （没有头像、昵称）；屏障关闭后补拉一次。
+    if (current.status !== 'succeeded') {
+      await dispatch(fetchUserProfile({ expectedToken: switchedToken }));
     }
     return switchedToken;
   }
