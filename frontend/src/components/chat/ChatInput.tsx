@@ -561,6 +561,21 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
   }, [focusRequest, isComposerBlocked]);
 
+  // 切回浏览器标签页时，若焦点停在正文等非输入位置，把焦点还给输入框；
+  // 浏览器只会恢复切走前的焦点，点过正文后切回来就没有焦点了。
+  useEffect(() => {
+    if (isComposerBlocked) return;
+    const handleVisibilityChange = () => {
+      const textarea = textareaRef.current;
+      if (document.visibilityState !== 'visible' || !textarea || !textarea.isConnected) return;
+      if (shouldReturnFocusToComposer(textarea)) {
+        textarea.focus({ preventScroll: true });
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isComposerBlocked]);
+
   useLayoutEffect(() => {
     if (!prefillRequest || previousPrefillRequestIdRef.current === prefillRequest.id) {
       return;

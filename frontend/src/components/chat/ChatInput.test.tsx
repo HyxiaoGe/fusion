@@ -1338,6 +1338,40 @@ describe('ChatInput', () => {
     expect(composer).toHaveFocus();
   });
 
+  it('returns focus to the composer when the browser tab becomes visible again', () => {
+    render(
+      <>
+        <input aria-label="其他输入框" />
+        <ChatInput onSendMessage={vi.fn()} />
+      </>,
+    );
+    const composer = screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）');
+    const visibility = vi.spyOn(document, 'visibilityState', 'get');
+    const switchTab = (state: DocumentVisibilityState) => {
+      visibility.mockReturnValue(state);
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+    };
+
+    try {
+      // 点过正文后焦点落在 body：切走不动焦点，切回时还给输入框。
+      (document.activeElement as HTMLElement | null)?.blur();
+      switchTab('hidden');
+      expect(composer).not.toHaveFocus();
+      switchTab('visible');
+      expect(composer).toHaveFocus();
+
+      // 切走前在别的输入框里，切回时不抢焦点。
+      screen.getByLabelText('其他输入框').focus();
+      switchTab('hidden');
+      switchTab('visible');
+      expect(screen.getByLabelText('其他输入框')).toHaveFocus();
+    } finally {
+      visibility.mockRestore();
+    }
+  });
+
   it('does not steal focus from another input or a dialog on focus request', () => {
     const { rerender } = render(
       <>
