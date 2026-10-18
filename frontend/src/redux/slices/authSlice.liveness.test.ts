@@ -56,7 +56,8 @@ vi.mock('../../lib/api/user', () => ({
   updateUserSettingsAPI: vi.fn(),
 }));
 
-import authReducer, { checkLiveness } from './authSlice';
+import authReducer, { adoptCommittedSsoSession, checkLiveness } from './authSlice';
+import { accountSessionSwitchCompleted } from '../actions/authSessionActions';
 import {
   beginAuthSessionTransition,
   blockAuthSessionTransition,
@@ -262,6 +263,51 @@ describe('checkLiveness thunk (read-only SLO probe)', () => {
     expect(store.getState().auth.accountSwitchStatus).toBe('stable');
     expect(store.getState().auth.switchedAccountEmail).toBe('b@example.com');
     expect(probeSessionLivenessMock).not.toHaveBeenCalled();
+  });
+
+  it('SDK 订阅与 reconcile 同时采用同一次换号时，只完成一次切换（只提示一次）', async () => {
+    const payload = btoa(JSON.stringify({
+      sub: 'u2',
+      email: 'b@example.com',
+      aud: 'fusion-web',
+      exp: Math.floor(Date.now() / 1000) + 900,
+    })).replace(/=/g, '');
+    const switchedToken = `header.${payload}.signature`;
+    fetchUserProfileAPIMock.mockResolvedValue({
+      ...AUTHED.user,
+      id: 'u2',
+      username: 'b',
+      email: 'b@example.com',
+      nickname: 'B',
+    });
+    const completions: Array<string | null> = [];
+    const store = configureStore({
+      reducer: { auth: authReducer },
+      preloadedState: { auth: { ...AUTHED } },
+      middleware: getDefault => getDefault().concat(() => next => (action) => {
+        if (accountSessionSwitchCompleted.match(action)) completions.push(action.payload.email);
+        return next(action);
+      }),
+    });
+    reconcileSsoSessionMock.mockImplementation(async (options) => {
+      await options.beforeCommit();
+      // SDK 在本标签提交新会话：存储先落 B，再同步通知订阅者（ClientLayout 据此采用）。
+      getStoredAccessTokenMock.mockReturnValue(switchedToken);
+      void store.dispatch(adoptCommittedSsoSession({ email: 'b@example.com' }));
+      return {
+        status: 'switched',
+        previousUser: { id: 'u1', email: 'a@b.c' },
+        user: { id: 'u2', email: 'b@example.com' },
+      };
+    });
+
+    await store.dispatch(checkLiveness());
+    await vi.waitFor(() => expect(store.getState().auth.accountSwitchStatus).toBe('stable'));
+
+    expect(completions).toEqual(['b@example.com']);
+    expect(fetchUserProfileAPIMock).toHaveBeenCalledTimes(1);
+    expect(store.getState().auth.user?.id).toBe('u2');
+    expect(store.getState().auth.switchedAccountEmail).toBe('b@example.com');
   });
 
   it('已确认账号不一致但换票失败时保持阻塞，绝不继续旧身份探测', async () => {
