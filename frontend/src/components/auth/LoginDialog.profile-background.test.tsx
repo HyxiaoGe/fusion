@@ -52,6 +52,7 @@ vi.mock('@/lib/api/user', () => ({
 vi.mock('jwt-decode', () => ({ jwtDecode: jwtDecodeMock }));
 vi.mock('@/components/ui/toast', () => ({
   useToast: () => ({ toast: vi.fn() }),
+  toast: { success: vi.fn() },
 }));
 
 import i18n from '@/lib/i18n';

@@ -161,6 +161,7 @@ vi.mock('@/components/ui/toast', () => ({
     React.createElement(React.Fragment, null, children),
   useToast: () => ({ show: vi.fn() }),
   setGlobalToast: setGlobalToastMock,
+  toast: { success: toastSuccessMock },
 }));
 
 vi.mock('@/components/auth/LoginDialog', () => ({
@@ -176,11 +177,6 @@ vi.mock('@/components/settings/SettingsDialog', () => ({
     React.createElement('div', {
       'data-testid': 'settings-dialog',
     }),
-}));
-
-vi.mock('react-hot-toast', () => ({
-  default: { success: toastSuccessMock },
-  Toaster: () => null,
 }));
 
 import ClientLayout from './ClientLayout';
