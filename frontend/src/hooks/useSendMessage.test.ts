@@ -1183,7 +1183,7 @@ describe('useSendMessage', () => {
     expect(sendMessageStreamMock).toHaveBeenCalledWith(
       expect.objectContaining({
         options: expect.objectContaining({
-          use_reasoning: true,
+          use_reasoning: false,
           plan_mode: 'on',
           task_mode: 'standard',
         }),
