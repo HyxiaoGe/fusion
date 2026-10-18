@@ -40,7 +40,7 @@ import {
   getAuthSessionTransitionState,
   resetAuthSessionTransitionForTests,
 } from '@/lib/auth/sessionTransition';
-import { accountSessionSwitchStarted } from '@/redux/actions/authSessionActions';
+import { accountSessionSwitchCompleted, accountSessionSwitchStarted } from '@/redux/actions/authSessionActions';
 import authReducer, {
   adoptCommittedSsoSession,
   resumeSsoSession,
@@ -91,8 +91,57 @@ describe('resumeSsoSession thunk', () => {
     expect(result).toBe(token);
     expect(getAuthSessionTransitionState()).toBe('stable');
     expect(store.getState().auth.accountSwitchStatus).toBe('stable');
-    expect(store.getState().auth.switchedAccountEmail).toBe(PROFILE.email);
+    // 账户早已是这个身份，重复同步只关遮罩，不再提示「已切换」。
+    expect(store.getState().auth.switchedAccountEmail).toBeNull();
     expect(fetchUserProfileAPIMock).not.toHaveBeenCalled();
+  });
+
+  it('兄弟标签换号后本标签同步两次（token 出口 + switched 事件），只提示一次', async () => {
+    const token = tokenFor(PROFILE.id);
+    getStoredAccessTokenMock.mockReturnValue(token);
+    const store = configureStore({ reducer: { auth: authReducer } });
+
+    beginAuthSessionTransition();
+    store.dispatch(accountSessionSwitchStarted());
+    await store.dispatch(adoptCommittedSsoSession({ email: PROFILE.email }));
+    expect(store.getState().auth.switchedAccountEmail).toBe(PROFILE.email);
+    // ClientLayout 显示提示后清空。
+    store.dispatch(accountSessionSwitchCompleted({ email: null }));
+
+    beginAuthSessionTransition();
+    store.dispatch(accountSessionSwitchStarted());
+    await store.dispatch(adoptCommittedSsoSession({ email: PROFILE.email }));
+
+    expect(store.getState().auth.accountSwitchStatus).toBe('stable');
+    expect(getAuthSessionTransitionState()).toBe('stable');
+    expect(store.getState().auth.switchedAccountEmail).toBeNull();
+    expect(fetchUserProfileAPIMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('SDK 订阅与 resume 并发采用同一次提交时，拉一次资料、只完成一次切换', async () => {
+    const token = tokenFor(PROFILE.id);
+    const completions: Array<string | null> = [];
+    const store = configureStore({
+      reducer: { auth: authReducer },
+      middleware: getDefault => getDefault().concat(() => next => (action) => {
+        if (accountSessionSwitchCompleted.match(action)) completions.push(action.payload.email);
+        return next(action);
+      }),
+    });
+    resumeCentralSessionMock.mockImplementation(async (options) => {
+      await options?.beforeCommit?.({ user: PROFILE });
+      // SDK 提交后同步通知订阅者，ClientLayout 先发起一次采用。
+      getStoredAccessTokenMock.mockReturnValue(token);
+      void store.dispatch(adoptCommittedSsoSession({ email: PROFILE.email }));
+      return { status: 'resumed', user: PROFILE };
+    });
+
+    await store.dispatch(resumeSsoSession());
+
+    expect(completions).toEqual([PROFILE.email]);
+    expect(fetchUserProfileAPIMock).toHaveBeenCalledTimes(1);
+    expect(store.getState().auth.accountSwitchStatus).toBe('stable');
+    expect(store.getState().auth.user?.id).toBe(PROFILE.id);
   });
 
   it('adopts the SDK atomically committed token and enters authenticated state', async () => {

@@ -435,11 +435,15 @@ function isUsableAccessToken(token: string): boolean {
   }
 }
 
+/** 正在采用中的新会话（按 token）。同一次提交的其他采用路径等它完成，不重复拉 profile、不重复提示。 */
+const adoptionsInFlight = new Map<string, Promise<void>>();
+
 /**
  * 采用 SDK 已原子提交到共享 localStorage 的新会话。
  *
- * 该入口同时服务当前标签的 reconcile 与同源兄弟标签通知。token 已一致时直接返回，
- * 避免当前标签在 SDK subscriber 与 reconcile promise 两条路径上重复清缓存、重复拉 profile。
+ * 该入口同时服务当前标签的 reconcile/resume 与同源兄弟标签通知。同一次提交可能从多条路径到达：
+ * SDK subscriber 与 reconcile promise 并发，或兄弟标签换号后本标签先由 token 出口、再由 switched
+ * 事件各同步一次。只有真正把 Redux 切到新身份的那次采用记录「已切换」提示，其余只关闭屏障。
  */
 export const adoptCommittedSsoSession = createAsyncThunk<
   string | null,
@@ -459,29 +463,42 @@ export const adoptCommittedSsoSession = createAsyncThunk<
     return null;
   }
 
+  const inFlight = adoptionsInFlight.get(switchedToken);
+  if (inFlight) {
+    // 另一条路径已 setToken、正在拉 profile；由它完成切换和提示。
+    await inFlight;
+    return switchedToken;
+  }
+
   const current = getState().auth;
   if (current.token === switchedToken && current.user?.id === switchedSubject) {
-    // SDK subscriber 与 reconcile promise 可能同时采用同一次提交。即使 token/user 已一致，
-    // 当前路径仍负责关闭此前 synchronizing 屏障；否则遮罩会永久停留。
+    // 本标签已采用过这次提交，重复同步只需关闭此前 synchronizing 屏障，否则遮罩会永久停留；
+    // 账户没有再变，保留尚未显示的提示，不再新增一次。
     completeAuthSessionTransition();
     if (current.accountSwitchStatus !== 'stable') {
-      dispatch(accountSessionSwitchCompleted({
-        email: email ?? current.user.email ?? '',
-      }));
+      dispatch(accountSessionSwitchCompleted({ email: current.switchedAccountEmail }));
     }
     return switchedToken;
   }
 
-  if (current.accountSwitchStatus === 'stable') {
-    beginAuthSessionTransition();
-    dispatch(accountSessionSwitchStarted());
+  const adoption = (async () => {
+    if (current.accountSwitchStatus === 'stable') {
+      beginAuthSessionTransition();
+      dispatch(accountSessionSwitchStarted());
+    }
+    dispatch(setToken(switchedToken));
+    // 新 token 已落库且旧用户缓存已同步清空，随后才开放新身份请求。
+    completeAuthSessionTransition();
+    await dispatch(fetchUserProfile({ expectedToken: switchedToken }));
+    const adoptedEmail = email ?? getState().auth.user?.email ?? '';
+    dispatch(accountSessionSwitchCompleted({ email: adoptedEmail }));
+  })();
+  adoptionsInFlight.set(switchedToken, adoption);
+  try {
+    await adoption;
+  } finally {
+    adoptionsInFlight.delete(switchedToken);
   }
-  dispatch(setToken(switchedToken));
-  // 新 token 已落库且旧用户缓存已同步清空，随后才开放新身份请求。
-  completeAuthSessionTransition();
-  await dispatch(fetchUserProfile({ expectedToken: switchedToken }));
-  const adoptedEmail = email ?? getState().auth.user?.email ?? '';
-  dispatch(accountSessionSwitchCompleted({ email: adoptedEmail }));
   return switchedToken;
 });
 
@@ -673,30 +690,8 @@ export const checkLiveness = createAsyncThunk<
       },
     });
     if (reconciliation.status === 'switched') {
-      const switchedToken = getStoredAccessToken();
-      if (!switchedToken) {
-        blockAuthSessionTransition();
-        dispatch(accountSessionSwitchBlocked('账户换票完成后缺少访问令牌，请重新登录'));
-        return null;
-      }
-      const switchedSubject = tokenSubject(switchedToken);
-      if (switchedSubject === null) {
-        blockAuthSessionTransition();
-        dispatch(accountSessionSwitchBlocked('账户换票返回了无效访问令牌，请重新登录'));
-        return null;
-      }
-      // SDK subscriber 可能已先采用同一次提交；避免当前 reconcile promise 重复清理/拉取。
-      if (
-        getState().auth.token === switchedToken
-        && getState().auth.user?.id === switchedSubject
-      ) {
-        return switchedToken;
-      }
-      dispatch(setToken(switchedToken));
-      completeAuthSessionTransition();
-      await dispatch(fetchUserProfile({ expectedToken: switchedToken }));
-      dispatch(accountSessionSwitchCompleted({ email: reconciliation.user.email ?? '' }));
-      return switchedToken;
+      // SDK subscriber 可能已在采用同一次提交；统一走采用入口，只完成和提示一次。
+      return await dispatch(adoptCommittedSsoSession({ email: reconciliation.user.email ?? '' })).unwrap();
     }
     reconciliationConfirmedMatch = reconciliation.status === 'match';
   } catch (err) {
