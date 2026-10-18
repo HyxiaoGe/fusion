@@ -1,7 +1,8 @@
-/* 同一段里的多张图并排，窄屏自动换行；元素都是 span，可以合法地放在 <p> 里。 */
+/* 同一段里的多张图并排，窄屏自动换行；元素都是 span，可以合法地放在 <p> 里。
+   宽度上限放在最外层：图框、说明都按它收窄。若只限制 img，宽图的图框仍按原始比例撑宽，右侧露出底色。 */
 .figure {
   display: inline-flex;
-  max-width: 100%;
+  max-width: min(100%, 20rem);
   flex-direction: column;
   align-items: flex-start;
   gap: 0.375rem;
@@ -34,7 +35,7 @@
 .image {
   display: block;
   width: auto;
-  max-width: min(100%, 20rem);
+  max-width: 100%;
   height: 12rem;
   object-fit: cover;
 }
