@@ -20,9 +20,11 @@ from app.utils.time import utc_now
 
 _ATTEMPT_ALLOCATION_RETRIES = 3
 _ATTEMPT_UNIQUE_INDEX = "uq_agent_sessions_turn_attempt"
-RunAttemptKind: TypeAlias = Literal["initial", "retry", "regenerate", "continue"]
+# edit：编辑后重新发送，同一 user 消息的新一次尝试，但问题已改写，不接续任何旧运行。
+RunAttemptKind: TypeAlias = Literal["initial", "retry", "regenerate", "continue", "edit"]
 _ALLOWED_PREVIOUS_STATUSES: dict[RunAttemptKind, frozenset[str]] = {
     "initial": frozenset(),
+    "edit": frozenset(),
     "retry": frozenset({"error", "interrupted"}),
     "regenerate": frozenset({"completed", "limit_reached", "incomplete", "error", "interrupted"}),
     "continue": frozenset({"limit_reached"}),
@@ -237,9 +239,9 @@ def _resolve_previous_run(
     message_id: str | None,
     run_attempt_kind: RunAttemptKind,
 ) -> AgentSession | None:
-    if run_attempt_kind == "initial":
+    if run_attempt_kind in {"initial", "edit"}:
         if previous_run_id is not None:
-            raise InvalidPreviousRunError("initial run 不能携带 previous_run_id")
+            raise InvalidPreviousRunError(f"{run_attempt_kind} run 不能携带 previous_run_id")
         return None
 
     used_fallback = previous_run_id is None

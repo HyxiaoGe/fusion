@@ -432,7 +432,7 @@ class ChatService:
                 *(item for item in existing_conversation.messages if item.id in preceding_ids),
                 edited_message,
             ]
-            run_attempt_kind = "retry"
+            run_attempt_kind = "edit"
         elif retry_user_message_id is not None:
             if existing_conversation is None or conversation_id is None:
                 raise ApiException.not_found("会话不存在或无权访问")

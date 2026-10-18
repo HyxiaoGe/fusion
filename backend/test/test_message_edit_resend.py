@@ -269,7 +269,7 @@ class ProcessMessageEditTests(unittest.TestCase):
         self.assertEqual(kwargs["original_message"], "改后")
         self.assertEqual(kwargs["create_after_retry_user_id"], USER_MESSAGE_ID)
         self.assertFalse(kwargs["replace_on_success"])
-        self.assertEqual(kwargs["run_attempt_kind"], "retry")
+        self.assertEqual(kwargs["run_attempt_kind"], "edit")
 
     def test_edit_rejected_while_answer_is_streaming(self):
         service = self._service()

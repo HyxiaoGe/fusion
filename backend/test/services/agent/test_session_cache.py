@@ -843,6 +843,70 @@ class SessionCacheTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(db.get(AgentSession, "run-new"))
         engine.dispose()
 
+    async def test_edit_resend_after_completed_answer_starts_next_attempt_without_lineage(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        test_session_local = sessionmaker(bind=engine)
+        with test_session_local() as db:
+            db.add(Conversation(id="c1", user_id="u1", title="测试", model_id="gpt-4"))
+            db.add(
+                AgentSession(
+                    id="run-answered",
+                    conversation_id="c1",
+                    user_id="u1",
+                    model_id="gpt-4",
+                    provider="openai",
+                    message_id="assistant-deleted",
+                    turn_message_id="user-1",
+                    attempt_index=1,
+                    status="completed",
+                )
+            )
+            db.commit()
+
+        with patch("app.services.agent.session_cache.SessionLocal", test_session_local):
+            # 编辑前该轮回答已完成：retry 只接续出错/中断的运行，编辑重发不能被它拒绝。
+            with self.assertRaises(ValueError):
+                await write_session_started(
+                    run_id="run-retry",
+                    conversation_id="c1",
+                    user_id="u1",
+                    model_id="gpt-4",
+                    provider="openai",
+                    message_id="assistant-new",
+                    turn_message_id="user-1",
+                    run_attempt_kind="retry",
+                )
+            await write_session_started(
+                run_id="run-edit",
+                conversation_id="c1",
+                user_id="u1",
+                model_id="gpt-4",
+                provider="openai",
+                message_id="assistant-new",
+                turn_message_id="user-1",
+                run_attempt_kind="edit",
+            )
+            with self.assertRaises(ValueError):
+                await write_session_started(
+                    run_id="run-edit-forged",
+                    conversation_id="c1",
+                    user_id="u1",
+                    model_id="gpt-4",
+                    provider="openai",
+                    message_id="assistant-other",
+                    turn_message_id="user-1",
+                    previous_run_id="run-answered",
+                    run_attempt_kind="edit",
+                )
+
+        with test_session_local() as db:
+            edited = db.get(AgentSession, "run-edit")
+            self.assertEqual(edited.attempt_index, 2)
+            self.assertIsNone(edited.previous_run_id)
+            self.assertIsNone(db.get(AgentSession, "run-edit-forged"))
+        engine.dispose()
+
     async def test_legacy_and_new_turn_attempts_share_one_monotonic_index(self):
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(engine)
