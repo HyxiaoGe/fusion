@@ -1154,6 +1154,8 @@ class ChatRequest(BaseModel):
     # 重试必须复用原轮次消息 ID，防止把同一用户问题再次追加到会话历史。
     retry_user_message_id: Optional[str] = None
     retry_assistant_message_id: Optional[str] = None
+    # 编辑后重新发送：message 为改后的问题，原问题之后的消息全部删除后重新回答。
+    edit_user_message: bool = False
     previous_run_id: Optional[str] = None
     stream: bool = True  # 默认开启流式
     options: Optional[Dict[str, Any]] = None  # 扩展选项，如 use_reasoning
@@ -1213,6 +1215,13 @@ class ChatRequest(BaseModel):
                 raise ValueError("assistant_message_id 与 retry_assistant_message_id 必须一致")
         if self.previous_run_id is not None and self.retry_user_message_id is None:
             raise ValueError("previous_run_id 必须与 retry_user_message_id 同时提供")
+        if self.edit_user_message:
+            if self.retry_user_message_id is None:
+                raise ValueError("edit_user_message 必须与 retry_user_message_id 同时提供")
+            if self.retry_assistant_message_id is not None or self.previous_run_id is not None:
+                raise ValueError("编辑重发不能复用原回答或原运行")
+            if not self.message.strip():
+                raise ValueError("编辑后的消息不能为空")
         return self
 
 

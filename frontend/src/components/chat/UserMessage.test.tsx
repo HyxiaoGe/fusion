@@ -133,6 +133,26 @@ describe('UserMessage', () => {
     expect(onRetry).toHaveBeenCalledWith('user-1');
   });
 
+  it('页面未接编辑重发或消息未送达时不显示编辑入口', () => {
+    const message = makeMessage();
+    const { rerender } = render(
+      <UserMessage message={message} blocksToRender={message.content} messageText="请总结这份材料" onViewImage={vi.fn()} />,
+    );
+    expect(screen.queryByRole('button', { name: '编辑' })).toBeNull();
+
+    const failed = makeMessage({ status: 'failed' });
+    rerender(
+      <UserMessage
+        message={failed}
+        blocksToRender={failed.content}
+        messageText="请总结这份材料"
+        onEdit={vi.fn()}
+        onViewImage={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: '编辑' })).toBeNull();
+  });
+
   it('编辑态按 Ctrl+Enter 保存并退出编辑', () => {
     const { onEdit } = renderUserMessage();
 

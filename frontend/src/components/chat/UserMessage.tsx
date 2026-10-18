@@ -183,7 +183,8 @@ function UserMessage({
           timestamp={message.timestamp}
           copied={copied}
           onCopy={messageText ? copy : undefined}
-          onEdit={handleStartEdit}
+          // 只有页面接上了编辑重发（且该消息已送达）时才显示编辑入口。
+          onEdit={onEdit && message.status !== 'pending' && message.status !== 'failed' ? handleStartEdit : undefined}
           onRetry={onRetry ? () => onRetry(message.id) : undefined}
           retryLabel="重新发送"
           className="mt-0.5"

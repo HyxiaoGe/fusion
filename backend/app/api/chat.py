@@ -101,6 +101,7 @@ async def send_message(
             assistant_message_id=chat_request.assistant_message_id,
             retry_user_message_id=chat_request.retry_user_message_id,
             retry_assistant_message_id=chat_request.retry_assistant_message_id,
+            edit_user_message=chat_request.edit_user_message,
             previous_run_id=chat_request.previous_run_id,
             stream=chat_request.stream,
             options=chat_request.options,

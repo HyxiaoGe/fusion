@@ -20,6 +20,7 @@ type SendMessageFn = (
     knowledgeBaseIds?: string[];
     retryUserMessageId?: string;
     retryAssistantMessageId?: string;
+    editUserMessage?: boolean;
     previousRunId?: string;
     canStart?: () => boolean;
     onRejectedBeforeSend?: () => void;
@@ -246,6 +247,48 @@ export function useRetryMessage(
       } finally {
         reject();
       }
+    },
+    [dispatch, sendMessage, store],
+  );
+}
+
+/**
+ * 编辑重发 hook：用改后的文本重新回答该问题，原问题之后的消息由服务端删除。
+ * 附件保持原样，只改文字。
+ */
+export function useEditMessage(sendMessage: SendMessageFn) {
+  const dispatch = useAppDispatch();
+  const store = useStore();
+
+  return useCallback(
+    async (
+      messageId: string,
+      conversationId: string,
+      content: string,
+      knowledgeBaseIds?: string[],
+    ) => {
+      const text = content.trim();
+      if (!text) return;
+      const state = store.getState() as RootState;
+      const target = state.conversation.byId[conversationId]?.messages.find((m) => m.id === messageId);
+      if (!target || target.role !== 'user') return;
+      const modelResolution = resolveSendModel(state, conversationId);
+      if (modelResolution.status !== 'ready') {
+        dispatch(setGlobalError(getSendModelErrorMessage(modelResolution)));
+        return;
+      }
+      const { attachments } = extractMessageContent(target);
+      await sendMessage(
+        text,
+        {
+          conversationId,
+          resolvedModelId: modelResolution.model.id,
+          ...(knowledgeBaseIds === undefined ? {} : { knowledgeBaseIds }),
+          retryUserMessageId: target.id,
+          editUserMessage: true,
+        },
+        attachments.length > 0 ? attachments : undefined,
+      );
     },
     [dispatch, sendMessage, store],
   );
