@@ -42,7 +42,7 @@ const {
         loadStatus: 'ready',
       },
       conversation: {
-        reasoningEnabled: false,
+        reasoningEnabledByChat: {},
         composerAgentModeByChat: {},
         byId: {},
         hydrationStatus: {},
@@ -122,13 +122,15 @@ vi.mock('@/components/ui/toast', () => ({
   }),
 }));
 
-vi.mock('@/redux/slices/conversationSlice', async () => ({
-  selectComposerAgentMode: (
-    await vi.importActual<typeof import('@/redux/slices/conversationSlice')>('@/redux/slices/conversationSlice')
-  ).selectComposerAgentMode,
+vi.mock('@/redux/slices/conversationSlice', async () => {
+  const actual = await vi.importActual<typeof import('@/redux/slices/conversationSlice')>('@/redux/slices/conversationSlice');
+  return {
+  selectComposerAgentMode: actual.selectComposerAgentMode,
+  selectReasoningEnabled: actual.selectReasoningEnabled,
   setReasoningEnabled: setReasoningEnabledMock,
   setComposerAgentMode: setComposerAgentModeMock,
-}));
+  };
+});
 
 vi.mock('@/redux/slices/fileUploadSlice', () => ({
   clearFiles: clearFilesMock,
@@ -280,7 +282,7 @@ describe('ChatInput', () => {
     currentState.models.selectedModelId = null;
     currentState.models.isLoading = false;
     currentState.models.loadStatus = 'ready';
-    currentState.conversation.reasoningEnabled = false;
+    currentState.conversation.reasoningEnabledByChat = {};
     currentState.conversation.composerAgentModeByChat = {};
     currentState.conversation.byId = {
       'chat-1': createConversationBoundToSelectedModel('chat-1'),
@@ -629,15 +631,17 @@ describe('ChatInput', () => {
     ).toBeNull());
   });
 
-  it('深度思考默认关闭；本浏览器手动开启过时挂载后恢复为开启', () => {
+  it('深度思考按对话记：一个对话开启后，切到其他对话和新对话仍是关闭', () => {
     configureAuthenticatedVisionModel();
-    const { unmount } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
-    expect(setReasoningEnabledMock).not.toHaveBeenCalled();
-    unmount();
+    currentState.conversation.reasoningEnabledByChat = { 'chat-a': true };
+    const { rerender } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
+    expect(screen.getByRole('button', { name: '深度思考' })).toHaveAttribute('aria-pressed', 'true');
 
-    localStorage.setItem('fusion.deepThinkingEnabled', '1');
-    render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
-    expect(setReasoningEnabledMock).toHaveBeenCalledWith(true);
+    rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-b" />);
+    expect(screen.getByRole('button', { name: '深度思考' })).toHaveAttribute('aria-pressed', 'false');
+
+    rerender(<ChatInput onSendMessage={vi.fn()} />);
+    expect(screen.getByRole('button', { name: '深度思考' })).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('窄屏工具栏隐藏思考文字并保留可收缩边界', () => {
@@ -1265,7 +1269,7 @@ describe('ChatInput', () => {
   });
 
   it('模型能力在服务端渲染后已于客户端加载时不会产生 hydration mismatch', async () => {
-    currentState.conversation.reasoningEnabled = true;
+    currentState.conversation.reasoningEnabledByChat = { __new_chat__: true };
     const container = document.createElement('div');
     container.innerHTML = renderToString(<ChatInput onSendMessage={vi.fn()} />);
 
@@ -2368,8 +2372,7 @@ describe('ChatInput', () => {
     expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
 
     fireEvent.click(screen.getByRole('button', { name: '深度思考' }));
-    expect(setReasoningEnabledMock).toHaveBeenCalledWith(true);
-    expect(localStorage.getItem('fusion.deepThinkingEnabled')).toBe('1');
+    expect(setReasoningEnabledMock).toHaveBeenCalledWith({ chatId: 'chat-1', enabled: true });
     fireEvent.pointerDown(screen.getByRole('button', { name: '执行模式：自动' }), {
       button: 0,
       ctrlKey: false,
@@ -2395,7 +2398,7 @@ describe('ChatInput', () => {
       expect.any(Function),
     );
 
-    currentState.conversation.reasoningEnabled = true;
+    currentState.conversation.reasoningEnabledByChat = { 'chat-1': true };
     currentState.conversation.composerAgentModeByChat = { 'chat-1': 'plan' };
     rerender(
       <ChatInput

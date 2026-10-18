@@ -25,8 +25,7 @@ import {
   selectIsGuest,
 } from "@/redux/selectors";
 import { refreshEntitlements } from "@/redux/slices/guestSlice";
-import { selectComposerAgentMode, setComposerAgentMode, setReasoningEnabled } from "@/redux/slices/conversationSlice";
-import { readDeepThinkingPreference, writeDeepThinkingPreference } from "@/lib/chat/reasoningPreference";
+import { selectComposerAgentMode, selectReasoningEnabled, setComposerAgentMode, setReasoningEnabled } from "@/redux/slices/conversationSlice";
 import {
   addFileId,
   clearFiles,
@@ -300,11 +299,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const authIdentity = useAppSelector(selectUploadAuthIdentity);
   const previousAuthIdentityRef = useRef<string | null>(authIdentity);
   const processingFiles = useAppSelector((state) => state.fileUpload.processingFiles);
-  const reasoningEnabled = useAppSelector((state) => state.conversation.reasoningEnabled);
-  useEffect(() => {
-    // 首屏按默认关闭渲染，挂载后再读本浏览器的选择，避免服务端与客户端渲染不一致。
-    if (readDeepThinkingPreference()) dispatch(setReasoningEnabled(true));
-  }, [dispatch]);
+  // 深度思考按对话记：在一个对话里开启不影响其他对话和新对话。
+  const reasoningEnabled = useAppSelector((state) => selectReasoningEnabled(state, activeChatId));
   // 执行模式按对话记：新对话默认自动，已有对话保持它自己的模式。
   const agentModeKey = activeChatId || NEW_CHAT_AGENT_MODE_KEY;
   const composerAgentMode = useAppSelector((state) => selectComposerAgentMode(state, activeChatId));
@@ -1563,16 +1559,14 @@ const ChatInput: React.FC<ChatInputProps> = ({
               <PaperclipIcon className="h-4 w-4" />
             </Button>
 
-            {/* 深度思考开关：默认关闭，用户手动开启后记在本浏览器 */}
+            {/* 深度思考开关：默认关闭，只对当前对话生效 */}
             <Button
               variant="ghost"
               size="sm"
               className={`h-8 px-2 gap-1.5 ${reasoningEnabled && supportsReasoning ? "bg-info-bg text-info hover:bg-info-bg hover:text-info" : "text-muted-foreground hover:text-foreground"} ${!supportsReasoning ? "opacity-50 cursor-not-allowed" : ""}`}
               onClick={() => {
                 if (!supportsReasoning || isComposerBlocked) return;
-                const next = !reasoningEnabled;
-                writeDeepThinkingPreference(next);
-                dispatch(setReasoningEnabled(next));
+                dispatch(setReasoningEnabled({ chatId: agentModeKey, enabled: !reasoningEnabled }));
               }}
               disabled={!supportsReasoning || isComposerBlocked}
               aria-label="深度思考"

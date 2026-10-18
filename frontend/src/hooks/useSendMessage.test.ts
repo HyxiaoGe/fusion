@@ -16,6 +16,7 @@ import conversationReducer, {
   updateMessage,
   selectComposerAgentMode,
   setComposerAgentMode,
+  setReasoningEnabled,
   setHydrationStatus,
 } from '@/redux/slices/conversationSlice';
 import modelsReducer, {
@@ -1188,6 +1189,40 @@ describe('useSendMessage', () => {
           task_mode: 'standard',
         }),
       }),
+      expect.any(Object),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('深度思考只对开启它的对话生效：别的对话开着，新对话仍按关闭发送', async () => {
+    const store = createStore();
+    store.dispatch(setReasoningEnabled({ chatId: 'other-conv', enabled: true }));
+    sendMessageStreamMock.mockImplementation(
+      async (_payload: any, callbacks: StreamCallbacks) => {
+        callbacks.onReady({ messageId: 'assistant-1', conversationId: 'server-conv' });
+        callbacks.onAnswering({ block_id: 'blk_c', delta: 'answer' });
+        callbacks.onDone({ messageId: 'assistant-1', conversationId: 'server-conv' });
+      }
+    );
+    const { result } = renderHook(() => useSendMessage(), {
+      wrapper: createWrapper(store),
+    });
+
+    await act(async () => {
+      await result.current.sendMessage('你好', { conversationId: null });
+    });
+    expect(sendMessageStreamMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ options: expect.objectContaining({ use_reasoning: false }) }),
+      expect.any(Object),
+      expect.any(AbortSignal),
+    );
+
+    store.dispatch(setReasoningEnabled({ chatId: NEW_CHAT_AGENT_MODE_KEY, enabled: true }));
+    await act(async () => {
+      await result.current.sendMessage('再问一个', { conversationId: null });
+    });
+    expect(sendMessageStreamMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ options: expect.objectContaining({ use_reasoning: true }) }),
       expect.any(Object),
       expect.any(AbortSignal),
     );

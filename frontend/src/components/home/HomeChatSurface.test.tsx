@@ -84,7 +84,7 @@ vi.mock('@/redux/hooks', () => ({
       conversation: {
         byId: pendingConversationState.byId,
         pendingConversationId: pendingConversationState.id,
-        reasoningEnabled: false,
+        reasoningEnabledByChat: {},
       },
       // 流槽位按会话索引：假 stream 代表"当前那条流"，挂在它自己的会话 ID 下。
       stream: {

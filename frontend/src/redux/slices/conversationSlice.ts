@@ -79,7 +79,9 @@ interface ConversationState {
   suggestedQuestionsObservations: Record<string, { messageIds: string[] }>;
   pendingConversationId: string | null;
   animatingTitleId: string | null;
-  reasoningEnabled: boolean;
+  // 用户在各对话里手动开启的深度思考（键同执行模式）。没开过的对话、新对话一律关闭；
+  // 后端不记录这项选择，刷新后回到关闭。
+  reasoningEnabledByChat: Record<string, boolean>;
   // 用户在各对话里手动选的执行模式（键为对话 id；新对话页用 NEW_CHAT_AGENT_MODE_KEY）。
   // 未选过的对话按最近一次运行的配置还原，见 selectComposerAgentMode。
   composerAgentModeByChat: Record<string, ComposerAgentMode>;
@@ -107,7 +109,7 @@ const initialState: ConversationState = {
   suggestedQuestionsObservations: {},
   pendingConversationId: null,
   animatingTitleId: null,
-  reasoningEnabled: false,
+  reasoningEnabledByChat: {},
   composerAgentModeByChat: {},
   globalError: null,
   searchResults: null,
@@ -289,10 +291,9 @@ const conversationSlice = createSlice({
       });
     },
     resetConversationListForAuthChange(state) {
-      const { reasoningEnabled, conversationListEpoch } = state;
+      const { conversationListEpoch } = state;
       Object.assign(state, {
         ...initialState,
-        reasoningEnabled,
         conversationListEpoch: conversationListEpoch + 1,
       });
     },
@@ -680,6 +681,11 @@ const conversationSlice = createSlice({
       if (pendingAgentMode !== undefined) {
         state.composerAgentModeByChat[serverConversation.id] = pendingAgentMode;
       }
+      const pendingReasoning = state.reasoningEnabledByChat[pendingId];
+      delete state.reasoningEnabledByChat[pendingId];
+      if (pendingReasoning !== undefined) {
+        state.reasoningEnabledByChat[serverConversation.id] = pendingReasoning;
+      }
       state.listIds.unshift(serverConversation.id);
       state.hydrationStatus[serverConversation.id] = 'done';
       state.pendingConversationId = null;
@@ -699,28 +705,37 @@ const conversationSlice = createSlice({
     setAnimatingTitleId(state, action: PayloadAction<string | null>) {
       state.animatingTitleId = action.payload;
     },
-    setReasoningEnabled(state, action: PayloadAction<boolean>) {
-      state.reasoningEnabled = action.payload;
+    setReasoningEnabled(state, action: PayloadAction<{ chatId: string; enabled: boolean }>) {
+      if (action.payload.enabled) {
+        state.reasoningEnabledByChat[action.payload.chatId] = true;
+      } else {
+        delete state.reasoningEnabledByChat[action.payload.chatId];
+      }
     },
     setComposerAgentMode(state, action: PayloadAction<{ chatId: string; mode: ComposerAgentMode }>) {
       state.composerAgentModeByChat[action.payload.chatId] = action.payload.mode;
     },
-    // 新对话发出首条消息后，新对话页的选择转给刚创建的对话，新对话页回到自动模式。
+    // 新对话发出首条消息后，新对话页的选择（执行模式、深度思考）转给刚创建的对话，
+    // 新对话页回到自动模式、深度思考关闭。
     adoptNewChatAgentMode(state, action: PayloadAction<string>) {
       const mode = state.composerAgentModeByChat[NEW_CHAT_AGENT_MODE_KEY];
       if (mode !== undefined) {
         state.composerAgentModeByChat[action.payload] = mode;
       }
       delete state.composerAgentModeByChat[NEW_CHAT_AGENT_MODE_KEY];
+      if (state.reasoningEnabledByChat[NEW_CHAT_AGENT_MODE_KEY]) {
+        state.reasoningEnabledByChat[action.payload] = true;
+      }
+      delete state.reasoningEnabledByChat[NEW_CHAT_AGENT_MODE_KEY];
     },
     setGlobalError(state, action: PayloadAction<string | null>) {
       state.globalError = action.payload;
     },
     resetConversationState(state) {
-      const { reasoningEnabled, composerAgentModeByChat, conversationListEpoch } = state;
+      const { reasoningEnabledByChat, composerAgentModeByChat, conversationListEpoch } = state;
       Object.assign(state, {
         ...initialState,
-        reasoningEnabled,
+        reasoningEnabledByChat,
         composerAgentModeByChat,
         conversationListEpoch: conversationListEpoch + 1,
       });
@@ -734,10 +749,9 @@ const conversationSlice = createSlice({
       );
     });
     builder.addCase(accountSessionSwitchStarted, (state) => {
-      const { reasoningEnabled, conversationListEpoch } = state;
+      const { conversationListEpoch } = state;
       Object.assign(state, {
         ...initialState,
-        reasoningEnabled,
         conversationListEpoch: conversationListEpoch + 1,
       });
     });
@@ -789,6 +803,14 @@ export const {
 } = conversationSlice.actions;
 
 export default conversationSlice.reducer;
+
+/** 当前对话是否开启深度思考：只看用户在这个对话（或新对话页）里的手动选择，默认关闭。 */
+export function selectReasoningEnabled(
+  state: { conversation: Pick<ConversationState, 'reasoningEnabledByChat'> },
+  chatId: string | null | undefined,
+): boolean {
+  return state.conversation.reasoningEnabledByChat[chatId || NEW_CHAT_AGENT_MODE_KEY] === true;
+}
 
 /**
  * 当前对话的执行模式：用户在该对话里选过就用选择；否则按该对话最近一次运行的配置还原；
