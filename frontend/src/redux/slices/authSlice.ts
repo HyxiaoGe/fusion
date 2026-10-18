@@ -359,10 +359,10 @@ export const { setToken, logout, remoteSessionCleared, checkUserState, resolveSe
 // 这里只负责把 access token 灌进 Redux 占位并拉取 fusion 自己的完整 profile。
 // status 非 authenticated（非回调或授权未完成）时软回首页，不报错。
 export const completeLogin = createAsyncThunk<
-  { redirectPath: string },
+  { redirectPath: string; signedInEmail?: string },
   void,
   { state: { auth: AuthState }; rejectValue: string }
->('auth/completeLogin', async (_, { dispatch, rejectWithValue }) => {
+>('auth/completeLogin', async (_, { dispatch, getState, rejectWithValue }) => {
   try {
     const result = await completeSsoCallback();
     if (result.status === 'authenticated') {
@@ -370,6 +370,8 @@ export const completeLogin = createAsyncThunk<
       if (token) {
         dispatch(setToken(token));
         await dispatch(fetchUserProfile({ expectedToken: token }));
+        const signedInEmail = getState().auth.user?.email ?? result.user.email ?? '';
+        return { redirectPath: result.redirectPath || '/', signedInEmail };
       }
       return { redirectPath: result.redirectPath || '/' };
     }
@@ -386,16 +388,17 @@ export const completeLogin = createAsyncThunk<
 // 注入 Redux 并拉取 Fusion 自己的 profile。没有 token 说明 SDK completion 未成功，不能
 // 为了关闭弹窗而伪造登录态。
 export const completeEmailCodeLogin = createAsyncThunk<
-  void,
+  { signedInEmail: string },
   void,
   { state: { auth: AuthState }; rejectValue: string }
->('auth/completeEmailCodeLogin', async (_, { dispatch, rejectWithValue }) => {
+>('auth/completeEmailCodeLogin', async (_, { dispatch, getState, rejectWithValue }) => {
   const token = getStoredAccessToken();
   if (!token) return rejectWithValue('missing access token after email-code completion');
   dispatch(setToken(token));
   // token 已足以建立 Redux 登录态；完整 profile 后台刷新，不能延长验证码 verify 的
   // 不可关闭临界区。createAsyncThunk 的 dispatch promise 会自行收敛，不产生未处理拒绝。
   void dispatch(fetchUserProfile({ expectedToken: token }));
+  return { signedInEmail: getState().auth.user?.email ?? '' };
 });
 
 // userinfo / 存活探测失败是否为「服务端明确拒绝」（401 未授权 / 403 禁止）——即别处已登出 / 令牌

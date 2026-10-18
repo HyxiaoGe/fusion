@@ -48,6 +48,8 @@
       "emailCodeLogin": "Sign in with email verification code",
       "configurationMissing": "Sign-in configuration is unavailable. Try again later.",
       "loginFailed": "Sign-in failed. Try again.",
+      "loginSucceeded": "Signed in",
+      "loginSucceededWithEmail": "Signed in as {{email}}",
       "closeDialog": "Close sign-in dialog",
       "accountSwitch": {
         "syncingTitle": "Synchronizing your account",

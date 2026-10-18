@@ -22,6 +22,7 @@ import {
   verifyEmailCodeLogin,
 } from "@/lib/auth/emailCodeAuth";
 import { isAuthConfigured } from "@/lib/auth/auth-sdk";
+import { notifyLoginSucceeded } from "@/lib/auth/loginNotice";
 import {
   getEmailLoginCapabilities,
   startSsoLogin,
@@ -188,7 +189,8 @@ export function LoginDialog({
 
   const handleVerifyEmailCode = async (input: Parameters<typeof verifyEmailCodeLogin>[0]) => {
     await verifyEmailCodeLogin(input);
-    await dispatch(completeEmailCodeLogin()).unwrap();
+    const { signedInEmail } = await dispatch(completeEmailCodeLogin()).unwrap();
+    notifyLoginSucceeded(signedInEmail);
   };
 
   const handleEmailAuthenticated = () => handleDialogOpenChange(false);
