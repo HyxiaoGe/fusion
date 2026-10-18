@@ -107,7 +107,7 @@ const initialState: ConversationState = {
   suggestedQuestionsObservations: {},
   pendingConversationId: null,
   animatingTitleId: null,
-  reasoningEnabled: true,
+  reasoningEnabled: false,
   composerAgentModeByChat: {},
   globalError: null,
   searchResults: null,

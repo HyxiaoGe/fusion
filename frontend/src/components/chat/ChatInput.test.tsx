@@ -629,13 +629,24 @@ describe('ChatInput', () => {
     ).toBeNull());
   });
 
+  it('深度思考默认关闭；本浏览器手动开启过时挂载后恢复为开启', () => {
+    configureAuthenticatedVisionModel();
+    const { unmount } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
+    expect(setReasoningEnabledMock).not.toHaveBeenCalled();
+    unmount();
+
+    localStorage.setItem('fusion.deepThinkingEnabled', '1');
+    render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
+    expect(setReasoningEnabledMock).toHaveBeenCalledWith(true);
+  });
+
   it('窄屏工具栏隐藏思考文字并保留可收缩边界', () => {
     configureAuthenticatedVisionModel();
     render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
 
     const toolbar = screen.getByRole('toolbar', { name: '消息工具栏' });
     expect(toolbar).toHaveClass('min-w-0');
-    expect(screen.getByText('推理')).toHaveClass('hidden', 'min-[420px]:inline');
+    expect(screen.getByText('深度思考')).toHaveClass('hidden', 'min-[420px]:inline');
     // 模式名不截断，窄屏只省掉“模式：”前缀
     expect(screen.getByText('模式：')).toHaveClass('hidden', 'min-[420px]:inline');
     expect(screen.getByRole('button', { name: '执行模式：自动' })).toHaveTextContent('模式：自动');
@@ -1277,7 +1288,7 @@ describe('ChatInput', () => {
     });
 
     expect(recoverableErrors).toEqual([]);
-    expect(container.textContent).toContain('推理已开');
+    expect(container.textContent).toContain('深度思考');
 
     await act(async () => {
       root?.unmount();
@@ -2352,12 +2363,13 @@ describe('ChatInput', () => {
     );
 
     expect(screen.getByRole('button', { name: '上传图片' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: '思考模式' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: '深度思考' })).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByRole('button', { name: '执行模式：自动' })).toHaveTextContent('自动');
     expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
 
-    fireEvent.click(screen.getByRole('button', { name: '思考模式' }));
+    fireEvent.click(screen.getByRole('button', { name: '深度思考' }));
     expect(setReasoningEnabledMock).toHaveBeenCalledWith(true);
+    expect(localStorage.getItem('fusion.deepThinkingEnabled')).toBe('1');
     fireEvent.pointerDown(screen.getByRole('button', { name: '执行模式：自动' }), {
       button: 0,
       ctrlKey: false,
@@ -2393,7 +2405,7 @@ describe('ChatInput', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: '思考模式' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '深度思考' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: '执行模式：规划执行' })).toHaveTextContent('规划执行');
 
     currentState.streamSlot.isStreaming = true;
