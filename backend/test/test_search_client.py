@@ -116,3 +116,33 @@ class SearchClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls[0]["json"]["count"], 8)
         self.assertEqual(calls[0]["json"]["domain_filters"], ["openai.com"])
         self.assertEqual(calls[0]["json"]["freshness"], "pm")
+
+    async def test_search_images_pins_provider_whose_format_handler_accepts(self):
+        from app.services.external.search_client import search_images
+        from app.services.tool_handlers.image_search import IMAGE_RESULT_PROVIDERS
+
+        calls = []
+
+        class FakeAsyncClient:
+            def __init__(self, timeout: int):
+                self.timeout = timeout
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, _exc_type, _exc, _tb):
+                return False
+
+            async def post(self, url: str, json: dict):
+                calls.append({"url": url, "json": json})
+                return httpx.Response(
+                    200,
+                    json={"result_provider": "firecrawl", "results": []},
+                    request=httpx.Request("POST", url),
+                )
+
+        with patch("app.services.external.search_client.httpx.AsyncClient", FakeAsyncClient):
+            await search_images("猫", count=4)
+
+        self.assertEqual(calls[0]["json"]["type"], "image")
+        self.assertIn(calls[0]["json"]["provider"], IMAGE_RESULT_PROVIDERS)

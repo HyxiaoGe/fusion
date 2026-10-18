@@ -79,13 +79,17 @@ def _freshness_from_recency_days(recency_days: int | None) -> str | None:
     return "py"
 
 
+# 图片结果只有 Firecrawl 的格式经过适配；显式指定，不随 search-service 默认网页 provider 变化。
+IMAGE_SEARCH_PROVIDER = "firecrawl"
+
+
 async def search_images(query: str, count: int = 8) -> dict:
     """调用 search-service 图片搜索，返回原始 results 与实际服务商；失败抛给 handler 转成结构化失败。"""
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             resp = await client.post(
                 f"{settings.SEARCH_SERVICE_URL}/search",
-                json={"query": query, "type": "image", "count": count},
+                json={"query": query, "type": "image", "count": count, "provider": IMAGE_SEARCH_PROVIDER},
             )
             resp.raise_for_status()
             data = resp.json()
