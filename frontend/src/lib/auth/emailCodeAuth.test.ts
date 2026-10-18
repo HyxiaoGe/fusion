@@ -2,20 +2,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   configureAuthMock,
-  clearSsoReturnMock,
+  clearExplicitLogoutMock,
   prepareAuthorizationMock,
   completeAuthorizationMock,
   cancelAuthorizationMock,
 } = vi.hoisted(() => ({
   configureAuthMock: vi.fn(),
-  clearSsoReturnMock: vi.fn(),
+  clearExplicitLogoutMock: vi.fn(),
   prepareAuthorizationMock: vi.fn(),
   completeAuthorizationMock: vi.fn(),
   cancelAuthorizationMock: vi.fn(),
 }));
 
 vi.mock('./auth-sdk', () => ({ configureAuth: configureAuthMock }));
-vi.mock('./sso-probe', () => ({ clearSsoReturn: clearSsoReturnMock }));
+vi.mock('./sso-probe', () => ({ clearExplicitLogout: clearExplicitLogoutMock }));
 vi.mock('../config', () => ({
   AUTH_SERVICE_CONFIG: {
     BASE_URL: 'https://auth-hosted.example.com/',
@@ -101,7 +101,7 @@ describe('emailCodeAuth', () => {
     });
 
     expect(configureAuthMock).toHaveBeenCalledTimes(1);
-    expect(clearSsoReturnMock).toHaveBeenCalledTimes(1);
+    expect(clearExplicitLogoutMock).toHaveBeenCalledTimes(1);
     expect(prepareAuthorizationMock).toHaveBeenCalledWith();
     expect(fetchMock).toHaveBeenNthCalledWith(1, 'http://127.0.0.1:18100/auth/email/headless/start', {
       method: 'POST',

@@ -21,7 +21,6 @@ const {
   restoreLocalSessionMock,
   resolveSessionMock,
   setGlobalToastMock,
-  maybeSilentLoginMock,
   canAutoResumeSessionMock,
   subscribeSsoStateMock,
   getStoredAccessTokenMock,
@@ -70,7 +69,6 @@ const {
   })),
   resolveSessionMock: vi.fn(() => ({ type: 'auth/resolveSession' })),
   setGlobalToastMock: vi.fn(),
-  maybeSilentLoginMock: vi.fn(() => false),
   canAutoResumeSessionMock: vi.fn(() => true),
   subscribeSsoStateMock: vi.fn(() => vi.fn()),
   getStoredAccessTokenMock: vi.fn<() => string | null>(() => null),
@@ -144,7 +142,6 @@ vi.mock('@/redux/slices/authSlice', () => ({
 }));
 
 vi.mock('@/lib/auth/sso-probe', () => ({
-  maybeSilentLogin: maybeSilentLoginMock,
   canAutoResumeSession: canAutoResumeSessionMock,
 }));
 
@@ -198,6 +195,12 @@ describe('ClientLayout', () => {
     currentAuthState.sessionResolved = false;
     localStorage.clear();
     appDispatchMock.mockReset();
+    appDispatchMock.mockImplementation((action) => {
+      if (action?.type === 'auth/resumeSsoSession') {
+        return { unwrap: () => Promise.resolve('no_session') };
+      }
+      return action;
+    });
     reduxDispatchMock.mockReset();
     useAppDispatchMock.mockReturnValue(appDispatchMock);
     useAppSelectorMock.mockImplementation(selector => selector({ auth: currentAuthState }));
@@ -218,8 +221,6 @@ describe('ClientLayout', () => {
     restoreLocalSessionMock.mockClear();
     resolveSessionMock.mockClear();
     setGlobalToastMock.mockClear();
-    maybeSilentLoginMock.mockReset();
-    maybeSilentLoginMock.mockReturnValue(false);
     canAutoResumeSessionMock.mockReset();
     canAutoResumeSessionMock.mockReturnValue(true);
     subscribeSsoStateMock.mockClear();
@@ -315,9 +316,12 @@ describe('ClientLayout', () => {
   });
 
   it('游客模式可用时以游客身份进入，不弹登录框', async () => {
-    appDispatchMock.mockImplementation((action: { type?: string } | undefined) => (
-      action?.type === 'guest/bootstrap' ? { guestReady: true } : action
-    ));
+    appDispatchMock.mockImplementation((action: { type?: string } | undefined) => {
+      if (action?.type === 'auth/resumeSsoSession') {
+        return { unwrap: () => Promise.resolve('no_session') };
+      }
+      return action?.type === 'guest/bootstrap' ? { guestReady: true } : action;
+    });
 
     render(
       React.createElement(
@@ -533,6 +537,7 @@ describe('ClientLayout', () => {
     render(
       React.createElement(ClientLayout, null, React.createElement('div', null, 'child'))
     );
+    await waitFor(() => expect(resolveSessionMock).toHaveBeenCalledTimes(1));
     appDispatchMock.mockClear();
 
     window.dispatchEvent(new Event('focus'));
@@ -567,6 +572,7 @@ describe('ClientLayout', () => {
     render(
       React.createElement(ClientLayout, null, React.createElement('div', null, 'child'))
     );
+    await waitFor(() => expect(resolveSessionMock).toHaveBeenCalledTimes(1));
     appDispatchMock.mockClear();
     now.mockReturnValue(14_000);
 
@@ -615,33 +621,60 @@ describe('ClientLayout', () => {
     expect(appDispatchMock).toHaveBeenCalledWith({ type: 'auth/resumeSsoSession' });
   });
 
-  it('does NOT open the login dialog when the silent SSO probe fires (page is navigating away)', async () => {
-    maybeSilentLoginMock.mockReturnValue(true);
+  it('restores the central session on first load without navigating away', async () => {
+    // 没有本地 token：首屏只走 POST /auth/session/resume，不做顶层 prompt=none 跳转。
+    appDispatchMock.mockImplementation((action) => {
+      if (action?.type === 'auth/resumeSsoSession') {
+        return { unwrap: () => Promise.resolve('resumed') };
+      }
+      return action;
+    });
 
     render(
-      React.createElement(
-        ClientLayout,
-        null,
-        React.createElement('div', null, 'child')
-      )
+      React.createElement(ClientLayout, null, React.createElement('div', null, 'child'))
     );
 
-    const expectedPath = window.location.pathname + window.location.search;
-    await waitFor(() => {
-      expect(maybeSilentLoginMock).toHaveBeenCalledTimes(1);
-    });
-    // Pin the captured origin argument (a regression passing '' or the wrong value must fail).
-    expect(maybeSilentLoginMock).toHaveBeenCalledWith(expectedPath);
-
-    // Wait past the 1500ms dialog timer to prove it was never armed (probe redirected away).
+    await waitFor(() => expect(resumeSsoSessionMock).toHaveBeenCalledTimes(1));
+    expect(canAutoResumeSessionMock).toHaveBeenCalledWith(
+      window.location.pathname + window.location.search
+    );
     await new Promise(resolve => setTimeout(resolve, 1700));
 
+    expect(resolveSessionMock).not.toHaveBeenCalled();
     expect(screen.getByTestId('login-dialog').getAttribute('data-open')).toBe('false');
   });
 
-  it('resolves the session (reveals the login terminal) when staying logged-out — no silent probe', async () => {
-    // 未登录、没有发起静默 SSO 跳转：会话已定论为登出，派发 resolveSession 解锁头像菜单的「登录」终态。
-    maybeSilentLoginMock.mockReturnValue(false);
+  it('resolves the session (reveals the login terminal) when the central resume reports no session', async () => {
+    render(
+      React.createElement(ClientLayout, null, React.createElement('div', null, 'child'))
+    );
+
+    await waitFor(() => {
+      expect(appDispatchMock).toHaveBeenCalledWith({ type: 'auth/resolveSession' });
+    });
+    expect(resumeSsoSessionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT resolve the session while the central resume is in flight (avoids the login-button flash)', async () => {
+    appDispatchMock.mockImplementation((action) => {
+      if (action?.type === 'auth/resumeSsoSession') {
+        return { unwrap: () => new Promise(() => {}) };
+      }
+      return action;
+    });
+
+    render(
+      React.createElement(ClientLayout, null, React.createElement('div', null, 'child'))
+    );
+
+    await waitFor(() => expect(resumeSsoSessionMock).toHaveBeenCalledTimes(1));
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    expect(appDispatchMock).not.toHaveBeenCalledWith({ type: 'auth/resolveSession' });
+  });
+
+  it('reveals the login terminal without resuming after explicit logout', async () => {
+    canAutoResumeSessionMock.mockReturnValue(false);
 
     render(
       React.createElement(ClientLayout, null, React.createElement('div', null, 'child'))
@@ -650,23 +683,10 @@ describe('ClientLayout', () => {
     await waitFor(() => {
       expect(appDispatchMock).toHaveBeenCalledWith({ type: 'auth/resolveSession' });
     });
+    expect(resumeSsoSessionMock).not.toHaveBeenCalled();
   });
 
-  it('does NOT resolve the session while a silent SSO recovery is in flight (avoids the login-button flash)', async () => {
-    // 静默恢复在途（页面正跳走换码）：会话尚未定论，绝不 resolveSession，否则头像会先闪「登录」再翻头像。
-    maybeSilentLoginMock.mockReturnValue(true);
-
-    render(
-      React.createElement(ClientLayout, null, React.createElement('div', null, 'child'))
-    );
-
-    await waitFor(() => expect(maybeSilentLoginMock).toHaveBeenCalled());
-    await new Promise(resolve => setTimeout(resolve, 50));
-
-    expect(appDispatchMock).not.toHaveBeenCalledWith({ type: 'auth/resolveSession' });
-  });
-
-  it('restores a preserved local refresh session before attempting silent SSO', async () => {
+  it('restores a preserved local refresh session before attempting central resume', async () => {
     getStoredAccessTokenMock.mockReturnValue('expired-token');
     appDispatchMock.mockImplementation((action) => {
       if (action?.type === 'auth/restoreLocalSession') {
@@ -682,7 +702,7 @@ describe('ClientLayout', () => {
     await waitFor(() => {
       expect(restoreLocalSessionMock).toHaveBeenCalledTimes(1);
     });
-    expect(maybeSilentLoginMock).not.toHaveBeenCalled();
+    expect(resumeSsoSessionMock).not.toHaveBeenCalled();
     expect(resolveSessionMock).not.toHaveBeenCalled();
   });
 
@@ -704,7 +724,6 @@ describe('ClientLayout', () => {
 
     await waitFor(() => expect(resumeSsoSessionMock).toHaveBeenCalledTimes(1));
     expect(restoreLocalSessionMock).toHaveBeenCalledTimes(1);
-    expect(maybeSilentLoginMock).not.toHaveBeenCalled();
     expect(resolveSessionMock).not.toHaveBeenCalled();
   });
 
@@ -733,7 +752,6 @@ describe('ClientLayout', () => {
 
     expect(restoreLocalSessionMock).toHaveBeenCalledTimes(1);
     expect(resumeSsoSessionMock).toHaveBeenCalledTimes(4);
-    expect(maybeSilentLoginMock).not.toHaveBeenCalled();
     expect(resolveSessionMock).toHaveBeenCalledTimes(1);
   });
 
@@ -753,7 +771,7 @@ describe('ClientLayout', () => {
     await waitFor(() => {
       expect(restoreLocalSessionMock).toHaveBeenCalledTimes(1);
     });
-    expect(maybeSilentLoginMock).not.toHaveBeenCalled();
+    expect(resumeSsoSessionMock).not.toHaveBeenCalled();
     expect(resolveSessionMock).not.toHaveBeenCalled();
   });
 
@@ -790,7 +808,7 @@ describe('ClientLayout', () => {
     });
 
     expect(restoreLocalSessionMock).toHaveBeenCalledTimes(2);
-    expect(maybeSilentLoginMock).not.toHaveBeenCalled();
+    expect(resumeSsoSessionMock).not.toHaveBeenCalled();
     expect(resolveSessionMock).not.toHaveBeenCalled();
   });
 
@@ -801,9 +819,11 @@ describe('ClientLayout', () => {
       if (action?.type === 'auth/restoreLocalSession') {
         return { unwrap: () => Promise.resolve('transient_failure') };
       }
+      if (action?.type === 'auth/resumeSsoSession') {
+        return { unwrap: () => Promise.resolve('resumed') };
+      }
       return action;
     });
-    maybeSilentLoginMock.mockReturnValue(true);
 
     render(
       React.createElement(ClientLayout, null, React.createElement('div', null, 'child'))
@@ -816,7 +836,7 @@ describe('ClientLayout', () => {
     });
 
     expect(restoreLocalSessionMock).toHaveBeenCalledTimes(4);
-    expect(maybeSilentLoginMock).toHaveBeenCalledTimes(1);
+    expect(resumeSsoSessionMock).toHaveBeenCalledTimes(1);
     expect(resolveSessionMock).not.toHaveBeenCalled();
   });
 
@@ -847,7 +867,7 @@ describe('ClientLayout', () => {
     render(
       React.createElement(ClientLayout, null, React.createElement('div', null, 'child'))
     );
-    await waitFor(() => expect(maybeSilentLoginMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(resolveSessionMock).toHaveBeenCalledTimes(1));
 
     getStoredAccessTokenMock.mockReturnValue('expired-token');
     restoreLocalSessionMock.mockClear();
@@ -875,7 +895,7 @@ describe('ClientLayout', () => {
     render(
       React.createElement(ClientLayout, null, React.createElement('div', null, 'child'))
     );
-    await waitFor(() => expect(maybeSilentLoginMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(resolveSessionMock).toHaveBeenCalledTimes(1));
 
     getStoredAccessTokenMock.mockReturnValue('expired-token');
     restoreLocalSessionMock.mockClear();
@@ -903,9 +923,10 @@ describe('ClientLayout', () => {
     render(
       React.createElement(ClientLayout, null, React.createElement('div', null, 'child'))
     );
-    await waitFor(() => expect(maybeSilentLoginMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(resolveSessionMock).toHaveBeenCalledTimes(1));
 
     getStoredAccessTokenMock.mockReturnValue('expired-token');
+    resumeSsoSessionMock.mockClear();
     resolveSessionMock.mockClear();
     appDispatchMock.mockClear();
     appDispatchMock.mockImplementation((action) => {
@@ -925,27 +946,29 @@ describe('ClientLayout', () => {
     expect(resumeSsoSessionMock).toHaveBeenCalledTimes(1);
   });
 
-  it('falls back to silent SSO only after the SDK definitively reports no local session', async () => {
+  it('falls back to central resume only after the SDK definitively reports no local session', async () => {
     getStoredAccessTokenMock.mockReturnValue('expired-token');
     appDispatchMock.mockImplementation((action) => {
       if (action?.type === 'auth/restoreLocalSession') {
         return { unwrap: () => Promise.resolve('no_session') };
       }
+      if (action?.type === 'auth/resumeSsoSession') {
+        return { unwrap: () => Promise.resolve('resumed') };
+      }
       return action;
     });
-    maybeSilentLoginMock.mockReturnValue(true);
 
     render(
       React.createElement(ClientLayout, null, React.createElement('div', null, 'child'))
     );
 
     await waitFor(() => {
-      expect(maybeSilentLoginMock).toHaveBeenCalledTimes(1);
+      expect(resumeSsoSessionMock).toHaveBeenCalledTimes(1);
     });
     expect(resolveSessionMock).not.toHaveBeenCalled();
   });
 
-  it('keeps the session unresolved while a definitive local miss is falling back to silent SSO', async () => {
+  it('keeps the session unresolved while a definitive local miss is falling back to central resume', async () => {
     getStoredAccessTokenMock.mockReturnValue('expired-token');
     let listener: ((state: {
       status: 'unauthenticated';
@@ -965,9 +988,11 @@ describe('ClientLayout', () => {
       if (action?.type === 'auth/restoreLocalSession') {
         return { unwrap: () => recovery };
       }
+      if (action?.type === 'auth/resumeSsoSession') {
+        return { unwrap: () => new Promise(() => {}) };
+      }
       return action;
     });
-    maybeSilentLoginMock.mockReturnValue(true);
 
     render(
       React.createElement(ClientLayout, null, React.createElement('div', null, 'child'))
@@ -982,7 +1007,7 @@ describe('ClientLayout', () => {
     expect(settleSdkUnauthenticatedSessionMock).not.toHaveBeenCalled();
 
     finishRecovery('no_session');
-    await waitFor(() => expect(maybeSilentLoginMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(resumeSsoSessionMock).toHaveBeenCalledTimes(1));
     expect(resolveSessionMock).not.toHaveBeenCalled();
   });
 });

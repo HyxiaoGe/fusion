@@ -26,7 +26,7 @@ import {
   type ClearLocalSessionResult,
 } from 'auth-client-web';
 import { configureAuth } from './auth-sdk';
-import { clearSsoReturn } from './sso-probe';
+import { clearExplicitLogout } from './sso-probe';
 import { API_CONFIG, AUTH_SERVICE_CONFIG, getAuthCallbackUrl } from '../config';
 
 const USER_PROFILE_KEY = 'user_profile';
@@ -92,8 +92,8 @@ export async function startSsoLogin(
   redirectPath?: string
 ): Promise<void> {
   configureAuth();
-  // 交互式登录前清掉残留的静默探测原始路径，避免被放弃的探测劫持本次登录的重定向目标。
-  clearSsoReturn();
+  // 主动登录开启新的认证生命周期：清掉过去显式登出的守卫。
+  clearExplicitLogout();
   await sdkLogin(provider, redirectPath ? { redirectPath } : undefined);
 }
 

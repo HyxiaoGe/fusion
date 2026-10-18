@@ -106,14 +106,4 @@ describe('AuthCallbackPage (SDK callback)', () => {
     const { queryByText } = render(React.createElement(AuthCallbackPage));
     expect(queryByText(AUTHORIZING)).toBeNull();
   });
-
-  it('silent probe transit (?code but a pending return): neutral, NOT "正在完成授权"', () => {
-    window.history.pushState({}, '', '/auth/callback?code=abc&state=s');
-    sessionStorage.setItem('fusion_sso_return', '/chat/9'); // a probe captured the origin first
-    unwrapMock.mockReturnValue(new Promise(() => {}));
-    const { queryByText } = render(React.createElement(AuthCallbackPage));
-    expect(queryByText(AUTHORIZING)).toBeNull();
-    sessionStorage.clear();
-    window.history.pushState({}, '', '/');
-  });
 });

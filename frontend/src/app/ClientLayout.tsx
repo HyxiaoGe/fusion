@@ -33,7 +33,7 @@ import {
   resumeSsoSession,
   settleSdkUnauthenticatedSession,
 } from "@/redux/slices/authSlice";
-import { canAutoResumeSession, maybeSilentLogin } from "@/lib/auth/sso-probe";
+import { canAutoResumeSession } from "@/lib/auth/sso-probe";
 import { getStoredAccessToken, subscribeSsoState } from "@/lib/auth/authService";
 import {
   beginAuthSessionTransition,
@@ -202,7 +202,7 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
       }
       void recoverUnauthenticatedSession();
     };
-    // 保留既有登录态挂载即对账行为；未登录首屏仍交给 maybeSilentLogin，避免双探测竞态。
+    // 保留既有登录态挂载即对账行为；未登录首屏由下方初始恢复负责，避免双探测竞态。
     return registerBackgroundTask(runSessionProbe, {
       intervalMs: 5 * 60 * 1000,
       minGapMs: 3000,
@@ -255,13 +255,12 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
 
       const continueWithCentralSession = () => {
         if (cancelled) return;
-        // 本地 SDK 已确定性无会话后，再做一次性静默 SSO 探测（跨应用免登）。
+        // 本地 SDK 已确定性无会话后，做一次无跳转的中央会话恢复（跨应用免登）。
         const path = window.location.pathname + window.location.search;
-        if (maybeSilentLogin(path)) {
-          // 静默 SSO 恢复已发起（页面正跳走换码）：会话尚未定论，保持未定论 → 头像菜单显示中性占位。
+        if (canAutoResumeSession(path)) {
+          void resumeCentralWithoutNavigation();
           return;
         }
-        // 本地 refresh 和中央 SSO 均未恢复：此时才把会话定论为登出。
         revealLoginTerminal();
       };
 
@@ -276,8 +275,8 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
           }
           initialLocalRecoveryInFlight.current = false;
           if (result === 'no_session') {
-            // auth-service 已明确响应且没有中央 Cookie，会话协议兼容才需要顶层 prompt=none。
-            continueWithCentralSession();
+            // 本地 refresh 和中央会话均未恢复：此时才把会话定论为登出。
+            revealLoginTerminal();
           }
         } catch {
           const retryDelay = INITIAL_LOCAL_RECOVERY_DELAYS_MS[attempt];

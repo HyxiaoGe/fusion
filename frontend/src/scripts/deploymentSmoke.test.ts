@@ -35,10 +35,9 @@ describe('deployment smoke helpers', () => {
     expect(buildSmokeUrl('https://fusion.example.com/')).toBe('https://fusion.example.com/chat/new');
   });
 
-  it('提供禁用静默 SSO 探测的 sessionStorage 标记', () => {
+  it('提供禁用中央会话恢复的 sessionStorage 标记', () => {
     expect(buildSmokeSessionStorageFlags()).toEqual({
       fusion_sso_logged_out: '1',
-      fusion_sso_probed: '1',
     });
   });
 

@@ -48,9 +48,7 @@ vi.mock('@/lib/auth/authService', () => ({
 }));
 
 vi.mock('@/lib/auth/sso-probe', () => ({
-  takeSsoReturnPath: vi.fn(() => null),
-  markSsoProbed: vi.fn(),
-  isSafeReturnPath: vi.fn(() => true),
+  markExplicitLogout: vi.fn(),
 }));
 
 vi.mock('../../lib/api/user', () => ({
