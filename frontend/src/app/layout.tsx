@@ -5,8 +5,8 @@ import { cn } from '@/lib/utils';
 import { Metadata, Viewport } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Fusion UI - 智能聊天界面',
-  description: '基于Next.js构建的现代化聊天应用',
+  title: 'Fusion',
+  description: 'Fusion 智能助手：对话、联网搜索、出行与天气查询、文档创作。',
   // 性能优化的meta标签
   robots: 'index,follow',
   // favicon.ico 由 src/app 文件约定输出；SVG 内部按系统明暗切换下半部颜色。
