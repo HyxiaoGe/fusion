@@ -21,6 +21,7 @@ import {
   setHydrationStatus,
   adoptNewChatAgentMode,
   selectComposerAgentMode,
+  selectReasoningEnabled,
   setPendingConversationId,
   updateConversationTitle,
   updateConversationKnowledgeBaseIds,
@@ -247,7 +248,6 @@ function postStreamActions(
 export function useSendMessage(activeConversationId?: string | null) {
   const dispatch = useAppDispatch();
   const store = useStore<RootState>();
-  const reasoningEnabled = useAppSelector((state) => state.conversation.reasoningEnabled);
   const authSessionKey = useAppSelector(selectAuthSessionKey);
   const conversationEpoch = useAppSelector(
     (state) => state.conversation.conversationListEpoch
@@ -908,8 +908,12 @@ export function useSendMessage(activeConversationId?: string | null) {
           return;
         }
       }
-      // 执行模式按对话取：新对话用新对话页的选择，已有对话用它自己的模式。
+      // 执行模式和深度思考按对话取：新对话用新对话页的选择，已有对话用它自己的设置。
       const conversationAgentMode = selectComposerAgentMode(
+        store.getState(),
+        isDraft ? null : options.conversationId,
+      );
+      const conversationReasoningEnabled = selectReasoningEnabled(
         store.getState(),
         isDraft ? null : options.conversationId,
       );
@@ -1138,7 +1142,7 @@ export function useSendMessage(activeConversationId?: string | null) {
         options.onDraftCreated?.(tempConvId);
       }
       const supportsReasoning = enabledModel.capabilities?.deepThinking ?? false;
-      const useReasoning = reasoningEnabled && supportsReasoning;
+      const useReasoning = conversationReasoningEnabled && supportsReasoning;
       let serverConvId: string | null = null;
       let materializedOnce = false;
       let postStreamActionsStarted = false;
@@ -1841,7 +1845,6 @@ export function useSendMessage(activeConversationId?: string | null) {
       dispatch,
       getSlot,
       hydrateAuthoritativeConversation,
-      reasoningEnabled,
       restoreRetryAssistant,
       stopStreaming,
       store,

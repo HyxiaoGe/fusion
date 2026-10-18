@@ -13,8 +13,11 @@ import reducer, {
   requestSuggestedQuestionsObservation,
   resetConversationState,
   acknowledgeConversationListRefresh,
+  adoptNewChatAgentMode,
   selectComposerAgentMode,
+  selectReasoningEnabled,
   setComposerAgentMode,
+  setReasoningEnabled,
   setConversationList,
   setHydrationStatus,
   setLastReadyConversationSnapshot,
@@ -54,6 +57,21 @@ describe('conversationSlice', () => {
     expect(selectComposerAgentMode({ conversation: reset }, 'conv-a')).toBe('deep_research');
     expect(selectComposerAgentMode({ conversation: reset }, 'conv-b')).toBe('auto');
     expect(selectComposerAgentMode({ conversation: reset }, null)).toBe('auto');
+  });
+
+  it('深度思考按对话记录，默认关闭；新对话首条消息发出后转给新对话，新对话页回到关闭', () => {
+    let state = reducer(undefined, setReasoningEnabled({ chatId: 'conv-a', enabled: true }));
+    expect(selectReasoningEnabled({ conversation: state }, 'conv-a')).toBe(true);
+    expect(selectReasoningEnabled({ conversation: state }, 'conv-b')).toBe(false);
+    expect(selectReasoningEnabled({ conversation: state }, null)).toBe(false);
+
+    state = reducer(state, setReasoningEnabled({ chatId: '__new_chat__', enabled: true }));
+    state = reducer(state, adoptNewChatAgentMode('conv-new'));
+    expect(selectReasoningEnabled({ conversation: state }, 'conv-new')).toBe(true);
+    expect(selectReasoningEnabled({ conversation: state }, null)).toBe(false);
+
+    state = reducer(state, setReasoningEnabled({ chatId: 'conv-a', enabled: false }));
+    expect(selectReasoningEnabled({ conversation: state }, 'conv-a')).toBe(false);
   });
 
   it('未手动选择的对话按最近一次运行配置还原模式', () => {
@@ -524,7 +542,7 @@ describe('conversationSlice', () => {
       suggestedQuestionsObservations: {},
       pendingConversationId: null,
       animatingTitleId: null,
-      reasoningEnabled: true,
+      reasoningEnabledByChat: { 'chat-a': true },
       composerAgentModeByChat: {},
       globalError: null,
       searchResults: null,
@@ -586,7 +604,7 @@ describe('conversationSlice', () => {
       suggestedQuestionsObservations: {},
       pendingConversationId: null,
       animatingTitleId: null,
-      reasoningEnabled: true,
+      reasoningEnabledByChat: { 'chat-a': true },
       composerAgentModeByChat: {},
       globalError: null,
       searchResults: null,
@@ -638,7 +656,7 @@ describe('conversationSlice', () => {
       suggestedQuestionsObservations: {},
       pendingConversationId: 'temp',
       animatingTitleId: null,
-      reasoningEnabled: true,
+      reasoningEnabledByChat: { 'chat-a': true },
       composerAgentModeByChat: {},
       globalError: null,
       searchResults: null,
