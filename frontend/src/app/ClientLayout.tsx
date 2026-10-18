@@ -1,6 +1,6 @@
 'use client';
 
-import { ToastProvider, setGlobalToast, useToast } from "@/components/ui/toast";
+import { ToastProvider, setGlobalToast, toast, useToast } from "@/components/ui/toast";
 import { useEffect, useRef, useState } from "react";
 import { initializeModels } from "@/lib/config/modelConfig";
 import { useDispatch } from "react-redux";
@@ -20,7 +20,6 @@ import {
 } from "@/redux/slices/guestSlice";
 import { GUEST_SESSION_INVALID_EVENT } from "@/lib/api/fetchWithAuth";
 
-import toast, { Toaster } from "react-hot-toast";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import {
@@ -418,7 +417,6 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
           </div>
         </div>
       )}
-      <Toaster position="bottom-center" />
       <NewVersionNotice />
       <LoginDialog open={isLoginDialogOpen} onOpenChange={handleDialogVisibilityChange} />
       <SettingsDialog />

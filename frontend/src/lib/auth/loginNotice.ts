@@ -1,4 +1,4 @@
-import toast from 'react-hot-toast';
+import { toast } from '@/components/ui/toast';
 import i18n from '@/lib/i18n';
 
 /** 交互式登录（授权回跳、邮箱验证码）在本标签完成后提示一次；静默恢复与跨标签同步不走这里。 */
