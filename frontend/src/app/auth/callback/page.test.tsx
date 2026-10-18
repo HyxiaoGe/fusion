@@ -4,12 +4,13 @@ import { hydrateRoot } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { dispatchMock, replaceMock, completeLoginMock, toastMock, unwrapMock } = vi.hoisted(() => ({
+const { dispatchMock, replaceMock, completeLoginMock, toastMock, unwrapMock, notifyLoginSucceededMock } = vi.hoisted(() => ({
   dispatchMock: vi.fn(),
   replaceMock: vi.fn(),
   completeLoginMock: vi.fn(() => ({ type: 'auth/completeLogin' })),
   toastMock: vi.fn(),
   unwrapMock: vi.fn(),
+  notifyLoginSucceededMock: vi.fn(),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -22,6 +23,10 @@ vi.mock('@/redux/hooks', () => ({
 
 vi.mock('@/redux/slices/authSlice', () => ({
   completeLogin: completeLoginMock,
+}));
+
+vi.mock('@/lib/auth/loginNotice', () => ({
+  notifyLoginSucceeded: notifyLoginSucceededMock,
 }));
 
 vi.mock('@/components/ui/toast', () => ({
@@ -48,6 +53,29 @@ describe('AuthCallbackPage (SDK callback)', () => {
       expect(replaceMock).toHaveBeenCalledWith('/chat/9');
       expect(toastMock).not.toHaveBeenCalled();
     });
+  });
+
+  it('交互式登录（带 ?code）成功后提示一次登录成功', async () => {
+    window.history.pushState({}, '', '/auth/callback?code=abc&state=s');
+    unwrapMock.mockResolvedValue({ redirectPath: '/chat/9', signedInEmail: 'a@b.com' });
+
+    render(React.createElement(AuthCallbackPage));
+
+    await waitFor(() => {
+      expect(notifyLoginSucceededMock).toHaveBeenCalledTimes(1);
+      expect(notifyLoginSucceededMock).toHaveBeenCalledWith('a@b.com');
+      expect(replaceMock).toHaveBeenCalledWith('/chat/9');
+    });
+  });
+
+  it('登出回跳（无 ?code）即使恢复了已有会话也不提示登录成功', async () => {
+    window.history.pushState({}, '', '/auth/callback');
+    unwrapMock.mockResolvedValue({ redirectPath: '/', signedInEmail: 'a@b.com' });
+
+    render(React.createElement(AuthCallbackPage));
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith('/'));
+    expect(notifyLoginSucceededMock).not.toHaveBeenCalled();
   });
 
   it('toasts an error and soft-lands at "/" when the callback fails', async () => {

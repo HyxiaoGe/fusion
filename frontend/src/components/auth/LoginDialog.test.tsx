@@ -16,6 +16,7 @@ const {
   startSsoLoginMock,
   toastMock,
   unwrapMock,
+  notifyLoginSucceededMock,
   verifyEmailCodeLoginMock,
 } = vi.hoisted(() => ({
   cancelEmailCodeLoginMock: vi.fn(),
@@ -29,6 +30,7 @@ const {
   startSsoLoginMock: vi.fn<(provider: 'github' | 'google') => Promise<void>>(),
   toastMock: vi.fn(),
   unwrapMock: vi.fn(),
+  notifyLoginSucceededMock: vi.fn(),
   verifyEmailCodeLoginMock: vi.fn(),
 }));
 
@@ -54,6 +56,10 @@ vi.mock('@/redux/hooks', () => ({
 
 vi.mock('@/redux/slices/authSlice', () => ({
   completeEmailCodeLogin: completeEmailCodeLoginMock,
+}));
+
+vi.mock('@/lib/auth/loginNotice', () => ({
+  notifyLoginSucceeded: notifyLoginSucceededMock,
 }));
 
 vi.mock('@/components/ui/toast', () => ({
@@ -89,7 +95,7 @@ describe('LoginDialog', () => {
     startEmailCodeLoginMock.mockResolvedValue(challenge);
     resendEmailCodeLoginMock.mockResolvedValue(challenge);
     verifyEmailCodeLoginMock.mockResolvedValue({ status: 'authenticated', user: { id: 'u1' }, redirectPath: '/' });
-    unwrapMock.mockResolvedValue(undefined);
+    unwrapMock.mockResolvedValue({ signedInEmail: 'u@example.com' });
     dispatchMock.mockReturnValue({ unwrap: unwrapMock });
     await i18n.changeLanguage('zh-CN');
   });
@@ -172,6 +178,7 @@ describe('LoginDialog', () => {
       expect(completeEmailCodeLoginMock).toHaveBeenCalledTimes(1);
       expect(dispatchMock).toHaveBeenCalledWith({ type: 'auth/completeEmailCodeLogin' });
       expect(unwrapMock).toHaveBeenCalledTimes(1);
+      expect(notifyLoginSucceededMock).toHaveBeenCalledWith('u@example.com');
       expect(onOpenChangeMock).toHaveBeenCalledWith(false);
     });
   });

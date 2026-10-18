@@ -95,7 +95,7 @@ describe('completeLogin thunk (SDK callback)', () => {
     const action = await store.dispatch(completeLogin());
 
     expect(completeLogin.fulfilled.match(action)).toBe(true);
-    expect(action.payload).toEqual({ redirectPath: '/chat/9' });
+    expect(action.payload).toEqual({ redirectPath: '/chat/9', signedInEmail: 'a@b.com' });
     expect(fetchUserProfileAPIMock).toHaveBeenCalledTimes(1);
     const state = store.getState().auth;
     expect(state.isAuthenticated).toBe(true);
@@ -166,7 +166,7 @@ describe('completeLogin thunk (SDK callback)', () => {
     const store = makeStore();
     const action = await store.dispatch(completeLogin());
 
-    expect(action.payload).toEqual({ redirectPath: '/chat/9' });
+    expect(action.payload).toEqual({ redirectPath: '/chat/9', signedInEmail: 'a@b.com' });
   });
 
   it('rejects when the SDK callback throws and no token was persisted (CSRF/state mismatch or token-exchange failure)', async () => {
@@ -235,6 +235,7 @@ describe('completeEmailCodeLogin thunk', () => {
     const action = await store.dispatch(completeEmailCodeLogin());
 
     expect(completeEmailCodeLogin.fulfilled.match(action)).toBe(true);
+    expect(action.payload).toEqual({ signedInEmail: 'a@b.com' });
     expect(fetchUserProfileAPIMock).toHaveBeenCalledTimes(1);
     expect(store.getState().auth).toMatchObject({ isAuthenticated: true, token: 'access-jwt' });
     await vi.waitFor(() => {

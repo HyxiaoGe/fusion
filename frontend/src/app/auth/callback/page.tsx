@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 import { useAppDispatch } from "@/redux/hooks";
 import { completeLogin } from "@/redux/slices/authSlice";
 import { useToast } from "@/components/ui/toast";
+import { notifyLoginSucceeded } from "@/lib/auth/loginNotice";
 
 /**
  * 本次落到 /auth/callback 是不是「用户主动发起的交互式登录」。
@@ -33,13 +34,16 @@ export default function AuthCallbackPage() {
   useEffect(() => {
     if (processed.current) return;
     processed.current = true;
-    setInteractive(isInteractiveLogin());
+    const interactiveLogin = isInteractiveLogin();
+    setInteractive(interactiveLogin);
 
     // completeLogin 内部：SDK 从 window.location 读 code/state 并校验 state、PKCE 换 token，
     // 成功后拉取 fusion profile；解析出的 redirectPath 已含静默/交互两种回跳路径。
     void dispatch(completeLogin())
       .unwrap()
-      .then(({ redirectPath }) => {
+      .then(({ redirectPath, signedInEmail }) => {
+        // 只有确实换了授权码的登录才提示；登出回跳、静默探测不提示。
+        if (interactiveLogin && signedInEmail !== undefined) notifyLoginSucceeded(signedInEmail);
         router.replace(redirectPath || "/");
       })
       .catch(() => {

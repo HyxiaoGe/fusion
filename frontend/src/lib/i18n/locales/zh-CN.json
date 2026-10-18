@@ -48,6 +48,8 @@
       "emailCodeLogin": "使用邮箱验证码登录",
       "configurationMissing": "登录配置缺失，请稍后再试",
       "loginFailed": "登录失败，请重试",
+      "loginSucceeded": "登录成功",
+      "loginSucceededWithEmail": "登录成功：{{email}}",
       "closeDialog": "关闭登录",
       "accountSwitch": {
         "syncingTitle": "正在同步登录账户",
