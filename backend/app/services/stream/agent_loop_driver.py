@@ -10,6 +10,8 @@ from app.ai.llm_manager import llm_manager
 from app.ai.llm_round_observability import summarize_messages
 from app.ai.model_circuit_breaker import model_circuit_breaker
 from app.ai.prompts.prompt_message import PromptMessage, to_provider_messages
+from app.db.model_catalog_control_repository import ModelCatalogControlRepository
+from app.services.auto_model import pick_fallback_model
 from app.services.chat.tool_transcript import without_tool_transactions
 from app.services.stream.agent_loop_outcome import AgentLoopExit, AgentLoopOutcome
 from app.services.stream.agent_loop_policy import check_agent_loop_limit
@@ -46,7 +48,7 @@ async def run_agent_loop(
 
         step_number, step_context = await _start_next_step(state=state, runtime=runtime)
         if state.active_model_id is None and model_circuit_breaker.is_open(runtime.model_id):
-            runtime = _switch_to_fallback_model(runtime, state=state, messages=messages, reason="circuit_open")
+            runtime = _switch_to_fallback_model(runtime, db=db, state=state, messages=messages, reason="circuit_open")
         try:
             round_result = await _run_round(
                 messages=messages,
@@ -57,10 +59,10 @@ async def run_agent_loop(
             )
         except ModelRoundUnavailableError as error:
             model_circuit_breaker.record_failure(runtime.model_id, error.reason)
-            # 每次回答只换一次模型；已换过或已决定原模型重试时照常失败。
+            # 每次回答只换一次模型，备用模型也不可用时照常失败。
             if state.active_model_id is not None:
                 raise
-            runtime = _switch_to_fallback_model(runtime, state=state, messages=messages, reason=error.reason)
+            runtime = _switch_to_fallback_model(runtime, db=db, state=state, messages=messages, reason=error.reason)
             try:
                 round_result = await _run_round(
                     messages=messages,
@@ -203,7 +205,8 @@ async def _run_round(
     run_round_kwargs["on_context_trimmed"] = state.record_context_plan
     if runtime.output_tool_names:
         run_round_kwargs["draft_tool_names"] = runtime.output_tool_names
-    if state.active_model_id is None and runtime.model_id != FALLBACK_MODEL_ID:
+    # 原模型（含挑不到备用模型时的重试）每轮都限首字时长；已换到备用模型后没有下一个可换，不限。
+    if state.active_model_id is None:
         run_round_kwargs["first_output_timeout_s"] = FIRST_OUTPUT_TIMEOUT_S
     round_result = await runtime.run_round_fn(**run_round_kwargs)
     if tools_forbidden and ignored_tool_ban(
@@ -235,37 +238,45 @@ async def _run_round(
 def _switch_to_fallback_model(
     runtime: AgentLoopRuntime,
     *,
+    db,
     state: AgentLoopState,
     messages: list[PromptMessage],
     reason: str,
 ) -> AgentLoopRuntime:
-    """原模型本轮不可用（首字超时、服务端错误或熔断中）时，本次回答剩余轮次都改用备用模型。
+    """原模型本轮不可用（首字超时、服务端错误或熔断中）时，本次回答剩余轮次改用备用模型。
 
-    备用模型不可用、熔断中或缺少本次请求需要的能力（读图、工具调用）时，原模型不限首字时长重试。
+    备用模型按本次请求需要的能力（读图、工具调用）挑，且换一家提供商；挑不到时原模型
+    再试一次，仍限首字时长，失败就让本次回答失败，不无限等一个可能已经故障的服务商。
     """
-    unusable = _fallback_unusable_reason(runtime, messages)
+    required_capabilities = _required_fallback_capabilities(runtime, messages)
+    fallback_model_id = pick_fallback_model(
+        ModelCatalogControlRepository(db) if db is not None else None,
+        failed_model_id=runtime.model_id,
+        preferred_model_id=FALLBACK_MODEL_ID,
+        required_capabilities=required_capabilities,
+        allowed_model_ids=runtime.allowed_model_ids,
+    )
     resolved = None
-    if unusable is None:
+    if fallback_model_id is not None:
         try:
-            resolved = llm_manager.resolve_model(FALLBACK_MODEL_ID)
+            resolved = llm_manager.resolve_model(fallback_model_id)
         except ValueError:
-            unusable = "unavailable"
-    if resolved is None:
+            resolved = None
+    if fallback_model_id is None or resolved is None:
         runtime.warning_fn(
-            "原模型本轮不可用但不能换备用模型，原模型不限时重试: "
+            "原模型本轮不可用且没有可换的备用模型，原模型限时再试: "
             f"conv_id={runtime.conversation_id}, run_id={runtime.run_id}, model_id={runtime.model_id}, "
-            f"reason={reason}, fallback_unusable={unusable}"
+            f"reason={reason}, required={','.join(required_capabilities) or '-'}"
         )
-        state.active_model_id = runtime.model_id
         return runtime
     litellm_model, provider, litellm_kwargs = resolved
     runtime.warning_fn(
         "原模型本轮不可用，本次回答改用备用模型: "
         f"conv_id={runtime.conversation_id}, run_id={runtime.run_id}, "
-        f"model_id={runtime.model_id}, fallback={FALLBACK_MODEL_ID}, reason={reason}"
+        f"model_id={runtime.model_id}, fallback={fallback_model_id}, reason={reason}"
     )
-    state.active_model_id = FALLBACK_MODEL_ID
-    capabilities = litellm_catalog.get_capabilities(FALLBACK_MODEL_ID)
+    state.active_model_id = fallback_model_id
+    capabilities = litellm_catalog.get_capabilities(fallback_model_id)
     # 准备阶段按原模型写入的推理参数换成备用模型的，推理开关沿用本次请求的设置。
     call_kwargs = configure_reasoning_call_kwargs(
         strip_reasoning_call_kwargs(runtime.call_kwargs),
@@ -275,7 +286,7 @@ def _switch_to_fallback_model(
     )
     return replace(
         runtime,
-        model_id=FALLBACK_MODEL_ID,
+        model_id=fallback_model_id,
         provider=provider,
         litellm_model=litellm_model,
         litellm_kwargs=dict(litellm_kwargs or {}),
@@ -283,21 +294,13 @@ def _switch_to_fallback_model(
     )
 
 
-def _fallback_unusable_reason(runtime: AgentLoopRuntime, messages: list[PromptMessage]) -> str | None:
-    if runtime.model_id == FALLBACK_MODEL_ID:
-        return "same_model"
-    if model_circuit_breaker.is_open(FALLBACK_MODEL_ID):
-        return "circuit_open"
-    # 目录里查不到备用模型时能力未知，交给 resolve_model 判断是否可用，不在这里拦。
-    if litellm_catalog.get_model_entry(FALLBACK_MODEL_ID) is None:
-        return None
-    capabilities = litellm_catalog.get_capabilities(FALLBACK_MODEL_ID)
-    if runtime.call_kwargs.get("tools") and not capabilities.get("functionCalling"):
-        return "no_function_calling"
-    image_parts = summarize_messages(to_provider_messages(messages), {})["content_part_counts"]["image_url"]
-    if image_parts and not capabilities.get("vision"):
-        return "no_vision"
-    return None
+def _required_fallback_capabilities(runtime: AgentLoopRuntime, messages: list[PromptMessage]) -> tuple[str, ...]:
+    required: list[str] = []
+    if runtime.call_kwargs.get("tools"):
+        required.append("agentTools")
+    if summarize_messages(to_provider_messages(messages), {})["content_part_counts"]["image_url"]:
+        required.append("vision")
+    return tuple(required)
 
 
 async def _discard_round(round_result: AgentRoundResult) -> None:

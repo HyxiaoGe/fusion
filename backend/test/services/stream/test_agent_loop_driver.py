@@ -894,7 +894,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.content_blocks[-1].text, self._clarification_round_result().content_buf)
         self.assertEqual(state.total_tool_calls, 1)
 
-    async def _run_weather_tool_loop(self, run_round_fn, *, resolve_model):
+    async def _run_weather_tool_loop(self, run_round_fn, *, resolve_model, fallback="deepseek-chat"):
         state = AgentLoopState()
         tool_round_models: list[str] = []
         warnings: list[str] = []
@@ -919,6 +919,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("app.services.stream_state_service.append_chunk", AsyncMock()),
             patch("app.services.stream.agent_loop_driver.llm_manager.resolve_model", resolve_model),
+            patch("app.services.stream.agent_loop_driver.pick_fallback_model", MagicMock(return_value=fallback)),
         ):
             await run_agent_loop(
                 db=object(),
@@ -983,7 +984,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tool_round_models, ["deepseek-chat"])
         self.assertTrue(any("改用备用模型" in warning for warning in warnings))
 
-    async def test_first_output_timeout_retries_original_model_when_fallback_unavailable(self):
+    async def test_first_output_timeout_retries_original_model_with_timeout_when_fallback_unavailable(self):
         calls: list[tuple[str, float | None]] = []
 
         async def run_round_fn(**kwargs):
@@ -999,14 +1000,12 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
             resolve_model=MagicMock(side_effect=ValueError("missing")),
         )
 
-        self.assertEqual(
-            calls,
-            [("mimo-v2.6-flash", FIRST_OUTPUT_TIMEOUT_S), ("mimo-v2.6-flash", None), ("mimo-v2.6-flash", None)],
-        )
-        self.assertEqual(state.active_model_id, "mimo-v2.6-flash")
+        # 没换成模型时原模型每轮仍限首字时长，不会无限等一个可能已经故障的服务商。
+        self.assertEqual(calls, [("mimo-v2.6-flash", FIRST_OUTPUT_TIMEOUT_S)] * 3)
+        self.assertIsNone(state.active_model_id)
         self.assertEqual(tool_round_models, ["mimo-v2.6-flash"])
 
-    async def test_fallback_model_itself_has_no_first_output_timeout(self):
+    async def test_only_rounds_after_switching_to_fallback_skip_first_output_timeout(self):
         captured = []
 
         async def run_round_fn(**kwargs):
@@ -1019,17 +1018,22 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
                 accumulated_usage=Usage(input_tokens=1, output_tokens=1),
             )
 
-        await _run_round(
-            messages=[{"role": "user", "content": "hi"}],
-            state=AgentLoopState(),
-            runtime=_runtime(model_id="deepseek-chat", run_round_fn=run_round_fn),
-            step_number=1,
-            step_context=AgentStepContext(
-                step_id="s", step_number=1, started_at=1.0, thinking_block_id="t", text_block_id="x"
-            ),
-        )
+        switched = AgentLoopState()
+        switched.active_model_id = "deepseek-chat"
+        for state in (AgentLoopState(), switched):
+            await _run_round(
+                messages=[{"role": "user", "content": "hi"}],
+                state=state,
+                runtime=_runtime(model_id="deepseek-chat", run_round_fn=run_round_fn),
+                step_number=1,
+                step_context=AgentStepContext(
+                    step_id="s", step_number=1, started_at=1.0, thinking_block_id="t", text_block_id="x"
+                ),
+            )
 
-        self.assertNotIn("first_output_timeout_s", captured[0])
+        # 用户自己选的 deepseek-chat 也限时（超时可以换别家），换过去之后才不限。
+        self.assertEqual(captured[0]["first_output_timeout_s"], FIRST_OUTPUT_TIMEOUT_S)
+        self.assertNotIn("first_output_timeout_s", captured[1])
 
     async def test_product_result_allows_sequential_multi_intent_tools_and_streams_model_answer(self):
         state = AgentLoopState()
@@ -1850,7 +1854,12 @@ class ModelUnavailableFallbackTests(unittest.IsolatedAsyncioTestCase):
 
     FALLBACK_CAPABILITIES = {"functionCalling": True, "vision": False, "thinkingSwitchable": True}
 
-    async def _run_loop(self, run_round_fn, *, messages=None, call_kwargs=None, should_use_reasoning=True):
+    def setUp(self):
+        self.pick_fallback = MagicMock(return_value="deepseek-chat")
+
+    async def _run_loop(
+        self, run_round_fn, *, messages=None, call_kwargs=None, should_use_reasoning=True, allowed_model_ids=None
+    ):
         state = AgentLoopState()
         warnings: list[str] = []
 
@@ -1875,10 +1884,7 @@ class ModelUnavailableFallbackTests(unittest.IsolatedAsyncioTestCase):
                 "app.services.stream.agent_loop_driver.llm_manager.resolve_model",
                 MagicMock(return_value=("litellm_proxy/deepseek-chat", "deepseek", {"api_base": "x"})),
             ),
-            patch(
-                "app.services.stream.agent_loop_driver.litellm_catalog.get_model_entry",
-                MagicMock(return_value={"metadata": {}}),
-            ),
+            patch("app.services.stream.agent_loop_driver.pick_fallback_model", self.pick_fallback),
             patch(
                 "app.services.stream.agent_loop_driver.litellm_catalog.get_capabilities",
                 MagicMock(return_value=self.FALLBACK_CAPABILITIES),
@@ -1899,6 +1905,7 @@ class ModelUnavailableFallbackTests(unittest.IsolatedAsyncioTestCase):
                     run_round_fn=run_round_fn,
                     handle_tool_calls_round_fn=handle_tool_calls_round_fn,
                     warning_fn=warnings.append,
+                    allowed_model_ids=allowed_model_ids,
                 ),
             )
         return state, warnings
@@ -1937,14 +1944,13 @@ class ModelUnavailableFallbackTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(calls, ["gemini-4-argon", "deepseek-chat"])
 
-    async def test_image_request_does_not_switch_to_fallback_without_vision(self):
+    async def test_image_request_without_capable_fallback_retries_original_once_with_timeout(self):
         calls: list[tuple[str, float | None]] = []
+        self.pick_fallback.return_value = None
 
         async def run_round_fn(**kwargs):
             calls.append((kwargs["model_id"], kwargs.get("first_output_timeout_s")))
-            if len(calls) == 1:
-                raise FirstOutputTimeoutError(kwargs["model_id"], kwargs["first_output_timeout_s"])
-            return _Rounds.answer_round_result()
+            raise FirstOutputTimeoutError(kwargs["model_id"], kwargs["first_output_timeout_s"])
 
         image_message = {
             "role": "user",
@@ -1953,11 +1959,39 @@ class ModelUnavailableFallbackTests(unittest.IsolatedAsyncioTestCase):
                 {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
             ],
         }
-        state, warnings = await self._run_loop(run_round_fn, messages=[image_message])
+        # 服务商卡住时：原模型限时再试一次后失败，不无限等。
+        with self.assertRaises(FirstOutputTimeoutError):
+            await self._run_loop(
+                run_round_fn,
+                messages=[image_message],
+                call_kwargs={"tools": [_tool_definition("web_search")]},
+                allowed_model_ids=("mimo-v2.6-flash", "deepseek-chat"),
+            )
 
-        self.assertEqual(calls, [("gemini-4-argon", FIRST_OUTPUT_TIMEOUT_S), ("gemini-4-argon", None)])
-        self.assertEqual(state.active_model_id, "gemini-4-argon")
-        self.assertTrue(any("fallback_unusable=no_vision" in warning for warning in warnings))
+        self.assertEqual(calls, [("gemini-4-argon", FIRST_OUTPUT_TIMEOUT_S)] * 2)
+        pick_kwargs = self.pick_fallback.call_args.kwargs
+        self.assertEqual(pick_kwargs["failed_model_id"], "gemini-4-argon")
+        self.assertEqual(pick_kwargs["required_capabilities"], ("agentTools", "vision"))
+        self.assertEqual(pick_kwargs["allowed_model_ids"], ("mimo-v2.6-flash", "deepseek-chat"))
+
+    async def test_picked_fallback_model_is_used_for_rest_of_answer(self):
+        calls: list[str] = []
+        self.pick_fallback.return_value = "qwen3.8-flash"
+
+        async def run_round_fn(**kwargs):
+            calls.append(kwargs["model_id"])
+            if len(calls) == 1:
+                raise FirstOutputTimeoutError(kwargs["model_id"], kwargs["first_output_timeout_s"])
+            if len(calls) == 2:
+                return _Rounds.weather_round_result()
+            return _Rounds.answer_round_result()
+
+        state, warnings = await self._run_loop(run_round_fn)
+
+        self.assertEqual(calls, ["gemini-4-argon", "qwen3.8-flash", "qwen3.8-flash"])
+        self.assertEqual(state.active_model_id, "qwen3.8-flash")
+        self.assertTrue(any("fallback=qwen3.8-flash" in warning for warning in warnings))
+        self.assertEqual(self.pick_fallback.call_args.kwargs["required_capabilities"], ())
 
     async def test_switch_rebuilds_reasoning_params_for_fallback_provider(self):
         captured: list[dict] = []
@@ -1998,6 +2032,24 @@ class ModelUnavailableFallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any("reason=circuit_open" in warning for warning in warnings))
         self.assertTrue(model_circuit_breaker.is_open("gemini-4-argon"))
         self.assertFalse(model_circuit_breaker.is_open("deepseek-chat"))
+
+    async def test_open_circuit_without_fallback_still_limits_original_model(self):
+        from app.ai.model_circuit_breaker import model_circuit_breaker
+
+        for _ in range(model_circuit_breaker.failure_threshold):
+            model_circuit_breaker.record_failure("gemini-4-argon", "http_500")
+        self.pick_fallback.return_value = None
+        calls: list[tuple[str, float | None]] = []
+
+        async def run_round_fn(**kwargs):
+            calls.append((kwargs["model_id"], kwargs.get("first_output_timeout_s")))
+            return _Rounds.answer_round_result()
+
+        state, _warnings = await self._run_loop(run_round_fn)
+
+        self.assertEqual(calls, [("gemini-4-argon", FIRST_OUTPUT_TIMEOUT_S)])
+        self.assertIsNone(state.active_model_id)
+        self.assertFalse(model_circuit_breaker.is_open("gemini-4-argon"))
 
     async def test_consecutive_timeouts_across_runs_open_the_circuit(self):
         from app.ai.model_circuit_breaker import model_circuit_breaker

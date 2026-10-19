@@ -352,6 +352,8 @@ class AgentLoopWiringTests(unittest.TestCase):
         self.assertEqual(execution_request.db, "db-helper")
         self.assertEqual(execution_request.conversation_id, "conv-helper")
         self.assertIs(execution_request.call_config, call_config)
+        self.assertFalse(execution_request.guest)
+        self.assertTrue(replace(run_input, guest=True).to_execution_request(db=None, call_config=call_config).guest)
         self.assertEqual(lifecycle_request.raw_messages, [{"role": "user", "content": "hi"}])
         self.assertTrue(lifecycle_request.has_vision)
         self.assertIs(lifecycle_request.call_config, call_config)

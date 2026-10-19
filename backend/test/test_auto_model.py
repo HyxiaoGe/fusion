@@ -2,12 +2,14 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from app.ai.litellm_catalog import normalize_capabilities
 from app.api.models import _build_auto_card, _entry_to_card
 from app.services.auto_model import (
     get_all_auto_model_candidates,
     get_auto_model_candidates,
     get_auto_provider_groups,
     pick_auto_model,
+    pick_fallback_model,
 )
 from app.services.config_defaults import DEFAULT_AUTO_MODEL_CONFIG
 
@@ -113,6 +115,95 @@ class PickAutoModelTests(unittest.TestCase):
 
     def test_empty_catalog_trusts_first_candidate(self):
         self.assertEqual(self._pick(catalog={}), "mimo-v2.6-pro")
+
+
+def _served_by(provider_key, entry, underlying="openai/x"):
+    return {**entry, "underlying": underlying, "metadata": {**entry["metadata"], "provider_key": provider_key}}
+
+
+FALLBACK_CATALOG = {
+    "mimo-v2.6-pro": _served_by("xiaomi", CATALOG["mimo-v2.6-pro"]),
+    "deepseek-chat": _served_by("deepseek", CATALOG["deepseek-chat"], underlying="deepseek/deepseek-flash"),
+    "deepseek-reasoner": _served_by(
+        "deepseek",
+        {"db_model": True, "metadata": {"cost_tier": "mid", "capabilities": {"functionCalling": True}}},
+        underlying="deepseek/deepseek-reasoner",
+    ),
+    "qwen3.8-max": _served_by("qwen", CATALOG["qwen3.8-max"]),
+    "cheap-extra": _served_by("other", CATALOG["cheap-extra"]),
+    "gemini-4-argon": _served_by(
+        "google", {"db_model": True, "metadata": {"capabilities": {"vision": True}}}, underlying="gemini/x"
+    ),
+}
+
+
+class PickFallbackModelTests(unittest.TestCase):
+    def _pick(self, *, failed="gemini-4-argon", required=("agentTools",), controls=None, unhealthy=(), **kwargs):
+        catalog = kwargs.pop("catalog", FALLBACK_CATALOG)
+
+        def capabilities(alias, **_kwargs):
+            return normalize_capabilities(
+                alias, catalog[alias]["metadata"].get("capabilities"), agent_tools_disabled_aliases=set()
+            )
+
+        with (
+            patch("app.services.auto_model.litellm_catalog.list_aliases", return_value=dict(catalog)),
+            patch("app.services.auto_model.litellm_catalog.get_capabilities", side_effect=capabilities),
+            patch(
+                "app.services.auto_model.litellm_health.get_health",
+                side_effect=lambda alias: {"status": "unhealthy" if alias in unhealthy else "healthy"},
+            ),
+            patch("app.services.auto_model.get_auto_model_candidates", return_value=list(CANDIDATES)),
+        ):
+            return pick_fallback_model(
+                controls,
+                failed_model_id=failed,
+                preferred_model_id="deepseek-chat",
+                required_capabilities=required,
+                **kwargs,
+            )
+
+    def test_prefers_preferred_model_when_it_has_required_capabilities(self):
+        self.assertEqual(self._pick(), "deepseek-chat")
+
+    def test_skips_models_served_by_the_failed_platform(self):
+        # 原模型是 deepseek-reasoner：同一平台的 deepseek-chat 不换，mimo-v2.6-pro 不能调工具
+        self.assertEqual(self._pick(failed="deepseek-reasoner"), "qwen3.8-max")
+        # 都走 OpenAI 兼容接口（底层前缀都是 openai）但平台不同，不算同一家
+        self.assertEqual(self._pick(failed="mimo-v2.6-pro", required=("vision",)), "qwen3.8-max")
+        # 同一平台上的其他厂商模型（百炼上的 GLM）也跳过
+        catalog = {
+            **FALLBACK_CATALOG,
+            "glm-5.3": _served_by(
+                "qwen", {"db_model": True, "metadata": {"cost_tier": "low", "capabilities": {"vision": True}}}
+            ),
+        }
+        self.assertEqual(
+            self._pick(failed="qwen3.8-max", required=("vision",), catalog=catalog, unhealthy={"mimo-v2.6-pro"}),
+            "gemini-4-argon",
+        )
+
+    def test_required_capabilities_are_never_relaxed(self):
+        self.assertEqual(self._pick(required=("vision",)), "mimo-v2.6-pro")
+        self.assertEqual(self._pick(required=("agentTools", "vision")), "qwen3.8-max")
+        self.assertIsNone(self._pick(required=("agentTools", "vision"), unhealthy={"qwen3.8-max"}))
+
+    def test_skips_open_circuit_and_admin_disabled_models(self):
+        from app.ai.model_circuit_breaker import model_circuit_breaker
+
+        for _ in range(model_circuit_breaker.failure_threshold):
+            model_circuit_breaker.record_failure("deepseek-chat", "http_500")
+        self.assertEqual(self._pick(), "qwen3.8-max")
+        controls = _controls(**{"qwen3.8-max": SimpleNamespace(selectable=True, routable=False)})
+        self.assertEqual(self._pick(controls=controls), "deepseek-reasoner")
+
+    def test_guest_only_picks_from_allowed_models(self):
+        allowed = ("mimo-v2.6-pro", "deepseek-chat")
+        self.assertEqual(self._pick(allowed_model_ids=allowed), "deepseek-chat")
+        self.assertIsNone(self._pick(allowed_model_ids=allowed, unhealthy={"deepseek-chat"}))
+
+    def test_empty_catalog_does_not_switch(self):
+        self.assertIsNone(self._pick(catalog={}))
 
 
 class AutoProviderGroupTests(unittest.TestCase):

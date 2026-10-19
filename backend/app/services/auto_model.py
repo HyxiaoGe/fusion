@@ -6,7 +6,7 @@
 优先级，没配的模式沿用默认分组。只看目录、调度开关、健康状态、模型熔断、执行模式和
 本轮的硬性需求（带图就要读图，规划执行要工具调用，深度研究还要联网工具），不根据问题内容猜模型。
 候选全部不可用时退到目录里其余可用模型，保证只要目录里还有模型，对话就不会因为模型
-下线而卡死。
+下线而卡死。原模型在回答中途不可用时，也从这里挑能力满足、换一家提供商的备用模型。
 """
 
 from __future__ import annotations
@@ -122,23 +122,12 @@ def pick_auto_model(
     """
 
     catalog = litellm_catalog.list_aliases()
-    candidates = get_auto_model_candidates(mode)
-    if allowed_model_ids is not None:
-        candidates = list(dict.fromkeys([*(m for m in candidates if m in allowed_model_ids), *allowed_model_ids]))
+    candidates = _restrict_to_allowed(get_auto_model_candidates(mode), allowed_model_ids)
     if not catalog:
         # 目录暂时拉不到：无法校验可用性，按配置顺序直接交给 LiteLLM
         return candidates[0] if candidates else None
 
-    db_aliases = [alias for alias, entry in catalog.items() if isinstance(entry, Mapping) and entry.get("db_model")]
-    rest = (
-        []
-        if allowed_model_ids is not None
-        else sorted(
-            (alias for alias in db_aliases if alias not in candidates),
-            key=lambda alias: (_COST_TIER_ORDER.get(_cost_tier(catalog[alias]), 5), alias),
-        )
-    )
-    ordered = [alias for alias in candidates if alias in db_aliases] + rest
+    ordered = _registered_in_priority(catalog, candidates, include_rest=allowed_model_ids is None)
     # 熔断中的模型排到最后：仍是兜底候选，只是不再优先挑一个正在连续失败的模型。
     ordered.sort(key=model_circuit_breaker.is_open)
     controls_by_model = controls.get_by_model_ids(ordered)
@@ -157,6 +146,83 @@ def pick_auto_model(
             if capable:
                 return capable[0]
     return usable[0] if usable else None
+
+
+def pick_fallback_model(
+    controls: ModelCatalogControlRepository | None,
+    *,
+    failed_model_id: str,
+    preferred_model_id: str,
+    required_capabilities: tuple[str, ...],
+    allowed_model_ids: tuple[str, ...] | None = None,
+) -> str | None:
+    """原模型本轮不可用时挑一个备用模型，挑不到返回 None。
+
+    与自动选择不同，能力要求不放宽：换过去的模型读不了图、调不了工具，换了也是失败。
+    跳过与原模型同一服务平台的模型（平台整体故障时上面的模型多半一起不可用）和熔断中的模型。
+    优先 preferred_model_id，其次按自动选择的候选顺序，再按成本从低到高；游客只在
+    allowed_model_ids 里挑。目录拉不到时无法核对能力与提供商，不换。
+    """
+
+    catalog = litellm_catalog.list_aliases()
+    if not catalog:
+        return None
+    candidates = _restrict_to_allowed([preferred_model_id, *get_auto_model_candidates("auto")], allowed_model_ids)
+    ordered = _registered_in_priority(catalog, candidates, include_rest=allowed_model_ids is None)
+    failed_provider = _serving_provider(catalog.get(failed_model_id))
+    controls_by_model = controls.get_by_model_ids(ordered) if controls is not None else {}
+    disabled_aliases = get_agent_tools_disabled_aliases()
+    for alias in ordered:
+        if alias == failed_model_id or model_circuit_breaker.is_open(alias):
+            continue
+        if failed_provider and _serving_provider(catalog[alias]) == failed_provider:
+            continue
+        if not _is_usable(alias, controls_by_model.get(alias)):
+            continue
+        capabilities = litellm_catalog.get_capabilities(alias, agent_tools_disabled_aliases=disabled_aliases)
+        if _has_capabilities(capabilities, required_capabilities):
+            return alias
+    return None
+
+
+def _restrict_to_allowed(candidates: list[str], allowed_model_ids: tuple[str, ...] | None) -> list[str]:
+    if allowed_model_ids is None:
+        return list(dict.fromkeys(candidates))
+    return list(dict.fromkeys([*(m for m in candidates if m in allowed_model_ids), *allowed_model_ids]))
+
+
+def _registered_in_priority(
+    catalog: Mapping[str, Any],
+    candidates: list[str],
+    *,
+    include_rest: bool,
+) -> list[str]:
+    """候选里已注册的按给定顺序在前；include_rest 时目录里其余模型按成本从低到高补在后面。"""
+
+    db_aliases = [alias for alias, entry in catalog.items() if isinstance(entry, Mapping) and entry.get("db_model")]
+    rest = (
+        sorted(
+            (alias for alias in db_aliases if alias not in candidates),
+            key=lambda alias: (_COST_TIER_ORDER.get(_cost_tier(catalog[alias]), 5), alias),
+        )
+        if include_rest
+        else []
+    )
+    return [alias for alias in candidates if alias in db_aliases] + rest
+
+
+def _serving_provider(entry: Any) -> str:
+    """提供服务的平台。很多模型走 OpenAI 兼容接口，底层前缀都是 openai 分不出平台，
+    所以优先用目录元数据的 provider_key（同一平台上的不同厂商模型归为一家）。"""
+
+    if not isinstance(entry, Mapping):
+        return ""
+    metadata = entry.get("metadata") or {}
+    provider_key = str(metadata.get("provider_key") or "").strip().lower()
+    if provider_key:
+        return provider_key
+    underlying = str(entry.get("underlying") or "")
+    return underlying.split("/", 1)[0].lower() if "/" in underlying else ""
 
 
 def _has_capabilities(capabilities: Mapping[str, Any], required: tuple[str, ...]) -> bool:
