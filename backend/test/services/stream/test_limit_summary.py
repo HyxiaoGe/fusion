@@ -29,7 +29,6 @@ from app.services.stream import limit_summary as limit_summary_module
 from app.services.stream import llm_stream as llm_stream_module
 from app.services.stream.limit_summary import (
     LIMIT_SUMMARY_PROMPT,
-    SUMMARY_PROTOCOL_FALLBACK_TEXT,
     LimitSummaryStepRequest,
     accumulate_summary_usage,
     append_limit_summary_prompt,
@@ -41,6 +40,7 @@ from app.services.stream.limit_summary import (
 )
 from app.services.stream.run_capability_router import RunCapabilityResolution
 from app.services.stream.run_output import ConversationStreamOutput
+from app.services.stream.safe_fallback_response import PROTOCOL_FALLBACK_TEXT
 from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream.tool_recovery_evidence import RecoveryEvidenceWorkset
 from app.services.stream_state_service import StreamOwnershipLostError
@@ -1164,7 +1164,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             outcome = await run_limit_summary_step(request=request)
 
         append_chunk.assert_awaited_once()
-        self.assertEqual(append_chunk.await_args.args[2], SUMMARY_PROTOCOL_FALLBACK_TEXT)
+        self.assertEqual(append_chunk.await_args.args[2], PROTOCOL_FALLBACK_TEXT)
         self.assertTrue(outcome.incomplete)
         self.assertEqual([block.type for block in content_blocks], ["thinking", "text"])
         self.assertEqual(content_blocks[0].thinking, "内部工具规划内部工具规划")
@@ -1676,13 +1676,13 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(marked_step_ids, ["step-timeout"])
         append_chunk.assert_awaited_once()
-        self.assertEqual(append_chunk.await_args.args[2], SUMMARY_PROTOCOL_FALLBACK_TEXT)
+        self.assertEqual(append_chunk.await_args.args[2], PROTOCOL_FALLBACK_TEXT)
         self.assertTrue(outcome.incomplete)
         self.assertEqual(messages[-1]["role"], "system")
         self.assertTrue(messages[-1]["content"].startswith(LIMIT_SUMMARY_PROMPT))
         self.assertIn(NO_TOOL_EVIDENCE_SUMMARY_PROMPT, messages[-1]["content"])
         self.assertEqual(outcome.accumulated_usage, accumulated_usage)
-        self.assertEqual([block.text for block in content_blocks], [SUMMARY_PROTOCOL_FALLBACK_TEXT])
+        self.assertEqual([block.text for block in content_blocks], [PROTOCOL_FALLBACK_TEXT])
         self.assertEqual([event[0] for event in events], ["start", "llm", "complete"])
         self.assertEqual(events[-1], ("complete", "step-timeout", [], 0))
         self.assertEqual(len(warnings), 1)

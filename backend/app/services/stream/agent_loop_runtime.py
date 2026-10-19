@@ -12,7 +12,6 @@ from app.services.stream.structured_answer import NO_STRUCTURED_ANSWERS, Structu
 
 if TYPE_CHECKING:
     from app.services.stream.run_capability_router import RunCapabilityResolution
-    from app.services.stream.safe_fallback_response import FallbackResponseContext
 
 
 @dataclass(frozen=True)
@@ -54,7 +53,6 @@ class AgentLoopRuntime:
     skill_tool_names: frozenset[str] = frozenset()
     llm_round_detail_scheduler: Callable[[Any], Any] | None = None
     capability_resolution: RunCapabilityResolution | None = None
-    fallback_response_context: FallbackResponseContext | None = None
     structured_answers: StructuredAnswers = NO_STRUCTURED_ANSWERS
     # 游客只能用这些模型，换备用模型时也只在里面挑；None 表示不限。
     allowed_model_ids: tuple[str, ...] | None = None

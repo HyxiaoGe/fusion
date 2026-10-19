@@ -162,13 +162,6 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
         caught_exc = None
 
         with ExitStack() as stack:
-            # 本套验证工具/终态契约，隔离新增的语言辅助模型；语言选择另有真实提交链测试。
-            stack.enter_context(
-                patch(
-                    "app.services.stream.safe_fallback_response.resolve_utility_model",
-                    side_effect=ValueError("测试不调用外部语言模型"),
-                )
-            )
             if use_real_redis_stream:
                 import fakeredis.aioredis
 

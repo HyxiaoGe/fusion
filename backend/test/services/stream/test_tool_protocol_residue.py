@@ -25,7 +25,7 @@ from app.services.stream.llm_stream import (
     parse_dsml_tool_calls,
     strip_pending_dsml_tool_protocol,
 )
-from app.services.stream.safe_fallback_response import default_safe_fallback
+from app.services.stream.safe_fallback_response import PROTOCOL_FALLBACK_TEXT
 
 # Run e96ab8c9 数据库最终正文的开头；完整正文 909 字符，结构相同。
 REAL_VARIANT = (
@@ -170,7 +170,7 @@ class RecoveryAnswerBranchTests(unittest.IsolatedAsyncioTestCase):
         """复现真实样本：证据齐备，正文却是没执行的协议。"""
         request, committed = await self._run(REAL_VARIANT)
 
-        self.assertIn(default_safe_fallback("protocol_error"), committed)
+        self.assertIn(PROTOCOL_FALLBACK_TEXT, committed)
         self.assertNotIn(REAL_VARIANT, committed)
         self.assertTrue(request.state.unknown_terminated, "只换掉文本、仍标成功不算修好")
 

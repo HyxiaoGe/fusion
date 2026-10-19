@@ -21,7 +21,6 @@ from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.network_budget import NetworkToolBudget
 from app.services.stream.product_structured_answers import PRODUCT_STRUCTURED_ANSWERS
 from app.services.stream.run_output import ConversationStreamOutput
-from app.services.stream.safe_fallback_response import FallbackResponseContext
 from app.services.stream.tool_executor import AgentEventCompositeWriter
 
 
@@ -61,8 +60,6 @@ class AgentLoopExecutionRequest:
     previous_run_id: str | None = None
     run_attempt_kind: str = "initial"
     assistant_message_sequence: int | None = None
-    original_message: str = ""
-    response_language: str | None = None
     guest: bool = False
 
 
@@ -221,10 +218,6 @@ def build_agent_loop_runtime(
         skill_tool_names=getattr(request.call_config, "skill_tool_names", frozenset()),
         llm_round_detail_scheduler=llm_round_detail_scheduler,
         capability_resolution=getattr(request.call_config, "capability_resolution", None),
-        fallback_response_context=FallbackResponseContext(
-            original_message=request.original_message,
-            preferred_locale=request.response_language,
-        ),
         structured_answers=PRODUCT_STRUCTURED_ANSWERS,
         allowed_model_ids=guest_model_ids() if request.guest else None,
     )

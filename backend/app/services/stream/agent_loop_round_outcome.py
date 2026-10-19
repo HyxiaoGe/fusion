@@ -18,7 +18,7 @@ from app.services.stream.provider_content_filter import (
     replace_with_content_filtered_block,
 )
 from app.services.stream.round_completion import append_round_content_blocks, complete_text_response_step
-from app.services.stream.safe_fallback_response import render_safe_fallback
+from app.services.stream.safe_fallback_response import PROTOCOL_FALLBACK_TEXT
 from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream_state_service import StreamWriteTerminalError
 
@@ -92,16 +92,6 @@ async def _handle_agent_round_outcome(
     return AgentLoopOutcome(exit=AgentLoopExit.COMPLETED)
 
 
-async def _safe_round_fallback(request: AgentRoundOutcomeRequest, reason: str) -> str:
-    context = request.runtime.fallback_response_context
-    remaining = 0.0
-    if context is not None and context.original_message:
-        remaining = request.runtime.limits.total_timeout_s - request.state.active_elapsed_seconds(
-            now=request.runtime.clock(), run_start=request.runtime.run_start
-        )
-    return await render_safe_fallback(reason, context=context, model_id=request.runtime.model_id, timeout_s=remaining)
-
-
 async def _reject_protocol_residue(request: AgentRoundOutcomeRequest, answer: str) -> str | None:
     """模型正文仍是未执行的工具协议时，它不能充当最终答复。
 
@@ -120,7 +110,7 @@ async def _reject_protocol_residue(request: AgentRoundOutcomeRequest, answer: st
         f"conv_id={request.runtime.conversation_id}, run_id={request.runtime.run_id}, "
         f"step={request.step_number}"
     )
-    return await _safe_round_fallback(request, "protocol_error")
+    return PROTOCOL_FALLBACK_TEXT
 
 
 async def _complete_tool_protocol_error_round(
