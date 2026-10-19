@@ -500,6 +500,8 @@ def _run_config(limits: AgentLoopLimits, call_config: AgentLoopCallConfig | None
         "task_mode": getattr(call_config, "task_mode", "standard"),
         "network_profile": getattr(call_config, "network_profile", "standard"),
         "evidence_policy": getattr(call_config, "evidence_policy", "standard"),
+        # 本次实际是否开启深度思考；前端刷新后按它还原对话的开关，续跑沿用。
+        "use_reasoning": bool(getattr(call_config, "should_use_reasoning", False)),
         "runtime_config_versions": runtime_config_versions,
     }
     if bundle_snapshot is not None:

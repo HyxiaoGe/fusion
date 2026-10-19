@@ -79,8 +79,8 @@ interface ConversationState {
   suggestedQuestionsObservations: Record<string, { messageIds: string[] }>;
   pendingConversationId: string | null;
   animatingTitleId: string | null;
-  // 用户在各对话里手动开启的深度思考（键同执行模式）。没开过的对话、新对话一律关闭；
-  // 后端不记录这项选择，刷新后回到关闭。
+  // 用户在各对话里手动切换的深度思考（键同执行模式）。没切换过的对话按最近一次运行的
+  // 记录还原，见 selectReasoningEnabled。
   reasoningEnabledByChat: Record<string, boolean>;
   // 用户在各对话里手动选的执行模式（键为对话 id；新对话页用 NEW_CHAT_AGENT_MODE_KEY）。
   // 未选过的对话按最近一次运行的配置还原，见 selectComposerAgentMode。
@@ -706,11 +706,8 @@ const conversationSlice = createSlice({
       state.animatingTitleId = action.payload;
     },
     setReasoningEnabled(state, action: PayloadAction<{ chatId: string; enabled: boolean }>) {
-      if (action.payload.enabled) {
-        state.reasoningEnabledByChat[action.payload.chatId] = true;
-      } else {
-        delete state.reasoningEnabledByChat[action.payload.chatId];
-      }
+      // 关闭也要记下，否则会被最近一次运行的记录还原成开启。
+      state.reasoningEnabledByChat[action.payload.chatId] = action.payload.enabled;
     },
     setComposerAgentMode(state, action: PayloadAction<{ chatId: string; mode: ComposerAgentMode }>) {
       state.composerAgentModeByChat[action.payload.chatId] = action.payload.mode;
@@ -723,8 +720,9 @@ const conversationSlice = createSlice({
         state.composerAgentModeByChat[action.payload] = mode;
       }
       delete state.composerAgentModeByChat[NEW_CHAT_AGENT_MODE_KEY];
-      if (state.reasoningEnabledByChat[NEW_CHAT_AGENT_MODE_KEY]) {
-        state.reasoningEnabledByChat[action.payload] = true;
+      const reasoning = state.reasoningEnabledByChat[NEW_CHAT_AGENT_MODE_KEY];
+      if (reasoning !== undefined) {
+        state.reasoningEnabledByChat[action.payload] = reasoning;
       }
       delete state.reasoningEnabledByChat[NEW_CHAT_AGENT_MODE_KEY];
     },
@@ -804,12 +802,24 @@ export const {
 
 export default conversationSlice.reducer;
 
-/** 当前对话是否开启深度思考：只看用户在这个对话（或新对话页）里的手动选择，默认关闭。 */
+/**
+ * 当前对话是否开启深度思考：用户在该对话里切换过就用选择；否则按该对话最近一次运行的记录还原；
+ * 新对话、没有运行记录或旧运行没记录这项的对话为关闭。
+ */
 export function selectReasoningEnabled(
-  state: { conversation: Pick<ConversationState, 'reasoningEnabledByChat'> },
+  state: { conversation: Pick<ConversationState, 'reasoningEnabledByChat' | 'byId'> },
   chatId: string | null | undefined,
 ): boolean {
-  return state.conversation.reasoningEnabledByChat[chatId || NEW_CHAT_AGENT_MODE_KEY] === true;
+  const selected = state.conversation.reasoningEnabledByChat[chatId || NEW_CHAT_AGENT_MODE_KEY];
+  if (selected !== undefined) return selected;
+  const messages = chatId ? state.conversation.byId[chatId]?.messages ?? [] : [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const run = messages[index].agent_run;
+    if (messages[index].role === 'assistant' && run) {
+      return run.config?.useReasoning === true;
+    }
+  }
+  return false;
 }
 
 /**

@@ -74,6 +74,26 @@ describe('conversationSlice', () => {
     expect(selectReasoningEnabled({ conversation: state }, 'conv-a')).toBe(false);
   });
 
+  it('没切换过深度思考的对话按最近一次运行记录还原；手动关闭优先；旧运行没记录为关闭', () => {
+    const run = (useReasoning?: boolean) => ({ config: { useReasoning } }) as any;
+    const conversation = (id: string, messages: Message[]) => upsertConversation({
+      id, title: id, model_id: 'model-1', messages, createdAt: 1, updatedAt: 1,
+    });
+    let state = reducer(undefined, conversation('conv-a', [
+      { id: 'a1', role: 'assistant', content: [], timestamp: 1, agent_run: run(false) },
+      { id: 'a2', role: 'assistant', content: [], timestamp: 2, agent_run: run(true) },
+    ]));
+    state = reducer(state, conversation('conv-old', [
+      { id: 'o1', role: 'assistant', content: [], timestamp: 1, agent_run: run(undefined) },
+    ]));
+
+    expect(selectReasoningEnabled({ conversation: state }, 'conv-a')).toBe(true);
+    expect(selectReasoningEnabled({ conversation: state }, 'conv-old')).toBe(false);
+
+    state = reducer(state, setReasoningEnabled({ chatId: 'conv-a', enabled: false }));
+    expect(selectReasoningEnabled({ conversation: state }, 'conv-a')).toBe(false);
+  });
+
   it('未手动选择的对话按最近一次运行配置还原模式', () => {
     const run = (taskMode: string, planMode: string) => ({ config: { taskMode, planMode } }) as any;
     const state = reducer(undefined, upsertConversation({

@@ -183,6 +183,8 @@ export interface AgentRunConfig {
   taskMode?: AgentTaskMode;
   networkProfile?: AgentNetworkProfile;
   evidencePolicy?: AgentEvidencePolicy;
+  /** 本次是否开启深度思考；旧 run 没有记录。 */
+  useReasoning?: boolean;
 }
 
 export interface AgentRunState {

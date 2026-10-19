@@ -8,6 +8,7 @@ interface WireRunConfig {
   task_mode?: unknown;
   network_profile?: unknown;
   evidence_policy?: unknown;
+  use_reasoning?: unknown;
 }
 
 function nonNegativeNumber(value: unknown): number {
@@ -35,5 +36,6 @@ export function normalizeAgentRunConfig(config: WireRunConfig | null | undefined
       : source.evidence_policy === 'deep_research_v1' || taskMode === 'deep_research'
         ? 'deep_research_v1'
         : 'standard',
+    ...(typeof source.use_reasoning === 'boolean' ? { useReasoning: source.use_reasoning } : {}),
   };
 }

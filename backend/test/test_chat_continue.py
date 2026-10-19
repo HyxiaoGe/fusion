@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.schemas.response import ApiException
-from app.services.chat_service import ChatService
+from app.services.chat_service import ChatService, _with_stored_reasoning
 from app.services.stream_state_service import StreamInitResult
 
 
@@ -115,7 +115,8 @@ class ChatContinueTests(unittest.IsolatedAsyncioTestCase):
         service.conversation_service.get_conversation = MagicMock(return_value=conversation)
         continuation_context = SimpleNamespace(
             assistant_message=SimpleNamespace(sequence=42),
-            previous_session=SimpleNamespace(id="run-old"),
+            # 原 run 关着深度思考；模型默认会开，续跑必须沿用关闭。
+            previous_session=SimpleNamespace(id="run-old", run_config={"use_reasoning": False}),
             initial_content_blocks=[],
             limits=SimpleNamespace(max_steps=8, max_tool_calls=20, total_timeout_s=300),
             plan_mode="on",
@@ -195,6 +196,7 @@ class ChatContinueTests(unittest.IsolatedAsyncioTestCase):
                 "plan_mode": "on",
                 "network_profile": "standard",
                 "evidence_policy": "standard",
+                "use_reasoning": False,
             },
         )
         register_task_mock.assert_called_once()
@@ -295,7 +297,6 @@ class ChatContinueTests(unittest.IsolatedAsyncioTestCase):
                 )
 
         self.assertEqual(raised.exception.status_code, 409)
-
 
     async def test_continue_agent_run_fails_before_starting_generation_when_stream_init_fails(self):
         service = ChatService(MagicMock())
@@ -400,6 +401,19 @@ class ChatContinueTests(unittest.IsolatedAsyncioTestCase):
             previous_run_id="run-old",
             trace_id="trace-1",
             guest_run=None,
+        )
+
+
+class StoredReasoningTests(unittest.TestCase):
+    def test_old_run_without_record_leaves_reasoning_to_model_default(self):
+        options = {"plan_mode": "auto"}
+        self.assertEqual(_with_stored_reasoning(options, SimpleNamespace(run_config={})), options)
+        self.assertEqual(_with_stored_reasoning(options, SimpleNamespace(run_config=None)), options)
+
+    def test_recorded_choice_is_carried(self):
+        self.assertEqual(
+            _with_stored_reasoning({}, SimpleNamespace(run_config={"use_reasoning": True})),
+            {"use_reasoning": True},
         )
 
 
