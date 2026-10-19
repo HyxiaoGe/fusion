@@ -36,7 +36,6 @@ class AgentLoopState:
     runtime_contexts: dict[str, Any] = field(default_factory=dict)
     unavailable_contexts: dict[str, str] = field(default_factory=dict)
     successful_tool_call_signatures: set[str] = field(default_factory=set)
-    argument_repair_state: dict[str, dict[str, Any]] = field(default_factory=dict)
     itinerary_tool_observations: list[ItineraryToolObservation] = field(default_factory=list)
     plan_coordinator: PlanCoordinator = field(default_factory=lambda: PlanCoordinator(run_id=""))
     research_workset: ResearchEvidenceWorkset = field(default_factory=ResearchEvidenceWorkset)

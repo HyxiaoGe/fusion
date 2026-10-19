@@ -6,7 +6,6 @@ tool_call_started/completed 协议，并把 execute_tool_with_retry
 """
 
 import asyncio
-import hashlib
 import json
 import re
 import time
@@ -80,7 +79,6 @@ class ToolExecutionBatchRequest:
     tool_handlers: Mapping[str, Any] | None = None
     runtime_context: "ToolRuntimeContext | None" = None
     successful_tool_call_signatures: set[str] | None = None
-    remote_argument_repair_disabled_tools: frozenset[str] = frozenset()
     deferred_route_call_ids: frozenset[str] = frozenset()
 
 
@@ -406,7 +404,8 @@ class ToolArgumentsLimitError(ToolArgumentsParseError):
         self.code = code
 
 
-_REPAIR_FIELD_PATTERN = re.compile(
+ARGUMENT_ERROR_MESSAGE = "模型给出的工具参数不符合要求，工具未执行"
+_ARGUMENT_FIELD_PATTERN = re.compile(
     r"^(?:\$|[A-Za-z_][A-Za-z0-9_:-]{0,63})"
     r"(?:(?:\[\])|(?:\.\*)|(?:\.[A-Za-z_][A-Za-z0-9_:-]{0,63}))*$"
 )
@@ -643,9 +642,7 @@ async def execute_one_tool_call(request: ToolExecutionBatchRequest, tool_call: d
         args = parse_tool_arguments(tool_call)
     except ToolArgumentsLimitError as error:
         args = {}
-        result = _build_argument_preflight_result(
-            request,
-            handler.tool_name,
+        result = _build_argument_error_result(
             error_code="arguments_schema_invalid",
             validation_errors=[f"$:{error.code}"],
         )
@@ -659,10 +656,9 @@ async def execute_one_tool_call(request: ToolExecutionBatchRequest, tool_call: d
         )
     except ToolArgumentsParseError:
         args = {}
-        result = _build_argument_preflight_result(
-            request,
-            handler.tool_name,
+        result = _build_argument_error_result(
             error_code="arguments_json_invalid",
+            validation_errors=["$:invalid_json"],
         )
         return await _complete_preflight_tool_result(
             request=request,
@@ -676,9 +672,7 @@ async def execute_one_tool_call(request: ToolExecutionBatchRequest, tool_call: d
     if validation_errors:
         result = _build_handler_local_preflight_result(handler, validation_errors)
         if result is None:
-            result = _build_argument_preflight_result(
-                request,
-                handler.tool_name,
+            result = _build_argument_error_result(
                 error_code="arguments_schema_invalid",
                 validation_errors=validation_errors,
             )
@@ -691,10 +685,9 @@ async def execute_one_tool_call(request: ToolExecutionBatchRequest, tool_call: d
             result=result,
         )
     if str(tool_call.get("id", "")) in request.deferred_route_call_ids:
-        result = _build_argument_preflight_result(
-            request,
-            handler.tool_name,
+        result = _build_argument_error_result(
             error_code="route_requires_prior_travel_results",
+            validation_errors=["origin:requires_prior_travel_results"],
         )
         return await _complete_preflight_tool_result(
             request=request,
@@ -704,25 +697,15 @@ async def execute_one_tool_call(request: ToolExecutionBatchRequest, tool_call: d
             args={},
             result=result,
         )
-    runtime_repair = _build_runtime_argument_repair_result(request, handler, args)
-    if runtime_repair is not None:
+    runtime_argument_error = _build_runtime_argument_error_result(request, handler, args)
+    if runtime_argument_error is not None:
         return await _complete_preflight_tool_result(
             request=request,
             tool_call=tool_call,
             handler=handler,
             ids=ids,
             args={},
-            result=runtime_repair,
-        )
-    repair_guard, resolves_repair_id, args = _authorize_repaired_arguments(request, handler.tool_name, args)
-    if repair_guard is not None:
-        return await _complete_preflight_tool_result(
-            request=request,
-            tool_call=tool_call,
-            handler=handler,
-            ids=ids,
-            args={},
-            result=repair_guard,
+            result=runtime_argument_error,
         )
     args, budget_result = prepare_tool_arguments(
         tool_name=tool_call["name"],
@@ -746,18 +729,7 @@ async def execute_one_tool_call(request: ToolExecutionBatchRequest, tool_call: d
             handler=handler,
             args=executable_args,
         )
-    result = _normalize_remote_argument_failure(
-        request,
-        handler.tool_name,
-        result,
-    )
-    if (
-        resolves_repair_id
-        and result.status in {"success", "degraded"}
-        and not isinstance(result.data.get("repair"), dict)
-    ):
-        _mark_argument_repair_resolved(request, handler.tool_name)
-        result.data["resolves_repair_id"] = resolves_repair_id
+    result = _normalize_remote_argument_failure(result)
     attach_internal_tool_metadata(result, args)
     if (
         result.status == "success"
@@ -847,7 +819,7 @@ def _validate_handler_arguments(
             separator
             and isinstance(field, str)
             and isinstance(error_type, str)
-            and _REPAIR_FIELD_PATTERN.fullmatch(field)
+            and _ARGUMENT_FIELD_PATTERN.fullmatch(field)
             and re.fullmatch(r"[a-z][a-z0-9_]{0,63}", error_type)
         ):
             errors.append(f"{field}:{error_type}")
@@ -875,130 +847,37 @@ def _build_handler_local_preflight_result(
     return result if isinstance(result, ToolResult) else None
 
 
-def _argument_repair_key(tool_name: str) -> str:
-    return f"tool_arguments:{tool_name}"
-
-
-def _new_argument_repair_id() -> str:
-    return f"repair_{uuid.uuid4().hex[:16]}"
-
-
-def _build_argument_preflight_result(
-    request: ToolExecutionBatchRequest,
-    tool_name: str,
+def _build_argument_error_result(
     *,
     error_code: str,
     validation_errors: list[str] | None = None,
+    hints: dict[str, list[str]] | None = None,
     local_preflight: bool = True,
-    repair_action: str = "rebuild_arguments",
-    allowed_values: dict[str, list[str]] | None = None,
-    repair_values_verified: bool = False,
-    original_arguments: dict[str, Any] | None = None,
 ):
+    """参数不合法时工具不执行：把具体错误（和已知取值提示）原样交还模型，由模型决定怎么改、要不要再调。"""
+
     from app.services.tool_handlers import ToolResult
 
-    required_fields = sorted(
-        {item.partition(":")[0] for item in validation_errors or [] if item.endswith(":required")}
-    )[:8]
-    projected_allowed_values: dict[str, list[str]] = {}
-    if repair_values_verified and isinstance(allowed_values, dict):
-        for field in required_fields:
-            raw_values = allowed_values.get(field)
-            if not isinstance(raw_values, list):
-                continue
-            values = [
-                value.strip()
-                for value in raw_values[:4]
-                if isinstance(value, str) and value.strip() and len(value.strip()) <= 120
-            ]
-            if values:
-                projected_allowed_values[field] = list(dict.fromkeys(values))
-    constraints: dict[str, Any] | None = None
-    if (
-        repair_action == "provide_argument"
-        and repair_values_verified
-        and isinstance(original_arguments, dict)
-        and required_fields
-        and set(projected_allowed_values) == set(required_fields)
-    ):
-        constraints = {
-            "immutable_arguments_sha256": _argument_repair_fingerprint(
-                original_arguments,
-                excluded_fields=required_fields,
-            ),
-            "required_fields": tuple(required_fields),
-            "allowed_values": {field: tuple(projected_allowed_values[field]) for field in required_fields},
-            "allowed_argument_keys": tuple(dict.fromkeys([*original_arguments, *required_fields])),
-        }
-
-    state = getattr(request.runtime_context, "argument_repair_state", None)
-    key = _argument_repair_key(tool_name)
-    current_step = getattr(request.runtime_context, "step_number", 0)
-    repair_id = _new_argument_repair_id()
-    retryable = False
-    if isinstance(state, dict):
-        existing = state.get(key)
-        if existing is None:
-            retryable = _claim_argument_repair_slot(request)
-            state[key] = {
-                "step_number": current_step,
-                "status": "pending" if retryable else "consumed",
-                "repair_id": repair_id,
-                **({"constraints": constraints} if constraints is not None else {}),
-            }
-        elif existing.get("status") == "pending" and current_step <= existing.get("step_number", 0):
-            return ToolResult(
-                status="failed",
-                data={
-                    "error_code": "argument_repair_coalesced",
-                    "local_preflight": local_preflight,
-                },
-            )
-        elif existing.get("status") == "resolved":
-            state[key] = {
-                "step_number": current_step,
-                "status": "consumed",
-                "repair_id": repair_id,
-            }
-        else:
-            repair_id = existing.get("repair_id") if isinstance(existing.get("repair_id"), str) else repair_id
-            retryable = False
-            existing["status"] = "consumed"
-        if existing is not None and existing.get("status") != "resolved" and isinstance(existing.get("repair_id"), str):
-            repair_id = existing["repair_id"]
-    else:
-        retryable = _claim_argument_repair_slot(request)
-    return ToolResult(
-        status="failed",
-        data={
-            "error_code": error_code,
-            "local_preflight": local_preflight,
-            "repair_values_verified": repair_values_verified,
-            "repair": {
-                "action": repair_action,
-                "repair_id": repair_id,
-                "required_fields": required_fields,
-                "allowed_values": projected_allowed_values,
-                "retryable": retryable,
-                "requires_user_input": False,
-                "retry_exhausted": not retryable,
-                "max_attempts": 1,
-                "candidate_count": 0,
-            },
-        },
-    )
+    data: dict[str, Any] = {
+        "error_code": error_code,
+        "local_preflight": local_preflight,
+        "argument_errors": list(validation_errors or [])[:8],
+    }
+    if hints:
+        data["argument_hints"] = hints
+    return ToolResult(status="failed", data=data, error_message=ARGUMENT_ERROR_MESSAGE)
 
 
-def _build_runtime_argument_repair_result(
+def _build_runtime_argument_error_result(
     request: ToolExecutionBatchRequest,
     handler: Any,
     args: dict,
 ):
     try:
-        spec = handler.build_runtime_argument_repair(args, request.runtime_context)
-    except Exception as error:  # noqa: BLE001 — 修参门禁异常必须拒绝触网
+        spec = handler.check_runtime_arguments(args, request.runtime_context)
+    except Exception as error:  # noqa: BLE001 — 运行时参数检查异常必须拒绝触网
         logger.warning(
-            "工具运行时修参检查异常: tool=%s error_type=%s",
+            "工具运行时参数检查异常: tool=%s error_type=%s",
             getattr(handler, "tool_name", ""),
             type(error).__name__,
         )
@@ -1006,33 +885,49 @@ def _build_runtime_argument_repair_result(
     if not isinstance(spec, dict):
         return None
     error_code = spec.get("error_code")
-    required_fields = spec.get("required_fields")
-    allowed_values = spec.get("allowed_values")
+    validation_errors = spec.get("validation_errors")
     if not isinstance(error_code, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", error_code):
         return _build_runtime_argument_guard_failure()
-    if not isinstance(required_fields, list) or not isinstance(allowed_values, dict):
+    if not isinstance(validation_errors, list):
         return _build_runtime_argument_guard_failure()
-    validated_fields = [
-        field for field in required_fields[:8] if isinstance(field, str) and _REPAIR_FIELD_PATTERN.fullmatch(field)
+    safe_errors = [
+        item
+        for item in validation_errors[:8]
+        if isinstance(item, str)
+        and (parts := item.partition(":"))[1]
+        and _ARGUMENT_FIELD_PATTERN.fullmatch(parts[0])
+        and re.fullmatch(r"[a-z][a-z0-9_]{0,63}", parts[2])
     ]
-    if not validated_fields:
+    if not safe_errors:
         return _build_runtime_argument_guard_failure()
-    if any(
-        not isinstance(allowed_values.get(field), list)
-        or not any(isinstance(value, str) and value.strip() for value in allowed_values[field])
-        for field in validated_fields
-    ):
-        return _build_runtime_argument_guard_failure()
-    return _build_argument_preflight_result(
-        request,
-        handler.tool_name,
+    return _build_argument_error_result(
         error_code=error_code,
-        validation_errors=[f"{field}:required" for field in validated_fields],
-        repair_action="provide_argument",
-        allowed_values=allowed_values,
-        repair_values_verified=True,
-        original_arguments=args,
+        validation_errors=safe_errors,
+        hints=_safe_argument_hints(spec.get("hints")),
     )
+
+
+def _safe_argument_hints(raw_hints: Any) -> dict[str, list[str]]:
+    """提示值来自前序工具结果（第三方数据），只保留短字符串。"""
+
+    if not isinstance(raw_hints, dict):
+        return {}
+    hints: dict[str, list[str]] = {}
+    for field, raw_values in list(raw_hints.items())[:8]:
+        if (
+            not isinstance(field, str)
+            or not _ARGUMENT_FIELD_PATTERN.fullmatch(field)
+            or not isinstance(raw_values, list)
+        ):
+            continue
+        values = [
+            value.strip()
+            for value in raw_values[:4]
+            if isinstance(value, str) and value.strip() and len(value.strip()) <= 120
+        ]
+        if values:
+            hints[field] = list(dict.fromkeys(values))
+    return hints
 
 
 def _build_runtime_argument_guard_failure():
@@ -1044,207 +939,26 @@ def _build_runtime_argument_guard_failure():
             "error_code": "runtime_argument_guard_failed",
             "local_preflight": True,
         },
+        error_message="工具参数检查异常，工具未执行",
     )
 
 
-def _argument_repair_fingerprint(
-    arguments: dict[str, Any],
-    *,
-    excluded_fields: list[str] | tuple[str, ...],
-) -> str:
-    excluded = set(excluded_fields)
-    immutable_arguments = {key: value for key, value in arguments.items() if key not in excluded}
-    canonical = json.dumps(
-        immutable_arguments,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+def _normalize_remote_argument_failure(result):
+    """远端按参数错误拒绝时，与本地校验一样把字段级错误交还模型。"""
 
-
-def _claim_argument_repair_slot(request: ToolExecutionBatchRequest) -> bool:
-    """为新的独立修参原子领取一个下一轮真实调用槽。"""
-
-    context = request.runtime_context
-    remaining_steps = getattr(context, "remaining_agent_steps", None)
-    if isinstance(remaining_steps, int) and remaining_steps < 1:
-        return False
-
-    remaining_slots = getattr(context, "remaining_argument_repair_slots", None)
-    if not isinstance(remaining_slots, int) or isinstance(remaining_slots, bool):
-        remaining_slots = getattr(context, "remaining_agent_tool_calls_after_batch", None)
-        if not isinstance(remaining_slots, int) or isinstance(remaining_slots, bool):
-            remaining_slots = getattr(context, "remaining_agent_tool_calls_before_round", None)
-        if not isinstance(remaining_slots, int) or isinstance(remaining_slots, bool):
-            return True
-    if remaining_slots < 1:
-        return False
-    context.remaining_argument_repair_slots = remaining_slots - 1
-    return True
-
-
-def _normalize_remote_argument_failure(
-    request: ToolExecutionBatchRequest,
-    tool_name: str,
-    result,
-):
     data = getattr(result, "data", None)
     if not isinstance(data, dict) or data.get("error_code") != "remote_invalid_arguments":
-        return result
-    if tool_name in request.remote_argument_repair_disabled_tools:
         return result
     validation_errors = [item for item in data.get("validation_errors", []) if isinstance(item, str)][:8]
     if not validation_errors:
         return result
-    repair_result = _build_argument_preflight_result(
-        request,
-        tool_name,
+    argument_result = _build_argument_error_result(
         error_code="remote_arguments_invalid",
         validation_errors=validation_errors,
         local_preflight=False,
     )
-    repair_result.duration_ms = result.duration_ms
-    return repair_result
-
-
-def _authorize_repaired_arguments(
-    request: ToolExecutionBatchRequest,
-    tool_name: str,
-    args: dict[str, Any],
-):
-    from app.services.tool_handlers import ToolResult
-
-    state = getattr(request.runtime_context, "argument_repair_state", None)
-    if not isinstance(state, dict):
-        return None, None, args
-    key = _argument_repair_key(tool_name)
-    pending = state.get(key)
-    if not isinstance(pending, dict):
-        return None, None, args
-    if pending.get("status") == "resolved":
-        return None, None, args
-    repair_id = pending.get("repair_id") if isinstance(pending.get("repair_id"), str) else _new_argument_repair_id()
-    pending["repair_id"] = repair_id
-    current_step = getattr(request.runtime_context, "step_number", 0)
-    pending_step = pending.get("step_number", 0)
-    if pending.get("status") == "pending" and current_step > pending_step:
-        pending["status"] = "consumed"
-        constraints = pending.get("constraints")
-        authorized_args = _project_repaired_arguments(args, constraints)
-        if isinstance(constraints, dict) and not _arguments_satisfy_repair_constraints(
-            authorized_args,
-            constraints,
-        ):
-            required_fields = [field for field in constraints.get("required_fields", ()) if isinstance(field, str)][:8]
-            allowed_values = {
-                field: [
-                    value for value in constraints.get("allowed_values", {}).get(field, ()) if isinstance(value, str)
-                ][:4]
-                for field in required_fields
-            }
-            return (
-                ToolResult(
-                    status="failed",
-                    data={
-                        "error_code": "argument_repair_constraint_violation",
-                        "local_preflight": True,
-                        "repair_values_verified": True,
-                        "repair": {
-                            "action": "provide_argument",
-                            "repair_id": repair_id,
-                            "required_fields": required_fields,
-                            "allowed_values": allowed_values,
-                            "retryable": False,
-                            "requires_user_input": False,
-                            "retry_exhausted": True,
-                            "max_attempts": 1,
-                            "candidate_count": 0,
-                        },
-                    },
-                ),
-                None,
-                args,
-            )
-        return None, repair_id, authorized_args
-    retryable = pending.get("status") == "pending"
-    return (
-        ToolResult(
-            status="failed",
-            data={
-                "error_code": ("argument_repair_deferred_to_next_round" if retryable else "argument_repair_exhausted"),
-                "local_preflight": True,
-                "repair": {
-                    "action": "rebuild_arguments",
-                    "repair_id": repair_id,
-                    "required_fields": [],
-                    "allowed_values": {},
-                    "retryable": retryable,
-                    "requires_user_input": False,
-                    "retry_exhausted": not retryable,
-                    "max_attempts": 1,
-                    "candidate_count": 0,
-                },
-            },
-        ),
-        None,
-        args,
-    )
-
-
-def _project_repaired_arguments(
-    args: dict[str, Any],
-    constraints: Any,
-) -> dict[str, Any]:
-    """只保留原调用字段和本轮允许补齐的字段，丢弃模型额外添加的未授权参数。"""
-
-    if not isinstance(constraints, dict):
-        return args
-    allowed_keys = constraints.get("allowed_argument_keys")
-    if not isinstance(allowed_keys, tuple) or not allowed_keys:
-        return args
-    allowed = {key for key in allowed_keys if isinstance(key, str)}
-    return {key: value for key, value in args.items() if key in allowed}
-
-
-def _arguments_satisfy_repair_constraints(
-    args: dict[str, Any],
-    constraints: dict[str, Any],
-) -> bool:
-    required_fields = constraints.get("required_fields")
-    allowed_values = constraints.get("allowed_values")
-    expected_fingerprint = constraints.get("immutable_arguments_sha256")
-    if (
-        not isinstance(required_fields, tuple)
-        or not required_fields
-        or not isinstance(allowed_values, dict)
-        or not isinstance(expected_fingerprint, str)
-    ):
-        return False
-    if (
-        _argument_repair_fingerprint(
-            args,
-            excluded_fields=required_fields,
-        )
-        != expected_fingerprint
-    ):
-        return False
-    return all(
-        isinstance(args.get(field), str) and args[field].strip() in allowed_values.get(field, ())
-        for field in required_fields
-    )
-
-
-def _mark_argument_repair_resolved(
-    request: ToolExecutionBatchRequest,
-    tool_name: str,
-) -> None:
-    state = getattr(request.runtime_context, "argument_repair_state", None)
-    if not isinstance(state, dict):
-        return
-    pending = state.get(_argument_repair_key(tool_name))
-    if isinstance(pending, dict):
-        pending["status"] = "resolved"
+    argument_result.duration_ms = result.duration_ms
+    return argument_result
 
 
 async def execute_tool_batch(
@@ -1252,15 +966,8 @@ async def execute_tool_batch(
     tool_calls: list[dict],
 ) -> list[ToolExecutionRecord]:
     indexed_calls = list(enumerate(tool_calls))
-    tool_name_counts: dict[str, int] = {}
-    for _, tool_call in indexed_calls:
-        tool_name = str(tool_call.get("name", ""))
-        tool_name_counts[tool_name] = tool_name_counts.get(tool_name, 0) + 1
     request = replace(
         request,
-        remote_argument_repair_disabled_tools=frozenset(
-            tool_name for tool_name, count in tool_name_counts.items() if tool_name and count > 1
-        ),
         deferred_route_call_ids=_deferred_route_call_ids(request, indexed_calls),
     )
     amap_product_calls = [
@@ -1273,33 +980,9 @@ async def execute_tool_batch(
         for index, tool_call in indexed_calls
         if tool_call.get("name") not in _AMAP_PRODUCT_EXECUTION_PRIORITY
     ]
-    invalid_preflight_indexes = {
-        index
-        for index, tool_call in indexed_calls
-        if is_local_argument_preflight_failure(
-            tool_call,
-            request.tool_handlers,
-        )
-    }
-    repair_sensitive_names = {
-        str(tool_call.get("name", "")) for index, tool_call in parallel_calls if index in invalid_preflight_indexes
-    }
-    _set_remaining_tool_calls_after_batch(
-        request,
-        indexed_calls=indexed_calls,
-        invalid_preflight_indexes=invalid_preflight_indexes,
-    )
-    argument_repair_groups: dict[str, list[tuple[int, dict]]] = {}
-    regular_parallel_calls: list[tuple[int, dict]] = []
-    for item in parallel_calls:
-        tool_name = str(item[1].get("name", ""))
-        if tool_name in repair_sensitive_names:
-            argument_repair_groups.setdefault(tool_name, []).append(item)
-        else:
-            regular_parallel_calls.append(item)
     reusable_groups: dict[str, list[tuple[int, dict]]] = {}
     ungrouped_parallel_calls: list[tuple[int, dict]] = []
-    for index, tool_call in regular_parallel_calls:
+    for index, tool_call in parallel_calls:
         signature = (
             build_successful_call_signature(tool_call, request.tool_handlers)
             if request.successful_tool_call_signatures is not None
@@ -1317,11 +1000,7 @@ async def execute_tool_batch(
         records = []
         for index, tool_call in sorted(
             amap_product_calls,
-            key=lambda item: (
-                _AMAP_PRODUCT_EXECUTION_PRIORITY[item[1]["name"]],
-                item[0] not in invalid_preflight_indexes,
-                item[0],
-            ),
+            key=lambda item: (_AMAP_PRODUCT_EXECUTION_PRIORITY[item[1]["name"]], item[0]),
         ):
             records.append(await execute_indexed(index, tool_call))
         return records
@@ -1330,16 +1009,12 @@ async def execute_tool_batch(
         grouped_calls: list[tuple[int, dict]],
     ) -> list[tuple[int, ToolExecutionRecord]]:
         records = []
-        for index, tool_call in sorted(
-            grouped_calls,
-            key=lambda item: (item[0] not in invalid_preflight_indexes, item[0]),
-        ):
+        for index, tool_call in sorted(grouped_calls, key=lambda item: item[0]):
             records.append(await execute_indexed(index, tool_call))
         return records
 
     pending = [execute_indexed(index, tool_call) for index, tool_call in ungrouped_parallel_calls]
     pending.extend(execute_reusable_group(grouped_calls) for grouped_calls in reusable_groups.values())
-    pending.extend(execute_reusable_group(grouped_calls) for grouped_calls in argument_repair_groups.values())
     if amap_product_calls:
         pending.append(execute_amap_products())
     tasks = [asyncio.create_task(operation) for operation in pending]
@@ -1412,50 +1087,6 @@ def is_local_argument_preflight_failure(
     except ToolArgumentsParseError:
         return True
     return bool(_validate_handler_arguments(handler, args))
-
-
-def _set_remaining_tool_calls_after_batch(
-    request: ToolExecutionBatchRequest,
-    *,
-    indexed_calls: list[tuple[int, dict]],
-    invalid_preflight_indexes: set[int],
-) -> None:
-    context = request.runtime_context
-    if context is None:
-        return
-    remaining_before = getattr(context, "remaining_agent_tool_calls_before_round", None)
-    if not isinstance(remaining_before, int):
-        return
-    invalid_tool_names = {
-        str(tool_call.get("name", "")) for index, tool_call in indexed_calls if index in invalid_preflight_indexes
-    }
-    expected_actual_calls = 0
-    for index, tool_call in indexed_calls:
-        if index in invalid_preflight_indexes:
-            continue
-        if str(tool_call.get("name", "")) in invalid_tool_names:
-            continue
-        if (
-            request.successful_tool_call_signatures is not None
-            and (
-                signature := build_successful_call_signature(
-                    tool_call,
-                    request.tool_handlers,
-                )
-            )
-            and signature in request.successful_tool_call_signatures
-        ):
-            continue
-        expected_actual_calls += 1
-    remaining_after_batch = max(
-        0,
-        remaining_before - expected_actual_calls,
-    )
-    context.remaining_agent_tool_calls_after_batch = remaining_after_batch
-    remaining_steps = getattr(context, "remaining_agent_steps", None)
-    context.remaining_argument_repair_slots = (
-        0 if isinstance(remaining_steps, int) and remaining_steps < 1 else remaining_after_batch
-    )
 
 
 async def execute_tools_parallel(

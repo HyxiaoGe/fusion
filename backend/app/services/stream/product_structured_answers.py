@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 class ProductStructuredAnswers(StructuredAnswers):
     def pending_user_choice(self, result: Any) -> dict[str, Any] | None:
-        # 地名歧义失败且带候选时等用户选择；修参通道（如天气）不走这里。
+        # 地名歧义失败且带候选时等用户选择。
         return pending_place_choice(getattr(result, "status", None), getattr(result, "data", None))
 
     def record_tool_results(self, state: AgentLoopState, results: list[ToolExecutionRecord]) -> None:

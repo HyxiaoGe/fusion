@@ -97,7 +97,6 @@ class ToolRoundRequest:
     on_tools_executed: Callable[[int], None] | None = None
     completed_tool_calls: int | None = None
     max_tool_calls: int | None = None
-    max_steps: int | None = None
     clock: Callable[[], float] = time.time
     tool_handlers: dict[str, Any] | None = None
     announced_tool_names: frozenset[str] | None = None
@@ -714,14 +713,8 @@ async def handle_tool_calls_round(*, request: ToolRoundRequest) -> ToolRoundOutc
             state=request.agent_state,
             step_number=request.step_number,
         )
-        if request.max_steps is not None:
-            runtime_context.remaining_agent_steps = max(0, request.max_steps - request.step_number)
         if request.max_tool_calls is not None:
             completed = request.completed_tool_calls or 0
-            runtime_context.remaining_agent_tool_calls_before_round = max(
-                0,
-                request.max_tool_calls - completed,
-            )
             planned_current_calls = sum(
                 not _is_successfully_reusable_call(request, tool_call)
                 for tool_call in context_resolution.executable_calls
@@ -849,19 +842,14 @@ def _plan_item_statuses_from_batch(
         if not isinstance(plan_item_id, str):
             continue
         data = record.result.data if isinstance(record.result.data, dict) else {}
-        repair = data.get("repair") if isinstance(data, dict) else None
-        repair_retryable = (
-            isinstance(repair, dict)
-            and repair.get("retryable") is True
-            and repair.get("retry_exhausted") is not True
-            and repair.get("requires_user_input") is not True
-        )
+        # 参数不合法时工具没有执行，模型可能下一轮改参再调，计划项保持进行中。
+        argument_error = isinstance(data.get("argument_errors"), list)
         distinct_source_retryable = (
             record.tool_name == "url_read"
             and data.get("duplicate_read_source") is True
             and data.get("retryable") is True
         )
-        if repair_retryable or distinct_source_retryable:
+        if argument_error or distinct_source_retryable:
             status = "running"
         elif record.result.status == "degraded" and record.tool_name in {"web_search", "url_read"}:
             status = "failed"

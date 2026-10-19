@@ -91,7 +91,7 @@ class ItineraryObservabilityTests(unittest.TestCase):
             provider="provider-1",
             content_blocks=[],
             tool_observations=[
-                ItineraryToolObservation("search_trains", "failed", "upstream_error", 100, True, False, False, True)
+                ItineraryToolObservation("search_trains", "failed", "upstream_error", 100, False, False, True, False)
             ],
             run_status="completed",
             finish_reason="stop",
@@ -143,7 +143,7 @@ class ItineraryObservabilityTests(unittest.TestCase):
 
     def test_itinerary_result_classification_respects_terminal_status(self):
         succeeded = [ItineraryToolObservation("search_flights", "success", None, 10, False, False, False, False)]
-        degraded = [ItineraryToolObservation("search_trains", "degraded", None, 10, True, False, False, False)]
+        degraded = [ItineraryToolObservation("search_trains", "degraded", None, 10, False, False, False, False)]
         weather_only = [ItineraryToolObservation("weather_forecast", "success", None, 10, False, False, False, False)]
 
         self.assertEqual(classify_itinerary_result(succeeded, run_status="completed"), "complete")
@@ -155,7 +155,7 @@ class ItineraryObservabilityTests(unittest.TestCase):
         self.assertEqual(classify_itinerary_result(weather_only, run_status="completed"), "failed")
         self.assertEqual(classify_itinerary_result([], run_status="completed"), "failed")
 
-    def test_tool_observation_normalizes_timeout_repair_and_budget_without_raw_values(self):
+    def test_tool_observation_normalizes_timeout_argument_error_and_budget_without_raw_values(self):
         timeout = build_itinerary_tool_observation(
             _record(
                 "search_flights",
@@ -166,12 +166,23 @@ class ItineraryObservabilityTests(unittest.TestCase):
                 },
             )
         )
-        repair = build_itinerary_tool_observation(
+        argument_error = build_itinerary_tool_observation(
             _record(
                 "search_trains",
                 status="failed",
                 data={
-                    "error_code": "arguments_schema_invalid",
+                    "error_code": "route_city_required",
+                    "argument_errors": ["origin_city:required"],
+                    "argument_hints": {"origin_city": ["private-city"]},
+                },
+            )
+        )
+        legacy_repair = build_itinerary_tool_observation(
+            _record(
+                "search_trains",
+                status="failed",
+                data={
+                    "error_code": "argument_repair_exhausted",
                     "repair": {"retryable": True, "allowed_values": ["private-city"]},
                 },
             )
@@ -186,13 +197,17 @@ class ItineraryObservabilityTests(unittest.TestCase):
 
         self.assertEqual(timeout.outcome, "timeout")
         self.assertEqual(timeout.error_category, "timeout")
-        self.assertEqual(repair.outcome, "degraded")
-        self.assertTrue(repair.controlled_repair)
+        self.assertEqual(argument_error.outcome, "failed")
+        self.assertEqual(argument_error.error_category, "argument_error")
+        self.assertTrue(argument_error.argument_error)
+        # 历史日志里的修参状态码仍计为参数错误，失败如实计入 failed。
+        self.assertEqual(legacy_repair.outcome, "failed")
+        self.assertTrue(legacy_repair.argument_error)
         self.assertEqual(budget.error_category, "travel_budget_exhausted")
         self.assertTrue(budget.travel_budget_exhausted)
         self.assertFalse(budget.server_budget_exhausted)
-        self.assertNotIn("secret-value", repr((timeout, repair, budget)))
-        self.assertNotIn("private-city", repr((timeout, repair, budget)))
+        self.assertNotIn("secret-value", repr((timeout, argument_error, legacy_repair, budget)))
+        self.assertNotIn("private-city", repr((timeout, argument_error, legacy_repair, budget)))
 
     def test_log_serialization_never_contains_unapproved_fields(self):
         payload = build_itinerary_run_payload(

@@ -24,13 +24,8 @@ class ToolRuntimeContext:
 
     geolocation: Geolocation | None = None
     step_number: int = 0
-    argument_repair_state: dict[str, dict[str, Any]] | None = None
     route_city_hints: dict[str, tuple[str, ...]] = field(default_factory=dict)
-    remaining_agent_steps: int | None = None
     remaining_agent_tool_calls: int | None = None
-    remaining_agent_tool_calls_before_round: int | None = None
-    remaining_agent_tool_calls_after_batch: int | None = None
-    remaining_argument_repair_slots: int | None = None
     # 本 Run 已投影的结果块快照，供需要引用已完成查询的工具（如文档数据来源）读取。
     content_blocks: tuple[Any, ...] = ()
 
@@ -192,18 +187,18 @@ class BaseToolHandler(ABC):
     # 已知慢工具（如生图）可声明更长的单次超时；None 沿用统一上限。
     execution_timeout_seconds: float | None = None
 
-    def build_runtime_argument_repair(self, args: dict, context: ToolRuntimeContext | None) -> dict | None:
-        """真实执行前按运行内信息检查参数；返回修参说明则本次不触网。"""
+    def check_runtime_arguments(self, args: dict, context: ToolRuntimeContext | None) -> dict | None:
+        """真实执行前按运行内信息检查参数；返回 {"error_code", "validation_errors", "hints"?} 则本次不触网。"""
 
         return None
 
     def validate_arguments(self, args: dict) -> list[dict[str, str]]:
-        """真实执行前的本地参数校验；返回 [{"field", "code"}] 则不触网，走参数修复。"""
+        """真实执行前的本地参数校验；返回 [{"field", "code"}] 则不触网，错误交还模型。"""
 
         return []
 
     def build_local_preflight_result(self, validation_errors: list[str]) -> ToolResult | None:
-        """参数校验失败时投影工具自己的状态型结果；None 走通用参数修复。"""
+        """参数校验失败时投影工具自己的状态型结果；None 走通用参数错误结果。"""
 
         return None
 

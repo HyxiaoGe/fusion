@@ -133,8 +133,8 @@ export interface AgentToolDigest {
   keyFindings: string[];
   sourceRefs: string[];
   truncated: boolean;
-  repairState?: 'retrying' | 'requires_user_input' | 'exhausted' | 'resolved' | 'awaiting_choice';
-  repairId?: string;
+  // 只表示地名多候选待确认；字段名沿用历史协议。
+  repairState?: 'awaiting_choice';
 }
 
 export interface ToolCallResultSummary {
@@ -146,9 +146,7 @@ export interface ToolCallResultSummary {
   mode_count?: number;
   favicon?: string;
   truncated: boolean;
-  repair_state?: 'retrying' | 'requires_user_input' | 'exhausted' | 'resolved' | 'awaiting_choice';
-  repair_id?: string;
-  resolves_repair_id?: string;
+  repair_state?: 'awaiting_choice';
 }
 
 export interface ToolCallState {

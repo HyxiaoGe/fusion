@@ -337,8 +337,8 @@ class ToolResultDigest(AgentEventBase):
     key_findings: list[str] = Field(default_factory=list)
     source_refs: list[str] = Field(default_factory=list)
     truncated: bool = False
-    repair_state: Literal["retrying", "requires_user_input", "exhausted", "resolved", "awaiting_choice"] | None = None
-    repair_id: str | None = None
+    # 只表示地名多候选待确认；字段名沿用历史协议。
+    repair_state: Literal["awaiting_choice"] | None = None
     plan_item_id: str | None = None
 
 

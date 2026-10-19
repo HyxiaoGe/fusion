@@ -21,6 +21,7 @@ from app.services.source_evidence_ledger import stable_web_evidence_id
 from app.services.stream import tool_executor as tool_executor_module
 from app.services.stream.tool_execution_result import ToolExecutionRecord
 from app.services.stream.tool_executor import (
+    ARGUMENT_ERROR_MESSAGE,
     AgentEventCompositeWriter,
     _should_retry_tool_result,
     build_successful_call_signature,
@@ -103,13 +104,13 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
             "model-1",
             "openai",
             tool_handlers={handler.tool_name: handler},
-            runtime_context=SimpleNamespace(argument_repair_state={}, step_number=1),
+            runtime_context=SimpleNamespace(step_number=1),
         )
 
         record = records[0]
         self.assertEqual(record.result.data["error_code"], "context7_library_id_unresolved")
         self.assertTrue(record.result.data["local_preflight"])
-        self.assertNotIn("repair", record.result.data)
+        self.assertNotIn("argument_errors", record.result.data)
         self.assertIn("Call the library-resolution tool first", record.format_llm_context())
         self.assertNotIn("without code blocks", record.format_llm_context())
         handler.log.assert_awaited_once()
@@ -185,7 +186,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
                     "model-1",
                     "openai",
                     tool_handlers={handler.tool_name: handler},
-                    runtime_context=SimpleNamespace(argument_repair_state={}, step_number=1),
+                    runtime_context=SimpleNamespace(step_number=1),
                 )
                 self.assertEqual(
                     records[0].result.data["error_code"],
@@ -383,7 +384,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
 
         emitter.tool_call_completed.assert_not_awaited()
 
-    async def test_invalid_argument_json_returns_repair_context_without_calling_remote_handler(self):
+    async def test_invalid_argument_json_returns_field_errors_without_calling_remote_handler(self):
         handler = MagicMock()
         handler.tool_name = "mcp_docs_a1b2c3d4"
         handler.supports_automatic_retry = False
@@ -395,7 +396,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
             "truncated": False,
         }
         emitter = AsyncMock()
-        runtime_context = SimpleNamespace(argument_repair_state={}, step_number=1)
+        runtime_context = SimpleNamespace(step_number=1)
 
         records = await execute_tools_parallel(
             [
@@ -417,109 +418,25 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         record = records[0]
         self.assertEqual(record.result.status, "failed")
         self.assertEqual(record.result.data["error_code"], "arguments_json_invalid")
-        self.assertTrue(record.result.data["repair"]["retryable"])
-        self.assertFalse(record.result.data["repair"]["requires_user_input"])
-        self.assertIn('"tool_result": "argument_repair_required"', record.format_llm_context())
-        self.assertIn("valid JSON object", record.format_llm_context())
+        self.assertEqual(record.result.data["argument_errors"], ["$:invalid_json"])
+        context = record.format_llm_context()
+        self.assertIn('"argument_errors": ["$:invalid_json"]', context)
+        self.assertIn("not executed", context)
+        # 只陈述事实，不再替模型规定重试次数或禁止再调。
+        self.assertNotIn("at most once", context)
+        self.assertNotIn("Do not call this tool again", context)
         handler.execute.assert_not_awaited()
         handler.log.assert_awaited_once()
         self.assertEqual(handler.log.await_args.kwargs["tool_call_id"], "call-invalid-json")
         self.assertEqual(handler.log.await_args.kwargs["input_params"], {})
         emitter.tool_call_started.assert_awaited_once()
         emitter.tool_call_completed.assert_awaited_once()
-        self.assertEqual(emitter.tool_call_completed.await_args.kwargs["status"], "degraded")
-        self.assertIsNone(emitter.tool_call_completed.await_args.kwargs["error"])
+        self.assertEqual(emitter.tool_call_completed.await_args.kwargs["status"], "failed")
+        self.assertEqual(emitter.tool_call_completed.await_args.kwargs["error"], ARGUMENT_ERROR_MESSAGE)
         emitter.tool_attempt_started.assert_not_awaited()
         emitter.tool_attempt_completed.assert_not_awaited()
 
-    async def test_repeated_invalid_argument_json_is_not_retryable_and_never_calls_handler(self):
-        handler = MagicMock()
-        handler.tool_name = "mcp_docs_a1b2c3d4"
-        handler.supports_automatic_retry = False
-        handler.execute = AsyncMock()
-        handler.log = AsyncMock()
-        handler._build_result_summary.return_value = {"kind": "external_tool", "truncated": False}
-        repair_state = {}
-        tool_call = {
-            "id": "call-invalid-json",
-            "name": "mcp_docs_a1b2c3d4",
-            "arguments": "{invalid",
-        }
-
-        first = await execute_tools_parallel(
-            [tool_call],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "openai",
-            tool_handlers={"mcp_docs_a1b2c3d4": handler},
-            runtime_context=SimpleNamespace(argument_repair_state=repair_state, step_number=1),
-        )
-        second = await execute_tools_parallel(
-            [{**tool_call, "id": "call-invalid-json-2"}],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "openai",
-            tool_handlers={"mcp_docs_a1b2c3d4": handler},
-            runtime_context=SimpleNamespace(argument_repair_state=repair_state, step_number=2),
-        )
-
-        self.assertTrue(first[0].result.data["repair"]["retryable"])
-        self.assertFalse(second[0].result.data["repair"]["retryable"])
-        self.assertFalse(second[0].result.data["repair"]["requires_user_input"])
-        self.assertTrue(second[0].result.data["repair"]["retry_exhausted"])
-        handler.execute.assert_not_awaited()
-
-    async def test_invalid_parsable_invalid_sequence_never_reopens_repair_budget(self):
-        class SchemaAwareHandler(FakeToolHandler):
-            tool_name = "mcp_docs_a1b2c3d4"
-            supports_automatic_retry = False
-
-            def validate_arguments(self, args):
-                return [] if isinstance(args.get("query"), str) else ["query:required"]
-
-        handler = SchemaAwareHandler()
-        handler.execute = AsyncMock()
-        handler.log = AsyncMock()
-        handler._build_result_summary = MagicMock(return_value={"kind": "external_tool", "truncated": False})
-        repair_state = {}
-
-        first = await execute_tools_parallel(
-            [{"id": "invalid-json-1", "name": handler.tool_name, "arguments": "{invalid"}],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "openai",
-            tool_handlers={handler.tool_name: handler},
-            runtime_context=SimpleNamespace(argument_repair_state=repair_state, step_number=1),
-        )
-        second = await execute_tools_parallel(
-            [{"id": "schema-invalid", "name": handler.tool_name, "arguments": "{}"}],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "openai",
-            tool_handlers={handler.tool_name: handler},
-            runtime_context=SimpleNamespace(argument_repair_state=repair_state, step_number=2),
-        )
-        third = await execute_tools_parallel(
-            [{"id": "invalid-json-2", "name": handler.tool_name, "arguments": "{invalid"}],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "openai",
-            tool_handlers={handler.tool_name: handler},
-            runtime_context=SimpleNamespace(argument_repair_state=repair_state, step_number=3),
-        )
-
-        self.assertTrue(first[0].result.data["repair"]["retryable"])
-        self.assertFalse(second[0].result.data["repair"]["retryable"])
-        self.assertEqual(second[0].result.data["error_code"], "arguments_schema_invalid")
-        self.assertFalse(third[0].result.data["repair"]["retryable"])
-        handler.execute.assert_not_awaited()
-
-    async def test_structured_remote_argument_error_enters_same_one_shot_repair_protocol(self):
+    async def test_structured_remote_argument_error_returns_same_field_errors_as_local_validation(self):
         class RemoteSchemaHandler(FakeToolHandler):
             tool_name = "mcp_docs_a1b2c3d4"
             supports_automatic_retry = False
@@ -539,7 +456,6 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         )
         handler.log = AsyncMock()
         handler._build_result_summary = MagicMock(return_value={"kind": "external_tool", "truncated": False})
-        repair_state = {}
 
         records = await execute_tools_parallel(
             [{"id": "remote-invalid", "name": handler.tool_name, "arguments": '{"query":"Fusion"}'}],
@@ -548,15 +464,14 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
             "model-1",
             "openai",
             tool_handlers={handler.tool_name: handler},
-            runtime_context=SimpleNamespace(argument_repair_state=repair_state, step_number=1),
+            runtime_context=SimpleNamespace(step_number=1),
         )
 
-        repair = records[0].result.data["repair"]
-        self.assertEqual(records[0].result.data["error_code"], "remote_arguments_invalid")
-        self.assertFalse(records[0].result.data["local_preflight"])
-        self.assertEqual(repair["required_fields"], ["query"])
-        self.assertTrue(repair["retryable"])
-        self.assertFalse(repair["requires_user_input"])
+        data = records[0].result.data
+        self.assertEqual(data["error_code"], "remote_arguments_invalid")
+        self.assertFalse(data["local_preflight"])
+        self.assertEqual(data["argument_errors"], ["query:required"])
+        self.assertIn('"argument_errors": ["query:required"]', records[0].format_llm_context())
         handler.execute.assert_awaited_once_with({"query": "Fusion"}, ANY)
 
     async def test_schema_root_and_array_paths_block_execution_before_network(self):
@@ -585,288 +500,13 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
                     "model-1",
                     "openai",
                     tool_handlers={handler.tool_name: handler},
-                    runtime_context=SimpleNamespace(argument_repair_state={}, step_number=1),
+                    runtime_context=SimpleNamespace(step_number=1),
                 )
 
                 self.assertEqual(records[0].result.data["error_code"], "arguments_schema_invalid")
                 handler.execute.assert_not_awaited()
 
-    async def test_repair_success_allows_later_valid_call_without_reopening_repair_budget(self):
-        class RepairHandler(FakeToolHandler):
-            tool_name = "mcp_docs_a1b2c3d4"
-            supports_automatic_retry = False
-
-            def validate_arguments(self, args):
-                return [] if isinstance(args.get("query"), str) else [{"field": "query", "code": "required"}]
-
-        handler = RepairHandler()
-        handler.execute = AsyncMock(return_value=ToolResult(status="success", data={"payload": "ok"}))
-        handler.log = AsyncMock()
-        handler._build_result_summary = MagicMock(return_value={"kind": "external_tool", "truncated": False})
-        repair_state = {}
-
-        await execute_tools_parallel(
-            [{"id": "invalid", "name": handler.tool_name, "arguments": "{}"}],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "openai",
-            tool_handlers={handler.tool_name: handler},
-            runtime_context=SimpleNamespace(argument_repair_state=repair_state, step_number=1),
-        )
-        repaired = await execute_tools_parallel(
-            [{"id": "repaired", "name": handler.tool_name, "arguments": '{"query":"first"}'}],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "openai",
-            tool_handlers={handler.tool_name: handler},
-            runtime_context=SimpleNamespace(argument_repair_state=repair_state, step_number=2),
-        )
-        later = await execute_tools_parallel(
-            [{"id": "later", "name": handler.tool_name, "arguments": '{"query":"second"}'}],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "openai",
-            tool_handlers={handler.tool_name: handler},
-            runtime_context=SimpleNamespace(argument_repair_state=repair_state, step_number=3),
-        )
-        later_invalid = await execute_tools_parallel(
-            [{"id": "later-invalid", "name": handler.tool_name, "arguments": "{invalid"}],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "openai",
-            tool_handlers={handler.tool_name: handler},
-            runtime_context=SimpleNamespace(argument_repair_state=repair_state, step_number=4),
-        )
-
-        self.assertEqual(repaired[0].result.status, "success")
-        self.assertEqual(later[0].result.status, "success")
-        self.assertEqual(handler.execute.await_count, 2)
-        self.assertFalse(later_invalid[0].result.data["repair"]["retryable"])
-
-    async def test_runtime_repair_drops_unrequested_extra_arguments_before_execution(self):
-        class RuntimeRepairHandler(FakeToolHandler):
-            tool_name = "route_compare"
-            supports_automatic_retry = False
-
-            def __init__(self):
-                self.calls = []
-
-            def validate_arguments(self, _args):
-                return []
-
-            def build_runtime_argument_repair(self, args, _runtime_context):
-                if "origin_city" in args:
-                    return None
-                return {
-                    "error_code": "route_city_required",
-                    "required_fields": ["origin_city"],
-                    "allowed_values": {"origin_city": ["厦门"]},
-                }
-
-            async def execute(self, args, _runtime_context=None):
-                self.calls.append(dict(args))
-                return ToolResult(status="success", data={"routes": []})
-
-            async def log(self, **_kwargs):
-                return None
-
-            def _build_result_summary(self, _result):
-                return {"kind": "external_tool", "truncated": False}
-
-        handler = RuntimeRepairHandler()
-        repair_state = {}
-        base_arguments = {
-            "origin": "厦门北站",
-            "destination": "邮轮中心厦鼓码头",
-            "modes": ["transit"],
-        }
-
-        first = await execute_tools_parallel(
-            [
-                {
-                    "id": "route-invalid",
-                    "name": handler.tool_name,
-                    "arguments": json.dumps(base_arguments, ensure_ascii=False),
-                }
-            ],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "moonshot",
-            tool_handlers={handler.tool_name: handler},
-            runtime_context=SimpleNamespace(argument_repair_state=repair_state, step_number=1),
-        )
-        repaired = await execute_tools_parallel(
-            [
-                {
-                    "id": "route-repaired",
-                    "name": handler.tool_name,
-                    "arguments": json.dumps(
-                        {
-                            **base_arguments,
-                            "origin_city": "厦门",
-                            "destination_city": "厦门",
-                        },
-                        ensure_ascii=False,
-                    ),
-                }
-            ],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "moonshot",
-            tool_handlers={handler.tool_name: handler},
-            runtime_context=SimpleNamespace(argument_repair_state=repair_state, step_number=2),
-        )
-
-        self.assertEqual(first[0].result.data["error_code"], "route_city_required")
-        self.assertEqual(repaired[0].result.status, "success")
-        self.assertEqual(handler.calls, [{**base_arguments, "origin_city": "厦门"}])
-
-    async def test_later_invalid_episode_uses_a_new_repair_id_after_resolution(self):
-        class RepairHandler(FakeToolHandler):
-            tool_name = "mcp_docs_a1b2c3d4"
-            supports_automatic_retry = False
-
-            def validate_arguments(self, args):
-                return [] if isinstance(args.get("query"), str) else [{"field": "query", "code": "required"}]
-
-        handler = RepairHandler()
-        handler.execute = AsyncMock(return_value=ToolResult(status="success", data={"payload": "ok"}))
-        handler.log = AsyncMock()
-        handler._build_result_summary = MagicMock(return_value={"kind": "external_tool", "truncated": False})
-        repair_state = {}
-
-        first = await execute_tools_parallel(
-            [{"id": "invalid-1", "name": handler.tool_name, "arguments": "{}"}],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "openai",
-            tool_handlers={handler.tool_name: handler},
-            runtime_context=SimpleNamespace(argument_repair_state=repair_state, step_number=1),
-        )
-        repaired = await execute_tools_parallel(
-            [{"id": "repaired", "name": handler.tool_name, "arguments": '{"query":"first"}'}],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "openai",
-            tool_handlers={handler.tool_name: handler},
-            runtime_context=SimpleNamespace(argument_repair_state=repair_state, step_number=2),
-        )
-        second_invalid = await execute_tools_parallel(
-            [{"id": "invalid-2", "name": handler.tool_name, "arguments": "{}"}],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "openai",
-            tool_handlers={handler.tool_name: handler},
-            runtime_context=SimpleNamespace(argument_repair_state=repair_state, step_number=3),
-        )
-        second_valid = await execute_tools_parallel(
-            [{"id": "valid-2", "name": handler.tool_name, "arguments": '{"query":"second"}'}],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "openai",
-            tool_handlers={handler.tool_name: handler},
-            runtime_context=SimpleNamespace(argument_repair_state=repair_state, step_number=4),
-        )
-
-        first_id = first[0].result.data["repair"]["repair_id"]
-        second_id = second_invalid[0].result.data["repair"]["repair_id"]
-        self.assertEqual(repaired[0].result.data["resolves_repair_id"], first_id)
-        self.assertNotEqual(second_id, first_id)
-        self.assertEqual(
-            second_valid[0].result.data["repair"]["repair_id"],
-            second_id,
-        )
-        self.assertEqual(second_valid[0].result.data["error_code"], "argument_repair_exhausted")
-
-    async def test_last_agent_step_does_not_promise_an_unavailable_repair_round(self):
-        handler = MagicMock()
-        handler.tool_name = "mcp_docs_a1b2c3d4"
-        handler.execute = AsyncMock()
-        handler.log = AsyncMock()
-        handler._build_result_summary.return_value = {"kind": "external_tool", "truncated": False}
-
-        records = await execute_tools_parallel(
-            [{"id": "last-step-invalid", "name": handler.tool_name, "arguments": "{invalid"}],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "openai",
-            tool_handlers={handler.tool_name: handler},
-            runtime_context=SimpleNamespace(
-                argument_repair_state={},
-                step_number=8,
-                remaining_agent_steps=0,
-                remaining_agent_tool_calls_before_round=1,
-            ),
-        )
-
-        repair = records[0].result.data["repair"]
-        self.assertFalse(repair["retryable"])
-        self.assertTrue(repair["retry_exhausted"])
-        self.assertFalse(repair["requires_user_input"])
-        handler.execute.assert_not_awaited()
-
-    async def test_same_round_valid_variant_waits_until_next_round_before_execution(self):
-        handler = MagicMock()
-        handler.tool_name = "mcp_docs_a1b2c3d4"
-        handler.supports_automatic_retry = False
-        handler.execute = AsyncMock(return_value=ToolResult(status="success", data={"text": "ok"}))
-        handler.log = AsyncMock()
-        handler._build_result_summary.return_value = {"kind": "external_tool", "truncated": False}
-        repair_state = {}
-
-        same_round = await execute_tools_parallel(
-            [
-                {
-                    "id": "call-invalid",
-                    "name": "mcp_docs_a1b2c3d4",
-                    "arguments": "{invalid",
-                },
-                {
-                    "id": "call-preplanned-valid",
-                    "name": "mcp_docs_a1b2c3d4",
-                    "arguments": '{"query":"MCP"}',
-                },
-            ],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "openai",
-            tool_handlers={"mcp_docs_a1b2c3d4": handler},
-            runtime_context=SimpleNamespace(argument_repair_state=repair_state, step_number=1),
-        )
-        next_round = await execute_tools_parallel(
-            [
-                {
-                    "id": "call-repaired",
-                    "name": "mcp_docs_a1b2c3d4",
-                    "arguments": '{"query":"MCP"}',
-                }
-            ],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "openai",
-            tool_handlers={"mcp_docs_a1b2c3d4": handler},
-            runtime_context=SimpleNamespace(argument_repair_state=repair_state, step_number=2),
-        )
-
-        self.assertEqual(same_round[1].result.data["error_code"], "argument_repair_deferred_to_next_round")
-        self.assertTrue(same_round[1].result.data["repair"]["retryable"])
-        self.assertEqual(next_round[0].result.status, "success")
-        handler.execute.assert_awaited_once_with({"query": "MCP"}, ANY)
-
-    async def test_same_round_schema_invalid_call_runs_before_valid_variant_in_both_orders(self):
+    async def test_same_round_invalid_call_does_not_hold_back_valid_call_of_same_tool(self):
         class SchemaAwareHandler(FakeToolHandler):
             tool_name = "mcp_schema_order"
             supports_automatic_retry = False
@@ -891,7 +531,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
                     "model-1",
                     "openai",
                     tool_handlers={handler.tool_name: handler},
-                    runtime_context=SimpleNamespace(argument_repair_state={}, step_number=1),
+                    runtime_context=SimpleNamespace(step_number=1),
                 )
 
                 results_by_id = {record.tool_call["id"]: record.result for record in records}
@@ -899,203 +539,11 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
                     results_by_id["invalid"].data["error_code"],
                     "arguments_schema_invalid",
                 )
-                self.assertEqual(
-                    results_by_id["valid"].data["error_code"],
-                    "argument_repair_deferred_to_next_round",
-                )
-                handler.execute.assert_not_awaited()
+                self.assertEqual(results_by_id["invalid"].data["argument_errors"], ["query:required"])
+                self.assertEqual(results_by_id["valid"].status, "success")
+                handler.execute.assert_awaited_once_with({"query": "MCP"}, ANY)
 
-    async def test_multiple_invalid_calls_in_same_round_only_promise_one_repair(self):
-        handler = MagicMock()
-        handler.tool_name = "mcp_same_round_invalid"
-        handler.supports_automatic_retry = False
-        handler.execute = AsyncMock()
-        handler.log = AsyncMock()
-        handler._build_result_summary.return_value = {"kind": "external_tool", "truncated": False}
-        repair_state = {}
-
-        records = await execute_tools_parallel(
-            [
-                {"id": "invalid-1", "name": handler.tool_name, "arguments": "{bad-one"},
-                {"id": "invalid-2", "name": handler.tool_name, "arguments": "{bad-two"},
-            ],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "openai",
-            tool_handlers={handler.tool_name: handler},
-            runtime_context=SimpleNamespace(argument_repair_state=repair_state, step_number=1),
-        )
-
-        self.assertTrue(records[0].result.data["repair"]["retryable"])
-        self.assertEqual(records[1].result.data["error_code"], "argument_repair_coalesced")
-        self.assertNotIn("repair", records[1].result.data)
-        self.assertEqual(len(repair_state), 1)
-        handler.execute.assert_not_awaited()
-
-    async def test_independent_repairs_atomically_share_remaining_call_slots(self):
-        class RepairHandler(FakeToolHandler):
-            supports_automatic_retry = False
-
-            def __init__(self, tool_name):
-                self.tool_name = tool_name
-
-            def validate_arguments(self, args):
-                return [] if isinstance(args.get("query"), str) else [{"field": "query", "code": "required"}]
-
-        handlers = {}
-        for tool_name in ("mcp_repair_one", "mcp_repair_two"):
-            handler = RepairHandler(tool_name)
-            handler.execute = AsyncMock()
-            handler.log = AsyncMock()
-            handler._build_result_summary = MagicMock(return_value={"kind": "external_tool", "truncated": False})
-            handlers[tool_name] = handler
-
-        repair_state = {}
-        records = await execute_tools_parallel(
-            [
-                {"id": "repair-one", "name": "mcp_repair_one", "arguments": "{}"},
-                {"id": "repair-two", "name": "mcp_repair_two", "arguments": "{}"},
-            ],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "openai",
-            tool_handlers=handlers,
-            runtime_context=SimpleNamespace(
-                argument_repair_state=repair_state,
-                step_number=1,
-                remaining_agent_steps=1,
-                remaining_agent_tool_calls_before_round=1,
-            ),
-        )
-
-        repairs = [record.result.data["repair"] for record in records]
-        self.assertEqual(sum(repair["retryable"] is True for repair in repairs), 1)
-        self.assertEqual(sum(repair["retry_exhausted"] is True for repair in repairs), 1)
-        self.assertEqual(
-            sum(state["status"] == "pending" for state in repair_state.values()),
-            1,
-        )
-        self.assertEqual(
-            sum(state["status"] == "consumed" for state in repair_state.values()),
-            1,
-        )
-        for handler in handlers.values():
-            handler.execute.assert_not_awaited()
-
-    async def test_batch_capacity_accounts_for_other_real_tool_calls(self):
-        invalid_handler = MagicMock()
-        invalid_handler.tool_name = "mcp_invalid"
-        invalid_handler.supports_automatic_retry = False
-        invalid_handler.execute = AsyncMock()
-        invalid_handler.log = AsyncMock()
-        invalid_handler._build_result_summary.return_value = {"kind": "external_tool", "truncated": False}
-
-        valid_handler = MagicMock()
-        valid_handler.tool_name = "mcp_valid"
-        valid_handler.supports_automatic_retry = False
-        valid_handler.execute = AsyncMock(return_value=ToolResult(status="success", data={"payload": "ok"}))
-        valid_handler.log = AsyncMock()
-        valid_handler._build_result_summary.return_value = {"kind": "external_tool", "truncated": False}
-
-        records = await execute_tools_parallel(
-            [
-                {"id": "invalid", "name": invalid_handler.tool_name, "arguments": "{bad"},
-                {"id": "valid", "name": valid_handler.tool_name, "arguments": "{}"},
-            ],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "openai",
-            tool_handlers={
-                invalid_handler.tool_name: invalid_handler,
-                valid_handler.tool_name: valid_handler,
-            },
-            runtime_context=SimpleNamespace(
-                argument_repair_state={},
-                step_number=1,
-                remaining_agent_steps=1,
-                remaining_agent_tool_calls_before_round=1,
-            ),
-        )
-
-        results_by_id = {record.tool_call["id"]: record.result for record in records}
-        self.assertFalse(results_by_id["invalid"].data["repair"]["retryable"])
-        self.assertTrue(results_by_id["invalid"].data["repair"]["retry_exhausted"])
-        valid_handler.execute.assert_awaited_once()
-
-    async def test_batch_capacity_counts_missing_handler_as_consumed_tool_call(self):
-        invalid_handler = MagicMock()
-        invalid_handler.tool_name = "mcp_invalid_with_missing"
-        invalid_handler.supports_automatic_retry = False
-        invalid_handler.execute = AsyncMock()
-        invalid_handler.log = AsyncMock()
-        invalid_handler._build_result_summary.return_value = {"kind": "external_tool", "truncated": False}
-
-        records = await execute_tools_parallel(
-            [
-                {"id": "invalid", "name": invalid_handler.tool_name, "arguments": "{bad"},
-                {"id": "missing", "name": "announced_but_missing", "arguments": "{}"},
-            ],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "openai",
-            tool_handlers={invalid_handler.tool_name: invalid_handler},
-            runtime_context=SimpleNamespace(
-                argument_repair_state={},
-                step_number=1,
-                remaining_agent_steps=1,
-                remaining_agent_tool_calls_before_round=1,
-            ),
-        )
-
-        results_by_id = {record.tool_call["id"]: record.result for record in records}
-        self.assertFalse(results_by_id["invalid"].data["repair"]["retryable"])
-        self.assertEqual(results_by_id["missing"].status, "failed")
-
-    async def test_remote_argument_failure_consuming_last_call_is_not_retryable(self):
-        class RemoteHandler(FakeToolHandler):
-            tool_name = "mcp_remote_last_call"
-            supports_automatic_retry = False
-
-            def validate_arguments(self, _args):
-                return []
-
-        handler = RemoteHandler()
-        handler.execute = AsyncMock(
-            return_value=ToolResult(
-                status="failed",
-                data={
-                    "error_code": "remote_invalid_arguments",
-                    "validation_errors": ["query:required"],
-                },
-            )
-        )
-        handler.log = AsyncMock()
-        handler._build_result_summary = MagicMock(return_value={"kind": "external_tool", "truncated": False})
-
-        records = await execute_tools_parallel(
-            [{"id": "remote-invalid", "name": handler.tool_name, "arguments": "{}"}],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "openai",
-            tool_handlers={handler.tool_name: handler},
-            runtime_context=SimpleNamespace(
-                argument_repair_state={},
-                step_number=1,
-                remaining_agent_steps=1,
-                remaining_agent_tool_calls_before_round=1,
-            ),
-        )
-
-        self.assertFalse(records[0].result.data["repair"]["retryable"])
-        self.assertTrue(records[0].result.data["repair"]["retry_exhausted"])
-        handler.execute.assert_awaited_once()
-
-    async def test_unverified_remote_argument_failure_is_not_turned_into_repair_context(self):
+    async def test_unverified_remote_argument_failure_is_not_turned_into_argument_errors(self):
         class RemoteHandler(FakeToolHandler):
             tool_name = "mcp_remote_unverified"
             supports_automatic_retry = False
@@ -1121,72 +569,10 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
             "model-1",
             "openai",
             tool_handlers={handler.tool_name: handler},
-            runtime_context=SimpleNamespace(argument_repair_state={}, step_number=1),
+            runtime_context=SimpleNamespace(step_number=1),
         )
 
-        self.assertNotIn("repair", records[0].result.data)
-
-    async def test_same_batch_remote_invalid_and_success_do_not_leave_tool_level_pending_repair(self):
-        class RemoteHandler(FakeToolHandler):
-            tool_name = "mcp_remote_mixed_batch"
-            supports_automatic_retry = False
-
-            def validate_arguments(self, _args):
-                return []
-
-        for order in ("invalid_first", "success_first"):
-            with self.subTest(order=order):
-                handler = RemoteHandler()
-
-                async def execute(args, _context=None):
-                    if args["query"] == "bad":
-                        return ToolResult(
-                            status="failed",
-                            data={
-                                "error_code": "remote_invalid_arguments",
-                                "validation_errors": ["query:required"],
-                            },
-                        )
-                    return ToolResult(status="success", data={"payload": "ok"})
-
-                handler.execute = AsyncMock(side_effect=execute)
-                handler.log = AsyncMock()
-                handler._build_result_summary = MagicMock(return_value={"kind": "external_tool", "truncated": False})
-                invalid = {
-                    "id": "remote-invalid",
-                    "name": handler.tool_name,
-                    "arguments": '{"query":"bad"}',
-                }
-                success = {
-                    "id": "remote-success",
-                    "name": handler.tool_name,
-                    "arguments": '{"query":"good"}',
-                }
-                calls = [invalid, success] if order == "invalid_first" else [success, invalid]
-                repair_state = {}
-
-                records = await execute_tools_parallel(
-                    calls,
-                    "conv-1",
-                    "user-1",
-                    "model-1",
-                    "openai",
-                    tool_handlers={handler.tool_name: handler},
-                    runtime_context=SimpleNamespace(
-                        argument_repair_state=repair_state,
-                        step_number=1,
-                    ),
-                )
-
-                results = {record.tool_call["id"]: record.result for record in records}
-                self.assertEqual(results["remote-success"].status, "success")
-                self.assertEqual(
-                    results["remote-invalid"].data["error_code"],
-                    "remote_invalid_arguments",
-                )
-                self.assertNotIn("repair", results["remote-invalid"].data)
-                self.assertEqual(repair_state, {})
-                self.assertEqual(handler.execute.await_count, 2)
+        self.assertNotIn("argument_errors", records[0].result.data)
 
     async def test_identical_successful_travel_query_is_reused_without_second_execution(self):
         from app.services.mcp.flyai_travel_tools import (
@@ -1488,11 +874,8 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         route_handler.execute = AsyncMock(return_value=ToolResult(status="success", data={"result": {}}))
         route_handler.log = AsyncMock()
         runtime_context = SimpleNamespace(
-            argument_repair_state={},
             route_city_hints={},
             step_number=1,
-            remaining_agent_steps=7,
-            remaining_agent_tool_calls_before_round=20,
         )
 
         records = await execute_tools_parallel(
@@ -1544,11 +927,8 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         route_handler.execute = AsyncMock(return_value=ToolResult(status="success", data={"result": {}}))
         route_handler.log = AsyncMock()
         runtime_context = SimpleNamespace(
-            argument_repair_state={},
             route_city_hints={"杭州东站": ("杭州",)},
             step_number=2,
-            remaining_agent_steps=6,
-            remaining_agent_tool_calls_before_round=18,
         )
 
         records = await execute_tools_parallel(

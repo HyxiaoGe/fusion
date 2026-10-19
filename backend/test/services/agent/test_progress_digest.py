@@ -172,25 +172,23 @@ def test_plan_limited_search_does_not_create_evidence_items_or_generic_title():
     assert digest["summary"] == "搜索计划已收敛"
 
 
-def test_repair_digest_projects_only_state_and_opaque_id():
+def test_argument_error_digest_is_failed_and_omits_hint_values():
     record = SimpleNamespace(
-        tool_call={"id": "call-repair", "name": "weather_forecast"},
-        tool_name="weather_forecast",
+        tool_call={"id": "call-argument-error", "name": "route_compare"},
+        tool_name="route_compare",
         result=SimpleNamespace(
             status="failed",
             data={
-                "repair": {
-                    "repair_id": "repair_0123456789abcdef",
-                    "retryable": True,
-                    "allowed_values": {"city": ["深圳市"]},
-                }
+                "error_code": "route_city_required",
+                "argument_errors": ["origin_city:required"],
+                "argument_hints": {"origin_city": ["深圳市"]},
             },
-            error_message=None,
+            error_message="模型给出的工具参数不符合要求，工具未执行",
         ),
         handler=SimpleNamespace(
             _build_result_summary=lambda _result: {
-                "kind": "weather",
-                "title": "天气查询",
+                "kind": "route",
+                "title": "路线比较",
                 "truncated": False,
             }
         ),
@@ -198,33 +196,10 @@ def test_repair_digest_projects_only_state_and_opaque_id():
 
     digest = build_tool_result_digest(record)
 
-    assert digest["repair_state"] == "retrying"
-    assert digest["repair_id"] == "repair_0123456789abcdef"
+    assert digest["status"] == "failed"
+    assert digest["title"] == "工具参数有误，未执行"
+    assert "repair_state" not in digest
     assert "深圳市" not in str(digest)
-
-
-def test_success_digest_carries_matching_resolution_id():
-    record = SimpleNamespace(
-        tool_call={"id": "call-resolved", "name": "weather_forecast"},
-        tool_name="weather_forecast",
-        result=SimpleNamespace(
-            status="success",
-            data={"resolves_repair_id": "repair_0123456789abcdef"},
-            error_message=None,
-        ),
-        handler=SimpleNamespace(
-            _build_result_summary=lambda _result: {
-                "kind": "weather",
-                "title": "天气查询",
-                "truncated": False,
-            }
-        ),
-    )
-
-    digest = build_tool_result_digest(record)
-
-    assert digest["repair_state"] == "resolved"
-    assert digest["repair_id"] == "repair_0123456789abcdef"
 
 
 def test_place_ambiguity_digest_is_awaiting_choice():
@@ -244,4 +219,3 @@ def test_place_ambiguity_digest_is_awaiting_choice():
     assert digest["status"] == "degraded"
     assert digest["repair_state"] == "awaiting_choice"
     assert digest["title"] == "地点有多个候选，待确认"
-    assert "repair_id" not in digest

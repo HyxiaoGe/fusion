@@ -29,10 +29,7 @@ const response = {
     tool_latency_ms: { sample_count: 124, p50_ms: 920, p95_ms: 8600 },
     signals: {
       upstream_error: 6,
-      repair_required: 5,
-      repair_retryable: 3,
-      repair_requires_user_input: 2,
-      repair_retry_exhausted: 1,
+      argument_error: 5,
       travel_budget_exhausted: 2,
       server_budget_exhausted: 1,
       agent_limit_reached: 1,
@@ -46,10 +43,7 @@ const response = {
     tool_latency_ms: { sample_count: 60, p50_ms: 800, p95_ms: 7000 },
     signals: {
       upstream_error: 2,
-      repair_required: 3,
-      repair_retryable: 2,
-      repair_requires_user_input: 1,
-      repair_retry_exhausted: 0,
+      argument_error: 3,
       travel_budget_exhausted: 1,
       server_budget_exhausted: 0,
       agent_limit_reached: 0,

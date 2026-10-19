@@ -8,7 +8,6 @@ tool_executor 负责。
 from __future__ import annotations
 
 import asyncio
-import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -96,18 +95,10 @@ async def emit_tool_call_result(
     if emitter is None:
         return
     data = getattr(result, "data", None)
-    repair = data.get("repair") if isinstance(data, dict) else None
     awaiting_place_choice = pending_place_choice(result.status, data) is not None
-    event_status = (
-        "degraded"
-        if awaiting_place_choice or (isinstance(repair, dict) and repair.get("retryable") is True)
-        else result.status
-    )
-    result_summary = _build_event_result_summary(
-        result_summary_builder(result),
-        data=data,
-        repair=repair,
-    )
+    event_status = "degraded" if awaiting_place_choice else result.status
+    raw_summary = result_summary_builder(result)
+    result_summary = dict(raw_summary) if isinstance(raw_summary, dict) else {"kind": "tool", "truncated": True}
     if awaiting_place_choice:
         # 地名有多个候选是待确认，不是故障：展示为中性状态，模型侧结果不变。
         result_summary["repair_state"] = PLACE_CHOICE_REPAIR_STATE
@@ -117,47 +108,11 @@ async def emit_tool_call_result(
         status=event_status,
         duration_ms=duration_ms if duration_ms is not None else 0,
         result_summary=result_summary,
-        error=(
-            None
-            if awaiting_place_choice or (isinstance(repair, dict) and repair.get("retryable") is True)
-            else result.error_message
-            if result.status != "success"
-            else None
-        ),
+        error=None if awaiting_place_choice or result.status == "success" else result.error_message,
     )
     if plan_item_id is not None:
         kwargs["plan_item_id"] = plan_item_id
     await emitter.tool_call_completed(**kwargs)
-
-
-def _build_event_result_summary(
-    raw_summary: Any,
-    *,
-    data: dict[str, Any] | None,
-    repair: Any,
-) -> dict[str, Any]:
-    summary = dict(raw_summary) if isinstance(raw_summary, dict) else {"kind": "tool", "truncated": True}
-    if isinstance(repair, dict):
-        repair_id = _safe_repair_id(repair.get("repair_id"))
-        summary["repair_state"] = (
-            "retrying"
-            if repair.get("retryable") is True
-            else "requires_user_input"
-            if repair.get("requires_user_input") is True
-            else "exhausted"
-        )
-        if repair_id:
-            summary["repair_id"] = repair_id
-    elif isinstance(data, dict):
-        resolves_repair_id = _safe_repair_id(data.get("resolves_repair_id"))
-        if resolves_repair_id:
-            summary["repair_state"] = "resolved"
-            summary["resolves_repair_id"] = resolves_repair_id
-    return summary
-
-
-def _safe_repair_id(value: Any) -> str | None:
-    return value if isinstance(value, str) and re.fullmatch(r"repair_[a-f0-9]{16}", value) else None
 
 
 def measure_duration_ms(start_mono: float) -> int:

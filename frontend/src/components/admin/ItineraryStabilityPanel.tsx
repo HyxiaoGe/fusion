@@ -243,8 +243,7 @@ function SignalSummaryCard({ signals }: { signals: AdminItineraryStabilitySignal
     <SummaryCard label="异常信号总览" icon={<TriangleAlert className="h-3.5 w-3.5" aria-hidden="true" />}>
       <dl className={styles.detailMetrics}>
         <Metric label="上游错误" value={formatNumber(signals.upstream_error)} tone="danger" />
-        <Metric label="修参触发" value={formatNumber(signals.repair_required)} tone="warn" />
-        <Metric label="需用户补充" value={formatNumber(signals.repair_requires_user_input)} />
+        <Metric label="参数错误" value={formatNumber(signals.argument_error)} tone="warn" />
         <Metric label="额度耗尽" value={formatNumber(budgetExhausted)} tone="danger" />
       </dl>
     </SummaryCard>
@@ -310,7 +309,7 @@ function ModelMetricsTable({ items }: {
                 <td className="break-words px-3 py-2 text-right tabular-nums">{formatDurationPair(item.run_latency_ms)}</td>
                 <td className="break-words px-3 py-2 text-right tabular-nums">{formatDurationPair(item.tool_latency_ms)}</td>
                 <td className="break-words px-3 py-2 leading-relaxed tabular-nums">
-                  上游 {formatNumber(item.signals.upstream_error)} · 修参 {formatNumber(item.signals.repair_required)} · 额度 {formatNumber(totalBudgetSignals(item.signals))}
+                  上游 {formatNumber(item.signals.upstream_error)} · 参数错误 {formatNumber(item.signals.argument_error)} · 额度 {formatNumber(totalBudgetSignals(item.signals))}
                 </td>
               </tr>
             ))}

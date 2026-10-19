@@ -57,30 +57,12 @@ def apply_progress_event(state: dict[str, Any], event: dict[str, Any]) -> dict[s
         _apply_plan_step_update(next_state, event)
     elif event_type == "tool_result_digest" and event.get("protocol_version") == 2:
         normalized_digest = _normalize_tool_digest(event)
-        if normalized_digest.get("repair_state") == "resolved" and normalized_digest.get("repair_id"):
-            next_state["tool_digests"] = [
-                digest
-                for digest in next_state["tool_digests"]
-                if digest.get("repair_id") != normalized_digest["repair_id"]
-            ]
         _upsert_by_key(
             next_state["tool_digests"],
             normalized_digest,
             key="tool_call_id",
             limit=MAX_TOOL_DIGESTS,
         )
-    elif event_type == "tool_call_completed":
-        result_summary = event.get("result_summary")
-        resolves_repair_id = (
-            result_summary.get("resolves_repair_id")
-            if isinstance(result_summary, dict) and event.get("status") == "success"
-            else None
-        )
-        if not isinstance(resolves_repair_id, str) or not resolves_repair_id:
-            return state
-        next_state["tool_digests"] = [
-            digest for digest in next_state["tool_digests"] if digest.get("repair_id") != resolves_repair_id
-        ]
     elif event_type == "evidence_item_upserted" and event.get("protocol_version") == 2:
         evidence = event.get("evidence")
         if isinstance(evidence, dict):
@@ -160,12 +142,8 @@ def _normalize_tool_digest(event: dict[str, Any]) -> dict[str, Any]:
         "truncated": bool(event.get("truncated", False)),
         "plan_item_id": str(event.get("plan_item_id")) if event.get("plan_item_id") else None,
     }
-    repair_state = event.get("repair_state")
-    if repair_state in {"retrying", "requires_user_input", "exhausted", "resolved", "awaiting_choice"}:
-        digest["repair_state"] = repair_state
-    repair_id = event.get("repair_id")
-    if isinstance(repair_id, str) and repair_id:
-        digest["repair_id"] = repair_id
+    if event.get("repair_state") == "awaiting_choice":
+        digest["repair_state"] = "awaiting_choice"
     return digest
 
 
