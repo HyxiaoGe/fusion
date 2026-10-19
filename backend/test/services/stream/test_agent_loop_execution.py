@@ -1,5 +1,7 @@
 import unittest
+from dataclasses import replace
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from app.services.agent.queued_trajectory_recorder import QueuedTrajectoryRecorder
 from app.services.agent.trajectory_recorder import TrajectoryRecorder
@@ -309,6 +311,20 @@ class AgentLoopExecutionTests(unittest.TestCase):
         self.assertIs(runtime.emitter, parts.emitter)
         self.assertIs(runtime.network_budget, parts.network_budget)
         self.assertIs(runtime.session_cache, dependencies.session_cache)
+        self.assertIsNone(runtime.allowed_model_ids)
+
+        # 游客换备用模型时也只能在游客可用的模型里挑
+        with patch(
+            "app.services.stream.agent_loop_execution.guest_model_ids",
+            return_value=("mimo-v2.6-flash", "deepseek-chat"),
+        ):
+            guest_runtime = build_agent_loop_runtime(
+                request=replace(request, guest=True),
+                limits=limits,
+                dependencies=dependencies,
+                parts=parts,
+            )
+        self.assertEqual(guest_runtime.allowed_model_ids, ("mimo-v2.6-flash", "deepseek-chat"))
 
 
 if __name__ == "__main__":

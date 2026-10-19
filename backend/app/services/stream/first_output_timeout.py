@@ -14,6 +14,7 @@ from app.ai.llm_round_observability import output_delta_kinds
 
 # 近 7 天 mimo-flash 首字中位约 2.7s，超过 10s 的约 11%，多为服务商偶发卡顿。
 FIRST_OUTPUT_TIMEOUT_S = 10.0
+# 首选备用模型；不满足本次请求的能力或与原模型同一提供商时，按自动选择的顺序另挑。
 FALLBACK_MODEL_ID = "deepseek-chat"
 
 

@@ -60,6 +60,8 @@ class AgentLoopRuntime:
     capability_resolution: RunCapabilityResolution | None = None
     fallback_response_context: FallbackResponseContext | None = None
     structured_answers: StructuredAnswers = NO_STRUCTURED_ANSWERS
+    # 游客只能用这些模型，换备用模型时也只在里面挑；None 表示不限。
+    allowed_model_ids: tuple[str, ...] | None = None
 
     @property
     def mode(self) -> RunMode:

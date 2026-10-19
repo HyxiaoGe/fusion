@@ -79,6 +79,7 @@ class AgentLoopRunInput:
             run_attempt_kind=self.run_attempt_kind,
             original_message=self.original_message,
             response_language=(self.options or {}).get("response_language"),
+            guest=self.guest,
         )
 
     def to_lifecycle_request(

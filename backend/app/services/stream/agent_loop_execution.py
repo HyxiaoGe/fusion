@@ -12,6 +12,7 @@ from app.services.agent.plan_coordinator import PlanCoordinator
 from app.services.agent.progress_recorder import AgentProgressRecorder
 from app.services.agent.queued_trajectory_recorder import QueuedTrajectoryRecorder
 from app.services.agent.trajectory_recorder import TrajectoryRecorder
+from app.services.guest_quota import guest_model_ids
 from app.services.stream.agent_loop_policy import AgentLoopLimits
 from app.services.stream.agent_loop_request_prep import AgentLoopCallConfig
 from app.services.stream.agent_loop_run_completion import AgentLoopRunCompletionContext
@@ -62,6 +63,7 @@ class AgentLoopExecutionRequest:
     assistant_message_sequence: int | None = None
     original_message: str = ""
     response_language: str | None = None
+    guest: bool = False
 
 
 @dataclass
@@ -229,6 +231,7 @@ def build_agent_loop_runtime(
             preferred_locale=request.response_language,
         ),
         structured_answers=PRODUCT_STRUCTURED_ANSWERS,
+        allowed_model_ids=guest_model_ids() if request.guest else None,
     )
 
 
