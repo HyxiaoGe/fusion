@@ -65,6 +65,31 @@ def configure_reasoning_call_kwargs(
     return configured
 
 
+def strip_reasoning_call_kwargs(call_kwargs: dict) -> dict:
+    """去掉 configure_reasoning_call_kwargs 按某家供应商写入的推理参数，换模型前先还原。"""
+
+    stripped = deepcopy(call_kwargs)
+    stripped.pop("reasoning_effort", None)
+    extra_body = stripped.get("extra_body")
+    if isinstance(extra_body, dict):
+        extra_body = {key: value for key, value in extra_body.items() if key != "thinking"}
+        inner = extra_body.get("extra_body")
+        if isinstance(inner, dict):
+            inner = {key: value for key, value in inner.items() if key != "thinking"}
+            if inner:
+                extra_body["extra_body"] = inner
+            else:
+                extra_body.pop("extra_body")
+        if extra_body:
+            stripped["extra_body"] = extra_body
+        else:
+            stripped.pop("extra_body")
+    # DeepSeek 推理会删掉 tool_choice，还原成准备阶段的默认值。
+    if stripped.get("tools"):
+        stripped.setdefault("tool_choice", "auto")
+    return stripped
+
+
 def _remove_disabled_thinking(call_kwargs: dict) -> None:
     extra_body = call_kwargs.get("extra_body")
     if not isinstance(extra_body, dict):

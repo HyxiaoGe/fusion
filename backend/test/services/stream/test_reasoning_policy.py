@@ -1,6 +1,6 @@
 import unittest
 
-from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
+from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs, strip_reasoning_call_kwargs
 
 
 class ReasoningPolicyTests(unittest.TestCase):
@@ -145,3 +145,25 @@ class ReasoningPolicyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_strip_removes_provider_reasoning_params_before_switching_model(self):
+        tools = [{"type": "function", "function": {"name": "web_search"}}]
+        deepseek_on = configure_reasoning_call_kwargs(
+            {"tools": tools, "tool_choice": "auto", "extra_body": {"metadata": {"tags": ["x"]}}},
+            provider="deepseek",
+            should_use_reasoning=True,
+        )
+        self.assertEqual(
+            strip_reasoning_call_kwargs(deepseek_on),
+            {"tools": tools, "tool_choice": "auto", "extra_body": {"metadata": {"tags": ["x"]}}},
+        )
+
+        switchable_off = configure_reasoning_call_kwargs(
+            {"max_tokens": 10}, provider="qwen", should_use_reasoning=False, thinking_switchable=True
+        )
+        self.assertEqual(strip_reasoning_call_kwargs(switchable_off), {"max_tokens": 10})
+
+        gemini_off = configure_reasoning_call_kwargs(
+            {}, provider="gemini", should_use_reasoning=False, thinking_switchable=True
+        )
+        self.assertEqual(strip_reasoning_call_kwargs(gemini_off), {})

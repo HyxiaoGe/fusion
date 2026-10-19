@@ -1265,3 +1265,75 @@ class AgentRoundTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIs(result.accumulated_usage, accumulated_usage)
+
+
+class AgentRoundModelUnavailableTests(unittest.IsolatedAsyncioTestCase):
+    """服务商侧不可用且用户还没看到本轮输出时，交给 agent loop 换模型重做（10-14 gemini 500 整个 Run 失败）。"""
+
+    async def _run(self, *, llm_call_fn, stream_round_fn=None):
+        plan = ContextPlan(
+            messages=[{"role": "user", "content": "问题"}],
+            status="no_op_fast_path",
+            context_window_tokens=128_000,
+            context_window_source="registry",
+            context_window_status="known",
+        )
+        step_context = AgentStepContext(
+            step_id="step-unavailable",
+            step_number=2,
+            started_at=100.0,
+            thinking_block_id="blk-thinking",
+            text_block_id="blk-text",
+        )
+        with patch("app.services.stream.agent_round.prepare_context", new=AsyncMock(return_value=plan)):
+            await run_agent_round(
+                conversation_id="conv-1",
+                output=ConversationStreamOutput("conv-1", "task-1"),
+                run_id="run-1",
+                step_number=2,
+                model_id="gemini-4-argon",
+                provider="gemini",
+                litellm_model="litellm_proxy/gemini-4-argon",
+                litellm_kwargs={},
+                messages=plan.messages,
+                should_use_reasoning=False,
+                call_kwargs={},
+                accumulated_usage=Usage(),
+                step_context=step_context,
+                llm_call_fn=llm_call_fn,
+                stream_round_fn=stream_round_fn or AsyncMock(),
+                log_round_summary_fn=lambda **_kwargs: None,
+                emitter=AsyncMock(),
+            )
+
+    async def test_server_error_before_output_becomes_model_unavailable(self):
+        import litellm
+
+        from app.services.stream.first_output_timeout import ModelRoundUnavailableError
+
+        error = litellm.InternalServerError("boom", llm_provider="gemini", model="gemini-4-argon")
+        with self.assertRaises(ModelRoundUnavailableError) as raised:
+            await self._run(llm_call_fn=AsyncMock(side_effect=error))
+
+        self.assertEqual(raised.exception.reason, "http_500")
+        self.assertEqual(raised.exception.model_id, "gemini-4-argon")
+        self.assertIs(raised.exception.__cause__, error)
+
+    async def test_bad_request_is_not_treated_as_model_unavailable(self):
+        import litellm
+
+        error = litellm.BadRequestError("bad", model="gemini-4-argon", llm_provider="gemini")
+        with self.assertRaises(litellm.BadRequestError):
+            await self._run(llm_call_fn=AsyncMock(side_effect=error))
+
+    async def test_error_after_visible_output_keeps_original_failure(self):
+        import litellm
+
+        error = litellm.ServiceUnavailableError("down", llm_provider="gemini", model="gemini-4-argon")
+
+        async def stream_round_fn(*_args, partial_output, **_kwargs):
+            partial_output["reasoning_buf"] = "先查一下天气"
+            raise error
+
+        with self.assertRaises(litellm.ServiceUnavailableError):
+            await self._run(llm_call_fn=AsyncMock(return_value=object()), stream_round_fn=stream_round_fn)

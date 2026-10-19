@@ -784,6 +784,21 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
+    def test_model_unavailable_covers_retryable_errors_and_server_500(self):
+        class UpstreamServerError(RuntimeError):
+            status_code = 500
+
+        class BadRequest(RuntimeError):
+            status_code = 400
+
+        self.assertEqual(llm_stream_module.model_unavailable_reason(UpstreamServerError("x")), "http_500")
+        self.assertEqual(llm_stream_module.model_unavailable_reason(asyncio.TimeoutError()), "network_error")
+        self.assertIsNone(llm_stream_module.model_unavailable_reason(BadRequest("x")))
+        self.assertIsNone(llm_stream_module.model_unavailable_reason(RuntimeError("upstream 500")))
+        self.assertIsNone(llm_stream_module.model_unavailable_reason(asyncio.CancelledError()))
+        # 500 只换模型，不进同模型重试
+        self.assertFalse(llm_stream_module._is_llm_error_retryable(UpstreamServerError("x")))
+
     def test_llm_retry_log_never_contains_exception_message(self):
         class UpstreamUnavailableError(RuntimeError):
             status_code = 503

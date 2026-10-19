@@ -23,3 +23,14 @@ def _isolate_bundled_skills(request, monkeypatch):
     if request.node.get_closest_marker(BUNDLED_SKILLS_MARKER) is not None:
         return
     monkeypatch.setattr("app.services.stream.skill_loading.discover_skills", lambda root=None: ())
+
+
+@pytest.fixture(autouse=True)
+def _reset_model_circuit_breaker():
+    """模型熔断是进程级单例；用例之间不共享失败计数，避免前一个用例让后一个直接换备用模型。"""
+
+    from app.ai.model_circuit_breaker import model_circuit_breaker
+
+    model_circuit_breaker.reset()
+    yield
+    model_circuit_breaker.reset()
