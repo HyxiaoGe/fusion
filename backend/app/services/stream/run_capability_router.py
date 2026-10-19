@@ -17,7 +17,7 @@ from app.utils.run_capability_contract import (
 SCHEMA_VERSION = 3
 
 
-ROUTER_VERSION = "2026-10-19.1"
+ROUTER_VERSION = "2026-10-19.2"
 
 
 @dataclass(frozen=True)
@@ -34,7 +34,6 @@ class RunCapabilityResolution:
 def resolve_run_capability_route(
     *,
     available_tool_names: list[str],
-    requested_plan_mode: PlanMode,
     capabilities: dict,
     tools_disabled: bool,
 ) -> RunCapabilityResolution:
@@ -54,7 +53,8 @@ def resolve_run_capability_route(
         "agent",
         ("all_available_tools",),
         tools=available,
-        plan_mode="on" if requested_plan_mode == "on" else "off",
+        # 计划工具随工具一起公告，是否列计划由模型按任务自己决定。
+        plan_mode="on",
     )
 
 

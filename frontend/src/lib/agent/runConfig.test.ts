@@ -8,12 +8,10 @@ describe('normalizeAgentRunConfig', () => {
       max_steps: 12,
       max_tool_calls: 30,
       timeout_s: 600,
-      plan_mode: 'on',
     })).toEqual({
       maxSteps: 12,
       maxToolCalls: 30,
       timeoutS: 600,
-      planMode: 'on',
     });
   });
 
@@ -22,11 +20,10 @@ describe('normalizeAgentRunConfig', () => {
       maxSteps: 0,
       maxToolCalls: 0,
       timeoutS: 0,
-      planMode: 'auto',
     });
   });
 
-  it('旧深度研究记录的任务字段被忽略，按计划模式还原', () => {
+  it('旧记录里的执行模式和深度研究字段被忽略', () => {
     expect(normalizeAgentRunConfig({
       plan_mode: 'on',
       task_mode: 'deep_research',
@@ -36,7 +33,6 @@ describe('normalizeAgentRunConfig', () => {
       maxSteps: 0,
       maxToolCalls: 0,
       timeoutS: 0,
-      planMode: 'on',
     });
   });
 

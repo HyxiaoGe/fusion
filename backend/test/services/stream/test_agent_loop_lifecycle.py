@@ -510,7 +510,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 "max_steps": 3,
                 "max_tool_calls": 5,
                 "timeout_s": 30,
-                "plan_mode": "off",
                 "use_reasoning": False,
                 "runtime_config_versions": {
                     "prompt_bundle/fusion": call_config.prompt_bundle_snapshot.effective_revision,
@@ -1323,7 +1322,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 "max_steps": 3,
                 "max_tool_calls": 5,
                 "timeout_s": 30,
-                "plan_mode": "off",
                 "use_reasoning": False,
                 "runtime_config_versions": {
                     "prompt_bundle/fusion": self._call_config().prompt_bundle_snapshot.effective_revision,

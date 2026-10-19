@@ -43,7 +43,6 @@ interface ChatRequest {
   stream?: boolean;
   options?: {
     use_reasoning?: boolean;
-    plan_mode?: AgentPlanMode;
     temperature?: number;
     max_tokens?: number;
     [key: string]: unknown;

@@ -150,12 +150,12 @@ class LimitSummaryHelpersTests(unittest.TestCase):
     def test_control_cleanup_uses_identity_instead_of_localized_body(self):
         removable = PromptMessage(
             role="system",
-            content="管理员热更新后的任意计划控制正文",
-            section_id="agent_plan_control",
+            content="管理员热更新后的任意工具选择正文",
+            section_id="tool_selection_policy",
         )
         keep = PromptMessage(
             role="system",
-            content="【执行计划控制规则】只是用户要求引用的普通文本",
+            content="【工具选择规则】只是用户要求引用的普通文本",
             section_id="user_preferences",
         )
         messages = [removable, keep, PromptMessage(role="user", content="请总结")]

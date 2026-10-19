@@ -913,7 +913,6 @@ describe('conversationHydration', () => {
         maxSteps: 3,
         maxToolCalls: 5,
         timeoutS: 60,
-        planMode: 'on',
       },
       totalSteps: 3,
       totalToolCalls: 5,

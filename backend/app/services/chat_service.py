@@ -33,7 +33,6 @@ from app.services.agent.context_broker import submit_context_result
 from app.services.agent.continuation import (
     build_continuation_context,
 )
-from app.services.agent.plan_coordinator import normalize_plan_mode
 from app.services.agent.session_cache import (
     InvalidPreviousRunError,
     RunAttemptKind,
@@ -43,7 +42,6 @@ from app.services.agent.session_cache import (
 from app.services.agent_strategy_config import get_agent_tools_disabled_aliases
 from app.services.auto_model import (
     AUTO_MODEL_ID,
-    AutoModelMode,
     ModelResolution,
     is_model_registered,
     pick_auto_model,
@@ -70,7 +68,6 @@ from app.services.stream.agent_loop_request_prep import (
     normalize_controlled_max_tokens,
     supports_dynamic_agent_tools,
 )
-from app.services.stream.agent_task_policy import resolve_agent_task_policy
 from app.services.stream.persistence import acquire_message_persistence_lock, merge_partial_content_blocks
 from app.services.stream.runner import _agent_loop_limits
 from app.services.stream_state_service import StreamInitResult, finalize_stream, get_stream_meta, init_stream
@@ -116,15 +113,6 @@ def _with_stored_reasoning(options: dict[str, Any], previous_session: Any) -> di
     if isinstance(config, dict) and isinstance(config.get("use_reasoning"), bool):
         return {**options, "use_reasoning": config["use_reasoning"]}
     return options
-
-
-def _auto_model_mode(options: dict[str, Any] | None) -> AutoModelMode:
-    """把本轮执行模式映射成自动选择的优先级档位；与前端执行模式选择一一对应。"""
-
-    opts = options or {}
-    if normalize_plan_mode(opts.get("plan_mode")) == "on":
-        return "plan"
-    return "auto"
 
 
 def _find_continuation_user_message(
@@ -190,12 +178,11 @@ class ChatService:
         is_new_conversation: bool,
         require_vision: bool = False,
         allow_hidden_models: bool = False,
-        auto_mode: AutoModelMode = "auto",
         allowed_model_ids: tuple[str, ...] | None = None,
     ) -> ModelResolution:
         """把会话绑定解析成本轮实际调用的模型。
 
-        绑定 auto 时按本轮执行模式的优先级挑；已有会话的绑定模型下线或被禁止调度时同样改走
+        绑定 auto 时按自动选择的优先级挑；已有会话的绑定模型下线或被禁止调度时同样改走
         自动选择，不再让历史会话卡死。新会话显式选了不可用模型仍直接报错，由用户重新选择。
         allow_hidden_models：管理员（含探针账号）可用隐藏模型开新会话，用于上线前试用。
         allowed_model_ids：游客只能用这些模型；新会话选了别的直接要求登录，已有会话改走自动选择。
@@ -203,7 +190,6 @@ class ChatService:
         pick = partial(
             self._pick_auto_model_or_raise,
             require_vision=require_vision,
-            mode=auto_mode,
             allowed_model_ids=allowed_model_ids,
         )
         if bound_model_id == AUTO_MODEL_ID:
@@ -232,13 +218,11 @@ class ChatService:
         self,
         *,
         require_vision: bool,
-        mode: AutoModelMode,
         allowed_model_ids: tuple[str, ...] | None = None,
     ) -> str:
         picked = pick_auto_model(
             self.model_control_repository,
             require_vision=require_vision,
-            mode=mode,
             allowed_model_ids=allowed_model_ids,
         )
         if picked is None:
@@ -489,7 +473,6 @@ class ChatService:
             is_new_conversation=existing_conversation is None or is_upload_placeholder,
             require_vision=any(is_image_file(file_id, self.file_repo) for file_id in file_ids or []),
             allow_hidden_models=allow_hidden_models,
-            auto_mode=_auto_model_mode(options),
             allowed_model_ids=guest_model_ids() if guest_run is not None else None,
         )
         model_id = model_resolution.model_id
@@ -507,7 +490,6 @@ class ChatService:
         # 模型能力来自 LiteLLM metadata（vision / functionCalling 影响消息构造和工具开关）
         capabilities = _get_model_capabilities(model_id)
         has_vision = capabilities.get("vision", False)
-        options = resolve_agent_task_policy(options=options).apply_to_options(options)
         if effective_knowledge_base_ids:
             # 知识库由模型通过 knowledge_search 工具检索；没有这个工具时如实拒绝，而不是静默不检索。
             if not stream or not supports_dynamic_agent_tools(capabilities):
@@ -777,22 +759,14 @@ class ChatService:
         if meta and meta.get("status") == "streaming":
             raise ApiException.conflict("当前会话已有回答正在生成，请结束后再继续")
 
-        stored_task_policy = getattr(continuation, "task_policy", None)
-        continuation_options = (
-            stored_task_policy.apply_to_options()
-            if stored_task_policy is not None
-            else {"plan_mode": continuation.plan_mode}
-        )
         model_id = self._resolve_turn_model(
             conversation.model_id,
             is_new_conversation=False,
-            auto_mode=_auto_model_mode(continuation_options),
             allowed_model_ids=guest_model_ids() if guest_run is not None else None,
         ).model_id
         litellm_model, provider, litellm_kwargs = llm_manager.resolve_model(model_id)
         capabilities = _get_model_capabilities(model_id)
         has_vision = capabilities.get("vision", False)
-        continuation_policy = resolve_agent_task_policy(options=continuation_options)
         original_user_text = _user_message_text(continuation_user_message)
 
         task_id = str(uuid_mod.uuid4())
@@ -845,10 +819,7 @@ class ChatService:
                 assistant_message_id=assistant_message_id,
                 assistant_message_sequence=continuation.assistant_message.sequence,
                 task_id=task_id,
-                options=_with_stored_reasoning(
-                    continuation_policy.apply_to_options(),
-                    continuation.previous_session,
-                ),
+                options=_with_stored_reasoning({}, continuation.previous_session),
                 capabilities=capabilities,
                 knowledge_base_ids=list(getattr(conversation, "knowledge_base_ids", None) or []),
                 trace_id=trace_id,

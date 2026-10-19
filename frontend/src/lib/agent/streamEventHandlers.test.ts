@@ -91,7 +91,6 @@ describe('createAgentStreamEventHandlers', () => {
           maxSteps: 8,
           maxToolCalls: 20,
           timeoutS: 300,
-          planMode: 'on',
         },
         sequence: 0,
       },

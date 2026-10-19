@@ -3,7 +3,7 @@ from copy import deepcopy
 
 from app.ai.prompts.agent_loop import VISIBLE_RESPONSE_LANGUAGE_PROMPT
 from app.ai.prompts.prompt_message import PromptMessage
-from app.ai.prompts.section_ids import AGENT_PLAN_CONTROL, VISIBLE_RESPONSE_LANGUAGE
+from app.ai.prompts.section_ids import TOOL_SELECTION_POLICY, VISIBLE_RESPONSE_LANGUAGE
 from app.services.chat.model_call_language_policy import finalize_model_call_language_policy
 
 
@@ -17,8 +17,8 @@ class ModelCallLanguagePolicyTests(unittest.TestCase):
             ),
             PromptMessage(
                 role="system",
-                content="执行计划规则",
-                section_id=AGENT_PLAN_CONTROL,
+                content="工具选择规则",
+                section_id=TOOL_SELECTION_POLICY,
             ),
             PromptMessage(role="user", content="具身智能产业的影响"),
         ]
@@ -31,7 +31,7 @@ class ModelCallLanguagePolicyTests(unittest.TestCase):
         self.assertEqual(finalized[-2]["role"], "system")
         self.assertEqual(finalized[-2].section_id, VISIBLE_RESPONSE_LANGUAGE)
         self.assertEqual(finalized[-2].content, VISIBLE_RESPONSE_LANGUAGE_PROMPT)
-        self.assertEqual(finalized[0].section_id, AGENT_PLAN_CONTROL)
+        self.assertEqual(finalized[0].section_id, TOOL_SELECTION_POLICY)
 
     def test_preserves_tool_transaction_and_raw_reasoning_when_repair_rule_is_appended(self):
         messages = [

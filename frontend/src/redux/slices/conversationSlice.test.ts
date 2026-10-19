@@ -13,10 +13,8 @@ import reducer, {
   requestSuggestedQuestionsObservation,
   resetConversationState,
   acknowledgeConversationListRefresh,
-  adoptNewChatAgentMode,
-  selectComposerAgentMode,
+  adoptNewChatSettings,
   selectReasoningEnabled,
-  setComposerAgentMode,
   setReasoningEnabled,
   setConversationList,
   setHydrationStatus,
@@ -50,14 +48,6 @@ function textMessage(id: string): Message {
 }
 
 describe('conversationSlice', () => {
-  it('执行模式按对话记录，会话状态重置后保留各对话的选择', () => {
-    const enabled = reducer(undefined, setComposerAgentMode({ chatId: 'conv-a', mode: 'plan' }));
-    const reset = reducer(enabled, resetConversationState());
-
-    expect(selectComposerAgentMode({ conversation: reset }, 'conv-a')).toBe('plan');
-    expect(selectComposerAgentMode({ conversation: reset }, 'conv-b')).toBe('auto');
-    expect(selectComposerAgentMode({ conversation: reset }, null)).toBe('auto');
-  });
 
   it('深度思考按对话记录，默认关闭；新对话首条消息发出后转给新对话，新对话页回到关闭', () => {
     let state = reducer(undefined, setReasoningEnabled({ chatId: 'conv-a', enabled: true }));
@@ -66,7 +56,7 @@ describe('conversationSlice', () => {
     expect(selectReasoningEnabled({ conversation: state }, null)).toBe(false);
 
     state = reducer(state, setReasoningEnabled({ chatId: '__new_chat__', enabled: true }));
-    state = reducer(state, adoptNewChatAgentMode('conv-new'));
+    state = reducer(state, adoptNewChatSettings('conv-new'));
     expect(selectReasoningEnabled({ conversation: state }, 'conv-new')).toBe(true);
     expect(selectReasoningEnabled({ conversation: state }, null)).toBe(false);
 
@@ -92,25 +82,6 @@ describe('conversationSlice', () => {
 
     state = reducer(state, setReasoningEnabled({ chatId: 'conv-a', enabled: false }));
     expect(selectReasoningEnabled({ conversation: state }, 'conv-a')).toBe(false);
-  });
-
-  it('未手动选择的对话按最近一次运行配置还原模式', () => {
-    const run = (planMode: string) => ({ config: { planMode } }) as any;
-    const state = reducer(undefined, upsertConversation({
-      id: 'conv-a',
-      title: 'A',
-      model_id: 'model-1',
-      messages: [
-        { id: 'a1', role: 'assistant', content: [], timestamp: 1, agent_run: run('auto') },
-        { id: 'a2', role: 'assistant', content: [], timestamp: 2, agent_run: run('on') },
-      ],
-      createdAt: 1,
-      updatedAt: 1,
-    }));
-
-    expect(selectComposerAgentMode({ conversation: state }, 'conv-a')).toBe('plan');
-    const selected = reducer(state, setComposerAgentMode({ chatId: 'conv-a', mode: 'auto' }));
-    expect(selectComposerAgentMode({ conversation: selected }, 'conv-a')).toBe('auto');
   });
 
   it('会话列表 dirty id 去重排队，并只确认已完成的 id', () => {
@@ -563,7 +534,6 @@ describe('conversationSlice', () => {
       pendingConversationId: null,
       animatingTitleId: null,
       reasoningEnabledByChat: { 'chat-a': true },
-      composerAgentModeByChat: {},
       globalError: null,
       searchResults: null,
       isSearching: false,
@@ -625,7 +595,6 @@ describe('conversationSlice', () => {
       pendingConversationId: null,
       animatingTitleId: null,
       reasoningEnabledByChat: { 'chat-a': true },
-      composerAgentModeByChat: {},
       globalError: null,
       searchResults: null,
       isSearching: false,
@@ -677,7 +646,6 @@ describe('conversationSlice', () => {
       pendingConversationId: 'temp',
       animatingTitleId: null,
       reasoningEnabledByChat: { 'chat-a': true },
-      composerAgentModeByChat: {},
       globalError: null,
       searchResults: null,
       isSearching: false,

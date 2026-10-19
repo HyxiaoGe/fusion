@@ -456,7 +456,6 @@ def _run_config(limits: AgentLoopLimits, call_config: AgentLoopCallConfig | None
         "max_steps": limits.max_steps,
         "max_tool_calls": limits.max_tool_calls,
         "timeout_s": limits.total_timeout_s,
-        "plan_mode": getattr(call_config, "plan_mode", "auto"),
         # 本次实际是否开启深度思考；前端刷新后按它还原对话的开关，续跑沿用。
         "use_reasoning": bool(getattr(call_config, "should_use_reasoning", False)),
         "runtime_config_versions": runtime_config_versions,

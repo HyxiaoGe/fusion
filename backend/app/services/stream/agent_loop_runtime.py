@@ -49,7 +49,6 @@ class AgentLoopRuntime:
     clock: Callable[[], float]
     assistant_message_sequence: int | None = None
     dynamic_tool_handlers: dict[str, Any] | None = None
-    plan_mode: str = "auto"
     control_tool_names: frozenset[str] = frozenset()
     output_tool_names: frozenset[str] = frozenset()
     skill_tool_names: frozenset[str] = frozenset()

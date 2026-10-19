@@ -8,7 +8,6 @@ from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from app.ai.prompts.agent_loop import (
-    get_agent_plan_control_prompt,
     get_no_tool_network_boundary_prompt,
     get_no_vision_file_boundary_prompt,
     get_tool_usage_contract_prompt,
@@ -17,7 +16,6 @@ from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_message, 
 from app.ai.prompts.run_prompt_snapshot import RunPromptSnapshot
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.ai.prompts.section_ids import (
-    AGENT_PLAN_CONTROL,
     CONTINUATION_SYSTEM,
     CURRENT_DOCUMENTS,
     DOCUMENT_OUTPUT_CONTRACT,
@@ -48,7 +46,6 @@ from app.services.documents.agent_tools import DocumentToolSet, render_current_d
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_TOOL_NAMES
 from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_TOOL_NAMES
 from app.services.prompt_snapshot_service import freeze_runtime_prompt_bundle, with_call_config_prompt_snapshot
-from app.services.stream.agent_task_policy import resolve_agent_task_policy
 from app.services.stream.persistence import preprocess_url_in_message
 from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
 from app.services.stream.run_capability_router import (
@@ -83,7 +80,7 @@ class AgentLoopCallConfig:
     supports_dynamic_tools: bool = False
     dynamic_tool_handlers: dict[str, Any] = field(default_factory=dict)
     tool_bindings: list[dict[str, Any]] = field(default_factory=list)
-    plan_mode: PlanMode = "auto"
+    plan_mode: PlanMode = "off"
     control_tool_names: frozenset[str] = frozenset()
     prompt_bundle_snapshot: PromptBundleSnapshot | None = None
     # 交付形态工具（文档）：不属于能力包，不进计划绑定，计划收口阶段仍可调用。
@@ -221,7 +218,6 @@ def build_agent_loop_call_config(
     should_use_reasoning = use_reasoning is True or (use_reasoning is None and supports_thinking)
 
     tools_disabled = options.get("disable_tools") is True
-    requested_plan_mode = resolve_agent_task_policy(options=options).plan_mode
     supports_function_calling = supports_search_tools(capabilities) and not tools_disabled
     supports_dynamic_tools = supports_dynamic_agent_tools(capabilities) and not tools_disabled
     call_kwargs: dict = {}
@@ -247,7 +243,6 @@ def build_agent_loop_call_config(
     available_tools_by_name = {name: tool for tool in available_tools if (name := _tool_definition_name(tool))}
     capability_resolution = resolve_run_capability_route(
         available_tool_names=list(available_tools_by_name),
-        requested_plan_mode=requested_plan_mode,
         capabilities=capabilities,
         tools_disabled=tools_disabled,
     )
@@ -465,11 +460,6 @@ def _run_prompt_sections(
         yield SystemPromptSection("tool_failure_policy", render_runtime_prompt("stream.tool_failure_policy"))
     if "web_search" in resolution.external_tool_names:
         yield SystemPromptSection(TOOL_USAGE_CONTRACT, get_tool_usage_contract_prompt())
-    if resolution.effective_plan_mode != "off":
-        yield SystemPromptSection(
-            AGENT_PLAN_CONTROL,
-            get_agent_plan_control_prompt(),
-        )
     skill_session = getattr(call_config, "skill_session", None)
     if skill_session is not None:
         yield SystemPromptSection(SKILLS_CATALOG, skill_session.catalog_prompt())

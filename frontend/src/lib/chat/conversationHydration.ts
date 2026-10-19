@@ -31,7 +31,6 @@ interface ServerAgentRunSummary {
     max_steps?: number;
     max_tool_calls?: number;
     timeout_s?: number;
-    plan_mode?: string;
   } | null;
   total_steps?: number | null;
   total_tool_calls?: number | null;

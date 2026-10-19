@@ -6,7 +6,6 @@ USER_PREFERENCES = "user_preferences"
 USER_MEMORY = "user_memory"
 TOOL_USAGE_CONTRACT = "tool_usage_contract"
 TOOL_SELECTION_POLICY = "tool_selection_policy"
-AGENT_PLAN_CONTROL = "agent_plan_control"
 NO_TOOL_NETWORK_BOUNDARY = "no_tool_network_boundary"
 NO_VISION_FILE_BOUNDARY = "no_vision_file_boundary"
 VISIBLE_RESPONSE_LANGUAGE = "visible_response_language"
@@ -24,7 +23,6 @@ TERMINAL_CONTROL_SECTION_IDS = frozenset(
     {
         TOOL_USAGE_CONTRACT,
         TOOL_SELECTION_POLICY,
-        AGENT_PLAN_CONTROL,
         DOCUMENT_OUTPUT_CONTRACT,
         SKILLS_CATALOG,
     }

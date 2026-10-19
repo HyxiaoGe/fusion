@@ -67,14 +67,13 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_real_builder_preferences_cannot_suppress_trusted_rules(self):
         from app.ai.prompts.agent_loop import (
-            AGENT_PLAN_CONTROL_ON_PROMPT,
             APP_IDENTITY_PROMPT,
             TOOL_USAGE_CONTRACT_PROMPT,
         )
 
         config = build_agent_loop_call_config(
             provider="openai",
-            options={"plan_mode": "on"},
+            options={},
             capabilities={"functionCalling": True, "searchCapable": True},
         )
         prepared = await prepare_agent_loop_messages(
@@ -95,7 +94,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         contents = [message["content"] for message in prepared.messages]
         self.assertIn(APP_IDENTITY_PROMPT, contents)
         self.assertIn(TOOL_USAGE_CONTRACT_PROMPT, contents)
-        self.assertIn(AGENT_PLAN_CONTROL_ON_PROMPT, contents)
         self.assertNotIn("verified_research_plan", prepared.prompt_assembly["section_ids"])
         self.assertIn("user_memory", prepared.prompt_assembly["section_ids"])
         self.assertTrue(any("- residence: 杭州西湖区" in content for content in contents))
@@ -124,14 +122,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             (
                 "今天上海证券交易所开市吗？",
                 {"plan_mode": "on"},
-                [
-                    "app_identity",
-                    "tool_selection_policy",
-                    "tool_failure_policy",
-                    "tool_usage_contract",
-                    "agent_plan_control",
-                    "current_date",
-                ],
+                ["app_identity", "tool_selection_policy", "tool_failure_policy", "tool_usage_contract", "current_date"],
             ),
         ]:
             with self.subTest(message=message, options=options):
@@ -225,8 +216,8 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 )
             timer.assert_not_called()
 
-    def test_plan_mode_defaults_off_without_plan_control_tool(self):
-        for options in ({}, {"plan_mode": "auto"}):
+    def test_plan_tool_is_announced_with_tools_and_legacy_plan_mode_is_ignored(self):
+        for options in ({}, {"plan_mode": "auto"}, {"plan_mode": "off"}):
             with self.subTest(options=options):
                 config = build_agent_loop_call_config(
                     provider="openai",
@@ -235,33 +226,21 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 )
 
                 model_tool_names = [tool["function"]["name"] for tool in config.call_kwargs["tools"]]
-                self.assertEqual(config.plan_mode, "off")
-                self.assertNotIn("update_plan", model_tool_names)
+                self.assertEqual(config.plan_mode, "on")
+                self.assertIn("update_plan", model_tool_names)
                 self.assertEqual(config.announced_tools, ["web_search", "url_read", "image_search", "video_search"])
-                self.assertEqual(config.control_tool_names, frozenset())
+                self.assertEqual(config.control_tool_names, frozenset({"update_plan"}))
                 web_tool = next(
                     tool for tool in config.call_kwargs["tools"] if tool["function"]["name"] == "web_search"
                 )
                 self.assertNotIn("_plan_item_id", web_tool["function"]["parameters"]["properties"])
+                # 何时列计划只写在工具说明里，不再注入 system 段落。
+                self.assertNotIn("agent_plan_control", _prompt_sections(config))
 
-    def test_plan_mode_off_preserves_old_tools_without_control_tool(self):
+    def test_plan_tool_is_display_only_and_external_tools_stay_unbound(self):
         config = build_agent_loop_call_config(
             provider="openai",
-            options={"plan_mode": "off"},
-            capabilities={"functionCalling": True, "searchCapable": True},
-        )
-
-        model_tool_names = [tool["function"]["name"] for tool in config.call_kwargs["tools"]]
-        self.assertEqual(config.plan_mode, "off")
-        self.assertNotIn("update_plan", model_tool_names)
-        self.assertEqual(config.announced_tools, ["web_search", "url_read", "image_search", "video_search"])
-        parameters = config.call_kwargs["tools"][0]["function"]["parameters"]
-        self.assertNotIn("_plan_item_id", parameters["properties"])
-
-    def test_on_mode_plan_tool_is_display_only_and_external_tools_stay_unbound(self):
-        config = build_agent_loop_call_config(
-            provider="openai",
-            options={"plan_mode": "on"},
+            options={},
             capabilities={"functionCalling": True, "searchCapable": True},
         )
 
@@ -287,7 +266,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("tools", config.call_kwargs)
         self.assertEqual(config.announced_tools, [])
 
-    def test_requested_on_mode_defensively_disables_when_model_cannot_call_control_tool(self):
+    def test_plan_tool_is_not_announced_when_model_cannot_call_tools(self):
         config = build_agent_loop_call_config(
             provider="openai",
             options={"plan_mode": "on"},
@@ -298,25 +277,18 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("tools", config.call_kwargs)
         self.assertEqual(config.control_tool_names, frozenset())
 
-    def test_on_plan_contract_describes_plan_as_display_only(self):
+    def test_plan_tool_description_leaves_planning_to_the_model(self):
         config = build_agent_loop_call_config(
             provider="openai",
-            options={"plan_mode": "on"},
+            options={},
             capabilities={"functionCalling": True, "searchCapable": True},
         )
 
-        plan_contract = _prompt_sections(config)["agent_plan_control"]
+        tools = {tool["function"]["name"]: tool for tool in config.call_kwargs["tools"]}
+        description = tools["update_plan"]["function"]["description"]
 
-        self.assertIn("[Execution plan]", plan_contract)
-        self.assertIn("does not restrict which tools you may call", plan_contract)
-
-    def test_plan_contract_is_not_injected_when_plan_mode_is_off(self):
-        config = build_agent_loop_call_config(
-            provider="openai",
-            options={"plan_mode": "off"},
-            capabilities={"functionCalling": True, "searchCapable": True},
-        )
-        self.assertNotIn("agent_plan_control", _prompt_sections(config))
+        self.assertIn("Skip it when you can answer directly", description)
+        self.assertIn("does not run anything or limit which tools you may call", description)
 
     def test_build_call_config_applies_controlled_max_tokens(self):
         for raw_value, expected in ((1, 1), (1024, 1024), (9999, 4096)):
@@ -534,7 +506,14 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(config.supports_function_calling)
         self.assertTrue(config.supports_dynamic_tools)
         self.assertEqual(config.announced_tools, ["mcp_microsoft_docs_a1b2c3d4"])
-        self.assertEqual(config.call_kwargs["tools"], [mcp_tool])
+        self.assertEqual(
+            [tool["function"]["name"] for tool in config.call_kwargs["tools"]],
+            [
+                "mcp_microsoft_docs_a1b2c3d4",
+                "update_plan",
+            ],
+        )
+        self.assertEqual(config.call_kwargs["tools"][0], mcp_tool)
         self.assertEqual(config.call_kwargs["tool_choice"], "auto")
         self.assertIs(config.dynamic_tool_handlers["mcp_microsoft_docs_a1b2c3d4"], handler)
         self.assertEqual(config.tool_bindings, [binding])
@@ -848,7 +827,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(supports_function_calling)
             self.assertEqual(
                 [tool["function"]["name"] for tool in call_kwargs["tools"]],
-                ["web_search", "url_read", "image_search", "video_search"],
+                ["web_search", "url_read", "image_search", "video_search", "update_plan"],
             )
             return (
                 TextBlock(type="text", id="url-block", text="URL 摘要"),

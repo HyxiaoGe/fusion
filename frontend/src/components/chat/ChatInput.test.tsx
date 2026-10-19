@@ -1,6 +1,5 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { hydrateRoot } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,7 +20,6 @@ const {
   startPollingFileStatusMock,
   stopPollingFileStatusMock,
   setReasoningEnabledMock,
-  setComposerAgentModeMock,
   clearFilesMock,
   addFileIdMock,
   updateFileStatusMock,
@@ -43,7 +41,6 @@ const {
       },
       conversation: {
         reasoningEnabledByChat: {},
-        composerAgentModeByChat: {},
         byId: {},
         hydrationStatus: {},
       },
@@ -89,7 +86,6 @@ const {
     startPollingFileStatusMock: vi.fn(),
     stopPollingFileStatusMock: vi.fn(),
     setReasoningEnabledMock: action('conversation/setReasoningEnabled'),
-    setComposerAgentModeMock: action('conversation/setComposerAgentMode'),
     clearFilesMock: action('fileUpload/clearFiles'),
     addFileIdMock: action('fileUpload/addFileId'),
     updateFileStatusMock: action('fileUpload/updateFileStatus'),
@@ -125,10 +121,9 @@ vi.mock('@/components/ui/toast', () => ({
 vi.mock('@/redux/slices/conversationSlice', async () => {
   const actual = await vi.importActual<typeof import('@/redux/slices/conversationSlice')>('@/redux/slices/conversationSlice');
   return {
-  selectComposerAgentMode: actual.selectComposerAgentMode,
+  NEW_CHAT_SETTINGS_KEY: actual.NEW_CHAT_SETTINGS_KEY,
   selectReasoningEnabled: actual.selectReasoningEnabled,
   setReasoningEnabled: setReasoningEnabledMock,
-  setComposerAgentMode: setComposerAgentModeMock,
   };
 });
 
@@ -257,7 +252,6 @@ describe('ChatInput', () => {
     startPollingFileStatusMock.mockReset();
     stopPollingFileStatusMock.mockReset();
     setReasoningEnabledMock.mockClear();
-    setComposerAgentModeMock.mockClear();
     clearFilesMock.mockClear();
     addFileIdMock.mockClear();
     updateFileStatusMock.mockClear();
@@ -283,7 +277,6 @@ describe('ChatInput', () => {
     currentState.models.isLoading = false;
     currentState.models.loadStatus = 'ready';
     currentState.conversation.reasoningEnabledByChat = {};
-    currentState.conversation.composerAgentModeByChat = {};
     currentState.conversation.byId = {
       'chat-1': createConversationBoundToSelectedModel('chat-1'),
       'chat-a': createConversationBoundToSelectedModel('chat-a'),
@@ -651,46 +644,9 @@ describe('ChatInput', () => {
     const toolbar = screen.getByRole('toolbar', { name: '消息工具栏' });
     expect(toolbar).toHaveClass('min-w-0');
     expect(screen.getByText('深度思考')).toHaveClass('hidden', 'min-[420px]:inline');
-    // 模式名不截断，窄屏只省掉“模式：”前缀
-    expect(screen.getByText('模式：')).toHaveClass('hidden', 'min-[420px]:inline');
-    expect(screen.getByRole('button', { name: '执行模式：自动' })).toHaveTextContent('模式：自动');
+    // 执行模式已与自动合并，工具栏不再有模式菜单。
+    expect(screen.queryByRole('button', { name: /执行模式/ })).toBeNull();
     expect(screen.getByTestId('model-selector-trigger')).toHaveClass('max-w-[112px]', 'sm:max-w-none');
-  });
-
-  it.each([
-    ['auto', 'lucide-sparkles'],
-    ['plan', 'lucide-list-checks'],
-  ] as const)('外层触发器在 %s 模式下显示对应图标', (mode, iconClass) => {
-    configureAuthenticatedVisionModel();
-    currentState.conversation.composerAgentModeByChat = { 'chat-a': mode };
-
-    render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
-
-    const icon = screen.getByTestId('composer-agent-mode-icon');
-    expect(icon).toHaveAttribute('data-mode', mode);
-    expect(icon).toHaveClass(iconClass);
-  });
-
-  it('执行模式菜单支持键盘打开与选择', async () => {
-    configureAuthenticatedVisionModel();
-    render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
-
-    const user = userEvent.setup();
-    const trigger = screen.getByRole('button', { name: '执行模式：自动' });
-    trigger.focus();
-    await user.keyboard('{ArrowDown}');
-
-    const menu = await screen.findByRole('menu');
-    expect(menu).toHaveAttribute('aria-label', '选择执行模式');
-    expect(within(menu).getAllByRole('menuitemradio')).toHaveLength(2);
-    const planItem = within(menu).getByRole('menuitemradio', { name: /规划执行/ });
-    expect(planItem).toHaveAttribute('aria-checked', 'false');
-
-    await user.keyboard('{End}');
-    expect(planItem).toHaveFocus();
-    await user.keyboard('{Enter}');
-
-    expect(setComposerAgentModeMock).toHaveBeenCalledWith({ chatId: 'chat-a', mode: 'plan' });
   });
 
   it('恢复会话知识库选择并随消息发送', async () => {
@@ -1067,83 +1023,6 @@ describe('ChatInput', () => {
     expect(toastMock).not.toHaveBeenCalled();
   });
 
-  it('按模型能力禁用不兼容模式并说明原因', async () => {
-    currentState.auth.isAuthenticated = true;
-    currentState.models.selectedModelId = 'model-1';
-    currentState.models.models = [{
-      id: 'model-1',
-      provider: 'qwen',
-      capabilities: {
-        functionCalling: false,
-        searchCapable: false,
-        agentTools: false,
-      },
-    }];
-
-    render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
-    fireEvent.pointerDown(screen.getByRole('button', { name: '执行模式：自动' }), {
-      button: 0,
-      ctrlKey: false,
-      pointerType: 'mouse',
-    });
-
-    const planItem = await screen.findByRole('menuitemradio', { name: /规划执行/ });
-    expect(planItem).toHaveAttribute('data-disabled');
-    expect(planItem).toHaveTextContent('当前模型不支持工具调用');
-  });
-
-  it('模型切换导致能力降级时回退自动模式并通过 toast 轻提示', async () => {
-    configureAuthenticatedVisionModel();
-    currentState.conversation.composerAgentModeByChat = { 'chat-a': 'plan' };
-
-    const { rerender } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
-    setComposerAgentModeMock.mockClear();
-
-    currentState.models.models = [{
-      id: 'model-1',
-      provider: 'qwen',
-      capabilities: {
-        vision: true,
-        deepThinking: true,
-        functionCalling: false,
-        searchCapable: false,
-        agentTools: false,
-      },
-    }];
-    rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
-
-    await waitFor(() => {
-      expect(setComposerAgentModeMock).toHaveBeenCalledWith({ chatId: 'chat-a', mode: 'auto' });
-      expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
-        message: '已切换到自动模式：当前模型不支持工具调用',
-        type: 'warning',
-      }));
-    });
-    expect(screen.queryByTestId('composer-agent-mode-status')).toBeNull();
-  });
-
-  it('执行模式按对话显示：切换对话恢复各自模式，新对话为自动', () => {
-    configureAuthenticatedVisionModel();
-    currentState.conversation.composerAgentModeByChat = { 'chat-a': 'plan' };
-    currentState.conversation.byId['chat-1'].messages = [{
-      id: 'assistant-1',
-      role: 'assistant',
-      content: [],
-      timestamp: 1,
-      agent_run: { config: { planMode: 'on' } },
-    }] as never;
-
-    const { rerender } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
-    expect(screen.getByRole('button', { name: '执行模式：规划执行' })).toBeInTheDocument();
-
-    rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-1" />);
-    expect(screen.getByRole('button', { name: '执行模式：规划执行' })).toBeInTheDocument();
-
-    rerender(<ChatInput onSendMessage={vi.fn()} activeChatId={null} />);
-    expect(screen.getByRole('button', { name: '执行模式：自动' })).toBeInTheDocument();
-    expect(setComposerAgentModeMock).not.toHaveBeenCalled();
-  });
-
   it('只在当前会话的权威模型计划运行期间把计划固定到输入框上方', () => {
     configureAuthenticatedVisionModel();
     currentState.streamSlot.isStreaming = true;
@@ -1152,7 +1031,7 @@ describe('ChatInput', () => {
       runId: 'run-plan',
       messageId: 'assistant-1',
       status: 'running',
-      config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300, planMode: 'on' },
+      config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300 },
       totalSteps: 1,
       totalToolCalls: 0,
       steps: [],
@@ -2326,18 +2205,10 @@ describe('ChatInput', () => {
 
     expect(screen.getByRole('button', { name: '上传图片' })).toBeEnabled();
     expect(screen.getByRole('button', { name: '深度思考' })).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.getByRole('button', { name: '执行模式：自动' })).toHaveTextContent('自动');
     expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
 
     fireEvent.click(screen.getByRole('button', { name: '深度思考' }));
     expect(setReasoningEnabledMock).toHaveBeenCalledWith({ chatId: 'chat-1', enabled: true });
-    fireEvent.pointerDown(screen.getByRole('button', { name: '执行模式：自动' }), {
-      button: 0,
-      ctrlKey: false,
-      pointerType: 'mouse',
-    });
-    fireEvent.click(screen.getByRole('menuitemradio', { name: /规划执行/ }));
-    expect(setComposerAgentModeMock).toHaveBeenCalledWith({ chatId: 'chat-1', mode: 'plan' });
 
     fireEvent.change(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）'), {
       target: {
@@ -2357,7 +2228,6 @@ describe('ChatInput', () => {
     );
 
     currentState.conversation.reasoningEnabledByChat = { 'chat-1': true };
-    currentState.conversation.composerAgentModeByChat = { 'chat-1': 'plan' };
     rerender(
       <ChatInput
         onSendMessage={onSendMessage}
@@ -2367,7 +2237,6 @@ describe('ChatInput', () => {
     );
 
     expect(screen.getByRole('button', { name: '深度思考' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: '执行模式：规划执行' })).toHaveTextContent('规划执行');
 
     currentState.streamSlot.isStreaming = true;
     currentState.streamSlot.conversationId = 'chat-1';

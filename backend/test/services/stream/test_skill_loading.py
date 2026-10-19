@@ -189,7 +189,6 @@ class SkillPlanStageTests(unittest.IsolatedAsyncioTestCase):
             messages=[{"role": "user", "content": "帮我规划杭州两日游"}],
             state=AgentLoopState(plan_coordinator=coordinator),
             runtime=_runtime(
-                plan_mode="on",
                 skill_tool_names=skill_tool_names,
                 call_kwargs={
                     "tools": [

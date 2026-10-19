@@ -8,7 +8,7 @@ const { dispatchMock, selectorState } = vi.hoisted(() => {
     runId: 'run-k3',
     messageId: 'assistant-placeholder',
     status: 'running',
-    config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300, planMode: 'on' },
+    config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300 },
     totalSteps: 1,
     totalToolCalls: 1,
     lastSequence: 2,

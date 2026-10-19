@@ -372,7 +372,7 @@ class AgentContinuationTests(unittest.TestCase):
             db.close()
             engine.dispose()
 
-    def test_build_continuation_context_preserves_blocks_and_plan_with_current_limits(self):
+    def test_build_continuation_context_preserves_blocks_with_current_limits(self):
         message = SimpleNamespace(
             id="msg-1",
             conversation_id="conv-1",
@@ -408,7 +408,6 @@ class AgentContinuationTests(unittest.TestCase):
         self.assertIs(context.assistant_message, message)
         self.assertIs(context.previous_session, previous_session)
         self.assertEqual(context.limits, AgentLoopLimits(max_steps=8, max_tool_calls=20, total_timeout_s=300))
-        self.assertEqual(context.plan_mode, "on")
         self.assertEqual(context.initial_content_blocks, [TextBlock(type="text", id="blk_old", text="旧回答")])
 
 

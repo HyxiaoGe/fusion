@@ -19,8 +19,7 @@ import {
   setAnimatingTitleId,
   setGlobalError,
   setHydrationStatus,
-  adoptNewChatAgentMode,
-  selectComposerAgentMode,
+  adoptNewChatSettings,
   selectReasoningEnabled,
   setPendingConversationId,
   updateConversationTitle,
@@ -28,7 +27,6 @@ import {
   updateMessage,
   upsertConversation,
 } from '@/redux/slices/conversationSlice';
-import { resolveComposerAgentMode } from '@/lib/agent/composerAgentMode';
 import {
   appendTextDelta,
   appendThinkingDelta,
@@ -908,18 +906,10 @@ export function useSendMessage(activeConversationId?: string | null) {
           return;
         }
       }
-      // 执行模式和深度思考按对话取：新对话用新对话页的选择，已有对话用它自己的设置。
-      const conversationAgentMode = selectComposerAgentMode(
-        store.getState(),
-        isDraft ? null : options.conversationId,
-      );
+      // 深度思考按对话取：新对话用新对话页的选择，已有对话用它自己的设置。
       const conversationReasoningEnabled = selectReasoningEnabled(
         store.getState(),
         isDraft ? null : options.conversationId,
-      );
-      const agentModeResolution = resolveComposerAgentMode(
-        conversationAgentMode,
-        enabledModel.capabilities,
       );
 
       if (rejectStalePreparation()) return;
@@ -1002,7 +992,7 @@ export function useSendMessage(activeConversationId?: string | null) {
       }
 
       if (isDraft) {
-        dispatch(adoptNewChatAgentMode(tempConvId));
+        dispatch(adoptNewChatSettings(tempConvId));
         dispatch(setPendingConversationId(tempConvId));
         dispatch(
           upsertConversation({
@@ -1522,7 +1512,6 @@ export function useSendMessage(activeConversationId?: string | null) {
               stream: true,
               options: {
                 use_reasoning: useReasoning,
-                plan_mode: agentModeResolution.planMode,
               },
               file_ids: fileIds,
               knowledge_base_ids: options.knowledgeBaseIds,

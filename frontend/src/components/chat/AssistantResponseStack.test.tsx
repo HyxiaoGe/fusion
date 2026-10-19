@@ -307,7 +307,7 @@ describe('AssistantResponseStack', () => {
     expect(screen.getByTestId('stack-reasoning')).toHaveTextContent('已核对所需资料');
   });
 
-  it('强制计划模式在首个计划快照到达前展示流式净化思考', () => {
+  it('首个计划快照到达前展示流式净化思考', () => {
     render(
       <AssistantResponseStack
         reasoning={{
@@ -318,10 +318,7 @@ describe('AssistantResponseStack', () => {
           onToggle: vi.fn(),
         }}
         activity={activity()}
-        agentRun={{
-          ...agentRun,
-          config: { ...agentRun.config, planMode: 'on' },
-        }}
+        agentRun={agentRun}
         answerEvidence={null}
         onSourceClick={vi.fn()}
         onOpenSources={vi.fn()}

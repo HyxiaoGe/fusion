@@ -26,13 +26,11 @@ CAPABILITIES = {"functionCalling": True, "searchCapable": True}
 def _resolve(
     *,
     available_tool_names: list[str] | None = None,
-    requested_plan_mode: str = "auto",
     capabilities: dict | None = None,
     tools_disabled: bool = False,
 ) -> RunCapabilityResolution:
     return resolve_run_capability_route(
         available_tool_names=ALL_TOOLS if available_tool_names is None else available_tool_names,
-        requested_plan_mode=requested_plan_mode,
         capabilities=CAPABILITIES if capabilities is None else capabilities,
         tools_disabled=tools_disabled,
     )
@@ -59,14 +57,10 @@ def test_normal_run_announces_every_available_tool_in_canonical_order():
         "search_trains",
         "mcp_docs_query",
     )
-    assert resolution.effective_plan_mode == "off"
+    # 有工具的 Run 总是公告计划工具，是否列计划交给模型。
+    assert resolution.effective_plan_mode == "on"
     assert resolution.network_boundary_required is False
     _trajectory(resolution)
-
-
-def test_plan_mode_only_turns_on_when_user_asks():
-    assert _resolve(requested_plan_mode="on").effective_plan_mode == "on"
-    assert _resolve(requested_plan_mode="auto").effective_plan_mode == "off"
 
 
 def test_control_tools_are_never_announced_as_external():
