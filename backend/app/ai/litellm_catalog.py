@@ -27,6 +27,14 @@ from app.core.logger import app_logger as logger
 _LITELLM_BASE_URL = os.environ.get("LITELLM_PROXY_URL", "http://litellm-proxy:4000").rstrip("/")
 _LITELLM_API_KEY = os.environ.get("LITELLM_API_KEY", "")
 _DEFAULT_AGENT_TOOLS_DISABLED_ALIASES = {"qwen-vl-max"}
+# 代理登记的每 token 单价（USD），评测据此估算成本；业务链路不读。
+_TOKEN_COST_KEYS = (
+    "input_cost_per_token",
+    "output_cost_per_token",
+    "cache_read_input_token_cost",
+    "input_cost_per_token_above_200k_tokens",
+    "output_cost_per_token_above_200k_tokens",
+)
 
 # 缓存生效时间——LiteLLM 模型变更频次低，60s 足够
 _CACHE_TTL_SECONDS = 60.0
@@ -155,6 +163,7 @@ def _fetch_catalog() -> Dict[str, Dict[str, Any]]:
             "max_input_tokens": info.get("max_input_tokens"),
             "max_output_tokens": info.get("max_output_tokens"),
             "db_model": bool(info.get("db_model")),
+            "token_costs": {key: info[key] for key in _TOKEN_COST_KEYS if info.get(key) is not None},
         }
     return catalog
 

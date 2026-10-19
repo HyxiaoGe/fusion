@@ -22,6 +22,7 @@ from app.db.models import (
     User,
 )
 from app.evals import runner, store
+from app.evals import usage as usage_module
 from app.evals.cases import EvalCase
 from app.evals.checks import CheckOutcome
 from app.evals.judge import build_judge_messages, parse_verdict
@@ -32,6 +33,7 @@ from app.evals.trajectory import (
     build_snapshot,
     load_snapshot,
 )
+from app.evals.usage import TokenUsage, load_runs_usage, round_cost
 from app.utils.time import utc_now
 from scripts import run_eval_suite
 
@@ -45,6 +47,17 @@ _TABLES = [
     EvalSuiteRun.__table__,
     EvalCaseResult.__table__,
 ]
+
+
+_PRICED = {
+    "token_costs": {
+        "input_cost_per_token": 1e-6,
+        "output_cost_per_token": 2e-6,
+        "cache_read_input_token_cost": 1e-7,
+        "input_cost_per_token_above_200k_tokens": 3e-6,
+        "output_cost_per_token_above_200k_tokens": 4e-6,
+    }
+}
 
 
 def _session_factory():
@@ -453,8 +466,12 @@ class StoreTests(unittest.TestCase):
             [_outcome("a", "m1", "passed"), _outcome("b", "m1", "failed"), _outcome("a", "m2", "error")]
         )
 
-        self.assertEqual(summary["m1"], {"passed": 1, "failed": 1, "error": 0, "total": 2})
-        self.assertEqual(summary["m2"], {"passed": 0, "failed": 0, "error": 1, "total": 1})
+        self.assertEqual(
+            summary["m1"], {"passed": 1, "failed": 1, "error": 0, "total": 2, "cost_usd": 0.0, "judge_cost_usd": 0.0}
+        )
+        self.assertEqual(
+            summary["m2"], {"passed": 0, "failed": 0, "error": 1, "total": 1, "cost_usd": 0.0, "judge_cost_usd": 0.0}
+        )
 
     def test_compare_uses_latest_completed_result_per_case_and_model(self):
         older = self._suite([_outcome("a", "m", "failed"), _outcome("b", "m", "failed")], started_offset=-30)
@@ -486,7 +503,10 @@ class StoreTests(unittest.TestCase):
                 db, before=utc_now(), pairs={("a", "m"), ("b", "m")}, exclude_suite_run_id="current"
             )
 
-        self.assertEqual(store.summarize(outcomes)["m"], {"passed": 2, "failed": 0, "error": 0, "total": 2})
+        self.assertEqual(
+            store.summarize(outcomes)["m"],
+            {"passed": 2, "failed": 0, "error": 0, "total": 2, "cost_usd": 0.0, "judge_cost_usd": 0.0},
+        )
         self.assertEqual(previous[("a", "m")][0], "passed")
 
     def test_errors_are_neither_regressions_nor_fixes(self):
@@ -557,16 +577,23 @@ class JudgeTests(unittest.TestCase):
 
         async def fake_completion(**kwargs):
             calls.append(kwargs["messages"])
-            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=next(replies)))])
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=next(replies)))],
+                usage=SimpleNamespace(prompt_tokens=1000, completion_tokens=100, prompt_tokens_details=None),
+            )
 
         with (
             patch.object(judge_module.llm_manager, "resolve_model", lambda model_id: ("m", "p", {})),
             patch.object(judge_module.litellm, "acompletion", fake_completion),
+            patch.object(usage_module.litellm_catalog, "get_model_entry", lambda alias: _PRICED),
         ):
             verdict = asyncio.run(judge_module.judge_answer(case.checks[0], case, {"answer_text": "小雨"}))
 
         self.assertTrue(verdict.passed)
         self.assertEqual(len(calls), 2)
+        # 格式错误那次也花了钱，两次的用量都要算进裁判成本。
+        self.assertEqual((verdict.usage.input_tokens, verdict.usage.output_tokens), (2000, 200))
+        self.assertAlmostEqual(verdict.usage.cost_usd, 2000 * 1e-6 + 200 * 2e-6)
 
     def test_parse_verdict(self):
         verdict = parse_verdict('{"passed": false, "reason": "编造了温度"}')
@@ -666,8 +693,159 @@ class ScriptTests(unittest.TestCase):
             rows = db.query(EvalCaseResult).filter(EvalCaseResult.suite_run_id != baseline).count()
             current = db.query(EvalSuiteRun).filter(EvalSuiteRun.id != baseline).one()
         self.assertEqual(rows, 5)
-        self.assertEqual(current.summary["m"], {"passed": 2, "failed": 1, "error": 0, "total": 3})
+        self.assertEqual(
+            current.summary["m"],
+            {"passed": 2, "failed": 1, "error": 0, "total": 3, "cost_usd": 0.0, "judge_cost_usd": 0.0},
+        )
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UsageTests(unittest.TestCase):
+    def test_round_cost_uses_cache_price_and_tier(self):
+        costs = _PRICED["token_costs"]
+
+        self.assertAlmostEqual(
+            round_cost(costs, input_tokens=10_000, output_tokens=500, cache_read_tokens=8_000),
+            2_000 * 1e-6 + 8_000 * 1e-7 + 500 * 2e-6,
+        )
+        # 没登记缓存价时命中缓存的输入按普通输入价计，算出的是上限。
+        no_cache_price = {"input_cost_per_token": 1e-6, "output_cost_per_token": 2e-6}
+        self.assertAlmostEqual(
+            round_cost(no_cache_price, input_tokens=10_000, output_tokens=0, cache_read_tokens=8_000), 10_000 * 1e-6
+        )
+        self.assertAlmostEqual(
+            round_cost(costs, input_tokens=250_000, output_tokens=1_000, cache_read_tokens=0),
+            250_000 * 3e-6 + 1_000 * 4e-6,
+        )
+        self.assertIsNone(round_cost({}, input_tokens=1, output_tokens=1, cache_read_tokens=0))
+
+    def test_runs_usage_prices_each_round_by_its_own_model(self):
+        factory = _session_factory()
+        with factory() as db:
+            user = User(username="u1")
+            db.add(user)
+            db.flush()
+            conv = Conversation(user_id=user.id, title="t", model_id="primary")
+            db.add(conv)
+            db.flush()
+            for run_id in ("run-1", "run-2"):
+                db.add(
+                    AgentSession(
+                        id=run_id,
+                        conversation_id=conv.id,
+                        user_id=user.id,
+                        model_id="primary",
+                        provider="litellm",
+                        status="completed",
+                    )
+                )
+            db.flush()
+            events = [
+                ("run-1", "llm_round_started", {"llm_round_id": "r1", "model": "primary"}),
+                (
+                    "run-1",
+                    "llm_round_completed",
+                    {"llm_round_id": "r1", "input_tokens": 1000, "output_tokens": 100, "cache_read_tokens": 800},
+                ),
+                # 原模型不可用后换了备用模型，这一轮要按备用模型计价。
+                ("run-1", "llm_round_started", {"llm_round_id": "r2", "model": "fallback"}),
+                ("run-1", "llm_round_completed", {"llm_round_id": "r2", "input_tokens": 2000, "output_tokens": 50}),
+                ("run-2", "llm_round_completed", {"llm_round_id": "r3", "input_tokens": 500, "output_tokens": 10}),
+                ("run-other", "llm_round_completed", {"llm_round_id": "r9", "input_tokens": 9999, "output_tokens": 9}),
+            ]
+            for sequence, (run_id, event_type, payload) in enumerate(events, start=1):
+                db.add(
+                    AgentEvent(
+                        event_id=uuid.uuid4(),
+                        conversation_id=conv.id,
+                        run_id=run_id,
+                        sequence=sequence,
+                        event_type=event_type,
+                        event_ts=utc_now(),
+                        payload=payload,
+                    )
+                )
+            db.commit()
+
+            prices = {"primary": _PRICED, "fallback": {}}
+            with patch.object(usage_module.litellm_catalog, "get_model_entry", prices.get):
+                usage = load_runs_usage(db, ["run-1", "run-2", None])
+
+        self.assertEqual((usage.input_tokens, usage.output_tokens, usage.cache_read_tokens), (3500, 160, 800))
+        self.assertAlmostEqual(usage.cost_usd, (200 * 1e-6 + 800 * 1e-7 + 100 * 2e-6) + (500 * 1e-6 + 10 * 2e-6))
+        self.assertEqual(usage.unpriced_models, ("fallback",))
+
+
+class CaseUsageTests(unittest.TestCase):
+    def test_run_case_counts_setup_turns_and_judge_usage(self):
+        seen_run_ids = []
+        judge_usage = TokenUsage(input_tokens=300, output_tokens=20, cost_usd=0.001)
+
+        async def send(db, turn, **kwargs):
+            turn.run_id, turn.conversation_id = f"run-{len(seen_run_ids) + 1}", "conv-1"
+            seen_run_ids.append(turn.run_id)
+
+        async def judge(check, case, snapshot):
+            from app.evals.checks import JudgeVerdict
+
+            return JudgeVerdict(True, "一致", judge_usage)
+
+        def fake_usage(db, run_ids):
+            self.assertEqual(run_ids, ["run-1", "run-2"])
+            return TokenUsage(input_tokens=1000, output_tokens=100, cost_usd=0.01)
+
+        case = _case_with(
+            setup_turns=["我在杭州"], checks=[{"type": "judge", "rubric": "回答与工具结果中的天气一致。"}]
+        )
+        snapshot = {"run_id": "run-2", "status": "completed", "tool_calls": [], "answer_text": "小雨"}
+
+        async def wait_terminal(factory, run_id):
+            return "completed"
+
+        with (
+            patch.object(runner, "_send_turn", send),
+            patch.object(runner, "_wait_terminal", wait_terminal),
+            patch.object(runner, "load_snapshot", lambda db, run_id, **kwargs: snapshot),
+            patch.object(runner, "load_runs_usage", fake_usage),
+        ):
+            outcome = asyncio.run(runner.run_case(case, "m", user_id="u", session_factory=nullcontext, judge=judge))
+
+        self.assertEqual(outcome.status, "passed")
+        self.assertEqual(outcome.usage.cost_usd, 0.01)
+        self.assertEqual(outcome.judge_usage, judge_usage)
+
+    def test_usage_is_saved_and_rechecks_count_toward_cost(self):
+        factory = _session_factory()
+        first = _outcome("a", "m", "failed")
+        first.usage = TokenUsage(input_tokens=1000, output_tokens=10, cost_usd=0.02)
+        first.judge_usage = TokenUsage(input_tokens=100, output_tokens=5, cost_usd=0.001)
+        recheck = _outcome("a", "m", "passed", attempt=2)
+        recheck.usage = TokenUsage(input_tokens=900, output_tokens=10, cost_usd=0.03)
+        unread = _outcome("b", "m", "error")
+
+        with factory() as db:
+            suite_id = store.start_suite_run(
+                db, label="t", git_sha=None, suite_sha256="0" * 64, models=["m"], case_ids=["a", "b"]
+            )
+            for outcome in (first, recheck, unread):
+                store.save_outcome(db, suite_id, outcome)
+            rows = {
+                (row.case_id, row.attempt): row.usage
+                for row in db.query(EvalCaseResult).filter_by(suite_run_id=suite_id)
+            }
+
+        self.assertEqual(rows[("a", 1)]["model"]["cost_usd"], 0.02)
+        self.assertEqual(rows[("a", 1)]["judge"]["input_tokens"], 100)
+        self.assertIsNone(rows[("b", 1)]["model"])
+        summary = store.summarize([first, recheck, unread])["m"]
+        self.assertEqual((summary["passed"], summary["error"]), (1, 1))
+        self.assertAlmostEqual(summary["cost_usd"], 0.05)
+        self.assertAlmostEqual(summary["judge_cost_usd"], 0.001)
+
+        report = run_eval_suite.format_report([first, recheck, unread], [], [], [])
+        self.assertIn("本轮估算花费 $0.0510", report)
+        self.assertIn("a @ m（复核）", report)
+        self.assertIn("b @ m  0s  用量未读到", report)

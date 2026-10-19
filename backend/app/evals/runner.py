@@ -21,6 +21,7 @@ from app.db.models import AgentSession, User
 from app.evals.cases import EvalCase, JudgeCheck
 from app.evals.checks import CheckOutcome, Judge, evaluate, overall_status
 from app.evals.trajectory import JUDGE_TOOL_RESULT_CHAR_LIMIT, load_snapshot
+from app.evals.usage import TokenUsage, load_runs_usage
 
 EVAL_USERNAME = "fusion-eval-suite"
 CASE_TIMEOUT_SECONDS = 900
@@ -40,6 +41,9 @@ class CaseOutcome:
     conversation_id: str | None = None
     duration_ms: int = 0
     attempt: int = 1
+    # 被测模型在本用例所有轮次（含前置对话）的用量；读取失败时为 None，不影响判分。
+    usage: TokenUsage | None = None
+    judge_usage: TokenUsage = field(default_factory=TokenUsage)
 
 
 @dataclass
@@ -196,6 +200,12 @@ async def run_case(
     except Exception as exc:
         outcome.status, outcome.error = "error", f"{type(exc).__name__}: {exc}"[:500]
     outcome.duration_ms = int((time.monotonic() - started) * 1000)
+    outcome.judge_usage = sum((check.usage for check in outcome.checks if check.usage), TokenUsage())
+    try:
+        with session_factory() as db:
+            outcome.usage = load_runs_usage(db, [item.run_id for item in turns])
+    except Exception:
+        outcome.usage = None
     return outcome
 
 

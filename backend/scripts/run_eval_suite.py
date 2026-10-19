@@ -50,8 +50,17 @@ def plan(cases: Sequence[EvalCase], models: Sequence[str]) -> list[tuple[EvalCas
     return [(case, model) for case in cases for model in models if case.applies_to(model)]
 
 
+def _usage_text(usage) -> str:
+    if usage is None:
+        return "用量未读到"
+    cached = f"（缓存 {usage.cache_read_tokens / usage.input_tokens:.0%}）" if usage.input_tokens else ""
+    unpriced = f"，未计价 {','.join(usage.unpriced_models)}" if usage.unpriced_models else ""
+    return f"输入 {usage.input_tokens:,}{cached} 输出 {usage.output_tokens:,}  ${usage.cost_usd:.4f}{unpriced}"
+
+
 def format_report(outcomes, regressions, flaky, fixes) -> str:
-    from app.evals.store import final_outcomes, summarize
+    from app.evals.store import cost_by_model, final_outcomes, summarize
+    from app.evals.usage import TokenUsage
 
     lines = []
     for outcome in sorted(final_outcomes(outcomes), key=lambda item: (item.case_id, item.model_id)):
@@ -64,9 +73,26 @@ def format_report(outcomes, regressions, flaky, fixes) -> str:
             if check.status != "passed":
                 lines.append(f"    - {check.type}: {check.detail}")
     lines.append("")
-    lines.append(f"{'模型':<32}{'通过':>6}{'失败':>6}{'错误':>6}{'合计':>6}")
+    lines.append("用例花费（全部运行，含复核；按估算成本从高到低）：")
+    for outcome in sorted(outcomes, key=lambda item: -(item.usage.cost_usd if item.usage else 0)):
+        tag = "（复核）" if outcome.attempt > 1 else ""
+        lines.append(
+            f"  [{outcome.status}] {outcome.case_id} @ {outcome.model_id}{tag}  "
+            f"{outcome.duration_ms / 1000:.0f}s  {_usage_text(outcome.usage)}"
+        )
+    lines.append("")
+    lines.append(f"{'模型':<32}{'通过':>6}{'失败':>6}{'错误':>6}{'合计':>6}{'被测花费':>12}{'裁判花费':>12}")
+    costs = cost_by_model(outcomes)
     for model, counts in sorted(summarize(outcomes).items()):
-        lines.append(f"{model:<32}{counts['passed']:>6}{counts['failed']:>6}{counts['error']:>6}{counts['total']:>6}")
+        model_cost, judge_cost = costs[model]
+        lines.append(
+            f"{model:<32}{counts['passed']:>6}{counts['failed']:>6}{counts['error']:>6}{counts['total']:>6}"
+            f"{f'${model_cost.cost_usd:.4f}':>12}{f'${judge_cost.cost_usd:.4f}':>12}"
+        )
+    total = sum((model_cost + judge_cost for model_cost, judge_cost in costs.values()), TokenUsage())
+    lines.append(f"本轮估算花费 ${total.cost_usd:.4f}（按代理登记单价，命中缓存按缓存价；没登记缓存价的模型是上限）")
+    if total.unpriced_models:
+        lines.append(f"代理未登记单价、未计入花费的模型：{', '.join(total.unpriced_models)}")
     if regressions:
         lines.append("")
         lines.append(f"退步 {len(regressions)} 项（此前通过、本轮失败且复核仍失败）：")
@@ -115,7 +141,8 @@ async def _execute(args, cases: list[EvalCase], pairs: list[tuple[EvalCase, str]
             store.save_outcome(db, suite_run_id, outcome)
         outcomes.append(outcome)
         tag = "" if attempt == 1 else "  （复核）"
-        print(f"  [{outcome.status}] {case.id} @ {model}  {outcome.duration_ms / 1000:.0f}s{tag}", flush=True)
+        cost = f"  ${outcome.usage.cost_usd:.4f}" if outcome.usage is not None else ""
+        print(f"  [{outcome.status}] {case.id} @ {model}  {outcome.duration_ms / 1000:.0f}s{cost}{tag}", flush=True)
 
     try:
         async with eval_runtime():

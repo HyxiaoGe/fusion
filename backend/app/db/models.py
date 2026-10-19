@@ -1252,6 +1252,8 @@ class EvalCaseResult(Base):
     duration_ms = Column(Integer, nullable=True)
     # 1 为首次运行；首次出现退步时同一轮内复核一次，记为 2。
     attempt = Column(Integer, nullable=False, default=1, server_default="1")
+    # {"model": 被测模型用量与估算成本, "judge": 裁判用量与估算成本}，见 app/evals/usage.py。
+    usage = Column(JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 
     __table_args__ = (

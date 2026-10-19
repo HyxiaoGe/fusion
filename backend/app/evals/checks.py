@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from app.evals.cases import (
@@ -21,6 +21,7 @@ from app.evals.cases import (
     ToolCalledCheck,
     ToolNotCalledCheck,
 )
+from app.evals.usage import TokenUsage
 
 CheckStatus = Literal["passed", "failed", "error"]
 
@@ -30,15 +31,18 @@ class CheckOutcome:
     type: str
     status: CheckStatus
     detail: str
+    # 裁判检查的模型用量，单独汇总成本，不写进检查结果。
+    usage: TokenUsage | None = field(default=None, compare=False)
 
     def as_dict(self) -> dict[str, str]:
-        return asdict(self)
+        return {"type": self.type, "status": self.status, "detail": self.detail}
 
 
 @dataclass(frozen=True)
 class JudgeVerdict:
     passed: bool
     reason: str
+    usage: TokenUsage | None = None
 
 
 Judge = Callable[[JudgeCheck, EvalCase, Mapping[str, Any]], Awaitable[JudgeVerdict]]
@@ -160,7 +164,7 @@ async def _run_judge(
         verdict = await judge(check, case, snapshot)
     except Exception as exc:  # 裁判自身故障记为 error，不算被测模型失败
         return CheckOutcome(check.type, "error", f"裁判调用失败: {type(exc).__name__}: {exc}"[:500])
-    return _outcome(check.type, verdict.passed, verdict.reason[:500])
+    return CheckOutcome(check.type, "passed" if verdict.passed else "failed", verdict.reason[:500], verdict.usage)
 
 
 def overall_status(outcomes: list[CheckOutcome]) -> CheckStatus:
