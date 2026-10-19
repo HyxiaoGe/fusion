@@ -375,7 +375,7 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("_plan_item_id", definition["function"]["parameters"]["properties"])
         self.assertEqual(
             [tool["function"]["name"] for tool in request_tools],
-            [alias, "create_document", "edit_document"],
+            [alias, "update_plan", "create_document", "edit_document"],
         )
         self.assertNotIn("web_search", str(result.llm_calls[0]["call_kwargs"]))
         second_round_tool_messages = [
@@ -825,13 +825,22 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
                 "url_read",
                 "image_search",
                 "video_search",
+                "update_plan",
                 *document_tool_names,
             },
         )
         # 同一服务共享预算：耗尽后两个工具一起下架，其他服务的工具照常公告。
         self.assertEqual(
             second_round_tool_names,
-            {available_alias, "web_search", "url_read", "image_search", "video_search", *document_tool_names},
+            {
+                available_alias,
+                "web_search",
+                "url_read",
+                "image_search",
+                "video_search",
+                "update_plan",
+                *document_tool_names,
+            },
         )
         self.assertNotIn(
             "调用预算已用完",
