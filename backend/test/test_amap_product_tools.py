@@ -994,7 +994,7 @@ class AmapLocalPlaceSearchTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(ambiguous_result.status, "failed")
                 self.assertEqual(ambiguous_result.data["error_code"], "ambiguous_location")
                 self.assertEqual(ambiguous_result.error_message, AMAP_PLACE_ANCHOR_AMBIGUOUS_MESSAGE)
-                self.assertNotIn("repair", ambiguous_result.data)
+                self.assertNotIn("argument_errors", ambiguous_result.data)
                 self.assertEqual([call[0] for call in ambiguous_executor.calls], ["maps_geo"])
                 context = ambiguous_handler.format_llm_context(ambiguous_result)
                 self.assertIn(render_runtime_prompt("amap.place_anchor_ambiguous"), context)
@@ -1195,7 +1195,7 @@ class AmapLocalPlaceSearchTests(unittest.IsolatedAsyncioTestCase):
 
 
 class AmapRouteCompareTests(unittest.IsolatedAsyncioTestCase):
-    def test_trusted_station_city_requires_one_structured_argument_repair_before_remote_call(self):
+    def test_trusted_station_city_returns_field_error_with_hint_before_remote_call(self):
         handler, _ = build_handler("route_compare", {})
         context = ToolRuntimeContext(
             route_city_hints={
@@ -1203,7 +1203,7 @@ class AmapRouteCompareTests(unittest.IsolatedAsyncioTestCase):
             }
         )
 
-        repair = handler.build_runtime_argument_repair(
+        argument_error = handler.check_runtime_arguments(
             route_compare_args(
                 {
                     "origin": "浦东国际机场",
@@ -1215,15 +1215,15 @@ class AmapRouteCompareTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(
-            repair,
+            argument_error,
             {
                 "error_code": "route_city_required",
-                "required_fields": ["origin_city"],
-                "allowed_values": {"origin_city": ["上海"]},
+                "validation_errors": ["origin_city:required"],
+                "hints": {"origin_city": ["上海"]},
             },
         )
         self.assertIsNone(
-            handler.build_runtime_argument_repair(
+            handler.check_runtime_arguments(
                 route_compare_args(
                     {
                         "origin": "浦东国际机场",
@@ -1236,7 +1236,7 @@ class AmapRouteCompareTests(unittest.IsolatedAsyncioTestCase):
             )
         )
         self.assertEqual(
-            handler.build_runtime_argument_repair(
+            handler.check_runtime_arguments(
                 route_compare_args(
                     {
                         "origin": "浦东国际机场",
@@ -1249,12 +1249,12 @@ class AmapRouteCompareTests(unittest.IsolatedAsyncioTestCase):
             ),
             {
                 "error_code": "route_city_mismatch",
-                "required_fields": ["origin_city"],
-                "allowed_values": {"origin_city": ["上海"]},
+                "validation_errors": ["origin_city:mismatch"],
+                "hints": {"origin_city": ["上海"]},
             },
         )
 
-    def test_trusted_station_city_repair_does_not_guess_for_partial_or_conflicting_matches(self):
+    def test_trusted_station_city_check_does_not_guess_for_partial_or_conflicting_matches(self):
         handler, _ = build_handler("route_compare", {})
         args = route_compare_args(
             {
@@ -1265,7 +1265,7 @@ class AmapRouteCompareTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIsNone(
-            handler.build_runtime_argument_repair(
+            handler.check_runtime_arguments(
                 args,
                 ToolRuntimeContext(
                     route_city_hints={

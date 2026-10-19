@@ -551,7 +551,7 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
         prompt_event = next(event for event in result.events if event["type"] == "system_prompt_prepared")
         self.assertNotIn("product_result_round_constraint", prompt_event["section_ids"])
 
-    async def test_argument_repair_uses_next_agent_round_without_backend_guessing(self):
+    async def test_invalid_arguments_return_field_errors_and_next_round_can_call_again(self):
         alias = "mcp_region_lookup"
         definition = {
             "type": "function",
@@ -564,59 +564,39 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
                         "query": {"type": "string"},
                         "locale": {"type": "string"},
                     },
-                    "required": ["query"],
+                    "required": ["query", "locale"],
                     "additionalProperties": False,
                 },
             },
         }
 
-        class RepairAwareHandler(FakeToolHandler):
+        class SchemaAwareHandler(FakeToolHandler):
             tool_name = alias
             supports_automatic_retry = False
 
             def __init__(self):
                 self.calls = []
 
+            def validate_arguments(self, args):
+                return [] if isinstance(args.get("locale"), str) else [{"field": "locale", "code": "required"}]
+
             async def execute(self, args, runtime_context=None):
-                self.calls.append((dict(args), runtime_context))
-                if len(self.calls) == 1:
-                    return ToolResult(
-                        status="failed",
-                        data={
-                            "error_code": "ambiguous_location",
-                            "repair": {
-                                "action": "provide_argument",
-                                "required_fields": ["locale"],
-                                "allowed_values": {"locale": ["zh-CN"]},
-                                "retryable": True,
-                                "requires_user_input": False,
-                                "max_attempts": 1,
-                                "candidate_count": 2,
-                            },
-                        },
-                    )
+                self.calls.append(dict(args))
                 return ToolResult(status="success", data={"result": {"query": "南山区资料"}})
 
             async def log(self, **_kwargs):
                 return None
 
             def _build_result_summary(self, result):
-                return {"kind": "external_tool", "title": "天气预报", "truncated": False}
+                return {"kind": "external_tool", "title": "区域资料", "truncated": False}
 
             def format_llm_context(self, result, *, citation_numbers=None):
-                if result.status == "failed":
-                    return "argument_repair_required：仅可补 locale=zh-CN"
                 return "区域资料查询成功"
 
             def build_content_block(self, result, block_id, log_id):
                 return None
 
-        handler = RepairAwareHandler()
-        dynamic_tool_set = SimpleNamespace(
-            definitions=[definition],
-            handlers={alias: handler},
-            audit_bindings=[],
-        )
+        handler = SchemaAwareHandler()
         result = await self._run_agent_contract(
             rounds=[
                 (
@@ -642,23 +622,21 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
                 ("", "查询完成", [], "stop", None),
             ],
             use_real_tool_executor=True,
-            dynamic_tool_set=dynamic_tool_set,
+            dynamic_tool_set=SimpleNamespace(
+                definitions=[definition],
+                handlers={alias: handler},
+                audit_bindings=[],
+            ),
             capabilities={"functionCalling": True, "agentTools": True, "searchCapable": False},
             user_message=f"请使用 {alias} 查询南山区资料",
         )
 
-        self.assertEqual(len(handler.calls), 2)
-        first_args, first_context = handler.calls[0]
-        second_args, second_context = handler.calls[1]
-        self.assertEqual(first_args, {"query": "南山区资料"})
-        self.assertEqual(second_args["locale"], "zh-CN")
-        self.assertEqual(first_context.step_number, 1)
-        self.assertEqual(second_context.step_number, 2)
-        self.assertIs(first_context.argument_repair_state, second_context.argument_repair_state)
-        self.assertEqual(result.session_status_calls[-1]["total_tool_calls"], 2)
-        self.assertIn("argument_repair_required", str(result.llm_calls[1]["messages"]))
+        self.assertEqual(handler.calls, [{"query": "南山区资料", "locale": "zh-CN"}])
+        self.assertIn('"argument_errors": ["locale:required"]', str(result.llm_calls[1]["messages"]))
+        # 参数错误没有真实执行，不占用工具调用额度。
+        self.assertEqual(result.session_status_calls[-1]["total_tool_calls"], 1)
 
-    async def test_runtime_argument_repair_allows_only_one_failed_retry_in_same_run(self):
+    async def test_runtime_argument_hint_is_not_an_enforced_constraint(self):
         alias = "route_compare"
         definition = {
             "type": "function",
@@ -678,24 +656,24 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        class RuntimeRepairHandler(FakeToolHandler):
+        class RuntimeCheckHandler(FakeToolHandler):
             tool_name = alias
             supports_automatic_retry = False
 
             def __init__(self):
                 self.calls = []
 
-            def build_runtime_argument_repair(self, args, _runtime_context):
+            def check_runtime_arguments(self, args, _runtime_context):
                 if "origin_city" in args:
                     return None
                 return {
                     "error_code": "route_city_required",
-                    "required_fields": ["origin_city"],
-                    "allowed_values": {"origin_city": ["上海市"]},
+                    "validation_errors": ["origin_city:required"],
+                    "hints": {"origin_city": ["上海市"]},
                 }
 
             async def execute(self, args, runtime_context=None):
-                self.calls.append((dict(args), runtime_context))
+                self.calls.append(dict(args))
                 return ToolResult(status="failed", data={"error_code": "invalid_response"})
 
             async def log(self, **_kwargs):
@@ -710,9 +688,10 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
             def build_content_block(self, result, block_id, log_id):
                 return None
 
-        handler = RuntimeRepairHandler()
+        handler = RuntimeCheckHandler()
         base_arguments = {"origin": "上海浦东国际机场", "destination": "外滩"}
-        repaired_arguments = {**base_arguments, "origin_city": "上海市"}
+        hinted_arguments = {**base_arguments, "origin_city": "上海市"}
+        other_city_arguments = {**base_arguments, "origin_city": "浦东新区"}
         result = await self._run_agent_contract(
             rounds=[
                 (
@@ -725,14 +704,14 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
                 (
                     "",
                     "",
-                    [{"id": "tc-route-2", "name": alias, "arguments": json.dumps(repaired_arguments)}],
+                    [{"id": "tc-route-2", "name": alias, "arguments": json.dumps(hinted_arguments)}],
                     "tool_calls",
                     None,
                 ),
                 (
                     "",
                     "",
-                    [{"id": "tc-route-3", "name": alias, "arguments": json.dumps(repaired_arguments)}],
+                    [{"id": "tc-route-3", "name": alias, "arguments": json.dumps(other_city_arguments)}],
                     "tool_calls",
                     None,
                 ),
@@ -748,122 +727,12 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
             user_message="从人民广场到外滩怎么走？",
         )
 
-        self.assertEqual(len(handler.calls), 1)
-        self.assertEqual(handler.calls[0][0], repaired_arguments)
-        self.assertIn("上海市", str(result.llm_calls[1]["messages"]))
-        self.assertIn("argument_repair_exhausted", str(result.llm_calls[3]["messages"]))
-        self.assertEqual(result.session_status_calls[-1]["total_tool_calls"], 1)
-
-    async def test_runtime_argument_repair_rejects_changed_route_before_remote_call(self):
-        alias = "route_compare"
-        definition = {
-            "type": "function",
-            "function": {
-                "name": alias,
-                "description": "路线比较",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "origin": {"type": "string"},
-                        "origin_city": {"type": "string"},
-                        "destination": {"type": "string"},
-                    },
-                    "required": ["origin", "destination"],
-                    "additionalProperties": False,
-                },
-            },
-        }
-
-        class RuntimeRepairHandler(FakeToolHandler):
-            tool_name = alias
-            supports_automatic_retry = False
-
-            def __init__(self):
-                self.calls = []
-
-            def build_runtime_argument_repair(self, args, _runtime_context):
-                if "origin_city" in args:
-                    return None
-                return {
-                    "error_code": "route_city_required",
-                    "required_fields": ["origin_city"],
-                    "allowed_values": {"origin_city": ["上海市"]},
-                }
-
-            async def execute(self, args, runtime_context=None):
-                self.calls.append((dict(args), runtime_context))
-                return ToolResult(status="success", data={"routes": []})
-
-            async def log(self, **_kwargs):
-                return None
-
-            def _build_result_summary(self, result):
-                return {"kind": "external_tool", "title": "路线比较", "truncated": False}
-
-            def format_llm_context(self, result, *, citation_numbers=None):
-                return "路线工具结果"
-
-            def build_content_block(self, result, block_id, log_id):
-                return None
-
-        handler = RuntimeRepairHandler()
-        result = await self._run_agent_contract(
-            rounds=[
-                (
-                    "",
-                    "",
-                    [
-                        {
-                            "id": "tc-route-constraint-1",
-                            "name": alias,
-                            "arguments": json.dumps(
-                                {
-                                    "origin": "上海浦东国际机场",
-                                    "destination": "外滩",
-                                }
-                            ),
-                        }
-                    ],
-                    "tool_calls",
-                    None,
-                ),
-                (
-                    "",
-                    "",
-                    [
-                        {
-                            "id": "tc-route-constraint-2",
-                            "name": alias,
-                            "arguments": json.dumps(
-                                {
-                                    "origin": "上海浦东国际机场",
-                                    "origin_city": "上海市",
-                                    "destination": "迪士尼",
-                                }
-                            ),
-                        }
-                    ],
-                    "tool_calls",
-                    None,
-                ),
-                ("", "没有执行被替换的路线。", [], "stop", None),
-            ],
-            use_real_tool_executor=True,
-            dynamic_tool_set=SimpleNamespace(
-                definitions=[definition],
-                handlers={alias: handler},
-                audit_bindings=[],
-            ),
-            capabilities={"functionCalling": True, "agentTools": True, "searchCapable": False},
-            user_message="从人民广场到外滩怎么走？",
-        )
-
-        self.assertEqual(handler.calls, [])
-        self.assertIn(
-            "argument_repair_constraint_violation",
-            str(result.llm_calls[2]["messages"]),
-        )
-        self.assertEqual(result.session_status_calls[-1]["total_tool_calls"], 0)
+        # 提示值只是参考：模型补齐后按自己的参数执行，后续调用也不受"只许重试一次"之类的状态限制。
+        self.assertEqual(handler.calls, [hinted_arguments, other_city_arguments])
+        round_two_messages = str(result.llm_calls[1]["messages"])
+        self.assertIn("上海市", round_two_messages)
+        self.assertIn("origin_city:required", round_two_messages)
+        self.assertEqual(result.session_status_calls[-1]["total_tool_calls"], 2)
 
     async def test_exhausted_routed_mcp_tool_is_hidden_from_next_llm_round(self):
         class SharedServerBudget:

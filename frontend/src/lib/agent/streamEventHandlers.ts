@@ -316,7 +316,6 @@ export function createAgentStreamEventHandlers({
           sourceRefs: ev.source_refs ?? [],
           truncated: ev.truncated,
           repairState: ev.repair_state,
-          repairId: ev.repair_id,
         },
       }));
     },

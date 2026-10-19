@@ -63,7 +63,7 @@ const EVENT_PAYLOAD_FIELDS: Record<string, readonly string[]> = {
   plan_step_updated: ['protocol_version', 'plan_id', 'mode', 'source', 'revision', 'reason', 'item'],
   tool_result_digest: [
     'protocol_version', 'tool_name', 'status', 'title', 'summary', 'key_findings', 'source_refs',
-    'truncated', 'repair_state', 'repair_id', 'plan_item_id',
+    'truncated', 'repair_state', 'plan_item_id',
   ],
   evidence_item_upserted: ['protocol_version', 'evidence'],
   content_block_upserted: ['protocol_version'],

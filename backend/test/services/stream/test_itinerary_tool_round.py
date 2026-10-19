@@ -233,7 +233,7 @@ async def _check_tool_round_records_observations_and_place_choices():
             tool_call=weather_call,
             result=ToolResult(
                 status="failed",
-                data={"repair": {"repair_id": "repair-weather", "required_fields": ["location"]}},
+                data={"error_code": "arguments_schema_invalid", "argument_errors": ["location:required"]},
             ),
             handler=None,
             block_id="blk-weather",
@@ -256,7 +256,7 @@ async def _check_tool_round_records_observations_and_place_choices():
     await handle_tool_calls_round(request=request)
 
     assert {item.tool_name for item in state.itinerary_tool_observations} >= {"search_trains"}
-    # 等用户选地名不算工具故障；修参失败照常记为失败，结果交给模型处理。
+    # 等用户选地名不算工具故障；参数错误照常记为失败，结果交给模型处理。
     assert "place_search" not in state.failed_tool_names
     assert "weather_forecast" in state.failed_tool_names
 

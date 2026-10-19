@@ -642,7 +642,6 @@ class AgentEventEmitter:
         source_refs: list[str] | None = None,
         truncated: bool = False,
         repair_state: str | None = None,
-        repair_id: str | None = None,
         plan_item_id: str | None = None,
     ) -> None:
         await self._emit(
@@ -657,7 +656,6 @@ class AgentEventEmitter:
                 source_refs=source_refs or [],
                 truncated=truncated,
                 repair_state=repair_state,
-                repair_id=repair_id,
                 plan_item_id=plan_item_id,
                 **self._envelope(tool_call_id=tool_call_id),
             )

@@ -222,10 +222,7 @@ export interface AdminLatencyPercentiles {
 
 export interface AdminItineraryStabilitySignals {
   upstream_error: number;
-  repair_required: number;
-  repair_retryable: number;
-  repair_requires_user_input: number;
-  repair_retry_exhausted: number;
+  argument_error: number;
   travel_budget_exhausted: number;
   server_budget_exhausted: number;
   agent_limit_reached: number;

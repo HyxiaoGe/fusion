@@ -17,8 +17,8 @@ from app.services.tool_handlers.base import ToolRuntimeContext
 
 
 class ToolContextResolutionTests(unittest.IsolatedAsyncioTestCase):
-    def test_runtime_context_receives_step_number_and_shared_repair_state(self):
-        state = AgentLoopState(argument_repair_state={})
+    def test_runtime_context_receives_step_number(self):
+        state = AgentLoopState()
         enhanced_messages = [
             {
                 "role": "user",
@@ -34,7 +34,6 @@ class ToolContextResolutionTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(context.step_number, 1)
-        self.assertIs(context.argument_repair_state, state.argument_repair_state)
 
     def test_runtime_context_only_exposes_unique_trusted_travel_station_cities(self):
         observed_at = datetime(2026, 7, 26, 8, tzinfo=ZoneInfo("Asia/Shanghai"))

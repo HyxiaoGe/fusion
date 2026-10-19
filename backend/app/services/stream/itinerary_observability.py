@@ -38,15 +38,20 @@ _UPSTREAM_ERROR_CODES = frozenset(
 )
 _ARGUMENT_ERROR_CODES = frozenset(
     {
+        "arguments_json_invalid",
+        "arguments_schema_invalid",
+        "invalid_arguments",
+        "remote_arguments_invalid",
+        "remote_invalid_arguments",
+        "route_city_mismatch",
+        "route_city_required",
+        "route_requires_prior_travel_results",
+        "runtime_argument_guard_failed",
+        # 以下为已删除的修参状态码，统计历史工具日志时仍按参数错误归类。
         "argument_repair_coalesced",
         "argument_repair_constraint_violation",
         "argument_repair_deferred_to_next_round",
         "argument_repair_exhausted",
-        "arguments_json_invalid",
-        "arguments_schema_invalid",
-        "invalid_arguments",
-        "remote_invalid_arguments",
-        "runtime_argument_guard_failed",
     }
 )
 _INTERNAL_ERROR_CODES = frozenset({"internal_error", "tool_execution_failed"})
@@ -81,14 +86,10 @@ class ItineraryToolObservation:
     outcome: ItineraryToolOutcome
     error_category: str | None
     duration_ms: int | None
-    controlled_repair: bool
     travel_budget_exhausted: bool
     server_budget_exhausted: bool
     upstream_error: bool
-    repair_required: bool = False
-    repair_retryable: bool = False
-    repair_requires_user_input: bool = False
-    repair_retry_exhausted: bool = False
+    argument_error: bool = False
 
 
 def build_itinerary_tool_observation(record: Any) -> ItineraryToolObservation | None:
@@ -115,13 +116,9 @@ def build_itinerary_tool_observation_from_values(
         return None
     data = output_data if isinstance(output_data, dict) else {}
     error_code = data.get("error_code") if isinstance(data.get("error_code"), str) else None
-    repair = data.get("repair")
-    controlled_repair = isinstance(repair, dict) or isinstance(data.get("resolves_repair_id"), str)
     error_category = normalize_error_category(error_code)
     if error_category == "timeout":
         outcome: ItineraryToolOutcome = "timeout"
-    elif isinstance(repair, dict) and repair.get("retryable") is True:
-        outcome = "degraded"
     elif status in {"success", "degraded"}:
         outcome = status
     else:
@@ -131,14 +128,10 @@ def build_itinerary_tool_observation_from_values(
         outcome=outcome,
         error_category=error_category,
         duration_ms=_safe_duration(duration_ms),
-        controlled_repair=controlled_repair,
         travel_budget_exhausted=error_code == "travel_run_budget_exhausted",
         server_budget_exhausted=error_code == "server_run_budget_exhausted",
         upstream_error=error_category == "upstream_error",
-        repair_required=isinstance(repair, dict),
-        repair_retryable=isinstance(repair, dict) and repair.get("retryable") is True,
-        repair_requires_user_input=isinstance(repair, dict) and repair.get("requires_user_input") is True,
-        repair_retry_exhausted=isinstance(repair, dict) and repair.get("retry_exhausted") is True,
+        argument_error=error_category == "argument_error",
     )
 
 
@@ -170,7 +163,7 @@ def build_itinerary_run_payload(
 
     return {
         "event": "itinerary_run",
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": _safe_identifier(run_id, max_chars=100),
         "model_id": _safe_identifier(model_id, max_chars=200),
         "provider": _safe_identifier(provider, max_chars=100).lower(),
@@ -187,11 +180,7 @@ def build_itinerary_run_payload(
         "product_tool_call_count": len(tool_observations),
         "tool_outcomes": tool_outcomes,
         "upstream_error_count": sum(item.upstream_error for item in tool_observations),
-        "controlled_argument_repair_count": sum(item.controlled_repair for item in tool_observations),
-        "repair_required_count": sum(item.repair_required for item in tool_observations),
-        "repair_retryable_count": sum(item.repair_retryable for item in tool_observations),
-        "repair_requires_user_input_count": sum(item.repair_requires_user_input for item in tool_observations),
-        "repair_retry_exhausted_count": sum(item.repair_retry_exhausted for item in tool_observations),
+        "argument_error_count": sum(item.argument_error for item in tool_observations),
         "travel_budget_exhausted_count": sum(item.travel_budget_exhausted for item in tool_observations),
         "server_budget_exhausted_count": sum(item.server_budget_exhausted for item in tool_observations),
     }
@@ -224,7 +213,7 @@ def normalize_error_category(error_code: str | None) -> str | None:
     if error_code == "server_run_budget_exhausted":
         return "server_budget_exhausted"
     if error_code in _ARGUMENT_ERROR_CODES:
-        return "argument_repair"
+        return "argument_error"
     if error_code in _INTERNAL_ERROR_CODES:
         return "internal_error"
     return "other" if error_code else None
@@ -366,10 +355,7 @@ def _aggregate_run_group(runs: list[dict[str, Any]]) -> dict[str, Any]:
         "tool_latency_ms": _percentiles([item.duration_ms for item in observations]),
         "signals": {
             "upstream_error": sum(item.upstream_error for item in observations),
-            "repair_required": sum(item.repair_required for item in observations),
-            "repair_retryable": sum(item.repair_retryable for item in observations),
-            "repair_requires_user_input": sum(item.repair_requires_user_input for item in observations),
-            "repair_retry_exhausted": sum(item.repair_retry_exhausted for item in observations),
+            "argument_error": sum(item.argument_error for item in observations),
             "travel_budget_exhausted": sum(item.travel_budget_exhausted for item in observations),
             "server_budget_exhausted": sum(item.server_budget_exhausted for item in observations),
             "agent_limit_reached": sum(run["agent_limit_reached"] for run in runs),

@@ -376,20 +376,20 @@ class AmapProductToolHandler(BaseToolHandler):
             return [{"field": "request", "code": "invalid_arguments"}]
         return []
 
-    def build_runtime_argument_repair(
+    def check_runtime_arguments(
         self,
         args: dict,
         runtime_context: Any,
     ) -> dict[str, Any] | None:
-        """班次站点缺少城市时，要求模型使用当前 run 的结构化城市做一次受控修参。"""
+        """班次站点缺少城市或与班次结果的城市不一致时不触网，把班次结果里的城市作为提示交还模型。"""
 
         if self.tool_name != AMAP_ROUTE_COMPARE:
             return None
         route_city_hints = getattr(runtime_context, "route_city_hints", None)
         if not isinstance(route_city_hints, dict):
             return None
-        required_fields: list[str] = []
-        allowed_values: dict[str, list[str]] = {}
+        validation_errors: list[str] = []
+        hints: dict[str, list[str]] = {}
         mismatch_detected = False
         for endpoint_field in ("origin", "destination"):
             if args.get(f"{endpoint_field}_source") != "named" or args.get(f"{endpoint_field}_place_id"):
@@ -411,14 +411,16 @@ class AmapProductToolHandler(BaseToolHandler):
                 if _city_matches(provided_city, candidates[0]):
                     continue
                 mismatch_detected = True
-            required_fields.append(city_field)
-            allowed_values[city_field] = [candidates[0]]
-        if not required_fields:
+                validation_errors.append(f"{city_field}:mismatch")
+            else:
+                validation_errors.append(f"{city_field}:required")
+            hints[city_field] = [candidates[0]]
+        if not validation_errors:
             return None
         return {
             "error_code": "route_city_mismatch" if mismatch_detected else "route_city_required",
-            "required_fields": required_fields,
-            "allowed_values": allowed_values,
+            "validation_errors": validation_errors,
+            "hints": hints,
         }
 
     def build_successful_call_signature(self, input_params: dict) -> str | None:
@@ -474,8 +476,6 @@ class AmapProductToolHandler(BaseToolHandler):
             return self._failed_result(started_at, stats, "invalid_arguments")
         except _LocationContextUnavailable:
             return self._failed_result(started_at, stats, "location_context_unavailable")
-        except _ArgumentRepairRequired as repair:
-            return self._repairable_result(started_at, stats, repair)
         except AmapCoordinateConversionError:
             return self._failed_result(started_at, stats, "location_conversion_failed")
         except McpClientError as error:
@@ -1030,18 +1030,6 @@ class AmapProductToolHandler(BaseToolHandler):
         citation_numbers: list[int] | None = None,
     ) -> str:
         if result.status not in {"success", "degraded"} or "result" not in result.data:
-            repair = result.data.get("repair")
-            if isinstance(repair, dict):
-                repair_payload = json.dumps(
-                    {
-                        "tool_result": "argument_repair_required",
-                        "error_code": result.data.get("error_code"),
-                        "repair": repair,
-                    },
-                    ensure_ascii=False,
-                    sort_keys=True,
-                )
-                return render_runtime_prompt("amap.repair", payload=repair_payload)
             if (
                 self.tool_name in {AMAP_LOCAL_PLACE_SEARCH, AMAP_ROUTE_COMPARE}
                 and result.data.get("error_code") == PLACE_ANCHOR_AMBIGUOUS_ERROR_CODE
@@ -1098,15 +1086,6 @@ class AmapProductToolHandler(BaseToolHandler):
         error_code = result.data.get("error_code")
         if isinstance(error_code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,63}", error_code):
             output["error_code"] = error_code
-        repair = result.data.get("repair")
-        if isinstance(repair, dict):
-            action = repair.get("action")
-            if isinstance(action, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,63}", action):
-                output["repair_action"] = action
-            candidate_count = repair.get("candidate_count")
-            if isinstance(candidate_count, int) and 0 <= candidate_count <= 20:
-                output["repair_candidate_count"] = candidate_count
-            output["repair_retryable"] = repair.get("retryable") is True
         return {key: value for key, value in output.items() if value is not None}
 
     def _build_result_summary(self, result: ToolResult) -> dict:
@@ -1116,14 +1095,6 @@ class AmapProductToolHandler(BaseToolHandler):
             "provider": self.binding.provider,
             "truncated": False,
         }
-        repair = result.data.get("repair")
-        if isinstance(repair, dict):
-            summary.update(
-                title="地点信息待确认",
-                repairable=repair.get("retryable") is True,
-                requires_user_input=repair.get("requires_user_input") is True,
-                required_fields=repair.get("required_fields", []),
-            )
         product_result = result.data.get("result")
         if isinstance(product_result, dict):
             if self.tool_name == AMAP_LOCAL_PLACE_SEARCH:
@@ -1169,34 +1140,6 @@ class AmapProductToolHandler(BaseToolHandler):
             error_message=_PRODUCT_FAILURE_MESSAGES.get(safe_error_code, MCP_TOOL_UNAVAILABLE_MESSAGE),
         )
 
-    def _repairable_result(
-        self,
-        started_at: float,
-        stats: "_RemoteCallStats",
-        repair: "_ArgumentRepairRequired",
-    ) -> ToolResult:
-        return ToolResult(
-            status="failed",
-            duration_ms=_duration_ms(started_at),
-            data={
-                **self._safe_metadata(stats),
-                "error_code": repair.error_code,
-                "local_preflight": stats.count == 0,
-                "repair_values_verified": True,
-                "repair": {
-                    "action": "provide_argument",
-                    **({"repair_id": repair.repair_id} if repair.repair_id else {}),
-                    "required_fields": list(repair.required_fields),
-                    "allowed_values": {key: list(values) for key, values in repair.allowed_values.items()},
-                    "retryable": repair.retryable,
-                    "requires_user_input": repair.requires_user_input,
-                    "retry_exhausted": repair.retry_exhausted,
-                    "max_attempts": 1,
-                    "candidate_count": repair.candidate_count,
-                },
-            },
-        )
-
 
 @dataclass
 class _RemoteCallStats:
@@ -1215,30 +1158,6 @@ class _InvalidArguments(Exception):
 
 class _LocationContextUnavailable(Exception):
     pass
-
-
-class _ArgumentRepairRequired(Exception):
-    def __init__(
-        self,
-        *,
-        error_code: str,
-        required_fields: tuple[str, ...],
-        allowed_values: dict[str, tuple[str, ...]],
-        retryable: bool,
-        requires_user_input: bool,
-        candidate_count: int = 0,
-        repair_id: str | None = None,
-        retry_exhausted: bool = False,
-    ) -> None:
-        super().__init__("工具参数需要修复")
-        self.error_code = error_code
-        self.required_fields = required_fields
-        self.allowed_values = allowed_values
-        self.retryable = retryable
-        self.requires_user_input = requires_user_input
-        self.candidate_count = candidate_count
-        self.repair_id = repair_id
-        self.retry_exhausted = retry_exhausted
 
 
 def _normalize_amap_search_keywords(query: str) -> str:

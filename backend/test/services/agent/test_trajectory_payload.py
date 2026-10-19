@@ -225,7 +225,6 @@ EVENT_FIELDS = {
         "source_refs": ["evidence-1"],
         "truncated": False,
         "repair_state": None,
-        "repair_id": None,
         "plan_item_id": "item-1",
     },
     "evidence_item_upserted": {
@@ -354,7 +353,6 @@ EVENT_ALLOWED_FIELDS = {
         "source_refs",
         "truncated",
         "repair_state",
-        "repair_id",
         "plan_item_id",
     },
     "evidence_item_upserted": {"protocol_version", "evidence"},

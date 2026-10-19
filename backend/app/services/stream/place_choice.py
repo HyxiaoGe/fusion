@@ -13,9 +13,9 @@ PLACE_CHOICE_REPAIR_STATE = "awaiting_choice"
 
 
 def pending_place_choice(status: Any, data: Any) -> dict[str, Any] | None:
-    """地名歧义失败且带候选时返回候选详情；修参通道（如天气）不走这里。"""
+    """地名歧义失败且带候选时返回候选详情。"""
 
-    if status != "failed" or not isinstance(data, dict) or "repair" in data:
+    if status != "failed" or not isinstance(data, dict):
         return None
     details = data.get("error_details")
     if data.get("error_code") != AMBIGUOUS_LOCATION_ERROR_CODE or not isinstance(details, dict):

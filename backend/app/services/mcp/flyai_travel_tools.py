@@ -618,7 +618,7 @@ class FlyAiTravelToolHandler(BaseToolHandler):
         return hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
 
     def validate_arguments(self, args: dict) -> list[dict[str, str]]:
-        """把 Pydantic 字段错误安全投影给统一修参协议，不触发 CLI。"""
+        """把 Pydantic 字段错误安全投影为统一的字段级参数错误，不触发 CLI。"""
 
         try:
             _validate_args(self.tool_name, args)

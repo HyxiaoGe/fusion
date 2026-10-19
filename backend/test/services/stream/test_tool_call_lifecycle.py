@@ -94,40 +94,32 @@ class ToolCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
-    async def test_repair_metadata_is_projected_without_argument_values(self):
+    async def test_argument_error_is_reported_as_failed_without_hint_values(self):
         complete_tool_lifecycle = getattr(lifecycle_module, "complete_tool_lifecycle")
         emitter = RecordingEmitter()
         result = ToolResult(
             status="failed",
             data={
-                "repair": {
-                    "repair_id": "repair_0123456789abcdef",
-                    "retryable": True,
-                    "allowed_values": {"city": ["深圳市"]},
-                }
+                "error_code": "route_city_required",
+                "argument_errors": ["origin_city:required"],
+                "argument_hints": {"origin_city": ["深圳市"]},
             },
+            error_message="模型给出的工具参数不符合要求，工具未执行",
         )
 
         await complete_tool_lifecycle(
             emitter=emitter,
-            tool_call_id="call-repair",
-            tool_name="weather_forecast",
+            tool_call_id="call-argument-error",
+            tool_name="route_compare",
             result=result,
             duration_ms=0,
-            result_summary_builder=lambda _result: {"kind": "weather", "truncated": False},
+            result_summary_builder=lambda _result: {"kind": "route", "truncated": False},
         )
 
         completed = emitter.events[0][1]
-        self.assertEqual(completed["status"], "degraded")
-        self.assertEqual(
-            completed["result_summary"],
-            {
-                "kind": "weather",
-                "truncated": False,
-                "repair_state": "retrying",
-                "repair_id": "repair_0123456789abcdef",
-            },
-        )
+        self.assertEqual(completed["status"], "failed")
+        self.assertEqual(completed["error"], "模型给出的工具参数不符合要求，工具未执行")
+        self.assertEqual(completed["result_summary"], {"kind": "route", "truncated": False})
         self.assertNotIn("深圳市", str(completed))
 
     async def test_place_ambiguity_is_reported_as_awaiting_choice_not_failure(self):
@@ -175,33 +167,6 @@ class ToolCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
         completed = emitter.events[0][1]
         self.assertEqual(completed["status"], "failed")
         self.assertNotIn("repair_state", completed["result_summary"])
-
-    async def test_success_metadata_resolves_only_matching_repair(self):
-        complete_tool_lifecycle = getattr(lifecycle_module, "complete_tool_lifecycle")
-        emitter = RecordingEmitter()
-        result = ToolResult(
-            status="success",
-            data={"resolves_repair_id": "repair_0123456789abcdef"},
-        )
-
-        await complete_tool_lifecycle(
-            emitter=emitter,
-            tool_call_id="call-resolved",
-            tool_name="weather_forecast",
-            result=result,
-            duration_ms=10,
-            result_summary_builder=lambda _result: {"kind": "weather", "truncated": False},
-        )
-
-        self.assertEqual(
-            emitter.events[0][1]["result_summary"],
-            {
-                "kind": "weather",
-                "truncated": False,
-                "repair_state": "resolved",
-                "resolves_repair_id": "repair_0123456789abcdef",
-            },
-        )
 
     async def test_execute_tool_with_lifecycle_emits_success_and_sets_measured_duration(self):
         emitter = RecordingEmitter()

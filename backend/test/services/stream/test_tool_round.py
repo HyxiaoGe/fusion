@@ -240,9 +240,9 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(statuses, {"research": "failed", "cached": "completed"})
 
-    def test_retryable_failure_stays_running_then_same_plan_item_can_complete(self):
-        def record(*, tool_call_id: str, status: str, retryable: bool = False) -> ToolExecutionRecord:
-            data = {"repair": {"retryable": True}} if retryable else {}
+    def test_argument_error_stays_running_then_same_plan_item_can_complete(self):
+        def record(*, tool_call_id: str, status: str, argument_error: bool = False) -> ToolExecutionRecord:
+            data = {"argument_errors": ["query:required"]} if argument_error else {}
             return ToolExecutionRecord(
                 tool_call={
                     "id": tool_call_id,
@@ -256,7 +256,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
             )
 
         retryable = tool_round_module._plan_item_statuses_from_batch(
-            [record(tool_call_id="tc-retryable", status="failed", retryable=True)]
+            [record(tool_call_id="tc-invalid", status="failed", argument_error=True)]
         )
         repaired = tool_round_module._plan_item_statuses_from_batch(
             [record(tool_call_id="tc-success", status="success")]
@@ -265,7 +265,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(retryable, {"search": "running"})
         self.assertEqual(repaired, {"search": "completed"})
 
-    def test_missing_result_and_non_retryable_failure_never_complete_plan_item(self):
+    def test_missing_result_and_failure_never_complete_plan_item(self):
         missing = tool_round_module._plan_item_statuses_from_batch(
             [],
             missing_result_tool_calls=[
@@ -286,7 +286,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
                     },
                     result=ToolResult(
                         status="failed",
-                        data={"repair": {"retryable": False}},
+                        data={"error_code": "upstream_error"},
                     ),
                     handler=None,
                     block_id="blk-failed",
@@ -1730,14 +1730,6 @@ class PendingPlaceChoiceTests(unittest.TestCase):
             ToolResult(
                 status="failed",
                 data={"error_code": "ambiguous_location", "error_details": {"place_name": "外滩", "candidates": []}},
-            ),
-            ToolResult(
-                status="failed",
-                data={
-                    "error_code": "ambiguous_location",
-                    "error_details": details,
-                    "repair": {"requires_user_input": True},
-                },
             ),
         ):
             with self.subTest(result=result):

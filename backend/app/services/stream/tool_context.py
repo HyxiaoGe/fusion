@@ -44,18 +44,17 @@ def enrich_tool_runtime_context(
     state: AgentLoopState,
     step_number: int,
 ) -> ToolRuntimeContext:
-    """补入本轮步骤号与 run 级通用修参状态。"""
+    """补入本轮步骤号与 run 内已知的班次站点城市。"""
 
     del messages
     context.step_number = step_number
-    context.argument_repair_state = state.argument_repair_state
     context.route_city_hints = _trusted_route_city_hints(state.content_blocks)
     context.content_blocks = tuple(state.content_blocks)
     return context
 
 
 def _trusted_route_city_hints(content_blocks: list[Any]) -> dict[str, tuple[str, ...]]:
-    """只从当前 run 已投影的班次结果中提取精确站点城市，冲突值不进入修参通道。"""
+    """只从当前 run 已投影的班次结果中提取精确站点城市，冲突值不作为参数提示。"""
 
     collected: dict[str, dict[str, set[str]]] = {}
     for block in content_blocks:

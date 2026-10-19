@@ -117,7 +117,6 @@ _EVENT_FIELDS: dict[str, frozenset[str]] = {
             "source_refs",
             "truncated",
             "repair_state",
-            "repair_id",
             "plan_item_id",
         }
     ),
