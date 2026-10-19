@@ -13,7 +13,11 @@ from app.services.stream.agent_loop_round_outcome import AgentRoundOutcomeReques
 from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_round import AgentRoundResult
-from app.services.stream.first_output_timeout import FIRST_OUTPUT_TIMEOUT_S, FirstOutputTimeoutError
+from app.services.stream.first_output_timeout import (
+    FALLBACK_FIRST_OUTPUT_TIMEOUT_S,
+    FIRST_OUTPUT_TIMEOUT_S,
+    FirstOutputTimeoutError,
+)
 from app.services.stream.limit_summary import LimitSummaryOutcome
 from app.services.stream.llm_round_lifecycle import round_tool_names
 from app.services.stream.plan_control import process_plan_control_calls
@@ -976,8 +980,8 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
             calls,
             [
                 ("mimo-v2.6-flash", "openai/gpt-4", FIRST_OUTPUT_TIMEOUT_S),
-                ("deepseek-chat", "litellm_proxy/deepseek-chat", None),
-                ("deepseek-chat", "litellm_proxy/deepseek-chat", None),
+                ("deepseek-chat", "litellm_proxy/deepseek-chat", FALLBACK_FIRST_OUTPUT_TIMEOUT_S),
+                ("deepseek-chat", "litellm_proxy/deepseek-chat", FALLBACK_FIRST_OUTPUT_TIMEOUT_S),
             ],
         )
         self.assertEqual(state.active_model_id, "deepseek-chat")
@@ -1005,7 +1009,7 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(state.active_model_id)
         self.assertEqual(tool_round_models, ["mimo-v2.6-flash"])
 
-    async def test_only_rounds_after_switching_to_fallback_skip_first_output_timeout(self):
+    async def test_fallback_rounds_get_a_looser_first_output_timeout(self):
         captured = []
 
         async def run_round_fn(**kwargs):
@@ -1031,9 +1035,9 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
                 ),
             )
 
-        # 用户自己选的 deepseek-chat 也限时（超时可以换别家），换过去之后才不限。
+        # 用户自己选的 deepseek-chat 也按原模型限时（超时可以换别家）；换到备用模型后放宽，但不会不限时。
         self.assertEqual(captured[0]["first_output_timeout_s"], FIRST_OUTPUT_TIMEOUT_S)
-        self.assertNotIn("first_output_timeout_s", captured[1])
+        self.assertEqual(captured[1]["first_output_timeout_s"], FALLBACK_FIRST_OUTPUT_TIMEOUT_S)
 
     async def test_product_result_allows_sequential_multi_intent_tools_and_streams_model_answer(self):
         state = AgentLoopState()
@@ -2027,7 +2031,7 @@ class ModelUnavailableFallbackTests(unittest.IsolatedAsyncioTestCase):
 
         state, warnings = await self._run_loop(run_round_fn)
 
-        self.assertEqual(calls, [("deepseek-chat", None)])
+        self.assertEqual(calls, [("deepseek-chat", FALLBACK_FIRST_OUTPUT_TIMEOUT_S)])
         self.assertEqual(state.active_model_id, "deepseek-chat")
         self.assertTrue(any("reason=circuit_open" in warning for warning in warnings))
         self.assertTrue(model_circuit_breaker.is_open("gemini-4-argon"))

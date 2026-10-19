@@ -100,6 +100,14 @@ function AssistantResponseStack({
     [agentRun, generatedImages],
   );
   const stopAwaitingConfirmation = agentRun?.status === 'running' && Boolean(agentRun.stopConfirmation);
+  // 任何新的模型输出都会改变该标记，底部状态据此判断模型是否长时间没有动静。
+  const outputMark = [
+    activity.kind,
+    markdown.content.length,
+    reasoning.content.length,
+    documentDraft?.content.length ?? 0,
+    structuredResults.length,
+  ].join(':');
   // 模型只输出了思考、没写正文时如实说明，不拿思考冒充回答。
   const answerMissing = activity.kind === 'completed'
     && !activity.hasText
@@ -208,6 +216,7 @@ function AssistantResponseStack({
           placement="bottom"
           reasoningVisible={showReasoning}
           stopPending={stopAwaitingConfirmation}
+          outputMark={outputMark}
         />
       </div>
     </div>

@@ -273,6 +273,8 @@ class LLMRoundObservabilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(observation.first_output_delta_ms, 200)
         self.assertEqual(observation.last_payload["first_model_text_delta_ms"], 400.0)
         self.assertEqual(observation.last_payload["total_duration_ms"], 1000.0)
+        # 输出 chunk 之间的最长停顿（工具调用 10.2 → 正文 10.4），用来校准流式停顿超时
+        self.assertEqual(observation.last_payload["max_chunk_gap_ms"], 200.0)
 
     async def test_each_output_kind_keeps_its_own_first_arrival_time(self):
         from app.ai.llm_round_observability import LLMRoundObservation, RoundMetadata
@@ -521,6 +523,7 @@ class LLMRoundObservabilityTests(unittest.IsolatedAsyncioTestCase):
         await observation.finish_success(usage=None, finish_reason="stop")
 
         self.assertIsNone(observation.first_output_delta_kind)
+        self.assertIsNone(observation.max_chunk_gap_s)
         self.assertIsNone(observation.first_output_delta_ms)
         self.assertEqual(observation.duration_ms, 500)
 
