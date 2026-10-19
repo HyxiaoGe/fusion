@@ -18,12 +18,13 @@ from app.services.chat.context_manager import ContextManagementError, ContextPla
 from app.services.chat.model_call_language_policy import finalize_model_call_language_policy
 from app.services.documents.draft_stream import DocumentDraftStreamer
 from app.services.stream.context_status import build_context_usage, emit_context_status
-from app.services.stream.first_output_timeout import await_first_output
+from app.services.stream.first_output_timeout import ModelRoundUnavailableError, await_first_output
 from app.services.stream.llm_round_lifecycle import (
     LLMRoundLifecycle,
     accumulate_token_usage,
     round_tool_names,
 )
+from app.services.stream.llm_stream import model_unavailable_reason
 from app.services.stream.provider_content_filter import (
     CONTENT_FILTER_FINISH_REASON,
     finish_content_filtered_round,
@@ -421,6 +422,15 @@ async def run_agent_round(
                 accumulated_usage=accumulated_usage,
                 announced_tool_names=_announced_tool_names(call_kwargs),
             )
+        unavailable_reason = model_unavailable_reason(exc)
+        if (
+            unavailable_reason is not None
+            and not isinstance(exc, ModelRoundUnavailableError)
+            and not partial_output.get("reasoning_buf")
+            and not partial_output.get("content_buf")
+        ):
+            # 用户还没看到本轮任何思考或正文，交给 agent loop 换模型重做本轮，不让整个 Run 失败。
+            raise ModelRoundUnavailableError(model_id, unavailable_reason) from exc
         raise
     try:
         reasoning_buf, content_buf, tool_calls, finish_reason, usage_data = stream_result

@@ -3,8 +3,8 @@
 会话绑定 `auto`，或绑定的模型已从目录下线/被禁止调用时，每轮在服务端按管理员配置的
 优先级挑一个当前可调用的具体模型。优先级按「提供商 → 模型 ID」分组配置，目前组与组内
 都按顺序取第一个可用模型；用户本轮选的执行模式（自动/规划执行/深度研究）可以各配一套
-优先级，没配的模式沿用默认分组。只看目录、调度开关、健康状态、执行模式和本轮的硬性
-需求（带图就要读图，规划执行要工具调用，深度研究还要联网工具），不根据问题内容猜模型。
+优先级，没配的模式沿用默认分组。只看目录、调度开关、健康状态、模型熔断、执行模式和
+本轮的硬性需求（带图就要读图，规划执行要工具调用，深度研究还要联网工具），不根据问题内容猜模型。
 候选全部不可用时退到目录里其余可用模型，保证只要目录里还有模型，对话就不会因为模型
 下线而卡死。
 """
@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, get_args
 
 from app.ai import litellm_catalog, litellm_health
+from app.ai.model_circuit_breaker import model_circuit_breaker
 from app.db.model_catalog_control_repository import ModelCatalogControlRepository
 from app.services.agent_strategy_config import get_agent_tools_disabled_aliases
 from app.services.config_defaults import DEFAULT_AUTO_MODEL_CONFIG
@@ -138,6 +139,8 @@ def pick_auto_model(
         )
     )
     ordered = [alias for alias in candidates if alias in db_aliases] + rest
+    # 熔断中的模型排到最后：仍是兜底候选，只是不再优先挑一个正在连续失败的模型。
+    ordered.sort(key=model_circuit_breaker.is_open)
     controls_by_model = controls.get_by_model_ids(ordered)
     usable = [alias for alias in ordered if _is_usable(alias, controls_by_model.get(alias))]
     mode_required = _MODE_REQUIRED_CAPABILITIES[mode]

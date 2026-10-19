@@ -5,8 +5,11 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import replace
 
+from app.ai import litellm_catalog
 from app.ai.llm_manager import llm_manager
-from app.ai.prompts.prompt_message import PromptMessage
+from app.ai.llm_round_observability import summarize_messages
+from app.ai.model_circuit_breaker import model_circuit_breaker
+from app.ai.prompts.prompt_message import PromptMessage, to_provider_messages
 from app.services.chat.tool_transcript import without_tool_transactions
 from app.services.stream.agent_loop_outcome import AgentLoopExit, AgentLoopOutcome
 from app.services.stream.agent_loop_policy import check_agent_loop_limit
@@ -21,9 +24,9 @@ from app.services.stream.agent_round import AgentRoundResult
 from app.services.stream.first_output_timeout import (
     FALLBACK_MODEL_ID,
     FIRST_OUTPUT_TIMEOUT_S,
-    FirstOutputTimeoutError,
+    ModelRoundUnavailableError,
 )
-from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
+from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs, strip_reasoning_call_kwargs
 from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream.tool_ban import forbid_tool_calls, ignored_tool_ban, without_tool_definitions
 from app.services.tool_handlers.base import BaseToolHandler
@@ -42,6 +45,8 @@ async def run_agent_loop(
             break
 
         step_number, step_context = await _start_next_step(state=state, runtime=runtime)
+        if state.active_model_id is None and model_circuit_breaker.is_open(runtime.model_id):
+            runtime = _switch_to_fallback_model(runtime, state=state, messages=messages, reason="circuit_open")
         try:
             round_result = await _run_round(
                 messages=messages,
@@ -50,15 +55,25 @@ async def run_agent_loop(
                 step_number=step_number,
                 step_context=step_context,
             )
-        except FirstOutputTimeoutError as error:
-            runtime = _switch_to_fallback_model(runtime, state=state, error=error)
-            round_result = await _run_round(
-                messages=messages,
-                state=state,
-                runtime=runtime,
-                step_number=step_number,
-                step_context=step_context,
-            )
+        except ModelRoundUnavailableError as error:
+            model_circuit_breaker.record_failure(runtime.model_id, error.reason)
+            # 每次回答只换一次模型；已换过或已决定原模型重试时照常失败。
+            if state.active_model_id is not None:
+                raise
+            runtime = _switch_to_fallback_model(runtime, state=state, messages=messages, reason=error.reason)
+            try:
+                round_result = await _run_round(
+                    messages=messages,
+                    state=state,
+                    runtime=runtime,
+                    step_number=step_number,
+                    step_context=step_context,
+                )
+            except ModelRoundUnavailableError as retry_error:
+                model_circuit_breaker.record_failure(runtime.model_id, retry_error.reason)
+                raise
+        if round_result.finish_reason != "cancelled":
+            model_circuit_breaker.record_success(runtime.model_id)
         outcome = await handle_agent_round_outcome(
             request=AgentRoundOutcomeRequest(
                 db=db,
@@ -221,31 +236,68 @@ def _switch_to_fallback_model(
     runtime: AgentLoopRuntime,
     *,
     state: AgentLoopState,
-    error: FirstOutputTimeoutError,
+    messages: list[PromptMessage],
+    reason: str,
 ) -> AgentLoopRuntime:
-    """首字超时后本次回答剩余轮次都改用备用模型；备用模型不可用时原模型不限时重试。"""
-    try:
-        litellm_model, provider, litellm_kwargs = llm_manager.resolve_model(FALLBACK_MODEL_ID)
-    except ValueError:
+    """原模型本轮不可用（首字超时、服务端错误或熔断中）时，本次回答剩余轮次都改用备用模型。
+
+    备用模型不可用、熔断中或缺少本次请求需要的能力（读图、工具调用）时，原模型不限首字时长重试。
+    """
+    unusable = _fallback_unusable_reason(runtime, messages)
+    resolved = None
+    if unusable is None:
+        try:
+            resolved = llm_manager.resolve_model(FALLBACK_MODEL_ID)
+        except ValueError:
+            unusable = "unavailable"
+    if resolved is None:
         runtime.warning_fn(
-            "首字超时但备用模型不可用，原模型不限时重试: "
-            f"conv_id={runtime.conversation_id}, run_id={runtime.run_id}, model_id={runtime.model_id}"
+            "原模型本轮不可用但不能换备用模型，原模型不限时重试: "
+            f"conv_id={runtime.conversation_id}, run_id={runtime.run_id}, model_id={runtime.model_id}, "
+            f"reason={reason}, fallback_unusable={unusable}"
         )
         state.active_model_id = runtime.model_id
         return runtime
+    litellm_model, provider, litellm_kwargs = resolved
     runtime.warning_fn(
-        f"模型 {error.timeout_s:g}s 内无输出，本次回答改用备用模型: "
+        "原模型本轮不可用，本次回答改用备用模型: "
         f"conv_id={runtime.conversation_id}, run_id={runtime.run_id}, "
-        f"model_id={runtime.model_id}, fallback={FALLBACK_MODEL_ID}"
+        f"model_id={runtime.model_id}, fallback={FALLBACK_MODEL_ID}, reason={reason}"
     )
     state.active_model_id = FALLBACK_MODEL_ID
+    capabilities = litellm_catalog.get_capabilities(FALLBACK_MODEL_ID)
+    # 准备阶段按原模型写入的推理参数换成备用模型的，推理开关沿用本次请求的设置。
+    call_kwargs = configure_reasoning_call_kwargs(
+        strip_reasoning_call_kwargs(runtime.call_kwargs),
+        provider=provider,
+        should_use_reasoning=runtime.should_use_reasoning,
+        thinking_switchable=capabilities.get("thinkingSwitchable") is True,
+    )
     return replace(
         runtime,
         model_id=FALLBACK_MODEL_ID,
         provider=provider,
         litellm_model=litellm_model,
         litellm_kwargs=dict(litellm_kwargs or {}),
+        call_kwargs=call_kwargs,
     )
+
+
+def _fallback_unusable_reason(runtime: AgentLoopRuntime, messages: list[PromptMessage]) -> str | None:
+    if runtime.model_id == FALLBACK_MODEL_ID:
+        return "same_model"
+    if model_circuit_breaker.is_open(FALLBACK_MODEL_ID):
+        return "circuit_open"
+    # 目录里查不到备用模型时能力未知，交给 resolve_model 判断是否可用，不在这里拦。
+    if litellm_catalog.get_model_entry(FALLBACK_MODEL_ID) is None:
+        return None
+    capabilities = litellm_catalog.get_capabilities(FALLBACK_MODEL_ID)
+    if runtime.call_kwargs.get("tools") and not capabilities.get("functionCalling"):
+        return "no_function_calling"
+    image_parts = summarize_messages(to_provider_messages(messages), {})["content_part_counts"]["image_url"]
+    if image_parts and not capabilities.get("vision"):
+        return "no_vision"
+    return None
 
 
 async def _discard_round(round_result: AgentRoundResult) -> None:

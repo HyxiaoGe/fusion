@@ -60,6 +60,14 @@ class PickAutoModelTests(unittest.TestCase):
         controls = _controls(**{"mimo-v2.6-pro": SimpleNamespace(selectable=True, routable=False)})
         self.assertEqual(self._pick(controls=controls), "deepseek-chat")
 
+    def test_open_circuit_candidate_moves_behind_others_but_stays_as_last_resort(self):
+        from app.ai.model_circuit_breaker import model_circuit_breaker
+
+        for _ in range(model_circuit_breaker.failure_threshold):
+            model_circuit_breaker.record_failure("mimo-v2.6-pro", "first_output_timeout")
+        self.assertEqual(self._pick(), "deepseek-chat")
+        self.assertEqual(self._pick(allowed=("mimo-v2.6-pro",)), "mimo-v2.6-pro")
+
     def test_unregistered_candidate_is_skipped(self):
         catalog = {key: value for key, value in CATALOG.items() if key != "mimo-v2.6-pro"}
         self.assertEqual(self._pick(catalog=catalog), "deepseek-chat")

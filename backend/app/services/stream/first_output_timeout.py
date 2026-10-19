@@ -17,10 +17,22 @@ FIRST_OUTPUT_TIMEOUT_S = 10.0
 FALLBACK_MODEL_ID = "deepseek-chat"
 
 
-class FirstOutputTimeoutError(TimeoutError):
-    def __init__(self, model_id: str | None, timeout_s: float):
-        super().__init__(f"model {model_id} produced no output within {timeout_s:g}s")
+class ModelRoundUnavailableError(Exception):
+    """本轮模型在服务商侧不可用，且还没有任何输出推给用户，agent loop 可以换模型重做本轮。"""
+
+    def __init__(self, model_id: str | None, reason: str, message: str | None = None):
+        super().__init__(message or f"model {model_id} unavailable: {reason}")
         self.model_id = model_id
+        self.reason = reason
+
+
+class FirstOutputTimeoutError(ModelRoundUnavailableError, TimeoutError):
+    def __init__(self, model_id: str | None, timeout_s: float):
+        super().__init__(
+            model_id,
+            "first_output_timeout",
+            f"model {model_id} produced no output within {timeout_s:g}s",
+        )
         self.timeout_s = timeout_s
 
 

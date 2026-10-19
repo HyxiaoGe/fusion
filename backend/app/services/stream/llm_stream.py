@@ -227,6 +227,22 @@ def _is_llm_error_retryable(exc: Exception) -> bool:
     return _llm_retry_reason(exc) is not None
 
 
+def model_unavailable_reason(exc: BaseException) -> str | None:
+    """服务商侧不可用（可重试错误或 500），可以换模型重做本轮；请求本身的错误返回 None。
+
+    500 不在同模型重试名单里（服务商内部错误马上重发多半还是 500），但换模型可以绕开。
+    """
+    if not isinstance(exc, Exception):
+        return None
+    reason = _llm_retry_reason(exc)
+    if reason is not None:
+        return reason
+    for current in _iter_exception_chain(exc):
+        if _structured_status_code(current) == 500:
+            return "http_500"
+    return None
+
+
 def _log_llm_retry(details: dict) -> None:
     """记录可运维字段，禁止把上游异常文本写入日志。"""
     exception = details.get("exception")
