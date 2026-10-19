@@ -9,12 +9,14 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import EvalCaseResult, EvalSuiteRun
 from app.evals.runner import CaseOutcome
+from app.evals.usage import TokenUsage
 from app.utils.time import utc_now
 
 
@@ -58,19 +60,41 @@ def save_outcome(db: Session, suite_run_id: str, outcome: CaseOutcome) -> None:
             conversation_id=outcome.conversation_id,
             duration_ms=outcome.duration_ms,
             attempt=outcome.attempt,
+            usage={
+                "model": outcome.usage.as_dict() if outcome.usage is not None else None,
+                "judge": outcome.judge_usage.as_dict(),
+            },
         )
     )
     db.commit()
 
 
-def summarize(outcomes: list[CaseOutcome]) -> dict[str, dict[str, int]]:
+def summarize(outcomes: list[CaseOutcome]) -> dict[str, dict[str, Any]]:
+    """判分按每个 (用例, 模型) 的最终结果计；花费按全部运行计，复核也花了钱。"""
     summary: dict[str, Counter] = {}
     for outcome in final_outcomes(outcomes):
         summary.setdefault(outcome.model_id, Counter())[outcome.status] += 1
+    costs = cost_by_model(outcomes)
     return {
-        model: {"passed": c["passed"], "failed": c["failed"], "error": c["error"], "total": sum(c.values())}
+        model: {
+            "passed": c["passed"],
+            "failed": c["failed"],
+            "error": c["error"],
+            "total": sum(c.values()),
+            "cost_usd": round(costs[model][0].cost_usd, 6),
+            "judge_cost_usd": round(costs[model][1].cost_usd, 6),
+        }
         for model, c in summary.items()
     }
+
+
+def cost_by_model(outcomes: list[CaseOutcome]) -> dict[str, tuple[TokenUsage, TokenUsage]]:
+    """每个模型全部运行（含复核）的 (被测模型用量, 裁判用量)，读不到用量的用例不计入。"""
+    totals: dict[str, tuple[TokenUsage, TokenUsage]] = {}
+    for outcome in outcomes:
+        model_usage, judge_usage = totals.get(outcome.model_id, (TokenUsage(), TokenUsage()))
+        totals[outcome.model_id] = (model_usage + (outcome.usage or TokenUsage()), judge_usage + outcome.judge_usage)
+    return totals
 
 
 def finish_suite_run(db: Session, suite_run_id: str, *, status: str, summary: dict) -> None:

@@ -17,6 +17,7 @@ from app.ai.llm_manager import llm_manager
 from app.ai.llm_observability import merge_litellm_kwargs
 from app.evals.cases import EvalCase, JudgeCheck
 from app.evals.checks import JudgeVerdict
+from app.evals.usage import TokenUsage, usage_for_round
 
 JUDGE_MODEL_ID = "deepseek-chat"
 JUDGE_TIMEOUT_SECONDS = 60
@@ -73,7 +74,10 @@ async def judge_answer(check: JudgeCheck, case: EvalCase, snapshot: Mapping[str,
     merge_extra_body(kwargs, {"thinking": {"type": "disabled"}})
     messages = build_judge_messages(check, case, snapshot)
 
+    spent = TokenUsage()
+
     async def ask() -> JudgeVerdict:
+        nonlocal spent
         response = await litellm.acompletion(
             model=model,
             messages=messages,
@@ -84,10 +88,18 @@ async def judge_answer(check: JudgeCheck, case: EvalCase, snapshot: Mapping[str,
             response_format={"type": "json_object"},
             **merge_litellm_kwargs("eval_judge", kwargs),
         )
-        return parse_verdict(response.choices[0].message.content or "")
+        usage = getattr(response, "usage", None)
+        spent += usage_for_round(
+            JUDGE_MODEL_ID,
+            input_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+            output_tokens=getattr(usage, "completion_tokens", 0) or 0,
+            cache_read_tokens=getattr(getattr(usage, "prompt_tokens_details", None), "cached_tokens", 0) or 0,
+        )
+        verdict = parse_verdict(response.choices[0].message.content or "")
+        return JudgeVerdict(verdict.passed, verdict.reason, spent)
 
     try:
         return await ask()
     except ValidationError:
-        # 实测偶发漏掉 passed 字段（门禁 run 37210651726）；只对格式错误重问一次。
+        # 实测偶发漏掉 passed 字段（门禁 run 37210651726）；只对格式错误重问一次，两次的用量都计入。
         return await ask()
