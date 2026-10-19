@@ -42,7 +42,6 @@ import {
   Loader2,
   ListChecks,
   PaperclipIcon,
-  Search,
   Sparkles,
   Square,
   type LucideIcon,
@@ -153,11 +152,6 @@ const COMPOSER_AGENT_MODES: Array<{
     value: "plan",
     description: "先生成执行计划，再按步骤完成任务",
     icon: ListChecks,
-  },
-  {
-    value: "deep_research",
-    description: "多轮搜索与原文核验，适合复杂调研",
-    icon: Search,
   },
 ];
 
@@ -291,7 +285,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const appliedKnowledgeSelectionScopeRef = useRef<string | null>(null);
 
   const isAuthenticated = useAppSelector(selectIsAuthenticated);
-  // 游客也能聊天；上传、知识库、深度研究仍需登录
+  // 游客也能聊天；上传、知识库仍需登录
   const canChat = useAppSelector(selectCanChat);
   const isGuest = useAppSelector(selectIsGuest);
   const guestMessagesRemaining = useAppSelector(selectGuestMessagesRemaining);
@@ -407,9 +401,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
   // 中性输入框结构，挂载后再显示严格知识库控件，避免整棵 composer 被重建。
   // 只读当前会话的生成状态：全局 stream.isStreaming 会把别的会话的流算到本会话头上
   // （issue #74 的同一类缺陷），而 currentRun 始终属于正在生成的那个会话。
-  const isDeepResearchStreaming = Boolean(
-    isCurrentConversationStreaming && currentRun?.config.taskMode === "deep_research",
-  );
   const activeAuthoritativePlanRun = (
     isCurrentConversationStreaming
     && currentRun?.plan?.source === "model"
@@ -451,25 +442,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
     // 游客的额度在开始生成时扣、出错时退，生成开始和结束各同步一次剩余条数。
     if (isGuest) void dispatch(refreshEntitlements());
   }, [dispatch, isGuest, isCurrentConversationStreaming]);
-
-  useEffect(() => {
-    // 深度研究需要登录；游客残留的模式选择回到自动。
-    if (isGuest && composerAgentMode === 'deep_research') {
-      dispatch(setComposerAgentMode({ chatId: agentModeKey, mode: 'auto' }));
-    }
-  }, [agentModeKey, composerAgentMode, dispatch, isGuest]);
-
-  useEffect(() => {
-    if (selectedKnowledgeBaseIds.length === 0 || composerAgentMode !== 'deep_research') {
-      return;
-    }
-    dispatch(setComposerAgentMode({ chatId: agentModeKey, mode: 'auto' }));
-    toast({
-      message: '已切换到自动模式：深度研究暂不检索知识库',
-      type: 'warning',
-      duration: 3000,
-    });
-  }, [agentModeKey, composerAgentMode, dispatch, selectedKnowledgeBaseIds.length, toast]);
 
   useEffect(() => {
     if (!hasHydrated || !selectedModel || composerAgentMode === "auto") {
@@ -1590,13 +1562,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                   <ActiveComposerAgentModeIcon
                     data-testid="composer-agent-mode-icon"
                     data-mode={composerAgentMode}
-                    className={`h-4 w-4 ${
-                      composerAgentMode === "deep_research"
-                        ? "text-info"
-                        : composerAgentMode === "plan"
-                          ? "text-primary"
-                          : ""
-                    }`}
+                    className={`h-4 w-4 ${composerAgentMode === "plan" ? "text-primary" : ""}`}
                   />
                   {/* 模式名最长四个字，完整展示；窄屏省掉“模式：”前缀让出空间 */}
                   <span className="whitespace-nowrap text-xs">
@@ -1616,7 +1582,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 <DropdownMenuLabel className={agentModeStyles.header}>
                   <span className={agentModeStyles.title}>执行模式</span>
                   <span className={agentModeStyles.hint}>
-                    控制任务的规划与研究方式；模型思考由“深度思考”开关控制
+                    控制任务是否先规划再执行；模型思考由“深度思考”开关控制
                   </span>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator className={agentModeStyles.separator} />
@@ -1632,18 +1598,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
                       mode.value,
                       selectedModel?.capabilities,
                     );
-                    const conflictsWithKnowledge = mode.value === 'deep_research'
-                      && selectedKnowledgeBaseIds.length > 0;
-                    const requiresLogin = mode.value === 'deep_research' && isGuest;
-                    const disabledMode = !hasHydrated || !availability.enabled || conflictsWithKnowledge
-                      || requiresLogin;
-                    const itemDescription = requiresLogin
-                      ? '登录后可使用深度研究'
-                      : conflictsWithKnowledge
-                      ? '严格知识库模式不能与深度研究同时使用'
-                      : availability.enabled
-                        ? mode.description
-                        : availability.unavailableReason;
+                    const disabledMode = !hasHydrated || !availability.enabled;
+                    const itemDescription = availability.enabled
+                      ? mode.description
+                      : availability.unavailableReason;
                     const isSelected = mode.value === composerAgentMode;
                     const ModeIcon = mode.icon;
                     return (
@@ -1701,19 +1659,19 @@ const ChatInput: React.FC<ChatInputProps> = ({
               className={`h-8 rounded-lg ${hasStopTarget || isSubmitting || isStopping ? "gap-1.5 px-2.5" : "w-8 p-0"}`}
               aria-label={
                 isSubmitting ? "正在提交" : isStopping ? "正在停止" : hasStopTarget
-                  ? (isDeepResearchStreaming ? "停止研究" : "停止生成")
+                  ? "停止生成"
                   : "发送消息"
               }
               title={
                 isSubmitting ? "正在提交" : isStopping ? "正在停止" : hasStopTarget
-                  ? (isDeepResearchStreaming ? "停止研究" : "停止生成")
+                  ? "停止生成"
                   : "发送消息"
               }
             >
               {isSubmitting || isStopping ? (
                 <><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /><span className="text-xs">{isSubmitting ? "提交中" : "停止中"}</span></>
               ) : hasStopTarget ? (
-                <><Square className="h-3.5 w-3.5" aria-hidden="true" /><span className="text-xs">{isDeepResearchStreaming ? "停止研究" : "停止"}</span></>
+                <><Square className="h-3.5 w-3.5" aria-hidden="true" /><span className="text-xs">停止</span></>
               ) : (
                 <ArrowUp className="h-4 w-4" />
               )}

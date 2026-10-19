@@ -2,9 +2,9 @@
 
 会话绑定 `auto`，或绑定的模型已从目录下线/被禁止调用时，每轮在服务端按管理员配置的
 优先级挑一个当前可调用的具体模型。优先级按「提供商 → 模型 ID」分组配置，目前组与组内
-都按顺序取第一个可用模型；用户本轮选的执行模式（自动/规划执行/深度研究）可以各配一套
+都按顺序取第一个可用模型；用户本轮选的执行模式（自动/规划执行）可以各配一套
 优先级，没配的模式沿用默认分组。只看目录、调度开关、健康状态、模型熔断、执行模式和
-本轮的硬性需求（带图就要读图，规划执行要工具调用，深度研究还要联网工具），不根据问题内容猜模型。
+本轮的硬性需求（带图就要读图，规划执行要工具调用），不根据问题内容猜模型。
 候选全部不可用时退到目录里其余可用模型，保证只要目录里还有模型，对话就不会因为模型
 下线而卡死。原模型在回答中途不可用时，也从这里挑能力满足、换一家提供商的备用模型。
 """
@@ -23,15 +23,14 @@ from app.services.config_defaults import DEFAULT_AUTO_MODEL_CONFIG
 
 AUTO_MODEL_ID = "auto"
 
-# 与前端执行模式一一对应：auto=自动，plan=规划执行，deep_research=深度研究
-AutoModelMode = Literal["auto", "plan", "deep_research"]
+# 与前端执行模式一一对应：auto=自动，plan=规划执行
+AutoModelMode = Literal["auto", "plan"]
 AUTO_MODEL_MODES: tuple[AutoModelMode, ...] = get_args(AutoModelMode)
 
 # 执行模式对模型的硬性能力要求；不满足的候选本轮跳过
 _MODE_REQUIRED_CAPABILITIES: dict[AutoModelMode, tuple[str, ...]] = {
     "auto": (),
     "plan": ("functionCalling",),
-    "deep_research": ("functionCalling", "searchCapable"),
 }
 
 # 与 /api/models 的排序一致：候选之外的兜底按 cost_tier 从低到高挑

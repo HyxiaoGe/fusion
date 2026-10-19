@@ -9,7 +9,7 @@ from app.ai import litellm_catalog
 from app.ai.llm_manager import llm_manager
 from app.ai.llm_round_observability import summarize_messages
 from app.ai.model_circuit_breaker import model_circuit_breaker
-from app.ai.prompts.prompt_message import PromptMessage, to_provider_messages
+from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages, to_provider_messages
 from app.db.model_catalog_control_repository import ModelCatalogControlRepository
 from app.services.auto_model import pick_fallback_model
 from app.services.chat.tool_transcript import without_tool_transactions
@@ -30,6 +30,7 @@ from app.services.stream.first_output_timeout import (
     ModelRoundUnavailableError,
 )
 from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs, strip_reasoning_call_kwargs
+from app.services.stream.research_workset_messages import messages_with_research_workset
 from app.services.stream.step_lifecycle import AgentStepContext
 from app.services.stream.tool_ban import forbid_tool_calls, ignored_tool_ban, without_tool_definitions
 from app.services.tool_handlers.base import BaseToolHandler
@@ -162,9 +163,7 @@ async def _run_round(
         call_kwargs=runtime.call_kwargs,
         dynamic_tool_handlers=runtime.dynamic_tool_handlers,
     )
-    preparation = runtime.mode.prepare_round(call_kwargs, state=state, provider=runtime.provider)
-    call_kwargs = preparation.call_kwargs
-    # 本轮不开放工具（深研成文、动态工具耗尽）时仍公告 run 的工具定义并禁止调用，
+    # 本轮不开放工具（动态工具耗尽）时仍公告 run 的工具定义并禁止调用，
     # 历史工具事务才能原样留在上下文里，见 tool_ban。
     run_tools = list(runtime.call_kwargs.get("tools") or [])
     tools_forbidden = bool(run_tools) and not call_kwargs.get("tools")
@@ -176,7 +175,7 @@ async def _run_round(
         provider=runtime.provider,
         should_use_reasoning=runtime.should_use_reasoning,
     )
-    effective_messages = runtime.mode.round_messages(messages, state=state, preparation=preparation)
+    effective_messages = ensure_prompt_messages(messages)
     run_round_kwargs = dict(
         output=runtime.output,
         conversation_id=runtime.conversation_id,
@@ -198,9 +197,6 @@ async def _run_round(
         emitter=runtime.emitter,
         on_context_updated=state.update_context,
     )
-    # 服务端不再改写模型回答，只有模式要求先校验（如深度研究的完成度检查）时才暂缓输出。
-    if runtime.mode.defer_round_output:
-        run_round_kwargs["defer_output"] = True
     if runtime.llm_round_detail_scheduler is not None:
         run_round_kwargs["llm_round_detail_scheduler"] = runtime.llm_round_detail_scheduler
     run_round_kwargs["on_context_trimmed"] = state.record_context_plan
@@ -369,7 +365,7 @@ async def _run_limit_summary(
         request=build_limit_summary_step_request(
             state=state,
             runtime=runtime,
-            messages=deepcopy(runtime.mode.summary_messages(messages, state=state)),
+            messages=deepcopy(messages_with_research_workset(messages, workset=state.research_workset)),
             summary_finish_reason=summary_finish_reason,
             document_delivered=state.has_document_block(),
         ),

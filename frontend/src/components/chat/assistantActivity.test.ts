@@ -36,29 +36,6 @@ describe('deriveAssistantActivity', () => {
     expect(activity.shouldSuppressReasoning).toBe(false);
   });
 
-  it('知识库运行从开始就隐藏思考并展示执行过程', () => {
-    const activity = deriveAssistantActivity({
-      isStreaming: true,
-      isCurrentlyStreaming: true,
-      contentBlocks: [
-        { type: 'thinking', id: 'think-1', thinking: '正在整理知识库内容。' },
-      ],
-      currentRun: makeRun({
-        config: {
-          maxSteps: 1,
-          maxToolCalls: 1,
-          timeoutS: 30,
-          evidencePolicy: 'knowledge_grounded_v1',
-        },
-      }),
-      messageStatus: null,
-      isLoadingSuggestedQuestions: false,
-      suggestedQuestionsCount: 0,
-    });
-
-    expect(activity.shouldSuppressReasoning).toBe(true);
-  });
-
   it('工具完成后仍保持隐藏思考', () => {
     const activity = deriveAssistantActivity({
       isStreaming: true,
@@ -97,27 +74,6 @@ describe('deriveAssistantActivity', () => {
     });
 
     expect(activity.kind).toBe('preparing');
-    expect(activity.shouldSuppressReasoning).toBe(true);
-  });
-
-  it('Deep Research 从开始就使用执行过程模式', () => {
-    const activity = deriveAssistantActivity({
-      isStreaming: true,
-      isCurrentlyStreaming: true,
-      contentBlocks: [],
-      currentRun: makeRun({
-        config: {
-          maxSteps: 8,
-          maxToolCalls: 20,
-          timeoutS: 300,
-          taskMode: 'deep_research',
-        },
-      }),
-      messageStatus: null,
-      isLoadingSuggestedQuestions: false,
-      suggestedQuestionsCount: 0,
-    });
-
     expect(activity.shouldSuppressReasoning).toBe(true);
   });
 

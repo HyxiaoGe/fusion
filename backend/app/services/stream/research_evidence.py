@@ -1,11 +1,11 @@
-"""深度研究的有界安全证据工作集与完成门禁。"""
+"""本 run 联网取证的有界安全证据工作集，收尾时注入读取状态清单与来源摘要。"""
 
 from __future__ import annotations
 
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any
 
 from app.ai.prompts.prompt_message import PromptMessage
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
@@ -14,12 +14,9 @@ from app.services.source_context import UntrustedSourceContext, format_untrusted
 from app.services.source_evidence_ledger import canonicalize_evidence_url, stable_web_evidence_id
 
 MAX_RESEARCH_SOURCES = 12
-MAX_RESEARCH_REPAIRS = 2
 MAX_RESEARCH_SOURCE_CONTEXT_CHARS = 360
 MAX_RESEARCH_SOURCE_URL_CHARS = MAX_URL_LENGTH
-_CITATION_PATTERN = re.compile(r"(?:\[(\d{1,3})\]|⟦(\d{1,3})⟧)")
 _SAFE_EVIDENCE_ID_PATTERN = re.compile(r"^ev-[A-Za-z0-9_-]{1,80}$")
-DeepResearchStage = Literal["search", "read", "search_repair", "synthesis"]
 
 
 @dataclass(frozen=True)
@@ -38,18 +35,11 @@ class ResearchSource:
         return canonicalize_evidence_url(self.url)
 
 
-@dataclass(frozen=True)
-class ResearchCompletionResult:
-    is_valid: bool
-    reason: str = "valid"
-
-
 @dataclass
 class ResearchEvidenceWorkset:
     """仅保存本 run 新产生的安全来源投影，不接收原始网页或 MCP payload。"""
 
     sources: dict[str, ResearchSource] = field(default_factory=dict)
-    successful_searches: int = 0
     successful_read_urls: set[str] = field(default_factory=set)
     attempted_read_urls: set[str] = field(default_factory=set)
     processed_block_ids: set[str] = field(default_factory=set)
@@ -59,7 +49,6 @@ class ResearchEvidenceWorkset:
         content_blocks: list[Any],
         *,
         summaries: dict[str, tuple[str, list[str]]] | None = None,
-        allow_read_success: bool = True,
     ) -> None:
         safe_summaries = summaries or {}
         for block in content_blocks:
@@ -72,7 +61,7 @@ class ResearchEvidenceWorkset:
             block_type = _value(block, "type")
             block_status = _value(block, "status") or "success"
             refs = _value(block, "source_refs")
-            if allow_read_success and block_type == "url_read":
+            if block_type == "url_read":
                 attempted_urls = [
                     _value(block, "url"),
                     *(_value(ref, "url") for ref in refs or []),
@@ -83,9 +72,6 @@ class ResearchEvidenceWorkset:
                         self.attempted_read_urls.add(canonical_url)
             if block_status != "success" or not isinstance(refs, list):
                 continue
-            if block_type == "search" and refs:
-                self.successful_searches += 1
-
             for ref in refs:
                 if (_value(ref, "status") or "success") != "success":
                     continue
@@ -93,7 +79,7 @@ class ResearchEvidenceWorkset:
                 if source is None:
                     continue
                 self.sources[source.evidence_id] = source
-                if allow_read_success and (block_type == "url_read" or source.kind == "url_read"):
+                if block_type == "url_read" or source.kind == "url_read":
                     self.successful_read_urls.add(source.url_key)
 
             self._cap_sources()
@@ -124,82 +110,10 @@ class ResearchEvidenceWorkset:
         kept = [*read_sources, *candidates, *failed_sources]
         self.sources = {source.evidence_id: source for source in kept[:MAX_RESEARCH_SOURCES]}
 
-    @property
-    def valid_citation_indexes(self) -> set[int]:
-        return {
-            source.citation_index for source in self.sources.values() if source.url_key in self.successful_read_urls
-        }
-
-    @property
-    def unread_candidate_urls(self) -> set[str]:
-        return {source.url for source in self.sources.values() if source.url_key not in self.attempted_read_urls}
-
-
-def resolve_deep_research_stage(workset: ResearchEvidenceWorkset) -> DeepResearchStage:
-    """只根据服务端取证状态决定下一轮工具阶段，不依赖计划，也不解析模型参数或外部正文。"""
-
-    if workset.successful_searches < 1:
-        return "search"
-    if len(workset.successful_read_urls) >= 2:
-        return "synthesis"
-    if workset.unread_candidate_urls:
-        return "read"
-    return "search_repair"
-
-
-def deep_research_stage_tool_names(stage: DeepResearchStage) -> frozenset[str] | None:
-    """返回阶段工具白名单；None 表示保持原有工具集合。"""
-
-    if stage == "search":
-        return frozenset({"web_search"})
-    if stage == "read":
-        return frozenset({"url_read"})
-    if stage == "search_repair":
-        return frozenset({"web_search"})
-    if stage == "synthesis":
-        return frozenset()
-    return None
-
-
-def build_deep_research_stage_prompt(stage: DeepResearchStage, *, allow_plan_update: bool = False) -> str:
-    """生成不含任何外部来源内容的确定性阶段控制语。"""
-
-    if stage == "search":
-        return render_runtime_prompt("research.stage_search", allow_plan_update=allow_plan_update)
-    if stage == "read":
-        return render_runtime_prompt("research.stage_read", allow_plan_update=allow_plan_update)
-    if stage == "search_repair":
-        return render_runtime_prompt("research.stage_search_repair", allow_plan_update=allow_plan_update)
-    if stage == "synthesis":
-        return render_runtime_prompt("research.stage_synthesis")
-    return ""
-
-
-def validate_research_completion(
-    workset: ResearchEvidenceWorkset,
-    answer_text: str,
-) -> ResearchCompletionResult:
-    if workset.successful_searches < 1:
-        return ResearchCompletionResult(False, "missing_search")
-    if len(workset.successful_read_urls) < 2:
-        return ResearchCompletionResult(False, "insufficient_reads")
-
-    citations = {
-        int(match.group(1) or match.group(2))
-        for match in _CITATION_PATTERN.finditer(answer_text or "")
-        if match.group(1) or match.group(2)
-    }
-    if not citations:
-        return ResearchCompletionResult(False, "missing_citation")
-    if not citations.issubset(workset.valid_citation_indexes):
-        return ResearchCompletionResult(False, "invalid_citation")
-    return ResearchCompletionResult(True)
-
 
 def build_research_workset_prompt(
     workset: ResearchEvidenceWorkset,
     *,
-    include_candidates: bool = True,
     unattempted_request_count: int = 0,
 ) -> str:
     # 未发起读取的目标必须能单独把清单撑起来：#127 的首个样本就是 url_read 一次都
@@ -213,16 +127,13 @@ def build_research_workset_prompt(
     ):
         is_read = source.url_key in workset.successful_read_urls
         is_failed = source.url_key in workset.attempted_read_urls and not is_read
-        if not is_read and not include_candidates:
-            continue
         source_status = "read_success" if is_read else "read_failed" if is_failed else "candidate"
         evidence_id = (
             source.evidence_id
             if _SAFE_EVIDENCE_ID_PATTERN.fullmatch(source.evidence_id)
             else stable_web_evidence_id(source.url, fallback=f"ev-ref-{source.citation_index}")
         )
-        retry_policy = " retry=forbidden" if is_failed else ""
-        lines.append(f"[{source.citation_index}] evidence_id={evidence_id} status={source_status}{retry_policy}")
+        lines.append(f"[{source.citation_index}] evidence_id={evidence_id} status={source_status}")
     if len(lines) == 1 and unattempted_request_count <= 0:
         lines.append(render_runtime_prompt("research.workset_empty"))
     if unattempted_request_count > 0:
@@ -251,11 +162,7 @@ def count_unattempted_requested_urls(
     return len(unattempted)
 
 
-def build_research_untrusted_context_messages(
-    workset: ResearchEvidenceWorkset,
-    *,
-    include_candidates: bool = True,
-) -> list[PromptMessage]:
+def build_research_untrusted_context_messages(workset: ResearchEvidenceWorkset) -> list[PromptMessage]:
     """把外部派生摘要放回明确不可信的 user web_context，绝不提升为 system。"""
 
     messages: list[PromptMessage] = []
@@ -266,8 +173,6 @@ def build_research_untrusted_context_messages(
         is_read = source.url_key in workset.successful_read_urls
         is_failed = source.url_key in workset.attempted_read_urls and not is_read
         if is_failed:
-            continue
-        if not is_read and not include_candidates:
             continue
         facts = []
         if source.summary:
@@ -291,86 +196,6 @@ def build_research_untrusted_context_messages(
         )
         messages.append(PromptMessage(role="user", content=content))
     return messages
-
-
-def build_research_repair_prompt(reason: str, workset: ResearchEvidenceWorkset) -> str:
-    if reason == "missing_search":
-        action = render_runtime_prompt("research.repair_missing_search")
-    elif reason == "insufficient_reads":
-        action = render_runtime_prompt("research.repair_insufficient_reads")
-    elif reason == "missing_citation":
-        action = render_runtime_prompt("research.repair_missing_citation")
-    else:
-        action = render_runtime_prompt("research.repair_invalid_citation")
-    workset_prompt = build_research_workset_prompt(workset)
-    return render_runtime_prompt("research.repair", action=action, workset_prompt=workset_prompt)
-
-
-def assign_missing_source_reference_metadata(content_blocks: list[Any]) -> None:
-    """为旧 content block 补运行期稳定引用元数据；不引入原始正文。"""
-
-    for block in content_blocks:
-        if _value(block, "type") != "url_read" or _value(block, "source_refs"):
-            continue
-        url = str(_value(block, "url") or "")
-        if not canonicalize_evidence_url(url):
-            continue
-        reference = {
-            "kind": "url_read",
-            "title": str(_value(block, "title") or "网页来源")[:80],
-            "url": url,
-            "favicon": _value(block, "favicon"),
-            "status": _value(block, "status") or "success",
-            "tool_call_log_id": str(_value(block, "tool_call_log_id") or ""),
-            "error_message": _value(block, "error_message"),
-        }
-        _set_value(block, "source_refs", [reference])
-        _set_value(block, "source_count", 1)
-
-    registry: dict[str, int] = {}
-    evidence_ids: dict[str, str] = {}
-    max_index = 0
-    for block in content_blocks:
-        for ref in _value(block, "source_refs") or []:
-            canonical_url = canonicalize_evidence_url(str(_value(ref, "url") or ""))
-            citation_index = _value(ref, "citation_index")
-            if isinstance(citation_index, int) and not isinstance(citation_index, bool) and citation_index > 0:
-                max_index = max(max_index, citation_index)
-            if (
-                canonical_url
-                and isinstance(citation_index, int)
-                and not isinstance(citation_index, bool)
-                and citation_index > 0
-            ):
-                registry.setdefault(canonical_url, citation_index)
-            if canonical_url and _value(ref, "evidence_id"):
-                evidence_ids.setdefault(canonical_url, str(_value(ref, "evidence_id")))
-
-    for block in content_blocks:
-        for ref in _value(block, "source_refs") or []:
-            canonical_url = canonicalize_evidence_url(str(_value(ref, "url") or ""))
-            if not canonical_url:
-                continue
-            citation_index = registry.get(canonical_url)
-            if citation_index is None:
-                max_index += 1
-                citation_index = max_index
-                registry[canonical_url] = citation_index
-            evidence_id = evidence_ids.get(canonical_url) or stable_web_evidence_id(
-                canonical_url,
-                fallback=f"ev-ref-{citation_index}",
-            )
-            evidence_ids.setdefault(canonical_url, evidence_id)
-            if isinstance(ref, dict):
-                if not ref.get("evidence_id"):
-                    ref["evidence_id"] = evidence_id
-                if not ref.get("citation_index"):
-                    ref["citation_index"] = citation_index
-            else:
-                if not _value(ref, "evidence_id"):
-                    setattr(ref, "evidence_id", evidence_id)
-                if not _value(ref, "citation_index"):
-                    setattr(ref, "citation_index", citation_index)
 
 
 def _research_source_from_ref(
@@ -405,10 +230,3 @@ def _value(value: Any, key: str) -> Any:
     if isinstance(value, dict):
         return value.get(key)
     return getattr(value, key, None)
-
-
-def _set_value(value: Any, key: str, item: Any) -> None:
-    if isinstance(value, dict):
-        value[key] = item
-    else:
-        setattr(value, key, item)

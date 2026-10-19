@@ -60,14 +60,7 @@ export type AgentPlanItemKind =
 export type AgentPlanMode = 'auto' | 'on' | 'off';
 
 /** 输入框面向用户的任务执行模式。 */
-export type ComposerAgentMode = 'auto' | 'plan' | 'deep_research';
-
-/** 发送给后端并由 run config 持久化的任务类型。 */
-export type AgentTaskMode = 'standard' | 'deep_research';
-
-export type AgentNetworkProfile = 'standard' | 'deep_research';
-
-export type AgentEvidencePolicy = 'standard' | 'deep_research_v1' | 'knowledge_grounded_v1';
+export type ComposerAgentMode = 'auto' | 'plan';
 
 export type AgentPlanSource = 'model' | 'observed';
 
@@ -177,10 +170,6 @@ export interface AgentRunConfig {
   timeoutS: number;
   /** 旧历史可能缺失；SSE 与新历史会归一化为明确值。 */
   planMode?: AgentPlanMode;
-  /** 旧历史可能缺失；SSE 与新历史会归一化为明确值。 */
-  taskMode?: AgentTaskMode;
-  networkProfile?: AgentNetworkProfile;
-  evidencePolicy?: AgentEvidencePolicy;
   /** 本次是否开启深度思考；旧 run 没有记录。 */
   useReasoning?: boolean;
 }

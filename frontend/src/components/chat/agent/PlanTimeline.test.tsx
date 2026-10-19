@@ -150,39 +150,6 @@ describe('PlanTimeline', () => {
     expect(screen.getByRole('progressbar', { name: '计划完成进度' })).toHaveAttribute('aria-valuenow', '1');
   });
 
-  it('深度研究 run 显示低干扰模式标签，普通 run 不显示', () => {
-    const { rerender } = render(<PlanTimeline run={createRun([
-      {
-        id: 'research',
-        title: '研究资料',
-        status: 'running',
-        kind: 'search',
-        toolNames: ['web_search'],
-        evidenceItemIds: [],
-      },
-    ], {
-      config: {
-        ...baseRun.config,
-        taskMode: 'deep_research',
-      },
-    })} />);
-
-    expect(screen.getByText('深度研究')).toHaveClass('text-info', 'bg-info-bg');
-
-    rerender(<PlanTimeline run={createRun([
-      {
-        id: 'answer',
-        title: '直接回答',
-        status: 'running',
-        kind: 'answer',
-        toolNames: [],
-        evidenceItemIds: [],
-      },
-    ])} />);
-
-    expect(screen.queryByText('深度研究')).toBeNull();
-  });
-
   it('计划部分失败并结束后展示终态摘要，不把失败步骤标成当前步骤', () => {
     render(<PlanTimeline run={createRun([
       {

@@ -18,9 +18,6 @@ from sqlalchemy.orm import sessionmaker
 from app.db.database import Base
 from app.db.models import AgentEvent, AgentSession, RunTrajectoryMeta
 from app.schemas.chat import (
-    SearchBlock,
-    SearchSourceSummary,
-    SourceReference,
     TextBlock,
     UrlBlock,
 )
@@ -39,7 +36,6 @@ from app.services.stream.agent_loop_lifecycle import (
     AgentLoopLifecycleRequest,
     _run_config,
     commit_trajectory_barrier,
-    configure_research_state,
     run_agent_loop_lifecycle,
 )
 from app.services.stream.agent_loop_policy import AgentLoopLimits
@@ -48,7 +44,6 @@ from app.services.stream.agent_loop_run_completion import (
     finalize_completed_run,
     write_fallback_run_error,
 )
-from app.services.stream.research_evidence import validate_research_completion
 from app.services.stream.run_capability_router import RunCapabilityResolution
 from app.services.stream.run_finalizer import interrupt_agent_run
 from app.services.stream.tool_executor import AgentEventCompositeWriter
@@ -212,172 +207,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(prompt_events[0]["error_code"], "assembly_failed")
                 self.assertNotIn("不应披露的偏好内容", str(emitted))
 
-    def test_deep_research_with_files_still_requires_network_gate(self):
-        execution = self._execution(
-            call_config=SimpleNamespace(
-                should_use_reasoning=False,
-                call_kwargs={},
-                announced_tools=["web_search", "url_read"],
-                task_mode="deep_research",
-                network_profile="deep_research",
-                evidence_policy="deep_research_v1",
-                plan_mode="on",
-            )
-        )
-
-        configure_research_state(
-            state=execution.state,
-            call_config=execution.runtime,
-            file_ids=["file-1"],
-            content_blocks=[],
-        )
-
-        self.assertTrue(execution.state.research_network_required)
-        result = execution.state.plan_coordinator.apply_model_update(
-            {
-                "reason": "按研究阶段组织计划",
-                "items": [
-                    {
-                        "id": "search",
-                        "title": "查找可靠来源",
-                        "status": "running",
-                        "kind": "search",
-                        "depends_on": [],
-                        "planned_tools": ["web_search"],
-                    },
-                    {
-                        "id": "read-1",
-                        "title": "核验来源一原文",
-                        "status": "pending",
-                        "kind": "read",
-                        "depends_on": ["search"],
-                        "planned_tools": ["url_read"],
-                    },
-                    {
-                        "id": "read-2",
-                        "title": "核验来源二原文",
-                        "status": "pending",
-                        "kind": "read",
-                        "depends_on": ["search"],
-                        "planned_tools": ["url_read"],
-                    },
-                    {
-                        "id": "answer",
-                        "title": "整理结论与建议",
-                        "status": "pending",
-                        "kind": "answer",
-                        "depends_on": ["read-1", "read-2"],
-                        "planned_tools": [],
-                    },
-                ],
-            }
-        )
-        self.assertTrue(result.accepted)
-
-    def test_continuation_rebuilds_research_workset_from_persisted_source_blocks(self):
-        execution = self._execution(
-            call_config=SimpleNamespace(
-                should_use_reasoning=False,
-                call_kwargs={},
-                announced_tools=["web_search", "url_read"],
-                task_mode="deep_research",
-                network_profile="deep_research",
-                evidence_policy="deep_research_v1",
-                plan_mode="on",
-            )
-        )
-        historical_blocks = [
-            SearchBlock(
-                type="search",
-                query="研究",
-                sources=[SearchSourceSummary(title="来源", url="https://example.com/report")],
-                source_refs=[
-                    SourceReference(
-                        kind="search",
-                        title="来源",
-                        url="https://example.com/report",
-                        evidence_id="ev-report",
-                        citation_index=1,
-                    )
-                ],
-                source_count=1,
-            ),
-            UrlBlock(
-                type="url_read",
-                url="https://example.com/report",
-                title="来源",
-                source_refs=[
-                    SourceReference(
-                        kind="url_read",
-                        title="来源",
-                        url="https://example.com/report",
-                        evidence_id="ev-report",
-                        citation_index=1,
-                    )
-                ],
-                source_count=1,
-            ),
-            UrlBlock(
-                type="url_read",
-                url="https://example.com/second",
-                title="第二来源",
-                source_refs=[
-                    SourceReference(
-                        kind="url_read",
-                        title="第二来源",
-                        url="https://example.com/second",
-                        evidence_id="ev-second",
-                        citation_index=2,
-                    )
-                ],
-                source_count=1,
-            ),
-        ]
-
-        configure_research_state(
-            state=execution.state,
-            call_config=execution.runtime,
-            file_ids=None,
-            content_blocks=historical_blocks,
-            allow_read_success=False,
-        )
-
-        self.assertEqual(execution.state.research_workset.successful_searches, 1)
-        self.assertEqual(execution.state.research_workset.successful_read_urls, set())
-        self.assertFalse(
-            validate_research_completion(
-                execution.state.research_workset,
-                "历史来源不能直接复用。[1][2]",
-            ).is_valid
-        )
-
-        execution.state.record_research_content_blocks(
-            [
-                UrlBlock(
-                    type="url_read",
-                    url="https://example.com/report",
-                    title="来源",
-                    source_refs=historical_blocks[1].source_refs,
-                    source_count=1,
-                ),
-                UrlBlock(
-                    type="url_read",
-                    url="https://example.com/second",
-                    title="第二来源",
-                    source_refs=historical_blocks[2].source_refs,
-                    source_count=1,
-                ),
-            ]
-        )
-
-        self.assertEqual(execution.state.research_workset.valid_citation_indexes, {1, 2})
-        self.assertTrue(
-            validate_research_completion(
-                execution.state.research_workset,
-                "重新读取后可继续引用。[1][2]",
-            ).is_valid
-        )
-
     def _call_config(self):
         return SimpleNamespace(
             should_use_reasoning=False,
@@ -394,9 +223,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 network_boundary_required=False,
             ),
             plan_mode="off",
-            task_mode="standard",
-            network_profile="standard",
-            evidence_policy="standard",
         )
 
     def _expected_capability_resolution(self):
@@ -415,9 +241,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
             },
             "announced_tools": ["web_search"],
             "mcp_tool_bindings": [],
-            "task_mode": "standard",
-            "network_profile": "standard",
-            "evidence_policy": "standard",
         }
         bundle_fingerprint = (
             "sha256:"
@@ -455,29 +278,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(ValidationError):
             _run_config(self._limits(), call_config)
-
-    def test_run_config_rejects_deep_research_mcp_tool_before_bundle_fingerprint_persistence(self):
-        call_config = self._call_config()
-        call_config.capability_resolution = replace(
-            call_config.capability_resolution,
-            package_id="deep_research",
-            reason_codes=("deep_research_mode",),
-            external_tool_names=("web_search", "url_read", "mcp_docs_a1b2c3d4"),
-            effective_plan_mode="on",
-        )
-        call_config.announced_tools = ["web_search", "url_read", "mcp_docs_a1b2c3d4"]
-        call_config.plan_mode = "on"
-        call_config.task_mode = "deep_research"
-        call_config.network_profile = "deep_research"
-        call_config.evidence_policy = "deep_research_v1"
-
-        with (
-            patch("app.services.stream.agent_loop_lifecycle.hashlib.sha256", wraps=hashlib.sha256) as sha256,
-            self.assertRaises(ValidationError),
-        ):
-            _run_config(self._limits(), call_config)
-
-        sha256.assert_not_called()
 
     def test_bundle_fingerprint_covers_tool_bindings(self):
         base = self._call_config()
@@ -605,12 +405,7 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
         return AgentLoopLifecycleDependencies(**values)
 
     async def test_预读正文登记为本轮证据而续跑历史块不登记(self):
-        """预读成功的正文已注入 messages，与工具读页等价；续跑带回的块只有元数据。
-
-        与下方 configure_research_state 的 allow_read_success 口径一致：来源不同，入账不同。
-        """
-
-        from app.schemas.chat import UrlBlock
+        """预读成功的正文已注入 messages，与工具读页等价；续跑带回的块只有元数据。"""
 
         call_config = self._call_config()
         limits = self._limits()
@@ -716,9 +511,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 "max_tool_calls": 5,
                 "timeout_s": 30,
                 "plan_mode": "off",
-                "task_mode": "standard",
-                "network_profile": "standard",
-                "evidence_policy": "standard",
                 "use_reasoning": False,
                 "runtime_config_versions": {
                     "prompt_bundle/fusion": call_config.prompt_bundle_snapshot.effective_revision,
@@ -1532,9 +1324,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 "max_tool_calls": 5,
                 "timeout_s": 30,
                 "plan_mode": "off",
-                "task_mode": "standard",
-                "network_profile": "standard",
-                "evidence_policy": "standard",
                 "use_reasoning": False,
                 "runtime_config_versions": {
                     "prompt_bundle/fusion": self._call_config().prompt_bundle_snapshot.effective_revision,
@@ -1561,9 +1350,6 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 network_boundary_required=False,
             ),
             plan_mode="off",
-            task_mode="standard",
-            network_profile="standard",
-            evidence_policy="standard",
             tool_bindings=[
                 {
                     "alias": "mcp_docs_a1b2c3d4",

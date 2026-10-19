@@ -5,9 +5,6 @@ interface WireRunConfig {
   max_tool_calls?: unknown;
   timeout_s?: unknown;
   plan_mode?: unknown;
-  task_mode?: unknown;
-  network_profile?: unknown;
-  evidence_policy?: unknown;
   use_reasoning?: unknown;
 }
 
@@ -20,22 +17,12 @@ export function normalizeAgentRunConfig(config: WireRunConfig | null | undefined
   const planMode = source.plan_mode === 'on' || source.plan_mode === 'off'
     ? source.plan_mode
     : 'auto';
-  const taskMode = source.task_mode === 'deep_research' ? 'deep_research' : 'standard';
 
   return {
     maxSteps: nonNegativeNumber(source.max_steps),
     maxToolCalls: nonNegativeNumber(source.max_tool_calls),
     timeoutS: nonNegativeNumber(source.timeout_s),
     planMode,
-    taskMode,
-    networkProfile: source.network_profile === 'deep_research' || taskMode === 'deep_research'
-      ? 'deep_research'
-      : 'standard',
-    evidencePolicy: source.evidence_policy === 'knowledge_grounded_v1'
-      ? 'knowledge_grounded_v1'
-      : source.evidence_policy === 'deep_research_v1' || taskMode === 'deep_research'
-        ? 'deep_research_v1'
-        : 'standard',
     ...(typeof source.use_reasoning === 'boolean' ? { useReasoning: source.use_reasoning } : {}),
   };
 }

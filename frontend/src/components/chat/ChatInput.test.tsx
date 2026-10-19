@@ -660,7 +660,6 @@ describe('ChatInput', () => {
   it.each([
     ['auto', 'lucide-sparkles'],
     ['plan', 'lucide-list-checks'],
-    ['deep_research', 'lucide-search'],
   ] as const)('外层触发器在 %s 模式下显示对应图标', (mode, iconClass) => {
     configureAuthenticatedVisionModel();
     currentState.conversation.composerAgentModeByChat = { 'chat-a': mode };
@@ -672,7 +671,7 @@ describe('ChatInput', () => {
     expect(icon).toHaveClass(iconClass);
   });
 
-  it('执行模式菜单支持键盘打开与三态选择', async () => {
+  it('执行模式菜单支持键盘打开与选择', async () => {
     configureAuthenticatedVisionModel();
     render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
 
@@ -683,19 +682,19 @@ describe('ChatInput', () => {
 
     const menu = await screen.findByRole('menu');
     expect(menu).toHaveAttribute('aria-label', '选择执行模式');
-    const deepResearchItem = within(menu).getByRole('menuitemradio', { name: /深度研究/ });
-    expect(deepResearchItem).toHaveAttribute('aria-checked', 'false');
+    expect(within(menu).getAllByRole('menuitemradio')).toHaveLength(2);
+    const planItem = within(menu).getByRole('menuitemradio', { name: /规划执行/ });
+    expect(planItem).toHaveAttribute('aria-checked', 'false');
 
     await user.keyboard('{End}');
-    expect(deepResearchItem).toHaveFocus();
+    expect(planItem).toHaveFocus();
     await user.keyboard('{Enter}');
 
-    expect(setComposerAgentModeMock).toHaveBeenCalledWith({ chatId: 'chat-a', mode: 'deep_research' });
+    expect(setComposerAgentModeMock).toHaveBeenCalledWith({ chatId: 'chat-a', mode: 'plan' });
   });
 
-  it('恢复会话知识库选择后退出深度研究并随消息发送', async () => {
+  it('恢复会话知识库选择并随消息发送', async () => {
     configureAuthenticatedVisionModel();
-    currentState.conversation.composerAgentModeByChat = { 'chat-a': 'deep_research' };
     listKnowledgeBasesMock.mockResolvedValue({
       items: [{
         id: 'kb-1',
@@ -736,13 +735,6 @@ describe('ChatInput', () => {
     const toolbar = screen.getByRole('toolbar', { name: '消息工具栏' });
     expect(toolbar).not.toContainElement(chip);
     expect(toolbar).toContainElement(screen.getByTestId('knowledge-base-composer-trigger'));
-    await waitFor(() => {
-      expect(setComposerAgentModeMock).toHaveBeenCalledWith({ chatId: 'chat-a', mode: 'auto' });
-    });
-    expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
-      message: '已切换到自动模式：深度研究暂不检索知识库',
-      type: 'warning',
-    }));
 
     fireEvent.change(screen.getByPlaceholderText('发消息给 Fusion AI（Enter 发送）'), {
       target: { value: '安装步骤是什么？' },
@@ -1082,7 +1074,7 @@ describe('ChatInput', () => {
       id: 'model-1',
       provider: 'qwen',
       capabilities: {
-        functionCalling: true,
+        functionCalling: false,
         searchCapable: false,
         agentTools: false,
       },
@@ -1095,15 +1087,14 @@ describe('ChatInput', () => {
       pointerType: 'mouse',
     });
 
-    expect(await screen.findByRole('menuitemradio', { name: /规划执行/ })).toBeEnabled();
-    const deepResearchItem = screen.getByRole('menuitemradio', { name: /深度研究/ });
-    expect(deepResearchItem).toHaveAttribute('data-disabled');
-    expect(deepResearchItem).toHaveTextContent('深度研究需要支持联网工具');
+    const planItem = await screen.findByRole('menuitemradio', { name: /规划执行/ });
+    expect(planItem).toHaveAttribute('data-disabled');
+    expect(planItem).toHaveTextContent('当前模型不支持工具调用');
   });
 
   it('模型切换导致能力降级时回退自动模式并通过 toast 轻提示', async () => {
     configureAuthenticatedVisionModel();
-    currentState.conversation.composerAgentModeByChat = { 'chat-a': 'deep_research' };
+    currentState.conversation.composerAgentModeByChat = { 'chat-a': 'plan' };
 
     const { rerender } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
     setComposerAgentModeMock.mockClear();
@@ -1114,7 +1105,7 @@ describe('ChatInput', () => {
       capabilities: {
         vision: true,
         deepThinking: true,
-        functionCalling: true,
+        functionCalling: false,
         searchCapable: false,
         agentTools: false,
       },
@@ -1124,7 +1115,7 @@ describe('ChatInput', () => {
     await waitFor(() => {
       expect(setComposerAgentModeMock).toHaveBeenCalledWith({ chatId: 'chat-a', mode: 'auto' });
       expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
-        message: '已切换到自动模式：深度研究需要支持联网工具',
+        message: '已切换到自动模式：当前模型不支持工具调用',
         type: 'warning',
       }));
     });
@@ -1133,17 +1124,17 @@ describe('ChatInput', () => {
 
   it('执行模式按对话显示：切换对话恢复各自模式，新对话为自动', () => {
     configureAuthenticatedVisionModel();
-    currentState.conversation.composerAgentModeByChat = { 'chat-a': 'deep_research' };
+    currentState.conversation.composerAgentModeByChat = { 'chat-a': 'plan' };
     currentState.conversation.byId['chat-1'].messages = [{
       id: 'assistant-1',
       role: 'assistant',
       content: [],
       timestamp: 1,
-      agent_run: { config: { taskMode: 'standard', planMode: 'on' } },
+      agent_run: { config: { planMode: 'on' } },
     }] as never;
 
     const { rerender } = render(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-a" />);
-    expect(screen.getByRole('button', { name: '执行模式：深度研究' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '执行模式：规划执行' })).toBeInTheDocument();
 
     rerender(<ChatInput onSendMessage={vi.fn()} activeChatId="chat-1" />);
     expect(screen.getByRole('button', { name: '执行模式：规划执行' })).toBeInTheDocument();
@@ -1151,39 +1142,6 @@ describe('ChatInput', () => {
     rerender(<ChatInput onSendMessage={vi.fn()} activeChatId={null} />);
     expect(screen.getByRole('button', { name: '执行模式：自动' })).toBeInTheDocument();
     expect(setComposerAgentModeMock).not.toHaveBeenCalled();
-  });
-
-  it('深度研究运行中的停止按钮使用研究语义', () => {
-    configureAuthenticatedVisionModel();
-    currentState.streamSlot.isStreaming = true;
-    // 停止语义按会话判定，夹具必须表达"正在生成的是当前会话"（issue #74）
-    currentState.streamSlot.conversationId = 'chat-a';
-    currentState.streamSlot.currentRun = {
-      runId: 'run-deep',
-      messageId: 'assistant-1',
-      status: 'running',
-      config: {
-        maxSteps: 8,
-        maxToolCalls: 20,
-        timeoutS: 300,
-        taskMode: 'deep_research',
-      },
-      totalSteps: 0,
-      totalToolCalls: 0,
-      steps: [],
-      lastSequence: 1,
-    };
-
-    render(
-      <ChatInput
-        onSendMessage={vi.fn()}
-        onStopStreaming={vi.fn()}
-        activeChatId="chat-a"
-      />,
-    );
-
-    expect(screen.getByRole('button', { name: '停止研究' })).toHaveAttribute('title', '停止研究');
-    expect(screen.queryByRole('button', { name: '停止生成' })).toBeNull();
   });
 
   it('只在当前会话的权威模型计划运行期间把计划固定到输入框上方', () => {

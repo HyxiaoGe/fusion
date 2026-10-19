@@ -307,59 +307,6 @@ describe('AssistantResponseStack', () => {
     expect(screen.getByTestId('stack-reasoning')).toHaveTextContent('已核对所需资料');
   });
 
-  it('已结束的深度研究展示后端持久化思考', () => {
-    render(
-      <AssistantResponseStack
-        reasoning={{
-          shouldRender: true,
-          content: '深度研究内部搜索参数',
-          isVisible: true,
-          isStreaming: false,
-          onToggle: vi.fn(),
-        }}
-        activity={activity({ kind: 'completed' })}
-        agentRun={{
-          ...agentRun,
-          status: 'completed',
-          config: { ...agentRun.config, taskMode: 'deep_research' },
-        }}
-        answerEvidence={null}
-        onSourceClick={vi.fn()}
-        onOpenSources={vi.fn()}
-        markdown={{ content: '研究结论', sources: [] }}
-        showStreamingCursor={false}
-      />,
-    );
-
-    expect(screen.getByTestId('stack-reasoning')).toHaveTextContent('深度研究内部搜索参数');
-  });
-
-  it('深度研究在计划尚未生成时展示流式净化思考', () => {
-    render(
-      <AssistantResponseStack
-        reasoning={{
-          shouldRender: true,
-          content: '正在确认搜索范围',
-          isVisible: true,
-          isStreaming: true,
-          onToggle: vi.fn(),
-        }}
-        activity={activity()}
-        agentRun={{
-          ...agentRun,
-          config: { ...agentRun.config, taskMode: 'deep_research' },
-        }}
-        answerEvidence={null}
-        onSourceClick={vi.fn()}
-        onOpenSources={vi.fn()}
-        markdown={{ content: '', sources: [] }}
-        showStreamingCursor={false}
-      />,
-    );
-
-    expect(screen.getByTestId('stack-reasoning')).toHaveTextContent('正在确认搜索范围');
-  });
-
   it('强制计划模式在首个计划快照到达前展示流式净化思考', () => {
     render(
       <AssistantResponseStack

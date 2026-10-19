@@ -91,22 +91,6 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(state.unknown_terminated)
                 self.assertEqual(state.content_blocks[-1].text, answer)
 
-    async def test_web_recovery_cannot_bypass_deep_research_completion_contract(self):
-        state = AgentLoopState()
-        state.record_tool_outcome("url_read", "degraded")
-        self.record_search(state)
-        state.configure_research_mode(network_required=True)
-        request = self.request(state)
-        request = replace(
-            request,
-            runtime=replace(request.runtime, task_mode="deep_research", evidence_policy="deep_research_v1"),
-            round_result=replace(request.round_result, content_buf="香港未来三天有骤雨。"),
-        )
-        with patch("app.services.stream_state_service.append_chunk", AsyncMock()):
-            self.assertIsNone(await handle_agent_round_outcome(request=request))
-        self.assertEqual(state.research_repair_attempts, 1)
-        self.assertFalse(any(block.type == "text" for block in state.content_blocks))
-
     async def test_user_input_repair_adds_no_recovery_prompt(self):
         state = AgentLoopState()
         state.record_tool_outcome("weather_forecast", "failed")
@@ -201,7 +185,7 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
 
 
 class MissingProductToolTests(unittest.IsolatedAsyncioTestCase):
-    def request(self, state, *, task_mode="standard"):
+    def request(self, state):
         return AgentRoundOutcomeRequest(
             db=None,
             messages=[{"role": "user", "content": "西安回民街附近有啥好吃的"}],
@@ -209,7 +193,6 @@ class MissingProductToolTests(unittest.IsolatedAsyncioTestCase):
             runtime=_runtime(
                 emitter=AsyncMock(),
                 complete_step_fn=AsyncMock(),
-                task_mode=task_mode,
                 capability_resolution=SimpleNamespace(
                     external_tool_names=("local_place_search", "web_search", "url_read")
                 ),
@@ -228,10 +211,8 @@ class MissingProductToolTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_stop_without_product_tool_is_delivered_without_repair_round(self):
-        for task_mode in ("standard", "deep_research"):
-            with self.subTest(task_mode=task_mode):
-                request = self.request(AgentLoopState(), task_mode=task_mode)
-                with patch("app.services.stream_state_service.append_chunk", AsyncMock()) as append:
-                    await handle_agent_round_outcome(request=request)
-                self.assertIn("回民街推荐老孙家泡馍。", str(append.await_args_list))
-                self.assertEqual(request.messages[-1]["role"], "user")
+        request = self.request(AgentLoopState())
+        with patch("app.services.stream_state_service.append_chunk", AsyncMock()) as append:
+            await handle_agent_round_outcome(request=request)
+        self.assertIn("回民街推荐老孙家泡馍。", str(append.await_args_list))
+        self.assertEqual(request.messages[-1]["role"], "user")

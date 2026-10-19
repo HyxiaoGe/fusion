@@ -5,7 +5,6 @@ from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
-from app.ai.prompts.section_ids import RESEARCH_COMPLETION_REPAIR
 from app.schemas.chat import (
     PlaceResult,
     PlaceResultsBlock,
@@ -110,77 +109,6 @@ def _step_context(step_id="step-outcome"):
 
 
 class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
-    async def test_plan_only_research_round_requires_actual_evidence_attempt_before_more_plan_updates(self):
-        """畸形计划、未公告调用和预算拒绝不能伪装成已执行取证。"""
-        for extra_call in (None, "url_read", "unannounced_tool"):
-            with self.subTest(extra_call=extra_call):
-                state = AgentLoopState()
-                calls = [{"id": "plan", "name": "update_plan", "arguments": '{"plan":[]}'}]
-                if extra_call:
-                    calls.append({"id": "external", "name": extra_call, "arguments": "{}"})
-                handler = AsyncMock(return_value=ToolRoundOutcome(tool_call_count=0, tool_names=[]))
-                runtime = _runtime(task_mode="deep_research", emitter=AsyncMock(), handle_tool_calls_round_fn=handler)
-                request = AgentRoundOutcomeRequest(
-                    db="db",
-                    messages=[],
-                    state=state,
-                    runtime=runtime,
-                    step_number=1,
-                    step_context=_step_context(),
-                    round_result=AgentRoundResult(
-                        reasoning_buf="",
-                        content_buf="",
-                        tool_calls=calls,
-                        finish_reason="tool_calls",
-                        accumulated_usage=Usage(input_tokens=1, output_tokens=1),
-                        output_deferred=True,
-                    ),
-                )
-                await handle_agent_round_outcome(request=request)
-                self.assertTrue(state.research_plan_update_requires_evidence)
-                handler.return_value = ToolRoundOutcome(tool_call_count=0, tool_names=[])
-                await handle_agent_round_outcome(
-                    request=replace(
-                        request,
-                        round_result=replace(
-                            request.round_result,
-                            tool_calls=[{"id": "blocked", "name": "url_read", "arguments": "{}"}],
-                        ),
-                    )
-                )
-                self.assertTrue(state.research_plan_update_requires_evidence)
-                # 实际执行的失败尝试也让模型有机会调整计划；无需等到取证成功。
-                handler.return_value = ToolRoundOutcome(tool_call_count=1, tool_names=["url_read"])
-                await handle_agent_round_outcome(request=request)
-                self.assertFalse(state.research_plan_update_requires_evidence)
-
-    async def test_standard_plan_only_round_does_not_enable_research_guard(self):
-        state = AgentLoopState()
-        await handle_agent_round_outcome(
-            request=AgentRoundOutcomeRequest(
-                db="db",
-                messages=[],
-                state=state,
-                runtime=_runtime(
-                    emitter=AsyncMock(),
-                    handle_tool_calls_round_fn=AsyncMock(
-                        return_value=ToolRoundOutcome(tool_call_count=0, tool_names=[])
-                    ),
-                ),
-                step_number=1,
-                step_context=_step_context(),
-                round_result=AgentRoundResult(
-                    reasoning_buf="",
-                    content_buf="",
-                    tool_calls=[{"id": "plan", "name": "update_plan", "arguments": "{}"}],
-                    finish_reason="tool_calls",
-                    accumulated_usage=Usage(input_tokens=1, output_tokens=1),
-                    output_deferred=True,
-                ),
-            )
-        )
-        self.assertFalse(state.research_plan_update_requires_evidence)
-
     @staticmethod
     def _deferred_lifecycle_request(lifecycle) -> AgentRoundOutcomeRequest:
         return AgentRoundOutcomeRequest(
@@ -272,114 +200,12 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
                 finish_success.assert_awaited_once_with(output_visible=False)
                 warning.assert_not_called()
 
-    async def test_deep_synthesis_unannounced_tool_protocol_goes_directly_to_safe_summary(self):
-        state = AgentLoopState(plan_coordinator=PlanCoordinator(run_id="run-synthesis", mode="on"))
-        state.configure_research_mode(network_required=True)
-        state.research_workset.successful_searches = 1
-        state.research_workset.successful_read_urls = {
-            "https://example.com/a",
-            "https://example.com/b",
-        }
-        state.plan_coordinator.source = "model"
-        state.plan_coordinator.revision = 1
-        state.plan_coordinator.items = [
-            {
-                "id": "answer",
-                "title": "综合回答",
-                "status": "running",
-                "kind": "answer",
-                "depends_on": [],
-                "planned_tools": [],
-            }
-        ]
-        state.mark_current_step("step-synthesis")
-        complete_step = AsyncMock()
-        warnings = []
-
-        outcome = await handle_agent_round_outcome(
-            request=AgentRoundOutcomeRequest(
-                db="db",
-                messages=[{"role": "user", "content": "深度调研"}],
-                state=state,
-                runtime=_runtime(
-                    complete_step_fn=complete_step,
-                    task_mode="deep_research",
-                    evidence_policy="deep_research_v1",
-                    plan_mode="on",
-                    warning_fn=warnings.append,
-                ),
-                step_number=4,
-                step_context=_step_context("step-synthesis"),
-                round_result=AgentRoundResult(
-                    reasoning_buf="",
-                    content_buf="",
-                    tool_calls=[
-                        {
-                            "id": "dsml-step-synthesis-1",
-                            "name": "update_plan",
-                            "arguments": "{}",
-                        }
-                    ],
-                    finish_reason="tool_calls",
-                    accumulated_usage=Usage(input_tokens=2, output_tokens=3),
-                    announced_tool_names=frozenset(),
-                    output_deferred=True,
-                ),
-            )
-        )
-
-        self.assertEqual(outcome.exit, AgentLoopExit.SUMMARY_REQUIRED)
-        self.assertEqual(outcome.summary_finish_reason, "research_evidence_repair_exhausted")
-        self.assertEqual(state.total_tool_calls, 0)
-        self.assertIsNone(state.current_step_id)
-        complete_step.assert_awaited_once()
-        self.assertTrue(any("未公告工具协议" in warning for warning in warnings))
-
-    async def test_deep_research_with_files_still_requires_network_evidence(self):
-        state = AgentLoopState(plan_coordinator=PlanCoordinator(run_id="run-file", mode="on"))
-        state.configure_research_mode(network_required=True)
-        state.plan_coordinator.source = "model"
-        state.plan_coordinator.revision = 1
-        state.plan_coordinator.items = [{"id": "file", "status": "running"}]
-        state.mark_current_step("step-file")
-        messages = [{"role": "user", "content": "总结附件"}]
-
-        outcome = await handle_agent_round_outcome(
-            request=AgentRoundOutcomeRequest(
-                db="db",
-                messages=messages,
-                state=state,
-                runtime=_runtime(
-                    complete_step_fn=AsyncMock(),
-                    task_mode="deep_research",
-                    evidence_policy="deep_research_v1",
-                    plan_mode="on",
-                ),
-                step_number=1,
-                step_context=_step_context("step-file"),
-                round_result=AgentRoundResult(
-                    reasoning_buf="",
-                    content_buf="附件的核心结论如下。",
-                    tool_calls=[],
-                    finish_reason="stop",
-                    accumulated_usage=Usage(input_tokens=2, output_tokens=3),
-                    output_deferred=True,
-                ),
-            )
-        )
-
-        self.assertIsNone(outcome)
-        self.assertEqual(state.content_blocks, [])
-        self.assertIn("Complete at least one valid search", messages[-1]["content"])
-        self.assertEqual(messages[-1].section_id, RESEARCH_COMPLETION_REPAIR)
-
     async def test_plan_gate_does_not_discard_answering_block_that_was_never_streamed(self):
         emitter = AsyncMock()
         handle_tool_calls = AsyncMock(
             return_value=ToolRoundOutcome(
                 tool_call_count=0,
                 tool_names=[],
-                rich_result_count=0,
             )
         )
         state = AgentLoopState(plan_coordinator=PlanCoordinator(run_id="run-plan", mode="on"))
@@ -419,7 +245,6 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
     async def test_product_tool_round_returns_to_driver_for_next_model_decision(self):
         state = AgentLoopState()
         state.mark_current_step("step-product-tool")
-        state.consecutive_no_progress_search_results = 1
         tool_call = {"id": "tc-place", "name": "local_place_search", "arguments": '{"query":"咖啡"}'}
 
         async def handle_tool_calls_round_fn(**kwargs):
@@ -429,8 +254,6 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
             return ToolRoundOutcome(
                 tool_call_count=1,
                 tool_names=["local_place_search"],
-                no_progress_search_results=(True,),
-                rich_result_count=1,
             )
 
         outcome = await handle_agent_round_outcome(
@@ -455,7 +278,6 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(outcome)
         self.assertEqual(state.total_tool_calls, 1)
-        self.assertEqual(state.consecutive_no_progress_search_results, 2)
         self.assertIsNone(state.current_step_id)
 
     async def test_required_user_input_returns_to_model_round(self):
@@ -470,7 +292,6 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
             return ToolRoundOutcome(
                 tool_call_count=1,
                 tool_names=["weather_forecast"],
-                rich_result_count=0,
             )
 
         outcome = await handle_agent_round_outcome(

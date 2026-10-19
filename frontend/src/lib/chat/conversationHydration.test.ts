@@ -895,9 +895,6 @@ describe('conversationHydration', () => {
               max_tool_calls: 5,
               timeout_s: 60,
               plan_mode: 'on',
-              task_mode: 'deep_research',
-              network_profile: 'deep_research',
-              evidence_policy: 'deep_research_v1',
             },
             total_steps: 3,
             total_tool_calls: 5,
@@ -917,9 +914,6 @@ describe('conversationHydration', () => {
         maxToolCalls: 5,
         timeoutS: 60,
         planMode: 'on',
-        taskMode: 'deep_research',
-        networkProfile: 'deep_research',
-        evidencePolicy: 'deep_research_v1',
       },
       totalSteps: 3,
       totalToolCalls: 5,
@@ -1069,39 +1063,6 @@ describe('conversationHydration', () => {
           usedByFinalAnswer: true,
         },
       ],
-    });
-  });
-
-  it('强刷后保留严格知识库 run 的 knowledge_grounded_v1 evidence policy', () => {
-    const chat = buildChatFromServerConversation({
-      id: 'chat-knowledge-run',
-      title: 'Knowledge run',
-      model_id: 'model-1',
-      knowledge_base_ids: ['kb-1'],
-      messages: [{
-        id: 'assistant-knowledge',
-        role: 'assistant',
-        content: [{ type: 'text', id: 'answer', text: '知识库回答' }],
-        agent_run: {
-          run_id: 'run-knowledge',
-          status: 'completed',
-          config: {
-            max_steps: 1,
-            max_tool_calls: 1,
-            timeout_s: 30,
-            plan_mode: 'auto',
-            task_mode: 'standard',
-            network_profile: 'standard',
-            evidence_policy: 'knowledge_grounded_v1',
-          },
-        },
-      }],
-    });
-
-    expect(chat.messages[0].agent_run?.config).toMatchObject({
-      taskMode: 'standard',
-      networkProfile: 'standard',
-      evidencePolicy: 'knowledge_grounded_v1',
     });
   });
 

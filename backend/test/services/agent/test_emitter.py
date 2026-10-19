@@ -105,13 +105,6 @@ class EmitterEnvelopeTests(unittest.IsolatedAsyncioTestCase):
                 "reason_codes": ["tools_disabled"],
                 "external_tool_names": ["web_search"],
             },
-            {
-                **CAPABILITY_RESOLUTION,
-                "package_id": "deep_research",
-                "reason_codes": ["deep_research_mode"],
-                "external_tool_names": ["web_search", "mcp_docs_a1b2c3d4"],
-                "effective_plan_mode": "on",
-            },
         )
 
         for invalid_resolution in invalid_resolutions:

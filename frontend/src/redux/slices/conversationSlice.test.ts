@@ -51,10 +51,10 @@ function textMessage(id: string): Message {
 
 describe('conversationSlice', () => {
   it('执行模式按对话记录，会话状态重置后保留各对话的选择', () => {
-    const enabled = reducer(undefined, setComposerAgentMode({ chatId: 'conv-a', mode: 'deep_research' }));
+    const enabled = reducer(undefined, setComposerAgentMode({ chatId: 'conv-a', mode: 'plan' }));
     const reset = reducer(enabled, resetConversationState());
 
-    expect(selectComposerAgentMode({ conversation: reset }, 'conv-a')).toBe('deep_research');
+    expect(selectComposerAgentMode({ conversation: reset }, 'conv-a')).toBe('plan');
     expect(selectComposerAgentMode({ conversation: reset }, 'conv-b')).toBe('auto');
     expect(selectComposerAgentMode({ conversation: reset }, null)).toBe('auto');
   });
@@ -95,14 +95,14 @@ describe('conversationSlice', () => {
   });
 
   it('未手动选择的对话按最近一次运行配置还原模式', () => {
-    const run = (taskMode: string, planMode: string) => ({ config: { taskMode, planMode } }) as any;
+    const run = (planMode: string) => ({ config: { planMode } }) as any;
     const state = reducer(undefined, upsertConversation({
       id: 'conv-a',
       title: 'A',
       model_id: 'model-1',
       messages: [
-        { id: 'a1', role: 'assistant', content: [], timestamp: 1, agent_run: run('deep_research', 'on') },
-        { id: 'a2', role: 'assistant', content: [], timestamp: 2, agent_run: run('standard', 'on') },
+        { id: 'a1', role: 'assistant', content: [], timestamp: 1, agent_run: run('auto') },
+        { id: 'a2', role: 'assistant', content: [], timestamp: 2, agent_run: run('on') },
       ],
       createdAt: 1,
       updatedAt: 1,

@@ -23,7 +23,6 @@ CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER = (
     "present_itinerary",
 )
 
-DEEP_RESEARCH_TOOL_NAMES = ("web_search", "url_read")
 
 _MCP_TOOL_ALIAS_RE = re.compile(r"mcp_[A-Za-z0-9_-]+")
 

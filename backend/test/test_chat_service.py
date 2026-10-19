@@ -187,35 +187,6 @@ class ChatServiceTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 404)
         init_stream_mock.assert_not_awaited()
 
-    def test_deep_research_capability_gate_runs_before_conversation_or_message_persistence(self):
-        service = ChatService(MagicMock())
-        service._get_or_create_conversation = MagicMock()
-        service.conversation_service = MagicMock()
-
-        with (
-            patch(
-                "app.services.chat_service.llm_manager.resolve_model",
-                return_value=("openai/qwen-vl-max", "qwen", {}),
-            ),
-            patch(
-                "app.services.chat_service.litellm_catalog.get_capabilities",
-                return_value={"functionCalling": True, "searchCapable": False},
-            ),
-            self.assertRaises(ApiException) as raised,
-        ):
-            asyncio.run(
-                service.process_message(
-                    model_id="qwen-vl-max",
-                    message="调研最新模型",
-                    user_id="user-1",
-                    options={"task_mode": "deep_research"},
-                )
-            )
-
-        self.assertEqual(raised.exception.code, "MODEL_UNAVAILABLE")
-        service._get_or_create_conversation.assert_not_called()
-        service.conversation_service.create_message.assert_not_called()
-
     def test_existing_conversation_ignores_client_model_override_and_hidden_model_remains_routable(self):
         service = ChatService(MagicMock())
         service.conversation_service = MagicMock()
@@ -234,9 +205,9 @@ class ChatServiceTests(unittest.TestCase):
             ) as resolve_model,
             patch(
                 "app.services.chat_service.litellm_catalog.get_capabilities",
-                return_value={"functionCalling": True, "searchCapable": True},
+                side_effect=RuntimeError("stop after resolve"),
             ),
-            self.assertRaises(ApiException) as raised,
+            self.assertRaises(RuntimeError),
         ):
             asyncio.run(
                 service.process_message(
@@ -245,56 +216,12 @@ class ChatServiceTests(unittest.TestCase):
                     user_id="user-1",
                     conversation_id="conv-1",
                     stream=False,
-                    options={"task_mode": "deep_research"},
                 )
             )
 
-        self.assertEqual(raised.exception.status_code, 400)
         resolve_model.assert_called_once_with("saved/model")
         service.model_control_repository.get.assert_called_once_with("saved/model")
         service._get_or_create_conversation.assert_not_called()
-
-    def test_knowledge_mode_rejects_final_deep_research_policy_before_writes(self):
-        service = ChatService(MagicMock())
-        service.conversation_service = MagicMock()
-        service.conversation_service.get_conversation.return_value = SimpleNamespace(
-            id="conv-knowledge",
-            model_id="saved/model",
-            messages=[SimpleNamespace(role="user")],
-            knowledge_base_ids=["kb-1"],
-        )
-        service.model_control_repository = MagicMock()
-        service.model_control_repository.get.return_value = None
-        final_policy = SimpleNamespace(
-            task_mode="deep_research",
-            apply_to_options=lambda options: {**options, "task_mode": "deep_research"},
-        )
-
-        with (
-            patch(
-                "app.services.chat_service.llm_manager.resolve_model",
-                return_value=("openai/saved-model", "openai", {}),
-            ),
-            patch(
-                "app.services.chat_service.litellm_catalog.get_capabilities",
-                return_value={"functionCalling": True, "searchCapable": True},
-            ),
-            patch("app.services.chat_service.resolve_agent_task_policy", return_value=final_policy),
-            self.assertRaises(ApiException) as raised,
-        ):
-            asyncio.run(
-                service.process_message(
-                    model_id="saved/model",
-                    message="研究一下",
-                    user_id="user-1",
-                    conversation_id="conv-knowledge",
-                    options={"legacy_mode": "research"},
-                )
-            )
-
-        self.assertEqual(raised.exception.status_code, 400)
-        self.assertEqual(raised.exception.message, "深度研究模式暂不检索知识库，请取消选择知识库后再试")
-        service.conversation_service.create_message.assert_not_called()
 
     def test_knowledge_base_rejects_model_without_tool_calling_before_writes(self):
         service = ChatService(MagicMock())
@@ -384,9 +311,9 @@ class ChatServiceTests(unittest.TestCase):
             ),
             patch(
                 "app.services.chat_service.litellm_catalog.get_capabilities",
-                return_value={"functionCalling": True, "searchCapable": True},
+                side_effect=RuntimeError("stop after resolve"),
             ),
-            self.assertRaises(ApiException) as raised,
+            self.assertRaises(RuntimeError),
         ):
             asyncio.run(
                 service.process_message(
@@ -394,12 +321,9 @@ class ChatServiceTests(unittest.TestCase):
                     message="继续服务",
                     user_id="user-1",
                     stream=False,
-                    options={"task_mode": "deep_research"},
                 )
             )
 
-        self.assertEqual(raised.exception.status_code, 400)
-        self.assertNotEqual(raised.exception.code, "MODEL_UNAVAILABLE")
         service._get_or_create_conversation.assert_not_called()
 
     def test_empty_upload_placeholder_still_rejects_hidden_model_for_first_message(self):
@@ -522,7 +446,7 @@ class ChatServiceTests(unittest.TestCase):
             ({}, "auto"),
             ({"plan_mode": "auto"}, "auto"),
             ({"plan_mode": "on"}, "plan"),
-            ({"task_mode": "deep_research", "plan_mode": "auto"}, "deep_research"),
+            ({"task_mode": "deep_research", "plan_mode": "auto"}, "auto"),
         )
         for options, mode in cases:
             with self.subTest(options=options):

@@ -26,7 +26,6 @@ _DOMAIN_RE = re.compile(r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\
 class NetworkToolBudget:
     """限制一次 assistant run 内的联网工具调用次数。"""
 
-    profile: str = "standard"
     web_search_calls: int = 0
     url_read_calls: int = 0
     web_search_queries: list[str] = field(default_factory=list)

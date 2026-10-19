@@ -192,10 +192,7 @@ class ChatContinueTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             service.stream_handler.generate_to_redis.call_args.kwargs["options"],
             {
-                "task_mode": "standard",
                 "plan_mode": "on",
-                "network_profile": "standard",
-                "evidence_policy": "standard",
                 "use_reasoning": False,
             },
         )
@@ -221,7 +218,7 @@ class ChatContinueTests(unittest.IsolatedAsyncioTestCase):
             previous_session=SimpleNamespace(id="run-old"),
             initial_content_blocks=[],
             task_policy=SimpleNamespace(
-                apply_to_options=lambda: {"task_mode": "deep_research", "plan_mode": "on"},
+                apply_to_options=lambda: {"plan_mode": "on"},
             ),
             plan_mode="on",
         )
@@ -243,7 +240,7 @@ class ChatContinueTests(unittest.IsolatedAsyncioTestCase):
             )
 
         pick.assert_called_once_with(
-            service.model_control_repository, require_vision=False, mode="deep_research", allowed_model_ids=None
+            service.model_control_repository, require_vision=False, mode="plan", allowed_model_ids=None
         )
         resolve_model.assert_called_once_with("mimo-v2.6-pro")
 

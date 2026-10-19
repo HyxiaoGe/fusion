@@ -3,7 +3,6 @@ from dataclasses import FrozenInstanceError
 from unittest.mock import patch
 
 from app.schemas.chat import TextBlock
-from app.services.mcp.amap_product_tools import AMAP_PRODUCT_DEFINITIONS
 from app.services.stream.agent_loop_request_prep import (
     UserPromptContext,
     _run_prompt_sections,
@@ -134,18 +133,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                     "current_date",
                 ],
             ),
-            (
-                "深入研究 2026 年 AI Agent 浏览器安全现状",
-                {"task_mode": "deep_research"},
-                [
-                    "app_identity",
-                    "tool_failure_policy",
-                    "tool_usage_contract",
-                    "agent_plan_control",
-                    "deep_research_contract",
-                    "current_date",
-                ],
-            ),
         ]:
             with self.subTest(message=message, options=options):
                 config = build_agent_loop_call_config(
@@ -238,23 +225,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                 )
             timer.assert_not_called()
 
-    def test_deep_research_only_announces_stage_executable_tools(self):
-        handlers = {tool["function"]["name"]: object() for tool in AMAP_PRODUCT_DEFINITIONS}
-        config = build_agent_loop_call_config(
-            provider="openai",
-            options={"task_mode": "deep_research"},
-            capabilities={
-                "functionCalling": True,
-                "searchCapable": True,
-                "agentTools": True,
-            },
-            additional_tools=AMAP_PRODUCT_DEFINITIONS,
-            dynamic_tool_handlers=handlers,
-        )
-
-        self.assertEqual(config.announced_tools, ["web_search", "url_read"])
-        self.assertNotIn("route_compare", config.announced_tools)
-
     def test_plan_mode_defaults_off_without_plan_control_tool(self):
         for options in ({}, {"plan_mode": "auto"}):
             with self.subTest(options=options):
@@ -273,42 +243,6 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                     tool for tool in config.call_kwargs["tools"] if tool["function"]["name"] == "web_search"
                 )
                 self.assertNotIn("_plan_item_id", web_tool["function"]["parameters"]["properties"])
-
-    def test_deep_research_forces_plan_mode_and_records_task_policy(self):
-        config = build_agent_loop_call_config(
-            provider="openai",
-            options={"task_mode": "deep_research", "plan_mode": "off"},
-            capabilities={"functionCalling": True, "searchCapable": True},
-        )
-
-        self.assertEqual(config.task_mode, "deep_research")
-        self.assertEqual(config.plan_mode, "on")
-        self.assertEqual(config.network_profile, "deep_research")
-        self.assertEqual(config.evidence_policy, "deep_research_v1")
-        tools = {tool["function"]["name"]: tool for tool in config.call_kwargs["tools"]}
-        self.assertIn("url_read", tools)
-        self.assertNotIn("_plan_item_id", tools["url_read"]["function"]["parameters"]["properties"])
-        self.assertEqual(config.announced_tools, ["web_search", "url_read"])
-
-    def test_deep_research_contract_is_only_injected_for_research_mode(self):
-        research = build_agent_loop_call_config(
-            provider="openai",
-            options={"task_mode": "deep_research"},
-            capabilities={"functionCalling": True, "searchCapable": True},
-        )
-        standard = build_agent_loop_call_config(
-            provider="openai",
-            options={},
-            capabilities={"functionCalling": True, "searchCapable": True},
-        )
-
-        research_contract = _prompt_sections(research)["deep_research_contract"]
-
-        self.assertIn("[Deep-research execution contract]", research_contract)
-        self.assertIn("complementary queries", research_contract)
-        self.assertIn("Use [n] citations in the answer body", research_contract)
-        self.assertNotIn("planned_tools", research_contract)
-        self.assertNotIn("deep_research_contract", _prompt_sections(standard))
 
     def test_plan_mode_off_preserves_old_tools_without_control_tool(self):
         config = build_agent_loop_call_config(

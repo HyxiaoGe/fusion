@@ -877,7 +877,6 @@ class KnowledgeSearchToolTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIs(config.dynamic_tool_handlers["knowledge_search"], handler)
         self.assertEqual(config.plan_mode, "on")
-        self.assertEqual(config.evidence_policy, "standard")
 
     def test_knowledge_tool_announces_each_selected_base_with_its_description(self):
         description = build_knowledge_search_tool(

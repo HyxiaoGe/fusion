@@ -128,25 +128,19 @@ class SkillCallConfigTests(_SkillRootTestCase):
         self.assertEqual(config.unplanned_tool_names, frozenset({LOAD_SKILL_TOOL_NAME}))
         self.assertEqual(set(config.skill_session.entries), {"web-research", "comparison-advice"})
 
-    def test_no_skills_when_tools_disabled_or_deep_research(self):
-        disabled = build_agent_loop_call_config(
+    def test_no_skills_when_tools_disabled(self):
+        config = build_agent_loop_call_config(
             provider="openai",
             options={"disable_tools": True},
             capabilities=CAPABILITIES,
         )
-        research = build_agent_loop_call_config(
-            provider="openai",
-            options={"task_mode": "deep_research"},
-            capabilities=CAPABILITIES,
-        )
 
-        for config in (disabled, research):
-            self.assertIsNone(config.skill_session)
-            self.assertNotIn(LOAD_SKILL_TOOL_NAME, config.dynamic_tool_handlers)
-            self.assertNotIn(
-                LOAD_SKILL_TOOL_NAME,
-                [tool["function"]["name"] for tool in config.call_kwargs.get("tools", [])],
-            )
+        self.assertIsNone(config.skill_session)
+        self.assertNotIn(LOAD_SKILL_TOOL_NAME, config.dynamic_tool_handlers)
+        self.assertNotIn(
+            LOAD_SKILL_TOOL_NAME,
+            [tool["function"]["name"] for tool in config.call_kwargs.get("tools", [])],
+        )
 
     def test_product_tools_and_skills_are_announced_together(self):
         tools = [*AMAP_PRODUCT_DEFINITIONS, *FLYAI_TRAVEL_DEFINITIONS]
@@ -164,14 +158,14 @@ class SkillCallConfigTests(_SkillRootTestCase):
         self.assertIn("comparison-advice", config.skill_session.entries)
         self.assertIn(LOAD_SKILL_TOOL_NAME, _tool_names(config.call_kwargs))
 
-    def test_final_synthesis_drops_skills_catalog(self):
+    def test_final_summary_drops_skills_catalog(self):
         session = build_skill_session(["web_search"])
         messages = [
             {"role": "system", "content": session.catalog_prompt(), "section_id": SKILLS_CATALOG},
             {"role": "user", "content": "总结一下"},
         ]
         prompt_messages = [PromptMessage(**message) for message in messages]
-        remove_conflicting_tool_usage_contract(prompt_messages, final_synthesis=True)
+        remove_conflicting_tool_usage_contract(prompt_messages)
 
         self.assertEqual([message.role for message in prompt_messages], ["user"])
 

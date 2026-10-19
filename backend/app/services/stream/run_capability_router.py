@@ -1,8 +1,7 @@
 """在首个 LLM Round 前确定 Run 的工具边界。
 
 不再调用分类模型，也不按预判收走工具：普通 Run 公告本次可用的全部工具，由回答模型
-自行选择。这里只处理真实边界——用户选择的模式（深度研究）与运行环境
-（工具被关闭、模型不支持工具调用）。
+自行选择。这里只处理运行环境的真实边界（工具被关闭、模型不支持工具调用）。
 """
 
 from __future__ import annotations
@@ -10,17 +9,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.services.agent.plan_coordinator import PlanMode
-from app.services.stream.agent_task_policy import AgentTaskPolicy
 from app.utils.run_capability_contract import (
     CAPABILITY_CANONICAL_EXTERNAL_TOOL_ORDER,
     CAPABILITY_CONTROL_TOOL_NAMES,
-    DEEP_RESEARCH_TOOL_NAMES,
 )
 
 SCHEMA_VERSION = 3
 
 
-ROUTER_VERSION = "2026-10-17.1"
+ROUTER_VERSION = "2026-10-19.1"
 
 
 @dataclass(frozen=True)
@@ -38,11 +35,10 @@ def resolve_run_capability_route(
     *,
     available_tool_names: list[str],
     requested_plan_mode: PlanMode,
-    task_policy: AgentTaskPolicy,
     capabilities: dict,
     tools_disabled: bool,
 ) -> RunCapabilityResolution:
-    """按用户选择的模式与运行环境确定本次公告的工具。"""
+    """按运行环境确定本次公告的工具。"""
 
     available = _canonicalize_tool_names(tuple(name for name in available_tool_names if isinstance(name, str) and name))
     function_calling = capabilities.get("functionCalling") is True
@@ -51,18 +47,6 @@ def resolve_run_capability_route(
         return _unavailable("tools_disabled")
     if not function_calling:
         return _unavailable("function_calling_unavailable")
-
-    if task_policy.task_mode == "deep_research":
-        if capabilities.get("searchCapable") is not True:
-            return _unavailable("search_capability_unavailable")
-        if not set(DEEP_RESEARCH_TOOL_NAMES).issubset(available):
-            return _unavailable("required_tools_unavailable")
-        return _resolution(
-            "deep_research",
-            ("deep_research_mode",),
-            tools=DEEP_RESEARCH_TOOL_NAMES,
-            plan_mode="on",
-        )
 
     if not available:
         return _unavailable("required_tools_unavailable")

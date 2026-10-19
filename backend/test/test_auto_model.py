@@ -99,12 +99,9 @@ class PickAutoModelTests(unittest.TestCase):
     def test_plan_mode_requires_function_calling(self):
         self.assertEqual(self._pick(mode="plan"), "deepseek-chat")
 
-    def test_deep_research_requires_search_capable_tools(self):
-        self.assertEqual(self._pick(mode="deep_research"), "qwen3.8-max")
-
     def test_mode_requirement_falls_back_to_first_usable_when_no_candidate_qualifies(self):
         # 交给任务策略按原规则报错，不在选择阶段掩盖
-        self.assertEqual(self._pick(mode="deep_research", unhealthy={"qwen3.8-max"}), "mimo-v2.6-pro")
+        self.assertEqual(self._pick(mode="plan", unhealthy={"deepseek-chat", "qwen3.8-max"}), "mimo-v2.6-pro")
 
     def test_vision_relaxes_before_mode_requirement(self):
         self.assertEqual(
@@ -219,14 +216,12 @@ class AutoProviderGroupTests(unittest.TestCase):
             ["mimo-v2.6-flash", "mimo-v2.6-pro", "deepseek-chat", "deepseek-reasoner", "qwen3.8-flash"],
         )
 
-    def test_default_plan_and_deep_research_prefer_pro_within_each_provider(self):
-        for mode in ("plan", "deep_research"):
-            with self.subTest(mode=mode):
-                _, candidates = self._groups(DEFAULT_AUTO_MODEL_CONFIG, mode)
-                self.assertEqual(
-                    candidates,
-                    ["mimo-v2.6-pro", "mimo-v2.6-flash", "deepseek-reasoner", "deepseek-chat", "qwen3.8-flash"],
-                )
+    def test_default_plan_prefers_pro_within_each_provider(self):
+        _, candidates = self._groups(DEFAULT_AUTO_MODEL_CONFIG, "plan")
+        self.assertEqual(
+            candidates,
+            ["mimo-v2.6-pro", "mimo-v2.6-flash", "deepseek-reasoner", "deepseek-chat", "qwen3.8-flash"],
+        )
 
     def test_mode_without_own_groups_uses_default_providers(self):
         payload = {
@@ -234,7 +229,6 @@ class AutoProviderGroupTests(unittest.TestCase):
             "modes": {"plan": {"providers": [{"provider": "mimo", "models": ["mimo-v2.6-pro"]}]}},
         }
         self.assertEqual(self._groups(payload, "plan")[1], ["mimo-v2.6-pro"])
-        self.assertEqual(self._groups(payload, "deep_research")[1], ["deepseek-chat"])
         self.assertEqual(self._groups(payload, "auto")[1], ["deepseek-chat"])
         broken = {**payload, "modes": {"plan": {"providers": []}}}
         self.assertEqual(self._groups(broken, "plan")[1], ["deepseek-chat"])
@@ -242,9 +236,7 @@ class AutoProviderGroupTests(unittest.TestCase):
     def test_all_candidates_union_every_mode_in_first_seen_order(self):
         payload = {
             "providers": [{"provider": "deepseek", "models": ["deepseek-chat"]}],
-            "modes": {
-                "deep_research": {"providers": [{"provider": "qwen", "models": ["qwen3.8-max", "deepseek-chat"]}]}
-            },
+            "modes": {"plan": {"providers": [{"provider": "qwen", "models": ["qwen3.8-max", "deepseek-chat"]}]}},
         }
         with patch("app.services.auto_model.DEFAULT_AUTO_MODEL_CONFIG", payload):
             self.assertEqual(get_all_auto_model_candidates(), ["deepseek-chat", "qwen3.8-max"])

@@ -1,70 +1,50 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  composerAgentModeFromRunConfig,
   getComposerAgentModeAvailability,
   resolveComposerAgentMode,
 } from './composerAgentMode';
 
 describe('composerAgentMode', () => {
   it.each([
-    ['auto', 'auto', 'standard', 'auto'],
-    ['plan', 'on', 'standard', 'plan'],
-    ['deep_research', 'on', 'deep_research', 'deep_research'],
-  ] as const)('把 %s 映射为 plan_mode=%s 与 task_mode=%s', (
-    requestedMode,
-    planMode,
-    taskMode,
-    effectiveMode,
-  ) => {
+    ['auto', 'auto'],
+    ['plan', 'on'],
+  ] as const)('把 %s 映射为 plan_mode=%s', (requestedMode, planMode) => {
     expect(resolveComposerAgentMode(requestedMode, {
       functionCalling: true,
       searchCapable: true,
       agentTools: true,
-    })).toMatchObject({
+    })).toEqual({
       requestedMode,
-      effectiveMode,
+      effectiveMode: requestedMode,
       planMode,
-      taskMode,
     });
   });
 
-  it('计划只要求工具调用，深度研究还要求联网工具', () => {
+  it('计划只要求工具调用，不要求联网工具', () => {
     expect(getComposerAgentModeAvailability('plan', {
       functionCalling: true,
       searchCapable: false,
       agentTools: false,
     })).toEqual({ enabled: true });
-    expect(getComposerAgentModeAvailability('deep_research', {
-      functionCalling: true,
-      searchCapable: false,
-      agentTools: false,
-    })).toEqual({
-      enabled: false,
-      unavailableReason: '深度研究需要支持联网工具',
-    });
   });
 
-  it('不能只凭 agentTools 放行深度研究，searchCapable 必须明确为 true', () => {
-    expect(getComposerAgentModeAvailability('deep_research', {
-      functionCalling: true,
-      searchCapable: false,
-      agentTools: true,
-    })).toEqual({
-      enabled: false,
-      unavailableReason: '深度研究需要支持联网工具',
-    });
-  });
-
-  it('模型能力不满足时安全回退自动模式', () => {
-    expect(resolveComposerAgentMode('deep_research', {
+  it('模型不支持工具调用时安全回退自动模式', () => {
+    expect(resolveComposerAgentMode('plan', {
       functionCalling: false,
       searchCapable: true,
     })).toEqual({
-      requestedMode: 'deep_research',
+      requestedMode: 'plan',
       effectiveMode: 'auto',
       planMode: 'auto',
-      taskMode: 'standard',
-      fallbackReason: '深度研究需要支持工具调用与联网工具',
+      fallbackReason: '当前模型不支持工具调用',
     });
+  });
+
+  it('按运行配置还原执行模式，计划开启即规划执行', () => {
+    expect(composerAgentModeFromRunConfig({ planMode: 'on' })).toBe('plan');
+    expect(composerAgentModeFromRunConfig({ planMode: 'auto' })).toBe('auto');
+    expect(composerAgentModeFromRunConfig({})).toBe('auto');
   });
 });

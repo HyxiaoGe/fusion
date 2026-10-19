@@ -140,9 +140,7 @@ def _build_execution_parts(
         run_id=run_id,
         run_start=dependencies.clock(),
         state=state,
-        network_budget=NetworkToolBudget(
-            profile=getattr(request.call_config, "network_profile", "standard"),
-        ),
+        network_budget=NetworkToolBudget(),
         emitter=emitter,
         trajectory_recorder=trajectory_recorder,
     )
@@ -222,8 +220,6 @@ def build_agent_loop_runtime(
         control_tool_names=getattr(request.call_config, "control_tool_names", frozenset()),
         output_tool_names=getattr(request.call_config, "output_tool_names", frozenset()),
         skill_tool_names=getattr(request.call_config, "skill_tool_names", frozenset()),
-        task_mode=getattr(request.call_config, "task_mode", "standard"),
-        evidence_policy=getattr(request.call_config, "evidence_policy", "standard"),
         llm_round_detail_scheduler=llm_round_detail_scheduler,
         capability_resolution=getattr(request.call_config, "capability_resolution", None),
         fallback_response_context=FallbackResponseContext(

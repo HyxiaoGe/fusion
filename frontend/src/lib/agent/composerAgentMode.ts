@@ -2,7 +2,6 @@ import type { ModelCapability } from '@/lib/config/modelConfig';
 import type {
   AgentPlanMode,
   AgentRunConfig,
-  AgentTaskMode,
   ComposerAgentMode,
 } from '@/types/agentRun';
 
@@ -18,14 +17,12 @@ interface ComposerAgentModeResolution {
   requestedMode: ComposerAgentMode;
   effectiveMode: ComposerAgentMode;
   planMode: Extract<AgentPlanMode, 'auto' | 'on'>;
-  taskMode: AgentTaskMode;
   fallbackReason?: string;
 }
 
 export const COMPOSER_AGENT_MODE_LABELS: Record<ComposerAgentMode, string> = {
   auto: '自动',
   plan: '规划执行',
-  deep_research: '深度研究',
 };
 
 export function getComposerAgentModeAvailability(
@@ -37,22 +34,7 @@ export function getComposerAgentModeAvailability(
   }
 
   if (!capabilities?.functionCalling) {
-    return {
-      enabled: false,
-      unavailableReason: mode === 'plan'
-        ? '当前模型不支持工具调用'
-        : '深度研究需要支持工具调用与联网工具',
-    };
-  }
-
-  if (
-    mode === 'deep_research'
-    && capabilities.searchCapable !== true
-  ) {
-    return {
-      enabled: false,
-      unavailableReason: '深度研究需要支持联网工具',
-    };
+    return { enabled: false, unavailableReason: '当前模型不支持工具调用' };
   }
 
   return { enabled: true };
@@ -68,17 +50,7 @@ export function resolveComposerAgentMode(
       requestedMode,
       effectiveMode: 'auto',
       planMode: 'auto',
-      taskMode: 'standard',
       fallbackReason: availability.unavailableReason,
-    };
-  }
-
-  if (requestedMode === 'deep_research') {
-    return {
-      requestedMode,
-      effectiveMode: requestedMode,
-      planMode: 'on',
-      taskMode: 'deep_research',
     };
   }
 
@@ -86,17 +58,15 @@ export function resolveComposerAgentMode(
     requestedMode,
     effectiveMode: requestedMode,
     planMode: requestedMode === 'plan' ? 'on' : 'auto',
-    taskMode: 'standard',
   };
 }
 
 /**
- * 由一次运行的配置还原用户当时选的执行模式：深度研究固定记为 deep_research，
- * 计划模式只在用户选择“规划执行”时记为 plan_mode=on，自动模式记为 off。
+ * 由一次运行的配置还原用户当时选的执行模式：计划模式只在用户选择“规划执行”时
+ * 记为 plan_mode=on，自动模式记为 off。
  */
 export function composerAgentModeFromRunConfig(
-  config: Pick<AgentRunConfig, 'taskMode' | 'planMode'>,
+  config: Pick<AgentRunConfig, 'planMode'>,
 ): ComposerAgentMode {
-  if (config.taskMode === 'deep_research') return 'deep_research';
   return config.planMode === 'on' ? 'plan' : 'auto';
 }
