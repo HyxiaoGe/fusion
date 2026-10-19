@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [string]$ImageName,
 
@@ -15,8 +15,32 @@ $image = "${ImageName}:${ImageTag}"
 $adapterImage = "${AdapterImageName}:${ImageTag}"
 $appRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 
-docker build --target production --provenance=false -t $image $appRoot
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+# 拉 Docker Hub 基础镜像/语法前端偶发 EOF，与 UI 构建（windows-docker-build action）同样重试 3 次。
+function Invoke-DockerBuildWithRetry {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Label,
 
-docker build --target production --provenance=false -t $adapterImage (Join-Path $appRoot "flyai-adapter")
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Build
+    )
+
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        & $Build
+        $buildExitCode = $LASTEXITCODE
+        if ($buildExitCode -eq 0) { return }
+        if ($attempt -eq 3) { exit $buildExitCode }
+
+        $delay = 20 * $attempt
+        Write-Host "$Label docker build 失败，第 $attempt 次，${delay}s 后重试..."
+        Start-Sleep -Seconds $delay
+    }
+}
+
+Invoke-DockerBuildWithRetry -Label "API" -Build {
+    docker build --target production --provenance=false -t $image $appRoot
+}
+
+Invoke-DockerBuildWithRetry -Label "FlyAI adapter" -Build {
+    docker build --target production --provenance=false -t $adapterImage (Join-Path $appRoot "flyai-adapter")
+}
