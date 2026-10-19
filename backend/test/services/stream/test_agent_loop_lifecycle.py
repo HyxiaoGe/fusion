@@ -719,6 +719,7 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 "task_mode": "standard",
                 "network_profile": "standard",
                 "evidence_policy": "standard",
+                "use_reasoning": False,
                 "runtime_config_versions": {
                     "prompt_bundle/fusion": call_config.prompt_bundle_snapshot.effective_revision,
                 },
@@ -1534,6 +1535,7 @@ class AgentLoopLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 "task_mode": "standard",
                 "network_profile": "standard",
                 "evidence_policy": "standard",
+                "use_reasoning": False,
                 "runtime_config_versions": {
                     "prompt_bundle/fusion": self._call_config().prompt_bundle_snapshot.effective_revision,
                 },

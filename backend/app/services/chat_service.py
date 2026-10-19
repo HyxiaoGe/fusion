@@ -109,6 +109,15 @@ def _get_model_capabilities(model_id: str) -> dict[str, Any]:
     )
 
 
+def _with_stored_reasoning(options: dict[str, Any], previous_session: Any) -> dict[str, Any]:
+    """续跑沿用原 run 的深度思考开关；旧 run 没记录时不传，按模型默认。"""
+
+    config = getattr(previous_session, "run_config", None)
+    if isinstance(config, dict) and isinstance(config.get("use_reasoning"), bool):
+        return {**options, "use_reasoning": config["use_reasoning"]}
+    return options
+
+
 def _auto_model_mode(options: dict[str, Any] | None) -> AutoModelMode:
     """把本轮执行模式映射成自动选择的优先级档位；与前端执行模式选择一一对应。"""
 
@@ -857,7 +866,10 @@ class ChatService:
                 assistant_message_id=assistant_message_id,
                 assistant_message_sequence=continuation.assistant_message.sequence,
                 task_id=task_id,
-                options=continuation_policy.apply_to_options(),
+                options=_with_stored_reasoning(
+                    continuation_policy.apply_to_options(),
+                    continuation.previous_session,
+                ),
                 capabilities=capabilities,
                 knowledge_base_ids=list(getattr(conversation, "knowledge_base_ids", None) or []),
                 trace_id=trace_id,

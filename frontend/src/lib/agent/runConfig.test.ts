@@ -54,4 +54,10 @@ describe('normalizeAgentRunConfig', () => {
       evidencePolicy: 'knowledge_grounded_v1',
     });
   });
+
+  it('记录了深度思考开关时带上 useReasoning，非布尔值忽略', () => {
+    expect(normalizeAgentRunConfig({ use_reasoning: true }).useReasoning).toBe(true);
+    expect(normalizeAgentRunConfig({ use_reasoning: false }).useReasoning).toBe(false);
+    expect(normalizeAgentRunConfig({ use_reasoning: 'yes' })).not.toHaveProperty('useReasoning');
+  });
 });
