@@ -1337,3 +1337,21 @@ class AgentRoundModelUnavailableTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(litellm.ServiceUnavailableError):
             await self._run(llm_call_fn=AsyncMock(return_value=object()), stream_round_fn=stream_round_fn)
+
+    async def test_stall_before_visible_output_switches_model_but_stall_after_it_fails_the_answer(self):
+        from app.services.stream.first_output_timeout import ModelRoundUnavailableError, StreamIdleTimeoutError
+
+        async def stall_after_tool_call_delta(*_args, partial_output, **_kwargs):
+            raise StreamIdleTimeoutError("gemini-4-argon", 30)
+
+        with self.assertRaises(ModelRoundUnavailableError) as raised:
+            await self._run(llm_call_fn=AsyncMock(return_value=object()), stream_round_fn=stall_after_tool_call_delta)
+        self.assertEqual(raised.exception.reason, "stream_idle_timeout")
+
+        async def stall_after_partial_answer(*_args, partial_output, **_kwargs):
+            partial_output["content_buf"] = "上海三日游：第一天"
+            raise StreamIdleTimeoutError("gemini-4-argon", 30)
+
+        # 用户已经看到部分回答：不换模型重做（会重复输出），保留内容让本次回答以“响应中断”失败。
+        with self.assertRaises(StreamIdleTimeoutError):
+            await self._run(llm_call_fn=AsyncMock(return_value=object()), stream_round_fn=stall_after_partial_answer)

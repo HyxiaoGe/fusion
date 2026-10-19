@@ -215,6 +215,9 @@ class LLMRoundObservation:
         self.first_output_delta_kind: str | None = None
         self.first_output_delta_at_by_kind: dict[str, float] = {}
         self._current_chunk_observed_at: float | None = None
+        self._last_output_chunk_at: float | None = None
+        # 首个输出 chunk 之后相邻输出 chunk 的最长间隔，用来校准流式停顿超时。
+        self.max_chunk_gap_s: float | None = None
         self.finished_at: float | None = None
         self._context_result = self._resolve_window()
         self._estimate_task: asyncio.Future[tuple[int | None, str]] | None = None
@@ -260,6 +263,9 @@ class LLMRoundObservation:
             return
         observed_at = self.clock()
         self._current_chunk_observed_at = observed_at
+        if self._last_output_chunk_at is not None:
+            self.max_chunk_gap_s = max(self.max_chunk_gap_s or 0.0, observed_at - self._last_output_chunk_at)
+        self._last_output_chunk_at = observed_at
         if self.first_text_delta_at is None and {"reasoning", "content"}.intersection(delta_kinds):
             self.first_text_delta_at = observed_at
 
@@ -469,6 +475,7 @@ class LLMRoundObservation:
             "actual_over_budget": actual_over,
             "first_model_text_delta_ms": first_model_text_delta_ms,
             "total_duration_ms": total_duration_ms,
+            "max_chunk_gap_ms": round(self.max_chunk_gap_s * 1000, 3) if self.max_chunk_gap_s is not None else None,
             "finish_reason": finish_reason,
             "outcome": outcome,
             "error_type": error_type,

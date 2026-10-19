@@ -24,6 +24,7 @@ from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_loop_step_requests import build_limit_summary_step_request
 from app.services.stream.agent_round import AgentRoundResult
 from app.services.stream.first_output_timeout import (
+    FALLBACK_FIRST_OUTPUT_TIMEOUT_S,
     FALLBACK_MODEL_ID,
     FIRST_OUTPUT_TIMEOUT_S,
     ModelRoundUnavailableError,
@@ -205,9 +206,10 @@ async def _run_round(
     run_round_kwargs["on_context_trimmed"] = state.record_context_plan
     if runtime.output_tool_names:
         run_round_kwargs["draft_tool_names"] = runtime.output_tool_names
-    # 原模型（含挑不到备用模型时的重试）每轮都限首字时长；已换到备用模型后没有下一个可换，不限。
-    if state.active_model_id is None:
-        run_round_kwargs["first_output_timeout_s"] = FIRST_OUTPUT_TIMEOUT_S
+    # 原模型（含挑不到备用模型时的重试）超时就换模型；备用模型没有下一个可换，放宽一些，超时本次回答失败。
+    run_round_kwargs["first_output_timeout_s"] = (
+        FIRST_OUTPUT_TIMEOUT_S if state.active_model_id is None else FALLBACK_FIRST_OUTPUT_TIMEOUT_S
+    )
     round_result = await runtime.run_round_fn(**run_round_kwargs)
     if tools_forbidden and ignored_tool_ban(
         tool_calls=round_result.tool_calls,

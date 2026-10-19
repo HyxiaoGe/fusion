@@ -1,4 +1,4 @@
-import { AlertCircle, Brain, ListChecks, Sparkles, Square } from 'lucide-react';
+import { AlertCircle, Brain, Hourglass, ListChecks, Sparkles, Square } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { getToolMeta, type SemanticColor } from '@/lib/agent/toolRegistry';
 import type { AssistantActivity, AssistantActivityKind } from './assistantActivity';
@@ -27,6 +27,35 @@ const MODEL_PHASE_VIEWS: Record<ModelPhase, Pick<ActivityStatusView, 'tone' | 'i
 
 function isModelPhase(kind: AssistantActivityKind): kind is ModelPhase {
   return Object.prototype.hasOwnProperty.call(MODEL_PHASE_VIEWS, kind);
+}
+
+/** 这些阶段在等模型继续输出（工具执行期间没有模型输出，不算）。 */
+const AWAITING_MODEL_OUTPUT_KINDS: ReadonlySet<AssistantActivityKind> = new Set([
+  'preparing',
+  'reasoning',
+  'analyzing',
+  'answering',
+  'drafting',
+]);
+
+/** 模型阶段超过该秒数没有新输出，就提示用户模型变慢（后端首字 10 秒换模型、中途 30 秒截断）。 */
+export const MODEL_SLOW_AFTER_S = 10;
+
+export function isAwaitingModelOutput(kind: AssistantActivityKind): boolean {
+  return AWAITING_MODEL_OUTPUT_KINDS.has(kind);
+}
+
+/** 模型长时间没有新输出时的状态：如实说明在等模型，用户可以停止。 */
+export function resolveSlowModelStatus(silentS: number): ActivityStatusView {
+  return {
+    key: 'model_slow',
+    tone: 'warn',
+    icon: Hourglass,
+    title: '模型响应变慢',
+    detail: `已等待 ${silentS} 秒，可以停止后重试`,
+    busy: true,
+    role: 'status',
+  };
 }
 
 export interface ResolveActivityStatusOptions {

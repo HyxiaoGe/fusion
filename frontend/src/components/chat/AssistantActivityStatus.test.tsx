@@ -95,6 +95,79 @@ describe('AssistantActivityStatus', () => {
     }
   });
 
+  it('模型阶段 10 秒没有新输出时提示响应变慢，从最后一次输出起计时', () => {
+    vi.useFakeTimers();
+    try {
+      const answering = baseActivity({ kind: 'answering', hasText: true });
+      const { container, rerender } = render(
+        <AssistantActivityStatus activity={answering} placement="bottom" outputMark="answering:10" />,
+      );
+      // 正文输出中本身不展示状态
+      expect(container).toBeEmptyDOMElement();
+
+      act(() => { vi.advanceTimersByTime(8000); });
+      rerender(<AssistantActivityStatus activity={answering} placement="bottom" outputMark="answering:42" />);
+      act(() => { vi.advanceTimersByTime(9000); });
+      expect(container).toBeEmptyDOMElement();
+
+      act(() => { vi.advanceTimersByTime(3000); });
+      const status = screen.getByRole('status');
+      expect(status).toHaveTextContent('模型响应变慢已等待 12 秒，可以停止后重试');
+      expect(status).toHaveAttribute('data-tone', 'warn');
+      expect(screen.queryByText('12 秒')).toBeNull();
+
+      // 有新输出立即恢复
+      rerender(<AssistantActivityStatus activity={answering} placement="bottom" outputMark="answering:50" />);
+      expect(container).toBeEmptyDOMElement();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('思考块可见时模型卡住也要提示；工具执行和停止待确认期间不提示', () => {
+    vi.useFakeTimers();
+    try {
+      const { container, rerender } = render(
+        <AssistantActivityStatus
+          activity={baseActivity({ kind: 'reasoning' })}
+          placement="bottom"
+          reasoningVisible
+          outputMark="reasoning:0:300"
+        />,
+      );
+      act(() => { vi.advanceTimersByTime(11000); });
+      expect(screen.getByText('模型响应变慢')).toBeTruthy();
+
+      rerender(
+        <AssistantActivityStatus
+          activity={baseActivity({ kind: 'reasoning' })}
+          placement="bottom"
+          reasoningVisible
+          stopPending
+          outputMark="reasoning:0:300"
+        />,
+      );
+      expect(container).toBeEmptyDOMElement();
+
+      const tool = baseActivity({
+        kind: 'tool_running',
+        tool: {
+          kind: 'web_search',
+          toolName: 'web_search',
+          label: '正在搜索',
+          target: '',
+          call: { toolCallId: 'tool-1', toolName: 'web_search', arguments: {}, status: 'running', startedAt: 1 },
+        },
+      });
+      rerender(<AssistantActivityStatus activity={tool} placement="bottom" outputMark="tool_running:0:300" />);
+      act(() => { vi.advanceTimersByTime(20000); });
+      expect(screen.getByText('正在搜索')).toBeTruthy();
+      expect(screen.queryByText('模型响应变慢')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('renders running web search with query', () => {
     render(
       <AssistantActivityStatus

@@ -796,6 +796,10 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(llm_stream_module.model_unavailable_reason(BadRequest("x")))
         self.assertIsNone(llm_stream_module.model_unavailable_reason(RuntimeError("upstream 500")))
         self.assertIsNone(llm_stream_module.model_unavailable_reason(asyncio.CancelledError()))
+        self.assertEqual(
+            llm_stream_module.model_unavailable_reason(llm_stream_module.StreamIdleTimeoutError("m", 30)),
+            "stream_idle_timeout",
+        )
         # 500 只换模型，不进同模型重试
         self.assertFalse(llm_stream_module._is_llm_error_retryable(UpstreamServerError("x")))
 

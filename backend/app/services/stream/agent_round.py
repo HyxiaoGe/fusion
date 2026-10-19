@@ -18,7 +18,12 @@ from app.services.chat.context_manager import ContextManagementError, ContextPla
 from app.services.chat.model_call_language_policy import finalize_model_call_language_policy
 from app.services.documents.draft_stream import DocumentDraftStreamer
 from app.services.stream.context_status import build_context_usage, emit_context_status
-from app.services.stream.first_output_timeout import ModelRoundUnavailableError, await_first_output
+from app.services.stream.first_output_timeout import (
+    STREAM_IDLE_TIMEOUT_S,
+    ModelRoundUnavailableError,
+    await_first_output,
+    with_stream_idle_timeout,
+)
 from app.services.stream.llm_round_lifecycle import (
     LLMRoundLifecycle,
     accumulate_token_usage,
@@ -139,13 +144,18 @@ async def collect_agent_round_stream(
         return observation.wrap_response(response) if observation is not None else response
 
     if first_output_timeout_s is None:
-        response = wrap_response(await open_response())
+        response = with_stream_idle_timeout(
+            wrap_response(await open_response()),
+            timeout_s=STREAM_IDLE_TIMEOUT_S,
+            model_id=model_id,
+        )
     else:
         response = await await_first_output(
             open_response,
             wrap_response=wrap_response,
             timeout_s=first_output_timeout_s,
             model_id=model_id,
+            idle_timeout_s=STREAM_IDLE_TIMEOUT_S,
         )
     stream_kwargs = {"run_id": run_id, "step_id": step_context.step_id}
     if provider is not None:

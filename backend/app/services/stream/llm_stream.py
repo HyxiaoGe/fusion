@@ -20,6 +20,7 @@ import litellm
 from app.ai.llm_observability import merge_litellm_kwargs
 from app.core.logger import app_logger as logger
 from app.schemas.chat import Usage
+from app.services.stream.first_output_timeout import StreamIdleTimeoutError
 from app.services.stream.provider_content_filter import CONTENT_FILTER_FINISH_REASON, is_refusal_reply
 from app.services.stream.reasoning_transport import (
     ReasoningTransportMode,
@@ -234,6 +235,8 @@ def model_unavailable_reason(exc: BaseException) -> str | None:
     """
     if not isinstance(exc, Exception):
         return None
+    if isinstance(exc, StreamIdleTimeoutError):
+        return "stream_idle_timeout"
     reason = _llm_retry_reason(exc)
     if reason is not None:
         return reason

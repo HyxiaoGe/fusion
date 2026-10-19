@@ -5,7 +5,10 @@ import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { AssistantActivity } from './assistantActivity';
 import {
+  isAwaitingModelOutput,
+  MODEL_SLOW_AFTER_S,
   resolveActivityStatus,
+  resolveSlowModelStatus,
   type ActivityStatusView,
   type ResolveActivityStatusOptions,
 } from './activityStatusView';
@@ -21,16 +24,26 @@ interface AssistantActivityStatusProps extends ResolveActivityStatusOptions {
    * 失败、停止、工具问题等结论性状态留在顶部。缺省时不区分位置。
    */
   placement?: 'top' | 'bottom';
+  /**
+   * 模型输出进度的标记，任何新输出（正文、思考、草稿、阶段切换）都会改变它。
+   * 传入后，模型阶段超过一定时长没有新输出时改为提示“模型响应变慢”。
+   */
+  outputMark?: string;
   className?: string;
 }
 
 export default function AssistantActivityStatus({
   activity,
   placement,
+  outputMark,
   className,
   ...options
 }: AssistantActivityStatusProps) {
-  const view = resolveActivityStatus(activity, options);
+  const watchingOutput = outputMark !== undefined && !options.stopPending && isAwaitingModelOutput(activity.kind);
+  const silentS = useSecondsWithoutOutput(watchingOutput, outputMark);
+  const view = silentS >= MODEL_SLOW_AFTER_S
+    ? resolveSlowModelStatus(silentS)
+    : resolveActivityStatus(activity, options);
   if (!view) return null;
   if (placement === 'top' && view.busy) return null;
   if (placement === 'bottom' && !view.busy) return null;
@@ -61,7 +74,7 @@ function StatusBar({ view, className }: { view: ActivityStatusView; className?: 
           </span>
         ) : null}
       </span>
-      {view.busy && elapsedS >= ELAPSED_VISIBLE_AFTER_S ? (
+      {view.busy && view.key !== 'model_slow' && elapsedS >= ELAPSED_VISIBLE_AFTER_S ? (
         // 计时不进入读屏播报，避免每秒打断。
         <span className="shrink-0 tabular-nums text-muted-foreground" aria-hidden="true">
           {elapsedS} 秒
@@ -91,4 +104,21 @@ function useElapsedSeconds(active: boolean): number {
   }, [active, startedAt]);
 
   return elapsedS;
+}
+
+/** 距上次模型输出的秒数；输出标记变化即重新计时，未在等待模型输出时为 0。 */
+function useSecondsWithoutOutput(watching: boolean, outputMark: string | undefined): number {
+  const [silent, setSilent] = useState({ mark: outputMark, seconds: 0 });
+
+  useEffect(() => {
+    if (!watching) return undefined;
+    const since = Date.now();
+    const timer = window.setInterval(() => {
+      setSilent({ mark: outputMark, seconds: Math.floor((Date.now() - since) / 1000) });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [watching, outputMark]);
+
+  // 标记已变但计时器还没走到下一秒时，旧的秒数作废。
+  return watching && silent.mark === outputMark ? silent.seconds : 0;
 }

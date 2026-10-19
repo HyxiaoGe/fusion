@@ -11,6 +11,7 @@ from typing import Any
 from app.services.chat.tool_transcript_store import save_tool_transcript
 from app.services.stream.agent_loop_policy import AgentRunTerminalState
 from app.services.stream.agent_loop_state import AgentLoopState
+from app.services.stream.first_output_timeout import ModelRoundUnavailableError, StreamIdleTimeoutError
 from app.services.stream.run_finalizer import InterruptedStatusWriteError, interrupt_agent_run
 from app.services.stream.structured_answer import NO_STRUCTURED_ANSWERS, StructuredAnswers
 from app.services.stream_state_service import StreamOwnershipLostError, StreamWriteTerminalError
@@ -45,6 +46,8 @@ _PUBLIC_ERROR_MESSAGES = {
     "knowledge_retrieval_unavailable": "知识库检索暂时不可用，请稍后重试",
     "model_provider_quota_exhausted": "当前模型的服务商额度已用完，请换用其他模型",
     "model_provider_rate_limited": "当前模型请求过于频繁，请稍后重试或换用其他模型",
+    "model_unavailable": "当前模型暂时没有响应，请稍后重试或换用其他模型",
+    "model_stream_stalled": "模型长时间没有继续输出，回答已中断，可以重新生成",
 }
 # 服务商 HTTP 状态 → 对外错误码。LiteLLM 会把 402 等包成 BadRequestError(400)，
 # 原始状态码只留在异常链里的 openai.APIStatusError 上，所以要沿链查找。
@@ -438,7 +441,9 @@ async def finalize_failed_run(
         only_if_content=True,
         partial=True,
     )
-    structured_error_code = _safe_structured_error_code(error) or _provider_status_error_code(error)
+    structured_error_code = (
+        _safe_structured_error_code(error) or _provider_status_error_code(error) or _model_stall_error_code(error)
+    )
     public_error_code = structured_error_code or AGENT_RUN_FAILED_ERROR_CODE
     public_error_message = _PUBLIC_ERROR_MESSAGES.get(
         public_error_code,
@@ -481,6 +486,15 @@ def _safe_structured_error_code(error: Exception) -> str:
     if not isinstance(candidate, str) or candidate not in _PUBLIC_ERROR_MESSAGES:
         return ""
     return candidate
+
+
+def _model_stall_error_code(error: BaseException) -> str:
+    """模型无响应或输出中途卡住（已换过模型或已推出部分回答，不能再换）。"""
+    if isinstance(error, StreamIdleTimeoutError):
+        return "model_stream_stalled"
+    if isinstance(error, ModelRoundUnavailableError):
+        return "model_unavailable"
+    return ""
 
 
 def _provider_status_error_code(error: BaseException) -> str:

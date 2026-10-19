@@ -1246,6 +1246,30 @@ class AgentLoopRunCompletionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls[0][1]["error_code"], "model_provider_rate_limited")
         self.assertEqual(calls[1][2]["error_msg"], "当前模型请求过于频繁，请稍后重试或换用其他模型")
 
+    async def test_finalize_failed_reports_model_stall_and_unavailable(self):
+        from app.services.stream.first_output_timeout import (
+            FirstOutputTimeoutError,
+            ModelRoundUnavailableError,
+            StreamIdleTimeoutError,
+        )
+
+        calls = await self._failed_run_codes(StreamIdleTimeoutError("gemini-4-argon", 30))
+        self.assertEqual(calls[0][1]["error_code"], "model_stream_stalled")
+        self.assertEqual(calls[1][2]["error_msg"], "模型长时间没有继续输出，回答已中断，可以重新生成")
+
+        calls = await self._failed_run_codes(FirstOutputTimeoutError("deepseek-chat", 15))
+        self.assertEqual(calls[0][1]["error_code"], "model_unavailable")
+        self.assertEqual(calls[0][1]["message"], "当前模型暂时没有响应，请稍后重试或换用其他模型")
+
+        # 服务商 429 包成换模型错误后仍报更具体的“请求过于频繁”
+        try:
+            raise ModelRoundUnavailableError("gemini-4-argon", "http_429") from self._litellm_wrapped_provider_error(
+                429
+            )
+        except ModelRoundUnavailableError as wrapped:
+            calls = await self._failed_run_codes(wrapped)
+        self.assertEqual(calls[0][1]["error_code"], "model_provider_rate_limited")
+
     async def test_finalize_failed_other_provider_status_stays_generic(self):
         calls = await self._failed_run_codes(self._litellm_wrapped_provider_error(400))
 

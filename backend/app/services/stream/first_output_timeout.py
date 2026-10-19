@@ -1,7 +1,9 @@
-"""首个输出超时：模型迟迟不吐字时放弃本次请求，由 agent loop 换备用模型。
+"""流式输出超时：模型迟迟不吐字或吐到一半卡住时放弃本次请求。
 
 首个输出按思考、正文、工具调用任一先到算，推理模型思考久不会被误判；
-计时从发出请求开始，覆盖建连、服务商排队与首个 chunk。
+计时从发出请求开始，覆盖建连、服务商排队与首个 chunk。超时后由 agent loop 换备用模型。
+开始输出后两个 chunk 之间停顿过久视为卡住：用户还没看到内容时同样换模型，
+已经看到部分回答时保留已输出内容、让本次回答以“响应中断”失败，不让用户对着不动的页面干等。
 """
 
 from __future__ import annotations
@@ -14,6 +16,10 @@ from app.ai.llm_round_observability import output_delta_kinds
 
 # 近 7 天 mimo-flash 首字中位约 2.7s，超过 10s 的约 11%，多为服务商偶发卡顿。
 FIRST_OUTPUT_TIMEOUT_S = 10.0
+# 备用模型没有下一个可换，放宽一些；近 30 天主力模型首字 p99 在 0.7~18s。
+FALLBACK_FIRST_OUTPUT_TIMEOUT_S = 15.0
+# 开始输出后的最长停顿。正常停顿的分布还没有数据（日志新增 max_chunk_gap_ms 后再收紧），先取保守值。
+STREAM_IDLE_TIMEOUT_S = 30.0
 # 首选备用模型；不满足本次请求的能力或与原模型同一提供商时，按自动选择的顺序另挑。
 FALLBACK_MODEL_ID = "deepseek-chat"
 
@@ -37,6 +43,15 @@ class FirstOutputTimeoutError(ModelRoundUnavailableError, TimeoutError):
         self.timeout_s = timeout_s
 
 
+class StreamIdleTimeoutError(TimeoutError):
+    """开始输出后长时间没有新 chunk。"""
+
+    def __init__(self, model_id: str | None, timeout_s: float):
+        super().__init__(f"model {model_id} stalled for {timeout_s:g}s mid-stream")
+        self.model_id = model_id
+        self.timeout_s = timeout_s
+
+
 def _is_output_chunk(chunk: Any) -> bool:
     if output_delta_kinds(chunk):
         return True
@@ -45,9 +60,20 @@ def _is_output_chunk(chunk: Any) -> bool:
 
 
 class _ReplayIterator:
-    def __init__(self, buffered: list[Any], iterator: AsyncIterator[Any] | None):
+    def __init__(
+        self,
+        buffered: list[Any],
+        iterator: AsyncIterator[Any] | None,
+        *,
+        raw_response: Any = None,
+        idle_timeout_s: float | None = None,
+        model_id: str | None = None,
+    ):
         self._buffered = buffered
         self._iterator = iterator
+        self._raw_response = raw_response
+        self._idle_timeout_s = idle_timeout_s
+        self._model_id = model_id
 
     def __aiter__(self) -> AsyncIterator[Any]:
         return self
@@ -57,7 +83,25 @@ class _ReplayIterator:
             return self._buffered.pop(0)
         if self._iterator is None:
             raise StopAsyncIteration
-        return await self._iterator.__anext__()
+        if self._idle_timeout_s is None:
+            return await self._iterator.__anext__()
+        idle_timeout = asyncio.timeout(self._idle_timeout_s)
+        try:
+            async with idle_timeout:
+                return await self._iterator.__anext__()
+        except TimeoutError as exc:
+            if not idle_timeout.expired():
+                raise
+            await _close_quietly(self._raw_response)
+            raise StreamIdleTimeoutError(self._model_id, self._idle_timeout_s) from exc
+
+
+def with_stream_idle_timeout(response: Any, *, timeout_s: float, model_id: str | None) -> Any:
+    """给流式响应加 chunk 间停顿上限；非流式响应原样返回。"""
+
+    if not hasattr(response, "__aiter__"):
+        return response
+    return _ReplayIterator([], response.__aiter__(), raw_response=response, idle_timeout_s=timeout_s, model_id=model_id)
 
 
 async def _close_quietly(response: Any) -> None:
@@ -76,8 +120,12 @@ async def await_first_output(
     wrap_response: Callable[[Any], Any],
     timeout_s: float,
     model_id: str | None,
+    idle_timeout_s: float | None = None,
 ) -> Any:
-    """在 timeout_s 内拿到首个输出 chunk，返回可完整重放的流；超时关闭请求并抛错。"""
+    """在 timeout_s 内拿到首个输出 chunk，返回可完整重放的流；超时关闭请求并抛错。
+
+    idle_timeout_s：之后每个 chunk 的等待上限，超过抛 StreamIdleTimeoutError。
+    """
 
     raw_response: Any = None
     buffered: list[Any] = []
@@ -105,4 +153,10 @@ async def await_first_output(
     except asyncio.TimeoutError as exc:
         await _close_quietly(raw_response)
         raise FirstOutputTimeoutError(model_id, timeout_s) from exc
-    return _ReplayIterator(buffered, iterator)
+    return _ReplayIterator(
+        buffered,
+        iterator,
+        raw_response=raw_response,
+        idle_timeout_s=idle_timeout_s,
+        model_id=model_id,
+    )
