@@ -8,13 +8,12 @@ from typing import TYPE_CHECKING, Any
 from app.services.stream.itinerary_observability import build_itinerary_run_payload, emit_itinerary_run_log
 from app.services.stream.place_choice import pending_place_choice
 from app.services.stream.product_tool_round import record_itinerary_tool_observations
-from app.services.stream.structured_answer import StructuredAnswers, ToolRoundDecision
+from app.services.stream.structured_answer import StructuredAnswers
 from app.utils.user_visible_content import sanitize_internal_tool_names
 
 if TYPE_CHECKING:
     from app.services.stream.agent_loop_state import AgentLoopState
     from app.services.stream.tool_execution_result import ToolExecutionRecord
-    from app.services.stream.tool_round import ToolRoundOutcome
 
 
 class ProductStructuredAnswers(StructuredAnswers):
@@ -57,16 +56,6 @@ class ProductStructuredAnswers(StructuredAnswers):
                 total_tool_calls=stats.total_tool_calls,
             )
         )
-
-    def after_tool_round(
-        self,
-        state: AgentLoopState,
-        *,
-        outcome: ToolRoundOutcome | None,
-    ) -> ToolRoundDecision:
-        if outcome is not None and outcome.rich_result_count > 0:
-            return ToolRoundDecision.CONTINUE
-        return ToolRoundDecision.DEFAULT
 
 
 PRODUCT_STRUCTURED_ANSWERS = ProductStructuredAnswers()

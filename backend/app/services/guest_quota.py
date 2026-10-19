@@ -1,7 +1,7 @@
 """游客权益与额度。
 
 登录是功能门槛而不是使用门槛：游客能聊天、能联网搜索，但只用自动选择里各提供商的
-首选（flash）模型，不能深度研究，不加载地图/生图等 MCP 工具和知识库，并受每日额度约束：
+首选（flash）模型，不加载地图/生图等 MCP 工具和知识库，并受每日额度约束：
 
 - 消息：每个游客、每个 IP、全体游客三层日额度，开始生成前预扣；回答以错误结束或没能
   开始生成时退还，用户主动停止不退。
@@ -213,7 +213,6 @@ def build_entitlements(user: Any) -> dict[str, Any]:
         "tier": "guest" if guest else "registered",
         "features": {
             "model_selection": not guest,
-            "deep_research": not guest,
             "file_upload": not guest,
             "image_generation": not guest,
             "map": not guest,

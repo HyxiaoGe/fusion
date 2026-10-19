@@ -32,9 +32,6 @@ interface ServerAgentRunSummary {
     max_tool_calls?: number;
     timeout_s?: number;
     plan_mode?: string;
-    task_mode?: string;
-    network_profile?: string;
-    evidence_policy?: string;
   } | null;
   total_steps?: number | null;
   total_tool_calls?: number | null;

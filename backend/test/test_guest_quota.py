@@ -305,7 +305,7 @@ class GuestApiTests(unittest.TestCase):
 
     def test_guest_send_failure_refunds_reservation(self):
         service = MagicMock()
-        service.process_message = AsyncMock(side_effect=ApiException("LOGIN_REQUIRED", "登录后可使用深度研究", 403))
+        service.process_message = AsyncMock(side_effect=ApiException("LOGIN_REQUIRED", "登录后可选择更多模型", 403))
         reservation = MagicMock()
         self._as(SimpleNamespace(id="g1", is_guest=True, is_superuser=False), service)
         with patch("app.api.chat.reserve_guest_run", return_value=reservation) as reserve:

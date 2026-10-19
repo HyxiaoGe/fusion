@@ -70,7 +70,7 @@ from app.services.stream.agent_loop_request_prep import (
     normalize_controlled_max_tokens,
     supports_dynamic_agent_tools,
 )
-from app.services.stream.agent_task_policy import normalize_task_mode, resolve_agent_task_policy
+from app.services.stream.agent_task_policy import resolve_agent_task_policy
 from app.services.stream.persistence import acquire_message_persistence_lock, merge_partial_content_blocks
 from app.services.stream.runner import _agent_loop_limits
 from app.services.stream_state_service import StreamInitResult, finalize_stream, get_stream_meta, init_stream
@@ -122,8 +122,6 @@ def _auto_model_mode(options: dict[str, Any] | None) -> AutoModelMode:
     """把本轮执行模式映射成自动选择的优先级档位；与前端执行模式选择一一对应。"""
 
     opts = options or {}
-    if normalize_task_mode(opts.get("task_mode")) == "deep_research":
-        return "deep_research"
     if normalize_plan_mode(opts.get("plan_mode")) == "on":
         return "plan"
     return "auto"
@@ -396,8 +394,8 @@ class ChatService:
     ) -> Union[StreamingResponse, ChatResponse]:
         """处理用户消息，路由到流式或非流式响应
 
-        guest_run：游客本次生成预扣的额度。带上它即按游客权益处理（限定模型、不能深度研究、
-        仅流式），回答任务结束后按流终态结算；之前抛出的错误由调用方退还。
+        guest_run：游客本次生成预扣的额度。带上它即按游客权益处理（限定模型、仅流式），
+        回答任务结束后按流终态结算；之前抛出的错误由调用方退还。
         """
         options = dict(options or {})
         if guest_run is not None and not stream:
@@ -509,25 +507,9 @@ class ChatService:
         # 模型能力来自 LiteLLM metadata（vision / functionCalling 影响消息构造和工具开关）
         capabilities = _get_model_capabilities(model_id)
         has_vision = capabilities.get("vision", False)
-        requested_task_policy = resolve_agent_task_policy(
-            options=options,
-            capabilities=capabilities,
-            enforce_capabilities=False,
-        )
-        task_policy = (
-            resolve_agent_task_policy(options=options, capabilities=capabilities)
-            if requested_task_policy.task_mode == "deep_research"
-            else requested_task_policy
-        )
-        options = task_policy.apply_to_options(options)
-        if guest_run is not None and task_policy.task_mode == "deep_research":
-            raise login_required("登录后可使用深度研究")
-        if task_policy.task_mode == "deep_research" and not stream:
-            raise ApiException.bad_request("深度研究模式仅支持流式对话")
+        options = resolve_agent_task_policy(options=options).apply_to_options(options)
         if effective_knowledge_base_ids:
             # 知识库由模型通过 knowledge_search 工具检索；没有这个工具时如实拒绝，而不是静默不检索。
-            if task_policy.task_mode == "deep_research":
-                raise ApiException.bad_request("深度研究模式暂不检索知识库，请取消选择知识库后再试")
             if not stream or not supports_dynamic_agent_tools(capabilities):
                 raise ApiException.bad_request("当前模型不支持工具调用，无法检索知识库，请换用其他模型")
 
@@ -810,10 +792,7 @@ class ChatService:
         litellm_model, provider, litellm_kwargs = llm_manager.resolve_model(model_id)
         capabilities = _get_model_capabilities(model_id)
         has_vision = capabilities.get("vision", False)
-        continuation_policy = resolve_agent_task_policy(
-            options=continuation_options,
-            capabilities=capabilities,
-        )
+        continuation_policy = resolve_agent_task_policy(options=continuation_options)
         original_user_text = _user_message_text(continuation_user_message)
 
         task_id = str(uuid_mod.uuid4())

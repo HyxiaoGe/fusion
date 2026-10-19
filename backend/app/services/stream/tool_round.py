@@ -62,8 +62,6 @@ MAX_LOCAL_PREFLIGHT_ATTEMPTS_PER_ROUND = 4
 class ToolRoundOutcome:
     tool_call_count: int
     tool_names: list[str]
-    no_progress_search_results: tuple[bool, ...] = ()
-    rich_result_count: int = 0
     unavailable_tool_call_count: int = 0
 
 
@@ -818,11 +816,6 @@ async def handle_tool_calls_round(*, request: ToolRoundRequest) -> ToolRoundOutc
     return ToolRoundOutcome(
         tool_call_count=executed_count,
         tool_names=tool_names,
-        no_progress_search_results=_classify_no_progress_search_results(
-            selected_tool_calls=executable_tool_calls,
-            results=executed_results,
-        ),
-        rich_result_count=sum(is_registered_rich_content_block(block) for block in built_content_blocks.values()),
         unavailable_tool_call_count=len(unavailable_tool_calls),
     )
 
@@ -1187,25 +1180,6 @@ def _reconcile_tool_execution_results(
         )
 
     return reconciled_results, missing_result_tool_calls
-
-
-def _classify_no_progress_search_results(
-    *,
-    selected_tool_calls: list[dict],
-    results: list[ToolExecutionRecord],
-) -> tuple[bool, ...]:
-    records_by_id = {str(record.tool_call.get("id", "")): record for record in results}
-    return tuple(
-        _is_no_progress_search_result(records_by_id.get(str(tool_call.get("id", ""))))
-        for tool_call in selected_tool_calls
-    )
-
-
-def _is_no_progress_search_result(record: ToolExecutionRecord | None) -> bool:
-    if record is None or record.tool_name != "web_search" or record.result.status == "success":
-        return False
-    data = record.result.data if isinstance(record.result.data, dict) else {}
-    return data.get("search_budget") in {"planner_limited", "duplicate_skipped"}
 
 
 def _format_missing_tool_result_context() -> str:

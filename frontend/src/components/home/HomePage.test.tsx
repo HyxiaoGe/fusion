@@ -125,7 +125,6 @@ function createLocationCatalogItems() {
 
 const REGISTERED_FEATURES = {
   model_selection: true,
-  deep_research: true,
   file_upload: true,
   image_generation: true,
   map: true,
@@ -263,7 +262,6 @@ describe('HomePage', () => {
     });
     const guestFeatures = {
       model_selection: false,
-      deep_research: false,
       file_upload: false,
       image_generation: false,
       map: false,

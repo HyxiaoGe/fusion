@@ -11,11 +11,9 @@ from app.services.agent.plan_coordinator import PlanCoordinator
 from app.services.chat.tool_transcript import advance_cutoff
 from app.services.stream.agent_loop_policy import AgentLoopLimitReason
 from app.services.stream.itinerary_observability import ItineraryToolObservation
-from app.services.stream.research_evidence import MAX_RESEARCH_REPAIRS, ResearchEvidenceWorkset
+from app.services.stream.research_evidence import ResearchEvidenceWorkset
 from app.services.stream.run_finalizer import AgentRunStats
 from app.services.stream.tool_recovery_evidence import RecoveryEvidenceWorkset
-
-NO_PROGRESS_SEARCH_SUMMARY_THRESHOLD = 2
 
 
 @dataclass
@@ -31,7 +29,6 @@ class AgentLoopState:
     unknown_terminated: bool = False
     terminal_emitted: bool = False
     superseded_terminal_decided: bool = False
-    consecutive_no_progress_search_results: int = 0
     context_wait_seconds: float = 0.0
     runtime_contexts: dict[str, Any] = field(default_factory=dict)
     unavailable_contexts: dict[str, str] = field(default_factory=dict)
@@ -39,9 +36,6 @@ class AgentLoopState:
     itinerary_tool_observations: list[ItineraryToolObservation] = field(default_factory=list)
     plan_coordinator: PlanCoordinator = field(default_factory=lambda: PlanCoordinator(run_id=""))
     research_workset: ResearchEvidenceWorkset = field(default_factory=ResearchEvidenceWorkset)
-    research_network_required: bool = False
-    research_repair_attempts: int = 0
-    research_plan_update_requires_evidence: bool = False
     failed_tool_names: set[str] = field(default_factory=set)
     degraded_tool_names: set[str] = field(default_factory=set)
     attempted_tool_names: set[str] = field(default_factory=set)
@@ -114,18 +108,8 @@ class AgentLoopState:
     def record_executed_tool_calls(self, tool_call_count: int) -> None:
         self.total_tool_calls += tool_call_count
 
-    def record_no_progress_search_results(self, results: tuple[bool, ...]) -> None:
-        for is_no_progress_search in results:
-            if is_no_progress_search:
-                self.consecutive_no_progress_search_results += 1
-            else:
-                self.consecutive_no_progress_search_results = 0
-
     def record_itinerary_tool_observations(self, observations: list[ItineraryToolObservation]) -> None:
         self.itinerary_tool_observations.extend(observations)
-
-    def should_summarize_no_progress_search(self) -> bool:
-        return self.consecutive_no_progress_search_results >= NO_PROGRESS_SEARCH_SUMMARY_THRESHOLD
 
     def has_document_block(self) -> bool:
         return any(
@@ -143,25 +127,13 @@ class AgentLoopState:
     def record_context_wait(self, seconds: float) -> None:
         self.context_wait_seconds += max(0.0, seconds)
 
-    def configure_research_mode(self, *, network_required: bool) -> None:
-        self.research_network_required = network_required
-
     def record_research_content_blocks(
         self,
         content_blocks: list[Any],
         *,
         summaries: dict[str, tuple[str, list[str]]] | None = None,
-        allow_read_success: bool = True,
     ) -> None:
-        self.research_workset.record_content_blocks(
-            content_blocks,
-            summaries=summaries,
-            allow_read_success=allow_read_success,
-        )
-
-    def record_research_repair(self) -> bool:
-        self.research_repair_attempts += 1
-        return self.research_repair_attempts > MAX_RESEARCH_REPAIRS
+        self.research_workset.record_content_blocks(content_blocks, summaries=summaries)
 
     def active_elapsed_seconds(self, *, now: float, run_start: float) -> float:
         return max(0.0, now - run_start - self.context_wait_seconds)

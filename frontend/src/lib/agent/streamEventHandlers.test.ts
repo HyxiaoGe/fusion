@@ -60,9 +60,6 @@ describe('createAgentStreamEventHandlers', () => {
         max_tool_calls: 20,
         timeout_s: 300,
         plan_mode: 'on',
-        task_mode: 'deep_research',
-        network_profile: 'deep_research',
-        evidence_policy: 'deep_research_v1',
       },
     });
     handlers.onRunProgressUpdated?.({
@@ -95,9 +92,6 @@ describe('createAgentStreamEventHandlers', () => {
           maxToolCalls: 20,
           timeoutS: 300,
           planMode: 'on',
-          taskMode: 'deep_research',
-          networkProfile: 'deep_research',
-          evidencePolicy: 'deep_research_v1',
         },
         sequence: 0,
       },
@@ -115,51 +109,6 @@ describe('createAgentStreamEventHandlers', () => {
         progress: { phase: 'planning', label: '正在理解问题', completedSteps: 0, totalSteps: 4 },
       },
     });
-  });
-
-  it('重连 run_started 保留 knowledge_grounded_v1 evidence policy', () => {
-    const dispatch = vi.fn();
-    const handlers = createAgentStreamEventHandlers({
-      dispatch,
-      isActive: () => true,
-      resolveMessageId: ev => ev.message_id,
-      resolveConversationId: () => 'c1',
-    });
-
-    handlers.onRunStarted?.({
-      type: 'run_started',
-      protocol_version: 2,
-      run_id: 'run-knowledge',
-      parent_run_id: null,
-      step_id: null,
-      parent_step_id: null,
-      tool_call_id: null,
-      sequence: 0,
-      trace_id: 'run-knowledge',
-      ts: 0,
-      conversation_id: 'c1',
-      message_id: 'm1',
-      model: 'gpt',
-      tools: [],
-      config: {
-        max_steps: 1,
-        max_tool_calls: 1,
-        timeout_s: 30,
-        plan_mode: 'auto',
-        task_mode: 'standard',
-        network_profile: 'standard',
-        evidence_policy: 'knowledge_grounded_v1',
-      },
-    });
-
-    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'stream/initRun',
-      payload: expect.objectContaining({
-        config: expect.objectContaining({
-          evidencePolicy: 'knowledge_grounded_v1',
-        }),
-      }),
-    }));
   });
 
   it('新旧 plan 事件归一化为同一 Redux 状态结构', () => {

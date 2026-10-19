@@ -2,7 +2,6 @@
 
 import asyncio
 import unittest
-from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.schemas.chat import PlaceResult, PlaceResultsBlock, Usage
@@ -256,29 +255,24 @@ class OutputProvenanceTests(unittest.IsolatedAsyncioTestCase):
         runtime.handle_tool_calls_round_fn.assert_awaited_once()
         lifecycle.emitter.llm_round_completed.assert_awaited_once()
 
-    async def test_summary_adoption_and_replacement_compare_original_candidate(self):
-        for mode in ("adopt", "research"):
-            with self.subTest(mode=mode):
-                lifecycle = await self._lifecycle()
-                lifecycle.record_detail(reasoning_text="", content_text="模型总结候选")
-                request = replace(
-                    summary_tests.LimitSummaryStepTests._deferred_commit_request(),
-                    task_mode="deep_research" if mode == "research" else "normal",
-                )
-                result = LimitSummaryRoundResult(
-                    reasoning_buf="", content_buf="模型总结候选", usage_data=None, llm_lifecycle=lifecycle
-                )
-                with patch("app.services.stream_state_service.append_chunk", new=AsyncMock()) as append:
-                    await _commit_limit_summary_result(
-                        request=request,
-                        round_result=result,
-                        summary_context=_step_context(),
-                        thinking_block_id="thinking",
-                        text_block_id="step-outcome-text",
-                    )
-                    await lifecycle.finish_success()
-                provenance = lifecycle.emitter.llm_round_completed.call_args.kwargs["output_provenance"]
-                self.assertEqual(provenance["disposition"], "emitted" if mode == "adopt" else "replaced")
-                self.assertEqual(provenance["source"], "model" if mode == "adopt" else "server")
-                self.assertEqual(provenance["block_id"], append.call_args.args[3])
-                self.assertEqual(lifecycle.content_text, "模型总结候选")
+    async def test_summary_adoption_records_model_candidate_as_emitted(self):
+        lifecycle = await self._lifecycle()
+        lifecycle.record_detail(reasoning_text="", content_text="模型总结候选")
+        request = summary_tests.LimitSummaryStepTests._deferred_commit_request()
+        result = LimitSummaryRoundResult(
+            reasoning_buf="", content_buf="模型总结候选", usage_data=None, llm_lifecycle=lifecycle
+        )
+        with patch("app.services.stream_state_service.append_chunk", new=AsyncMock()) as append:
+            await _commit_limit_summary_result(
+                request=request,
+                round_result=result,
+                summary_context=_step_context(),
+                thinking_block_id="thinking",
+                text_block_id="step-outcome-text",
+            )
+            await lifecycle.finish_success()
+        provenance = lifecycle.emitter.llm_round_completed.call_args.kwargs["output_provenance"]
+        self.assertEqual(provenance["disposition"], "emitted")
+        self.assertEqual(provenance["source"], "model")
+        self.assertEqual(provenance["block_id"], append.call_args.args[3])
+        self.assertEqual(lifecycle.content_text, "模型总结候选")

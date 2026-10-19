@@ -1,13 +1,12 @@
-"""原始 URL 与统一来源身份贯穿搜索、引用、研究门禁及恢复。"""
+"""原始 URL 与统一来源身份贯穿搜索、引用、研究证据清单及恢复。"""
 
 import asyncio
 from types import SimpleNamespace
 
-from app.schemas.chat import SearchBlock, SearchSource, SearchSourceSummary, SourceReference, UrlBlock
+from app.schemas.chat import SearchBlock, SearchSource, SearchSourceSummary, SourceReference
 from app.services.final_answer_evidence import build_used_final_answer_evidence
 from app.services.stream.research_evidence import (
     ResearchEvidenceWorkset,
-    assign_missing_source_reference_metadata,
     build_research_untrusted_context_messages,
 )
 from app.services.stream.tool_execution_result import ToolExecutionRecord
@@ -107,20 +106,8 @@ def test_historical_alias_indexes_remain_reserved_and_explicit_answers_keep_alia
     used = build_used_final_answer_evidence(
         content_blocks=[first, second],
         answer_text="来源结论[19]",
-        evidence_policy="deep_research_v1",
-        allowed_citation_indexes={7, 19},
     )
     assert [(item["id"], item["url"], item["citation_index"]) for item in used] == [("ev-second", alias_url, 19)]
-
-
-def test_legacy_metadata_backfill_keeps_raw_urls_and_inherits_explicit_identity():
-    old = _legacy_block("https://example.org/report/", index=7, evidence_id="ev-legacy-report")
-    raw = "https://www.example.org/report?utm_id=new#chapter"
-    new = UrlBlock(type="url_read", url=raw, title="阅读结果")
-    assign_missing_source_reference_metadata([old, new])
-    assert new.source_refs[0]["url"] == raw
-    assert new.source_refs[0]["citation_index"] == 7
-    assert new.source_refs[0]["evidence_id"] == "ev-legacy-report"
 
 
 def test_research_read_uses_full_identity_and_restores_long_original_url():
@@ -135,6 +122,5 @@ def test_research_read_uses_full_identity_and_restores_long_original_url():
     workset = ResearchEvidenceWorkset()
     workset.record_content_blocks([_block(record, [])])
     assert len(workset.successful_read_urls) == 1
-    assert workset.valid_citation_indexes == {1}
-    context = build_research_untrusted_context_messages(workset, include_candidates=False)[0].content
+    context = build_research_untrusted_context_messages(workset)[0].content
     assert raw.replace("&", "&amp;") in context

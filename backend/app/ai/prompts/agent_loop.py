@@ -55,8 +55,6 @@ VISIBLE_RESPONSE_LANGUAGE_PROMPT = render_runtime_prompt("agent_loop.visible_res
 
 TOOL_USAGE_CONTRACT_PROMPT = CODE_DEFAULT_PROMPT_TEMPLATES["tool_usage_contract"]
 
-DEEP_RESEARCH_CONTRACT_PROMPT = render_runtime_prompt("agent_loop.deep_research_contract")
-
 AGENT_PLAN_CONTROL_ON_PROMPT = render_runtime_prompt("agent_loop.plan_control_on")
 
 NO_TOOL_NETWORK_BOUNDARY_PROMPT = CODE_DEFAULT_PROMPT_TEMPLATES["no_tool_network_boundary"]
@@ -65,11 +63,7 @@ NO_VISION_FILE_BOUNDARY_PROMPT = CODE_DEFAULT_PROMPT_TEMPLATES["no_vision_file_b
 
 LIMIT_SUMMARY_PROMPT = CODE_DEFAULT_PROMPT_TEMPLATES["limit_summary"]
 
-NO_PROGRESS_SUMMARY_PROMPT = render_runtime_prompt("agent_loop.no_progress_summary")
-
 NO_TOOL_EVIDENCE_SUMMARY_PROMPT = render_runtime_prompt("agent_loop.no_tool_evidence_summary")
-
-RESEARCH_EVIDENCE_SUMMARY_PROMPT = render_runtime_prompt("agent_loop.research_evidence_summary")
 
 CONTINUATION_SYSTEM_PROMPT = CODE_DEFAULT_PROMPT_TEMPLATES["continuation_system"]
 

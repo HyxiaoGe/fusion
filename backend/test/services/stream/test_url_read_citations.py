@@ -54,8 +54,6 @@ class UrlReadCitationTests(unittest.TestCase):
                 used = build_used_final_answer_evidence(
                     content_blocks=[restored],
                     answer_text=f"结论[{expected}]",
-                    evidence_policy="deep_research_v1",
-                    allowed_citation_indexes={expected},
                 )
                 self.assertEqual([item["url"] for item in used], [url])
 

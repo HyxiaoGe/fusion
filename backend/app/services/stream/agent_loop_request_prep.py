@@ -8,7 +8,6 @@ from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from app.ai.prompts.agent_loop import (
-    DEEP_RESEARCH_CONTRACT_PROMPT,
     get_agent_plan_control_prompt,
     get_no_tool_network_boundary_prompt,
     get_no_vision_file_boundary_prompt,
@@ -21,7 +20,6 @@ from app.ai.prompts.section_ids import (
     AGENT_PLAN_CONTROL,
     CONTINUATION_SYSTEM,
     CURRENT_DOCUMENTS,
-    DEEP_RESEARCH_CONTRACT,
     DOCUMENT_OUTPUT_CONTRACT,
     NO_TOOL_NETWORK_BOUNDARY,
     NO_VISION_FILE_BOUNDARY,
@@ -87,9 +85,6 @@ class AgentLoopCallConfig:
     tool_bindings: list[dict[str, Any]] = field(default_factory=list)
     plan_mode: PlanMode = "auto"
     control_tool_names: frozenset[str] = frozenset()
-    task_mode: str = "standard"
-    network_profile: str = "standard"
-    evidence_policy: str = "standard"
     prompt_bundle_snapshot: PromptBundleSnapshot | None = None
     # 交付形态工具（文档）：不属于能力包，不进计划绑定，计划收口阶段仍可调用。
     output_tool_names: frozenset[str] = frozenset()
@@ -226,8 +221,7 @@ def build_agent_loop_call_config(
     should_use_reasoning = use_reasoning is True or (use_reasoning is None and supports_thinking)
 
     tools_disabled = options.get("disable_tools") is True
-    task_policy = resolve_agent_task_policy(options=options, capabilities=capabilities)
-    requested_plan_mode = task_policy.plan_mode
+    requested_plan_mode = resolve_agent_task_policy(options=options).plan_mode
     supports_function_calling = supports_search_tools(capabilities) and not tools_disabled
     supports_dynamic_tools = supports_dynamic_agent_tools(capabilities) and not tools_disabled
     call_kwargs: dict = {}
@@ -254,7 +248,6 @@ def build_agent_loop_call_config(
     capability_resolution = resolve_run_capability_route(
         available_tool_names=list(available_tools_by_name),
         requested_plan_mode=requested_plan_mode,
-        task_policy=task_policy,
         capabilities=capabilities,
         tools_disabled=tools_disabled,
     )
@@ -280,7 +273,6 @@ def build_agent_loop_call_config(
         with use_prompt_snapshot(prompt_bundle_snapshot):
             tools.extend(knowledge_tools.definitions_factory())
         knowledge_handlers = dict(knowledge_tools.handlers)
-    # 深度研究有自己的取证与综合契约，不叠加 Skill 方法论。
     skill_session = build_skill_session(external_tool_names) if agent_mode and supports_dynamic_tools else None
     skill_handlers: dict[str, Any] = {}
     if skill_session is not None:
@@ -318,9 +310,6 @@ def build_agent_loop_call_config(
         tool_bindings=active_bindings,
         plan_mode=plan_mode,
         control_tool_names=frozenset(control_tool_names),
-        task_mode=task_policy.task_mode,
-        network_profile=task_policy.network_profile,
-        evidence_policy=task_policy.evidence_policy,
         prompt_bundle_snapshot=prompt_bundle_snapshot,
         output_tool_names=frozenset(document_handlers),
         document_context=document_context,
@@ -484,8 +473,6 @@ def _run_prompt_sections(
     skill_session = getattr(call_config, "skill_session", None)
     if skill_session is not None:
         yield SystemPromptSection(SKILLS_CATALOG, skill_session.catalog_prompt())
-    if resolution.package_id == "deep_research":
-        yield SystemPromptSection(DEEP_RESEARCH_CONTRACT, DEEP_RESEARCH_CONTRACT_PROMPT)
     if resolution.network_boundary_required:
         yield SystemPromptSection(
             NO_TOOL_NETWORK_BOUNDARY,

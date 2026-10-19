@@ -594,10 +594,9 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(persisted[-1][-1], block)
         self.assertIs(order[3][2], block)
         self.assertEqual(outcome.tool_names, ["local_place_search"])
-        self.assertEqual(outcome.rich_result_count, 1)
         handler.build_content_block.assert_called_once()
 
-    async def test_registered_future_rich_block_is_emitted_and_counted_without_type_hardcoding(self):
+    async def test_registered_future_rich_block_is_emitted_without_type_hardcoding(self):
         registry_key = ("future_results", 1)
         CONTENT_BLOCK_REGISTRY[registry_key] = ContentBlockRegistration(
             FutureRegisteredResultBlock,
@@ -612,11 +611,9 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
             )
             handler.build_content_block.return_value = future_block
 
-            outcome = await handle_tool_calls_round(request=request)
+            await handle_tool_calls_round(request=request)
         finally:
             CONTENT_BLOCK_REGISTRY.pop(registry_key, None)
-
-        self.assertEqual(outcome.rich_result_count, 1)
         self.assertIs(persisted[-1][-1], future_block)
         self.assertIs(order[3][2], future_block)
         request.emitter.content_block_upserted.assert_awaited_once_with(
@@ -1001,7 +998,6 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
             ToolRoundOutcome(
                 tool_call_count=1,
                 tool_names=["web_search"],
-                no_progress_search_results=(False,),
             ),
         )
         self.assertEqual([entry[0] for entry in order], ["persist", "execute", "record", "persist", "complete"])
@@ -1213,7 +1209,6 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
             ToolRoundOutcome(
                 tool_call_count=1,
                 tool_names=["web_search"],
-                no_progress_search_results=(False,),
             ),
         )
         self.assertEqual([entry[0] for entry in order], ["persist", "execute", "record", "persist", "complete"])

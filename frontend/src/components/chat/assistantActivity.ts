@@ -128,14 +128,6 @@ function isExecutionMode(
   currentRun: AgentRunState | null,
   contentBlocks: ContentBlock[],
 ): boolean {
-  const config = currentRun?.config;
-  if (
-    config?.evidencePolicy === 'knowledge_grounded_v1'
-    || config?.taskMode === 'deep_research'
-  ) {
-    return true;
-  }
-
   if (
     (currentRun?.totalToolCalls ?? 0) > 0
     || currentRun?.steps.some(step => step.toolCalls.length > 0)

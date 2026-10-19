@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from app.services.stream.agent_loop_policy import AgentLoopLimits
-from app.services.stream.run_mode import RunMode, resolve_run_mode
 from app.services.stream.run_output import RunOutput
 from app.services.stream.structured_answer import NO_STRUCTURED_ANSWERS, StructuredAnswers
 
@@ -54,18 +53,12 @@ class AgentLoopRuntime:
     control_tool_names: frozenset[str] = frozenset()
     output_tool_names: frozenset[str] = frozenset()
     skill_tool_names: frozenset[str] = frozenset()
-    task_mode: str = "standard"
-    evidence_policy: str = "standard"
     llm_round_detail_scheduler: Callable[[Any], Any] | None = None
     capability_resolution: RunCapabilityResolution | None = None
     fallback_response_context: FallbackResponseContext | None = None
     structured_answers: StructuredAnswers = NO_STRUCTURED_ANSWERS
     # 游客只能用这些模型，换备用模型时也只在里面挑；None 表示不限。
     allowed_model_ids: tuple[str, ...] | None = None
-
-    @property
-    def mode(self) -> RunMode:
-        return resolve_run_mode(self.task_mode)
 
     @property
     def unplanned_assist_tool_names(self) -> frozenset[str]:

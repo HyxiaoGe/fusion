@@ -12,7 +12,6 @@ import type {
   AgentPlanMode,
   AgentPlanSource,
   AgentProgressPhase,
-  AgentTaskMode,
   SseEnvelope,
   SubmitAgentContextResultInput,
 } from '@/types/agentRun';
@@ -45,7 +44,6 @@ interface ChatRequest {
   options?: {
     use_reasoning?: boolean;
     plan_mode?: AgentPlanMode;
-    task_mode?: AgentTaskMode;
     temperature?: number;
     max_tokens?: number;
     [key: string]: unknown;

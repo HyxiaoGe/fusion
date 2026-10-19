@@ -7,7 +7,6 @@ USER_MEMORY = "user_memory"
 TOOL_USAGE_CONTRACT = "tool_usage_contract"
 TOOL_SELECTION_POLICY = "tool_selection_policy"
 AGENT_PLAN_CONTROL = "agent_plan_control"
-DEEP_RESEARCH_CONTRACT = "deep_research_contract"
 NO_TOOL_NETWORK_BOUNDARY = "no_tool_network_boundary"
 NO_VISION_FILE_BOUNDARY = "no_vision_file_boundary"
 VISIBLE_RESPONSE_LANGUAGE = "visible_response_language"
@@ -16,12 +15,8 @@ DOCUMENT_OUTPUT_CONTRACT = "document_output_contract"
 CURRENT_DOCUMENTS = "current_documents"
 SKILLS_CATALOG = "skills_catalog"
 
-RESEARCH_COMPLETION_REPAIR = "research_completion_repair"
-DEEP_RESEARCH_STAGE = "deep_research_stage"
 RESEARCH_EVIDENCE_WORKSET = "research_evidence_workset"
 
-NO_PROGRESS_SUMMARY = "no_progress_summary"
-RESEARCH_EVIDENCE_SUMMARY = "research_evidence_summary"
 LIMIT_SUMMARY = "limit_summary"
 SUMMARY_TOOL_PROTOCOL_RETRY = "summary_tool_protocol_retry"
 
@@ -32,14 +27,6 @@ TERMINAL_CONTROL_SECTION_IDS = frozenset(
         AGENT_PLAN_CONTROL,
         DOCUMENT_OUTPUT_CONTRACT,
         SKILLS_CATALOG,
-    }
-)
-
-DEEP_RESEARCH_CONTROL_SECTION_IDS = frozenset(
-    {
-        DEEP_RESEARCH_CONTRACT,
-        DEEP_RESEARCH_STAGE,
-        RESEARCH_COMPLETION_REPAIR,
     }
 )
 

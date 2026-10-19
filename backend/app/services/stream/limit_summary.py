@@ -11,17 +11,13 @@ from typing import TYPE_CHECKING, Any
 from app.ai.llm_round_observability import create_llm_round_observation
 from app.ai.prompts.agent_loop import LIMIT_SUMMARY_PROMPT as _LIMIT_SUMMARY_PROMPT
 from app.ai.prompts.agent_loop import (
-    NO_PROGRESS_SUMMARY_PROMPT,
     NO_TOOL_EVIDENCE_SUMMARY_PROMPT,
-    RESEARCH_EVIDENCE_SUMMARY_PROMPT,
     get_limit_summary_prompt,
 )
 from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages, to_provider_messages
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.ai.prompts.section_ids import (
     LIMIT_SUMMARY,
-    NO_PROGRESS_SUMMARY,
-    RESEARCH_EVIDENCE_SUMMARY,
     SUMMARY_TOOL_PROTOCOL_RETRY,
     is_terminal_control_section,
 )
@@ -45,8 +41,6 @@ from app.services.stream.provider_content_filter import (
     replace_with_content_filtered_block,
 )
 from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
-from app.services.stream.research_evidence import ResearchEvidenceWorkset
-from app.services.stream.run_mode import STANDARD_RUN_MODE, RunMode, resolve_run_mode
 from app.services.stream.run_output import RunOutput
 from app.services.stream.safe_fallback_response import default_safe_fallback, render_safe_fallback
 from app.services.stream.tool_ban import forbid_tool_calls, without_tool_definitions
@@ -109,9 +103,6 @@ class LimitSummaryStepRequest:
     on_context_updated: Callable[[ContextUsage], None] | None = None
     assistant_message_id: str | None = None
     summary_finish_reason: str = "limit_summary"
-    task_mode: str = "standard"
-    evidence_policy: str = "standard"
-    research_workset: ResearchEvidenceWorkset | None = None
     defer_output: bool = True
     llm_round_detail_scheduler: Callable[[Any], Any] | None = None
     capability_resolution: RunCapabilityResolution | None = None
@@ -122,13 +113,9 @@ class LimitSummaryStepRequest:
     # 历史轮次回放的工具调用 id；总结无视工具禁令后的重做不带工具定义，需移除这些事务。
     history_tool_call_ids: frozenset[str] = frozenset()
 
-    @property
-    def mode(self) -> RunMode:
-        return resolve_run_mode(self.task_mode)
-
 
 def _should_defer_summary_output(request: LimitSummaryStepRequest) -> bool:
-    return request.defer_output or request.mode.defer_round_output
+    return request.defer_output
 
 
 def build_limit_summary_call_kwargs(call_kwargs: dict) -> dict:
@@ -145,54 +132,35 @@ def compute_summary_timeout(*, total_timeout_s: int, run_start: float, clock: Ca
 def append_limit_summary_prompt(
     messages: list[PromptMessage | dict],
     *,
-    summary_finish_reason: str = "limit_summary",
-    mode: RunMode = STANDARD_RUN_MODE,
-    evidence_policy: str = "standard",
     content_blocks: list | None = None,
     capability_resolution: RunCapabilityResolution | None = None,
     recovery_evidence: RecoveryEvidenceWorkset | None = None,
     document_delivered: bool = False,
 ) -> None:
     messages[:] = ensure_prompt_messages(messages)
-    if summary_finish_reason == "no_progress_summary":
-        prompt = NO_PROGRESS_SUMMARY_PROMPT
-        section_id = NO_PROGRESS_SUMMARY
-    elif summary_finish_reason == "research_evidence_repair_exhausted":
-        prompt = RESEARCH_EVIDENCE_SUMMARY_PROMPT
-        section_id = RESEARCH_EVIDENCE_SUMMARY
-    else:
-        prompt = get_limit_summary_prompt()
-        section_id = LIMIT_SUMMARY
-    prompt = mode.extend_summary_prompt(prompt, section_id=section_id)
+    prompt = get_limit_summary_prompt()
     # 一次工具证据都没有时，"基于已收集的信息"指向空集；补上诚实下限，避免用参数记忆补齐。
     if content_blocks is not None and not has_tool_evidence(content_blocks, recovery_evidence=recovery_evidence):
         prompt = f"{prompt}\n\n{NO_TOOL_EVIDENCE_SUMMARY_PROMPT}"
     if document_delivered:
         prompt = f"{prompt}\n\n{render_runtime_prompt('documents.delivered_summary')}"
-    messages.append(PromptMessage(role="system", content=prompt, section_id=section_id))
+    messages.append(PromptMessage(role="system", content=prompt, section_id=LIMIT_SUMMARY))
 
 
 def remove_conflicting_tool_usage_contract(
     messages: list[PromptMessage | dict],
     *,
-    mode: RunMode = STANDARD_RUN_MODE,
-    final_synthesis: bool = False,
     preserve_web_tool_context: bool = False,
 ) -> None:
     """收尾总结移除会继续诱发工具协议的旧契约与事务历史。"""
 
-    del final_synthesis  # 终局总结统一清理控制契约，不再按结束原因分叉。
     normalized = ensure_prompt_messages(messages)
     # 查证总结要保留已格式化的读页正文，并保持 assistant/tool 消息成对。
-    strip_tool_transactions = mode.summary_strips_tool_transactions or (
-        not preserve_web_tool_context and _only_recoverable_tool_transactions(messages)
-    )
+    strip_tool_transactions = not preserve_web_tool_context and _only_recoverable_tool_transactions(messages)
     filtered: list[PromptMessage] = []
     for message in normalized:
         role = message.role
         if role == "system" and is_terminal_control_section(message.section_id):
-            continue
-        if role == "system" and message.section_id in mode.summary_control_section_ids:
             continue
         if strip_tool_transactions and role == "assistant" and message.get("tool_calls"):
             continue
@@ -628,7 +596,6 @@ async def run_summary_round_with_timeout(
                 ),
                 timeout=retry_remaining,
             )
-            next_round_index += 1
         except asyncio.TimeoutError:
             warning(
                 "无工具收尾重试超出剩余预算，使用安全失败文案: "
@@ -664,77 +631,7 @@ async def run_summary_round_with_timeout(
             llm_lifecycle=retry_result.llm_lifecycle,
         )
 
-    return await _repair_summary_once(
-        request=request,
-        summary_context=summary_context,
-        thinking_block_id=thinking_block_id,
-        text_block_id=text_block_id,
-        result=result,
-        remaining=remaining - (time.monotonic() - started_at),
-        round_index=next_round_index,
-    )
-
-
-async def _repair_summary_once(
-    *,
-    request: LimitSummaryStepRequest,
-    summary_context: Any,
-    thinking_block_id: str,
-    text_block_id: str,
-    result: LimitSummaryRoundResult,
-    remaining: float,
-    round_index: int,
-) -> LimitSummaryRoundResult:
-    """模式判定收尾回答需要修正时（如深度研究引用缺失或越界），允许一次无工具修正。"""
-
-    if result.finish_reason == CONTENT_FILTER_FINISH_REASON:
-        return result
-    repair = request.mode.summary_repair(request, result)
-    if repair is None:
-        return result
-    if remaining <= 0:
-        return result
-    request.messages.append(
-        PromptMessage(
-            role="system",
-            content=repair.prompt,
-            section_id=repair.section_id,
-        )
-    )
-    if result.llm_lifecycle is not None:
-        result.llm_lifecycle.suppress_output(repair.suppress_reason)
-    await _finish_summary_round_lifecycle(result, model_output_visible=False)
-    warning = request.warning_fn if request.warning_fn is not None else logger.warning
-    try:
-        repaired = await asyncio.wait_for(
-            call_limit_summary_round(
-                request=request,
-                thinking_block_id=thinking_block_id,
-                text_block_id=text_block_id,
-                step_id=summary_context.step_id,
-                round_index=round_index,
-            ),
-            timeout=remaining,
-        )
-    except asyncio.TimeoutError:
-        warning(f"收尾修正超出剩余预算: conv_id={request.conversation_id}, budget={remaining}s")
-        return result
-    if _is_summary_tool_protocol_violation(repaired):
-        await _finish_summary_round_lifecycle(repaired, model_output_visible=False)
-        warning(
-            "收尾修正返回工具协议，保留原候选等待安全门禁: "
-            f"conv_id={request.conversation_id}, run_id={request.run_id}, step={request.step_number}"
-        )
-        return result
-    return LimitSummaryRoundResult(
-        reasoning_buf=repaired.reasoning_buf,
-        content_buf=repaired.content_buf,
-        usage_data=_combine_optional_usage(result.usage_data, repaired.usage_data),
-        context=repaired.context,
-        tool_calls=(),
-        finish_reason=repaired.finish_reason,
-        llm_lifecycle=repaired.llm_lifecycle,
-    )
+    return result
 
 
 def _combine_optional_usage(*items: Usage | None) -> Usage | None:
@@ -838,16 +735,9 @@ async def run_limit_summary_step(
 ) -> LimitSummaryOutcome:
     summary_context = await start_limit_summary_step(request=request)
 
-    remove_conflicting_tool_usage_contract(
-        request.messages,
-        mode=request.mode,
-        final_synthesis=True,
-    )
+    remove_conflicting_tool_usage_contract(request.messages)
     append_limit_summary_prompt(
         request.messages,
-        summary_finish_reason=request.summary_finish_reason,
-        mode=request.mode,
-        evidence_policy=request.evidence_policy,
         content_blocks=request.content_blocks,
         capability_resolution=request.capability_resolution,
         recovery_evidence=request.recovery_evidence,
@@ -965,14 +855,6 @@ async def _commit_limit_summary_result(
             )
         )
 
-    committed = await request.mode.commit_summary(
-        request,
-        round_result=round_result,
-        text_block_id=text_block_id,
-        step_id=summary_context.step_id,
-    )
-    if committed is not None:
-        return committed
     answer = round_result.content_buf.strip()
     incomplete = round_result.finish_reason == "protocol_fallback" or not answer
     if not answer or round_result.finish_reason == "protocol_fallback":

@@ -4,7 +4,6 @@ import pytest
 from pydantic import ValidationError
 
 from app.schemas.trajectory import TrajectoryCapabilityResolution
-from app.services.stream.agent_task_policy import AgentTaskPolicy
 from app.services.stream.run_capability_router import (
     RunCapabilityResolution,
     resolve_run_capability_route,
@@ -24,34 +23,16 @@ ALL_TOOLS = [
 CAPABILITIES = {"functionCalling": True, "searchCapable": True}
 
 
-def _task_policy(*, task_mode: str = "standard", plan_mode: str = "auto") -> AgentTaskPolicy:
-    if task_mode == "deep_research":
-        return AgentTaskPolicy(
-            task_mode="deep_research",
-            plan_mode="on",
-            network_profile="deep_research",
-            evidence_policy="deep_research_v1",
-        )
-    return AgentTaskPolicy(
-        task_mode="standard",
-        plan_mode=plan_mode,
-        network_profile="standard",
-        evidence_policy="standard",
-    )
-
-
 def _resolve(
     *,
     available_tool_names: list[str] | None = None,
     requested_plan_mode: str = "auto",
-    task_mode: str = "standard",
     capabilities: dict | None = None,
     tools_disabled: bool = False,
 ) -> RunCapabilityResolution:
     return resolve_run_capability_route(
         available_tool_names=ALL_TOOLS if available_tool_names is None else available_tool_names,
         requested_plan_mode=requested_plan_mode,
-        task_policy=_task_policy(task_mode=task_mode, plan_mode=requested_plan_mode),
         capabilities=CAPABILITIES if capabilities is None else capabilities,
         tools_disabled=tools_disabled,
     )
@@ -102,23 +83,11 @@ def test_mcp_tools_are_announced_directly():
     assert _trajectory(resolution).deferred_tool_names == []
 
 
-def test_deep_research_announces_only_web_search_and_url_read():
-    resolution = _resolve(task_mode="deep_research")
-
-    assert resolution.package_id == "deep_research"
-    assert resolution.reason_codes == ("deep_research_mode",)
-    assert resolution.external_tool_names == ("web_search", "url_read")
-    assert resolution.effective_plan_mode == "on"
-    _trajectory(resolution)
-
-
 @pytest.mark.parametrize(
     ("kwargs", "reason"),
     [
         ({"tools_disabled": True}, "tools_disabled"),
         ({"capabilities": {"functionCalling": False}}, "function_calling_unavailable"),
-        ({"task_mode": "deep_research", "capabilities": {"functionCalling": True}}, "search_capability_unavailable"),
-        ({"task_mode": "deep_research", "available_tool_names": ["web_search"]}, "required_tools_unavailable"),
         ({"available_tool_names": []}, "required_tools_unavailable"),
     ],
 )

@@ -10,14 +10,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from app.ai.prompts.agent_loop import NO_TOOL_EVIDENCE_SUMMARY_PROMPT, VISIBLE_RESPONSE_LANGUAGE_PROMPT
 from app.ai.prompts.prompt_message import PromptMessage
 from app.ai.prompts.section_ids import (
-    AGENT_PLAN_CONTROL,
-    APP_IDENTITY,
-    DEEP_RESEARCH_CONTRACT,
-    RESEARCH_EVIDENCE_WORKSET,
-    TOOL_USAGE_CONTRACT,
+    LIMIT_SUMMARY as LIMIT_SUMMARY_SECTION_ID,
 )
 from app.ai.prompts.section_ids import (
-    LIMIT_SUMMARY as LIMIT_SUMMARY_SECTION_ID,
+    TOOL_USAGE_CONTRACT,
 )
 from app.schemas.chat import (
     ContextUsage,
@@ -31,7 +27,6 @@ from app.services.chat.context_manager import ContextPlan
 from app.services.chat.context_manager import prepare_context as prepare_context_real
 from app.services.stream import limit_summary as limit_summary_module
 from app.services.stream import llm_stream as llm_stream_module
-from app.services.stream.deep_research_mode import DEEP_RESEARCH_INCOMPLETE_TEXT, DEEP_RESEARCH_RUN_MODE
 from app.services.stream.limit_summary import (
     LIMIT_SUMMARY_PROMPT,
     SUMMARY_PROTOCOL_FALLBACK_TEXT,
@@ -44,7 +39,6 @@ from app.services.stream.limit_summary import (
     remove_conflicting_tool_usage_contract,
     run_limit_summary_step,
 )
-from app.services.stream.research_evidence import ResearchEvidenceWorkset
 from app.services.stream.run_capability_router import RunCapabilityResolution
 from app.services.stream.run_output import ConversationStreamOutput
 from app.services.stream.step_lifecycle import AgentStepContext
@@ -82,7 +76,7 @@ def _summary_recovery_evidence() -> RecoveryEvidenceWorkset:
     return evidence
 
 
-def _deep_summary_evidence() -> tuple[ResearchEvidenceWorkset, list]:
+def _read_evidence_blocks() -> list:
     blocks = [
         SearchBlock(
             type="search",
@@ -140,9 +134,7 @@ def _deep_summary_evidence() -> tuple[ResearchEvidenceWorkset, list]:
             source_count=1,
         ),
     ]
-    workset = ResearchEvidenceWorkset()
-    workset.record_content_blocks(blocks)
-    return workset, blocks
+    return blocks
 
 
 class LimitSummaryHelpersTests(unittest.TestCase):
@@ -171,18 +163,6 @@ class LimitSummaryHelpersTests(unittest.TestCase):
         remove_conflicting_tool_usage_contract(messages)
 
         self.assertEqual(messages, [keep, PromptMessage(role="user", content="请总结")])
-
-    def test_no_progress_summary_uses_neutral_prompt_without_limit_language(self):
-        messages = []
-
-        append_limit_summary_prompt(messages, summary_finish_reason="no_progress_summary")
-
-        content = messages[-1]["content"]
-        self.assertIn("searches are no longer producing useful new information", content)
-        self.assertIn("Do not mention internal stop reasons", content)
-        self.assertNotIn("tool-call limit", content)
-        self.assertNotIn("quota", content)
-        self.assertNotIn("budget", content)
 
     def test_build_limit_summary_call_kwargs_forbids_tool_calls_but_keeps_definitions(self):
         tools = [{"function": {"name": "web_search"}}]
@@ -251,47 +231,6 @@ class LimitSummaryHelpersTests(unittest.TestCase):
 
         self.assertIs(result, accumulated_usage)
 
-    def test_deep_summary_removes_tool_history_and_control_prompts_but_keeps_evidence(self):
-        messages = [
-            PromptMessage(role="system", content="【Fusion 身份一致性规则】保留", section_id=APP_IDENTITY),
-            PromptMessage(
-                role="system",
-                content="【自主联网判断规则】按需调用工具",
-                section_id=TOOL_USAGE_CONTRACT,
-            ),
-            PromptMessage(
-                role="system",
-                content="【执行计划控制规则】必须更新计划",
-                section_id=AGENT_PLAN_CONTROL,
-            ),
-            PromptMessage(
-                role="system",
-                content="【深度研究执行约束】先建立计划",
-                section_id=DEEP_RESEARCH_CONTRACT,
-            ),
-            PromptMessage(
-                role="system",
-                content="【本轮研究证据工作集】\n[2] status=read_success",
-                section_id=RESEARCH_EVIDENCE_WORKSET,
-            ),
-            {"role": "assistant", "content": "", "tool_calls": [{"name": "url_read"}]},
-            {"role": "tool", "content": "原始工具结果"},
-            {"role": "user", "content": "原始研究问题"},
-            {"role": "user", "content": "<web_context>已读来源安全投影</web_context>"},
-        ]
-
-        remove_conflicting_tool_usage_contract(messages, mode=DEEP_RESEARCH_RUN_MODE)
-
-        self.assertEqual(
-            messages,
-            [
-                {"role": "system", "content": "【Fusion 身份一致性规则】保留"},
-                {"role": "system", "content": "【本轮研究证据工作集】\n[2] status=read_success"},
-                {"role": "user", "content": "原始研究问题"},
-                {"role": "user", "content": "<web_context>已读来源安全投影</web_context>"},
-            ],
-        )
-
     def test_standard_final_summary_keeps_context7_and_non_search_tool_transactions(self):
         messages = [
             {"role": "user", "content": "查询 FastAPI 文档并比较路线"},
@@ -338,7 +277,6 @@ class LimitSummaryHelpersTests(unittest.TestCase):
 
         remove_conflicting_tool_usage_contract(
             messages,
-            final_synthesis=True,
         )
 
         self.assertEqual(messages, expected)
@@ -355,7 +293,6 @@ class LimitSummaryHelpersTests(unittest.TestCase):
 
         remove_conflicting_tool_usage_contract(
             messages,
-            final_synthesis=True,
         )
 
         self.assertEqual(messages, [{"role": "user", "content": "请综合结论"}])
@@ -397,7 +334,6 @@ class LimitSummaryHelpersTests(unittest.TestCase):
 
         remove_conflicting_tool_usage_contract(
             messages,
-            final_synthesis=True,
         )
 
         self.assertEqual(messages, expected)
@@ -672,10 +608,9 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
                 complete_step.assert_not_awaited()
                 warning.assert_not_called()
 
-    def _deep_request(
+    def _evidence_request(
         self,
         *,
-        workset,
         content_blocks,
         answer,
         model_id="gpt-4",
@@ -686,11 +621,11 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
 
         async def start_step_fn(**_kwargs):
             return AgentStepContext(
-                step_id="step-deep-summary",
+                step_id="step-evidence-summary",
                 step_number=9,
                 started_at=100.0,
-                thinking_block_id="blk-deep-thinking",
-                text_block_id="blk-deep-text",
+                thinking_block_id="blk-evidence-thinking",
+                text_block_id="blk-evidence-text",
             )
 
         async def prepare_context_fn(**kwargs):
@@ -718,7 +653,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             provider="moonshot" if model_id == "kimi-k3" else "openai",
             litellm_model=f"moonshot/{model_id}" if model_id == "kimi-k3" else f"openai/{model_id}",
             litellm_kwargs={},
-            messages=[{"role": "user", "content": "深度研究"}],
+            messages=[{"role": "user", "content": "综合两个来源"}],
             should_use_reasoning=bool(reasoning_buf),
             content_blocks=content_blocks,
             call_kwargs={},
@@ -733,18 +668,14 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             stream_round_fn=stream_round_fn,
             log_round_summary_fn=lambda **_kwargs: None,
             clock=lambda: 120.0,
-            task_mode="deep_research",
-            evidence_policy="deep_research_v1",
-            research_workset=workset,
         )
         return request, emitter, stream_kwargs, prepare_context_fn
 
     async def test_deferred_real_tool_delta_emits_first_before_discard_completion(self):
         from app.ai.llm_round_observability import LLMRoundObservation, RoundMetadata
 
-        workset, blocks = _deep_summary_evidence()
-        request, emitter, _stream_kwargs, prepare_context_fn = self._deep_request(
-            workset=workset,
+        blocks = _read_evidence_blocks()
+        request, emitter, _stream_kwargs, prepare_context_fn = self._evidence_request(
             content_blocks=list(blocks),
             answer="unused",
         )
@@ -810,15 +741,14 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events, ["started", "first", "completed"])
 
     async def test_post_stream_summary_context_error_and_cancel_close_round(self):
-        workset, blocks = _deep_summary_evidence()
+        blocks = _read_evidence_blocks()
         for primary in (
             RuntimeError("final summary context failed"),
             asyncio.CancelledError(),
             StreamOwnershipLostError("流已停止"),
         ):
             with self.subTest(primary=type(primary).__name__):
-                request, emitter, _stream_kwargs, prepare_context_fn = self._deep_request(
-                    workset=workset,
+                request, emitter, _stream_kwargs, prepare_context_fn = self._evidence_request(
                     content_blocks=list(blocks),
                     answer="candidate",
                 )
@@ -846,10 +776,9 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
                 else:
                     emitter.llm_round_failed.assert_awaited_once()
 
-    async def test_deep_summary_defers_and_emits_valid_answer_once_with_used_evidence(self):
-        workset, blocks = _deep_summary_evidence()
-        request, emitter, stream_kwargs, prepare_context_fn = self._deep_request(
-            workset=workset,
+    async def test_summary_defers_and_emits_answer_once(self):
+        blocks = _read_evidence_blocks()
+        request, emitter, stream_kwargs, prepare_context_fn = self._evidence_request(
             content_blocks=blocks,
             answer="综合结论来自两个已读来源。[2][3]",
         )
@@ -865,14 +794,12 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
         append_chunk.assert_awaited_once()
         self.assertEqual(append_chunk.await_args.args[2], "综合结论来自两个已读来源。[2][3]")
         self.assertEqual(request.content_blocks[-1].text, "综合结论来自两个已读来源。[2][3]")
-        self.assertEqual(emitter.evidence_item_upserted.await_count, 2)
 
-    async def test_deep_summary_streams_and_persists_reasoning_for_k3_and_non_k3(self):
+    async def test_summary_streams_and_persists_reasoning_for_k3_and_non_k3(self):
         for model_id in ("kimi-k3", "gpt-4"):
             with self.subTest(model_id=model_id):
-                workset, blocks = _deep_summary_evidence()
-                request, _emitter, stream_kwargs, prepare_context_fn = self._deep_request(
-                    workset=workset,
+                blocks = _read_evidence_blocks()
+                request, _emitter, stream_kwargs, prepare_context_fn = self._evidence_request(
                     content_blocks=blocks,
                     answer="综合结论来自两个已读来源。[2][3]",
                     model_id=model_id,
@@ -892,149 +819,15 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(len(thinking_blocks), 1)
                 self.assertEqual(thinking_blocks[0].thinking, "只供总结调用内部使用的推理")
 
-    async def test_deep_summary_replaces_invalid_or_insufficient_answer_with_deterministic_text(self):
-        complete_workset, complete_blocks = _deep_summary_evidence()
-        incomplete_workset = ResearchEvidenceWorkset()
-        cases = ((incomplete_workset, [], "看似完成的结论。[2]"),)
-
-        for workset, blocks, answer in cases:
-            with self.subTest(answer=answer):
-                request, emitter, _stream_kwargs, prepare_context_fn = self._deep_request(
-                    workset=workset,
-                    content_blocks=list(blocks),
-                    answer=answer,
-                )
-                with (
-                    patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
-                    patch("app.services.stream_state_service.append_chunk", new=AsyncMock()) as append_chunk,
-                ):
-                    outcome = await run_limit_summary_step(request=request)
-
-                self.assertTrue(outcome.incomplete)
-                append_chunk.assert_awaited_once()
-                self.assertEqual(append_chunk.await_args.args[2], DEEP_RESEARCH_INCOMPLETE_TEXT)
-                self.assertEqual(request.content_blocks[-1].text, DEEP_RESEARCH_INCOMPLETE_TEXT)
-                emitter.evidence_item_upserted.assert_not_awaited()
-
-    async def test_deep_summary_repairs_missing_or_invalid_citation_once_before_emitting(self):
-        cases = (
-            ("缺少引用的完整结论。", "补齐引用后的完整结论。[2][3]"),
-            ("使用了错误编号。[99]", "改用已读来源编号后的完整结论。[2][3]"),
-        )
-
-        for invalid_answer, repaired_answer in cases:
-            with self.subTest(invalid_answer=invalid_answer):
-                workset, blocks = _deep_summary_evidence()
-                request, emitter, stream_kwargs, prepare_context_fn = self._deep_request(
-                    workset=workset,
-                    content_blocks=list(blocks),
-                    answer=[invalid_answer, repaired_answer],
-                )
-                warnings = []
-                request = LimitSummaryStepRequest(
-                    **{
-                        **request.__dict__,
-                        "warning_fn": warnings.append,
-                    }
-                )
-                with (
-                    patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
-                    patch("app.services.stream_state_service.append_chunk", new=AsyncMock()) as append_chunk,
-                ):
-                    outcome = await run_limit_summary_step(request=request)
-
-                self.assertFalse(outcome.incomplete)
-                self.assertEqual(len(stream_kwargs), 2)
-                self.assertEqual(request.llm_call_fn.await_count, 2)
-                sent_snapshots = [call.args[2] for call in request.llm_call_fn.await_args_list]
-                self.assertTrue(
-                    all(
-                        sum(str(item.get("content") or "").count(VISIBLE_RESPONSE_LANGUAGE_PROMPT) for item in snapshot)
-                        == 1
-                        for snapshot in sent_snapshots
-                    )
-                )
-                self.assertTrue(
-                    any(
-                        "[Deep-research completion validation]" in str(message.get("content") or "")
-                        for message in sent_snapshots[1]
-                    )
-                )
-                self.assertTrue(sent_snapshots[1][-1]["content"].endswith(VISIBLE_RESPONSE_LANGUAGE_PROMPT))
-                self.assertFalse(
-                    any(VISIBLE_RESPONSE_LANGUAGE_PROMPT in str(item.get("content") or "") for item in request.messages)
-                )
-                append_chunk.assert_awaited_once()
-                self.assertEqual(append_chunk.await_args.args[2], repaired_answer)
-                self.assertEqual(request.content_blocks[-1].text, repaired_answer)
-                self.assertEqual(emitter.evidence_item_upserted.await_count, 2)
-                self.assertTrue(any("引用校验未通过" in warning for warning in warnings))
-                self.assertTrue(
-                    any(
-                        "[Deep-research completion validation]" in str(message.get("content", ""))
-                        for message in request.messages
-                    )
-                )
-
-    async def test_deep_summary_keeps_deterministic_failure_when_citation_repair_still_invalid(self):
-        workset, blocks = _deep_summary_evidence()
-        request, emitter, stream_kwargs, prepare_context_fn = self._deep_request(
-            workset=workset,
-            content_blocks=list(blocks),
-            answer=["伪造引用。[99]", "仍然伪造引用。[98]"],
-        )
-
-        with (
-            patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
-            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()) as append_chunk,
-        ):
-            outcome = await run_limit_summary_step(request=request)
-
-        self.assertTrue(outcome.incomplete)
-        self.assertEqual(len(stream_kwargs), 2)
-        append_chunk.assert_awaited_once()
-        self.assertEqual(append_chunk.await_args.args[2], DEEP_RESEARCH_INCOMPLETE_TEXT)
-        self.assertEqual(request.content_blocks[-1].text, DEEP_RESEARCH_INCOMPLETE_TEXT)
-        emitter.evidence_item_upserted.assert_not_awaited()
-
-    async def test_deep_summary_closes_malformed_citation_repair_round(self):
-        workset, blocks = _deep_summary_evidence()
-        request, emitter, _stream_kwargs, prepare_context_fn = self._deep_request(
-            workset=workset,
-            content_blocks=list(blocks),
-            answer="未引用的候选",
-        )
-        request = replace(
-            request,
-            stream_round_fn=AsyncMock(
-                side_effect=[
-                    ("", "未引用的候选", [], "stop", Usage(input_tokens=1, output_tokens=1)),
-                    ("隐藏协议", "", [], "tool_protocol_error", Usage(input_tokens=1, output_tokens=1)),
-                ]
-            ),
-        )
-
-        with (
-            patch("app.services.stream.limit_summary.prepare_context", new=prepare_context_fn),
-            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()),
-        ):
-            outcome = await run_limit_summary_step(request=request)
-
-        self.assertTrue(outcome.incomplete)
-        self.assertEqual(emitter.llm_round_completed.await_count, 2)
-        self.assertTrue(all(call.kwargs["ttft_ms"] is None for call in emitter.llm_round_completed.await_args_list))
-
     async def test_malformed_summary_retry_exception_closes_both_rounds(self):
-        workset, blocks = _deep_summary_evidence()
-        request, emitter, _stream_kwargs, prepare_context_fn = self._deep_request(
-            workset=workset,
+        blocks = _read_evidence_blocks()
+        request, emitter, _stream_kwargs, prepare_context_fn = self._evidence_request(
             content_blocks=list(blocks),
             answer="unused",
         )
         primary = RuntimeError("retry provider failed")
         request = replace(
             request,
-            task_mode="standard",
             stream_round_fn=AsyncMock(
                 side_effect=[
                     ("隐藏协议", "", [], "tool_protocol_error", Usage(input_tokens=1, output_tokens=1)),
@@ -1052,7 +845,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(emitter.llm_round_completed.await_args.kwargs["ttft_ms"])
         emitter.llm_round_failed.assert_awaited_once()
 
-    async def test_no_progress_summary_removes_conflicting_tool_usage_contract_before_call(self):
+    async def test_summary_removes_conflicting_tool_usage_contract_before_call(self):
         sent_messages = []
 
         async def start_step_fn(**_kwargs):
@@ -1110,7 +903,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             stream_round_fn=AsyncMock(return_value=("", "最终答复", [], "stop", None)),
             log_round_summary_fn=lambda **_kwargs: None,
             clock=lambda: 120.0,
-            summary_finish_reason="no_progress_summary",
+            summary_finish_reason="limit_summary",
         )
 
         with (
@@ -1123,9 +916,9 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             str(message.get("content", "")) for message in sent_messages if message.get("role") == "system"
         )
         self.assertNotIn("【工具调用一致性规则】", system_text)
-        self.assertIn("searches are no longer producing useful new information", system_text)
+        self.assertIn(LIMIT_SUMMARY_PROMPT, system_text)
 
-    async def test_no_progress_summary_retries_once_when_model_returns_tool_protocol(self):
+    async def test_summary_retries_once_when_model_returns_tool_protocol(self):
         content_blocks = []
         warnings = []
         emitter = AsyncMock()
@@ -1195,7 +988,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             log_round_summary_fn=lambda **_kwargs: None,
             warning_fn=warnings.append,
             clock=lambda: 120.0,
-            summary_finish_reason="no_progress_summary",
+            summary_finish_reason="limit_summary",
         )
 
         with (
@@ -1306,7 +1099,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
                 completed = emitter.llm_round_completed.await_args.kwargs
                 self.assertEqual(completed["output_provenance"]["reason"], "content_filtered")
 
-    async def test_no_progress_summary_uses_safe_fallback_after_repeated_tool_protocol(self):
+    async def test_summary_uses_safe_fallback_after_repeated_tool_protocol(self):
         content_blocks = []
         emitter = AsyncMock()
 
@@ -1361,7 +1154,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             stream_round_fn=AsyncMock(side_effect=[tool_protocol_result, tool_protocol_result]),
             log_round_summary_fn=lambda **_kwargs: None,
             clock=lambda: 120.0,
-            summary_finish_reason="no_progress_summary",
+            summary_finish_reason="limit_summary",
         )
 
         with (
@@ -1606,7 +1399,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             stream_round_fn=stream_round_fn,
             log_round_summary_fn=log_round_summary_fn,
             clock=lambda: 120.0,
-            summary_finish_reason="no_progress_summary",
+            summary_finish_reason="limit_summary",
         )
 
         context_plan = MagicMock(
@@ -1639,7 +1432,7 @@ class LimitSummaryStepTests(unittest.IsolatedAsyncioTestCase):
             usage=Usage(input_tokens=5, output_tokens=7),
             finish_reason="cancelled",
         )
-        self.assertEqual(log_round_summary_fn.call_args.kwargs["finish_reason"], "no_progress_summary")
+        self.assertEqual(log_round_summary_fn.call_args.kwargs["finish_reason"], "limit_summary")
         self.assertEqual(call_order, ["started", "network", "cancelled"])
         emitter.llm_round_completed.assert_not_awaited()
 

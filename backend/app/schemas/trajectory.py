@@ -9,8 +9,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.utils.run_capability_contract import CAPABILITY_CONTROL_TOOL_NAMES, DEEP_RESEARCH_TOOL_NAMES
+from app.utils.run_capability_contract import CAPABILITY_CONTROL_TOOL_NAMES
 
+# deep_research 模式已于 10-19 删除；保留取值只为读取当时的 v3 记录，新 Run 不再产生。
 CapabilityModeId = Literal["agent", "deep_research", "knowledge_grounded", "tools_unavailable"]
 CapabilityReasonCode = Literal[
     "all_available_tools",
@@ -64,10 +65,6 @@ class TrajectoryCapabilityResolution(BaseModel):
             raise ValueError("按需加载工具不得同时直接公告")
         if CAPABILITY_CONTROL_TOOL_NAMES.intersection([*self.external_tool_names, *self.deferred_tool_names]):
             raise ValueError("控制工具不属于外部工具")
-        if self.package_id == "deep_research" and (
-            self.deferred_tool_names or not set(self.external_tool_names) <= set(DEEP_RESEARCH_TOOL_NAMES)
-        ):
-            raise ValueError("深度研究只公告联网搜索与网页读取")
         has_tools = bool(self.external_tool_names or self.deferred_tool_names)
         if self.package_id in {"knowledge_grounded", "tools_unavailable"} and has_tools:
             raise ValueError("无工具模式不得公告工具")

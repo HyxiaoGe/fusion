@@ -20,8 +20,6 @@ from app.services.stream.provider_content_filter import (
 from app.services.stream.round_completion import append_round_content_blocks, complete_text_response_step
 from app.services.stream.safe_fallback_response import render_safe_fallback
 from app.services.stream.step_lifecycle import AgentStepContext
-from app.services.stream.structured_answer import ToolRoundDecision
-from app.services.stream.tool_round import ToolRoundOutcome
 from app.services.stream_state_service import StreamWriteTerminalError
 
 
@@ -72,15 +70,8 @@ async def _handle_agent_round_outcome(
         await _complete_content_filtered_round(request)
         return AgentLoopOutcome(exit=AgentLoopExit.COMPLETED)
 
-    mode = request.runtime.mode
-    intercepted = await mode.intercept_round(request)
-    if intercepted is not None:
-        return intercepted
-
     finish_reason = request.round_result.finish_reason
     if finish_reason == "stop":
-        if mode.needs_answer_repair(request):
-            return await mode.repair_answer(request)
         if _needs_empty_answer_summary(request):
             await _complete_empty_round_before_summary(request)
             return AgentLoopOutcome(exit=AgentLoopExit.SUMMARY_REQUIRED)
@@ -94,8 +85,6 @@ async def _handle_agent_round_outcome(
     if finish_reason == "tool_calls" and request.round_result.tool_calls:
         return await _handle_tool_calls_round(request)
 
-    if mode.needs_answer_repair(request):
-        return await mode.repair_answer(request)
     if finish_reason == "tool_protocol_error":
         return await _complete_tool_protocol_error_round(request)
 
@@ -306,7 +295,7 @@ async def _handle_tool_calls_round(request: AgentRoundOutcomeRequest) -> AgentLo
     if lifecycle is not None:
         lifecycle.suppress_output("tool_round")
         await lifecycle.finish_success(output_visible=False)
-    outcome = await request.runtime.handle_tool_calls_round_fn(
+    await request.runtime.handle_tool_calls_round_fn(
         request=build_tool_round_request(
             db=request.db,
             messages=request.messages,
@@ -317,27 +306,6 @@ async def _handle_tool_calls_round(request: AgentRoundOutcomeRequest) -> AgentLo
             round_result=request.round_result,
         ),
     )
-    tool_outcome = outcome if isinstance(outcome, ToolRoundOutcome) else None
-    if tool_outcome is not None:
-        request.runtime.mode.after_tool_round(request, tool_outcome)
-        request.state.record_no_progress_search_results(tool_outcome.no_progress_search_results)
-    decision = request.runtime.structured_answers.after_tool_round(
-        request.state,
-        outcome=tool_outcome,
-    )
-    if decision is ToolRoundDecision.CONTINUE:
-        return None
-    should_summarize = request.state.should_summarize_no_progress_search()
-    if should_summarize:
-        request.runtime.warning_fn(
-            "连续搜索未取得新进展，切换到无工具收尾总结: "
-            f"conv_id={request.runtime.conversation_id} run_id={request.runtime.run_id} "
-            f"step={request.step_number} finish_reason=no_progress_summary"
-        )
-        return AgentLoopOutcome(
-            exit=AgentLoopExit.SUMMARY_REQUIRED,
-            summary_finish_reason="no_progress_summary",
-        )
     return None
 
 
@@ -395,8 +363,6 @@ async def _emit_final_answer_used_evidence(request: AgentRoundOutcomeRequest) ->
         evidence_items = build_used_final_answer_evidence(
             content_blocks=request.state.content_blocks,
             answer_text=request.round_result.content_buf,
-            evidence_policy=request.runtime.evidence_policy,
-            allowed_citation_indexes=request.state.research_workset.valid_citation_indexes,
         )
         for evidence in evidence_items:
             await emit(tool_call_id=None, evidence=evidence)

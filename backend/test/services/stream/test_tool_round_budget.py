@@ -309,54 +309,6 @@ class ToolRoundBudgetTests(IsolatedAsyncioTestCase):
         self.assertEqual(state.total_tool_calls, 1)
         self.assertIs(execute_tools_fn.await_args.kwargs["runtime_context"], runtime_context)
 
-    async def test_same_batch_marks_two_budget_stopped_search_results_as_no_progress(self):
-        tool_calls = _tool_calls(2)
-        execute_tools_fn = AsyncMock(
-            return_value=[
-                _record(tool_calls[0], status="degraded", search_budget="planner_limited"),
-                _record(tool_calls[1], status="degraded", search_budget="duplicate_skipped"),
-            ]
-        )
-        request = _request(
-            tool_calls=tool_calls,
-            completed_tool_calls=0,
-            max_tool_calls=20,
-            execute_tools_fn=execute_tools_fn,
-        )
-
-        with patch("app.services.stream.tool_round.mark_tool_round_started", new=AsyncMock()):
-            outcome = await handle_tool_calls_round(request=request)
-
-        state = AgentLoopState()
-        state.record_no_progress_search_results(outcome.no_progress_search_results)
-        self.assertEqual(outcome.no_progress_search_results, (True, True))
-        self.assertTrue(state.should_summarize_no_progress_search())
-
-    async def test_successful_search_resets_no_progress_results_in_same_batch(self):
-        tool_calls = _tool_calls(3)
-        execute_tools_fn = AsyncMock(
-            return_value=[
-                _record(tool_calls[0], status="degraded", search_budget="planner_limited"),
-                _record(tool_calls[1], status="success", search_budget="normal"),
-                _record(tool_calls[2], status="degraded", search_budget="duplicate_skipped"),
-            ]
-        )
-        request = _request(
-            tool_calls=tool_calls,
-            completed_tool_calls=0,
-            max_tool_calls=20,
-            execute_tools_fn=execute_tools_fn,
-        )
-
-        with patch("app.services.stream.tool_round.mark_tool_round_started", new=AsyncMock()):
-            outcome = await handle_tool_calls_round(request=request)
-
-        state = AgentLoopState()
-        state.record_no_progress_search_results(outcome.no_progress_search_results)
-        self.assertEqual(outcome.no_progress_search_results, (True, False, True))
-        self.assertEqual(state.consecutive_no_progress_search_results, 1)
-        self.assertFalse(state.should_summarize_no_progress_search())
-
     async def test_excess_batch_executes_only_remaining_capacity_and_completes_protocol(self):
         tool_calls = _tool_calls(5)
         executed_record = _record(tool_calls[0])
@@ -381,7 +333,6 @@ class ToolRoundBudgetTests(IsolatedAsyncioTestCase):
             ToolRoundOutcome(
                 tool_call_count=1,
                 tool_names=["web_search"],
-                no_progress_search_results=(False,),
             ),
         )
         self.assertEqual(execute_tools_fn.await_args.args[0], [tool_calls[0]])
@@ -581,7 +532,6 @@ class ToolRoundBudgetTests(IsolatedAsyncioTestCase):
             ToolRoundOutcome(
                 tool_call_count=1,
                 tool_names=["web_search"],
-                no_progress_search_results=(False,),
             ),
         )
         self.assertEqual(emit_evidence.await_args.args[1], [selected_record])

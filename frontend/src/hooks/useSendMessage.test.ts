@@ -228,7 +228,6 @@ function emitRunStarted(callbacks: StreamCallbacks) {
       max_tool_calls: 20,
       timeout_s: 300,
       plan_mode: 'auto',
-      task_mode: 'standard',
     },
   });
 }
@@ -375,7 +374,7 @@ describe('useSendMessage', () => {
     expect(triggerLoginDialog).toHaveBeenCalledTimes(1);
   });
 
-  it('发送知识库范围并强制关闭 deep_research，同时把选择保留在本地会话', async () => {
+  it('发送知识库范围并沿用所选执行模式，同时把选择保留在本地会话', async () => {
     const store = createStore();
     store.dispatch(upsertConversation({
       id: 'existing-conv',
@@ -385,7 +384,7 @@ describe('useSendMessage', () => {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }));
-    store.dispatch(setComposerAgentMode({ chatId: 'existing-conv', mode: 'deep_research' }));
+    store.dispatch(setComposerAgentMode({ chatId: 'existing-conv', mode: 'plan' }));
     sendMessageStreamMock.mockResolvedValue(undefined);
 
     const { result } = renderHook(() => useSendMessage(), {
@@ -403,7 +402,7 @@ describe('useSendMessage', () => {
       expect.objectContaining({
         knowledge_base_ids: ['kb-1', 'kb-2'],
         options: expect.objectContaining({
-          task_mode: 'standard',
+          plan_mode: 'on',
         }),
       }),
       expect.any(Object),
@@ -726,7 +725,7 @@ describe('useSendMessage', () => {
       createdAt: 100,
       updatedAt: 200,
     }));
-    store.dispatch(setComposerAgentMode({ chatId: 'existing-conv', mode: 'deep_research' }));
+    store.dispatch(setComposerAgentMode({ chatId: 'existing-conv', mode: 'plan' }));
     sendMessageStreamMock.mockResolvedValue(undefined);
 
     const { result } = renderHook(() => useSendMessage(), {
@@ -742,7 +741,7 @@ describe('useSendMessage', () => {
     expect(sendMessageStreamMock).toHaveBeenCalledWith(
       expect.objectContaining({
         knowledge_base_ids: undefined,
-        options: expect.objectContaining({ task_mode: 'standard' }),
+        options: expect.objectContaining({ plan_mode: 'on' }),
       }),
       expect.any(Object),
       expect.any(AbortSignal),
@@ -1186,7 +1185,6 @@ describe('useSendMessage', () => {
         options: expect.objectContaining({
           use_reasoning: false,
           plan_mode: 'on',
-          task_mode: 'standard',
         }),
       }),
       expect.any(Object),
@@ -1251,38 +1249,6 @@ describe('useSendMessage', () => {
       expect.objectContaining({
         options: expect.objectContaining({
           plan_mode: 'auto',
-          task_mode: 'standard',
-        }),
-      }),
-      expect.any(Object),
-      expect.any(AbortSignal),
-    );
-  });
-
-  it('深度研究发送强制计划并携带任务模式', async () => {
-    const store = createStore();
-    store.dispatch(setComposerAgentMode({ chatId: NEW_CHAT_AGENT_MODE_KEY, mode: 'deep_research' }));
-    sendMessageStreamMock.mockImplementation(
-      async (_payload: any, callbacks: StreamCallbacks) => {
-        callbacks.onReady({ messageId: 'assistant-1', conversationId: 'server-conv' });
-        callbacks.onAnswering({ block_id: 'blk_c', delta: 'answer' });
-        callbacks.onDone({ messageId: 'assistant-1', conversationId: 'server-conv' });
-      }
-    );
-
-    const { result } = renderHook(() => useSendMessage(), {
-      wrapper: createWrapper(store),
-    });
-
-    await act(async () => {
-      await result.current.sendMessage('深入调查这个问题', { conversationId: null });
-    });
-
-    expect(sendMessageStreamMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        options: expect.objectContaining({
-          plan_mode: 'on',
-          task_mode: 'deep_research',
         }),
       }),
       expect.any(Object),
@@ -1292,7 +1258,7 @@ describe('useSendMessage', () => {
 
   it('新对话页的模式选择随首条消息转给新对话，新对话页回到自动模式', async () => {
     const store = createStore();
-    store.dispatch(setComposerAgentMode({ chatId: NEW_CHAT_AGENT_MODE_KEY, mode: 'deep_research' }));
+    store.dispatch(setComposerAgentMode({ chatId: NEW_CHAT_AGENT_MODE_KEY, mode: 'plan' }));
     sendMessageStreamMock.mockImplementation(
       async (_payload: any, callbacks: StreamCallbacks) => {
         callbacks.onReady({ messageId: 'assistant-1', conversationId: 'server-conv' });
@@ -1309,7 +1275,7 @@ describe('useSendMessage', () => {
     });
 
     const { composerAgentModeByChat } = store.getState().conversation;
-    expect(composerAgentModeByChat).toEqual({ 'server-conv': 'deep_research' });
+    expect(composerAgentModeByChat).toEqual({ 'server-conv': 'plan' });
     expect(selectComposerAgentMode(store.getState(), null)).toBe('auto');
   });
 
@@ -1324,7 +1290,7 @@ describe('useSendMessage', () => {
         role: 'assistant',
         content: [],
         timestamp: 1,
-        agent_run: { config: { taskMode: 'deep_research', planMode: 'on' } } as any,
+        agent_run: { config: { planMode: 'on' } } as any,
       }],
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -1343,16 +1309,16 @@ describe('useSendMessage', () => {
 
     expect(sendMessageStreamMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        options: expect.objectContaining({ plan_mode: 'on', task_mode: 'deep_research' }),
+        options: expect.objectContaining({ plan_mode: 'on' }),
       }),
       expect.any(Object),
       expect.any(AbortSignal),
     );
   });
 
-  it('深度研究在模型缺少联网工具时发送前安全回退自动模式', async () => {
-    const store = createStore({ searchCapable: false, agentTools: false });
-    store.dispatch(setComposerAgentMode({ chatId: NEW_CHAT_AGENT_MODE_KEY, mode: 'deep_research' }));
+  it('规划执行在模型不支持工具调用时发送前安全回退自动模式', async () => {
+    const store = createStore({ functionCalling: false });
+    store.dispatch(setComposerAgentMode({ chatId: NEW_CHAT_AGENT_MODE_KEY, mode: 'plan' }));
     sendMessageStreamMock.mockImplementation(
       async (_payload: any, callbacks: StreamCallbacks) => {
         callbacks.onReady({ messageId: 'assistant-1', conversationId: 'server-conv' });
@@ -1373,7 +1339,6 @@ describe('useSendMessage', () => {
       expect.objectContaining({
         options: expect.objectContaining({
           plan_mode: 'auto',
-          task_mode: 'standard',
         }),
       }),
       expect.any(Object),
@@ -2598,7 +2563,6 @@ describe('useSendMessage', () => {
           max_tool_calls: 20,
           timeout_s: 300,
           plan_mode: 'auto',
-          task_mode: 'standard',
         },
       });
       callbacks.onAnswering({ block_id: 'answer-new', delta: '半截新回答' });
@@ -3381,7 +3345,6 @@ describe('useSendMessage', () => {
             max_tool_calls: 20,
             timeout_s: 300,
             plan_mode: 'on',
-            task_mode: 'deep_research',
           },
         });
         callbacks.onReasoning({
@@ -3454,7 +3417,6 @@ describe('useSendMessage', () => {
         max_tool_calls: 20,
         timeout_s: 300,
         plan_mode: 'auto' as const,
-        task_mode: 'standard' as const,
       },
     };
   }
@@ -4757,9 +4719,6 @@ describe('useSendMessage', () => {
       maxToolCalls: 10,
       timeoutS: 60,
       planMode: 'auto',
-      taskMode: 'standard',
-      networkProfile: 'standard',
-      evidencePolicy: 'standard',
     });
 
     await act(async () => { releaseStream?.(); });

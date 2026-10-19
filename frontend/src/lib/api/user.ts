@@ -37,7 +37,6 @@ export interface Entitlements {
   tier: 'guest' | 'registered';
   features: {
     model_selection: boolean;
-    deep_research: boolean;
     file_upload: boolean;
     image_generation: boolean;
     map: boolean;

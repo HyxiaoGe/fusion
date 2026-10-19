@@ -30,7 +30,6 @@ describe("DropdownMenu", () => {
           <DropdownMenuRadioGroup value="auto" onValueChange={onValueChange}>
             <DropdownMenuRadioItem value="auto">自动</DropdownMenuRadioItem>
             <DropdownMenuRadioItem value="plan">计划</DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="deep_research">深度研究</DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
         </DropdownMenuContent>
       </DropdownMenu>,
@@ -43,6 +42,6 @@ describe("DropdownMenu", () => {
     expect(menu).toHaveAttribute("aria-label", "选择执行模式");
     expect(menu).toBeVisible();
     await user.keyboard("{End}{Enter}");
-    expect(onValueChange).toHaveBeenCalledWith("deep_research");
+    expect(onValueChange).toHaveBeenCalledWith("plan");
   });
 });

@@ -1,7 +1,7 @@
 """管理页用：按 Agent run 的同一套装配规则，算出每个 MCP 服务此刻实际给模型的工具。
 
 不另写一套判定：直接调用 run 用的 load_mcp_agent_tools，管理页看到的就是下一次普通 run
-会公告的工具（deep_research 不公告 MCP，不在这里体现）。
+会公告的工具。
 """
 
 from __future__ import annotations

@@ -303,16 +303,6 @@
     "expected_surface": "direct_answer"
   },
   {
-    "id": "run-route-main-deep-research",
-    "category": "run_capability_router",
-    "question": "用可靠一手来源深入研究 2026 年 AI Agent 浏览器安全现状",
-    "expected_tool_policy": "search",
-    "expected_surface": "evidence",
-    "options": {
-      "task_mode": "deep_research"
-    }
-  },
-  {
     "id": "run-route-main-vague-lookup",
     "category": "run_capability_router",
     "question": "帮我查一下这个",

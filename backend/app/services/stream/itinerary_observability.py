@@ -45,9 +45,9 @@ _ARGUMENT_ERROR_CODES = frozenset(
         "remote_invalid_arguments",
         "route_city_mismatch",
         "route_city_required",
-        "route_requires_prior_travel_results",
         "runtime_argument_guard_failed",
-        # 以下为已删除的修参状态码，统计历史工具日志时仍按参数错误归类。
+        # 以下为已删除的状态码，统计历史工具日志时仍按参数错误归类。
+        "route_requires_prior_travel_results",
         "argument_repair_coalesced",
         "argument_repair_constraint_violation",
         "argument_repair_deferred_to_next_round",

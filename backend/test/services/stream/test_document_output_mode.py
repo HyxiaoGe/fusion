@@ -75,7 +75,6 @@ class DocumentCallConfigTests(unittest.IsolatedAsyncioTestCase):
         for capabilities, options in (
             ({"functionCalling": True, "agentTools": False, "searchCapable": True}, {}),
             (CAPABILITIES, {"disable_tools": True}),
-            (CAPABILITIES, {"task_mode": "deep_research"}),
         ):
             with self.subTest(capabilities=capabilities, options=options):
                 config = build_agent_loop_call_config(

@@ -38,8 +38,6 @@ def build_used_final_answer_evidence(
     *,
     content_blocks: list[Any],
     answer_text: str,
-    evidence_policy: str = "standard",
-    allowed_citation_indexes: set[int] | frozenset[int] | None = None,
 ) -> list[dict[str, Any]]:
     """从最终回答文本里保守识别真正使用过的网页或知识库来源。"""
     normalized_answer = (answer_text or "").strip()
@@ -54,15 +52,6 @@ def build_used_final_answer_evidence(
     if not all_sources:
         return []
 
-    if evidence_policy == "deep_research_v1":
-        allowed = set(allowed_citation_indexes or ())
-        used = _sources_from_allowed_explicit_citations(
-            normalized_answer,
-            citation_sources,
-            allowed_citation_indexes=allowed,
-        )
-        return [_to_evidence_item(source) for source in _dedupe_sources(used)]
-
     used: list[_AnswerSource] = []
     _extend_unique(used, _sources_from_citations(normalized_answer, search_sources, citation_sources))
     _extend_unique(used, _sources_from_url_mentions(normalized_answer, all_sources))
@@ -72,26 +61,6 @@ def build_used_final_answer_evidence(
         used.append(read_sources[0])
 
     return [_to_evidence_item(source) for source in used]
-
-
-def _sources_from_allowed_explicit_citations(
-    answer_text: str,
-    all_sources: list[_AnswerSource],
-    *,
-    allowed_citation_indexes: set[int],
-) -> list[_AnswerSource]:
-    by_index = {
-        source.citation_index: source
-        for source in all_sources
-        if isinstance(source.citation_index, int)
-        and not isinstance(source.citation_index, bool)
-        and source.citation_index in allowed_citation_indexes
-    }
-    return [
-        by_index[citation_index]
-        for match in _CITATION_PATTERN.finditer(answer_text)
-        if (citation_index := int(match.group(1) or match.group(2))) in by_index
-    ]
 
 
 def _collect_sources(content_blocks: list[Any]) -> tuple[list[_AnswerSource], list[_AnswerSource]]:

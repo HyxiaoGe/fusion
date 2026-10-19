@@ -202,13 +202,6 @@ class AgentEventModelTests(unittest.TestCase):
                 "external_tool_names": [],
                 "network_boundary_required": True,
             },
-            {
-                **CAPABILITY_RESOLUTION,
-                "package_id": "deep_research",
-                "reason_codes": ["deep_research_mode"],
-                "external_tool_names": ["web_search", "mcp_docs_a1b2c3d4"],
-                "effective_plan_mode": "on",
-            },
             {**CAPABILITY_RESOLUTION, "deferred_tool_names": ["web_search"]},
             {**CAPABILITY_RESOLUTION, "reason_codes": ["fresh_external_fact"]},
         )

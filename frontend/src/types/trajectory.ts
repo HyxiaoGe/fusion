@@ -1,4 +1,4 @@
-/** Run 的工具模式：v3 起不再按问题分类，只区分有无工具与是否深度研究。 */
+/** Run 的工具模式：v3 起不再按问题分类，只区分有无工具；deep_research、knowledge_grounded 只出现在历史记录。 */
 type TrajectoryCapabilityModeId =
   | 'agent'
   | 'deep_research'

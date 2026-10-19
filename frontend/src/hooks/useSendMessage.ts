@@ -917,9 +917,8 @@ export function useSendMessage(activeConversationId?: string | null) {
         store.getState(),
         isDraft ? null : options.conversationId,
       );
-      // 深度研究不公告知识库工具，选了知识库时按自动模式发送（输入框也会同步切换）。
       const agentModeResolution = resolveComposerAgentMode(
-        hasKnowledgeSelection && conversationAgentMode === 'deep_research' ? 'auto' : conversationAgentMode,
+        conversationAgentMode,
         enabledModel.capabilities,
       );
 
@@ -1524,7 +1523,6 @@ export function useSendMessage(activeConversationId?: string | null) {
               options: {
                 use_reasoning: useReasoning,
                 plan_mode: agentModeResolution.planMode,
-                task_mode: agentModeResolution.taskMode,
               },
               file_ids: fileIds,
               knowledge_base_ids: options.knowledgeBaseIds,

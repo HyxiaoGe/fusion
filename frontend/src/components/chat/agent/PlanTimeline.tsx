@@ -98,11 +98,6 @@ export function PlanTimeline({ run, className = '' }: { run: AgentRunState; clas
                 </span>
               </>
             ) : null}
-            {run.config.taskMode === 'deep_research' ? (
-              <span className="shrink-0 rounded-full border border-info/25 bg-info-bg px-1.5 py-0.5 text-[10px] font-medium text-info">
-                深度研究
-              </span>
-            ) : null}
             <ChevronDown
               className={`h-3 w-3 shrink-0 text-muted-foreground transition-transform duration-fast motion-reduce:transition-none ${isOpen ? 'rotate-180' : ''}`}
               aria-hidden="true"

@@ -3,11 +3,8 @@ import unittest
 from app.schemas.chat import SearchBlock, SearchSourceSummary, SourceReference, UrlBlock
 from app.services.stream.research_evidence import (
     ResearchEvidenceWorkset,
-    assign_missing_source_reference_metadata,
     build_research_untrusted_context_messages,
     build_research_workset_prompt,
-    resolve_deep_research_stage,
-    validate_research_completion,
 )
 
 
@@ -49,45 +46,7 @@ def _read_block(url: str, *, evidence_id: str, citation_index: int) -> UrlBlock:
 
 
 class ResearchEvidenceTests(unittest.TestCase):
-    def test_preprocessed_url_block_receives_source_metadata_for_workset_restore(self):
-        block = UrlBlock(
-            type="url_read",
-            url="https://example.com/preprocessed",
-            title="预读取来源",
-        )
-
-        assign_missing_source_reference_metadata([block])
-        workset = ResearchEvidenceWorkset()
-        workset.record_content_blocks([block])
-
-        self.assertEqual(block.source_count, 1)
-        self.assertEqual(len(block.source_refs), 1)
-        self.assertEqual(block.source_refs[0]["citation_index"], 1)
-        self.assertEqual(workset.successful_read_urls, {"https://example.com/preprocessed"})
-
-    def test_restored_source_without_summary_exposes_url_only_in_untrusted_context(self):
-        block = _read_block(
-            "https://example.com/retry-source",
-            evidence_id="ev-retry",
-            citation_index=19,
-        )
-        workset = ResearchEvidenceWorkset()
-        workset.record_content_blocks([block], allow_read_success=False)
-
-        control = build_research_workset_prompt(workset)
-        contexts = build_research_untrusted_context_messages(workset)
-
-        self.assertIn("[19] evidence_id=ev-retry status=candidate", control)
-        self.assertNotIn("example.com", control)
-        self.assertEqual(len(contexts), 1)
-        self.assertEqual(contexts[0]["role"], "user")
-        self.assertIn('source_url="https://example.com/retry-source"', contexts[0]["content"])
-        self.assertIn("Only source identity was restored", contexts[0]["content"])
-        self.assertIn("must be read again before citation", contexts[0]["content"])
-        self.assertEqual(workset.attempted_read_urls, set())
-        self.assertEqual(workset.unread_candidate_urls, {"https://example.com/retry-source"})
-
-    def test_unsuccessful_read_exhausts_candidate_and_enters_search_repair(self):
+    def test_unsuccessful_read_is_listed_as_read_failed_without_context(self):
         for status in ("failed", "degraded"):
             with self.subTest(status=status):
                 workset = ResearchEvidenceWorkset()
@@ -108,18 +67,11 @@ class ResearchEvidenceTests(unittest.TestCase):
 
                 self.assertEqual(workset.successful_read_urls, set())
                 self.assertEqual(workset.attempted_read_urls, {"https://example.com/report"})
-                self.assertEqual(workset.unread_candidate_urls, set())
                 control = build_research_workset_prompt(workset)
-                self.assertIn(
-                    "[1] evidence_id=ev-web-report status=read_failed retry=forbidden",
-                    control,
-                )
+                self.assertIn("[1] evidence_id=ev-web-report status=read_failed", control)
+                self.assertNotIn("retry=", control)
                 self.assertNotIn("example.com", control)
                 self.assertEqual(build_research_untrusted_context_messages(workset), [])
-                self.assertEqual(
-                    resolve_deep_research_stage(workset),
-                    "search_repair",
-                )
 
     def test_source_reference_new_fields_are_optional_for_legacy_blocks(self):
         legacy = SourceReference(kind="search", title="旧来源", url="https://example.com/legacy")
@@ -141,7 +93,6 @@ class ResearchEvidenceTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual(workset.successful_searches, 1)
         self.assertEqual(workset.successful_read_urls, {"https://example.com/a"})
         self.assertEqual(len(workset.sources), 2)
         prompt = build_research_workset_prompt(workset)
@@ -150,20 +101,11 @@ class ResearchEvidenceTests(unittest.TestCase):
         self.assertNotIn("官方资料", prompt)
         self.assertNotIn("example.com", prompt)
         self.assertNotIn("关键发现一", prompt)
-        summary_prompt = build_research_workset_prompt(workset, include_candidates=False)
-        self.assertNotIn("[1]", summary_prompt)
-        self.assertIn("[2] evidence_id=ev-a status=read_success", summary_prompt)
 
         context_messages = build_research_untrusted_context_messages(workset)
         self.assertTrue(all(message["role"] == "user" for message in context_messages))
         self.assertIn("官方摘要", context_messages[0]["content"])
         self.assertIn("关键发现一", context_messages[0]["content"])
-        summary_context_messages = build_research_untrusted_context_messages(
-            workset,
-            include_candidates=False,
-        )
-        self.assertEqual(len(summary_context_messages), 1)
-        self.assertNotIn("官方摘要", summary_context_messages[0]["content"])
 
     def test_late_high_index_read_source_is_retained_ahead_of_early_candidates(self):
         candidate_refs = [
@@ -193,8 +135,7 @@ class ResearchEvidenceTests(unittest.TestCase):
 
         self.assertEqual(len(workset.sources), 12)
         self.assertIn("ev-13", workset.sources)
-        self.assertIn(13, workset.valid_citation_indexes)
-        self.assertTrue(validate_research_completion(workset, "高编号已读来源仍可引用。[13]").is_valid)
+        self.assertIn("[13] evidence_id=ev-13 status=read_success", build_research_workset_prompt(workset))
 
     def test_new_unattempted_candidate_is_retained_ahead_of_twelve_failed_sources(self):
         failed_refs = [
@@ -255,49 +196,7 @@ class ResearchEvidenceTests(unittest.TestCase):
         self.assertEqual(len(workset.sources), 12)
         self.assertIn("ev-new", workset.sources)
         self.assertNotIn("ev-failed-12", workset.sources)
-        self.assertEqual(workset.unread_candidate_urls, {"https://example.com/new"})
-
-    def test_completion_requires_search_two_distinct_reads_and_mapped_citation(self):
-        workset = ResearchEvidenceWorkset()
-        workset.record_content_blocks(
-            [
-                _search_block(),
-                _read_block("https://example.com/a", evidence_id="ev-a", citation_index=2),
-                _read_block("https://example.com/b", evidence_id="ev-b", citation_index=3),
-            ]
-        )
-
-        self.assertTrue(validate_research_completion(workset, "结论来自已深读来源。[2]").is_valid)
-
-        unread_search = validate_research_completion(workset, "只引用搜索候选。[1]")
-        self.assertFalse(unread_search.is_valid)
-        self.assertEqual(unread_search.reason, "invalid_citation")
-
-        invalid = validate_research_completion(workset, "引用了不存在的来源。[9]")
-        self.assertFalse(invalid.is_valid)
-        self.assertEqual(invalid.reason, "invalid_citation")
-
-    def test_completion_rejects_insufficient_reads(self):
-        workset = ResearchEvidenceWorkset()
-        workset.record_content_blocks(
-            [
-                _search_block(),
-                _read_block("https://example.com/a", evidence_id="ev-a", citation_index=2),
-            ]
-        )
-
-        result = validate_research_completion(workset, "初步结论。[1]")
-
-        self.assertFalse(result.is_valid)
-        self.assertEqual(result.reason, "insufficient_reads")
-
-    def test_only_blocks_recorded_by_current_run_count_toward_gate(self):
-        workset = ResearchEvidenceWorkset()
-
-        result = validate_research_completion(workset, "沿用旧回答。[1]")
-
-        self.assertFalse(result.is_valid)
-        self.assertEqual(result.reason, "missing_search")
+        self.assertIn("[13] evidence_id=ev-new status=candidate", build_research_workset_prompt(workset))
 
 
 if __name__ == "__main__":

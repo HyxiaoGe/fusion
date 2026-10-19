@@ -11,7 +11,7 @@ import re
 import time
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
 
 import backoff
@@ -79,7 +79,6 @@ class ToolExecutionBatchRequest:
     tool_handlers: Mapping[str, Any] | None = None
     runtime_context: "ToolRuntimeContext | None" = None
     successful_tool_call_signatures: set[str] | None = None
-    deferred_route_call_ids: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -684,19 +683,6 @@ async def execute_one_tool_call(request: ToolExecutionBatchRequest, tool_call: d
             args={},
             result=result,
         )
-    if str(tool_call.get("id", "")) in request.deferred_route_call_ids:
-        result = _build_argument_error_result(
-            error_code="route_requires_prior_travel_results",
-            validation_errors=["origin:requires_prior_travel_results"],
-        )
-        return await _complete_preflight_tool_result(
-            request=request,
-            tool_call=tool_call,
-            handler=handler,
-            ids=ids,
-            args={},
-            result=result,
-        )
     runtime_argument_error = _build_runtime_argument_error_result(request, handler, args)
     if runtime_argument_error is not None:
         return await _complete_preflight_tool_result(
@@ -966,10 +952,6 @@ async def execute_tool_batch(
     tool_calls: list[dict],
 ) -> list[ToolExecutionRecord]:
     indexed_calls = list(enumerate(tool_calls))
-    request = replace(
-        request,
-        deferred_route_call_ids=_deferred_route_call_ids(request, indexed_calls),
-    )
     amap_product_calls = [
         (index, tool_call)
         for index, tool_call in indexed_calls
@@ -1046,33 +1028,6 @@ async def execute_tool_batch(
             indexed_results.append(batch)
     indexed_results.sort(key=lambda item: item[0])
     return [record for _, record in indexed_results]
-
-
-def _deferred_route_call_ids(
-    request: ToolExecutionBatchRequest,
-    indexed_calls: list[tuple[int, dict]],
-) -> frozenset[str]:
-    """同轮先查班次时，拒绝模型凭常识猜接驳点；下一轮只能使用真实班次站点。"""
-
-    if not any(tool_call.get("name") in {"search_flights", "search_trains"} for _, tool_call in indexed_calls):
-        return frozenset()
-    trusted_hints = getattr(request.runtime_context, "route_city_hints", None)
-    trusted_origins = set(trusted_hints) if isinstance(trusted_hints, dict) else set()
-    deferred: set[str] = set()
-    for _, tool_call in indexed_calls:
-        if tool_call.get("name") != "route_compare":
-            continue
-        try:
-            args = parse_tool_arguments(tool_call)
-        except ToolArgumentsParseError:
-            continue
-        origin = args.get("origin")
-        if args.get("origin_source") == "named" and isinstance(origin, str) and origin.strip() in trusted_origins:
-            continue
-        tool_call_id = str(tool_call.get("id", ""))
-        if tool_call_id:
-            deferred.add(tool_call_id)
-    return frozenset(deferred)
 
 
 def is_local_argument_preflight_failure(

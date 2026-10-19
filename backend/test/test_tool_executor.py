@@ -864,59 +864,6 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
             ["call-place-1", "call-route", "call-place-2"],
         )
 
-    async def test_same_round_travel_defers_untrusted_route_without_consuming_network_call(self):
-        travel_handler = MagicMock()
-        travel_handler.tool_name = "search_trains"
-        travel_handler.execute = AsyncMock(return_value=ToolResult(status="success", data={"result": {}}))
-        travel_handler.log = AsyncMock()
-        route_handler = MagicMock()
-        route_handler.tool_name = "route_compare"
-        route_handler.execute = AsyncMock(return_value=ToolResult(status="success", data={"result": {}}))
-        route_handler.log = AsyncMock()
-        runtime_context = SimpleNamespace(
-            route_city_hints={},
-            step_number=1,
-        )
-
-        records = await execute_tools_parallel(
-            [
-                {
-                    "id": "call-train",
-                    "name": "search_trains",
-                    "arguments": {"origin": "广州", "destination": "杭州"},
-                },
-                {
-                    "id": "call-route",
-                    "name": "route_compare",
-                    "arguments": {
-                        "origin": "杭州东站",
-                        "origin_source": "named",
-                        "destination": "西湖",
-                        "destination_source": "named",
-                    },
-                },
-            ],
-            "conv-1",
-            "user-1",
-            "model-1",
-            "openai",
-            tool_handlers={
-                "search_trains": travel_handler,
-                "route_compare": route_handler,
-            },
-            runtime_context=runtime_context,
-        )
-
-        self.assertEqual(records[0].result.status, "success")
-        self.assertEqual(records[1].result.status, "failed")
-        self.assertEqual(
-            records[1].result.data["error_code"],
-            "route_requires_prior_travel_results",
-        )
-        self.assertTrue(records[1].result.data["local_preflight"])
-        travel_handler.execute.assert_awaited_once()
-        route_handler.execute.assert_not_awaited()
-
     async def test_same_round_travel_allows_route_from_prior_trusted_station(self):
         travel_handler = MagicMock()
         travel_handler.tool_name = "search_trains"

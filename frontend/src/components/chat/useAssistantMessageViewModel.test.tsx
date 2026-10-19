@@ -868,7 +868,6 @@ describe('useAssistantMessageViewModel', () => {
         maxSteps: 1,
         maxToolCalls: 1,
         timeoutS: 30,
-        evidencePolicy: 'knowledge_grounded_v1',
       },
       totalSteps: 0,
       totalToolCalls: 0,
@@ -926,37 +925,6 @@ describe('useAssistantMessageViewModel', () => {
     ]);
   });
 
-  it('深度研究完成但没有真实来源时不伪造回答依据', () => {
-    selectorState.stream.currentRun = {
-      runId: 'run-deep-empty',
-      messageId: 'assistant-1',
-      status: 'completed',
-      config: {
-        maxSteps: 8,
-        maxToolCalls: 20,
-        timeoutS: 300,
-        taskMode: 'deep_research',
-        networkProfile: 'deep_research',
-        evidencePolicy: 'deep_research_v1',
-      },
-      totalSteps: 1,
-      totalToolCalls: 0,
-      lastSequence: 3,
-      steps: [],
-      evidence: [],
-    };
-
-    const { result } = renderViewModel({
-      id: 'assistant-1',
-      role: 'assistant',
-      content: [{ type: 'text', id: 'text-1', text: '未找到可验证来源。' }],
-      timestamp: 1,
-    });
-
-    expect(result.current.activity.kind).toBe('completed');
-    expect(result.current.searchSources).toEqual([]);
-    expect(result.current.answerEvidence).toBeNull();
-  });
 });
 
 describe('引用映射独立于依据摘要', () => {

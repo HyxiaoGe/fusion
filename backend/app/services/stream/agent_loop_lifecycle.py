@@ -21,7 +21,6 @@ from app.services.stream.agent_loop_execution import AgentLoopExecutionContext
 from app.services.stream.agent_loop_outcome import AgentLoopExit
 from app.services.stream.agent_loop_policy import AgentLoopLimits, map_run_terminal_state
 from app.services.stream.agent_loop_request_prep import AgentLoopCallConfig, AgentLoopPreparedMessages
-from app.services.stream.research_evidence import assign_missing_source_reference_metadata
 from app.services.stream.run_capability_router import serialize_capability_resolution
 from app.services.stream_state_service import StreamOwnershipLostError
 
@@ -185,25 +184,10 @@ async def _run_success_path(
     execution.state.content_blocks.extend(request.initial_content_blocks)
     execution.state.content_blocks.extend(prepared_messages.initial_content_blocks)
     _bind_tool_history(execution, getattr(prepared_messages, "tool_history", None), request.raw_messages)
-    # 预读成功的正文已注入本轮 messages，与工具读页同等入账；续跑带回的历史块不登记，
-    # 与下方 configure_research_state 的 allow_read_success 口径保持一致。
+    # 预读成功的正文已注入本轮 messages，与工具读页同等入账；续跑带回的历史块不登记。
     for block in prepared_messages.initial_content_blocks:
         if getattr(block, "type", None) == "url_read" and getattr(block, "status", None) == "success":
             execution.state.recovery_evidence.record_prefetched_page(getattr(block, "url", None))
-    configure_research_state(
-        state=execution.state,
-        call_config=request.call_config,
-        file_ids=request.file_ids,
-        content_blocks=request.initial_content_blocks,
-        allow_read_success=False,
-    )
-    configure_research_state(
-        state=execution.state,
-        call_config=request.call_config,
-        file_ids=request.file_ids,
-        content_blocks=prepared_messages.initial_content_blocks,
-        allow_read_success=True,
-    )
 
     with use_prompt_snapshot(prepared_messages.run_prompt_snapshot):
         loop_outcome = await dependencies.run_agent_loop_fn(
@@ -298,30 +282,6 @@ def _start_conversation_title_generation(
         )
     except Exception as error:  # noqa: BLE001 — 标题绝不能影响正文链路
         dependencies.warning_fn(f"调度会话标题生成失败: error_type={type(error).__name__}")
-
-
-def configure_research_state(
-    *,
-    state: Any,
-    call_config: AgentLoopCallConfig,
-    file_ids: list | None,
-    content_blocks: list[Any],
-    allow_read_success: bool = True,
-) -> None:
-    if getattr(call_config, "task_mode", "standard") != "deep_research":
-        return
-    state.configure_research_mode(network_required=True)
-    research_blocks = [
-        block
-        for block in content_blocks
-        if getattr(block, "type", None) in {"search", "url_read"}
-        or (isinstance(block, dict) and block.get("type") in {"search", "url_read"})
-    ]
-    assign_missing_source_reference_metadata(research_blocks)
-    state.record_research_content_blocks(
-        research_blocks,
-        allow_read_success=allow_read_success,
-    )
 
 
 async def _prepare_messages(
@@ -497,9 +457,6 @@ def _run_config(limits: AgentLoopLimits, call_config: AgentLoopCallConfig | None
         "max_tool_calls": limits.max_tool_calls,
         "timeout_s": limits.total_timeout_s,
         "plan_mode": getattr(call_config, "plan_mode", "auto"),
-        "task_mode": getattr(call_config, "task_mode", "standard"),
-        "network_profile": getattr(call_config, "network_profile", "standard"),
-        "evidence_policy": getattr(call_config, "evidence_policy", "standard"),
         # 本次实际是否开启深度思考；前端刷新后按它还原对话的开关，续跑沿用。
         "use_reasoning": bool(getattr(call_config, "should_use_reasoning", False)),
         "runtime_config_versions": runtime_config_versions,
@@ -558,9 +515,6 @@ def capability_resolution_trajectory_payload(call_config: AgentLoopCallConfig) -
         "capability_resolution": resolution_payload,
         "announced_tools": announced_tools,
         "mcp_tool_bindings": _safe_tool_bindings(call_config),
-        "task_mode": getattr(call_config, "task_mode", "standard"),
-        "network_profile": getattr(call_config, "network_profile", "standard"),
-        "evidence_policy": getattr(call_config, "evidence_policy", "standard"),
     }
     serialized_fingerprint_input = json.dumps(
         fingerprint_input,

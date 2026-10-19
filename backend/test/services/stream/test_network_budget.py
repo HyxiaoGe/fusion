@@ -17,7 +17,6 @@ def _low_network_budget():
     config["network"].update(
         max_search_calls=4,
         default_planned_search_calls=2,
-        deep_research_planned_search_calls=3,
         max_url_read_calls=5,
     )
     return patch.object(network_budget_module, "get_agent_strategy_config", return_value=config)
@@ -102,71 +101,39 @@ def _source_plan_with_read_limit(urls: list[str], *, max_recommended: int):
 class NetworkToolBudgetTests(unittest.TestCase):
     def test_default_search_budget_allows_forty_provider_calls(self):
         for config in (deepcopy(DEFAULT_AGENT_STRATEGY_CONFIG), {}):
-            for profile in ("standard", "deep_research"):
-                with (
-                    self.subTest(configured=bool(config), profile=profile),
-                    patch.object(network_budget_module, "get_agent_strategy_config", return_value=config),
-                ):
-                    budget = NetworkToolBudget(profile=profile)
-                    for index in range(40):
-                        args, degraded = budget.prepare_web_search_args(
-                            {"query": f"核对资料 {index}", "domains": ["example.com"]}
-                        )
-                        self.assertIsNone(degraded, f"第 {index + 1} 次搜索不应被预算阻断")
-                        self.assertGreater(args["count"], 0)
-                    self.assertEqual(budget.web_search_calls, 40)
+            with (
+                self.subTest(configured=bool(config)),
+                patch.object(network_budget_module, "get_agent_strategy_config", return_value=config),
+            ):
+                budget = NetworkToolBudget()
+                for index in range(40):
                     args, degraded = budget.prepare_web_search_args(
-                        {"query": "核对最后一份资料", "domains": ["example.com"]}
+                        {"query": f"核对资料 {index}", "domains": ["example.com"]}
                     )
-                    self.assertTrue(degraded.data["budget_limited"])
-                    self.assertEqual(args["budget_decision"]["reason_code"], "hard_search_limit_reached")
-                    self.assertEqual(budget.web_search_calls, 40)
+                    self.assertIsNone(degraded, f"第 {index + 1} 次搜索不应被预算阻断")
+                    self.assertGreater(args["count"], 0)
+                self.assertEqual(budget.web_search_calls, 40)
+                args, degraded = budget.prepare_web_search_args(
+                    {"query": "核对最后一份资料", "domains": ["example.com"]}
+                )
+                self.assertTrue(degraded.data["budget_limited"])
+                self.assertEqual(args["budget_decision"]["reason_code"], "hard_search_limit_reached")
+                self.assertEqual(budget.web_search_calls, 40)
 
     def test_default_read_budget_allows_one_hundred_provider_calls(self):
         for config in (deepcopy(DEFAULT_AGENT_STRATEGY_CONFIG), {}):
-            for profile in ("standard", "deep_research"):
-                with (
-                    self.subTest(configured=bool(config), profile=profile),
-                    patch.object(network_budget_module, "get_agent_strategy_config", return_value=config),
-                ):
-                    budget = NetworkToolBudget(profile=profile)
-                    for index in range(100):
-                        _args, degraded = budget.prepare_url_read_args({"url": f"https://example.com/{index}"})
-                        self.assertIsNone(degraded, f"第 {index + 1} 次读取不应被预算阻断")
-                    self.assertEqual(budget.url_read_calls, 100)
-                    _args, degraded = budget.prepare_url_read_args({"url": "https://example.com/last"})
-                    self.assertTrue(degraded.data["budget_limited"])
-                    self.assertEqual(budget.url_read_calls, 100)
-
-    def test_deep_research_profile_uses_research_limit_without_overwriting_query_intent(self):
-        self.enterContext(_low_network_budget())
-        budget = NetworkToolBudget(profile="deep_research")
-
-        first_args, first_degraded = budget.prepare_web_search_args(
-            {"query": "OpenAI 官方发布说明", "intent": "official_source"}
-        )
-        second_args, second_degraded = budget.prepare_web_search_args(
-            {"query": "OpenAI 近期媒体报道", "intent": "freshness"}
-        )
-        third_args, third_degraded = budget.prepare_web_search_args(
-            {"query": "OpenAI 产品差异比较", "intent": "comparison"}
-        )
-
-        self.assertIsNone(first_degraded)
-        self.assertIsNone(second_degraded)
-        self.assertIsNone(third_degraded)
-        self.assertEqual(first_args["intent"], "official_source")
-        self.assertEqual(second_args["intent"], "freshness")
-        self.assertEqual(third_args["intent"], "comparison")
-        self.assertEqual(first_args["budget_decision"]["planned_search_limit"], 4)
-        self.assertEqual(second_args["budget_decision"]["planned_search_limit"], 4)
-        self.assertEqual(third_args["budget_decision"]["planned_search_limit"], 4)
-
-        fourth_args, fourth_degraded = budget.prepare_web_search_args(
-            {"query": "OpenAI 其他重复扩展", "intent": "comparison"}
-        )
-        self.assertIsNone(fourth_degraded)
-        self.assertEqual(fourth_args["budget_decision"]["reason_code"], "complementary_search")
+            with (
+                self.subTest(configured=bool(config)),
+                patch.object(network_budget_module, "get_agent_strategy_config", return_value=config),
+            ):
+                budget = NetworkToolBudget()
+                for index in range(100):
+                    _args, degraded = budget.prepare_url_read_args({"url": f"https://example.com/{index}"})
+                    self.assertIsNone(degraded, f"第 {index + 1} 次读取不应被预算阻断")
+                self.assertEqual(budget.url_read_calls, 100)
+                _args, degraded = budget.prepare_url_read_args({"url": "https://example.com/last"})
+                self.assertTrue(degraded.data["budget_limited"])
+                self.assertEqual(budget.url_read_calls, 100)
 
     def test_web_search_uses_standard_budget_when_intent_missing(self):
         budget = NetworkToolBudget()
@@ -500,21 +467,6 @@ class NetworkToolBudgetTests(unittest.TestCase):
     def test_standard_sixth_url_read_returns_degraded(self):
         self.enterContext(_low_network_budget())
         budget = NetworkToolBudget()
-
-        for i in range(5):
-            _args, degraded = budget.prepare_url_read_args({"url": f"https://example.com/{i}"})
-            self.assertIsNone(degraded)
-
-        args, degraded = budget.prepare_url_read_args({"url": "https://example.com/5"})
-
-        self.assertEqual(args["url"], "https://example.com/5")
-        self.assertIsNotNone(degraded)
-        self.assertEqual(degraded.status, "degraded")
-        self.assertTrue(degraded.data["budget_limited"])
-
-    def test_deep_research_sixth_url_read_returns_degraded_like_standard(self):
-        self.enterContext(_low_network_budget())
-        budget = NetworkToolBudget(profile="deep_research")
 
         for i in range(5):
             _args, degraded = budget.prepare_url_read_args({"url": f"https://example.com/{i}"})

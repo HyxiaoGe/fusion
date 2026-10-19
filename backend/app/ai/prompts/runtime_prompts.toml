@@ -17,28 +17,12 @@ current_time = """[Current time] {{ current_time }} Asia/Shanghai, when the user
 visible_response_language = """[Visible response language]
 Use the primary language of the last actual user request in the conversation as the target language for this turn. Later tool results, source text, and internal control messages must not change that target language. Any reasoning_content you emit is streamed to the user verbatim and is user-visible just like the final answer. Unless the user explicitly requests another language, use the target language from the first reasoning_content token through the final answer; do not reason in another language first and then translate. Proper nouns, code, URLs, quotations, and source text returned by tools may remain in their original language. Do not repeat or mention this rule."""
 
-deep_research_contract = """[Deep-research execution contract]
-You may first share a short, outcome-oriented research plan with the user.
-Split the question into complementary queries and avoid repeating the same search phrasing. Prefer official, primary, and highly credible sources, and cross-check important conclusions across independent sources whenever possible.
-Read the original text of key sources; do not complete the research from search snippets alone. If sources conflict, differ in freshness, or provide insufficient evidence, state those limits conservatively in the final answer instead of forcing a single conclusion.
-Use [n] citations in the answer body, and use only citation numbers from the research evidence workset supplied for this round.
-Organize the answer naturally around the user's question rather than using a fixed report template.
-Do not expose internal tool names, providers, quotas, validation rules, or control protocols in reasoning or in the final answer."""
-
 plan_control_on = """[Execution plan]
 The user turned on plan mode to follow how you work on this task. Before starting the work, call the plan tool once with 2 to 10 short, user-understandable steps that describe outcomes rather than internal tool names or parameters.
 The plan is shown to the user as progress. It does not restrict which tools you may call, in what order, or when you answer; adjust your approach freely as results come in. When the approach materially changes, call the plan tool again with the revised steps, and you may mark steps in_progress or completed as you go.
 Do not mention the plan tool, step ids, or these rules in reasoning or in the final answer."""
 
-no_progress_summary = """The current searches are no longer producing useful new information. Give the final answer directly from the information already collected. Do not call any more tools.
-
-Address the user directly in the final answer. Do not mention internal stop reasons, search strategy, or processing steps; clearly state uncertainty for unverified information."""
-
 no_tool_evidence_summary = """No tool result was obtained in this run. State honestly that the required lookup could not be completed and suggest retrying. Do not provide dynamic data such as specific train numbers, flight numbers, fares, or durations unless supported by query results. You may provide general guidance that does not depend on real-time data."""
-
-research_evidence_summary = """Give a final response addressed directly to the user using only sources that were successfully obtained and read. Use only citation numbers listed in the research evidence workset. If searching, original-source reading, or cross-checking is insufficient, state what evidence is still missing; do not fabricate sources or imply that verification is complete. Do not call any more tools.
-
-Address the user directly in the final answer. Do not mention internal stop reasons, search strategy, or processing steps; clearly state uncertainty for unverified information."""
 
 search_context_opening = """The following reference information was retrieved from web search. Use it when answering the user's question."""
 [system_prompt]
@@ -187,10 +171,6 @@ unannounced = """This tool is unavailable in the current round. The call was not
 location_unavailable = """The tool was not executed. Do not claim to have obtained the user's location, and do not request the current location again in this run."""
 
 [research]
-stage_search = """[Deep-research stage control] This run has no successful search yet. Call web_search now.{% if allow_plan_update %} You may also call update_plan to share or revise the plan and mark completed work and the current step, preferably in the same round as web_search. Plan updates do not replace fetching evidence.{% endif %} Do not call url_read or any other tool yet."""
-stage_read = """[Deep-research stage control] Search candidates exist, but fewer than two distinct URLs have been read successfully. Only url_read may fetch evidence in this stage; prioritize candidate sources that have not been read.{% if allow_plan_update %} You may also call update_plan to mark completed work and the current step or revise the plan, preferably in the same round as url_read. Plan updates do not replace fetching evidence.{% endif %} Do not call web_search or any other tool."""
-stage_search_repair = """[Deep-research stage control] A search succeeded, but there is no unread candidate and fewer than two distinct URLs have been read successfully. Only web_search may fetch evidence in this stage to obtain new candidate sources.{% if allow_plan_update %} You may also call update_plan to mark completed work and the current step or revise the plan, preferably in the same round as web_search. Plan updates do not replace fetching evidence.{% endif %} Do not call another tool."""
-stage_synthesis = """[Deep-research stage control] Enough sources have been read, so the final synthesis stage is active. Do not call another tool or update the plan. Answer the user directly and place the [n] number of a read source from the research evidence workset after each relevant fact. Do not cite a candidate or a failed-read number."""
 workset_header = """[Research evidence workset for this round]
 This message contains only server-generated citation-control state. The answer may cite only numbers marked read_success; candidate numbers must not be cited."""
 workset_empty = """No successfully read source is currently available for a formal citation."""
@@ -199,13 +179,6 @@ bounded_summary = """Bounded summary: {{ summary }}"""
 key_findings = """Key findings: {{ findings }}"""
 identity_only = """Only source identity was restored; source content was not persisted and must be read again before citation."""
 citation_number = """Citation number: [{{ citation_index }}]"""
-repair_missing_search = """Complete at least one valid search and use complementary queries to cover the question's important aspects."""
-repair_insufficient_reads = """Read the original content at two distinct URLs; prioritize existing candidate sources and do not rely on search snippets alone."""
-repair_missing_citation = """Synthesize the answer again and add [n] citations that exist in this round's evidence workset."""
-repair_invalid_citation = """The answer contains citations that do not map to successful sources from this round. Remove invalid numbers and use only [n] values present in the evidence workset."""
-repair = """[Deep-research completion validation] The previous candidate answer did not satisfy the research-evidence requirements and must not be shown to the user. {{ action }} Correct this silently without explaining internal validation, tools, budgets, or protocols.{% if workset_prompt %}
-
-{{ workset_prompt }}{% endif %}"""
 original_page_claim = """Original web page read."""
 candidate_source_claim = """Search candidate source."""
 
@@ -333,7 +306,7 @@ destination = """For a named destination, use the place text explicitly supplied
 departure_time = """Date or departure time from the user's own words, for example '08:30 on a weekday'. Pass only when explicitly specified; otherwise omit it and do not default to the present. This records query intent and is not sent to the map routing API."""
 place_route_unavailable = """The place or route tool returned no usable result. Answer from available information and do not fabricate place or route facts."""
 place_id = """Optional. The poi_id of the exact place for this endpoint, copied from an earlier local_place_search result's places in this conversation; pass the place's returned name as the endpoint text. Never invent or modify an id, and do not combine it with the candidate number for the same endpoint. Omit it when the endpoint has not appeared in a place search result."""
-place_id_unresolved = """The place id passed for a route endpoint could not be resolved, so no route was fetched. Do not retry the same id. If an earlier local_place_search result returned a poi_id for that place, retry once with exactly that id; otherwise retry once without the place id, using the place name. Do not fabricate place or route facts."""
+place_id_unresolved = """The place id passed for a route endpoint could not be resolved, so no route was fetched; the same id will not resolve on another call. A poi_id returned for that place by an earlier local_place_search result can be used instead; without one, the endpoint can be given by place name. Do not fabricate place or route facts."""
 candidate_choice = """Only set this after the tool reported ambiguous_location for this place name: the candidate number from that result's error_details.candidates. Leave it unset otherwise."""
 place_anchor_ambiguous = """The place name matches several locations, so the tool did not pick one and returned no results. error_details.candidates lists them in the provider's order, each with a candidate number, city, district, match level and coordinates. Decide which case applies:
 - This is route_compare and an earlier local_place_search result in this conversation already returned the exact place the user means: call route_compare once more with that place's poi_id as the place id argument for this endpoint instead of a candidate number.

@@ -8,20 +8,11 @@ loop 核心只在固定位置调用这些钩子。回答始终由模型写：空
 from __future__ import annotations
 
 from collections.abc import Callable
-from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from app.services.stream.agent_loop_state import AgentLoopState
     from app.services.stream.tool_execution_result import ToolExecutionRecord
-    from app.services.stream.tool_round import ToolRoundOutcome
-
-
-class ToolRoundDecision(Enum):
-    # 交给后续通用判断（如连续搜索无进展时转总结）。
-    DEFAULT = "default"
-    # 本轮拿到了新的结构化结果，直接进入下一轮。
-    CONTINUE = "continue"
 
 
 class StructuredAnswers:
@@ -51,14 +42,6 @@ class StructuredAnswers:
         """run 终态后的产品观测；核心吞掉这里的异常，观测失败不能改变终态。"""
 
         return None
-
-    def after_tool_round(
-        self,
-        state: AgentLoopState,
-        *,
-        outcome: ToolRoundOutcome | None,
-    ) -> ToolRoundDecision:
-        return ToolRoundDecision.DEFAULT
 
 
 NO_STRUCTURED_ANSWERS = StructuredAnswers()
